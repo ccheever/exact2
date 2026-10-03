@@ -455,6 +455,8 @@ fn caret_auto_and_transparent_are_distinct_and_survive_the_wire() {
         StyleValue::Text("#00000000".into()),
         StyleValue::Text("#ffffff".into()),
         StyleValue::Text("light-dark(#ffffff, #112233)".into()),
+        // A system colour crosses by its index (LLP 1077 D13).
+        StyleValue::Text("-apple-system-label".into()),
     ] {
         let mut style = StyleProps::default();
         style.set_dynamic(StyleId::CaretColor, &value).unwrap();
@@ -483,6 +485,10 @@ fn caret_auto_and_transparent_are_distinct_and_survive_the_wire() {
         Err(DecodeError::BadColorValue(2))
     );
     assert!(wire::codec::Reader::new(&[1]).optional_color().is_err());
+    // A system colour past the table is refused, not guessed.
+    assert!(wire::codec::Reader::new(&[1, 2, 99])
+        .optional_color()
+        .is_err());
 }
 
 #[test]

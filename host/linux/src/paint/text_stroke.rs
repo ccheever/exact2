@@ -6,39 +6,20 @@
 
 use super::{Painter, Rect4};
 use crate::text::{Paragraph, RunPaint};
-use exact_kernel::{StyleId, StyleMask};
 use std::sync::Arc;
 use tiny_skia::{Pixmap, Transform};
 
 impl Painter {
-    /// Paint `paragraph` at `origin` and its stroke over it, when its node
-    /// has a stroke; `false` when it has none and the caller paints it.
-    pub(super) fn text_stroke(
+    /// The stroke of the runs `stroked` paints (the rest transparent), as
+    /// one band island of `width` over their glyphs (`text_paint` orders it).
+    pub(super) fn stroke_pass(
         &mut self,
-        node: &exact_kernel::NodeRef<'_>,
         paragraph: &Paragraph,
-        palette: &[RunPaint],
+        stroked: &[RunPaint],
+        width: f32,
         origin: (f32, f32),
         ts: Transform,
-    ) -> bool {
-        let mut mask = StyleMask::of(StyleId::TextStrokeWidth);
-        mask.set(StyleId::TextStrokeColor);
-        let style = node.computed_style(mask);
-        let width = style.text_stroke_width;
-        if !(width > 0.0 && width.is_finite()) {
-            return false;
-        }
-        let dark = self.dark;
-        // `currentcolor` is each run's own colour.
-        let stroked: Vec<RunPaint> = palette
-            .iter()
-            .map(|r| RunPaint {
-                color: style
-                    .text_stroke_color
-                    .map_or(r.color, |c| super::rgba(c.resolve(dark))),
-                source: r.source,
-            })
-            .collect();
+    ) {
         let reach = width + 1.0;
         let rect: Rect4 = (
             origin.0 - reach,
@@ -47,17 +28,12 @@ impl Painter {
             paragraph.height + 2.0 * reach,
         );
         let radius = width / 2.0 * self.scale;
-        {
-            let mut engine = self.text.borrow_mut();
-            self.backend
-                .text(&mut engine, paragraph, palette, origin, ts);
-        }
         let Some(mut band) = self.island(rect, |p, t| {
             let text = p.text.clone();
             let mut engine = text.borrow_mut();
-            p.backend.text(&mut engine, paragraph, &stroked, origin, t);
+            p.backend.text(&mut engine, paragraph, stroked, origin, t);
         }) else {
-            return true;
+            return;
         };
         let mut inside = band.clone();
         morphology(&mut band, radius, true);
@@ -74,7 +50,6 @@ impl Painter {
             }
         }
         self.backend.island_image(Arc::new(band), rect, ts, 0);
-        true
     }
 }
 

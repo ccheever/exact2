@@ -76,6 +76,41 @@ fn a_plan_round_trips_and_its_bytes_are_canonical() {
     assert_eq!(sample().encode(), bytes, "building twice is byte-identical");
 }
 
+#[test]
+fn resource_context_defaults_to_zero_and_decoding_refuses_an_oversized_tail() {
+    let plan = sample();
+    assert_eq!(plan.resources[0].context, 0);
+    let mut b = PlanBuilder::from_plan(plan);
+    let resource = exact_plan::ResourcesId(0);
+    b.set_resource_context(resource, 1);
+    let plan = b.finish().unwrap();
+    assert_eq!(plan.resources[0].context, 1, "an empty identity is valid");
+    assert_eq!(Plan::decode(&plan.encode()).unwrap(), plan);
+
+    let mut bad = plan.clone();
+    bad.resources[0].context = 2;
+    assert!(matches!(
+        Plan::decode(&bad.encode()),
+        Err(PlanError::BadReference {
+            table: "resources",
+            row: 0,
+            field: "context",
+        })
+    ));
+    let mut b = PlanBuilder::from_plan(plan);
+    let string = b.primitive(TypeKind::String);
+    let empty = b.resource("empty", "empty", &[], string, None);
+    b.set_resource_context(empty, 1);
+    assert!(matches!(
+        b.finish(),
+        Err(PlanError::BadReference {
+            table: "resources",
+            row: 1,
+            field: "context",
+        })
+    ));
+}
+
 /// A plan linked into the program decodes to the same plan, its data pool
 /// left in the program's bytes rather than copied.
 #[test]

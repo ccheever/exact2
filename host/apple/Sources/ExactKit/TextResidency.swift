@@ -119,6 +119,8 @@ struct TextPaint: Hashable {
         let decoration: String
         let href: String
         let background: [Double]?
+        let shadow: [Double]?
+        let stroke: [Double]?
     }
     let color: [Double]
     let runs: [Inline]
@@ -126,7 +128,8 @@ struct TextPaint: Hashable {
     init(_ spec: Spec) {
         color = spec.color
         ellipsis = spec.ellipsis
-        runs = spec.runs.map { Inline(color: $0.color, decoration: $0.decoration, href: $0.href, background: $0.background) }
+        runs = spec.runs.map { Inline(color: $0.color, decoration: $0.decoration, href: $0.href, background: $0.background,
+                                      shadow: $0.shadow, stroke: $0.stroke) }
     }
     func applying(to identity: TextIdentity) -> Spec {
         var spec = identity.geometry
@@ -137,6 +140,8 @@ struct TextPaint: Hashable {
             spec.runs[i].decoration = runs[i].decoration
             spec.runs[i].href = runs[i].href
             spec.runs[i].background = runs[i].background
+            spec.runs[i].shadow = runs[i].shadow
+            spec.runs[i].stroke = runs[i].stroke
         }
         return spec
     }

@@ -507,6 +507,8 @@ pub(crate) fn color_css(out: &mut String, color: ColorValue) {
             hex(out, dark);
             out.push(')');
         }
+        // Its pair: this text reaches browsers, which have no such names.
+        ColorValue::System(_) => color_css(out, color.pair()),
     }
 }
 

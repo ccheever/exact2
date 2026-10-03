@@ -156,6 +156,7 @@ impl<D: DataSource> Runner<D> {
                 value: crate::held::Held::new(value.clone()),
                 store_revision: self.store.revision(),
                 placeholder: false,
+                kept_seed: false,
             });
             *seed = true;
         }

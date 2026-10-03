@@ -78,8 +78,19 @@ pub(super) fn system_color(name: &str) -> Option<ColorValue> {
     let name = name.trim().to_ascii_lowercase();
     SYSTEM_COLORS
         .iter()
-        .find(|(n, ..)| *n == name)
-        .map(|&(_, l, d)| ColorValue::LightDark(Color(l), Color(d)))
+        .position(|(n, ..)| *n == name)
+        .map(|i| ColorValue::System(i as u8))
+}
+
+/// System colour `i`'s light and dark pair; black for an index past the
+/// table (the wire refuses those).
+pub(super) const fn system_pair(i: u8) -> ColorValue {
+    if (i as usize) < SYSTEM_COLORS.len() {
+        let (_, l, d) = SYSTEM_COLORS[i as usize];
+        ColorValue::LightDark(Color(l), Color(d))
+    } else {
+        ColorValue::Fixed(Color(0x0000_00ff))
+    }
 }
 
 #[cfg(test)]
@@ -94,10 +105,16 @@ mod tests {
         assert_eq!(SymbolPalette::parse("none").unwrap().0, vec![]);
         assert!(SymbolPalette::parse("#000 #111 #222 #333").is_none());
         assert!(SymbolPalette::parse("bogus").is_none());
+        let label = system_color("-apple-system-label").unwrap();
+        assert_eq!(label, ColorValue::System(0));
+        // It paints as its pair and keeps its name (LLP 1077 D13).
         assert_eq!(
-            system_color("-apple-system-label"),
-            Some(ColorValue::LightDark(Color(0xff), Color(0xffff_ffff)))
+            label.pair(),
+            ColorValue::LightDark(Color(0xff), Color(0xffff_ffff))
         );
+        assert_eq!(label.resolve(true), Color(0xffff_ffff));
+        assert!(label.is_scheme_aware());
+        assert_eq!(label.system_name(), Some("-apple-system-label"));
         assert_eq!(
             ColorValue::parse_light_dark("-apple-system-secondary-label"),
             system_color("-apple-system-secondary-label")

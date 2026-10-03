@@ -358,6 +358,12 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
 - **`text-shadow`** ([LLP 1077 D3](1077-css-visual-properties-native-draws-cheaply.rfc.md))
   takes one shadow, not a list, and no spread (CSS has none). On Apple a
   paragraph drawn without a raster clips its shadow to the view's bounds.
+  Adjacent inline runs with the same shadow and stroke paint as one inline box
+  (all their shadows, then their glyphs). CSS paints each box's shadow over
+  the boxes before it, so a shadow cast back across another run with the same
+  shadow is covered by that run's glyphs here. Runs that differ paint in
+  CSS's order. On Apple a mixed-run shadow reaches at most 512 points past
+  its paragraph's box.
 - **`-webkit-text-stroke`** ([LLP 1077 D7](1077-css-visual-properties-native-draws-cheaply.rfc.md))
   on Linux is a band of the glyphs' coverage (dilated less eroded), not a
   stroke of their outlines, so a glyph's overlapping contours show no inner
@@ -375,8 +381,14 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   `scroll-edge-effect`, `hover-effect` and `smart-invert`. Each draws on the
   platform that has it; the web writes no declaration for them and draws a
   symbol monochrome. The `-apple-system-*` label, fill and separator colours
-  are WebKit's names, resolved on every host as `light-dark()` pairs of
-  UIKit's values.
+  are WebKit's names. The kernel keeps them as themselves (`ColorValue::System`),
+  and each paints as a `light-dark()` pair of UIKit's values. Inside a blur
+  material, Apple draws them vibrantly, blended with what the material blurs:
+  - On macOS, any view in that colour inside the material.
+  - On iOS, only in a material whose box clips its children on both axes, which then hosts them in its effect view.
+    In that material, a paragraph's text and a plain fill (no border, gradient,
+    image, corner shape or `background-clip`) are vibrant.
+  - Everything else, and glass, draws the pair.
 - **Raster `tint-color`** ([LLP 1011 §3](1011-image-v1.spec.md)) is a template
   image operation without a CSS property of that name. On the web the tint is
   a `mask-image` on the `<img>` itself, so it also masks the element's own

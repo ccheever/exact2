@@ -900,6 +900,7 @@ account) and notifications work in a browser.
 
 **The runtime gaps** (landed 2026-09-29, measured; brotli-11, `app.js`
 bytes against a plan without the feature):
+- **Answers kept between launches** (LLP 1027 D4; [LLP 1027.005](1027.005-resource-identity-and-request-context.rfc.md)). The JS target has no durable kept-answer lifecycle. A TypeScript module is installed before the first commit; a Rust module loaded after first paint also gets no persisted seed. `with` values reach the source as ordinary trailing arguments and participate in every live request comparison. Rendered document checkpoints and dev reload carry retain full-argument matching. The runner admits kept answers only for a source unready at boot; once admitted, an answer remains visible during asynchronous revalidation. A source already ready at boot but slow to answer gets no kept seed on either target. Extending admission or adding durable kept answers to the JS target remains separate work.
 - **`now()`.** A reader of `now()` is re-evaluated at each commit made at a
   later time, as the runner's dependency tracking marks a clock read
   (`instance/deps.rs`), and never by the clock moving alone: `x_now` reads a

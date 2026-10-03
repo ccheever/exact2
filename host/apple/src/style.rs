@@ -86,12 +86,17 @@ fn presenter_ignores(name: &str) -> bool {
 
 /// [`style_json`], with `width` and `height` kept when `keep_size`.
 pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (String, Vec<Skipped>) {
+    // An undefined segment length is its row's initial value (LLP 1078 D3).
+    let resolved = style.env_resolved(env);
+    let style = &*resolved;
     // Written in place: a list row's mount builds one of these per node,
     // and a `String` per value (`format!`) was most of its cost.
     let mut out = String::with_capacity(256);
     out.push('{');
     let mut skipped = Vec::new();
     let mut first = true;
+    // Colour rows that name a system colour (LLP 1077 D13), by row.
+    let mut systems: Vec<(&str, &str)> = Vec::new();
     for id in style.mask.iter() {
         let name = id.name();
         // LLP 1043.000 M3: the presenter will use resolved shapes.
@@ -148,6 +153,12 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
                 out.push(',');
                 push_rgba(&mut out, [d.r(), d.g(), d.b(), d.a()]);
                 out.push(']');
+                true
+            }
+            // Its pair, as any colour; `system_colors` names it.
+            RowValue::ColorValue(c @ ColorValue::System(_)) => {
+                push_color_value(&mut out, c);
+                systems.extend(c.system_name().map(|s| (name, s)));
                 true
             }
             RowValue::ClipPath(p) => {
@@ -371,6 +382,19 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
             out.truncate(mark);
         }
     }
+    if !systems.is_empty() {
+        if !first {
+            out.push(',');
+        }
+        out.push_str("\"system_colors\":{");
+        for (i, (row, system)) in systems.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            let _ = write!(out, "\"{row}\":\"{system}\"");
+        }
+        out.push('}');
+    }
     out.push('}');
     (out, skipped)
 }
@@ -391,7 +415,7 @@ fn push_dimension(out: &mut String, d: Dimension) {
             push_num(out, x);
             out.push('}');
         }
-        Dimension::Env(..) => unreachable!("resolved"),
+        Dimension::Env(..) | Dimension::Segment(..) => unreachable!("resolved"),
     }
 }
 
@@ -399,7 +423,7 @@ fn push_dimension(out: &mut String, d: Dimension) {
 /// A colour row's value as the presenters read it: four channels, or a
 /// `light-dark()` pair of them (LLP 1034 D1).
 fn push_color_value(out: &mut String, c: ColorValue) {
-    match c {
+    match c.pair() {
         ColorValue::Fixed(c) => push_rgba(out, [c.r(), c.g(), c.b(), c.a()]),
         ColorValue::LightDark(l, d) => {
             out.push('[');
@@ -408,6 +432,7 @@ fn push_color_value(out: &mut String, c: ColorValue) {
             push_rgba(out, [d.r(), d.g(), d.b(), d.a()]);
             out.push(']');
         }
+        ColorValue::System(_) => {} // `pair` never returns one
     }
 }
 
@@ -609,9 +634,27 @@ pub fn restyle_presented(last: &str, env: &Env, shown: &Shown) -> String {
     let over = entries(&over);
     let key = |e: &str| e.split_once("\":").map(|(k, _)| k.to_owned());
     let taken: Vec<_> = over.iter().map(|e| key(e)).collect();
+    // A colour the motion now paints is no longer the system colour it was
+    // (LLP 1077 D13): its row leaves `system_colors`, the others stay.
     let kept = entries(if last.is_empty() { "{}" } else { last })
         .into_iter()
-        .filter(|e| !taken.contains(&key(e)));
+        .filter(|e| !taken.contains(&key(e)))
+        .filter_map(|e| {
+            match e
+                .strip_prefix("\"system_colors\":{")
+                .and_then(|r| r.strip_suffix('}'))
+            {
+                Some(rows) => {
+                    let rows: Vec<_> = rows
+                        .split(',')
+                        .filter(|r| !taken.contains(&key(r)))
+                        .collect();
+                    (!rows.is_empty()).then(|| format!("\"system_colors\":{{{}}}", rows.join(",")))
+                }
+                None => Some(e.to_string()),
+            }
+        });
+    let over = over.into_iter().map(str::to_string);
     format!("{{{}}}", kept.chain(over).collect::<Vec<_>>().join(","))
 }
 
@@ -963,5 +1006,34 @@ mod flow_tests {
             r#"{"background_image":{"radial":[1,0,0,10,25,0],"stops":[0,0,0,0,255,1,255,255,255,255]}}"#
         );
         assert_eq!(json("none"), "{}");
+    }
+
+    #[test]
+    fn a_moving_colour_leaves_system_colours_and_the_rest_stay() {
+        // LLP 1077 D13: the row the motion paints is no longer a system
+        // colour; an untouched one keeps its name.
+        let last = r#"{"text_color":[[0,0,0,255],[255,255,255,255]],"background_color":[[120,120,128,51],[120,120,128,92]],"system_colors":{"text_color":"-apple-system-label","background_color":"-apple-system-fill"}}"#;
+        let mut shown = Shown::default();
+        shown.set(
+            Property::BackgroundColor,
+            Some(exact_motion::Value::rgba8(255, 0, 0, 128)),
+        );
+        let json: serde_json::Value =
+            serde_json::from_str(&restyle_presented(last, &Env::default(), &shown)).unwrap();
+        assert_eq!(
+            json["system_colors"],
+            serde_json::json!({"text_color": "-apple-system-label"})
+        );
+        assert_eq!(
+            json["background_color"],
+            serde_json::json!([255, 0, 0, 128])
+        );
+        shown.set(
+            Property::Color,
+            Some(exact_motion::Value::rgba8(0, 0, 255, 255)),
+        );
+        let json: serde_json::Value =
+            serde_json::from_str(&restyle_presented(last, &Env::default(), &shown)).unwrap();
+        assert!(json.get("system_colors").is_none(), "{json}");
     }
 }

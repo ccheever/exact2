@@ -27,6 +27,9 @@ pub use grid::{
     GridFitContent, GridLine, GridPlacement, GridRepeat, GridRepeatCount, GridTrack,
     GridTrackComponent, GridTrackMax, GridTrackMin, GridTracks,
 };
+pub mod env;
+pub use env::link as link_segments;
+pub use env::{Edge, Env, EnvRefusal, Rect, SegmentVar};
 pub mod relative;
 mod shadow;
 pub mod space;
@@ -36,88 +39,6 @@ pub use shadow::{BoxShadow, BoxShadows, GlyphShadow, TextShadow};
 
 /// Largest explicit grid Taffy lays out on one axis.
 pub const MAX_GRID_TRACKS: usize = 10_000;
-
-/// An edge of the viewport: which safe-area inset an `env()` length names.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(u8)]
-pub enum Edge {
-    /// `safe-area-inset-top`.
-    Top = 0,
-    /// `safe-area-inset-right`.
-    Right = 1,
-    /// `safe-area-inset-bottom`.
-    Bottom = 2,
-    /// `safe-area-inset-left`.
-    Left = 3,
-}
-
-impl Edge {
-    /// Every edge, in wire order.
-    pub const ALL: [Edge; 4] = [Edge::Top, Edge::Right, Edge::Bottom, Edge::Left];
-
-    /// The CSS name: `top`, `right`, `bottom`, `left`.
-    pub fn name(self) -> &'static str {
-        match self {
-            Edge::Top => "top",
-            Edge::Right => "right",
-            Edge::Bottom => "bottom",
-            Edge::Left => "left",
-        }
-    }
-
-    /// The edge by CSS name.
-    pub fn from_name(name: &str) -> Option<Edge> {
-        Edge::ALL.iter().copied().find(|e| e.name() == name)
-    }
-
-    /// The edge by wire index (0–3).
-    pub fn from_index(i: u8) -> Option<Edge> {
-        Edge::ALL.get(i as usize).copied()
-    }
-}
-
-/// The page's environment: what CSS's `env(safe-area-inset-*)` resolve to,
-/// in points, set by the host with the viewport (a phone's status bar and
-/// home indicator under `viewport-fit=cover`; zero everywhere else, as a
-/// browser reports them for a page without it).
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-pub struct Env {
-    /// `safe-area-inset-top`.
-    pub top: f32,
-    /// `safe-area-inset-right`.
-    pub right: f32,
-    /// `safe-area-inset-bottom`.
-    pub bottom: f32,
-    /// `safe-area-inset-left`.
-    pub left: f32,
-}
-
-impl Env {
-    /// The four insets, top right bottom left.
-    pub const fn new(top: f32, right: f32, bottom: f32, left: f32) -> Env {
-        Env {
-            top,
-            right,
-            bottom,
-            left,
-        }
-    }
-
-    /// The inset at an edge.
-    pub fn inset(&self, edge: Edge) -> f32 {
-        match edge {
-            Edge::Top => self.top,
-            Edge::Right => self.right,
-            Edge::Bottom => self.bottom,
-            Edge::Left => self.left,
-        }
-    }
-
-    /// Whether every inset is a finite number.
-    pub fn is_finite(&self) -> bool {
-        Edge::ALL.iter().all(|e| self.inset(*e).is_finite())
-    }
-}
 
 /// A length: automatic, absolute points, a percentage of the parent (0–100),
 /// a percentage plus points — CSS's `calc(<p>% + <n>px)`, which the engine
@@ -140,6 +61,10 @@ pub enum Dimension {
     /// The viewport's safe-area inset at an edge, plus points (zero for a
     /// bare `env()`).
     Env(Edge, f32),
+    /// A viewport segment's length (LLP 1078 D3): `env(viewport-segment-<var>
+    /// <x> <y>)`, plus points. Undefined on a viewport with one segment, or
+    /// past its grid: the row's initial value then (CSS-ENV-1 §2.3).
+    Segment(SegmentVar, u8, u8, f32),
 }
 
 /// The `calc()` pairs the engine holds by handle: Taffy keeps one opaque
@@ -174,7 +99,10 @@ impl Dimension {
     pub fn is_finite(self) -> bool {
         match self {
             Dimension::Auto => true,
-            Dimension::Points(v) | Dimension::Percent(v) | Dimension::Env(_, v) => v.is_finite(),
+            Dimension::Points(v)
+            | Dimension::Percent(v)
+            | Dimension::Env(_, v)
+            | Dimension::Segment(_, _, _, v) => v.is_finite(),
             Dimension::Calc(p, v) => p.is_finite() && v.is_finite(),
         }
     }
@@ -212,46 +140,23 @@ impl Dimension {
     }
 
     /// An `env()` length by CSS's grammar, or `None` when the text is not one:
-    /// `env(safe-area-inset-<edge>)`, or `calc(env(safe-area-inset-<edge>) + <n>px)`
-    /// (`-` as well). No fallback argument: the host always defines the four
-    /// insets, so CSS would never use one.
+    /// `env(safe-area-inset-<edge>)`, `env(viewport-segment-<var> <x> <y>)`
+    /// (LLP 1078 D3), or either inside `calc(env(…) ± <n>px)`. No fallback
+    /// argument: the host always defines the insets, and an undefined
+    /// segment takes the row's initial value. A text that names one of the
+    /// variables wrongly is `None` too; [`env::parse`] says why.
     pub fn parse_env(text: &str) -> Option<Dimension> {
-        let t = text.trim();
-        let edge_of = |inner: &str| -> Option<Edge> {
-            let inner = inner.trim();
-            let name = inner
-                .strip_prefix("env(")?
-                .strip_suffix(')')?
-                .trim()
-                .strip_prefix("safe-area-inset-")?;
-            Edge::from_name(name)
-        };
-        if let Some(edge) = edge_of(t) {
-            return Some(Dimension::Env(edge, 0.0));
-        }
-        let body = t.strip_prefix("calc(")?.strip_suffix(')')?.trim();
-        // `env(...) ± <n>px`: the operator is the first `+`/`-` after the
-        // closing paren of the `env(...)` term.
-        let close = body.find(')')?;
-        let (term, rest) = body.split_at(close + 1);
-        let edge = edge_of(term)?;
-        let rest = rest.trim();
-        let (sign, number) = match rest.as_bytes().first() {
-            Some(b'+') => (1.0, &rest[1..]),
-            Some(b'-') => (-1.0, &rest[1..]),
-            _ => return None,
-        };
-        let number = number.trim().strip_suffix("px")?.trim();
-        let plus = exact_num::parse_f32(number).ok()?;
-        plus.is_finite()
-            .then_some(Dimension::Env(edge, sign * plus))
+        env::parse(text).ok().flatten()
     }
 
     /// The points an `env()` length resolves to under `env`; any other
-    /// dimension unchanged.
+    /// dimension unchanged. A segment length whose segment `env` does not
+    /// define is `Auto` — the stand-in for the row's initial value, which
+    /// [`StyleProps::to_taffy`] substitutes exactly before lowering.
     pub fn resolve(self, env: &Env) -> Dimension {
         match self {
             Dimension::Env(edge, plus) => Dimension::Points(env.inset(edge) + plus),
+            Dimension::Segment(var, x, y, plus) => env::resolve(var, x, y, plus, env),
             other => other,
         }
     }
@@ -264,8 +169,13 @@ impl Dimension {
             Dimension::Points(v) => Dimension::Points(v + points),
             Dimension::Percent(p) => Dimension::Calc(p, points),
             Dimension::Calc(p, v) => Dimension::Calc(p, v + points),
-            Dimension::Env(..) => unreachable!("resolved above"),
+            Dimension::Env(..) | Dimension::Segment(..) => unreachable!("resolved above"),
         }
+    }
+
+    /// Whether this is a segment length `env` does not define (LLP 1078 D3).
+    fn undefined_segment(self, env: &Env) -> bool {
+        matches!(self, Dimension::Segment(_, x, y, _) if env.segment(x, y).is_none())
     }
 
     fn to_taffy(self, env: &Env) -> taffy::style::Dimension {
@@ -274,7 +184,7 @@ impl Dimension {
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
             Dimension::Calc(p, v) => taffy::style::Dimension::calc(calc_handle(p, v)),
-            Dimension::Env(..) => unreachable!("resolved above"),
+            Dimension::Env(..) | Dimension::Segment(..) => unreachable!("resolved above"),
         }
     }
 
@@ -284,7 +194,7 @@ impl Dimension {
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
             Dimension::Calc(p, v) => taffy::style::LengthPercentageAuto::calc(calc_handle(p, v)),
-            Dimension::Env(..) => unreachable!("resolved above"),
+            Dimension::Env(..) | Dimension::Segment(..) => unreachable!("resolved above"),
         }
     }
 
@@ -296,7 +206,7 @@ impl Dimension {
             Dimension::Points(v) => length(v),
             Dimension::Percent(v) => percent(v / 100.0),
             Dimension::Calc(p, v) => taffy::style::LengthPercentage::calc(calc_handle(p, v)),
-            Dimension::Env(..) => unreachable!("resolved above"),
+            Dimension::Env(..) | Dimension::Segment(..) => unreachable!("resolved above"),
         }
     }
 
@@ -309,7 +219,7 @@ impl Dimension {
             Dimension::Percent(v) => (v / 100.0).to_bits() == 0,
             // A calc() is a handle the engine resolves, never its zero length.
             Dimension::Calc(..) => false,
-            Dimension::Env(..) => unreachable!("resolved above"),
+            Dimension::Env(..) | Dimension::Segment(..) => unreachable!("resolved above"),
         }
     }
 }
@@ -540,8 +450,11 @@ impl StyleValue {
             StyleValue::Percent(p) if (*p as f32).is_finite() => Ok(Dimension::Percent(*p as f32)),
             StyleValue::Auto if admits_auto => Ok(Dimension::Auto),
             StyleValue::Auto => Err(StyleValueError::AutoNotAdmitted { style }),
-            StyleValue::Text(t) => Dimension::parse_env(t)
-                .or_else(|| Dimension::parse_calc(t))
+            StyleValue::Text(t) => match env::parse(t) {
+                Err(refusal) => Err(StyleValueError::BadEnv { style, refusal }),
+                Ok(parsed) => Ok(parsed),
+            }?
+            .or_else(|| Dimension::parse_calc(t))
                 .or_else(|| {
                     parse_pixel_length(t.trim_matches(['\t', '\n', '\u{c}', '\r', ' ']))
                         .map(Dimension::Points)
@@ -551,11 +464,11 @@ impl StyleValue {
                 .or_else(|| absolute_length(t.trim_matches(['\t', '\n', '\u{c}', '\r', ' '])))
                 .ok_or(StyleValueError::WrongKind {
                     style,
-                    expected: "number, px, rem or em length, percent, auto, calc(<percent> ± <px>), or env(safe-area-inset-*)",
+                    expected: "number, px, rem or em length, percent, auto, calc(<percent> ± <px>), env(safe-area-inset-*), or env(viewport-segment-* x y)",
                 }),
             _ => Err(StyleValueError::WrongKind {
                 style,
-                expected: "number, percent, auto, calc(<percent> ± <px>), or env(safe-area-inset-*)",
+                expected: "number, percent, auto, calc(<percent> ± <px>), env(safe-area-inset-*), or env(viewport-segment-* x y)",
             }),
         }?;
         if matches!(
@@ -736,6 +649,11 @@ pub enum ColorValue {
     /// CSS `light-dark(a, b)`: the first under a light scheme, the second
     /// under a dark one.
     LightDark(Color, Color),
+    /// One of UIKit's label, fill and separator colours by WebKit's name
+    /// (`symbols::SYSTEM_COLORS`, by index): the table's pair wherever a
+    /// colour paints, and the name an Apple host draws vibrantly inside a
+    /// material (LLP 1077 D13).
+    System(u8),
 }
 
 impl Default for ColorValue {
@@ -748,7 +666,7 @@ impl ColorValue {
     /// The colour under an appearance. A host that paints calls this; the web
     /// host does not, because it hands the pair to the browser.
     pub const fn resolve(self, dark: bool) -> Color {
-        match self {
+        match self.pair() {
             ColorValue::Fixed(c) => c,
             ColorValue::LightDark(light, night) => {
                 if dark {
@@ -757,13 +675,31 @@ impl ColorValue {
                     light
                 }
             }
+            // `pair` never returns one.
+            ColorValue::System(_) => Color(0),
+        }
+    }
+
+    /// A system colour as the pair it paints; any other value as it is.
+    pub const fn pair(self) -> ColorValue {
+        match self {
+            ColorValue::System(i) => symbols::system_pair(i),
+            other => other,
+        }
+    }
+
+    /// The system colour's WebKit name, when this is one.
+    pub fn system_name(self) -> Option<&'static str> {
+        match self {
+            ColorValue::System(i) => symbols::SYSTEM_COLORS.get(i as usize).map(|s| s.0),
+            _ => None,
         }
     }
 
     /// Whether this is a pair — what a host asks before deciding whether an
     /// appearance change is anything to it.
     pub const fn is_scheme_aware(self) -> bool {
-        matches!(self, ColorValue::LightDark(..))
+        matches!(self, ColorValue::LightDark(..) | ColorValue::System(_))
     }
 
     /// `light-dark(<color>, <color>)`, CSS's own spelling, or one of UIKit's
@@ -1219,6 +1155,63 @@ impl StyleProps {
     /// environment, set by the host with the viewport).
     #[allow(clippy::field_reassign_with_default)]
     pub fn to_taffy(&self, node_type: NodeType, env: &Env) -> taffy::style::Style {
+        // A segment length the environment does not define is invalid at
+        // computed-value time (CSS-ENV-1 §2.3): the row takes its initial
+        // value, which is the table's default (LLP 1078 D3).
+        self.env_resolved(env).lower(node_type, env)
+    }
+
+    /// This style with every segment length `env` does not define replaced
+    /// by its row's initial value (CSS-ENV-1 §2.3: invalid at computed-value
+    /// time; LLP 1078 D3) — borrowed when there is none to replace, a copy
+    /// otherwise. Every reader of a style's dimensions goes through this
+    /// before resolving them, so no reader sees the `Auto` stand-in on a row
+    /// that does not admit it.
+    pub fn env_resolved(&self, env: &Env) -> std::borrow::Cow<'_, StyleProps> {
+        if self.has_undefined_segment(env) {
+            std::borrow::Cow::Owned(self.with_initial_segments(env))
+        } else {
+            std::borrow::Cow::Borrowed(self)
+        }
+    }
+
+    fn has_undefined_segment(&self, env: &Env) -> bool {
+        self.mask
+            .iter()
+            .any(|id| matches!(self.get(id), RowValue::Dimension(d) if d.undefined_segment(env)))
+    }
+
+    /// A copy whose undefined segment rows hold the table's defaults.
+    fn with_initial_segments(&self, env: &Env) -> StyleProps {
+        let defaults = StyleProps::default();
+        let mut out = self.clone();
+        for id in self.mask.iter() {
+            let RowValue::Dimension(d) = self.get(id) else {
+                continue;
+            };
+            if !d.undefined_segment(env) {
+                continue;
+            }
+            let RowValue::Dimension(initial) = defaults.get(id) else {
+                continue;
+            };
+            let value = match initial {
+                Dimension::Auto => StyleValue::Auto,
+                Dimension::Percent(p) => StyleValue::Percent(f64::from(p)),
+                Dimension::Points(v) => StyleValue::Number(f64::from(v)),
+                // No row's default is a calc() or an env() length.
+                Dimension::Calc(..) | Dimension::Env(..) | Dimension::Segment(..) => {
+                    StyleValue::Number(0.0)
+                }
+            };
+            // The default fits its own row; nothing to refuse.
+            let _ = out.set_dynamic(id, &value);
+        }
+        out
+    }
+
+    #[allow(clippy::field_reassign_with_default)]
+    fn lower(&self, node_type: NodeType, env: &Env) -> taffy::style::Style {
         let mut s = taffy::style::Style::default();
         s.display = match self.display {
             // A document's metadata takes no space (LLP 1048.003 D1).
@@ -1344,10 +1337,12 @@ impl StyleProps {
 /// Whether any set dimension row of `style` is an `env()` length — the
 /// rows a change of the kernel's environment re-derives.
 pub fn uses_env(style: &StyleProps) -> bool {
-    style
-        .mask
-        .iter()
-        .any(|id| matches!(style.get(id), RowValue::Dimension(Dimension::Env(..))))
+    style.mask.iter().any(|id| {
+        matches!(
+            style.get(id),
+            RowValue::Dimension(Dimension::Env(..) | Dimension::Segment(..))
+        )
+    })
 }
 
 /// The engine style for a live slot, its `env()` lengths resolved against

@@ -356,7 +356,217 @@ fn calc_lengths_parse_one_percent_and_one_pixel_term_and_resolve_by_basis() {
         s.set_dynamic(StyleId::Width, &StyleValue::Text("calc(1px + 2px)".into())),
         Err(StyleValueError::WrongKind {
             style: StyleId::Width,
-            expected: "number, px, rem or em length, percent, auto, calc(<percent> ± <px>), or env(safe-area-inset-*)",
+            expected: "number, px, rem or em length, percent, auto, calc(<percent> ± <px>), env(safe-area-inset-*), or env(viewport-segment-* x y)",
         })
     );
+}
+
+/// LLP 1078 D3, D10: the viewport segment variables parse by CSS-ENV-1's
+/// grammar, refuse by name, resolve against the grid, and travel the wire.
+#[test]
+fn segment_lengths_parse_resolve_and_refuse_by_name() {
+    use env::EnvRefusal;
+    env::link();
+    let seg = |v, x, y, plus| Dimension::Segment(v, x, y, plus);
+    assert_eq!(
+        Dimension::parse_env("env(viewport-segment-width 0 0)"),
+        Some(seg(SegmentVar::Width, 0, 0, 0.0))
+    );
+    assert_eq!(
+        Dimension::parse_env(" env( viewport-segment-left  1   0 ) "),
+        Some(seg(SegmentVar::Left, 1, 0, 0.0))
+    );
+    assert_eq!(
+        Dimension::parse_env("calc(env(viewport-segment-height 0 1) - 12px)"),
+        Some(seg(SegmentVar::Height, 0, 1, -12.0))
+    );
+    assert_eq!(
+        Dimension::parse_env("calc(env(viewport-segment-right 15 15) + 2.5px)"),
+        Some(seg(SegmentVar::Right, 15, 15, 2.5))
+    );
+    for (var, name) in SegmentVar::ALL
+        .iter()
+        .zip(["width", "height", "top", "left", "bottom", "right"])
+    {
+        assert_eq!(var.name(), name);
+        assert_eq!(SegmentVar::from_name(name), Some(*var));
+        assert_eq!(SegmentVar::from_index(*var as u8), Some(*var));
+    }
+    // Refused by name (D10), never silently zero.
+    for (bad, why) in [
+        ("env(viewport-segment-width 0)", EnvRefusal::IndexCount),
+        ("env(viewport-segment-width)", EnvRefusal::IndexCount),
+        ("env(viewport-segment-width 0 0 0)", EnvRefusal::IndexCount),
+        ("env(viewport-segment-width -1 0)", EnvRefusal::IndexForm),
+        ("env(viewport-segment-width 0.5 0)", EnvRefusal::IndexForm),
+        ("env(viewport-segment-width 0 16)", EnvRefusal::IndexRange),
+        (
+            "env(viewport-segment-width 999999999999 0)",
+            EnvRefusal::IndexRange,
+        ),
+        (
+            "env(viewport-segment-width 0 0, 10px)",
+            EnvRefusal::Fallback,
+        ),
+        ("env(safe-area-inset-top, 0px)", EnvRefusal::Fallback),
+        (
+            "env(viewport-segment-middle 0 0)",
+            EnvRefusal::UnknownVariable,
+        ),
+        ("env(safe-area-inset-top 0 0)", EnvRefusal::UnknownVariable),
+        ("env(keyboard-inset-height)", EnvRefusal::UnknownVariable),
+        (
+            "calc(env(viewport-segment-width 0) + 1px)",
+            EnvRefusal::IndexCount,
+        ),
+    ] {
+        assert_eq!(env::parse(bad), Err(why), "{bad}");
+        assert_eq!(Dimension::parse_env(bad), None, "{bad}");
+        let mut s = StyleProps::default();
+        assert_eq!(
+            s.set_dynamic(StyleId::Width, &StyleValue::Text(bad.into())),
+            Err(StyleValueError::BadEnv {
+                style: StyleId::Width,
+                refusal: why
+            }),
+            "{bad}"
+        );
+    }
+    // Not env() forms at all: other grammars get their turn.
+    for not in [
+        "calc(50% + 10px)",
+        "12px",
+        "auto",
+        "calc(env(viewport-segment-width 0 0) * 2)",
+    ] {
+        assert_eq!(env::parse(not), Ok(None), "{not}");
+    }
+    // Two columns with a 40-point band between them (the Duo at 130°), in a
+    // 951 × 669 viewport.
+    let env = Env::new(0.0, 84.0, 34.0, 0.0).with_segments(
+        2,
+        1,
+        vec![
+            Rect::new(0.0, 0.0, 455.5, 669.0),
+            Rect::new(495.5, 0.0, 455.5, 669.0),
+        ],
+    );
+    assert!(env.segments_consistent() && env.is_finite());
+    let at = |v, x, y, plus| seg(v, x, y, plus).resolve(&env);
+    assert_eq!(at(SegmentVar::Width, 0, 0, 0.0), Dimension::Points(455.5));
+    assert_eq!(at(SegmentVar::Left, 1, 0, 0.0), Dimension::Points(495.5));
+    assert_eq!(at(SegmentVar::Right, 0, 0, 0.0), Dimension::Points(455.5));
+    assert_eq!(at(SegmentVar::Right, 1, 0, -1.0), Dimension::Points(950.0));
+    assert_eq!(at(SegmentVar::Top, 1, 0, 0.0), Dimension::Points(0.0));
+    assert_eq!(at(SegmentVar::Bottom, 1, 0, 12.0), Dimension::Points(681.0));
+    assert_eq!(at(SegmentVar::Height, 0, 0, 0.0), Dimension::Points(669.0));
+    // Past the grid, or on a one-segment viewport: undefined.
+    assert_eq!(at(SegmentVar::Width, 0, 1, 0.0), Dimension::Auto);
+    assert_eq!(at(SegmentVar::Width, 2, 0, 0.0), Dimension::Auto);
+    assert_eq!(
+        seg(SegmentVar::Width, 0, 0, 0.0).resolve(&Env::default()),
+        Dimension::Auto
+    );
+    // The insets still resolve beside the grid.
+    assert_eq!(
+        Dimension::Env(Edge::Right, 0.0).resolve(&env),
+        Dimension::Points(84.0)
+    );
+    assert_eq!(
+        env.with_insets(1.0, 2.0, 3.0, 4.0).segments,
+        env.segments,
+        "insets leave the grid"
+    );
+    // A malformed grid.
+    assert!(!Env::default()
+        .with_segments(2, 1, vec![])
+        .segments_consistent());
+    assert!(!Env::default()
+        .with_segments(0, 1, vec![])
+        .segments_consistent());
+    assert!(!Env::default()
+        .with_segments(1, 1, vec![Rect::new(0.0, 0.0, 1.0, 1.0)])
+        .segments_consistent());
+    // The style reads the environment.
+    let mut s = StyleProps::default();
+    s.set_dynamic(
+        StyleId::Width,
+        &StyleValue::Text("env(viewport-segment-width 1 0)".into()),
+    )
+    .unwrap();
+    assert!(uses_env(&s));
+    assert_eq!(
+        s.to_taffy(NodeType::View, &env).size.width,
+        length(455.5_f32)
+    );
+}
+
+/// An undefined segment length is invalid at computed-value time: the row
+/// takes its initial value — `auto` for a width, 0 for a margin, 0 for a
+/// padding (the table's defaults), not `auto` everywhere.
+#[test]
+fn an_undefined_segment_length_takes_the_rows_initial_value() {
+    env::link();
+    let mut s = StyleProps::default();
+    for (row, text) in [
+        (StyleId::Width, "env(viewport-segment-width 0 0)"),
+        (StyleId::MarginLeft, "env(viewport-segment-left 1 0)"),
+        (
+            StyleId::PaddingTop,
+            "calc(env(viewport-segment-top 0 0) + 8px)",
+        ),
+        (StyleId::Left, "env(viewport-segment-left 1 0)"),
+    ] {
+        s.set_dynamic(row, &StyleValue::Text(text.into())).unwrap();
+    }
+    let one = Env::default();
+    let t = s.to_taffy(NodeType::View, &one);
+    assert_eq!(t.size.width, auto());
+    assert_eq!(
+        t.margin.left,
+        length(0.0_f32),
+        "margin's initial value is 0"
+    );
+    assert_eq!(t.padding.top, length(0.0_f32));
+    assert_eq!(t.inset.left, auto());
+    // The authored rows are untouched: the next environment resolves them.
+    assert_eq!(s.width, Dimension::Segment(SegmentVar::Width, 0, 0, 0.0));
+    let two = one.with_segments(
+        2,
+        1,
+        vec![
+            Rect::new(0.0, 0.0, 100.0, 300.0),
+            Rect::new(140.0, 0.0, 100.0, 300.0),
+        ],
+    );
+    let t = s.to_taffy(NodeType::View, &two);
+    assert_eq!(t.size.width, length(100.0_f32));
+    assert_eq!(t.margin.left, length(140.0_f32));
+    assert_eq!(t.padding.top, length(8.0_f32));
+    assert_eq!(t.inset.left, length(140.0_f32));
+}
+
+/// Wire kinds 8–13: a kind byte, the points, then the two indices.
+#[test]
+fn segment_lengths_round_trip_the_wire() {
+    use crate::wire::codec::{Reader, Writer};
+    env::link();
+    for var in SegmentVar::ALL {
+        for d in [
+            Dimension::Segment(var, 0, 0, 0.0),
+            Dimension::Segment(var, 1, 0, -12.5),
+            Dimension::Segment(var, 15, 15, 3.0),
+        ] {
+            let mut w = Writer::new();
+            w.dimension(d);
+            let bytes = w.into_vec();
+            assert_eq!(bytes.len(), 7, "{d:?}");
+            assert_eq!(bytes[0], 8 + var as u8);
+            let mut r = Reader::new(&bytes);
+            assert_eq!(r.dimension(StyleId::Width, true).unwrap(), d);
+        }
+    }
+    // An index past 15 on the wire is not a dimension.
+    let mut r = Reader::new(&[8, 0, 0, 0, 0, 16, 0]);
+    assert!(r.dimension(StyleId::Width, true).is_err());
 }

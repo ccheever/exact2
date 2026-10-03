@@ -379,15 +379,18 @@ pub struct Binding {
     pub span: Span,
 }
 
-/// `resource name = source(args) as shape T [else source(args)]`.
+/// `resource name = source(args) [with context, …] as shape T [else source(args)]`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResourceDecl {
     /// Name.
     pub name: String,
     /// The data source's name.
     pub source: String,
-    /// Argument expressions.
+    /// Call arguments followed by request context expressions.
     pub args: Vec<Expr>,
+    /// Number of call arguments when `with` is present; otherwise all
+    /// arguments identify the answer. @ref LLP 1027.005 D6.
+    pub identity: Option<usize>,
     /// The declared shape.
     pub shape: TypeExpr,
     /// `else source(args)` (LLP 1048.003 D6): what shows while the source

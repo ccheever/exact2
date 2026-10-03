@@ -41,13 +41,18 @@ struct Run: Hashable {
     var href: String = ""
     /// The inline box's `background-color`: paint, never metrics.
     var background: [Double]? = nil
+    /// Its own `text-shadow` (offset x, y, blur, r g b a) when the
+    /// paragraph's runs differ (`Spec.gatherShadows`), and its
+    /// `-webkit-text-stroke` (width, r g b a): paint (LLP 1077 D3, D7).
+    var shadow: [Double]? = nil
+    var stroke: [Double]? = nil
 
     static func == (lhs: Run, rhs: Run) -> Bool {
         guard lhs.size == rhs.size, lhs.weight == rhs.weight, lhs.family == rhs.family,
               lhs.italic == rhs.italic, lhs.lineHeight == rhs.lineHeight,
               lhs.letterSpacing == rhs.letterSpacing, lhs.numeric == rhs.numeric, lhs.color == rhs.color,
               lhs.decoration == rhs.decoration, lhs.href == rhs.href,
-              lhs.background == rhs.background else { return false }
+              lhs.background == rhs.background, lhs.shadow == rhs.shadow, lhs.stroke == rhs.stroke else { return false }
         // CoreText's ranges address the original UTF16 source. Swift String's
         // canonical equality would alias NFC/NFD paragraphs with different
         // source lengths, so both equality and hashing use the exact UTF8.
@@ -72,6 +77,8 @@ struct Run: Hashable {
         hasher.combine(decoration)
         hasher.combine(href)
         hasher.combine(background)
+        hasher.combine(shadow)
+        hasher.combine(stroke)
     }
 }
 
@@ -94,12 +101,10 @@ struct Spec: Hashable {
     var ellipsis = false
     /// Collapsed → source offsets for the runs above (LLP 1053 G5).
     var source = SourceMap()
-    /// CSS `text-shadow` (LLP 1077 D3): offset x, y and blur in points, then
-    /// the colour's r g b a (0–255), resolved for the appearance.
+    /// CSS `text-shadow` (LLP 1077 D3) shared by every run: offset x, y and
+    /// blur in points, then the colour's r g b a (0–255), resolved for the
+    /// appearance. Nil when the runs' own differ (`gatherShadows`).
     var shadow: [Double]? = nil
-    /// `-webkit-text-stroke` (LLP 1077 D7): its width in points, then its
-    /// r g b a when it has a colour of its own (none is each run's own).
-    var stroke: [Double]? = nil
 }
 
 /// Where collapsed white space went, from `exact_text_collapse`: offsets
@@ -368,9 +373,12 @@ extension Spec {
             value.runs[i].decoration = ""
             value.runs[i].href = ""
             value.runs[i].background = nil
+            value.runs[i].shadow = nil
+            value.runs[i].stroke = nil
         }
         if var strut = value.strut {
             strut.text = ""; strut.color = nil; strut.decoration = ""; strut.href = ""; strut.background = nil
+            strut.shadow = nil; strut.stroke = nil
             value.strut = strut
         }
         return value
@@ -732,11 +740,12 @@ final class TextEngine {
         for r in spec.runs {
             var a: [NSAttributedString.Key: Any] = [.font: font(r), .foregroundColor: r.color.map(TextEngine.color) ?? color]
             // A centred stroke over the fill: Core Text's negative width,
-            // in percent of the run's size (LLP 1077 D7).
-            if let st = spec.stroke, st[0] > 0, r.size > 0 {
+            // in percent of the run's size (LLP 1077 D7). Each run's own.
+            if let st = r.stroke, st.count == 5, st[0] > 0, r.size > 0 {
                 a[.strokeWidth] = -st[0] / Double(r.size) * 100
-                a[.strokeColor] = st.count == 5 ? TextEngine.color(Array(st[1...])) : (r.color.map(TextEngine.color) ?? color)
+                a[.strokeColor] = TextEngine.color(Array(st[1...]))
             }
+            if let sh = r.shadow, sh.count == 7 { a[.exactShadow] = TextRunShadow(sh) }
             if r.letterSpacing != 0 { a[.kern] = r.letterSpacing }
             if r.decoration.contains("underline") || (r.decoration.isEmpty && !r.href.isEmpty) { a[.underlineStyle] = NSUnderlineStyle.single.rawValue }
             if r.decoration.contains("line-through") { a[.strikethroughStyle] = NSUnderlineStyle.single.rawValue }
@@ -1342,7 +1351,9 @@ enum TextLinePaint {
     /// in text space, so a flipped text matrix turned the vertical offsets
     /// of cursive attachment and marks (SF Arabic's) upside down, and that
     /// ink fell below the line box it was measured in.
-    static func draw(_ line: CTLine, at origin: CGPoint, in ctx: CGContext) {
+    /// `scale`: base-space units per point, for a run's own shadow (1 in a
+    /// view's context, the pixel scale in a bitmap the host made).
+    static func draw(_ line: CTLine, at origin: CGPoint, in ctx: CGContext, scale: CGFloat = 1) {
         ctx.saveGState()
         for (rect, color) in backgrounds(line, at: origin) {
             ctx.setFillColor(color); ctx.fill(rect)
@@ -1353,7 +1364,7 @@ enum TextLinePaint {
         ctx.scaleBy(x: 1, y: -1)
         ctx.textMatrix = .identity
         ctx.textPosition = .zero
-        CTLineDraw(line, ctx)
+        if !drawShadowed(line, in: ctx, scale: scale) { CTLineDraw(line, ctx) }
         ctx.textMatrix = matrix
         ctx.restoreGState()
     }

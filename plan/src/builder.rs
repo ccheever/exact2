@@ -427,6 +427,7 @@ impl PlanBuilder {
             name,
             source,
             args,
+            context: 0,
             ty,
             initial,
             initial_args,
@@ -683,6 +684,12 @@ impl PlanBuilder {
     /// Replace a resource's arguments.
     pub fn set_resource_args(&mut self, id: ResourcesId, args: ArgsRange) {
         self.plan.resources[id.0 as usize].args = args;
+    }
+
+    /// Set the trailing request-context count, after installing arguments.
+    /// @ref LLP 1027.005 D6 — zero by default; validated against `args.len`.
+    pub fn set_resource_context(&mut self, id: ResourcesId, context: u16) {
+        self.plan.resources[id.0 as usize].context = context;
     }
 
     /// A declared `else empty(…)`'s constant (LLP 1054.000.002 D3).

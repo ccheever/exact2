@@ -48,6 +48,31 @@ fn preserved(src: &str) -> String {
 }
 
 #[test]
+fn resource_context_preserves_the_call_boundary_nested_values_and_else() {
+    use contract_syntax::{parse, Span, VisitSpans};
+    let src = r#"component App
+    resource plain=source(car,minute) as shape Status
+    resource one=source(car) with minute as shape Status
+    resource zero=source() with (minute+1) as shape Status
+    resource many=source(car,account) with max(minute,1),some(clock) as shape Status else preview("cached") // stale
+    resource nested=source(car) with max(
+        minute, // current sample
+        1
+    ),(ready ? 2 : 3) as shape Status
+    view
+        text "ready"
+"#;
+    let formatted = preserved(src);
+    assert!(formatted.contains("source() with (minute + 1) as shape Status"));
+    assert!(formatted.contains("source(car, account) with max(minute, 1), some(clock) as shape Status else preview(\"cached\")"));
+    let mut before = parse(src).unwrap();
+    let mut after = parse(&formatted).unwrap();
+    before.visit_spans(&mut |span| *span = Span::point(1, 1));
+    after.visit_spans(&mut |span| *span = Span::point(1, 1));
+    assert_eq!(before, after);
+}
+
+#[test]
 fn comments_on_branches_continuations_and_arguments_keep_their_anchors() {
     let src = r#"
 // header

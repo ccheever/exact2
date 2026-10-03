@@ -423,6 +423,19 @@ impl<D: DataSource> Runner<D> {
                         && states[i]
                             .as_ref()
                             .is_some_and(|s| asked_args.unwrap_or(&s.args) == &args);
+                    // @ref LLP 1027.005 D3/D4 — only a persisted boot seed
+                    // ignores context, and only until its source is ready.
+                    // Consume the mark on mismatch or activation even when
+                    // the old value stands during an asynchronous request.
+                    // `states` is tentative, so a refused pass restores both.
+                    let kept_seed = states[i].as_ref().is_some_and(|s| {
+                        s.kept_seed
+                            && !self.data.ready()
+                            && s.args == args[..row.args.len as usize - usize::from(row.context)]
+                    });
+                    if let Some(state) = &mut states[i] {
+                        state.kept_seed = kept_seed;
+                    }
                     // A store-reading resource is reusable only at the exact
                     // store revision it observed. `answer` and `parse` both
                     // write through Store, so this is the one dirtying point.
@@ -431,7 +444,8 @@ impl<D: DataSource> Runner<D> {
                     let reuse = states[i]
                         .as_ref()
                         .filter(|s| {
-                            failed
+                            kept_seed
+                                || failed
                                 || (asked_args.unwrap_or(&s.args) == &args
                                 && self.plan.str(row.source) != crate::delivery::SOURCE
                                 && self.plan.str(row.source) != crate::viewport::SOURCE
@@ -661,6 +675,7 @@ impl<D: DataSource> Runner<D> {
                         value,
                         store_revision: self.store.revision(),
                         placeholder,
+                        kept_seed,
                     });
                     settled_res[i] = true;
                     progress = true;

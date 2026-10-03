@@ -433,6 +433,15 @@ final class Runtime {
         }
     }
     func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) -> Batch { on { read(exact_insets(rt, Float(top), Float(right), Float(bottom), Float(left))) } }
+    /// The posture and the viewport segments (LLP 1078 D4): the rects as `x y w h` floats in the input buffer, none for one segment.
+    func segments(_ fold: ViewportFold) -> Batch {
+        on {
+            var data = Data(capacity: fold.rects.count * 16)
+            for r in fold.rects { for v in [Float(r.minX), Float(r.minY), Float(r.width), Float(r.height)] { withUnsafeBytes(of: v.bitPattern.littleEndian) { data.append(contentsOf: $0) } } }
+            _ = write(data)
+            return read(exact_segments(rt, fold.posture == "folded" ? 1 : 0, UInt32(fold.cols), UInt32(fold.rows), UInt32(fold.rects.count)))
+        }
+    }
     func tick(now: Double) -> Batch { on { read(exact_tick(rt, now)) } }
     func scheme(dark: Bool) -> Batch { on { read(exact_scheme(rt, dark ? 1 : 0)) } }
     func viewScheme(_ view: UInt32, dark: Bool) -> Batch { on { read(exact_view_scheme(rt, view, dark ? 1 : 0)) } }

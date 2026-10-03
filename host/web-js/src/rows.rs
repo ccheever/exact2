@@ -196,7 +196,12 @@ impl Em<'_> {
                 .map(|w| {
                     // @ref LLP 1077 D13 — a bound colour may name a system
                     // colour, which the literal path resolved in the kernel.
-                    let colors = matches!(id.codec(), exact_kernel::StyleCodec::ColorValue | exact_kernel::StyleCodec::KeywordColor);
+                    // And a CSS-text row that may name one inside it.
+                    use exact_kernel::StyleCodec as C;
+                    let colors = matches!(
+                        id.codec(),
+                        C::ColorValue | C::KeywordColor | C::Paint | C::BackgroundImage | C::MaskImage | C::BoxShadow | C::TextShadow
+                    );
                     let system = style::SYSTEM_COLOR_MAP.as_str();
                     // Composed with the row's own map (`accent-color` has one).
                     let map = match w.map {

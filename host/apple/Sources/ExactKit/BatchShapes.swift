@@ -130,7 +130,8 @@ extension BatchReader {
         var style = InlineStyle(), height: BatchValue?
         try object { r, key in
             switch key {
-            case "font_size", "font_weight", "font_family", "font_style", "letter_spacing", "text_color", "text_decoration_line", "background_color", "font_variant_numeric":
+            case "font_size", "font_weight", "font_family", "font_style", "letter_spacing", "text_color", "text_decoration_line", "background_color", "font_variant_numeric",
+                 "text_shadow", "text_stroke_width", "text_stroke_color":
                 try style.set(key, r.value())
             case "line_height": height = try r.value()
             default: try r.skip()
@@ -251,7 +252,7 @@ extension InlineStyle {
                 run.background = try a.map(BatchFields.number); darkBackground = run.background
             }
             guard run.background?.count == 4, darkBackground?.count == 4 else { throw BatchReader.Invalid.wire }
-        default: break
+        default: paint.set(key, value)
         }
     }
     mutating func height(_ value: BatchValue?) throws {

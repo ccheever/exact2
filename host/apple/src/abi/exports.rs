@@ -444,6 +444,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.insets(top, right, bottom, left), |n| n)
         }
 
+        /// The posture and the viewport segments (LLP 1078 D4); returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_segments(rt: u32, posture: u32, cols: u32, rows: u32, count: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.segments(posture, cols, rows, count), |n| n)
+        }
+
         /// The presenter's appearance: nonzero is dark (LLP 1062); returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_scheme(rt: u32, dark: u32) -> u32 {

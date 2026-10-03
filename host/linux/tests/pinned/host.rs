@@ -134,7 +134,7 @@ fn layout_json_is_the_agent_api_shape() {
     let mut p = boot();
     let l = p.layout_json(None, false);
     assert!(
-        l.starts_with("{\"clock\":0,\"viewport\":{\"w\":390,\"h\":844},\"env\":{\"safe-area-inset-top\":0,\"safe-area-inset-right\":0,\"safe-area-inset-bottom\":0,\"safe-area-inset-left\":0,\"keyboard-inset-height\":0},\"nodes\":["),
+        l.starts_with("{\"clock\":0,\"viewport\":{\"w\":390,\"h\":844},\"env\":{\"safe-area-inset-top\":0,\"safe-area-inset-right\":0,\"safe-area-inset-bottom\":0,\"safe-area-inset-left\":0,\"keyboard-inset-height\":0,\"device-posture\":\"continuous\",\"horizontal-viewport-segments\":1,\"vertical-viewport-segments\":1,\"viewport-segments\":[]},\"nodes\":["),
         "{}",
         &l[..200]
     );

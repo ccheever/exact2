@@ -97,5 +97,5 @@ pub use runner::{
 };
 pub use store::{Store, StoreError, StoreWrite};
 pub use uses::{svg_filters, svg_islands, uses, Capability, Uses};
-pub use viewport::{Contrast, Preferences, Viewport};
+pub use viewport::{Contrast, Fold, Posture, Preferences, Viewport};
 pub use vm::Trap;

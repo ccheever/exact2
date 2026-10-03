@@ -134,14 +134,12 @@ extension Agent {
         let bounds = region ?? v.bounds
         if (v as? NodeView)?.placedAncestor?.placementHidden == true { return .zero }
         let clip = presenter.viewport.contentView
-        // Under a child a canvas's surface has placed (LLP 1014 D5): the box
-        // where it is seen, through the placement, not the kernel's.
-        if let n = v as? NodeView, let placed = n.placedAncestor, let h = placed.placement, let overlay = placed.superview, let canvas = overlay.superview as? NodeView {
-            let corners = [NSPoint(x: bounds.minX, y: bounds.minY), NSPoint(x: bounds.maxX, y: bounds.minY), NSPoint(x: bounds.maxX, y: bounds.maxY), NSPoint(x: bounds.minX, y: bounds.maxY)]
-                .map { NodeView.map(h, placed.convert($0, from: v)) }
-            let xs = corners.map { $0.x }, ys = corners.map { $0.y }
-            let inCanvas = NSRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
-            let r = canvas.convert(inCanvas, to: clip)
+        // Where it is seen (`drawnRect`): through the placement of a child a
+        // canvas's surface placed (LLP 1014 D5), not the kernel's frame, and
+        // through every transformed box on the way (LLP 1077 D8), as
+        // `getBoundingClientRect` reports a transformed box.
+        if let n = v as? NodeView, n.placedAncestor?.placement != nil || n.drawnOffFrame {
+            let r = n.drawnRect(bounds, in: clip)
             return NSRect(x: r.origin.x - clip.bounds.origin.x, y: r.origin.y - clip.bounds.origin.y, width: r.width, height: r.height)
         }
         let r = v.convert(bounds.applying(v.layer?.affineTransform() ?? .identity), to: clip)
@@ -201,7 +199,7 @@ extension Agent {
         // The page's environment (LLP 1012 §1): under `viewport-fit=cover`
         // the titlebar is the top inset; a software keyboard is never here.
         let i = presenter.insets
-        let env: [String: Any] = ["safe-area-inset-top": Agent.r2(i.top), "safe-area-inset-right": Agent.r2(i.right), "safe-area-inset-bottom": Agent.r2(i.bottom), "safe-area-inset-left": Agent.r2(i.left), "keyboard-inset-height": 0]
+        let env: [String: Any] = ["safe-area-inset-top": Agent.r2(i.top), "safe-area-inset-right": Agent.r2(i.right), "safe-area-inset-bottom": Agent.r2(i.bottom), "safe-area-inset-left": Agent.r2(i.left), "keyboard-inset-height": 0].merging(presenter.fold.env) { a, _ in a }
         // The page scrolls too, and it is the one whose overscroll drags the
         // app's own chrome (LLP 1033 D4).
         let (px, py) = Agent.overscroll(of: presenter.viewport)

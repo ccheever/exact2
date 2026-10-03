@@ -30,6 +30,7 @@ pub mod materials;
 pub mod motion;
 pub mod picker;
 pub mod router;
+pub mod segments;
 pub mod share;
 pub mod surfaces;
 pub mod tabs;
@@ -72,6 +73,7 @@ pub const ALL: exact_web::Linked = linked!(
     gradients,
     grid,
     geometry,
+    segments,
     dataset,
     tabs
 );

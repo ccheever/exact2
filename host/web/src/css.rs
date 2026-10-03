@@ -499,6 +499,10 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         // no work of ours and no repaint pass. This is the whole reason the
         // kernel keeps the pair instead of flattening it.
         RowValue::ColorValue(ColorValue::Fixed(c)) => rgba_into(out, *c),
+        // A system colour is its pair: Chrome has no `-apple-system-*`.
+        RowValue::ColorValue(c @ ColorValue::System(_)) => {
+            declared(out, id, &RowValue::ColorValue(c.pair()))
+        }
         RowValue::ColorValue(ColorValue::LightDark(l, d)) => {
             out.push_str("light-dark(");
             rgba_into(out, *l);
@@ -698,6 +702,9 @@ pub(crate) fn dimension(out: &mut String, d: Dimension) {
                 out.push_str("px)");
             }
         }
+        // The browser resolves the segment itself too (LLP 1078 D6): the
+        // text is CSS-ENV-1's, untouched.
+        Dimension::Segment(var, x, y, plus) => exact_kernel::style::env::css(var, x, y, plus, out),
     }
 }
 

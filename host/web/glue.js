@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { grantOrigins, deferredFulfill, refusal, guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter, valuedControl, settleValue, typeControl, viewBox } from "./navigation.js";
+import { deferredFulfill, refusal, guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, foldBits, foldEnv, onFold, preferFold, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter, valuedControl, settleValue, typeControl, viewBox, fold, grantOrigins } from "./navigation.js";
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule; // the file picker (LLP 1069.002) and documents (LLP 1069.010), loaded on first use
 const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
@@ -350,7 +350,7 @@ function positionContexts() {
 }
 // @ref LLP 1039 D2, LLP 1061 D4 — viewport facts and display preferences, on every change, without debounce.
 const pageFacts = pageReporter(agentMode), pageChanged = () => { if (wasm?.exact_set_page && root.childElementCount) { applyBatch(JSON.parse(readOut(wasm.exact_set_page(pageFacts.bits())))); if (wasm.exact_set_root_font_size) applyBatch(JSON.parse(readOut(wasm.exact_set_root_font_size(pageFacts.rootFontSize())))); } }; pageFacts.onChange(pageChanged); addEventListener("resize", pageChanged); // @ref LLP 1069.000 D2, D3
-const mediaChanged = () => { if (wasm && root.childElementCount) applyBatch(presence.resize(JSON.parse(readOut(wasm.exact_resize(innerWidth, innerHeight, now(), preferences()))))); requestAnimationFrame(positionContexts); }; addEventListener("resize", mediaChanged); onPreferences(mediaChanged);
+const mediaChanged = () => { if (wasm && root.childElementCount) applyBatch(presence.resize(JSON.parse(readOut(wasm.exact_resize(innerWidth, innerHeight, now(), preferences() | foldBits()))))); requestAnimationFrame(positionContexts); }; addEventListener("resize", mediaChanged); onPreferences(mediaChanged); const foldChanged = mediaChanged; onFold(foldChanged); // @ref LLP 1078 D6 — the posture and the segment counts ride the facts word beside the preferences; the browser resolves the `env(viewport-segment-*)` lengths itself
 visualViewport?.addEventListener("resize", () => requestAnimationFrame(positionContexts));
 const symbolStyle = document.createElement("style"); document.head.append(symbolStyle);
 symbolStyle.textContent = '@property --exact-tint{syntax:"<color>";inherits:false;initial-value:#000}img[data-symbol-path]{background-color:var(--exact-tint)!important;mask-image:var(--exact-symbol-mask);mask-repeat:no-repeat;mask-position:center;mask-size:var(--exact-symbol-fit,100% 100%);mask-origin:content-box;mask-clip:content-box}';
@@ -1152,10 +1152,10 @@ function agentReply(request) {
         }
         return tagged(reply);
       }
-      case "prefer": { // @ref LLP 1069.000 D6 — the page group; the driver sets media through CDP.
-        try { pageFacts.prefer(request.page); } catch (e) { return { error: e.message }; }
-        pageChanged();
-        return tagged({ page: { ...pageFacts.read() } });
+      case "prefer": { // @ref LLP 1069.000 D6 — the page group; the driver sets media through CDP. @ref LLP 1078 D7 — the fold group: an empty one re-reads the browser (the driver's CDP override), a filled one is the substitute.
+        try { if (request.page) pageFacts.prefer(request.page); if (request.fold) preferFold(Object.keys(request.fold).length ? request.fold : null); } catch (e) { return { error: e.message }; }
+        pageChanged(); foldChanged();
+        return tagged({ page: { ...pageFacts.read() }, fold: foldEnv() });
       }
       case "focus": {
         const el = views.get(request.id);
@@ -1314,11 +1314,11 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
     ptr = wasm.exact_in(bytes.length + launch.length);
     const payload = new Uint8Array(memory.buffer, ptr, bytes.length + launch.length);
     payload.set(bytes); payload.set(launch, bytes.length);
-    len = wasm.exact_boot_plan(bytes.length, innerWidth, innerHeight, launch.length, preferences());
+    len = wasm.exact_boot_plan(bytes.length, innerWidth, innerHeight, launch.length, preferences() | foldBits());
   } else {
     if (page?.checkpoint) wasm.exact_checkpoint(writeIn(agentMode ? page.checkpoint.replace("\n", " driven\n") : page.checkpoint)); ptr = wasm.exact_in(launch.length); // a drive's clock starts at zero (page.rs)
     new Uint8Array(memory.buffer, ptr, launch.length).set(launch);
-    len = wasm.exact_boot(innerWidth, innerHeight, launch.length, preferences());
+    len = wasm.exact_boot(innerWidth, innerHeight, launch.length, preferences() | foldBits());
   }
   const batch = JSON.parse(readOut(len));
   if (batch.error) throw new Error(batch.error);

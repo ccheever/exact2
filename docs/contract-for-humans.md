@@ -539,6 +539,27 @@ Requests use newest-request-wins behavior; stale answers do not overwrite newer
 requests. A failed resource keeps its retained value or placeholder and clears
 pending. A changed argument or explicit refresh allows another attempt.
 
+A source sometimes needs current context to answer a question whose last answer
+is still suitable to show. For example, a stored car status may need the current
+minute to decide whether it must be fetched again:
+
+```text
+resource status = status(car) with minute as shape Status
+```
+
+The source receives `car`, then `minute`; changes to either ask again. `with`
+accepts one or more expressions before `as shape`, and the call may be empty.
+On hosts that persist eligible store-reading answers, a returning launch can
+show the kept answer for the same `car` while the source is unready, even when
+`minute` changed. It stays visible while activation is pending. Another car
+shows the normal fallback. Without `with`, every argument must match. The default
+web JS target keeps no persisted resource answers; see
+[the platform scope](../llp/1027.005-resource-identity-and-request-context.rfc.md#d5--where-it-applies-and-the-gap-it-leaves).
+The minute must already contain the current sample for the first ask; a timer
+can update it thereafter. Use `refresh` or `refreshes` for values whose only job
+is forcing another ask, and keep accounts, tenants and representation choices
+among the call arguments.
+
 Before an answer, a resource holds its baked value, its declared placeholder, or
 its type's zero (`0`, `""`, `false`, `none`, `[]`, or a record of zeros):
 

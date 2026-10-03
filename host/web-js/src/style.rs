@@ -476,7 +476,7 @@ pub static SYSTEM_COLOR_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::
         .map(|(name, l, d)| format!("[\"{name}\",\"light-dark(#{l:08x}, #{d:08x})\"]"))
         .collect();
     format!(
-        "v=>typeof v===\"string\"&&/-apple-system-/i.test(v)?[{}].reduce((s,[n,c])=>s.replace(new RegExp(n+\"(?![\\\\w-])\",\"gi\"),c),v):v",
+        "v=>typeof v===\"string\"&&/-apple-system-/i.test(v)?[{}].reduce((s,[n,c])=>s.replace(new RegExp(\"(?<![\\\\w#-])\"+n+\"(?![\\\\w-])\",\"gi\"),c),v):v",
         pairs.join(",")
     )
 });

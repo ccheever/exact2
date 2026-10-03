@@ -16,6 +16,7 @@ public final class ExactView: UIView {
     private var fitPending = false
     private var lastSize = CGSize.zero
     private var lastInsets = UIEdgeInsets.zero
+    private var lastFold = ViewportFold.flat
     private var lastDisplayScale: CGFloat = 0
     private var keyboardProbe: UIView?
     private var keyboardObserver: NSObjectProtocol?
@@ -45,6 +46,15 @@ public final class ExactView: UIView {
         session.presenter.onKeyboardResize = { [weak self] in self?.fit() }
         session.presenter.observeKeyboard()
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self]) { (view: ExactView, _: UITraitCollection) in view.reportScheme(); view.setNeedsLayout() }
+        // A hinge moving from flat to a book angle changes the division
+        // regions' `isActive` without changing any bounds; nothing else would
+        // lay out again (LLP 1078 D5).
+        ReservedRegions.observeHinge(on: self) { [weak self] status in
+            guard let self else { return }
+            session.presenter.hingeReported = true
+            if status != nil { session.presenter.hasFold = true }
+            setNeedsLayout()
+        }
     }
 
     /// Paint motion resolves `light-dark()` by this view's appearance (LLP 1062).
@@ -206,9 +216,15 @@ public final class ExactView: UIView {
             if presenter.viewport.frame != frame { presenter.viewport.frame = frame }
         }
         guard size.width > 0, size.height > 0 else { return }
+        // The fold (LLP 1078 D5): the container's active division regions,
+        // converted into the viewport's space, split it into segments; the
+        // posture is folded while any is active. Below 27.1 there are none.
+        let fold = Self.fold(of: container, viewport: frame, size: size)
+        if fold.hasFold { presenter.hasFold = true }
         if !session.booted {
             lastSize = size
             lastInsets = insets
+            lastFold = fold.fold
             session.boot(size: size)
             // The first batch made the roots: one that covers the screen is
             // framed to it now, before anything is drawn.
@@ -224,12 +240,32 @@ public final class ExactView: UIView {
             lastSize = size
             session.resize(size)
         }
+        if fold.fold != lastFold {
+            lastFold = fold.fold
+            session.segments(fold.fold)
+        }
+    }
+
+    /// The segments the container's division regions make of the viewport
+    /// framed at `frame` in the container's coordinates (`size` is the
+    /// viewport's own, which an agent's window override may scale), and
+    /// whether the device reported a fold at all.
+    static func fold(of container: UIView, viewport frame: CGRect, size: CGSize) -> (fold: ViewportFold, hasFold: Bool) {
+        guard let divisions = ReservedRegions.divisions(of: container) else { return (.flat, false) }
+        let scale = CGPoint(x: size.width / frame.width, y: size.height / frame.height)
+        let active = divisions.filter(\.active).map { d in
+            CGRect(x: (d.frame.minX - frame.minX) * scale.x, y: (d.frame.minY - frame.minY) * scale.y, width: d.frame.width * scale.x, height: d.frame.height * scale.y)
+        }
+        return (Segments.split(viewport: size, dividers: active), !divisions.isEmpty)
     }
 
     /// After a restart from a new plan (the dev loop): the new runner knows
-    /// nothing of the insets — hand them over again, and fit the root.
+    /// nothing of the insets or the fold — hand them over again (the fold
+    /// always: the bake's flat answer must never stand in for the device's,
+    /// LLP 1078 D5), and fit the root.
     func rebooted() {
         if lastInsets != .zero { session.insets(top: lastInsets.top, right: lastInsets.right, bottom: lastInsets.bottom, left: lastInsets.left) }
+        session.segments(lastFold)
         reportScheme()
         fit()
     }

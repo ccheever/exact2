@@ -15,8 +15,8 @@ use crate::batch::Batch;
 use crate::style;
 use exact_kernel::motion::{motion_node, targets, MotionSync};
 use exact_kernel::{
-    Env, Frame, Kernel, NodeKey, NodeRef, NodeType, Offer, Overflow, PropId, PropValue,
-    TextMeasurer, ViewId,
+    Frame, Kernel, NodeKey, NodeRef, NodeType, Offer, Overflow, PropId, PropValue, TextMeasurer,
+    ViewId,
 };
 use exact_motion::{Change, Engine, HoldToken, Property};
 
@@ -31,6 +31,8 @@ pub(crate) mod canvas2d;
 mod content_region_host;
 #[path = "covers.rs"]
 mod covers;
+#[path = "fold.rs"]
+mod fold;
 #[path = "height.rs"]
 mod height;
 #[path = "height_drag.rs"]
@@ -330,6 +332,7 @@ impl<D: DataSource> Host<D> {
         let plan = plan_bytes.decode().map_err(HostError::Plan)?;
         // Native hosts link every row's grammar (LLP 1053.000 §2).
         exact_kernel::style::link_backdrop_filter();
+        exact_kernel::style::link_segments();
         exact_kernel::timeline::link();
         let kernel = Kernel::new(measurer);
         let facts = candidate_delivery.unwrap_or_else(|| {
@@ -1062,32 +1065,6 @@ impl<D: DataSource> Host<D> {
         self.finish(batch, error)
     }
 
-    /// The safe-area insets changed (a boot under `viewport-fit=cover`, a
-    /// rotation): the kernel's environment is set, every node whose style
-    /// holds an `env()` length gets its dictionary re-sent with the new
-    /// points and is laid out again; the batch carries what moved. Empty
-    /// when nothing reads the insets, or they did not change.
-    pub fn set_insets(&mut self, top: f32, right: f32, bottom: f32, left: f32) -> String {
-        let mut batch = Batch::new();
-        let error = match self
-            .runner
-            .kernel_mut()
-            .set_env(Env::new(top, right, bottom, left))
-        {
-            Ok(false) => None,
-            Ok(true) => {
-                self.height_targets_dirty = true;
-                for id in self.preorder() {
-                    self.update(id, &mut batch);
-                }
-                self.emit_paragraphs(&mut batch);
-                self.layout(&mut batch).err()
-            }
-            Err(e) => Some(format!("insets: {e:?}")),
-        };
-        self.finish(batch, error)
-    }
-
     /// Content has settled: the tree and the motion engine give back what
     /// they hold beyond the live nodes ([`exact_kernel::Kernel::trim`]).
     pub fn trim(&mut self) {
@@ -1341,7 +1318,9 @@ fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         exact_kernel::Dimension::Points(p) => p,
         exact_kernel::Dimension::Percent(p) => against * p / 100.0,
         exact_kernel::Dimension::Calc(p, x) => against * p / 100.0 + x,
-        exact_kernel::Dimension::Auto | exact_kernel::Dimension::Env(..) => 0.0,
+        exact_kernel::Dimension::Auto
+        | exact_kernel::Dimension::Env(..)
+        | exact_kernel::Dimension::Segment(..) => 0.0,
     };
     let pad_right = pad(node.style.padding_right, node.frame.width);
     let pad_bottom = pad(node.style.padding_bottom, node.frame.width);

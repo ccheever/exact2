@@ -49,10 +49,11 @@
 //     bunx playwright@1.63.0 install firefox webkit
 import { spawn, spawnSync } from 'node:child_process';
 import { createServer, request } from 'node:http';
-import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { open } from '../../scripts/agent.mjs';
+import { chromium } from '../../scripts/agent-launch.mjs';
 import { probePlaywrightBrowser } from '../../scripts/agent-playwright.mjs';
 import { resolveApp } from '../../scripts/app.mjs';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
@@ -67,14 +68,24 @@ const maxSteps = Number(opt('--steps', 10));
 const crossBrowser = opt('--browser', null);
 if (crossBrowser != null && !['firefox', 'webkit'].includes(crossBrowser)) throw new Error(`--browser: firefox or webkit, not ${crossBrowser}`);
 const known = crossBrowser ? JSON.parse(readFileSync(resolve(here, 'conformance', `known-${crossBrowser}.json`), 'utf8')) : [];
-const knownByKey = new Map(known.map(entry => [`${entry.app}\0${entry.step}\0${entry.field}`, entry]));
+// An entry names one difference exactly, or a class of them: `*` in app, step or
+// field matches any run of characters, and `pattern` (a regular expression)
+// must then match the difference's text — an engine convention such as
+// WebKit not focusing a clicked button is one rule, not an entry per step.
+const glob = s => new RegExp(`^${s.split('*').map(p => p.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
+const exact = known.filter(entry => ![entry.app, entry.step, entry.field].some(s => s.includes('*')) && !entry.pattern);
+const knownByKey = new Map(exact.map(entry => [`${entry.app}\0${entry.step}\0${entry.field}`, entry]));
+const knownClasses = known.filter(entry => !exact.includes(entry)).map(entry => ({ entry, app: glob(entry.app), step: glob(entry.step), field: glob(entry.field), pattern: entry.pattern ? new RegExp(entry.pattern) : null }));
+const knownFor = (app, step, field, what) => knownByKey.get(`${app}\0${step}\0${field}`)
+  ?? knownClasses.find(c => c.app.test(app) && c.step.test(step) && c.field.test(field) && (!c.pattern || c.pattern.test(what)))?.entry;
 if (known.some(entry => !entry.app || !entry.step || !entry.field || !entry.reason)) throw new Error(`known-${crossBrowser}.json: every entry needs app, step, field, and reason`);
-if (knownByKey.size !== known.length) throw new Error(`known-${crossBrowser}.json: duplicate app + step + field`);
+if (knownByKey.size !== exact.length) throw new Error(`known-${crossBrowser}.json: duplicate app + step + field`);
 const only = opt('--only', null);
 const named = argv.includes('--urls') ? [] : argv.filter((a, i) => !a.startsWith('--') && !['--wasm-root', '--out', '--steps', '--label', '--browser', '--only'].includes(argv[i - 1]));
 mkdirSync(out, { recursive: true });
 mkdirSync(wasmRoot, { recursive: true }); // --build renames each app's dist into it
-process.env.CHROME ??= '/Users/admin/.cache/chrome-for-testing/chrome/mac_arm-154.0.8037.57/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing';
+// The Chrome oracle: CHROME, else the platform's own Chromium (agent-launch.mjs).
+process.env.CHROME ??= chromium().executable;
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.json': 'application/json', '.png': 'image/png', '.mp4': 'video/mp4', '.css': 'text/css', '.svg': 'image/svg+xml' };
 function serve(dir) {
@@ -186,7 +197,7 @@ function linuxView(state) {
 // ---------------------------------------------------------------- one target
 async function target(t, report) {
   const fail = (step, what, field = null) => {
-    const entry = field == null ? null : knownByKey.get(`${t.name}\0${step}\0${field}`);
+    const entry = field == null ? null : knownFor(t.name, step, field, what);
     if (entry) {
       const key = `${t.name}\0${step}\0${field}`;
       if (!report.known.some(x => x.key === key)) {
@@ -335,8 +346,10 @@ async function drive(t, report, fail, dir, ws, js) {
     // <list> <key> [block]` (a virtualized list's row by key), `drag
     // <target> <dx> <dy> [ms]` (a finger: down, a move over ms of real time,
     // up; a pan or a swipe), `pinch <target> <scale>` (two fingers), `down
-    // <target>` and `up` (a held contact: press feedback) — each compared
-    // after both settle.
+    // <target>` and `up` (a held contact: press feedback), `prefer <fact>
+    // <value> …` (the device facts: media, page, the fold — LLP 1078 D9's
+    // parity, Chromium's own segments on both pages and the kernel's on
+    // Linux) — each compared after both settle.
     const script = resolve(here, 'conformance', `${t.urls ? t.app : t.name.replace(/^synthetic-/, '')}.steps`);
     const settle = async () => { await pair(() => W.clock('settle'), () => J.clock('settle')); await onLinux('settle', L => L.clock('settle')); };
     driveAt = 'boot settle';
@@ -347,7 +360,7 @@ async function drive(t, report, fail, dir, ws, js) {
     let diverged = false;
     if (existsSync(script)) for (const line of readFileSync(script, 'utf8').split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'))) {
       const [op, target, ...rest] = line.split(/\s+/);
-      const run = s => op === 'tap' ? s.tap(target) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : op === 'into' ? s.tap(target, { into: { key: rest[0], ...(rest[1] ? { block: rest[1] } : {}) } }) : op === 'pinch' ? s.tap(target, { pinch: Number(rest[0]) }) : op === 'down' ? s.tap(target, { down: true }) : op === 'up' ? s.pointer('up') : op === 'drag' ? s.tap(target, { down: true }).then(() => s.pointer('move', { dx: Number(rest[0]), dy: Number(rest[1]), ms: Number(rest[2] ?? 200) })).then(() => s.pointer('up')) : Promise.reject(new Error(`unknown op ${op}`));
+      const run = s => op === 'tap' ? s.tap(target) : op === 'type' ? s.type(target, rest.join(' ')) : op === 'clock' ? s.clock(target) : op === 'back' ? s.tap(target, { history: -1 }) : op === 'wheel' ? s.tap(target, { wheel: [Number(rest[1] ?? 0), Number(rest[0])] }) : op === 'into' ? s.tap(target, { into: { key: rest[0], ...(rest[1] ? { block: rest[1] } : {}) } }) : op === 'pinch' ? s.tap(target, { pinch: Number(rest[0]) }) : op === 'down' ? s.tap(target, { down: true }) : op === 'up' ? s.pointer('up') : op === 'drag' ? s.tap(target, { down: true }).then(() => s.pointer('move', { dx: Number(rest[0]), dy: Number(rest[1]), ms: Number(rest[2] ?? 200) })).then(() => s.pointer('up')) : op === 'prefer' ? s.prefer(Object.fromEntries([target, ...rest].flatMap((a, i, all) => i % 2 ? [] : [[a, all[i + 1]]]))) : Promise.reject(new Error(`unknown op ${op}`));
       // Playwright cannot make trusted phased touches in Firefox/WebKit.
       // Skip before resolving a target or touching either page; the carrier's
       // named, side-effect-free refusals are exercised by agent.test.mjs.
@@ -572,7 +585,7 @@ async function bootPress(t, report, fail, dist, browser) {
 
 // ---------------------------------------------------------------- the Linux reference
 const linuxRef = argv.includes('--linux') && !crossBrowser;
-const LINUX_OPS = ['tap', 'type', 'clock'];
+const LINUX_OPS = ['tap', 'type', 'clock', 'prefer'];
 // Where an app's drive reaches what only one host has, the Linux comparison
 // stops before that step (null: from the start), saying why (each is a host
 // difference, not the runner's).
@@ -611,10 +624,19 @@ if (crossBrowser) {
 // `--urls <app> <a> <b>`: two served pages of one app, compared the same way
 // (a fresh JavaScript render against an adopted one, one renderer against another).
 const urls = argv.indexOf('--urls');
-const apps = urls >= 0 || only ? [] : named.length ? named : readdirSync(wasmRoot).filter(a => existsSync(resolve(wasmRoot, a, 'app.plan')));
 const sdir = resolve(here, 'conformance');
+// A named target that is a fixture here — `conformance/<name>.contract`, or a
+// directory holding `app.contract` — is a synthetic plan, not an app:
+// `conform.mjs segments --linux` drives contract/corpus/segments.contract
+// (its link) on the data app's wasm root (LLP 1078 D9).
+const fixtureFile = n => existsSync(resolve(sdir, n, 'app.contract')) ? `${n}/app.contract` : lstatSync(resolve(sdir, `${n}.contract`), { throwIfNoEntry: false }) ? `${n}.contract` : null;
+const fixtures = urls >= 0 ? [] : named.filter(n => fixtureFile(n));
+const apps = urls >= 0 || only ? [] : named.length ? named.filter(n => !fixtureFile(n)) : readdirSync(wasmRoot).filter(a => existsSync(resolve(wasmRoot, a, 'app.plan')));
 // A plan with its own files (`strings/`) is a directory holding `app.contract`.
-const synthetic = argv.includes('--synthetic') ? readdirSync(sdir).flatMap(f => f.endsWith('.contract') ? [f] : existsSync(resolve(sdir, f, 'app.contract')) ? [`${f}/app.contract`] : []).filter(f => !only || (f.endsWith('/app.contract') ? dirname(f) : basename(f, '.contract')) === only).map(f => ({ f, data: /^\/\/ data: (\S+)/m.exec(readFileSync(resolve(sdir, f), 'utf8'))?.[1] ?? 'caltrain' })) : [];
+// A fixture linked from contract/corpus (segments.contract) is skipped while the link dangles — unless named.
+const dangling = f => !existsSync(resolve(sdir, f));
+const synthetic = [...new Set([...(argv.includes('--synthetic') ? readdirSync(sdir).flatMap(f => f.endsWith('.contract') ? (dangling(f) ? [] : [f]) : existsSync(resolve(sdir, f, 'app.contract')) ? [`${f}/app.contract`] : []).filter(f => !only || (f.endsWith('/app.contract') ? dirname(f) : basename(f, '.contract')) === only) : []), ...fixtures.map(fixtureFile)])]
+  .map(f => ({ f, data: dangling(f) ? 'caltrain' : /^\/\/ data: (\S+)/m.exec(readFileSync(resolve(sdir, f), 'utf8'))?.[1] ?? 'caltrain' }));
 if (argv.includes('--build') && engineReady) mkdirSync(wasmRoot, { recursive: true });
 if (argv.includes('--build') && engineReady) for (const a of new Set([...apps, ...synthetic.map(s => s.data)])) {
   const direct = crossBrowser && existsSync(resolve(root, 'apps', a, 'app.ts'));
@@ -652,9 +674,10 @@ if (linuxRef && argv.includes('--build') && engineReady) {
 }
 const targets = apps.map(a => ({ name: a, app: a, wasm: resolve(wasmRoot, a) }));
 if (urls >= 0) targets.push({ name: `${argv[urls + 1]}-${opt('--label', 'urls')}`, app: argv[urls + 1], urls: [argv[urls + 2], argv[urls + 3]] });
-if (argv.includes('--synthetic')) {
+if (synthetic.length) {
   for (const { f, data } of synthetic) {
     const name = 'synthetic-' + (f.endsWith('/app.contract') ? dirname(f) : basename(f, '.contract')), contract = resolve(sdir, f), plan = resolve(out, name + '.plan');
+    if (dangling(f)) { report.failures.push({ target: name, step: 'fixture', what: `${f} links ${readlinkSync(contract)}, which this tree lacks` }); continue; }
     const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', contract, '-o', plan], { cwd: root, encoding: 'utf8' });
     if (c.status !== 0) { report.failures.push({ target: name, step: 'contract-build', what: c.stderr.trim().slice(0, 300) }); continue; }
     // Synthetic plans ask their data app's sources (Caltrain's stations, nearest, search): its wasm links them.

@@ -650,10 +650,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
               let overlay = placed.superview, let canvas = overlay.superview as? NodeView else {
             return convert(windowPoint, from: nil)
         }
-        let inCanvas = canvas.convert(windowPoint, from: nil)
-        let inChild = NodeView.map(inv, inCanvas)
-        // The child's own points; then down to this node by the untransformed
-        // hierarchy.
+        // The canvas reached the same way (a placement above it included),
+        // then the child's own points, then down to this node.
+        let inChild = NodeView.map(inv, canvas.local(windowPoint))
         return convert(inChild, from: placed)
     }
 
@@ -671,7 +670,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// without them, and then the canvas itself is the hit. (`point` is in
     /// this view's own coordinates — UIKit's convention, not AppKit's.)
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        if placedAncestor?.placementHidden == true { return nil }
+        // UIKit's conversion already carries a box in space through its
+        // plane (LLP 1077 D8); a hidden back face is the host's to refuse.
+        if placedAncestor?.placementHidden == true || hidesBack() { return nil }
         if let clipPath, !clipPath.contains(point, using: clipRule) { return nil }
         if props["swipeIndicator"] == "true" { return nil }
         if isSurfaceControl, !inert, !isHidden, isUserInteractionEnabled, bounds.contains(point) { return self }
@@ -693,11 +694,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             if outsideX && (style["overflow_x"]?.string ?? "visible") != "visible" { return nil }
             if outsideY && (style["overflow_y"]?.string ?? "visible") != "visible" { return nil }
             for child in subviews.reversed() {
-                if child === (glassSlot ?? materialView), Materials.glass(materialKind), let contentView = materialView?.contentView {
+                if child === (glassSlot ?? materialView), Materials.glass(materialKind) || blurHostsChildren, let contentView = materialView?.contentView {
                     // The effect's UIKit bounds check must not hide authored
                     // children in CSS visible overflow. They remain descendants
                     // of the effect, so its recognizers still see their touches.
-                    for content in contentView.subviews.reversed() where content is NodeView {
+                    for content in contentView.subviews.reversed() where content is NodeView || content is GlassGroupView {
                         if let hit = content.hitTest(convert(point, to: content), with: event) { return hit }
                     }
                 }
@@ -730,11 +731,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     override var accessibilityFrame: CGRect {
         get {
             if placedAncestor?.placementHidden == true { return .zero }
-            guard let placed = placedAncestor, let h = placed.placement, let overlay = placed.superview, let canvas = overlay.superview as? NodeView else { return super.accessibilityFrame }
-            let corners = [CGPoint(x: 0, y: 0), CGPoint(x: bounds.width, y: 0), CGPoint(x: bounds.width, y: bounds.height), CGPoint(x: 0, y: bounds.height)].map { NodeView.map(h, placed.convert($0, from: self)) }
-            let xs = corners.map { $0.x }, ys = corners.map { $0.y }
-            let inCanvas = CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
-            return UIAccessibility.convertToScreenCoordinates(inCanvas, in: canvas)
+            guard placedAncestor?.placement != nil, let window else { return super.accessibilityFrame }
+            return UIAccessibility.convertToScreenCoordinates(drawnRect(bounds, in: window), in: window)
         }
         set { super.accessibilityFrame = newValue }
     }
@@ -907,7 +905,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
     }
     func updateMaterial() {
-        defer { syncGlassSlot(); syncGlassGroup() }
+        defer { syncGlassSlot(); syncGlassGroup(); settleVibrancy() }
         let kind = materialRequest
         let supported = kind != nil
         let interactive = Materials.glass(kind) && handlers.contains("press") && !disabled
@@ -928,12 +926,13 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             for (index, child) in children.enumerated() { container.insertSubview(child, at: index) }
             presenter?.flats.containerChanged(id)
         }
-        guard let materialView else { return }
+        guard let materialView else { rehomeMaterialChildren(); return }
         if materialView.effect == nil || materialInteractive != interactive || backdropStale {
             materialView.effect = backdropEffect() ?? materialEffect(kind ?? "ultra-thin", interactive: interactive)
             materialInteractive = interactive
         }
         applyMaterialRadius()
+        rehomeMaterialChildren()
     }
     func applyMaterialRadius() {
         guard let materialView else { return }
@@ -1065,6 +1064,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // view styled before it was mounted did not have.
         if superview != nil, layer.zPosition != usedZIndex { layer.zPosition = usedZIndex }
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
+        // A box styled before it joined its parent learns its material now.
+        if superview != nil { syncVibrancy() }
     }
 
     func updateKeyboardDismissal() {
@@ -1084,6 +1085,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         applyBoxMask()
         applyFilter()
         updateMaterial()
+        syncVibrancy()
         syncScroll()
         applyAffordances()
         styleTextArea()
@@ -1149,7 +1151,10 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // A paragraph paints its own text, which a box would not clip.
         syncClipBox(clips && kind != "text" && shadowColor != nil && scroll == nil && overlay == nil && materialKind != "glass")
         clipsToBounds = clips && clipBox == nil
+        // A scroll's children, back out, go where a material holds them.
+        if materialView != nil, scroll == nil { rehomeMaterialChildren() }
         syncGlassGroup()
+        settleVibrancy()
     }
 
     /// A native swipe row's scroll container (`swipeContent`, LLP 1008 §9)

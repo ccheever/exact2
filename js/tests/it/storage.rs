@@ -636,3 +636,138 @@ component App
         "saved on this device"
     );
 }
+
+/// An actual TypeScript storage read uses supplied freshness time after a
+/// returning frame admits its persisted answer by file identity. This is a
+/// seam regression fixture, not an application consumer drive.
+#[test]
+fn returning_storage_status_keeps_identity_and_revalidates_with_current_context() {
+    fn finish_status(runner: &mut Runner<Module>) -> Vec<String> {
+        let mut fetched = Vec::new();
+        for _ in 0..100 {
+            if !runner.has_pending() {
+                break;
+            }
+            let requests = runner.take_requests();
+            assert!(!requests.is_empty());
+            for request in requests {
+                assert_eq!(request.target, "status");
+                let outcome = if let Some(token) = request.request.continuation {
+                    let work = runner.data().continuation(token).unwrap();
+                    std::thread::spawn(work).join().unwrap()
+                } else {
+                    // The kept answer still stands while freshness revalidation
+                    // has reached the network; no provisional value is written.
+                    assert_eq!(text(runner.resource("status").unwrap().clone()), "saved A");
+                    assert!(runner.take_store_writes().is_empty());
+                    fetched.push(request.request.url);
+                    response("current A")
+                };
+                runner.fulfill(request.ticket, outcome).unwrap();
+            }
+        }
+        assert!(!runner.has_pending());
+        fetched
+    }
+
+    let source = contract::compile(
+        r#"
+shape Result
+  text: string
+component App
+  state file = "A"
+  state minute = 0
+  action sample(value: number)
+    minute = value
+  action choose(value: string)
+    file = value
+  resource status = work("status", file) with minute as shape Result
+  view
+    text status.text
+"#,
+    )
+    .unwrap();
+    let baked = contract::bake(source, Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap()).unwrap();
+    assert_eq!(baked.resources[0].context, 1);
+    let root = Root::new();
+    std::fs::create_dir_all(root.0.join("data")).unwrap();
+    std::fs::write(
+        root.0.join("data/status-A"),
+        r#"{"text":"saved A","expires":150}"#,
+    )
+    .unwrap();
+    let mut first = Runner::boot(
+        baked.clone(),
+        root.module(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    first.act("sample", vec![Value::Number(100.)]).unwrap();
+    first.data().activate().unwrap();
+    first.data_ready().unwrap();
+    assert!(
+        finish_status(&mut first).is_empty(),
+        "the saved status is still fresh at 100"
+    );
+    assert_eq!(text(first.resource("status").unwrap().clone()), "saved A");
+    let snapshot = first.store().snapshot();
+    let encoded = snapshot
+        .iter()
+        .find(|(name, _)| name == "exact.kept.status")
+        .unwrap()
+        .1
+        .clone();
+    let identity = Value::list(vec![Value::str("status"), Value::str("A")])
+        .to_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    assert_eq!(encoded.split_once('|').unwrap().0, identity);
+    drop(first);
+
+    let mut next = Runner::boot_stored(
+        baked.clone(),
+        root.module(),
+        Kernel::with_monospace(),
+        snapshot.clone(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(!next.data().is_loaded());
+    assert_eq!(text(next.resource("status").unwrap().clone()), "saved A");
+    next.act("sample", vec![Value::Number(200.)]).unwrap();
+    next.act("sample", vec![Value::Number(300.)]).unwrap();
+    assert_eq!(text(next.resource("status").unwrap().clone()), "saved A");
+    assert!(next.take_requests().is_empty());
+    assert!(next.take_store_writes().is_empty());
+    next.data().activate().unwrap();
+    next.data_ready().unwrap();
+    assert_eq!(text(next.resource("status").unwrap().clone()), "saved A");
+    assert_eq!(
+        finish_status(&mut next),
+        ["https://example.test/status/A?minute=300"]
+    );
+    assert_eq!(text(next.resource("status").unwrap().clone()), "current A");
+    let writes = next.take_store_writes();
+    assert_eq!(writes.len(), 1);
+    assert_eq!(writes[0].name, "exact.kept.status");
+    assert!(writes[0].value.is_some());
+
+    let mut other = Runner::boot_stored(
+        baked,
+        root.module(),
+        Kernel::with_monospace(),
+        snapshot,
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    other.act("choose", vec![Value::str("B")]).unwrap();
+    assert_eq!(text(other.resource("status").unwrap().clone()), "empty");
+    other.act("choose", vec![Value::str("A")]).unwrap();
+    assert_eq!(text(other.resource("status").unwrap().clone()), "empty");
+    assert!(!other.data().is_loaded());
+}
