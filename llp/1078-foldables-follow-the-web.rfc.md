@@ -50,7 +50,7 @@ Apple: `uint32_t exact_segments(ExactRuntime rt, uint32_t posture, uint32_t cols
 
 ### D5 — Apple feeds it from UIKit 27.1
 
-In `ExactViewIOS.fit`, on iOS 27.1 or later, after the viewport frame is known: the view's active `division` reserved regions (`reservedRegions(kind: .division)`) are intersected with the viewport's frame; each one splits the viewport along its axis into the rects on either side of the region's full frame (the band plus its margins, so the segments exclude it); `cols × rows` follows from the vertical and horizontal dividers; coordinates are the viewport's (the region's frame converted into `presenter.viewport`'s space). Posture is `folded` while any division is active, `continuous` otherwise. The view adds one `UIHingeInteraction` whose handler calls `setNeedsLayout`, because a hinge moving from flat to a book angle changes the regions' `isActive` without changing any bounds, and nothing else would relayout. `exact_segments` is sent when posture, counts or rects change, next to the `insets` send. Below iOS 27.1, and on macOS (AppKit has no fold API): `continuous`, 1 × 1, sent once at boot so the facts are never stale from the bake.
+In `ExactViewIOS.fit`, on iOS 27.1 or later, after the viewport frame is known: the view's active `division` reserved regions (`reservedRegions(kind: .division)`) are intersected with the viewport's frame; each one splits the viewport along its axis into the rects on either side of the region's full frame (the band plus its margins, so the segments exclude it); `cols × rows` follows from the vertical and horizontal dividers; coordinates are the viewport's (the region's frame converted into `presenter.viewport`'s space). Posture is `folded` while the hinge is partially open (the `UIHingeInteraction`'s status, the Device Posture API's own definition) or any division is active, `continuous` otherwise; the segments come from the regions alone (amended 2026-10-02, §As built "The deaf session"). The view adds one `UIHingeInteraction` whose handler calls `setNeedsLayout`, because a hinge moving from flat to a book angle changes the regions' `isActive` without changing any bounds, and nothing else would relayout; a layout whose regions disagree with the hinge's status re-reads them on the following frames, a bounded number of times. `exact_segments` is sent when posture, counts or rects change, next to the `insets` send. Below iOS 27.1, and on macOS (AppKit has no fold API): `continuous`, 1 × 1, sent once at boot so the facts are never stale from the bake.
 
 Occlusion regions (the camera, the status strip) stay what they already are, the safe-area insets; nothing reads them.
 
@@ -436,7 +436,7 @@ in the cover viewport (the two-session host's 331-pt panes see
 A session that launched flat sometimes never hears the hinge move (every pose of one
 whole run stayed `continuous` while a fresh launch at 130°, and the next session, saw
 the fold within 1.5 s) — `UIHingeInteraction`'s delivery, D5's side; the smoke now says
-which it saw. An `input` in the pushed note route is UIKit's first responder
+which it saw. (Found and fixed on `lane/duo-kinks` the same day: "The deaf session" below.) An `input` in the pushed note route is UIKit's first responder
 (`native.firstResponder true`, `RouteController`) but its keyboard never shows and the
 inset stays 0, while the same input in the non-pushed `insets` and `keyboard-bar` plans
 raises it; twice the app stopped answering `clock` for 120 s at the closed pose after
@@ -457,3 +457,34 @@ the Mac's `ConnectHardwareKeyboard` preference being on, and one session stopped
 answering `clock` for 120 s. Under the driver's `type`, a `textarea` takes text and
 focus but raises no keyboard on either simulator (an `input` does), which is why the
 sheet carries a title input beside its textarea.
+
+**The deaf session (2026-10-02, lane/duo-kinks).** Reproduced once in `smoke duo --only
+lab` after a run of healthy launch-then-fold cycles: from then on every duo-lab session,
+including a fresh launch at 130°, reported `continuous` with no segments at every pose,
+and a second hinge move recovered nothing, until the simulator was shut down and booted
+again. Journal lines in the view showed the mechanism: `UIHingeInteraction` kept
+delivering (`fullyOpen` at 180°, a run of `partiallyOpen` updates as the hinge moved,
+each one relaying out the view), while `reservedRegions(kind: .division)` on the view
+returned an empty array — no region, active or inactive — at every pose; it was not the
+interaction's first delivery (hypothesis a), nor a coalesced `setNeedsLayout` (b), nor
+the agent's `prefer` wait (d). The regions are a per-scene state the simulator's shell
+stops reporting; the trigger did not reproduce on demand in 24 attempts (the smoke's
+devicectl hinge-angle sessions, display captures and orientation reads; its keyboard
+probe; the closed pose; `simctl terminate`; a launch replacing a running copy; a session
+cut off mid-fold; two full lab legs). Healthy, the same lines showed the regions trailing
+the hinge: at the handler's time the division still read inactive, and only the layout
+later in the same turn saw it active (hypothesis c, by one turn). Built: the posture
+follows the hinge — `folded` while its status is `partiallyOpen` (the Device Posture
+API's definition), with or without an active region — and the segments follow the
+regions; a layout whose regions disagree with the hinge re-reads them every 100 ms, at
+most five times per hinge change, so a scene without regions keeps the hinge's posture
+in one segment and stops asking (`Segments.split(viewport:dividers:hingeBent:)`,
+`ExactView.fit`, `SegmentsTests`). Counts, each a fresh `agent.mjs ios` session launched
+flat and folded to 130°: before, on a healthy simulator 0 of 19 first moves missed, in
+the deaf state 21 of 21 missed (the smoke's lab leg missed `fold-book` and `fold-half`,
+a second move recovering neither); after, 0 of 23 missed (ten plain, ten timing the
+rects, three folding 3 s after launch) and the smoke's lab leg passed every pose; the
+deaf state could not be re-entered to count it, and there the fix yields `folded` 1 × 1
+rather than `continuous`. On the Duo simulator the posture now leads the rects by about
+135 ms (the hinge says `partiallyOpen` early in the fold motion, the division activates
+a beat later), two sends instead of one; the smoke reads both after the pose settles.
