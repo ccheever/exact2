@@ -19,6 +19,8 @@ import { webRequestURL } from '../../scripts/origin.mjs';
 import { appManifestDigest, buildFileCards, buildTreeFile, sendStaticBody, webContentType } from '../web/serve.mjs';
 import { localInstaller } from '../web/local-install.mjs';
 
+const CHECKPOINT_BYTES = 16 * 1024 * 1024, CHECKPOINTS = 8;
+
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const skipped = /(^|\/)(target|dist(?:\.previous)?|node_modules|conformance)(\/|$)|(^|\/)\.|\.md$/;
 
@@ -128,10 +130,18 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
     if (url.pathname === '/__dev/checkpoint' && req.method === 'POST') {
       const id = url.searchParams.get('id') ?? '', n = Number(url.searchParams.get('seq')), revision = url.searchParams.get('revision') ?? '', chunks = [];
       if (!/^\d+(?:-\d+){3}$/.test(id) || !Number.isSafeInteger(n)) { res.writeHead(400); res.end(); return; }
-      req.on('data', chunk => chunks.push(chunk));
+      // Bounded: a checkpoint is at most the hosts' 16 MiB surface carry, and the
+      // loop keeps the newest few (a page reloads one at a time).
+      let size = 0, over = false;
+      req.on('data', chunk => { size += chunk.length; if (size > CHECKPOINT_BYTES) over = true; else chunks.push(chunk); });
       req.on('end', () => {
-        try { const text = Buffer.concat(chunks).toString('utf8'); JSON.parse(text); checkpoints.set(id, { seq: n, revision, text }); res.writeHead(204); res.end(); }
-        catch { res.writeHead(400); res.end(); }
+        if (over) { res.writeHead(413); res.end(); return; }
+        try {
+          const text = Buffer.concat(chunks).toString('utf8'); JSON.parse(text);
+          checkpoints.delete(id); checkpoints.set(id, { seq: n, revision, text });
+          while (checkpoints.size > CHECKPOINTS) checkpoints.delete(checkpoints.keys().next().value);
+          res.writeHead(204); res.end();
+        } catch { res.writeHead(400); res.end(); }
       });
       return;
     }
