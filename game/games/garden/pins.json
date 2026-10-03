@@ -1,9 +1,17 @@
 {
+  "ticks": {
+    "0": "0xe54bd41d2613ca74",
+    "5136": "0x51a6e97baaf63658"
+  },
+  "saves": {
+    "continuation": "b6c1f1ade3e635f7b74e440d17227b09fcd9d8d3f14130b8e3acb46a045dfb35"
+  },
+  "hosts": [
+    "linux",
+    "web"
+  ],
+  "inputs": "f134e6ba3cfaa378f9c64b8311b92f5791af1093993cd57def52730f1ec5fd6d",
   "game": "garden",
-  "ticks": {},
-  "saves": {},
-  "hosts": [],
-  "generated": "bun game/prove.mjs garden",
-  "at": "unverified",
-  "help": "First baseline: bun game/prove.mjs garden; changed golden: add --repin. Empty pins fail ordinary proofs."
+  "generated": "bun game/prove.mjs garden --hosts 'linux,web'",
+  "at": "589fd79cdda627689d3001c9474fbc2163266716"
 }

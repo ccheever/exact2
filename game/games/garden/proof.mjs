@@ -18,6 +18,9 @@ const label = (tree, id) => {
   return tree.nodes.find(m => m.parent === n.id && m.props?.text != null)?.props.text;
 };
 const ms = t => Math.round(performance.now() - t);
+// The exact purse, from the sheckles' aria-label. Web and macOS report an
+// accessibleName only for controls; Linux names a labelled text too (diary).
+const purseOf = tree => Number(node(tree, 'sheckles')?.props?.accessibilityLabel?.split(' ')[0]);
 
 if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave, say}) => {
   const log = say ?? console.log;
@@ -32,6 +35,15 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
     await s.tap('shop-tab');
     await game.run(500);
     await s.screenshot(resolve(out, 'game.png'));
+    // The overview of a garden the engine is being asked to carry.
+    await s.tap('tools-tab');
+    await s.tap('fill-10000');
+    await game.run(34);
+    await s.tap('zoom');
+    await game.run(150_000);
+    await s.tap('tools-tab');
+    await game.run(500);
+    await s.screenshot(resolve(out, 'overview.png'));
     await s.close();
     return;
   }
@@ -46,7 +58,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   pin(0, await game.snapshot());
   let t = await s.tree();
   check('starting purse and hand', text(t, 'sheckles') === '20¢' && text(t, 'held') === 'Holding Carrot ×1', [text(t, 'sheckles'), text(t, 'held')]);
-  check('sheckles have an accessible name', node(t, 'sheckles')?.accessibleName === '20 sheckles', node(t, 'sheckles')?.accessibleName);
+  check('sheckles carry an exact label', node(t, 'sheckles')?.props?.accessibilityLabel === '20 sheckles' && node(t, 'sheckles')?.props?.accessibilityRole === 'status', node(t, 'sheckles')?.props);
   check('the shop lists every seed', (await s.tree('shop-list')).nodes.filter(n => n.props?.testId?.startsWith('shop-')).length === 15);
 
   await game.run(100);
@@ -75,7 +87,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await s.tap('sell-all');
   await game.run(100);
   t = await s.tree();
-  const purse = Number(node(t, 'sheckles')?.accessibleName?.split(' ')[0]);
+  const purse = purseOf(t);
   check('selling pays', purse > 20 && label(t, 'bag-tab') === 'Backpack 0', [purse, label(t, 'bag-tab')]);
   check('an empty backpack says how to fill it', !!node(t, 'bag-empty'));
 
@@ -83,7 +95,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await s.tap('buy-carrot');
   await game.run(100);
   t = await s.tree();
-  check('buying spends and fills the hand', node(t, 'sheckles')?.accessibleName === `${purse - 10} sheckles` && text(t, 'held') === 'Holding Carrot ×1', [node(t, 'sheckles')?.accessibleName, text(t, 'held')]);
+  check('buying spends and fills the hand', purseOf(t) === purse - 10 && text(t, 'held') === 'Holding Carrot ×1', [purseOf(t), text(t, 'held')]);
   check('an owned seed offers to hold it', node(t, 'equip-carrot')?.accessibleName === 'Hold Carrot, 1 owned', node(t, 'equip-carrot')?.accessibleName);
   check('an unaffordable seed is disabled', node(t, 'buy-grape')?.props?.disabled === true, node(t, 'buy-grape')?.props);
   // Two presses with no tick between them: the command channel is one live
@@ -189,7 +201,7 @@ async function scale({open, check, out, log}) {
   t0 = performance.now();
   await s.tap('sell-all');
   await game.run(34);
-  log(`SCALE sell all: ${ms(t0)} ms → ${node(await s.tree(), 'sheckles')?.accessibleName}`);
+  log(`SCALE sell all: ${ms(t0)} ms → ${purseOf(await s.tree())} sheckles`);
   await game.save(resolve(out, 'scale-final.world'));
   await s.close();
   const big = last;
