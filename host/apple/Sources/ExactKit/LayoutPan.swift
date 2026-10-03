@@ -80,7 +80,7 @@ final class MouseLayoutPan {
     func abandon() { candidate = nil; active = false }
     func retire(_ id: UInt32) { if candidate?.id == id { cancel() } }
 }
-#elseif os(iOS)
+#elseif os(iOS) || os(tvOS)
 import UIKit
 
 // UIPanGestureRecognizer begins after its recognition threshold. Preserve the
@@ -114,7 +114,10 @@ extension NodeView {
     func updateLayoutPan() {
         if handlers.contains("pan"), layoutPanRecognizer == nil {
             let g = ContactLayoutPan(target: self, action: #selector(layoutPanning(_:)))
-            g.maximumNumberOfTouches = 1; g.delegate = self
+            #if !os(tvOS)
+            g.maximumNumberOfTouches = 1
+            #endif
+            g.delegate = self
             addGestureRecognizer(g); layoutPanRecognizer = g
         } else if !handlers.contains("pan"), let g = layoutPanRecognizer {
             removeGestureRecognizer(g); layoutPanRecognizer = nil

@@ -1,4 +1,4 @@
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 /// @ref LLP 1057 §10.6 — the iOS carrier's one held contact (LLP 1035.003 D1),

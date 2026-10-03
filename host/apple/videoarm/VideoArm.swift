@@ -24,7 +24,7 @@ private final class VideoContainer: PlatformView {
     #endif
 }
 
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 private final class VideoLayerView: UIView {
     override class var layerClass: AnyClass { AVPlayerLayer.self }
     var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
@@ -197,11 +197,16 @@ private final class VideoArm: NSObject {
         configurePresentation()
         controller?.showsPlaybackControls = bool("controls")
         controller?.allowsPictureInPicturePlayback = !bool("disablepictureinpicture") && bool("allowsPictureInPicturePlayback", true)
+        // tvOS playback is always full screen and has no inline PiP or frame analysis.
+        #if !os(tvOS)
         controller?.canStartPictureInPictureAutomaticallyFromInline = bool("canStartPictureInPictureAutomaticallyFromInline")
         controller?.entersFullScreenWhenPlaybackBegins = bool("entersFullScreenWhenPlaybackBegins", !bool("playsinline"))
         controller?.exitsFullScreenWhenPlaybackEnds = bool("exitsFullScreenWhenPlaybackEnds")
+        #endif
         controller?.requiresLinearPlayback = bool("requiresLinearPlayback")
+        #if !os(tvOS)
         controller?.allowsVideoFrameAnalysis = bool("allowsVideoFrameAnalysis", true)
+        #endif
         #endif
         // Each setter is a command to the media server and a KVO event; only a
         // changed value is sent.
@@ -319,7 +324,7 @@ private final class VideoArm: NSObject {
             }
         }
     }
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     /// A video without `controls` uses the native player layer, as Chrome's
     /// `<video>` without controls draws no UI (LLP 1042 §7 A): PiP and frame
     /// analysis select AVKit only when set by name, since without controls or
@@ -373,7 +378,7 @@ private final class VideoArm: NSObject {
     }
     func layout() {
         guard !invalidated else { return }
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         attach()
         #endif
         let fit = props["objectFit"] ?? "contain", gravity = self.gravity
@@ -402,7 +407,7 @@ private final class VideoArm: NSObject {
         observations.removeAll(); playerObservations.removeAll()
         notifications.forEach(NotificationCenter.default.removeObserver); notifications.removeAll()
         player.replaceCurrentItem(with: nil)
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         controller?.willMove(toParent: nil); controller?.view.removeFromSuperview(); controller?.removeFromParent()
         inline?.playerLayer.player = nil
         inline?.removeFromSuperview()

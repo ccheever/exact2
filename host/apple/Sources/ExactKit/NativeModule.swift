@@ -216,7 +216,7 @@ private final class NativeEntry {
     var view: NativePlatformView?
     var props = "{}"
     var snapshotBit = false
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     /// A native screen's controller, a child of its route's while it lives.
     var screen: UIViewController?
     #endif
@@ -324,7 +324,7 @@ final class NativeViews {
     /// pool (and of those, by the row they last showed), parked, and parked
     /// ones destroyed.
     private(set) var made = 0, reused = 0, returned = 0, parks = 0, dropped = 0, hidden = 0, released = 0
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     /// Parked instances by tag, oldest first.
     fileprivate var parked: [String: [NativeEntry]] = [:]
     fileprivate var observers: [NSObjectProtocol] = []
@@ -511,7 +511,7 @@ final class NativeViews {
 
     /// Session teardown, after the views and the runtime: the module goes last.
     func destroyModule() {
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         drainParked()
         #endif
         guard let instance, case .success(let table)? = NativeProcess.table else { return }
@@ -544,7 +544,7 @@ final class NativeViews {
         }
         entry.snapshotBit = caps["snapshot"] as? Bool == true && table.snapshot != nil
         let started = CFAbsoluteTimeGetCurrent()
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         if reuse(entry, table: table, owner: owner) { return }
         #endif
         let nonce = NativeProcess.next
@@ -583,7 +583,7 @@ final class NativeViews {
         #endif
         entry.handle = handle
         entry.view = view
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         contain(entry, table: table) { owner.addSubview(view) }
         #else
         owner.addSubview(view)
@@ -795,11 +795,11 @@ final class NativeViews {
             NativeProcess.owners.removeValue(forKey: entry.nonce)
             NativeProcess.retired[entry.nonce] = WeakNatives(self)
         }
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         if park(entry) { return }
         #endif
         if entry.instance != 0 { NativeProcess.set(entry.instance, nil) }
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         release(entry)
         #else
         // Retire a descendant/field editor before destroying its module instance.
@@ -869,7 +869,7 @@ final class NativeViews {
         if entry.sizing && owner.bounds.isEmpty { return }
         entry.sizing = false
         view.frame = owner.contentBox()
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         #endif
     }
@@ -880,7 +880,7 @@ final class NativeViews {
         else { return dropped(nonce: nonce, kind: kind) }
         if kind == 9 { intrinsic(entry, data: data); return }
         guard kind < NativeViews.kinds.count else { return log("\(entry.name) #\(entry.id): refused event kind \(kind)") }
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         if kind == 7, entry.revealing { entry.revealing = false; entry.view?.alpha = 1 }
         #endif
         let name = NativeViews.kinds[Int(kind)], text = String(decoding: data, as: UTF8.self), id = entry.id
@@ -983,7 +983,7 @@ extension NodeView {
     }
 }
 
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 extension NativeViews {
     /// A native screen (LLP 1075.003 §3.6): its controller becomes a child
     /// of the controller its node shows in (a route's), so UIKit gives it

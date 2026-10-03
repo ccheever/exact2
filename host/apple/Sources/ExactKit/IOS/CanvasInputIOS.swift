@@ -1,4 +1,4 @@
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import GameController
 import UIKit
 
@@ -19,8 +19,13 @@ final class CanvasInput {
 
     init(view: NodeView) {
         self.view = view
+        #if os(tvOS)
+        // tvOS has no multitouch.
+        multiple = false
+        #else
         multiple = view.isMultipleTouchEnabled
         view.isMultipleTouchEnabled = true
+        #endif
         inactive = NotificationCenter.default.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in self?.blur() }
         focusIfUnheld()
         DispatchQueue.main.async { [weak self] in self?.focusIfUnheld() }
@@ -32,7 +37,9 @@ final class CanvasInput {
     deinit {
         unlock()
         if let inactive { NotificationCenter.default.removeObserver(inactive) }
+        #if !os(tvOS)
         view?.isMultipleTouchEnabled = multiple
+        #endif
     }
     /// iPadOS pointer lock for a canvas marked `data-pointer-lock="true"`: the
     /// app's controller answers `prefersPointerLocked` from this, and while the
@@ -239,7 +246,7 @@ extension Agent {
 }
 #endif
 
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 extension NodeView {
     func pressedControls(_ presses: Set<UIPress>, down: Bool) -> Set<UIPress> {
         Set(presses.filter { press in

@@ -11,7 +11,7 @@
 // part of the content box it covers: no bitmap of the view's size is painted
 // on the main thread, and the decoded pixels are the only copy; an image
 // clipped otherwise draws as before.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 /// Every node view's layer. `display` decides whether UIKit allocates a

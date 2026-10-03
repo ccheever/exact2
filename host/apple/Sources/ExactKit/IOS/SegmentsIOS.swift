@@ -3,7 +3,7 @@
 // a tab bar item's own shape — to a tab bar (LLP 1059). Contract remains the
 // state owner; UIKit owns the control. Layout stays authored: the control
 // fills the tablist's box.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 private final class ExactSegmentedControl: UISegmentedControl {
@@ -106,7 +106,9 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         // UIKit cancels the pending segment tap. Opening a context action must
         // not first navigate to that tab, nor commit selection when lifted.
         control.cancelTracking(with: nil)
+        #if !os(tvOS)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        #endif
         presenter.contextmenu(tab.id)
     }
 

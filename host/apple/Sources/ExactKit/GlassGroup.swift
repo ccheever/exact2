@@ -11,7 +11,7 @@
 // on iOS a slot around its material whose effect switches between nil and
 // a container in place, on macOS a container it is moved into and out of.
 // Paint order inside a group is the platform's (D5).
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 typealias GlassPlatformView = UIView
 #else
@@ -57,7 +57,7 @@ final class GlassGroups {
     /// (D2): the first responder (on macOS the field a field editor edits)
     /// and its selection.
     static func moving(in root: GlassPlatformView, _ move: () -> Void) {
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         func focused(_ v: UIView) -> UIView? {
             if v.isFirstResponder { return v }
             for s in v.subviews { if let f = focused(s) { return f } }
@@ -109,8 +109,8 @@ extension NodeView {
         if materialRequest != nil { return "material" }
         if scroll != nil || style["overflow_x"]?.string == "scroll" || style["overflow_y"]?.string == "scroll" { return "scroll" }
         if overlay != nil { return "canvas" }
-        #if os(iOS)
-        if #unavailable(iOS 26.0) { return "os" }
+        #if os(iOS) || os(tvOS)
+        if #unavailable(iOS 26.0, tvOS 26.0) { return "os" }
         #else
         if #unavailable(macOS 26.0) { return "os" }
         #endif
@@ -128,7 +128,7 @@ extension NodeView {
         func note(_ r: String) { if !reasons.contains(r) { reasons.append(r) } }
         var view: GlassPlatformView? = self
         while let v = view {
-            #if os(iOS)
+            #if os(iOS) || os(tvOS)
             if let group = v.superview as? GlassGroupView { return (group.owner, reasons) }
             if let slot = v.superview as? GlassSlot, slot.effect != nil { return (slot.superview as? NodeView, reasons) }
             if v.alpha < 1 { note("opacity") }
@@ -150,7 +150,7 @@ extension NodeView {
     func nearestGlassGroup() -> NodeView? {
         var view = superview
         while let v = view {
-            #if os(iOS)
+            #if os(iOS) || os(tvOS)
             if let group = v as? GlassGroupView { return group.owner }
             #else
             if #available(macOS 26.0, *), let group = v as? GlassGroupView, !(group is GlassIsolationView) { return group.owner }
@@ -166,7 +166,7 @@ extension NodeView {
             var group: [String: Any] = ["spacing": Double(glassGroupSpacing ?? 0)]
             if props["glassGroupAuto"] == "true" { group["auto"] = true }
             if glassGroupView != nil {
-                #if os(iOS)
+                #if os(iOS) || os(tvOS)
                 group["drawn"] = "UIGlassContainerEffect"
                 #else
                 group["drawn"] = "NSGlassEffectContainerView"
@@ -184,7 +184,7 @@ extension NodeView {
     }
 }
 
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 /// The platform's glass container as a node's innermost view (D2). Never a
 /// hit target: its children are tested without its bounds (one in visible
 /// overflow is hittable), and empty group space, the bridge between merged
@@ -215,7 +215,7 @@ extension NodeView {
     func syncGlassGroup() {
         let conflict = glassGroupConflict
         if let conflict, conflict != "os" { GlassGroups.note(conflict, presenter?.session) }
-        guard props["glassGroup"] != nil, conflict == nil, let spacing = glassGroupSpacing, #available(iOS 26.0, *) else {
+        guard props["glassGroup"] != nil, conflict == nil, let spacing = glassGroupSpacing, #available(iOS 26.0, tvOS 26.0, *) else {
             if let group = glassGroupView { removeGlassGroup(group) }
             return
         }
@@ -281,7 +281,7 @@ extension NodeView {
     /// made when the glass is first found in a group, normally in the batch
     /// that mounts it, and then only its effect changes.
     @discardableResult func reconcileGlass() -> Bool {
-        guard let material = glassBody, #available(iOS 26.0, *) else { return false }
+        guard let material = glassBody, #available(iOS 26.0, tvOS 26.0, *) else { return false }
         let (container, reasons) = glassPath()
         guard container != nil else {
             guard let slot = glassSlot, slot.effect != nil else { return false }

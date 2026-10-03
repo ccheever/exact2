@@ -190,7 +190,7 @@ final class ReorderHold {
     private func raise(_ on: Bool) {
         guard let view = presenter?.views[state.wrapper] else { return }
         let z = on ? 1000 : view.usedZIndex
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         view.layer.zPosition = z
         #else
         view.layer?.zPosition = z

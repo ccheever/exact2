@@ -3,7 +3,7 @@
 // batches applied, the keyboard's inset and the field it reveals. It
 // belongs to one session (LLP 1031 D1) and reaches the session's canvases,
 // web views, and menus through it.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 import CoreText
 import os
@@ -131,9 +131,14 @@ final class Presenter {
     /// presence: UIKit announces hiding even during a cancelled sideways pop.
     /// The guide observes the keyboard in its owning container's coordinates.
     func keyboardGuideTop(in container: UIView) -> CGFloat? {
+        #if os(tvOS)
+        // tvOS has no keyboard layout guide.
+        return nil
+        #else
         guard hasKeyboardEditor || keyboardInset > 0 else { return nil }
         let guide = container.keyboardLayoutGuide.layoutFrame
         return guide.height > container.safeAreaInsets.bottom + 1 ? guide.minY : nil
+        #endif
     }
 
     init() {
@@ -153,10 +158,15 @@ final class Presenter {
     }
 
     func observeKeyboard() {
+        // tvOS has no keyboard frame notifications.
+        #if !os(tvOS)
         let c = NotificationCenter.default
         c.addObserver(self, selector: #selector(keyboardChanged(_:)), name: UIResponder.keyboardWillChangeFrameNotification, object: nil)
         c.addObserver(self, selector: #selector(keyboardChanged(_:)), name: UIResponder.keyboardWillHideNotification, object: nil)
+        #endif
     }
+
+    #if !os(tvOS)
 
     /// The keyboard is about to move: inset the viewport by what it will
     /// cover and reveal the field, inside an animation with the keyboard's
@@ -198,6 +208,7 @@ final class Presenter {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.08, execute: work)
         }
     }
+    #endif
     /// The last no-duration keyboard change, waiting to be applied.
     private var keyboardDebounce: DispatchWorkItem?
     var hasPendingKeyboardResize: Bool { keyboardDebounce != nil }

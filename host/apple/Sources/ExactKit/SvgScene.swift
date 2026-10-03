@@ -235,7 +235,7 @@ final class SvgScene {
 
     init() { root.masksToBounds = false; root.anchorPoint = .zero }
 
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     /// Filtered pictures that follow a changing input on the GPU, by element.
     private var live: [Int: SvgFilterLive] = [:]
     #endif
@@ -244,7 +244,7 @@ final class SvgScene {
     /// redrawn on the GPU after this commit (`SvgFilterLive`); `nil` for a
     /// first picture, or a chain or host the GPU path does not take.
     private func follow(_ id: Int, _ fl: [String: Any], k: CGFloat, dark: Bool, clock: Double?) -> CALayer? {
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         // A picture whose content animates follows it from its first frame:
         // its animations play in its sub-scene (`svg_lower::in_picture`).
         let animated = SvgFilterLive.animated(fl["c"] as Any)
@@ -267,7 +267,7 @@ final class SvgScene {
     }
 
     private func forget(_ id: Int) {
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         live.removeValue(forKey: id)?.stop()
         #endif
     }
@@ -404,7 +404,7 @@ final class SvgScene {
         if force { installed = [:]; wrapInstalled = [:] }
         for (id, list) in specs { if let layer = layers[id] { CssAnimations.apply(list, to: layer, clock: clock, installed: &installed[id, default: [:]], offscreen: offscreen) } }
         for (id, list) in wrapSpecs { if let outer = wrappers[id]?.outer { CssAnimations.apply(list, to: outer, clock: clock, installed: &wrapInstalled[id, default: [:]], offscreen: offscreen) } }
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         for l in live.values { l.seek(clock) }
         #endif
     }
@@ -415,7 +415,7 @@ final class SvgScene {
         root.sublayers?.forEach { $0.removeFromSuperlayer() }
         for pair in wrappers.values { pair.outer.removeAllAnimations() }
         layers = [:]; installed = [:]; specs = [:]; wrappers = [:]; wrapSpecs = [:]; wrapInstalled = [:]; islands = [:]; pictures = [:]; drawn = [:]; shadows = [:]
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         for l in live.values { l.stop() }
         live = [:]
         #endif

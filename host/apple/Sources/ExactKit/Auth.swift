@@ -13,16 +13,20 @@ import UIKit
 import AppKit
 #endif
 
-final class AuthSessions: NSObject, ASWebAuthenticationPresentationContextProviding {
+final class AuthSessions: NSObject {
     weak var owner: ExactSession?
     /// Live sessions by ticket; releasing one cancels it, so it is kept
     /// until its completion handler runs (or the runner lets go of it).
     var live: [UInt64: ASWebAuthenticationSession] = [:]
+}
 
+#if !os(tvOS)
+extension AuthSessions: ASWebAuthenticationPresentationContextProviding {
     func presentationAnchor(for _: ASWebAuthenticationSession) -> ASPresentationAnchor {
         owner?.presenter.shareAnchor(nil).0?.window ?? ASPresentationAnchor()
     }
 }
+#endif
 
 extension ExactSession {
     /// A batch's `auth` op: open, or cancel one the runner let go of.
@@ -31,7 +35,11 @@ extension ExactSession {
         let sessions = authSessions
         if op["cancel"] as? Bool == true {
             // Supersession or teardown: cancel, and drop the late completion.
+            #if os(tvOS)
+            sessions.live.removeValue(forKey: ticket)
+            #else
             sessions.live.removeValue(forKey: ticket)?.cancel()
+            #endif
             return
         }
         // Under the agent the request is held (D7) — unless the drive asked
@@ -41,6 +49,10 @@ extension ExactSession {
             runtime.auth(["op": "hold", "ticket": ticket])
             return
         }
+        #if os(tvOS)
+        // tvOS has no web authentication sheet.
+        authDone(ticket, status: 501, message: "tvOS has no web authentication session")
+        #else
         guard let urlText = op["url"] as? String, let url = URL(string: urlText),
               let callback = op["callback"] as? String, let parts = URLComponents(string: callback),
               let scheme = parts.scheme?.lowercased()
@@ -66,6 +78,7 @@ extension ExactSession {
             sessions.live[ticket] = nil
             authDone(ticket, status: 502, message: "the session could not start (no window)")
         }
+        #endif
     }
 
     private func authCompleted(_ ticket: UInt64, url: URL?, error: Error?) {
@@ -86,8 +99,12 @@ extension ExactSession {
 
     /// Teardown or reload: every live session ends with it (D3).
     func cancelAuthSessions() {
+        #if os(tvOS)
+        authSessions.live = [:]
+        #else
         let live = authSessions.live
         authSessions.live = [:]
         for session in live.values { session.cancel() }
+        #endif
     }
 }

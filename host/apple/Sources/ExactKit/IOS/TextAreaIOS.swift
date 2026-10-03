@@ -1,5 +1,5 @@
 // Contract textarea: UITextView keeps Enter as a newline, never a submission.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 // The software keyboard calls UIKeyInput directly, including deletion in an
@@ -86,12 +86,23 @@ final class TextArea: UITextView {
         // UITextView's editing delegate omits read-only selection sessions.
         // They still blur in HTML, and the app must be able to remove its
         // transient selection surface after focus moves elsewhere.
+        #if os(tvOS)
+        // tvOS text views do not edit, so every session is read-only.
+        if resigned, wasFirst, let owner, owner.handlers.contains("blur") {
+            owner.presenter?.blur(owner.id)
+        }
+        #else
         if resigned, wasFirst, !isEditable, let owner, owner.handlers.contains("blur") {
             owner.presenter?.blur(owner.id)
         }
+        #endif
         return resigned
     }
     override var keyCommands: [UIKeyCommand]? {
+        #if os(tvOS)
+        // tvOS text views do not edit.
+        return super.keyCommands
+        #else
         guard markup != nil, isEditable else { return super.keyCommands }
         return (super.keyCommands ?? []) + [
             UIKeyCommand(title: "Bold", action: #selector(markupBold), input: "b", modifierFlags: .command),
@@ -99,17 +110,23 @@ final class TextArea: UITextView {
             UIKeyCommand(title: "Link", action: #selector(markupLink), input: "k", modifierFlags: .command),
             UIKeyCommand(title: "Copy Plain Text", action: #selector(copyPlainText), input: "c", modifierFlags: [.command, .shift]),
         ]
+        #endif
     }
     @objc private func markupBold() { owner?.formatMarkup("bold") }
     @objc private func markupItalic() { owner?.formatMarkup("italic") }
     @objc private func markupLink() { owner?.editMarkupLink() }
     @objc func copyPlainText() {
+        // tvOS has no pasteboard.
+        #if !os(tvOS)
         guard markup != nil, selectedRange.length > 0, let plain = MarkupCommands.plain((text as NSString).substring(with: selectedRange)) else { return }
         UIPasteboard.general.string = plain
+        #endif
     }
     override func copy(_ sender: Any?) {
         guard markup != nil else { super.copy(sender); return }
+        #if !os(tvOS)
         if selectedRange.length > 0 { UIPasteboard.general.string = (text as NSString).substring(with: selectedRange) }
+        #endif
     }
     // Keep TextKit's line pitch equal to the authored CSS line box. Updating
     // storage attributes preserves the value and selected range; replacing
@@ -202,7 +219,9 @@ extension NodeView {
         guard let f = textArea else { return }
         configureMarkup()
         writeValue(props["value"] ?? "", into: f)
+        #if !os(tvOS)
         f.isEditable = !disabled && props["editable"] != "false"
+        #endif
         f.isSelectable = !disabled
         let traitsChanged = f.autocapitalizationType != inputCapitalization || f.autocorrectionType != inputCorrection || f.spellCheckingType != inputSpellChecking
         f.autocapitalizationType = inputCapitalization

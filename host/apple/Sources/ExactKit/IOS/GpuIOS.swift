@@ -5,7 +5,7 @@
 // CAMetalLayer, inputs bound as they arrive, frames rendered while a
 // surface is dirty or wants more, from the same display link motion uses.
 // The AppKit presenter's `Canvases` (host/apple/macos/…/Gpu.swift) on UIKit.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import QuartzCore
 import UIKit
 

@@ -20,7 +20,7 @@
 // thread in a fast fling of the Extra Heavy feed — to reach the few it can
 // focus. Only the viewport answers: UIKit logs, at every init, each view of
 // a class that answers `focusItems(in:)`.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 enum FocusSearch {

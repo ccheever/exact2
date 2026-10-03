@@ -11,7 +11,7 @@
 // fire, D1 — so a menu that refreshes its rows on that press shows the
 // refreshed rows.
 
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 final class MenuHost {
@@ -49,7 +49,13 @@ final class MenuHost {
     /// An alertdialog-shaped popover has one action and one hide-only cancel.
     /// Retain this owner until native dismissal completes; ids alone are not
     /// enough because a restart can reuse them for unrelated controls.
-    private final class Confirmation: NSObject, UIPopoverPresentationControllerDelegate {
+    #if os(tvOS)
+    // tvOS has no popovers; the sheet keeps the adaptive delegate only.
+    private typealias ConfirmationDelegate = UIAdaptivePresentationControllerDelegate
+    #else
+    private typealias ConfirmationDelegate = UIPopoverPresentationControllerDelegate
+    #endif
+    private final class Confirmation: NSObject, ConfirmationDelegate {
         weak var host: MenuHost?
         weak var source: NodeView?
         weak var popover: NodeView?
@@ -63,9 +69,11 @@ final class MenuHost {
             alert = UIAlertController(title: nil, message: message, preferredStyle: .actionSheet)
         }
         func adaptivePresentationStyle(for controller: UIPresentationController) -> UIModalPresentationStyle { .none }
+        #if !os(tvOS)
         func popoverPresentationControllerDidDismissPopover(_ controller: UIPopoverPresentationController) {
             host?.cancelled(self)
         }
+        #endif
         func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
             host?.cancelled(self)
         }
@@ -441,6 +449,7 @@ final class MenuHost {
         owner.alert.addAction(UIAlertAction(title: title(of: cancel), style: .cancel) { [weak self, weak owner] _ in
             if let owner { self?.finish(owner, confirmed: false) }
         })
+        #if !os(tvOS)
         guard let presentation = owner.alert.popoverPresentationController else { return false }
         presentation.sourceView = source
         // A labelled row anchors at its text; an icon control uses its box.
@@ -450,6 +459,7 @@ final class MenuHost {
         presentation.permittedArrowDirections = []
         presentation.canOverlapSourceViewRect = true
         presentation.delegate = owner
+        #endif
         confirmation = owner
         controller.present(owner.alert, animated: !ExactEnv.agentFreezes)
         return true

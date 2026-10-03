@@ -10,7 +10,7 @@
 // it (the web's chaining rule); `type` puts text through the field's own
 // `insertText`; `screenshot` draws the viewport's hierarchy to a PNG (Metal
 // layers included, so `window: true` is the same picture).
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 extension Agent {
@@ -178,7 +178,9 @@ extension Agent {
         if let top = keyboardTop, let container = keyboardContainer {
             keyboard["top"] = Agent.r2(vp.convert(CGPoint(x: 0, y: top), from: container).y - vp.contentOffset.y)
         }
+        #if !os(tvOS)
         if let view = presenter.session?.view { keyboard["guide"] = Agent.r2(view.keyboardLayoutGuide.layoutFrame.minY) }
+        #endif
         var navigation = presenter.navigation.observation()
         navigation["presentation"] = presenter.modals.presentation ?? NSNull()
         navigation["closedby"] = presenter.modals.closedby ?? NSNull()

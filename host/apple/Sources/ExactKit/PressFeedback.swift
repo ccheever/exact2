@@ -109,7 +109,7 @@ extension NodeView {
         return CGPoint(x: bounds.minX + axis(0, bounds.width), y: bounds.minY + axis(1, bounds.height))
     }
 
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     func applyTransform() {
         // CSS's individual transforms: translate, then rotate, then scale,
         // about `transform-origin` — offset from the centre, UIKit's anchor;

@@ -1,4 +1,4 @@
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 // LLP 1057.001 §1 on UIKit, with UIKit's own relationships: rule 3's boundary

@@ -75,7 +75,14 @@ extension Picker {
     }
 }
 
-#if canImport(UIKit)
+#if os(tvOS)
+extension Picker {
+    func presentSave(view: UInt32, file _: URL, name _: String) {
+        // tvOS has no document picker to export through.
+        session.log("saveFile: refused: no document picker"); saveCancelled(view)
+    }
+}
+#elseif canImport(UIKit)
 extension Picker {
     /// iOS: a scratch copy under the suggested name, handed to the
     /// exporting document picker, which moves a copy where the person says.

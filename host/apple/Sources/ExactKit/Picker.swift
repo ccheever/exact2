@@ -187,7 +187,14 @@ final class Picker: NSObject {
     }
 }
 
-#if canImport(UIKit)
+#if os(tvOS)
+extension Picker {
+    func present(_ r: Request) {
+        // tvOS has no photo or document picker.
+        session.log("picker: refused: no picker"); cancel(r.view)
+    }
+}
+#elseif canImport(UIKit)
 extension Picker: PHPickerViewControllerDelegate, UIDocumentPickerDelegate {
     func present(_ r: Request) {
         guard var controller = session.presenter.root.window?.rootViewController else {

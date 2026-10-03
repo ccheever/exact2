@@ -10,7 +10,7 @@
 //   (`TextRasterIOS.swift`) inside a vibrancy effect view of that colour's
 //   style, which takes the ink's shape and draws it as UIKit draws the
 //   label: blended with what the material blurs.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 /// A paragraph's vibrancy effect view: its ink is drawn in the content view.
@@ -88,6 +88,10 @@ extension NodeView {
     /// it draws plainly.
     @discardableResult
     func syncVibrancy() -> VibrancyView? {
+        #if os(tvOS)
+        // tvOS has no vibrancy styles; the paragraph draws plainly.
+        return nil
+        #else
         let style = (isParagraph ? systemColor("text_color") : vibrantFill ? systemColor("background_color") : nil)
             .flatMap(Self.vibrancyStyle)
         let blur = style == nil ? nil : enclosingBlur.flatMap { host -> UIBlurEffect? in
@@ -131,6 +135,7 @@ extension NodeView {
             v.contentView.backgroundColor = .white
         }
         return v
+        #endif
     }
 
     /// Whether the paragraph's whole ink is its one system colour: no run
@@ -143,6 +148,7 @@ extension NodeView {
     }
 
     /// UIKit's vibrancy style for a system colour, by WebKit's name.
+    #if !os(tvOS)
     static func vibrancyStyle(_ name: String) -> UIVibrancyEffectStyle? {
         switch name {
         case "-apple-system-label": .label
@@ -154,6 +160,7 @@ extension NodeView {
         default: nil
         }
     }
+    #endif
 
     private static var vibrancySlot = 0
     private static var containerSlot = 0

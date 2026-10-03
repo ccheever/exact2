@@ -15,7 +15,7 @@ import Foundation
 import CoreFoundation
 
 public final class Agent {
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     // An agent-issued edit awaits its actual editor's native caret reveal.
     weak var pendingTextReveal: TextArea?
     /// The held contact on a `pan` node, recognized (LLP 1057 §10.6).
@@ -353,7 +353,7 @@ public final class Agent {
     /// `rows` (each at least 1), `gap` (points, 0 by default). Each refusal
     /// names its fact (LLP 1078 D10); nothing applies unless all are known.
     private func preferFold(_ fold: [String: Any]) -> String? {
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         // The hinge interaction reports after the view attaches, a turn or two
         // after boot; a drive's first `prefer` can arrive before it. Give it a
         // bounded moment on a 27.1 device so the answer is the device's.
@@ -451,7 +451,7 @@ public final class Agent {
                 let deadline = Date(timeIntervalSinceNow: 2)
                 var wasBusy = nativeInFlight()
                 while true {
-                    #if !os(iOS)
+                    #if !(os(iOS) || os(tvOS))
                     if !wasBusy { break }
                     #endif
                     RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02))
@@ -536,7 +536,7 @@ public final class Agent {
         // A Canvas 2D image being decoded is a reply still to come (LLP 1056 D9).
         // A held device request is not I/O in flight (LLP 1069.007 D3).
         let inFlight = (o["pending"] as? [[String: Any]])?.filter { $0["device"] == nil }.count ?? 0
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         // A filtered SVG picture being drawn off the main thread (LLP 1055.000 D14).
         let pictures = SvgFilterLive.inFlight
         #else

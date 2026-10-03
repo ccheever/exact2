@@ -277,7 +277,7 @@ final class GpuModule {
         module.landed = sym("gpu_landed", WantsFn.self)
         if module.starved != nil { sym("gpu_on_acquire", OnAcquireFn.self)?(gpuAcquired) }
         module.seen = sym("gpu_seen", WantsFn.self)
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         if module.seen != nil { sym("gpu_on_presented", OnAcquireFn.self)?(gpuPresented) }
         #endif
         return .success(module)
@@ -289,7 +289,7 @@ final class GpuModule {
         self.childView = child; self.childrenCount = childrenCount; self.placement = placement; self.shader = shader; self.validateShader = validateShader; self.clearShaders = clearShaders; self.errorLen = errorLen; self.errorPtr = errorPtr
     }
 
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     /// First frames are with the compositor: every session's canvases that
     /// waited hidden on a reused layer show theirs.
     static func presented() {
@@ -395,7 +395,7 @@ struct DisplayPeriod {
     }
 }
 
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 /// The module's callback when canvases' first frames have been handed to the
 /// compositor, on the thread Metal scheduled the frame on (gpu/src/frame.rs):
 /// the layers that waited hidden are shown on the main thread. Entries are

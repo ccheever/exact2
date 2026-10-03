@@ -1,5 +1,5 @@
 // UIKit keeps gesture recognition; this recognizer only observes a bounded pin.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 private final class CollectionContact: UIGestureRecognizer {
