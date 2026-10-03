@@ -379,6 +379,13 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
           await call('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: vk, ...(key.length === 1 ? { text: key } : {}) });
           await call('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: vk });
         }
+        else if (kind === 'press' && await evaluate(`(() => { const hit = document.elementFromPoint(${x}, ${y}), host = hit?.closest('[data-gpu-input]'); return !!host && (hit === host || hit.localName === 'canvas'); })()`)) {
+          // A tap on a world's canvas is a finger, as a held contact is here and
+          // every tap is on iOS and Linux, so a proof leaves one world everywhere.
+          if (!touch) { await call('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 }); touch = true; }
+          await call('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+          await call('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        }
         else if (kind === 'press') {
           await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
           await call('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });

@@ -867,3 +867,39 @@ fn a_lost_pointer_holds_no_button_and_the_canvas_hears_its_release() {
     assert_eq!(last(&p).1, "down", "the middle button begins again");
     done(p, path);
 }
+
+/// The agent's taps and contacts reach a canvas as a finger on every host (the
+/// web's CDP touch, iOS's touches); its hover is a mouse with nothing held.
+/// Before: a Linux agent tap was a mouse with the primary button, so the world
+/// held MouseLeft there and not on the web or iOS.
+#[test]
+fn the_agents_canvas_taps_are_a_finger_and_its_hover_a_mouse() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    let (ox, oy, _, _) = p.rect_of(raw).unwrap();
+    let kind = |p: &Presenter<NoData>| {
+        let (_, _, e) = last_input(p);
+        (
+            e["phase"].as_str().unwrap().to_string(),
+            e["kind"].as_str().unwrap().to_string(),
+        )
+    };
+    crate::agent::answer(
+        &mut p,
+        &format!(
+            r#"{{"op":"tap","id":{raw},"phase":"down","x":{},"y":{}}}"#,
+            ox + 50.,
+            oy + 70.
+        ),
+    );
+    assert_eq!(kind(&p), ("down".into(), "touch".into()));
+    crate::agent::answer(&mut p, r#"{"op":"tap","phase":"up"}"#);
+    assert_eq!(kind(&p), ("up".into(), "touch".into()));
+    p.pointer_move(ox + 40., oy + 60., 1.).unwrap();
+    assert_eq!(
+        kind(&p),
+        ("move".into(), "mouse".into()),
+        "a device's hover"
+    );
+    done(p, path);
+}

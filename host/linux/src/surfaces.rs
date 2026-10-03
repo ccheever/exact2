@@ -319,6 +319,8 @@ pub(crate) struct Surfaces {
     /// The canvas their first press went to: it hears their release wherever
     /// the pointer is, as the web's pointer capture.
     aux_canvas: Option<u32>,
+    /// The agent is driving: its taps and contacts are a finger's.
+    finger: bool,
 }
 impl Surfaces {
     pub(crate) fn enqueue(&mut self, request: RequestOut, admitted: &str) {
@@ -929,12 +931,22 @@ impl<D: DataSource> Presenter<D> {
             _ => (0., 0.),
         };
         self.surfaces.pointer = Some((view, x, y));
-        self.surfaces.input(view, json!({"t":"pointer","id":1,"phase":phase,"kind":"mouse","buttons":buttons,"x":x-ox,"y":y-oy,"dx":dx,"dy":dy,"at":at}))
+        // The agent's hover is a mouse with nothing held, as everywhere.
+        let hover = phase == "move" && buttons & 1 == 0;
+        let kind = if self.surfaces.finger && !hover {
+            "touch"
+        } else {
+            "mouse"
+        };
+        self.surfaces.input(view, json!({"t":"pointer","id":1,"phase":phase,"kind":kind,"buttons":buttons,"x":x-ox,"y":y-oy,"dx":dx,"dy":dy,"at":at}))
     }
     /// The device's motion for the next canvas pointer event (evdev's
     /// relative axes), so mouse look continues past the screen's edge.
     pub fn raw_motion(&mut self, dx: f32, dy: f32) {
         self.surfaces.motion = Some((dx, dy));
+    }
+    pub(crate) fn agent_finger(&mut self, on: bool) {
+        self.surfaces.finger = on;
     }
     pub(crate) fn has_raw_motion(&self) -> bool {
         self.surfaces.motion.is_some()
