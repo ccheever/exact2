@@ -181,8 +181,10 @@ export const navigation = {
       waiters.add(finish); history.go(delta);
     });
   },
-  project(root, log) {
-    for (const nav of root.querySelectorAll("[navigationBack]")) {
+  // `navs`: the roots, where the caller knows them (a JS-target plan with
+  // none passes [], so a commit never scans the whole tree for one).
+  project(root, log, navs = root.querySelectorAll("[navigationBack]")) {
+    for (const nav of navs) {
       const key = nav.getAttribute("navigationKey");
       const panels = panelsOf(nav);
       for (const panel of managed.get(nav) ?? []) {

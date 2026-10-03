@@ -743,3 +743,11 @@ pub fn font_family_table(plan: &Plan) -> Vec<String> {
 pub fn style_marker(id: StyleId) -> (String, String) {
     (css_property(id), String::new())
 }
+
+/// `s`'s place in `list`, added at the end the first time.
+pub fn intern(list: &mut Vec<String>, s: &str) -> usize {
+    list.iter().position(|c| c == s).unwrap_or_else(|| {
+        list.push(s.to_string());
+        list.len() - 1
+    })
+}

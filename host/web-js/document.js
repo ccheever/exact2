@@ -72,9 +72,11 @@ function publish() {
  * navigation.js's, the web host's own): each root's routes are projected,
  * the covered hidden and inert, now and after every commit's tree (`after`,
  * rt.js `After`), as the web host projects after every batch; Escape on a
- * modal route presses its back, and `navigate` takes a popstate's location. */
-export function projectRoots(history, navigate, say, after) {
-  const root = document.getElementById("exact-root"), project = () => history.project(root, say);
+ * modal route presses its back, and `navigate` takes a popstate's location.
+ * A plan none of whose nodes can be a root (`roots` false: a router alone)
+ * projects none, without looking for one in the tree each commit. */
+export function projectRoots(history, navigate, say, after, roots) {
+  const root = document.getElementById("exact-root"), project = () => history.project(root, say, roots ? undefined : []);
   history.connect(root, navigate, say);
   after.push(project); project();
 }

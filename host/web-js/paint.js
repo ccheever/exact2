@@ -18,7 +18,10 @@ const holds = e => e.matches(Own) || e.querySelector(Own) !== null;
 export function paintFlush() {
   if (!dirty.size) return;
   for (const p of dirty) {
-    if (!p?.isConnected || !p.querySelector(":scope>[data-exact-box]")) continue;
+    // Its children, not its subtree (a selector would walk every row of a 10,000-row list).
+    let b = p?.isConnected ? p.firstElementChild : null;
+    while (b && !b.hasAttribute("data-exact-box")) b = b.nextElementSibling;
+    if (!b) continue;
     let after = false;
     for (let c = p.firstElementChild; c; c = c.nextElementSibling) {
       if (c.hasAttribute("data-exact-box") && !c.hasAttribute("data-exact-own-isolation")) {
