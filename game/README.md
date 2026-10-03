@@ -250,8 +250,11 @@ when one exists. A game without commits can repin under the same agreement check
 
 Paranoid runs check simulation and saves. Save and FreshGame modes rebuild the
 world through the normal restore path at the last tick of every advance (every
-point a proof observes) and every 16th tick inside one, which resets presentation
-interpolation; use ordinary runs for appearance and motion comparisons. The
+point a proof observes), at every tick that received input, and every 16th tick
+inside an advance, which resets presentation interpolation. A save bug visible only
+in a tick none of those cover (state that lives one unobserved, input-free tick
+and is gone by the next sample) is no longer caught; run the proof with shorter
+`clock` steps to sample more ticks. use ordinary runs for appearance and motion comparisons. The
 driver moves a long `clock +N` in one-second steps, each its own operation, so a
 seek's length is not bounded by a host's answer window (Chrome's 15 s).
 

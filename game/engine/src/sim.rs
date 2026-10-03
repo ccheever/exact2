@@ -91,8 +91,8 @@ struct LiveTime {
     slew_left: Option<f64>,
     lookahead: f64,
 }
-/// Opt-in save reconstruction at the last tick of every advance and every 16th
-/// tick inside one. Never enabled by default.
+/// Opt-in save reconstruction at the last tick of every advance, every tick that
+/// received input, and every 16th tick inside an advance. Never enabled by default.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Paranoid {
     /// Normal execution.
@@ -1012,6 +1012,7 @@ impl<G: Game> Sim<G> {
             self.world.begin_tick();
             self.input.clear_edges();
             let end = (self.world.tick() as u128 + 1) * 1_000_000;
+            let mut delivered = false;
             while self.queue.front().is_some_and(|e| {
                 e.world_us.is_some_and(|us| {
                     let stamp = us as u128 * G::HZ as u128;
@@ -1019,6 +1020,7 @@ impl<G: Game> Sim<G> {
                 })
             }) {
                 self.input.apply(self.queue.pop_front().unwrap().event);
+                delivered = true;
             }
             self.restored = false;
             self.restored_from = None;
@@ -1028,9 +1030,11 @@ impl<G: Game> Sim<G> {
             self.world.propagate();
             self.world.step_clock();
             // Paranoid modes round-trip at every point an advance can be observed
-            // (its last tick) and every PARANOID_EVERY-th tick inside it.
+            // (its last tick), at every tick that received input, and every
+            // PARANOID_EVERY-th tick inside an advance.
             if let Some(rebuild) = self.paranoid {
-                if self.world.tick() == target || self.world.tick().is_multiple_of(PARANOID_EVERY) {
+                let tick = self.world.tick();
+                if tick == target || delivered || tick.is_multiple_of(PARANOID_EVERY) {
                     rebuild(self);
                 }
             }
