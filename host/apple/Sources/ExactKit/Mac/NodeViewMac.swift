@@ -1004,7 +1004,13 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if (ox == "scroll" || oy == "scroll") && scroll == nil {
             let sv = ChainingScrollView(frame: bounds)
             sv.collectionWillScroll = { [weak self] in
-                guard let self else { return }; presenter?.collections.userIntent(id, travel: true)
+                guard let self else { return }
+                // The reader's own scroll ends a smooth correction's animation.
+                if presenter?.collections.animating.contains(id) == true, let clip = scroll?.contentView {
+                    NSAnimationContext.runAnimationGroup({ c in c.duration = 0; clip.animator().setBoundsOrigin(clip.bounds.origin) })
+                }
+                presenter?.collections.animationEnded(id, dragging: true)
+                presenter?.collections.userIntent(id, travel: true)
             }
             sv.drawsBackground = false
             sv.scrollerStyle = .overlay

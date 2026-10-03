@@ -249,19 +249,22 @@ extension CollectionHost {
         let content = node.contentBox()
         guard bounds.width.isFinite, bounds.height.isFinite else { return nil }
         let horizontal = entries[id]?.snapshot.horizontal ?? false
+        // Animating to a smooth correction: where it is headed is the port
+        // the runner plans from (`CollectionHost.animating`).
+        let at = (animating.contains(id) ? owedTargets[id] ?? animationTargets[id] : nil) ?? bounds.origin
         let measured = entries[id]?.snapshot.rows.first.flatMap { crossSize($0.view, horizontal: horizontal) }.map { CGFloat($0) }
         if horizontal {
             let available = max(0, bounds.height - content.minY - (node.bounds.height - content.maxY))
             let cross = measured ?? available
             guard cross.isFinite else { return nil }
-            return CollectionFacts(offset: Double(max(0, bounds.minX - content.minX)),
+            return CollectionFacts(offset: Double(max(0, at.x - content.minX)),
                 portMain: Double(max(0, bounds.width)), portCross: Double(max(0, bounds.height)),
                 cross: Double(cross), measurements: [], focus: nil, interaction: nil)
         }
         let available = max(0, bounds.width - content.minX - (node.bounds.width - content.maxX))
         let width = measured ?? available
         guard width.isFinite else { return nil }
-        return CollectionFacts(offset: Double(max(0, bounds.minY - content.minY)),
+        return CollectionFacts(offset: Double(max(0, at.y - content.minY)),
             portMain: Double(max(0, bounds.height)), portCross: Double(max(0, bounds.width)),
             cross: Double(width), measurements: [], focus: nil, interaction: nil)
     }
@@ -281,10 +284,41 @@ extension CollectionHost {
         guard let node = presenter?.views[id], let scroll = node.scroll else { return }
         let clip = scroll.contentView, horizontal = entries[id]?.snapshot.horizontal ?? false
         let content = node.contentBox()
+        if animating.contains(id), delta.isFinite, let headed = owedTargets[id] ?? animationTargets[id] {
+            // The rows moved under a running animation: where it lands moves
+            // with them, and the animation goes on.
+            owedTargets[id] = horizontal ? NSPoint(x: headed.x + CGFloat(delta), y: headed.y) : NSPoint(x: headed.x, y: headed.y + CGFloat(delta))
+            return
+        }
         let now = Double(horizontal ? clip.bounds.minX - content.minX : clip.bounds.minY - content.minY)
         correct(id, top: now + (delta.isFinite ? delta : 0), extent: extent)
     }
-    func landAnimation(_ id: UInt32) {}
+    /// A smooth correction's target that arrived while one was animating.
+    func landAnimation(_ id: UInt32) {
+        guard let target = owedTargets.removeValue(forKey: id), let scroll = presenter?.views[id]?.scroll else { return }
+        let clip = scroll.contentView
+        let gap = abs(target.y - clip.bounds.minY) + abs(target.x - clip.bounds.minX)
+        guard gap > 0.5 else { return }
+        if gap > 24 && !ExactEnv.agentFreezes {
+            animate(id, scroll, to: target)
+        } else {
+            clip.scroll(to: target)
+            scroll.reflectScrolledClipView(clip)
+        }
+    }
+    /// AppKit's own scroll animation, the clip view's animator; its end is
+    /// the animation's (`animationEnded`).
+    private func animate(_ id: UInt32, _ scroll: NSScrollView, to target: NSPoint) {
+        animating.insert(id)
+        animationTargets[id] = target
+        let clip = scroll.contentView
+        NSAnimationContext.runAnimationGroup({ _ in clip.animator().setBoundsOrigin(target) }, completionHandler: { [weak self, weak scroll] in
+            if let scroll { scroll.reflectScrolledClipView(scroll.contentView) }
+            // A later animation or an ordinary correction took over.
+            guard let self, self.animationTargets[id] == target else { return }
+            self.animationEnded(id)
+        })
+    }
     func correct(_ id: UInt32, top: Double, extent: Double, smooth: Bool = false) {
         guard let node = presenter?.views[id], let scroll = node.scroll,
               let document = scroll.documentView else { return }
@@ -314,10 +348,24 @@ extension CollectionHost {
             let maximum = max(0, document.frame.height - clip.bounds.height)
             target = NSPoint(x: clip.bounds.minX, y: holdsEnd ? maximum : min(maximum, max(0, CGFloat(top) + content.minY)))
         }
-        if clip.bounds.origin != target {
-            clip.scroll(to: target)
-            scroll.reflectScrolledClipView(clip)
+        guard clip.bounds.origin != target else { return }
+        // A smooth correction is AppKit's scroll animation (LLP 1070.000
+        // §6.2), as UIKit's is on iOS; one already running goes on and
+        // takes this target when it lands.
+        if smooth && !ExactEnv.agentFreezes && !holdsEnd && node.window != nil {
+            if animating.contains(id) { owedTargets[id] = target; return }
+            animate(id, scroll, to: target)
+            return
         }
+        if animating.remove(id) != nil {
+            // An ordinary correction stops it where it is: a zero-length
+            // animation replaces the running one.
+            animationTargets[id] = nil; owedTargets[id] = nil
+            NSAnimationContext.runAnimationGroup({ c in c.duration = 0; clip.animator().setBoundsOrigin(target) })
+        } else {
+            clip.scroll(to: target)
+        }
+        scroll.reflectScrolledClipView(clip)
     }
     func focusedView() -> UInt32? {
         guard let presenter, let responder = presenter.viewport.window?.firstResponder else { return nil }

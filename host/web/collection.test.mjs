@@ -289,6 +289,30 @@ test('an anchor correction (from) moves the port by its shift after a later user
     return {shifted,again,grown:f.port.scrollTop};})()`);
   expect(result).toEqual({shifted:232,again:232,grown:222});
 });
+test('under scroll-behavior: smooth an anchor correction still lands before the frame paints', async () => {
+  const result=await evaluate(`(() => {const f=fixture();f.port.style.scrollBehavior='smooth';
+    f.controller.commit([f.snapshot()]);f.port.scrollTo({top:160,behavior:'instant'});f.port.dispatchEvent(new Event('scroll'));f.flush();
+    const seq=f.reports.at(-1).sequence;
+    f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:112,from:140}})]);
+    return f.port.scrollTop;})()`);
+  expect(result).toBe(132);
+});
+test('a smooth correction animates and reports where it is headed until it lands (LLP 1070.000 §6.2)', async () => {
+  const result=await evaluate(`(async () => {const f=fixture();
+    f.controller.commit([f.snapshot()]);f.flush();
+    const seq=f.reports.at(-1).sequence;
+    f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:800,smooth:true}})]);
+    const started=f.port.scrollTop;
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+    f.port.dispatchEvent(new Event('scroll'));f.flush();
+    const midway=f.port.scrollTop,report=f.reports.at(-1);
+    await new Promise(r=>{const t=setTimeout(r,3000);f.port.addEventListener('scrollend',()=>{clearTimeout(t);r();},{once:true});});
+    return {started,midway,headed:report.top,sequence:report.sequence===seq,landed:f.port.scrollTop};})()`);
+  expect(result.started).toBeLessThan(860);
+  expect(result.headed).toBe(800);
+  expect(result.sequence).toBe(true);
+  expect(result.landed).toBe(860); // the list starts 60 px into its port
+});
 test('collection read reuse: synchronous report replacement samples new nodes and epochs next pass', async () => {
   const result=await evaluate(`(() => {const f=fixture(),widths=[];let replaced=false;
     f.views.get(2).style.height='40.5px';f.onReport=()=>{widths.push(f.port.clientWidth);if(replaced)return;replaced=true;

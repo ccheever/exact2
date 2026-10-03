@@ -149,9 +149,24 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     if (stimulus) s.budget = 2;
     if (s.budget > 0) { dirty.add(s); schedule(); }
   }
+  // A correction's offset: smooth only when the correction says so, never
+  // by the element's own `scroll-behavior: smooth` (an anchor's shift must
+  // land with the rows that moved, before the frame paints).
+  function place(s, at, smooth) {
+    s.port.scrollTo({ [AXES[s.axis].offset === 'scrollTop' ? 'top' : 'left']: at, behavior: smooth ? 'smooth' : 'instant' });
+  }
   function scrollChanged(s) {
     const A = AXES[s.axis], at = s.port[A.offset];
     if (at === s.offset) return false;
+    // A smooth correction's animation (LLP 1070.000 §6.2) is not the
+    // reader's travel: the sequence stays, and reports say where it is
+    // headed (`facts`), until it lands or the reader takes over.
+    if (s.animating != null) {
+      s.offset = at;
+      if (Math.abs(at - s.animating) > 0.5) return false;
+      s.animating = null;
+      return true;
+    }
     // The browser clamping the port to an extent a row laid out smaller than
     // its estimate shortened: not a scroll. The runner's coordinates are the
     // painted frame's, where the port was still where it was (LLP 1070.000).
@@ -221,7 +236,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
       if (s.dimensions !== null && dimensions !== s.dimensions) { s.sequence++; s.jumpedAt = s.sequence; }
       s.dimensions = dimensions;
       const facts = { view: s.snapshot.view, revision: s.snapshot.revision, scroll_sequence: s.sequence,
-        offset: Math.max(0, g.raw + (s.clamp?.at === s.port[A.offset] ? s.clamp.from - s.clamp.at : 0)), port_main: g.portMain, port_cross: g.portCross, cross: g.cross,
+        offset: Math.max(0, g.raw + (s.animating != null ? s.animating - s.port[A.offset] : s.clamp?.at === s.port[A.offset] ? s.clamp.from - s.clamp.at : 0)), port_main: g.portMain, port_cross: g.portCross, cross: g.cross,
         focus_view: pins[0], interaction_view: pins[1], measurements };
       const signature = [facts.offset, facts.scroll_sequence, dimensions, ...pins,
         ...measurements.flatMap(r => [r.view, r.epoch, r.size])].join('|');
@@ -279,6 +294,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     dirty.delete(s); waiting.delete(s); s.observer.disconnect();
     for (const row of s.rows) if (row.el) rowOwners.delete(row.el);
     s.port.removeEventListener('scroll', s.scrolled);
+    s.port.removeEventListener('scrollend', s.scrollEnded);
     s.el.style.overflowAnchor = s.anchor;
     for (const name of INPUT) s.port.removeEventListener(name, s.touched);
     states.delete(s.snapshot.view);
@@ -376,7 +392,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
             sequence: BigInt(snapshot.scrollSequence), offset: port[AXES[axis].offset],
             dimensions: null, signature: null, lastFacts: null, corrected: null, anchor: el.style.overflowAnchor };
           s.scrolled = () => { const changed = scrollChanged(s); sample(s); if (changed) enqueue(s, true); };
-          s.touched = () => { s.input = true; };
+          s.touched = () => { s.input = true; s.animating = null; };
           for (const name of INPUT) port.addEventListener(name, s.touched, { passive: true });
           s.observer = new ResizeObserver(entries => {
             let changed = false, resizedPort = false, pending = false;
@@ -399,6 +415,10 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
             } else if (pending) enqueue(s); // Coalesce an own notification, never replenish.
           });
           port.addEventListener('scroll', s.scrolled, { passive: true });
+          // A smooth correction that ended short of its target (clamped, or
+          // the reader took over) reports where it rests.
+          s.scrollEnded = () => { if (s.animating == null) return; s.animating = null; s.offset = NaN; s.scrolled(); };
+          port.addEventListener('scrollend', s.scrollEnded, { passive: true });
           states.set(snapshot.view, s);
         }
         // A new wrapper/epoch is new measurement work, including membership
@@ -437,9 +457,14 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
             const last = s.shifted;
             const done = last && last.scrollSequence === correction.scrollSequence && last.from === correction.from ? last.offset : correction.from;
             s.shifted = correction;
-            if (correction.offset !== done) {
+            if (correction.offset !== done && s.animating != null) {
+              // Under a smooth correction's animation the rows moved: where
+              // it lands moves with them.
+              s.animating += correction.offset - done;
+              place(s, s.animating, true);
+            } else if (correction.offset !== done) {
               const was = port[name];
-              port[name] += correction.offset - done;
+              place(s, was + correction.offset - done, false);
               s.offset = port[name]; // consume the programmatic scroll echo
               // Not the reader's travel: its velocity reads on from here.
               if (s.travel) s.travel.at += port[name] - was;
@@ -459,8 +484,16 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
           if (g && !moving && (s.dimensions === null || s.dimensions === dimensionsOf(g))) {
             s.corrected = snapshot.revision;
             // Relative conversion also handles a list below siblings in its port.
-            port[name] += correction.offset - g.raw;
-            s.offset = port[name]; // consume the programmatic scroll echo
+            const to = port[name] + correction.offset - (s.animating != null ? g.raw + s.animating - port[name] : g.raw);
+            if (correction.smooth === true && !agent) {
+              // The browser's smooth scroll (LLP 1070.000 §6.2).
+              s.animating = Math.max(0, Math.min(to, port[AXES[axis].scrollSize] - port[AXES[axis].client]));
+              place(s, s.animating, true);
+            } else {
+              s.animating = null;
+              place(s, to, false);
+              s.offset = port[name]; // consume the programmatic scroll echo
+            }
             s.travel = null; // a correction is not the reader's travel (LLP 1070.000 §2.5)
           }
         }

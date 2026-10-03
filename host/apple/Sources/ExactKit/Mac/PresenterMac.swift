@@ -363,7 +363,8 @@ final class Presenter {
     /// first, so the rescue or the slice that follows leads the right way.
     func collectionScrolled(_ id: UInt32) {
         // A correction's move is not the reader's travel (LLP 1070.000 §2.5).
-        if collections.owns(id), !collections.correcting { sampleListTravel(only: id) }
+        // Nor is a smooth correction's animation (`CollectionHost.animating`).
+        if collections.owns(id), !collections.correcting, !collections.animating.contains(id) { sampleListTravel(only: id) }
         collections.changed(id, user: true)
     }
 
