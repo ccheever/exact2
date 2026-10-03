@@ -218,7 +218,7 @@ pub enum InputEvent {
         /// Host clock milliseconds.
         at_ms: f64,
     },
-    /// Text the app posted into the world (Contract's `postMessage(surface, text)`).
+    /// Text the app posted into the world (Contract's `postMessage(text, surface)`).
     /// Each message reaches exactly one tick, in arrival order, never coalesced.
     Message {
         /// The posted text, at most 64 KiB.
@@ -530,7 +530,8 @@ impl Input {
         self.wheel
     }
     /// Messages posted into the world that this tick receives, in arrival order.
-    /// Each is delivered to exactly one tick; none is saved once delivered.
+    /// A message waits in the input queue (and in a save taken meanwhile) until
+    /// its tick; once that tick has read it, it is gone from later saves.
     pub fn messages(&self) -> &[String] {
         &self.messages
     }

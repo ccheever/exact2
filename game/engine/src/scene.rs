@@ -830,6 +830,34 @@ mod tests {
         }
         assert!(a.hierarchy.ready());
     }
+    // Review blocker B2: removing a Parent changes a childless member's global
+    // without writing its Transform, so the cursor must still report its block.
+    #[test]
+    fn pose_cursor_reports_a_removed_parent_and_a_broken_cycle() {
+        let mut w = World::new(60, 0);
+        let pad: Vec<_> = (0..PAGE).map(|_| w.spawn(Transform::default())).collect();
+        let b = w.spawn(Transform::at(10., 0., 0.));
+        let a = w.spawn((Transform::at(1., 0., 0.), Parent(pad[0])));
+        w.remove::<Parent>(a);
+        w.insert(a, Parent(b));
+        w.propagate();
+        assert_eq!(w.global(a).unwrap().translation.x, 11.);
+        let cursor = w.pose_cursor();
+        w.remove::<Parent>(a);
+        w.propagate();
+        assert_eq!(w.global(a).unwrap().translation.x, 1.);
+        assert_eq!(
+            w.poses_changed_since(cursor).collect::<Vec<_>>(),
+            [PAGE as u32]
+        );
+        // A runtime cycle's broken root is reported as well.
+        w.insert(a, Parent(b));
+        w.propagate();
+        let cursor = w.pose_cursor();
+        w.insert(b, Parent(a));
+        w.propagate();
+        assert!(w.poses_changed_since(cursor).any(|p| p == PAGE as u32));
+    }
     #[test]
     fn pose_cursor_reports_written_and_propagated_blocks_only() {
         let mut w = World::new(60, 0);

@@ -213,6 +213,11 @@ impl Hierarchy {
         self.members = 0;
         self.stale = 0;
         self.epoch += 1;
+        // A cycle-broken root is a root now: its global changed too.
+        for k in 0..self.broken.len() {
+            let i = self.broken[k].index() as usize;
+            self.mark_page(i);
+        }
         let poses = w.pages::<Transform>();
         for k in 0..self.entities.len() {
             let i = self.entities[k].index() as usize;
@@ -362,6 +367,7 @@ impl Hierarchy {
             return true;
         }
         self.next_mark();
+        self.epoch += 1;
         self.sources.clear();
         self.relinked.clear();
         let poses = w.pages::<Transform>();
@@ -372,6 +378,9 @@ impl Hierarchy {
                     let member = self.member(i);
                     let Some(target) = rows.row(i).map(|p| p.0) else {
                         if member {
+                            // Its global is its local pose now, whether or not
+                            // it parents anything.
+                            self.mark_page(i);
                             self.unlink(i);
                             self.set_stale(i, false);
                             self.nodes[i].done = 0;
@@ -468,9 +477,6 @@ impl Hierarchy {
                     }
                 }
             }
-        }
-        if !self.sources.is_empty() {
-            self.epoch += 1;
         }
         for k in 0..self.sources.len() {
             let s = self.sources[k] as usize;

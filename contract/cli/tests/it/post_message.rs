@@ -1,4 +1,4 @@
-//! `postMessage("world", text)`: the inverse of a canvas's `message=`. Every
+//! `postMessage(text, "world")`: the inverse of a canvas's `message=`. Every
 //! call reaches the host as its own command, in order, even when two presses
 //! land between frames with the same text (Grow a Garden kept only the second
 //! through a live argument).
@@ -8,7 +8,7 @@ const APP: &str = r#"component App
   state count = 0
   action buy(seed: string)
     count = count + 1
-    postMessage("world", `buy ${seed}`)
+    postMessage(`buy ${seed}`, "world")
   view
     column
       canvas surface=world() width=200 height=200
@@ -45,7 +45,7 @@ fn each_post_is_its_own_command_in_order() {
     let expected = |seed: &str| {
         (
             "postMessage".to_string(),
-            vec![Value::str("world"), Value::str(&format!("buy {seed}"))],
+            vec![Value::str(&format!("buy {seed}")), Value::str("world")],
         )
     };
     assert_eq!(
@@ -59,9 +59,12 @@ fn the_command_is_checked_by_name() {
     for statement in [
         r#"postMessage("world")"#,
         r#"postMessage(seed, seed)"#,
-        r#"postMessage("world", count)"#,
+        r#"postMessage(count, "world")"#,
+        // A typo in the surface's name is a compile error, not a dropped post.
+        r#"postMessage(seed, "wrold")"#,
+        r#"postMessage("world", seed)"#,
     ] {
-        let source = APP.replace(r#"postMessage("world", `buy ${seed}`)"#, statement);
+        let source = APP.replace(r#"postMessage(`buy ${seed}`, "world")"#, statement);
         let error = contract::compile(&source).unwrap_err().to_string();
         assert!(error.contains("type-post-message"), "{statement}: {error}");
     }

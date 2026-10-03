@@ -136,6 +136,13 @@ fn paranoid_save_rebuilds_at_observed_and_sampled_ticks_only() {
     save.run(1000. / 60.);
     off.run(1000. / 60.);
     assert_eq!(rebuilds(&save) - start, 5);
+    // A tick that receives input is rebuilt too: ticks 62 (the key), 64, 80,
+    // 96, 112 and the last, 121.
+    for s in [&mut off, &mut save] {
+        s.key_down("KeyW");
+        s.run(1000.);
+    }
+    assert_eq!(rebuilds(&save) - start, 11);
     assert_eq!(rebuilds(&off), 0);
     assert_eq!(save.world().hash(), off.world().hash());
     assert_eq!(save.save().unwrap(), off.save().unwrap());
