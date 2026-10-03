@@ -819,6 +819,9 @@ final class Presenter {
         svg.seek(clock: session?.clock)
         let outermost = !applying
         applying = true
+        // Hooked nodes this batch destroys end first, while their views are
+        // still in the window (a row's root is destroyed before its children).
+        elements.begin(batch)
         // Create, frame or content ops: rows may have come or moved (`HeavyLeaves.batchApplied`).
         let moved = batch.ops.contains { [.create, .frame, .content].contains($0.op) }
         defer {

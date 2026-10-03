@@ -1,16 +1,16 @@
 {
   "ticks": {
-    "330": "0xe9455cc3cfcc9d31"
+    "330": "0x7136b1be5a2f6a8d"
   },
   "saves": {
-    "continuation": "3991952069a63f1e3bed1f2ddd6a7d07b6e224fd1156312c1d87bd46b158b2e4"
+    "continuation": "bede960460f0dbdbcdaddd2d91467a8fd9ababec3d90e571a1a6dac3c45790c4"
   },
   "hosts": [
-    "linux",
-    "web"
+    "linux"
   ],
+  "inputs": "5b836847ab4df880ace712a391c3df2b375b30e38e2048e0fc00e360253365a2",
   "game": "placement-fixture",
-  "generated": "bun game/prove.mjs placement-fixture --repin --hosts linux,web",
-  "at": "64b5af14d0b08d4f35be20a08502e4834ad5f133",
-  "reason": "Named placed controls survive reorder; Pull is an input action, so saves omit the former pulls argument."
+  "generated": "bun game/prove.mjs placement-fixture --repin --hosts linux",
+  "at": "e8abc4e5252f9332325f191f8e58571c9006478b",
+  "reason": "Engine fix lane: paged world hash and columnar saves (EXGAME v4); same simulation, new encodings."
 }

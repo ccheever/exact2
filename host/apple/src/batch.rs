@@ -20,6 +20,9 @@ pub struct Batch {
     /// A frame task wants each display frame (LLP 1073 D5): the display
     /// link runs and each tick is `exact_frame`.
     pub frames: bool,
+    /// The kernel transactions this batch carries, `"seq":[first,last]`,
+    /// when the runner measures (LLP 1079 D3): the frame sampler's join.
+    pub seq: Option<(u64, u64)>,
     /// A 2D canvas asked for another frame (LLP 1056 D5).
     canvas: bool,
     /// A canvas draw is owed to a turn of its own (LLP 1072 §8.5).
@@ -570,6 +573,9 @@ impl Batch {
                 quote(src, &mut s);
             }
             s.push(']');
+        }
+        if let Some((first, last)) = self.seq {
+            let _ = write!(s, ",\"seq\":[{first},{last}]");
         }
         let _ = write!(
             s,

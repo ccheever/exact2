@@ -22,6 +22,9 @@ pub enum InputEvent {
     Absolute(Option<f32>, Option<f32>),
     /// The primary button went down (`true`) or up.
     Button(bool),
+    /// The secondary (2) or middle (4) button, by its `PointerEvent.buttons`
+    /// bit, went down (`true`) or up: a canvas's alone.
+    Aux(u32, bool),
     /// Carrier/device loss cancels without manufacturing a successful release.
     Cancel,
     /// A wheel: (dx, dy) in points, the web's sign (a positive `dy` scrolls
@@ -244,6 +247,9 @@ impl Input {
                             // BTN_LEFT (a mouse) and BTN_TOUCH (a
                             // touchscreen). Both are a primary press.
                             0x110 | 0x14a => out.push(InputEvent::Button(down)),
+                            // BTN_RIGHT, BTN_MIDDLE.
+                            0x111 => out.push(InputEvent::Aux(2, down)),
+                            0x112 => out.push(InputEvent::Aux(4, down)),
                             _ => {
                                 if let Some(event) = self.keyboard.event(code, value, None) {
                                     out.push(event);

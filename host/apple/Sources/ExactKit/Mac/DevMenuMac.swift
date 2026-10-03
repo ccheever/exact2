@@ -17,6 +17,7 @@ import AppKit
 final class DevMenuTarget: NSObject {
     @objc func reload(_ sender: Any?) { DevMenu.reload() }
     @objc func info(_ sender: Any?) { DevMenu.showInfo() }
+    @objc func saveTrace(_ sender: Any?) { DevMenu.saveTrace() }
     @objc func openProject(_ sender: Any?) { DevMenu.openProject() }
     @objc func openDocument(_ sender: Any?) { DevMenu.openDocument() }
 }
@@ -175,6 +176,10 @@ public enum DevMenu {
             project.target = target
             if documents { project.keyEquivalentModifierMask = [.command, .shift] }
             dev.addItem(withTitle: "App Info…", action: #selector(DevMenuTarget.info(_:)), keyEquivalent: "d").target = target
+            // LLP 1079 D5: the session's journal, frames and work, for the agent (`agent.mjs trace <file>`).
+            let trace = dev.addItem(withTitle: "Save Trace", action: #selector(DevMenuTarget.saveTrace(_:)), keyEquivalent: "t")
+            trace.keyEquivalentModifierMask = [.command, .option]
+            trace.target = target
             devItem.submenu = dev
         }
         return bar
@@ -267,6 +272,23 @@ public enum DevMenu {
         if alert.runModal() == .alertSecondButtonReturn {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(text, forType: .string)
+        }
+    }
+
+    /// Save Trace (LLP 1079 D5), ⌥⌘T: where it went, or why not.
+    static func saveTrace() {
+        guard let session else { return }
+        let alert = NSAlert()
+        alert.messageText = "Trace"
+        switch session.saveTrace() {
+        case .success(let url):
+            alert.informativeText = url.path
+            alert.addButton(withTitle: "OK")
+            alert.addButton(withTitle: "Show in Finder")
+            if alert.runModal() == .alertSecondButtonReturn { NSWorkspace.shared.activateFileViewerSelecting([url]) }
+        case .failure(let error):
+            alert.informativeText = "Not saved: \(error)"
+            alert.runModal()
         }
     }
 

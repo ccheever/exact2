@@ -94,6 +94,9 @@ fn pointer(s: &mut Sim<Probe>, phase: PointerPhase, x: f32, at_ms: f64) {
         phase,
         x,
         y: 0.0,
+        dx: 0.0,
+        dy: 0.0,
+        buttons: u32::from(phase != PointerPhase::Up),
         at_ms,
     });
 }

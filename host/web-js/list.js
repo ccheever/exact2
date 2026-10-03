@@ -8,7 +8,7 @@
 // `scrollIntoView` (LLP 1070.000, into_view.rs) is carried, and Arrange's
 // preview (reorder.rs) by reorder.js, which the motion piece loads for a
 // reorder drag; not carried (refused at build): a dynamic `virtualized`.
-import { sig, effect, scope, end, untracked, write, writeItem, owner, onEnd, viewId, Views, inflight, After, rev, ticket, journal, Resources, Mutations, unadopted, adopting, adoptRow, settled, Refusal, Hosts, exitView } from "./rt.js";
+import { sig, effect, scope, end, untracked, write, writeItem, owner, onEnd, viewId, Views, inflight, After, rev, ticket, journal, Resources, Mutations, unadopted, adopting, adoptRow, settled, Refusal, Hosts, exitView, clock } from "./rt.js";
 
 const BOOTSTRAP_ROWS = 16, ESTIMATED = 32, LEAD_SECONDS = 0.25, FAR_VIEWPORTS = 2, KEPT = 4096;
 const lead = (port, v) => { const extra = Math.min(Math.abs(v) * LEAD_SECONDS, port * 2); return v > 0 ? [port, port + extra] : [port + extra, port]; };
@@ -177,7 +177,7 @@ class Collection {
     this.bootstrap = o.init ?? Math.max(1, Math.min(BOOTSTRAP_ROWS, Math.min(Math.ceil(BOOTSTRAP_ROWS * ESTIMATED / this.est), o.inRow && this.port ? Math.ceil(this.port / this.est) + 1 : Infinity)));
     Object.assign(this, { items: [], idents: [], dups: new Map(), mounted: [], spacers: [], children: [], revision: 0, nextEpoch: 0,
       zeros: new Set(), geometry: null, correction: null, followEnd: false, edgeArmed: [true, true], pending: false, parent: null,
-      kept: new Map(), manual: !!o.manual, restored: false, restoredAt: null, startOffset: 0, inner: [], target: null, status: null, preview: null });
+      kept: new Map(), manual: !!o.manual, restored: false, restoredAt: null, startOffset: 0, inner: [], target: null, status: null, preview: null, atEnd: !!o.atEnd, endTravel: 0 });
     this.edges = [o.start, o.end];
   }
   snapshot() {
@@ -209,6 +209,7 @@ class Collection {
     const kept = last === undefined ? undefined : this.index.pos.get(last);
     if (kept !== undefined && (kept < this.index.len - 1 || this.index.len > count)) this.edgeArmed[1] = true;
     this.restore(anchor);
+    this.startAtEnd();
     this.realize(true, {});
     const now = this.snapshot();
     if (!previous || previous !== JSON.stringify(now)) this.revision++;
@@ -225,13 +226,43 @@ class Collection {
       this.index.invalidateRow(key);
     }
   }
-  anchor() { const g = this.geometry; return g && this.index.anchor(g.offset, g.port_main, this.followEnd); }
+  anchor() { const g = this.geometry; return g && this.index.anchor(this.anchorOffset(g.offset), g.port_main, this.follows()); }
+  // ------------------------------------------------ scroll-start: end (start.rs)
+  follows() { return this.followEnd || this.atEnd; }
+  anchorOffset(offset) { return this.atEnd ? this.index.total : offset; }
+  /** Before any report: the last rows, and the host told to start at the end. */
+  startAtEnd() {
+    if (!this.atEnd || this.geometry || !this.index.len) return;
+    this.startOffset = this.index.total;
+    this.correction = { scrollSequence: 0, offset: this.startOffset };
+  }
+  /** Travel in two reports running is the reader's, as for an into-view
+   * request; a report short of the end may be the host's clamp. */
+  leaveEndIfMoved(velocity) {
+    if (!this.atEnd) return;
+    this.endTravel = velocity ? this.endTravel + 1 : 0;
+    if (this.endTravel >= 2) this.atEnd = false;
+  }
+  /** Opened: a report at the end that changed nothing (every mounted row
+   * measured, the extent as it was before them), nothing owed or corrected. */
+  settleStart(extent) {
+    const g = this.geometry;
+    if (g && this.atEnd && this.index.len && !this.pending && !this.correction && Math.abs(this.index.total - extent) < 0.01 && this.mounted.every(m => this.index.measured(m.key))
+      && this.index.maxOffset(g.port_main) - g.offset <= 0.5) this.atEnd = false;
+  }
   restore(a) {
     const g = this.geometry;
     if (!a || !g) return;
     const c = this.index.restoreAnchor(a, g.port_main);
     if (Math.abs(c - g.offset) > 0.01) {
-      this.correction = { scrollSequence: g.scroll_sequence, offset: c };
+      // An anchor's correction is relative where its row stayed put
+      // (mod.rs `restore`): from where the anchor was taken, or from where
+      // an unacknowledged one began.
+      const was = this.correction;
+      const kept = !a.follows && a.row !== null && c < this.index.maxOffset(g.port_main) - 0.01;
+      const from = !kept ? undefined : was ? (was.scrollSequence === g.scroll_sequence ? was.from : undefined) : g.offset;
+      this.correction = from === undefined ? { scrollSequence: g.scroll_sequence, offset: c }
+        : { scrollSequence: g.scroll_sequence, offset: c, from };
       g.offset = c;
       if (this.restoredAt) this.startOffset = c;
     }
@@ -260,7 +291,7 @@ class Collection {
       port = [w.offset, w.offset + g.port_main];
       ranges = w.segments;
     } else {
-      const first = this.index.rowAt(this.startOffset) ?? 0;
+      const first = this.atEnd ? Math.max(0, this.index.len - this.bootstrap) : this.index.rowAt(this.startOffset) ?? 0;
       ranges = [[first, Math.min(this.index.len, first + this.bootstrap)]];
     }
     const old = new Map(this.mounted.map(m => [m.key, m]));
@@ -424,7 +455,7 @@ class Collection {
     if (p === undefined) return;
     this.index.spread(0, p, start - this.index.prefix(p));
     const offset = this.index.prefix(p) + within;
-    this.startOffset = offset; this.restored = true; this.restoredAt = [key, within];
+    this.startOffset = offset; this.restored = true; this.restoredAt = [key, within]; this.atEnd = false;
     this.correction = { scrollSequence: 0, offset };
     this.realize(false, {});
     this.revision++;
@@ -481,7 +512,9 @@ class Collection {
       measurements = first;
     }
     const height = this.geometry ? this.geometry.port_main : f.port_main;
-    const anchor = this.restoring(f) ?? this.index.anchor(f.offset, height, this.followEnd);
+    this.leaveEndIfMoved(fill.velocity ?? 0);
+    const extent = this.index.total;
+    const anchor = this.restoring(f) ?? this.index.anchor(this.anchorOffset(f.offset), height, this.follows());
     this.geometry = { ...f, measurements: [] };
     this.correction = null;
     if (changedWidth) this.invalidateEstimates();
@@ -490,6 +523,7 @@ class Collection {
     this.restore(anchor);
     this.settleIntoView(f.offset);
     this.realize(false, fill);
+    this.settleStart(extent);
     const now = this.snapshot();
     now.scrollSequence = previous.scrollSequence;
     const changed = JSON.stringify(previous) !== JSON.stringify(now);
@@ -503,7 +537,7 @@ class Collection {
       const m = this.mounted[byView.get(r.view)], key = this.index.order[m.position];
       return this.index.token(key) === m.token && !(this.index.measured(key) && this.index.h[m.position] === r.size && (r.size === 0) === this.zeros.has(key));
     };
-    if (f.measurements.some(remeasures) || this.restoredAt || this.target || this.pending || this.correction || !this.dims(f)) return undefined;
+    if (f.measurements.some(remeasures) || this.restoredAt || this.atEnd || this.target || this.pending || this.correction || !this.dims(f)) return undefined;
     const a = this.index.anchor(f.offset, g.port_main, this.followEnd);
     if (Math.abs(this.index.restoreAnchor(a, g.port_main) - f.offset) > 0.01) return undefined;
     const pins = this.pins();
@@ -547,7 +581,7 @@ class Collection {
   intoView(key, align) {
     const p = this.index.pos.get(key), g = this.geometry;
     const offset = this.aligned(p, align, g ? g.offset : this.startOffset);
-    this.restoredAt = null;
+    this.restoredAt = null; this.atEnd = false;
     this.target = { key, align, reports: 0, travelling: 0, aligned: 0 };
     this.status = [key, "pending"];
     if (g) { g.offset = offset; this.correction = { scrollSequence: g.scroll_sequence, offset }; }
@@ -688,7 +722,7 @@ function load() {
   if (Loading || typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
   inflight.n++;
   Loading = new Promise(r => requestAnimationFrame(() => r())).then(() => import("./collection-glue.js")).then(({ collectionController }) => {
-    Controller = collectionController({ root: document.getElementById("exact-root"), views: Views, report, settled() {} });
+    Controller = collectionController({ root: document.getElementById("exact-root"), views: Views, report, agent: clock.agent, settled() {} });
     Published = "";
     publish();
   }).catch(e => console.error("exact: collections:", e)).finally(() => inflight.n--);

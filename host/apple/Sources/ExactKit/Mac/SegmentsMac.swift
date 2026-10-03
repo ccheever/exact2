@@ -16,8 +16,14 @@ private final class ExactSegmentedControl: NSSegmentedControl {
 final class SegmentHost {
     unowned let presenter: Presenter
     private var controls: [UInt32: ExactSegmentedControl] = [:]
+    /// The segmented control a tablist or radio group projects to, if any:
+    /// a hooked node's platform object (LLP 1075.003.000 §3.2).
+    func control(of id: UInt32) -> NSSegmentedControl? { controls[id] }
     private var hidden: [UInt32: Bool] = [:]
     private var members: [UInt32: [UInt32]] = [:]
+    /// LLP 1080.001 D3: the control standing in for a tablist; its hidden tabs.
+    func inspectionOwns(_ view: NSView) -> Bool { controls.values.contains { $0 === view } }
+    func hides(_ node: NodeView) -> Bool { members.values.contains { $0.contains(node.id) } }
     /// The last projection decision journaled per tablist, so each is said once.
     private var decisions: [UInt32: String] = [:]
 

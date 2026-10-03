@@ -11,7 +11,7 @@ if (!Bun.which('cargo', { PATH: process.env.PATH })) throw new Error(`these test
 delete process.env.EXACT_APP_DIR;
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname, relative, resolve } from 'node:path';
@@ -20,6 +20,7 @@ import { runInNewContext } from 'node:vm';
 import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listAssets, listPublicFiles, publicFileCards, readDevGeneration, retainDevGeneration, shaderInterfaceDigests, staticFile, readStaticFile, serveStatic, syncStaticTree, watchStaticTrees, webEnvelope } from '../host/web/serve.mjs';
 import { assertWebDistApp, jsonLines } from './agent.mjs';
 import { verifyBakeFiles, pendingBuildInputs } from './app.mjs';
+import { gitIgnored, newerThan } from './agent-launch.mjs';
 import { copyAppleStaticTrees, developmentLaunchEnvironment, deviceLaunchArgs } from '../host/apple/build.mjs';
 import { classify, publishRoot, webRelease } from './deploy.mjs';
 import { DirectoryOrigin, webRootPath, webReleasePath, sha256 } from './origin.mjs';
@@ -611,6 +612,19 @@ for (const [name, html, files, expectCode, expect] of [
   result('dev reports replaced compiler input types as pending without terminating',pending.includes('source')&&pending.includes(file),JSON.stringify(pending));
   rmSync(dir,{recursive:true,force:true});
 }
+{
+  // A screenshot saved into an app is not an input; an ignored file the bake captures still is.
+  const dir=realpathSync(mkdtempSync(join(tmpdir(),'exact-ignored-inputs-')));
+  for(const sub of ['shots','gen','shader-gen']) mkdirSync(join(dir,sub));
+  for(const [name,text] of [['.gitignore','/shots/\n/local.ts\n/gen/\n/shader-gen/\n'],['app.contract','view'],['local.ts','key'],['shots/one.png','png'],['shots/notes.txt','notes'],['gen/made.rs','fn f() {}'],['shader-gen/paint.wgsl','fn main() {}'],['shader-gen/table.bin','bytes']]) writeFileSync(join(dir,name),text);
+  const walk=()=>newerThan(0,[dir],gitIgnored(dir,[join(dir,'shader-gen')])).map(p=>relative(dir,p)).sort();
+  const outside=walk();
+  spawnSync('git',['init','-q'],{cwd:dir});
+  const inside=walk();
+  result('the staleness walk skips gitignored files no build reads',
+    JSON.stringify(inside)==='["app.contract","gen/made.rs","local.ts","shader-gen/paint.wgsl","shader-gen/table.bin"]'&&outside.length===7,JSON.stringify({inside,outside}));
+  rmSync(dir,{recursive:true,force:true});
+}
 // A matching hand-written exact.json is not build identity. The agent must
 // consume the complete private marker verifier before it drives a dist.
 {
@@ -627,6 +641,14 @@ for (const [name, html, files, expectCode, expect] of [
   const stream = new (await import('node:stream')).PassThrough(), writes = [], lines = jsonLines(stream, {write: x => writes.push(x)}, []), pending = lines.ask({op:'state'}).catch(e => e.message);
   lines.fail('phone crashed'); lines.fail('socket closed'); const later = await lines.ask({op:'logs'}).catch(e => e.message);
   result('a dead agent rejects pending and future requests without writing again', await pending === 'phone crashed' && later === 'phone crashed' && writes.length === 1); stream.destroy();
+  // A reply split over many chunks (a `state` carrying a large surface record), and two in one chunk.
+  const split = new (await import('node:stream')).PassThrough(), host = [], replies = jsonLines(split, {write() {}}, host);
+  const big = replies.ask({op:'state'}), next = replies.ask({op:'logs'}), third = replies.ask({op:'tree'});
+  const text = JSON.stringify({record: 'x'.repeat(4 << 20)}) + '\n';
+  for (let i = 0; i < text.length; i += 65536) split.write(text.slice(i, i + 65536));
+  split.write('{"n":2}\n{"n":3}\nstray');
+  const [a, b, c] = await Promise.all([big, next, third]); split.write('\n');
+  result('agent replies split over chunks or sharing one are each read whole', a.record.length === 4 << 20 && b.n === 2 && c.n === 3 && host[0] === 'app: stray'); split.destroy();
   const inherited = { EXACT_DEV_PLAN: '/tmp/local.plan', PRESERVED: 'yes' };
   const launched = developmentLaunchEnvironment(['--run', '--url', 'http://192.168.1.20:8765'], inherited);
   const invalid = [['--url', 'https://example.test'], ['--run', '--url'], ['--run', '--url', '/tmp/app.plan'], ['--run', '--url', 'file:///tmp/app.plan'], ['--run', '--url', 'https://a.test', '--url', 'https://b.test']];

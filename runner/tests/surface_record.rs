@@ -177,15 +177,6 @@ fn malformed_input_and_caps_refuse_by_resource_name() {
         );
         assert!(error.contains("hud"), "{json}: {error}");
     }
-    let sized = format!("{{\"extra\":\"{}\"}}", "x".repeat(65524));
-    assert_eq!(sized.len(), 65536);
-    r.set_surface_record("world", Some(&sized)).unwrap();
-    let error = format!(
-        "{:?}",
-        r.set_surface_record("world", Some(&(sized + " ")))
-            .unwrap_err()
-    );
-    assert!(error.contains("hud") && error.contains("64 KiB"));
     let nested = |n: usize| format!("{{\"extra\":{}0{}}}", "[".repeat(n), "]".repeat(n));
     r.set_surface_record("world", Some(&nested(31))).unwrap();
     let error = format!(
@@ -284,10 +275,62 @@ fn unread_records_are_not_stored() {
         0
     );
 }
+/// The garden's whole backpack (69,327 fruit, ~6.4 MB) once refused at 64 KiB:
+/// the limit is now the host-work bound, and past it the refusal names the
+/// size and the limit in the log and in `state`, the last record stands, and
+/// the next record that fits clears it.
+#[test]
+fn record_limit_is_the_host_work_bound_and_its_refusal_is_reported() {
+    use exact_runner::surface_record::MAX_BYTES;
+    assert_eq!(MAX_BYTES, exact_runner::MAX_HOST_WORK_BYTES);
+    let mut r = runner();
+    let fill = |n: usize| format!("{{\"text\":\"{}\"}}", "x".repeat(n - 11));
+    let sized = fill(MAX_BYTES);
+    assert_eq!(sized.len(), MAX_BYTES);
+    r.set_surface_record("world", Some(&sized)).unwrap();
+    let text = |r: &Runner<NoData>| match r.resource("hud") {
+        Some(Value::Record(fields)) => fields[2].clone(),
+        _ => panic!(),
+    };
+    assert_eq!(text(&r).as_str().map(str::len), Some(MAX_BYTES - 11));
+    assert!(agent::state(&r).contains("\"surfaceRefusals\":{}"));
+    let over = sized.clone() + " ";
+    let error = format!(
+        "{:?}",
+        r.set_surface_record("world", Some(&over)).unwrap_err()
+    );
+    let why = format!(
+        "record is {} bytes, over the {MAX_BYTES}-byte (16 MiB) limit",
+        MAX_BYTES + 1
+    );
+    assert!(error.contains("hud") && error.contains(&why), "{error}");
+    assert_eq!(
+        text(&r).as_str().map(str::len),
+        Some(MAX_BYTES - 11),
+        "the last record stands"
+    );
+    let state = agent::state(&r);
+    assert!(
+        state.contains(&format!("\"surfaceRefusals\":{{\"world\":\"hud: {why}\"}}")),
+        "{}",
+        &state[state.len().saturating_sub(300)..]
+    );
+    assert!(agent::logs(&r, 0).contains(&format!("surface world refused: hud: {why}")));
+    r.set_surface_record("world", Some(r#"{"beacons":4}"#))
+        .unwrap();
+    assert!(agent::state(&r).contains("\"surfaceRefusals\":{}"));
+    // A shape refusal is reported the same way, by resource and field.
+    r.set_surface_record("world", Some(r#"{"beacons":"four"}"#))
+        .unwrap_err();
+    assert!(agent::state(&r)
+        .contains("\"surfaceRefusals\":{\"world\":\"hud: record.beacons: expected Number\"}"));
+    r.set_surface_record("world", None).unwrap();
+    assert!(agent::state(&r).contains("\"surfaceRefusals\":{}"));
+}
 #[test]
 fn oversize_refuses_before_copying() {
     let mut r = runner();
-    let large = "x".repeat(128 * 1024);
+    let large = "x".repeat(exact_runner::surface_record::MAX_BYTES + 1);
     let bytes = allocated(|| {
         assert!(r.set_surface_record("world", Some(&large)).is_err());
     });

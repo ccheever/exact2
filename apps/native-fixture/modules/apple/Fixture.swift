@@ -58,6 +58,8 @@ final class FixtureModule: ExactModule {
     }
 
     #if os(macOS)
+    private let toolbarPress = ToolbarPress()
+
     /// The window toolbar Exact installs for the authored `toolbar`: its
     /// display mode is the app's, and an item of its own goes after Exact's.
     /// (AppKit shows icons only under the compact style a window toolbar
@@ -68,6 +70,8 @@ final class FixtureModule: ExactModule {
         let item = NSToolbarItem(itemIdentifier: .init("fixture.hooked"))
         item.label = "Hooked"
         item.image = NSImage(systemSymbolName: "star", accessibilityDescription: "Hooked")
+        item.target = toolbarPress
+        item.action = #selector(ToolbarPress.press)
         toolbar.add(item)
     }
     #endif
@@ -428,3 +432,11 @@ final class PlainBox: ExactNativeInstance {
         #endif
     }
 }
+
+#if os(macOS)
+/// The hooked toolbar item's target: an app's own action, which AppKit
+/// validates through it.
+private final class ToolbarPress: NSObject {
+    @objc func press() {}
+}
+#endif

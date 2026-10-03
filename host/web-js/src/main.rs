@@ -19,12 +19,26 @@ mod style;
 use std::process::ExitCode;
 
 const USAGE: &str =
-    "usage: exact-web-js js <app.contract | app.plan> -o <dir> [--dump] [--sites] [--dev-reload]";
+    "usage: exact-web-js js <app.contract | app.plan> -o <dir> [--dump] [--sites] [--dev-reload]\n       exact-web-js normalize-grants <file>";
 
 fn main() -> ExitCode {
     // `--sites` (a development build): each element names its plan node, and
     // a Contract compiled here leaves its source map beside the plan.
     let all: Vec<String> = std::env::args().skip(1).collect();
+    if let [cmd, file] = all.as_slice() {
+        if cmd == "normalize-grants" {
+            return match std::fs::read_to_string(file) {
+                Ok(spec) => {
+                    println!("{}", exact_runner::grants::normalized_json(&spec));
+                    ExitCode::SUCCESS
+                }
+                Err(error) => {
+                    eprintln!("{file}: {error}");
+                    ExitCode::from(1)
+                }
+            };
+        }
+    }
     let sites = all.iter().any(|a| a == "--sites");
     let dev_reload = all.iter().any(|a| a == "--dev-reload");
     let args: Vec<String> = all

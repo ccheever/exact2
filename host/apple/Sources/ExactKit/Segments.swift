@@ -28,8 +28,12 @@ enum Segments {
     /// 1078 Q5): a band taller than wide cuts columns, a wider one rows; the
     /// band belongs to no segment; a band outside the viewport, or one that
     /// leaves a segment no room, cuts nothing. `folded` while any band is
-    /// present, `continuous` otherwise.
-    static func split(viewport: CGSize, dividers: [CGRect]) -> ViewportFold {
+    /// present or the hinge itself says it is bent (`hingeBent`: UIKit's
+    /// `partiallyOpen`, the Device Posture API's own definition of
+    /// `folded`), `continuous` otherwise: the posture never waits for the
+    /// regions, which can trail a hinge update by a frame or stop being
+    /// reported for a scene altogether (LLP 1078 §As built, the deaf session).
+    static func split(viewport: CGSize, dividers: [CGRect], hingeBent: Bool = false) -> ViewportFold {
         let bounds = CGRect(origin: .zero, size: viewport)
         var xCuts: [(CGFloat, CGFloat)] = [], yCuts: [(CGFloat, CGFloat)] = []
         for band in dividers {
@@ -38,7 +42,7 @@ enum Segments {
             if band.height >= band.width { xCuts.append((clipped.minX, clipped.maxX)) } else { yCuts.append((clipped.minY, clipped.maxY)) }
         }
         let columns = spans(xCuts, viewport.width), rows = spans(yCuts, viewport.height)
-        var fold = ViewportFold(posture: dividers.isEmpty ? "continuous" : "folded", cols: columns.count, rows: rows.count)
+        var fold = ViewportFold(posture: dividers.isEmpty && !hingeBent ? "continuous" : "folded", cols: columns.count, rows: rows.count)
         if fold.cols * fold.rows > 1 {
             for (y, h) in rows { for (x, w) in columns { fold.rects.append(CGRect(x: x, y: y, width: w, height: h)) } }
         }

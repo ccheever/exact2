@@ -97,6 +97,12 @@ impl PathPrefix {
             None => false,
         }
     }
+
+    /// The canonical namespace and whole path components. Browser hosts use
+    /// this parsed form directly; they never re-read the source grammar.
+    pub fn components(&self) -> &[String] {
+        &self.0
+    }
 }
 
 /// One operation the boundary is asked to admit.
@@ -269,6 +275,12 @@ impl GrantSet {
 
     pub fn is_empty(&self) -> bool {
         self.grants.is_empty()
+    }
+
+    /// The parsed grants in stable order. Hosts that serialize authority for
+    /// another runtime match these typed values instead of parsing source text.
+    pub fn iter(&self) -> impl Iterator<Item = &Grant> {
+        self.grants.iter()
     }
 }
 

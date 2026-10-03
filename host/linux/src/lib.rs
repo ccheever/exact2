@@ -46,6 +46,7 @@ pub mod delivery;
 pub mod display;
 pub mod executor;
 pub mod fetch;
+pub mod frames;
 pub mod gpu;
 pub mod host;
 pub mod image;

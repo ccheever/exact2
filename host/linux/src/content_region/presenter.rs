@@ -12,7 +12,7 @@ impl<D: DataSource> Presenter<D> {
         choice: PainterChoice,
         region: crate::content_region::ContentRegionRegistration,
     ) -> Result<(Self, Option<String>), HostError> {
-        Self::boot_with_assets(
+        let (mut presenter, error) = Self::boot_with_assets(
             plan,
             data,
             viewport,
@@ -22,7 +22,9 @@ impl<D: DataSource> Presenter<D> {
             None,
             "/",
             Some(region),
-        )
+        )?;
+        presenter.measure(); // LLP 1079 D1
+        Ok((presenter, error))
     }
     /// Region completion readiness. No timer or input event is needed to resume.
     pub fn content_region_fd(&self) -> Option<std::os::unix::io::RawFd> {

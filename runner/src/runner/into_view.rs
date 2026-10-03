@@ -25,6 +25,7 @@ impl IntoView {
                 .filter(|v| !matches!(v, Value::Option(None) | Value::Unit))
                 .cloned(),
             view: None,
+            smooth: text(args.get(4)).as_deref() == Some("smooth"),
         })
     }
 }
@@ -89,6 +90,7 @@ impl<D: DataSource> Runner<D> {
             inline: Align::parse(inline).ok_or_else(|| bad(inline))?,
             row: None,
             view: Some(view),
+            smooth: false,
         };
         self.scroll_into_view(request)
     }

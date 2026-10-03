@@ -22,6 +22,7 @@ final class NativeButtonIOS: UIButton {
         var testId: String?
         var selected: Bool
         var expanded: String?
+        var pressed: String?
     }
     var written: Written?
     /// Whether it draws glass: a glass row on iOS 26 and later.
@@ -121,8 +122,9 @@ extension ControlHost {
         let face = presenter.buttonFace?(owner.id) ?? ButtonFace()
         let written = NativeButtonIOS.Written(
             face: face, accent: accent, enabled: !owner.disabled,
-            label: owner.props["accessibilityLabel"] ?? face.title, testId: owner.props["testId"],
-            selected: owner.props["accessibilitySelected"] == "true", expanded: owner.props["accessibilityExpanded"])
+            label: owner.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 } ?? face.title, testId: owner.props["testId"],
+            selected: owner.props["accessibilitySelected"] == "true", expanded: owner.props["accessibilityExpanded"],
+            pressed: owner.pressedState)
         guard button.written != written else { return }
         if !face.known, button.written?.face.style != face.style {
             presenter.session?.log("buttonStyle `\(face.style)` is not a button style; drawing bordered")
@@ -140,6 +142,7 @@ extension ControlHost {
         button.accessibilityLabel = written.label
         button.accessibilityIdentifier = written.testId
         if written.selected { button.accessibilityTraits.insert(.selected) } else { button.accessibilityTraits.remove(.selected) }
+        button.setAccessibilityToggle(written.pressed)
         if #available(iOS 18, *) {
             button.accessibilityExpandedStatus = written.expanded.map { $0 == "true" ? .expanded : .collapsed } ?? .unsupported
         }

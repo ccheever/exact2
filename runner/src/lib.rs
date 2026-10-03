@@ -54,6 +54,7 @@ pub mod head;
 pub mod held;
 pub mod instance;
 pub mod page;
+pub mod perf;
 pub mod request;
 pub mod runner;
 pub mod save_file;

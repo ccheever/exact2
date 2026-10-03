@@ -847,6 +847,7 @@ mod tests {
             correction: Some(AnchorCorrection {
                 scroll_sequence: 2,
                 offset: 200.,
+                from: None,
             }),
             pending: false,
         }

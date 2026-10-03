@@ -690,6 +690,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // History's `scrollRestoration` values (LLP 1070 §4.2): whether a
         // nested list keeps its position across its row's retirement.
         "scroll-restoration" => AttrTarget::Prop(p("scrollRestoration")),
+        // Where a virtualized list opens: at its start, or at its end (a
+        // transcript), CSS Scroll Snap 2's container-level `scroll-start`.
+        "scroll-start" => AttrTarget::Prop(p("scrollStart")),
         // @ref LLP 1056 D6 (r3): a canvas's explicit bitmap size, HTML's
         // `width`/`height` content attributes (Contract's are the CSS box).
         "bitmap-width" => AttrTarget::Prop(p("bitmapWidth")),
@@ -731,6 +734,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-controls" => AttrTarget::Prop(p("accessibilityControls")),
         "aria-selected" => AttrTarget::Prop(p("accessibilitySelected")),
         "aria-expanded" => AttrTarget::Prop(p("accessibilityExpanded")),
+        "aria-pressed" => AttrTarget::Prop(p("accessibilityPressed")),
         "aria-hidden" => AttrTarget::Prop(p("accessibilityElementsHidden")),
         // SVG 2 attributes CSS cannot set (LLP 1055 D1/D2), by their SVG names.
         "viewBox" => AttrTarget::Prop(p("viewBox")),
@@ -900,6 +904,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "background-color" => styles(&[StyleId::BackgroundColor]),
         // @ref LLP 1066 — `none` or one linear/radial gradient.
         "background-image" => styles(&[StyleId::BackgroundImage]),
+        // @ref LLP 1066 D7 — `fixed`: the gradient box is the viewport.
+        "background-attachment" => styles(&[StyleId::BackgroundAttachment]),
         // @ref LLP 1077 D1–D3
         "mask-image" => styles(&[StyleId::MaskImage]),
         "text-shadow" => styles(&[StyleId::TextShadow]),
@@ -1152,18 +1158,20 @@ pub(crate) fn validate_list(
     span: contract_syntax::Span,
 ) -> Result<(), super::LowerError> {
     use contract_syntax::Expr;
-    if let Some(count) = expanded.iter().find(|a| a.name == "initial-item-count") {
-        let virtualized = tag == "list"
-            && expanded
-                .iter()
-                .any(|a| a.name == "virtualized" && matches!(a.value, Expr::Bool(true, _)));
-        if !virtualized {
-            return super::err(
-                "lower-list-virtualized",
-                "`initial-item-count` is a virtualized list's first window; it goes on `list virtualized=true`",
-                count.span,
-            );
+    let virtualized = tag == "list"
+        && expanded
+            .iter()
+            .any(|a| a.name == "virtualized" && matches!(a.value, Expr::Bool(true, _)));
+    // A virtualized list's first window, and where it opens (its value is
+    // checked with the list's, `collection.rs`).
+    for name in ["initial-item-count", "scroll-start"] {
+        if let Some(a) = expanded.iter().find(|a| a.name == name && !virtualized) {
+            let why =
+                format!("`{name}` is a virtualized list's; it goes on `list virtualized=true`");
+            return super::err("lower-list-virtualized", why, a.span);
         }
+    }
+    if let Some(count) = expanded.iter().find(|a| a.name == "initial-item-count") {
         if !matches!(count.value, Expr::Number(n, _) if n.fract() == 0.0 && (1.0..=64.0).contains(&n))
         {
             return super::err(

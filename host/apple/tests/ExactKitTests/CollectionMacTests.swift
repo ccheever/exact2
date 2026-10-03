@@ -122,6 +122,34 @@ final class CollectionMacTests: XCTestCase {
             correction: ["scrollSequence": 0, "offset": 900])]]]))
         XCTAssertEqual(clip.bounds.minY, 220, "stale correction must not replace newer user intent")
     }
+    /// An anchor's correction (`from`) is relative: it applies after the
+    /// reader moved on (a fling's frames since the report) by how far the
+    /// rows before the anchor moved, once, and a later revision carrying
+    /// the same correction adds nothing; one from before an authored jump
+    /// is stale.
+    func testAnAnchorsCorrectionMovesTheOffsetByItsShiftWhateverWasSampled() throws {
+        let (p, list) = fixture()
+        defer { p.collections.reset() }
+        let clip = try XCTUnwrap(list.scroll?.contentView)
+        p.apply(batch([["op": "collections", "items": [snapshot(revision: 2, correction: ["scrollSequence": 0, "offset": 200])]]]))
+        XCTAssertEqual(clip.bounds.minY, 220)
+        // The reader moves 100 on; the report from before that move comes back corrected.
+        clip.scroll(to: NSPoint(x: 0, y: 320)); list.scroll?.reflectScrolledClipView(clip)
+        p.collections.userIntent(1, travel: true)
+        let shifted: [String: Any] = ["scrollSequence": 0, "offset": 172, "from": 200]
+        p.apply(batch([["op": "collections", "items": [snapshot(revision: 3, correction: shifted)]]]))
+        XCTAssertEqual(clip.bounds.minY, 292, "rows above came in 28 shorter: the port moves 28 back with them")
+        p.apply(batch([["op": "collections", "items": [snapshot(revision: 4, correction: shifted)]]]))
+        XCTAssertEqual(clip.bounds.minY, 292, "the same correction again moves nothing")
+        p.apply(batch([["op": "collections", "items": [snapshot(revision: 5,
+            correction: ["scrollSequence": 0, "offset": 162, "from": 200])]]]))
+        XCTAssertEqual(clip.bounds.minY, 282, "a grown correction moves only by what it adds")
+        // An authored offset since the report: its correction is stale.
+        p.collections.userIntent(1)
+        p.apply(batch([["op": "collections", "items": [snapshot(revision: 6,
+            correction: ["scrollSequence": 0, "offset": 100, "from": 200])]]]))
+        XCTAssertEqual(clip.bounds.minY, 282, "not across an authored jump")
+    }
     func testClearedSnapshotRetiresStateAndObserver() {
         let (p, _) = fixture()
         p.collections.pointer(3)

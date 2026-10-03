@@ -34,6 +34,8 @@ export function sourceMapReader(locator) {
     && value.end_col >= value.col && typeof value.component === 'string';
   const at = value => ({file: value.file, line: value.line, col: value.col, end_col: value.end_col, component: value.component});
   return {
+    /** A map a trace carries (LLP 1079 D5): found by its own digest, as a refreshed one is. */
+    add(map) { if (digest(map?.digest) && Array.isArray(map.nodes)) maps.set(map.digest, map); },
     async refresh() {
       if (!locator) return false;
       try {
@@ -91,6 +93,7 @@ export function sourceMapReader(locator) {
 export function sourceMapReaders(locators) {
   const readers = locators.length ? locators.map(sourceMapReader) : [sourceMapReader(null)];
   return {
+    add(map) { readers[0].add(map); },
     async refresh() { return (await Promise.all(readers.map(r => r.refresh()))).some(Boolean); },
     attach(node) { for (const r of readers) { r.attach(node); if (node.sourceMap?.status === 'compatible') return; } },
   };
@@ -98,6 +101,18 @@ export function sourceMapReaders(locators) {
 
 /** A targeted reply owns its identity. A concurrently fetched tree may already
  * describe a replacement plan with reused view IDs and cannot relabel it. */
+/** `layout`'s CLI arguments (LLP 1012 §7; LLP 1080.001 D1, D2): `layout
+ * [<target>]`, `layout <target> at <x> <y>`, `layout <target> native
+ * [<depth>]`, `layout agree [<limit>]` — the keyword wins over a testId of
+ * that name, which a numeric id still reaches. Returns `layout`'s arguments. */
+export function layoutArgs(args) {
+  const count = (word) => { const n = Number(word); if (!Number.isInteger(n)) throw new Error(`layout: ${word} is not an integer`); return n; };
+  if (args[0] === 'agree') return [undefined, undefined, { agree: true, ...(args[1] != null ? { limit: count(args[1]) } : {}) }];
+  if (args[1] === 'native') return [args[0], undefined, { native: args[2] != null ? { depth: count(args[2]) } : {} }];
+  if (args[1] === 'at') return [args[0], [Number(args[2]), Number(args[3])]];
+  return [args[0]];
+}
+
 export function identifyInspectedNode(reply, target) {
   const node = reply.node;
   if (!node) return;
@@ -106,7 +121,7 @@ export function identifyInspectedNode(reply, target) {
     throw Error(`layout: target ${target} changed during inspection; retry`);
   }
   if (testId != null) node.testId = testId;
-  const box = reply.nodes.find(value => value.id === node.id);
+  const box = reply.nodes?.find(value => value.id === node.id);
   if (box) { box.type = node.type; if (testId != null) box.testId = testId; }
 }
 
@@ -125,6 +140,10 @@ export function identifyInspectedNode(reply, target) {
  *   logs    "(N earlier lines dropped by the journal ring)" when dropped > 0; the journal lines as they are;
  *           the host's lines indented two spaces; "(nothing new)" when there is nothing
  *   state   the JSON, indented two spaces
+ *   perf    {target} — seq [A..]B · clock [X..]Y ms · incarnation I [· partial: N walked]
+ *           one row per site: component, file:line (or `site N`), then each counter the host has
+ *   perf frames  period P ms (source) · presented N · late L · missed M · segments S, the window's
+ *           percentiles, then one line per late frame; `virtual clock: no frame was presented`
  *   others  the JSON on one line
  */
 export function render(op, r) {
@@ -148,6 +167,7 @@ export function render(op, r) {
         const e = r.entity, b = e.screen, p = e.world?.position;
         return `#${e.id ?? ''} ${e.name ?? ''}${p ? ` world ${Array.isArray(p) ? p.join(',') : [p.x, p.y, p.z].join(',')}` : ''}${b && ['x','y','w','h'].every(k => Number.isFinite(b[k])) ? ` · screen ${b.x},${b.y} ${b.w}×${b.h}` : ' · screen unavailable'}${e.depth != null ? ` · depth ${e.depth}` : ''}${e.visible ? ` · inFrustum ${!!e.visible.inFrustum} · behindCamera ${!!e.visible.behindCamera}` : ''}`;
       }
+      if (r.agreement) return renderAgreement(r.agreement);
       if (!r.viewport) return q(r);
       const e = r.env;
       const insets = ['safe-area-inset-top', 'safe-area-inset-right', 'safe-area-inset-bottom', 'safe-area-inset-left', 'keyboard-inset-height'];
@@ -157,7 +177,7 @@ export function render(op, r) {
       // `overscroll` is how far a scroller sits past its own ends — a stretched rubber band, which the offset
       // alone cannot distinguish from an ordinary scroll position. Printed only when there is one.
       const past = (n) => (n.ox != null || n.oy != null ? ` overscroll ${n.ox ?? 0},${n.oy ?? 0}` : '');
-      const lines = [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env}${fold} · clock ${r.clock} ms`].concat(r.nodes.map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''} ${n.native?.placement === 'window' ? `${n.native.view} · system-owned geometry` : `${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}${past(n)}`}`));
+      const lines = [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env}${fold} · clock ${r.clock} ms`].concat((r.nodes ?? []).map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''} ${n.native?.placement === 'window' ? `${n.native.view} · system-owned geometry` : `${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}${past(n)}`}`));
       if (r.node) lines.push(...renderNode(r.node));
       return lines.join('\n');
     }
@@ -165,6 +185,8 @@ export function render(op, r) {
       return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.world ?? []).flatMap((w) => w.lines.map((line) => 'world ' + line)), ...(r.host ?? []).map((l) => '  ' + l)].join('\n') || '(nothing new)';
     case 'state':
       return q(r, null, 2);
+    case 'perf':
+      return renderPerf(r);
     case 'type':
       if (r.steps) return r.steps.map(step => `${step.op} ${step.args.map(a => typeof a === 'string' ? a : q(a)).join(' ')}\n${step.error ? 'ERROR ' + step.error : render(step.op, step.reply)}`).join('\n');
       return q(r);
@@ -214,7 +236,168 @@ function renderNode(n) {
   if (n.scroll?.length) out.push(`  scroll ${n.scroll.map((c) => `${c.id != null ? `#${c.id}` : 'viewport'} ${c.sx},${c.sy}`).join(' · ')}`);
   if (n.clip?.length) out.push(`  clip ${n.clip.map((c) => `#${c.id} ${c.kind}`).join(' · ')}`);
   if (n.visible) out.push(`  visible ${sorted(n.visible).map(([k, v]) => `${k}=${v}`).join(' ')}`);
-  if (n.native) out.push(`  native ${sorted(n.native).map(([k, v]) => `${k}=${typeof v === 'string' ? v : q(v)}`).join(' ')}`);
+  if (n.native) out.push(`  native ${sorted(n.native).filter(([k]) => k !== 'subviews').map(([k, v]) => `${k}=${typeof v === 'string' ? v : q(v)}`).join(' ')}`);
   if (n.browser) out.push(`  browser ${sorted(n.browser).map(([k, v]) => `${k}=${q(v)}`).join(' ')}`);
+  if (n.native?.subviews) out.push(...renderSubviews(n.native.subviews));
   return out;
+}
+
+/** The counters a `perf` site row may carry, in the order they print (LLP 1079 D1). */
+const COUNTERS = ['instances', 'created', 'retired', 'evaluated', 'unchanged', 'authored', 'inherited', 'moved'];
+
+/** `perf [<target>] [during "<op>" …]` and `perf frames [late <n>]` (LLP
+ * 1079 D2, D4). `during` reads, drives each quoted op through `step`, reads
+ * again, and subtracts: the delta belongs to the driver, a read changes nothing. */
+export async function perfOp(s, args, line, step) {
+  if (args[0] === 'frames') return s.perf(null, { frames: true, late: args[1] === 'late' ? Number(args[2]) : undefined });
+  const target = args[0] && args[0] !== 'during' ? args[0] : undefined;
+  const at = line.search(/\sduring\s/);
+  if (at < 0) return s.perf(target);
+  const ops = [...line.slice(at).matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(m => JSON.parse(`"${m[1]}"`));
+  if (!ops.length) throw Error('perf … during: quote each op, as perf feed during "tap start" "clock +1000"');
+  const before = await s.perf(target);
+  for (const op of ops) await step(op);
+  return perfDelta(before, await s.perf(target));
+}
+
+/** Two `perf` reads' difference, site by site. Refused by name when they
+ * describe different runs: another plan, another incarnation, or counters
+ * that went backwards (a runner that restarted in place). */
+export function perfDelta(a, b) {
+  if (!a.plan || !b.plan) throw Error('perf: a read names no plan; no difference is defined');
+  // A bounded first read leaves sites out: their whole lifetime would read as new work.
+  if (a.truncated) throw Error(`perf: the first read was partial (${a.walked} walked); name a narrower target`);
+  if (a.plan !== b.plan) throw Error(`perf: the plan changed between the reads (${a.plan?.slice(0, 12)} → ${b.plan?.slice(0, 12)}); no difference is defined`);
+  if (a.incarnation !== b.incarnation) throw Error(`perf: incarnation ${a.incarnation} → ${b.incarnation} between the reads; no difference is defined`);
+  if (b.seq < a.seq) throw Error(`perf: seq went back (${a.seq} → ${b.seq}): the runner restarted between the reads`);
+  const before = new Map(a.sites.map(x => [x.site, x]));
+  const sites = b.sites.map(x => {
+    const was = before.get(x.site), d = { ...x };
+    for (const k of COUNTERS.slice(1)) if (typeof x[k] === 'number') {
+      d[k] = x[k] - (was?.[k] ?? 0);
+      if (d[k] < 0) throw Error(`perf: site ${x.site}'s ${k} went back (${was[k]} → ${x[k]}): the runner restarted between the reads`);
+    }
+    return d;
+  });
+  return { ...b, sites, from: { seq: a.seq, clock: a.clock } };
+}
+
+function renderPerf(r) {
+  if (r.virtual) return 'virtual clock: no frame was presented (LLP 1079 D4)';
+  if (r.unavailable) return 'this host observes no presented frames';
+  if (r.lifetime) {
+    const w = r.window ?? {}, f = n => n == null ? '—' : `${n} ms`;
+    const out = [`period ${r.period.ms} ms (${r.period.source}) · presented ${r.lifetime.presented} · late ${r.lifetime.late} · missed ${r.lifetime.missed} · segments ${r.lifetime.segments}${r.covers?.length ? ` · covers ${r.covers.join(', ')}` : ''}`,
+      `window t=${w.from}..${w.to} · ${w.samples} samples (${w.dropped} dropped) · p50 ${f(w.p50)} · p95 ${f(w.p95)} · p99 ${f(w.p99)} · max ${f(w.max)}`];
+    for (const l of r.late ?? []) out.push(`  t=${l.t} late: ${l.missed} missed (${l.interval} ms) · seq ${l.seq ? l.seq.join('..') : '—'}${l.apply != null ? ` · apply ${l.apply}` : ''}${l.layout != null ? ` · layout ${l.layout}` : ''}${l.loaf ? ` · loaf script ${l.loaf.script}${l.loaf.styleLayout != null ? ` style+layout ${l.loaf.styleLayout}` : ''}` : ''}`);
+    return out.join('\n');
+  }
+  const round = x => typeof x === 'number' ? Math.round(x * 100) / 100 : x;
+  const span = (from, to) => from != null && from !== to ? `${round(from)}..${round(to)}` : `${round(to)}`;
+  const cols = COUNTERS.filter(k => r.sites.some(x => typeof x[k] === 'number'));
+  // A component used twice is two sites: the nearest call site tells them apart.
+  const where = x => x.source?.status === 'compatible' ? `${x.source.file.split('/').pop()}:${x.source.line}${x.source.chain.length ? ` (from :${x.source.chain[0].line})` : ''}` : `site ${x.site}`;
+  const rows = r.sites.map(x => [x.source?.status === 'compatible' ? x.source.component : '?', where(x), ...cols.map(k => String(x[k]))]);
+  const head = ['component', 'site', ...cols], width = head.map((h, i) => Math.max(h.length, ...rows.map(row => row[i].length)));
+  const pad = row => '  ' + row.map((c, i) => c.padEnd(width[i])).join('  ').trimEnd();
+  const unmapped = r.sites.find(x => x.source?.status !== 'compatible');
+  return [`${r.target ?? 'every root'} — seq ${span(r.from?.seq, r.seq)} · clock ${span(r.from?.clock, r.clock)} ms · incarnation ${r.incarnation}${r.truncated ? ` · partial: ${r.walked} walked` : ''}${unmapped ? ` · source unavailable: ${unmapped.source?.reason ?? 'no development source map'}` : ''}`,
+    pad(head), ...rows.map(pad)].join('\n');
+}
+
+/** `bun scripts/agent.mjs trace <file>` (LLP 1079 D5): a person's session
+ * read back with no app running. The trace's own source map joins its sites;
+ * without one, `locators` are tried as the live driver tries them. */
+export async function readTrace(file, locate = () => []) {
+  const t = JSON.parse(readFileSync(file, 'utf8'));
+  const maps = sourceMapReaders(t.map ? [] : locate(t.identity?.app));
+  if (t.map) maps.add(t.map); else await maps.refresh();
+  const perf = t.perf && !t.perf.error ? { target: 'every root', ...t.perf } : null;
+  for (const site of perf?.sites ?? []) { const n = { planDigest: perf.plan ?? t.plan, site: site.site }; maps.attach(n); site.source = n.sourceMap; }
+  return { ...t, perf };
+}
+
+/** A trace as text: who and what made it, each timing's proxy, the frames,
+ * each late frame beside the journal lines stamped in its interval and the
+ * transactions it carried (D4: juxtaposition, never a cause), the sites. */
+export function renderTrace(t) {
+  const id = t.identity ?? {};
+  const out = [`trace · ${[id.host, id.target].filter(Boolean).join('/')} · ${id.app ?? 'app ?'} · ${id.trust ?? 'trust ?'} · commit ${id.commit?.slice(0, 12) ?? '?'}${id.working_tree ? ' (dirty)' : ''} · ${[id.platform, id.arch, id.cpu, id.os, id.device].filter(Boolean).join(' ')}`];
+  if (t.proxies) out.push(`proxies · ${Object.entries(t.proxies).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`).join(' · ')}`);
+  if (t.frames?.lifetime) {
+    out.push('', renderPerf({ ...t.frames, late: [] }));
+    // Beside each late frame, the journal lines appended just before its own
+    // line — at most five, none from before the previous late frame: the
+    // journal's `t=` is the runner's logical clock, which need not be the
+    // frame's (a page adopted from a checkpoint keeps the render's).
+    const lines = t.journal?.lines ?? [];
+    for (const r of t.frames.late ?? []) {
+      const at = lines.findIndex(l => l.includes(` frame late at ${r.t}:`));
+      let from = at;
+      while (from > 0 && at - from < 5 && !lines[from - 1].includes(' frame late at ')) from--;
+      const near = at < 0 ? [] : lines.slice(from, at);
+      const n = r.seq ? r.seq[1] - r.seq[0] + 1 : 0;
+      out.push(`  late at ${r.t}: ${r.missed} missed (${r.interval} ms) · ${n} transaction${n === 1 ? '' : 's'}${r.seq ? ` (seq ${r.seq.join('..')})` : ''}${r.apply ? ` · apply ${r.apply}` : ''}${r.layout != null ? ` · layout ${r.layout}` : ''}${r.paint != null ? ` · paint ${r.paint}` : ''}${r.loaf ? ` · loaf script ${r.loaf.script}${r.loaf.styleLayout != null ? ` style+layout ${r.loaf.styleLayout}` : ''}` : ''}${at < 0 ? ' · its journal line is gone (the ring turned over)' : ` · ${near.length} journal line${near.length === 1 ? '' : 's'} before it`}`);
+      for (const l of near) out.push(`    ${l}`);
+    }
+  } else if (t.frames) out.push('', renderPerf(t.frames));
+  if (t.perf) out.push('', renderPerf(t.perf));
+  return out.join('\n');
+}
+
+const box = (b) => (b ? `${b.x},${b.y} ${b.w}×${b.h}` : '—');
+
+/**
+ * `layout <target> native` (LLP 1080.001 D1, D6): the views and flat-leaf
+ * layers under the node, one line each, indented by depth — observation,
+ * no verdicts.
+ *
+ *   subviews {root} · N entries, depth D [· truncated …]
+ *     view {Class} #{node} | {role} [of #{owner}] [hidden] [alpha A] [inert] [masks] [z Z] [transform …] X,Y W×H [· opaque platform, N children]
+ *     layer {Class} {role} #{leaf} … path X,Y W×H [detached] [hidden]
+ */
+function renderSubviews(s) {
+  if (s.unavailable) return [`  subviews unavailable: ${s.unavailable}`];
+  const out = [`  subviews ${s.root} · ${s.count} entries, depth ${s.depth}${s.truncated?.length ? ` · truncated ${s.truncated.join(', ')}` : ''}`];
+  for (const e of s.entries ?? []) {
+    const pad = '    ' + '  '.repeat(e.depth);
+    if (e.kind === 'layer') {
+      out.push(`${pad}layer ${e.class} ${e.role} ${e.leaves.map((id) => `#${id}`).join(' ')}${e.leafCount > e.leaves.length ? ` (+${e.leafCount - e.leaves.length})` : ''} path ${box(e.path)}${e.path?.empty ? ' (empty)' : ''}${e.attached ? '' : ' [detached]'}${e.hidden ? ' [hidden]' : ''}`);
+      continue;
+    }
+    const who = e.node != null ? `#${e.node}` : `${e.role}${e.owner != null ? ` of #${e.owner}` : ''}`;
+    const l = e.layer ?? {};
+    const flags = [e.hidden && '[hidden]', e.alpha !== 1 && `[alpha ${e.alpha}]`, e.interactive === false && '[inert]', l.masksToBounds && '[masks]',
+      l.zPosition && `[z ${l.zPosition}]`, l.transform != null && `[transform ${Array.isArray(l.transform) ? l.transform.join(',') : l.transform}]`].filter(Boolean);
+    out.push(`${pad}view ${e.class} ${who}${flags.length ? ' ' + flags.join(' ') : ''} ${box(e.frame)}${e.opaque ? ` · opaque ${e.opaque}, ${e.children} children` : ''}`);
+  }
+  return out;
+}
+
+/**
+ * `layout agree` (LLP 1080.001 D2, D6): whether the walk was complete, what
+ * it covered, then one line per disagreement.
+ *
+ *   agreement complete|INCOMPLETE (reasons) · N disagreements · ±P px · roots …
+ *     coverage stray J judged, O opaque · frame C compared, S size-only, K skipped · hidden H compared, L claimed · parked roots R
+ *     {kind} #{id} [{testId}] … (frame: kernel X,Y W×H · native X,Y W×H (Δ dx,dy dw×dh); stray: {Class} under #{id} X,Y W×H)
+ *     … N more (truncated)
+ */
+function renderAgreement(a) {
+  if (a.unavailable) return `agreement unavailable: ${a.unavailable}`;
+  const total = Object.values(a.counts ?? {}).reduce((x, y) => x + y, 0);
+  const c = a.coverage ?? {};
+  const sum = (o) => Object.values(o ?? {}).reduce((x, y) => x + y, 0);
+  const out = [`agreement ${a.complete ? 'complete' : `INCOMPLETE (${a.incomplete.join(', ')})`} · ${total} disagreements · ±${a.tolerance?.px} px · roots ${(a.roots?.walked ?? []).join(', ')}${a.roots?.excluded?.length ? ` · excluded ${a.roots.excluded.join(', ')}` : ''}`,
+    `  coverage stray ${c.stray?.judged} judged, ${c.stray?.opaque} opaque · frame ${c.frame?.compared} compared, ${c.frame?.sizeOnly} size-only, ${sum(c.frame?.skipped)} skipped · hidden ${c.hidden?.compared} compared, ${sum(c.hidden?.claimed)} claimed · parked roots ${c.kept?.parkedRoots} · leaving ${c.kept?.leaving}`];
+  const tag = (id, t) => (id != null ? `#${id}${t != null ? ` [${t}]` : ''}` : '');
+  for (const d of a.disagreements ?? []) {
+    if (d.kind === 'frame') out.push(`  frame ${tag(d.id, d.testId)} kernel ${box(d.kernel)} · native ${box(d.native)} (Δ ${d.delta.x},${d.delta.y} ${d.delta.w}×${d.delta.h})${d.sizeOnly ? ' size only' : ''}`);
+    else if (d.kind === 'stray') out.push(`  stray ${d.class}${d.retired != null ? ` (retired #${d.retired})` : ''}${d.under != null ? ` under ${tag(d.under, d.underTestId)}` : ''} ${box(d.frame)}`);
+    else if (d.kind === 'hidden') out.push(`  hidden ${tag(d.id, d.testId)} native hidden=${d.native?.hidden} · expected hidden=${d.expected?.hidden}${d.hider ? ` (${d.hider})` : ''}`);
+    else out.push(`  ${d.kind} ${d.id != null ? tag(d.id, d.testId) : d.class ?? ''}${d.frame ? ` ${box(d.frame)}` : ''}`);
+  }
+  const listed = a.disagreements?.length ?? 0;
+  if (a.truncated?.includes('disagreements')) out.push(`  … ${total - listed} more (truncated)`);
+  return out.join('\n');
 }

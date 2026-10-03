@@ -38,7 +38,7 @@ fn names(scene: &Scene, w: &World) -> Vec<String> {
         .collect()
 }
 #[test]
-fn seventeen_lights_exclude_zero_and_match_continuous_seek_restore() {
+fn seventeen_lights_all_draw_exclude_zero_and_match_continuous_seek_restore() {
     let mut sim = Sim::<Lights>::new(()).unwrap();
     let mut continuous = Scene::default();
     for _ in 0..600 {
@@ -53,7 +53,7 @@ fn seventeen_lights_exclude_zero_and_match_continuous_seek_restore() {
     sim.restore(&saved).unwrap();
     let mut restored = Scene::default();
     feed(&mut restored, sim.world());
-    let expected: Vec<_> = [9, 8, 10, 7, 11, 6, 12, 5, 13, 4, 14, 3, 15, 2, 16, 1]
+    let expected: Vec<_> = [9, 8, 10, 7, 11, 6, 12, 5, 13, 4, 14, 3, 15, 2, 16, 1, 0]
         .into_iter()
         .map(|i| format!("light-{i:02}"))
         .collect();
@@ -82,8 +82,8 @@ fn twelve_lights_all_contribute_and_zero_intensity_edits_reselect() {
     feed(&mut scene, sim.world());
     assert_eq!(scene.lights_for_test().len(), 12);
     let f = scene.frame(sim.world(), 1., glam::Vec2::ONE, false);
-    assert_eq!(f.points.len(), 12);
-    assert!(f.points.iter().all(|p| p.intensity > 0.));
+    assert_eq!(f.lights.len(), 12);
+    assert!(f.lights.iter().all(|p| p.intensity > 0.));
     sim.world().require_mut::<PointLight>("light-00").intensity = 0.;
     scene.feed(sim.world(), false, false, false, false);
     assert_eq!(scene.lights_for_test().len(), 11);
@@ -107,13 +107,14 @@ fn saved_light_spring_samples_frame_time_and_clamps_negative_overshoot() {
     let before = sim.save().unwrap();
     let actual = scene
         .frame(sim.world(), 0.5, glam::Vec2::ONE, false)
-        .points
+        .lights
         .iter()
         .find(|p| p.position.x == 10.)
         .unwrap()
         .intensity;
-    let expected = sim.world().require::<Lit>(e).0.value_at(5.5 / 60., 60)
-        * sim.world().require::<PointLight>(e).intensity;
+    let expected = crate::PHOTOMETRIC_SCALE
+        * sim.world().require::<PointLight>(e).intensity
+        * sim.world().require::<Lit>(e).0.value_at(5.5 / 60., 60);
     assert_eq!(actual, expected);
     assert_eq!(before, sim.save().unwrap());
     sim.restore(&before).unwrap();
@@ -122,7 +123,7 @@ fn saved_light_spring_samples_frame_time_and_clamps_negative_overshoot() {
     assert_eq!(
         scene
             .frame(sim.world(), 0.5, glam::Vec2::ONE, false)
-            .points
+            .lights
             .iter()
             .find(|p| p.position.x == 10.)
             .unwrap()
@@ -141,7 +142,7 @@ fn saved_light_spring_samples_frame_time_and_clamps_negative_overshoot() {
     assert_eq!(
         scene
             .frame(sim.world(), 0., glam::Vec2::ONE, false)
-            .points
+            .lights
             .iter()
             .find(|p| p.position.x == 10.)
             .unwrap()
@@ -160,7 +161,7 @@ fn e11_boundary_ties_and_invalid_lights_never_displace_useful_lights() {
     }
     sim.world().require_mut::<PointLight>("off").intensity = 1.;
     sim.world().require_mut::<PointLight>("off").range = 0.;
-    let expected: Vec<_> = (0..16).map(|i| format!("light-{i:02}")).collect();
+    let expected: Vec<_> = (0..17).map(|i| format!("light-{i:02}")).collect();
     let mut scene = Scene::default();
     feed(&mut scene, sim.world());
     assert_eq!(names(&scene, sim.world()), expected);
@@ -208,7 +209,7 @@ fn light_churn_preserves_survivor_interpolation_and_snaps_new_arrivals() {
     fn points(scene: &mut Scene, w: &World, alpha: f32) -> Vec<(f32, f32)> {
         scene
             .frame(w, alpha, glam::Vec2::ONE, false)
-            .points
+            .lights
             .iter()
             .map(|p| (p.color.x, p.position.x))
             .collect()
@@ -273,4 +274,78 @@ fn light_churn_preserves_survivor_interpolation_and_snaps_new_arrivals() {
     feed(&mut restored, &w);
     assert_eq!(points(&mut restored, &w, 1.), current);
     assert_eq!(w.save(), saved);
+}
+
+#[test]
+fn lights_beyond_the_cap_are_counted_and_spots_join_points_by_distance() {
+    let mut w = World::new(60, 0);
+    w.spawn((Transform::default(), Camera::default()));
+    let spot = w.spawn((
+        Transform::at(0.5, 0., 0.),
+        exact_game::SpotLight {
+            inner: 0.5,
+            outer: 0.4,
+            ..Default::default()
+        },
+    ));
+    for i in 0..crate::MAX_LIGHTS + 44 {
+        w.spawn((Transform::at(i as f32 + 1., 0., 0.), PointLight::default()));
+    }
+    let mut scene = Scene::default();
+    feed(&mut scene, &w);
+    let frame = scene.frame(&w, 1., glam::Vec2::ONE, false);
+    assert_eq!(frame.lights.len(), crate::MAX_LIGHTS);
+    assert_eq!(frame.lights_dropped, 45);
+    // The nearest light is the spot, its inner cone clamped inside its outer.
+    let [inner, outer] = frame.lights[0].cone.unwrap();
+    assert!(inner > outer && (outer - 0.4f32.cos()).abs() < 1e-6);
+    // Shadows are opt-in for both kinds (LightShadows).
+    assert!(!frame.lights[0].shadows);
+    assert!(frame.lights[1].cone.is_none() && !frame.lights[1].shadows);
+    assert_eq!(scene.lights_for_test()[0], spot);
+}
+
+#[test]
+fn candela_and_lux_share_one_scale() {
+    // A 10,000 cd lamp 1 m from a surface delivers the 10,000 lux of the default sun.
+    let mut w = World::new(60, 0);
+    w.spawn((Transform::default(), Camera::default()));
+    w.spawn((
+        Transform::default(),
+        exact_game::DirectionalLight::default(),
+    ));
+    w.spawn((
+        Transform::at(1., 0., 0.),
+        PointLight {
+            intensity: 10_000.,
+            ..Default::default()
+        },
+    ));
+    let mut scene = Scene::default();
+    feed(&mut scene, &w);
+    let frame = scene.frame(&w, 1., glam::Vec2::ONE, false);
+    assert_eq!(frame.lights[0].intensity, frame.sun.unwrap().illuminance);
+    assert!((frame.sun.unwrap().illuminance - 3.).abs() < 1e-6);
+}
+
+#[test]
+fn nan_spot_angles_become_a_finite_cone() {
+    let mut w = World::new(60, 0);
+    w.spawn((Transform::default(), Camera::default()));
+    w.spawn((
+        Transform::at(1., 0., 0.),
+        exact_game::SpotLight {
+            inner: f32::NAN,
+            outer: f32::NAN,
+            ..Default::default()
+        },
+    ));
+    let mut scene = Scene::default();
+    feed(&mut scene, &w);
+    let frame = scene.frame(&w, 1., glam::Vec2::ONE, false);
+    let [inner, outer] = frame.lights[0].cone.unwrap();
+    assert!(
+        inner.is_finite() && outer.is_finite() && inner > outer,
+        "{inner} {outer}"
+    );
 }

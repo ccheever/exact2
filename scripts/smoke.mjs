@@ -18,6 +18,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { browserDiagnosticNoise, open as openAgent, render, runTests as runAgentTests } from './agent.mjs';
 import { resolveApp, withAppFixture } from './app.mjs';
+import { agree, explainNode, hostSections, poolingDrive } from './smoke-inspect.mjs';
 import { DirectoryOrigin, parseWebRoot, webReleasePath, webRootPath } from './origin.mjs';
 import { jsTargetBuild, readStaticFile, serveStatic } from '../host/web/serve.mjs';
 import { canonicalBytes, publicKeyFromRaw, webRelease } from './deploy.mjs';
@@ -49,8 +50,8 @@ const runTests = (options) => runAgentTests({ device, phone, ...options, app: op
 // after a deliberate change to the form.
 const transcript = () => {
   const sample = JSON.parse(readFileSync(resolve(ROOT, 'scripts/fixtures/transcript.json'), 'utf8'));
-  // A sample named `empty` or `dropped` is a `logs` reply; the rest are named by their op.
-  return Object.entries(sample).map(([name, reply]) => `--- ${name}\n${render(name === 'empty' || name === 'dropped' ? 'logs' : name, reply)}`).join('\n\n') + '\n';
+  // A sample named `empty` or `dropped` is a `logs` reply; the rest are named by their op (then a form: `layout agree`).
+  return Object.entries(sample).map(([name, reply]) => `--- ${name}\n${render(name === 'empty' || name === 'dropped' ? 'logs' : name.split(' ')[0], reply)}`).join('\n\n') + '\n';
 };
 const pinned = resolve(ROOT, 'scripts/fixtures/transcript.txt');
 if (argv.includes('--record')) { writeFileSync(pinned, transcript()); console.log(`recorded ${pinned.replace(ROOT + '/', '')}`); process.exit(0); }
@@ -433,6 +434,8 @@ if (host === 'host' || host === 'host-ios') {
       }
       s.session = 'a';
     }
+    for (const label of ['a', 'b']) { s.session = label; await agree(s, `host session ${label}: after the push, pop and blur`, { host, check: hcheck }); } // 7a
+    s.session = 'a';
     // 4. A bad candidate plan is refused; both keep their running apps.
     const bad = resolve(dir, 'bad.plan');
     writeFileSync(bad, 'not an Exact plan');
@@ -521,17 +524,10 @@ try {
     let logo = box(layout, 'logo');
     for (let i = 0; i < 40 && !(logo && Math.round(logo.h) === 36); i++) { await sleep(50); logo = box(await s.layout(), 'logo'); }
     check(logo && Math.round(logo.w) === 96 && Math.round(logo.h) === 36, `the logo is ${logo?.w}×${logo?.h}, not 96×36 from its 320×120 ratio`);
-    // 2b. `layout <node>` (LLP 1035.002 D1): the runner's half names where
-    // each value came from, the host's half the spaces it has; the explained
-    // box is the listing's box; a stale id is refused by name.
-    const explained = await s.layout('station-name');
-    const n = explained.node;
-    const listed = box(layout, 'station-name');
-    check(n && n.id === byTestId(tree, 'station-name')?.id && n.style && n.space?.viewport, `layout station-name carries no node detail: ${JSON.stringify(explained.node)}`);
-    check(n && ['authored', 'inherited', 'initial'].includes(n.style.text_color?.source), `text_color has no source: ${JSON.stringify(n?.style?.text_color)}`);
-    check(n && listed && Math.abs(n.space.viewport.x - listed.x) < 0.01 && Math.abs(n.space.viewport.w - listed.w) < 0.01, `the explained box ${JSON.stringify(n?.space?.viewport)} disagrees with the listing ${JSON.stringify(listed)}`);
-    check(await s.op({ op: 'layout', id: 999999 }).then(() => false, (e) => /stale node/.test(e.message)), 'a stale node id was not refused by name');
+    await explainNode(s, { tree, layout, check }); // 2b (smoke-inspect.mjs)
   }
+  await agree(s, `${app.name}: first frame`, { host, check }); // 7a (LLP 1080.001 D5)
+  if (byTestId(tree, 'feed-far') && host === 'ios') await poolingDrive(s, { host, check });
 
   // 2a. The iframe parity oracle and Apple arm (@ref LLP 1020 M1/M2): load
   // and message enter the runner, the guest joins tree/input, and the
@@ -658,56 +654,15 @@ try {
   check(byTestId(tree, 'station-search')?.props.value === 'Palo', `typing left the field at ${JSON.stringify(byTestId(tree, 'station-search')?.props.value)}`);
   state = await s.state();
   check(state.slots.query === 'Palo', `the query slot did not hear the change (${JSON.stringify(state.slots.query)})`);
-  // 2c. `state`'s host sections (LLP 1035.002 D2) are present on every host
-  // (Linux says `unavailable`, never nothing); where the host has a focus,
-  // the field just typed into is the editor; on iOS the keyboard comes up
-  // (its notification lands asynchronously, so poll). Every reply is
-  // tagged with the runner's epoch and incarnation (D3).
-  check(state.focus && state.keyboard && state.navigation, `state lacks a host section: ${Object.keys(state).join(', ')}`);
-  check(Number.isInteger(state.epoch) && Number.isInteger(state.incarnation), `state is untagged: epoch ${state.epoch}, incarnation ${state.incarnation}`);
-  check(Number.isInteger((await s.layout()).epoch), 'the layout reply is untagged');
-  if (host !== 'linux') {
-    const field = byTestId(tree, 'station-search')?.id;
-    check(state.focus.editor === field && state.focus.logical === field, `the typed field is not the focus: ${JSON.stringify(state.focus)}`);
-    if (host === 'ios') {
-      for (let i = 0; i < 40 && !state.keyboard.visible; i++) { await sleep(50); state = await s.state(); }
-      check(state.keyboard.visible === true && state.keyboard.overlap > 0, `the keyboard is not up: ${JSON.stringify(state.keyboard)}`);
-    }
-    check(state.slots.searchFocused === true, `typing did not focus the field (searchFocused ${state.slots.searchFocused})`);
-    await s.type('station-search', { key: 'Enter' });
-    state = await s.state();
-    tree = await s.tree();
-    check(state.slots.lastKey === 'Enter' && byTestId(tree, 'search-hint')?.props.text === 'searching · last key Enter', `Enter at the field: lastKey ${JSON.stringify(state.slots.lastKey)}, hint ${JSON.stringify(byTestId(tree, 'search-hint')?.props.text)}`);
-    check(byTestId(tree, 'station-search')?.props.value === 'Palo', `Enter changed the field's text to ${JSON.stringify(byTestId(tree, 'station-search')?.props.value)}`);
-  }
+  ({ state, tree } = await hostSections(s, { host, tree, state, check })); // 2c (smoke-inspect.mjs)
   const matches = tree.nodes.filter((n) => n.type === 'Pressable' && n.props.testId?.startsWith('station-'));
   check(matches.length === 1 && matches[0].props.testId === 'station-paloalto', `the search shows ${matches.map((m) => m.props.testId).join(', ') || 'nothing'}, not station-paloalto alone`);
   await s.tap('station-paloalto');
   tree = await s.tree();
   check(byTestId(tree, 'station-name')?.props.text === 'Palo Alto', `after picking Palo Alto the station is ${byTestId(tree, 'station-name')?.props.text}`);
   check(byTestId(tree, 'home-screen'), 'picking a station did not return home');
-  // 4c. A held contact on the simulator (LLP 1035.003 §3, candidate 1): a
-  // desktop pointer into the Simulator's window, mapped by the driver; a
-  // finger down on the title, dragged up while the page is read
-  // mid-gesture, held still, lifted. A machine without Accessibility for
-  // this terminal reports `unsupported` with the reason — printed, not
-  // failed and not faked — so the step stays visibly unverified there.
-  if (host === 'ios') {
-    const down = await s.tap('station-name', { down: true });
-    if (down.delivery === 'unsupported') {
-      console.log(`ios contact: unsupported — ${down.reason}`);
-    } else {
-      await s.pointer('move', { dx: 0, dy: -200, ms: 200 });
-      const held = await s.layout();
-      const page = held.nodes.find((n) => n.type === 'ScrollView' && n.sy != null);
-      check(page && page.sy > 50, `a held drag of 200 up scrolled the page by ${page?.sy} (delivery ${down.delivery}, desktop ${JSON.stringify(down.desktop)})`);
-      await s.pointer('hold', { ms: 300 });
-      const up = await s.pointer('up');
-      check(up.delivery === 'platform' && !s.contact, 'the simulator contact was not released');
-      const after = (await s.layout()).nodes.find((n) => n.type === 'ScrollView' && n.sy != null);
-      if (after?.sy) await s.tap(after.id, { wheel: [0, -after.sy] });
-    }
-  }
+  await agree(s, 'caltrain: home again after the station change', { host, check }); // 7a
+  // 4c. Real touches on a simulator are `scripts/smoke-touch.mjs` (LLP 1080.000).
   // 4b. A held contact (LLP 1035.003 D1) on the AppKit carrier: the button
   // goes down on Change station, leaves it, and is cancelled — on a mouse a
   // release where the pointer is (de13a93f), outside the button, so nothing
@@ -757,6 +712,7 @@ try {
   const innerMoved = inner.sy > inner0.sy, pageMoved = box(layout, 'caltrain-main').y < 0;
   check(moved === 300, `a wheel of 300 over the content scrolled it by ${moved}`);
   check(innerMoved !== pageMoved, `one scroll container takes a wheel: inner moved ${innerMoved}, page moved ${pageMoved}`);
+  await agree(s, 'caltrain: after the wheel', { host, check }); // 7a
 
   }
 
@@ -890,6 +846,7 @@ else {
     check(box(l, 'root').y < 0, `a scroll node at its edge (${limit}) did not chain to the page (root at ${box(l, 'root').y})`);
     check(box(l, 'rows').sy === limit, 'the scroll node moved past its edge');
     console.log(`${host} fixture: the scroll node stops at ${limit}, then the page scrolls (root at ${box(l, 'root').y})`);
+    await agree(f, 'scroll fixture: at the page edge', { host, check }); // 7a
   } catch (error) {
     // A driver refusal is one finding; the rest of the smoke still runs.
     failures.push(`the scroll fixture stopped: ${error.message}`);
@@ -1110,8 +1067,8 @@ if (deckFixture) {
 // swipe row inside a panning surface. A horizontal drag is the inner swipe's
 // and the pan never fires; a vertical one falls to the pan; a drag that starts
 // on the row's button is neither's (rule 3's boundary); a tap presses it. The
-// same numbers on every host that can hold a contact; iOS without the desktop
-// pointer answers `unsupported`, said so, not faked.
+// same numbers on every host that can hold a contact; iOS, which holds none
+// (LLP 1080.000 P3), answers `unsupported`, said so, not faked.
 {
   const tmp = mkdtempSync(resolve(tmpdir(), 'exact-smoke-'));
   const plan = resolve(tmp, 'precedence.plan');
@@ -1207,7 +1164,7 @@ if (deckFixture) {
       const note = box(l, 'note');
       check(l.viewport.h === viewport0.h && box(l, 'root').h === rootBox.h, `the layout viewport does not change for a keyboard: ${JSON.stringify(l.viewport)}, root ${JSON.stringify(box(l, 'root'))}`);
       if (host === 'ios') {
-        check(kb > 100, `the software keyboard rose on the simulator: keyboard-inset-height ${kb} (Simulator › I/O › Keyboard › Connect Hardware Keyboard hides it)`);
+        check(kb > 100, `the software keyboard rose on the simulator: keyboard-inset-height ${kb} (the device's com.apple.keyboard.preferences AutomaticMinimizationEnabled = 1 hides it — a Device Hub window writes it and it stays; \`xcrun simctl spawn <udid> defaults delete com.apple.keyboard.preferences AutomaticMinimizationEnabled\`, or boot a fresh device)`);
         check(note.y + note.h <= l.viewport.h - kb + 0.01 && note.y < noteBefore.y, `the field is revealed above the keyboard: ${JSON.stringify(note)} under a keyboard of ${kb} in ${l.viewport.h}; before ${JSON.stringify(noteBefore)}`);
         console.log(`${host} insets: safe area ${top}/${right}/${bottom}/${left}, the viewport ${l.viewport.w}×${l.viewport.h}; the keyboard ${kb} revealed the field at y ${note.y} (was ${noteBefore.y})`);
       } else {
@@ -1321,7 +1278,7 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
     try {
       let t = await f.tree();
       check(byTestId(t, 'first')?.focused === true, 'autofocus takes focus after mount');
-      check(byTestId(t, 'first')?.accessibleName === 'Increment', 'button name is its text');
+      check(byTestId(t, 'first')?.accessibleName === 'Increment', 'button name is its text'); check(byTestId(t, 'labelled')?.accessibleName === '20 sheckles' && byTestId(t, 'live-count')?.accessibleName === undefined, `a label names a text, and an unlabelled text has no name (accname): ${JSON.stringify([byTestId(t, 'labelled')?.accessibleName, byTestId(t, 'live-count')?.accessibleName])}`);
       check(byTestId(t, 'toggle')?.props.autofocus === false, 'autofocus=false remains false');
       check(byTestId(t, 'live-count')?.props.accessibilityLive === 'polite' && byTestId(t, 'live-container')?.props.accessibilityLive === 'assertive', 'both live region priorities are in tree');
       await f.tap('first');
@@ -1329,7 +1286,7 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
       check(byTestId(t, 'live-count')?.props.text === 'Count 1', 'live text changes through an action');
       await f.tap('other');
       check(byTestId(await f.tree(), 'other')?.focused === true, 'a text update does not steal focus back');
-      await f.clock('+1000'); await f.clock('+1000');
+      check(byTestId(t, 'pressed')?.props.accessibilityPressed === 'true' && byTestId(t, 'mixed')?.props.accessibilityPressed === 'mixed', `aria-pressed is in the tree: ${JSON.stringify([byTestId(t, 'pressed')?.props, byTestId(t, 'mixed')?.props])}`); await f.clock('+1000'); check(byTestId(await f.tree(), 'pressed')?.props.accessibilityPressed === 'false', 'aria-pressed follows its bool'); await f.clock('+1000');
       t = await f.tree();
       check(byTestId(t, 'other')?.focused === true, 'remount does not steal focus from Other');
       check((await f.state()).focus.logical === byTestId(t, 'other')?.id, 'state agrees with tree focus');

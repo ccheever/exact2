@@ -1,6 +1,21 @@
 import {test} from 'bun:test';
 import assert from 'node:assert/strict';
+import {existsSync,mkdtempSync,rmSync,writeFileSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {dirname,resolve} from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {spawnSync} from 'node:child_process';
 import {boundedHttpBody as readBody, waitForInflight} from './http-body.js';
+
+const ROOT=resolve(dirname(fileURLToPath(import.meta.url)),'../..'),sets=new Map();
+function normalized(spec){
+  if(sets.has(spec))return sets.get(spec);
+  const scratch=mkdtempSync(resolve(tmpdir(),'exact-grants-')),input=resolve(scratch,'grants.txt');writeFileSync(input,spec);
+  const target=resolve(process.env.CARGO_TARGET_DIR||resolve(ROOT,'target'),'debug/exact-web-js');
+  const result=existsSync(target)?spawnSync(target,['normalize-grants',input],{cwd:ROOT,encoding:'utf8'}):spawnSync('cargo',['run','-q','-p','exact-web-js','--','normalize-grants',input],{cwd:ROOT,encoding:'utf8'});
+  rmSync(scratch,{recursive:true});if(result.status!==0)throw new Error(result.stderr||'grant normalizer failed');
+  const set=JSON.parse(result.stdout);sets.set(spec,set);return set;
+}
 
 test('independent HTTP collects only a bounded complete response',async()=>{
   assert.deepEqual(await readBody(new Response('four'),4),new TextEncoder().encode('four'));
@@ -73,7 +88,7 @@ test('a stream delivers each read as its newest event, then its end', async () =
   const sent = [];
   const op = { method: 'GET', url: 'https://example.test/events', headers: [], body: '', stream: true, maxResponseBytes: 64 };
   const done = request(op, {
-    grants: ['net.fetch https://example.test'], granted: () => true, controllers: new Set(),
+    grantSet: normalized('net.fetch https://example.test'), controllers: new Set(),
     moduleLoader: { claim: (url, init) => { sent.push(init.headers); return Promise.resolve(new Response(body, { headers: { 'content-type': 'text/event-stream' } })); } },
     message: (m) => sent.push(m),
   });
@@ -128,7 +143,7 @@ test('a socket delivers text messages, coalescing a burst, then its close (LLP 1
   const peer = await socketPeer();
   const open = (path, sent, controller = new AbortController()) => request(
     { method: 'GET', url: `${peer.url}${path}`, headers: [], body: '', stream: true, maxResponseBytes: 64 },
-    { grants: [], granted: (url) => /^ws:/.test(url), controllers: new Set(), controller, message: (m) => sent.push(m) },
+    { grantSet: normalized(`net.websocket ${peer.url}`), controllers: new Set(), controller, message: (m) => sent.push(m) },
   );
   const text = (r) => new TextDecoder().decode(r.body);
   try {
@@ -150,4 +165,3 @@ test('a socket delivers text messages, coalescing a burst, then its close (LLP 1
     assert.ok(peer.gone.includes('/hold'), 'the peer saw the socket close');
   } finally { peer.close(); }
 });
-

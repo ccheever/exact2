@@ -74,6 +74,15 @@ final class ElementHooks {
         }
     }
 
+    /// A held heavy leaf (a video, frame or native view in a list) is made
+    /// after its hook heard `built`: the hook hears `changed`, its platform
+    /// object there now.
+    func realized(_ node: NodeView) {
+        guard let entry = nodes[node.id], entry.node === node, entry.told, let word = node.props["hook"] else { return }
+        let reusable = call(.changed, entry)
+        say(word, node: node, inList: entry.inList, reusable: reusable)
+    }
+
     /// Before a batch's ops: every hooked node it destroys ends now, its view
     /// still in its row. A row's root is destroyed before its children, and
     /// the node pool decides at the root whether the row parks, so a
@@ -105,6 +114,7 @@ final class ElementHooks {
     /// carries the answer to the node pool, LLP 1075.003.000.000 §8).
     @discardableResult
     private func call(_ event: RouteHookEvent, _ entry: Entry) -> Bool {
+        let id = entry.node.id
         let word = entry.node.props["hook"] ?? ""
         calls[word, default: [:]][event.name, default: 0] += 1
         // In a list's row, the first of each moment is journaled; `state`
@@ -112,7 +122,12 @@ final class ElementHooks {
         let quiet = entry.inList && (calls[word]?[event.name] ?? 0) > 1
         let reusable = presenter.session?.natives.elementHook(entry.node, event: event.rawValue, platform: Self.platform(of: entry.node, presenter), quiet: quiet) ?? false
         #if os(iOS)
-        if event != .ended { entry.node.hookReusable = reusable }
+        // The answer is the view's while it is still this node's: a click
+        // inside the hook (after the batch) can have replaced the node and
+        // given its view to another. At `ended` it is the last word.
+        if event == .ended || (nodes[id]?.node === entry.node && presenter.views[id] === entry.node) {
+            entry.node.hookReusable = reusable
+        }
         #endif
         return reusable
     }
@@ -195,16 +210,22 @@ final class ElementHooks {
     /// a control (a switch, slider, date picker…), a web view, a scroll view.
     static func platform(of node: NodeView, _ presenter: Presenter) -> AnyObject? {
         #if os(iOS)
-        node.field ?? node.textArea ?? presenter.controls.controls[node.id] ?? node.web ?? node.scroll
+        node.field ?? node.textArea ?? presenter.controls.controls[node.id] ?? presenter.segments.control(of: node.id) ?? node.web ?? node.scroll
         #else
-        node.field ?? node.textArea ?? presenter.controls.controls[node.id] ?? node.scroll
+        node.field ?? node.textArea ?? presenter.controls.controls[node.id] ?? presenter.segments.control(of: node.id) ?? node.scroll
         #endif
     }
 
     // MARK: Acting on an element (LLP 1075.003 §3.4)
 
-    /// A hook's `click()`, `focus()` or `blur()` on a node, as the DOM's,
-    /// after the batch being applied. False when refused.
+    /// What a hook asks of an element runs on the main queue's next turn:
+    /// after the batch being applied and after the session has finished with
+    /// it (its timers and frame requests), never inside either, so a hook
+    /// called from a batch or a reset never applies a batch of its own there.
+    static func later(_ work: @escaping () -> Void) { DispatchQueue.main.async(execute: work) }
+
+    /// A hook's `click()`, `focus()` or `blur()` on a node, as the DOM's, on
+    /// the next turn (`later`). False when refused.
     func act(_ id: UInt32, _ action: UInt32) -> Bool {
         #if os(iOS)
         return presenter.navigation.act(id, action)
@@ -213,12 +234,12 @@ final class ElementHooks {
         switch action {
         case 0:
             guard node.handlers.contains("press"), !node.disabled else { return false }
-            presenter.afterBatch { [weak presenter = self.presenter, weak node] in
+            Self.later { [weak presenter = self.presenter, weak node] in
                 if let presenter, let node, presenter.views[id] === node { presenter.press(id) }
             }
         case 1, 2:
-            presenter.afterBatch { [weak node] in
-                guard let node, let window = node.window else { return }
+            Self.later { [weak presenter = self.presenter, weak node] in
+                guard let presenter, let node, presenter.views[id] === node, let window = node.window else { return }
                 let responder: NSView = node.textArea ?? node.field ?? node
                 if action == 1 {
                     if responder.acceptsFirstResponder { window.makeFirstResponder(responder) }
