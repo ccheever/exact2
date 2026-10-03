@@ -1118,7 +1118,7 @@ impl Em<'_> {
             self.markdown = true;
         }
         self.editor(i, element, &e)?;
-        for b in row.bindings.iter() {
+        for (k, b) in row.bindings.iter().enumerate() {
             let b = plan.binding(b);
             if style::literal(plan, plan.code(b.expr)).is_some() {
                 continue;
@@ -1127,6 +1127,7 @@ impl Em<'_> {
                 .f(b.expr, scope)
                 .map_err(|x| format!("node {i}: {x}"))?;
             let at = self.out.len();
+            let (raw, f) = (f.clone(), self.counted(i, k, f));
             self.paint_binding(node_type, b, &e, &f);
             match b.kind {
                 BindingKind::Prop if markdown && b.id == PropId::Text as u16 => {
@@ -1155,7 +1156,7 @@ impl Em<'_> {
                 BindingKind::Style => self.style_row(i, b, &parts, &e, &f)?,
             }
             // The row item's fields it reads (LLP 1071.000 D3).
-            if let Some(m) = crate::reads::field_mask(&f).filter(|_| self.out.len() > at) {
+            if let Some(m) = crate::reads::field_mask(&raw).filter(|_| self.out.len() > at) {
                 let (fm, stmt) = (self.uses.rt("fm"), self.out.split_off(at));
                 let _ = write!(self.out, "{fm}({m},()=>{{{stmt}}});");
             }
@@ -1291,7 +1292,7 @@ impl Em<'_> {
     /// What the runner reads when a virtualized list is created
     /// (`Collection::create`), evaluated there: its axis, its literal sizes,
     /// its row estimate, `scrollFollowEnd` (read again at each update),
-    /// `scroll-restoration`, its edges' handlers, and its plan site.
+    /// `scroll-start`, `scroll-restoration`, its edges' handlers, and its plan site.
     fn list_options(
         &mut self,
         i: u32,
@@ -1307,6 +1308,7 @@ impl Em<'_> {
             "!1".to_string(),
         );
         let mut init = "void 0".to_string();
+        let mut at_end = "!1".to_string();
         for b in plan.nodes[i as usize]
             .bindings
             .iter()
@@ -1341,6 +1343,9 @@ impl Em<'_> {
                     follow = format!("()=>{value}")
                 }
                 BindingKind::Prop if b.id == PropId::InitialItemCount as u16 => init = value,
+                BindingKind::Prop if b.id == PropId::ScrollStart as u16 => {
+                    at_end = format!("({value})===\"end\"")
+                }
                 BindingKind::Prop if b.id == PropId::ScrollRestoration as u16 => {
                     manual = format!("({value})===\"manual\"")
                 }
@@ -1348,7 +1353,7 @@ impl Em<'_> {
             }
         }
         Ok(format!(
-            "{{x:{x},ph:[{}],pw:[{}],est:{est},init:{init},follow:{follow},manual:{manual},start:{},end:{},site:\"{i}\"}}",
+            "{{x:{x},ph:[{}],pw:[{}],est:{est},init:{init},atEnd:{at_end},follow:{follow},manual:{manual},start:{},end:{},site:\"{i}\"}}",
             ph.join(","),
             pw.join(","),
             edges[0],

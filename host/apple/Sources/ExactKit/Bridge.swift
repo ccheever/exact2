@@ -32,6 +32,8 @@ public struct Batch {
     public var canvasOwed = false
     /// Image handles a 2D canvas asked for, to decode (LLP 1056 D9).
     public var canvasImages: [String] = []
+    /// The kernel transactions it carries, while the runner measures (LLP 1079 D3).
+    public var seq: (UInt64, UInt64)?
     init(ops: [BatchOp], timers: Bool, motion: Bool, clock: Double?, error: String?, timerDueMs: Double? = nil, pending: Bool = false) {
         self.ops = ops; self.timers = timers; self.motion = motion; self.clock = clock
         self.error = error; self.timerDueMs = timerDueMs; self.pending = pending

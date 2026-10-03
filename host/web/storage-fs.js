@@ -5,6 +5,7 @@
 // module evaluates: a realm that later refuses ambient time to app code (the
 // module Worker, LLP 1027.002 D2) still stamps files with the real one.
 import { directories as roots, now } from './storage-environment.js';
+import { coversPath } from './grant-admission.js';
 const rootPaths = Object.values(roots);
 // Calls from one host module retain invocation order. Web Locks still reject
 // conflicts with a live SQLite handle or a mutation in another browser tab.
@@ -33,15 +34,7 @@ export function normalizePath(path) {
 // components (including namespace); app:/data does not grant app:/database.
 export function authorize(grants, operation, path) {
   const normalized = normalizePath(path);
-  const parts = normalized.slice(5).split('/');
-  const lines = typeof grants === 'string' ? grants.split('\n') : [];
-  for (const line of lines) {
-    const [op, prefix, ...extra] = line.trim().split(/\s+/);
-    if (op !== operation || extra.length || !prefix?.startsWith('app:/')) continue;
-    const allowed = prefix.slice(5).split('/').filter(Boolean);
-    if (allowed.some(part => part === '.' || part === '..' || part.includes('\0'))) continue;
-    if (allowed.every((part, index) => parts[index] === part)) return normalized;
-  }
+  if (coversPath(grants, operation, normalized)) return normalized;
   const error = new Error(`denied: ${operation}`);
   error.kind = 'Unavailable';
   throw error;

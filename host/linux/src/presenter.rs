@@ -96,6 +96,9 @@ pub struct Presenter<D: DataSource> {
     /// The binary's `compat.json` (LLP 1030 D3a), once handed over: a
     /// reload boots a fresh runner, which is told again.
     pub(crate) compat: String,
+    /// How many hosts this presenter has had: a frame sampler starts over
+    /// when another replaces the one it measured (LLP 1079 D3).
+    pub(crate) hosts: u64,
     pub(crate) focus: Option<ViewId>,
     /// The text field typed into since it took the focus: its `change`
     /// fires on blur or Enter, HTML's commit (LLP 1069.001 D4).
@@ -262,7 +265,7 @@ impl<D: DataSource> Presenter<D> {
         assets: PathBuf,
         choice: PainterChoice,
     ) -> Result<(Presenter<D>, Option<String>), HostError> {
-        Self::boot_with_assets(
+        let (mut presenter, error) = Self::boot_with_assets(
             plan,
             data,
             viewport,
@@ -272,7 +275,9 @@ impl<D: DataSource> Presenter<D> {
             None,
             "/",
             None,
-        )
+        )?;
+        presenter.measure();
+        Ok((presenter, error))
     }
 
     /// Boot from entry zero or one selected generation. The selected asset
@@ -305,6 +310,7 @@ impl<D: DataSource> Presenter<D> {
             region,
         )?;
         presenter.compat = compat.to_string();
+        presenter.measure();
         Ok((presenter, error))
     }
 
@@ -390,6 +396,7 @@ impl<D: DataSource> Presenter<D> {
             images,
             assets,
             compat: String::new(),
+            hosts: 0,
             focus: None,
             edited: None,
             controls: BTreeMap::new(),
@@ -476,6 +483,16 @@ impl<D: DataSource> Presenter<D> {
                     }
                 }
                 "selectText" => eprintln!("exact: selectText unsupported on the headless/DRM host"),
+                // The inverse of `message=`: text into the named surface's
+                // canvas, stamped now and delivered in order with its input.
+                "postMessage" => {
+                    let arg = |i: usize| c.args.get(i).and_then(exact_plan::Value::as_str);
+                    let (name, text) = (arg(0).unwrap_or_default(), arg(1).unwrap_or_default());
+                    let event = serde_json::json!({"t":"message","text":text,"at":self.host.now()});
+                    if !self.surfaces.post(name, event) {
+                        eprintln!("exact: postMessage: refused: no live surface named \"{name}\"");
+                    }
+                }
                 // @ref LLP 1069.002 D8 — refused with `cancel`; the agent's
                 // substitute answers (D9).
                 "showPicker" => match c.args.first().and_then(exact_plan::Value::as_str) {
@@ -554,6 +571,7 @@ impl<D: DataSource> Presenter<D> {
         }
         self.restore_time(&mut host)?;
         self.host = host;
+        self.replaced();
         if self.display.new_session() {
             self.painted = false;
         }
@@ -1315,10 +1333,24 @@ impl<D: DataSource> Presenter<D> {
         self.host.runner().has_pending()
     }
 
+    /// Another host took over: it is measured as the last was, and counted.
+    pub(crate) fn replaced(&mut self) {
+        self.hosts += 1;
+        self.measure();
+    }
+
+    /// Measure the work of every binary but a production one (LLP 1079
+    /// D1), once its compat is known: the runner boots measuring nothing.
+    pub(crate) fn measure(&mut self) {
+        let on = !exact_runner::delivery::production(&self.compat);
+        self.host.runner_mut().measure(on, true);
+    }
+
     /// The binary's delivery facts (LLP 1030 D7), from its `compat.json`:
     /// a `delivery` resource is answered again, and the picture follows.
     pub fn set_delivery_from_compat(&mut self, json: &str) -> Option<String> {
         self.compat = json.to_string();
+        self.measure();
         let e = self.host.set_delivery_from_compat(json);
         let after = self.after_commit();
         e.or(after)

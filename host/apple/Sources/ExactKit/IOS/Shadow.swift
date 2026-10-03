@@ -39,10 +39,6 @@ final class Shadow {
     private let root = CALayer()
     private var mirrors: [ObjectIdentifier: CALayer] = [:]
     private var used: Set<ObjectIdentifier> = []
-    /// Milliseconds of the last capture's parts, for the measure.
-    var lastMirrorMs = 0.0
-    var lastRenderMs = 0.0
-    var lastReadMs = 0.0
 
     /// The renderer's option for the command queue it renders on — the
     /// constant `kCARendererMetalCommandQueue`, whose Swift name the iOS SDK
@@ -90,17 +86,11 @@ final class Shadow {
             handedRenderer = r
         }
         guard let texture = handed, let renderer = handedRenderer else { return nil }
-        let t0 = CACurrentMediaTime()
         mirror(view, width: w, height: h, scale: scale)
-        let t1 = CACurrentMediaTime()
         draw(renderer, into: texture, width: w, height: h)
         guard let cb = queue.makeCommandBuffer() else { return nil }
         cb.commit()
         cb.waitUntilCompleted()
-        let t2 = CACurrentMediaTime()
-        lastMirrorMs = (t1 - t0) * 1000
-        lastRenderMs = (t2 - t1) * 1000
-        lastReadMs = 0
         return texture
     }
 
@@ -109,9 +99,7 @@ final class Shadow {
     func render(_ view: UIView, scale: CGFloat, into bitmap: Bitmap) -> Bool {
         let w = bitmap.width, h = bitmap.height
         guard let bytes = bitmap.bytes, prepare(width: w, height: h), let renderer, let target, let readback else { return false }
-        let t0 = CACurrentMediaTime()
         mirror(view, width: w, height: h, scale: scale)
-        let t1 = CACurrentMediaTime()
         draw(renderer, into: target, width: w, height: h)
         // The pixels back: a blit on the same queue after the renderer's
         // work, waited for (the per-child textures of a deck, and any host
@@ -121,12 +109,7 @@ final class Shadow {
         blit.endEncoding()
         cb.commit()
         cb.waitUntilCompleted()
-        let t2 = CACurrentMediaTime()
         memcpy(bytes, readback.contents(), w * h * 4)
-        let t3 = CACurrentMediaTime()
-        lastMirrorMs = (t1 - t0) * 1000
-        lastRenderMs = (t2 - t1) * 1000
-        lastReadMs = (t3 - t2) * 1000
         return true
     }
 

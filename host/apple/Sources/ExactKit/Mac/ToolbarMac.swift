@@ -10,6 +10,8 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     private(set) var items: [UInt32: NSToolbarItem] = [:]
     private var symbols: [UInt32: String] = [:]
     private weak var owner: NodeView?
+    /// LLP 1080.001 D3: the authored rendering hidden while the window's toolbar shows it.
+    func hides(_ node: NodeView) -> Bool { projected && node === owner }
     private weak var heading: NodeView?
     private var order: [NSToolbarItem.Identifier] = []
     private var projected = false
@@ -91,7 +93,9 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
             if window.title == appliedTitle { window.title = savedTitle }
         }
         items.removeAll(); symbols.removeAll(); order.removeAll(); owner = nil; heading = nil
-        hooked = false; appItems.removeAll()
+        // The app's items and delegate were for that toolbar; the next one's
+        // hook says its own.
+        hooked = false; appItems.removeAll(); appDelegate = nil
         if hadToolbar { onChange?() }
     }
 
@@ -134,7 +138,10 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     var summary: [String: Any] {
         guard let toolbar else { return ["installed": false] }
         return ["installed": window?.toolbar === toolbar, "displayMode": toolbar.displayMode.rawValue,
-                "items": toolbar.items.map(\.itemIdentifier.rawValue), "appItems": appItems.map(\.itemIdentifier.rawValue)]
+                "items": toolbar.items.map(\.itemIdentifier.rawValue), "appItems": appItems.map(\.itemIdentifier.rawValue),
+                // AppKit's own validation of the app's items (their targets
+                // validate them, never Exact's delegate).
+                "appEnabled": appItems.map { $0.validate(); return $0.isEnabled }]
     }
 
     private func children(_ node: NodeView) -> [NodeView] {

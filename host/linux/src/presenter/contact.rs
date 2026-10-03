@@ -64,6 +64,8 @@ pub(super) struct Contact {
     pan_velocity: VelocityTracker,
     retained: Option<super::retained_action::RetainedContact>,
     press: Option<(NodeKey, PaintedBox)>,
+    /// The canvas that owns this contact and sees its down, moves and up.
+    canvas: Option<ViewId>,
 }
 impl<D: DataSource> Presenter<D> {
     pub(super) fn input_live(&self, key: NodeKey) -> bool {
@@ -86,6 +88,14 @@ impl<D: DataSource> Presenter<D> {
         true
     }
     fn contact_live(&self, contact: &Contact) -> bool {
+        if let Some(canvas) = contact.canvas {
+            return self.input_live(contact.hit)
+                && self
+                    .host
+                    .kernel()
+                    .node_by_key(contact.hit)
+                    .is_some_and(|n| self.input_surface(n.id) == Some(canvas));
+        }
         if let Some(retained) = &contact.retained {
             return self.retained_contact_live(retained)
                 && contact
@@ -282,6 +292,7 @@ impl<D: DataSource> Presenter<D> {
                     hold: None,
                     retained: Some(retained),
                     press: None,
+                    canvas: None,
                     panning: false,
                     pan_velocity: VelocityTracker::new(),
                 });
@@ -308,6 +319,30 @@ impl<D: DataSource> Presenter<D> {
         let Some(view) = self.host.kernel().node_by_key(hit).map(|n| n.id) else {
             return Ok(false);
         };
+        // A canvas holds the contact itself: it sees the down now and every
+        // move until the up, so a drag (mouse look) reaches its world.
+        let canvas = if rest.is_empty() {
+            self.canvas_contact_target(view)
+        } else {
+            None
+        };
+        if let Some(canvas) = canvas.filter(|_| self.canvas_contact_down(view, x, y, now_ms)) {
+            self.contact = Some(Contact {
+                hit,
+                candidate: None,
+                rest,
+                origin: (x, y),
+                position: (x, y),
+                last_ms: now_ms,
+                hold: None,
+                panning: false,
+                pan_velocity: VelocityTracker::new(),
+                retained: None,
+                press: None,
+                canvas: Some(canvas),
+            });
+            return Ok(true);
+        }
         let press = self.handler_target(view, EventKind::Press).and_then(|id| {
             let node = self.host.kernel().node(id)?;
             if node.style.press_scale == 1. {
@@ -335,22 +370,51 @@ impl<D: DataSource> Presenter<D> {
             pan_velocity,
             retained: None,
             press,
+            canvas: None,
         });
         self.set_collection_interaction(Some(view));
         Ok(true)
     }
+    /// The canvas holding the contact, if one does.
+    pub(crate) fn contact_canvas(&self) -> Option<u32> {
+        self.contact.as_ref().and_then(|c| c.canvas)
+    }
+    /// The canvas a free pointer at a viewport point is over, where a press
+    /// there would be the canvas's own.
+    pub(crate) fn hover_canvas(&mut self, x: f32, y: f32) -> Option<u32> {
+        let hit = self.hit(x, y)?;
+        self.canvas_contact_target(hit)
+    }
     /// Recognize one dominant axis. Recognition has zero displacement at catch.
     pub fn pointer_move(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
+        let moved = self.pointer_moved(x, y, now_ms);
+        // The device's motion belongs to this move alone, sent or not.
+        self.clear_raw_motion();
+        moved
+    }
+    fn pointer_moved(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
         self.retire_pointer();
         if let Some(error) = self.hover_at(Some((x, y)), now_ms) {
             return Err(error);
         }
         if self.contact.is_none() {
+            // A canvas under a free pointer sees it move, as the web's
+            // pointermove (mouse look, hover aims).
+            if let Some(canvas) = self.hover_canvas(x, y) {
+                self.canvas_pointer(canvas, "move", 0, x, y, now_ms);
+            }
             return Ok(false);
         }
         self.pointer_sample(x, y, now_ms)?;
         let mut contact = self.contact.take().unwrap();
         contact.last_ms = now_ms;
+        if let Some(canvas) = contact.canvas {
+            // At the screen's edge the position stops; the device's motion does not.
+            let moved = (x, y) != contact.position || self.has_raw_motion();
+            contact.position = (x, y);
+            self.contact = Some(contact);
+            return Ok(!moved || self.canvas_pointer(canvas, "move", 1, x, y, now_ms));
+        }
         contact
             .pan_velocity
             .push(now_ms / 1000., Value::new(x as f64, y as f64));
@@ -532,6 +596,9 @@ impl<D: DataSource> Presenter<D> {
         let Some(contact) = self.contact.take() else {
             return Ok(false);
         };
+        if let Some(canvas) = contact.canvas {
+            return Ok(self.canvas_pointer(canvas, "up", 0, x, y, now_ms));
+        }
         if let Some((key, _)) = contact.press {
             self.host.press_feedback(key, false, now_ms);
             self.dirty = true;
@@ -634,6 +701,12 @@ impl<D: DataSource> Presenter<D> {
             HeldKind::Swipe { .. } => self.end_swipe(held, end, now_ms),
         }
     }
+    /// The device's pointer is gone or abandoned (Escape, a lost device, a
+    /// dropped report, a refused mapping): its contact and every button.
+    pub fn pointer_lost(&mut self, now_ms: f64) -> Result<(), String> {
+        self.cancel_aux(self.contact_canvas(), now_ms);
+        self.pointer_cancel(now_ms)
+    }
     /// Escape, wheel takeover, disconnection, or invalidated binding: no
     /// release event, except a pan that began, which releases at rest.
     pub fn pointer_cancel(&mut self, now_ms: f64) -> Result<(), String> {
@@ -642,6 +715,10 @@ impl<D: DataSource> Presenter<D> {
         }
         self.pointer_sample(0., 0., now_ms)?;
         let contact = self.contact.take().unwrap();
+        if let Some(canvas) = contact.canvas {
+            let (x, y) = contact.position;
+            self.cancel_canvas(canvas, x, y, now_ms);
+        }
         if let Some((key, _)) = contact.press {
             self.host.press_feedback(key, false, now_ms);
             self.dirty = true;

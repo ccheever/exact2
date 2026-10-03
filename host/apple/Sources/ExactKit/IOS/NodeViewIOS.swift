@@ -551,6 +551,10 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if !decelerate { followEndIfOwed() }
     }
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { followEndIfOwed() }
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        followingEndAnimated = false
+        presenter?.collections.animationEnded(id)
+    }
     private func followEndIfOwed() {
         guard followsEndAfterInteraction, let sv = scroll else { return }
         followsEndAfterInteraction = false
@@ -560,7 +564,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-        presenter?.collections.userIntent(id)
+        followingEndAnimated = false
+        presenter?.collections.animationEnded(id, dragging: true)
+        presenter?.collections.userIntent(id, travel: true)
         retainedScrollTop = nil
     }
 
@@ -571,6 +577,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         presenter?.collections.changed(id, user: true)
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
+        presenter?.reaimFixedGradients()
         presenter?.scrollPump.scrolled(self)
         repaintThrough()
         // User scrolling is already a coherent position. Deliver before the
@@ -831,8 +838,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // That clamp is not the reader choosing the end. Keep its intended offset
         // until the returning viewport can fit it, or the reader scrolls again.
         if anchoredScrollTop != sv.contentOffset.y { retainedScrollTop = nil }
+        // An animated follow of the end (below) is still the end, mid-flight.
         followedScroll = (retainedScrollTop ?? sv.contentOffset.y,
-                          retainedScrollTop == nil && sv.contentOffset.y >= maximum - 1)
+                          (retainedScrollTop == nil && sv.contentOffset.y >= maximum - 1) || followingEndAnimated)
         guard let followedScroll, !followedScroll.end, followedScroll.top > -sv.adjustedContentInset.top else { return }
         // A scroll by the reader invalidates the prior choice. Anchoring's
         // own adjustment does not: keep the same surviving row across batches.
@@ -886,7 +894,14 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             anchoredScrollTop = sv.contentOffset.y
             return
         }
-        if sv.contentOffset.y != y { sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: y), animated: false) }
+        if sv.contentOffset.y != y {
+            // `scroll-behavior: smooth`: an end that moved down (a message
+            // appended) is followed with UIKit's scroll animation, as a
+            // smooth `scrollTop` write is; a shrink or a jump up lands at once.
+            let animate = prior.end && y > sv.contentOffset.y && style["scroll_behavior"]?.string == "smooth" && !ExactEnv.agentFreezes && window != nil
+            followingEndAnimated = animate
+            sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: y), animated: animate)
+        }
         // UIKit quantizes the assigned offset. Compare its actual stored value
         // next time so that rounding cannot masquerade as a reader's scroll.
         anchoredScrollTop = sv.contentOffset.y
@@ -1037,6 +1052,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             accessibilityTraits.insert(.button)
             if props["accessibilitySelected"] == "true" { accessibilityTraits.insert(.selected) }
             else { accessibilityTraits.remove(.selected) }
+            setAccessibilityToggle(pressedState)
             if #available(iOS 18, *) {
                 accessibilityExpandedStatus = props["accessibilityExpanded"].map { $0 == "true" ? .expanded : .collapsed } ?? .unsupported
             }
@@ -1351,7 +1367,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     // bubbles. A pan cancels it (the scroll view's `canCancelContentTouches`):
     // scroll always wins.
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "down", source: self) == true { return }
+        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "down", source: self, event: event) == true { return }
         guard !disabled else { pressed = false; return }
         if let touch = touches.first, let target = presenter?.svg.target(id, at: local(touch.location(in: nil))) {
             svgPressed = target; return
@@ -1363,11 +1379,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
         inlinePressed = nil
-        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "move", source: self) == true { return }
+        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "move", source: self, event: event) == true { return }
         if pressed { pressFollows(inside: touches.first.map(pressInside) ?? false) } else { super.touchesMoved(touches, with: event) }
     }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "up", source: self) == true { finishPointerPress(); return }
+        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "up", source: self, event: event) == true { finishPointerPress(); return }
         guard !disabled else { pressed = false; inlinePressed = nil; svgPressed = nil; return }
         if let target = svgPressed {
             svgPressed = nil
@@ -1392,7 +1408,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         inlinePressed = nil; svgPressed = nil
-        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "cancel", source: self) == true { return }
+        if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "cancel", source: self, event: event) == true { return }
         if pressed { pressed = false } else { super.touchesCancelled(touches, with: event) }
     }
 

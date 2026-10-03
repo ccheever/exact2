@@ -28,7 +28,7 @@ fn duration(request: &Value) -> Result<f64, String> {
     Ok(ms)
 }
 
-pub(super) fn answer<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> String {
+pub(crate) fn answer<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> String {
     perform(p, request).unwrap_or_else(|e| error(&e))
 }
 fn perform<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> Result<String, String> {
@@ -133,7 +133,7 @@ fn perform<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> Result<Strin
             "up" => {
                 p.pointer_up(x, y, from)?;
             }
-            "cancel" => p.pointer_cancel(from)?,
+            "cancel" => p.pointer_lost(from)?,
             _ => unreachable!(),
         }
     }

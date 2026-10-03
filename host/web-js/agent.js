@@ -4,10 +4,11 @@
 // (CDP). Loaded only under `?agent`; never part of an app's boot bytes.
 import names, { types } from './names.js';
 import { R, eq, pieces, pageHistory, Head } from './rt.js';
+import * as perf from './perf.js';
 import { environment, navigation, guestOutline, guestTap, guestType, viewBox, foldEnv, preferFold } from './navigation.js';
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
-const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['placeholder', 'placeholder'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hook', 'hook']];
+const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-pressed', 'accessibilityPressed'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['placeholder', 'placeholder'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hook', 'hook'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];
 const TYPES = { TEMPLATE: 'Head', BUTTON: 'Pressable', INPUT: 'TextInput', TEXTAREA: 'TextInput', VIDEO: 'Video', IMG: 'Image', IFRAME: 'WebView', A: 'Pressable' };
 export function install(exact) {
   const views = exact.views, id = exact.viewId;
@@ -40,9 +41,13 @@ export function install(exact) {
     const n = { id: id(el), type: type(el), depth, props };
     if (el.dataset.exactOn) n.handlers = el.dataset.exactOn.split(' ');
     if (document.activeElement === el) n.focused = true;
-    // As glue.js's `tree` adds them: a pressable's accessible name, and an
+    // As glue.js's `tree` adds them: the accessible name, and an
     // iframe's url, load state and same-origin guest outline (LLP 1020 D4).
-    if (el.matches('button, a, [role=button]')) n.accessibleName = el.getAttribute('aria-label') ?? el.textContent.trim();
+    const label = el.getAttribute(el.tagName === 'IMG' ? 'alt' : 'aria-label');
+    if (label || el.matches('button, a, [role=button], [role=link]')) n.accessibleName = label || el.textContent.trim();
+    // A module view's status (LLP 1024 D8.3): what native-glue.js keeps on
+    // the element, as glue.js's `tree` reports it.
+    if (el.exactNative) n.module = el.exactNative.status();
     if (el instanceof HTMLIFrameElement) {
       n.url = el.getAttribute('src') ?? '';
       n.loading = loaded.get(el) !== el.getAttribute('src');
@@ -218,6 +223,7 @@ export function install(exact) {
         });
         const reply = { viewport: { w: innerWidth, h: innerHeight }, env: environment(), nodes, ...tags() };
         if (req.id != null) { const node = nodeDetail(req.id); if (node.error) return node; reply.node = node; }
+        if (req.agree) return { viewport: reply.viewport, agreement: { unavailable: 'no independent model: the page is the tree' }, ...tags() }; else if (req.native && reply.node) { delete reply.nodes; reply.node.native = { ...reply.node.native, subviews: { unavailable: 'the DOM is the tree; layout <target> names the element' } }; } // @ref LLP 1080.001 D1, D2
         return reply;
       }
       case 'focus': { const el = views.get(req.id); if (!el) return { error: `no view ${req.id}` }; el.focus(); if (req.select !== false) el.select?.(); return {}; }
@@ -237,7 +243,14 @@ export function install(exact) {
           return el instanceof HTMLIFrameElement ? guestTap(el, req) : {};
         }
       case 'type': { const el = views.get(req.id); return el instanceof HTMLIFrameElement ? guestType(el, req) : {}; }
-      case 'logs': { const from = req.since ?? 0; return { lines: exact.journal.slice(from), from, next: exact.journal.length }; }
+      case 'logs': { const j = exact.journal, from = Math.max(req.since ?? 0, j.start); return { lines: j.slice(from - j.start), from, next: j.start + j.length }; }
+      // `perf <target>` (LLP 1079 D2): the plan sites under a view, with their work (perf.js).
+      case 'perf': {
+        if (req.frames) return { virtual: true }; // the agent's clock presents no frame (LLP 1079 D4)
+        let el = document.getElementById('exact-root');
+        if (req.target != null) { const hit = all().find(n => n.id === req.target || n.props.testId === req.target); if (!hit) return { error: `no view matches ${req.target}` }; el = views.get(hit.id); }
+        return perf.reply(el, tags());
+      }
       case 'clock': {
         if (req.settle) {
           // Settled: no request in flight and no commit pending, within 20 s.
@@ -316,7 +329,7 @@ export function install(exact) {
         const media = [...document.querySelectorAll('#exact-root video')].map(el => ({ id: id(el), state: { currentTime: el.currentTime, duration: Number.isFinite(el.duration) ? el.duration : null, paused: el.paused, muted: el.muted, volume: el.volume, playbackRate: el.playbackRate, readyState: el.readyState, videoWidth: el.videoWidth, videoHeight: el.videoHeight, src: el.currentSrc, error: el.error ? { code: el.error.code, message: el.error.message } : null, renderer: 'HTMLVideoElement' } }));
         // The active head's fields, `null` where none is set, as the runner's `state.head` (agent.rs).
         const head = Object.fromEntries(['title', 'description', 'image', 'canonical', 'robots', 'status'].map(k => [k, Head['head' + k[0].toUpperCase() + k.slice(1)] ?? null]));
-        return { slots, derives, resources, pending, head, focus, language, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...tags() };
+        return { slots, derives, resources, pending, head, focus, language, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.surfaceRefusals ? { surfaceRefusals: exact.surfaceRefusals() } : {}), ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hookStats ? { hooks: exact.hookStats } : {}), ...tags() };
       }
       // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js).
       // The fold group (LLP 1078 D7) likewise: through facts.js where the plan reads the fold's fields (it re-answers them), else the

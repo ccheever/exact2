@@ -111,19 +111,36 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             self.models
                 .custom_data(&self.queue, |slot| hooks.instance_data(slot));
         }
-        let (scene_copy, retained) = self.prepare_targets(size, needs);
+        let (scene_copy, retained) =
+            self.prepare_targets(size, needs, frame.ambient_occlusion.is_some());
         let cascades = self.prepare_effects(frame);
-        self.environment.prepare(&self.queue, &frame.environment);
-        self.queue.write_buffer(
-            &self.uniform,
-            0,
-            bytes(&frame::uniform(
-                frame,
-                cascades.as_ref(),
-                size,
-                &self.environment.irradiance,
-            )),
+        let map = frame.environment_map.and_then(|m| {
+            let texture = self.models.textures.get(m.texture).filter(|t| t.active)?;
+            Some(crate::ibl::MapSource {
+                view: &texture.view,
+                digest: texture.digest,
+                intensity: m.intensity,
+                rgbm: m.rgbm,
+            })
+        });
+        self.environment
+            .prepare(&self.device, &self.queue, &frame.environment, map);
+        if self
+            .lights
+            .prepare(&self.device, &self.queue, frame, size, &self.local_plan)
+        {
+            self.rebind();
+        }
+        let mut uniform = frame::uniform(
+            frame,
+            cascades.as_ref(),
+            size,
+            &self.environment.irradiance,
+            self.lights.info,
         );
+        // An authored map's intensity scales its filtered light at sample time.
+        uniform[31] *= self.environment.ambient_scale();
+        self.queue.write_buffer(&self.uniform, 0, bytes(&uniform));
         self.quads
             .frame::<ASSETS>(frame, &self.models.textures, !self.cull.keep_all);
         self.order_translucent(frame);
@@ -140,6 +157,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             draws: 0,
         };
         self.environment.encode(encoder);
+        if self.environment.mapped() {
+            // The GPU-projected SH replaces the uniform's CPU irradiance.
+            encoder.copy_buffer_to_buffer(&self.environment.sh, 0, &self.uniform, 144 * 4, 144);
+        }
         if ASSETS {
             if let Some(skin) = &self.models.skinning {
                 skin.encode(encoder, frame.timestamps);
@@ -155,10 +176,30 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             state.times[1] = start.map(|s| s.elapsed());
         }
         self.cull.encode(encoder, self.current, frame.timestamps);
+        self.encode_local_culls(encoder);
         state.draws += self.encode_shadows(encoder, frame, hooks.materials());
+        state.draws += self.encode_local_shadows(encoder, hooks.materials());
         self.encode_forward(encoder, &mut state, frame, hooks, &view)?;
         if scene_copy {
             self.encode_surface(encoder, &mut state, frame, hooks, &view)?;
+        }
+        if let Some(settings) = frame.ambient_occlusion {
+            if self.ssao.as_ref().is_none_or(|s| !s.fits(&self.targets)) {
+                self.ssao = Some(crate::ssao::Ssao::new(&self.device, &self.targets));
+                self.texture_creations += 1;
+            }
+            self.ssao.as_ref().unwrap().encode(
+                &self.queue,
+                encoder,
+                frame,
+                settings,
+                &self.targets.resolved,
+                size,
+                self.depth_split(),
+            );
+            state.draws += 2;
+        } else {
+            self.ssao = None;
         }
         self.encode_post(encoder, target, &mut state, frame, hooks, &view)?;
         self.cull.copy_counts(&self.device, encoder);
@@ -222,7 +263,6 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 models: &self.models,
                 pipelines: &self.pipelines,
                 instance: &binds.layout,
-                empty: &binds.empty,
             })
         } else {
             None
@@ -267,9 +307,15 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     }
 
     // Attachments grow in 64-pixel buckets; hook services add retained targets.
-    fn prepare_targets(&mut self, size: (u32, u32), needs: crate::Needs) -> (bool, bool) {
+    fn prepare_targets(
+        &mut self,
+        size: (u32, u32),
+        needs: crate::Needs,
+        occlusion: bool,
+    ) -> (bool, bool) {
         let scene_copy = needs.contains(crate::Needs::SCENE_COPY);
-        let retained = scene_copy || needs.contains(crate::Needs::FINAL_DEPTH);
+        // Occlusion reads the forward pass's depth too.
+        let retained = scene_copy || occlusion || needs.contains(crate::Needs::FINAL_DEPTH);
         let replace_targets = size.0 > self.targets.size.0
             || size.1 > self.targets.size.1
             || retained != self.targets.retained;
@@ -280,6 +326,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 bucket(size.1).max(self.targets.size.1),
             );
             self.bloom = None;
+            self.ssao = None;
             self.targets = Targets::with_retention(
                 &self.device,
                 capacity,
@@ -331,14 +378,16 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 self.shadows = Some(ShadowMaps::new(
                     &self.device,
                     c.count,
-                    &self.pipelines.shadow_layout,
                     &self.pipelines.camera_layout,
                 ));
+                self.shadow_sample_stale = true;
             }
             self.shadows.as_ref().unwrap().write(&self.queue, c);
-        } else {
-            self.shadows = None;
+        } else if self.shadows.take().is_some() {
+            self.shadow_sample_stale = true;
         }
+        self.prepare_local(frame);
+        self.refresh_shadow_sample();
         if frame.environment.bloom.is_some() {
             if self.bloom.is_none() {
                 self.bloom = Some(BloomTargets::new(

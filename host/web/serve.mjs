@@ -8,7 +8,7 @@ import { brotliCompress, constants as zlib, gzip } from 'node:zlib';
 import { createHash, randomBytes } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
 import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { networkInterfaces } from 'node:os';
+import { arch, cpus, networkInterfaces, platform } from 'node:os';
 import { basename, dirname, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { filesystem, filesystemRead } from '../../scripts/filesystem.mjs';
@@ -843,6 +843,32 @@ async function main() {
     warming.then(n => console.log(`  (${n} files compressed: brotli and gzip)`));
   });
   return 0;
+}
+
+/** A development page's trace (LLP 1079 D5): ⌥⇧T posts its journal, frames and
+ * `perf`; this adds what only the server knows — the build's identity, as
+ * stress-metrics.mjs writes it, the plan's digest and its source map — and
+ * writes it under the app's target/traces/ for `agent.mjs trace <file>`. */
+export async function saveTrace(req, res, { app, dist, root }) {
+  const reply = (status, body) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); };
+  try {
+    const parts = [];
+    let bytes = 0;
+    for await (const chunk of req) { if ((bytes += chunk.length) > 64 << 20) return reply(413, { error: 'a trace over 64 MiB' }); parts.push(chunk); }
+    const trace = JSON.parse(Buffer.concat(parts).toString('utf8'));
+    const git = (...args) => spawnSync('git', args, { cwd: root, encoding: 'utf8' }).stdout?.trim() ?? '';
+    const planFile = resolve(dist, 'app.plan'), mapFile = `${planFile}.map.json`;
+    const plan = existsSync(planFile) ? createHash('sha256').update(readFileSync(planFile)).digest('hex') : null;
+    trace.identity = { ...trace.identity, app: app.name, trust: 'development', commit: git('rev-parse', 'HEAD'), working_tree: git('status', '--porcelain'), platform: platform(), arch: arch(), cpu: cpus()[0]?.model };
+    trace.plan = trace.perf?.plan ?? plan;
+    if (trace.perf && !trace.perf.plan) trace.perf.plan = plan;
+    if (trace.plan === plan && existsSync(mapFile)) trace.map = JSON.parse(readFileSync(mapFile, 'utf8'));
+    mkdirSync(resolve(app.target, 'traces'), { recursive: true });
+    const path = resolve(app.target, 'traces', `trace-${new Date().toISOString().replace(/[:.]/g, '-')}.json`);
+    writeFileSync(path, JSON.stringify(trace));
+    console.log(`trace: ${path}`);
+    reply(200, { path });
+  } catch (error) { reply(400, { error: error.message }); }
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await main();

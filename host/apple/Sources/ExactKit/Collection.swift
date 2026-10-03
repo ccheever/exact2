@@ -46,10 +46,26 @@ struct CollectionCursor {
     private(set) var sequence: UInt64 = 0
     private var correctedRevision: UInt64?
     mutating func advance() { if sequence < UInt64.max { sequence += 1 } }
+    /// The sequence of the last move that was not the reader's travel (an
+    /// authored offset, a port resize): a relative correction from before
+    /// it is stale, as an absolute one is.
+    private(set) var jumpedAt: UInt64 = 0
+    mutating func jump() { advance(); jumpedAt = sequence }
     mutating func takeCorrection(revision: UInt64, sequence: UInt64) -> Bool {
         guard sequence == self.sequence, correctedRevision.map({ revision > $0 }) ?? true else { return false }
         correctedRevision = revision
         return true
+    }
+    /// The correction an anchor's (`from`) still owes, once per revision:
+    /// a relative move, whatever the port did since. A later revision
+    /// carrying the same anchor's correction owes only what it adds.
+    private var shifted: (sequence: UInt64, from: Double, offset: Double)?
+    mutating func takeShift(revision: UInt64, _ c: CollectionSnapshot.Correction) -> Double? {
+        guard let from = c.from, c.sequence >= jumpedAt, correctedRevision.map({ revision > $0 }) ?? true else { return nil }
+        correctedRevision = revision
+        let done = shifted.flatMap { $0.sequence == c.sequence && $0.from == from ? $0.offset : nil } ?? from
+        shifted = (c.sequence, from, c.offset)
+        return c.offset - done
     }
 }
 
@@ -89,6 +105,11 @@ struct CollectionSnapshot {
     struct Correction {
         let sequence: UInt64
         let offset: Double
+        /// An anchor's correction: the offset it was taken at (relative).
+        var from: Double? = nil
+        /// Animate there (LLP 1070.000 §6.2): a smooth `scrollIntoView`, or
+        /// a `scroll-behavior: smooth` list following its end.
+        var smooth = false
     }
     let view: UInt32
     /// The main axis (LLP 1070 H1): a row list scrolls on x, and `extent`,
@@ -121,7 +142,7 @@ struct CollectionSnapshot {
         if let raw = value["correction"], !(raw is NSNull) {
             guard let raw = raw as? [String: Any], let seq = Self.uint(raw["scrollSequence"]),
                   let offset = Self.number(raw["offset"]) else { return nil }
-            correction = Correction(sequence: seq, offset: offset)
+            correction = Correction(sequence: seq, offset: offset, from: Self.number(raw["from"]), smooth: raw["smooth"] as? Bool == true)
         }
         self.view = view; self.revision = revision; self.sequence = sequence
         self.horizontal = (value["axis"] as? String) == "x"
@@ -202,6 +223,42 @@ final class CollectionHost {
     /// collection's velocity (nil at rest) and builds `fillPending` in slices;
     /// one without leaves `motion` nil, and every report is unlimited.
     var motion: ((UInt32) -> Double?)?
+    /// Lists the host is animating to a smooth correction: their offset
+    /// moves by the platform's scroll animation, not the reader, so the fill
+    /// reports no travel for them (which would cancel a `scrollIntoView`).
+    ///
+    /// While one runs the list reports where it is headed, and its scroll
+    /// ticks are not the reader's travel. A report from mid-way told the
+    /// runner the reader had left the end, and each tick advanced the
+    /// scroll sequence past the corrections still to come: a message sent
+    /// while the port's own follow ran was never followed.
+    var animating = Set<UInt32>()
+    /// Where each running animation is headed, and a later target taken
+    /// when it lands (a correction, or a relative shift, that arrived
+    /// while it ran).
+    var animationTargets: [UInt32: CGPoint] = [:]
+    var owedTargets: [UInt32: CGPoint] = [:]
+    func animationEnded(_ view: UInt32, dragging: Bool = false) {
+        guard animating.contains(view) else { return }
+        if !dragging, owedTargets[view] != nil {
+            // UIKit starts no new animation from inside the callback that
+            // ends one: the owed target goes on the next turn, still headed
+            // there in the meantime.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.animating.remove(view) != nil else { return }
+                self.animationTargets[view] = nil
+                self.landAnimation(view)
+                self.dirty.insert(view)
+                self.schedule()
+            }
+            return
+        }
+        animating.remove(view)
+        animationTargets[view] = nil
+        owedTargets[view] = nil
+        dirty.insert(view)
+        schedule()
+    }
     var requestFill: (() -> Void)?
     /// After a report that built what shows inside the scroll callback: the
     /// platform paints what those rows show before the frame commits.
@@ -282,12 +339,27 @@ final class CollectionHost {
         for (view, entry) in entries {
             guard let port = geometry(view) else { continue }
             let dimensions = [port.portCross, port.portMain, port.cross]
-            if let previous = entry.port, previous != dimensions { entry.cursor.advance() }
+            let planned = entry.cursor.sequence
+            if let previous = entry.port, previous != dimensions { entry.cursor.jump() }
             entry.port = dimensions
-            if let correction = entry.snapshot.correction,
-               entry.cursor.takeCorrection(revision: entry.snapshot.revision, sequence: correction.sequence) {
+            if let correction = entry.snapshot.correction, correction.from != nil {
+                // Rows before the anchor changed size in this batch: the
+                // offset moves with them before this frame displays, even
+                // under a pan or a fling, which go on from there.
+                if let delta = entry.cursor.takeShift(revision: entry.snapshot.revision, correction) {
+                    correcting = true
+                    shift(view, by: delta, extent: entry.snapshot.extent)
+                    correcting = false
+                }
+            } else if let correction = entry.snapshot.correction,
+               // The port this batch resized was not the reader moving: an
+               // absolute correction planned at the sequence before it (a
+               // sent message's end-follow as the composer shrinks back)
+               // still lands, clamped to the new port.
+               entry.cursor.takeCorrection(revision: entry.snapshot.revision,
+                   sequence: correction.sequence == planned ? entry.cursor.sequence : correction.sequence) {
                 correcting = true
-                correct(view, top: correction.offset, extent: entry.snapshot.extent)
+                correct(view, top: correction.offset, extent: entry.snapshot.extent, smooth: correction.smooth)
                 correcting = false
             }
             dirty.insert(view)
@@ -323,13 +395,19 @@ final class CollectionHost {
     func ancestorMoving(_ view: UInt32) -> Bool {
         entries[view]?.snapshot.parent.flatMap { motion?($0) } != nil
     }
-    func userIntent(_ view: UInt32) {
+    /// The port is about to move: by the reader (`travel`, a drag or a
+    /// wheel beginning) or to an authored offset.
+    func userIntent(_ view: UInt32, travel: Bool = false) {
         guard let entry = entries[view], !correcting else { return }
-        entry.cursor.advance(); dirty.insert(view)
+        if travel { entry.cursor.advance() } else { entry.cursor.jump() }
+        dirty.insert(view)
         schedule()
     }
     func changed(_ view: UInt32, user: Bool = false) {
         guard let entry = entries[view], !correcting else { return }
+        // The host's own animation, not the reader: reported as where it
+        // is headed (`geometry`), and the sequence stays.
+        if user && animating.contains(view) { dirty.insert(view); schedule(); return }
         if user && batchDepth == 0 { entry.cursor.advance() }
         dirty.insert(view)
         guard batchDepth == 0 else { return }

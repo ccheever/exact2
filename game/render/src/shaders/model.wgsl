@@ -110,12 +110,8 @@ fn model_shade(input:ModelVarying, front:bool, visibility:f32) -> vec4<f32> {
     if frame.sun_direction_illuminance.w>0.0 {
         color+=brdf(n,v,normalize(-frame.sun_direction_illuminance.xyz),base.rgb,metallic,roughness)*frame.sun_color_count.xyz*frame.sun_direction_illuminance.w*visibility;
     }
-    for(var j=0u;j<u32(frame.sun_color_count.w);j++) {
-        let light=frame.points[j]; let delta=light.position_range.xyz-input.world;
-        let d2=max(dot(delta,delta),0.0001); let range=max(light.position_range.w,0.0001);
-        let ratio=d2/(range*range); let window=max(1.0-ratio*ratio,0.0);
-        color+=brdf(n,v,delta*inverseSqrt(d2),base.rgb,metallic,roughness)*light.color_intensity.xyz*light.color_intensity.w*window*window/d2;
-    }
+    if frame.fill_direction_illuminance.w>0.0 { color+=fill_light(n,v,base.rgb,metallic,roughness); }
+    add_local_lights(&color,input.clip.xy,input.world,n,v,base.rgb,metallic,roughness,true);
     if FOG { color=height_fog(color,input.world); }
     return vec4(color,select(1.0,base.a,baked.flags.x==2.0));
 }

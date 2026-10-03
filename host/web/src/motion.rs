@@ -518,16 +518,10 @@ impl Motion for Springs {
             let Some(node) = kernel.node(*id) else {
                 continue;
             };
-            let n = motion_node(node.key);
-            sync.transitions.push((n, node.style.transition.clone()));
-            for (property, value) in targets(node.style) {
-                sync.changes.push(Change {
-                    node: n,
-                    property,
-                    value,
-                    velocity: None,
-                });
-            }
+            // Every row a commit would sync, the `animation` row too: a boot
+            // node's animation starts at the boot, not at its first update
+            // (which would find no animation and start one then).
+            kernel.motion_sync_node(node.key, &mut sync);
         }
         let applied = sync.apply(&mut self.engine);
         debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");

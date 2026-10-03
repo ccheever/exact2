@@ -105,6 +105,11 @@ final class SwipeActionsHost {
     private func label(_ node: NodeView) -> String {
         node.accessibilityLabel ?? node.props["accessibilityLabel"] ?? (node.isNativeButton ? node.face?.title : nil) ?? ""
     }
+    /// LLP 1080.001 D3: a projected row's table, the views it hides, and
+    /// the content it carries into its cell.
+    func inspectionOwns(_ view: UIView) -> Bool { rows.values.contains { $0.inspectionOwns(view) } }
+    func hides(_ node: NodeView) -> Bool { rows.values.contains { $0.hides(node) } }
+    func projects(_ view: UIView) -> Bool { rows.values.contains { $0.projects(view) } }
     func ownsAction(_ id: UInt32) -> Bool { rows.values.contains { ($0.leading + $0.trailing).contains { $0.id == id } } }
     func actionView(_ id: UInt32) -> UIButton? {
         for row in rows.values {
@@ -158,6 +163,9 @@ final class SwipeActionsHost {
         private weak var logicalParent: UIView?
         private var carrier: UIView?
         private var hiddenControls: [(NodeView, Bool)] = []
+        func inspectionOwns(_ view: UIView) -> Bool { table === view }
+        func hides(_ node: NodeView) -> Bool { hiddenControls.contains { $0.0 === node } }
+        func projects(_ view: UIView) -> Bool { carrier === view }
         // Captured before projection: UIKit disables its cell while an action
         // completes. That temporary state is not an authored input restriction.
         private var actionAncestors: [UInt32: [Ancestor]] = [:]
@@ -314,6 +322,17 @@ final class SwipeActionsHost {
             }
             return true
         }
+        /// A visible title beside an action's image: UIKit draws it under the
+        /// glyph, as the authored button shows it. An image alone stays alone,
+        /// and so does one whose text is authored hidden (the face reads text
+        /// whatever its style; a native button draws its title itself).
+        private func shownTitle(_ target: NodeView) -> String? {
+            guard let title = target.face?.title, !title.isEmpty else { return nil }
+            if target.isNativeButton { return title }
+            guard let text = target.container.subviews.compactMap({ $0 as? NodeView }).first(where: \.isParagraph),
+                  text.style["display"]?.string != "none", !text.isHidden, text.alpha > 0 else { return nil }
+            return title
+        }
         private func configuration(_ controls: [NodeView]) -> UISwipeActionsConfiguration? {
             let actions = controls.filter(enabled).map { target in
                 let destructive = target.props["destructive"] == "true"
@@ -334,6 +353,7 @@ final class SwipeActionsHost {
                     if let symbol = target.face?.symbol, let image = UIImage(systemName: symbol) {
                         image.accessibilityLabel = host.label(target)
                         images[target.id] = image; action.image = image
+                        action.title = shownTitle(target)
                     } else { action.title = host.label(target) }
                     return action
                 }
@@ -343,6 +363,7 @@ final class SwipeActionsHost {
                 if let face = target.face, face.fits, !face.raster, let symbol = face.symbol, let image = UIImage(systemName: symbol) {
                     image.accessibilityLabel = host.label(target)
                     images[target.id] = image; action.image = image
+                    action.title = shownTitle(target)
                     return action
                 }
                 if let glyph = target.container.subviews.first as? NodeView, !glyph.bounds.isEmpty {
@@ -360,6 +381,7 @@ final class SwipeActionsHost {
                         }.withRenderingMode(.alwaysOriginal)
                         image.accessibilityLabel = host.label(target)
                         images[target.id] = image; action.image = image
+                        if !glyph.isParagraph { action.title = shownTitle(target) }
                     }
                 } else { action.title = host.label(target) }
                 return action

@@ -18,6 +18,31 @@ final class MenuHost {
     private weak var presenter: Presenter?
     private var overlays: [UInt32: UIButton] = [:]
     private var confirmation: Confirmation?
+    /// Under the agent, the popovers open in their painted presentation
+    /// (LLP 1021 D4), by `id`: each in the top layer while open, as macOS's
+    /// and the web's are, out of its parent and back at its index after.
+    private var agentOpen: [String: Lifted] = [:]
+    private final class Lifted {
+        let source: UInt32
+        weak var popover: NodeView?
+        weak var parent: UIView?
+        var index: Int
+        let center: CGPoint
+        let layer = TopLayer(frame: .zero)
+        init(source: UInt32, popover: NodeView) {
+            self.source = source; self.popover = popover
+            parent = popover.superview
+            index = parent?.subviews.firstIndex(of: popover) ?? 0
+            center = popover.center
+        }
+    }
+    /// The top layer takes no touch itself, only what it holds.
+    private final class TopLayer: UIView {
+        override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+            let hit = super.hitTest(point, with: event)
+            return hit === self ? nil : hit
+        }
+    }
 
     /// An alertdialog-shaped popover has one action and one hide-only cancel.
     /// Retain this owner until native dismissal completes; ids alone are not
@@ -73,8 +98,21 @@ final class MenuHost {
         guard let presenter else { return }
         if let owner = confirmation, !valid(owner) { resetConfirmation() }
         var popovers: [String: NodeView] = [:]
+        for (name, entry) in agentOpen {
+            guard let pop = entry.popover, presenter.views[pop.id] === pop, pop.props["id"] == name,
+                  pop.props["popover"] != nil else { drop(name); continue }
+        }
         for v in presenter.carrying("popover") + presenter.carrying("tag:dialog").filter({ $0.props["popover"] == nil }) {
-            if ExactEnv.agentMode && !isConfirmation(v) { continue }
+            // The agent's painted presentation: in the top layer while open,
+            // hidden while closed, as on the web and macOS, so a closed
+            // popover covers nothing (`agentTap`).
+            if ExactEnv.agentMode && !isConfirmation(v) {
+                if v.props["popover"] != nil {
+                    if let name = v.props["id"], let entry = agentOpen[name], entry.popover === v { lift(entry) }
+                    else if !v.isHidden { v.isHidden = true }
+                }
+                continue
+            }
             v.isHidden = true
             if let name = v.props["id"] { popovers[name] = v }
         }
@@ -198,6 +236,106 @@ final class MenuHost {
         resetConfirmation()
         overlays.values.forEach { $0.removeFromSuperview() }
         overlays.removeAll()
+        for name in Array(agentOpen.keys) { drop(name) }
+    }
+
+    /// Whether `node` is an open popover in the top layer (the agent's).
+    func lifted(_ node: NodeView) -> Bool { agentOpen.values.contains { $0.popover === node } }
+    /// A children op on `parent` while a child of it is in the top layer:
+    /// the child stays there, its index kept for its return; one the op
+    /// drops closes.
+    func children(_ parent: UIView, _ wanted: [NodeView]) {
+        for (name, entry) in agentOpen where entry.parent === parent {
+            if let i = wanted.firstIndex(where: { $0 === entry.popover }) { entry.index = i } else { drop(name) }
+        }
+    }
+    /// Into the top layer, above everything of the page's (its routes and
+    /// containers are under the viewport's root) and so in the agent's
+    /// `screenshot`, anchored below its opener (as macOS's). Over a modal,
+    /// the modal's view.
+    private func lift(_ entry: Lifted) {
+        guard let presenter, let pop = entry.popover else { return }
+        let host: UIView = presenter.modals.coordinateView ?? presenter.viewport
+        if entry.layer.superview !== host || host.subviews.last !== entry.layer { host.addSubview(entry.layer) }
+        if entry.layer.frame != host.bounds { entry.layer.frame = host.bounds }
+        if pop.superview !== entry.layer { entry.layer.addSubview(pop) }
+        if pop.isHidden { pop.isHidden = false }
+        guard let source = presenter.views[entry.source], source.window != nil else { return }
+        let anchor = source.convert(source.bounds, to: entry.layer), size = pop.bounds.size
+        let x = max(0, min(anchor.minX, entry.layer.bounds.width - size.width))
+        let y = max(0, min(anchor.maxY, entry.layer.bounds.height - size.height))
+        let center = CGPoint(x: x + size.width / 2, y: y + size.height / 2)
+        if pop.center != center { pop.center = center }
+    }
+    /// Out of the top layer, hidden, back where it was.
+    private func drop(_ name: String) {
+        guard let entry = agentOpen.removeValue(forKey: name) else { return }
+        entry.popover?.endEditing(true)
+        entry.layer.removeFromSuperview()
+        guard let pop = entry.popover else { return }
+        pop.isHidden = true
+        if presenter?.views[pop.id] === pop, let parent = entry.parent {
+            parent.insertSubview(pop, at: min(entry.index, parent.subviews.count))
+            pop.center = entry.center
+        } else {
+            pop.removeFromSuperview()
+        }
+    }
+
+    /// Whether `node`, a popover, is open: its confirmation presented, or,
+    /// under the agent, its painted presentation shown.
+    func isOpen(_ node: NodeView) -> Bool {
+        if confirmation?.popover === node { return true }
+        return ExactEnv.agentMode && node.props["id"].map { agentOpen[$0] != nil } == true
+    }
+
+    /// Under the agent, what a tap on `node` does to the painted popovers
+    /// (LLP 1021 D4, as the web's and macOS's). Outside an open one, and not
+    /// its opener, it dismisses it before the tap is delivered, so the tap
+    /// still presses what it lands on. What the tapped node itself asks —
+    /// an opener toggling its popover, a hide-only button closing it — is
+    /// done after the tap is delivered (on the next turn), so the tap lands
+    /// where the node is; an opened popover is in the top layer below its
+    /// opener with its `autofocus` field focused.
+    func agentTap(_ node: NodeView) {
+        guard ExactEnv.agentMode, let presenter else { return }
+        var byName: [String: NodeView] = [:]
+        for pop in presenter.carrying("popover") where !isConfirmation(pop) {
+            if let name = pop.props["id"] { byName[name] = pop }
+        }
+        for (name, entry) in agentOpen {
+            guard let pop = byName[name] else { continue }
+            if node === pop || node.isDescendant(of: pop) || node.id == entry.source || target(of: node) == name { continue }
+            drop(name)
+        }
+        guard let name = target(of: node), let pop = byName[name], closes(node, pop) || opens(node, pop) else { return }
+        let hides = closes(node, pop), source = node.id
+        DispatchQueue.main.async { [weak self, weak presenter, weak pop] in
+            guard let self, let presenter, let pop, presenter.views[pop.id] === pop else { return }
+            if self.agentOpen[name] != nil { self.drop(name); return }
+            guard !hides else { return }
+            let entry = Lifted(source: source, popover: pop)
+            self.agentOpen[name] = entry
+            self.lift(entry)
+            if let field = Self.autofocus(in: pop) { presenter.focusNode(field) }
+        }
+    }
+    /// Whether a tap on `node` goes through the agent's painted popovers —
+    /// one is open (the tap dismisses it first), or `node` is a painted
+    /// popover, is in one, or opens or closes one — which only `agentTap`
+    /// drives: a real touch bypasses it (LLP 1080.000 D7, stage 3).
+    func agentPainted(_ node: NodeView) -> Bool {
+        guard ExactEnv.agentMode, let presenter else { return false }
+        if !agentOpen.isEmpty { return true }
+        let painted = (presenter.carrying("popover") + presenter.carrying("tag:dialog").filter { $0.props["popover"] == nil }).filter { !isConfirmation($0) }
+        return painted.contains { pop in node === pop || node.isDescendant(of: pop) || (pop.props["id"] != nil && target(of: node) == pop.props["id"]) }
+    }
+    private static func autofocus(in view: UIView) -> NodeView? {
+        for sub in view.subviews {
+            if let node = sub as? NodeView, let value = node.props["autofocus"], value != "false" { return node }
+            if let found = autofocus(in: sub) { return found }
+        }
+        return nil
     }
     func unmounted() { resetConfirmation() }
     var inTransition: Bool {
@@ -205,11 +343,24 @@ final class MenuHost {
         return owner.finishing || owner.alert.isBeingPresented || owner.alert.isBeingDismissed
     }
     func observation() -> [String: Any]? {
+        if confirmation == nil, ExactEnv.agentMode, let open = agentOpen.values.first, let pop = open.popover {
+            return ["kind": "popover", "source": Int(open.source), "popover": Int(pop.id), "phase": "open"]
+        }
         guard let owner = confirmation else { return nil }
         return ["kind": "confirmation", "source": owner.source.map { Int($0.id) as Any } ?? NSNull(),
                 "popover": owner.popover.map { Int($0.id) as Any } ?? NSNull(), "phase": inTransition ? "transition" : "open",
                 "actionStyle": owner.alert.actions.first?.style == .destructive ? "destructive" : "default"]
     }
+    /// LLP 1080.001 D3: the views this host adds — a node's overlay button,
+    /// an open popover's top layer — and the popovers it hides or lifts.
+    func inspectionOwns(_ view: UIView) -> Bool {
+        overlays.values.contains { $0 === view } || agentOpen.values.contains { $0.layer === view }
+    }
+    func hides(_ node: NodeView) -> Bool {
+        presenter?.carrying("popover").contains { $0 === node } == true || presenter?.carrying("tag:dialog").contains { $0 === node } == true
+    }
+    func projects(_ node: NodeView) -> Bool { agentOpen.values.contains { $0.popover === node } }
+
     func ownsConfirmationNode(_ node: NodeView) -> Bool {
         var ancestor: UIView? = node
         while let view = ancestor {

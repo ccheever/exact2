@@ -119,6 +119,48 @@ final class NavigationTabsIOSTests: XCTestCase {
         until("Home popped to its root") { home.viewControllers.count == 1 && home.transitionCoordinator == nil }
     }
 
+    /// The edge swipe on a tab's stack: Exact stays the delegate of both pop
+    /// recognizers once the tab controller has loaded every stack (UIKit sets
+    /// its own when a navigation controller's view loads), and a pushed
+    /// screen with its back control lets the pop begin, a root does not.
+    func testEveryTabsPopGesturesAskExactAndAPushedScreenMayPop() throws {
+        let session = try fixture("tabs-pop")
+        let navigation = session.presenter.navigation
+        let tabs = try XCTUnwrap(navigation.tabController)
+        let navs = try XCTUnwrap(tabs.viewControllers as? [UINavigationController])
+        func pops(_ nav: UINavigationController) -> [UIGestureRecognizer] {
+            var out = [nav.interactivePopGestureRecognizer].compactMap { $0 }
+            if #available(iOS 26.0, *), let content = nav.interactiveContentPopGestureRecognizer { out.append(content) }
+            return out
+        }
+        // Every stack loads, as selecting its tab does.
+        tapTab(tabs, 1)
+        until("Second selected") { tabs.selectedIndex == 1 }
+        tapTab(tabs, 0)
+        until("Home selected") { tabs.selectedIndex == 0 }
+        for nav in navs {
+            XCTAssertTrue(nav.isViewLoaded)
+            for pop in pops(nav) { XCTAssertTrue(pop.delegate === navigation, "\(pop) asks Exact") }
+        }
+        let home = navs[0], second = navs[1]
+        // A swipe from the left edge, finger moving right, as UIKit hands it over.
+        let edge = CGPoint(x: 4, y: 400), right = CGPoint(x: 600, y: 20)
+        func mayPop(_ nav: UINavigationController, velocity: CGPoint = right) -> [Bool] {
+            pops(nav).map { navigation.popMayBegin($0, from: edge, in: nav.view, velocity: velocity) }
+        }
+        XCTAssertFalse(mayPop(home).contains(true), "a root does not pop")
+        try tapNode(session, "detail")
+        until("detail pushed in Home") { home.viewControllers.count == 2 && home.transitionCoordinator == nil }
+        XCTAssertEqual(mayPop(home), pops(home).map { _ in true }, "the pushed screen with its back control pops")
+        XCTAssertFalse(mayPop(home, velocity: CGPoint(x: 20, y: 600)).contains(true), "a vertical pan is the content's")
+        XCTAssertFalse(mayPop(second).contains(true), "a hidden tab's stack does not pop")
+        // Its own depth decides once it shows: Second is a root.
+        tapTab(tabs, 1)
+        until("Second selected") { tabs.selectedIndex == 1 }
+        XCTAssertFalse(mayPop(second).contains(true), "Second is a root")
+        XCTAssertFalse(mayPop(home).contains(true), "Home's pushed screen is hidden now")
+    }
+
     func testASheetOverTheTabsIsPresentedByTheContainersParent() throws {
         let session = try fixture("tabs-sheet")
         let navigation = session.presenter.navigation

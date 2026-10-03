@@ -4,8 +4,19 @@ use std::collections::BTreeMap;
 
 /// Reserved runner-owned resource source.
 pub const SOURCE: &str = "exactSurface";
-/// Maximum UTF-8 record size, including ignored fields.
-pub const MAX_BYTES: usize = 64 * 1024;
+/// Maximum UTF-8 record size, including ignored fields: the bound every host
+/// channel already carries for one surface's work (a carry, a restore, a
+/// storage write), [`crate::MAX_HOST_WORK_BYTES`]. The record also returns in
+/// the agent's `state`, well inside its 256 MiB capture bound.
+pub const MAX_BYTES: usize = crate::MAX_HOST_WORK_BYTES;
+
+/// The refusal of a record over [`MAX_BYTES`], naming its size and the limit.
+pub fn oversize(bytes: usize) -> String {
+    format!(
+        "record is {bytes} bytes, over the {MAX_BYTES}-byte ({} MiB) limit",
+        MAX_BYTES >> 20
+    )
+}
 const MAX_DEPTH: usize = 32;
 
 /// Resource `i`'s value from its surface's published record: what the runner
@@ -55,7 +66,7 @@ pub fn decode(plan: &Plan, ty: TypesId, text: Option<&str>) -> Result<Value, Str
         None => None,
         Some(text) => {
             if text.len() > MAX_BYTES {
-                return Err("record exceeds 64 KiB".into());
+                return Err(oversize(text.len()));
             }
             let mut reader = Reader { text, at: 0 };
             let value = reader.value(0)?;

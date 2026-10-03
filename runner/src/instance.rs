@@ -215,6 +215,9 @@ pub struct Ids {
     /// Every instance node's view and site, destroyed ones included until
     /// [`Ids::retain`] drops them.
     sites: exact_kernel::id::IdMap<ViewId, NodesId>,
+    /// Each plan site's work across its instances' lifetimes, by node
+    /// index; empty while nothing is measured (LLP 1079 D1).
+    pub(crate) work: crate::perf::Work,
 }
 
 impl Ids {
@@ -233,9 +236,26 @@ impl Ids {
         self.sites.iter().map(|(v, n)| (*v, *n))
     }
 
-    /// Forget views `live` says are gone.
+    /// Forget views `live` says are gone; a measured site keeps the count.
     pub fn retain(&mut self, live: impl Fn(ViewId) -> bool) {
-        self.sites.retain(|view, _| live(*view));
+        let work = &mut self.work.sites;
+        self.sites.retain(|view, node| {
+            let keep = live(*view);
+            if !keep {
+                if let Some(w) = work.get_mut(node.0 as usize) {
+                    w.forgotten += 1;
+                }
+            }
+            keep
+        });
+    }
+
+    /// A binding of `node`'s evaluated, and whether it came out as before.
+    fn evaluated(&mut self, node: NodesId, unchanged: bool) {
+        if let Some(w) = self.work.sites.get_mut(node.0 as usize) {
+            w.evaluated += 1;
+            w.unchanged += unchanged as u64;
+        }
     }
 
     /// How many views are remembered.
@@ -708,6 +728,9 @@ impl NodeInst {
             .ok_or(InstanceError::UnknownNodeType(row.node_type))?;
         let view = u.ids.fresh();
         u.ids.sites.insert(view, node);
+        if let Some(w) = u.ids.work.sites.get_mut(node.0 as usize) {
+            w.created += 1;
+        }
         u.ops.push(Op::CreateView {
             id: view,
             node_type,
@@ -778,6 +801,7 @@ impl NodeInst {
             }
             let binding = plan.binding(b);
             let reads = &deps.bindings[b.0 as usize];
+            let before = u.work.bindings_evaluated;
             let value = if reads.is_constant() {
                 match u.sites.constants[b.0 as usize].get() {
                     Some(value) => value.clone(),
@@ -792,10 +816,13 @@ impl NodeInst {
                 u.work.bindings_evaluated += 1;
                 u.eval(binding.expr, frames)?
             };
-            if self.last[i]
+            let unchanged = self.last[i]
                 .as_ref()
-                .is_some_and(|last| crate::compare::equal(last, &value) == Some(true))
-            {
+                .is_some_and(|last| crate::compare::equal(last, &value) == Some(true));
+            if u.work.bindings_evaluated != before {
+                u.ids.evaluated(self.node, unchanged);
+            }
+            if unchanged {
                 continue;
             }
             if u.discard {

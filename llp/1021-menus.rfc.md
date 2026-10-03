@@ -392,6 +392,16 @@ out), with the node reporting `{open}` the way layout reports scroll;
 `screenshot` composes the open layer because in agent mode it is ours.
 The eight operations stay eight (`rules/DEFERRED.md` §Agent API).
 
+*As built on iOS (2026-10-03).* Under the agent a popover is hidden while
+closed (it had been painted in place and taken taps meant for what lay
+under it). Its opener's tap is delivered, then the popover opens in a top
+layer above the page's root, anchored below the opener, and its
+`autofocus` field is focused; a tap outside dismisses it before it is
+delivered (and still presses what it lands on); its hide-only button
+closes it after its own tap. `tree` reports `{open}` and `state.navigation.popover`
+names it, as on macOS; `screenshot` composes the layer. `smoke.mjs ios
+--app native-fixture` checks each step.
+
 **D5 — every host, from one table.** Web: the attributes land on the real
 elements and the browser does the rest (one glue rule for D2's anchoring).
 Apple: D2's layer painted by the existing presenters, D3's native arm on

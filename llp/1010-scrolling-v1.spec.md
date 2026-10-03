@@ -732,7 +732,21 @@ Hosts report the actual nested scrollport, content-relative offset, offered
 row width and measured wrappers. Width/content changes issue fresh measurement
 epochs. Stale revisions, sequences and epochs cannot overwrite newer geometry.
 Anchor corrections are tied to the accepted scroll sequence, preserving a key
-and its offset or falling back to surviving neighbors. End-follow is explicit
+and its offset or falling back to surviving neighbors. An anchor's correction
+whose row stayed put (not an end it follows, the start, or an offset the end
+clamped, which stay absolute: the host's own clamp has moved there) also says
+the offset it was taken at (`from`, 2026-10-02): the rows before the anchor
+moved by `offset - from`, and a host moves the port by that much in the
+layout pass that lays them out, whatever it sampled since and under a pan or a
+fling too, which go on from there at their velocity (UIKit's
+`contentOffsetAdjustment`). Once per revision; a later revision of the same
+correction (one no report has acknowledged grows from where it began) moves
+only by what it adds; one from before an authored offset or a port resize is
+stale, as an absolute one is. Authored positions (a restore, `scrollIntoView`)
+stay absolute. Measured on the Signal Clone's transcript (iOS simulator, 60 fps
+recordings, 8 flings into older history, estimates of 100 for rows of 40–110):
+45 backward frames before, of up to ~40 pt each; none after, over 958 moving
+frames. End-follow is explicit
 and only applies when the user was already at the end; native eager end-follow
 must not run independently on a virtualized list.
 
@@ -893,6 +907,23 @@ does not alter the measured runner or replace the paired diagnostic above.
 
 **2026-09-29 `initial-item-count`:** a virtualized list may say how many rows it builds before its first layout report: `initial-item-count=N`, one literal whole number from 1 to 64 (`lower-list-height`; `lower-list-virtualized` off a virtualized list). It replaces the bootstrap's `ceil(16 × 32 / estimate)` rows (at most sixteen) on every host and in the render host's page, so a served page's row count no longer rides on the estimate; the estimate goes on sizing the window from the first report, and a realistic one keeps that first report from building, or reaching an edge through, rows the host hasn't measured. Consumer: the web-framework bench's feed, which set `estimated-item-height=44` against 150–250 px posts to serve twelve, and so fetched its second page and 54 images at load. The kernel prop is `initialItemCount`.
 
+**2026-10-02 `scroll-start`:** a virtualized list may open at its end: `scroll-start="end"` (literal `start`, the default, or `end`; `lower-attr-value`; `lower-list-virtualized` off a virtualized list), CSS Scroll Snap 2's container-level name. Before any report it builds its last rows (the bootstrap count, or `initial-item-count`) and sends a sequence-0 correction to its estimated extent, which the host clamps, the same opening a kept position or a `scrollIntoView` makes. Until it has opened it anchors the end on every report, `scrollFollowEnd` or not. It has opened when a report at the end changes nothing: every mounted row measured, the extent left as it was, nothing owed or corrected. The reader leaves it by travel in two reports running, as a `scrollIntoView` is cancelled. A report short of the end is not the reader: UIKit lays out rows at their real size and clamps its port before the runner has measured them (Signal Clone on the simulator landed 164 pt short until this rule). Rows that come later, before the first report or after a report of the empty list, open at the end too. After it opens, `scrollFollowEnd` decides. Runner (`collection/start.rs`) and the JS target (`list.js`); consumer: the Signal Clone transcript, which needed `scrollTop=(1000000 + n)` plus a `scrollIntoView(…, block="end")` once its first command landed. The kernel prop is `scrollStart`.
+
 **2026-09-19 tall-card bootstrap estimate:** shared `virtualized=true` lists accept the existing `estimated-item-height` as one positive literal. The runner seeds its height index from that hint and bounds bootstrap by the previous 16 × 32-point provisional budget (at most sixteen rows); measured heights replace the estimate. Invalidated heights revert to the authored estimate. Compiler cases and a 25,000-row integration exercise verify bounded bootstrap, replacement by actual measurements, distant scroll and return without rebuilding the source. Six compiler collection tests, 64 runner collection tests, targeted package tests and clippy pass. Shop's alternating simulator comparison reports median exec-to-first-draw 566.2 → 426.4 ms over five launches per build. Web must also exclude collection snapshot views from legacy list registration: the authored estimate otherwise activates `exact_list` on a shared collection and poisons the runner. The reproduced failure is fixed and Shop's full-feed browser/iOS probes pass. These are consumer-specific measurements, not whole-runtime or physical-phone parity.
 
 **2026-09-20 Shop compiler integration:** current main routed a shared `virtualized=true` list through legacy explicit-height validation and rejected its existing estimate. Restricting legacy validation to lists without a `virtualized` attribute restores the shared collection validator, including its unbounded-viewport diagnostic. The pre-change consumer build and existing collection case failed; all six collection compiler cases and the Shop web/device builds pass afterward. The broader Contract suite stops at `lint::conditional_style_literals_are_refused_at_the_offending_branch`, whose column fixture expects `top="0px"` to be invalid although current lowering accepts it; this is outside the list branch. Full runtime checks are recorded separately and are not claimed green.
+
+### 6.7 A smooth scroller follows its end smoothly (2026-10-03)
+
+`scroll-behavior: smooth` already animated a `scrollTop`/`scrollLeft` write
+(eccb78d7). On iOS a `scrollFollowEnd` scroller's own follow of a grown end
+(a message appended) was still an instant jump, while the browser, whose
+follow writes `scrollTop`, animates it under the same property. Now
+`restoreScrollPosition` follows a grown end with UIKit's scroll animation when
+the scroller is `scroll-behavior: smooth`, outside an interaction and outside
+the agent's frozen clock; a shrink or an upward move still lands at once. While
+the animation runs, the scroller still counts as following its end
+(`followingEndAnimated`, cleared when the animation ends or a drag begins), so
+a batch mid-flight does not mistake the animated offset for a reader's scroll.
+Consumer: the Signal Clone app's transcript (send scrolls the new message in,
+as Signal does).

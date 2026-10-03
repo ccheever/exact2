@@ -473,10 +473,21 @@ impl SizeIndex {
         })
     }
 
+    /// Whether the anchor follows the end.
+    pub(crate) fn follows_end(anchor: &Anchor) -> bool {
+        anchor.follows_end
+    }
+
     /// O(log N) while the anchor survives. Deletion fallback scans the old order
     /// only after structural edits (which already permit an index rebuild).
     /// Drop/recapture the anchor after applying the correction; retaining many old
     /// anchors would retain their old O(N) key snapshots too.
+    /// Whether `restore_anchor` put `anchor`'s row where it was, so the
+    /// offset moved by just what the rows before it did: not the end it
+    /// follows, the start, or an offset the end clamped.
+    pub(crate) fn kept_row(&self, anchor: &Anchor, viewport: f64, restored: f64) -> bool {
+        !anchor.follows_end && anchor.row.is_some() && restored < self.max_offset(viewport) - 0.01
+    }
     pub(crate) fn restore_anchor(&self, anchor: &Anchor, viewport: f64) -> Result<f64, IndexError> {
         valid_geometry(viewport)?;
         let max = self.max_offset(viewport);

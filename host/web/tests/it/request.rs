@@ -79,7 +79,9 @@ fn a_send_leaves_as_a_request_op_and_the_reply_commits() {
     let baked = contract::bake(plan, Later).unwrap();
     let (mut host, first) = Host::boot(&baked.encode(), Later, Default::default(), "/").unwrap();
     assert!(
-        first.contains("{\"op\":\"grants\",\"lines\":[\"net.fetch https://api.castle.test\"]}"),
+        first.contains(
+            "{\"op\":\"grants\",\"lines\":[\"net.fetch https://api.castle.test\"],\"set\":"
+        ),
         "{first}"
     );
     assert!(!first.contains("\"op\":\"request\""));
@@ -265,7 +267,7 @@ fn grants_that_do_not_parse_reach_the_page_as_none_with_the_reason() {
     let (mut host, first) = Host::boot(&baked.encode(), Crew, Default::default(), "/").unwrap();
     assert!(
         first.contains(&format!(
-            "{{\"op\":\"grants\",\"lines\":[],\"error\":\"{WHY}\"}}"
+            "{{\"op\":\"grants\",\"lines\":[],\"error\":\"{WHY}\",\"set\":"
         )),
         "{first}"
     );

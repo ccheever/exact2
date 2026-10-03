@@ -37,6 +37,18 @@ final class SegmentsTests: XCTestCase {
         XCTAssertEqual(flat.env["viewport-segments"] as? [[Double]], [])
     }
 
+    /// The hinge partially open with no division reported yet (the regions
+    /// trail the hinge by a frame, or a scene stops hearing them): the
+    /// posture is the hinge's, the grid stays one segment.
+    func testABentHingeWithoutADivisionIsFoldedInOneSegment() {
+        let bent = Segments.split(viewport: CGSize(width: 951, height: 669), dividers: [], hingeBent: true)
+        XCTAssertEqual(bent.posture, "folded")
+        XCTAssertEqual(bent.cols, 1); XCTAssertEqual(bent.rows, 1)
+        XCTAssertEqual(bent.rects, [])
+        XCTAssertNotEqual(bent, .flat)
+        XCTAssertEqual(Segments.split(viewport: CGSize(width: 951, height: 669), dividers: [], hingeBent: false), .flat)
+    }
+
     func testAWideBandCutsRowsAndABandOutsideTheViewportCutsNothing() {
         let rows = Segments.split(viewport: CGSize(width: 400, height: 900), dividers: [CGRect(x: 0, y: 430, width: 400, height: 40)])
         XCTAssertEqual(rows.cols, 1); XCTAssertEqual(rows.rows, 2)

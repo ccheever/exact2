@@ -1,7 +1,8 @@
 // Session setup shared by the agent CLI and its programmatic driver.
+import { spawnSync } from 'node:child_process';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { delimiter, relative, resolve } from 'node:path';
-import { pendingBuildInputs } from './app.mjs';
+import { bakeOutput, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 
@@ -38,6 +39,7 @@ export function parseFlags(argv) {
     else if (argv[i] === '--time-zone') flags.timeZone = argv[++i];
     else if (argv[i] === '--epoch') flags.epoch = argv[++i];
     else if (argv[i] === '--timing') flags.timing = argv[++i];
+    else if (argv[i] === '--touch') flags.touch = argv[++i];
     else if (argv[i] === '--phone') flags.phone = argv[++i];
     else if (argv[i] === '--storage') flags.storage = argv[++i];
     else rest.push(argv[i]);
@@ -121,6 +123,15 @@ export function bakedPlans(linuxBin, bakeDir) {
   return out.filter(p => existsSync(p + '.map.json'));
 }
 
+/** Where a trace's source map may be (LLP 1079 D5), when it carries none:
+ * the development plan, the web build's, and the maps the named app's bake
+ * left — where the live driver looks. */
+export function traceLocators(appName) {
+  const out = [process.env.EXACT_DEV_PLAN, resolve(webDist(), 'app.plan')].filter(Boolean);
+  try { const a = resolveApp(appName); out.push(...bakedPlans(process.env.EXACT_LINUX_BIN ?? resolve(a.target, `release/${a.crate('linux')}`), bakeOutput(a))); } catch {}
+  return out;
+}
+
 // Outputs, fixtures and prose are not what a build is made from.
 const NOT_INPUT = /^(target|dist|dist.previous|web-dist|artifacts|node_modules|corpus|tests|conformance|\..*)$|\.test\.m?js$|\.md$/;
 /** Files under `roots` modified after `since`; `{shallow}` roots contribute only their own files. */
@@ -140,11 +151,29 @@ export function newerThan(since, roots, skip = () => false) {
   return out;
 }
 
+// What a build can read from an app: the bake's capture (`js/bake/src/lib.rs`,
+// `sources`), and Rust and WGSL sources and manifests.
+const BUILD_SOURCE = /\.(ts|json|contract|ttf|otf|rs|toml|wgsl)$|^(assets|deck|gpu\/shaders)\//;
+/** The app's gitignored paths, as a skip for its own files: a screenshot
+ * saved into the app is not an input. One a build can read still counts,
+ * ignored or not (a generated asset or source, a local key), as does anything
+ * under `keep` (declared shader roots). Outside Git, nothing. */
+export function gitIgnored(dir, keep = []) {
+  const listed = spawnSync('git', ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z'], { cwd: dir, encoding: 'utf8' });
+  const paths = listed.status === 0 ? listed.stdout.split('\0').filter(Boolean).map(p => resolve(dir, p)) : [];
+  if (!paths.length) return () => false;
+  // Files, not directories: an ignored directory is still walked for what the bake captures in it.
+  const under = (path, roots) => roots.some(p => path === p || path.startsWith(p + '/'));
+  return path => under(path, paths) && !under(path, keep) &&
+    !statSync(path, { throwIfNoEntry: false })?.isDirectory() && !BUILD_SOURCE.test(relative(dir, path));
+}
+
 /** An Apple build's receipt: its Rust and Swift inputs by digest, then by mtime the app's own files the receipt leaves out on purpose (the root build script's watches: the contract, app.json, data, shaders, assets — what the baked plan and bundle are made from). */
 export function receiptChanges(receipt, app) {
   if (!existsSync(receipt)) return [];
   const { build, target } = JSON.parse(readFileSync(receipt, 'utf8')), since = statSync(receipt).mtimeMs;
-  const own = newerThan(since, [app.dir], path => /\/(apple|linux|web)$/.test(path) && path.startsWith(app.dir + '/'));
+  const ignored = gitIgnored(app.dir, shaderWatchRoots(app));
+  const own = newerThan(since, [app.dir], path => /\/(apple|linux|web)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path));
   // The receipt names what the binary links, not what built it: the Rust
   // archive's own dep-info also names its build script's (the compiler, the bake).
   const archive = `lib${app.crate('apple').replace(/-/g, '_')}.d`;
@@ -162,7 +191,12 @@ export function webChanges(dist, app) {
   if (!existsSync(marker)) return { app: [], shared: [], all: [] };
   const since = statSync(marker).mtimeMs, js = JSON.parse(readFileSync(marker, 'utf8')).target === 'js';
   const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }] : ['host/web', 'runner', 'kernel', 'plan', 'motion', 'num', 'contract'];
-  const appChanges = newerThan(since, [app.dir], path => /\/(apple|linux)$/.test(path) && path.startsWith(app.dir + '/'));
+  const ignored = gitIgnored(app.dir, shaderWatchRoots(app));
+  // A game's proof, pins, documents and helper scripts are not build inputs;
+  // the proof's input digest exempts the same (game/proof.mjs proofInputExcluded).
+  const notInput = path => Boolean(app.manifest?.game) && (/(^|\/)(pins\.json|proof\.mjs|[^/]*\.test\.mjs|[^/]*\.md)$/.test(path)
+    || (/\.m?js$/.test(path) && !/^(logic|data|gpu|art|assets|deck)\//.test(relative(app.dir, path))));
+  const appChanges = newerThan(since, [app.dir], path => /\/(apple|linux)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path) || notInput(path));
   const shared = newerThan(since, roots.map(r => typeof r === 'string' ? resolve(ROOT, r) : { shallow: resolve(ROOT, r.shallow) }));
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }

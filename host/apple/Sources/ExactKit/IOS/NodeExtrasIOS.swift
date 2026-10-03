@@ -23,6 +23,7 @@ final class NodeExtras {
     var clipBox: PlainView?
     /// The box layout moved it from (LLP 1063).
     var layoutOffset: CGPoint = .zero
+    var keyboardLift: CGFloat = 0
     var layoutScale = CGPoint(x: 1, y: 1)
     /// Its surface at a layout transition's size (`Surface.swift`).
     var surface: SurfaceLayer?
@@ -67,6 +68,7 @@ final class NodeExtras {
     var hiddenScroll: CGPoint?
     var followedScroll: (top: CGFloat, end: Bool)?
     var followsEndAfterInteraction = false
+    var followingEndAnimated = false
     var anchoredScrollTop: CGFloat?
     var retainedScrollTop: CGFloat?
     var materialKind: String?
@@ -109,6 +111,8 @@ extension NodeView {
     var insetCaster: InsetShadowCaster? { get { extras?.insetCaster } set { if newValue != nil || extras != nil { more.insetCaster = newValue } } }
     var clipBox: PlainView? { get { extras?.clipBox } set { if newValue != nil || extras != nil { more.clipBox = newValue } } }
     var layoutOffset: CGPoint { get { extras?.layoutOffset ?? .zero } set { if newValue != .zero || extras != nil { more.layoutOffset = newValue } } }
+    /// How far a keyboard toolbar rides up with the keyboard (KeyboardToolbarIOS).
+    var keyboardLift: CGFloat { get { extras?.keyboardLift ?? 0 } set { if newValue != 0 || extras != nil { more.keyboardLift = newValue } } }
     var layoutScale: CGPoint { get { extras?.layoutScale ?? CGPoint(x: 1, y: 1) } set { if newValue != CGPoint(x: 1, y: 1) || extras != nil { more.layoutScale = newValue } } }
     var surface: SurfaceLayer? { get { extras?.surface } set { if newValue != nil || extras != nil { more.surface = newValue } } }
     var layoutPanRecognizer: UIPanGestureRecognizer? { get { extras?.layoutPanRecognizer } set { if newValue != nil || extras != nil { more.layoutPanRecognizer = newValue } } }
@@ -151,6 +155,7 @@ extension NodeView {
     var beforeLayoutScroll: CGPoint? { get { extras?.beforeLayoutScroll } set { if newValue != nil || extras != nil { more.beforeLayoutScroll = newValue } } }
     var hiddenScroll: CGPoint? { get { extras?.hiddenScroll } set { if newValue != nil || extras != nil { more.hiddenScroll = newValue } } }
     var followedScroll: (top: CGFloat, end: Bool)? { get { extras?.followedScroll } set { if newValue != nil || extras != nil { more.followedScroll = newValue } } }
+    var followingEndAnimated: Bool { get { extras?.followingEndAnimated ?? false } set { if newValue || extras != nil { more.followingEndAnimated = newValue } } }
     var followsEndAfterInteraction: Bool { get { extras?.followsEndAfterInteraction ?? false } set { if newValue || extras != nil { more.followsEndAfterInteraction = newValue } } }
     var anchoredScrollTop: CGFloat? { get { extras?.anchoredScrollTop } set { if newValue != nil || extras != nil { more.anchoredScrollTop = newValue } } }
     var retainedScrollTop: CGFloat? { get { extras?.retainedScrollTop } set { if newValue != nil || extras != nil { more.retainedScrollTop = newValue } } }

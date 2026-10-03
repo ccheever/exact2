@@ -108,6 +108,68 @@ final class NavigationBarIOSTests: XCTestCase {
         until("Compose pressed once") { state(session, "composed") as? Double == 1 }
     }
 
+    /// LLP 1075.003 §9.6: a button whose one child is a filled box is an
+    /// image item drawn from it; a popover's invoker is an item whose menu
+    /// holds the popover's rows, each pressing its authored button.
+    func testABadgeButtonIsAnImageItemAndAPopoverInvokerAMenuItem() throws {
+        let session = try fixture("bar-badge-menu", module: false)
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let top = try XCTUnwrap(nav.topViewController)
+        let left = top.navigationItem.leftBarButtonItems ?? []
+        let badge = try XCTUnwrap(left.first { $0.accessibilityLabel == "Profile" }, "the badge button is an item")
+        let image = try XCTUnwrap(badge.image, "drawn from the box")
+        XCTAssertEqual(image.size, CGSize(width: 36, height: 36))
+        XCTAssertEqual(image.renderingMode, .alwaysOriginal, "the box's own colours, not the bar's tint")
+        XCTAssertNil(badge.menu)
+        try tap(badge)
+        until("the badge pressed its button") { state(session, "composed") as? Double == 1 }
+        let more = try XCTUnwrap(left.first { $0.accessibilityLabel == "More" }, "the popover's invoker is an item")
+        let menu = try XCTUnwrap(more.menu, "with the popover as its menu")
+        XCTAssertNil(more.action, "UIKit opens the menu on a tap")
+        XCTAssertTrue(menu.children.first is UIDeferredMenuElement, "rows read as it opens")
+        let pop = try XCTUnwrap(session.presenter.carrying("popover").first { $0.props["id"] == "bar-menu" })
+        let rows = session.presenter.menus.items(of: pop)
+        let row = try XCTUnwrap(rows.first as? UIAction)
+        XCTAssertEqual(row.title, "Bump from the bar")
+    }
+
+    /// LLP 1075.003 §9.6: a header's `input type="search"` is the item's
+    /// search controller; what the reader types is the field's `input`.
+    func testAHeaderSearchFieldIsTheItemsSearchControllerAndTypingIsItsInput() throws {
+        let session = try fixture("bar-search", module: false)
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let top = try XCTUnwrap(nav.topViewController)
+        let search = try XCTUnwrap(top.navigationItem.searchController, "the header's search field")
+        XCTAssertEqual(search.searchBar.placeholder, "Search the fixture")
+        search.searchBar.text = "abc"
+        search.searchResultsUpdater?.updateSearchResults(for: search)
+        until("the field's input ran with the text") { state(session, "query") as? String == "abc" }
+    }
+
+    /// LLP 1075.003 §9.8: a header's text tablist is the item's title view,
+    /// a segmented control; a segment's tap presses its tab.
+    func testAHeaderTablistIsTheItemsSegmentedTitleView() throws {
+        let session = try fixture("bar-segments", module: false)
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let top = try XCTUnwrap(nav.topViewController)
+        let control = try XCTUnwrap(top.navigationItem.titleView as? UISegmentedControl, "the tablist is the title view")
+        XCTAssertEqual(control.numberOfSegments, 2)
+        XCTAssertEqual(control.titleForSegment(at: 1), "Missed")
+        XCTAssertEqual(control.selectedSegmentIndex, 0)
+        XCTAssertEqual(top.navigationItem.title, "Fixture", "the heading stays the title")
+        XCTAssertFalse((top.navigationItem.rightBarButtonItems ?? []).contains { $0.title == "All" || $0.title == "Missed" }, "tabs are not items")
+        let press = try XCTUnwrap(control.allTargets.first as? SegmentPress, "the control's target")
+        XCTAssertNotNil(press.host)
+        XCTAssertEqual(press.tabs, [try node(session, "segment-all").id, try node(session, "segment-missed").id])
+        // A tap: the segment selected, then the control's action for a
+        // value change sent to its target.
+        control.selectedSegmentIndex = 1
+        let action = try XCTUnwrap(control.actions(forTarget: press, forControlEvent: .valueChanged)?.first, "registered for a value change")
+        _ = press.perform(NSSelectorFromString(action), with: control)
+        until("the tab pressed") { state(session, "segment") as? String == "missed" }
+        until("the selection follows aria-selected") { control.selectedSegmentIndex == 1 }
+    }
+
     func testAPushedRouteShowsBackAsTheAuthoredControlAndAPopPressesItOnce() throws {
         let session = try fixture("bar-push", module: false)
         let agent = Agent(session: session)

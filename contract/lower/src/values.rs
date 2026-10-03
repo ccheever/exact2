@@ -633,6 +633,19 @@ pub(crate) fn check_prop_value(
             }
         }
     }
+    // ARIA `aria-pressed`: `true`, `false` or `mixed`, or a bool.
+    if prop == PropId::AccessibilityPressed {
+        if matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "true" | "false" | "mixed")) {
+            return err(
+                "lower-attr-value",
+                "`aria-pressed` takes a bool or \"true\", \"false\" or \"mixed\"",
+                span,
+            );
+        }
+        if matches!(ty, Ty::Bool) {
+            return Ok(());
+        }
+    }
     let ok = matches!(
         (want, ty),
         (_, Ty::Unknown)

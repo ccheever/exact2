@@ -28,6 +28,11 @@ final class MenuHost: NSObject {
     }
     private var entries: [Entry] = []
     private var popovers: [UInt32: NodeView] = [:]
+    /// LLP 1080.001 D3: an open popover's layer, and the popovers this host
+    /// hides while closed or lifts while open.
+    func inspectionOwns(_ view: NSView) -> Bool { entries.contains { $0.layer === view } }
+    func hides(_ node: NodeView) -> Bool { node.props["popover"] != nil || node.props["semanticTag"] == "dialog" }
+    func projects(_ node: NodeView) -> Bool { entries.contains { $0.popover === node } }
     private var pointerDown: (button: Int, ancestor: UInt32?)?
     private var escapeHeld = false
     var presented: [NodeView] { entries.filter { $0.menu == nil }.map(\.popover) }

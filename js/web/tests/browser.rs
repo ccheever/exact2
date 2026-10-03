@@ -41,6 +41,7 @@ fn browser_modules_guard_their_own_builtins_and_refuse_bad_candidates() {
         .env("EXACT_DIGESTS", expected_digests())
         .env("EXACT_AGENT_STREAM", agent_stream())
         .env("EXACT_EC_JWK", ec_pair.private.to_jwk().unwrap().to_json())
+        .env("EXACT_GRANT_SETS", grant_sets())
         .current_dir(root)
         .output()
         .unwrap();
@@ -142,6 +143,35 @@ fn agent_stream() -> String {
     )
 }
 
+fn grant_sets() -> String {
+    let specs = [
+        "",
+        "secret.keep token",
+        "net.fetch https://fixture.exact.test\n",
+        "secret.keep dpop\n",
+        "net.fetch https://api.castle.xyz\nsecret.keep castle.session\n",
+        "fs.read app:/data\nfs.write app:/data\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n",
+        "fs.read app:/\nfs.write app:/\nsqlite.open app:/data",
+        "fs.read app:/data/move\nfs.write app:/data/move",
+        "fs.read app:/data",
+        "sqlite.open app:/data/notes.db",
+        "sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups\nfs.read app:/tmp/picked\nsecret.keep fieldnotes.revision",
+    ];
+    let sets = specs
+        .into_iter()
+        .map(|spec| {
+            (
+                spec.to_string(),
+                serde_json::from_str::<serde_json::Value>(&exact_runner::grants::normalized_json(
+                    spec,
+                ))
+                .unwrap(),
+            )
+        })
+        .collect::<serde_json::Map<_, _>>();
+    serde_json::Value::Object(sets).to_string()
+}
+
 const PROBE: &str = r#"
 import { Cdp } from './scripts/agent.mjs';
 import { webHostFiles } from './scripts/app.mjs';
@@ -238,13 +268,15 @@ fixtures.oracle=JSON.parse(process.env.EXACT_PARITY);
 fixtures.digests=process.env.EXACT_DIGESTS;
 fixtures.agentStream=process.env.EXACT_AGENT_STREAM;
 fixtures.ecJwk=process.env.EXACT_EC_JWK;
+fixtures.grantSets=JSON.parse(process.env.EXACT_GRANT_SETS);
 const profile = mkdtempSync(resolve(tmpdir(),'exact-module-browser-'));
 const child = spawn(process.env.CHROME, ['--headless=new','--no-sandbox','--remote-debugging-pipe','--no-first-run','--disable-background-networking','--host-resolver-rules=MAP lan.test 127.0.0.1',`--user-data-dir=${profile}`,'about:blank'],{detached:true,stdio:['ignore','ignore','ignore','pipe','pipe']});
 const cdp = new Cdp(child.stdio[3],child.stdio[4]);
 const exited = new Promise(r=>child.on('exit',()=>{cdp.fail('browser closed');r();}));
 try {
   const { targetInfos } = await cdp.send('Target.getTargets');
-  const { sessionId } = await cdp.send('Target.attachToTarget',{targetId:targetInfos.find(t=>t.type==='page').targetId,flatten:true});
+  const page=targetInfos.find(t=>t.type==='page')??await cdp.send('Target.createTarget',{url:'about:blank'});
+  const { sessionId } = await cdp.send('Target.attachToTarget',{targetId:page.targetId,flatten:true});
   const call = (method,params)=>cdp.send(method,params,sessionId);
   await call('Page.enable');
   await call('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/`});
@@ -252,13 +284,16 @@ try {
     await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
     globalThis.exact ??= {};
     const {prepare,call,run,baked} = await import('/module-glue.js');
+    const {createGrantSet}=await import('/grant-admission.js');
+    const grantSet=grants=>createGrantSet(fixtures.grantSets[grants]);
+    const admit=value=>({...value,grantSet:grantSet(value.grants)});
     const checkpoint=async result=>{for(let i=0;result.continuation&&i<20;i++)result=await run(result.continuation);return result;};
     const oldDate=Date, oldNow=Date.now, oldRandom=Math.random;
     const guest=document.createElement('iframe');document.getElementById('exact-root').append(guest);
     const guestBox=guest.getBoundingClientRect(), pageHeight=document.documentElement.scrollHeight;
     if(guestBox.width!==300||guestBox.height!==150)throw new Error('guest iframe lost its 300x150 box');
     const guestDate=guest.contentWindow.Date;
-    const identity={appId:'test.browser.module',grants:'secret.keep token'};
+    const identity=admit({appId:'test.browser.module',grants:'secret.keep token'});
     const encode=s=>new TextEncoder().encode(s);
     const hash=async bytes=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',bytes)),b=>b.toString(16).padStart(2,'0')).join('');
     const payload=async (source,admitted=identity)=>{
@@ -311,7 +346,7 @@ try {
     module.dispose();
     if(!call({op:'answer',id:module.id,source:'explicit',args:[0]}).error)throw new Error('disposed environment is callable');
 
-    const inputsIdentity={appId:'test.explicit-inputs',grants:'net.fetch https://fixture.exact.test\n'};
+    const inputsIdentity=admit({appId:'test.explicit-inputs',grants:'net.fetch https://fixture.exact.test\n'});
     const inputs=await prepare(await payload(fixtures.inputs,inputsIdentity),inputsIdentity);
     const invoke=(realm,source,args=[],store=[],grants=[],outcome)=>checkpoint(call({id:realm.id,op:outcome?'resume':'answer',source,args,store,grants,outcome}));
     const response=(body='',status=200)=>({response:{status,headers:[],body,bodyBase64:btoa(body)}});
@@ -341,7 +376,7 @@ try {
     if(!dropped)throw new Error('disposed continuation executed');
     // LLP 1069.005 D2/D3, as js/tests/it/entropy.rs holds Hermes to: a draw is
     // a counted read, refused at initialization, and no realm has `subtle`.
-    const entropyIdentity={appId:'test.entropy',grants:'net.fetch https://fixture.exact.test\n'};
+    const entropyIdentity=admit({appId:'test.entropy',grants:'net.fetch https://fixture.exact.test\n'});
     for(const placement of ['main','worker']){
       const realm=await prepare(await payload(fixtures.entropy,entropyIdentity),{...entropyIdentity,placement});
       const ask=(source,args=[],outcome)=>{
@@ -392,7 +427,7 @@ try {
 
     // LLP 1069.005 D1b: ECDSA P-256 in both placements, the same checks
     // Hermes meets; the signatures go back to Rust to verify (the harness).
-    const ecIdentity={appId:'test.ecdsa',grants:'secret.keep dpop\n'}, ecdsa={};
+    const ecIdentity=admit({appId:'test.ecdsa',grants:'secret.keep dpop\n'}), ecdsa={};
     for(const placement of ['main','worker']){
       const open=async()=>prepare(await payload(fixtures.ecdsa,ecIdentity),{...ecIdentity,placement});
       const asker=realm=>(source,args=[],store=[])=>{
@@ -420,7 +455,7 @@ try {
       ecdsa[placement]={keypair:JSON.parse(pair.value),imported:imported.value,kept:JSON.parse(kept.value),later:later.value};
     }
     globalThis.ecdsaResult=ecdsa;
-    const castleIdentity={appId:'xyz.castle.test',grants:'net.fetch https://api.castle.xyz\nsecret.keep castle.session\n'};
+    const castleIdentity=admit({appId:'xyz.castle.test',grants:'net.fetch https://api.castle.xyz\nsecret.keep castle.session\n'});
     const castle=await prepare(await payload(fixtures.castle,castleIdentity),castleIdentity);
     const grants=['castle.session'], loginArgs=['ada','pw'];let store=[];
     const ask=(source,args=[],outcome)=>invoke(castle,source,args,store,grants,outcome);
@@ -446,7 +481,8 @@ try {
       if(done[0].value?.username!=='ada'||done[0].value.error!=='ada-profile'||done[1].value?.username!=='bob'||done[1].value.error!=='bob-profile')throw new Error(`${realm}: twin answers crossed: ${JSON.stringify(done)}`);
     };
     await twins('iframe',(target,outcome)=>checkpoint(call({id:castle.id,op:outcome?'resume':'answer',target,source:'profile',args:[],store,grants,outcome})));
-    const castleWorker=await prepare(await payload(fixtures.castle,castleIdentity),{...castleIdentity,placement:'worker'});
+    const castleWorkerIdentity={...castleIdentity,grants:' net.fetch https://api.castle.xyz\n\n  secret.keep castle.session  ',placement:'worker'};
+    const castleWorker=await prepare(await payload(fixtures.castle,castleWorkerIdentity),castleWorkerIdentity);
     await twins('worker',async (target,outcome)=>{
       const started=call({id:castleWorker.id,op:outcome?'resume':'answer',target,source:'profile',args:[],store,grants,outcome});
       call({op:'dispatch',id:castleWorker.id,token:started.continuation,store,grants});
@@ -515,7 +551,7 @@ try {
       constructor(...args){super(...args);workersCreated++;}
       terminate(){workersTerminated++;return super.terminate();}
     };
-    const storageIdentity={appId:'dev.exact.storage-test',grants:'fs.read app:/data\nfs.write app:/data\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n'};
+    const storageIdentity=admit({appId:'dev.exact.storage-test',grants:'fs.read app:/data\nfs.write app:/data\nsqlite.open app:/data/notes.db\nnet.fetch https://example.test\nsecret.keep session\n'});
     const beforeStorage=(await indexedDB.databases()).length;
     let storage=await prepare(await payload(fixtures.storage,storageIdentity),storageIdentity);
     if((await indexedDB.databases()).length!==beforeStorage)throw new Error('prepare opened storage');
@@ -534,7 +570,7 @@ try {
     };
     if(await storageCall('file','hello')!=='hello')throw new Error('file bytes');
     const {createFileSystem:inspectFiles}=await import('/storage-fs.js');
-    const filesAfterCancel=inspectFiles(storageIdentity.appId,storageIdentity.grants);
+    const filesAfterCancel=inspectFiles(storageIdentity.appId,storageIdentity.grantSet);
     if((await filesAfterCancel.readdir('app:/data')).includes('canceled-load')||workersCreated!==0)throw new Error('disposed lazy storage started I/O');
     filesAfterCancel.dispose();
     if(await storageCall('add','remember')!=='remember')throw new Error('prepared insert');
@@ -605,7 +641,7 @@ try {
     const {createFileSystem}=await import('/storage-fs.js');
     const {createSqlite}=await import('/storage-sqlite.js');
     const fsApp='test.browser.file-operations', fsGrants='fs.read app:/\nfs.write app:/\nsqlite.open app:/data';
-    const fs=createFileSystem(fsApp,fsGrants), sql=createSqlite(fsApp,fsGrants);
+    const fsSet=grantSet(fsGrants),fs=createFileSystem(fsApp,fsSet),sql=createSqlite(fsApp,fsSet);
     const refused=async promise=>{try{await promise;}catch(e){if(e.kind!=='Unavailable')throw e;return;}throw new Error('operation should refuse');};
     await fs.mkdir('app:/data/dir');
     await fs.writeFile('app:/data/dir/a',new Uint8Array([1,2]));
@@ -712,7 +748,7 @@ try {
     await fs.rename('app:/data/dir','app:/data/moved');
     if((await fs.readdir('app:/data/moved')).join()!=='a'||await fs.realpath('app:/data//moved/a/')!=='app:/data/moved/a')throw new Error('directory rename/canonical path');
     for(const path of ['app:/data/../cache/escape','app:/database/escape','/tmp/escape','app:/data/./escape'])await refused(fs.writeFile(path,new Uint8Array([1])));
-    const narrow=createFileSystem(fsApp,'fs.read app:/data/move\nfs.write app:/data/move');
+    const narrow=createFileSystem(fsApp,grantSet('fs.read app:/data/move\nfs.write app:/data/move'));
     await refused(narrow.readFile('app:/data/moved/a'));narrow.dispose();
     await fs.rm('app:/data/moved');await fs.rm('app:/data/missing');
     if((await fs.readdir('app:/data')).length)throw new Error('recursive removal');
@@ -742,7 +778,7 @@ try {
     await refused(fs.atomicWriteFile('app:/data/live.db',new Uint8Array([0])));
     await refused(fs.rm('app:/data'));
     await fs.writeFile('app:/cache/unrelated',new Uint8Array([1]));
-    const secondSql=createSqlite(fsApp,fsGrants);await refused(secondSql.open('app:/data/live.db'));secondSql.dispose();
+    const secondSql=createSqlite(fsApp,fsSet);await refused(secondSql.open('app:/data/live.db'));secondSql.dispose();
     await db.close();
     await fs.copyFile('app:/data/live.db','app:/data/copied.db');
     if(!new TextDecoder().decode(await fs.readFile('app:/data/copied.db')).startsWith('SQLite format 3'))throw new Error('database is not a SQLite file');
@@ -751,7 +787,7 @@ try {
     const prepared=await copied.prepare('SELECT value FROM t');await copied.close();
     await refused(prepared.query());
     const reloadApp='test.browser.sqlite-overlap';
-    let current=createSqlite(reloadApp,fsGrants);
+    let current=createSqlite(reloadApp,fsSet);
     const coldStart=performance.now();
     let live=await current.open('app:/data/reload.db');
     const coldMs=performance.now()-coldStart;
@@ -760,7 +796,7 @@ try {
     let oldStatement=await live.prepare('SELECT value FROM t');
     const warmMs=[], expectedWorkers=workersCreated;
     for(let i=0;i<5;i++){
-      const next=createSqlite(reloadApp,fsGrants);
+      const next=createSqlite(reloadApp,fsSet);
       await refused(next.open('app:/data/reload.db'));
       const other=await next.open('app:/data/other.db');
       await other.close();
@@ -778,7 +814,7 @@ try {
     sql.dispose();fs.dispose();
     if(workersCreated!==workersTerminated)throw new Error('SQLite worker leaked');
     globalThis.Worker=NativeWorker;
-    const caltrainIdentity={appId:'com.exact.caltrain',grants:''};
+    const caltrainIdentity=admit({appId:'com.exact.caltrain',grants:''});
     const train=await prepare(await payload(fixtures.caltrain,caltrainIdentity),caltrainIdentity);
     const canonical=v=>JSON.stringify(v,(_key,value)=>value&&typeof value==='object'&&!Array.isArray(value)?Object.fromEntries(Object.entries(value).sort(([a],[b])=>a.localeCompare(b))):value);
     for(const test of fixtures.oracle){
@@ -799,8 +835,10 @@ try {
     await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
     const {createFileSystem}=await import('/storage-fs.js');
     const {createSqlite}=await import('/storage-sqlite.js');
-    const fs=createFileSystem('dev.exact.storage-test','fs.read app:/data');
-    const sql=createSqlite('dev.exact.storage-test','sqlite.open app:/data/notes.db');
+    const {createGrantSet}=await import('/grant-admission.js');
+    const grantSets=${process.env.EXACT_GRANT_SETS};
+    const fs=createFileSystem('dev.exact.storage-test',createGrantSet(grantSets['fs.read app:/data']));
+    const sql=createSqlite('dev.exact.storage-test',createGrantSet(grantSets['sqlite.open app:/data/notes.db']));
     const bytes=new TextDecoder().decode(await fs.readFile('app:/data/note'));
     const db=await sql.open('app:/data/notes.db');
     const rows=await db.query('SELECT body FROM notes');await db.close();sql.dispose();fs.dispose();
@@ -813,14 +851,15 @@ try {
   // SHA-256 is the dev protocol's (here the fixture server's); SHA-384
   // refuses by name; `randomUUID` is formed from `getRandomValues`.
   await call('Page.navigate',{url:`http://lan.test:${server.address().port}/?agent=1&seed=1`});
-  const lanProbe=async(fixture,seeded)=>{
+  const lanProbe=async(fixture,seeded,grantSetValue)=>{
     await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
     if(isSecureContext||globalThis.crypto.subtle)throw new Error('lan.test is a secure context');
     const encode=s=>new TextEncoder().encode(s);
     const sha=async bytes=>(await fetch('/sha256',{method:'POST',body:bytes})).text();
     globalThis.exact??={};globalThis.exact.moduleDigest=sha;
     const {prepare,call,run}=await import('/module-glue.js');
-    const identity={appId:'test.entropy',grants:'net.fetch https://fixture.exact.test\n'};
+    const {createGrantSet}=await import('/grant-admission.js');
+    const identity={appId:'test.entropy',grants:'net.fetch https://fixture.exact.test\n',grantSet:createGrantSet(grantSetValue)};
     const script=encode(fixture);
     const payload={script,receipt:encode(JSON.stringify({version:1,abi:1,...identity,module:{sha256:'a'.repeat(64)},web:{file:'app.js',bytes:script.length,sha256:await sha(script)}}))};
     const seen=[];
@@ -839,7 +878,7 @@ try {
     }
     return seen;
   };
-  const lan=await call('Runtime.evaluate',{expression:`(${lanProbe.toString()})(${JSON.stringify(fixtures.entropy)},${JSON.stringify(fixtures.agentStream.split(" ")[0])})`,returnByValue:true,awaitPromise:true});
+  const lan=await call('Runtime.evaluate',{expression:`(${lanProbe.toString()})(${JSON.stringify(fixtures.entropy)},${JSON.stringify(fixtures.agentStream.split(" ")[0])},${JSON.stringify(fixtures.grantSets['net.fetch https://fixture.exact.test\n'])})`,returnByValue:true,awaitPromise:true});
   assert.equal(lan.exceptionDetails,undefined,JSON.stringify(lan.exceptionDetails));
   const abc='ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad';
   assert.deepEqual(lan.result.value,[`main ${abc}/NotSupportedError true true`,`worker ${abc}/NotSupportedError true true`],'a LAN page digests SHA-256 through the dev protocol and has no agent stream');
@@ -948,6 +987,7 @@ fn browser_portable_storage_shares_fieldnotes_data_and_enforces_scope() {
     let result = Command::new("bun")
         .args(["--input-type=module", "-e", PROTOCOL_PROBE])
         .env("CHROME", chrome)
+        .env("EXACT_GRANT_SETS", grant_sets())
         .current_dir(Path::new(env!("CARGO_MANIFEST_DIR")).join("../.."))
         .output()
         .unwrap();
@@ -982,17 +1022,20 @@ const cdp=new Cdp(child.stdio[3],child.stdio[4]);
 const exited=new Promise(resolve=>child.on('exit',()=>{cdp.fail('browser closed');resolve();}));
 try {
   const {targetInfos}=await cdp.send('Target.getTargets');
-  const {sessionId}=await cdp.send('Target.attachToTarget',{targetId:targetInfos.find(t=>t.type==='page').targetId,flatten:true});
+  const page=targetInfos.find(t=>t.type==='page')??await cdp.send('Target.createTarget',{url:'about:blank'});
+  const {sessionId}=await cdp.send('Target.attachToTarget',{targetId:page.targetId,flatten:true});
   const send=(method,params)=>cdp.send(method,params,sessionId);
   await send('Page.enable');
   await send('Page.navigate',{url:`http://127.0.0.1:${server.address().port}/`});
-  const probe=async(app,reloaded)=>{
+  const probe=async(app,reloaded,grantSets)=>{
     await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
     globalThis.exact??={};
     const {prepare,call,run}=await import('/module-glue.js');
     const {createStorageRequests}=await import('/storage-request.js');
+    const {createGrantSet,scopedGrantSet}=await import('/grant-admission.js');
     const encoder=new TextEncoder(),decoder=new TextDecoder();
     const identity={appId:'com.exact.fieldnotes',grants:'sqlite.open app:/data/fieldnotes.db\nfs.read app:/data/backups\nfs.write app:/data/backups\nfs.read app:/tmp/picked\nsecret.keep fieldnotes.revision'};
+    identity.grantSet=createGrantSet(grantSets[identity.grants]);
     const script=encoder.encode(app);
     const sha256=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',script)),b=>b.toString(16).padStart(2,'0')).join('');
     const receipt=encoder.encode(JSON.stringify({version:1,abi:1,...identity,module:{sha256:'a'.repeat(64)},web:{file:'app.js',bytes:script.length,sha256}}));
@@ -1009,8 +1052,8 @@ try {
       return result.value;
     };
     const check=(condition,message)=>{if(!condition)throw new Error(message);};
-    const service=createStorageRequests(identity.appId,identity.grants);
-    const request=async(op,args,scope)=>JSON.parse(decoder.decode(await service.run(JSON.stringify({version:1,op,args}),scope)));
+    const service=createStorageRequests(identity.appId,identity.grantSet);
+    const request=async(op,args,scope)=>JSON.parse(decoder.decode(await service.run(JSON.stringify({version:1,op,args}),scope==null?identity.grantSet:scopedGrantSet(identity.grantSet,scope))));
     const command=(kind,sql,params=[])=>({kind,sql,params});
     const db='app:/data/fieldnotes.db',path='app:/data/backups/fieldnotes.json';
     if(reloaded){
@@ -1064,7 +1107,7 @@ try {
     history.replaceState(null,'','/?agent=1');
     // A page opened under the agent ('?agent', no scratch store named) gets no
     // storage; the store is chosen when the service is made, not per request.
-    const agent=createStorageRequests(identity.appId,identity.grants);history.replaceState(null,'','/');
+    const agent=createStorageRequests(identity.appId,identity.grantSet);history.replaceState(null,'','/');
     check(JSON.parse(decoder.decode(await agent.run(JSON.stringify({version:1,op:'fs.readFile',args:{path}})))).error?.includes('unavailable in agent mode'),'agent mode withholds portable storage');agent.dispose();
     check(typeof (await request('fs.atomicWriteFile',{path:'app:/data/backups/../escape',text:'deny'})).error==='string','traversal refused');
     const binary='app:/data/backups/binary';await request('fs.atomicWriteFile',{path:binary,bytes:[0,255]});
@@ -1089,7 +1132,7 @@ try {
   };
   for(const reloaded of [false,true]){
     if(reloaded)await send('Page.reload');
-    const result=await send('Runtime.evaluate',{expression:`(${probe.toString()})(${JSON.stringify(app)},${reloaded})`,returnByValue:true,awaitPromise:true});
+    const result=await send('Runtime.evaluate',{expression:`(${probe.toString()})(${JSON.stringify(app)},${reloaded},${process.env.EXACT_GRANT_SETS})`,returnByValue:true,awaitPromise:true});
     assert.equal(result.exceptionDetails,undefined,JSON.stringify(result.exceptionDetails));
     assert.deepEqual(result.result.value,reloaded?{reloaded:true}:{shared:true,types:true,rollback:true,scope:true,disposal:true});
     console.log(JSON.stringify(result.result.value));

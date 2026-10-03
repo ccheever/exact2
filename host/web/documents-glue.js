@@ -6,6 +6,7 @@
 // browser without them (Safari, Firefox) refuses and fires `cancel` (ruled:
 // no fallback to a hidden input's copy). Under the agent the driver's files
 // arrive as bytes and become handles that behave as the browser's do.
+import { coversPath } from './grant-admission.js';
 const handles = new Map(); // n → FileSystemHandle
 let next = 0;
 
@@ -33,21 +34,13 @@ async function resolve(path) {
   return { handle: at };
 }
 
-// Whether a scope's `<capability> <prefix>` lines cover the path, a
-// component at a time (as `PathPrefix::covers` reads it).
-function covered(scope, capability, path) {
-  const parts = (p) => { const [ns, rest] = p.includes(':/') ? p.split(/:\/(.*)/s) : ['', p]; return [ns, ...rest.split('/').filter(Boolean)]; };
-  const target = parts(path);
-  return scope.split('\n').map((l) => l.trim().split(/\s+/)).some(([cap, prefix]) => cap === capability && prefix && parts(prefix).every((c, i) => target[i] === c));
-}
-
 function base64(bytes) { let text = ''; for (let i = 0; i < bytes.length; i += 16384) text += String.fromCharCode(...bytes.subarray(i, i + 16384)); return btoa(text); }
 
 /** One storage operation on a `doc:` path under `scope` (the app's grants). */
 async function run(op, args, bytes, scope) {
   const path = args.path, write = ['fs.writeFile', 'fs.atomicWriteFile', 'fs.appendFile', 'fs.mkdir', 'fs.rm'].includes(op);
   const grant = write ? 'fs.write' : 'fs.read';
-  if (!covered(scope, grant, path)) throw new Error(`${op} ${path}: not granted (needs \`${grant} doc:/\`)`);
+  if (!coversPath(scope, grant, path)) throw new Error(`${op} ${path}: not granted (needs \`${grant} doc:/\`)`);
   const found = await resolve(path);
   if (found.root !== undefined) {
     if (op === 'fs.readdir') return [found.root];

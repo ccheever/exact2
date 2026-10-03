@@ -13,7 +13,7 @@ import { closeFilesystemReader, filesystemRead } from './filesystem.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
-import { developmentGate, developmentInstallPage, installData, installPage, installProblems, writeInstallPages, installBrowserOrigins, installNetworkPage, localInstallURL } from './install-page.mjs';
+import { allowHostArgs, allowHostName, developmentGate, developmentInstallPage, installData, installPage, installProblems, writeInstallPages, installBrowserOrigins, installNetworkPage, localInstallURL } from './install-page.mjs';
 import { readManifest, rustPolicy, rebuildPolicy } from './app.mjs';
 import { compressionCache, developmentOpenPage, listPublicFiles, readStaticFile, serveStatic, staticWatchChanges, applyStaticTreeChange, warmCompression } from '../host/web/serve.mjs';
 import { request as httpRequest } from 'node:http';
@@ -319,6 +319,40 @@ test('a development server answers only to its printed names; its token and phon
   assert.equal(localInstallURL('simulator',lan,8879),'http://127.0.0.1:8879/');
   assert.equal(localInstallURL('device',lan,8879),'http://192.168.1.20:8879/');
   assert.throws(()=>localInstallURL('device',loopback,8879),/--lan/);
+});
+
+test('--allow-host admits a tunnel name to every request but never makes it local', () => {
+  const interfaces={lo0:[{address:'127.0.0.1',family:'IPv4',internal:true}]};
+  const request=(host,peer='127.0.0.1')=>({headers:{host},socket:{remoteAddress:peer}});
+  const loopback=installBrowserOrigins({host:'127.0.0.1',port:8879,interfaces});
+  // The default is unchanged: a tunnel forwarding to loopback is refused (421).
+  assert.equal(developmentGate(loopback,8879).check(request('abc.tuft.dev')).allowed,false);
+  const names=allowHostArgs(['--app','beacons','--allow-host','ABC.tuft.dev','--port','8879','--allow-host','pinned.example:8443']);
+  assert.deepEqual(names,['abc.tuft.dev','pinned.example:8443']);
+  const gate=developmentGate(loopback,8879,names);
+  // A tunnel's Host has no port (https), or the public one; the name admits any port.
+  assert.deepEqual(gate.check(request('abc.tuft.dev')),{allowed:true,local:false});
+  assert.deepEqual(gate.check(request('ABC.tuft.dev:443')),{allowed:true,local:false});
+  assert.deepEqual(gate.check(request('pinned.example:8443')),{allowed:true,local:false});
+  assert.equal(gate.check(request('pinned.example')).allowed,false,'name:port admits that port only');
+  assert.equal(gate.check(request('pinned.example:80')).allowed,false);
+  // DNS rebinding under any other name is still refused; loopback is still local.
+  assert.equal(gate.check(request('evil.abc.tuft.dev')).allowed,false);
+  assert.equal(gate.check(request('rebound.example:8879')).allowed,false);
+  assert.deepEqual(gate.check(request('127.0.0.1:8879')),{allowed:true,local:true});
+  // A tunnel that rewrites Host to loopback still carries the internet: not local.
+  for (const header of ['forwarded','x-forwarded-for','x-forwarded-host'])
+    assert.deepEqual(gate.check({headers:{host:'127.0.0.1:8879',[header]:'for=203.0.113.9'},socket:{remoteAddress:'127.0.0.1'}}),{allowed:true,local:false},header);
+  // A cross-site browser POST is refused; a same-origin or Origin-less one is not.
+  const post=(origin,host='127.0.0.1:8879')=>gate.check({method:'POST',headers:{host,...(origin===undefined?{}:{origin})},socket:{remoteAddress:'127.0.0.1'}});
+  assert.deepEqual(post('https://evil.example'),{allowed:false,local:false});
+  assert.deepEqual(post('null'),{allowed:false,local:false});
+  assert.deepEqual(post('http://127.0.0.1:8879'),{allowed:true,local:true});
+  assert.deepEqual(post(undefined),{allowed:true,local:true});
+  assert.deepEqual(post('https://abc.tuft.dev','abc.tuft.dev'),{allowed:true,local:false});
+  for (const bad of [undefined,'','https://abc.tuft.dev','*.tuft.dev','abc.tuft.dev/','-abc.example','a b'])
+    assert.throws(()=>allowHostName(bad),/--allow-host takes a host name/);
+  assert.throws(()=>allowHostArgs(['--allow-host']),/--allow-host/);
 });
 
 test('the dev opening page offers only the admitted, token-bearing links, escaped', () => {

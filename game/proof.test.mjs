@@ -280,6 +280,32 @@ test('world convenience keeps simulation fields only and dispatches the existing
   expect(calls[2].reply).toMatchObject({clock:0,epoch:2,incarnation:2});
 });
 
+test('a complete world snapshot reads every page at one tick and hash', async () => {
+  const all = Array.from({length:12}, (_, id) => ({id, name:null, components:{}}));
+  const pages = [];
+  let hash = '0x1';
+  const session = {
+    async state(target, under, pose, busy, page = {}) {
+      pages.push(page);
+      const from = page.from ?? 0, to = Math.min(all.length, from + 5);
+      return {tick:7, hash, entities:all.slice(from, to), truncated:to < all.length, total:all.length, ...(to < all.length ? {next:to} : {})};
+    },
+  };
+  const w = worldView(session, 'world');
+  // The 5-entity pages stand in for the driver's limit of 5,000.
+  const {entities, truncated} = await w.snapshot({all:true});
+  expect(entities.map(e => e.id)).toEqual(all.map(e => e.id));
+  expect(truncated).toBe(false);
+  expect(pages.map(p => p.from ?? 0)).toEqual([0, 5, 10]);
+  pages.length = 0;
+  session.state = async (target, under, pose, busy, page = {}) => {
+    pages.push(page);
+    if (page.from) hash = '0x2';
+    return {tick:7, hash, entities:all.slice(0, 5), truncated:true, next:5};
+  };
+  await expect(w.snapshot({all:true})).rejects.toThrow(/world changed while paging/);
+});
+
 
  test('world get translates only the named missing-entity refusal', async () => {
    for (const error of ['no view matches arena', 'no entity named `other`', 'device lost']) {
@@ -867,6 +893,17 @@ test('R13 output names nested in logic remain proof inputs and change the hash',
     const hash=()=>{const value=buildInputHash('linux','target');for(const file of proofInputFiles(dir,dir)) value.update(file).update(readFileSync(resolve(dir,file)));return value.digest('hex');};
     const before=hash();writeFileSync(path,'after');expect(hash()).not.toBe(before);
   } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test('a game\'s helper scripts are not proof inputs; its build inputs are', async () => {
+  const {proofInputExcluded}=await import('./proof.mjs');
+  for(const file of ['bench.mjs','live.mjs','jev-proxy.mjs','tools/probe.js','proof.mjs','pins.json','README.md'])
+    expect(proofInputExcluded(`game/games/forest/${file}`,'forest')).toBe(true);
+  for(const file of ['logic/src/lib.rs','logic/build.mjs','data/src/lib.rs','gpu/shaders/sky.wgsl','assets/x.js','app.contract','app.json','island.level.json','Cargo.toml','Cargo.lock'])
+    expect(proofInputExcluded(`game/games/forest/${file}`,'forest')).toBe(false);
+  // Shared SDK scripts stay inputs: the web glue is JavaScript.
+  expect(proofInputExcluded('host/web/gpu-glue.js','forest')).toBe(false);
+  expect(proofInputExcluded('../forest/bench.mjs','forest','../forest/')).toBe(true);
 });
 
 test('R13 Fox screenshot reply scales logical bounds at DPR 2 and 3', async () => {

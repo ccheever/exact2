@@ -65,6 +65,9 @@ private struct TabBarFace: Equatable {
 final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate {
     unowned let presenter: Presenter
     private var controls: [UInt32: ExactSegmentedControl] = [:]
+    /// The segmented control a tablist or radio group projects to, if any:
+    /// a hooked node's platform object (LLP 1075.003.000 §3.2).
+    func control(of id: UInt32) -> UISegmentedControl? { controls[id] }
     private var bars: [UInt32: ExactTabBar] = [:]
     private var sizes: [UInt32: CGSize] = [:]
     private var hidden: [UInt32: Bool] = [:]
@@ -73,6 +76,10 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
     private var adoptedLists = Set<UInt32>()
     /// The last projection decision journaled per tablist, so each is said once.
     private var decisions: [UInt32: String] = [:]
+    /// LLP 1080.001 D3: the bar or control standing in for a tablist, and
+    /// the tabs and adopted lists hidden for it.
+    func inspectionOwns(_ view: UIView) -> Bool { bars.values.contains { $0 === view } || controls.values.contains { $0 === view } }
+    func hides(_ node: NodeView) -> Bool { members.values.contains { $0.contains(node.id) } || adoptedLists.contains(node.id) }
 
     init(_ presenter: Presenter) { self.presenter = presenter; super.init() }
 

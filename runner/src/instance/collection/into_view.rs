@@ -44,6 +44,9 @@ pub struct IntoView {
     /// The list by its view instead of its `id`: the agent's `tap <list>
     /// into <key>`, whose target is a mounted list.
     pub view: Option<ViewId>,
+    /// `behavior="smooth"` (LLP 1070.000 §6.2): the host animates to the
+    /// destination; the window is built there at once, as for `auto`.
+    pub smooth: bool,
 }
 
 /// Correcting reports a request may take before it ends `unconverged`.
@@ -54,6 +57,7 @@ const CORRECTIONS: u8 = 6;
 pub(super) struct Target {
     key: Rc<str>,
     align: Align,
+    smooth: bool,
 
     reports: u8,
     /// Consecutive reports that said the port was travelling.
@@ -158,6 +162,7 @@ impl Collection {
         frames: &[Frame],
         key: &str,
         align: Align,
+        smooth: bool,
     ) -> Result<(), InstanceError> {
         let position = self.index.position(key).expect("resolved");
         let current = self
@@ -166,9 +171,11 @@ impl Collection {
             .map_or(self.start_offset, |g| g.offset);
         let offset = self.aligned(u.env.plan, position, align, current);
         self.restored_at = None;
+        self.at_end = false;
         self.target = Some(Target {
             key: self.index.shared_key(position).expect("resolved").clone(),
             align,
+            smooth,
             reports: 0,
             travelling: 0,
             aligned: 0,
@@ -183,6 +190,8 @@ impl Collection {
                 self.correction = Some(AnchorCorrection {
                     scroll_sequence: g.scroll_sequence,
                     offset,
+                    from: None,
+                    smooth,
                 });
             }
             None => {
@@ -190,6 +199,8 @@ impl Collection {
                 self.correction = Some(AnchorCorrection {
                     scroll_sequence: 0,
                     offset,
+                    from: None,
+                    smooth: false,
                 });
             }
         }
@@ -287,6 +298,8 @@ impl Collection {
         self.correction = Some(AnchorCorrection {
             scroll_sequence: sequence,
             offset: desired,
+            from: None,
+            smooth: target.smooth,
         });
         if let Some(t) = &mut self.target {
             t.reports += 1;
@@ -432,7 +445,7 @@ impl Tree {
                 Err(why) => return Ok(IntoViewStatus::Refused(why)),
             };
             let align = list.align_for(request);
-            list.begin_into_view(u, &frames, &key, align)?;
+            list.begin_into_view(u, &frames, &key, align, request.smooth)?;
             return Ok(IntoViewStatus::Pending);
         }
         let mut found = Vec::new();
@@ -452,7 +465,7 @@ impl Tree {
                 Err(why) => return Ok(IntoViewStatus::Refused(why)),
             };
             let align = list.align_for(request);
-            list.begin_into_view(u, &frames, &key, align)?;
+            list.begin_into_view(u, &frames, &key, align, request.smooth)?;
             return Ok(IntoViewStatus::Pending);
         };
         // An inner list: the outer list whose rows hold lists with this id,
@@ -468,7 +481,7 @@ impl Tree {
         };
         let row_key = outer.resolve(row).expect("resolved");
         let align = outer.align_for(request);
-        outer.begin_into_view(u, &frames, &row_key, align)?;
+        outer.begin_into_view(u, &frames, &row_key, align, request.smooth)?;
         let Some(mounted) = outer.mounted.iter_mut().find(|m| {
             super::super::ident(&m.row.key, m.row.dup).as_deref() == Some(row_key.as_str())
         }) else {
@@ -494,7 +507,7 @@ impl Tree {
             Err(why) => return Ok(IntoViewStatus::Refused(why)),
         };
         let align = list.align_for(request);
-        list.begin_into_view(u, &frames, &key, align)?;
+        list.begin_into_view(u, &frames, &key, align, request.smooth)?;
         Ok(IntoViewStatus::Pending)
     }
 }

@@ -42,6 +42,7 @@ mod kept_tests;
 mod lines;
 mod lists;
 mod page;
+mod perf;
 pub mod router;
 pub use lists::ListTextPosition;
 mod settlement;
@@ -404,6 +405,7 @@ pub struct Runner<D: DataSource> {
     time: crate::time::WallTime,
     place: crate::time::Place,
     surface_records: exact_kernel::SortedMap<String, String>,
+    surface_refusals: exact_kernel::SortedMap<String, String>,
     /// What the host links of the runner's own answers (LLP 1047 D3).
     links: RunnerLinks,
     router: Option<Box<dyn router::Routing>>,
@@ -792,6 +794,7 @@ impl<D: DataSource> Runner<D> {
             time: Default::default(),
             place: Default::default(),
             surface_records: Default::default(),
+            surface_refusals: Default::default(),
             links,
             router,
             poisoned: false,
@@ -1279,6 +1282,7 @@ impl<D: DataSource> Runner<D> {
                     return Err(e.into());
                 }
             };
+        self.tally(&ops, &receipt.touched);
         for note in std::mem::take(&mut self.notes) {
             self.log(note);
         }
@@ -1293,6 +1297,7 @@ impl<D: DataSource> Runner<D> {
         if !cleanup.is_empty() {
             self.batch += 1;
             let tail = self.kernel.apply(0, self.batch, &cleanup)?;
+            self.tally(&cleanup, &tail.touched);
             receipt.batch = tail.batch;
             receipt.epoch = tail.epoch;
             for key in tail.touched {

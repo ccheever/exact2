@@ -55,6 +55,8 @@ final class RegionSurfaceMac: NSView {
     private var lastWheel: [String: Any] = [:]
     override var isFlipped: Bool { true }
     var scrollOffset: CGPoint { scroller.contentView.bounds.origin }
+    /// The controller this surface draws for: `layout agree` accepts it as its session's (LLP 1080.001 D3).
+    var owner: RegionController? { controller }
     init(controller: RegionController) {
         self.controller = controller
         super.init(frame: .zero)

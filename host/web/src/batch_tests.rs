@@ -285,11 +285,11 @@ const GOLDEN: &[(&str, &str)] = &[
     ),
     (
         "grants",
-        r#"{"ops":[{"op":"grants","lines":["net.fetch https://api.example","secret.keep app.token","surface.read \"sketch\""]}],"timers":false,"clock":0,"error":null}"#,
+        r##"{"ops":[{"op":"grants","lines":["net.fetch https://api.example","secret.keep app.token","surface.read \"sketch\""],"set":{"version":1,"entries":[[1,"# reach",null,null],[3,"net.fetch https://api.example",["fetch","https","api.example",443],null],[4,"secret.keep app.token",["secret-keep","app.token"],null],[5,"surface.read \"sketch\"",null,null]],"error":null,"seal":"3893be14039d3936"}}],"timers":false,"clock":0,"error":null}"##,
     ),
     (
         "grants-unparsed",
-        r#"{"ops":[{"op":"grants","lines":[],"error":"the app's grants did not parse: line 2: `crewHost` is not a secret name ([a-z0-9._-]{1,64})"}],"timers":false,"clock":0,"error":null}"#,
+        r#"{"ops":[{"op":"grants","lines":[],"error":"the app's grants did not parse: line 2: `crewHost` is not a secret name ([a-z0-9._-]{1,64})","set":{"version":1,"entries":[[1,"net.fetch https://crew.test",["fetch","https","crew.test",443],null],[2,"secret.keep crewHost",null,"`crewHost` is not a secret name ([a-z0-9._-]{1,64})"]],"error":"the app's grants did not parse: line 2: `crewHost` is not a secret name ([a-z0-9._-]{1,64})","seal":"b5982a07c9ad54f7"}}],"timers":false,"clock":0,"error":null}"#,
     ),
     (
         "textflow",

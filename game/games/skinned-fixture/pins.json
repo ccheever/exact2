@@ -1,17 +1,17 @@
 {
   "ticks": {
-    "60": "0x75937d48d7228e0b",
-    "120": "0xe159fb2c42740548"
+    "60": "0x0e6efd40d47f5dd7",
+    "120": "0xf8baf228b103fe37"
   },
   "saves": {
-    "continuation": "f96d70aea8f9fbb72257bb0ed99ca3da2b1f5319dfe00e8191c88f9f7fde855d"
+    "continuation": "ed2ccb74b4691a122c3e162af36979d771d65bebaddad75b80d3879b48a81621"
   },
   "hosts": [
-    "linux",
-    "web"
+    "linux"
   ],
+  "inputs": "8888c742dcc1683baff1ea941d54b22b3a1883c88ef3a92cc09fd4aa6b11e4df",
   "game": "skinned-fixture",
-  "generated": "bun game/prove.mjs skinned-fixture --repin --hosts linux,web",
-  "at": "64b5af14d0b08d4f35be20a08502e4834ad5f133",
-  "reason": "D6 imports Fox into metres once, replacing model/socket reciprocal scales; tick-60 joint bases now express metres"
+  "generated": "bun game/prove.mjs skinned-fixture --repin --hosts linux",
+  "at": "e8abc4e5252f9332325f191f8e58571c9006478b",
+  "reason": "Engine fix lane: paged world hash and columnar saves (EXGAME v4); same simulation, new encodings."
 }

@@ -19,6 +19,18 @@ node #2 Text · site 3 · instance "north" · epoch 2 · incarnation 1
   clip #5 overflow
   visible clipped=false hidden=false inViewport=true inert=false
   native controller=RouteController route=home view=NodeView
+  subviews view · 4 entries, depth 3 · truncated depth
+    view NodeView #2 20,12.5 380×18
+      view UIImageView glyph of #2 [inert] 20,12.5 18×18
+      layer CAShapeLayer flat-run #3 #4 path 40,12.5 300×1
+      view UITextField editor of #2 [hidden] [alpha 0.5] [masks] [z 1] [transform 1,0,0,1,0,8] 40,12.5 360×18 · opaque platform, 2 children
+
+--- layout agree
+agreement INCOMPLETE (spanned) · 3 disagreements · ±0.33 px · roots ExactView, modal #31 (retiring)
+  coverage stray 640 judged, 85 opaque · frame 512 compared, 40 size-only, 86 skipped · hidden 552 compared, 3 claimed · parked roots 6 · leaving 0
+  stray UIView under #40 [inbox-list] 0,0 390×44
+  frame #41 [row-3] kernel 0,132 390×44 · native 0,176 390×44 (Δ 0,44 0×0)
+  … 1 more (truncated)
 
 --- logs
 t=0 press view 3 (go) → epoch 2 (+1 −0 ~1)
