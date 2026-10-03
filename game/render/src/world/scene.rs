@@ -93,6 +93,7 @@ impl Emitter {
             shadows,
         }
     }
+    #[allow(clippy::manual_clamp)] // clamp would keep NaN
     fn spot(light: &SpotLight, shadows: bool) -> Self {
         // `max` maps NaN to zero, which `clamp` would keep.
         let outer = light.outer.max(0.).min(std::f32::consts::FRAC_PI_2);

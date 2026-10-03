@@ -147,6 +147,7 @@ impl Ssao {
     }
 
     /// Estimate occlusion from depth, then multiply it into `color`.
+    #[allow(clippy::too_many_arguments)]
     pub fn encode(
         &self,
         queue: &wgpu::Queue,
