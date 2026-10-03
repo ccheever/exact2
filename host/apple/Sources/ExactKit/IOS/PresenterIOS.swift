@@ -39,6 +39,13 @@ final class Presenter {
     var reorder: ReorderHold?
     var reorderCalls: ReorderCalls?
     lazy var transformGeometry = TransformGeometryHost(self)
+    /// Nodes showing a `background-attachment: fixed` gradient (LLP 1066
+    /// D7): re-aimed at the viewport when anything scrolls or a batch lands.
+    let fixedGradients = NSHashTable<NodeView>.weakObjects()
+    func reaimFixedGradients() {
+        guard fixedGradients.count > 0 else { return }
+        for node in fixedGradients.allObjects where node.window != nil { node.reaimFixedGradient() }
+    }
     var videoVisibility: VideoVisibilityHost?
     lazy var collections = CollectionHost(self)
     lazy var pool = NodePool(self)
@@ -112,18 +119,11 @@ final class Presenter {
         return guide.height > container.safeAreaInsets.bottom + 1 ? guide.minY : nil
     }
 
-    /// Where the platform's pointer last hovered over the viewport, in its
-    /// content space — kept only under the agent (LLP 1035.003 §3): the
-    /// driver calibrates its desktop-to-device mapping by hovering the Mac's
-    /// pointer at known desktop points and reading where the app saw it,
-    /// which no window frame can tell it (a Simulator window carries a
-    /// bezel and a scale of its own).
-    private(set) var lastPointer: CGPoint?
-
     init() {
         viewport.addSubview(root)
         viewport.delegate = scrollPump
         collections.motion = { [unowned self] id in
+            if collections.animating.contains(id) { return nil }
             let velocity = scrollPump.velocity(id)
             return velocity == 0 ? nil : velocity
         }
@@ -133,17 +133,6 @@ final class Presenter {
         collections.rescued = { [unowned self] in paintVisibleText() }
         viewport.contentInsetAdjustmentBehavior = .never
         viewport.backgroundColor = .white
-        if ExactEnv.agentMode {
-            let hover = UIHoverGestureRecognizer(target: self, action: #selector(pointerMoved(_:)))
-            hover.delaysTouchesBegan = false
-            hover.delaysTouchesEnded = false
-            hover.cancelsTouchesInView = false
-            viewport.addGestureRecognizer(hover)
-        }
-    }
-
-    @objc func pointerMoved(_ gesture: UIHoverGestureRecognizer) {
-        lastPointer = gesture.location(in: viewport)
     }
 
     func observeKeyboard() {
@@ -667,6 +656,7 @@ final class Presenter {
             pool.end()
             if outermost {
                 applying = false
+                reaimFixedGradients()
                 paintPresentedText()
                 if !boxFilters.isEmpty { boxFilters.render() }
                 videoVisibility?.changed()

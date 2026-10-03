@@ -120,6 +120,7 @@ impl<D: DataSource> Host<D> {
                 region.layout(self.runner.kernel_mut(), roots[0], Offer::definite(w, h))?;
             if let Some(receipt) = region.receipt() {
                 self.runner.report_flow_skipped(&receipt.shell.flow_skipped);
+                self.runner.moved(&receipt.shell.changed);
             }
             self.height_projection = None;
             self.height_layout_valid = true;
@@ -134,6 +135,7 @@ impl<D: DataSource> Host<D> {
                 .map_err(|e| format!("layout: {e:?}"))?;
             // @ref LLP 1043.000 §3 D4/D7 — flow-only changes damage the paragraph.
             self.runner.report_flow_skipped(&receipt.flow_skipped);
+            self.runner.moved(&receipt.changed);
             self.flow_damage.layout(&receipt);
             changed |= !receipt.changed.is_empty() || !receipt.flow_changed.is_empty();
         }

@@ -30,7 +30,9 @@ pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         Some("tree") => tree_request(runner, request),
         Some("state") => state(runner),
         Some("tags") => tags(runner),
+        Some("frames") => frames(runner, request, &|_| false),
         Some("holds") => holds(runner),
+        Some("perf") => crate::perf::reply(runner, request),
         // What `showPicker(id)` names (LLP 1069.002 D2): the file input's
         // view, `accept` and `multiple`, for the host that presents it.
         Some("picker") => match field_str(request, "id") {
@@ -81,6 +83,99 @@ pub fn tags<D: DataSource>(runner: &Runner<D>) -> String {
         kernel.incarnation(),
         num(runner.now_ms())
     )
+}
+
+/// The kernel's half of `layout agree` (LLP 1080.001 D2), a private
+/// message: `{"op":"frames","limit":N}` answers every live node in preorder
+/// as `[id, parent|null, x, y, w, h, bits]` — the parent-relative frame a
+/// host is sent — with bit 1 for the node's own `display: none`, 2 for an
+/// own transform row (`translate`, `translate_z`, `rotate`, `rotate_axis`,
+/// `scale`, `transform`) whose value is not the initial one (`scale: 1`,
+/// `translate: 0`, `transform: none` move nothing), 4 for a frame the host owns rather than the
+/// kernel (`host_owned`: a native content region's), 8 for an inline run,
+/// which has no box of its own. Past `limit` (default and most 20,000)
+/// nodes the list stops with `complete: false`.
+pub fn frames<D: DataSource>(
+    runner: &Runner<D>,
+    request: &str,
+    host_owned: &dyn Fn(u32) -> bool,
+) -> String {
+    const CAP: usize = 20_000;
+    let limit = field_num(request, "limit").map_or(CAP, |n| (n.max(1.0) as usize).min(CAP));
+    let transform_rows: Vec<StyleId> = StyleId::ALL
+        .into_iter()
+        .filter(|r| {
+            matches!(
+                r.name(),
+                "translate" | "translate_z" | "rotate" | "rotate_axis" | "scale" | "transform"
+            )
+        })
+        .collect();
+    let initial = exact_kernel::StyleProps::default();
+    let kernel = runner.kernel();
+    let mut s = String::new();
+    let _ = write!(
+        s,
+        "{{\"epoch\":{},\"incarnation\":{},\"clock\":{},\"nodes\":[",
+        kernel.epoch(),
+        kernel.incarnation(),
+        num(runner.now_ms())
+    );
+    let mut count = 0usize;
+    let mut complete = true;
+    let mut stack: Vec<u32> = kernel.roots().into_iter().rev().collect();
+    while let Some(id) = stack.pop() {
+        let Some(node) = kernel.node(id) else {
+            continue;
+        };
+        if count == limit {
+            complete = false;
+            break;
+        }
+        if count > 0 {
+            s.push(',');
+        }
+        count += 1;
+        let f = node.frame;
+        let (px, py) = node
+            .parent
+            .and_then(|p| kernel.node(p))
+            .map_or((0.0, 0.0), |p| (p.frame.x, p.frame.y));
+        let mut bits = 0u32;
+        if matches!(node.style.get(StyleId::Display), RowValue::Enum("none")) {
+            bits |= 1;
+        }
+        if transform_rows
+            .iter()
+            .any(|r| node.style.mask.has(*r) && node.style.get(*r) != initial.get(*r))
+        {
+            bits |= 2;
+        }
+        if host_owned(id) {
+            bits |= 4;
+        }
+        if node.is_inline_run() {
+            bits |= 8;
+        }
+        let _ = write!(s, "[{id},");
+        match node.parent {
+            Some(p) => {
+                let _ = write!(s, "{p}");
+            }
+            None => s.push_str("null"),
+        }
+        let _ = write!(
+            s,
+            ",{},{},{},{},{bits}]",
+            num((f.x - px) as f64),
+            num((f.y - py) as f64),
+            num(f.width as f64),
+            num(f.height as f64)
+        );
+        stack.extend(node.children().into_iter().rev());
+    }
+    let _ = write!(s, "],\"complete\":{complete}}}");
+    s
 }
 
 /// `{"holds":[…],"tickets":[…]}`: the held device requests' tickets, and
@@ -223,17 +318,44 @@ fn tree_request<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
             _ => return error("tree shallow must be a boolean"),
         },
     };
-    if after_key(request, "target").is_none() {
+    let Some((root, depth)) = (match target(runner, request) {
+        Ok(found) => found,
+        Err(e) => return error(&e),
+    }) else {
         if shallow {
             return error("shallow tree needs a target");
         }
         return tree(runner);
+    };
+    let kernel = runner.kernel();
+    if shallow {
+        let mut row = kernel.row(root).expect("located live node");
+        row.depth = depth;
+        return tree_rows(runner, &[row], &[root]);
+    }
+    let mut subtree = kernel.rows(Some(root)).unwrap_or_default();
+    for row in &mut subtree {
+        row.depth = row.depth.saturating_add(depth);
+    }
+    tree_rows(runner, &subtree, &[root])
+}
+
+/// The view a request's `target` names — a view id, or a testId's first
+/// match in preorder on a selected route — and its depth; `None` when the
+/// request names none. Shared by `tree` and `perf` (LLP 1079 D2).
+pub(crate) fn target<D: DataSource>(
+    runner: &Runner<D>,
+    request: &str,
+) -> Result<Option<(u32, u16)>, String> {
+    if after_key(request, "target").is_none() {
+        return Ok(None);
     }
     let name = field_str(request, "target");
     let id = field_num(request, "target")
         .filter(|n| *n >= 0.0 && *n <= u32::MAX as f64 && *n == n.trunc());
     if name.is_none() && id.is_none() {
-        return error("tree target must be a view id or testId");
+        let op = field_str(request, "op").unwrap_or_default();
+        return Err(format!("{op} target must be a view id or testId"));
     }
     let kernel = runner.kernel();
     let locate = |id| {
@@ -265,22 +387,13 @@ fn tree_request<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
             .find(|(id, _)| !runner.inactive(*id))
             .or_else(|| located.first().copied())
     };
-    let Some((root, depth)) = found else {
-        return error(&format!(
+    match found {
+        Some(found) => Ok(Some(found)),
+        None => Err(format!(
             "no view matches {}",
             name.unwrap_or_else(|| num(id.unwrap()).to_string())
-        ));
-    };
-    if shallow {
-        let mut row = kernel.row(root).expect("located live node");
-        row.depth = depth;
-        return tree_rows(runner, &[row], &[root]);
+        )),
     }
-    let mut subtree = kernel.rows(Some(root)).unwrap_or_default();
-    for row in &mut subtree {
-        row.depth = row.depth.saturating_add(depth);
-    }
-    tree_rows(runner, &subtree, &[root])
 }
 
 /// Every live root and node, in structural preorder.

@@ -80,7 +80,10 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
 - Verify by running, never by grepping. Fix loops get three rounds, then stop and say so.
 - To see a change work, drive the app: `bun scripts/agent.mjs <web|macos|ios|linux> tree
   "tap change-station" "type station-search Palo" "clock +60000" state logs "screenshot
-  out.png"` — the nine operations of LLP 1012, the same on every host, with the clock
+  out.png"` — the ten operations of LLP 1012 and LLP 1079 (`perf`: a subtree's work by
+  plan site, `perf <target> during "<op>" …` for the difference a drive made, and
+  `perf frames`; a development build's ⌥⇧T, Save Trace or `SIGUSR1` writes a trace
+  that `bun scripts/agent.mjs trace <file>` reads), the same on every host, with the clock
   in your hands (`clock settle` instead of waiting; `"screenshot out.png over 600 every
   50"` films motion on it as a contact sheet, `.apng` to play). The driver refuses a
   build older than its sources and names the rebuild (LLP 1012.001.000). `bun scripts/smoke.mjs

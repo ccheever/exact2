@@ -51,6 +51,22 @@ final class BoxLayerIOSTests: XCTestCase {
         XCTAssertNil(n.layer.mask)
     }
 
+    /// Corners that differ (a chat bubble's 4 where it joins its run, 18
+    /// elsewhere) clip its children through their outline: one Core
+    /// Animation radius cannot say them, and the children overflowed square.
+    func testOverflowWithCornersThatDifferClipsThroughTheirOutline() throws {
+        var style: NodeStyle = ["overflow_x": "hidden", "overflow_y": "hidden", "background_color": [233, 233, 233, 255]]
+        style["border_radius_top_left"] = 4.0
+        for corner in ["top_right", "bottom_right", "bottom_left"] { style["border_radius_" + corner] = 18.0 }
+        let n = node(style, size: CGSize(width: 264, height: 200))
+        n.applyBoxLayer()
+        n.applyBoxMask()
+        let clip = try XCTUnwrap((n.clipBox?.layer.mask ?? n.layer.mask) as? CAShapeLayer, "the children are clipped by a shaped mask")
+        let path = try XCTUnwrap(clip.path)
+        XCTAssertFalse(path.contains(CGPoint(x: 1, y: 199)), "the 18-point bottom-left corner is cut")
+        XCTAssertTrue(path.contains(CGPoint(x: 1.5, y: 1.5)), "the 4-point corner keeps nearly all")
+    }
+
     func testVideoPercentageRadiusUsesTheContentEdgeAndClears() throws {
         var style: NodeStyle = ["padding_left": 10, "padding_top": 10, "padding_right": 10, "padding_bottom": 10]
         for corner in ["top_left", "top_right", "bottom_right", "bottom_left"] {

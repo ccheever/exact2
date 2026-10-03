@@ -146,6 +146,30 @@ final class NavigationBarIOSTests: XCTestCase {
         until("the field's input ran with the text") { state(session, "query") as? String == "abc" }
     }
 
+    /// LLP 1075.003 §9.8: a header's text tablist is the item's title view,
+    /// a segmented control; a segment's tap presses its tab.
+    func testAHeaderTablistIsTheItemsSegmentedTitleView() throws {
+        let session = try fixture("bar-segments", module: false)
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let top = try XCTUnwrap(nav.topViewController)
+        let control = try XCTUnwrap(top.navigationItem.titleView as? UISegmentedControl, "the tablist is the title view")
+        XCTAssertEqual(control.numberOfSegments, 2)
+        XCTAssertEqual(control.titleForSegment(at: 1), "Missed")
+        XCTAssertEqual(control.selectedSegmentIndex, 0)
+        XCTAssertEqual(top.navigationItem.title, "Fixture", "the heading stays the title")
+        XCTAssertFalse((top.navigationItem.rightBarButtonItems ?? []).contains { $0.title == "All" || $0.title == "Missed" }, "tabs are not items")
+        let press = try XCTUnwrap(control.allTargets.first as? SegmentPress, "the control's target")
+        XCTAssertNotNil(press.host)
+        XCTAssertEqual(press.tabs, [try node(session, "segment-all").id, try node(session, "segment-missed").id])
+        // A tap: the segment selected, then the control's action for a
+        // value change sent to its target.
+        control.selectedSegmentIndex = 1
+        let action = try XCTUnwrap(control.actions(forTarget: press, forControlEvent: .valueChanged)?.first, "registered for a value change")
+        _ = press.perform(NSSelectorFromString(action), with: control)
+        until("the tab pressed") { state(session, "segment") as? String == "missed" }
+        until("the selection follows aria-selected") { control.selectedSegmentIndex == 1 }
+    }
+
     func testAPushedRouteShowsBackAsTheAuthoredControlAndAPopPressesItOnce() throws {
         let session = try fixture("bar-push", module: false)
         let agent = Agent(session: session)

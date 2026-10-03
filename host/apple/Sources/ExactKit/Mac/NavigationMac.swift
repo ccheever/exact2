@@ -13,6 +13,9 @@ final class NavigationHost {
     /// and each write posts an accessibility notification.
     private static let gating: Set<BatchOp.Kind> = [.create, .props, .style, .children, .roots]
     init(presenter: Presenter) { self.presenter = presenter }
+    /// LLP 1080.001 D3: a route or tabpanel this host hid (the web's
+    /// hide-and-inert rule), which it inerts with it.
+    func hides(_ node: NodeView) -> Bool { node.routeInert && (panels.contains(node.id) || node.props["navigationKey"] != nil) }
     func reset() { refused.removeAll(); gates.removeAll(); panels.removeAll() }
 
     func sync(_ batch: Batch, reparented: Set<UInt32> = []) {

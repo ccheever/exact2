@@ -144,7 +144,10 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         return reply;
     }
     match field_str(line, "op").as_deref() {
-        Some("tree") => accessibility_tree(p, line),
+        Some("tree") => tree(p, line),
+        // The agent's clock presents no frame (LLP 1079 D4); the display
+        // loop's are sampled there (frames.rs). `perf <target>` is the runner's.
+        Some("perf") if field_bool(line, "frames") => r#"{"virtual":true}"#.to_string(),
         Some("state") => {
             p.boxes();
             // The runner's state, then the sections a painter cannot observe
@@ -188,6 +191,25 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 );
             }
             s
+        }
+        // LLP 1080.001: neither inspection form has platform views here.
+        Some("layout") if line.contains("\"agree\"") => format!(
+            "{{\"agreement\":{{\"unavailable\":\"no platform views\"}},{}",
+            &exact_runner::agent::tags(p.host.runner())[1..]
+        ),
+        Some("layout") if line.contains("\"native\"") => {
+            let mut reply: serde_json::Value =
+                match serde_json::from_str(&p.layout_json(id(), field_bool(line, "plan"))) {
+                    Ok(reply) => reply,
+                    Err(_) => return error("layout: unreadable"),
+                };
+            if let Some(o) = reply.as_object_mut() {
+                o.remove("nodes");
+            }
+            if let Some(native) = reply.pointer_mut("/node/native") {
+                native["subviews"] = serde_json::json!({ "unavailable": "no platform views" });
+            }
+            reply.to_string()
         }
         Some("layout") => p.layout_json(id(), field_bool(line, "plan")),
         Some("tap") => {
@@ -480,22 +502,12 @@ fn resize<D: DataSource>(p: &mut Presenter<D>, request: &serde_json::Value) -> S
 
 /// Linux carries an iframe's box but has no web engine (LLP 1020 D5), and
 /// a native module's box but no module (LLP 1024 D1).
-fn accessibility_tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
+fn tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     p.boxes();
-    use exact_kernel::generated::PropId;
-    fn text<D: DataSource>(p: &Presenter<D>, id: u32) -> String {
-        let Some(node) = p.host().kernel().node(id) else {
-            return String::new();
-        };
-        if let Some(s) = node.props.str(PropId::Text) {
-            return s.into();
-        }
-        node.children()
-            .iter()
-            .map(|&id| text(p, id))
-            .filter(|s| !s.is_empty())
-            .collect::<Vec<_>>()
-            .join(" ")
+    // @ref LLP 1080.002 D2 — this host exposes no AT-SPI tree (LLP 1015 §7).
+    if field_bool(line, "ax") {
+        return serde_json::json!({"ax": {"unavailable": true, "reason": "no AT-SPI tree (LLP 1015 §7)"}})
+            .to_string();
     }
     // The request as asked: the runner scopes a target and `shallow`.
     let mut tree: serde_json::Value = serde_json::from_str(&p.host().agent(line)).unwrap();
@@ -520,34 +532,6 @@ fn accessibility_tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String
                     "state": "unavailable",
                     "error": "the Linux host loads no native modules"
                 });
-            }
-            if let Some(node) = p.host().kernel().node(id) {
-                if node.props.str(PropId::AccessibilityLabel).is_some()
-                    || node.props.str(PropId::Text).is_some()
-                    || matches!(
-                        node.props.str(PropId::AccessibilityRole),
-                        Some("button" | "link")
-                    )
-                    // A native button is named as a button under any role (LLP 1069.011.000 D1).
-                    || exact_kernel::ControlKind::of(node.node_type, node.props)
-                        == Some(exact_kernel::ControlKind::Button)
-                {
-                    let native = exact_kernel::ControlKind::of(node.node_type, node.props)
-                        == Some(exact_kernel::ControlKind::Button);
-                    // A native button's name is its label, else its face's
-                    // title as painted (LLP 1069.011.000 D1).
-                    row["accessibleName"] = match node.props.str(PropId::AccessibilityLabel) {
-                        Some(label) => label.to_owned(),
-                        None if native => p
-                            .host()
-                            .kernel()
-                            .press_face(id)
-                            .and_then(|f| f.title)
-                            .unwrap_or_default(),
-                        None => text(p, id),
-                    }
-                    .into();
-                }
             }
         }
     }

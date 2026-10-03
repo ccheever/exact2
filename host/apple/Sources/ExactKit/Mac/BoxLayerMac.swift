@@ -229,6 +229,15 @@ extension NodeView {
         gradient.apply(g, bounds: layer.bounds, box: gradientBox, dark: drawsDark)
     }
 
+    /// The viewport in this view's coordinates: a `background-attachment:
+    /// fixed` gradient's box (LLP 1066 D7). Placed when the box paints;
+    /// re-aiming it as an inner scroller moves, as iOS does, is owed here.
+    var fixedGradientPort: CGRect? {
+        guard let presenter, window != nil else { return nil }
+        let clip = presenter.viewport.contentView
+        return clip.convert(clip.bounds, to: self)
+    }
+
     /// Where an image's pixels go on a sublayer: the visible part of the
     /// fitted image (`contentsRect` selecting it), which can carry the radius
     /// only when it is the whole content box and that is the border box, or

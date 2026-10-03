@@ -24,6 +24,9 @@ final class DialogHost {
     }
     private var entries: [Entry] = []
     var active: NodeView? { entries.last?.dialog }
+    /// LLP 1080.001 D3: an open dialog's backdrop; the dialogs it lifts.
+    func inspectionOwns(_ view: NSView) -> Bool { entries.contains { $0.backdrop === view } }
+    func projects(_ node: NodeView) -> Bool { entries.contains { $0.dialog === node } }
     var presented: [NodeView] { entries.map(\.dialog) }
     init(_ presenter: Presenter) { self.presenter = presenter }
 

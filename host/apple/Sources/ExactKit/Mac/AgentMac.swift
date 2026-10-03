@@ -726,6 +726,11 @@ extension Agent {
     }
 
     func screenshot(_ req: [String: Any]) -> [String: Any] {
+        let loading = settleForPicture()
+        // A canvas painting its children through its surface (LLP 1014)
+        // shows its last capture: what is pending is captured and rendered
+        // at the agent's clock first, as `clock` leaves it.
+        if let now = session.clock, session.canvases.waitUntilReady() { session.canvases.settle(now: now) }
         presenter.canvas2d.waitForReplays()
         guard let path = req["path"] as? String else { return ["error": "screenshot needs a path"] }
         let v = presenter.viewport
@@ -745,7 +750,9 @@ extension Agent {
             guard let image = Self.ownWindowImage(window.windowNumber) else { return ["error": "the window server gave no picture of window \(window.windowNumber)"] }
             guard let png = NSBitmapImageRep(cgImage: image).converting(to: .sRGB, renderingIntent: .default)?.representation(using: .png, properties: [:]) else { return ["error": "no PNG"] }
             do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
-            return ["screenshot": path, "window": true, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height), "scale": Agent.r2(window.backingScaleFactor)]
+            var r: [String: Any] = ["screenshot": path, "window": true, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height), "scale": Agent.r2(window.backingScaleFactor)]
+            if loading > 0 { r["imagesPending"] = loading }
+            return r
         }
         guard let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return ["error": "no bitmap for the viewport"] }
         Capture.web = session.webviews.snapshots().merging(session.natives.snapshots()) { web, _ in web }
@@ -764,7 +771,9 @@ extension Agent {
         // consume sRGB bytes, so convert the pixels rather than just retagging.
         guard let png = rep.converting(to: .sRGB, renderingIntent: .default)?.representation(using: .png, properties: [:]) else { return ["error": "no sRGB PNG"] }
         do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
-        return ["screenshot": path, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height)]
+        var r: [String: Any] = ["screenshot": path, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height)]
+        if loading > 0 { r["imagesPending"] = loading }
+        return r
     }
 
     /// The system appearance (LLP 1061 D5). AppKit has no layer beneath the

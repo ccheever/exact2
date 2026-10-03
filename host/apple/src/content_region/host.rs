@@ -114,6 +114,7 @@ impl<D: DataSource> Host<D> {
             )
             .map_err(|e| format!("region layout: {e:?}"))?;
         self.runner.report_flow_skipped(&receipt.shell.flow_skipped);
+        self.runner.moved(&receipt.shell.changed);
         self.pending_layout.extend(
             receipt
                 .shell

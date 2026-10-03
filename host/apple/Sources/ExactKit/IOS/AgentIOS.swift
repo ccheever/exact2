@@ -249,19 +249,14 @@ extension Agent {
         let i = presenter.insets
         let env: [String: Any] = ["safe-area-inset-top": Agent.r2(i.top), "safe-area-inset-right": Agent.r2(i.right), "safe-area-inset-bottom": Agent.r2(i.bottom), "safe-area-inset-left": Agent.r2(i.left), "keyboard-inset-height": Agent.r2(presenter.keyboardInset)].merging(presenter.fold.env) { a, _ in a }
         var reply: [String: Any] = ["clock": session.now(), "viewport": ["w": Agent.r2(vp.bounds.width), "h": Agent.r2(vp.bounds.height)], "env": env, "nodes": nodes]
-        // The device's screen and where the viewport sits on it (LLP 1035.002
-        // D4's `screen` space): what a desktop pointer into the Simulator
-        // window needs to map a viewport point (LLP 1035.003 §3).
+        // The device's screen, where the viewport sits on it (LLP 1035.002
+        // D4's `screen` space) and the scene's interface orientation: what a
+        // real touch's aim is checked against (LLP 1080.000 D4).
         if let w = vp.window, let container = vp.superview {
             let screen = w.screen
             let origin = container.convert(vp.frame.origin, to: screen.coordinateSpace)
             reply["screen"] = ["w": Agent.r2(screen.bounds.width), "h": Agent.r2(screen.bounds.height), "scale": Agent.r2(screen.scale),
-                               "x": Agent.r2(origin.x), "y": Agent.r2(origin.y)]
-        }
-        // Where the platform's pointer last hovered, in the same space as the
-        // boxes above: the driver's calibration reads it (LLP 1035.003 §3).
-        if let p = presenter.lastPointer {
-            reply["pointer"] = ["x": Agent.r2(p.x - vp.contentOffset.x), "y": Agent.r2(p.y - vp.contentOffset.y)]
+                               "x": Agent.r2(origin.x), "y": Agent.r2(origin.y), "orientation": Agent.orientation(w.windowScene)]
         }
         return reply
     }
@@ -406,6 +401,7 @@ extension Agent {
     }
 
     func tap(_ req: [String: Any]) -> [String: Any] {
+        if let reply = touchForm(req) { return reply }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
            let node = view(req), node.isDescendant(of: presenter.viewport) {
@@ -427,13 +423,14 @@ extension Agent {
             if node.activateInline(id) { return ["tapped": Int(id), "delivery": "host-activation", "native": "inline-text"] }
         }
 
-        // A held contact (LLP 1035.003 D1) needs a touch UIKit does not
-        // offer publicly: the iOS carrier says so rather than activating a
-        // node and calling it a finger (D3) — except on a `pan` node, where
-        // it delivers the recognized pan (`AgentPanIOS.swift`, LLP 1057 §10.6).
+        // A held contact (LLP 1035.003 D1) needs a touch that stays down
+        // across requests, which XCTest's touches do not (LLP 1080.000 P3):
+        // the iOS carrier says so rather than activating a node and calling it
+        // a finger (D3) — except on a `pan` node, where it delivers the
+        // recognized pan (`AgentPanIOS.swift`, LLP 1057 §10.6).
         if let phase = req["phase"] as? String {
             if let reply = recognizedPan(phase, req) { return reply }
-            return ["phase": phase, "delivery": "unsupported", "reason": "the iOS carrier synthesizes no touch (LLP 1008 §9); a contact needs the Simulator backend of LLP 1035.003 §3"]
+            return ["phase": phase, "delivery": "unsupported", "reason": "no held contact across requests on iOS (LLP 1080.000 P3)"]
         }
         // The painted popovers under the agent (LLP 1021 D4): a tap opens,
         // closes or dismisses them first, then is delivered as any tap.
@@ -715,7 +712,11 @@ extension Agent {
     }
 
     func screenshot(_ req: [String: Any]) -> [String: Any] {
-        presenter.settlePump()
+        let loading = settleForPicture()
+        // A canvas painting its children through its surface (LLP 1014)
+        // shows its last capture: what is pending is captured and rendered
+        // at the agent's clock first, as `clock` leaves it.
+        if let now = session.clock, session.canvases.waitUntilReady() { session.canvases.settle(now: now) }
         presenter.canvas2d.waitForReplays()
         SvgFilterLive.waitForDraws()
         guard let path = req["path"] as? String else { return ["error": "screenshot needs a path"] }
@@ -763,6 +764,7 @@ extension Agent {
         do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
         var r: [String: Any] = ["screenshot": path, "w": Agent.r2(size.width), "h": Agent.r2(size.height), "scale": Agent.r2(scale)]
         if req["window"] as? Bool == true { r["window"] = true }
+        if loading > 0 { r["imagesPending"] = loading }
         return r
     }
 

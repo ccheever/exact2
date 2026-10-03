@@ -362,6 +362,7 @@ function frame(now) {
     more ||= entry.wants;
   }
   flush();
+  if (more) globalThis.exact.frames?.activity(); // a development page's sampler watches a canvas in motion (LLP 1079 D3)
   // Under the agent's clock a frame is asked for by `clock`, never by the
   // last frame: a surface that wants more renders again when time moves.
   if (more && !exact.now) schedule();

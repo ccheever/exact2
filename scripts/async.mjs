@@ -69,12 +69,18 @@ function checks(sha) {
     // The web build's JS target against the wasm runner, step by step (LLP
     // 1071 §4; Charlie, 2026-09-28): minutes and a network, so never blocking.
     ['conform', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--build', '--linux', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform')]],
+    // `tree --ax` against Chrome's own tree (LLP 1080.002 §3), over the
+    // wasm Caltrain dist conformance just built; a missing dist fails it.
+    ['web-ax-test', 'env', [`EXACT_WEB_DIST=${resolve(STATE_DIR, 'conform-wasm', 'caltrain')}`, 'EXACT_AX_REQUIRED=1', 'bun', 'test', './host/web/tests/accessibility-tree.test.mjs']],
     // The JS target in the other browser engines, with Chrome as its oracle.
     // These remain async-only; a missing Playwright browser is a named failure
     // whose log gives the exact outside-the-repo install command.
     ['conform-firefox', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--browser', 'firefox', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform-firefox')]],
     ['conform-webkit', 'bun', ['host/web-js/conform.mjs', ...WEB_APPS, '--synthetic', '--browser', 'webkit', '--strict', '--wasm-root', resolve(STATE_DIR, 'conform-wasm'), '--out', resolve(STATE_DIR, 'conform-webkit')]],
     ...(apple ? [['ios', 'bun', ['host/apple/build.mjs', '--test', '--ios']]] : []),
+    // Real touches through the XCTest runner on a simulator (LLP 1080.000 §6):
+    // a runner that does not start fails here, never skips.
+    ...(apple ? [['ios-touch', 'bun', ['scripts/smoke-touch.mjs', '--build']]] : []),
     ['metrics', 'bun', ['scripts/metrics.mjs', '--long']],
   ];
 }

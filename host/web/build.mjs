@@ -167,6 +167,7 @@ function copyHostFiles(group) {
   }
 }
 if (!bakeOnly) copyHostFiles('base');
+if (!bakeOnly && !production) copyHostFiles('development');
 // The Markdown editor's rules (exact-markdown-editor, LLP 1045 D5) are their
 // own wasm beside markup-editor.js, fetched only when a Markdown textarea mounts.
 const webEnv = webToolchainEnv(buildEnv);

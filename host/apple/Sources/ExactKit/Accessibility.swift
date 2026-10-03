@@ -208,7 +208,8 @@ extension Presenter {
 }
 
 extension Agent {
-    func accessibilityTree(_ reply: [String: Any]) -> [String: Any] {
+    /// The host's own facts on plain `tree`: focus and an open popover.
+    func decorateTree(_ reply: [String: Any]) -> [String: Any] {
         var reply = reply
         let focus = (stateSections()["focus"] as? [String: Any])?["logical"] as? Int
         reply["nodes"] = (reply["nodes"] as? [[String: Any]] ?? []).map { row in
@@ -216,20 +217,6 @@ extension Agent {
             if let id = row["id"] as? Int, let node = presenter.views[UInt32(id)] {
                 row["focused"] = focus == id
                 if node.props["popover"] != nil { row["open"] = presenter.menus.isOpen(node) }
-                if node.placedAncestor != nil {
-                    #if os(macOS)
-                    let frame = node.accessibilityFrame()
-                    #else
-                    let frame = node.accessibilityFrame
-                    #endif
-                    row["accessibilityFrame"] = [frame.minX, frame.minY, frame.width, frame.height]
-                    row["accessibilityHidden"] = node.placedAncestor?.placementHidden == true
-                }
-                // The web's rule (glue.js: `button, a, [role=button]`): a button
-                // keeps its name under another role, as the Move stick's slider does.
-                if node.isButton || ["button", "link"].contains(node.props["accessibilityRole"] ?? "") {
-                    row["accessibleName"] = node.accessibleName
-                }
             }
             return row
         }

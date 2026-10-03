@@ -163,8 +163,9 @@ public final class Agent {
             return
         }
         switch op {
-        case "tree": Agent.reply(session.canvases.decorate(req, accessibilityTree(session.natives.decorate(session.webviews.tree(line)))))
-        case "layout": Agent.reply(tagged(layout(req)))
+        case "tree" where req["ax"] as? Bool == true: Agent.reply(accessibilityElementsTree(req)) // LLP 1080.002
+        case "tree": Agent.reply(session.canvases.decorate(req, decorateTree(session.natives.decorate(session.webviews.tree(line)))))
+        case "layout": Agent.reply(tagged(inspectLayout(req) ?? layout(req))) // LLP 1080.001: `native`, `agree`
         // A call that moved something settles the canvases before it
         // replies (LLP 1012's fixed point; LLP 1014 D5 reads placements
         // after a frame, so the frame is rendered here, not left to the
@@ -231,6 +232,9 @@ public final class Agent {
                 reply += "," + tail.dropFirst()
             }
             Agent.raw(reply)
+        // `perf frames` is this host's (LLP 1079 D4); `perf <target>` is the runner's, below.
+        case "perf" where req["frames"] as? Bool == true:
+            Agent.reply(session.clock != nil ? ["virtual": true] : session.sampler?.reply(late: req["late"] as? Int ?? 20) ?? ["unavailable": true])
         default:
             // The library's operations take the request without the
             // carrier's routing field.
@@ -493,13 +497,34 @@ public final class Agent {
         }
     }
 
-    /// Images on screen land before the clock moves, for up to 3 s: an
-    /// animated one starts on the clock it lands at (LLP 1011.000), and a
-    /// decode is host I/O no clock waits for otherwise.
-    func waitForImages() {
-        let end = Date(timeIntervalSinceNow: 3)
-        while session.rasters.loadingOnScreen > 0 && Date() < end { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+    /// Images on screen land before the clock moves or a screenshot is
+    /// taken, for up to 3 s: an animated one starts on the clock it lands at
+    /// (LLP 1011.000), and a decode is host I/O no clock waits for otherwise.
+    /// How many were still loading at the bound (`screenshot`'s `imagesPending`,
+    /// as on the web, LLP 1054.000 R9).
+    @discardableResult
+    func waitForImages(until end: Date = Date(timeIntervalSinceNow: 3)) -> Int {
+        var loading = session.rasters.loadingOnScreen
+        while loading > 0 && Date() < end {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+            loading = session.rasters.loadingOnScreen
+        }
         AnimatedRasters.shared.evaluate()
+        return loading
+    }
+
+    /// What a screenshot shows, settled: the pump and the images on screen
+    /// in turn under one 3 s bound, since an image landing can relayout and
+    /// mount rows with images of their own. How many were still loading
+    /// after the last settle (`imagesPending`).
+    func settleForPicture() -> Int {
+        let end = Date(timeIntervalSinceNow: 3)
+        while true {
+            presenter.settlePump()
+            let loading = session.rasters.loadingOnScreen
+            if loading == 0 || Date() >= end { return loading }
+            waitForImages(until: end)
+        }
     }
 
     /// How many requests the runner has in flight (`state.pending`).

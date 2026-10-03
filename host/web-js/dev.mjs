@@ -16,7 +16,7 @@ import { createServer, request } from 'node:http';
 import { existsSync, readFileSync, renameSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { webRequestURL } from '../../scripts/origin.mjs';
-import { appManifestDigest, buildFileCards, buildTreeFile, sendStaticBody, webContentType } from '../web/serve.mjs';
+import { appManifestDigest, buildFileCards, buildTreeFile, saveTrace, sendStaticBody, webContentType } from '../web/serve.mjs';
 import { localInstaller } from '../web/local-install.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
@@ -144,6 +144,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
       }
       res.writeHead(204); res.end(); return;
     }
+    if (url.pathname === '/__exact/trace' && req.method === 'POST') return saveTrace(req, res, { app, dist, root });
     if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); res.end(); return; }
     // A native client opening this URL (`build.mjs --url`, `/__dev/open`,
     // `exact run`) reads the envelope, the dev generations and their event

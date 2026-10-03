@@ -30,12 +30,6 @@ let execToMainMs = processStart().map { (mainAt - $0) * 1000 }
 let environment = ExactEnv.environment
 let smoke = ExactEnv.smoke
 let agentMode = ExactEnv.agentMode
-/// EXACT_FPS=1: the frame rate, measured on the device — the display link
-/// runs always and, once a second, what it delivered and what the canvases
-/// cost goes to stderr and to a readout in the corner. A diagnostic, off by
-/// default.
-let fpsMode = environment["EXACT_FPS"] == "1"
-nonisolated(unsafe) var fpsLabel: UILabel?
 setvbuf(stdout, nil, _IOLBF, 0)
 
 let exact = ExactComposition.app
@@ -136,34 +130,6 @@ final class Controller: UIViewController {
         exactView.frame = view.bounds
         exactView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(exactView)
-        if fpsMode {
-            let l = UILabel()
-            l.font = .monospacedDigitSystemFont(ofSize: 9, weight: .medium)
-            l.textColor = .white
-            l.backgroundColor = UIColor.black.withAlphaComponent(0.65)
-            l.numberOfLines = 2
-            l.isUserInteractionEnabled = false
-            l.text = "fps …"
-            view.addSubview(l)
-            fpsLabel = l
-            session.onFrameReport = { line in
-                FileHandle.standardError.write(Data((line + "\n").utf8))
-                fpsLabel?.text = line
-                // And into the app's own Documents, for a phone: `xcrun devicectl
-                // device copy from … --domain-type appDataContainer` reads it back
-                // when no console is attached.
-                if let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
-                    let url = dir.appendingPathComponent("fps.log")
-                    if let h = try? FileHandle(forWritingTo: url) { h.seekToEndOfFile(); h.write(Data((line + "\n").utf8)); try? h.close() }
-                    else { try? Data((line + "\n").utf8).write(to: url) }
-                }
-            }
-            session.runFramesAlways()
-        }
-    }
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        if let l = fpsLabel { l.frame = CGRect(x: 0, y: view.safeAreaInsets.top, width: view.bounds.width, height: 26); view.bringSubviewToFront(l) }
     }
 }
 
@@ -228,7 +194,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         if let url = incoming, url.isFileURL { ExactIOS.session.openDocument(url) }
         else if let url = incoming, !ExactDevelopmentLink.claims(url) { ExactIOS.session.openURL(url) }
         ExactEnv.stamp("before boot")
-        let w = UIWindow(windowScene: ws)
+        let w = ExactWindow(windowScene: ws)
         // The launch screen's colour until the first frame names the canvas,
         // so nothing lighter or darker shows between them.
         w.backgroundColor = launchColor

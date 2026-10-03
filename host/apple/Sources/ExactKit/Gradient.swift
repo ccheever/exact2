@@ -271,8 +271,15 @@ extension BatchValue {
 }
 
 extension NodeView {
-    /// The padding box: CSS's gradient box under the initial `background-origin`.
+    /// `background-attachment: fixed` (LLP 1066 D7).
+    var gradientFixed: Bool { style["background_attachment"]?.string == "fixed" }
+
+    /// The padding box: CSS's gradient box under the initial `background-origin`;
+    /// under `background-attachment: fixed`, the viewport, in this view's
+    /// coordinates (LLP 1066 D7), so every node with it shows its part of one
+    /// gradient and the gradient stays as they scroll.
     var gradientBox: CGRect {
+        if gradientFixed, let port = fixedGradientPort { return port }
         let uniform = number("border_width")
         return bounds.insetBy(left: number("border_width_left", uniform), top: number("border_width_top", uniform),
                               right: number("border_width_right", uniform), bottom: number("border_width_bottom", uniform))
@@ -282,6 +289,10 @@ extension NodeView {
     /// the border, inside the border box's outline.
     func paintGradient(_ ctx: CGContext, clip: CGPath) {
         guard surface == nil else { return }
+        #if os(iOS)
+        // A fixed gradient is the layer's (LLP 1066 D7).
+        if gradientLayered && boxGradient != nil { return }
+        #endif
         // The last layer first, so the first is on top (LLP 1077 D5).
         for g in Gradient.layers(style["background_image"]).reversed() {
             g.paint(ctx, clip: clip, box: gradientBox, dark: drawsDark)

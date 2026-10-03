@@ -551,7 +551,10 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if !decelerate { followEndIfOwed() }
     }
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { followEndIfOwed() }
-    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) { followingEndAnimated = false }
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        followingEndAnimated = false
+        presenter?.collections.animationEnded(id)
+    }
     private func followEndIfOwed() {
         guard followsEndAfterInteraction, let sv = scroll else { return }
         followsEndAfterInteraction = false
@@ -562,7 +565,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         followingEndAnimated = false
-        presenter?.collections.userIntent(id)
+        presenter?.collections.animationEnded(id, dragging: true)
+        presenter?.collections.userIntent(id, travel: true)
         retainedScrollTop = nil
     }
 
@@ -573,6 +577,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         presenter?.collections.changed(id, user: true)
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
+        presenter?.reaimFixedGradients()
         presenter?.scrollPump.scrolled(self)
         repaintThrough()
         // User scrolling is already a coherent position. Deliver before the
@@ -1016,7 +1021,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             f.tintColor = props["emojiPicker"] == "true" ? .clear : nil
             if (set["emojiPicker"] != nil || clear.contains("emojiPicker")), f.isFirstResponder { f.reloadInputViews() }
             if let v = props["value"] { writeValue(v, into: f) }
-            applyPlaceholder(f)
+            applyPlaceholder(f); applyFieldName(f)
             // The web's `type` and `inputmode`, as UIKit spells them.
             let type = props["type"] ?? "text"
             f.isSecureTextEntry = type == "password"

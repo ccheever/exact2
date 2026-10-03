@@ -21,6 +21,8 @@ impl Collection {
         self.correction = Some(AnchorCorrection {
             scroll_sequence: 0,
             offset,
+            from: None,
+            smooth: false,
         });
     }
     /// The first row of the window before any host report.

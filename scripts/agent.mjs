@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-// The agent API's driver (LLP 1012): the nine operations —
-//   tree · screenshot · tap · type · state · layout · logs · clock · prefer
+// The agent API's driver (LLP 1012, 1079): the ten operations —
+//   tree · screenshot · tap · type · state · layout · logs · clock · prefer · perf
 // — against a running app on either host, from one script, with the clock in
 // the driver's hands: nothing moves between two calls unless a call moved it.
 //
@@ -10,15 +10,17 @@
 //   tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save
 //   tap <target> [wheel <dx> <dy> [gesture] | into <key> [block <v>] [inline <v>] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name>
 //   tap @N <choice> | type @N <value>   (a held device request, by ticket: LLP 1069.007 D4)
-//   clock <ms|+ms|settle> | prefer <media feature or page fact> <value> […]
+//   clock <ms|+ms|settle> | prefer <media feature or page fact> <value> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>]
+//   bun scripts/agent.mjs trace <file>   (a development session's trace, LLP 1079 D5: no app runs)
 // A target is a testId or a view id; each op is one argument (quote it).
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, chromium, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
+import { Cdp, chromium, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
-import { sourceMapReaders, identifyInspectedNode, render } from './agent-inspect.mjs';
+import { sourceMapReaders, identifyInspectedNode, render, perfOp, readTrace, renderTrace, layoutArgs } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
+import { axTree } from './agent-ax.mjs';
 export { sourceMapReader, identifyInspectedNode, render } from './agent-inspect.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -32,11 +34,12 @@ function worldFile(path) {
   return bytes;
 }
 import { connect } from 'node:net';
-import { contactSheet, decodePng, encodeApng, encodePng, locateScreen } from './png.mjs';
+import { contactSheet, decodePng, encodeApng, encodePng } from './png.mjs';
 /** Film's bounds (LLP 1012.001.000 D2): a drive's pictures, not a recording, decoded in memory at once. */
 const FILM_FRAMES = 240, FILM_PIXELS = 64e6;
 import { tmpdir } from 'node:os';
 import { basename, resolve } from 'node:path';
+import { openTouches, realTap } from '../host/apple/touches.mjs';
 import { appleArtifacts, assertAppleIdentity, bundleId, crashReports, developmentLaunchEnvironment, install, phone, phoneBridge, showSimulator, simulator } from '../host/apple/build.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 import { bakeOutput, resolveApp, webDist as defaultWebDist } from './app.mjs';
@@ -578,7 +581,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
 // ---------------------------------------------------------------- iOS, over a Unix socket
 
 /** The simulator carrier: the bundle `build.mjs --ios` assembled, installed and launched on a simulator with the agent socket's path in its environment (simctl passes SIMCTL_CHILD_*); then the same JSON lines over that socket (`AgentIOS.swift`). A `simctl launch --console` stays attached for the app's stdout and stderr (its `--stdout=`/`--stderr=` files stay empty on Xcode 26). One app per bundle id per device: a session replaces a running copy; closing hangs up the socket, which ends the app, and kills the pid the app reported if it lingers. */
-async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture = false, onProcess }) {
+async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture = false, touch = 'agent', onProcess }) {
   const a = resolveApp(app);
   const bundle = appleArtifacts(a, { destination: 'ios-simulator', host: hostFixture }).bundle;
   const id = hostFixture ? `${a.id}.host` : a.id;
@@ -586,7 +589,9 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
   refuseStale('ios', resolve(bundle, 'receipt.json'), receiptChanges(resolve(bundle, 'receipt.json'), a), `bun host/apple/build.mjs --ios ${a.crate('apple')}${hostFixture ? ' --host' : ''}`);
   const dev = simulator();
   showSimulator(dev, true); // a person watching sees what is driven, and keeps the focus
-  install(dev, bundle, a, hostFixture);
+  // Real touches (LLP 1080.000, `--touch platform`): the runner starts first, so its own launch never backgrounds the app.
+  const touches = touch === 'platform' ? await openTouches({ udid: dev.udid, appId: id ?? bundleId(a.crate('apple')), appPath: bundle, onProcess }) : null;
+  try { install(dev, bundle, a, hostFixture); } catch (e) { await touches?.close(); throw e; }
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-ios-'));
   const sock = resolve(dir, 'agent.sock');
   const env = { EXACT_ASSETS: appleArtifacts(a,{destination:'ios-simulator',host:hostFixture}).capture, EXACT_AGENT: '1', EXACT_AGENT_SOCKET: sock, ...(plan ? { EXACT_PLAN: plan } : {}), ...(size ? {EXACT_WINDOW_WIDTH:String(size[0]), EXACT_WINDOW_HEIGHT:String(size[1])} : {}), ...extra };
@@ -604,11 +609,12 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
   let socket = null;
   const t = Date.now();
   while (!socket) {
-    if (consoleDone) { rmSync(dir, { recursive: true, force: true }); throw new Error('the simulator launch exited before opening its agent socket; ' + hostLines.join('\n')); }
+    if (consoleDone) { rmSync(dir, { recursive: true, force: true }); await touches?.close(); throw new Error('the simulator launch exited before opening its agent socket; ' + hostLines.join('\n')); }
     if (Date.now() - t > 20000) {
       try { console_.kill('SIGKILL'); } catch {}
       await consoleExited;
       rmSync(dir, { recursive: true, force: true });
+      await touches?.close();
       throw new Error('the app never opened its agent socket; ' + hostLines.join('\n'));
     }
     socket = await new Promise((ok) => { const s = connect(sock); s.once('connect', () => ok(s)); s.once('error', () => { s.destroy(); ok(null); }); });
@@ -624,6 +630,8 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
     closing = true;
     try { socket.end(); } catch {}
     await waitAtMost(exited, 2000);
+    let touchFailure = null;
+    try { await touches?.close(); } catch (e) { touchFailure = e; }
     if (pid) { try { process.kill(pid, 'SIGKILL'); } catch {} }
     await waitAtMost(consoleExited, 1000);
     if (!consoleDone) {
@@ -631,6 +639,7 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
       await consoleExited;
     }
     rmSync(dir, { recursive: true, force: true });
+    if (touchFailure) throw touchFailure;
   };
   try {
     const ready = await waitAtMost(lines.next(), 20000, () => { throw new Error('the app never became ready; ' + hostLines.join('\n')); });
@@ -642,169 +651,10 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
     const ask = (req, session = state.session) => waitAtMost(lines.ask(session ? { ...req, session } : req), REPLY_MS, () => {
       const why = hangup({ what: `${req.op} did not answer within ${REPLY_MS / 1000} s`, pid, hostLines }); lines.fail(why); throw new Error(why);
     });
-    // A held contact on a simulator (LLP 1035.003 §3, candidate 1 — decided
-    // 2026-09-10): UIKit synthesizes no touch, so the contact is a real
-    // mouse on the Mac's desktop, posted into the simulator's window by
-    // `host/apple/pointer.swift` (built here with swiftc on first use). The
-    // window-to-device mapping lives in this one place: the app reports its
-    // screen and where its viewport sits on it (`layout.screen`), the helper
-    // reports the simulator window's frame, and a viewport point maps
-    // through both. The app receives whatever UIKit delivers from that
-    // input; nothing is activated in its place. What this needs from the
-    // machine — Accessibility for this terminal, the simulator's window on
-    // screen and unobscured — is reported as `unsupported` with the reason
-    // when it is missing, never faked.
-    let pointer = null;
-    let contact = null;
-    let contactDesktop = null;
-    // The mapping from a viewport point to the desktop, found by observation
-    // — a simulator window carries a bezel and a scale of its own that no
-    // frame arithmetic knows: the Mac's pointer is hovered at two desktop
-    // points inside the window and the app reports where its viewport saw
-    // each (`layout.pointer`). Device Hub emits no hover: match its captured
-    // window against simctl's framebuffer instead. Redone when geometry changes.
-    let mapping = null;
-    const calibrate = async (p) => {
-      const found = await p.ask({ op: 'window', title: dev.name });
-      if (found.error) return { error: found.error };
-      if (found.windows.filter(w => w.bundle === 'com.apple.dt.Devices' && w.title === dev.name).length > 1) return { error: 'more than one Device Hub window has this device name; leave only its device window open' };
-      const layout = await ask({ op: 'layout' }), screen = layout.screen;
-      const keyOf = (w) => `${w.id},${w.x},${w.y},${w.w},${w.h},${JSON.stringify(screen)}`;
-      if (mapping && found.windows.some((w) => keyOf(w) === mapping.key)) return mapping;
-      if (contact) return { error: 'the simulator geometry changed during the contact; release it before recalibrating' };
-      const probe = async (x, y) => {
-        const r = await p.ask({ op: 'hover', x, y });
-        if (r.error) return { error: r.error };
-        await sleep(120);
-        const l = await ask({ op: 'layout' });
-        return l.pointer ?? null;
-      };
-      const against = async (w) => {
-        if (w.bundle === 'com.apple.dt.Devices') {
-          if (w.title !== dev.name || !screen) return { error: 'Device Hub image calibration needs the named device window and screen geometry' };
-          const devicePath = resolve(dir, 'device.png'), windowPath = resolve(dir, 'window.png');
-          const captured = spawnSync('xcrun', ['simctl', 'io', dev.udid, 'screenshot', devicePath], { encoding: 'utf8', timeout: 5000 });
-          if (captured.status !== 0) return { error: 'simulator framebuffer capture failed: ' + captured.stderr };
-          const picture = await p.ask({ op: 'snapshot', id: w.id, path: windowPath });
-          if (picture.error) return picture;
-          if (['x','y','w','h'].some(k => picture[k] !== w[k])) return { error: 'the simulator window moved during capture; try again' };
-          const device = decodePng(readFileSync(devicePath)), window = decodePng(readFileSync(windowPath));
-          const m = locateScreen(window, device);
-          if (m.error) return m;
-          const sx = m.scale * device.width / screen.w, sy = m.scale * device.height / screen.h;
-          if (Math.abs(sx - sy) / sx > 0.01) return { error: 'the simulator framebuffer and app screen disagree in aspect ratio' };
-          return { key: keyOf(w), scale: sx, ox: w.x + m.x + screen.x * sx, oy: w.y + m.y + screen.y * sy, window: w };
-        }
-        const a = { x: w.x + w.w * 0.5, y: w.y + w.h * 0.45 };
-        const b = { x: a.x + w.w * 0.15, y: a.y + w.h * 0.2 };
-        const pa = await probe(a.x, a.y);
-        if (pa?.error) return pa;
-        const pb = await probe(b.x, b.y);
-        if (pb?.error) return pb;
-        if (!pa || !pb || pa.x === pb.x || pa.y === pb.y) return { error: `the app saw no pointer hover in the simulator window ${JSON.stringify(w.title)}; is it on screen and unobscured?` };
-        const sx = (b.x - a.x) / (pb.x - pa.x), sy = (b.y - a.y) / (pb.y - pa.y);
-        if (!(sx > 0 && sy > 0) || Math.abs(sx - sy) / sx > 0.1) return { error: `calibration disagrees between axes (${sx.toFixed(3)} vs ${sy.toFixed(3)})` };
-        const scale = (sx + sy) / 2;
-        return { key: keyOf(w), scale, ox: a.x - pa.x * scale, oy: a.y - pa.y * scale, window: w };
-      };
-      // The helper cannot tell which simulator window is this device's when
-      // titles are unreadable: Simulator's hover identifies the app. Device
-      // Hub requires one exact-name window and a unique framebuffer match.
-      let refused = null;
-      for (const w of found.windows) {
-        const m = await against(w);
-        if (!m.error) return (mapping = m);
-        refused ??= m;
-      }
-      return refused;
-    };
-    const helper = async () => {
-      if (pointer) return pointer;
-      const src = resolve(ROOT, 'host/apple/pointer.swift');
-      const bin = resolve(ROOT, 'host/apple/.build/pointer');
-      if (!existsSync(bin) || statSync(bin).mtimeMs < statSync(src).mtimeMs) {
-        mkdirSync(resolve(ROOT, 'host/apple/.build'), { recursive: true });
-        const built = spawnSync('swiftc', ['-O', '-o', bin, src], { encoding: 'utf8' });
-        if (built.status !== 0) throw new Error('the desktop pointer did not build: ' + (built.stderr || built.error));
-      }
-      const child = spawn(bin, [], { stdio: ['pipe', 'pipe', 'pipe'] });
-      child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l) hostLines.push('pointer: ' + l); });
-      const io = jsonLines(child.stdout, child.stdin, hostLines);
-      pointer = { ask: (req) => io.ask(req), child };
-      return pointer;
-    };
     let canvasContact = false;
-    const phaseSim = async (kind, id, opts) => {
-      const p = await helper();
-      const unsupported = (reason) => ({ phase: kind, delivery: 'unsupported', reason });
-      if (kind === 'down') {
-        if (contact) throw new Error('a contact is already down; use `tap up` first');
-        const trusted = await p.ask({ op: 'trusted' });
-        if (!trusted.trusted) return unsupported('the desktop pointer needs Accessibility permission for this terminal (System Settings › Privacy & Security › Accessibility)');
-        if (trusted.locked) return unsupported("the Mac's screen is locked: a desktop pointer reaches no window until it is unlocked");
-        // The device's window to the front: Simulator.app's, or the one
-        // Device Hub opens for this device, which takes a moment to appear.
-        showSimulator(dev);
-        for (let i = 0; i < 10 && (await p.ask({ op: 'window', title: dev.name })).named !== true; i++) await sleep(150);
-        const found = await p.ask({ op: 'window', title: dev.name });
-        if (!trusted.capture && found.windows?.some(w => w.bundle === 'com.apple.dt.Devices') && !found.windows.some(w => w.bundle === 'com.apple.iphonesimulator')) return unsupported('Device Hub calibration needs Screen Recording permission for this terminal');
-        const w = found.windows?.find(w => w.title === dev.name && w.bundle === 'com.apple.dt.Devices');
-        if (w) {
-          const raised = await p.ask({ op: 'raise', id: w.id });
-          if (raised.error) return unsupported(raised.error);
-          showSimulator(dev);
-        }
-        await sleep(300);
-      } else if (!contact) throw new Error('no contact is down');
-      if (kind === 'hold') { if (opts.ms) await sleep(opts.ms); return { phase: 'hold', at: [contact.x, contact.y], delivery: 'platform' }; }
-      if (kind === 'cancel') return { phase: 'cancel', at: [contact.x, contact.y], delivery: 'unsupported', reason: 'a desktop pointer has no cancel; the contact is still down — send up' };
-      if (kind === 'up') {
-        const sent = await p.ask({ op: 'up', ...contactDesktop });
-        if (sent.error) return unsupported(sent.error);
-        const at = [contact.x, contact.y]; contact = null; contactDesktop = null;
-        return { phase: 'up', at, delivery: 'platform' };
-      }
-      const m = await calibrate(p);
-      if (m.error) return unsupported(m.error);
-      const map = (x, y) => ({ x: m.ox + x * m.scale, y: m.oy + y * m.scale });
-      if (kind === 'down') {
-        const l = await ask({ op: 'layout' });
-        const b = l.nodes.find((n) => n.id === id);
-        if (!b || (b.w === 0 && b.h === 0)) throw new Error(`view ${id} has no box on screen`);
-        const x = opts.x ?? b.x + b.w / 2, y = opts.y ?? b.y + b.h / 2;
-        contactDesktop = map(x, y);
-        const sent = await p.ask({ op: 'down', id: m.window.id, frame: m.window, ...contactDesktop });
-        if (sent.error) { contactDesktop = null; return unsupported(sent.error); }
-        contact = { x, y };
-        return { contact: id, phase: 'down', at: [x, y], delivery: 'platform', desktop: [contactDesktop.x, contactDesktop.y] };
-      }
-      if (kind === 'move') {
-        const from = { ...contact }, to = { x: opts.x ?? contact.x + (opts.dx ?? 0), y: opts.y ?? contact.y + (opts.dy ?? 0) };
-        const ms = Math.max(0, opts.ms ?? 0);
-        const steps = Math.max(1, Math.round(ms / 16));
-        for (let i = 1; i <= steps; i++) {
-          const t = i / steps;
-          const at = { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t }, desktop = map(at.x, at.y);
-          const sent = await p.ask({ op: 'move', id: m.window.id, frame: m.window, ...desktop });
-          if (sent.error) return unsupported(sent.error);
-          contact = at; contactDesktop = desktop;
-          if (ms) await sleep(ms / steps);
-        }
-        contact = to;
-        return { phase: 'move', at: [to.x, to.y], delivery: 'platform' };
-      }
-    };
-    const closeWithPointer = async () => {
-      if (pointer) {
-        // Never leave the operator's mouse button down.
-        if (contact && contactDesktop) { try { await waitAtMost(pointer.ask({ op: 'up', ...contactDesktop }), 1000); } catch {} }
-        try { pointer.child.stdin.end(); pointer.child.kill('SIGTERM'); } catch {}
-      }
-      await close();
-    };
     return {
       host: hostFixture ? 'host-ios' : 'ios', boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state,
-      pointer: true,
+      touches,
       ask,
       async input(id, kind, opts) {
         if (kind === 'key') {
@@ -821,7 +671,16 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
               return r;
             }
           }
-          return phaseSim(kind, id, opts);
+          // A held contact needs a touch that stays down across requests;
+          // XCTest's public touches each press and lift (LLP 1080.000 D3).
+          return { phase: kind, delivery: 'unsupported', reason: 'no held contact across requests on iOS (LLP 1080.000 P3)' };
+        }
+        // Under `--touch platform` a press is a real touch or nothing: a guest
+        // (iframe) or world press would be dispatched by the host and must
+        // never be reported as platform input (LLP 1080.000 D8).
+        if (touches && kind === 'press') {
+          if (Object.values(guest).some((v) => v != null)) throw new Error('unsupported under --touch platform: a press into an iframe guest or a world entity reaches no real touch yet (LLP 1080.000 stage 1)');
+          return realTap({ ask, touches, id, abandon: (why) => lines.fail(why) });
         }
         const r = kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true }) : kind === 'pinch' ? await ask({ op: 'tap', id, pinch: opts.pinch, at: opts.at }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
         if (r.error) throw new Error(r.error);
@@ -832,10 +691,10 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
         if (r.error) throw new Error(r.error);
         return r;
       },
-      close: closeWithPointer,
+      close,
     };
   } catch (e) {
-    await close();
+    try { await close(); } catch (failure) { e.message += `; ${failure.message}`; }
     throw e;
   }
 }
@@ -881,6 +740,7 @@ export function worldView(session, name) {
 
 /** Explain a refused placed-child tap using the world's own visibility. */
 export async function tapRefusal(session, target, error) {
+  if (error.transport) return error; // the carrier failed: no diagnostic read can answer
   try {
     for (const canvas of (await session.tree()).nodes.filter(n => n.world)) {
       const canvasName = canvas.props?.testId ?? canvas.id;
@@ -901,7 +761,7 @@ export async function tapRefusal(session, target, error) {
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
  * the same app address on each host; `plan` boots a local compiled contract;
  * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
-export async function open({onProcess, host = 'web', browser, plan, world, size, env, app, session, documents, url, webDist, reuse, device = false, phone: pick, timing = 'agent', storage, seed, locale, timeZone, epoch } = {}) {
+export async function open({onProcess, host = 'web', browser, plan, world, size, env, app, session, documents, url, webDist, reuse, device = false, phone: pick, timing = 'agent', touch = 'agent', storage, seed, locale, timeZone, epoch } = {}) {
   browser ??= 'chrome';
   if (!['chrome', 'firefox', 'webkit'].includes(browser)) throw new Error(`browser: chrome, firefox or webkit, not ${browser}`);
   const facts = launchFacts({seed, locale, timeZone, epoch, env});
@@ -917,6 +777,8 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
   // default the smoke depends on. Replies say `mode: "platform"`.
   if (!['agent', 'platform'].includes(timing)) throw new Error(`timing: agent or platform, not ${timing}`);
   if (timing === 'platform') env = { ...(env ?? {}), EXACT_AGENT_TIMING: 'platform' };
+  // `touch: 'platform'` (LLP 1080.000, opt-in): a plain `tap` on an iOS simulator is a real touch from the XCTest runner, `delivery: platform`.
+  if (!['agent', 'platform'].includes(touch) || (touch === 'platform' && (device || !['ios', 'host-ios'].includes(host)))) throw new Error(`touch: platform is an iOS simulator's (LLP 1080.000), not ${device ? 'a phone' : host}'s`);
   // A drive has no app storage unless it names a scratch store apart from the app's real files (`--storage <name>`): a tree under the cache base on native, kept between drives; on the web, the drive's own fresh browser profile.
   if (storage !== undefined && (!/^[A-Za-z0-9._-]+$/.test(storage) || ['.', '..'].includes(storage))) throw new Error("--storage: one name of letters, digits, '.', '-' or '_'");
   if (storage !== undefined && host !== 'web') env = { ...(env ?? {}), EXACT_AGENT_STORAGE: storage };
@@ -933,9 +795,9 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     // 1033 D3); each window's session then routes by its label (LLP 1069.010).
     : host === 'macos' || host === 'mac' ? await openStdio({ host: 'macos', plan, size: size ?? VIEWPORT, env, app, session, documents, onProcess })
     : host === 'host' ? await openStdio({ host: 'host', plan, env, app, session, onProcess })
-    : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true, onProcess })
+    : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true, touch, onProcess })
     : host === 'linux' ? await openStdio({ host: 'linux', plan, size: size ?? VIEWPORT, env, app, onProcess })
-    : host === 'ios' ? await openIOS({ plan, env, app, size, onProcess })
+    : host === 'ios' ? await openIOS({ plan, env, app, size, touch, onProcess })
     : await openWeb({ browser, plan, world, size, url, app, webDist, onProcess, reuse, storage, facts });
   const mapLocator = plan ?? (url && /^https?:\/\//i.test(url) ? url : env?.EXACT_DEV_PLAN ?? process.env.EXACT_DEV_PLAN)
     ?? (carrier.host === 'web' ? resolve(webDist ?? resolve(ROOT, 'host/web/dist'), 'app.plan') : null);
@@ -965,7 +827,8 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     async tree(target, options = {}) {
       const under = typeof options === "string" ? {under:options} : {};
       if (typeof target === "string" && target.startsWith("world:")) return s.op({op:"tree", ...await s.target(target), world:true, ...under});
-      const {shallow = false} = typeof options === "object" && options ? options : {};
+      const {shallow = false, ax = false} = typeof options === "object" && options ? options : {};
+      if (ax) return axTree(s, target, options); // LLP 1080.002: the platform's accessibility tree
       const req = { op: 'tree' };
       if (target != null) req.target = typeof target === 'number' || /^\d+$/.test(String(target)) ? Number(target) : target;
       if (shallow !== false) req.shallow = shallow;
@@ -983,12 +846,21 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       s.logCursor = r.next;
       return { lines: r.lines, host: carrier.hostLines.splice(0), from: r.from, next: r.next, dropped, ...(r.world ? { world: r.world } : {}) };
     },
+    /** `perf [<target>]` (LLP 1079 D2): the plan sites under a view (every root's without one), each with its work across its instances' lifetimes and its source line; `{frames:true}` is the host's presented frames (D4). */
+    async perf(target, frames) {
+      if (frames) return s.op({ op: 'perf', frames: true, ...(frames.late != null ? { late: frames.late } : {}) });
+      const r = await s.op({ op: 'perf', ...(target != null ? { target: /^\d+$/.test(String(target)) ? Number(target) : target } : {}) });
+      if (await sourceMaps.refresh()) for (const site of r.sites) { const n = { planDigest: r.plan, site: site.site }; sourceMaps.attach(n); site.source = n.sourceMap; }
+      return { target: target ?? null, ...r };
+    },
     /** Every on-screen view's box in the viewport (scroll folded in), with its testId and type from the tree. With a target, `node` explains that one node (LLP 1035.002 D1): every row it sets or inherits with where the value came from, its box in each coordinate space the host has, the scroll and clip chains above it, whether it is hidden, inert, in the viewport or clipped away, and what the host mounted for it — observations of the runner's memory and the host's view tree, never a second model. */
-    async layout(target, at) {
+    async layout(target, at, inspect = {}) { // inspect: {native: {depth, limit}} | {agree: true, limit} (LLP 1080.001)
+      // The host labels disagreements with testIds from the walk's own snapshot (no second read to join).
+      if (inspect.agree) return s.op({ op: 'layout', agree: true, ...(inspect.limit != null ? { limit: inspect.limit } : {}) });
       if (typeof target === "string" && target.startsWith("world:")) return s.op({op:"layout", ...await s.target(target), ...(at ? {world:true,x:at[0],y:at[1]} : {})});
       // `layout <canvas> at <x> <y>` is the world's pick (@ref llp/1046.001-agent-interface-to-a-game.rfc.md D2).
       if (target != null && at) return s.op({op:"layout", id:(await s.find(target)).id, world:true, x:at[0], y:at[1]});
-      const req = { op: 'layout' };
+      const req = { op: 'layout', ...(inspect.native ? { native: inspect.native } : {}) };
       if (target != null) {
         req.id = (await s.find(target)).id;
         if (await sourceMaps.refresh()) req.plan = true;
@@ -1030,7 +902,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
      * injects; it synthesizes no touch (LLP 1008 §9).
      */
     input: host === 'ios' || host === 'host-ios'
-      ? { contact: carrier.pointer === true, hold: carrier.pointer === true, delivery: (kind) => (['contextmenu', 'dblclick', 'hover', 'pinch'].includes(kind) ? 'recognized' : ['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? (carrier.pointer ? 'platform' : 'unsupported') : 'activation') }
+      ? { contact: false, hold: false, delivery: (kind) => (['contextmenu', 'dblclick', 'hover', 'pinch'].includes(kind) ? 'recognized' : ['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'unsupported' : kind === 'press' && carrier.touches ? 'platform' : 'activation') }
       : host === 'linux'
         ? { contact: true, hold: true, delivery: (kind) => (['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'presenter' : 'platform') }
         : { contact: true, hold: true, delivery: () => 'platform' },
@@ -1403,6 +1275,7 @@ async function main(argv) {
   const [host, ...ops] = rest;
   const browser = flags.browser ?? (host === 'web' ? process.env.EXACT_WEB_BROWSER : undefined);
   if (host && flags.test) {
+    if (flags.touch && flags.touch !== 'agent') throw new Error('--test runs its own sessions, without real touches: --touch platform is not supported with --test (LLP 1080.000)');
     const r = await runTests({ host, browser, file: flags.test, plan: flags.plan, app: flags.app, size: flags.size, device: flags.device, phone: flags.phone, url: flags.url, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch });
     for (const t of r.results) {
       console.log(`test "${t.name}": ${t.failures.length ? 'FAIL' : 'ok'}`);
@@ -1411,22 +1284,23 @@ async function main(argv) {
     console.log(`${r.passed} passed, ${r.failed} failed`);
     return r.failed ? 1 : 0;
   }
+  // A trace a person's session saved (LLP 1079 D5), read back with no app running.
+  if (host === 'trace' && ops.length === 1) { const t = await readTrace(ops[0], traceLocators); console.log(flags.json ? JSON.stringify(t) : renderTrace(t)); return 0; }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--browser chrome|firefox|webkit] [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--json] <op> [<op> …]\n  web defaults to chrome; EXACT_WEB_BROWSER selects the same option. Install the other engines outside the repo: bunx playwright@1.63.0 install firefox webkit\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name> [for <ms>] | tap @N <choice> | type @N <value> | clock <ms|+ms|settle> | prefer <media feature, page fact, posture folded|continuous, segments <cols>x<rows> [gap <points>]> […]\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--browser chrome|firefox|webkit] [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--json] <op> [<op> …]\n  web defaults to chrome; EXACT_WEB_BROWSER selects the same option. Install the other engines outside the repo: bunx playwright@1.63.0 install firefox webkit\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name> [for <ms>] | tap @N <choice> | type @N <value> | clock <ms|+ms|settle> | prefer <media feature, page fact, posture folded|continuous, segments <cols>x<rows> [gap <points>]> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>]\n       bun scripts/agent.mjs trace <file>   (a development session\'s trace, LLP 1079 D5)\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
-  const s = await open({ host, browser, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch });
+  const s = await open({ host, browser, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, touch: flags.touch, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch });
   let at = 0;
-  try {
-    for (const [k, line] of ops.entries()) {
-      at = k + 1;
+  // One op line; `perf … during "<op>" …` drives its own through here.
+  const step = async (line) => {
       const [op, ...args] = line.trim().split(/\s+/);
       let r;
       switch (op) {
-        case 'tree': r = await s.tree(args[0], args[1] === 'under' ? args[2] : undefined); break;
+        case 'tree': r = args[0] === '--ax' ? await s.tree(args[1], {ax: true}) : await s.tree(args[0], args[1] === 'under' ? args[2] : undefined); break;
         case 'state': r = await s.state(args[0], args[1] === 'under' ? args[2] : undefined, args[1] === 'pose', args[1] === 'busy'); break;
         case 'logs': r = await s.logs(); break;
-        case 'layout': r = await s.layout(args[0], args[1] === 'at' ? [Number(args[2]), Number(args[3])] : undefined); break;
+        case 'layout': r = await s.layout(...layoutArgs(args)); break;
         case 'screenshot':
           if (args[1] === 'over') {
             if (args[3] !== 'every' || args.length !== 5) throw new Error('screenshot <png|apng> over <ms> every <ms>');
@@ -1463,8 +1337,15 @@ async function main(argv) {
         case 'type': r = await s.type(...typeArguments(args)); break;
         case 'clock': r = await s.clock(args[0] ?? 'settle'); break;
         case 'prefer': r = await s.prefer(Object.fromEntries(args.flatMap((a, i) => i % 2 ? [] : [[a, args[i + 1]]]))); break;
-        default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, screenshot, tap, type, clock, prefer)`);
+        case 'perf': r = await perfOp(s, args, line, step); break;
+        default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, screenshot, tap, type, clock, prefer, perf)`);
       }
+      return [op, r];
+  };
+  try {
+    for (const [k, line] of ops.entries()) {
+      at = k + 1;
+      const [op, r] = await step(line);
       console.log(flags.json ? JSON.stringify(r) : render(op, r));
     }
     return 0;

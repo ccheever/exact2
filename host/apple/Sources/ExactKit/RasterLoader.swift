@@ -355,9 +355,34 @@ final class RasterLoader {
         backend.release(interest.source.id)
     }
     func invalidate(_ source: String) { backend.invalidate(source) }
-    /// Images on screen still loading (the agent's `clock` waits for them).
+    /// Images on screen still loading (the agent's `clock` and `screenshot`
+    /// wait for them).
     var loadingOnScreen: Int {
-        interests.values.filter { i in !i.delivered && i.failure == nil && i.view.map { VideoVisibilityHost.fraction($0) > 0 } == true }.count
+        interests.values.filter { i in !i.delivered && i.failure == nil && i.view.map(Self.mayShow) == true }.count
+    }
+    /// A loading image's box is on screen. An image sized on one axis
+    /// (`width=96`, no height) has an empty box until its natural size
+    /// lands, so an empty side counts as one point.
+    private static func mayShow(_ view: NodeView) -> Bool {
+        guard view.window != nil else { return false }
+        let probe = CGRect(origin: view.bounds.origin, size: CGSize(width: max(1, view.bounds.width), height: max(1, view.bounds.height)))
+        var root: MediaPlatformView = view
+        while let parent = root.superview {
+            if root.isHidden { return false }
+            root = parent
+        }
+        var clipped = view.convert(probe, to: root).intersection(root.bounds)
+        var ancestor = view.superview
+        while let current = ancestor, !clipped.isEmpty {
+            #if os(macOS)
+            let clips = current is NSClipView || current.clipsToBounds || current.layer?.masksToBounds == true
+            #else
+            let clips = current.clipsToBounds
+            #endif
+            if clips { clipped = clipped.intersection(current.convert(current.bounds, to: root)) }
+            ancestor = current.superview
+        }
+        return !clipped.isEmpty
     }
     /// Drop every decoded image no view shows (as memory pressure does).
     func trimCold() { backend.trim() }

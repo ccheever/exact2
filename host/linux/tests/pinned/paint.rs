@@ -1044,7 +1044,12 @@ fn accessibility_focus_is_session_scoped_and_buttons_activate_from_keys() {
         .find(|n| n["id"] == other)
         .unwrap();
     assert_eq!(row["focused"], true);
-    assert_eq!(row["accessibleName"], "Other");
+    let ax: serde_json::Value = serde_json::from_str(&exact_linux::agent::handle(
+        &mut p,
+        r#"{"op":"tree","ax":true}"#,
+    ))
+    .unwrap();
+    assert_eq!(ax["ax"]["unavailable"], true);
     let state: serde_json::Value =
         serde_json::from_str(&exact_linux::agent::handle(&mut p, r#"{"op":"state"}"#)).unwrap();
     assert_eq!(state["focus"]["logical"], other);

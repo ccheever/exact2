@@ -2,7 +2,7 @@
 import { spawnSync } from 'node:child_process';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { delimiter, relative, resolve } from 'node:path';
-import { pendingBuildInputs, shaderWatchRoots } from './app.mjs';
+import { bakeOutput, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 
@@ -39,6 +39,7 @@ export function parseFlags(argv) {
     else if (argv[i] === '--time-zone') flags.timeZone = argv[++i];
     else if (argv[i] === '--epoch') flags.epoch = argv[++i];
     else if (argv[i] === '--timing') flags.timing = argv[++i];
+    else if (argv[i] === '--touch') flags.touch = argv[++i];
     else if (argv[i] === '--phone') flags.phone = argv[++i];
     else if (argv[i] === '--storage') flags.storage = argv[++i];
     else rest.push(argv[i]);
@@ -120,6 +121,15 @@ export function bakedPlans(linuxBin, bakeDir) {
   const out = depInfoInputs(linuxBin).filter(p => p.endsWith('/out/app.plan'));
   try { for (const f of readdirSync(bakeDir)) if (f.endsWith('.plan.map.json')) out.push(resolve(bakeDir, f.slice(0, -'.map.json'.length))); } catch {}
   return out.filter(p => existsSync(p + '.map.json'));
+}
+
+/** Where a trace's source map may be (LLP 1079 D5), when it carries none:
+ * the development plan, the web build's, and the maps the named app's bake
+ * left — where the live driver looks. */
+export function traceLocators(appName) {
+  const out = [process.env.EXACT_DEV_PLAN, resolve(webDist(), 'app.plan')].filter(Boolean);
+  try { const a = resolveApp(appName); out.push(...bakedPlans(process.env.EXACT_LINUX_BIN ?? resolve(a.target, `release/${a.crate('linux')}`), bakeOutput(a))); } catch {}
+  return out;
 }
 
 // Outputs, fixtures and prose are not what a build is made from.

@@ -56,8 +56,11 @@ extension NodeView {
         #endif
         guard clipsToBounds || clipBox != nil || backdrop else { return nil }
         let sizes = cornerSizes(in: bounds)
-        guard let first = sizes.first, first.width != first.height,
-              sizes.allSatisfy({ $0 == first }) else { return nil }
+        guard let first = sizes.first else { return nil }
+        // Core Animation's corner radius is one circular radius: an
+        // elliptical corner, or corners that differ (a chat bubble's 18 and 4
+        // where it joins its run), clip through this outline instead.
+        guard !(first.width == first.height && sizes.allSatisfy({ $0 == first })) else { return nil }
         return BorderPaint.roundedRect(bounds, sizes)
     }
 

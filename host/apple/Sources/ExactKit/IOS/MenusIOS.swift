@@ -320,6 +320,16 @@ final class MenuHost {
             if let field = Self.autofocus(in: pop) { presenter.focusNode(field) }
         }
     }
+    /// Whether a tap on `node` goes through the agent's painted popovers —
+    /// one is open (the tap dismisses it first), or `node` is a painted
+    /// popover, is in one, or opens or closes one — which only `agentTap`
+    /// drives: a real touch bypasses it (LLP 1080.000 D7, stage 3).
+    func agentPainted(_ node: NodeView) -> Bool {
+        guard ExactEnv.agentMode, let presenter else { return false }
+        if !agentOpen.isEmpty { return true }
+        let painted = (presenter.carrying("popover") + presenter.carrying("tag:dialog").filter { $0.props["popover"] == nil }).filter { !isConfirmation($0) }
+        return painted.contains { pop in node === pop || node.isDescendant(of: pop) || (pop.props["id"] != nil && target(of: node) == pop.props["id"]) }
+    }
     private static func autofocus(in view: UIView) -> NodeView? {
         for sub in view.subviews {
             if let node = sub as? NodeView, let value = node.props["autofocus"], value != "false" { return node }
@@ -341,6 +351,16 @@ final class MenuHost {
                 "popover": owner.popover.map { Int($0.id) as Any } ?? NSNull(), "phase": inTransition ? "transition" : "open",
                 "actionStyle": owner.alert.actions.first?.style == .destructive ? "destructive" : "default"]
     }
+    /// LLP 1080.001 D3: the views this host adds — a node's overlay button,
+    /// an open popover's top layer — and the popovers it hides or lifts.
+    func inspectionOwns(_ view: UIView) -> Bool {
+        overlays.values.contains { $0 === view } || agentOpen.values.contains { $0.layer === view }
+    }
+    func hides(_ node: NodeView) -> Bool {
+        presenter?.carrying("popover").contains { $0 === node } == true || presenter?.carrying("tag:dialog").contains { $0 === node } == true
+    }
+    func projects(_ node: NodeView) -> Bool { agentOpen.values.contains { $0.popover === node } }
+
     func ownsConfirmationNode(_ node: NodeView) -> Bool {
         var ancestor: UIView? = node
         while let view = ancestor {

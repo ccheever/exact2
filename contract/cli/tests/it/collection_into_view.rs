@@ -35,13 +35,19 @@ component App
 #[test]
 fn the_command_is_checked_by_name() {
     contract::compile(APP).unwrap();
+    // `smooth` is built (LLP 1070.000 §6.2).
+    contract::compile(&APP.replace(
+        r#"scrollIntoView("feed", n, block="end")"#,
+        r#"scrollIntoView("feed", n, block="end", behavior="smooth")"#,
+    ))
+    .unwrap();
     for (statement, id) in [
         (
             r#"scrollIntoView("feed", n, block="middle")"#,
             "type-scroll-into-view",
         ),
         (
-            r#"scrollIntoView("feed", n, behavior="smooth")"#,
+            r#"scrollIntoView("feed", n, behavior="slow")"#,
             "type-scroll-into-view",
         ),
         (

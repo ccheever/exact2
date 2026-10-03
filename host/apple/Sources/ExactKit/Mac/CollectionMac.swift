@@ -274,7 +274,18 @@ extension CollectionHost {
         guard let node = presenter?.views[id], !node.isHiddenOrHasHiddenAncestor else { return nil }
         return Double(horizontal ? node.bounds.width : node.bounds.height)
     }
-    func correct(_ id: UInt32, top: Double, extent: Double) {
+    /// An anchor's correction (`CollectionCursor.takeShift`): the offset
+    /// moves by `delta` with the rows that moved; a momentum scroll's next
+    /// delta goes on from there.
+    func shift(_ id: UInt32, by delta: Double, extent: Double) {
+        guard let node = presenter?.views[id], let scroll = node.scroll else { return }
+        let clip = scroll.contentView, horizontal = entries[id]?.snapshot.horizontal ?? false
+        let content = node.contentBox()
+        let now = Double(horizontal ? clip.bounds.minX - content.minX : clip.bounds.minY - content.minY)
+        correct(id, top: now + (delta.isFinite ? delta : 0), extent: extent)
+    }
+    func landAnimation(_ id: UInt32) {}
+    func correct(_ id: UInt32, top: Double, extent: Double, smooth: Bool = false) {
         guard let node = presenter?.views[id], let scroll = node.scroll,
               let document = scroll.documentView else { return }
         let content = node.contentBox()

@@ -893,7 +893,7 @@ fn into_view_args(
         }
         let allowed: &[&str] = match name.as_str() {
             "block" | "inline" => &["start", "center", "end", "nearest"],
-            "behavior" => &["auto", "instant"],
+            "behavior" => &["auto", "instant", "smooth"],
             "row" => {
                 infer(value, scope, shapes)?;
                 continue;
@@ -908,9 +908,6 @@ fn into_view_args(
         };
         match value.as_ref() {
             Expr::Str(s, _) if allowed.contains(&s.as_str()) => {}
-            Expr::Str(s, _) if name == "behavior" && s == "smooth" => {
-                return err("type-scroll-into-view", "`behavior=\"smooth\"` is not built yet (LLP 1070.000 §6): a long smooth traversal needs its own fill policy; use `auto` or `instant`", *at);
-            }
             _ => {
                 return err(
                     "type-scroll-into-view",

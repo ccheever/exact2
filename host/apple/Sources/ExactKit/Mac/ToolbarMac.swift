@@ -10,9 +10,11 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     private(set) var items: [UInt32: NSToolbarItem] = [:]
     private var symbols: [UInt32: String] = [:]
     private weak var owner: NodeView?
+    /// LLP 1080.001 D3: the authored rendering hidden while the window's toolbar shows it.
+    func hides(_ node: NodeView) -> Bool { projected && node === owner }
     private weak var heading: NodeView?
     private var order: [NSToolbarItem.Identifier] = []
-    private var projected = false
+    private(set) var projected = false
     private var savedAccessibilityHidden = false
     private var syncing = false
     private var savedTitle = ""

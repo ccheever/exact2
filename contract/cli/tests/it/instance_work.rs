@@ -265,3 +265,138 @@ fn signed_zero_changes_are_observable_inside_an_unchanged_row_key() {
     assert_eq!(text(&r), "false");
     assert_eq!(r.last_instance_work().rows_reused, 0);
 }
+
+/// `perf <target>` (LLP 1079 D1–D2): site totals across lifetimes, the
+/// hygiene number, and receipt membership split by who changed the node.
+#[test]
+fn perf_counts_each_sites_work_across_its_instances_lifetimes() {
+    struct Three;
+    impl DataSource for Three {
+        fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, DataError> {
+            Ok(Value::list(
+                (0..3).map(|i| Value::Number(i as f64)).collect(),
+            ))
+        }
+    }
+    const PERF: &str = r##"
+component App
+  resource ids = three() as shape list<number>
+  state hot = -1
+  state tick = 0
+  state tint = "#000000"
+  action hover(id: number)
+    hot = id
+  action step
+    tick = tick + 1
+  action recolor
+    tint = "#ff0000"
+  view
+    column testId="list" color=tint
+      each r in ids key=r
+        row testId=`row-${r}`
+          when hot == r
+            text `hot ${r}` testId=`hot-${r}`
+          else
+            text `cold ${r}` testId=`cold-${r}`
+          text `${r} ${tick > 100}` font-size=12 testId=`tick-${r}`
+"##;
+    let mut r = Runner::boot(
+        contract::compile(PERF).unwrap(),
+        Three,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let ask = |r: &Runner<Three>, target: &str| -> serde_json::Value {
+        serde_json::from_str(&exact_runner::agent::handle(
+            r,
+            &serde_json::json!({"op":"perf", "target":target}).to_string(),
+        ))
+        .unwrap()
+    };
+    // Production trust: the host never measures, and the read says so.
+    assert!(ask(&r, "list")["error"]
+        .as_str()
+        .unwrap()
+        .contains("production trust"));
+    r.measure(true, false);
+    let site = |reply: &serde_json::Value, test_id: &str, r: &Runner<Three>| {
+        let key = r.kernel().find_by_test_id(test_id)[0];
+        let view = r.kernel().node_by_key(key).unwrap().id;
+        let site = r.site_of(view).unwrap().0 .0 as u64;
+        reply["sites"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|s| s["site"] == site)
+            .unwrap()
+            .clone()
+    };
+    let before = ask(&r, "list");
+    let seq = before["seq"].as_u64().unwrap();
+    // Live instances seed `created` when measuring begins.
+    assert_eq!(site(&before, "cold-1", &r)["created"], 3);
+    assert_eq!(site(&before, "cold-1", &r)["live"], 3);
+    assert!(before.get("moved").is_none() && site(&before, "row-1", &r).get("moved").is_none());
+
+    // Hovering row 1 retires its cold text and realizes a hot one; leaving
+    // it does the reverse: churn the retired count keeps after the views go.
+    r.act("hover", vec![Value::Number(1.0)]).unwrap();
+    r.act("hover", vec![Value::Number(-1.0)]).unwrap();
+    let after = ask(&r, "list");
+    assert!(after["seq"].as_u64().unwrap() >= seq + 2);
+    let cold = site(&after, "cold-1", &r);
+    assert_eq!(
+        (cold["created"].as_u64(), cold["retired"].as_u64()),
+        (Some(4), Some(1))
+    );
+    assert_eq!(cold["live"], 3);
+    // The hot site has no live instance now, and still shows its totals.
+    let hot = after["sites"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|s| s["created"] == 1 && s["retired"] == 1)
+        .expect("the hot text's site, statically under the list")
+        .clone();
+    assert_eq!(hot["instances"], 0);
+    // A read of every root keeps it too: its churn is not lost to a trace.
+    let every: serde_json::Value =
+        serde_json::from_str(&exact_runner::agent::handle(&r, r#"{"op":"perf"}"#)).unwrap();
+    assert!(every["sites"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|s| s["site"] == hot["site"]));
+
+    // Every tick re-evaluates the three tick texts, and each comes out as
+    // before: the hygiene number, with nothing authored.
+    let ticked = site(&after, "tick-0", &r);
+    for _ in 0..5 {
+        r.act("step", vec![]).unwrap();
+    }
+    let later = ask(&r, "list");
+    let tick = site(&later, "tick-0", &r);
+    let delta = |k: &str| tick[k].as_u64().unwrap() - ticked[k].as_u64().unwrap();
+    assert_eq!((delta("evaluated"), delta("unchanged")), (15, 15));
+    assert_eq!(delta("authored"), 0);
+
+    // A color on the list is inherited by every text under it: their own
+    // ops did not touch them.
+    r.act("recolor", vec![]).unwrap();
+    let tinted = ask(&r, "list");
+    let text = site(&tinted, "tick-0", &r);
+    assert_eq!(
+        text["inherited"].as_u64().unwrap() - tick["inherited"].as_u64().unwrap(),
+        3
+    );
+    assert_eq!(text["authored"], tick["authored"]);
+    assert_eq!(
+        site(&tinted, "list", &r)["authored"].as_u64().unwrap()
+            - site(&later, "list", &r)["authored"].as_u64().unwrap(),
+        1
+    );
+    assert_eq!(tinted["walked"], 10);
+    assert_eq!(tinted["truncated"], false);
+}

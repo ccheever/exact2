@@ -358,6 +358,8 @@ impl<D: DataSource> Host<D> {
             launch,
         )
         .map_err(HostError::Runner)?;
+        // @ref LLP 1079 D1 — a development build measures its work.
+        runner.measure_unless_production(compat, true);
         if let Some(action) = region.and_then(|r| r.activate) {
             runner.act(action, Vec::new()).map_err(HostError::Runner)?;
         }
@@ -832,6 +834,13 @@ impl<D: DataSource> Host<D> {
                 None => "{\"settle\":null}".to_string(),
             };
         }
+        // A native content region's frames are the host's, not the kernel's
+        // (LLP 1080.001 D2): `layout agree` must not compare them.
+        if exact_runner::agent::field_str(request, "op").as_deref() == Some("frames") {
+            return exact_runner::agent::frames(&self.runner, request, &|id| {
+                self.native_protected_id(id)
+            });
+        }
         exact_runner::agent::handle(&self.runner, request)
     }
 
@@ -1123,6 +1132,7 @@ impl<D: DataSource> Host<D> {
     fn finish(&self, mut batch: Batch, error: Option<String>) -> String {
         batch.spatial = self.engine.spatial();
         batch.frames = self.runner.wants_frames();
+        batch.seq = self.runner.seq_range();
         batch.canvas_frames(self.runner.canvas_wants_frame());
         batch.finish(
             self.runner.timer_due_ms(),

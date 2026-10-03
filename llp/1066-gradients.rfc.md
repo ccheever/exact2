@@ -105,6 +105,36 @@ translucent border shows the difference.
 *Rejected:* a `CAGradientLayer` on macOS. The Mac box is drawn, so a sublayer
 would cover the drawn border and text.
 
+**D7. `background-attachment: fixed` (2026-10-03).** The Signal Clone's
+outgoing bubbles share one gradient across the screen: a bubble near the top
+is darker than one near the bottom, and a bubble changes colour as it
+scrolls. CSS says this with `background-attachment: fixed`, which places and
+sizes the gradient box on the viewport instead of the node's padding box.
+It is enum row bit 171 (`scroll` | `fixed`). `local` is refused, since it is
+the same as `scroll` for a box whose own content does not scroll under its
+background.
+- **Web:** the browser's own `background-attachment: fixed`.
+- **iOS:** the gradient box is the viewport converted into the view
+  (`fixedGradientPort`). The gradient is always the `CAGradientLayer`, even
+  over a box that `draw(_:)` paints, because the viewport moves under the
+  node on every scroll frame and a drawn gradient would repaint the box. Over
+  a drawn box (corners of different radii, as in a bubble joined to its run)
+  the layer is masked to the box's outline and sits over the drawn fill. The
+  presenter keeps the nodes that show one (`fixedGradients`) and re-aims
+  them when any scroll view scrolls and after each batch. Re-aiming sets
+  only the start and end points.
+- **macOS:** the same box, placed when the box paints. It is not re-aimed
+  when an inner scroller moves.
+- **Linux:** not built. The row is ignored, so the gradient keeps its
+  padding box.
+*Owed:* a drawn border under a fixed layered gradient is covered by it. So
+is several layers, a conic gradient, or another `background-clip` with
+`fixed`: these draw as before, on the padding box. Re-aiming on the Mac and
+Linux is also owed.
+*Rejected:* a per-app native module that recolours bubbles from the row's
+frame in the window. Every messenger port would write it again, and the
+gradient is CSS.
+
 ## Verification
 
 - Kernel: grammar and canonical round trip, the fix-up, refusals by name,
@@ -117,3 +147,7 @@ would cover the drawn border and text.
   the Mac and iOS border parity classes, compared to Chrome's pictures.
 - Linux: `tests/pinned/gradients.rs`, CPU and GPU, compared to Chrome's
   pictures light and dark.
+- D7: the declaration (`css.rs`), the refusal of `local`
+  (`contract/cli/tests/it/styles.rs`), and on iOS `FixedGradientIOSTests`.
+  Two bubbles show the top and bottom thirds of one gradient, both follow a
+  scroll, and a bubble with mixed corners takes the masked layer.

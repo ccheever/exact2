@@ -4,6 +4,7 @@
 // (CDP). Loaded only under `?agent`; never part of an app's boot bytes.
 import names, { types } from './names.js';
 import { R, eq, pieces, pageHistory, Head } from './rt.js';
+import * as perf from './perf.js';
 import { environment, navigation, guestOutline, guestTap, guestType, viewBox, foldEnv, preferFold } from './navigation.js';
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
@@ -36,13 +37,15 @@ export function install(exact) {
     if ('value' in el && el.tagName !== 'BUTTON' && el.type !== 'checkbox') props.value = el.value;
     // The runner's props that element.rs writes as attributes, by its names.
     for (const [attr, prop, num] of PROPS) if (el.hasAttribute(attr)) props[prop] = num ? Number(el.getAttribute(attr)) : el.getAttribute(attr);
+    // The intent `tree --ax` reads (LLP 1080.002 D7), as the runner names it.
+    if (el.hasAttribute('inert')) props.inert = true;
+    if (el.getAttribute('aria-hidden') === 'true') props.accessibilityElementsHidden = true;
     if (el.hasAttribute('autofocus')) props.autofocus = true; else if (el.dataset.autofocus === 'false') props.autofocus = false;
     const n = { id: id(el), type: type(el), depth, props };
     if (el.dataset.exactOn) n.handlers = el.dataset.exactOn.split(' ');
     if (document.activeElement === el) n.focused = true;
-    // As glue.js's `tree` adds them: a pressable's accessible name, and an
-    // iframe's url, load state and same-origin guest outline (LLP 1020 D4).
-    if (el.matches('button, a, [role=button]')) n.accessibleName = el.getAttribute('aria-label') ?? el.textContent.trim();
+    // As glue.js's `tree` adds them: an iframe's url, load state and
+    // same-origin guest outline (LLP 1020 D4).
     // A module view's status (LLP 1024 D8.3): what native-glue.js keeps on
     // the element, as glue.js's `tree` reports it.
     if (el.exactNative) n.module = el.exactNative.status();
@@ -221,6 +224,7 @@ export function install(exact) {
         });
         const reply = { viewport: { w: innerWidth, h: innerHeight }, env: environment(), nodes, ...tags() };
         if (req.id != null) { const node = nodeDetail(req.id); if (node.error) return node; reply.node = node; }
+        if (req.agree) return { viewport: reply.viewport, agreement: { unavailable: 'no independent model: the page is the tree' }, ...tags() }; else if (req.native && reply.node) { delete reply.nodes; reply.node.native = { ...reply.node.native, subviews: { unavailable: 'the DOM is the tree; layout <target> names the element' } }; } // @ref LLP 1080.001 D1, D2
         return reply;
       }
       case 'focus': { const el = views.get(req.id); if (!el) return { error: `no view ${req.id}` }; el.focus(); if (req.select !== false) el.select?.(); return {}; }
@@ -240,7 +244,14 @@ export function install(exact) {
           return el instanceof HTMLIFrameElement ? guestTap(el, req) : {};
         }
       case 'type': { const el = views.get(req.id); return el instanceof HTMLIFrameElement ? guestType(el, req) : {}; }
-      case 'logs': { const from = req.since ?? 0; return { lines: exact.journal.slice(from), from, next: exact.journal.length }; }
+      case 'logs': { const j = exact.journal, from = Math.max(req.since ?? 0, j.start); return { lines: j.slice(from - j.start), from, next: j.start + j.length }; }
+      // `perf <target>` (LLP 1079 D2): the plan sites under a view, with their work (perf.js).
+      case 'perf': {
+        if (req.frames) return { virtual: true }; // the agent's clock presents no frame (LLP 1079 D4)
+        let el = document.getElementById('exact-root');
+        if (req.target != null) { const hit = all().find(n => n.id === req.target || n.props.testId === req.target); if (!hit) return { error: `no view matches ${req.target}` }; el = views.get(hit.id); }
+        return perf.reply(el, tags());
+      }
       case 'clock': {
         if (req.settle) {
           // Settled: no request in flight and no commit pending, within 20 s.
@@ -305,6 +316,8 @@ export function install(exact) {
         return { clock: exact.clock.now };
       }
       case 'tags': return tags();
+      // @ref LLP 1080.002 D4 — the ids `tree` gives, where CDP's DOM snapshot reads them, and the document's nonce.
+      case 'axStamp': { all(); for (const [i, el] of views) if (el.isConnected && el.getAttribute('data-agent-view') !== String(i)) el.setAttribute('data-agent-view', i); return { ...tags(), nonce: performance.timeOrigin }; }
       case 'state': {
         const [slots, derives, resources] = names.map((list, k) => Object.fromEntries(list.map((n, i) => [n, typed(exact.state[k][i](), types[k][i])])));
         // What is in flight: the network's by resource, then held device requests.

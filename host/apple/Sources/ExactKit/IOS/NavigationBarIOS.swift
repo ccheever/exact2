@@ -63,6 +63,9 @@ struct HeaderShape: Equatable {
     /// The header's `input type="search"`, if it has one: the item's
     /// search controller (LLP 1075.003 §9.6).
     let search: NodeView?
+    /// The header's tablist of text tabs, if it has one: the item's title
+    /// view, a segmented control (LLP 1075.003 §9.8).
+    let segments: NodeView?
 
     /// `back` names the stack's Back control, left to UIKit's back button
     /// when there is one (`backIsUIKits`): the root of a presented stack
@@ -70,13 +73,17 @@ struct HeaderShape: Equatable {
     init?(route: NodeView, back: String?, backIsUIKits: Bool = true) {
         guard let header = route.container.subviews.lazy.compactMap({ $0 as? NodeView }).first,
               header.props["semanticTag"] == "header" else { return nil }
-        var headings: [NodeView] = [], before: [Item] = [], after: [Item] = [], search: NodeView?
+        var headings: [NodeView] = [], before: [Item] = [], after: [Item] = [], search: NodeView?, segments: NodeView?
         func walk(_ node: NodeView) {
             for case let child as NodeView in node.container.subviews {
                 if child.isParagraph, child.props["accessibilityHeadingLevel"] != nil {
                     headings.append(child)
                 } else if child.kind == "input", child.props["type"] == "search" {
                     search = search ?? child
+                } else if child.props["accessibilityRole"] == "tablist" {
+                    // Its tabs press, but they are the title view's
+                    // segments, never bar items.
+                    segments = segments ?? child
                 } else if child.handlers.contains("press") || (child.isButton && child.props["popovertarget"] != nil && child.props["popovertargetaction"] != "hide") {
                     guard !backIsUIKits || back == nil || child.props["id"] != back else { continue }
                     if headings.isEmpty { before.append(Item(child)) } else { after.append(Item(child)) }
@@ -93,10 +100,11 @@ struct HeaderShape: Equatable {
         leading = before
         trailing = after
         self.search = search
+        self.segments = segments
     }
 
     static func == (a: HeaderShape, b: HeaderShape) -> Bool {
-        a.header === b.header && a.title == b.title && a.level == b.level && a.leading == b.leading && a.trailing == b.trailing && a.search === b.search
+        a.header === b.header && a.title == b.title && a.level == b.level && a.leading == b.leading && a.trailing == b.trailing && a.search === b.search && a.segments === b.segments
     }
 }
 
@@ -214,6 +222,37 @@ final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate
     }
 }
 
+/// The header's tablist as a route's title view (§9.8), kept beside the
+/// controller rather than in it.
+final class TitleSegments: NSObject {
+    let control = UISegmentedControl()
+    let press: SegmentPress
+    init(host: NavigationHost) {
+        press = SegmentPress(host: host)
+        super.init()
+        control.addTarget(press, action: #selector(SegmentPress.changed(_:)), for: .valueChanged)
+    }
+}
+private var titleSegmentsKey: UInt8 = 0
+extension RouteController {
+    var titleSegments: TitleSegments? {
+        get { objc_getAssociatedObject(self, &titleSegmentsKey) as? TitleSegments }
+        set { objc_setAssociatedObject(self, &titleSegmentsKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+}
+
+/// A title-view segment's tap presses its authored tab.
+final class SegmentPress: NSObject {
+    weak var host: NavigationHost?
+    var tabs: [UInt32] = []
+    init(host: NavigationHost) { self.host = host }
+    @objc func changed(_ control: UISegmentedControl) {
+        let i = control.selectedSegmentIndex
+        guard tabs.indices.contains(i) else { return }
+        _ = host?.act(tabs[i], 0)
+    }
+}
+
 /// What a projected bar item presses: its authored button, as a tap would.
 final class BarPress: NSObject {
     let id: UInt32
@@ -311,7 +350,7 @@ extension NavigationHost {
                 project(shape, into: c, canGoBack: canGoBack, shows: shows)
             }
             collapse(c, shape: shape, scroll: scroll)
-            if shows { searchField(shape?.search, in: c) }
+            if shows { searchField(shape?.search, in: c); segmentedTitle(shape?.segments, in: c) }
             guard c.projected != signature || !c.hooked else { continue }
             c.projected = signature
             guard presenter.session?.natives.hooksConnected == true else { continue }
@@ -342,6 +381,39 @@ extension NavigationHost {
             header.isHidden = true
             c.lifted = header
         }
+    }
+
+    /// A header's tablist of text tabs is the item's title view: a segmented
+    /// control whose selection is the tabs' `aria-selected`, a tap on a
+    /// segment pressing its tab (§9.8), as the content's segmented control
+    /// does (LLP 1035.001 D10). The heading stays the item's title, which
+    /// the back button on the next route reads.
+    private func segmentedTitle(_ list: NodeView?, in c: RouteController) {
+        let tabs = list?.container.subviews.compactMap { $0 as? NodeView }.filter {
+            $0.isButton && $0.props["accessibilityRole"] == "tab" && $0.handlers.contains("press")
+        } ?? []
+        guard !tabs.isEmpty else {
+            if let old = c.titleSegments?.control, c.navigationItem.titleView === old { c.navigationItem.titleView = nil }
+            c.titleSegments = nil
+            return
+        }
+        let segments = c.titleSegments ?? TitleSegments(host: self)
+        c.titleSegments = segments
+        let control = segments.control
+        segments.press.tabs = tabs.map(\.id)
+        let titles = tabs.map(\.accessibleName)
+        if control.numberOfSegments != titles.count {
+            control.removeAllSegments()
+            for (i, t) in titles.enumerated() { control.insertSegment(withTitle: t, at: i, animated: false) }
+        } else {
+            for (i, t) in titles.enumerated() where control.titleForSegment(at: i) != t { control.setTitle(t, forSegmentAt: i) }
+        }
+        let selected = tabs.firstIndex { $0.props["accessibilitySelected"] == "true" } ?? UISegmentedControl.noSegment
+        if control.selectedSegmentIndex != selected { control.selectedSegmentIndex = selected }
+        control.accessibilityIdentifier = list?.props["testId"]
+        control.sizeToFit()
+        control.frame.size.width = max(control.frame.width, CGFloat(titles.count) * 90)
+        if c.navigationItem.titleView !== control { c.navigationItem.titleView = control }
     }
 
     /// A header's search field is the item's `UISearchController` (§9.6):

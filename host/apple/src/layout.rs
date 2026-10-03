@@ -62,6 +62,7 @@ impl<D: DataSource> Host<D> {
                     .map_err(|e| format!("layout: {e:?}"))?;
                 // @ref LLP 1043.000 §3 D4 — geometry can move without a frame change.
                 self.runner.report_flow_skipped(&receipt.flow_skipped);
+                self.runner.moved(&receipt.changed);
                 self.record_layout(&receipt);
             }
         }
