@@ -1425,11 +1425,13 @@ fn posted_messages_reach_one_tick_each_in_order_and_are_saved_only_while_pending
     full.run(1000. / 60.);
     let got: Vec<_> = log(&full).into_iter().map(|(_, m)| m).collect();
     assert_eq!(got, (0..1024).map(|i| format!("m{i}")).collect::<Vec<_>>());
-    assert!(full
+    let refusals = full
         .world()
         .journal()
         .iter()
-        .any(|e| e.line.contains("postMessage refused")));
+        .filter(|e| e.line.contains("postMessage refused"))
+        .count();
+    assert_eq!(refusals, 1, "one journal line per overflow episode");
     // Oversized messages refuse by name and change nothing.
     let mut big = Sim::<Shop>::new(Options::default()).unwrap();
     big.run(0.);
