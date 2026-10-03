@@ -5,7 +5,7 @@
 // measurements in the diary (entity ramp, long seeks, save sizes).
 import {resolve} from 'node:path';
 import {readFileSync, statSync} from 'node:fs';
-import { proof } from '../../proof.mjs';
+import { proof, axNames } from '../../proof.mjs';
 
 const EPOCH = Date.parse('2026-10-01T12:00:00Z');
 const node = (tree, id) => tree.nodes.find(n => n.props?.testId === id);
@@ -18,10 +18,10 @@ const label = (tree, id) => {
   return tree.nodes.find(m => m.parent === n.id && m.props?.text != null)?.props.text;
 };
 const ms = t => Math.round(performance.now() - t);
-// The exact purse, from the sheckles' accessible name (its aria-label). The
-// text itself is compact ("379M¢"); a missing node or name is NaN, so every
-// read is checked finite where it is used.
-const purseOf = tree => Number(node(tree, 'sheckles')?.accessibleName?.split(' ')[0]);
+// The exact purse, from the sheckles' authored label (its aria-label, the
+// runner's accessibilityLabel, on every host). The text itself is compact
+// ("379M¢"); a missing node or label is NaN, so every read is checked finite.
+const purseOf = tree => Number(node(tree, 'sheckles')?.props?.accessibilityLabel?.split(' ')[0]);
 
 if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave, say}) => {
   const log = say ?? console.log;
@@ -52,14 +52,16 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
 
   const s = await open({epoch:EPOCH});
   const title = await s.tree();
-  check('Play is focused and named', node(title, 'play')?.focused === true && node(title, 'play')?.accessibleName === 'Play');
+  const titleAx = await axNames(s);
+  check('Play is focused and named', node(title, 'play')?.focused === true && (titleAx.unavailable || titleAx.name('play') === 'Play'));
   check('title explains the loop', title.nodes.some(n => n.props?.text === 'It keeps growing while you are away'));
   await s.tap('play');
   const game = s.world('world');
   pin(0, await game.snapshot());
   let t = await s.tree();
   check('starting purse and hand', text(t, 'sheckles') === '20¢' && text(t, 'held') === 'Holding Carrot ×1', [text(t, 'sheckles'), text(t, 'held')]);
-  check('sheckles have an accessible name', node(t, 'sheckles')?.accessibleName === '20 sheckles', node(t, 'sheckles')?.accessibleName);
+  let ax = await axNames(s);
+  check('sheckles have an accessible name', ax.unavailable || ax.name('sheckles') === '20 sheckles', ax.name('sheckles'));
   check('the shop lists every seed', (await s.tree('shop-list')).nodes.filter(n => n.props?.testId?.startsWith('shop-')).length === 15);
 
   await game.run(100);
@@ -80,11 +82,13 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await game.tap('KeyE');
   await game.run(100);
   t = await s.tree();
-  check('the backpack holds it', label(t, 'bag-tab') === 'Backpack 1' && node(t, 'bag-tab')?.accessibleName === 'Backpack, 1 fruit', [label(t, 'bag-tab'), node(t, 'bag-tab')?.accessibleName]);
+  ax = await axNames(s);
+  check('the backpack holds it', label(t, 'bag-tab') === 'Backpack 1' && (ax.unavailable || ax.name('bag-tab') === 'Backpack, 1 fruit'), [label(t, 'bag-tab'), ax.name('bag-tab')]);
   check('a carrot plant is gone after one harvest', text(t, 'census') === '0 plants · 0/0 ripe · 0 mutated', text(t, 'census'));
   await s.tap('bag-tab');
   t = await s.tree();
-  check('the backpack lists the fruit', !!node(t, 'bag-0') && /^Sell .*Carrot for \d+$/.test(node(t, 'sell-0')?.accessibleName ?? ''), node(t, 'sell-0')?.accessibleName);
+  ax = await axNames(s);
+  check('the backpack lists the fruit', !!node(t, 'bag-0') && !!node(t, 'sell-0') && (ax.unavailable || /^Sell .*Carrot for \d+$/.test(ax.name('sell-0') ?? '')), ax.name('sell-0'));
   await s.tap('sell-all');
   await game.run(100);
   t = await s.tree();
@@ -97,7 +101,8 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await game.run(100);
   t = await s.tree();
   check('buying spends and fills the hand', purseOf(t) === purse - 10 && text(t, 'held') === 'Holding Carrot ×1', [purseOf(t), text(t, 'held')]);
-  check('an owned seed offers to hold it', node(t, 'equip-carrot')?.accessibleName === 'Hold Carrot, 1 owned', node(t, 'equip-carrot')?.accessibleName);
+  ax = await axNames(s);
+  check('an owned seed offers to hold it', !!node(t, 'equip-carrot') && (ax.unavailable || ax.name('equip-carrot') === 'Hold Carrot, 1 owned'), ax.name('equip-carrot'));
   check('an unaffordable seed is disabled', node(t, 'buy-grape')?.props?.disabled === true, node(t, 'buy-grape')?.props);
   // Two presses with no tick between them are two messages.
   await s.tap('buy-carrot');

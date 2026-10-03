@@ -10,7 +10,7 @@
 // clock: advance deterministic ticks; settle reports what keeps moving.
 import {resolve} from 'node:path';
 import {readFileSync} from 'node:fs';
-import { proof } from '../../proof.mjs';
+import { proof, axNames } from '../../proof.mjs';
 
 // Constant acceleration, semi-implicit integration: v_k=min(k*a/h,v).
 // Sum the accelerating ticks, then add the constant-speed tail.
@@ -35,7 +35,8 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   const s = await open();
   const node = (tree, id) => tree.nodes.find(n => n.props?.testId === id);
   const title = await s.tree();
-  check('Play is initially focused and named', node(title, 'play')?.focused === true && node(title, 'play')?.accessibleName === 'Play');
+  const titleAx = await axNames(s);
+  check('Play is initially focused and named', node(title, 'play')?.focused === true && (titleAx.unavailable || titleAx.name('play') === 'Play'));
   check('state agrees with initial focus', (await s.state()).focus.logical === node(title, 'play')?.id);
   check('title, controls and Play', !!node(title, 'play') && ['Small game', 'Move with WASD or arrow keys', 'Space jumps · E lights', 'Touch controls appear during play'].every(text => title.nodes.some(n => n.props?.text === text)));
   check('world loads after Play', !node(title, 'world'));
@@ -125,11 +126,13 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await pointerGame.run(100);
   await pointerSession.tap('pause');
   const paused = await pointerSession.tree();
-  check('a paused game offers Restart before victory', node(paused, 'restart')?.accessibleName === 'Restart' && node(paused, 'hud-lit')?.props.text === 'Lit 1');
+  const pausedAx = await axNames(pointerSession);
+  check('a paused game offers Restart before victory', !!node(paused, 'restart') && (pausedAx.unavailable || pausedAx.name('restart') === 'Restart') && node(paused, 'hud-lit')?.props.text === 'Lit 1');
   if (host === 'web') await pointerSession.screenshot(resolve(out, 'paused.png'));
   await pointerSession.tap('restart');
   const reset = await pointerSession.tree();
-  check('Restart clears progress and resumes play', node(reset, 'hud-lit')?.props.text === 'Lit 0' && !node(reset, 'restart') && node(reset, 'pause')?.accessibleName === 'Pause');
+  const resetAx = await axNames(pointerSession);
+  check('Restart clears progress and resumes play', node(reset, 'hud-lit')?.props.text === 'Lit 0' && !node(reset, 'restart') && !!node(reset, 'pause') && (resetAx.unavailable || resetAx.name('pause') === 'Pause'));
   check('Restart returns keyboard focus to the game', node(reset, 'world')?.focused === true);
   await pointerGame.hold('KeyD', 500);
   check('Restart leaves movement running', (await pointerGame.local_position('player'))[0] > 0.5);

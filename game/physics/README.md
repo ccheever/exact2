@@ -94,8 +94,7 @@ over 600 ticks of pile/stack/drop/bounce and 120 of minimal is byte-identical to
 previous build (native arm64). They moved again with EXPHYS v3's holes, trajectories
 again unchanged, and once more when the world hash became a stream of per-page
 digests and saves became columnar (EXGAME v4), and again when a hash began reading
-the executor's digest. The current values (pile-600 0x61d3a2b48c505773,
-minimal-120 0x406386e479211958) agree on native arm64, on x86-64
+the executor's digest. The current values (in [tests/pins.json](tests/pins.json)) agree on native arm64, on x86-64
 (`--target x86_64-apple-darwin` under Rosetta) and in the web-profile `minimal`
 Wasm under Bun, Off/Save/FreshGame alike, and the living controller still rests at
 tick 547 with Off/Save/FreshGame agreement (2026-10-03).
