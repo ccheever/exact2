@@ -210,6 +210,13 @@ NaNs canonicalize and negative zero survives. Their JSON output is a bytes/hash
 summary, while input accepts numeric arrays. Summaries cannot be loaded as data.
 Other vectors remain structural sequences.
 
+World saves (EXGAME v4) are columnar: the entity table and each component
+storage store their rows' shape (tags, field and variant names, sequence lengths)
+once and their scalars as run-length or dictionary-coded columns, so repeated
+values cost nothing per entity and no name or entity key is repeated per row.
+Grow a Garden's scale world saves in about 9 bytes per entity, against 247 in v3.
+Resources save as their values. The encoding is byte-identical on every host.
+
 Loads allow at most 16 Mi entity slots, 64 MiB per string, and 2 GiB of input and
 accounted allocations. Custom `Data` readers must account allocations with
 `Reader::claim`. Violations return `DataError`; old save formats refuse by name.

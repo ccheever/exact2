@@ -143,35 +143,14 @@ impl<C: Data> Erased for Singleton<C> {
         }
         w.end_seq();
     }
-    fn read(
-        &mut self,
-        r: &mut dyn Reader,
-        valid: &dyn Fn(Entity) -> bool,
-    ) -> Result<(), DataError> {
-        r.begin_seq()?;
-        if !r.item()? {
-            return Err(DataError::new("resource must contain one value"));
+    fn write_save(&self, w: &mut dyn Writer) {
+        if let Some(value) = self.value() {
+            value.write(w);
         }
-        r.begin_seq()?;
-        if !r.item()? {
-            return Err(DataError::new("missing entity"));
-        }
-        let mut e = Entity::default();
-        e.read(r)?;
-        if e.index() != 0 || !valid(e) {
-            return Err(DataError::new("stale or invalid entity"));
-        }
-        if !r.item()? {
-            return Err(DataError::new("missing component"));
-        }
+    }
+    fn read_save(&mut self, r: &mut dyn Reader, _: &dyn Fn(u32) -> bool) -> Result<(), DataError> {
         let mut value = C::default();
         value.read(r)?;
-        if r.item()? {
-            return Err(DataError::new("extra component entry value"));
-        }
-        if r.item()? {
-            return Err(DataError::new("resource must contain one value"));
-        }
         self.insert(value);
         Ok(())
     }

@@ -22,6 +22,9 @@ struct Fruit {
 impl Game for Garden {
     const ID: &'static str = "scale-garden";
     type Args = Garden;
+    fn register(w: &mut World, _: &std::collections::BTreeMap<&str, Value>) {
+        w.register::<Plant>().register::<Fruit>();
+    }
     fn setup(w: &mut World, a: &Garden) {
         if a.walker {
             w.spawn_named("player", Transform::at(0.0, 0.0, 0.0));
@@ -112,5 +115,30 @@ fn parented_fruit_cost_what_unparented_fruit_cost() {
                 median(samples)
             );
         }
+    }
+}
+
+/// Diary limit 6: about 270 bytes per entity (58.1 MB at 214,288 entities);
+/// web restored a 12.2 MB save in 2,929 ms.
+#[test]
+#[ignore = "release save size measurement"]
+fn saves_cost_bytes_per_change_not_per_entity() {
+    for plants in [2_000, 10_000, 50_000] {
+        let s = sim(plants, true, false);
+        let entities = s.world().len();
+        let start = std::time::Instant::now();
+        let bytes = s.save().unwrap();
+        let save = start.elapsed().as_secs_f64() * 1000.0;
+        let mut fresh = sim(0, true, false);
+        let start = std::time::Instant::now();
+        fresh.restore(&bytes).unwrap();
+        let restore = start.elapsed().as_secs_f64() * 1000.0;
+        assert_eq!(fresh.world().hash(), s.world().hash());
+        println!(
+            "plants {plants} entities {entities}: save {} bytes ({:.1} B/entity), \
+             save {save:.1} ms, restore {restore:.1} ms",
+            bytes.len(),
+            bytes.len() as f64 / entities as f64
+        );
     }
 }

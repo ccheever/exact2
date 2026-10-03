@@ -206,8 +206,13 @@ pub(crate) trait Erased {
     fn len(&self) -> usize;
     fn remove(&mut self, index: usize);
     fn write(&self, w: &mut dyn Writer, entity: &dyn Fn(usize) -> Entity);
-    fn read(&mut self, r: &mut dyn Reader, valid: &dyn Fn(Entity) -> bool)
-        -> Result<(), DataError>;
+    /// The save representation: columnar rows, or a resource's value.
+    fn write_save(&self, w: &mut dyn Writer);
+    fn read_save(
+        &mut self,
+        r: &mut dyn Reader,
+        alive: &dyn Fn(u32) -> bool,
+    ) -> Result<(), DataError>;
 }
 pub(crate) fn make<C: Data>(name: &'static str, epoch: std::rc::Rc<Cell<u64>>) -> Box<dyn Erased> {
     Box::new(Storage::<C> {
@@ -240,12 +245,15 @@ impl<C: Data> Erased for Storage<C> {
     fn write(&self, w: &mut dyn Writer, entity: &dyn Fn(usize) -> Entity) {
         self.raw.write(w, entity);
     }
-    fn read(
+    fn write_save(&self, w: &mut dyn Writer) {
+        self.raw.write_save(w);
+    }
+    fn read_save(
         &mut self,
         r: &mut dyn Reader,
-        valid: &dyn Fn(Entity) -> bool,
+        alive: &dyn Fn(u32) -> bool,
     ) -> Result<(), DataError> {
-        self.raw.read(r, valid)
+        self.raw.read_save(r, alive)
     }
     fn snapshot(
         &self,

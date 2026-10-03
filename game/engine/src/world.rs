@@ -230,7 +230,7 @@ const SINGLETON: Entity = Entity {
     index: 0,
     generation: 0,
 };
-const MAGIC: &[u8; 8] = b"EXGAME\0\x03";
+const MAGIC: &[u8; 8] = b"EXGAME\0\x04";
 
 impl World {
     /// Start at tick zero. A zero tick rate is a programmer error.
@@ -1021,6 +1021,10 @@ impl World {
             w.begin_struct();
             for (name, s) in storages {
                 w.key(name);
+                if delivery {
+                    s.write_save(w);
+                    continue;
+                }
                 s.write(w, &|index| {
                     if kind == "resources" {
                         SINGLETON
@@ -1121,7 +1125,7 @@ impl World {
         }
         bytes.strip_prefix(MAGIC).ok_or_else(|| {
             DataError::new(format!(
-                "unsupported world save format (expected EXGAME v3; saw {:02x?})",
+                "unsupported world save format (expected EXGAME v4; saw {:02x?})",
                 &bytes[..bytes.len().min(8)]
             ))
         })
@@ -1129,16 +1133,6 @@ impl World {
     fn validate_state(&self) -> Result<(), DataError> {
         if self.hz() == 0 {
             return Err(DataError::new("hz must be positive"));
-        }
-        let free = self
-            .state
-            .slots
-            .iter()
-            .enumerate()
-            .filter(|(_, s)| !s.alive)
-            .map(|(i, _)| i as u32);
-        if !free.eq(self.state.free.0.iter().copied()) {
-            return Err(DataError::new("free list disagrees with entity table"));
         }
         if self
             .state
@@ -1217,14 +1211,9 @@ impl World {
                             ))
                         })?;
                         let mut s = make(key, self.epoch.clone());
-                        s.read(r, &|e| {
-                            if resource {
-                                e == SINGLETON
-                            } else {
-                                self.contains(e)
-                            }
-                        })
-                        .map_err(|e| e.at(&name))?;
+                        let slots = &self.state.slots;
+                        s.read_save(r, &|i| slots.get(i as usize).is_some_and(|s| s.alive))
+                            .map_err(|e| e.at(&name))?;
                         if resource && s.len() != 1 {
                             return Err(DataError::new("resource must contain one value").at(name));
                         }
