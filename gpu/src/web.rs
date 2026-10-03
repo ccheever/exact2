@@ -19,8 +19,6 @@ fn with<T>(f: impl FnOnce(&mut Module) -> T) -> Option<T> {
 extern "C" {
     #[wasm_bindgen(js_namespace = ["globalThis", "exact", "gpu"], js_name = deviceLost)]
     fn device_lost();
-    #[wasm_bindgen(js_namespace = console, js_name = error)]
-    fn console_error(message: &str);
 }
 
 pub(crate) fn notify_loss(lost: &std::sync::Arc<std::sync::atomic::AtomicBool>) {
@@ -53,10 +51,6 @@ pub fn asset_failed(id: u32, name: &str, reason: &str) -> bool {
 /// Create the device and the module (asynchronous: WebGPU's adapter and
 /// device requests are).
 pub async fn load(registry: &'static Registry) -> Result<(), JsValue> {
-    // A panic aborts the module (`unreachable`); say where first, as native does.
-    std::panic::set_hook(Box::new(|info| {
-        console_error(&format!("exact gpu: {info}"))
-    }));
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::BROWSER_WEBGPU,
         ..wgpu::InstanceDescriptor::new_without_display_handle()
