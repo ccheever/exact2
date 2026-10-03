@@ -8,7 +8,6 @@
 #if os(macOS)
 import AppKit
 import IOSurface
-
 private final class SymbolClip: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
