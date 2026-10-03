@@ -452,7 +452,7 @@ function applyProps(el, set, clear) {
       el.authoredInert = value === "true"; el.inert = el.authoredInert;
     } else if (name === "autofocus") { el.exactAutofocus = value === "true"; if (!el.exactAutofocus) el.removeAttribute(name);
     } else if (name === "disabled" || name === "readonly" || (el instanceof HTMLVideoElement && ["autoplay","controls","loop","muted","playsinline","disablepictureinpicture","disableremoteplayback"].includes(name))) {
-      if (value === "true") el.setAttribute(name, ""); else el.removeAttribute(name);
+      if (value === "true") { el.setAttribute(name, ""); if (name === "disabled" && el === document.activeElement) el.blur(); } else el.removeAttribute(name); // a focused node that is disabled loses the focus now, not at the browser's next frame (HTML focus fixup)
     } else {
       const v = (name === "src" || name === "poster") && value.startsWith("app:/") ? globalThis.exact.pickedURL?.(value) ?? "" : (name === "src" || name === "href" || name === "poster") ? localAssetURL(value) : value, same = el.getAttribute(name) === v; // setting what is there reloads an adopted iframe or video
       if (el instanceof HTMLIFrameElement && name === "src" && !same) iframeLoading.set(el, true);
@@ -1218,7 +1218,7 @@ async function clock(request) {
   let world = {};
   const reply = (settled, requests) => ({ clock: agentClock, ...(settled === undefined ? {} : { settled }), ...world.reply, ...(settled === false && world.pending ? { reason: "world" } : settled === false && requests ? { reason: "requests" } : {}) });
   for (let rounds = 0; ; rounds++) {
-    if (settle && !(await waitForInflight(deadline))) return reply(false, true); const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad;
+    if (settle && !(await waitForInflight(deadline))) return reply(false, true); const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; if (settle) collections.settle(); // rows a list shows are built at this clock, before it moves (as the JS agent does): their animations start here
     if (gpuInPlay()) { const pending = await settleGpu(); if (pending.length) return gpuPendingReply(request, pending); }
     const to = settle ? Math.max(settleCandidate(), world.settleAt ?? agentClock) : request.to;
     if (!(to >= agentClock)) return { error: `the clock cannot go backwards (${agentClock} → ${to})` };

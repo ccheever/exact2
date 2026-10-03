@@ -573,7 +573,7 @@ export function P(e, name, f) {
     else if (name === "paused") {
       if (v === "true") e.pause(); else e.play().catch(err => e.dispatchEvent(new CustomEvent("exact-error", { detail: err.message })));
     }
-    else if (BOOL.test(name)) { e.toggleAttribute(name, v === "true"); if (name === "checked") e.checked = e.$checked = v === "true"; if (name === "muted") e.muted = v === "true"; }
+    else if (BOOL.test(name)) { e.toggleAttribute(name, v === "true"); if (name === "disabled" && v === "true" && document.activeElement === e) e.blur(); /* HTML focus fixup, now (glue.js) */ if (name === "checked") e.checked = e.$checked = v === "true"; if (name === "muted") e.muted = v === "true"; }
     else if (v == null) { if (e.hasAttribute(name)) { e.removeAttribute(name); if (name.startsWith("data-exact-")) paintFacts(e); } }
     else if (e.getAttribute(name) !== v) { e.setAttribute(name, v); if (name.startsWith("data-exact-")) paintFacts(e); }
   });
