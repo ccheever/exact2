@@ -45,7 +45,9 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   // Mouse look: a held contact moved 100 points turns by the sensitivity.
   const before = (await game.get('player', 'Fighter')).yaw;
   await s.tap('world', {down:true, at:[300, 500]});
-  const moved = await s.pointer('move', {dx:100, dy:0, ms:100});
+  // No duration: a timed move advances each host's clock differently, and
+  // --compare-saves wants every host's sessions to end on the same tick.
+  const moved = await s.pointer('move', {dx:100, dy:0, ms:0});
   await s.pointer('up');
   await game.run(50);
   const turned = before - (await game.get('player', 'Fighter')).yaw;
@@ -112,12 +114,12 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   check('continuation saves are byte-identical', readFileSync(resolve(out, 'continued.world')).equals(readFileSync(resolve(out, 'restored.world'))));
   await restored.close();
 
-  if (host === 'web') {
-    const f = await open({fresh:true});
-    await f.tap('ffa');
-    await f.world('world').key_down('KeyF');
-    await f.world('world').run(2600);
-    await f.screenshot(resolve(out, 'game.png'));
-    await f.close();
-  }
+  // Seven bots: on the web, the screenshot of a fight in progress.
+  const f = await open({fresh:true});
+  await f.tap('ffa');
+  await f.world('world').key_down('KeyF');
+  await f.world('world').run(2600);
+  check('the free-for-all is a fight', (await f.world('world').snapshot()).entities.some(e => e.components?.Rocket || e.components?.Effect));
+  if (host === 'web') await f.screenshot(resolve(out, 'game.png'));
+  await f.close();
 });

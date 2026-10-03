@@ -363,9 +363,16 @@ adapted, not re-pinned (the lead holds the repin until the engine is final).
   8,333 µs budget.
 - **Viewmodel.** Every weapon part carries `ViewModel`: against the north wall the
   whole rifle now draws (`artifacts/web/wall.png`; limit 10 fixed).
-- **Proofs.** Linux 28 checks pass, web 28 pass; each fails only its three pins, the
-  same new values on both hosts (tick 0 `0x43cd864151a83899`, tick 1080
-  `0x15f7cc9715dc5c7c`, continuation `63bf2ecc…`) — awaiting the repin. Logic tests:
+- **Proofs, re-pinned** on the final engine (integrate b61db278a, merge e00ff9dd5):
+  tick 0 `0x43ddb86583af9a6d` → `0xe4a8cfcdccd41d7a`, tick 1080 `0x2bdee9eeafba4807` →
+  `0xf0f3b95bede822ab`, continuation `7580aadf…` → `63bf2ecc…` (the same save bytes as
+  every post-merge run). Kills, deaths, shots, hits, health and positions are
+  identical to the pre-repin runs at every snapshot both share. `--compare-saves`
+  first failed on world hashes: my range session's drag (`ms:100`) and the web-only
+  free-for-all made the hosts' sessions end on different ticks; the drag is now
+  instant and the free-for-all runs on both, and `bun game/prove.mjs rivals --hosts
+  linux,web --compare-saves` is **PROOF PASS** (world hashes equal, save bytes identical).
+  Logic tests:
   18 pass with the lints (`shells.mjs --test`). Game logic 2,017 lines (−1: the
   analytic capsule out, aiming and MouseLook in).
 
