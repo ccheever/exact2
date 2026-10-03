@@ -1,7 +1,6 @@
 //! Fighters: one capsule each, steered by the player's input or a bot's brain.
 //! Walk, sprint, jump, slide and knockback all feed one horizontal wish velocity
 //! into the physics capsule; gravity and jumps own its vertical velocity.
-use crate::arena;
 use crate::weapons::{Weapon, RIFLE_MAG, ROCKET_MAG};
 use exact_game::math::{cos, sin};
 use exact_game::*;
@@ -15,6 +14,8 @@ pub const SLIDE_EYE: f32 = 0.1;
 /// A ray hitting the capsule above this height (from its centre) is a headshot.
 pub const HEAD_FROM: f32 = 0.5;
 pub const MAX_HP: f32 = 100.0;
+/// The view never pitches past this, up or down.
+pub const PITCH_LIMIT: f32 = 1.45;
 pub const WALK: f32 = 7.0;
 pub const SPRINT: f32 = 10.0;
 pub const GRAVITY: f32 = 22.0;
@@ -36,6 +37,8 @@ pub struct Intent {
     pub jump: bool,
     pub slide: bool,
     pub fire: bool,
+    /// Aim down sights: a narrower view, a tighter spread, a slower walk.
+    pub aim: bool,
     pub reload: bool,
     pub switch: Option<Weapon>,
     /// Look change in radians this tick.
@@ -71,6 +74,7 @@ pub struct Fighter {
     pub slide_ready: f32,
     pub slide_dir: Vec3,
     pub eye: f32,
+    pub aiming: bool,
     pub kills: u32,
     pub deaths: u32,
     pub rounds: u32,
@@ -142,7 +146,8 @@ pub fn spawn(w: &mut World, slot: u32, label: &str, bot: bool, color: [f32; 3]) 
                 },
                 sensor: true,
                 layer: 1 << slot,
-                mask: arena::WORLD,
+                // Fighters block one another as well as the arena.
+                mask: u32::MAX,
                 ..Collider::default()
             },
             f,
@@ -200,6 +205,9 @@ pub fn place(w: &mut World, e: Entity, spawn: [f32; 2]) {
     f.yaw = yaw;
     f.pitch = 0.0;
     f.reset_loadout();
+    let bit = f.bit();
+    drop(f);
+    w.require_mut::<Collider>(e).layer = bit;
 }
 
 /// Turn, then move one fighter through its capsule. Returns the step result.
@@ -209,20 +217,22 @@ pub fn step(w: &mut World, e: Entity, intent: &Intent) -> physics::CapsuleStep {
     let (velocity, alive) = {
         let mut f = w.require_mut::<Fighter>(e);
         let mut c = w.require_mut::<CapsuleController>(e);
+        f.aiming = f.alive && intent.aim && f.weapon != Weapon::Knife && !f.sliding(now);
         if f.alive {
             f.yaw = exact_game::math::wrap_angle(f.yaw + intent.yaw);
-            f.pitch = (f.pitch + intent.pitch).clamp(-1.45, 1.45);
+            f.pitch = (f.pitch + intent.pitch).clamp(-PITCH_LIMIT, PITCH_LIMIT);
         }
         let fwd = forward(f.yaw);
         let right = Vec3::new(-fwd.z, 0.0, fwd.x);
         let stick = if f.alive { intent.stick } else { Vec3::ZERO };
         let wish = (right * stick.x - fwd * stick.z).clamp_length_max(1.0);
         let forwardish = -stick.z > 0.3;
-        let speed = if intent.sprint && forwardish {
+        let speed = if intent.sprint && forwardish && !f.aiming {
             SPRINT
         } else {
             WALK
-        } * f.weapon.speed();
+        } * f.weapon.speed()
+            * if f.aiming { 0.65 } else { 1.0 };
         let mut planar = f.planar;
         if f.alive && c.grounded && intent.slide && now >= f.slide_ready && planar.length() > 5.0 {
             f.slide_dir = planar.normalize();
@@ -300,45 +310,5 @@ pub fn face(w: &World, label: &str, yaw: f32) {
                 }
             }
         }
-    }
-}
-
-/// Distance along a unit ray to a fighter's capsule centred at `centre`, if hit.
-/// Analytic, because Parry 0.30's support-map capsule raycast misses about one
-/// centred ray in 250 (see `tests/limits.rs`, `parry_capsule_rays_miss`).
-pub fn ray_capsule(origin: Vec3, dir: Vec3, centre: Vec3) -> Option<f32> {
-    let half = Vec3::new(0.0, HEIGHT / 2.0 - RADIUS, 0.0);
-    let (pa, pb) = (centre - half, centre + half);
-    let sphere = |c: Vec3| {
-        let oc = origin - c;
-        let b = dir.dot(oc);
-        let h = b * b - (oc.dot(oc) - RADIUS * RADIUS);
-        (h >= 0.0)
-            .then(|| -b - exact_game::math::sqrt(h))
-            .filter(|t| *t >= 0.0)
-    };
-    let ba = pb - pa;
-    let oa = origin - pa;
-    let baba = ba.dot(ba);
-    let bard = ba.dot(dir);
-    let baoa = ba.dot(oa);
-    let a = baba - bard * bard;
-    if a > 1e-9 {
-        let b = baba * dir.dot(oa) - baoa * bard;
-        let c = baba * oa.dot(oa) - baoa * baoa - RADIUS * RADIUS * baba;
-        let h = b * b - a * c;
-        if h < 0.0 {
-            return None;
-        }
-        let t = (-b - exact_game::math::sqrt(h)) / a;
-        let y = baoa + t * bard;
-        if y > 0.0 && y < baba {
-            return (t >= 0.0).then_some(t);
-        }
-        return sphere(if y <= 0.0 { pa } else { pb });
-    }
-    match (sphere(pa), sphere(pb)) {
-        (Some(x), Some(y)) => Some(x.min(y)),
-        (x, y) => x.or(y),
     }
 }

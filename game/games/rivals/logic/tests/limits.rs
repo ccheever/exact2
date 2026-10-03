@@ -211,51 +211,6 @@ fn hitscan_tracks_a_strafing_capsule() {
     assert_eq!((hits, heads), (240, 120));
 }
 
-/// The engine's raycast against a capsule collider misses rays aimed straight at
-/// it: Parry 0.30.2 casts rays on capsules with GJK on the support map, which
-/// gives up on a few configurations. The analytic test in `fighter.rs` agrees
-/// with geometry everywhere. Recorded, not fixed (the game works around it).
-#[test]
-fn parry_capsule_rays_miss() {
-    let mut w = World::new(120, 1);
-    physics::register(&mut w);
-    let c = w.spawn((
-        Transform::at(0.0, 0.92, 13.0),
-        Collider {
-            shape: Shape::Capsule {
-                radius: 0.35,
-                height: 1.8,
-            },
-            layer: 4,
-            ..Collider::default()
-        },
-    ));
-    let eye = Vec3::new(0.0, 1.62, 18.0);
-    let (mut misses, mut analytic, mut first) = (0, 0, None);
-    let n = 4000;
-    for i in 0..n {
-        let x = -2.0 + 4.0 * i as f32 / n as f32;
-        w.require_mut::<Transform>(c).position.x = x;
-        for dy in [0.0f32, 0.3, -0.3, 0.6] {
-            let target = Vec3::new(x, 0.92 + dy, 13.0);
-            if physics::raycast(&w, eye, target - eye, 40.0, 4).is_none() {
-                misses += 1;
-                first.get_or_insert((x, dy));
-            }
-            let dir = (target - eye).normalize();
-            analytic += usize::from(
-                rivals_logic::fighter::ray_capsule(eye, dir, Vec3::new(x, 0.92, 13.0)).is_none(),
-            );
-        }
-    }
-    println!("engine raycast missed {misses} of {} rays aimed inside a capsule (first at {first:?}); analytic missed {analytic}", n * 4);
-    assert_eq!(analytic, 0);
-    assert!(
-        misses > 0,
-        "Parry's capsule raycast no longer misses: delete the workaround"
-    );
-}
-
 /// A rocket at 2 km/s (17 m per tick) still stops at a 0.2 m wall: it sweeps.
 #[test]
 fn swept_rockets_do_not_tunnel() {
@@ -332,13 +287,27 @@ fn dynamic_bodies_do_not_tunnel_through_thin_walls() {
     assert!(ends.iter().all(|z| (*z + 4.925).abs() < 0.01), "{ends:?}");
 }
 
+/// A locked mouse's motion: `dx` points, the position unchanged.
+fn motion<G: Game>(sim: &mut Sim<G>, at_ms: f64, dx: f32) {
+    sim.input(InputEvent::Pointer {
+        id: 1,
+        phase: PointerPhase::Move,
+        x: 640.0,
+        y: 360.0,
+        dx,
+        dy: 0.0,
+        buttons: 0,
+        at_ms,
+    });
+}
+
 /// Input to displayed pose, through the engine's own live clock: a display
 /// callback every frame (`Clock::Live` with the frame period), mouse events
 /// arriving between frames, and the pose the renderer would draw (the last two
 /// ticks blended by `Sim::alpha`). Returns per trial the delay to the first
 /// visible change and to the whole turn, in ms; and for a steady 2,000 pt/s
 /// mouse, the coefficient of variation of the per-frame turn (judder).
-fn live_latency<G: Game<Args = Options>>(display_hz: f64) -> (Vec<f64>, Vec<f64>, f64) {
+fn live_latency<G: Game<Args = Options>>(display_hz: f64, look: bool) -> (Vec<f64>, Vec<f64>, f64) {
     let mut sim = Sim::<G>::new(Options {
         seed: 3,
         bots: 3,
@@ -352,21 +321,16 @@ fn live_latency<G: Game<Args = Options>>(display_hz: f64) -> (Vec<f64>, Vec<f64>
     let mut t = 0.0;
     let mut yaws: Vec<f32> = Vec::new();
     let yaw_of = |w: &World| w.require::<rivals_logic::fighter::Fighter>("player").yaw;
-    let mut frame = |sim: &mut Sim<G>, t: f64, yaws: &mut Vec<f32>| {
+    let frame = |sim: &mut Sim<G>, t: f64, yaws: &mut Vec<f32>| {
         sim.advance_with(t, exact_game::Clock::Live, |w, _| yaws.push(yaw_of(w)));
         let n = yaws.len();
         let (a, b) = (yaws[n.saturating_sub(2)], yaws[n - 1]);
-        a + math::wrap_angle(b - a) * sim.alpha()
+        // The renderer's MouseLook adds the motion no drawn tick shows yet.
+        let unshown = if look { sim.unshown_motion().x } else { 0.0 };
+        a + math::wrap_angle(b - a) * sim.alpha() - unshown * rivals_logic::DEFAULT_SENSITIVITY
     };
     yaws.push(yaw_of(sim.world()));
-    let (mut x, mut seed) = (640.0f32, 0x2545F491u32);
-    sim.input(InputEvent::Pointer {
-        id: 1,
-        phase: PointerPhase::Move,
-        x,
-        y: 360.0,
-        at_ms: 0.0,
-    });
+    let mut seed = 0x2545F491u32;
     for _ in 0..120 {
         frame(&mut sim, t, &mut yaws);
         t += period;
@@ -376,14 +340,7 @@ fn live_latency<G: Game<Args = Options>>(display_hz: f64) -> (Vec<f64>, Vec<f64>
         seed = seed.wrapping_mul(1664525).wrapping_add(1013904223);
         let at = t - period + period * (seed >> 8) as f64 / (1u32 << 24) as f64;
         let shown = frame(&mut sim, t - period + 1e-6, &mut yaws);
-        x += 40.0;
-        sim.input(InputEvent::Pointer {
-            id: 1,
-            phase: PointerPhase::Move,
-            x,
-            y: 360.0,
-            at_ms: at,
-        });
+        motion(&mut sim, at, 40.0);
         let goal = shown - 40.0 * rivals_logic::DEFAULT_SENSITIVITY;
         let (mut f, mut w) = (None, None);
         let mut ft = t;
@@ -415,14 +372,7 @@ fn live_latency<G: Game<Args = Options>>(display_hz: f64) -> (Vec<f64>, Vec<f64>
         t += period;
         while event < t {
             event += 1.0;
-            x += 2.0;
-            sim.input(InputEvent::Pointer {
-                id: 1,
-                phase: PointerPhase::Move,
-                x,
-                y: 360.0,
-                at_ms: event,
-            });
+            motion(&mut sim, event, 2.0);
         }
         let now = frame(&mut sim, t, &mut yaws);
         if t > start + 200.0 {
@@ -440,26 +390,31 @@ fn live_latency<G: Game<Args = Options>>(display_hz: f64) -> (Vec<f64>, Vec<f64>
 fn mouse_latency_by_tick_and_display_rate() {
     use rivals_logic::rates::{Rivals240, Rivals30, Rivals60};
     let mut rows = Vec::new();
-    for display in [60.0, 120.0, 144.0] {
-        for (hz, (first, whole, judder)) in [
-            (30, live_latency::<Rivals30>(display)),
-            (60, live_latency::<Rivals60>(display)),
-            (120, live_latency::<Rivals>(display)),
-            (240, live_latency::<Rivals240>(display)),
-        ] {
-            let (f50, f95) = (quantile(first.clone(), 0.5), quantile(first, 0.95));
-            let (w50, w95) = (quantile(whole.clone(), 0.5), quantile(whole, 0.95));
-            println!(
-                "display {display:>3} Hz, tick {hz:>3} Hz: first change p50 {f50:5.1} ms p95 {f95:5.1}; whole turn p50 {w50:5.1} p95 {w95:5.1}; steady-turn judder {judder:.3}"
-            );
-            rows.push((display, hz, w95, judder));
+    for look in [false, true] {
+        for display in [60.0, 120.0, 144.0] {
+            for (hz, (first, whole, judder)) in [
+                (30, live_latency::<Rivals30>(display, look)),
+                (60, live_latency::<Rivals60>(display, look)),
+                (120, live_latency::<Rivals>(display, look)),
+                (240, live_latency::<Rivals240>(display, look)),
+            ] {
+                let (f50, f95) = (quantile(first.clone(), 0.5), quantile(first, 0.95));
+                let (w50, w95) = (quantile(whole.clone(), 0.5), quantile(whole, 0.95));
+                println!(
+                    "{} display {display:>3} Hz, tick {hz:>3} Hz: first change p50 {f50:5.1} ms p95 {f95:5.1}; whole turn p50 {w50:5.1} p95 {w95:5.1}; steady-turn judder {judder:.3}",
+                    if look { "MouseLook" } else { "ticks only" }
+                );
+                rows.push((look, display, hz, w95, judder));
+            }
         }
     }
-    // A completed turn never takes more than a display frame plus two ticks.
-    for (display, hz, w95, _) in rows {
+    for (look, display, hz, w95, _) in rows {
+        // Ticks alone: a turn completes within a display frame plus two ticks.
+        // With MouseLook: within the next frame, whatever the rates.
+        let bound = 1000.0 / display + if look { 0.0 } else { 2000.0 / hz as f64 } + 0.5;
         assert!(
-            w95 <= 1000.0 / display + 2000.0 / hz as f64 + 0.5,
-            "{display} {hz} {w95}"
+            w95 <= bound,
+            "look {look} display {display} tick {hz}: {w95} ms"
         );
     }
 }

@@ -145,7 +145,8 @@ pub fn actions() -> Actions {
         .button("jump", &["Space"])
         .button("sprint", &["ShiftLeft", "ShiftRight"])
         .button("slide", &["KeyC", "ControlLeft"])
-        .button("fire", &["KeyF"])
+        .button("fire", &["KeyF", "MouseLeft"])
+        .button("aim", &["MouseRight"])
         .button("reload", &["KeyR"])
         .button("rifle", &["Digit1"])
         .button("rocket", &["Digit2"])
@@ -217,7 +218,7 @@ pub fn setup(w: &mut World, args: &Options) {
         number: 1,
         ..Round::default()
     });
-    camera_follow(w);
+    camera_follow(w, args);
     publish(w, args);
 }
 
@@ -277,14 +278,16 @@ fn viewmodel(w: &mut World, camera: Entity) {
                 mesh,
                 material,
                 Visible(weapon == Weapon::Rifle),
-                Viewmodel { weapon, rest: at },
+                ViewModel,
+                WeaponPart { weapon, rest: at },
             ),
         );
     }
 }
 
+/// One part of a first-person weapon model and where it rests.
 #[derive(Clone, Debug, Default, Component)]
-pub struct Viewmodel {
+pub struct WeaponPart {
     pub weapon: Weapon,
     pub rest: Vec3,
 }
@@ -299,11 +302,9 @@ pub fn player_intent(w: &World, input: &Input, args: &Options) -> Intent {
     };
     let mut yaw = 0.0;
     let mut pitch = 0.0;
-    let mut clicked = false;
     if let Some(p) = input.pointer() {
         yaw -= p.delta.x * sens;
         pitch -= p.delta.y * sens;
-        clicked = p.down;
     }
     let keys = input.stick("look");
     yaw -= keys.x * KEY_TURN * dt;
@@ -332,7 +333,8 @@ pub fn player_intent(w: &World, input: &Input, args: &Options) -> Intent {
         sprint: input.held("sprint"),
         jump: input.pressed("jump"),
         slide: input.pressed("slide"),
-        fire: input.held("fire") || input.pressed("fire") || clicked,
+        fire: input.held("fire") || input.pressed("fire"),
+        aim: input.held("aim"),
         reload: input.pressed("reload"),
         switch,
         yaw,
@@ -348,6 +350,7 @@ pub fn tick(w: &mut World, input: &Input, args: &Options) {
             w.resource_mut::<Round>().over_until = 0.0;
             round::next_round(w, args.bot_count() == 1);
         } else {
+            mouse_look(w, args, false);
             weapons::effects(w);
             publish(w, args);
             return;
@@ -387,13 +390,42 @@ pub fn tick(w: &mut World, input: &Input, args: &Options) {
             fighter::face(w, &f.label, f.yaw);
         }
     }
-    camera_follow(w);
+    camera_follow(w, args);
     weapons::effects(w);
     publish(w, args);
 }
 
-/// The camera sits at the player's eye; the viewmodel kicks with recoil.
-pub fn camera_follow(w: &mut World) {
+/// While the tick turns the camera by the mouse, the renderer may too: between
+/// ticks `MouseLook` turns the drawn camera by motion no tick has shown yet.
+/// Dead, or between rounds, the mouse turns nothing, so neither may the renderer.
+fn mouse_look(w: &mut World, args: &Options, on: bool) {
+    let e = w.named("camera").expect("camera");
+    let sens = if args.sensitivity > 0.0 {
+        args.sensitivity
+    } else {
+        DEFAULT_SENSITIVITY
+    };
+    let look = MouseLook {
+        yaw_per_point: -sens,
+        pitch_per_point: -sens,
+        pitch_limit: fighter::PITCH_LIMIT,
+    };
+    let current = w.get::<MouseLook>(e).map(|l| *l);
+    match (on, current) {
+        (true, Some(l)) if l == look => {}
+        (true, _) => {
+            w.insert(e, look);
+        }
+        (false, Some(_)) => {
+            w.remove::<MouseLook>(e);
+        }
+        (false, None) => {}
+    }
+}
+
+/// The camera sits at the player's eye; the viewmodel kicks with recoil and
+/// comes to the centre when aiming down sights.
+pub fn camera_follow(w: &mut World, args: &Options) {
     let now = w.seconds() as f32;
     let (at, f) = {
         let e = w.named("player").expect("player");
@@ -406,9 +438,14 @@ pub fn camera_follow(w: &mut World) {
     let mut t = Transform::at(at.x, at.y + f.eye + lift, at.z);
     t.rotation = fighter::look(f.yaw, if f.alive { f.pitch } else { -0.5 });
     *w.require_mut::<Transform>("camera") = t;
+    let fov = if f.aiming { 52.0 } else { 74.0 };
+    if w.require::<Camera>("camera").fov_y_degrees != fov {
+        w.require_mut::<Camera>("camera").fov_y_degrees = fov;
+    }
+    mouse_look(w, args, f.alive);
     let swing = (now - f.swing_at).clamp(0.0, 0.3) / 0.3;
     for (_, (vm, t, visible)) in w
-        .query::<(&Viewmodel, &mut Transform, &mut Visible)>()
+        .query::<(&WeaponPart, &mut Transform, &mut Visible)>()
         .iter()
     {
         let show = f.alive && vm.weapon == f.weapon;
@@ -416,6 +453,10 @@ pub fn camera_follow(w: &mut World) {
             visible.0 = show;
         }
         let mut at = vm.rest + Vec3::new(0.0, 0.0, 0.06 * f.kick);
+        if f.aiming {
+            at.x -= 0.2;
+            at.y += 0.06;
+        }
         if f.reload_until > 0.0 {
             at.y -= 0.12;
         }

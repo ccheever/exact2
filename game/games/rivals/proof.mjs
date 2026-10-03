@@ -42,21 +42,16 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await game.tap('KeyF');
   await game.run(50);
   check('lower aim is a body shot for 20', (await game.get('bot-2', 'Fighter'))?.hp === 44);
-  // Mouse look: a held contact moved 100 points turns by the sensitivity. The
-  // Linux presenter retires a canvas contact at its first move and the world sees
-  // no pointer delta there, so this is checked on the web (and in logic tests).
-  let turned = 0;
-  if (host === 'web') {
-    const before = (await game.get('player', 'Fighter')).yaw;
-    await s.tap('world', {down:true, at:[300, 500]});
-    const moved = await s.pointer('move', {dx:100, dy:0, ms:100});
-    if (moved.contact !== false) await s.pointer('up');
-    await game.run(50);
-    turned = before - (await game.get('player', 'Fighter')).yaw;
-    check(`pointer drag turns the view (${moved.delivery})`, Math.abs(turned - 0.25) < 0.02, {turned, moved});
-  }
+  // Mouse look: a held contact moved 100 points turns by the sensitivity.
+  const before = (await game.get('player', 'Fighter')).yaw;
+  await s.tap('world', {down:true, at:[300, 500]});
+  const moved = await s.pointer('move', {dx:100, dy:0, ms:100});
+  await s.pointer('up');
+  await game.run(50);
+  const turned = before - (await game.get('player', 'Fighter')).yaw;
+  check(`pointer drag turns the view (${moved.delivery})`, Math.abs(turned - 0.25) < 0.02, {turned, moved});
   // Turn back with the keys: 2.4 rad/s for the time that undoes the drag.
-  if (turned) await game.hold('ArrowLeft', turned / 2.4 * 1000);
+  await game.hold('ArrowLeft', turned / 2.4 * 1000);
   await game.run(50);
   await game.tap('Digit2');
   await game.run(400);

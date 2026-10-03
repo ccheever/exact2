@@ -100,6 +100,8 @@ Engine change: `host/web/gpu-glue.js` +18 −1.
 
 ## Limits found
 
+Limits 1–5, 7, 8 and 10 are fixed on `roblox/integrate`; see [after the fix lane](#after-the-fix-lane).
+
 The headline: the simulation side held up far better than the input side. Fixed
 ticks, saves and determinism were free even mid-rocket-barrage; what breaks an FPS
 here is getting the mouse in (no raw delta, no lock), one geometric bug in the
@@ -310,3 +312,56 @@ module `gpu_bg.wasm` 1,424 KiB (584 KiB gzip), loaded on demand.
   sprinting, sliding, knockback and edge behaviour apply to everyone.
 - **`layout <id>` answered the CSS question immediately** (the 1,040 px line-height),
   and the stale-build guard refused a web run with an edited source mid-proof.
+
+## After the fix lane
+
+2026-10-03, `roblox/integrate` merged into `roblox/rivals` (ef5223a3). The game was
+adapted, not re-pinned (the lead holds the repin until the engine is final).
+
+- **Workarounds deleted.** `fighter::ray_capsule` and the `parry_capsule_rays_miss`
+  test are gone: hitscan and bot sight are one `physics::raycast` (closed-form capsule
+  rays now) and `hitscan_tracks_a_strafing_capsule` still hits 240/240 with 120/120
+  head/body calls. This branch's pointer-lock glue is replaced by integrate's, which
+  sends the device's motion (`dx`/`dy`).
+- **Input.** Mouse look reads `pointer().delta` as device motion; the first move now
+  turns (friction 6 gone: `mouse_look_turns_by_sensitivity_from_the_first_move`).
+  Fire is `KeyF` or `MouseLeft`; `MouseRight` aims down sights (52° view, 35% cone,
+  65% speed; `right_button_aims_down_sights`). The proof's mouse-look check runs on
+  Linux too now (limit 7 gone: `delivery: presenter`, 0.25 rad for 100 points).
+- **MouseLook on the camera** (yaw and pitch −0.0025 rad/pt, limit 1.45 rad), removed
+  while dead and between rounds, when the tick does not turn the camera. The latency
+  test now draws with and without it. Before → after (ticks only → MouseLook):
+
+  | display / tick | whole turn p50 / p95 ms | judder |
+  |---|---|---|
+  | 60 / 30 | 42.2 / 49.1 → 8.8 / 15.8 | 0.014 → 0.028 |
+  | 120 / 60 | 21.1 / 24.5 → 4.4 / 7.9 | 0.028 → 0.057 |
+  | 120 / 120 | 4.4 / 7.9 → 4.4 / 7.9 | 0.057 → 0.057 |
+  | **144 / 120** | **17.6 / 20.5 → 3.7 / 6.6** | **0.293 → 0.032** |
+  | 144 / 60 | 17.6 / 20.5 → 3.7 / 6.6 | 0.181 → 0.032 |
+
+  Every rate now shows a turn at the next frame, and judder falls to the 1 kHz
+  mouse's own quantization (limit 3 fixed; the slight rise at 60/30 and 120/60 is that
+  quantization replacing the ticks' smoothing).
+- **Physics.** Fighters' masks now include each other, so they block one another
+  (limit 8, kept: it plays better); a dead fighter's collider drops to layer 0, so
+  shots, splash and bodies pass through until the respawn. `replay_gives_the_same_kills`
+  asserted >10 logged hits, which the round reset can clear; it now compares every
+  fighter's shots, kills, deaths, rounds and health across two runs and asks for a
+  real fight (this script: 289 shots, 10 deaths, ten kills, identical twice).
+- **Query scene** (limit 5, re-measured at load average 23–27, against ~16 before):
+  ray-then-write over 500 rockets 3,736 → ~306 µs, the batched loop 79 → ~210 µs, so
+  the obvious loop is now as cheap as the careful one. But one cached ray went
+  0.2 → 0.5–0.8 µs and a batched ray 0.16 → 0.42 µs: a possible 2.5× per-ray cost
+  from tracking written rows, or the load. Worth a quiet-machine rerun before calling it.
+- **Tick costs** (release, live clock, same load caveat; three runs, middle shown):
+  7 bots 127 → 123 µs, 23 bots 545 → 367 µs; 7 bots + 200 rockets 188 → 204–218 µs,
+  + 1,000 rockets 347 → 517–597 µs (the per-ray cost above).
+- **Viewmodel.** Every weapon part carries `ViewModel`: against the north wall the
+  whole rifle now draws (`artifacts/web/wall.png`; limit 10 fixed).
+- **Proofs.** Linux 28 checks pass, web 28 pass; each fails only its three pins, the
+  same new values on both hosts (tick 0 `0x43cd864151a83899`, tick 1080
+  `0x15f7cc9715dc5c7c`, continuation `63bf2ecc…`) — awaiting the repin. Logic tests:
+  18 pass with the lints (`shells.mjs --test`). Game logic 2,017 lines (−1: the
+  analytic capsule out, aiming and MouseLook in).
+

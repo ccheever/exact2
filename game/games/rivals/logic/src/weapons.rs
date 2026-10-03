@@ -101,8 +101,8 @@ pub fn fighters_mask(w: &World) -> u32 {
     roots(w).iter().fold(0, |m, (_, s)| m | (1 << s))
 }
 
-/// What a hitscan ray hits first: a wall (the engine's raycast against the
-/// static world) or a fighter's capsule (analytic). Dead fighters are skipped.
+/// What a hitscan ray hits first: a wall or a living fighter's capsule.
+/// Dead fighters leave their collision layer, so rays pass through them.
 #[derive(Clone, Copy, Debug)]
 pub struct Shot {
     pub fighter: Option<Entity>,
@@ -110,28 +110,11 @@ pub struct Shot {
     pub point: Vec3,
 }
 pub fn hitscan(w: &World, origin: Vec3, dir: Vec3, range: f32, own: u32) -> Option<Shot> {
-    let dir = dir.normalize();
-    let wall = physics::raycast(w, origin, dir, range, arena::WORLD);
-    let mut best = wall.map(|h| Shot {
-        fighter: None,
+    physics::raycast(w, origin, dir, range, !own).map(|h| Shot {
+        fighter: w.has::<Fighter>(h.entity).then_some(h.entity),
         distance: h.distance,
         point: h.point,
-    });
-    for (e, (f, t)) in w.query::<(&Fighter, &Transform)>().iter() {
-        if f.bit() == own || !f.alive {
-            continue;
-        }
-        if let Some(d) = fighter::ray_capsule(origin, dir, t.position) {
-            if d <= range && best.is_none_or(|b| d < b.distance) {
-                best = Some(Shot {
-                    fighter: Some(e),
-                    distance: d,
-                    point: origin + dir * d,
-                });
-            }
-        }
-    }
-    best
+    })
 }
 
 /// Apply damage; returns the landed hit (after death checks) for the caller to log.
@@ -155,6 +138,10 @@ pub fn damage(
     let killed = f.hp <= 0.0;
     if killed {
         f.alive = false;
+        // The body leaves play: shots, splash and movement pass through it.
+        if let Some(mut c) = w.get_mut::<exact_game_physics::Collider>(victim) {
+            c.layer = 0;
+        }
     }
     Some(Damage {
         attacker,
@@ -170,7 +157,7 @@ pub fn damage(
 pub fn act(w: &mut World, e: Entity, intent: &fighter::Intent, origin: Vec3) -> Vec<Damage> {
     let now = w.seconds() as f32;
     let mut out = Vec::new();
-    let (weapon, yaw, pitch, bloom, slot, moving) = {
+    let (weapon, yaw, pitch, bloom, slot, moving, aiming) = {
         let mut f = w.require_mut::<Fighter>(e);
         if !f.alive {
             return out;
@@ -208,13 +195,14 @@ pub fn act(w: &mut World, e: Entity, intent: &fighter::Intent, origin: Vec3) -> 
             };
         f.shots += 1;
         let moving = f.planar.length() > 2.0;
-        (f.weapon, f.yaw, f.pitch, f.bloom, f.slot, moving)
+        (f.weapon, f.yaw, f.pitch, f.bloom, f.slot, moving, f.aiming)
     };
     let own = 1u32 << slot;
     match weapon {
         Weapon::Rifle => {
             // Spread from bloom (sustained fire) and movement; recoil kicks the view.
-            let cone = 0.003 + bloom + if moving { 0.012 } else { 0.0 };
+            let cone = (0.003 + bloom + if moving { 0.012 } else { 0.0 })
+                * if aiming { 0.35 } else { 1.0 };
             let (a, r) = (w.rand(0.0..std::f32::consts::TAU), w.rand(0.0f32..1.0));
             let r = cone * exact_game::math::sqrt(r);
             let dir = fighter::view(
@@ -234,7 +222,7 @@ pub fn act(w: &mut World, e: Entity, intent: &fighter::Intent, origin: Vec3) -> 
                 f.rifle_ammo -= 1;
                 f.bloom = (f.bloom + 0.006).min(0.045);
                 f.kick = (f.kick + 0.35).min(1.0);
-                let climb = 0.011f32.min(1.45 - f.pitch).max(0.0);
+                let climb = 0.011f32.min(fighter::PITCH_LIMIT - f.pitch).max(0.0);
                 f.pitch += climb;
                 f.climb = (f.climb + climb).min(0.2);
                 let sway = w.rand(-0.004f32..0.004);

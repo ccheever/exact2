@@ -23,13 +23,17 @@ fn fighter(sim: &Sim<Rivals>, name: &str) -> Fighter {
 fn round(sim: &Sim<Rivals>) -> Round {
     sim.world().resource::<Round>().clone()
 }
-/// A mouse move to an absolute canvas point, stamped at the sim's clock.
-fn mouse(sim: &mut Sim<Rivals>, at_ms: f64, x: f32, y: f32, phase: PointerPhase) {
+/// A mouse event carrying the device's own motion (a locked pointer: the
+/// position stays put), stamped at `at_ms`.
+fn mouse(sim: &mut Sim<Rivals>, at_ms: f64, phase: PointerPhase, dx: f32, dy: f32, buttons: u32) {
     sim.input(InputEvent::Pointer {
         id: 1,
         phase,
-        x,
-        y,
+        x: 640.0,
+        y: 360.0,
+        dx,
+        dy,
+        buttons,
         at_ms,
     });
 }
@@ -58,21 +62,43 @@ fn range_headshot_and_body_shot() {
 }
 
 #[test]
-fn mouse_look_turns_by_sensitivity() {
+fn mouse_look_turns_by_sensitivity_from_the_first_move() {
     let mut sim = range();
     sim.run(100.0);
-    // The first move only places the pointer; deltas start from it.
-    mouse(&mut sim, 100.0, 640.0, 360.0, PointerPhase::Move);
-    sim.run(50.0);
     let before = fighter(&sim, "player").yaw;
-    mouse(&mut sim, 150.0, 740.0, 360.0, PointerPhase::Move);
+    // The very first move turns: motion is the device's, not a position change.
+    mouse(&mut sim, 100.0, PointerPhase::Move, 100.0, 0.0, 0);
     sim.run(50.0);
-    let after = fighter(&sim, "player").yaw;
-    let turned = before - after;
+    let turned = before - fighter(&sim, "player").yaw;
     assert!(
         (turned - 100.0 * rivals_logic::DEFAULT_SENSITIVITY).abs() < 1e-5,
         "{turned}"
     );
+    let camera = sim.world().named("camera").unwrap();
+    assert!(sim.world().has::<exact_game::MouseLook>(camera));
+}
+
+#[test]
+fn right_button_aims_down_sights() {
+    let mut sim = range();
+    sim.run(100.0);
+    mouse(&mut sim, 100.0, PointerPhase::Down, 0.0, 0.0, 2);
+    sim.run(50.0);
+    assert!(fighter(&sim, "player").aiming);
+    let fov = sim
+        .world()
+        .require::<exact_game::Camera>("camera")
+        .fov_y_degrees;
+    assert_eq!(fov, 52.0);
+    mouse(&mut sim, 150.0, PointerPhase::Up, 0.0, 0.0, 0);
+    sim.run(50.0);
+    assert!(!fighter(&sim, "player").aiming);
+    // Aimed rifle fire is a tighter cone; fire is the left button too.
+    mouse(&mut sim, 200.0, PointerPhase::Down, 0.0, 0.0, 1);
+    sim.run(50.0);
+    mouse(&mut sim, 250.0, PointerPhase::Up, 0.0, 0.0, 0);
+    sim.run(50.0);
+    assert_eq!(fighter(&sim, "player").shots, 1);
 }
 
 #[test]
@@ -124,7 +150,6 @@ fn duel_bot_fights_back() {
 /// A scripted, aggressive player: strafes, jumps, slides, sprays and flicks the
 /// mouse. Every input is a key edge or an absolute pointer move at a stamp.
 fn scripted(sim: &mut Sim<Rivals>, seconds: u32) {
-    let mut x = 640.0;
     for step in 0..seconds * 10 {
         let at = 100.0 * (step + 1) as f64;
         sim.run(100.0);
@@ -151,8 +176,8 @@ fn scripted(sim: &mut Sim<Rivals>, seconds: u32) {
         } else if step % 50 == 30 {
             sim.tap("Digit1");
         }
-        x += if step % 20 < 10 { 37.0 } else { -41.0 };
-        mouse(sim, at, x, 360.0, PointerPhase::Move);
+        let dx = if step % 20 < 10 { 37.0 } else { -41.0 };
+        mouse(sim, at, PointerPhase::Move, dx, 0.0, 0);
     }
 }
 
@@ -170,12 +195,27 @@ fn replay_gives_the_same_kills() {
             .filter(|d| d.killed)
             .map(|d| (d.attacker, d.victim))
             .collect();
-        (sim.world().hash(), kills, round(&sim).log.len())
+        // Every fighter's totals: they survive the round reset that clears the log.
+        let totals: Vec<_> = ["player", "bot-1", "bot-2", "bot-3"]
+            .map(|n| {
+                let f = fighter(&sim, n);
+                (f.shots, f.kills, f.deaths, f.rounds, f.hp.to_bits())
+            })
+            .to_vec();
+        (sim.world().hash(), kills, totals)
     };
     let (a, b) = (run(), run());
     assert_eq!(a, b);
-    assert!(a.2 > 10, "the fight should land hits: {:?}", a);
-    assert!(!a.1.is_empty(), "the fight should have kills: {:?}", a);
+    let shots: u32 = a.2.iter().map(|t| t.0).sum();
+    let deaths: u32 = a.2.iter().map(|t| t.2).sum();
+    println!(
+        "30 s scripted fight: {shots} shots, {deaths} deaths, kills {:?}",
+        a.1
+    );
+    assert!(
+        shots > 100 && deaths >= 2,
+        "the fight should be a fight: {a:?}"
+    );
 }
 
 #[test]
