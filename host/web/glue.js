@@ -1060,7 +1060,11 @@ function tree(request) {
   for (const node of reply.nodes ?? []) {
     const el = views.get(node.id);
     node.focused = el === document.activeElement;
-    if (el?.matches("button, a, [role=button]")) node.accessibleName = el.getAttribute("aria-label") ?? el.textContent.trim();
+    // The accessible name as Chrome computes it (accname 1.2): a non-empty
+    // `aria-label` (an image's `alt`) names any element; a button or link is
+    // named by its content too. Every host reports the same rule.
+    const label = el?.getAttribute(el.localName === "img" ? "alt" : "aria-label");
+    if (label || el?.matches("button, a, [role=button], [role=link]")) node.accessibleName = label || el.textContent.trim();
     if (el?.exactNative) node.module = el.exactNative.status();
     if (!(el instanceof HTMLIFrameElement)) continue;
     node.url = el.getAttribute("src") ?? "";

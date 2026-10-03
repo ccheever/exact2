@@ -24,3 +24,4 @@ component Accessibility
         text "Shown"
       button press=increment aria-pressed="mixed" testId="mixed"
         text "Mixed"
+      text "20¢" role="status" aria-label="20 sheckles" testId="labelled"

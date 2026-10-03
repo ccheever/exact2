@@ -23,7 +23,9 @@ extension NodeView {
         let children = container.subviews.compactMap { $0 as? NodeView }
         return children.map(\.accessibleText).filter { !$0.isEmpty }.joined(separator: " ")
     }
-    var accessibleName: String { props["accessibilityLabel"] ?? accessibleText }
+    /// Its `aria-label`, unless empty (accname: an empty label names nothing).
+    var authoredLabel: String? { props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 } }
+    var accessibleName: String { authoredLabel ?? accessibleText }
     /// ARIA `aria-pressed` on a button: its toggle state, `true`, `false` or
     /// `mixed`; nil when it is no toggle (absent, another word, another role).
     var pressedState: String? {
@@ -253,9 +255,11 @@ extension Agent {
                     row["accessibilityFrame"] = [frame.minX, frame.minY, frame.width, frame.height]
                     row["accessibilityHidden"] = node.placedAncestor?.placementHidden == true
                 }
-                // The web's rule (glue.js: `button, a, [role=button]`): a button
-                // keeps its name under another role, as the Move stick's slider does.
-                if node.isButton || ["button", "link"].contains(node.props["accessibilityRole"] ?? "") {
+                // The web's rule (glue.js `tree`, Chrome's accname): a non-empty
+                // `aria-label` names any node; a button or link is named by its
+                // content too, and keeps its name under another role (the Move
+                // stick's slider).
+                if node.authoredLabel != nil || node.isButton || ["button", "link"].contains(node.props["accessibilityRole"] ?? "") {
                     row["accessibleName"] = node.accessibleName
                 }
             }

@@ -1321,7 +1321,7 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
     try {
       let t = await f.tree();
       check(byTestId(t, 'first')?.focused === true, 'autofocus takes focus after mount');
-      check(byTestId(t, 'first')?.accessibleName === 'Increment', 'button name is its text');
+      check(byTestId(t, 'first')?.accessibleName === 'Increment', 'button name is its text'); check(byTestId(t, 'labelled')?.accessibleName === '20 sheckles' && byTestId(t, 'live-count')?.accessibleName === undefined, `a label names a text, and an unlabelled text has no name (accname): ${JSON.stringify([byTestId(t, 'labelled')?.accessibleName, byTestId(t, 'live-count')?.accessibleName])}`);
       check(byTestId(t, 'toggle')?.props.autofocus === false, 'autofocus=false remains false');
       check(byTestId(t, 'live-count')?.props.accessibilityLive === 'polite' && byTestId(t, 'live-container')?.props.accessibilityLive === 'assertive', 'both live region priorities are in tree');
       await f.tap('first');

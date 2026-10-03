@@ -522,8 +522,13 @@ fn accessibility_tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String
                 });
             }
             if let Some(node) = p.host().kernel().node(id) {
-                if node.props.str(PropId::AccessibilityLabel).is_some()
-                    || node.props.str(PropId::Text).is_some()
+                // The web's rule (glue.js `tree`): a non-empty label names any
+                // node; a button or link is named by its content too.
+                let label = node
+                    .props
+                    .str(PropId::AccessibilityLabel)
+                    .filter(|l| !l.is_empty());
+                if label.is_some()
                     || matches!(
                         node.props.str(PropId::AccessibilityRole),
                         Some("button" | "link")
@@ -536,7 +541,7 @@ fn accessibility_tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String
                         == Some(exact_kernel::ControlKind::Button);
                     // A native button's name is its label, else its face's
                     // title as painted (LLP 1069.011.000 D1).
-                    row["accessibleName"] = match node.props.str(PropId::AccessibilityLabel) {
+                    row["accessibleName"] = match label {
                         Some(label) => label.to_owned(),
                         None if native => p
                             .host()

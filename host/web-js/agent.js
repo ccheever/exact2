@@ -40,9 +40,10 @@ export function install(exact) {
     const n = { id: id(el), type: type(el), depth, props };
     if (el.dataset.exactOn) n.handlers = el.dataset.exactOn.split(' ');
     if (document.activeElement === el) n.focused = true;
-    // As glue.js's `tree` adds them: a pressable's accessible name, and an
+    // As glue.js's `tree` adds them: the accessible name, and an
     // iframe's url, load state and same-origin guest outline (LLP 1020 D4).
-    if (el.matches('button, a, [role=button]')) n.accessibleName = el.getAttribute('aria-label') ?? el.textContent.trim();
+    const label = el.getAttribute(el.tagName === 'IMG' ? 'alt' : 'aria-label');
+    if (label || el.matches('button, a, [role=button], [role=link]')) n.accessibleName = label || el.textContent.trim();
     // A module view's status (LLP 1024 D8.3): what native-glue.js keeps on
     // the element, as glue.js's `tree` reports it.
     if (el.exactNative) n.module = el.exactNative.status();

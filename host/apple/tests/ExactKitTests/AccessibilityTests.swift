@@ -191,6 +191,20 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertNil(button.accessibilityValue())
         withExtendedLifetime(w) {}
     }
+    /// The agent's name follows the web's accname: a non-empty label names
+    /// any node (a status text); an empty one names nothing, so a button
+    /// falls back to its content.
+    func testALabelNamesATextAndAnEmptyLabelNamesNothing() {
+        let (p, w, button, _) = fixture()
+        let purse = NodeView(id: 30, kind: "text", presenter: p)
+        purse.applyProps(set: ["text": "20¢", "accessibilityRole": "status", "accessibilityLabel": "20 sheckles"], clear: [])
+        XCTAssertEqual(purse.authoredLabel, "20 sheckles")
+        XCTAssertEqual(purse.accessibleName, "20 sheckles")
+        button.applyProps(set: ["text": "Play", "accessibilityLabel": ""], clear: [])
+        XCTAssertNil(button.authoredLabel)
+        XCTAssertEqual(button.accessibleName, "Play")
+        withExtendedLifetime(w) {}
+    }
     func testOffDoesNotTrackALiveRegion() {
         let (p, w, first, _) = fixture()
         first.props["accessibilityLive"] = "off"
