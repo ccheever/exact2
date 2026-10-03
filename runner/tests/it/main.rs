@@ -7,6 +7,7 @@ mod app_module;
 mod canvas2d;
 mod flow_agent;
 mod format;
+mod frames_agent;
 mod height_binding;
 mod incremental;
 mod list_layout;

@@ -53,6 +53,8 @@ final class FlatLeaves {
     private var dirty = Set<UInt32>()
     /// Each parent's shape layers, one per run of alike adjacent leaves.
     private var runs: [UInt32: [CAShapeLayer]] = [:]
+    /// Each run's leaves, in order (LLP 1080.001 D1).
+    private var runLeaves: [ObjectIdentifier: [UInt32]] = [:]
 
     /// The kinds a flat leaf's parent may be: a plain box's container.
     private static let parents: Set<String> = ["view", "button"]
@@ -232,7 +234,7 @@ final class FlatLeaves {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         for parentID in parents {
-            for run in runs.removeValue(forKey: parentID) ?? [] { run.removeFromSuperlayer() }
+            for run in runs.removeValue(forKey: parentID) ?? [] { run.removeFromSuperlayer(); runLeaves[ObjectIdentifier(run)] = nil }
             guard let parent = presenter.views[parentID], let ids = order[parentID] else { continue }
             let container = parent.container.layer
             for id in ids { leaves[id]?.layer.removeFromSuperlayer() }
@@ -272,6 +274,7 @@ final class FlatLeaves {
                     run.fillColor = leaf.layer.backgroundColor
                     put(run, at: j - 1)
                     made.append(run)
+                    runLeaves[ObjectIdentifier(run)] = Array(ids[i..<j])
                 } else {
                     put(leaf.layer, at: i)
                 }
@@ -305,8 +308,20 @@ final class FlatLeaves {
     func reset() {
         for leaf in leaves.values { leaf.layer.removeFromSuperlayer() }
         for run in runs.values.joined() { run.removeFromSuperlayer() }
-        leaves.removeAll(); order.removeAll(); runs.removeAll(); dirty.removeAll()
+        leaves.removeAll(); order.removeAll(); runs.removeAll(); runLeaves.removeAll(); dirty.removeAll()
     }
+
+    /// The layers painting `parent`'s flat leaves, each with the leaves it
+    /// paints: its runs, then the leaves that stand alone (LLP 1080.001 D1).
+    func inspectionLayers(under parent: UInt32) -> [(layer: CALayer, leaves: [UInt32])] {
+        var out: [(layer: CALayer, leaves: [UInt32])] = (runs[parent] ?? []).map { ($0, runLeaves[ObjectIdentifier($0)] ?? []) }
+        for id in order[parent] ?? [] {
+            if let leaf = leaves[id], leaf.layer.superlayer != nil { out.append((leaf.layer, [id])) }
+        }
+        return out
+    }
+    /// The flat leaf whose layer or run paints `id`, for `layout <id> native`.
+    func inspectionParent(of id: UInt32) -> UInt32? { leaves[id]?.parent }
 
     var observation: [String: Any] { ["flatLeaves": leaves.count, "flatMade": made, "flatPromoted": promoted] }
 }

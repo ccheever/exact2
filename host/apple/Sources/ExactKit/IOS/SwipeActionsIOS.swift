@@ -105,6 +105,11 @@ final class SwipeActionsHost {
     private func label(_ node: NodeView) -> String {
         node.accessibilityLabel ?? node.props["accessibilityLabel"] ?? (node.isNativeButton ? node.face?.title : nil) ?? ""
     }
+    /// LLP 1080.001 D3: a projected row's table, the views it hides, and
+    /// the content it carries into its cell.
+    func inspectionOwns(_ view: UIView) -> Bool { rows.values.contains { $0.inspectionOwns(view) } }
+    func hides(_ node: NodeView) -> Bool { rows.values.contains { $0.hides(node) } }
+    func projects(_ view: UIView) -> Bool { rows.values.contains { $0.projects(view) } }
     func ownsAction(_ id: UInt32) -> Bool { rows.values.contains { ($0.leading + $0.trailing).contains { $0.id == id } } }
     func actionView(_ id: UInt32) -> UIButton? {
         for row in rows.values {
@@ -158,6 +163,9 @@ final class SwipeActionsHost {
         private weak var logicalParent: UIView?
         private var carrier: UIView?
         private var hiddenControls: [(NodeView, Bool)] = []
+        func inspectionOwns(_ view: UIView) -> Bool { table === view }
+        func hides(_ node: NodeView) -> Bool { hiddenControls.contains { $0.0 === node } }
+        func projects(_ view: UIView) -> Bool { carrier === view }
         // Captured before projection: UIKit disables its cell while an action
         // completes. That temporary state is not an authored input restriction.
         private var actionAncestors: [UInt32: [Ancestor]] = [:]

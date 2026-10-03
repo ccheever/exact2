@@ -192,8 +192,204 @@
       "native": {
         "view": "NodeView",
         "controller": "RouteController",
-        "route": "home"
+        "route": "home",
+        "subviews": {
+          "root": "view",
+          "depth": 3,
+          "limit": 200,
+          "count": 4,
+          "complete": false,
+          "truncated": [
+            "depth"
+          ],
+          "entries": [
+            {
+              "kind": "view",
+              "depth": 0,
+              "class": "NodeView",
+              "node": 2,
+              "frame": {
+                "x": 20,
+                "y": 12.5,
+                "w": 380,
+                "h": 18
+              },
+              "hidden": false,
+              "alpha": 1,
+              "interactive": true,
+              "layer": {
+                "masksToBounds": false,
+                "zPosition": 0
+              }
+            },
+            {
+              "kind": "view",
+              "depth": 1,
+              "class": "UIImageView",
+              "role": "glyph",
+              "owner": 2,
+              "frame": {
+                "x": 20,
+                "y": 12.5,
+                "w": 18,
+                "h": 18
+              },
+              "hidden": false,
+              "alpha": 1,
+              "interactive": false,
+              "layer": {
+                "masksToBounds": false,
+                "zPosition": 0
+              }
+            },
+            {
+              "kind": "layer",
+              "depth": 1,
+              "class": "CAShapeLayer",
+              "role": "flat-run",
+              "leaves": [
+                3,
+                4
+              ],
+              "leafCount": 2,
+              "path": {
+                "x": 40,
+                "y": 12.5,
+                "w": 300,
+                "h": 1
+              },
+              "attached": true,
+              "hidden": false,
+              "opacity": 1
+            },
+            {
+              "kind": "view",
+              "depth": 1,
+              "class": "UITextField",
+              "role": "editor",
+              "owner": 2,
+              "frame": {
+                "x": 40,
+                "y": 12.5,
+                "w": 360,
+                "h": 18
+              },
+              "hidden": true,
+              "alpha": 0.5,
+              "interactive": true,
+              "layer": {
+                "masksToBounds": true,
+                "zPosition": 1,
+                "transform": [
+                  1,
+                  0,
+                  0,
+                  1,
+                  0,
+                  8
+                ]
+              },
+              "opaque": "platform",
+              "children": 2
+            }
+          ]
+        }
       }
+    }
+  },
+  "layout agree": {
+    "clock": 1500,
+    "viewport": {
+      "w": 420,
+      "h": 900
+    },
+    "agreement": {
+      "complete": false,
+      "incomplete": [
+        "spanned"
+      ],
+      "roots": {
+        "walked": [
+          "ExactView",
+          "modal #31 (retiring)"
+        ],
+        "excluded": []
+      },
+      "coverage": {
+        "stray": {
+          "judged": 640,
+          "opaque": 85
+        },
+        "kept": {
+          "parkedRoots": 6,
+          "leaving": 0
+        },
+        "frame": {
+          "compared": 512,
+          "sizeOnly": 40,
+          "skipped": {
+            "flat": 31,
+            "inline": 12,
+            "offWindow": 40,
+            "transformed": 3
+          }
+        },
+        "hidden": {
+          "compared": 552,
+          "claimed": {
+            "segments": 2,
+            "menus": 1
+          }
+        }
+      },
+      "counts": {
+        "stray": 1,
+        "frame": 1,
+        "hidden": 1
+      },
+      "disagreements": [
+        {
+          "kind": "stray",
+          "class": "UIView",
+          "under": 40,
+          "underTestId": "inbox-list",
+          "frame": {
+            "x": 0,
+            "y": 0,
+            "w": 390,
+            "h": 44
+          }
+        },
+        {
+          "kind": "frame",
+          "id": 41,
+          "testId": "row-3",
+          "kernel": {
+            "x": 0,
+            "y": 132,
+            "w": 390,
+            "h": 44
+          },
+          "native": {
+            "x": 0,
+            "y": 176,
+            "w": 390,
+            "h": 44
+          },
+          "delta": {
+            "x": 0,
+            "y": 44,
+            "w": 0,
+            "h": 0
+          }
+        }
+      ],
+      "tolerance": {
+        "px": 0.33
+      },
+      "truncated": [
+        "disagreements"
+      ]
     }
   },
   "logs": {

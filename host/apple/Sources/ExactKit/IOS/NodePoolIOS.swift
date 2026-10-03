@@ -421,6 +421,17 @@ final class NodePool {
     }
     private func rebound(_ view: NodeView, _ id: UInt32) -> NodeView { view.rebind(id); return view }
 
+    /// What `layout agree` checks (LLP 1080.001 D2): each parked tree's root,
+    /// which must stay hidden, and every view of every parked tree.
+    var inspection: (roots: [NodeView], members: Set<ObjectIdentifier>) {
+        var roots: [NodeView] = [], members = Set<ObjectIdentifier>()
+        for tree in parked.values.joined() {
+            if let root = tree.views.first ?? nil { roots.append(root) }
+            for case let view? in tree.views { members.insert(ObjectIdentifier(view)) }
+        }
+        return (roots, members)
+    }
+
     /// `state`'s pool section (LLP 1068 §6): what is parked, by shape
     /// count and in total, and the counters since launch.
     var observation: [String: Any] {

@@ -351,6 +351,16 @@ final class MenuHost {
                 "popover": owner.popover.map { Int($0.id) as Any } ?? NSNull(), "phase": inTransition ? "transition" : "open",
                 "actionStyle": owner.alert.actions.first?.style == .destructive ? "destructive" : "default"]
     }
+    /// LLP 1080.001 D3: the views this host adds — a node's overlay button,
+    /// an open popover's top layer — and the popovers it hides or lifts.
+    func inspectionOwns(_ view: UIView) -> Bool {
+        overlays.values.contains { $0 === view } || agentOpen.values.contains { $0.layer === view }
+    }
+    func hides(_ node: NodeView) -> Bool {
+        presenter?.carrying("popover").contains { $0 === node } == true || presenter?.carrying("tag:dialog").contains { $0 === node } == true
+    }
+    func projects(_ node: NodeView) -> Bool { agentOpen.values.contains { $0.popover === node } }
+
     func ownsConfirmationNode(_ node: NodeView) -> Bool {
         var ancestor: UIView? = node
         while let view = ancestor {

@@ -834,6 +834,13 @@ impl<D: DataSource> Host<D> {
                 None => "{\"settle\":null}".to_string(),
             };
         }
+        // A native content region's frames are the host's, not the kernel's
+        // (LLP 1080.001 D2): `layout agree` must not compare them.
+        if exact_runner::agent::field_str(request, "op").as_deref() == Some("frames") {
+            return exact_runner::agent::frames(&self.runner, request, &|id| {
+                self.native_protected_id(id)
+            });
+        }
         exact_runner::agent::handle(&self.runner, request)
     }
 

@@ -164,7 +164,7 @@ public final class Agent {
         }
         switch op {
         case "tree": Agent.reply(session.canvases.decorate(req, accessibilityTree(session.natives.decorate(session.webviews.tree(line)))))
-        case "layout": Agent.reply(tagged(layout(req)))
+        case "layout": Agent.reply(tagged(inspectLayout(req) ?? layout(req))) // LLP 1080.001: `native`, `agree`
         // A call that moved something settles the canvases before it
         // replies (LLP 1012's fixed point; LLP 1014 D5 reads placements
         // after a frame, so the frame is rendered here, not left to the

@@ -192,6 +192,25 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             }
             s
         }
+        // LLP 1080.001: neither inspection form has platform views here.
+        Some("layout") if line.contains("\"agree\"") => format!(
+            "{{\"agreement\":{{\"unavailable\":\"no platform views\"}},{}",
+            &exact_runner::agent::tags(p.host.runner())[1..]
+        ),
+        Some("layout") if line.contains("\"native\"") => {
+            let mut reply: serde_json::Value =
+                match serde_json::from_str(&p.layout_json(id(), field_bool(line, "plan"))) {
+                    Ok(reply) => reply,
+                    Err(_) => return error("layout: unreadable"),
+                };
+            if let Some(o) = reply.as_object_mut() {
+                o.remove("nodes");
+            }
+            if let Some(native) = reply.pointer_mut("/node/native") {
+                native["subviews"] = serde_json::json!({ "unavailable": "no platform views" });
+            }
+            reply.to_string()
+        }
         Some("layout") => p.layout_json(id(), field_bool(line, "plan")),
         Some("tap") => {
             // LLP 1041 §8: optional input variant, never a ninth operation.

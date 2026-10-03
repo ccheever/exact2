@@ -101,6 +101,28 @@ export function sourceMapReaders(locators) {
 
 /** A targeted reply owns its identity. A concurrently fetched tree may already
  * describe a replacement plan with reused view IDs and cannot relabel it. */
+/** `layout`'s CLI arguments (LLP 1012 §7; LLP 1080.001 D1, D2): `layout
+ * [<target>]`, `layout <target> at <x> <y>`, `layout <target> native
+ * [<depth>]`, `layout agree [<limit>]` — the keyword wins over a testId of
+ * that name, which a numeric id still reaches. Returns `layout`'s arguments. */
+export function layoutArgs(args) {
+  const count = (word) => { const n = Number(word); if (!Number.isInteger(n)) throw new Error(`layout: ${word} is not an integer`); return n; };
+  if (args[0] === 'agree') return [undefined, undefined, { agree: true, ...(args[1] != null ? { limit: count(args[1]) } : {}) }];
+  if (args[1] === 'native') return [args[0], undefined, { native: args[2] != null ? { depth: count(args[2]) } : {} }];
+  if (args[1] === 'at') return [args[0], [Number(args[2]), Number(args[3])]];
+  return [args[0]];
+}
+
+/** The tree's testIds beside the ids `layout agree` names (D6). */
+export function joinAgreement(reply, tree) {
+  const testId = new Map((tree?.nodes ?? []).filter((n) => n.props?.testId != null).map((n) => [n.id, n.props.testId]));
+  for (const d of reply.agreement?.disagreements ?? []) {
+    if (testId.has(d.id)) d.testId = testId.get(d.id);
+    if (testId.has(d.under)) d.underTestId = testId.get(d.under);
+  }
+  return reply;
+}
+
 export function identifyInspectedNode(reply, target) {
   const node = reply.node;
   if (!node) return;
@@ -109,7 +131,7 @@ export function identifyInspectedNode(reply, target) {
     throw Error(`layout: target ${target} changed during inspection; retry`);
   }
   if (testId != null) node.testId = testId;
-  const box = reply.nodes.find(value => value.id === node.id);
+  const box = reply.nodes?.find(value => value.id === node.id);
   if (box) { box.type = node.type; if (testId != null) box.testId = testId; }
 }
 
@@ -155,6 +177,7 @@ export function render(op, r) {
         const e = r.entity, b = e.screen, p = e.world?.position;
         return `#${e.id ?? ''} ${e.name ?? ''}${p ? ` world ${Array.isArray(p) ? p.join(',') : [p.x, p.y, p.z].join(',')}` : ''}${b && ['x','y','w','h'].every(k => Number.isFinite(b[k])) ? ` · screen ${b.x},${b.y} ${b.w}×${b.h}` : ' · screen unavailable'}${e.depth != null ? ` · depth ${e.depth}` : ''}${e.visible ? ` · inFrustum ${!!e.visible.inFrustum} · behindCamera ${!!e.visible.behindCamera}` : ''}`;
       }
+      if (r.agreement) return renderAgreement(r.agreement);
       if (!r.viewport) return q(r);
       const e = r.env;
       const insets = ['safe-area-inset-top', 'safe-area-inset-right', 'safe-area-inset-bottom', 'safe-area-inset-left', 'keyboard-inset-height'];
@@ -164,7 +187,7 @@ export function render(op, r) {
       // `overscroll` is how far a scroller sits past its own ends — a stretched rubber band, which the offset
       // alone cannot distinguish from an ordinary scroll position. Printed only when there is one.
       const past = (n) => (n.ox != null || n.oy != null ? ` overscroll ${n.ox ?? 0},${n.oy ?? 0}` : '');
-      const lines = [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env}${fold} · clock ${r.clock} ms`].concat(r.nodes.map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''} ${n.native?.placement === 'window' ? `${n.native.view} · system-owned geometry` : `${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}${past(n)}`}`));
+      const lines = [`viewport ${r.viewport.w}×${r.viewport.h}${past(r.viewport)}${env}${fold} · clock ${r.clock} ms`].concat((r.nodes ?? []).map((n) => `#${n.id}${n.testId != null ? ` [${n.testId}]` : ''}${n.type != null ? ` ${n.type}` : ''} ${n.native?.placement === 'window' ? `${n.native.view} · system-owned geometry` : `${n.x},${n.y} ${n.w}×${n.h}${n.sx != null ? ` scroll ${n.sx},${n.sy}` : ''}${past(n)}`}`));
       if (r.node) lines.push(...renderNode(r.node));
       return lines.join('\n');
     }
@@ -223,8 +246,9 @@ function renderNode(n) {
   if (n.scroll?.length) out.push(`  scroll ${n.scroll.map((c) => `${c.id != null ? `#${c.id}` : 'viewport'} ${c.sx},${c.sy}`).join(' · ')}`);
   if (n.clip?.length) out.push(`  clip ${n.clip.map((c) => `#${c.id} ${c.kind}`).join(' · ')}`);
   if (n.visible) out.push(`  visible ${sorted(n.visible).map(([k, v]) => `${k}=${v}`).join(' ')}`);
-  if (n.native) out.push(`  native ${sorted(n.native).map(([k, v]) => `${k}=${typeof v === 'string' ? v : q(v)}`).join(' ')}`);
+  if (n.native) out.push(`  native ${sorted(n.native).filter(([k]) => k !== 'subviews').map(([k, v]) => `${k}=${typeof v === 'string' ? v : q(v)}`).join(' ')}`);
   if (n.browser) out.push(`  browser ${sorted(n.browser).map(([k, v]) => `${k}=${q(v)}`).join(' ')}`);
+  if (n.native?.subviews) out.push(...renderSubviews(n.native.subviews));
   return out;
 }
 
@@ -328,5 +352,62 @@ export function renderTrace(t) {
     }
   } else if (t.frames) out.push('', renderPerf(t.frames));
   if (t.perf) out.push('', renderPerf(t.perf));
+  return out.join('\n');
+}
+
+const box = (b) => (b ? `${b.x},${b.y} ${b.w}×${b.h}` : '—');
+
+/**
+ * `layout <target> native` (LLP 1080.001 D1, D6): the views and flat-leaf
+ * layers under the node, one line each, indented by depth — observation,
+ * no verdicts.
+ *
+ *   subviews {root} · N entries, depth D [· truncated …]
+ *     view {Class} #{node} | {role} [of #{owner}] [hidden] [alpha A] [inert] [masks] [z Z] [transform …] X,Y W×H [· opaque platform, N children]
+ *     layer {Class} {role} #{leaf} … path X,Y W×H [detached] [hidden]
+ */
+function renderSubviews(s) {
+  if (s.unavailable) return [`  subviews unavailable: ${s.unavailable}`];
+  const out = [`  subviews ${s.root} · ${s.count} entries, depth ${s.depth}${s.truncated?.length ? ` · truncated ${s.truncated.join(', ')}` : ''}`];
+  for (const e of s.entries ?? []) {
+    const pad = '    ' + '  '.repeat(e.depth);
+    if (e.kind === 'layer') {
+      out.push(`${pad}layer ${e.class} ${e.role} ${e.leaves.map((id) => `#${id}`).join(' ')}${e.leafCount > e.leaves.length ? ` (+${e.leafCount - e.leaves.length})` : ''} path ${box(e.path)}${e.attached ? '' : ' [detached]'}${e.hidden ? ' [hidden]' : ''}`);
+      continue;
+    }
+    const who = e.node != null ? `#${e.node}` : `${e.role}${e.owner != null ? ` of #${e.owner}` : ''}`;
+    const l = e.layer ?? {};
+    const flags = [e.hidden && '[hidden]', e.alpha !== 1 && `[alpha ${e.alpha}]`, e.interactive === false && '[inert]', l.masksToBounds && '[masks]',
+      l.zPosition && `[z ${l.zPosition}]`, l.transform != null && `[transform ${Array.isArray(l.transform) ? l.transform.join(',') : l.transform}]`].filter(Boolean);
+    out.push(`${pad}view ${e.class} ${who}${flags.length ? ' ' + flags.join(' ') : ''} ${box(e.frame)}${e.opaque ? ` · opaque ${e.opaque}, ${e.children} children` : ''}`);
+  }
+  return out;
+}
+
+/**
+ * `layout agree` (LLP 1080.001 D2, D6): whether the walk was complete, what
+ * it covered, then one line per disagreement.
+ *
+ *   agreement complete|INCOMPLETE (reasons) · N disagreements · ±P px · roots …
+ *     coverage stray J judged, O opaque · frame C compared, S size-only, K skipped · hidden H compared, L claimed · parked roots R
+ *     {kind} #{id} [{testId}] … (frame: kernel X,Y W×H · native X,Y W×H (Δ dx,dy dw×dh); stray: {Class} under #{id} X,Y W×H)
+ *     … N more (truncated)
+ */
+function renderAgreement(a) {
+  if (a.unavailable) return `agreement unavailable: ${a.unavailable}`;
+  const total = Object.values(a.counts ?? {}).reduce((x, y) => x + y, 0);
+  const c = a.coverage ?? {};
+  const sum = (o) => Object.values(o ?? {}).reduce((x, y) => x + y, 0);
+  const out = [`agreement ${a.complete ? 'complete' : `INCOMPLETE (${a.incomplete.join(', ')})`} · ${total} disagreements · ±${a.tolerance?.px} px · roots ${(a.roots?.walked ?? []).join(', ')}${a.roots?.excluded?.length ? ` · excluded ${a.roots.excluded.join(', ')}` : ''}`,
+    `  coverage stray ${c.stray?.judged} judged, ${c.stray?.opaque} opaque · frame ${c.frame?.compared} compared, ${c.frame?.sizeOnly} size-only, ${sum(c.frame?.skipped)} skipped · hidden ${c.hidden?.compared} compared, ${sum(c.hidden?.claimed)} claimed · parked roots ${c.kept?.parkedRoots} · leaving ${c.kept?.leaving}`];
+  const tag = (id, t) => (id != null ? `#${id}${t != null ? ` [${t}]` : ''}` : '');
+  for (const d of a.disagreements ?? []) {
+    if (d.kind === 'frame') out.push(`  frame ${tag(d.id, d.testId)} kernel ${box(d.kernel)} · native ${box(d.native)} (Δ ${d.delta.x},${d.delta.y} ${d.delta.w}×${d.delta.h})${d.sizeOnly ? ' size only' : ''}`);
+    else if (d.kind === 'stray') out.push(`  stray ${d.class}${d.retired != null ? ` (retired #${d.retired})` : ''}${d.under != null ? ` under ${tag(d.under, d.underTestId)}` : ''} ${box(d.frame)}`);
+    else if (d.kind === 'hidden') out.push(`  hidden ${tag(d.id, d.testId)} native hidden=${d.native?.hidden} · expected hidden=${d.expected?.hidden}${d.hider ? ` (${d.hider})` : ''}`);
+    else out.push(`  ${d.kind} ${d.id != null ? tag(d.id, d.testId) : d.class ?? ''}${d.frame ? ` ${box(d.frame)}` : ''}`);
+  }
+  const listed = a.disagreements?.length ?? 0;
+  if (a.truncated?.includes('disagreements')) out.push(`  … ${total - listed} more (truncated)`);
   return out.join('\n');
 }

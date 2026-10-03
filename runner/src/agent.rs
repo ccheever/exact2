@@ -30,6 +30,7 @@ pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         Some("tree") => tree_request(runner, request),
         Some("state") => state(runner),
         Some("tags") => tags(runner),
+        Some("frames") => frames(runner, request, &|_| false),
         Some("holds") => holds(runner),
         Some("perf") => crate::perf::reply(runner, request),
         // What `showPicker(id)` names (LLP 1069.002 D2): the file input's
@@ -82,6 +83,94 @@ pub fn tags<D: DataSource>(runner: &Runner<D>) -> String {
         kernel.incarnation(),
         num(runner.now_ms())
     )
+}
+
+/// The kernel's half of `layout agree` (LLP 1080.001 D2), a private
+/// message: `{"op":"frames","limit":N}` answers every live node in preorder
+/// as `[id, parent|null, x, y, w, h, bits]` — the parent-relative frame a
+/// host is sent — with bit 1 for the node's own `display: none`, 2 for any
+/// own transform row (`translate`, `translate_z`, `rotate`, `rotate_axis`,
+/// `scale`, `transform`), 4 for a frame the host owns rather than the
+/// kernel (`host_owned`: a native content region's), 8 for an inline run,
+/// which has no box of its own. Past `limit` (default and most 20,000)
+/// nodes the list stops with `complete: false`.
+pub fn frames<D: DataSource>(
+    runner: &Runner<D>,
+    request: &str,
+    host_owned: &dyn Fn(u32) -> bool,
+) -> String {
+    const CAP: usize = 20_000;
+    let limit = field_num(request, "limit").map_or(CAP, |n| (n.max(1.0) as usize).min(CAP));
+    let transform_rows: Vec<StyleId> = StyleId::ALL
+        .into_iter()
+        .filter(|r| {
+            matches!(
+                r.name(),
+                "translate" | "translate_z" | "rotate" | "rotate_axis" | "scale" | "transform"
+            )
+        })
+        .collect();
+    let kernel = runner.kernel();
+    let mut s = String::new();
+    let _ = write!(
+        s,
+        "{{\"epoch\":{},\"incarnation\":{},\"clock\":{},\"nodes\":[",
+        kernel.epoch(),
+        kernel.incarnation(),
+        num(runner.now_ms())
+    );
+    let mut count = 0usize;
+    let mut complete = true;
+    let mut stack: Vec<u32> = kernel.roots().into_iter().rev().collect();
+    while let Some(id) = stack.pop() {
+        let Some(node) = kernel.node(id) else {
+            continue;
+        };
+        if count == limit {
+            complete = false;
+            break;
+        }
+        if count > 0 {
+            s.push(',');
+        }
+        count += 1;
+        let f = node.frame;
+        let (px, py) = node
+            .parent
+            .and_then(|p| kernel.node(p))
+            .map_or((0.0, 0.0), |p| (p.frame.x, p.frame.y));
+        let mut bits = 0u32;
+        if matches!(node.style.get(StyleId::Display), RowValue::Enum("none")) {
+            bits |= 1;
+        }
+        if transform_rows.iter().any(|r| node.style.mask.has(*r)) {
+            bits |= 2;
+        }
+        if host_owned(id) {
+            bits |= 4;
+        }
+        if node.is_inline_run() {
+            bits |= 8;
+        }
+        let _ = write!(s, "[{id},");
+        match node.parent {
+            Some(p) => {
+                let _ = write!(s, "{p}");
+            }
+            None => s.push_str("null"),
+        }
+        let _ = write!(
+            s,
+            ",{},{},{},{},{bits}]",
+            num((f.x - px) as f64),
+            num((f.y - py) as f64),
+            num(f.width as f64),
+            num(f.height as f64)
+        );
+        stack.extend(node.children().into_iter().rev());
+    }
+    let _ = write!(s, "],\"complete\":{complete}}}");
+    s
 }
 
 /// `{"holds":[…],"tickets":[…]}`: the held device requests' tickets, and

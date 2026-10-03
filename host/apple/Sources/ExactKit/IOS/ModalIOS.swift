@@ -8,6 +8,10 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
     let routeID: UInt32
     var retiringRoot: NodeView?
     var retiringNavigation: UIViewController?
+    /// The keyboard probe and a freeze's pixels: what this controller adds
+    /// to its view beside the viewport (LLP 1080.001 D3).
+    private(set) var probe: UIView?
+    private(set) var pixels: UIView?
     init(host: ModalHost, routeID: UInt32, fullscreen: Bool, detent: String?) {
         self.host = host
         self.routeID = routeID
@@ -68,6 +72,7 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         probe.isHidden = true
         probe.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(probe)
+        self.probe = probe
         NSLayoutConstraint.activate([
             probe.topAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor),
             probe.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -84,6 +89,7 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
         pixels.frame = view.bounds
         pixels.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(pixels)
+        self.pixels = pixels
     }
 }
 
@@ -138,6 +144,18 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
         defersFocus || isDismissing || layers.contains { $0.controller.isBeingPresented || $0.controller.isBeingDismissed }
     }
     var isDismissing: Bool { !retiring.isEmpty }
+    /// LLP 1080.001 D3: every presentation's controller view, live and
+    /// retiring, with what the presenter put in it beside the viewport; and
+    /// whether a node's geometry is held while a modal owns the viewport.
+    var inspectionRoots: [(view: UIView, label: String, owned: [UIView])] {
+        var seen = Set<ObjectIdentifier>()
+        return (layers.map { ($0, false) } + retiring.map { ($0, true) }).compactMap { layer, retiring in
+            guard let view = layer.controller.viewIfLoaded, seen.insert(ObjectIdentifier(view)).inserted else { return nil }
+            let owned = [layer.controller.probe, layer.controller.pixels, layer.background.viewIfLoaded].compactMap { $0 }
+            return (view, "modal #\(layer.route.id)\(retiring ? " (retiring)" : "")", owned)
+        }
+    }
+    func holdsGeometry(_ id: UInt32) -> Bool { (layers + retiring).contains { $0.geometry[id] != nil } }
     var defersFocus: Bool { closing || layers.contains { $0.presenting } }
     var closedby: String? { layers.last?.route.props["closedby"] }
     var presentation: String? { layers.last?.kind }

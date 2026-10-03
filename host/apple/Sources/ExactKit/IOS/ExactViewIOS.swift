@@ -26,6 +26,8 @@ public final class ExactView: UIView {
     private static let regionRereadLimit = 5
     private var lastDisplayScale: CGFloat = 0
     private var keyboardProbe: UIView?
+    /// What this view adds beside the viewport, for `layout agree` (LLP 1080.001 D3).
+    var inspectionOwned: [UIView] { keyboardProbe.map { [$0] } ?? [] }
     private var keyboardObserver: NSObjectProtocol?
     /// The adapter's hook for the first root's `viewport-fit` and its
     /// canvas colour (the window's background under the safe areas is the
