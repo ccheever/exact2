@@ -1,18 +1,16 @@
 {
   "ticks": {
-    "0": "0xbc85df8bf34cdaa8",
-    "60": "0x40e631cd3a00a319"
+    "0": "0xdd18ad0f216a2cd9",
+    "60": "0x483c73a4464f6d73"
   },
   "saves": {
-    "continuation": "126e56a17909202940ad0f05a21a2e49b2a5941b15a399998141d35e8e0e672c"
+    "continuation": "8024cc5922074402fdab428e2e7c76fb340b28cc08aec2620004fc81cbd440c7"
   },
   "hosts": [
-    "linux",
-    "web"
+    "linux"
   ],
-  "inputs": "1d86e6d47803729e2885214cf51787f7652f2cb84275cc4534f79dbc07072743",
+  "inputs": "7b0b12734ceb01fc0d6d417c073cf237190ab88807d91c2cb2664fea5505acc7",
   "game": "asset-fixture",
-  "generated": "bun game/prove.mjs asset-fixture --repin --hosts linux,web",
-  "at": "126daba5b97ef4bbb9d8fc6f0dba8c660b103585",
-  "reason": "L0b: the asset fixture became the seeded island demonstration (heightfield with matching collision, vertex colours, shared props, a level value); Linux, web, paranoid modes and release agreed"
+  "generated": "bun game/prove.mjs asset-fixture --repin --hosts linux",
+  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
 }

@@ -23,7 +23,16 @@ extension NodeView {
         let children = container.subviews.compactMap { $0 as? NodeView }
         return children.map(\.accessibleText).filter { !$0.isEmpty }.joined(separator: " ")
     }
-    var accessibleName: String { props["accessibilityLabel"] ?? accessibleText }
+    /// Its `aria-label`, unless empty (accname: an empty label names nothing).
+    var authoredLabel: String? { props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 } }
+    var accessibleName: String { authoredLabel ?? accessibleText }
+    /// ARIA `aria-pressed` on a button: its toggle state, `true`, `false` or
+    /// `mixed`; nil when it is no toggle (absent, another word, another role).
+    var pressedState: String? {
+        guard [nil, "button"].contains(props["accessibilityRole"]),
+              let pressed = props["accessibilityPressed"], ["true", "false", "mixed"].contains(pressed) else { return nil }
+        return pressed
+    }
     var accessibilityVisible: Bool {
         guard paragraphOwner.window != nil, !inert else { return false }
         #if os(macOS)
@@ -38,6 +47,27 @@ extension NodeView {
         return true
     }
 }
+
+#if os(macOS)
+extension NSView {
+    /// Core-AAM's toggle button: `AXCheckBox`, subrole `AXToggle`, value 0, 1
+    /// or 2 (mixed); `role` when `pressed` is nil.
+    func setAccessibilityToggle(_ pressed: String?, else role: NSAccessibility.Role) {
+        setAccessibilityRole(pressed == nil ? role : .checkBox)
+        setAccessibilitySubrole(pressed == nil ? nil : .toggle)
+        setAccessibilityValue(pressed.map { $0 == "mixed" ? 2 : $0 == "true" ? 1 : 0 })
+    }
+}
+#else
+extension UIView {
+    /// A toggle button as UIKit has one: the `toggleButton` trait, and the
+    /// value VoiceOver reads as its state ("1" on, "0" off, "2" mixed).
+    func setAccessibilityToggle(_ pressed: String?) {
+        if pressed != nil { accessibilityTraits.insert(.toggleButton) } else { accessibilityTraits.remove(.toggleButton) }
+        accessibilityValue = pressed.map { $0 == "mixed" ? "2" : $0 == "true" ? "1" : "0" }
+    }
+}
+#endif
 
 /// What an authored tab shows as one segment of the system's segmented
 /// control (LLP 1035.001 D10): its one image, or its words.

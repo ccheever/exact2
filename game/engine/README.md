@@ -17,13 +17,30 @@ and randomness; `Sim` owns input. The renderer interpolates completed ticks.
   its lease for the returned row. [Borrowing](#borrowing) is per row.
 - Use `insert_resource`, `resource`, `resource_mut` and `try_resource` for singleton
   state. Register types that first appear mid-game in `Game::register` so a fresh
-  process can restore them.
+  process can restore them. The engine's scene components (`Transform`, `Parent`,
+  `Mesh`, `Material`, `Camera`, lights, `Visible`, `Ambient`, `Follow`, `Glow`,
+  `Lit`) are registered by every world.
 - `near` and `near_xz` read global poses in entity order, including parented
   entities. `nearest_xz_mut` supplies one entity and its mutable component together.
 - `despawn(e)` removes that entity immediately. After the tick, the simulation
-  removes its descendants and propagates transforms. `children(e)` scans; a tick
-  that needs a child list can keep it in a component. Saved parent cycles refuse
-  to load; a runtime cycle drops its highest-index edge and journals the repair.
+  removes its descendants and propagates transforms. Both cost what changed:
+  after the first propagation they visit only despawned parents and the
+  `Parent`/`Transform` pages written, and recompute only the subtrees under rows
+  whose values differ, so a static hierarchy costs nothing per tick.
+  `children(e)` scans; a tick that needs a child list can keep it in a component.
+  Saved parent cycles refuse to load; a runtime cycle drops its highest-index edge
+  and journals the repair.
+- `pose_cursor()` and `poses_changed_since(cursor)` name the blocks of `PAGE`
+  entities whose local `Transform` rows were written or whose propagated global
+  poses changed since the cursor was taken: physics scenes, render feeds and other
+  derived caches skip the rest. A block may hold no changed pose; an unreported
+  block holds none. A cursor from before a load or restore reports every block.
+
+Derived caches can follow writes without rescanning: `revision::<C>()` names a
+column's write generation, and `changed::<C>(since)` lists the entities whose `C`
+row was borrowed mutably, inserted or removed after it (a despawned slot reports
+its index). Neither is saved or hashed; compare only within one
+`presentation_generation`.
 
 `w.dt()` is one fixed step. `w.tick_end()` names the endpoint currently being
 written; use it when retargeting motion. `w.now()` names the completed boundary.
@@ -105,6 +122,18 @@ record path. See the [HUD example](../README.md#publications-and-events).
 messages save in order and stay outside the simulation hash. The journal is
 telemetry; reading it does not change the world.
 
+The other way, Contract's `postMessage("buy carrot", "world")` posts text into
+the surface of that name. Each message is input stamped at the call: the next
+tick reads it in `input.messages()`, in arrival order, never coalesced (two presses
+between ticks are two messages). A paused world holds them for its first tick
+after the pause. Every host holds a post until a canvas of that surface is live (at
+most 64 per surface; past that a post is dropped and logged) and delivers it to
+the live one with the lowest view id. A message waiting for its tick saves with
+the input queue; one delivered is gone. Messages are at most 64 KiB; keep data in
+the world and post commands. A full input queue (1,024 events) refuses a new post
+with a journal line (one per overflow episode) and counts it in `state`'s `input.refusedPosts`; device events
+never displace a message. `Sim::post(text)` does the same in tests.
+
 ## Movement, animation and sound
 
 `w.character("player").step(direction, jump)` moves a `Character` and reports its
@@ -185,6 +214,12 @@ non-ambient resources, springs and explicit `busy(reason)` declarations particip
 Physics remains busy while a dynamic body is awake; settling never forces sleep.
 A one-tick advance compares before/after; a longer seek observes its final tick
 pair. Zero ticks retain the previous answer. Live ticks do not perform observation.
+Observation and `World::hash` are paged: each re-reads only the component pages
+written (or inserted into) since it last looked, the entity-table pages a spawn or
+despawn touched, and resources whose revision moved, so an observed tick costs
+what changed rather than the world (0.1 ms at 216k entities, against ~90 ms).
+The hash is a stream over page digests in type-name and page order; it is the
+same on every host and for a world freshly loaded from the same save.
 
 Mark cosmetic entities `Ambient`. Declare `ambient_resource::<T>()` and
 `derived_publication(name)` in setup/register when appropriate; these policies
@@ -198,6 +233,13 @@ Tuple structs are arrays: `Glow(Tween)` is `[tween]`.
 NaNs canonicalize and negative zero survives. Their JSON output is a bytes/hash
 summary, while input accepts numeric arrays. Summaries cannot be loaded as data.
 Other vectors remain structural sequences.
+
+World saves (EXGAME v4) are columnar: the entity table and each component
+storage store their rows' shape (tags, field and variant names, sequence lengths)
+once and their scalars as run-length or dictionary-coded columns, so repeated
+values cost nothing per entity and no name or entity key is repeated per row.
+Grow a Garden's scale world saves in about 9 bytes per entity, against 247 in v3.
+Resources save as their values. The encoding is byte-identical on every host.
 
 Loads allow at most 16 Mi entity slots, 64 MiB per string, and 2 GiB of input and
 accounted allocations. Custom `Data` readers must account allocations with

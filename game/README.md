@@ -35,12 +35,17 @@ bun game/new.mjs ./my-game
 bun game/dev.mjs ./my-game
 ```
 
-Open the dev server's printed URL. Edit `my-game/logic/src/lib.rs` for gameplay or
+Open the dev server's printed URL. It serves on 8765, or on the next free port when
+another dev loop holds 8765 (it says so); `--port <n>` chooses one and fails at once,
+before building, if that port is in use. `--lan` serves a phone on this network. Edit `my-game/logic/src/lib.rs` for gameplay or
 `my-game/app.contract` for UI. Gameplay reloads carry the running world; shared
 app-runtime edits reload the page. The server also prints **Open in native**.
 Edits inside `Game::setup` take effect on a fresh game; in the starter, pause and
 choose **Restart** to apply them.
 To explore the existing sample instead, run `bun game/dev.mjs beacons`.
+`game/dev.mjs` passes the dev server's flags through (`--port`, `--lan`, and
+`--allow-host <name>`, repeatable, to serve the game through a tunnel such as
+`tuft host`; without it a request under any name but the printed ones gets 421).
 
 In another terminal, establish the new game's proof baseline:
 
@@ -173,6 +178,15 @@ The dev compiler retains its last good plan on an error.
 | Grid and fog | `Material::grid(color, spacing)` and the saved `Environment`/`Fog` resource |
 | Fade a glowing mesh | Attach `Glow(Tween)` to `Material::glow`; retarget once and let the renderer sample at frame time. |
 | Fade a point light | Attach `Lit(Spring)` and call `lit.to(w.tick_end(), intensity)`. |
+| A flashlight | `SpotLight { inner, outer, range, intensity, .. }` along the entity's −Z; intensity in candela, as `PointLight`'s |
+| Shadows from a lamp | Add `LightShadows` to a `SpotLight` or `PointLight`; the renderer shadows the nearest few |
+| A moon | A second `DirectionalLight` (in entity order) is an unshadowed fill |
+| A first-person weapon | Add `ViewModel` to each part; it draws in front of the world and casts no shadow |
+| Contact shadows in creases | `w.insert_resource(AmbientOcclusion::default())` turns on SSAO (off by default) |
+| Lighting from a photographed sky | `w.insert_resource(EnvironmentMap::new("sky.tex"))` with the equirect in `Game::ASSETS` |
+| Mouse look | `input.pointer()`'s `delta` is the device's motion this tick, not a difference of positions. Mark the canvas `data-pointer-lock="true"` (declared in `app.json`'s `data`) and a mouse press captures the mouse on the web, macOS and iPadOS (`GCMouse`) until Escape or blur, so the delta never stops at an edge; the Linux host always sends evdev's relative motion. |
+| Turn the drawn camera between ticks | Put `MouseLook { yaw_per_point, pitch_per_point, pitch_limit }` on the camera at the rates the tick turns it by: the drawn camera and its children turn by `Sim::unshown_motion()`, so a turn shows at the next frame whatever the tick and display rates (`engine/tests/look.rs`). Presentation only; insert it in `setup` or register it. |
+| Right or middle mouse button | Bind it as a key: `.button("aim", &["MouseRight"])`; `MouseLeft` and `MouseMiddle` too (`MOUSE_BUTTONS`). Touch contacts press none. |
 
 `Character` saves velocity and configuration and reports displacement, grounded,
 jumped and landed. `near`/`near_xz` use current global poses, inclusive radii and
@@ -212,11 +226,21 @@ together. Nested records, lists, options and scalars retain their names and JSON
 Contract validates kinds against the shape: missing fields default, extra fields
 are ignored. Enum variants are not Contract values. Rust field names are not
 checked against the Contract shape at bake time. A rebuild or restore publishes
-again; no app data module is needed.
+again; no app data module is needed. The whole record may be up to 16 MiB of JSON
+(a whole inventory fits); a field change re-encodes only that field. A record over
+the limit, or one the shape refuses, leaves the last accepted one standing and is
+named, with its size and the limit, in the app's log and the agent's
+`state.surfaceRefusals`.
 Only the first live canvas owns a given surface's public record.
 
 `w.emit("won")` separately queues a string for the canvas's `message=` handler.
 Undelivered events save in order but stay outside the simulation hash.
+
+Commands go the other way as messages: an action calls
+`postMessage("buy carrot", "world")` and the next tick reads every message posted
+since, in order, from `input.messages()`. Nothing is coalesced, nothing needs an
+acknowledgement, and a delivered message is not part of a later save. Use live
+arguments for settings, messages for things that happen once.
 
 ## Proof pins
 
@@ -240,9 +264,15 @@ Every update records the matching source-input digest; a Git commit is recorded
 when one exists. A game without commits can repin under the same agreement checks.
 `CHROME` selects the headless browser.
 
-Paranoid runs check simulation and saves. Each tick uses the normal restore path,
-which resets presentation interpolation; use ordinary runs for appearance and
-motion comparisons.
+Paranoid runs check simulation and saves. Save and FreshGame modes rebuild the
+world through the normal restore path at the last tick of every advance (every
+point a proof observes), at every tick that received input, and every 16th tick
+inside an advance, which resets presentation interpolation. A save bug visible only
+in a tick none of those cover (state that lives one unobserved, input-free tick
+and is gone by the next sample) is no longer caught; run the proof with shorter
+`clock` steps to sample more ticks. use ordinary runs for appearance and motion comparisons. The
+driver moves a long `clock +N` in one-second steps, each its own operation, so a
+seek's length is not bounded by a host's answer window (Chrome's 15 s).
 
 `PASS` means the complete saved baseline was checked. Partial/build-only runs and
 baseline collection report `UNVERIFIED`; failed assertions report `FAIL`. A
@@ -289,7 +319,7 @@ These JSON captures are **not `.world` binary saves** or a complete explanation 
 a hash. Opaque executor state stays opaque; inspection can omit or round internal
 values. A differing hash with equal inspected values is reported explicitly.
 Capture on the agent clock without concurrent drives. Mixed-tick/hash reads and
-truncated entity lists (currently over 512 entities) are refused. Capturing and
+incomplete entity lists are refused; `captureWorld` reads every page. Capturing and
 comparing state does not advance the clock or mutate the world.
 
 ## The agent's interface
@@ -304,7 +334,11 @@ EXACT_APP_DIR=./my-game EXACT_WEB_DIST=./my-game/dist bun scripts/agent.mjs web 
 ```
 
 For a `prove.mjs` web build, set `EXACT_WEB_DIST` to the printed artifact directory's
-`dist/`. `state world:*` reads up to 512 entities; `under world:player` narrows it.
+`dist/`. `state world:*` reads entities a page at a time (512 by default):
+`state world:* from 512 limit 2000` reads the next ones, and the reply carries
+`total` and `next`; `under world:player` narrows it. `state world:* resources` adds
+every resource's value. In a proof, `session.world('world').snapshot({all:true})`
+reads every page at one tick and `resources()` the resources.
 `clock settle` advances the owned clock and explains remaining work instead of sleeping.
 
 In a proof, `session.world('world')` supplies `hold`, `run`, `settle`, `get`,
@@ -406,7 +440,9 @@ that location when explicitly set. Without
 The SDK owns one lock, [`app/shells.lock`](app/shells.lock): the lock of the union of
 every generated shell's dependencies. A game's workspace starts from it and keeps its
 subset; each version must be the SDK lock's, so bakes, deploys and proofs still resolve
-`--locked --offline` and no local cache chooses a version. A game that adds a
+`--locked --offline` and no local cache chooses a version. A registry package the SDK
+lock lacks but exact2's root `Cargo.lock` pins (a core crate's new dependency) is
+admitted at the root lock's version and checksum until the SDK lock is refreshed. A game that adds a
 dependency writes `logic/Cargo.toml` (`package.workspace = "../.shells"`, SDK crates as
 `exact-game.workspace = true`) and captures its own `Cargo.lock` with
 `bun game/app/shells.mjs ./my-game --update-lock`; commit and review that lock. SDK

@@ -1,17 +1,17 @@
 {
   "ticks": {
-    "0": "0x8c5dca88afc8d546",
-    "1420": "0xe43cabcb943cc28d"
+    "0": "0xac515f7dceb9e570",
+    "1420": "0xa174a4d137ea52e7"
   },
   "saves": {
-    "continuation": "b894031b43d73bd11741458cea6ad5a4dc07d6c4960d18367e5b5aed6e3f43d9"
+    "continuation": "29933d08217e675510a9926956ef750c205750837b7582a01ae7bafa86b7c485"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "616e6d12ec5ad7eb2feb05a4544907355606674186ec7227bc58729dbdd1fdf3",
+  "inputs": "34c1a43e8a9e4fe85d709cab0f5b08d8a9359f1a3d776067fdf3d38b3f12c7e0",
   "game": "tennis",
-  "generated": "bun game/prove.mjs tennis --hosts linux,web",
-  "at": "dc607bbfb6bab1a757ea552a74824e4cb4c9ba47"
+  "generated": "bun game/prove.mjs tennis --repin --hosts 'linux,web'",
+  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
 }

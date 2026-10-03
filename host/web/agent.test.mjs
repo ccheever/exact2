@@ -946,7 +946,7 @@ test('tree forwards its target and preserves host annotations and runner errors'
   const f = fixture(), requests = [];
   vm.runInContext(declaration('tree'), f);
   const iframe = new f.HTMLIFrameElement();
-  iframe.getAttribute = () => '/guest'; iframe.matches = () => false;
+  iframe.getAttribute = name => name === 'src' ? '/guest' : null; iframe.matches = () => false;
   f.views.set(7, iframe); f.iframeLoading = new Map([[iframe,false]]);
   f.guestOutline = () => [{tag:'button',depth:0,text:'guest'}];
   f.ask = request => {
@@ -1128,6 +1128,14 @@ test('tree --ax: parity reports a state one side can observe and does not, befor
   expect(axParity(web, mac).findings.map(f => f.detail)).toEqual(['level missing on appkit (2 vs —)', 'checked missing on appkit (false vs —)']);
   // disabled is reported only when true: its absence on both sides agrees.
   expect(axParity(web, axReply([el(0, 'heading', 'Section', { testId: 'h', states: { level: 2 } }), el(1, 'checkbox', 'C', { testId: 'c', states: { checked: false } })])).findings).toEqual([]);
+});
+
+test('tree --ax: an aria-pressed toggle is a button on every source', () => {
+  const web = axReply([el(0, 'button', 'Shown', { testId: 'pressed', states: {} })]);
+  const mac = axReply([el(0, 'checkbox', 'Shown', { testId: 'pressed', native: { role: 'AXCheckBox', subrole: 'AXToggle' } })], { source: 'appkit' });
+  const ios = axReply([el(0, 'toggleButton', 'Shown', { testId: 'pressed', value: '1', native: { role: ['toggleButton'] } })], { source: 'uikit' });
+  expect(axParity(web, mac).findings).toEqual([]);
+  expect(axParity(web, ios).findings).toEqual([]);
 });
 
 // Astra's round 2 (llp/reviews/code-2026-10-03-1080.002-ax-tree-r2.astra.md): 3 and 4.

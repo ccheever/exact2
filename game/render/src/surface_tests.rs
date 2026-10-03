@@ -662,6 +662,8 @@ fn fresh_touch_region_matches_rendered_and_headless_worlds() {
             phase: exact_gpu::PointerPhase::Down,
             x: 48.,
             y: 32.,
+            dx: 0.,
+            dy: 0.,
             kind: exact_gpu::PointerKind::Touch,
             buttons: 1,
             at_ms: 0.,

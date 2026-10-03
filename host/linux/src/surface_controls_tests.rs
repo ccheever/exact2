@@ -695,3 +695,211 @@ fn a_declared_module_is_routed_by_surface_and_verified_by_its_own_card() {
         .contains("missing baked identity"));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// A held contact on a canvas is the canvas's own (rivals diary, limit 7): the
+/// presenter used to retire it at its first move (`contact:false`) and the
+/// world saw neither the down nor any move, so mouse look could not turn.
+#[test]
+fn held_canvas_contact_streams_down_moves_and_up_to_the_canvas() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    let (ox, oy, _, _) = p.rect_of(raw).unwrap();
+    let ask = |p: &mut Presenter<NoData>, q: Value| -> Value {
+        serde_json::from_str(&crate::agent::contact::answer(p, &q)).unwrap()
+    };
+    let before = unsafe {
+        p.surfaces.abis[""].symbol::<unsafe extern "C" fn() -> u32>(b"test_input_count")()
+    };
+    let down = ask(
+        &mut p,
+        json!({"op":"tap","id":raw,"phase":"down","x":ox + 50.,"y":oy + 70.}),
+    );
+    assert_eq!(down["contact"], true, "{down}");
+    let (id, count, event) = last_input(&p);
+    assert_eq!(id, p.surfaces.canvases[&raw].id);
+    assert_eq!(count, before + 1);
+    assert_eq!(
+        (event["phase"].as_str(), event["buttons"].as_u64()),
+        (Some("down"), Some(1))
+    );
+    assert_eq!(
+        (event["x"].as_f64(), event["y"].as_f64()),
+        (Some(50.), Some(70.))
+    );
+    // 100 points over 100 ms: seven samples, every one a move the world sees.
+    let moved = ask(
+        &mut p,
+        json!({"op":"tap","phase":"move","dx":100,"dy":0,"ms":100}),
+    );
+    assert_eq!(moved["contact"], true, "{moved}");
+    assert_eq!(moved["delivery"], "presenter");
+    let (_, count, event) = last_input(&p);
+    assert_eq!(count, before + 8);
+    assert_eq!(
+        (event["phase"].as_str(), event["buttons"].as_u64()),
+        (Some("move"), Some(1))
+    );
+    assert_eq!(
+        event["x"].as_f64(),
+        Some(150.),
+        "the canvas keeps the contact off its edge"
+    );
+    let up = ask(&mut p, json!({"op":"tap","phase":"up"}));
+    assert_eq!(up["contact"], false, "{up}");
+    let (_, count, event) = last_input(&p);
+    assert_eq!(count, before + 9, "the up adds no zero-length move");
+    assert_eq!(
+        (event["phase"].as_str(), event["buttons"].as_u64()),
+        (Some("up"), Some(0))
+    );
+    assert_eq!(event["x"].as_f64(), Some(150.));
+    // A click without movement is still one down and one up, and Escape (a
+    // cancel) ends a held contact with the canvas's `cancel`.
+    assert!(p.pointer_down(ox + 20., oy + 80., 200.).unwrap());
+    p.pointer_up(ox + 20., oy + 80., 210.).unwrap();
+    let (_, count, event) = last_input(&p);
+    assert_eq!((count, event["phase"].as_str()), (before + 11, Some("up")));
+    assert!(p.pointer_down(ox + 20., oy + 80., 220.).unwrap());
+    p.pointer_cancel(230.).unwrap();
+    let (_, count, event) = last_input(&p);
+    assert_eq!(
+        (count, event["phase"].as_str()),
+        (before + 13, Some("cancel"))
+    );
+    assert!(p.contact_position().is_none());
+    done(p, path);
+}
+
+/// A canvas sees the pointer's motion beside its position (the device's own,
+/// from evdev, past the screen's edge), its hover, and the secondary and
+/// middle buttons as the web's chorded buttons (rivals diary, limit 2).
+#[test]
+fn canvas_pointer_carries_motion_hover_and_the_other_buttons() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    let (ox, oy, _, _) = p.rect_of(raw).unwrap();
+    let phase = |p: &Presenter<NoData>| {
+        let (_, _, e) = last_input(p);
+        (
+            e["phase"].as_str().unwrap().to_string(),
+            e["buttons"].as_u64().unwrap(),
+            e["dx"].as_f64().unwrap(),
+            e["dy"].as_f64().unwrap(),
+        )
+    };
+    p.pointer_move(ox + 10., oy + 60., 0.).unwrap();
+    assert_eq!(phase(&p), ("move".into(), 0, 0., 0.), "a hover");
+    p.pointer_move(ox + 14., oy + 57., 1.).unwrap();
+    assert_eq!(phase(&p), ("move".into(), 0, 4., -3.));
+    // At the screen's edge the position stops; the device's motion does not.
+    p.raw_motion(25., 0.);
+    p.pointer_move(ox + 14., oy + 57., 2.).unwrap();
+    assert_eq!(phase(&p), ("move".into(), 0, 25., 0.));
+    // A held contact pinned at the edge still turns, and motion never lingers.
+    assert!(p.pointer_down(ox + 14., oy + 57., 2.5).unwrap());
+    p.raw_motion(30., 0.);
+    p.pointer_move(ox + 14., oy + 57., 2.6).unwrap();
+    assert_eq!(phase(&p), ("move".into(), 1, 30., 0.));
+    p.pointer_up(ox + 14., oy + 57., 2.7).unwrap();
+    p.raw_motion(9., 9.);
+    p.pointer_move(ox + 500., oy + 57., 2.8).unwrap();
+    p.pointer_move(ox + 14., oy + 57., 2.9).unwrap();
+    assert_eq!(
+        phase(&p),
+        ("move".into(), 0, 0., 0.),
+        "off the canvas, then back"
+    );
+    p.pointer_aux(2, true, ox + 14., oy + 57., 3.);
+    assert_eq!(
+        phase(&p),
+        ("down".into(), 2, 0., 0.),
+        "right alone is a down"
+    );
+    assert!(p.pointer_down(ox + 14., oy + 57., 4.).unwrap());
+    assert_eq!(phase(&p), ("move".into(), 3, 0., 0.), "a chord is a move");
+    p.pointer_aux(4, true, ox + 14., oy + 57., 5.);
+    assert_eq!(phase(&p), ("move".into(), 7, 0., 0.));
+    p.pointer_aux(2, false, ox + 14., oy + 57., 6.);
+    p.pointer_aux(4, false, ox + 14., oy + 57., 7.);
+    assert_eq!(phase(&p), ("move".into(), 1, 0., 0.));
+    p.pointer_up(ox + 14., oy + 57., 8.).unwrap();
+    assert_eq!(phase(&p), ("up".into(), 0, 0., 0.), "the last button up");
+    done(p, path);
+}
+
+/// A lost pointer (Escape, a dropped evdev report) holds no button, and a
+/// secondary press on the canvas is released to it wherever the pointer is
+/// (pointer capture). Before: a stale secondary bit turned the next primary
+/// down into a move and the cancel went out with buttons 2.
+#[test]
+fn a_lost_pointer_holds_no_button_and_the_canvas_hears_its_release() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    let (ox, oy, _, _) = p.rect_of(raw).unwrap();
+    let last = |p: &Presenter<NoData>| {
+        let (_, count, e) = last_input(p);
+        (
+            count,
+            e["phase"].as_str().unwrap().to_string(),
+            e["buttons"].as_u64().unwrap(),
+        )
+    };
+    p.pointer_aux(2, true, ox + 20., oy + 60., 1.);
+    assert!(p.pointer_down(ox + 20., oy + 60., 2.).unwrap());
+    p.pointer_lost(3.).unwrap();
+    let (_, phase, buttons) = last(&p);
+    assert_eq!((phase.as_str(), buttons), ("cancel", 0));
+    assert!(p.pointer_down(ox + 20., oy + 60., 4.).unwrap());
+    let (_, phase, buttons) = last(&p);
+    assert_eq!((phase.as_str(), buttons), ("down", 1), "no stale secondary");
+    p.pointer_up(ox + 20., oy + 60., 5.).unwrap();
+    // Pressed on the canvas, released off it: the canvas hears the up.
+    p.pointer_aux(2, true, ox + 20., oy + 60., 6.);
+    p.pointer_move(ox + 500., oy + 60., 7.).unwrap();
+    let (count, _, _) = last(&p);
+    p.pointer_aux(2, false, ox + 500., oy + 60., 8.);
+    assert_eq!(last(&p), (count + 1, "up".into(), 0));
+    // Lost with only the secondary held: a cancel, nothing held after.
+    p.pointer_aux(4, true, ox + 20., oy + 60., 9.);
+    p.pointer_lost(10.).unwrap();
+    assert_eq!(last(&p).1, "cancel");
+    p.pointer_aux(4, true, ox + 20., oy + 60., 11.);
+    assert_eq!(last(&p).1, "down", "the middle button begins again");
+    done(p, path);
+}
+
+/// The agent's taps and contacts reach a canvas as a finger on every host (the
+/// web's CDP touch, iOS's touches); its hover is a mouse with nothing held.
+/// Before: a Linux agent tap was a mouse with the primary button, so the world
+/// held MouseLeft there and not on the web or iOS.
+#[test]
+fn the_agents_canvas_taps_are_a_finger_and_its_hover_a_mouse() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    let (ox, oy, _, _) = p.rect_of(raw).unwrap();
+    let kind = |p: &Presenter<NoData>| {
+        let (_, _, e) = last_input(p);
+        (
+            e["phase"].as_str().unwrap().to_string(),
+            e["kind"].as_str().unwrap().to_string(),
+        )
+    };
+    crate::agent::answer(
+        &mut p,
+        &format!(
+            r#"{{"op":"tap","id":{raw},"phase":"down","x":{},"y":{}}}"#,
+            ox + 50.,
+            oy + 70.
+        ),
+    );
+    assert_eq!(kind(&p), ("down".into(), "touch".into()));
+    crate::agent::answer(&mut p, r#"{"op":"tap","phase":"up"}"#);
+    assert_eq!(kind(&p), ("up".into(), "touch".into()));
+    p.pointer_move(ox + 40., oy + 60., 1.).unwrap();
+    assert_eq!(
+        kind(&p),
+        ("move".into(), "mouse".into()),
+        "a device's hover"
+    );
+    done(p, path);
+}

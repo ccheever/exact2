@@ -29,6 +29,11 @@ component Accessibility
       button autofocus=false press=toggle aria-expanded=shown testId="toggle"
         text "Toggle"
       text "•" aria-hidden=true testId="decoration"
+      button press=increment aria-pressed=shown testId="pressed"
+        text "Shown"
+      button press=increment aria-pressed="mixed" testId="mixed"
+        text "Mixed"
+      text "20¢" role="status" aria-label="20 sheckles" testId="labelled"
       // LLP 1080.002 §3: what `tree --ax` must see, and what its findings must catch.
       button press=increment aria-label=(named ? "Add" : "") testId="unnamed"
         image "symbol:compose" width=20 height=20

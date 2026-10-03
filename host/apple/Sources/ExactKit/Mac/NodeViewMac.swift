@@ -218,10 +218,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
         let name = NodeView.keyName(event)
         if handlers.contains("key") { presenter?.key(id, name) }
-        // Sequential focus follows the web from every stop: AppKit moves on
-        // from a text field's editor by itself, but from any other view only
-        // when macOS "Keyboard navigation" is on, while Exact puts buttons
-        // and native editors in the loop either way (`canBecomeKeyView`).
+        // Sequential focus from every stop, as on the web: AppKit moves on from
+        // a non-text view only with macOS "Keyboard navigation" on, while
+        // Exact's loop holds buttons and native editors either way.
         if name == "Tab", event.modifierFlags.intersection([.command, .control, .option]).isEmpty, let window {
             presenter?.flushKeyViewLoop()
             if event.modifierFlags.contains(.shift) { window.selectPreviousKeyView(self) } else { window.selectNextKeyView(self) }
@@ -349,7 +348,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     func updateRoleAccessibility() {
         if kind == "button" {
             setAccessibilityElement(true)
-            setAccessibilityRole(props["accessibilityRole"] == "link" ? .link : .button)
+            setAccessibilityToggle(pressedState, else: props["accessibilityRole"] == "link" ? .link : .button)
             setAccessibilitySelected(props["accessibilitySelected"] == "true")
             if let expanded = props["accessibilityExpanded"] { setAccessibilityExpanded(expanded == "true") }
         } else if kind == "image" {

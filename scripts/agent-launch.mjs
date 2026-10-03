@@ -186,13 +186,21 @@ export function receiptChanges(receipt, app) {
 /** A web `dist/`: app and shared runtime sources newer than its build marker.
  * Both are build inputs and both refuse a drive; the split makes diagnostics
  * and tests able to say which side changed without weakening that rule. */
+/** Whether a path inside a game (relative to its directory) is not a build input:
+ * its proof, pins, documents, tests, and helper scripts outside the built trees.
+ * The proof's input digest (game/proof.mjs) and the web staleness check share it. */
+export function gameNonInput(path) {
+  return /(^|\/)(pins\.json|proof\.mjs|[^/]*\.test\.mjs|[^/]*\.md)$/.test(path)
+    || (/\.m?js$/.test(path) && !/^(logic|data|gpu|art|assets|deck)\//.test(path));
+}
 export function webChanges(dist, app) {
   const marker = resolve(dist, '.exact-build.json');
   if (!existsSync(marker)) return { app: [], shared: [], all: [] };
   const since = statSync(marker).mtimeMs, js = JSON.parse(readFileSync(marker, 'utf8')).target === 'js';
   const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }] : ['host/web', 'runner', 'kernel', 'plan', 'motion', 'num', 'contract'];
   const ignored = gitIgnored(app.dir, shaderWatchRoots(app));
-  const appChanges = newerThan(since, [app.dir], path => /\/(apple|linux)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path));
+  const notInput = path => Boolean(app.manifest?.game) && gameNonInput(relative(app.dir, path));
+  const appChanges = newerThan(since, [app.dir], path => /\/(apple|linux)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path) || notInput(path));
   const shared = newerThan(since, roots.map(r => typeof r === 'string' ? resolve(ROOT, r) : { shallow: resolve(ROOT, r.shallow) }));
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }

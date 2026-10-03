@@ -449,6 +449,24 @@ test('the SDK lock decides every version; a game that adds packages captures its
   sdkLock();
 }, 120000);
 
+test('a root crate\'s new registry dependency resolves before the SDK lock is refreshed', async () => {
+  const {outsideSdkLock,withRootPins}=await import('./app/shells.mjs');
+  const registry='registry+https://github.com/rust-lang/crates.io-index';
+  const block=(name,version,checksum)=>`[[package]]\nname = "${name}"\nversion = "${version}"\n${checksum?`source = "${registry}"\nchecksum = "${checksum}"\n`:''}`;
+  const lock=(...blocks)=>`version = 4\n\n${blocks.join('\n')}`;
+  // 15856ff7 gave kernel cssparser 0.37.0 and updated only the root Cargo.lock.
+  const sdk=lock(block('itoa','1.0.15','aa'),block('exact-kernel','0.1.0'));
+  const root=lock(block('cssparser','0.37.0','bb'),block('itoa','1.0.9','cc'),block('itoa','2.0.1','ee'),block('caltrain-web','0.1.0'),block('exact-kernel','0.1.0'));
+  const seeded=withRootPins(sdk,root), members=new Set(['x-logic']);
+  // A new major of a package the SDK lock holds (itoa 2) is new to it; a compatible one is not.
+  assert.deepEqual(Bun.TOML.parse(seeded).package.map(p=>`${p.name} ${p.version}`),['itoa 1.0.15','exact-kernel 0.1.0','cssparser 0.37.0','itoa 2.0.1'],'only registry packages new to the SDK are added');
+  assert.deepEqual(outsideSdkLock(lock(block('itoa','2.0.1','ee')),seeded,members),[]);
+  assert.deepEqual(outsideSdkLock(lock(block('cssparser','0.37.0','bb'),block('itoa','1.0.15','aa')),seeded,members),[]);
+  assert.deepEqual(outsideSdkLock(lock(block('cssparser','0.37.1','dd')),seeded,members),[`cssparser 0.37.1 ${registry}`],'the root lock decides the version');
+  assert.deepEqual(outsideSdkLock(lock(block('itoa','1.0.9','cc')),seeded,members),[`itoa 1.0.9 ${registry}`],'the SDK lock still decides its own packages');
+  assert.equal(withRootPins(sdk,''),sdk);
+});
+
 
 test('an empty Cargo cache permits adapter generation and refuses offline resolution',async()=>{
   const {prepareGame,gameDefaults}=await import('./app/shells.mjs');
@@ -467,13 +485,42 @@ test('an empty Cargo cache permits adapter generation and refuses offline resolu
 });
 
 
+test('a new game names its Rust type after the game, everywhere the template does', async () => {
+  const {gameDefaults}=await import('./app/shells.mjs');
+  const parent=realpathSync(mkdtempSync(resolve(tmpdir(),'game-new-type-'))), app=resolve(parent,'my-2d-game');
+  try {
+    createGame(app);
+    assert.equal(gameDefaults(app).game.type,'My2dGame');
+    const files=readdirSync(app,{recursive:true}).filter(file=>statSync(resolve(app,file)).isFile());
+    for(const file of files) assert.doesNotMatch(readFileSync(resolve(app,file),'utf8'),/SmallGame|small[-_]game|Small game/,file);
+    assert.match(readFileSync(resolve(app,'logic/tests/sim.rs'),'utf8'),/use my_2d_game_logic::\{Beacon, Options, My2dGame\};/);
+    assert.match(readFileSync(resolve(app,'app.contract'),'utf8'),/^component My2dGame$/m);
+  } finally {rmSync(parent,{recursive:true,force:true});}
+});
+
+test('game/dev.mjs takes the next free port unless --port names a busy one', async () => {
+  const {devPort}=await import('./dev.mjs');
+  const {createServer}=await import('node:net');
+  const held=createServer();
+  await new Promise(ok=>held.listen(8850,'127.0.0.1',ok));
+  try {
+    const chosen=await devPort(['--wasm'],{start:8850});
+    assert.ok(chosen.port>8850 && chosen.port<8900);
+    assert.deepEqual(chosen.args,['--wasm','--port',String(chosen.port)]);
+    await assert.rejects(devPort(['--port','8850']),/--port 8850: 127\.0\.0\.1:8850 is in use; choose another --port/);
+    await assert.rejects(devPort(['--port','x']),/--port needs a port number/);
+    await assert.rejects(devPort(['--port=8850']),/--port 8850: 127\.0\.0\.1:8850 is in use/);
+    assert.deepEqual(await devPort(['--port',String(chosen.port)]),{port:chosen.port,args:['--port',String(chosen.port)]});
+  } finally {await new Promise(ok=>held.close(ok));}
+});
+
 test('E10 compact authored manifest survives two bakes byte for byte', async () => {
   const {gameDefaults,gameShells}=await import('./app/shells.mjs');
   const parent=realpathSync(mkdtempSync(resolve(tmpdir(),'e10-manifest-'))), app=resolve(parent,'my-game');
   try {
     createGame(app);
     const path=resolve(app,'app.json');
-    const authored=JSON.stringify({app:{name:'My Game',id:'org.example.my-game'},game:{crate:'my-game-logic',type:'SmallGame'},host:{macos:{window:{width:960}}}},null,2)+'\n';
+    const authored=JSON.stringify({app:{name:'My Game',id:'org.example.my-game'},game:{crate:'my-game-logic',type:'MyGame'},host:{macos:{window:{width:960}}}},null,2)+'\n';
     writeFileSync(path,authored);
     for(let i=0;i<2;i++) {
       const manifest=gameDefaults(app);
@@ -585,4 +632,12 @@ test('copies of the same game own distinct intermediate build directories', asyn
       assert.equal(config.build['build-dir'], resolve(app,'target'));
     }
   } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+test('a game whose type would shadow an engine export or a template item is refused', async () => {
+  const {createGame,takenTypes}=await import('./new.mjs');
+  const taken=takenTypes();
+  for (const type of ['World','Camera','Transform','Beacon','Options']) assert.ok(taken.has(type),type);
+  for (const name of ['world','camera','beacon']) assert.throws(()=>createGame(resolve(tmpdir(),`zz-${process.pid}`,name)),/would collide/);
+  assert.ok(!taken.has('Garden'));
 });

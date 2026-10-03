@@ -50,6 +50,12 @@ pub enum InputEvent {
         x: f32,
         /// Vertical point in the canvas.
         y: f32,
+        /// Horizontal device motion since this pointer's previous event, in
+        /// points. Unbounded by the canvas or screen edge while the pointer is
+        /// locked (`data-pointer-lock`), when the position stays put.
+        dx: f32,
+        /// Vertical device motion since this pointer's previous event.
+        dy: f32,
         /// Device kind.
         kind: PointerKind,
         /// The web's pressed-button bit mask.
@@ -87,6 +93,14 @@ pub enum InputEvent {
     },
     /// Focus left the canvas: whatever was held is released.
     Blur {
+        /// Host clock in milliseconds.
+        at_ms: f64,
+    },
+    /// Text the app posted to this canvas with Contract's `postMessage(text, surface)`;
+    /// every one is delivered, in order, never coalesced.
+    Message {
+        /// The posted text.
+        text: String,
         /// Host clock in milliseconds.
         at_ms: f64,
     },

@@ -27,6 +27,18 @@ const pendingRecords = [];
 let drainingRecords = false;
 let planCarries = new Map();
 const surfaces = new Map(); // view id -> surface, input listeners and journal cursor
+// postMessage(text, name): held per surface name (at most exact.postBound, glue.js's
+// POST_BOUND = Linux POST_BOUND = Apple Canvases.postBound) until a canvas of
+// that name is live, then delivered in order to the live one with the lowest view.
+const posts = new Map(); // surface name -> posted message events awaiting its canvas
+function deliverPosts(name) {
+  const queued = posts.get(name);
+  const entry = [...surfaces.values()].filter(e => e.name === name && e.id && !e.terminal && live(e.view) === e).sort((a, b) => a.view - b.view)[0];
+  if (!entry || !queued?.length) return;
+  posts.delete(name);
+  for (const json of queued) if (!gpu.gpu_input(entry.id, json)) console.error("exact gpu:", gpu.gpu_error());
+  messages(entry); schedule();
+}
 const inputStyle = document.createElement("style");
 inputStyle.textContent = "[data-gpu-input]:focus{outline:none}";
 document.head.append(inputStyle);
@@ -395,6 +407,7 @@ function attach(entry) {
   if (entry.wantsInput) listen(entry);
   reportRestore(entry);
   messages(entry); schedule();
+  deliverPosts(entry.name);
 }
 function restorePending(entry, module = gpu, carrier = exact) {
   if (carrier.worldCarry === undefined || entry.attemptedCarry === carrier.worldCarry) return;
@@ -509,6 +522,24 @@ function listen(entry) {
   mutations.observe(el, {subtree:true, childList:true, attributes:true, attributeFilter:["data-action"]});
   const fallsThrough = (event) => event.target === el || event.target === entry.el;
   const point = (event) => { const r = el.getBoundingClientRect(); return { x: event.clientX - r.left, y: event.clientY - r.top }; };
+  // A canvas marked data-pointer-lock="true" (mouse look) captures the mouse on a
+  // press. Locked, a pointer event's motion is the device's (movementX/Y), so the
+  // world's deltas never stop at the canvas or screen edge though the position
+  // stays put; unlocked it is the position's change, as on every other host. A
+  // down or up carries none.
+  const lockable = () => (el.dataset.pointerLock ?? entry.el.dataset?.pointerLock) === "true";
+  const last = new Map(); // each pointer's last point on the canvas
+  on("pointerleave", (event) => { if (document.pointerLockElement !== el) last.delete(event.pointerId); });
+  const pointerAt = (event, phase) => {
+    const p = point(event), from = last.get(event.pointerId);
+    if ((phase === "up" || phase === "cancel") && event.pointerType !== "mouse") last.delete(event.pointerId); else last.set(event.pointerId, p);
+    if (phase !== "move") return { ...p, dx: 0, dy: 0 };
+    if (document.pointerLockElement === el) return { ...p, dx: event.movementX || 0, dy: event.movementY || 0 };
+    return { ...p, dx: from ? p.x - from.x : 0, dy: from ? p.y - from.y : 0 };
+  };
+  // The secondary button and the middle button are the world's (MouseRight, MouseMiddle).
+  on("contextmenu", (event) => { if (fallsThrough(event)) event.preventDefault(); });
+  on("mousedown", (event) => { if (event.button === 1 && fallsThrough(event)) event.preventDefault(); });
   for (const phase of ["down", "move", "up", "cancel"]) on(`pointer${phase}`, (event) => {
     const wasControl = controls.has(event.pointerId);
     cancelRemoved();
@@ -527,7 +558,8 @@ function listen(entry) {
     }
     if (!fallsThrough(event)) return;
     if (phase === "down") { if (!editable(document.activeElement)) el.focus({ preventScroll: true }); try { el.setPointerCapture(event.pointerId); } catch {} }
-    send(event, { t: "pointer", phase, id: event.pointerId, ...point(event), kind: event.pointerType || "mouse", buttons: event.buttons });
+    if (phase === "down" && event.pointerType === "mouse" && lockable() && document.pointerLockElement !== el) Promise.resolve(el.requestPointerLock?.()).catch(() => {});
+    send(event, { t: "pointer", phase, id: event.pointerId, ...pointerAt(event, phase), kind: event.pointerType || "mouse", buttons: event.buttons });
   });
   on("lostpointercapture", event => {
     const button = controls.get(event.pointerId);
@@ -692,6 +724,14 @@ const api = {
     if(!(bytes instanceof Uint8Array)||bytes.length>HOST_WORK_LIMIT)throw Object.assign(new Error(`surface ${name}: invalid or oversized restore`),{kind:2});
     if(!gpu.gpu_restore(id,bytes,0))throw Object.assign(new Error(`surface ${name}: ${gpu.gpu_error()}`),{kind:2});
     messages(entry);schedule();
+  },
+  // postMessage(id, text) from Contract: one input event, stamped at the call,
+  // delivered in order; held until the canvas's surface exists.
+  post(name, text, at) {
+    const queued = posts.get(name) ?? posts.set(name, []).get(name);
+    if (queued.length >= (exact.postBound ?? 64)) { console.warn(`exact: postMessage: dropped: ${exact.postBound ?? 64} posts already wait for surface "${name}"`); return; }
+    queued.push(JSON.stringify({ t: "message", text, at }));
+    deliverPosts(name);
   },
   wantsInput: (view) => live(view)?.wantsInput === true,
   answers: (request) => request.entity !== undefined || request.world === true || request.contact !== undefined,
@@ -991,6 +1031,8 @@ try {
       try { api.surface(s.id, s.name, s.values); } catch (error) { report(error); }
     }
     exact.pendingSurfaces = [];
+    for (const p of exact.pendingPosts ?? []) if (p.generation === exact.generation) api.post(p.name, p.text, p.at);
+    exact.pendingPosts = [];
   }
   // A refused initial surface must not prevent independent canvases from loading.
   for (const entry of waiting) { try { ensure(entry); } catch (error) { report(error); } }

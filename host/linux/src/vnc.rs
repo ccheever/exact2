@@ -356,6 +356,12 @@ fn serve(mut stream: TcpStream, shared: Arc<Shared>) -> io::Result<()> {
                     if released & 1 != 0 {
                         push(&shared, InputEvent::Button(false));
                     }
+                    // RFB's middle (2) and right (4) are the web's 4 and 2.
+                    for (rfb, bit) in [(2, 4), (4, 2)] {
+                        if (pressed | released) & rfb != 0 {
+                            push(&shared, InputEvent::Aux(bit, pressed & rfb != 0));
+                        }
+                    }
                     if pressed & 8 != 0 {
                         push(&shared, InputEvent::Wheel(0.0, -LINE));
                     }

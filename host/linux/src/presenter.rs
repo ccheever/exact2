@@ -483,6 +483,19 @@ impl<D: DataSource> Presenter<D> {
                     }
                 }
                 "selectText" => eprintln!("exact: selectText unsupported on the headless/DRM host"),
+                // The inverse of `message=`: text into the named surface's
+                // canvas, stamped now and delivered in order with its input.
+                "postMessage" => {
+                    let arg = |i: usize| c.args.get(i).and_then(exact_plan::Value::as_str);
+                    let (text, name) = (arg(0).unwrap_or_default(), arg(1).unwrap_or_default());
+                    let event = serde_json::json!({"t":"message","text":text,"at":self.host.now()});
+                    if !self.surfaces.post(name, event) {
+                        self.host.log(format!(
+                            "postMessage: dropped: {} posts already wait for surface \"{name}\"",
+                            crate::surfaces::POST_BOUND
+                        ));
+                    }
+                }
                 // @ref LLP 1069.002 D8 — refused with `cancel`; the agent's
                 // substitute answers (D9).
                 "showPicker" => match c.args.first().and_then(exact_plan::Value::as_str) {

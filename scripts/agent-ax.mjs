@@ -259,9 +259,12 @@ export function axRole(e, source) {
     if (traits.includes('button') && (e.value === 'checked' || e.value === 'unchecked')) return 'checkbox';
     if (traits.includes('link')) return 'link';
     if (traits.includes('header')) return 'heading';
-    if (traits.includes('button')) return 'button';
+    // An aria-pressed toggle: Chrome's is a `button` with a pressed state.
+    if (traits.includes('button') || traits.includes('toggleButton')) return 'button';
     return e.role;
   }
+  // An aria-pressed toggle is AXCheckBox/AXToggle on AppKit, a `button` on the web.
+  if (source === 'appkit' && raw === 'AXCheckBox' && e.native?.subrole === 'AXToggle') return 'button';
   if (source === 'appkit') return { AXButton: 'button', AXLink: 'link', AXHeading: 'heading', AXTextField: 'textbox', AXTextArea: 'textbox', AXCheckBox: 'checkbox' }[raw] ?? e.role;
   return e.role;
 }

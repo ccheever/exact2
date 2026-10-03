@@ -4,7 +4,7 @@ use crate::{DrawInstance, MaterialId, RENDER_SLOT_BASE};
 pub(super) struct Assets {
     pub records: Vec<DrawInstance>,
     pub entities: Vec<exact_game::Entity>,
-    groups: BTreeMap<(MeshId, MaterialId, bool), Vec<u32>>,
+    groups: BTreeMap<(MeshId, MaterialId, bool, bool), Vec<u32>>,
 }
 impl Assets {
     pub fn batches(
@@ -28,6 +28,7 @@ impl Assets {
             if !nodes.is_empty() {
                 self.entities.push(entity);
             }
+            let viewmodel = w.has::<exact_game::ViewModel>(entity);
             for &(geometry, material, local, skin) in nodes {
                 let slot = RENDER_SLOT_BASE + self.records.len() as u32;
                 self.records.push(DrawInstance {
@@ -39,19 +40,20 @@ impl Assets {
                     skin,
                 });
                 self.groups
-                    .entry((geometry, material, local.determinant() < 0.))
+                    .entry((geometry, material, local.determinant() < 0., viewmodel))
                     .or_default()
                     .push(slot);
             }
         }
         r.instances(&self.records)?;
-        for (&(mesh, _, _), list) in &self.groups {
+        for (&(mesh, _, _, viewmodel), list) in &self.groups {
             if list.is_empty() {
                 continue;
             }
             let start = slots.len() as u32;
             slots.extend(list);
-            batches.push(Batch::new(mesh, start..slots.len() as u32));
+            let batch = Batch::new(mesh, start..slots.len() as u32);
+            batches.push(if viewmodel { batch.viewmodel() } else { batch });
         }
         Ok(())
     }

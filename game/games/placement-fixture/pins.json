@@ -1,16 +1,16 @@
 {
   "ticks": {
-    "330": "0xe9455cc3cfcc9d31"
+    "330": "0x7136b1be5a2f6a8d"
   },
   "saves": {
-    "continuation": "3991952069a63f1e3bed1f2ddd6a7d07b6e224fd1156312c1d87bd46b158b2e4"
+    "continuation": "84506a97b1a8786dad5e7829c49ed43f835b176015fd044ae93a778ec81598c7"
   },
   "hosts": [
     "linux",
     "web"
   ],
+  "inputs": "b01b3ef2b8d8d0752a88199d7d0b8038b225c0ac3d5e3f3a9a3f8fc332bc195e",
   "game": "placement-fixture",
-  "generated": "bun game/prove.mjs placement-fixture --repin --hosts linux,web",
-  "at": "64b5af14d0b08d4f35be20a08502e4834ad5f133",
-  "reason": "Named placed controls survive reorder; Pull is an input action, so saves omit the former pulls argument."
+  "generated": "bun game/prove.mjs placement-fixture --repin --hosts 'linux,web'",
+  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
 }

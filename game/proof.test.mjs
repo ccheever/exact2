@@ -11,7 +11,7 @@ import {tmpdir} from 'node:os';
 import {agreePins, webUnavailable, pinRecorder, proofStatus, facilityReport, artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt, proofInputFiles} from './proof.mjs';
 import {proofCommand, worldObservations, pinRevision} from './proof.mjs';
 import {comparePlacement} from './games/placement-fixture/proof.mjs';
-import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp} from '../scripts/agent.mjs';
+import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp, clockSpan} from '../scripts/agent.mjs';
 
 test('external app sources and assets include every extension while outputs stay excluded', () => {
   const directory = mkdtempSync(resolve(tmpdir(), 'external-proof-inputs-'));
@@ -278,6 +278,32 @@ test('world convenience keeps simulation fields only and dispatches the existing
   ]);
   expect(calls[1].reply).toMatchObject({clock:2000,epoch:1,incarnation:1});
   expect(calls[2].reply).toMatchObject({clock:0,epoch:2,incarnation:2});
+});
+
+test('a complete world snapshot reads every page at one tick and hash', async () => {
+  const all = Array.from({length:12}, (_, id) => ({id, name:null, components:{}}));
+  const pages = [];
+  let hash = '0x1';
+  const session = {
+    async state(target, under, pose, busy, page = {}) {
+      pages.push(page);
+      const from = page.from ?? 0, to = Math.min(all.length, from + 5);
+      return {tick:7, hash, entities:all.slice(from, to), truncated:to < all.length, total:all.length, ...(to < all.length ? {next:to} : {})};
+    },
+  };
+  const w = worldView(session, 'world');
+  // The 5-entity pages stand in for the driver's limit of 5,000.
+  const {entities, truncated} = await w.snapshot({all:true});
+  expect(entities.map(e => e.id)).toEqual(all.map(e => e.id));
+  expect(truncated).toBe(false);
+  expect(pages.map(p => p.from ?? 0)).toEqual([0, 5, 10]);
+  pages.length = 0;
+  session.state = async (target, under, pose, busy, page = {}) => {
+    pages.push(page);
+    if (page.from) hash = '0x2';
+    return {tick:7, hash, entities:all.slice(0, 5), truncated:true, next:5};
+  };
+  await expect(w.snapshot({all:true})).rejects.toThrow(/world changed while paging/);
 });
 
 
@@ -647,7 +673,8 @@ test('clock settle diagnostic names busy, held input, and logs on a real unsettl
   const source=readFileSync(resolve(import.meta.dir,'../scripts/agent.mjs'),'utf8');
   const a=source.indexOf("    async clock(spec = 'settle') {"), b=source.indexOf('\n    /** Pixels as PNG',a);
   const s={now:0,op:async req=>{expect(req).toEqual({op:'clock',settle:true});return {clock:100,settled:false,world:{changing:['player']}};}};
-  const clock=new Function('s',`return ({${source.slice(a,b)}}).clock;`)(s);
+  // The method reads the module's step constant and growth rule; pass them in as the module would.
+  const clock=new Function('s','CLOCK_STEP_MS','clockSpan',`return ({${source.slice(a,b)}}).clock;`)(s,1000,clockSpan);
   const reply=await clock();
   expect(reply.diagnostic).toContain('clock settle did not reach quiescence');
   expect(reply.diagnostic).toContain('state world:* busy');
@@ -867,6 +894,17 @@ test('R13 output names nested in logic remain proof inputs and change the hash',
     const hash=()=>{const value=buildInputHash('linux','target');for(const file of proofInputFiles(dir,dir)) value.update(file).update(readFileSync(resolve(dir,file)));return value.digest('hex');};
     const before=hash();writeFileSync(path,'after');expect(hash()).not.toBe(before);
   } finally {rmSync(dir,{recursive:true,force:true});}
+});
+
+test('a game\'s helper scripts are not proof inputs; its build inputs are', async () => {
+  const {proofInputExcluded}=await import('./proof.mjs');
+  for(const file of ['bench.mjs','live.mjs','jev-proxy.mjs','tools/probe.js','proof.mjs','pins.json','README.md'])
+    expect(proofInputExcluded(`game/games/forest/${file}`,'forest')).toBe(true);
+  for(const file of ['logic/src/lib.rs','logic/build.mjs','data/src/lib.rs','gpu/shaders/sky.wgsl','assets/x.js','app.contract','app.json','island.level.json','Cargo.toml','Cargo.lock'])
+    expect(proofInputExcluded(`game/games/forest/${file}`,'forest')).toBe(false);
+  // Shared SDK scripts stay inputs: the web glue is JavaScript.
+  expect(proofInputExcluded('host/web/gpu-glue.js','forest')).toBe(false);
+  expect(proofInputExcluded('../forest/bench.mjs','forest','../forest/')).toBe(true);
 });
 
 test('R13 Fox screenshot reply scales logical bounds at DPR 2 and 3', async () => {
@@ -1392,4 +1430,24 @@ test('repin provenance distinguishes commit-less games from broken Git repositor
     writeFileSync(resolve(dir, '.git/HEAD'), 'corrupt head\n');
     expect(() => pinRevision(dir, 'digest')).toThrow('git provenance failed');
   } finally { rmSync(dir,{recursive:true,force:true}); }
+});
+
+test('a split clock grows at most 4x a step and never past ten world minutes', async () => {
+  const {clockSpan} = await import('../scripts/agent.mjs');
+  expect(clockSpan(1000, 1)).toBe(4000);
+  expect(clockSpan(400_000, 1)).toBe(600_000);
+  expect(clockSpan(8000, 6000)).toBe(4000);
+  expect(clockSpan(1000, 60_000)).toBe(1000);
+  // A step lasts about the 3 s budget times how much heavier the world got
+  // since the step before: 1.5x heavier each step stays near 4.5 s, far inside
+  // Chrome's 15 s, through an hour.
+  // Cost is wall ms per world ms, measured on the step before.
+  let span = 1000, worst = 0;
+  for (let now = 0, cost = 1e-5; now < 3_600_000; now += span) {
+    const measured = span * cost;
+    cost = Math.min(cost * 1.5, 2e-3); // the world gets heavier as it plays
+    worst = Math.max(worst, span * cost);
+    span = clockSpan(span, measured);
+  }
+  expect(worst).toBeLessThanOrEqual(4500 + 1e-6);
 });

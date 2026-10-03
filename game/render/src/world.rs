@@ -1,6 +1,6 @@
 //! Tick uploads and retained scene selection. Frames never walk entity storage.
 use crate::{shapes, Batch, MeshId, RenderError, Vertex};
-use exact_game::{Material, Mesh, Parent, Transform, Visible, World, PAGE};
+use exact_game::{Material, Mesh, Parent, Transform, ViewModel, Visible, World, PAGE};
 use std::collections::BTreeMap;
 
 pub(crate) mod assets;
@@ -30,7 +30,14 @@ pub(crate) trait Writes {
     fn instances(&mut self, _: &[crate::DrawInstance]) -> Result<(), RenderError> {
         Ok(())
     }
-    fn model_poses(&mut self, _: &World, _: &[exact_game::Entity], _: bool) {}
+    fn model_poses(
+        &mut self,
+        _: &World,
+        _: &[exact_game::Entity],
+        _: bool,
+        _: crate::models::Moved<'_>,
+    ) {
+    }
     fn quads(&mut self, _: &World, _: bool, _: bool, _: bool) -> Result<(), RenderError> {
         Ok(())
     }
@@ -86,9 +93,15 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
             Ok(())
         }
     }
-    fn model_poses(&mut self, w: &World, entities: &[exact_game::Entity], initial: bool) {
+    fn model_poses(
+        &mut self,
+        w: &World,
+        entities: &[exact_game::Entity],
+        initial: bool,
+        moved: crate::models::Moved<'_>,
+    ) {
         if ASSETS {
-            self.model_poses(w, entities, initial);
+            self.model_poses(w, entities, initial, moved);
         }
     }
     fn quads(
@@ -191,6 +204,7 @@ fn dimensions(mesh: &Mesh) -> [f32; 3] {
 }
 struct Group {
     mesh: MeshId,
+    viewmodel: bool,
     slots: Vec<u32>,
 }
 
@@ -203,6 +217,9 @@ struct Versions {
     glow: u64,
     mesh: u64,
     visible: u64,
+    viewmodel: u64,
+    // An animated rig moves its socket followers' subtrees without a Transform write.
+    pose: u64,
     live: u64,
     membership: u64,
 }
@@ -216,6 +233,8 @@ impl Versions {
             glow: w.revision::<exact_game::Glow>(),
             mesh: w.revision::<Mesh>(),
             visible: w.revision::<Visible>(),
+            viewmodel: w.revision::<ViewModel>(),
+            pose: w.revision::<exact_game::Pose>(),
             live: w.entities_revision(),
             membership: w.membership::<Transform>(),
         }
@@ -234,7 +253,7 @@ pub struct Feed {
     tick: u64,
     history_pending: bool,
     groups: Vec<Group>,
-    shapes: BTreeMap<Shape, usize>,
+    shapes: BTreeMap<(Shape, bool), usize>,
     batches: Vec<Batch>,
     slots: Vec<u32>,
     page_scratch: Box<[f32; PAGE * 12]>,
@@ -246,6 +265,18 @@ pub struct Feed {
     generation: u64,
     parents: Vec<exact_game::Entity>,
     overrides: Vec<(exact_game::Entity, [f32; 10])>,
+    // Each Transform page's range in `overrides`, rebuilt with them.
+    override_pages: Vec<std::ops::Range<usize>>,
+    // Each slot's occupant generation + 1 at the last history swap (0: none).
+    occupants: Vec<u32>,
+    // Pose cursors: the parented overrides', each transform history buffer's,
+    // and the model poses' last step. None reports every block.
+    override_cursor: Option<exact_game::PoseCursor>,
+    buffer_cursors: [Option<exact_game::PoseCursor>; 2],
+    model_cursor: Option<exact_game::PoseCursor>,
+    // Scratch: entity-index blocks whose poses changed since a cursor.
+    changed_blocks: Vec<u32>,
+    changed_pages: Vec<usize>,
     scene: Scene,
     glows: Vec<crate::GlowInput>,
 }
@@ -269,6 +300,13 @@ impl Default for Feed {
             generation: 0,
             parents: Vec::new(),
             overrides: Vec::new(),
+            override_pages: Vec::new(),
+            occupants: Vec::new(),
+            override_cursor: None,
+            buffer_cursors: [None; 2],
+            model_cursor: None,
+            changed_blocks: Vec::new(),
+            changed_pages: Vec::new(),
             scene: Scene::default(),
             glows: Vec::new(),
         }
@@ -297,6 +335,11 @@ impl Feed {
         }
         self.materials.reset();
         self.parents.clear();
+        self.override_pages.clear();
+        self.occupants.clear();
+        self.override_cursor = None;
+        self.buffer_cursors = [None; 2];
+        self.model_cursor = None;
         self.assets.records.clear();
         self.assets.entities.clear();
     }
@@ -325,6 +368,15 @@ impl Feed {
             frame
         }
     }
+    /// The pointer motion the next frame's camera `MouseLook` turns by: the
+    /// simulation's `Sim::unshown_motion` at that frame.
+    pub fn unshown_motion(&mut self, motion: glam::Vec2) {
+        self.scene.unshown = motion;
+    }
+    /// Whether the fed camera has a `MouseLook` (else no frame reads the motion).
+    pub fn mouse_look(&self) -> bool {
+        self.scene.has_look()
+    }
     /// Frame projection at the CSS-pixel viewport size, including integer scaling.
     pub fn frame_pixels(
         &mut self,
@@ -348,7 +400,10 @@ impl Feed {
         let next = Versions::of(w, r.assets_revision());
         let initial = self.versions.is_none();
         let old = self.versions.unwrap_or_default();
-        let moved = initial || next.transform != old.transform || next.parent != old.parent;
+        let moved = initial
+            || next.transform != old.transform
+            || next.parent != old.parent
+            || next.pose != old.pose;
         let material = initial
             || next.material != old.material
             || next.glow != old.glow
@@ -358,6 +413,7 @@ impl Feed {
             || next.assets != old.assets
             || next.mesh != old.mesh
             || next.visible != old.visible
+            || next.viewmodel != old.viewmodel
             || next.live != old.live
             || next.membership != old.membership;
         // Validate live slots before any history swap. A last partial page is clipped
@@ -374,36 +430,72 @@ impl Feed {
         if moved || (self.history_pending && w.tick() != self.tick) {
             r.begin_tick();
             self.current = 1 - self.current;
-            self.overrides.clear();
-            for (e, _) in w.query::<(&Parent, &Transform)>().iter() {
-                if let Some(t) = scene::pose(w, e) {
-                    self.overrides.push((e, floats(t)));
+            // Parented global poses: every one when the hierarchy changed, else
+            // only those in blocks whose poses changed since the last pass.
+            // Membership too: a parented entity can gain its Transform later.
+            let rebuilt = initial
+                || parent_changed
+                || next.membership != old.membership
+                || self.override_cursor.is_none();
+            if rebuilt {
+                self.overrides.clear();
+                for (e, _) in w.query::<(&Parent, &Transform)>().iter() {
+                    if let Some(t) = scene::pose(w, e) {
+                        self.overrides.push((e, floats(t)));
+                    }
+                }
+                self.override_pages.clear();
+                for (i, (e, _)) in self.overrides.iter().enumerate() {
+                    let page = e.index() as usize / PAGE;
+                    if self.override_pages.len() <= page {
+                        self.override_pages.resize(page + 1, i..i);
+                    }
+                    self.override_pages[page].end = i + 1;
+                }
+            } else {
+                changed_blocks(w, self.override_cursor, &mut self.changed_blocks);
+                for &block in &self.changed_blocks {
+                    let range = self
+                        .override_pages
+                        .get(block as usize / PAGE)
+                        .cloned()
+                        .unwrap_or_default();
+                    for (e, pose) in &mut self.overrides[range] {
+                        if let Some(t) = scene::pose(w, *e) {
+                            *pose = floats(t);
+                        }
+                    }
                 }
             }
+            self.override_cursor = Some(w.pose_cursor());
+            // This history buffer was last written at its cursor: a parented
+            // page needs patching only if a pose in it changed since then.
+            changed_blocks(
+                w,
+                self.buffer_cursors[self.current],
+                &mut self.changed_blocks,
+            );
             if parent_changed {
                 for e in &self.parents {
                     self.transforms[self.current].invalidate(e.index() as usize / PAGE);
                 }
             }
             let pages = w.pages::<Transform>();
-            let mut overrides = self.overrides.iter().peekable();
             let mut run = 0;
             self.scratch.clear();
             for page in pages.iter() {
                 let len = page_len(page.first, r.max_slots()) * 10;
                 let index = page.first as usize / PAGE;
-                let parented = overrides
-                    .peek()
-                    .is_some_and(|(e, _)| e.index() < page.first + PAGE as u32);
-                if !parented && !self.transforms[self.current].needs_check(index, page.generation) {
+                let range = self.override_pages.get(index).cloned().unwrap_or_default();
+                let parented = !range.is_empty();
+                let posed = parented && self.changed_blocks.binary_search(&page.first).is_ok();
+                if !posed && !self.transforms[self.current].needs_check(index, page.generation) {
                     continue;
                 }
                 let mut values = &page.floats()[..len];
                 if parented {
                     self.page_scratch[..len].copy_from_slice(values);
-                    while let Some((e, pose)) =
-                        overrides.next_if(|(e, _)| e.index() < page.first + PAGE as u32)
-                    {
+                    for (e, pose) in &self.overrides[range] {
                         let at = (e.index() - page.first) as usize * 10;
                         self.page_scratch[at..at + 10].copy_from_slice(pose);
                     }
@@ -422,7 +514,9 @@ impl Feed {
                     self.scratch.extend_from_slice(values);
                 }
             }
+            self.buffer_cursors[self.current] = Some(w.pose_cursor());
             if initial {
+                self.buffer_cursors = [self.buffer_cursors[self.current]; 2];
                 let (a, b) = self.transforms.split_at_mut(1);
                 if self.current == 0 {
                     b[0].clone_from(&a[0]);
@@ -433,6 +527,29 @@ impl Feed {
             if !self.scratch.is_empty() {
                 r.transforms(run, &self.scratch, initial)?;
             }
+            // A slot whose occupant changed since the last swap has no history of
+            // its own: an entity spawned in an earlier tick of a multi-tick
+            // advance is no longer fresh, and its slot's history holds the
+            // previous occupant (or nothing). It starts from its current pose.
+            if initial || next.live != old.live {
+                for e in w.entities() {
+                    let slot = e.index() as usize;
+                    if self.occupants.len() <= slot {
+                        self.occupants.resize(slot + 1, 0);
+                    }
+                    let occupant = e.generation().wrapping_add(1);
+                    if std::mem::replace(&mut self.occupants[slot], occupant) == occupant
+                        || initial
+                        || w.is_fresh(e)
+                    {
+                        continue;
+                    }
+                    if let Some(t) = scene::pose(w, e) {
+                        r.previous(e.index(), &floats(t))?;
+                        self.transforms[1 - self.current].invalidate(slot / PAGE);
+                    }
+                }
+            }
             if !initial {
                 for &e in w.fresh() {
                     if let Some(t) = scene::pose(w, e) {
@@ -440,7 +557,15 @@ impl Feed {
                         self.transforms[1 - self.current].invalidate(e.index() as usize / PAGE);
                     }
                 }
-                for &(e, t) in &self.overrides {
+                for &(e, t) in
+                    self.overrides
+                        .iter()
+                        .take(if parent_changed || !w.fresh().is_empty() {
+                            usize::MAX
+                        } else {
+                            0
+                        })
+                {
                     if !w.is_fresh(e) && scene::snap(w, e, parent_changed) {
                         r.previous(e.index(), &t)?;
                         self.transforms[1 - self.current].invalidate(e.index() as usize / PAGE);
@@ -458,8 +583,10 @@ impl Feed {
                     }
                 }
             }
-            self.parents.clear();
-            self.parents.extend(self.overrides.iter().map(|(e, _)| *e));
+            if rebuilt {
+                self.parents.clear();
+                self.parents.extend(self.overrides.iter().map(|(e, _)| *e));
+            }
             self.history_pending = moved && !initial;
         }
         if batches {
@@ -481,11 +608,13 @@ impl Feed {
                 if w.get::<Visible>(e).is_some_and(|v| !v.0) {
                     continue;
                 }
-                let group = *self.shapes.entry(shape).or_insert_with(|| {
+                let viewmodel = w.has::<ViewModel>(e);
+                let group = *self.shapes.entry((shape, viewmodel)).or_insert_with(|| {
                     let (v, i) = shape.geometry();
                     let index = self.groups.len();
                     self.groups.push(Group {
                         mesh: r.mesh(&v, &i),
+                        viewmodel,
                         slots: Vec::new(),
                     });
                     index
@@ -500,8 +629,11 @@ impl Feed {
                 }
                 let start = self.slots.len() as u32;
                 self.slots.extend_from_slice(&group.slots);
-                self.batches
-                    .push(Batch::new(group.mesh, start..self.slots.len() as u32));
+                let mut batch = Batch::new(group.mesh, start..self.slots.len() as u32);
+                if group.viewmodel {
+                    batch = batch.viewmodel();
+                }
+                self.batches.push(batch);
             }
         }
         if material {
@@ -593,7 +725,21 @@ impl Feed {
             r.batches(&self.batches, &self.slots)?;
         }
         if !self.assets.records.is_empty() && (moved || batches || self.tick != w.tick()) {
-            r.model_poses(w, &self.assets.entities, initial || parent_changed);
+            // Static instances cost nothing, parented or not: only blocks whose
+            // local or propagated poses changed since the last pose step.
+            changed_blocks(w, self.model_cursor, &mut self.changed_blocks);
+            self.model_cursor = Some(w.pose_cursor());
+            self.changed_pages.clear();
+            self.changed_pages
+                .extend(self.changed_blocks.iter().map(|&b| b as usize / PAGE));
+            let moved = if initial || parent_changed || batches {
+                crate::models::Moved::All
+            } else {
+                crate::models::Moved::Pages {
+                    pages: &self.changed_pages,
+                }
+            };
+            r.model_poses(w, &self.assets.entities, initial || parent_changed, moved);
         }
         r.quads(w, initial, self.tick != w.tick(), parent_changed)?;
         r.attachments(
@@ -635,6 +781,15 @@ impl Feed {
         self.tick = w.tick();
         self.versions = Some(next);
         Ok(())
+    }
+}
+/// First entity index of each block whose poses changed since `cursor`, in
+/// order; every block without a cursor.
+fn changed_blocks(w: &World, cursor: Option<exact_game::PoseCursor>, out: &mut Vec<u32>) {
+    out.clear();
+    match cursor {
+        Some(cursor) => out.extend(w.poses_changed_since(cursor)),
+        None => out.extend(w.pages::<Transform>().iter().map(|p| p.first)),
     }
 }
 fn page_len(first: u32, limit: u32) -> usize {

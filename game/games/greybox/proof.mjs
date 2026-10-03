@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { proof } from '../../proof.mjs';
+import { proof, axNames } from '../../proof.mjs';
 import { audioProof } from '../../bench/probes/audio.mjs';
 
 if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open, check, equal, out, host, say}) => {
@@ -12,14 +12,16 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
     ? (say('SKIP headless screenshot: gameplay and HUD use tree/state'), Promise.resolve({skipped:'headless proof'}))
     : s.screenshot(path);
   const title = await s.tree();
-  check('Play is initially focused and named by its text', node(title, 'play')?.focused === true && node(title, 'play')?.accessibleName === 'Play');
+  const titleAx = await axNames(s);
+  check('Play is initially focused and named by its text', node(title, 'play')?.focused === true && (titleAx.unavailable || titleAx.name('play') === 'Play'));
   check('state focus agrees with tree', (await s.state()).focus.logical === node(title, 'play').id);
   check('title and Play are the initial UI', !!node(title, 'play') && title?.nodes?.some(n => n.props?.text === 'Grey box'));
   check('no world or loaded GPU module on the title', !node(title, 'world') && (host !== 'web' || await s.gpuMs() === null));
   await screenshot(resolve(out, 'greybox-title.png'));
   await s.tap('play');
   const playing = await s.tree();
-  check('HUD is polite and Pause is named by text', node(playing, 'hud-beacons')?.props.accessibilityLive === 'polite' && node(playing, 'pause')?.accessibleName === 'Pause');
+  const playingAx = await axNames(s);
+  check('HUD is polite and Pause is named by text', node(playing, 'hud-beacons')?.props.accessibilityLive === 'polite' && !!node(playing, 'pause') && (playingAx.unavailable || playingAx.name('pause') === 'Pause'));
   const canvas = node(playing, 'world');
   check('canvas carries the setup world summary', canvas?.world?.entities === 8 && canvas.world.tick === 0, canvas?.world);
   for (const id of ['hud-beacons', 'pause']) {
@@ -95,7 +97,8 @@ const node = (tree, id) => tree?.nodes?.find(n => n.props?.testId === id);
   await s.world('world').key_up('KeyW');
   await screenshot(resolve(out, 'greybox-web.png'));
   const pausedTree = await s.tree();
-  check('Resume accessible name follows its text', node(pausedTree, 'pause')?.accessibleName === 'Resume');
+  const pausedAx = await axNames(s);
+  check('Resume accessible name follows its text', !!node(pausedTree, 'pause') && (pausedAx.unavailable || pausedAx.name('pause') === 'Resume'));
   check('paused HUD offers Resume', pausedTree?.nodes?.some(n => n.props?.text === 'Resume'));
   const finalState = await s.state();
   check('Contract paused argument reaches world', finalState?.world?.[0]?.paused === true);

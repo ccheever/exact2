@@ -2,6 +2,7 @@
 
 mod action_related;
 mod announce;
+mod aria;
 mod at;
 mod auth;
 mod baked_release;
@@ -50,6 +51,7 @@ mod pan;
 mod pan_release;
 mod picker;
 mod placeholder;
+mod post_message;
 mod presence;
 mod realworld_then;
 mod records;
@@ -72,6 +74,7 @@ mod surface;
 mod svg;
 mod symbols;
 mod tests_decl;
+mod text_item;
 mod time;
 mod timelines;
 mod transform_binding;

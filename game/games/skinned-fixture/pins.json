@@ -1,17 +1,17 @@
 {
   "ticks": {
-    "60": "0x75937d48d7228e0b",
-    "120": "0xe159fb2c42740548"
+    "60": "0x0e6efd40d47f5dd7",
+    "120": "0xf8baf228b103fe37"
   },
   "saves": {
-    "continuation": "f96d70aea8f9fbb72257bb0ed99ca3da2b1f5319dfe00e8191c88f9f7fde855d"
+    "continuation": "143ccf4d7087526325530e59dfaa5df072470ba5dafd7bb16b511257fb795d49"
   },
   "hosts": [
     "linux",
     "web"
   ],
+  "inputs": "fc7b1129b4a9f5840caa51a9ef358760ffb004b88c463f3b5d1ccabdf10e0180",
   "game": "skinned-fixture",
-  "generated": "bun game/prove.mjs skinned-fixture --repin --hosts linux,web",
-  "at": "64b5af14d0b08d4f35be20a08502e4834ad5f133",
-  "reason": "D6 imports Fox into metres once, replacing model/socket reciprocal scales; tick-60 joint bases now express metres"
+  "generated": "bun game/prove.mjs skinned-fixture --repin --hosts 'linux,web'",
+  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
 }

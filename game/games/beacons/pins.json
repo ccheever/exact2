@@ -1,18 +1,17 @@
 {
   "ticks": {
-    "0": "0xb6e90714710c57ff",
-    "90": "0x164306fd0014d2eb"
+    "0": "0x678050877109b354",
+    "90": "0x56d7b1520ecf2871"
   },
   "saves": {
-    "continuation": "581d5b29e678c8d92382d57d92028f9158d87a69d7e10b5ee93bc960f650e58c"
+    "continuation": "998493cefe1c20cb6f4dbe96b01162802992063da6d26a90e6c87896cca508d9"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "d6d77289ec9b1990a7579e71e8eb739acf84306406641d5dd40120a4e95a380c",
+  "inputs": "9c5e5977c26e1539ca25fd0c0a202c00591a94059ff41ad2d47de8571ee50a21",
   "game": "beacons",
-  "generated": "bun game/prove.mjs beacons --repin --hosts linux,web",
-  "at": "126daba5b97ef4bbb9d8fc6f0dba8c660b103585",
-  "reason": "E11 bounded walking accounts for acceleration and braking; continuation timing changed, tick pins retained; inputs identify the producing source tree."
+  "generated": "bun game/prove.mjs beacons --repin --hosts 'linux,web'",
+  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
 }

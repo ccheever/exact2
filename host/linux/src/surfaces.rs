@@ -310,7 +310,24 @@ pub(crate) struct Surfaces {
     pub(crate) error: Option<String>,
     work: Vec<RequestOut>,
     outcomes: Vec<(u64, Outcome)>,
+    /// The canvas pointer's last event (canvas, viewport point), for its motion.
+    pointer: Option<(u32, f32, f32)>,
+    /// The device's motion for the next canvas pointer event, when it has one.
+    motion: Option<(f32, f32)>,
+    /// The secondary and middle buttons held (`PointerEvent.buttons` bits).
+    aux: u32,
+    /// The canvas their first press went to: it hears their release wherever
+    /// the pointer is, as the web's pointer capture.
+    aux_canvas: Option<u32>,
+    /// The agent is driving: its taps and contacts are a finger's.
+    finger: bool,
+    // postMessage events waiting for a live canvas of their surface name.
+    posts: BTreeMap<String, Vec<Value>>,
 }
+/// Posts held per surface name until a canvas of that name is live; past it a
+/// post is dropped and logged. The same bound and rule on every host.
+/// Web: glue.js POST_BOUND (gpu-glue.js reads it); Apple: Canvases.postBound.
+pub(crate) const POST_BOUND: usize = 64;
 impl Surfaces {
     pub(crate) fn enqueue(&mut self, request: RequestOut, admitted: &str) {
         let oversized = matches!(
@@ -801,6 +818,36 @@ impl Surfaces {
         result
     }
 
+    /// `postMessage(text, name)`: one message event for the live canvas of that
+    /// surface name with the lowest view id, held until one is live. False when
+    /// POST_BOUND posts already wait for the name (the post is dropped).
+    pub(crate) fn post(&mut self, name: &str, event: Value) -> bool {
+        let queue = self.posts.entry(name.into()).or_default();
+        if queue.len() >= POST_BOUND {
+            return false;
+        }
+        queue.push(event);
+        self.deliver_posts();
+        true
+    }
+    /// Deliver held posts whose surface has a live canvas now, in order.
+    pub(crate) fn deliver_posts(&mut self) {
+        let names: Vec<String> = self.posts.keys().cloned().collect();
+        for name in names {
+            let view = self
+                .canvases
+                .iter()
+                .filter(|(_, c)| c.name == name)
+                .map(|(view, _)| *view)
+                .min();
+            if let Some(view) = view {
+                for event in self.posts.remove(&name).unwrap_or_default() {
+                    // A refusal (an oversized message) is the surface's error.
+                    self.input(view, event);
+                }
+            }
+        }
+    }
     pub(crate) fn wants_input(&self, view: u32) -> bool {
         self.canvases.get(&view).is_some_and(|c| unsafe {
             self.abis[&c.artifact].symbol::<Read>(b"gpu_wants_input")(c.id) != 0
@@ -843,6 +890,7 @@ impl<D: DataSource> Presenter<D> {
             let changed = self
                 .surfaces
                 .sync(&mut self.host, &self.compat, &self.assets);
+            self.surfaces.deliver_posts();
             self.cancel_removed_controls();
             let outcomes = self.surfaces.take_outcomes();
             if !outcomes.is_empty() {
@@ -872,11 +920,116 @@ impl<D: DataSource> Presenter<D> {
     }
     pub(crate) fn surface_pointer(&mut self, id: u32, x: f32, y: f32, at: f64) -> Option<u32> {
         let view = self.input_surface(id)?;
-        let (ox, oy, _, _) = self.rect_of(view)?;
+        self.rect_of(view)?;
         for (phase, buttons) in [("down", 1), ("up", 0)] {
-            self.surfaces.input(view, json!({"t":"pointer","id":1,"phase":phase,"kind":"mouse","buttons":buttons,"x":x-ox,"y":y-oy,"at":at}));
+            self.canvas_pointer(view, phase, buttons, x, y, at);
         }
         Some(view)
+    }
+    /// One mouse pointer event to canvas `view`, at a viewport point, with
+    /// the primary button's state. A held secondary or middle button joins
+    /// it, and a primary down or up under one is a move, as the web's
+    /// chorded buttons are.
+    pub(crate) fn canvas_pointer(
+        &mut self,
+        view: u32,
+        phase: &str,
+        buttons: u32,
+        x: f32,
+        y: f32,
+        at: f64,
+    ) -> bool {
+        let aux = self.surfaces.aux;
+        let phase = if aux != 0 && matches!(phase, "down" | "up") {
+            "move"
+        } else {
+            phase
+        };
+        self.send_canvas_pointer(view, phase, buttons | aux, x, y, at)
+    }
+    fn send_canvas_pointer(
+        &mut self,
+        view: u32,
+        phase: &str,
+        buttons: u32,
+        x: f32,
+        y: f32,
+        at: f64,
+    ) -> bool {
+        let Some((ox, oy, _, _)) = self.rect_of(view) else {
+            return false;
+        };
+        // Without the device's own, a move's motion is its position's change;
+        // a down or up at a new point (the agent's, VNC's) is no motion, as the
+        // web's pointerdown carries none.
+        let (dx, dy) = match (self.surfaces.motion.take(), self.surfaces.pointer) {
+            (Some(motion), _) => motion,
+            (None, Some((last, lx, ly))) if last == view && phase == "move" => (x - lx, y - ly),
+            _ => (0., 0.),
+        };
+        self.surfaces.pointer = Some((view, x, y));
+        // The agent's hover is a mouse with nothing held, as everywhere.
+        let hover = phase == "move" && buttons & 1 == 0;
+        let kind = if self.surfaces.finger && !hover {
+            "touch"
+        } else {
+            "mouse"
+        };
+        self.surfaces.input(view, json!({"t":"pointer","id":1,"phase":phase,"kind":kind,"buttons":buttons,"x":x-ox,"y":y-oy,"dx":dx,"dy":dy,"at":at}))
+    }
+    /// The device's motion for the next canvas pointer event (evdev's
+    /// relative axes), so mouse look continues past the screen's edge.
+    pub fn raw_motion(&mut self, dx: f32, dy: f32) {
+        self.surfaces.motion = Some((dx, dy));
+    }
+    pub(crate) fn agent_finger(&mut self, on: bool) {
+        self.surfaces.finger = on;
+    }
+    pub(crate) fn has_raw_motion(&self) -> bool {
+        self.surfaces.motion.is_some()
+    }
+    pub(crate) fn clear_raw_motion(&mut self) {
+        self.surfaces.motion = None;
+    }
+    /// The secondary or middle button at a viewport point: the canvas
+    /// holding the contact, else the one under the pointer, sees it as the
+    /// web does — the first button held is a down, the last released an up.
+    pub fn pointer_aux(&mut self, bit: u32, down: bool, x: f32, y: f32, at: f64) {
+        let before = self.surfaces.aux;
+        self.surfaces.aux = if down { before | bit } else { before & !bit };
+        let after = self.surfaces.aux;
+        if before == after {
+            return;
+        }
+        let held = self.contact_canvas();
+        let captured = self.surfaces.aux_canvas.filter(|_| before != 0);
+        let target = held.or(captured).or_else(|| self.hover_canvas(x, y));
+        self.surfaces.aux_canvas = target.filter(|_| after != 0);
+        let Some(view) = target else {
+            return;
+        };
+        let primary = u32::from(held.is_some());
+        let phase = match (before | primary, after | primary) {
+            (0, _) => "down",
+            (_, 0) => "up",
+            _ => "move",
+        };
+        self.send_canvas_pointer(view, phase, after | primary, x, y, at);
+    }
+    /// A cancelled pointer (Escape, a lost device, a dropped report) holds no
+    /// button: the canvas that heard the secondary or middle press hears a
+    /// `cancel` unless `except` (the contact's canvas, cancelled by its caller).
+    pub(crate) fn cancel_aux(&mut self, except: Option<u32>, at: f64) {
+        let captured = self.surfaces.aux_canvas.take();
+        self.surfaces.aux = 0;
+        if let Some(view) = captured.filter(|v| Some(*v) != except) {
+            let (x, y) = self.surfaces.pointer.map_or((0., 0.), |(_, x, y)| (x, y));
+            self.send_canvas_pointer(view, "cancel", 0, x, y, at);
+        }
+    }
+    /// The contact's canvas hears its `cancel` with no button held.
+    pub(crate) fn cancel_canvas(&mut self, view: u32, x: f32, y: f32, at: f64) {
+        self.send_canvas_pointer(view, "cancel", 0, x, y, at);
     }
     pub(crate) fn surface_request(&mut self, view: u32, mut q: Value) -> Value {
         let rect = self.rect_of(view);

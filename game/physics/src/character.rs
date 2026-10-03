@@ -60,15 +60,46 @@ fn move_capsule(world: &mut World, e: Entity, desired_velocity: Vec3) -> Capsule
     if world.get::<Collider>(e).as_deref() != Some(&collider) {
         world.insert(e, collider);
     }
+    if c.grounded && c.velocity.y < 0.0 {
+        c.velocity.y = 0.0;
+    }
+    let velocity = Vec3::new(desired_velocity.x, c.velocity.y, desired_velocity.z);
+    let carry = c
+        .support
+        .filter(|s| c.grounded && world.contains(*s))
+        .map(|support| {
+            let current = math::world_pose(world, support);
+            let local =
+                c.support_pose.rotation.conjugate() * (pose.position - c.support_pose.position);
+            current.position + current.rotation * local - pose.position
+        });
     let view = queries(world);
     let mut scene_guard = view.scene();
     let scene = &mut *scene_guard;
-    let own = scene
-        .rapier
-        .colliders
-        .iter()
-        .find_map(|(h, _)| (scene.entity(h) == e).then_some(h))
-        .unwrap();
+    let own = scene.collider(e).unwrap();
+    // The controller sees a BVH of only the colliders it can reach this step, built
+    // in entity order, so its iteration order is a function of the world alone,
+    // not of the shared scene's edit history (restore must continue identically).
+    let reach = |p: Vec3| shape.compute_aabb(&math::pose(Transform::at(p.x, p.y, p.z)));
+    let carried = pose.position + carry.unwrap_or(Vec3::ZERO);
+    let region = reach(pose.position)
+        .merged(&reach(carried))
+        .merged(&reach(carried + velocity * world.dt()))
+        // A deflected slide stays within the move's length of the swept box.
+        .loosened(c.step + c.height * 0.25 + c.radius + 0.1 + (velocity * world.dt()).length());
+    let mut near: Vec<_> = scene
+        .bvh
+        .intersect_aabb(&region)
+        .filter_map(|leaf| scene.rapier.colliders.get_unknown_gen(leaf))
+        .map(|(co, h)| (co.user_data, h, co.compute_aabb()))
+        .collect();
+    near.sort_by_key(|n| n.0);
+    let local = crate::queries::bvh(
+        &near
+            .iter()
+            .map(|(_, h, aabb)| (h.into_raw_parts().0, *aabb))
+            .collect::<Vec<_>>(),
+    );
     let predicate = |_: ColliderHandle, co: &rapier3d::prelude::Collider| {
         co.collision_groups().memberships.bits() & mask != 0
     };
@@ -89,28 +120,24 @@ fn move_capsule(world: &mut World, e: Entity, desired_velocity: Vec3) -> Capsule
         snap_to_ground: Some(CharacterLength::Absolute(c.step + 0.02)),
         ..KinematicCharacterController::default()
     };
-    let q = scene.queries(filter);
-    if c.grounded {
-        if let Some(support) = c.support.filter(|s| world.contains(*s)) {
-            let current = math::world_pose(world, support);
-            let local =
-                c.support_pose.rotation.conjugate() * (pose.position - c.support_pose.position);
-            let delta = current.position + current.rotation * local - pose.position;
-            let carry = controller.move_shape(
-                world.dt(),
-                &q,
-                &*shape,
-                &math::pose(pose),
-                math::vector(delta),
-                |_| {},
-            );
-            pose.position += math::vec3(carry.translation);
-        }
+    let q = QueryPipeline {
+        dispatcher: scene.rapier.narrow_phase.query_dispatcher(),
+        bvh: &local,
+        bodies: &scene.rapier.bodies,
+        colliders: &scene.rapier.colliders,
+        filter,
+    };
+    if let Some(delta) = carry {
+        let carry = controller.move_shape(
+            world.dt(),
+            &q,
+            &*shape,
+            &math::pose(pose),
+            math::vector(delta),
+            |_| {},
+        );
+        pose.position += math::vec3(carry.translation);
     }
-    if c.grounded && c.velocity.y < 0.0 {
-        c.velocity.y = 0.0;
-    }
-    let velocity = Vec3::new(desired_velocity.x, c.velocity.y, desired_velocity.z);
     let mut collisions = Vec::new();
     let movement = controller.move_shape(
         world.dt(),
@@ -142,43 +169,53 @@ fn move_capsule(world: &mut World, e: Entity, desired_velocity: Vec3) -> Capsule
     if let Some(s) = c.support {
         c.support_pose = math::world_pose(world, s);
     }
-    let allowed: std::collections::BTreeSet<_> = scene
-        .rapier
-        .colliders
+    let allowed: std::collections::BTreeSet<_> = near
         .iter()
-        .filter(|(_, co)| {
-            co.parent()
-                .is_some_and(|h| scene.rapier.bodies[h].mass() <= c.mass)
+        .filter(|(_, h, _)| {
+            scene.rapier.colliders[*h]
+                .parent()
+                .is_some_and(|b| scene.rapier.bodies[b].mass() <= c.mass)
         })
-        .map(|(h, _)| crate::state::raw(h))
+        .map(|(_, h, _)| crate::state::raw(*h))
         .collect();
     let push_filter = |h: ColliderHandle, co: &rapier3d::prelude::Collider| {
         predicate(h, co) && allowed.contains(&crate::state::raw(h))
     };
-    let entities = &scene.entities;
     let r = &mut scene.rapier;
     let mut q = QueryPipelineMut {
         dispatcher: r.narrow_phase.query_dispatcher(),
-        bvh: &scene.bvh,
+        bvh: &local,
         bodies: &mut r.bodies,
         colliders: &mut r.colliders,
         filter: filter.predicate(&push_filter),
     };
     controller.solve_character_collision_impulses(world.dt(), &mut q, &*shape, c.mass, &collisions);
-    for (_, co) in r.colliders.iter() {
-        if let Some(rb) = co.parent().map(|h| &r.bodies[h]).filter(|b| b.is_dynamic()) {
-            let entity = entities[co.user_data as usize];
-            let v = math::vec3(rb.linvel());
-            let spin = math::vec3(rb.angvel());
-            let changed = world
-                .get::<Body>(entity)
-                .is_some_and(|b| b.velocity != v || b.spin != spin);
-            if changed {
-                let mut b = world.get_mut::<Body>(entity).unwrap();
-                b.velocity = v;
-                b.spin = spin;
-                b.asleep = false;
-            }
+    let pushed: Vec<_> = near
+        .iter()
+        .filter_map(|&(index, h, _)| {
+            let rb = r.colliders[h].parent().map(|b| &r.bodies[b])?;
+            rb.is_dynamic().then(|| {
+                (
+                    index as u32,
+                    math::vec3(rb.linvel()),
+                    math::vec3(rb.angvel()),
+                )
+            })
+        })
+        .collect();
+    let entities: Vec<_> = pushed
+        .iter()
+        .map(|&(index, ..)| scene.entity_at(index))
+        .collect();
+    for (entity, (_, v, spin)) in entities.into_iter().zip(pushed) {
+        let changed = world
+            .get::<Body>(entity)
+            .is_some_and(|b| b.velocity != v || b.spin != spin);
+        if changed {
+            let mut b = world.get_mut::<Body>(entity).unwrap();
+            b.velocity = v;
+            b.spin = spin;
+            b.asleep = false;
         }
     }
     drop(scene_guard);

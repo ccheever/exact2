@@ -641,6 +641,14 @@ for (const [name, html, files, expectCode, expect] of [
   const stream = new (await import('node:stream')).PassThrough(), writes = [], lines = jsonLines(stream, {write: x => writes.push(x)}, []), pending = lines.ask({op:'state'}).catch(e => e.message);
   lines.fail('phone crashed'); lines.fail('socket closed'); const later = await lines.ask({op:'logs'}).catch(e => e.message);
   result('a dead agent rejects pending and future requests without writing again', await pending === 'phone crashed' && later === 'phone crashed' && writes.length === 1); stream.destroy();
+  // A reply split over many chunks (a `state` carrying a large surface record), and two in one chunk.
+  const split = new (await import('node:stream')).PassThrough(), host = [], replies = jsonLines(split, {write() {}}, host);
+  const big = replies.ask({op:'state'}), next = replies.ask({op:'logs'}), third = replies.ask({op:'tree'});
+  const text = JSON.stringify({record: 'x'.repeat(4 << 20)}) + '\n';
+  for (let i = 0; i < text.length; i += 65536) split.write(text.slice(i, i + 65536));
+  split.write('{"n":2}\n{"n":3}\nstray');
+  const [a, b, c] = await Promise.all([big, next, third]); split.write('\n');
+  result('agent replies split over chunks or sharing one are each read whole', a.record.length === 4 << 20 && b.n === 2 && c.n === 3 && host[0] === 'app: stray'); split.destroy();
   const inherited = { EXACT_DEV_PLAN: '/tmp/local.plan', PRESERVED: 'yes' };
   const launched = developmentLaunchEnvironment(['--run', '--url', 'http://192.168.1.20:8765'], inherited);
   const invalid = [['--url', 'https://example.test'], ['--run', '--url'], ['--run', '--url', '/tmp/app.plan'], ['--run', '--url', 'file:///tmp/app.plan'], ['--run', '--url', 'https://a.test', '--url', 'https://b.test']];

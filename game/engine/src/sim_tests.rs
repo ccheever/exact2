@@ -87,7 +87,7 @@ fn restore_refuses_a_one_tick_ahead_clock() {
     let good = s.save().unwrap();
     let mut saved: Saved = bin::from_slice(&good[7..]).unwrap();
     saved.world_us = 10_000;
-    let mut bad = b"EXSIM\0\x05".to_vec();
+    let mut bad = b"EXSIM\0\x06".to_vec();
     bad.extend(bin::to_vec(&saved));
     assert!(s
         .restore(&bad)
@@ -144,7 +144,7 @@ fn restore_preflights_input_and_offsets_without_setup() {
                 ..Default::default()
             }),
         }
-        let mut bad = b"EXSIM\0\x05".to_vec();
+        let mut bad = b"EXSIM\0\x06".to_vec();
         bad.extend(bin::to_vec(&saved));
         assert!(sim.restore(&bad).is_err(), "case {case}");
         assert_eq!(SETUPS.with(|n| n.get()), 0, "case {case}");
@@ -233,7 +233,7 @@ fn restore_validates_arguments_before_registration() {
     let good = sim.save().unwrap();
     let mut saved: Saved = bin::from_slice(&good[7..]).unwrap();
     saved.args = r#"{"invalid":true}"#.into();
-    let mut bad = b"EXSIM\0\x05".to_vec();
+    let mut bad = b"EXSIM\0\x06".to_vec();
     bad.extend(bin::to_vec(&saved));
     REGISTERS.with(|n| n.set(0));
     assert!(sim

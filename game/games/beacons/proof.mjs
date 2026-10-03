@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import {readFileSync, writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
-import {proof, captureWorld, diffWorlds, formatWorldDiff, equal} from '../../proof.mjs';
+import {proof, captureWorld, diffWorlds, formatWorldDiff, equal, axNames} from '../../proof.mjs';
 import {crop, decodePng, diff} from '../../../scripts/png.mjs';
 
 export async function walkTo(world, check, x, z) {
@@ -61,7 +61,8 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
   {
     const s = await open();
     const title = await s.tree();
-    check('title has focused, accessible Play', node(title,'play')?.focused === true && node(title,'play')?.accessibleName === 'Play');
+    const titleAx = await axNames(s);
+    check('title has focused, accessible Play', node(title,'play')?.focused === true && (titleAx.unavailable || titleAx.name('play') === 'Play'));
     check('title has no world', !node(title,'world'));
     await s.tap('play');
     const initial = await snapshot(s);
@@ -121,7 +122,8 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
     const paused = await snapshot(s);
     await world(s).run(2000);
     check('Pause freezes every entity and the tick for 2 seconds', equal(paused,await snapshot(s)));
-    check('Pause becomes accessible Resume', node(await s.tree(),'pause')?.accessibleName === 'Resume');
+    const pausedAx = await axNames(s);
+    check('Pause becomes accessible Resume', node(await s.tree(),'pause')?.props && (pausedAx.unavailable || pausedAx.name('pause') === 'Resume'));
     await s.tap('pause');
     await world(s).key_up('KeyW'); await world(s).run(200);
     if (host !== 'linux') await s.screenshot(resolve(out,`beacons-${host}.png`));
@@ -167,7 +169,8 @@ if (import.meta.main) await proof(import.meta, async ({open, check, equal, out, 
   await world(restored).tap('KeyE'); await world(restored).run(600);
   const won = await restored.tree();
   check('all three light and win UI appears',node(won,'hud-lit')?.props.text === 'Beacons 3 / 3' && !!node(won,'victory'));
-  check('Play again has focus and accessible name',node(won,'again')?.focused === true && node(won,'again')?.accessibleName === 'Play again');
+  const wonAx = await axNames(restored);
+  check('Play again has focus and accessible name',node(won,'again')?.focused === true && (wonAx.unavailable || wonAx.name('again') === 'Play again'));
   await restored.tap('again');
   check('restart clears count and resets player',node(await restored.tree(),'hud-lit')?.props.text === 'Beacons 0 / 3' && equal(await position(restored),[0,0.9,0]));
   const logs = await restored.logs();

@@ -5,12 +5,26 @@ import { basename, dirname, relative, resolve } from 'node:path';
 import { gameDefaults } from './app/shells.mjs';
 import { pathFrom, patchLines } from '../scripts/app.mjs';
 
+/** Type names a game's generated type may not take: the engine's public items
+ * (what `use exact_game::*` brings in) and the template's own. */
+export function takenTypes(directory = import.meta.dir) {
+  const read = path => existsSync(path) ? readFileSync(path, 'utf8') : '';
+  const lib = read(resolve(directory, 'engine/src/lib.rs'));
+  const exported = [...lib.matchAll(/^pub use [^;]*;/gms)].flatMap(m => m[0].match(/\b[A-Z][A-Za-z0-9]*\b/g) ?? []);
+  const items = text => [...text.matchAll(/^\s*pub (?:struct|enum|trait|type) ([A-Z][A-Za-z0-9]*)/gm)].map(m => m[1]);
+  const template = [...read(resolve(directory, 'new/logic/src/lib.rs')).matchAll(/^\s*(?:pub )?(?:struct|enum|trait|type) ([A-Z][A-Za-z0-9]*)/gm)].map(m => m[1]);
+  return new Set([...exported, ...items(read(resolve(directory, 'engine/src/scene.rs'))), ...template.filter(t => t !== 'SmallGame')]);
+}
 export function createGame(destination, directory = import.meta.dir, options = {}) {
   const local = destination === '.' || destination?.includes('/');
   const name = local ? basename(resolve(destination)) : destination;
   if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(name ?? '') || /-(web|apple|linux|gpu)$/.test(name)) {
     throw new Error('Usage: bun game/new.mjs <name|path> [--assets] (lowercase-hyphenated name, no host suffix)');
   }
+  // The type is `use exact_game::*;`'s neighbour: it may not shadow an engine export
+  // (World, Camera…) or another of the template's items (Beacon, Options).
+  const collided = takenTypes(directory).has(name.split('-').map(word => word[0].toUpperCase() + word.slice(1)).join(''));
+  if (collided) throw new Error(`${name}: its Rust type would collide with an exact_game export or a template item; choose another name, such as ${name}-game`);
   destination = local ? resolve(destination) : resolve(directory, 'games', name);
   if (existsSync(destination) && readdirSync(destination).length) throw new Error(`Game already exists: ${destination}`);
   cpSync(resolve(directory, 'new'), destination, {recursive:true});
@@ -19,11 +33,13 @@ export function createGame(destination, directory = import.meta.dir, options = {
   const quote = path => `'${path.replaceAll("'", "'\\''")}'`;
   const script = (file, from = process.cwd()) => quote(relative(from, resolve(directory, file)));
   const title = name.split('-').map(word => word[0].toUpperCase() + word.slice(1)).join(' ');
+  const type = title.replaceAll(' ', '');
   for (const file of readdirSync(destination, {recursive:true, withFileTypes:true})) {
     if (!file.isFile()) continue;
     const path = resolve(file.parentPath, file.name);
     writeFileSync(path, readFileSync(path, 'utf8').replaceAll('small-game', name)
       .replaceAll('small_game', name.replaceAll('-', '_'))
+      .replaceAll('SmallGame', type)
       .replaceAll('Small game', title)
       .replaceAll('bun /path/to/exact2/game/prove.mjs', `bun ${script('prove.mjs', destination)}`)
       .replaceAll('bun /path/to/exact2/game/app/shells.mjs', `bun ${script('app/shells.mjs', destination)}`));

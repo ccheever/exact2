@@ -1,0 +1,14 @@
+# The renderer is a dev-dependency only: `tests/render.rs` measures frames
+# offscreen. SDK crates resolve against the SDK lock (or the game's own).
+[package]
+name = "garden-logic"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+workspace = "../.shells"
+
+[dependencies]
+exact-game.workspace = true
+
+[dev-dependencies]
+exact-game-render.workspace = true

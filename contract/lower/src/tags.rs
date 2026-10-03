@@ -715,12 +715,11 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "lang" => AttrTarget::Prop(p("lang")),
         "src" => AttrTarget::Prop(p("src")),
         "sandbox" => AttrTarget::Prop(p("sandbox")),
-        // The Popover API, by its own names (LLP 1021 D1): a container with
-        // `popover` is hidden until its invoker — a `button` whose
-        // `popovertarget` names the container's `id` — toggles it; open
-        // state is the host's, never the plan's (D2). `aria-checked` is the
-        // ARIA state a menu row's dot would hand-draw; a native menu renders
-        // it as the platform's checkmark (D3).
+        // The Popover API, by its own names (LLP 1021 D1): a container with `popover` is
+        // hidden until its invoker — a `button` whose `popovertarget` names the container's
+        // `id` — toggles it; open state is the host's, never the plan's (D2). `aria-checked`
+        // is the ARIA state a menu row's dot would hand-draw; a native menu renders it as the
+        // platform's checkmark (D3).
         "id" => AttrTarget::Prop(p("id")),
         "popover" => AttrTarget::Prop(p("popover")),
         "popovertarget" => AttrTarget::Prop(p("popovertarget")),
@@ -734,6 +733,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-controls" => AttrTarget::Prop(p("accessibilityControls")),
         "aria-selected" => AttrTarget::Prop(p("accessibilitySelected")),
         "aria-expanded" => AttrTarget::Prop(p("accessibilityExpanded")),
+        "aria-pressed" => AttrTarget::Prop(p("accessibilityPressed")),
         "aria-hidden" => AttrTarget::Prop(p("accessibilityElementsHidden")),
         // SVG 2 attributes CSS cannot set (LLP 1055 D1/D2), by their SVG names.
         "viewBox" => AttrTarget::Prop(p("viewBox")),

@@ -1,6 +1,6 @@
 // Host adapters belong to the bake, never to a game author.
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -69,6 +69,8 @@ function logicManifest(dir, crate) {
 }
 
 export function gameShells(dir, game, workspace) {
+  // Relative paths are written from the real directory: /tmp is a symlink on macOS.
+  dir = realpathSync(dir);
   // Only this app is materialized. Each bake owns a generated Cargo workspace.
   const app = {game, ...gameDefaults(dir)};
   const {crate, type, data} = app.game, name = crate.slice(0, -'-logic'.length);
@@ -229,6 +231,22 @@ ${bakeArt ? `    exact_game_bake::bake_art(${JSON.stringify(relative(shell, appD
 // game/app/shells.lock, the lock of the union of every shell's dependencies.
 // A game that adds packages captures its own Cargo.lock with --update-lock.
 const sdkLockFile = source => [resolve(source, 'app/shells.lock'), resolve(gameRoot, 'app/shells.lock')].find(path => existsSync(path));
+// Root crates reach every shell by path, so a root commit that adds a registry
+// dependency to one (15856ff7: cssparser in kernel) moves every shell's graph
+// while updating only the root Cargo.lock. Those packages are as decided as the
+// SDK lock's: the root lock's registry packages whose names the SDK lock lacks
+// seed a game's resolution and are admitted by version and checksum, so a new
+// game resolves offline before anyone refreshes the SDK lock.
+export function withRootPins(sdk, root = existsSync(resolve(gameRoot, '../Cargo.lock')) ? readFileSync(resolve(gameRoot, '../Cargo.lock'), 'utf8') : '') {
+  // By name and semver series (Cargo's compatibility: 1.x, 0.37.x, 0.0.3): a root's
+  // new major of a package the SDK lock holds is a pin too; a compatible one is not.
+  const series = version => { const [major, minor, patch] = String(version).split('.'); return major !== '0' ? major : minor !== '0' ? `0.${minor}` : `0.0.${patch}`; };
+  const held = new Set((Bun.TOML.parse(sdk).package ?? []).map(pkg => `${pkg.name} ${series(pkg.version)}`));
+  const id = block => `${/^name = "([^"]+)"/m.exec(block)?.[1]} ${series(/^version = "([^"]+)"/m.exec(block)?.[1])}`;
+  const pins = root.split(/\n(?=\[\[package\]\]\n)/).slice(1).map(block => block.trimEnd())
+    .filter(block => /^source = "registry\+/m.test(block) && !held.has(id(block)));
+  return pins.length ? `${sdk.trimEnd()}\n\n${pins.join('\n\n')}\n` : sdk;
+}
 const cargoMetadata = (cwd, flags, env) => spawnSync('cargo', ['metadata', ...flags, '--format-version', '1'], {cwd, env, encoding:'utf8', maxBuffer:64 * 1024 * 1024});
 // A lock's packages by identity. Dependency edges follow from the versions
 // and the activated features, so a game's subset keeps every version but may
@@ -275,7 +293,7 @@ export function prepareGame(dir, game, source = gameRoot, {updateLock = false, t
   }
   const lockFile = sdkLockFile(source);
   if (!lockFile) throw new Error(`${own}: no captured lock and no SDK lock (game/app/shells.lock)`);
-  const sdk = readFileSync(lockFile, 'utf8');
+  const sdk = withRootPins(readFileSync(lockFile, 'utf8'));
   // The shell's derived lock stands while it is the SDK lock's subset and exact.
   const derived = existsSync(shell) ? readFileSync(shell, 'utf8') : sdk;
   let result = derived !== sdk && !outsideSdkLock(derived, sdk, members).length ? metadata(true) : null;
@@ -318,7 +336,8 @@ export function sdkLock(source = gameRoot, {update = false, env = process.env} =
     mkdirSync(resolve(stage, 'union'));
     writeFileSync(resolve(stage, 'union/lib.rs'), '');
     writeFileSync(resolve(stage, 'union/Cargo.toml'), `[package]\nname = "exact-game-shells"\nversion = "0.1.0"\nedition = "2021"\npublish = false\n\n[lib]\npath = "lib.rs"\n\n[dependencies]\n${Object.keys(cargo.workspace.dependencies).map(dep => `${dep}.workspace = true\n`).join('')}serde_json = "1"\n`);
-    if (existsSync(path)) copyFileSync(path, resolve(stage, 'Cargo.lock'));
+    // A refresh takes the root lock's versions for packages new to the SDK.
+    if (existsSync(path)) writeFileSync(resolve(stage, 'Cargo.lock'), update ? withRootPins(readFileSync(path, 'utf8')) : readFileSync(path, 'utf8'));
     const result = cargoMetadata(stage, update ? [] : ['--locked', '--offline'], env);
     if (result.status !== 0) throw new Error(`${update ? 'SDK lock update' : `${path} is stale for the SDK's shell dependencies; refresh it: bun game/app/shells.mjs --update-lock`}\n${result.stderr || result.error?.message}`);
     if (update) writeChanged(path, readFileSync(resolve(stage, 'Cargo.lock'), 'utf8'), false);

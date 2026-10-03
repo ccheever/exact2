@@ -1,5 +1,12 @@
 // @ref llp/1046.006.000-render-hooks.rfc.md#d3-optional-services-the-scene-copy
+// viewport: pixels wide, high, and the viewmodel layer's depth split (zero without one).
 struct DepthView { inverse_projection: mat4x4f, viewport: vec4f }
+// Raw depth back to the projection's NDC: while a viewmodel draws, it fills
+// [0, split) and the world [split, 1] of the viewport's depth range.
+fn ndc_depth(z: f32, split: f32) -> f32 {
+    if z < split { return z / split; }
+    return (z - split) / (1.0 - split);
+}
 @group(0) @binding(0) var<uniform> u: DepthView;
 @group(0) @binding(1) var depth: texture_depth_multisampled_2d;
 @vertex fn vs(@builtin(vertex_index) i: u32) -> @builtin(position) vec4f {
@@ -14,6 +21,6 @@ struct DepthView { inverse_projection: mat4x4f, viewport: vec4f }
     }
     if z >= 1.0 { return 0.0; }
     let ndc = pixel.xy / u.viewport.xy * vec2f(2.0, -2.0) + vec2f(-1.0, 1.0);
-    let position = u.inverse_projection * vec4f(ndc, z, 1.0);
+    let position = u.inverse_projection * vec4f(ndc, ndc_depth(z, u.viewport.z), 1.0);
     return max(0.0, -position.z / position.w);
 }

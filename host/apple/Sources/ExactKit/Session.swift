@@ -970,6 +970,12 @@ public final class ExactSession {
                     app.deliver { [weak self] in self?.share(args, source: source) }
                     continue
                 }
+                if name == "postMessage" {
+                    // The inverse of `message=`: text into the named surface, in order.
+                    let text = args.first as? String ?? "", surface = args.count > 1 ? args[1] as? String ?? "" : ""
+                    app.deliver { [weak self] in self?.canvases.post(surface, text) }
+                    continue
+                }
                 if name == "focus" || name == "selectText" {
                     app.deliver { [weak self] in self?.presenter.focusElement(args, selectText: name == "selectText") }
                     continue

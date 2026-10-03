@@ -279,6 +279,36 @@ extension Canvases {
             return m.bind(e.id, bytes.bindMemory(to: UInt8.self).baseAddress, data.count)
         }
     }
+    /// Posts held per surface name until one of its canvases is live; past it a
+    /// post is dropped and logged. The same bound and rule on every host.
+    /// The same bound as web glue.js POST_BOUND and Linux surfaces.rs POST_BOUND.
+    static let postBound = 64
+    /// `postMessage(text, name)`: one message event for the live canvas of that
+    /// surface name with the lowest view id, stamped now, held until one is live.
+    func post(_ name: String, _ text: String) {
+        guard pendingPosts.filter({ $0.name == name }).count < Canvases.postBound else {
+            fputs("exact: postMessage: dropped: \(Canvases.postBound) posts already wait for surface \"\(name)\"\n", stderr)
+            return
+        }
+        pendingPosts.append((name, text, session?.clock ?? session?.now() ?? 0))
+        deliverPosts()
+    }
+    func deliverPosts() {
+        guard !pendingPosts.isEmpty else { return }
+        let queued = pendingPosts
+        pendingPosts = []
+        var held: [(name: String, text: String, at: Double)] = []
+        for p in queued {
+            guard let e = entries.values.filter({ $0.name == p.name && live($0.view.id) === $0 })
+                    .min(by: { $0.view.id < $1.view.id }), let m = e.module else { held.append(p); continue }
+            // The surface's own input path, as web and Linux deliver: an inert or
+            // disabled canvas (behind a modal) still receives its app's posts.
+            if !input(e, m, ["t": "message", "text": p.text, "at": p.at]) {
+                fputs("exact: postMessage: surface \"\(p.name)\" refused a message\n", stderr)
+            }
+        }
+        pendingPosts = held + pendingPosts
+    }
     func live(_ id: UInt32) -> Entry? {
         guard let e = entries[id], e.id != 0, e.view.window != nil,
               session?.presenter.views[id] === e.view else { return nil }
@@ -382,6 +412,9 @@ extension Canvases {
     static let noAssetChanges = Data(#"{"requests":[],"retired":[]}"#.utf8)
 
     func messages(_ e: Entry) {
+        // Held posts go out whenever a canvas is serviced, including when the
+        // world has nothing to say (the early returns below).
+        defer { deliverPosts() }
         if live(e.view.id) === e, let m = e.module, let take = m.assets, let deliver = m.asset {
             var delivered = false
             for _ in 0..<16 {
@@ -457,7 +490,8 @@ extension Canvases {
             lifecycle.gesture()
         }
         var value = event
-        value["at"] = s.clock ?? timestamp.map { ($0 - ExactEnv.t0) * 1000 } ?? s.now()
+        // A held post keeps the stamp of its call.
+        if value["at"] == nil { value["at"] = s.clock ?? timestamp.map { ($0 - ExactEnv.t0) * 1000 } ?? s.now() }
         guard let data = try? JSONSerialization.data(withJSONObject: value) else { return false }
         let result = data.withUnsafeBytes { send(e.id, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
         if result != 0 { fputs("exact gpu: \(m.error())\n", stderr) }

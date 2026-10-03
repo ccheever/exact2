@@ -848,6 +848,7 @@ mod tests {
                 scroll_sequence: 2,
                 offset: 200.,
                 from: None,
+                smooth: false,
             }),
             pending: false,
         }

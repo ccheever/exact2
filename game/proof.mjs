@@ -5,6 +5,7 @@ import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { open as openSession, render } from '../scripts/agent.mjs';
+import { gameNonInput } from '../scripts/agent-launch.mjs';
 import { appleArtifacts } from '../host/apple/build.mjs';
 import { buildBake, resolveApp } from '../scripts/app.mjs';
 import { closeFilesystemReader } from '../scripts/filesystem.mjs';
@@ -12,7 +13,7 @@ import { closeFilesystemReader } from '../scripts/filesystem.mjs';
 // Offline diagnostics over existing state reads (LLP 1012; LLP 1046.001 D2/D5).
 // These are inspection captures, not EXSIM saves or a second simulation codec.
 export async function captureWorld(session, name = 'world') {
-  const snapshot = await session.world(name).snapshot();
+  const snapshot = await session.world(name).snapshot({all:true});
   const {world} = await session.op({op:'state', ...await session.target(name), world:true});
   if (!world || snapshot.tick !== world.tick || snapshot.hash !== world.hash)
     throw new Error('world changed during capture; capture on the agent clock with no concurrent drive');
@@ -58,6 +59,18 @@ function validateWorldCapture(capture) {
 }
 
 /** Exact JSON-value comparison, with stable entity names and positional array indices. */
+/** The accessible names the platform exposes (LLP 1080.002 `tree --ax`), for
+ * a proof's name checks: `{unavailable: true}` where the host exposes no
+ * accessibility tree (Linux), else `name(testId)` (the view's own element first)
+ * and `all`, every element's name. A check reads `ax.unavailable || ax.name(id) === X`. */
+export async function axNames(session) {
+  const {ax} = await session.tree(null, {ax: true});
+  if (ax?.unavailable) return {unavailable: true, name: () => undefined, all: []};
+  const elements = ax?.elements ?? [];
+  const of = id => elements.find(e => e.testId === id && e.via === 'self') ?? elements.find(e => e.testId === id);
+  return {unavailable: false, name: id => of(id)?.name, frame: id => of(id)?.frame, all: elements.map(e => e.name)};
+}
+
 export function diffWorlds(before, after, {limit = 100} = {}) {
   validateWorldCapture(before); validateWorldCapture(after);
   if (before.name !== after.name) throw new Error('cannot compare captures of different games');
@@ -298,9 +311,12 @@ export function facilityReport(replies) {
 /// Whether a repository file is outside a game's deterministic build inputs:
 /// other games, the bench and its probes, the twins, diaries, LLPs, apps, build
 /// outputs. Source extensions, app assets, and Apple module inputs are admitted.
+/// A game's own scripts (bench.mjs, a proxy, a probe) are tools, not bake inputs:
+/// no bake reads a .mjs/.js outside its logic, data, gpu and asset folders.
 export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`) {
   return /^(issues|\.claude)\//.test(file)
     || /(^|\/)(pins\.json|proof\.mjs|.*\.test\.mjs|.*\.md)$/.test(file)
+    || (file.startsWith(appPrefix) && gameNonInput(file.slice(appPrefix.length)))
     || (!/\.(rs|toml|lock|contract|ts|js|mjs|wgsl|json|swift|h|c|html|css|modulemap)$/.test(file)
       && !(file.startsWith('host/apple/') && !basename(file).includes('.'))
       && !['art/', 'assets/', 'deck/'].some(dir => file.startsWith(appPrefix + dir)))

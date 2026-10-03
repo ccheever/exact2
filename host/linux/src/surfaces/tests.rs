@@ -472,3 +472,65 @@ fn oversized_module_output_is_a_structured_refusal() {
     drop(abi);
     std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }
+
+/// Grow a Garden's HUD went past the record limit after a harvest and the
+/// agent's `clock` failed with it (diary 004, limit 2). A refused record is
+/// the surface's: the operation that carried it answers, `state` names the
+/// refusal with the record's size and the limit, and the last record stands.
+#[test]
+fn an_oversized_record_is_reported_in_state_not_as_the_operations_error() {
+    struct Empty;
+    impl exact_runner::DataSource for Empty {
+        fn query(
+            &mut self,
+            name: &str,
+            _: &[exact_runner::Value],
+        ) -> Result<exact_runner::Value, exact_runner::DataError> {
+            Err(exact_runner::DataError::UnknownSource(name.into()))
+        }
+    }
+    let source = "shape Hud\n  score: number\ncomponent App\n  resource hud = exactSurface(\"world\") as shape Hud\n  view\n    text `${hud.score}` testId=\"hud\"\n";
+    let (mut h, error) = Host::boot(
+        &contract::compile(source).unwrap().encode(),
+        Empty,
+        Box::new(exact_kernel::MonospaceMeasurer::default()),
+        400.,
+        500.,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    assert!(h.surface_record("world", Some(r#"{"score":3}"#)).is_none());
+    let limit = exact_runner::surface_record::MAX_BYTES;
+    let over = format!(r#"{{"score":4,"pad":"{}"}}"#, "x".repeat(limit));
+    assert!(h.surface_record("world", Some(&over)).is_none());
+    let state: Value = serde_json::from_str(&h.agent(r#"{"op":"state"}"#)).unwrap();
+    assert_eq!(
+        state["resources"]["hud"]["score"], 3,
+        "the last record stands"
+    );
+    let why = state["surfaceRefusals"]["world"].as_str().unwrap();
+    assert!(
+        why.contains(&format!("record is {} bytes", over.len()))
+            && why.contains(&format!("{limit}-byte (16 MiB) limit")),
+        "{why}"
+    );
+    assert!(h.surface_record("world", Some(r#"{"score":5}"#)).is_none());
+    let state: Value = serde_json::from_str(&h.agent(r#"{"op":"state"}"#)).unwrap();
+    assert_eq!(state["resources"]["hud"]["score"], 5);
+    assert_eq!(state["surfaceRefusals"], json!({}));
+}
+
+// postMessage parity (review S2): a post waits for its surface's canvas, at
+// most POST_BOUND per name, on every host.
+#[test]
+fn posts_wait_for_their_surface_up_to_the_bound() {
+    let mut s = Surfaces::default();
+    let event = || serde_json::json!({"t":"message","text":"buy","at":0.0});
+    for _ in 0..POST_BOUND {
+        assert!(s.post("world", event()));
+    }
+    assert!(!s.post("world", event()), "the 65th post is dropped");
+    assert!(s.post("other", event()), "the bound is per surface name");
+    s.deliver_posts();
+    assert_eq!(s.posts["world"].len(), POST_BOUND, "no canvas: still held");
+}
