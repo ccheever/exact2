@@ -430,6 +430,7 @@ fn shape_run_cached(
         text: line[run_range.clone()].to_string(),
         default_attrs: AttrsOwned::new(&attrs_list.defaults()),
         attrs_spans: Vec::new(),
+        rtl: span_rtl,
     };
     for (attrs_range, attrs) in attrs_list.spans.overlapping(&run_range) {
         if attrs == &key.default_attrs {

@@ -422,6 +422,10 @@ pub struct GlyphRun {
     pub glyphs: Vec<(u32, f32, f32)>,
 }
 
+/// Frames a shaped word stays cached unused (cosmic-text's shape-run cache,
+/// as Minikin keeps its word layouts): two seconds at 120 Hz.
+const SHAPED_WORD_FRAMES: u64 = 240;
+
 /// The engine: fonts, the paragraph cache, the glyph cache, the counters.
 pub struct TextEngine {
     catalog: catalog::Lease,
@@ -647,6 +651,12 @@ impl TextEngine {
     pub(crate) fn finish_text_frame(&mut self) {
         self.paragraphs.finish_handoff();
         self.trim_paragraphs();
+        // Shaped words unused for SHAPED_WORD_FRAMES frames are let go.
+        self.catalog
+            .borrow_mut()
+            .fonts
+            .shape_run_cache
+            .trim(SHAPED_WORD_FRAMES);
     }
 
     pub(crate) fn retiring_accepted<'a>(

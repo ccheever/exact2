@@ -10,6 +10,8 @@ pub struct ShapeRunKey {
     pub text: String,
     pub default_attrs: AttrsOwned,
     pub attrs_spans: Vec<(Range<usize>, AttrsOwned)>,
+    /// The run's bidi direction: the same text shapes differently each way.
+    pub rtl: bool,
 }
 
 /// A helper structure for caching shape runs.

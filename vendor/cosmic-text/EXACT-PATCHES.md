@@ -62,3 +62,13 @@ fallback (Roboto, Noto Color Emoji, Noto Sans Symbols, then a Noto family per
 script, Arabic as Noto Naskh Arabic), where upstream gives Android none and a
 missing glyph searched every installed font file. On a Nothing A069P the
 first layout of a list with one emoji spent most of its time opening fonts.
+
+## The shape-run cache's key carries the run's direction
+
+The host enables upstream's `shape-run-cache` feature (a word's shaped glyphs
+kept by its text and attributes, as Android's Minikin keeps word layouts) and
+trims it once a frame (`host/linux/src/text.rs`, `SHAPED_WORD_FRAMES`). Upstream's
+`ShapeRunKey` (`src/shape_run_cache.rs`) leaves out the bidi direction the run
+is shaped in, so a word shaped right-to-left could be served left-to-right;
+`shape_run_cached` (`src/shape.rs`) now sets `rtl` in the key. On the heavy list
+at 96k dp/s on a Nothing A069P, a list's collection turns spent ~8% less.
