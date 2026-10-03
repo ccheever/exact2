@@ -1,5 +1,5 @@
 //! The player's body and needs, the things they carry, and the lost children.
-use crate::camp::{Fire, MAX_FUEL};
+use crate::camp::{Fire, CANDELA, MAX_FUEL};
 use crate::forest::{self, height, Grove};
 use exact_game::motion::{Gravity, Move};
 use exact_game::*;
@@ -135,7 +135,7 @@ pub fn spawn(w: &mut World, colliders: bool, children: u32) {
             PointLight {
                 color: [1.0, 0.95, 0.8],
                 intensity: 0.0,
-                range: 12.0,
+                range: 10.0,
             },
         ),
     );
@@ -379,8 +379,8 @@ pub fn flashlight(w: &mut World, toggle: bool) {
     };
     let at = w.require::<Transform>("player").position;
     let mut t = w.require_mut::<Transform>("flashlight");
-    t.position = at + facing * 4.5 + Vec3::Y * 0.6;
-    w.require_mut::<PointLight>("flashlight").intensity = if on { 2600.0 } else { 0.0 };
+    t.position = at + facing * 4.0 + Vec3::Y * 1.6;
+    w.require_mut::<PointLight>("flashlight").intensity = if on { 30_000.0 * CANDELA } else { 0.0 };
 }
 
 /// Lost children wait; followers trail the player and are rescued in the light.

@@ -28,6 +28,21 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
     return false;
   };
 
+  const runFor = async (g, ms) => { for (let left = ms; left > 0; left -= 10000) await g.run(Math.min(left, 10000)); };
+  if (process.argv.includes('--screenshot-only')) {
+    // Pixels only: a day frame, then the same camp at night with the flashlight.
+    check('screenshot uses web', host === 'web');
+    await s.tap('play');
+    await game.run(1500);
+    await s.screenshot(resolve(out, 'day.png'));
+    await runFor(game, (DAY - DAWN + 2) * 1000);
+    await game.hold('KeyW', 700);
+    await game.tap('KeyF');
+    await game.run(300);
+    await s.screenshot(resolve(out, 'night.png'));
+    await s.close();
+    return;
+  }
   const title = await s.tree();
   check('Play is initially focused and named', node(title, 'play')?.focused === true && node(title, 'play')?.accessibleName === 'Play');
   check('the title offers forest sizes', ['trees-1k', 'trees-5k', 'trees-20k', 'trees-100k'].every(id => node(title, id)));
@@ -64,8 +79,9 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   if (host === 'web') await s.screenshot(resolve(out, 'day.png'));
 
   // Wait for dark at the fire.
+  // In ten-second steps: one agent advance is one browser evaluation with a timeout.
   const now = (await game.snapshot()).tick / 60;
-  await game.run((DAY - DAWN - now + 3) * 1000);
+  await runFor(game, (DAY - DAWN - now + 3) * 1000);
   check('night falls', await text('day') === 'Day 1 · Night', await text('day'));
   const deer = await game.get('deer', 'Deer');
   check('the Deer stalks at night', JSON.stringify(deer).includes('Stalk'), deer);

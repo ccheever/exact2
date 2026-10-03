@@ -9,6 +9,9 @@ pub const PERIOD: f32 = DAY + NIGHT;
 const DUSK: f32 = 10.0;
 const DAWN: f32 = 8.0;
 pub const MAX_FUEL: f32 = 100.0;
+/// The renderer scales the sun's lux by 0.0003 but passes PointLight "candela"
+/// through unscaled, so point intensities are authored in the sun's units here.
+pub const CANDELA: f32 = 0.0003;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Resource)]
 pub struct Cycle {
@@ -77,7 +80,7 @@ impl Fire {
 const DAY_SKY: ([f32; 3], [f32; 3], [f32; 3]) =
     ([0.22, 0.42, 0.78], [0.58, 0.68, 0.72], [0.05, 0.06, 0.03]);
 const NIGHT_SKY: ([f32; 3], [f32; 3], [f32; 3]) =
-    ([0.002, 0.003, 0.009], [0.006, 0.009, 0.02], [0.001, 0.001, 0.002]);
+    ([0.004, 0.006, 0.018], [0.01, 0.014, 0.03], [0.002, 0.002, 0.003]);
 
 fn mix3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
     [
@@ -93,7 +96,7 @@ pub fn environment(dark: f32) -> Environment {
         zenith: mix3(DAY_SKY.0, NIGHT_SKY.0, dark),
         horizon: mix3(DAY_SKY.1, NIGHT_SKY.1, dark),
         ground: mix3(DAY_SKY.2, NIGHT_SKY.2, dark),
-        ambient: math::lerp(0.6, 0.12, dark),
+        ambient: math::lerp(0.6, 0.35, dark),
         fog: Some(Fog {
             color: Some(fog),
             ..Fog::new(math::lerp(0.007, 0.03, dark), 0.04)
@@ -128,7 +131,8 @@ pub fn build(w: &mut World) {
     w.spawn_named(
         "fire",
         (
-            Transform::at(0.0, 0.9, 0.0),
+            // High enough that the ground at the edge of the light is not grazed.
+            Transform::at(0.0, 3.0, 0.0),
             PointLight {
                 color: [1.0, 0.55, 0.2],
                 intensity: 0.0,
@@ -223,7 +227,7 @@ pub fn step(w: &mut World, player: Vec3) -> bool {
     {
         let mut light = w.require_mut::<DirectionalLight>("sun");
         let day_lux = 9000.0 * (0.35 + 0.65 * s.max(0.0));
-        let next = math::lerp(day_lux, 120.0, dark);
+        let next = math::lerp(day_lux, 500.0, dark);
         let color = mix3([1.0, 0.94, 0.85], [0.55, 0.65, 1.0], dark);
         if light.illuminance != next || light.color != color {
             light.illuminance = next;
@@ -234,7 +238,7 @@ pub fn step(w: &mut World, player: Vec3) -> bool {
     {
         let mut light = w.require_mut::<PointLight>("fire");
         light.range = radius * 1.7 + 0.01;
-        light.intensity = if radius > 0.0 { 900.0 * radius * radius } else { 0.0 };
+        light.intensity = if radius > 0.0 { 3000.0 * CANDELA * radius * radius } else { 0.0 };
     }
     let flame = 0.25 + radius / 24.0 * 0.9;
     w.require_mut::<Transform>("flame").scale = Vec3::splat(flame);
