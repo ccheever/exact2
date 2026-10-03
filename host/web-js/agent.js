@@ -149,14 +149,14 @@ export function install(exact) {
   const starts = new WeakMap(), held = new WeakSet();
   const anim = {
     register(t) { for (const a of document.getAnimations()) if (!starts.has(a)) { starts.set(a, t); if (a.playState === 'paused') held.add(a); } },
-    seek(to) {
+    seek(to, sync = true) {
       for (const a of document.getAnimations()) {
         const timing = a.effect?.getComputedTiming();
         if (!timing || held.has(a)) continue;
         const t = to - (starts.get(a) ?? exact.clock.now);
         if (t >= timing.endTime && timing.endTime !== Infinity) a.finish(); else { a.pause(); a.currentTime = t; }
       }
-      exact.synced?.();
+      if (sync) exact.synced?.();
     },
     settle() {
       let to = Math.max(exact.clock.now, exact.settleAt?.() ?? 0);
@@ -175,8 +175,10 @@ export function install(exact) {
     if (!images && document.querySelector('#exact-root img[src*=".gif" i], #exact-root img[src*=".webp" i]')) images = import('./image-glue.js').then(() => exact.holdImages({ root: document.getElementById('exact-root'), now: () => exact.clock.now }));
     images?.then(h => h.seek());
   };
-  const seek = () => { anim.register(exact.clock.now); anim.seek(exact.clock.now); holdImages(); };
-  exact.After.push(seek);
+  const seek = (sync = true) => { anim.register(exact.clock.now); anim.seek(exact.clock.now, sync); holdImages(); };
+  // motion.js owns post-commit reconciliation. The agent registers a
+  // commit's new animations here, and reconciles only when its clock moves.
+  exact.After.push(() => seek(false));
   // Held device requests (LLP 1069.007 D3): `openAuthSession`'s (auth.js).
   const holds = () => [...exact.auth?.holds() ?? [], ...exact.files?.holds() ?? []];
   // After a clock move, `exactTime` is answered again where its answer
@@ -197,7 +199,8 @@ export function install(exact) {
     await pieces();
     const beforeGpu = await settleGpu();
     if (beforeGpu.length) return gpuPendingReply(req, beforeGpu);
-    seek();
+    // A read presents this clock without standing in for a commit hook.
+    seek(false);
     // `tap @t <choice>` / `type @t <value>` answer a held request (D4).
     if ((req.op === 'tap' || req.op === 'type') && req.ticket != null) return (await exact.files?.answer(req)) ?? (exact.auth ? exact.auth.answer(req) : { error: `not pending: @${req.ticket}` });
     switch (req.op) {

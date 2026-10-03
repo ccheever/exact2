@@ -6,15 +6,16 @@
 // progress, as the glue does while a drag is held: delays, iterations,
 // directions and keyframe easing included.
 import { test, expect } from 'bun:test';
-import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { Cdp } from '../../../scripts/agent.mjs';
+import { Cdp, open } from '../../../scripts/agent.mjs';
 import { chromium } from '../../../scripts/agent-launch.mjs';
 import { timelineEasing } from '../motion-glue.js';
 
+const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 const WEB = resolve(new URL('..', import.meta.url).pathname);
 const WEB_JS = resolve(WEB, '../web-js');
 const GLUE = readFileSync(resolve(WEB, 'glue.js'), 'utf8');
@@ -255,7 +256,7 @@ check('in Chrome, followers match timeline progress and stop when a consumer res
       expect(result.before, `${target} ${change}: the release follower is in flight`).toBeCloseTo(0.6, 3);
       expect(result.after, `${target} ${change}: the current timeline wins immediately`).toBeCloseTo(after, 3);
       expect(result.followers, `${target} ${change}: only a still-bound consumer keeps its follower`).toBe(followers);
-      expect(result.frames, `${target} ${change}: a spring release schedules no per-frame callbacks`).toBe(0);
+      expect(result.frames, `${target} ${change}: only a changed moving resolution enters per-frame seeking`).toBe(['renamed-axis', 'axis', 'range'].includes(change) ? 1 : 0);
     }
   } finally {
     child.kill();
@@ -263,3 +264,128 @@ check('in Chrome, followers match timeline progress and stop when a consumer res
     rmSync(profile, { recursive: true, force: true });
   }
 }, 60000);
+
+const FOLLOWER_SOURCE = `keyframes fade
+  from opacity=1
+  to opacity=0.2
+
+component App
+  state mode = 0
+  state tick = 0
+  state x = 0
+  state y = 0
+  state otherX = 0
+  state otherY = 0
+  action released
+    x = 260
+    y = 180
+    otherX = 220
+    otherY = 140
+  action reset
+    mode = 0
+    x = 0
+    y = 0
+    otherX = 0
+    otherY = 0
+  action axis
+    mode = 1
+  action range
+    mode = 2
+  action rebind
+    mode = 3
+  action remove
+    mode = 4
+  action direction
+    mode = 5
+  action inactive
+    mode = 6
+  action unchanged
+    tick = tick + 1
+  view
+    column width=420 height=700 gap=8 padding=8
+      row gap=6 flex-wrap="wrap"
+        button testId="axis" press=axis
+          text "axis"
+        button testId="range" press=range
+          text "range"
+        button testId="rebind" press=rebind
+          text "rebind"
+        button testId="remove" press=remove
+          text "remove"
+        button testId="direction" press=direction
+          text "direction"
+        button testId="inactive" press=inactive
+          text "inactive"
+        button testId="unchanged" press=unchanged
+          text "unchanged"
+        button testId="reset" press=reset
+          text "reset"
+      box testId="scope" timeline-scope="--drag, --other, --inactive" width=360 height=500 position="relative" overflow="hidden"
+        box testId="consumer" position="absolute" left=0 top=0 width=40 height=40 opacity=0.55 background-color="#000000" animation=(mode == 4 ? "none" : (mode == 5 ? "fade 1s linear reverse both" : "fade 1s linear both")) animation-timeline=(mode == 4 ? "auto" : (mode == 3 ? "--other" : (mode == 6 ? "--inactive" : "--drag"))) animation-range=(mode == 2 ? "0px 600px" : "0px 300px")
+        box testId="handle" swiperight=released touch-action="pan-y" position="absolute" left=0 top=50 width=300 height=80 transition="translate spring(300, 30, 1)"
+        box id="other" testId="other" position="absolute" left=0 top=230 width=300 height=200 translate=\`\${otherX}px \${otherY}px\` transition="translate spring(300, 30, 1)" drag-timeline="--other x"
+        box id="source" testId="source" position="absolute" left=0 top=140 width=300 height=80 translate=\`\${x}px \${y}px\` transition="translate spring(300, 30, 1)" drag-timeline=(mode == 1 ? "--drag y" : "--drag x")
+`;
+
+check('a real commit rebinds a spring follower on the wasm and JS runtimes', async () => {
+  const tmp = mkdtempSync(resolve(tmpdir(), 'exact-follower-runtime-'));
+  const plan = resolve(tmp, 'follower.plan'), jsDist = resolve(tmp, 'js'), wasmDist = resolve(tmp, 'wasm');
+  const run = (command, args, env = {}) => {
+    const result = spawnSync(command, args, { cwd: ROOT, env: { ...process.env, ...env }, encoding: 'utf8', maxBuffer: 64 << 20 });
+    expect(result.status, `${command} ${args.join(' ')}\n${result.stderr}`).toBe(0);
+  };
+  let session;
+  try {
+    writeFileSync(resolve(tmp, 'follower.contract'), FOLLOWER_SOURCE);
+    run('cargo', ['run', '-q', '-p', 'contract', '--', 'build', resolve(tmp, 'follower.contract'), '-o', plan]);
+    run(process.execPath, ['host/web/build.mjs', 'interaction-gallery', '--render', 'none'], { EXACT_WEB_DIST: jsDist });
+    run(process.execPath, ['host/web/build.mjs', 'interaction-gallery', '--wasm'], { EXACT_WEB_DIST: wasmDist });
+    for (const [target, dist] of [['wasm', wasmDist], ['js', jsDist]]) {
+      session = await open({ host: 'web', plan, app: 'interaction-gallery', webDist: dist });
+      await session.clock('settle');
+      const read = () => session.carrier.evaluate(`(() => {
+        const vector = id => { const v=getComputedStyle(document.querySelector('[data-testid="'+id+'"]')).translate.trim().split(/\\s+/); return v[0]==='none'?[0,0]:[parseFloat(v[0]),parseFloat(v[1]??'0')]; };
+        const consumer=document.querySelector('[data-testid="consumer"]'), animations=consumer.getAnimations();
+        return {source:vector('source'),other:vector('other'),opacity:parseFloat(getComputedStyle(consumer).opacity),
+          followers:animations.filter(a=>a.animationName===undefined).length,
+          consumerAnimations:animations.map(a=>[a.animationName,a.playState,a.currentTime]),
+          sourceAnimations:document.querySelector('[data-testid="source"]').getAnimations().map(a=>[a.animationName,a.playState,a.currentTime]),
+          syncs:globalThis.__followerSyncs??0,
+          sameBasis:globalThis.__followerBasis===undefined||globalThis.__followerBasis===animations.find(a=>a.animationName!==undefined)};
+      })()`);
+      const expected = (kind, sample) => {
+        if (kind === 'remove' || kind === 'inactive') return 0.55;
+        const value = kind === 'axis' ? sample.source[1] : kind === 'rebind' ? sample.other[0] : sample.source[0];
+        const p = Math.max(0, Math.min(1, value / (kind === 'range' ? 600 : 300)));
+        return kind === 'direction' ? 0.2 + 0.8 * p : 1 - 0.8 * p;
+      };
+      for (const kind of ['axis', 'range', 'rebind', 'remove', 'direction', 'inactive', 'unchanged']) {
+        await session.tap('reset'); await session.clock('settle');
+        await session.tap('handle', { down: true });
+        await session.pointer('move', { dx: 90, dy: 0, ms: 80 });
+        await session.pointer('up');
+        await session.clock('+120');
+        const before = await read();
+        expect(before.followers, `${target} ${kind}: release made a compositor follower: ${JSON.stringify(before)}`).toBe(1);
+        await session.carrier.evaluate(`globalThis.__followerBasis=document.querySelector('[data-testid="consumer"]').getAnimations().find(a=>a.animationName!==undefined)`);
+        if (target === 'js') await session.carrier.evaluate(`globalThis.__followerSyncs=0;if(!globalThis.__followerOriginalSync){globalThis.__followerOriginalSync=exact.synced;exact.synced=()=>{globalThis.__followerSyncs++;return globalThis.__followerOriginalSync()}}`);
+        await session.tap(kind);
+        const samples = [await read()];
+        for (const advance of ['+120', '+240', '+480']) { await session.clock(advance); samples.push(await read()); }
+        await session.clock('settle'); samples.push(await read());
+        for (const [i, sample] of samples.entries()) expect(sample.opacity, `${target} ${kind} sample ${i}`).toBeCloseTo(expected(kind, sample), 3);
+        if (target === 'js') expect(samples[0].syncs, `${target} ${kind}: the agent does not replace post-commit reconciliation`).toBe(0);
+        expect(samples[0].followers, `${target} ${kind}: only an unchanged binding retains its follower`).toBe(kind === 'unchanged' ? 1 : 0);
+        if (kind === 'direction') expect(samples[0].sameBasis, `${target}: direction changed the CSS animation in place`).toBe(true);
+        if (!['remove', 'inactive', 'unchanged'].includes(kind)) {
+          const values = samples.map(s => kind === 'axis' ? s.source[1] : kind === 'rebind' ? s.other[0] : s.source[0]);
+          expect(Math.max(...values) - Math.min(...values), `${target} ${kind}: the new source keeps moving after the commit`).toBeGreaterThan(1);
+        }
+      }
+      await session.close(); session = null;
+    }
+  } finally {
+    await session?.close();
+    rmSync(tmp, { recursive: true, force: true });
+  }
+}, 600000);

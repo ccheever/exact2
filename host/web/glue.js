@@ -159,9 +159,9 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const t0 = performance.now();
 const agentMode = AGENT_ADMITTED && new URL(location.href).searchParams.has("agent");
-let agentClock = agentMode ? 0 : null;
+let agentClock = agentMode ? 0 : null, followOnSeek = true;
 // A seek moves drag timelines' sources too (LLP 1057.003 D2): their consumers follow in it.
-const { register, seek: seekAnimations, settle: settleCandidate } = animationClock(() => agentClock, () => ask({ op: "settle" }).settle, () => { motion.followTimelines(); presence.live?.sync(); });
+const { register, seek: seekAnimations, settle: settleCandidate } = animationClock(() => agentClock, () => ask({ op: "settle" }).settle, () => { if(followOnSeek)motion.followTimelines(); presence.live?.sync(); });
 const seek = to => { (imageHold ??= loadAfterPaint('./image-glue.js', 'holdImages').then(f => f({ root, now: () => agentClock }))).then(h => h.seek()); seekAnimations(to); };
 const now = () => agentClock ?? performance.now() - t0;
 let frameSampler = null; // a development page's frame sampler (frames.js, LLP 1079 D3)
@@ -890,8 +890,12 @@ function applyBatch(batch) {
     // What the ops since the last marker started belongs to that marker's
     // time — register before the clock moves on to where the batch landed.
     register(agentClock);
-    if (batch.clock != null && batch.clock > agentClock) agentClock = batch.clock;
-    seek(agentClock);arrange.commit();
+    const moved = batch.clock != null && batch.clock > agentClock;
+    if (moved) agentClock = batch.clock;
+    // A same-clock seek registers the batch's animations; its timelines op,
+    // not the agent, owns post-commit reconciliation.
+    followOnSeek = moved; try { seek(agentClock); } finally { followOnSeek = true; }
+    if (timelinesMoved) motion.followTimelines(); arrange.commit();
   } else if (timelinesMoved) motion.followTimelines(); // a boot or commit while drag timelines are bound (LLP 1057.003 D4); the agent's seek follows them
   timelinesMoved = false;
   flowBatch(batch);

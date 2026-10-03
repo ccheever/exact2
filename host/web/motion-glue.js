@@ -151,6 +151,11 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   let timelineFrame=0;
   const kickTimelines=()=>{if(!timelineFrame&&typeof requestAnimationFrame==='function'&&typeof document!=='undefined'&&document.querySelector(timelineSources))
     timelineFrame=requestAnimationFrame(()=>{timelineFrame=0;if(followTimelines())kickTimelines();});};
+  const snapshotAnimation=(animation,index)=>{const t=animation.effect.getTiming();return {index,
+    timing:JSON.stringify([t.duration,t.delay,t.iterations,t.direction,t.easing,t.fill]),
+    keyframes:JSON.stringify(animation.effect.getKeyframes())};};
+  const sameSnapshot=(animation,snapshot,index)=>{const current=snapshotAnimation(animation,index);return current.index===snapshot.index
+    &&current.timing===snapshot.timing&&current.keyframes===snapshot.keyframes;};
   // Seek every bound consumer; whether a source is still moving on its own.
   function followTimelines() {
     // A commit may make a consumer resolve its name to another source, an
@@ -158,27 +163,31 @@ export function motionController({views,now,generation,request,applyBatch,inert,
     // plays. Stop that follower before seeking the current resolution.
     for(const [id,record] of followers) {
       const [sourceName,sourceAxis='y']=timelineName(record.source);
-      record.animations=record.animations.filter(({animation,consumer,basis,range})=>{
+      record.animations=record.animations.filter(({animation,consumer,basis,range,snapshot})=>{
         const name=consumer.style.getPropertyValue('--exact-animation-timeline').trim();
         const currentRange=consumer.style.getPropertyValue('--exact-animation-range').trim().split(/\s+/).map(parseFloat);
+        const list=consumer.getAnimations(),index=list.indexOf(basis);
         if(consumer.isConnected&&sourceName===record.name&&sourceAxis===record.axis&&name===record.name
           &&currentRange.length===2&&currentRange.every((v,i)=>v===range[i])
-          &&timelineSource(consumer,name)===record.source&&consumer.getAnimations().includes(basis))return true;
+          &&timelineSource(consumer,name)===record.source&&index>=0&&sameSnapshot(basis,snapshot,index))return true;
         animation.cancel();return false;
       });
       if(!record.animations.length)followers.delete(id);
     }
-    const sources=new Map();let moving=false;
+    const covered=new Set([...followers.values()].flatMap(record=>record.animations.map(f=>f.basis)));
+    const sources=new Map();
     for(const el of document.querySelectorAll(timelineSources)) {
       const [name,axis='y']=el.style.getPropertyValue('--exact-drag-timeline').trim().split(/\s+/);
       let v=[...held.values()].find(h=>h.el===el&&h.property==='translate'&&local(h))?.value;
+      let moving=false;
       if(!v) {
         const t=getComputedStyle(el).translate.trim().split(/\s+/);
         v=t[0]==='none'?[0,0]:[parseFloat(t[0]),parseFloat(t[1]??'0')];
-        moving||=el.getAnimations().some(a=>a.playState==='running');
+        moving=el.getAnimations().some(a=>a.playState==='running');
       }
-      sources.set(el,axis==='x'?v[0]:v[1]);
+      sources.set(el,{value:axis==='x'?v[0]:v[1],moving});
     }
+    let moving=false;
     for(const el of document.querySelectorAll('[style*="--exact-animation-timeline"]')) {
       const name=el.style.getPropertyValue('--exact-animation-timeline').trim();
       const range=el.style.getPropertyValue('--exact-animation-range').trim().split(/\s+/).map(parseFloat);
@@ -190,7 +199,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       // Unclamped, and over the delay and active interval together, as a CSS
       // scroll timeline maps them; an endless animation holds its start
       // (motion's `seek_timeline`).
-      const p=(sources.get(source)-range[0])/(range[1]-range[0]);
+      const resolved=sources.get(source),p=(resolved?.value-range[0])/(range[1]-range[0]);
       // An inactive timeline: not in effect, whatever the fill (Chrome's
       // unresolved time). Cancelled, and revived when the name resolves
       // again, unless its CSS has since dropped or replaced it.
@@ -198,7 +207,9 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       if(!source){for(const a of live)a.cancel();inactive.set(el,[...parked,...live]);continue;}
       inactive.delete(el);
       const names=parked.length?getComputedStyle(el).animationName.split(/,\s*/):[];
-      for(const a of [...live,...parked.filter(a=>names.includes(a.animationName)&&!live.some(b=>b.animationName===a.animationName))]) {
+      const basis=[...live,...parked.filter(a=>names.includes(a.animationName)&&!live.some(b=>b.animationName===a.animationName))];
+      if(resolved?.moving&&basis.some(a=>!covered.has(a)))moving=true;
+      for(const a of basis) {
         const t=a.effect?.getComputedTiming();
         if(!t)continue;
         if(a.playState!=='paused')a.pause();
@@ -228,7 +239,8 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       if(c.style.getPropertyValue('--exact-animation-timeline').trim()!==name||timelineSource(c,name)!==el)continue;
       const [a,b]=c.style.getPropertyValue('--exact-animation-range').trim().split(/\s+/).map(parseFloat);
       if(!Number.isFinite(a)||!Number.isFinite(b)||a===b)continue;
-      for(const animation of c.getAnimations()) {
+      const list=c.getAnimations();
+      for(const [index,animation] of list.entries()) {
         if(animation.animationName===undefined||animation.effect?.target!==c)continue;
         const easing=timelineEasing(animation.effect.getComputedTiming(),at.map(v=>(v-a)/(b-a)));
         if(easing===undefined)continue;
@@ -237,7 +249,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
         if(easing===null||animation.effect.composite!=='replace'||keyframes.some(k=>k.composite==='add'||k.composite==='accumulate')){seek=true;continue;}
         const f=c.animate(keyframes,{delay:op.delay,duration:op.duration,easing,fill:'both'});
         if(source.startTime!==null)f.startTime=source.startTime;
-        made.push({animation:f,consumer:c,basis:animation,range:[a,b]});
+        made.push({animation:f,consumer:c,basis:animation,range:[a,b],snapshot:snapshotAnimation(animation,index)});
       }
     }
     if(made.length) {
@@ -438,7 +450,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   }
   const api={
     // The agent's seek presents sources without a frame; follow at once.
-    followTimelines() { if(typeof document!=='undefined')followTimelines(); },
+    followTimelines() { if(typeof document!=='undefined'&&followTimelines())kickTimelines(); },
     presentReorder(view,token,value) {
       const h=held.get(key(view,'translate'));if(!local(h)||h.token!==token)return false;
       h.value=value;h.el.style.translate=css('translate',value);return true;
