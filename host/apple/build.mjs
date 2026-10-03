@@ -873,9 +873,8 @@ function main(args) {
   const ios = device || args.includes('--ios');
   const ipa = args.includes('--archive') ? resolve(process.cwd(), args[args.indexOf('--archive') + 1] ?? '') : null;
   const unsigned = args.includes('--unsigned');
-  if (unsigned && !ipa) { console.error('--unsigned is for --archive'); process.exitCode = 1; return; }
-  if (ipa && (!device || (!unsigned && (!process.env.EXACT_IDENTITY || !process.env.EXACT_PROFILE)) || args.includes('--run') || args.includes('--host'))) {
-    console.error('--archive needs --device and EXACT_IDENTITY and EXACT_PROFILE (or --unsigned), and takes neither --run nor --host');
+  if ((unsigned && !ipa) || ipa && (!device || (!unsigned && (!process.env.EXACT_IDENTITY || !process.env.EXACT_PROFILE)) || args.includes('--run') || args.includes('--host'))) {
+    console.error('--archive needs --device and EXACT_IDENTITY and EXACT_PROFILE (or --unsigned, which needs --archive), and takes neither --run nor --host');
     process.exitCode = 1; return;
   }
   const app = resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive'].includes(args[i - 1])));
@@ -885,8 +884,7 @@ function main(args) {
   const crate = app.crate('apple');
   const gpuCrate = app.crate('gpu');
   const hasGpu = app.hasGpu;
-  // The bake names each signed GPU module's digest and the host checks it at
-  // load: a re-signer's new bytes would be refused, so nothing can re-sign them.
+  // The bake names each GPU module's digest, checked at load: a re-signer's bytes would be refused.
   if (unsigned && (hasGpu || gpuModules(app.manifest).length)) throw new Error(`--unsigned: ${app.name} has GPU modules, whose baked digests a re-signer would break; archive it signed (EXACT_IDENTITY and EXACT_PROFILE)`);
   let ph, prof;
   const sha1 = unsigned ? '-' : device ? (() => {
@@ -1364,9 +1362,7 @@ function main(args) {
     const signingProfile = device && !unsigned ? (host ? profile(ph.udid, id) : prof) : null;
     const signingIdentity = signingProfile ? identity(signingProfile.team) : sha1;
     const ent = resolve(binDir, host ? 'host-entitlements.plist' : 'entitlements.plist');
-    if (signingProfile) {
-      copyFileSync(signingProfile.path, resolve(assembled, 'embedded.mobileprovision'));
-    }
+    if (signingProfile) copyFileSync(signingProfile.path, resolve(assembled, 'embedded.mobileprovision'));
     // Unsigned, the re-signer's profile decides; ask for no debugger, as a distribution profile grants none.
     writeFileSync(ent, entitlements({ ...app, id }, signingProfile?.team, signingProfile?.dev ?? !unsigned, bakedCompat.reach));
     verifyBakeFiles(bakedCompat, bakedPlan, listAssets(assembled, true));
