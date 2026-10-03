@@ -64,6 +64,14 @@ pub struct Collider {
 }
 
 impl Collider {
+    /// Exact2: this collider as a step leaves it, without pending change flags, so a
+    /// rebuilt collider can be compared bit-exactly with one already in a set. Never
+    /// call it on a collider inside a set: the pipeline would miss its changes.
+    pub fn settled(mut self) -> Self {
+        self.changes = ColliderChanges::empty();
+        self
+    }
+
     pub(crate) fn reset_internal_references(&mut self) {
         self.changes = ColliderChanges::all();
     }

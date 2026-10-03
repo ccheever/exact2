@@ -44,14 +44,21 @@ the actual `displacement` and `grounded` state.
   movement: characters block, slide around and push out of each other in call
   order. A character on a layer outside the mover's mask passes through.
 
-EXPHYS v2 persists `BroadPhaseBvh::deferred_optimize_pending`. V1 omitted state
-that changes the next physics step; it cannot be migrated and is refused by name
-before replacing the destination (including inside EXSIM). Start a new world.
+EXPHYS v3 writes each static collider (no Body) whose rebuild from its entry, the
+Collider and pose it was built from, is byte-identical to Rapier's copy as a hole,
+and rebuilds it on restore: a static collider costs its entry (about its components)
+plus its broad-phase leaf, about 280 bytes for an offset cylinder. The broad phase,
+whose shape orders pairs, stays saved. V2 persisted
+`BroadPhaseBvh::deferred_optimize_pending`, which V1 omitted. Both are refused by
+name before replacing the destination (including inside EXSIM). Start a new world.
 Rapier is consumed by path from `vendor/rapier3d`; it stays outside the root
 workspace's dependency graph.
 
 Saved state is opaque bincode/serde for bodies, colliders, islands, broad/narrow phase,
 joints and integration parameters, plus entity/handle maps and last writes. Restore validates and decodes live state atomically; pipeline/CCD workspaces are scratch under Rapier's serialization contract.
+The hole format is `PhysicsWorld::with_holes`/`FillHoles` in the vendored Rapier
+(`pipeline/physics_world.rs`, marked Exact2), which keeps slots, generations and
+the free list.
 `Data::write(&self)` refreshes dirty bytes for save, hash and JSON; `refresh_snapshot`
 measures the same operation. Stepping does not serialize. JSON summarizes the opaque bytes by length/hash.
 Malformed or obsolete Rapier payloads fail during `World::load`, before replacement.
@@ -77,7 +84,7 @@ Both pins moved on 2026-10-03 when fixed solids stopped pairing: the snapshot lo
 those pairs and each collider's flags changed. Every body pose, velocity and event
 over 600 ticks of pile/stack/drop/bounce and 120 of minimal is byte-identical to the
 previous build (native arm64); x86-64 and browser agreement on the new values is not
-yet re-run.
+yet re-run. They moved again with EXPHYS v3's holes, trajectories again unchanged.
 The x86-64 v2 card passes with the existing pins and all 41 physics tests
 (Rust 1.97.0, 2026-09-21). A 2,134,660-byte query/controller/save trace also
 matches arm64 byte for byte. No pins changed for this verification.

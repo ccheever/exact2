@@ -149,6 +149,9 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
         live.parented.clear();
     }
     for &e in &pending.rows {
+        if let Some(h) = live.entries.get(&e).and_then(|entry| entry.collider_handle) {
+            live.elidable.remove(&h);
+        }
         let b = world.get::<Body>(e);
         let c = world.get::<Collider>(e);
         let t = world.get::<Transform>(e);
@@ -465,6 +468,7 @@ pub fn step(world: &mut World) {
     events.dedup();
     for h in live.removed.drain(..) {
         live.reverse.remove(&h);
+        live.elidable.remove(&h);
     }
     for e in &live.bodies {
         let entry = live.entries.get_mut(e).unwrap();

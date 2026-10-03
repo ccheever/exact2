@@ -416,8 +416,9 @@ fn fixed_solids_make_no_pairs_but_fixed_sensors_still_touch() {
     }
     physics::step(&mut w);
     assert!(physics::events(&w).is_empty(), "fixed solids touched");
+    // No pair state, and Rapier's copy of each collider is rebuilt from its entry.
     let per = (snapshot(&w) - one) / 100;
-    assert!(per < 400, "a static collider costs {per} snapshot bytes");
+    assert!(per < 120, "a static collider costs {per} snapshot bytes");
     let sensor = w.spawn((
         Transform::default(),
         Collider {
@@ -430,4 +431,58 @@ fn fixed_solids_make_no_pairs_but_fixed_sensors_still_touch() {
     assert!(physics::events(&w)
         .iter()
         .all(|t| t.began && (t.a == sensor || t.b == sensor)));
+}
+
+// Static colliders are rebuilt from their entries on restore. Edits through every
+// sync path (move, reshape, add, remove, and an edit still pending at the save)
+// continue identically to the run that never saved.
+#[test]
+fn rebuilt_static_colliders_continue_like_the_original() {
+    let edit = |w: &mut World, t: u32| match t {
+        20 => w.get_mut::<Transform>("wall-3").unwrap().position.y += 0.25,
+        30 => {
+            w.get_mut::<Collider>("wall-5").unwrap().shape = Shape::Box {
+                half: Vec3::new(0.5, 2.0, 0.5),
+            }
+        }
+        40 => {
+            box_at(w, "late", Vec3::new(4.0, 0.5, 4.0), Vec3::splat(0.5), false);
+        }
+        50 => {
+            let e = w.named("wall-7").unwrap();
+            w.despawn(e);
+        }
+        _ => {}
+    };
+    let run = |save_at: Option<u32>| {
+        let mut w = World::new(60, 0);
+        physics::register(&mut w);
+        ground(&mut w);
+        for i in 0..10 {
+            let p = Vec3::new(i as f32 * 1.2 - 6.0, 0.5, 2.0);
+            box_at(&mut w, &format!("wall-{i}"), p, Vec3::splat(0.5), false);
+        }
+        box_at(
+            &mut w,
+            "crate",
+            Vec3::new(0.0, 3.0, 2.0),
+            Vec3::splat(0.4),
+            true,
+        );
+        for t in 1..=90 {
+            physics::step(&mut w);
+            edit(&mut w, t);
+            if save_at == Some(t) {
+                let bytes = w.save();
+                w = World::new(60, 0);
+                physics::register(&mut w);
+                w.load(&bytes).unwrap();
+            }
+        }
+        (w.hash(), w.save())
+    };
+    let expected = run(None);
+    for at in [1, 20, 30, 35, 40, 50, 60] {
+        assert!(run(Some(at)) == expected, "restored at tick {at} diverged");
+    }
 }
