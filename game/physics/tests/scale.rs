@@ -57,8 +57,11 @@ fn rays_interleaved_with_unrelated_writes() {
                 w.get_mut::<Transform>(m).unwrap().position.x += 1e-4;
             }
         });
+        let cached = mean_us(20_000, || {
+            std::hint::black_box(physics::raycast(&w, Vec3::Y, -Vec3::Z, 40., u32::MAX));
+        });
         println!(
-            "SCALE rays rockets={rockets} interleaved_us={interleaved:.1} batched_us={batched:.1}"
+            "SCALE rays rockets={rockets} interleaved_us={interleaved:.1} batched_us={batched:.1} cached_ray_us={cached:.3}"
         );
     }
 }

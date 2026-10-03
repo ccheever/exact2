@@ -150,34 +150,37 @@ impl Scene {
         self.churn > 1024 + 2 * self.rapier.bodies.len()
     }
     fn update(&mut self, world: &World, since: &[u64; COLUMNS], now: &[u64; COLUMNS]) {
-        let mut rows = BTreeMap::new();
-        let mut note = |e: Entity| {
-            rows.insert(e.index(), e);
-        };
+        // Only rows that hold or held a collider matter; a write to a collider-free
+        // mover (a rocket, the camera) is dropped here, before any sorting.
+        let slots = &self.slots;
+        let relevant = |e: &Entity| slots.contains_key(&e.index()) || world.has::<Collider>(*e);
+        let mut rows: Vec<Entity> = Vec::new();
         if since[0] != now[0] {
-            world.changed::<Body>(since[0]).for_each(&mut note);
+            rows.extend(world.changed::<Body>(since[0]).filter(relevant));
         }
         if since[1] != now[1] {
-            world.changed::<Collider>(since[1]).for_each(&mut note);
+            rows.extend(world.changed::<Collider>(since[1]).filter(relevant));
         }
         if since[2] != now[2] {
-            world.changed::<Transform>(since[2]).for_each(&mut note);
+            rows.extend(world.changed::<Transform>(since[2]).filter(relevant));
         }
         if since[3] != now[3] {
-            world.changed::<Parent>(since[3]).for_each(&mut note);
+            rows.extend(world.changed::<Parent>(since[3]).filter(relevant));
         }
         if since[4] != now[4] {
-            world
-                .changed::<CapsuleController>(since[4])
-                .for_each(&mut note);
+            rows.extend(
+                world
+                    .changed::<CapsuleController>(since[4])
+                    .filter(relevant),
+            );
         }
         // A child's world pose follows any ancestor's write.
         if since[2] != now[2] || since[3] != now[3] {
-            for i in &self.parented {
-                rows.entry(*i).or_insert(self.slots[i].entity);
-            }
+            rows.extend(self.parented.iter().map(|i| self.slots[i].entity));
         }
-        for e in rows.into_values() {
+        rows.sort_by_key(|e| e.index());
+        rows.dedup_by_key(|e| e.index());
+        for e in rows {
             self.refresh(world, e, true);
         }
         self.rapier.colliders.take_modified();
