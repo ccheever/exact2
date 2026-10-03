@@ -68,6 +68,8 @@ pub struct Host<D: DataSource> {
     now_ms: f64,
     height_owner: Option<NodeKey>,
     pub(crate) flow_damage: crate::paint::damage::Changes,
+    /// What changed for the painter's kept rows since its last frame.
+    pub(crate) row_dirty: crate::paint::rows::Dirty,
     height_bindings: height_binding::Bindings,
     transform_bindings: transform_binding::Bindings,
     height_projection: Option<exact_kernel::PresentedHeight>,
@@ -172,6 +174,7 @@ impl<D: DataSource> Host<D> {
             now_ms: 0.0,
             height_owner: None,
             flow_damage: Default::default(),
+            row_dirty: Default::default(),
             height_bindings: Default::default(),
             transform_bindings: Default::default(),
             height_projection: None,
@@ -496,6 +499,16 @@ impl<D: DataSource> Host<D> {
             .get(&node.key)
             .map_or(1., |f| f.factor(self.now_ms));
         shown
+    }
+
+    /// What changed for kept rows since the last take: commits, layouts,
+    /// presentation, and every node with press feedback now.
+    pub(crate) fn take_row_dirty(&mut self) -> crate::paint::rows::Dirty {
+        let mut dirty = std::mem::take(&mut self.row_dirty);
+        for key in self.presses.keys() {
+            dirty.node(*key);
+        }
+        dirty
     }
 
     /// The agent API's read operations (LLP 1012): `tree`, `state`, `logs`
@@ -1022,6 +1035,7 @@ impl<D: DataSource> Host<D> {
         for t in receipts {
             let r = &t.receipt;
             self.flow_damage.commit(self.runner.kernel(), r);
+            self.row_dirty.commit(r);
             paint |= r.layout_invalidated
                 || !r.created.is_empty()
                 || !r.destroyed.is_empty()
@@ -1127,6 +1141,7 @@ impl<D: DataSource> Host<D> {
                 continue;
             }
             changed = true;
+            self.row_dirty.node(key);
             if Property::PAINT.contains(&p.property) {
                 self.present_paint(p);
                 continue;

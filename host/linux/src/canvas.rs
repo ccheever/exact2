@@ -26,6 +26,8 @@
 //! - `11 IMAGE_DEF id w h` — fetch its pixels with [`CanvasHost::image`]
 //! - `12 IMAGE_FREE id`
 //! - `13 STROKE color width cap join n (tag coords…)×n` — caps/joins as SVG (0 butt/miter, 1 round, 2 square/bevel)
+//! - `14 IMAGE_RRECT id dst(x y w h) region(x y w h) radii×8` — the picture mapped to `dst`, drawn
+//!   only over `region` with those corner radii (a clip-free rounded image; `clip.rs`)
 //!
 //! Geometry is in device pixels; colours are ARGB.
 //!
@@ -55,6 +57,21 @@ const FONT: u32 = 10;
 const IMAGE_DEF: u32 = 11;
 const IMAGE_FREE: u32 = 12;
 const STROKE: u32 = 13;
+const IMAGE_RRECT: u32 = 14;
+/// A row's recording: id, width and height (device pixels), then the count
+/// of words up to and including its `ROW_END`. Kept by the reader until freed.
+const ROW_BEGIN: u32 = 15;
+const ROW_END: u32 = 16;
+/// Draw a kept row: id, x, y (device pixels).
+const ROW_DRAW: u32 = 17;
+/// A kept row no longer drawn: freed once the next stream arrives.
+const ROW_FREE: u32 = 18;
+/// A filled ring: color, outer x y w h and radii, inner x y w h and radii.
+/// An even-odd path HWUI would rasterize into a mask every frame.
+const RING: u32 = 19;
+
+#[path = "canvas/clip.rs"]
+mod clip;
 
 thread_local! {
     /// The last finished recording and the pictures it introduced.
@@ -76,6 +93,24 @@ pub struct Recorder {
     /// so a dropped picture is freed on the reader too.
     images: HashMap<usize, (u32, Weak<Bitmap>)>,
     next_image: u32,
+    /// The clips pushed and not popped, pending until a drawing needs them.
+    clips: Vec<clip::Clip>,
+    /// The recording row's origin (viewport points): what its ops are
+    /// relative to. Zero outside a row.
+    origin: (f32, f32),
+    /// While a row records: the frame's clips and matrix, where the row's
+    /// header is, its id and the id it was.
+    row: Option<RowRecording>,
+    /// Each kept row's recording, so one recorded again the same is kept.
+    kept: HashMap<u32, Vec<u32>>,
+}
+
+struct RowRecording {
+    clips: Vec<clip::Clip>,
+    matrix: Option<[f32; 6]>,
+    at: usize,
+    id: u32,
+    previous: Option<u32>,
 }
 
 impl Default for Recorder {
@@ -94,6 +129,10 @@ impl Recorder {
             fonts: HashMap::new(),
             images: HashMap::new(),
             next_image: 1,
+            clips: Vec::new(),
+            origin: (0.0, 0.0),
+            row: None,
+            kept: HashMap::new(),
         }
     }
 
@@ -113,8 +152,8 @@ impl Recorder {
             ts.ky * s,
             ts.kx * s,
             ts.sy * s,
-            ts.tx * s,
-            ts.ty * s,
+            (ts.tx - self.origin.0) * s,
+            (ts.ty - self.origin.1) * s,
         ];
         if self.matrix != Some(m) {
             self.matrix = Some(m);
@@ -204,6 +243,9 @@ impl Backend for Recorder {
         self.scale = scale;
         self.ops.clear();
         self.matrix = None;
+        self.clips.clear();
+        self.origin = (0.0, 0.0);
+        self.row = None;
         // Pictures the presenter dropped since the last frame.
         let dead: Vec<(usize, u32)> = self
             .images
@@ -222,6 +264,11 @@ impl Backend for Recorder {
         if s.rect.2 <= 0.0 || s.rect.3 <= 0.0 || color[3] == 0 {
             return;
         }
+        let bounds = clip::map(s.rect, ts);
+        if self.culled(bounds) {
+            return;
+        }
+        self.need(bounds);
         self.transform(ts);
         self.ops.extend([RRECT, Self::color(color)]);
         self.rect_radii(s);
@@ -235,7 +282,30 @@ impl Backend for Recorder {
     }
 
     fn fill_border(&mut self, part: &BorderFill, ts: Transform) {
+        let bounds = path_bounds(&part.region).and_then(|b| clip::map(b, ts));
+        if self.culled(bounds) {
+            return;
+        }
+        self.need(bounds);
         self.transform(ts);
+        if let (Some(((o, or), (i, ir))), None) = (&part.ring, &part.clip) {
+            self.ops.extend([RING, Self::color(part.color)]);
+            for v in [o.0, o.1, o.2, o.3] {
+                self.f(v);
+            }
+            for (x, y) in or {
+                self.f(*x);
+                self.f(*y);
+            }
+            for v in [i.0, i.1, i.2, i.3] {
+                self.f(v);
+            }
+            for (x, y) in ir {
+                self.f(*x);
+                self.f(*y);
+            }
+            return;
+        }
         if let Some(clip) = &part.clip {
             self.ops.extend([CLIP_PATH, 0]);
             self.path(clip);
@@ -259,6 +329,10 @@ impl Backend for Recorder {
             return;
         }
         let id = self.image_id(image);
+        if self.image_rrect(id, dst, clips, ts) {
+            return;
+        }
+        self.need(None);
         self.transform(ts);
         for c in clips {
             self.ops.push(CLIP_RRECT);
@@ -281,6 +355,18 @@ impl Backend for Recorder {
         origin: (f32, f32),
         ts: Transform,
     ) {
+        // Glyphs can overhang their box a little (italics, accents).
+        let bounds = (
+            origin.0 - 2.0,
+            origin.1 - 2.0,
+            paragraph.width + 4.0,
+            paragraph.height + 4.0,
+        );
+        let bounds = clip::map(bounds, ts);
+        if self.culled(bounds) {
+            return;
+        }
+        self.need(bounds);
         self.transform(ts.pre_translate(origin.0, origin.1));
         for run in text.glyph_runs(paragraph, palette) {
             if run.paint.color[3] == 0 {
@@ -317,6 +403,10 @@ impl Backend for Recorder {
                 exact_kernel::svg::Seg::Close => PathOp::Close,
             })
             .collect();
+        let grow = if s.stroke.is_some() { s.width } else { 0.0 };
+        self.need(path_bounds(&ops).and_then(|(x, y, w, h)| {
+            clip::map((x - grow, y - grow, w + 2.0 * grow, h + 2.0 * grow), ts)
+        }));
         self.transform(ts);
         if let Some(crate::paint::Ink::Solid(c)) = &s.fill {
             self.ops
@@ -332,16 +422,16 @@ impl Backend for Recorder {
     }
 
     fn push_clip(&mut self, s: &Shape, ts: Transform) {
-        self.transform(ts);
-        self.ops.push(CLIP_RRECT);
-        self.rect_radii(s);
+        self.clip_push(s, ts);
     }
 
     fn pop_clip(&mut self) {
-        self.ops.push(RESTORE);
+        self.clip_pop();
     }
 
     fn push_opacity(&mut self, alpha: f32) {
+        // A layer's bounds are unknown here: every pending clip applies to it.
+        self.need(None);
         self.ops.push(LAYER);
         self.f(alpha);
     }
@@ -352,11 +442,114 @@ impl Backend for Recorder {
 
     fn pointer(&mut self, _x: f32, _y: f32) {}
 
+    fn rows(&self) -> bool {
+        true
+    }
+
+    fn row_begin(&mut self, id: u32, origin: (f32, f32), previous: Option<u32>) {
+        self.row = Some(RowRecording {
+            clips: std::mem::take(&mut self.clips),
+            matrix: self.matrix.take(),
+            at: self.ops.len(),
+            id,
+            previous,
+        });
+        self.origin = origin;
+        self.ops.extend([ROW_BEGIN, id, 0, 0, 0]);
+    }
+
+    fn row_end(&mut self, bounds: Rect4) -> u32 {
+        let Some(RowRecording {
+            clips,
+            matrix,
+            at,
+            id,
+            previous,
+        }) = self.row.take()
+        else {
+            return 0;
+        };
+        // The reader's node reaches from the origin to the far edge of what
+        // the row covers.
+        let s = self.scale;
+        self.ops[at + 2] = ((bounds.0 + bounds.2).max(1.0) * s).to_bits();
+        self.ops[at + 3] = ((bounds.1 + bounds.3).max(1.0) * s).to_bits();
+        self.ops.push(ROW_END);
+        self.ops[at + 4] = (self.ops.len() - at - 5) as u32;
+        self.clips = clips;
+        self.matrix = matrix;
+        self.origin = (0.0, 0.0);
+        // Size and body: the same as the row's last recording, the reader's
+        // node for it stands.
+        let body = &self.ops[at + 2..];
+        if let Some(old) = previous.filter(|p| self.kept.get(p).is_some_and(|k| k[..] == *body)) {
+            self.ops.truncate(at);
+            return old;
+        }
+        let body = body.to_vec();
+        self.kept.insert(id, body);
+        id
+    }
+
+    fn row_culled(&self, bounds: Rect4) -> bool {
+        self.culled(Some(bounds))
+    }
+
+    fn row_draw(&mut self, id: u32, origin: (f32, f32), bounds: Rect4) {
+        self.need(Some(bounds));
+        let s = self.scale;
+        self.ops.extend([ROW_DRAW, id]);
+        self.f(origin.0 * s);
+        self.f(origin.1 * s);
+    }
+
+    fn row_free(&mut self, id: u32) {
+        self.kept.remove(&id);
+        self.ops.extend([ROW_FREE, id]);
+    }
+
     fn finish(&mut self) -> Result<Pixmap, String> {
         let ops = std::mem::take(&mut self.ops);
         FINISHED.with(|f| *f.borrow_mut() = Some(ops));
         Pixmap::new(1, 1).ok_or_else(|| "placeholder".to_string())
     }
+}
+
+/// An atrace section for the rest of a scope.
+struct Section;
+impl Section {
+    fn begin(name: &'static core::ffi::CStr) -> Section {
+        crate::android::section_begin(name);
+        Section
+    }
+}
+impl Drop for Section {
+    fn drop(&mut self) {
+        crate::android::section_end();
+    }
+}
+
+/// The bounds of a path's points (control points included).
+fn path_bounds(ops: &[PathOp]) -> Option<Rect4> {
+    let mut b: Option<(f32, f32, f32, f32)> = None;
+    let mut add = |x: f32, y: f32| {
+        b = Some(match b {
+            None => (x, y, x, y),
+            Some((a, c, d, e)) => (a.min(x), c.min(y), d.max(x), e.max(y)),
+        })
+    };
+    for op in ops {
+        match *op {
+            PathOp::Move(x, y) | PathOp::Line(x, y) => add(x, y),
+            PathOp::Cubic(a, c, d, e, f, g) => {
+                add(a, c);
+                add(d, e);
+                add(f, g);
+            }
+            PathOp::Close => {}
+        }
+    }
+    b.map(|(x0, y0, x1, y1)| (x0, y0, x1 - x0, y1 - y0))
 }
 
 /// The presenter on the Android main thread, painting through [`Recorder`].
@@ -410,6 +603,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
     pub fn frame(&mut self) -> Option<Vec<u32>> {
         let p = &mut self.p;
         let now = self.started.elapsed().as_secs_f64() * 1000.0;
+        let _frame = Section::begin(c"exact frame");
         if let Some(e) = p.pump(now) {
             eprintln!("exact: {e}");
         }
@@ -431,7 +625,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if !p.dirty() {
             return None;
         }
-        let frame = p.display_frame()?;
+        let frame = crate::android::trace(c"exact paint", || p.display_frame())?;
         p.display_complete(&frame);
         if p.module_pending() {
             p.first_pixel();
@@ -472,6 +666,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// Scroll what is under the viewport's center by `dy` pixels.
     pub fn scroll(&mut self, dy: f32) {
         let (x, y) = (self.viewport.0 / 2.0, self.viewport.1 / 2.0);
+        let _s = Section::begin(c"exact scroll");
         self.p.wheel_at(x, y, 0.0, dy / self.scale);
     }
 

@@ -228,14 +228,10 @@ fn open_backend(choice: PainterChoice) -> Result<(Box<dyn Backend>, PainterInfo)
     match choice {
         PainterChoice::Cpu => Ok(cpu()),
         PainterChoice::Custom => {
-            let (name, make) = CUSTOM.get().ok_or("EXACT_PAINTER=custom: no painter registered")?;
-            Ok((
-                make()?,
-                PainterInfo {
-                    name,
-                    ..cpu_info()
-                },
-            ))
+            let (name, make) = CUSTOM
+                .get()
+                .ok_or("EXACT_PAINTER=custom: no painter registered")?;
+            Ok((make()?, PainterInfo { name, ..cpu_info() }))
         }
         #[cfg(target_os = "android")]
         PainterChoice::Canvas => Ok((
@@ -383,6 +379,7 @@ impl<D: DataSource> Presenter<D> {
             region,
         )?;
         let mut images = Images::with_assets(assets.clone());
+        images.fit(viewport, scale);
         if assets.is_selected() {
             if let Some(error) = error {
                 return Err(HostError::Layout(error));
@@ -718,6 +715,7 @@ impl<D: DataSource> Presenter<D> {
         }
         let geometry_changed = self.viewport != (width, height);
         self.viewport = (width, height);
+        self.images.fit(self.viewport, self.brush.scale);
         if geometry_changed {
             self.collection.advance_all();
         }

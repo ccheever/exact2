@@ -198,6 +198,18 @@ extern "C" fn on_vsync(_frame_time_nanos: i64, data: *mut c_void) {
     v.arrived.set(true);
 }
 
+/// Open an atrace section on this thread (close it with [`section_end`]).
+pub fn section_begin(name: &core::ffi::CStr) {
+    // SAFETY: a NUL-terminated name.
+    unsafe { ATrace_beginSection(name.as_ptr()) };
+}
+
+/// Close the innermost atrace section this thread opened.
+pub fn section_end() {
+    // SAFETY: pairs with `section_begin` on this thread.
+    unsafe { ATrace_endSection() };
+}
+
 /// Run `f` inside an atrace section (Perfetto shows it on this thread).
 pub fn trace<T>(name: &core::ffi::CStr, f: impl FnOnce() -> T) -> T {
     // SAFETY: a NUL-terminated name; begin and end pair on this thread.

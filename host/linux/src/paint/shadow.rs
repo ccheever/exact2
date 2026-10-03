@@ -230,6 +230,7 @@ impl ShadowPaint {
                     region,
                     clip,
                     color: [self.color[0], self.color[1], self.color[2], alpha],
+                    ring: None,
                 });
             }
         }
