@@ -1329,7 +1329,7 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
       check(byTestId(t, 'live-count')?.props.text === 'Count 1', 'live text changes through an action');
       await f.tap('other');
       check(byTestId(await f.tree(), 'other')?.focused === true, 'a text update does not steal focus back');
-      await f.clock('+1000'); await f.clock('+1000');
+      check(byTestId(t, 'pressed')?.props.accessibilityPressed === 'true' && byTestId(t, 'mixed')?.props.accessibilityPressed === 'mixed', `aria-pressed is in the tree: ${JSON.stringify([byTestId(t, 'pressed')?.props, byTestId(t, 'mixed')?.props])}`); await f.clock('+1000'); check(byTestId(await f.tree(), 'pressed')?.props.accessibilityPressed === 'false', 'aria-pressed follows its bool'); await f.clock('+1000');
       t = await f.tree();
       check(byTestId(t, 'other')?.focused === true, 'remount does not steal focus from Other');
       check((await f.state()).focus.logical === byTestId(t, 'other')?.id, 'state agrees with tree focus');

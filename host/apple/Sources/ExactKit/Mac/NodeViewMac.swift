@@ -345,7 +345,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     func updateRoleAccessibility() {
         if kind == "button" {
             setAccessibilityElement(true)
-            setAccessibilityRole(props["accessibilityRole"] == "link" ? .link : .button)
+            setAccessibilityToggle(pressedState, else: props["accessibilityRole"] == "link" ? .link : .button)
             setAccessibilitySelected(props["accessibilitySelected"] == "true")
             if let expanded = props["accessibilityExpanded"] { setAccessibilityExpanded(expanded == "true") }
         } else if kind == "image" {

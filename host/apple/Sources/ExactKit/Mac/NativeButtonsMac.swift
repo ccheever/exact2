@@ -20,6 +20,7 @@ final class NativeButtonMac: NSButton {
         var testId: String?
         var selected: Bool
         var expanded: String?
+        var pressed: String?
     }
     var written: Written?
     /// Whether it draws glass: the glass bezel, in the macOS 26 design.
@@ -119,7 +120,8 @@ extension ControlHost {
         let written = NativeButtonMac.Written(
             face: face, accent: accent, enabled: !owner.disabled,
             label: owner.props["accessibilityLabel"] ?? face.title, testId: owner.props["testId"],
-            selected: owner.props["accessibilitySelected"] == "true", expanded: owner.props["accessibilityExpanded"])
+            selected: owner.props["accessibilitySelected"] == "true", expanded: owner.props["accessibilityExpanded"],
+            pressed: owner.pressedState)
         guard button.written != written else { return }
         if !face.known, button.written?.face.style != face.style {
             presenter.session?.log("buttonStyle `\(face.style)` is not a button style; drawing bordered")
@@ -148,6 +150,7 @@ extension ControlHost {
         button.setAccessibilityIdentifier(written.testId)
         button.setAccessibilitySelected(written.selected)
         if let expanded = written.expanded { button.setAccessibilityExpanded(expanded == "true") }
+        button.setAccessibilityToggle(written.pressed, else: .button)
         button.drawn = look
         if button.isGlass != glass {
             button.isGlass = glass

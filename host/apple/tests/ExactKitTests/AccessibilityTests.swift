@@ -173,6 +173,24 @@ final class AccessibilityTests: XCTestCase {
         p.flushKeyViewLoop()
         XCTAssertNil(first.nextKeyView, "a fresh loop is not rebuilt")
     }
+    /// `aria-pressed` as Core-AAM maps it: a toggle button is AXCheckBox,
+    /// subrole AXToggle, value 0, 1 or 2 (mixed); without it, a button again.
+    func testAriaPressedMakesAToggleButton() {
+        let (_, w, button, _) = fixture()
+        button.applyProps(set: ["accessibilityRole": "button", "accessibilityPressed": "true"], clear: [])
+        XCTAssertEqual(button.accessibilityRole(), .checkBox)
+        XCTAssertEqual(button.accessibilitySubrole(), .toggle)
+        XCTAssertEqual(button.accessibilityValue() as? Int, 1)
+        button.applyProps(set: ["accessibilityPressed": "mixed"], clear: [])
+        XCTAssertEqual(button.accessibilityValue() as? Int, 2)
+        button.applyProps(set: ["accessibilityPressed": "false"], clear: [])
+        XCTAssertEqual(button.accessibilityValue() as? Int, 0)
+        button.applyProps(set: [:], clear: ["accessibilityPressed"])
+        XCTAssertEqual(button.accessibilityRole(), .button)
+        XCTAssertNil(button.accessibilitySubrole())
+        XCTAssertNil(button.accessibilityValue())
+        withExtendedLifetime(w) {}
+    }
     func testOffDoesNotTrackALiveRegion() {
         let (p, w, first, _) = fixture()
         first.props["accessibilityLive"] = "off"
