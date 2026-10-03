@@ -299,7 +299,8 @@ the Linux host implements this list, not that file):
 - **`screenshot`** is the rendered pixels: `Page.captureScreenshot`, or
   `cacheDisplay` of the viewport with every canvas painting its readback
   picture (as a capture does; a Metal layer alone would be blank — since
-  2026-08-30), or with `window` the window server's picture
+  2026-08-30; a pending capture is rendered at the agent's clock first, as
+  `clock` leaves it — since 2026-10-03), or with `window` the window server's picture
   (`screencapture -l`, needs screen-capture permission and a display that
   is on).
 
@@ -380,7 +381,9 @@ page's `now()` in agent mode and never reschedules itself; `clock` asks it
 for a frame.
 
 **What still moves on its own** — host I/O, not the clock: an image
-finishing decoding (the kernel relays out; poll `layout`), the GPU module
+finishing decoding (the kernel relays out; poll `layout`; `screenshot` on the
+web, macOS and iOS, and the Apple `clock`, first wait up to 3 s for images on
+screen, and a screenshot that stopped waiting says `imagesPending: n`), the GPU module
 loading after the first paint. The smoke polls for both and says so. On
 macOS the display link keeps ticking under agent mode; every tick seeks the
 engine and the canvases to the same agent clock, so it repaints the same

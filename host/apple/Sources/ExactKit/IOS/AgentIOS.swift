@@ -716,6 +716,14 @@ extension Agent {
 
     func screenshot(_ req: [String: Any]) -> [String: Any] {
         presenter.settlePump()
+        // Images on screen land first; one landing reports its natural
+        // size, which can move what the pump just settled.
+        var loading = 0
+        if session.rasters.loadingOnScreen > 0 { loading = waitForImages(); presenter.settlePump() }
+        // A canvas painting its children through its surface (LLP 1014)
+        // shows its last capture: what is pending is captured and rendered
+        // at the agent's clock first, as `clock` leaves it.
+        if let now = session.clock, session.canvases.waitUntilReady() { session.canvases.settle(now: now) }
         presenter.canvas2d.waitForReplays()
         SvgFilterLive.waitForDraws()
         guard let path = req["path"] as? String else { return ["error": "screenshot needs a path"] }
@@ -763,6 +771,7 @@ extension Agent {
         do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
         var r: [String: Any] = ["screenshot": path, "w": Agent.r2(size.width), "h": Agent.r2(size.height), "scale": Agent.r2(scale)]
         if req["window"] as? Bool == true { r["window"] = true }
+        if loading > 0 { r["imagesPending"] = loading }
         return r
     }
 

@@ -496,13 +496,21 @@ public final class Agent {
         }
     }
 
-    /// Images on screen land before the clock moves, for up to 3 s: an
-    /// animated one starts on the clock it lands at (LLP 1011.000), and a
-    /// decode is host I/O no clock waits for otherwise.
-    func waitForImages() {
+    /// Images on screen land before the clock moves or a screenshot is
+    /// taken, for up to 3 s: an animated one starts on the clock it lands at
+    /// (LLP 1011.000), and a decode is host I/O no clock waits for otherwise.
+    /// How many were still loading at the bound (`screenshot`'s `imagesPending`,
+    /// as on the web, LLP 1054.000 R9).
+    @discardableResult
+    func waitForImages() -> Int {
         let end = Date(timeIntervalSinceNow: 3)
-        while session.rasters.loadingOnScreen > 0 && Date() < end { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+        var loading = session.rasters.loadingOnScreen
+        while loading > 0 && Date() < end {
+            RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
+            loading = session.rasters.loadingOnScreen
+        }
         AnimatedRasters.shared.evaluate()
+        return loading
     }
 
     /// How many requests the runner has in flight (`state.pending`).
