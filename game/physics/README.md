@@ -31,6 +31,9 @@ the actual `displacement` and `grounded` state.
   were written since the last one, plus parented colliders (their pose follows their
   ancestors), so same-tick edits are visible. A write to a collider-free entity (a
   camera, a tracer) costs a membership test; loading or another world rebuilds.
+  Capsule rays (also a capsule under an offset) use the closed form: Parry 0.30's
+  support-map capsule raycast misses rays that pass straight through (64 of 16,000
+  in RIVALS). Other shapes use Parry's ray cast.
   The free query functions are thin one-shot calls through this same cache.
   The capsule handle queries a BVH of only the colliders it can reach that step,
   built in entity order, so its result never depends on the scene's edit history. Capsules use Rapier's steps/slopes/snap, saved-pose platform transport and an

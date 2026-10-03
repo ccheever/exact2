@@ -1,6 +1,10 @@
 use crate::{math, step, Body, Collider, Hit, Shape};
 use exact_game::{Entity, Parent, Ref, Transform, Vec3, World};
-use rapier3d::parry::query::ShapeCastOptions;
+use rapier3d::parry::{
+    partitioning::BvhNode,
+    query::{RayCast, RayIntersection, ShapeCastOptions},
+    shape::{Capsule, FeatureId, Shape as ParryShape},
+};
 use rapier3d::{
     parry::{
         partitioning::{Bvh, BvhBuildStrategy},
@@ -321,6 +325,82 @@ pub(crate) fn bvh(leaves: &[(u32, Aabb)]) -> Bvh {
     }
     bvh
 }
+// Parry 0.30 casts capsule rays by support-map GJK, which misses some rays that
+// pass straight through (RIVALS: 64 of 16,000 aimed inside); capsules use the
+// closed form, including a compound's capsule child (an offset collider).
+fn cast_ray(shape: &dyn ParryShape, pos: &Pose, ray: &Ray, max: f32) -> Option<RayIntersection> {
+    if let Some(c) = shape.as_capsule() {
+        return ray_capsule(c, pos, ray, max);
+    }
+    if let Some(compound) = shape.as_compound() {
+        return compound
+            .shapes()
+            .iter()
+            .filter_map(|(local, child)| cast_ray(&**child, &(*pos * *local), ray, max))
+            .min_by(|a, b| a.time_of_impact.total_cmp(&b.time_of_impact));
+    }
+    shape.cast_ray_and_get_normal(pos, ray, max, true)
+}
+// Solid: an origin inside returns zero distance and a zero normal, as Parry does.
+fn ray_capsule(c: &Capsule, pos: &Pose, ray: &Ray, max: f32) -> Option<RayIntersection> {
+    let (o, d) = (
+        pos.inverse_transform_point(ray.origin),
+        pos.rotation.inverse() * ray.dir,
+    );
+    let (a, b, r) = (c.segment.a, c.segment.b, c.radius);
+    let ba = b - a;
+    let baba = ba.dot(ba);
+    let closest = |p: Vector| {
+        let s = if baba > 0.0 {
+            ((p - a).dot(ba) / baba).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        a + ba * s
+    };
+    if (o - closest(o)).length_squared() <= r * r {
+        return Some(RayIntersection::new(0.0, Vector::ZERO, FeatureId::Unknown));
+    }
+    let sphere = |centre: Vector| {
+        let oc = o - centre;
+        let k = d.dot(oc);
+        let h = k * k - (oc.dot(oc) - r * r);
+        (h >= 0.0).then(|| -k - h.sqrt())
+    };
+    let (oa, bard) = (o - a, ba.dot(d));
+    let baoa = ba.dot(oa);
+    let k2 = baba - bard * bard;
+    let t = if k2 > 1e-9 * baba.max(1e-9) {
+        let k1 = baba * oa.dot(d) - baoa * bard;
+        let k0 = baba * oa.dot(oa) - baoa * baoa - r * r * baba;
+        let h = k1 * k1 - k2 * k0;
+        if h < 0.0 {
+            return None;
+        }
+        let t = (-k1 - h.sqrt()) / k2;
+        let y = baoa + t * bard;
+        if y > 0.0 && y < baba {
+            Some(t)
+        } else {
+            sphere(if y <= 0.0 { a } else { b })
+        }
+    } else {
+        match (sphere(a), sphere(b)) {
+            (Some(x), Some(y)) => Some(x.min(y)),
+            (x, y) => x.or(y),
+        }
+    }?;
+    if !(0.0..=max).contains(&t) {
+        return None;
+    }
+    let p = o + d * t;
+    let normal = (p - closest(p)).normalize_or_zero();
+    Some(RayIntersection::new(
+        t,
+        pos.rotation * normal,
+        FeatureId::Unknown,
+    ))
+}
 fn nearest(a: &Hit, b: &Hit) -> std::cmp::Ordering {
     a.distance
         .total_cmp(&b.distance)
@@ -340,12 +420,17 @@ impl Queries<'_> {
         }
         let dir = dir.normalize();
         let scene = self.scene();
-        let predicate = |_: ColliderHandle, c: &rapier3d::prelude::Collider| {
-            c.collision_groups().memberships.bits() & mask != 0
-        };
-        let q = scene.queries(QueryFilter::default().predicate(&predicate));
-        q.intersect_ray(Ray::new(math::vector(origin), math::vector(dir)), max, true)
-            .map(|(h, _, hit)| Hit {
+        let ray = Ray::new(math::vector(origin), math::vector(dir));
+        let colliders = &scene.rapier.colliders;
+        scene
+            .bvh
+            .leaves(|node: &BvhNode| node.aabb().intersects_local_ray(&ray, max))
+            .filter_map(|leaf| {
+                let (c, h) = colliders.get_unknown_gen(leaf)?;
+                (c.collision_groups().memberships.bits() & mask != 0).then_some(())?;
+                Some((h, cast_ray(c.shape(), c.position(), &ray, max)?))
+            })
+            .map(|(h, hit)| Hit {
                 entity: scene.entity(h),
                 distance: hit.time_of_impact,
                 point: origin + dir * hit.time_of_impact,
