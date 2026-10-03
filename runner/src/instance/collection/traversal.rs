@@ -70,6 +70,17 @@ impl Collection {
 impl Tree {
     /// O(live instances) snapshots. No unmounted record/key serialization.
     pub fn collections(&self) -> Vec<CollectionSnapshot> {
+        let mut out = self.each_collection(Collection::snapshot);
+        out.sort_by_key(|c| c.view);
+        out
+    }
+    /// [`Tree::collections`]' extents alone: no row is projected.
+    pub fn collection_extents(&self) -> Vec<CollectionExtent> {
+        let mut out = self.each_collection(Collection::extent);
+        out.sort_by_key(|c| c.view);
+        out
+    }
+    fn each_collection<T>(&self, mut f: impl FnMut(&Collection) -> T) -> Vec<T> {
         if !self.has_collections {
             return Vec::new();
         }
@@ -79,7 +90,7 @@ impl Tree {
             match child {
                 Child::Node(node) => {
                     if let Some(collection) = &node.collection {
-                        out.push(collection.snapshot());
+                        out.push(f(collection));
                         collection.add_children(&mut stack);
                     }
                     stack.extend(node.children.iter());
@@ -94,7 +105,6 @@ impl Tree {
                 },
             }
         }
-        out.sort_by_key(|c| c.view);
         out
     }
     /// Checked host projection: traversal storage is bounded before reservation;

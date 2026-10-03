@@ -1332,6 +1332,14 @@ impl Collection {
         advance(&mut self.revision)?;
         Ok(true)
     }
+    fn extent(&self) -> CollectionExtent {
+        CollectionExtent {
+            view: self.view,
+            axis: self.axis,
+            total_extent: self.index.total_height(),
+            first_row: self.mounted.first().map(|row| row.wrapper),
+        }
+    }
     fn snapshot(&self) -> CollectionSnapshot {
         CollectionSnapshot {
             view: self.view,

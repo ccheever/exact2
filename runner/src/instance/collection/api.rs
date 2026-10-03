@@ -112,6 +112,20 @@ impl ListAxis {
         }
     }
 }
+/// A list's extent, what a host's scroll range reads every frame: a
+/// [`CollectionSnapshot`]'s numbers without its rows (the first one's
+/// wrapper kept, whose cross size the row was offered).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct CollectionExtent {
+    /// List view.
+    pub view: ViewId,
+    /// The main axis.
+    pub axis: ListAxis,
+    /// Measured plus estimated full content extent on the main axis.
+    pub total_extent: f64,
+    /// The first mounted row's wrapper, if any.
+    pub first_row: Option<ViewId>,
+}
 /// Current O(mounted rows) host metadata, separate from the ordinary kernel ops.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CollectionSnapshot {

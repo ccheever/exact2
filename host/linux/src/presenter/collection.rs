@@ -227,6 +227,20 @@ fn containing_width(kernel: &Kernel, view: ViewId, viewport: f64) -> f64 {
 }
 
 fn geometry(kernel: &Kernel, snapshot: &CollectionSnapshot, viewport: f64) -> Option<Geometry> {
+    let extent = exact_runner::CollectionExtent {
+        view: snapshot.view,
+        axis: snapshot.axis,
+        total_extent: snapshot.total_extent,
+        first_row: snapshot.rows.first().map(|r| r.view),
+    };
+    geometry_of(kernel, extent, viewport)
+}
+
+fn geometry_of(
+    kernel: &Kernel,
+    snapshot: exact_runner::CollectionExtent,
+    viewport: f64,
+) -> Option<Geometry> {
     let node = kernel.node(snapshot.view)?;
     let [top, right, bottom, left] = node.style.border_widths();
     let width = (node.frame.width - left - right).max(0.) as f64;
@@ -258,17 +272,13 @@ fn geometry(kernel: &Kernel, snapshot: &CollectionSnapshot, viewport: f64) -> Op
     };
     // A wrapper stretched across reports the actual cross size Taffy offered
     // the row, including its real containing block's percentage padding.
-    let cross = snapshot
-        .rows
-        .first()
-        .and_then(|r| kernel.node(r.view))
-        .map_or_else(
-            || (port_cross - cross_pad).max(0.),
-            |wrapper| match axis {
-                ListAxis::Vertical => wrapper.frame.width as f64,
-                ListAxis::Horizontal => wrapper.frame.height as f64,
-            },
-        );
+    let cross = snapshot.first_row.and_then(|r| kernel.node(r)).map_or_else(
+        || (port_cross - cross_pad).max(0.),
+        |wrapper| match axis {
+            ListAxis::Vertical => wrapper.frame.width as f64,
+            ListAxis::Horizontal => wrapper.frame.height as f64,
+        },
+    );
     let content = content_size(&node, kernel);
     let (content, frame) = match axis {
         ListAxis::Vertical => (content.1, node.frame.height),
@@ -552,12 +562,12 @@ impl<D: DataSource> Presenter<D> {
     }
 
     pub(super) fn collection_scroll_limits(&self) -> BTreeMap<ViewId, f32> {
+        // Read every frame: extents, not snapshots (no row is projected).
         self.host
-            .collections()
+            .collection_extents()
             .iter()
-            .filter_map(|snapshot| {
-                geometry(self.host.kernel(), snapshot, self.viewport.0 as f64)
-                    .map(|g| (snapshot.view, g.max))
+            .filter_map(|e| {
+                geometry_of(self.host.kernel(), *e, self.viewport.0 as f64).map(|g| (e.view, g.max))
             })
             .collect()
     }

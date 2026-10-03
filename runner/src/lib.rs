@@ -75,9 +75,9 @@ pub use exact_plan::{Items, Str, Value};
 pub use format::formatting;
 pub use head::Head;
 pub use instance::collection::{
-    AnchorCorrection, CollectionFeedback, CollectionFill, CollectionRow, CollectionSnapshot,
-    FeedbackError, ListAxis, ReorderBinding, ReorderFrame, ReorderGeometry, ReorderProgress,
-    ReorderStart, ReorderToken, ReorderWrapper, RowMeasurement,
+    AnchorCorrection, CollectionExtent, CollectionFeedback, CollectionFill, CollectionRow,
+    CollectionSnapshot, FeedbackError, ListAxis, ReorderBinding, ReorderFrame, ReorderGeometry,
+    ReorderProgress, ReorderStart, ReorderToken, ReorderWrapper, RowMeasurement,
 };
 pub use instance::{DocNode, DocTree, DocTreeError, ListLinks, SurfaceUpdate, LISTS};
 pub use page::Page;

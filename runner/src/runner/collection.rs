@@ -11,6 +11,13 @@ impl<D: DataSource> Runner<D> {
             .map(Tree::collections)
             .unwrap_or_default()
     }
+    /// [`Runner::collections`]' extents alone (a host's scroll ranges).
+    pub fn collection_extents(&self) -> Vec<crate::CollectionExtent> {
+        self.tree
+            .as_ref()
+            .map(Tree::collection_extents)
+            .unwrap_or_default()
+    }
     /// Bound borrowed traversal and count all collections/rows before copying
     /// numeric host snapshots. No keys, records or action frames are captured.
     pub fn collections_bounded(

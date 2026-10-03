@@ -400,6 +400,11 @@ impl<D: DataSource> Host<D> {
         self.runner.collections()
     }
 
+    /// Mounted collections' extents alone, for scroll ranges.
+    pub fn collection_extents(&self) -> Vec<exact_runner::CollectionExtent> {
+        self.runner.collection_extents()
+    }
+
     /// Commit viewport geometry and any edge action, retaining commits on refusal.
     /// `false` means stale or unchanged feedback, requiring no layout.
     pub fn collection_feedback(

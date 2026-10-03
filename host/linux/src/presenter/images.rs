@@ -62,11 +62,13 @@ impl<D: DataSource> Presenter<D> {
             .map(|(_, o)| o.clone())
             .unwrap_or_default();
         let host = &self.host;
-        // Built only when a picture asks where it is (symbols never do).
+        // Built only when a picture asks where it is (symbols never do),
+        // and only of pictures' boxes: a frame paints many more.
         let all = &self.boxes;
         let boxes = std::cell::OnceCell::<
             std::collections::HashMap<ViewId, &crate::paint::PaintedBox>,
         >::new();
+        let pictures: std::collections::HashSet<ViewId> = live.iter().copied().collect();
         let viewport = self.viewport;
         let reports = self
             .images
@@ -75,7 +77,13 @@ impl<D: DataSource> Presenter<D> {
                     return false;
                 }
                 let Some(b) = boxes
-                    .get_or_init(|| all.iter().rev().map(|b| (b.id, b)).collect())
+                    .get_or_init(|| {
+                        all.iter()
+                            .rev()
+                            .filter(|b| pictures.contains(&b.id))
+                            .map(|b| (b.id, b))
+                            .collect()
+                    })
                     .get(&id)
                 else {
                     return true;
