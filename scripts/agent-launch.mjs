@@ -1,4 +1,5 @@
 // Session setup shared by the agent CLI and its programmatic driver.
+import { spawnSync } from 'node:child_process';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { delimiter, relative, resolve } from 'node:path';
 import { pendingBuildInputs } from './app.mjs';
@@ -140,11 +141,26 @@ export function newerThan(since, roots, skip = () => false) {
   return out;
 }
 
+// What the bake captures from an app (`js/bake/src/lib.rs`, `sources`).
+const BAKE_SOURCE = /\.(ts|json|contract|ttf|otf)$|^(assets|deck|gpu\/shaders)\//;
+/** The app's gitignored paths, as a skip for its own files: a screenshot
+ * saved into the app is not an input. One the bake captures still counts,
+ * ignored or not (a generated asset, a local key). Outside Git, nothing. */
+export function gitIgnored(dir) {
+  const listed = spawnSync('git', ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z'], { cwd: dir, encoding: 'utf8' });
+  const paths = listed.status === 0 ? listed.stdout.split('\0').filter(Boolean).map(p => resolve(dir, p)) : [];
+  if (!paths.length) return () => false;
+  // Files, not directories: an ignored directory is still walked for what the bake captures in it.
+  return path => paths.some(p => path === p || path.startsWith(p + '/')) &&
+    !statSync(path, { throwIfNoEntry: false })?.isDirectory() && !BAKE_SOURCE.test(relative(dir, path));
+}
+
 /** An Apple build's receipt: its Rust and Swift inputs by digest, then by mtime the app's own files the receipt leaves out on purpose (the root build script's watches: the contract, app.json, data, shaders, assets — what the baked plan and bundle are made from). */
 export function receiptChanges(receipt, app) {
   if (!existsSync(receipt)) return [];
   const { build, target } = JSON.parse(readFileSync(receipt, 'utf8')), since = statSync(receipt).mtimeMs;
-  const own = newerThan(since, [app.dir], path => /\/(apple|linux|web)$/.test(path) && path.startsWith(app.dir + '/'));
+  const ignored = gitIgnored(app.dir);
+  const own = newerThan(since, [app.dir], path => /\/(apple|linux|web)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path));
   // The receipt names what the binary links, not what built it: the Rust
   // archive's own dep-info also names its build script's (the compiler, the bake).
   const archive = `lib${app.crate('apple').replace(/-/g, '_')}.d`;
@@ -162,7 +178,8 @@ export function webChanges(dist, app) {
   if (!existsSync(marker)) return { app: [], shared: [], all: [] };
   const since = statSync(marker).mtimeMs, js = JSON.parse(readFileSync(marker, 'utf8')).target === 'js';
   const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }] : ['host/web', 'runner', 'kernel', 'plan', 'motion', 'num', 'contract'];
-  const appChanges = newerThan(since, [app.dir], path => /\/(apple|linux)$/.test(path) && path.startsWith(app.dir + '/'));
+  const ignored = gitIgnored(app.dir);
+  const appChanges = newerThan(since, [app.dir], path => /\/(apple|linux)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path));
   const shared = newerThan(since, roots.map(r => typeof r === 'string' ? resolve(ROOT, r) : { shallow: resolve(ROOT, r.shallow) }));
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }

@@ -11,7 +11,7 @@ if (!Bun.which('cargo', { PATH: process.env.PATH })) throw new Error(`these test
 delete process.env.EXACT_APP_DIR;
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname, relative, resolve } from 'node:path';
@@ -20,6 +20,7 @@ import { runInNewContext } from 'node:vm';
 import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listAssets, listPublicFiles, publicFileCards, readDevGeneration, retainDevGeneration, shaderInterfaceDigests, staticFile, readStaticFile, serveStatic, syncStaticTree, watchStaticTrees, webEnvelope } from '../host/web/serve.mjs';
 import { assertWebDistApp, jsonLines } from './agent.mjs';
 import { verifyBakeFiles, pendingBuildInputs } from './app.mjs';
+import { gitIgnored, newerThan } from './agent-launch.mjs';
 import { copyAppleStaticTrees, developmentLaunchEnvironment, deviceLaunchArgs } from '../host/apple/build.mjs';
 import { classify, publishRoot, webRelease } from './deploy.mjs';
 import { DirectoryOrigin, webRootPath, webReleasePath, sha256 } from './origin.mjs';
@@ -609,6 +610,18 @@ for (const [name, html, files, expectCode, expect] of [
   writeFileSync(file,'replaced a watched directory');
   const pending=pendingBuildInputs({binary:{inputs:[{name:'source',path:dir,sha256:'0'.repeat(64)}],missing:[],directories:[{path:file,names:['old.h']}]}});
   result('dev reports replaced compiler input types as pending without terminating',pending.includes('source')&&pending.includes(file),JSON.stringify(pending));
+  rmSync(dir,{recursive:true,force:true});
+}
+{
+  // A screenshot saved into an app is not an input; an ignored file the bake captures still is.
+  const dir=realpathSync(mkdtempSync(join(tmpdir(),'exact-ignored-inputs-')));
+  mkdirSync(join(dir,'shots'));
+  for(const [name,text] of [['.gitignore','/shots/\n/local.ts\n'],['app.contract','view'],['local.ts','key'],['shots/one.png','png'],['shots/notes.txt','notes']]) writeFileSync(join(dir,name),text);
+  const outside=newerThan(0,[dir],gitIgnored(dir)).map(p=>relative(dir,p)).sort();
+  spawnSync('git',['init','-q'],{cwd:dir});
+  const inside=newerThan(0,[dir],gitIgnored(dir)).map(p=>relative(dir,p)).sort();
+  result('the staleness walk skips gitignored files the bake does not capture',
+    JSON.stringify(inside)==='["app.contract","local.ts"]'&&outside.length===4,JSON.stringify({inside,outside}));
   rmSync(dir,{recursive:true,force:true});
 }
 // A matching hand-written exact.json is not build identity. The agent must
