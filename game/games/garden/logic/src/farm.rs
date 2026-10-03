@@ -30,6 +30,8 @@ pub struct Farm {
     pub last: String,
     pub away: String,
     pub overview: bool,
+    /// A camera at the farmer's shoulder.
+    pub closeup: bool,
     pub shop_dirty: bool,
     pub bag_dirty: bool,
 }
@@ -194,9 +196,9 @@ pub fn resize(w: &mut World, size: u16) {
 
 /// Sizes the ground, the player's bounds and the overview camera to the garden.
 pub fn lay_ground(w: &World) {
-    let (size, overview) = {
+    let (size, overview, closeup) = {
         let farm = w.resource::<Farm>();
-        (farm.size as f32, farm.overview)
+        (farm.size as f32, farm.overview, farm.closeup)
     };
     let span = size * TILE;
     let mid = (size - 1.0) * TILE / 2.0;
@@ -209,6 +211,11 @@ pub fn lay_ground(w: &World) {
         Follow::new(w.named("ground").unwrap())
             .offset(0.0, r * 0.9, r * 0.75)
             .lag(0.3)
+    } else if closeup {
+        Follow::new(w.named("player").unwrap())
+            .offset(1.2, 2.4, 3.6)
+            .look_at_offset(0.0, 0.4, -1.2)
+            .lag(0.15)
     } else {
         Follow::new(w.named("player").unwrap())
             .offset(0.0, 6.5, 8.5)
@@ -343,6 +350,12 @@ pub fn command(w: &mut World, cmd: &str) {
             w.resource_mut::<Farm>().overview = o;
             lay_ground(w);
             Ok((if o { "Overview" } else { "Close" }).into())
+        }
+        "closeup" => {
+            let c = !w.resource::<Farm>().closeup;
+            w.resource_mut::<Farm>().closeup = c;
+            lay_ground(w);
+            Ok((if c { "Close-up" } else { "Garden view" }).into())
         }
         "fill" => Ok(format!("Planted {}", fill(w, arg.parse().unwrap_or(100)))),
         "away" => {

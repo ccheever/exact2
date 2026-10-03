@@ -136,6 +136,8 @@ component Garden
                     text `Expand ${hud.expand_cost}¢`
                   button press=run("zoom") testId="zoom" padding=10 border-radius=8 background-color="#334155"
                     text "Zoom"
+                  button press=run("closeup") testId="closeup" padding=10 border-radius=8 background-color="#334155"
+                    text "Close-up"
                 text "Stress" font-size=14 color="#cbd5e1" padding-top=6
                 row gap=8 flex-wrap="wrap"
                   button press=run("fill 100") testId="fill-100" padding=8 border-radius=8 background-color="#334155"

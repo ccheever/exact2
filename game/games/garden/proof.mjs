@@ -243,8 +243,15 @@ async function shots({open, check, out, host}) {
   await s.screenshot(resolve(out, `${prefix}-play.png`));
   await s.tap('shop-tab');
   await game.hold('KeyD', 700);
-  await game.run(500);
+  await game.hold('KeyW', 500);
+  await s.tap('tools-tab');
+  await s.tap('closeup');
+  await s.tap('tools-tab');
+  await game.run(1_500);
   await s.screenshot(resolve(out, `${prefix}-close.png`));
+  await s.tap('tools-tab');
+  await s.tap('closeup');
+  await s.tap('tools-tab');
   await s.tap('tools-tab');
   await s.tap('fill-1000');
   await game.run(34);

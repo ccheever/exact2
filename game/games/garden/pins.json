@@ -1,18 +1,18 @@
 {
   "ticks": {
-    "0": "0xd91032ff95f1b555",
-    "5136": "0x9b805f6613b20084"
+    "0": "0x39f7407bc5131592",
+    "5136": "0x0f7a0d4ffdda5fa1"
   },
   "saves": {
-    "continuation": "cce9a639f9446159993bfc70563ef78738528014e7422f0bcc5e58820d573988"
+    "continuation": "f2520e8c5328de2daa5ad48a574b023173ad6a5ca03c382b137c53549943404d"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "89c44d87a260892bf95b67e2f69734e9e3201845aa0fa15da651d12401dabb21",
+  "inputs": "c7488f755cf76704fd01f52df7ee1d34796ddee536ef6123c6fb6801c4d6ac90",
   "game": "garden",
   "generated": "bun game/prove.mjs garden --repin --hosts 'linux,web'",
-  "at": "7c1abcefb4372e5826432527cf1393bff1f207c3",
-  "reason": "art pass: plants, fruit and the farmer are baked glTF models (Mesh::asset per crop stage and mutation look); fence, lanterns, stall, keeper, model catalogue, weather emitter, moon and a day/night cycle are new entities and resources"
+  "at": "4b6699533f9a9980bc9f99cb6ea6104a0a6228c9",
+  "reason": "art pass: plants, fruit and the farmer are baked glTF models (Mesh::asset per crop stage and mutation look); fence, lanterns, stall, keeper, a model catalogue, weather emitter, moon, a day/night cycle and a close-up camera are new entities and state"
 }

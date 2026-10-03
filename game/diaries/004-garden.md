@@ -419,3 +419,150 @@ proof parsed the purse from `accessibleName`, which web did not report for a
 labelled `text` before the host fix, so `Number(undefined)`. The game's value
 was right (`379392554 sheckles`, `379M¢` on web and Linux). The scale run now
 checks that the purse after "sell all" is finite and positive.
+
+## Art pass (2026-10-03, branch `art/garden` from `roblox/integrate` @ e083e8217)
+
+Brief: "try using Opus 5.5 to draw way more elaborate, better graphics" — the
+model authors all the art itself, in code, and records what that costs and
+where the engine stops it. Builder: Claude (Opus 5.5), one agent.
+
+### What was made, and how
+
+- **`art.mjs` (590 lines, Bun)** is a small mesh kit — lathe, sphere,
+  cylinder, box, two-sided leaf blades, value noise and fBm, an affine stack —
+  that writes glTF 2.0 with embedded buffers and generated PNG textures
+  (soil, wood grain, bark, cloth check, stone). It writes 202 models in 5 s:
+  - **70 plants**: 14 crops × 5 stages (a sprout, then the crop's own shape
+    growing): feathery carrot fronds, leafy bushes (strawberry, blueberry, a
+    staked tomato), corn stalks with tassels, segmented bamboo with nodes,
+    spreading melon and pumpkin vines, round-canopy apple and mango trees
+    with ridged bark, a leaning coconut palm, ribbed cacti and a branching
+    dragon-fruit cactus, a grape trellis. Each sits on a soil mound whose
+    clods are vertex-colour noise.
+  - **112 fruit**: 14 shapes (a carrot root in the soil, a seeded strawberry
+    with calyx, a ribbed pumpkin, a striped melon, a dimpled apple with a
+    leaf, a kernelled corn cob in husks, a grape bunch…) × 8 looks. Glossy
+    plain fruit (roughness 0.22); **Gold** metallic 1 / roughness 0.2 with
+    glints; **Rainbow** hue bands in vertex colour with emissive strength
+    0.9; **Frozen** an emissive pale core inside a translucent (BLEND) ice
+    shell; **Wet** darker and mirror-smooth with translucent droplets;
+    **Shocked** emissive strength 4 (it blooms) with spikes; **Chilled** a
+    frost tint; **unripe** green. The strongest mutation picks the model.
+  - **Props**: fence posts and rails (wood texture), lanterns lit and dark
+    (emissive glass, strength 3), stepping stones, four grass/flower tufts,
+    a seed stall with a striped two-sided awning, scalloped valance, crates of
+    seed colours and a sign board.
+  - **People**: a farmer (straw hat with a band, hair, eyes with highlights,
+    blush, mouth, overalls straps, boots) and the shopkeeper (apron), each as
+    head, torso, arm and leg models so the parts can move.
+- **`logic/src/look.rs` (534 lines)**: the presentation systems, all driven by
+  garden time and deterministic. A 10-minute **day/night** cycle moves the sun
+  (shadowed `DirectionalLight`) and a blue **moon** (the second directional
+  light, the renderer's fill), and blends the procedural sky, ground, fog,
+  ambient and exposure between day, dusk orange and night; **weather** greys
+  the sky and thickens the fog, a storm flashes lightning every seven
+  seconds, and an `Emitter` over the farmer swaps between rain (1,400/s;
+  2,600/s slanted in storms) and snow (500/s, drifting). The **fence** is
+  rebuilt with the garden: posts, rails, a gate, grass tufts in a band
+  outside, and a lantern (a `PointLight`, 140 cd, off by day) every few
+  posts. The **farmer** turns to face the walk and swings arms and legs by
+  distance; the **keeper** sways and waves. The stall's sign is Contract text
+  on a world plane (`Placed::child("stall-sign")`). `AmbientOcclusion` is on.
+- **HUD**: a sun/moon clock pill (`☀ Day 1 · 14:02`), gradient purse with a
+  text shadow, shop rows with a fruit-colour swatch and a rarity-coloured
+  border, a Close-up camera.
+
+### How it looks and feels
+
+`artifacts/web/before-{play,close,wide}.png` against
+`artifacts/web/after-{play,close,wide,night,weather}.png`. It is no longer a
+greybox: at a glance it reads as a garden — trees, bushes and stalks are
+distinguishable at the overview, fruit sits where it grows, the stall and its
+sign make the space a place, and dusk-to-night with lanterns and snow is the
+best-looking moment. Honestly: it is low-poly and blocky up close (the
+farmer's limbs are tubes; the cactus is a pickle; leaves are flat blades), the
+wood textures are small and blurry, there is no sky detail beyond the
+gradient, and from the overview at night or in rain the scene is murky. The
+mutation looks are the weakest payoff: at gameplay distance a Gold or Frozen
+fruit is a dot of a different colour; only Shocked blooms visibly. The real
+Rainbow (an animated iridescent shader) was not possible (below).
+
+### Cost
+
+Offscreen on this Mac's GPU at 1280 × 720, overview camera, everything on
+screen, readback included, measured back to back at load average 11–14:
+
+| plants | before: ms/frame mean / p95 | after | draws before → after | triangles before → after |
+|---:|---:|---:|---:|---:|
+| 100 | 4.1 / 6.6 | 10.2 / 23.3 | 28 → 1,822 | 76 K → 372 K |
+| 10,000 | 5.5 / 9.0 | 10.3 / 14.5 | 28 → 1,822 | 7.4 M → 17.8 M |
+| 50,000 | 9.1 / 11.6 | 18.1 / 21.3 | 28 → 1,822 | 36.9 M → 86.6 M |
+
+GPU forward + sky at 10,000 plants is 4.5 ms (50,000: 12.8 ms); feed
+0.11 ms, encode 0.27 ms. So **10,000+ plants stay viable** (~10 ms a frame;
+50,000 at ~55 fps), but the fixed cost went up: 1,822 draws are issued every
+frame (most empty) — one per model primitive, because every model is kept
+resident (limit 3 below). Hostless simulation is unchanged in kind: an hour's
+seek at 10,000 plants 324 ms, a live 60 Hz frame 0.002 ms; the day/night and
+weather systems are O(1) per tick, the lanterns O(lanterns) only at dusk and
+dawn.
+
+Size: `art/` is 9.3 MB of glTF text (202 files, committed; regenerated by
+`art.mjs`); the baked `assets/` 8.0 MB (models 6.6 MB, textures in three
+families), 2.2 MB gzipped. The web dist went from 3.2 MB to 12 MB;
+`gpu_bg.wasm` (now the model-capable module) from 992 KB to 1,299 KB. Load:
+Play → first world frame went from ~0.4 s to **1.2–1.8 s** on the web, because
+all 202 models are declared in `Game::ASSETS` and setup waits for them. A save
+at 2,000 plants: 614 KB → 699 KB (asset names per entity).
+
+### Where the engine and tooling limited the art
+
+1. **No custom shaders from a generated game.** `Hooks`/`CustomMaterial` and
+   `gpu.shaderRoots` exist, but `game/app/shells.mjs` writes the GPU shell as
+   `exact_game_render::module!(Type[, audio][, assets])` with no way to name
+   hooks or shader packs from `app.json`. An iridescent Rainbow, a wind-sway
+   vertex shader for leaves, or a water sheen would need a hand-written GPU
+   crate. Rainbow is vertex-colour hue bands plus emission instead; nothing
+   sways.
+2. **Textures are per model.** The bake names a glTF's texture
+   `<model>/<index>-srgb-straight.tex`, so the same soil image embedded in 70
+   plant models would ship 70 times (×3 families). Plants use vertex-colour
+   noise instead; only props carry textures. A shared, named texture
+   referenced by many models is not expressible.
+3. **A declared model that leaves the screen goes pending when it returns.**
+   `Sim::take_assets` retires every asset no entity shows (declared ones keep
+   their bytes but lose their state); showing it again marks it `Pending`
+   until the host delivers it anew, and a save at that tick refuses. The
+   paranoid proofs save every tick, so the first ripening into a new look
+   aborted Linux and web (`paranoid Save garden tick 4: save refused: assets
+   are not ready: ["plant-carrot-0.model"]`). Workaround, not an engine
+   change: one far-off speck per model keeps all 202 resident — which is
+   where the 1,822 mostly-empty draws come from (+1,794 over the greybox).
+4. **Generated models have no material.** `World::generated` takes a mesh
+   with vertex colours and a fixed default material, and a model entity
+   ignores `Material`, so a mutation look cannot be a material swap: each
+   look is its own baked model (112 fruit models where 14 shapes would do).
+5. **No LOD or impostors.** 86.6 M triangles at 50,000 plants are all drawn
+   at full detail from 400 m up.
+6. **Emitters step only when told.** `emitter::step(w)` must be called in the
+   tick (as physics and animation are); without it a running emitter has no
+   particles and no error. The README's list of explicit steps names physics
+   and animation, not emitters. Emitter shapes are point, sphere or cone (no
+   box for rain over an area), and an emitter's particles move with it.
+7. **The agent can no longer report accessible names on Linux** (LLP
+   1080.002 removed `tree`'s guessed `accessibleName`; `tree --ax` is
+   unavailable on Linux), so the proof reads `props.accessibilityLabel`.
+8. **Tooling.** The proof's build receipt is by content digest but the agent's
+   staleness check is by mtime, so `git checkout` of unchanged files makes the
+   next proof refuse to drive (`web build is stale`) until a manual
+   `host/web/build.mjs … --wasm`. One web Save-mode baseline row failed once
+   on `tags: GPU is not settled: GPU presentation world` right after Play
+   while 202 models uploaded (it passed on the rerun). `/tmp` log names
+   collided with a sibling art lane's.
+
+Proof: re-pinned with a reason (plants, fruit and the farmer became models;
+fence, lanterns, stall, keeper, catalogue, emitter, moon, day/night and a
+close-up camera are new state): tick 0 `0x39f7407bc5131592`, tick 5136
+`0x0f7a0d4ffdda5fa1`, continuation `f2520e8c…`. `bun game/prove.mjs garden
+--hosts linux,web --compare-saves`: **PROOF PASS** (world hashes equal, save
+bytes identical). 12 logic tests green.
