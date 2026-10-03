@@ -131,17 +131,16 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         {
             self.rebind();
         }
-        self.queue.write_buffer(
-            &self.uniform,
-            0,
-            bytes(&frame::uniform(
-                frame,
-                cascades.as_ref(),
-                size,
-                &self.environment.irradiance,
-                self.lights.info,
-            )),
+        let mut uniform = frame::uniform(
+            frame,
+            cascades.as_ref(),
+            size,
+            &self.environment.irradiance,
+            self.lights.info,
         );
+        // An authored map's intensity scales its filtered light at sample time.
+        uniform[31] *= self.environment.ambient_scale();
+        self.queue.write_buffer(&self.uniform, 0, bytes(&uniform));
         self.quads
             .frame::<ASSETS>(frame, &self.models.textures, !self.cull.keep_all);
         self.order_translucent(frame);

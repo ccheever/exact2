@@ -94,10 +94,11 @@ impl Emitter {
         }
     }
     fn spot(light: &SpotLight, shadows: bool) -> Self {
-        let outer = light.outer.clamp(0., std::f32::consts::FRAC_PI_2);
+        // `max` maps NaN to zero, which `clamp` would keep.
+        let outer = light.outer.max(0.).min(std::f32::consts::FRAC_PI_2);
         let outer_cos = exact_game::math::cos(outer);
         // The shader's smoothstep needs a nonempty edge.
-        let inner_cos = exact_game::math::cos(light.inner.clamp(0., outer)).max(outer_cos + 1e-4);
+        let inner_cos = exact_game::math::cos(light.inner.max(0.).min(outer)).max(outer_cos + 1e-4);
         Self {
             color: light.color,
             intensity: light.intensity,

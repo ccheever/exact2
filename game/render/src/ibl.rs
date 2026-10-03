@@ -25,15 +25,19 @@ pub(crate) struct EnvironmentLight {
     uniform: wgpu::Buffer,
     layout: wgpu::BindGroupLayout,
     bind: wgpu::BindGroup,
-    sh_pipeline: wgpu::ComputePipeline,
+    // The SH projection of authored maps, made with the first map.
+    sh_pipeline: Option<wgpu::ComputePipeline>,
+    module: wgpu::ShaderModule,
     /// SH9 of an authored map, projected on the GPU; copied into the frame
     /// uniform's `irradiance` while the map lights the scene.
     pub sh: wgpu::Buffer,
     sh_pending: bool,
     placeholder: wgpu::TextureView,
     map_sampler: wgpu::Sampler,
-    // The authored map lighting the scene: its content digest, intensity, RGBM.
-    map: Option<(u64, f32, f32)>,
+    // The authored map lighting the scene: its content digest and RGBM range,
+    // and its intensity, applied at sample time through the ambient scale.
+    map: Option<(u64, f32)>,
+    intensity: f32,
     key: Option<[u32; 9]>,
     // The colours the cube was last prefiltered from, and prepares since the
     // sky last changed.
@@ -200,20 +204,6 @@ impl EnvironmentLight {
             multiview_mask: None,
             cache: None,
         });
-        let sh_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-            label: Some("game environment map SH"),
-            layout: Some(
-                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                    label: Some("game environment map SH"),
-                    bind_group_layouts: &[Some(&layout)],
-                    immediate_size: 0,
-                }),
-            ),
-            module: &module,
-            entry_point: Some("sh"),
-            compilation_options: Default::default(),
-            cache: None,
-        });
         Self {
             view,
             sampler,
@@ -222,12 +212,14 @@ impl EnvironmentLight {
             uniform,
             layout,
             bind,
-            sh_pipeline,
+            sh_pipeline: None,
+            module,
             sh,
             sh_pending: false,
             placeholder,
             map_sampler,
             map: None,
+            intensity: 1.,
             key: None,
             prefiltered: None,
             still: 0,
@@ -251,8 +243,13 @@ impl EnvironmentLight {
         environment: &exact_game::Environment,
         map: Option<MapSource<'_>>,
     ) {
-        let key = map.as_ref().map(|m| (m.digest, m.intensity, m.rgbm));
+        // Intensity scales the filtered result: changing it filters nothing.
+        self.intensity = map.as_ref().map_or(1., |m| m.intensity.max(0.));
+        let key = map.as_ref().map(|m| (m.digest, m.rgbm));
         if key != self.map {
+            if map.is_some() && self.sh_pipeline.is_none() {
+                self.sh_pipeline = Some(sh_pipeline(device, &self.layout, &self.module));
+            }
             self.map = key;
             self.key = None;
             self.prefiltered = None;
@@ -270,7 +267,7 @@ impl EnvironmentLight {
                 for mip in 0..MIPS {
                     for face in 0..6 {
                         let at = (mip * 6 + face) as usize * STRIDE as usize / 4;
-                        words[at + 3] = m.intensity.max(1e-9);
+                        words[at + 3] = 1.;
                         words[at + 7] = m.rgbm.max(0.);
                         words[at + 12..at + 15].copy_from_slice(&[
                             face as f32,
@@ -326,13 +323,17 @@ impl EnvironmentLight {
     pub fn mapped(&self) -> bool {
         self.map.is_some()
     }
+    /// The authored map's intensity, folded into the frame's ambient scale.
+    pub fn ambient_scale(&self) -> f32 {
+        self.intensity
+    }
 
     /// Render the pending prefilter: one small pass per face and mip, and an
     /// authored map's SH projection.
     pub fn encode(&mut self, encoder: &mut wgpu::CommandEncoder) {
         if std::mem::take(&mut self.sh_pending) {
             let mut pass = encoder.begin_compute_pass(&Default::default());
-            pass.set_pipeline(&self.sh_pipeline);
+            pass.set_pipeline(self.sh_pipeline.as_ref().unwrap());
             pass.set_bind_group(0, &self.bind, &[0]);
             pass.dispatch_workgroups(1, 1, 1);
         }
@@ -362,6 +363,27 @@ impl EnvironmentLight {
         }
         self.updates += 1;
     }
+}
+
+fn sh_pipeline(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    module: &wgpu::ShaderModule,
+) -> wgpu::ComputePipeline {
+    device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+        label: Some("game environment map SH"),
+        layout: Some(
+            &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("game environment map SH"),
+                bind_group_layouts: &[Some(layout)],
+                immediate_size: 0,
+            }),
+        ),
+        module,
+        entry_point: Some("sh"),
+        compilation_options: Default::default(),
+        cache: None,
+    })
 }
 
 /// An authored equirectangular environment: +Y the top row, −Z the centre column.
@@ -870,6 +892,20 @@ mod tests {
         light.encode(&mut encoder);
         gpu.queue.submit([encoder.finish()]);
         assert_eq!(light.updates, updates);
+        // An animated intensity scales at sample time: nothing is filtered again.
+        light.prepare(
+            &gpu.device,
+            &gpu.queue,
+            &sky,
+            Some(MapSource {
+                intensity: 2.5,
+                ..source()
+            }),
+        );
+        let mut encoder = gpu.device.create_command_encoder(&Default::default());
+        light.encode(&mut encoder);
+        gpu.queue.submit([encoder.finish()]);
+        assert_eq!((light.updates, light.ambient_scale()), (updates, 2.5));
         // Removing it returns to the procedural sky.
         light.prepare(&gpu.device, &gpu.queue, &sky, None);
         assert!(!light.mapped());

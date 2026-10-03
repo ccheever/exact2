@@ -327,3 +327,25 @@ fn candela_and_lux_share_one_scale() {
     assert_eq!(frame.lights[0].intensity, frame.sun.unwrap().illuminance);
     assert!((frame.sun.unwrap().illuminance - 3.).abs() < 1e-6);
 }
+
+#[test]
+fn nan_spot_angles_become_a_finite_cone() {
+    let mut w = World::new(60, 0);
+    w.spawn((Transform::default(), Camera::default()));
+    w.spawn((
+        Transform::at(1., 0., 0.),
+        exact_game::SpotLight {
+            inner: f32::NAN,
+            outer: f32::NAN,
+            ..Default::default()
+        },
+    ));
+    let mut scene = Scene::default();
+    feed(&mut scene, &w);
+    let frame = scene.frame(&w, 1., glam::Vec2::ONE, false);
+    let [inner, outer] = frame.lights[0].cone.unwrap();
+    assert!(
+        inner.is_finite() && outer.is_finite() && inner > outer,
+        "{inner} {outer}"
+    );
+}

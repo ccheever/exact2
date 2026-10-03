@@ -54,7 +54,11 @@ fn add_local_lights(color: ptr<function, vec3<f32>>, frag: vec2<f32>, world: vec
         let ratio2 = distance2 / (range * range);
         let window = max(1.0 - ratio2 * ratio2, 0.0);
         let l = delta * inverseSqrt(distance2);
-        let cone = light_cone(at, l) * light_visibility(at, world, n, l);
+        var cone = light_cone(at, l);
+        // Shadow maps are read only where the light reaches.
+        if window > 0.0 && cone > 0.0 && dot(n, l) > 0.0 {
+            cone *= light_visibility(at, world, n, l);
+        }
         let tint = light_v(at + 4u);
         let intensity = light_f(at + 7u);
         if model {
