@@ -742,6 +742,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::SwipeIndicator => "swipeIndicator",
             PropId::Href if text.is_empty() => continue,
             PropId::Href => "href",
+            PropId::Target => "target",
             PropId::Disabled => "disabled",
             PropId::Min => "min",
             PropId::Max => "max",
@@ -1140,6 +1141,17 @@ mod dataset_tests {
                 }
             }
         }
+    }
+
+    /// A link's `target` is HTML's own attribute, not a data name.
+    #[test]
+    fn a_link_target_is_its_html_attribute() {
+        let attrs = written(
+            NodeType::Pressable,
+            PropId::Target,
+            PropValue::Str("_blank".into()),
+        );
+        assert_eq!(attrs.get("target").map(String::as_str), Some("_blank"));
     }
 
     #[test]
