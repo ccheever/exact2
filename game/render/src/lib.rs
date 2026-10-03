@@ -46,7 +46,7 @@ pub use hooks::{
 };
 pub use models::ModelPresentation;
 pub use surface::{Presentation, WorldSurface};
-pub use world::scene::DisplayedAttachment;
+pub use world::scene::{DisplayedAttachment, PHOTOMETRIC_SCALE};
 pub use world::Feed;
 
 use exact_gpu::wgpu;
@@ -162,7 +162,7 @@ pub struct Sun {
     pub direction: Vec3,
     /// Linear RGB tint.
     pub color: Vec3,
-    /// Incident illuminance multiplier.
+    /// Incident radiance: `Feed` supplies lux times [`PHOTOMETRIC_SCALE`].
     pub illuminance: f32,
     /// None skips all shadow work and releases the shadow textures.
     pub shadows: Option<Shadows>,
@@ -208,7 +208,8 @@ pub struct PointLightInput {
     pub position: Vec3,
     /// Linear RGB tint.
     pub color: Vec3,
-    /// Radiant intensity multiplier.
+    /// Renderer radiance at 1 m: `Feed` supplies `PointLight.intensity` (candela)
+    /// times [`PHOTOMETRIC_SCALE`], the sun's lux scale.
     pub intensity: f32,
     /// Positive cutoff distance in world units.
     pub range: f32,

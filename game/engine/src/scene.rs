@@ -410,7 +410,8 @@ impl Default for DirectionalLight {
 pub struct PointLight {
     /// Linear RGB light color.
     pub color: [f32; 3],
-    /// Luminous intensity in candela.
+    /// Luminous intensity in candela: `d` metres away it delivers
+    /// `intensity / d²` lux, on the same scale as `DirectionalLight::illuminance`.
     pub intensity: f32,
     /// Maximum influence distance.
     pub range: f32,

@@ -49,7 +49,7 @@ fn sun_and_camera(w: &mut World, camera: Camera) {
         Transform::at(3., 2., -6.),
         PointLight {
             color: [1., 0.6, 0.2],
-            intensity: 40.,
+            intensity: 40. / crate::PHOTOMETRIC_SCALE,
             range: 12.,
         },
     ));

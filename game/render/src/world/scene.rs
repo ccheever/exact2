@@ -2,6 +2,11 @@ use crate::{FrameInput, PointLightInput, Shadows, Sun};
 use exact_game::{Camera, DirectionalLight, Entity, Parent, PointLight, Transform, World};
 use glam::{Mat4, Vec3};
 
+/// Photometric units to renderer radiance, one scale for both: 10,000 lux of sun
+/// and a 10,000 cd light seen from 1 m (10,000 lux there) map to the default key
+/// radiance of 3. Exposure applies after.
+pub const PHOTOMETRIC_SCALE: f32 = 0.0003;
+
 pub(crate) fn pose(w: &World, e: Entity) -> Option<Transform> {
     let (scale, rotation, position) = w.global(e)?.to_scale_rotation_translation();
     Some(Transform {
@@ -263,7 +268,8 @@ impl Scene {
                 )
                 .position,
                 color: l.light.color.into(),
-                intensity: l.light.intensity
+                intensity: PHOTOMETRIC_SCALE
+                    * l.light.intensity
                     * l.lit
                         .as_ref()
                         .map_or(1., |lit| lit.0.value_at(seconds, w.hz()).max(0.)),
@@ -276,8 +282,7 @@ impl Scene {
                 * -Vec3::Z)
                 .normalize_or(-Vec3::Y),
             color: s.color.into(),
-            // 10,000 lux maps to the renderer's default key radiance of 3.
-            illuminance: s.illuminance * 0.0003,
+            illuminance: s.illuminance * PHOTOMETRIC_SCALE,
             shadows: s.shadows.then(Shadows::default),
         });
         let e = w

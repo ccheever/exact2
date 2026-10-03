@@ -269,7 +269,11 @@ multiplies `PointLight.intensity`; negative overshoot clamps to zero. Keep the a
 intensity constant and retarget once with `lit.to(now, 1.0)`. Sampling changes no
 world bytes. `Glow(Tween)` independently controls material emission. The GPU regression
 in `tests/world.rs` measures a non-emissive cube illuminated by a meshless spring light.
-Engine illuminance is lux: 10,000 lux maps to renderer radiance 3.
+Engine lights are photometric and share one scale, `PHOTOMETRIC_SCALE` (0.0003):
+`DirectionalLight.illuminance` is lux, and `PointLight.intensity` is candela, so a
+light delivers `intensity / d²` lux at `d` metres. 10,000 lux of sun, or a 10,000 cd
+lamp seen from 1 m, maps to renderer radiance 3; the 100 cd default lights a surface
+1 m away at 1% of the default sun. `FrameInput` carries renderer radiance.
 Missing materials/environment use defaults.
 
 Performance samples appear only in `state.world.perf`: live frame stamps, tick,

@@ -471,7 +471,7 @@ impl Game for SpringLight {
             (
                 Transform::at(0., 1., 3.),
                 PointLight {
-                    intensity: 80.,
+                    intensity: 80. / exact_game_render::PHOTOMETRIC_SCALE,
                     range: 10.,
                     ..Default::default()
                 },

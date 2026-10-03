@@ -112,8 +112,9 @@ fn saved_light_spring_samples_frame_time_and_clamps_negative_overshoot() {
         .find(|p| p.position.x == 10.)
         .unwrap()
         .intensity;
-    let expected = sim.world().require::<Lit>(e).0.value_at(5.5 / 60., 60)
-        * sim.world().require::<PointLight>(e).intensity;
+    let expected = crate::PHOTOMETRIC_SCALE
+        * sim.world().require::<PointLight>(e).intensity
+        * sim.world().require::<Lit>(e).0.value_at(5.5 / 60., 60);
     assert_eq!(actual, expected);
     assert_eq!(before, sim.save().unwrap());
     sim.restore(&before).unwrap();
@@ -273,4 +274,24 @@ fn light_churn_preserves_survivor_interpolation_and_snaps_new_arrivals() {
     feed(&mut restored, &w);
     assert_eq!(points(&mut restored, &w, 1.), current);
     assert_eq!(w.save(), saved);
+}
+
+#[test]
+fn candela_and_lux_share_one_scale() {
+    // A 10,000 cd lamp 1 m from a surface delivers the 10,000 lux of the default sun.
+    let mut w = World::new(60, 0);
+    w.spawn((Transform::default(), Camera::default()));
+    w.spawn((Transform::default(), exact_game::DirectionalLight::default()));
+    w.spawn((
+        Transform::at(1., 0., 0.),
+        PointLight {
+            intensity: 10_000.,
+            ..Default::default()
+        },
+    ));
+    let mut scene = Scene::default();
+    feed(&mut scene, &w);
+    let frame = scene.frame(&w, 1., glam::Vec2::ONE, false);
+    assert_eq!(frame.points[0].intensity, frame.sun.unwrap().illuminance);
+    assert!((frame.sun.unwrap().illuminance - 3.).abs() < 1e-6);
 }
