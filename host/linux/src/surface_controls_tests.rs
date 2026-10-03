@@ -853,6 +853,12 @@ fn a_lost_pointer_holds_no_button_and_the_canvas_hears_its_release() {
     let (_, phase, buttons) = last(&p);
     assert_eq!((phase.as_str(), buttons), ("down", 1), "no stale secondary");
     p.pointer_up(ox + 20., oy + 60., 5.).unwrap();
+    // Pressed on the canvas, released off it: the canvas hears the up.
+    p.pointer_aux(2, true, ox + 20., oy + 60., 6.);
+    p.pointer_move(ox + 500., oy + 60., 7.).unwrap();
+    let (count, _, _) = last(&p);
+    p.pointer_aux(2, false, ox + 500., oy + 60., 8.);
+    assert_eq!(last(&p), (count + 1, "up".into(), 0));
     // Lost with only the secondary held: a cancel, nothing held after.
     p.pointer_aux(4, true, ox + 20., oy + 60., 9.);
     p.pointer_lost(10.).unwrap();

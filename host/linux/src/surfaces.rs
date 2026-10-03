@@ -953,7 +953,8 @@ impl<D: DataSource> Presenter<D> {
             return;
         }
         let held = self.contact_canvas();
-        let target = held.or_else(|| self.hover_canvas(x, y));
+        let captured = self.surfaces.aux_canvas.filter(|_| before != 0);
+        let target = held.or(captured).or_else(|| self.hover_canvas(x, y));
         self.surfaces.aux_canvas = target.filter(|_| after != 0);
         let Some(view) = target else {
             return;
