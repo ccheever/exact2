@@ -147,6 +147,14 @@ fn engine_scene_components_first_spawned_mid_game_restore_unregistered() {
         exact_game::Visible(true),
         exact_game::Ambient,
     ));
+    // The lights, the viewmodel and mouse look later lanes added restore the same way.
+    w.spawn((
+        Transform::default(),
+        exact_game::SpotLight::default(),
+        exact_game::LightShadows,
+        exact_game::ViewModel,
+        exact_game::MouseLook::default(),
+    ));
     w.propagate();
     let mut fresh = World::new(60, 0);
     fresh.load(&w.save()).unwrap();
