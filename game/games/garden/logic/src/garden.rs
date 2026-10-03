@@ -228,9 +228,9 @@ fn fruit_offset(kind: u8, slot: u8) -> Vec3 {
 /// single-harvest crop's fruit ripens as it appears.
 ///
 /// Fruit is placed in world space, not parented to its plant: a mature plant
-/// never moves. Since the hierarchy tracks changes the simulation no longer
-/// pays per parented entity, but the renderer's feed still poses every
-/// parented entity each tick: 1.86 ms against 0.02 ms at 50,000 plants (diary).
+/// never moves. After the hierarchy and render fixes a still parented garden
+/// draws as cheaply, but an hour's seek at 21,100 plants still costs more
+/// parented: 3.0 s against 0.57 s on web, 0.43 s against 0.20 s on Linux (diary).
 pub fn bear(w: &mut World, plant: Entity, kind: u8, slot: u8, at: u64) -> Entity {
     let c = crop(kind);
     let ripe_at = at + c.fruit_s as u64 * 1000;

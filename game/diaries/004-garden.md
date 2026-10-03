@@ -400,3 +400,22 @@ every check except the three pins, which moved as expected (the world hash
 and save format changed) and agree between the hosts — tick 0
 `0x567fb953a3936f0f`, tick 5136 `0x84bdee160cf25b17`, continuation
 `d6f75574…`. Not re-pinned, per the lead, until the engine is final.
+
+### Second fix round (core's seek fix, render's parented-instance fix)
+
+| hour's seek, 21,100 plants (real hosts) | before core's fix | fruit in world space | fruit parented |
+|---|---:|---:|---:|
+| Linux (gpu-dev) | 31,765 ms | 199 ms | 428 ms |
+| web (Chrome) | 33,285 ms | 571 ms | 2,991–3,124 ms (3 runs) |
+
+Offscreen at 50,000 plants (110,728 drawn), the renderer's feed is now on par:
+parented 0.018–0.019 ms a frame, world space 0.019 ms (was 1.86 against 0.019),
+mean frame 5.6–5.7 ms both. A web frame time could not be read: under the
+agent's clock `perf frames` is virtual and the world's `perf` rings stay empty.
+The seek still favours world space (5× on web), so fruit stays unparented.
+
+"NaN sheckles" in the web scale run was the proof's read, not the game: the
+proof parsed the purse from `accessibleName`, which web did not report for a
+labelled `text` before the host fix, so `Number(undefined)`. The game's value
+was right (`379392554 sheckles`, `379M¢` on web and Linux). The scale run now
+checks that the purse after "sell all" is finite and positive.

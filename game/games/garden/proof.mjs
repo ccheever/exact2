@@ -18,7 +18,9 @@ const label = (tree, id) => {
   return tree.nodes.find(m => m.parent === n.id && m.props?.text != null)?.props.text;
 };
 const ms = t => Math.round(performance.now() - t);
-// The exact purse, from the sheckles' accessible name.
+// The exact purse, from the sheckles' accessible name (its aria-label). The
+// text itself is compact ("379M¢"); a missing node or name is NaN, so every
+// read is checked finite where it is used.
 const purseOf = tree => Number(node(tree, 'sheckles')?.accessibleName?.split(' ')[0]);
 
 if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave, say}) => {
@@ -87,7 +89,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await game.run(100);
   t = await s.tree();
   const purse = purseOf(t);
-  check('selling pays', purse > 20 && label(t, 'bag-tab') === 'Backpack 0', [purse, label(t, 'bag-tab')]);
+  check('selling pays', Number.isFinite(purse) && purse > 20 && label(t, 'bag-tab') === 'Backpack 0', [purse, label(t, 'bag-tab')]);
   check('an empty backpack says how to fill it', !!node(t, 'bag-empty'));
 
   await s.tap('shop-tab');
@@ -198,7 +200,9 @@ async function scale({open, check, out, log}) {
   t0 = performance.now();
   await s.tap('sell-all');
   await game.run(34);
-  log(`SCALE sell all: ${ms(t0)} ms → ${purseOf(await s.tree())} sheckles`);
+  const sold = await s.tree();
+  log(`SCALE sell all: ${ms(t0)} ms → ${purseOf(sold)} sheckles (${text(sold, 'sheckles')})`);
+  check('sell all pays an exact, finite purse', Number.isFinite(purseOf(sold)) && purseOf(sold) > 20, node(sold, 'sheckles'));
   await game.save(resolve(out, 'scale-final.world'));
   await s.close();
   const big = last;
@@ -216,3 +220,4 @@ async function scale({open, check, out, log}) {
   check('the ramp completed', true);
   await away.close();
 }
+
