@@ -195,8 +195,9 @@ extension Agent {
         let at = [Agent.r2(point.x), Agent.r2(point.y)]
         func send(_ phase: String) -> Bool {
             if node.isSurfaceControl { return node.control(phase, point: p) }
-            let from = canvasPoint ?? p
-            canvasPoint = phase == "up" || phase == "cancel" ? nil : p
+            // A move's motion is its position's change; a down or up has none.
+            let from = phase == "move" ? canvasPoint ?? p : p
+            canvasPoint = p
             return session.canvases.input(node, ["t": "pointer", "phase": phase, "id": 1, "x": p.x, "y": p.y, "dx": p.x - from.x, "dy": p.y - from.y, "kind": "touch", "buttons": phase == "up" || phase == "cancel" ? 0 : 1])
         }
         if let wheel = request["wheel"] as? [Double], wheel.count == 2 {
@@ -205,7 +206,9 @@ extension Agent {
             return ok ? ["tapped": node.id, "wheel": wheel, "at": at, "delivery": "recognized"] : ["error": "surface refused wheel"]
         }
         if request["hover"] as? Bool == true {
-            let ok = session.canvases.input(node, ["t": "pointer", "phase": "move", "id": 1, "kind": "mouse", "buttons": 0, "x": p.x, "y": p.y, "dx": 0, "dy": 0])
+            let from = canvasPoint ?? p
+            canvasPoint = p
+            let ok = session.canvases.input(node, ["t": "pointer", "phase": "move", "id": 1, "kind": "mouse", "buttons": 0, "x": p.x, "y": p.y, "dx": p.x - from.x, "dy": p.y - from.y])
             return ok ? ["tapped": node.id, "hover": true, "at": at, "delivery": "recognized"] : ["error": "surface refused pointer"]
         }
         if phase == nil {
