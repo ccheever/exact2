@@ -1,18 +1,18 @@
 {
   "ticks": {
-    "0": "0xe4a8cfcdccd41d7a",
-    "1080": "0xf0f3b95bede822ab"
+    "0": "0xda38bb0b0026731e",
+    "1080": "0xfbc8e1b971fb386c"
   },
   "saves": {
-    "continuation": "63bf2eccef48e13893547910d945a0ebc63e596e39880e19a4c62e5b55761dd4"
+    "continuation": "44b6a65544dab4c90f3cc82e71059b5db818da609e9f42012b958ac040a0727c"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "bef55c0b0f1f5924ffeeea70fe67ff6c5dbc02af9a6f1a7bf12542e1594fe412",
+  "inputs": "c7d1bfcd705c4316e2b8845d6efc8d2f98113fdba5fa57746e7cae4f115926cc",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "e00ff9dd5ebb5ea0e6acf11d88a3b0351230267a",
-  "reason": "the engine fix lanes (roblox/integrate b61db278a): paged world hash/EXGAME v4, EXPHYS v3, closed-form capsule rays, blocking characters, device mouse motion, MouseLook, ViewModel; Rivals adapted (62e2747a)"
+  "at": "50880db05b4150b03595feab002183a8749e3d8c",
+  "reason": "art pass: generated models, ViewModel weapons, animated soldiers, effects and lights add entities and animation state; the fight is unchanged (scripted replay: 289 shots, 10 deaths, same kills)"
 }
