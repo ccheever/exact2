@@ -314,11 +314,16 @@ Two independent audits of the six commits. Fixed in round 1:
 
 Owed from the review (not fixed):
 
-- **Per-run inline styles.** A `span`'s own `text-shadow` or stroke draws with its paragraph's, not its own.
 - **Apple text shadow under transparent text.** Core Text casts no shadow from a clear fill. Chrome does draw it.
 - **3D on Apple: hit-testing and back faces.** A turned box is hit-tested in its flat frame. A hidden back face still takes touches.
 - **`paint-order: stroke`** is not a row. The stroke always draws over the fill, as Chrome's default does.
 - **A material's children under a mask** (declared in LLP 1001).
+
+Per-run paint, built 2026-10-03. Each inline run's own `text-shadow` and `-webkit-text-stroke` draw as CSS paints each inline box. A run's value overrides its paragraph's: `none`, a width of 0, or a colour of its own with the inherited width.
+- **Apple.** Stroke is per-run Core Text attributes. When runs agree on the shadow, the paragraph keeps its one shadow and its fast path. When they differ, each run's shadow is drawn under its own glyphs, and the raster grows to hold them (`TextRunPaint.swift`). The text paint cache key now includes shadow and stroke.
+- **Linux.** Runs are grouped by shadow geometry, or by stroke width, and each group is one island, with the other runs transparent.
+- **Seen.** `scripts/fixtures/span-paint.contract` matches Chrome's pictures, light and dark, on iOS, macOS (window and capture) and both Linux painters.
+- **Owed.** Markdown region text (`RegionRaster`) has no text shadow, as before.
 
 Round 2 audited the round-1 fixes and the merge with main's percentage-radius clip (18a4b4cb4). Fixed:
 
