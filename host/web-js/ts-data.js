@@ -31,15 +31,31 @@ function converters(t) {
     // A type may name itself: its converters are read when called.
     const sub = converters(t[1]), leaf = sub[2] === true, named = v => sub[0](v), arrays = (v, o) => sub[1](v, o);
     if (t[0] === '?') { c[0] = named; c[1] = arrays; return c; }
-    c[0] = v => v == null ? null : v.map(x => named(x));
+    // A list of leaves is copied and compared in one loop, with no call per
+    // item (a 10,000-row grid's 20-point histories are 200,000 items).
+    c[0] = leaf
+      ? v => { if (v == null) return null; const n = v.length, out = new Array(n); for (let i = 0; i < n; i++) { const x = v[i]; out[i] = x == null ? null : x; } return out; }
+      : v => v == null ? null : v.map(x => named(x));
     // An item is matched by its index even when the list grew or shrank.
-    c[1] = (v, o) => {
+    c[1] = leaf ? (v, o) => {
+      if (v == null) return null;
+      if (!Array.isArray(v)) return v.map(x => x == null ? null : x);
+      const n = v.length;
+      let i = 0;
+      if (Array.isArray(o) && o.length === n) {
+        for (; i < n; i++) { const x = v[i] == null ? null : v[i], y = o[i]; if (x === y ? x === 0 && 1 / x !== 1 / y : x === x || y === y) break; }
+        if (i === n) return o;
+      }
+      const out = i ? o.slice(0, i) : [];
+      for (; i < n; i++) out.push(v[i] == null ? null : v[i]);
+      return out;
+    } : (v, o) => {
       if (v == null) return null;
       if (!Array.isArray(v)) return v.map(x => arrays(x));
-      const n = v.length, was = Array.isArray(o) ? o : null;
+      const n = v.length, was = Array.isArray(o) ? o : null, f = sub[1];
       let out = was && was.length === n ? null : [];
       for (let i = 0; i < n; i++) {
-        const x = leaf ? (v[i] == null ? null : v[i]) : arrays(v[i], was?.[i]);
+        const x = f(v[i], was?.[i]);
         if (out) out.push(x); else if (!same(x, o[i])) { out = o.slice(0, i); out.push(x); }
       }
       return out ?? o;
@@ -48,11 +64,13 @@ function converters(t) {
   }
   const k = Object.keys(t), n = k.length, subs = k.map(f => converters(t[f]));
   const leaves = subs.map(s => s[2] === true);
+  // Every object of a type is copied from one template, so all share a shape.
+  const tmpl = {}; for (const f of k) tmpl[f] = null;
   c[0] = k.includes('__proto__')
     ? v => v == null ? null : Object.fromEntries(k.map((f, i) => [f, subs[i][0](v[i])]))
     : v => {
       if (v == null) return null;
-      const out = {};
+      const out = { ...tmpl };
       for (let i = 0; i < n; i++) out[k[i]] = leaves[i] ? (v[i] == null ? null : v[i]) : subs[i][0](v[i]);
       return out;
     };
@@ -62,7 +80,7 @@ function converters(t) {
     let out = was && was.length === n ? null : [];
     for (let i = 0; i < n; i++) {
       const y = v[k[i]], x = leaves[i] ? (y == null ? null : y) : subs[i][1](y, was?.[i]);
-      if (out) out.push(x); else if (!same(x, o[i])) { out = o.slice(0, i); out.push(x); }
+      if (out) out.push(x); else { const z = o[i]; if (x === z ? x === 0 && 1 / x !== 1 / z : x === x || z === z) { out = o.slice(0, i); out.push(x); } }
     }
     return out ?? o;
   };
