@@ -285,7 +285,7 @@ hands). Its opaque batches draw in the nearest `VIEWMODEL_DEPTH` (5%) of the dep
 range and the world in the rest, so the layer is in front of every wall it reaches
 into; it casts no shadows and still receives them. Mark each part: the marker is
 per entity, not inherited. Without a drawn viewmodel the world keeps the whole 0–1
-range. A translucent viewmodel material draws in the world's range. Hook stages
+range. Blended viewmodel parts keep the layer's range in the translucent pass. Hook stages
 that read depth see the remapped range while a viewmodel draws.
 
 Opaque batches stay retained. Only transparent draws are sorted each displayed

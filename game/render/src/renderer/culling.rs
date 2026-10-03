@@ -60,6 +60,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             if batch.slots.is_empty() {
                 continue;
             }
+            self.viewmodels |= batch.viewmodel;
             let material = if ASSETS {
                 self.model_batches[index]
             } else {
@@ -80,7 +81,6 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 } else {
                     0
                 };
-            self.viewmodels |= batch.viewmodel;
             for (range, mirrored) in self.winding_ranges(index, frame) {
                 groups.push(Group {
                     batch: index,

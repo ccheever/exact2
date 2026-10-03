@@ -377,9 +377,17 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         size: (u32, u32),
     ) -> u32 {
         self.scene_viewport(pass, size, false);
+        let mut layer = false;
         pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
         let mut draws = 0;
         for draw in self.quads.draws.iter().filter(|d| !self.quads.opaque(d)) {
+            // Blended viewmodel parts keep the viewmodel layer's depth range.
+            let viewmodel = matches!(draw.kind, crate::quads::Kind::Model(index, _)
+                if self.batches[index].viewmodel);
+            if viewmodel != layer {
+                self.scene_viewport(pass, size, viewmodel);
+                layer = viewmodel;
+            }
             if let crate::quads::Kind::Model(index, slot) = draw.kind {
                 assert!(ASSETS, "model in primitive executor");
                 let batch = &self.batches[index];
@@ -405,6 +413,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 self.quads.draw::<ASSETS>(pass, draw, &self.models.textures);
             }
             draws += 1;
+        }
+        if layer {
+            self.scene_viewport(pass, size, false);
         }
         draws
     }
