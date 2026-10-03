@@ -1,18 +1,18 @@
 {
   "ticks": {
-    "0": "0x6fe04f9982552708",
-    "4500": "0x3f10f06ecb525afd"
+    "0": "0x5da20806bf0c10ee",
+    "4500": "0xc3832b82d85a125c"
   },
   "saves": {
-    "night": "2732e2205dc81af7d63d33d28276b8a65426f5ab6370297914a0ae0d950c19df"
+    "night": "59392d3fe96137c806b832dc0d6143cd806c850f835b04947cd07b2fb549caf4"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "64758e1d58f1e609f747187733bc7a2c17dc7fa8c13b90909ce6e4c752e6fb4c",
+  "inputs": "5f0159c0c73634313999eb34eb3e8f2733ec9b9b0006c7428d3ae3c82b770164",
   "game": "forest",
   "generated": "bun game/prove.mjs forest --repin --hosts 'linux,web'",
-  "at": "9ebe1343413f82ac311878235d9c235baacaef6e",
-  "reason": "art pass: model trees in five kinds, undergrowth, part-built creatures with walk cycles (new Gait/Limb components), wind sway, a layered campfire with flicker, sky maps and a beam; the Deer and wolves now stand on the ground"
+  "at": "4385d6ea6622066b3a0d1b2f9957c74d76ea624e",
+  "reason": "art pass: model trees in five kinds with Visible (crowns between camera and player hide), undergrowth, part-built creatures with walk cycles (new Gait/Limb components), wind sway, a layered campfire with flicker, sky maps and a beam; the Deer and wolves stand on the ground"
 }
