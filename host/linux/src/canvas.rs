@@ -93,6 +93,10 @@ const SHIFT: u32 = 22;
 /// is out of view.
 const ROW_PAD: f32 = 48.0;
 
+/// `EXACT_SLOTS=0` draws pictures in their rows (no slots), to compare.
+static SLOTS: std::sync::LazyLock<bool> =
+    std::sync::LazyLock::new(|| !std::env::var("EXACT_SLOTS").is_ok_and(|v| v == "0"));
+
 /// Frames a picture goes undrawn before the reader's copy is freed.
 const IDLE_FRAMES: u64 = 60;
 
@@ -575,7 +579,7 @@ impl Backend for Recorder {
     }
 
     fn slot_begin(&mut self, id: ViewId) {
-        if self.row.is_none() || self.slot.is_some() {
+        if self.row.is_none() || self.slot.is_some() || !*SLOTS {
             return;
         }
         self.ops.extend([SLOT, id]);
@@ -797,12 +801,17 @@ impl<D: DataSource + Default> CanvasHost<D> {
     }
 
     fn frame_held(&mut self, now: f64) -> Option<Vec<u32>> {
+        // A frame a scroll step asks for: replies and pictures arrive through
+        // [`CanvasHost::poll`] when their fds wake, so this one skips them.
+        let quick = self.scrolled;
         let p = &mut self.p;
-        if let Some(e) = p.pump(now) {
-            eprintln!("exact: {e}");
+        if !quick {
+            if let Some(e) = p.pump(now) {
+                eprintln!("exact: {e}");
+            }
+            p.poll_update();
+            p.run_commands(D::default);
         }
-        p.poll_update();
-        p.run_commands(D::default);
         if p.host().wants_frames() {
             if let Some(e) = p.animation_frame(now) {
                 eprintln!("exact: {e}");
@@ -815,7 +824,9 @@ impl<D: DataSource + Default> CanvasHost<D> {
         if p.needs_animation_frame() {
             p.tick(now);
         }
-        p.poll_images();
+        if !quick {
+            p.poll_images();
+        }
         if let Some(shift) = self.shift(now) {
             return Some(shift);
         }

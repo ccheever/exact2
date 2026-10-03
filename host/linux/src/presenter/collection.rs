@@ -578,7 +578,8 @@ impl<D: DataSource> Presenter<D> {
             self.collection.interaction = None;
         }
         self.collection.schedule(&self.host.collections());
-        if self.collection.pending() {
+        // A host that runs a scroll's pass itself (`defer`) is not woken for it.
+        if self.collection.pending() && !self.collection.defer {
             // GUI poll observes this FD. Headless advances on existing pump/frame
             // calls; it does not run while the carrier blocks waiting for stdin.
             self.executor.notify();
