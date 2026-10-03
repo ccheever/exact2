@@ -218,6 +218,8 @@ struct Versions {
     mesh: u64,
     visible: u64,
     viewmodel: u64,
+    // An animated rig moves its socket followers' subtrees without a Transform write.
+    pose: u64,
     live: u64,
     membership: u64,
 }
@@ -232,6 +234,7 @@ impl Versions {
             mesh: w.revision::<Mesh>(),
             visible: w.revision::<Visible>(),
             viewmodel: w.revision::<ViewModel>(),
+            pose: w.revision::<exact_game::Pose>(),
             live: w.entities_revision(),
             membership: w.membership::<Transform>(),
         }
@@ -397,7 +400,10 @@ impl Feed {
         let next = Versions::of(w, r.assets_revision());
         let initial = self.versions.is_none();
         let old = self.versions.unwrap_or_default();
-        let moved = initial || next.transform != old.transform || next.parent != old.parent;
+        let moved = initial
+            || next.transform != old.transform
+            || next.parent != old.parent
+            || next.pose != old.pose;
         let material = initial
             || next.material != old.material
             || next.glow != old.glow

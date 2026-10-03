@@ -1127,3 +1127,68 @@ fn a_parented_entity_that_gains_a_transform_later_draws_at_its_global_pose() {
     f.feed_to(&w, &mut r).unwrap();
     assert_eq!(r.position(child, false), Vec3::new(10., 2., 0.));
 }
+
+#[test]
+fn a_socket_followers_child_in_another_block_draws_at_its_tick_end_global() {
+    use exact_game::{
+        asset::{Content, Model, Node},
+        Pose, SocketFollow,
+    };
+    struct Rig;
+    impl Game for Rig {
+        const ID: &'static str = "socket-child-feed";
+        const ASSETS: &'static [&'static str] = &["rig.model"];
+        type Args = ();
+        fn setup(_: &mut World, _: &()) {}
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            // The rig animates: its Pose moves the head joint along +X.
+            for (_, pose) in w.query::<&mut Pose>().iter() {
+                pose.previous.clone_from(&pose.local);
+                pose.local[0] += 0.25;
+            }
+        }
+    }
+    let model = Model {
+        nodes: vec![Node {
+            name: "head".into(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    };
+    let mut sim = Sim::<Rig>::new(()).unwrap();
+    sim.deliver_asset("rig.model", Ok(Content::Model(model.clone())))
+        .unwrap();
+    let w = sim.world_mut();
+    let mut pose = Pose::default();
+    pose.previous = exact_game::animation::bind_pose(&model);
+    pose.local = pose.previous.clone();
+    let rig = w.spawn((Transform::default(), Mesh::asset("rig.model"), pose));
+    let follower = w.spawn((Transform::default(), SocketFollow::new(rig, "head")));
+    for _ in 0..exact_game::PAGE {
+        w.spawn(Transform::default());
+    }
+    let child = w.spawn((Transform::at(0., 1., 0.), Mesh::cube(0.2), Parent(follower)));
+    assert_ne!(
+        child.index() as usize / PAGE,
+        follower.index() as usize / PAGE
+    );
+    let mut f = Feed::default();
+    let mut r = Recording::default();
+    f.feed_to(sim.world(), &mut r).unwrap();
+    let mut xs = Vec::new();
+    for _ in 0..6 {
+        sim.run(1000. / 60.);
+        f.feed_to(sim.world(), &mut r).unwrap();
+        let global = Vec3::from(sim.world().global(child).unwrap().translation);
+        assert!(
+            r.position(child, false).distance(global) < 1e-5,
+            "drawn {} vs tick-end global {global}",
+            r.position(child, false)
+        );
+        xs.push(global.x);
+    }
+    assert!(
+        xs.windows(2).all(|p| p[1] > p[0]),
+        "the child moves: {xs:?}"
+    );
+}
