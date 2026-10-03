@@ -79,8 +79,11 @@ impl Fire {
 
 const DAY_SKY: ([f32; 3], [f32; 3], [f32; 3]) =
     ([0.22, 0.42, 0.78], [0.58, 0.68, 0.72], [0.05, 0.06, 0.03]);
-const NIGHT_SKY: ([f32; 3], [f32; 3], [f32; 3]) =
-    ([0.004, 0.006, 0.018], [0.01, 0.014, 0.03], [0.002, 0.002, 0.003]);
+const NIGHT_SKY: ([f32; 3], [f32; 3], [f32; 3]) = (
+    [0.004, 0.006, 0.018],
+    [0.01, 0.014, 0.03],
+    [0.002, 0.002, 0.003],
+);
 
 fn mix3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
     [
@@ -116,10 +119,7 @@ pub fn build(w: &mut World) {
         t: DAWN,
         survived: 0,
     });
-    w.insert_resource(Fire {
-        fuel: 60.0,
-        fed: 0,
-    });
+    w.insert_resource(Fire { fuel: 60.0, fed: 0 });
     w.insert_resource(environment(0.0));
     w.spawn_named(
         "sun",
@@ -195,7 +195,9 @@ pub fn torches(w: &mut World, count: u32) {
         let a = k as f32 * 2.4;
         let r = 7.0 + k as f32 * 0.9;
         let (s, c) = math::sin_cos(a);
-        let (x, z) = w.resource::<crate::forest::Grove>().resolve(c * r, s * r, 0.6);
+        let (x, z) = w
+            .resource::<crate::forest::Grove>()
+            .resolve(c * r, s * r, 0.6);
         let y = crate::forest::height(x, z);
         w.spawn((
             Transform::at(x, y + 1.0, z),
@@ -250,9 +252,12 @@ pub fn step(w: &mut World, player: Vec3) -> bool {
     let sun = Vec3::new(c * 0.8, s.max(0.08) * 1.2, 0.35).normalize();
     let moon = Vec3::new(-0.35, 0.85, -0.4).normalize();
     let toward = sun.lerp(moon, dark).normalize();
-    *w.require_mut::<Transform>("sun") =
-        Transform::at(player.x + toward.x * 60.0, toward.y * 60.0, player.z + toward.z * 60.0)
-            .looking_at(Vec3::new(player.x, 0.0, player.z), Vec3::Y);
+    *w.require_mut::<Transform>("sun") = Transform::at(
+        player.x + toward.x * 60.0,
+        toward.y * 60.0,
+        player.z + toward.z * 60.0,
+    )
+    .looking_at(Vec3::new(player.x, 0.0, player.z), Vec3::Y);
     {
         let mut light = w.require_mut::<DirectionalLight>("sun");
         let day_lux = 9000.0 * (0.35 + 0.65 * s.max(0.0));
@@ -267,7 +272,11 @@ pub fn step(w: &mut World, player: Vec3) -> bool {
     {
         let mut light = w.require_mut::<PointLight>("fire");
         light.range = radius * 1.7 + 0.01;
-        light.intensity = if radius > 0.0 { 3000.0 * CANDELA * radius * radius } else { 0.0 };
+        light.intensity = if radius > 0.0 {
+            3000.0 * CANDELA * radius * radius
+        } else {
+            0.0
+        };
     }
     let flame = 0.25 + radius / 24.0 * 0.9;
     w.require_mut::<Transform>("flame").scale = Vec3::splat(flame);

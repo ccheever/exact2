@@ -140,7 +140,15 @@ fn planar(v: Vec3) -> Vec3 {
 
 /// Move a creature: steer around trunks, resolve overlaps, stay out of the light,
 /// and follow the ground. Returns the new position and heading.
-fn walk(g: &Grove, from: Vec3, want: Vec3, radius: f32, safe: f32, lift: f32, dt: f32) -> (Vec3, f32) {
+fn walk(
+    g: &Grove,
+    from: Vec3,
+    want: Vec3,
+    radius: f32,
+    safe: f32,
+    lift: f32,
+    dt: f32,
+) -> (Vec3, f32) {
     let (vx, vz) = g.steer(from.x, from.z, want.x, want.z, radius);
     let (mut x, mut z) = g.resolve(from.x + vx * dt, from.z + vz * dt, radius);
     let r = (x * x + z * z).sqrt();
@@ -165,7 +173,10 @@ pub fn step(w: &World, s: &Scene) -> Outcome {
     };
     let outside = s.player.length() > s.safe;
     // The Deer.
-    for (_, (pose, deer, visible)) in w.query::<(&mut Transform, &mut Deer, &mut Visible)>().iter() {
+    for (_, (pose, deer, visible)) in w
+        .query::<(&mut Transform, &mut Deer, &mut Visible)>()
+        .iter()
+    {
         if !s.night {
             if deer.mind != Mind::Hidden {
                 *deer = Deer {
@@ -191,7 +202,8 @@ pub fn step(w: &World, s: &Scene) -> Outcome {
         let d = to.length();
         out.deer_distance = d;
         // The flashlight: a cone along the player's facing.
-        let lit = s.flashlight && d < FLASH_RANGE && (-to).normalize_or_zero().dot(s.facing) > FLASH_COS;
+        let lit =
+            s.flashlight && d < FLASH_RANGE && (-to).normalize_or_zero().dot(s.facing) > FLASH_COS;
         if lit && matches!(deer.mind, Mind::Stalk | Mind::Chase) {
             deer.glare += dt;
             if deer.glare >= 0.6 {

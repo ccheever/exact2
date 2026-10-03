@@ -62,7 +62,11 @@ pub struct Child {
 
 fn item_look(kind: Kind) -> (Mesh, Material, f32) {
     match kind {
-        Kind::Log => (Mesh::cylinder(0.18, 1.1), Material::rgb(0.3, 0.18, 0.09), 0.18),
+        Kind::Log => (
+            Mesh::cylinder(0.18, 1.1),
+            Material::rgb(0.3, 0.18, 0.09),
+            0.18,
+        ),
         Kind::Scrap => (
             Mesh::cube(0.45),
             Material::rgb(0.45, 0.47, 0.5).metallic(0.8).rough(0.4),
@@ -87,7 +91,10 @@ pub fn drop_item(w: &mut World, kind: Kind, x: f32, z: f32) -> Entity {
         },
         mesh,
         material,
-        Item { kind, carried: false },
+        Item {
+            kind,
+            carried: false,
+        },
     ))
 }
 
@@ -197,10 +204,10 @@ pub fn action(w: &World, at: Vec3) -> Action {
     if p.dead {
         return Action::None;
     }
-    let carrying_fuel = p.pack.iter().any(|&e| {
-        w.get::<Item>(e)
-            .is_some_and(|i| i.kind != Kind::Food)
-    });
+    let carrying_fuel = p
+        .pack
+        .iter()
+        .any(|&e| w.get::<Item>(e).is_some_and(|i| i.kind != Kind::Food));
     if carrying_fuel && Vec3::new(at.x, 0.0, at.z).length() < FIRE_REACH {
         return Action::Feed;
     }
@@ -276,7 +283,9 @@ pub fn interact(w: &mut World, act: Action, eat: bool) {
                 let stump = forest::fell(w, cell);
                 for k in 0..2 {
                     let off = k as f32 * 1.4 - 0.7;
-                    let (x, z) = w.resource::<Grove>().resolve(stump.x + off, stump.z + 0.9, 0.3);
+                    let (x, z) = w
+                        .resource::<Grove>()
+                        .resolve(stump.x + off, stump.z + 0.9, 0.3);
                     drop_item(w, Kind::Log, x, z);
                 }
                 w.require_mut::<Player>(player).chopped += 1;
@@ -287,7 +296,10 @@ pub fn interact(w: &mut World, act: Action, eat: bool) {
     if eat {
         let food = {
             let p = w.require::<Player>(player);
-            p.pack.iter().copied().find(|&e| w.require::<Item>(e).kind == Kind::Food)
+            p.pack
+                .iter()
+                .copied()
+                .find(|&e| w.require::<Item>(e).kind == Kind::Food)
         };
         if let Some(e) = food {
             {
@@ -397,7 +409,8 @@ pub fn children(w: &World, player: Vec3, safe: f32) -> u32 {
                 if d > 2.0 {
                     let v = to / d * (d - 2.0).min(6.5) * 1.2;
                     let (vx, vz) = g.steer(pose.position.x, pose.position.z, v.x, v.z, 0.25);
-                    let (x, z) = g.resolve(pose.position.x + vx * dt, pose.position.z + vz * dt, 0.25);
+                    let (x, z) =
+                        g.resolve(pose.position.x + vx * dt, pose.position.z + vz * dt, 0.25);
                     pose.position = Vec3::new(x, height(x, z) + 0.6, z);
                 }
                 if Vec3::new(pose.position.x, 0.0, pose.position.z).length() < safe.max(3.0) {

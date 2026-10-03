@@ -110,7 +110,11 @@ impl Game for Forest {
         let act = player::action(w, at);
         let ready = w.require::<Player>("player").cooldown <= 0.0;
         if input.pressed("use") && ready || input.pressed("eat") {
-            let act = if input.pressed("use") && ready { act } else { Action::None };
+            let act = if input.pressed("use") && ready {
+                act
+            } else {
+                Action::None
+            };
             player::interact(w, act, input.pressed("eat"));
         }
         let safe = w.resource::<Fire>().radius();

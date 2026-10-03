@@ -17,7 +17,11 @@ fn rss_mib() -> f64 {
         .args(["-o", "rss=", "-p", &std::process::id().to_string()])
         .output()
         .unwrap();
-    String::from_utf8_lossy(&out.stdout).trim().parse::<f64>().unwrap_or(0.0) / 1024.0
+    String::from_utf8_lossy(&out.stdout)
+        .trim()
+        .parse::<f64>()
+        .unwrap_or(0.0)
+        / 1024.0
 }
 
 fn quantile(v: &mut [f64], q: f64) -> f64 {
@@ -70,7 +74,9 @@ fn main() {
         sim.advance(now, Clock::Live);
         let day = ticks(&mut sim, &mut now, 300);
         // Jump to night: the Deer and every wolf awake.
-        sim.world_mut().resource_mut::<forest_logic::camp::Cycle>().t = DAY + 1.0;
+        sim.world_mut()
+            .resource_mut::<forest_logic::camp::Cycle>()
+            .t = DAY + 1.0;
         let night = ticks(&mut sim, &mut now, 300);
         // The agent and test path: a seekable one-tick run observes the world.
         let t = Instant::now();

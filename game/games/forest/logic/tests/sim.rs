@@ -21,13 +21,7 @@ fn place(sim: &mut Sim<Forest>, name: &str, at: Vec3) {
     let w = sim.world_mut();
     let e = w.resolve(name).unwrap();
     let t = *w.require::<Transform>(e);
-    w.teleport(
-        e,
-        Transform {
-            position: at,
-            ..t
-        },
-    );
+    w.teleport(e, Transform { position: at, ..t });
 }
 
 fn player(sim: &Sim<Forest>) -> Player {
@@ -54,7 +48,10 @@ fn the_forest_has_exactly_the_trees_asked_for_outside_the_clearing() {
         for c in 0..g.hp.len() {
             if g.hp[c] > 0 {
                 let p = g.at(c as u32);
-                assert!(Vec3::new(p.x, 0.0, p.z).length() > CLEARING, "tree in the clearing");
+                assert!(
+                    Vec3::new(p.x, 0.0, p.z).length() > CLEARING,
+                    "tree in the clearing"
+                );
                 assert!(p.x.abs() < g.half && p.z.abs() < g.half);
             }
         }
@@ -68,7 +65,11 @@ fn trunks_stop_the_player_with_and_without_rapier() {
         sim.run(200.0);
         let (_, tree) = nearest_tree(&sim);
         // Stand 3 m south of the trunk and walk north into it.
-        place(&mut sim, "player", Vec3::new(tree.x, tree.y + 0.95, tree.z + 3.0));
+        place(
+            &mut sim,
+            "player",
+            Vec3::new(tree.x, tree.y + 0.95, tree.z + 3.0),
+        );
         sim.hold("KeyW", 1500.0);
         let p = sim.local_position("player").unwrap();
         let gap = Vec3::new(p.x - tree.x, 0.0, p.z - tree.z).length();
@@ -82,7 +83,11 @@ fn chop_carry_and_feed_the_fire() {
     let mut sim = game(800, false);
     sim.run(100.0);
     let (cell, tree) = nearest_tree(&sim);
-    place(&mut sim, "player", Vec3::new(tree.x, tree.y + 0.95, tree.z + 1.0));
+    place(
+        &mut sim,
+        "player",
+        Vec3::new(tree.x, tree.y + 0.95, tree.z + 1.0),
+    );
     sim.run(100.0);
     for _ in 0..3 {
         sim.tap("KeyE");
@@ -162,7 +167,10 @@ fn the_deer_comes_at_night_and_the_flashlight_stuns_it() {
     for _ in 0..20 {
         sim.run(250.0);
         let d = sim.local_position("deer").unwrap();
-        assert!(Vec3::new(d.x, 0.0, d.z).length() >= safe, "the Deer entered the light");
+        assert!(
+            Vec3::new(d.x, 0.0, d.z).length() >= safe,
+            "the Deer entered the light"
+        );
     }
     // Step out of the light, face the Deer and switch on the flashlight.
     let d = sim.local_position("deer").unwrap();

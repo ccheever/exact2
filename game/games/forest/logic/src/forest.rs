@@ -91,7 +91,11 @@ impl Grove {
                 let d = (dx * dx + dz * dz).sqrt();
                 let min = r + radius;
                 if d < min {
-                    let (nx, nz) = if d > 1e-4 { (dx / d, dz / d) } else { (1.0, 0.0) };
+                    let (nx, nz) = if d > 1e-4 {
+                        (dx / d, dz / d)
+                    } else {
+                        (1.0, 0.0)
+                    };
                     x = tx + nx * min;
                     z = tz + nz * min;
                 }
@@ -153,9 +157,13 @@ pub fn grow(w: &mut World, trees: u32, primitives: bool, colliders: bool) {
             )
         })
         .collect();
-    let (mut mesh, shape) =
-        Shape::heightfield(samples, samples, heights, Vec3::new(2.0 * half, 1.0, 2.0 * half))
-            .expect("terrain");
+    let (mut mesh, shape) = Shape::heightfield(
+        samples,
+        samples,
+        heights,
+        Vec3::new(2.0 * half, 1.0, 2.0 * half),
+    )
+    .expect("terrain");
     mesh.colors = mesh
         .positions
         .chunks_exact(3)
@@ -213,12 +221,10 @@ pub fn grow(w: &mut World, trees: u32, primitives: bool, colliders: bool) {
         turns[c] = w.rand(0.0..std::f32::consts::TAU);
     }
     // The tree nearest the fire is named so agents can find one to chop.
-    let first = (0..n)
-        .filter(|&c| grove.hp[c] > 0)
-        .min_by(|&a, &b| {
-            let r = |c: usize| grove.x[c] * grove.x[c] + grove.z[c] * grove.z[c];
-            r(a).total_cmp(&r(b))
-        });
+    let first = (0..n).filter(|&c| grove.hp[c] > 0).min_by(|&a, &b| {
+        let r = |c: usize| grove.x[c] * grove.x[c] + grove.z[c] * grove.z[c];
+        r(a).total_cmp(&r(b))
+    });
     for c in 0..n {
         if grove.hp[c] == 0 {
             continue;
@@ -272,7 +278,10 @@ pub fn grow(w: &mut World, trees: u32, primitives: bool, colliders: bool) {
         if Some(c) == first {
             w.spawn_named(
                 "first-tree",
-                (Transform::at(grove.x[c], pose.position.y, grove.z[c]), Ambient),
+                (
+                    Transform::at(grove.x[c], pose.position.y, grove.z[c]),
+                    Ambient,
+                ),
             );
         }
         grove.trunk[c] = trunk;
