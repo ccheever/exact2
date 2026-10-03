@@ -152,6 +152,8 @@ pub enum PointerPhase {
     /// Abandon contact.
     Cancel,
 }
+/// Most posted message accepted by `InputEvent::Message`, in bytes.
+pub(crate) const MAX_MESSAGE: usize = 64 * 1024;
 /// Raw device input stamped in the host clock's milliseconds.
 #[derive(Clone, Debug, Data)]
 pub enum InputEvent {
@@ -208,6 +210,14 @@ pub enum InputEvent {
         /// Host clock milliseconds.
         at_ms: f64,
     },
+    /// Text the app posted into the world (Contract's `postMessage(surface, text)`).
+    /// Each message reaches exactly one tick, in arrival order, never coalesced.
+    Message {
+        /// The posted text, at most 64 KiB.
+        text: String,
+        /// Host clock milliseconds.
+        at_ms: f64,
+    },
 }
 impl Default for InputEvent {
     fn default() -> Self {
@@ -250,6 +260,7 @@ impl InputEvent {
             | Self::Pointer { at_ms, .. }
             | Self::Control { at_ms, .. }
             | Self::Wheel { at_ms, .. }
+            | Self::Message { at_ms, .. }
             | Self::Blur { at_ms } => *at_ms = value,
         }
     }
@@ -259,6 +270,7 @@ impl InputEvent {
             | Self::Pointer { at_ms, .. }
             | Self::Control { at_ms, .. }
             | Self::Wheel { at_ms, .. }
+            | Self::Message { at_ms, .. }
             | Self::Blur { at_ms } => *at_ms,
         }
     }
@@ -302,6 +314,7 @@ pub struct Input {
     contacts: Vec<Contact>,
     wheel: Vec2,
     pub(crate) viewport: Vec2,
+    messages: Vec<String>,
 }
 impl Input {
     pub(crate) fn new(actions: Actions) -> Self {
@@ -316,6 +329,14 @@ impl Input {
     pub(crate) fn validate(&self, event: &InputEvent) -> Result<(), String> {
         if !event.at_ms().is_finite() {
             return Err("input stamp must be finite".into());
+        }
+        if let InputEvent::Message { text, .. } = event {
+            if text.len() > MAX_MESSAGE {
+                return Err(format!(
+                    "posted message of {} bytes exceeds {MAX_MESSAGE}; post a short command and keep its data in the world",
+                    text.len()
+                ));
+            }
         }
         if let InputEvent::Control { name, x, y, .. } = event {
             if !self.actions().entries.iter().any(|a| &a.name == name) {
@@ -478,7 +499,13 @@ impl Input {
     pub fn wheel(&self) -> Vec2 {
         self.wheel
     }
+    /// Messages posted into the world that this tick receives, in arrival order.
+    /// Each is delivered to exactly one tick; none is saved once delivered.
+    pub fn messages(&self) -> &[String] {
+        &self.messages
+    }
     pub(crate) fn clear_edges(&mut self) {
+        self.messages.clear();
         self.pressed.clear();
         self.released.clear();
         self.wheel = Vec2::ZERO;
@@ -500,7 +527,7 @@ impl Input {
         self.clear_edges();
     }
     pub(crate) fn apply(&mut self, event: InputEvent) {
-        if matches!(event, InputEvent::Wheel { .. })
+        if matches!(event, InputEvent::Wheel { .. } | InputEvent::Message { .. })
             || (matches!(
                 event,
                 InputEvent::Pointer {
@@ -544,6 +571,7 @@ impl Input {
                 _ => {}
             },
             InputEvent::Wheel { dx, dy, .. } => self.wheel += Vec2::new(dx, dy),
+            InputEvent::Message { text, .. } => self.messages.push(text),
             InputEvent::Control {
                 name,
                 id,

@@ -642,6 +642,10 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Surface
                 at_ms: *at_ms,
             },
             InputEvent::Blur { at_ms } => E::Blur { at_ms: *at_ms },
+            InputEvent::Message { text, at_ms } => E::Message {
+                text: text.clone(),
+                at_ms: *at_ms,
+            },
         };
         if let Err(error) = sim.validate_input(&e) {
             self.refusal = Some(SurfaceError(error));

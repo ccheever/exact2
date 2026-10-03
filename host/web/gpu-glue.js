@@ -27,6 +27,14 @@ const pendingRecords = [];
 let drainingRecords = false;
 let planCarries = new Map();
 const surfaces = new Map(); // view id -> surface, input listeners and journal cursor
+const posts = new Map(); // surface name -> posted message events awaiting its canvas
+function deliverPosts(name) {
+  const entry = publishers.get(name), queued = posts.get(name);
+  if (!entry?.id || entry.terminal || live(entry.view) !== entry || !queued?.length) return;
+  posts.delete(name);
+  for (const json of queued) if (!gpu.gpu_input(entry.id, json)) console.error("exact gpu:", gpu.gpu_error());
+  messages(entry); schedule();
+}
 const inputStyle = document.createElement("style");
 inputStyle.textContent = "[data-gpu-input]:focus{outline:none}";
 document.head.append(inputStyle);
@@ -394,6 +402,7 @@ function attach(entry) {
   if (entry.wantsInput) listen(entry);
   reportRestore(entry);
   messages(entry); schedule();
+  deliverPosts(entry.name);
 }
 function restorePending(entry, module = gpu, carrier = exact) {
   if (carrier.worldCarry === undefined || entry.attemptedCarry === carrier.worldCarry) return;
@@ -691,6 +700,12 @@ const api = {
     if(!(bytes instanceof Uint8Array)||bytes.length>HOST_WORK_LIMIT)throw Object.assign(new Error(`surface ${name}: invalid or oversized restore`),{kind:2});
     if(!gpu.gpu_restore(id,bytes,0))throw Object.assign(new Error(`surface ${name}: ${gpu.gpu_error()}`),{kind:2});
     messages(entry);schedule();
+  },
+  // postMessage(id, text) from Contract: one input event, stamped at the call,
+  // delivered in order; held until the canvas's surface exists.
+  post(name, text, at) {
+    (posts.get(name) ?? posts.set(name, []).get(name)).push(JSON.stringify({ t: "message", text, at }));
+    deliverPosts(name);
   },
   wantsInput: (view) => live(view)?.wantsInput === true,
   answers: (request) => request.entity !== undefined || request.world === true || request.contact !== undefined,
@@ -990,6 +1005,8 @@ try {
       try { api.surface(s.id, s.name, s.values); } catch (error) { report(error); }
     }
     exact.pendingSurfaces = [];
+    for (const p of exact.pendingPosts ?? []) if (p.generation === exact.generation) api.post(p.name, p.text, p.at);
+    exact.pendingPosts = [];
   }
   // A refused initial surface must not prevent independent canvases from loading.
   for (const entry of waiting) { try { ensure(entry); } catch (error) { report(error); } }

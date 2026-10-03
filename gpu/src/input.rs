@@ -90,4 +90,12 @@ pub enum InputEvent {
         /// Host clock in milliseconds.
         at_ms: f64,
     },
+    /// Text the app posted to this canvas with Contract's `postMessage(id, text)`;
+    /// every one is delivered, in order, never coalesced.
+    Message {
+        /// The posted text.
+        text: String,
+        /// Host clock in milliseconds.
+        at_ms: f64,
+    },
 }

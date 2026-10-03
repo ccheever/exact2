@@ -390,6 +390,10 @@ pub fn parse_input(text: &str) -> Result<crate::InputEvent, String> {
                 at_ms,
             },
             "blur" => InputEvent::Blur { at_ms },
+            "message" => InputEvent::Message {
+                text: string("text")?,
+                at_ms,
+            },
             other => return Err(format!("t: unknown `{other}`")),
         })
     };

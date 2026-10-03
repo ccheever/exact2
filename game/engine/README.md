@@ -116,6 +116,14 @@ record path. See the [HUD example](../README.md#publications-and-events).
 messages save in order and stay outside the simulation hash. The journal is
 telemetry; reading it does not change the world.
 
+The other way, Contract's `postMessage("world", "buy carrot")` posts text into
+the surface of that name. Each message is input stamped at the call: the next
+tick reads it in `input.messages()`, in arrival order, never coalesced (two presses
+between ticks are two messages). A paused world holds them for its first tick
+after the pause. A message waiting for its tick saves with the input queue; one
+delivered is gone. Messages are at most 64 KiB; keep data in the world and post
+commands. `Sim::post(text)` does the same in tests.
+
 ## Movement, animation and sound
 
 `w.character("player").step(direction, jump)` moves a `Character` and reports its

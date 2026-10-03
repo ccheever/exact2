@@ -50,6 +50,7 @@ mod pan;
 mod pan_release;
 mod picker;
 mod placeholder;
+mod post_message;
 mod presence;
 mod realworld_then;
 mod records;

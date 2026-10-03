@@ -718,6 +718,9 @@ pub(super) const HOST_COMMANDS: &[&str] = &[
     "showSaveFilePicker",
     // @ref LLP 1070.000 — a virtualized list's row brought into view, by key.
     "scrollIntoView",
+    // The inverse of a canvas's `message=`: `postMessage("world", text)` queues
+    // text into the surface of that name, delivered in order, never coalesced.
+    "postMessage",
 ];
 
 /// The three pickers' positional arguments (LLP 1069.010 D2): an element
@@ -957,6 +960,31 @@ pub(super) fn check_command(
     }
     if name == "scrollIntoView" {
         return into_view_args(args, scope, shapes, span);
+    }
+    if name == "postMessage" {
+        const USAGE: &str = "`postMessage(\"world\", text)`";
+        let [canvas, text] = args else {
+            return err(
+                "type-post-message",
+                format!("{USAGE}: a surface's literal name, then the text"),
+                span,
+            );
+        };
+        if !matches!(canvas, Expr::Str(..)) {
+            return err(
+                "type-post-message",
+                format!("the surface is named literally, as in `surface=world()`: {USAGE}"),
+                canvas.span(),
+            );
+        }
+        if !matches!(infer(text, scope, shapes)?, Ty::String) {
+            return err(
+                "type-post-message",
+                format!("the message is a string: {USAGE}"),
+                text.span(),
+            );
+        }
+        return Ok(());
     }
     for arg in args {
         infer(arg, scope, shapes)?;

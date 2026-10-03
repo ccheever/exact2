@@ -673,7 +673,8 @@ impl<G: Game> Sim<G> {
             return;
         }
         self.invalidate();
-        if G::paused(&self.args) {
+        // A posted message waits for the next tick, paused or not.
+        if G::paused(&self.args) && !matches!(event, InputEvent::Message { .. }) {
             self.input.apply_paused(event);
             return;
         }
@@ -765,14 +766,26 @@ impl<G: Game> Sim<G> {
         self.queue.insert(position, e);
     }
     fn flush_paused(&mut self, now: i64) {
+        let mut held = VecDeque::new();
         while self
             .queue
             .front()
             .is_some_and(|e| e.world_us.is_some() || e.host_us <= now)
         {
-            self.input
-                .apply_paused(self.queue.pop_front().unwrap().event);
+            let e = self.queue.pop_front().unwrap();
+            if let InputEvent::Message { .. } = e.event {
+                // Restamped at the pause's end, so it reaches the first tick after.
+                held.push_back(Queued {
+                    world_us: None,
+                    host_us: now,
+                    ..e
+                });
+            } else {
+                self.input.apply_paused(e.event);
+            }
         }
+        held.append(&mut self.queue);
+        self.queue = held;
         self.input.clear_edges();
     }
     /// Host display period in milliseconds; zero means not yet known. Applied
@@ -1193,6 +1206,14 @@ impl<G: Game> Sim<G> {
         self.input(InputEvent::Key {
             code: code.into(),
             down,
+            at_ms: self.last_us.unwrap_or(0) as f64 / 1000.0,
+        });
+    }
+    /// Post a message into the world at the current clock, as Contract's
+    /// `postMessage(surface, text)` does; the next tick reads it in `Input::messages`.
+    pub fn post(&mut self, text: impl Into<String>) {
+        self.input(InputEvent::Message {
+            text: text.into(),
             at_ms: self.last_us.unwrap_or(0) as f64 / 1000.0,
         });
     }

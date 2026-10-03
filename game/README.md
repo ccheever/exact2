@@ -220,6 +220,12 @@ Only the first live canvas owns a given surface's public record.
 `w.emit("won")` separately queues a string for the canvas's `message=` handler.
 Undelivered events save in order but stay outside the simulation hash.
 
+Commands go the other way as messages: an action calls
+`postMessage("world", "buy carrot")` and the next tick reads every message posted
+since, in order, from `input.messages()`. Nothing is coalesced, nothing needs an
+acknowledgement, and a delivered message is not part of a later save. Use live
+arguments for settings, messages for things that happen once.
+
 ## Proof pins
 
 `pins.json` owns the game's expected tick hashes and continuation-save digests.
