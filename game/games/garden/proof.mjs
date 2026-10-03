@@ -9,6 +9,10 @@ import { proof } from '../../proof.mjs';
 
 const EPOCH = Date.parse('2026-10-01T12:00:00Z');
 const node = (tree, id) => tree.nodes.find(n => n.props?.testId === id);
+// A node's authored accessible name. `tree` no longer guesses one (LLP
+// 1080.002; the platform's own is `tree --ax`, unavailable on Linux), so the
+// proof reads the label the Contract gives it.
+const nameOf = n => n?.accessibleName ?? n?.props?.accessibilityLabel;
 const text = (tree, id) => node(tree, id)?.props?.text;
 // A text node's label lives on its child text when the button wraps one.
 const label = (tree, id) => {
@@ -21,7 +25,7 @@ const ms = t => Math.round(performance.now() - t);
 // The exact purse, from the sheckles' accessible name (its aria-label). The
 // text itself is compact ("379M¢"); a missing node or name is NaN, so every
 // read is checked finite where it is used.
-const purseOf = tree => Number(node(tree, 'sheckles')?.accessibleName?.split(' ')[0]);
+const purseOf = tree => Number(nameOf(node(tree, 'sheckles'))?.split(' ')[0]);
 
 if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave, say}) => {
   const log = say ?? console.log;
@@ -49,17 +53,18 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
     return;
   }
   if (process.argv.includes('--scale')) return scale({open, check, out, host, log});
+  if (process.argv.includes('--shots')) return shots({open, check, out, host});
 
   const s = await open({epoch:EPOCH});
   const title = await s.tree();
-  check('Play is focused and named', node(title, 'play')?.focused === true && node(title, 'play')?.accessibleName === 'Play');
+  check('Play is focused and named', node(title, 'play')?.focused === true && nameOf(node(title, 'play')) === 'Play');
   check('title explains the loop', title.nodes.some(n => n.props?.text === 'It keeps growing while you are away'));
   await s.tap('play');
   const game = s.world('world');
   pin(0, await game.snapshot());
   let t = await s.tree();
   check('starting purse and hand', text(t, 'sheckles') === '20¢' && text(t, 'held') === 'Holding Carrot ×1', [text(t, 'sheckles'), text(t, 'held')]);
-  check('sheckles have an accessible name', node(t, 'sheckles')?.accessibleName === '20 sheckles', node(t, 'sheckles')?.accessibleName);
+  check('sheckles have an accessible name', nameOf(node(t, 'sheckles')) === '20 sheckles', nameOf(node(t, 'sheckles')));
   check('the shop lists every seed', (await s.tree('shop-list')).nodes.filter(n => n.props?.testId?.startsWith('shop-')).length === 15);
 
   await game.run(100);
@@ -80,11 +85,11 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await game.tap('KeyE');
   await game.run(100);
   t = await s.tree();
-  check('the backpack holds it', label(t, 'bag-tab') === 'Backpack 1' && node(t, 'bag-tab')?.accessibleName === 'Backpack, 1 fruit', [label(t, 'bag-tab'), node(t, 'bag-tab')?.accessibleName]);
+  check('the backpack holds it', label(t, 'bag-tab') === 'Backpack 1' && nameOf(node(t, 'bag-tab')) === 'Backpack, 1 fruit', [label(t, 'bag-tab'), nameOf(node(t, 'bag-tab'))]);
   check('a carrot plant is gone after one harvest', text(t, 'census') === '0 plants · 0/0 ripe · 0 mutated', text(t, 'census'));
   await s.tap('bag-tab');
   t = await s.tree();
-  check('the backpack lists the fruit', !!node(t, 'bag-0') && /^Sell .*Carrot for \d+$/.test(node(t, 'sell-0')?.accessibleName ?? ''), node(t, 'sell-0')?.accessibleName);
+  check('the backpack lists the fruit', !!node(t, 'bag-0') && /^Sell .*Carrot for \d+$/.test(nameOf(node(t, 'sell-0')) ?? ''), nameOf(node(t, 'sell-0')));
   await s.tap('sell-all');
   await game.run(100);
   t = await s.tree();
@@ -97,7 +102,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await game.run(100);
   t = await s.tree();
   check('buying spends and fills the hand', purseOf(t) === purse - 10 && text(t, 'held') === 'Holding Carrot ×1', [purseOf(t), text(t, 'held')]);
-  check('an owned seed offers to hold it', node(t, 'equip-carrot')?.accessibleName === 'Hold Carrot, 1 owned', node(t, 'equip-carrot')?.accessibleName);
+  check('an owned seed offers to hold it', nameOf(node(t, 'equip-carrot')) === 'Hold Carrot, 1 owned', nameOf(node(t, 'equip-carrot')));
   check('an unaffordable seed is disabled', node(t, 'buy-grape')?.props?.disabled === true, node(t, 'buy-grape')?.props);
   // Two presses with no tick between them are two messages.
   await s.tap('buy-carrot');
@@ -221,3 +226,39 @@ async function scale({open, check, out, log}) {
   await away.close();
 }
 
+
+// Views for the art pass: `--shots after` writes after-play.png,
+// after-close.png, after-wide.png and after-night.png (web only).
+async function shots({open, check, out, host}) {
+  check('shots use web', host === 'web');
+  const prefix = process.argv[process.argv.indexOf('--shots') + 1] ?? 'shot';
+  const s = await open({epoch:EPOCH});
+  await s.tap('play');
+  const game = s.world('world');
+  await s.tap('tools-tab');
+  await s.tap('fill-100');
+  await game.run(150_000);
+  await s.tap('shop-tab');
+  await game.run(500);
+  await s.screenshot(resolve(out, `${prefix}-play.png`));
+  await s.tap('shop-tab');
+  await game.hold('KeyD', 700);
+  await game.run(500);
+  await s.screenshot(resolve(out, `${prefix}-close.png`));
+  await s.tap('tools-tab');
+  await s.tap('fill-1000');
+  await game.run(34);
+  await s.tap('zoom');
+  // The next morning, from above.
+  await game.run(500_000);
+  await s.tap('tools-tab');
+  await game.run(500);
+  await s.screenshot(resolve(out, `${prefix}-wide.png`));
+  // That evening, back at the farmer, with the lanterns lit.
+  await s.tap('tools-tab');
+  await s.tap('zoom');
+  await s.tap('tools-tab');
+  await game.run(300_000);
+  await s.screenshot(resolve(out, `${prefix}-night.png`));
+  await s.close();
+}

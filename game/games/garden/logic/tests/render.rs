@@ -4,11 +4,13 @@
 //!  -p garden-logic --test render -- --ignored --nocapture --test-threads 1`
 use exact_game::{Args, Value};
 use exact_game_render::exact_gpu::{fixture, Frame, InputEvent, Surface};
-use exact_game_render::WorldSurface;
+use exact_game_render::{ModelPresentation, WorldSurface};
+
+type Surface3 = WorldSurface<Garden, ModelPresentation, true>;
 use garden_logic::{Garden, Options};
 use std::time::Instant;
 
-fn bind(surface: &mut WorldSurface<Garden>) {
+fn bind(surface: &mut Surface3) {
     let o = Options {
         seed: 1,
         smooth: std::env::var("GARDEN_SMOOTH").is_ok(),
@@ -18,7 +20,7 @@ fn bind(surface: &mut WorldSurface<Garden>) {
     surface.bind(&values, None).unwrap();
 }
 
-fn post(surface: &mut WorldSurface<Garden>, frame: &Frame, text: &str) {
+fn post(surface: &mut Surface3, frame: &Frame, text: &str) {
     surface.input(&InputEvent::Message {
         text: text.into(),
         at_ms: frame.now_ms,
@@ -53,7 +55,8 @@ fn frames_at_scale() {
         .unwrap_or(vec![100, 500, 2_000, 10_000, 20_000, 50_000]);
     println!("| plants | entities | wall ms/frame mean / p95 / max | feed ms | encode ms | draws | instances | triangles | gpu passes |");
     for n in sizes {
-        let mut surface = WorldSurface::<Garden>::default();
+        let mut surface = Surface3::default();
+        surface.device_ready(exact_game_render::exact_gpu::wgpu::Features::empty());
         bind(&mut surface);
         let mut frame = Frame {
             width: 1280.,
@@ -65,8 +68,21 @@ fn frames_at_scale() {
             children_generation: 0,
             shader_generation: 0,
         };
-        let step = |surface: &mut WorldSurface<Garden>, frame: &mut Frame, ms: f64| {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets");
+        let format = exact_game_render::exact_gpu::wgpu::TextureFormat::Rgba8Unorm;
+        let step = |surface: &mut Surface3, frame: &mut Frame, ms: f64| {
             frame.now_ms += ms;
+            // Deliver every model and texture the world asks for, as a host does.
+            for _ in 0..3 {
+                let requests = surface.assets().requests;
+                if requests.is_empty() {
+                    break;
+                }
+                for name in requests {
+                    surface.asset(&name, Ok(&std::fs::read(dir.join(&name)).unwrap()));
+                }
+                surface.prepare_assets(&gpu.device, &gpu.queue, format);
+            }
             fixture::render(&gpu, surface, frame).unwrap();
         };
         step(&mut surface, &mut frame, 0.);

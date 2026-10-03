@@ -5,6 +5,7 @@ pub mod crops;
 pub mod farm;
 pub mod garden;
 pub mod hud;
+pub mod look;
 pub mod shop;
 
 use exact_game::character::Character;
@@ -58,7 +59,12 @@ impl Game for Garden {
     fn register(w: &mut World, _: &std::collections::BTreeMap<&str, Value>) {
         // Plants and fruit first appear mid-game; a fresh process restoring a
         // save must know them.
-        w.register::<Plant>().register::<Fruit>();
+        w.register::<Plant>()
+            .register::<Fruit>()
+            .register::<look::Fencing>()
+            .register::<look::Lantern>()
+            .register::<look::Limb>()
+            .register::<look::Gait>();
     }
     fn setup(w: &mut World, args: &Options) {
         w.reseed(args.seed);
@@ -82,7 +88,7 @@ impl Game for Garden {
             (
                 Transform::default(),
                 Mesh::plane(1.0, 1.0),
-                Material::grid([0.2, 0.11, 0.05], garden::TILE),
+                Material::grid([0.1, 0.055, 0.028], garden::TILE),
             ),
         );
         let player = w.spawn_named(
@@ -99,7 +105,10 @@ impl Game for Garden {
             (
                 Transform::default(),
                 Camera::default(),
-                Follow::new(player).offset(0.0, 9.0, 11.0).lag(0.15),
+                Follow::new(player)
+                    .offset(0.0, 6.5, 8.5)
+                    .look_at_offset(0.0, 0.6, 0.0)
+                    .lag(0.15),
             ),
         );
         w.spawn_named(
@@ -109,7 +118,18 @@ impl Game for Garden {
                 DirectionalLight::default(),
             ),
         );
+        // Grass beyond the garden.
+        w.spawn_named(
+            "meadow",
+            (
+                Transform::at(0.0, -0.02, 0.0),
+                Mesh::plane(900.0, 900.0),
+                Material::rgb(0.06, 0.16, 0.035).rough(0.95),
+            ),
+        );
         farm::lay_ground(w);
+        look::dress(w);
+        look::build_fence(w);
         shop::restock(w, 0);
         w.resource_mut::<Schedule>()
             .push(garden::change_after(w), Due::Weather);
@@ -134,6 +154,7 @@ impl Game for Garden {
         }
         w.character("player")
             .step(input.stick_xz("move"), input.pressed("jump"));
+        look::step(w);
         let (tile, prompt) = farm::prompt(w);
         if input.pressed("act") {
             if let Some(tile) = tile {

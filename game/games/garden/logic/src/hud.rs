@@ -26,6 +26,8 @@ pub struct Status {
     pub last: String,
     pub away: String,
     pub garden_time: String,
+    pub clock: String,
+    pub night: bool,
     pub events: f64,
     pub queued: u32,
 }
@@ -36,6 +38,7 @@ pub struct ShopRow {
     pub name: String,
     pub rarity: String,
     pub color: String,
+    pub fruit: String,
     pub price: String,
     pub stock: u32,
     pub owned: u32,
@@ -93,6 +96,12 @@ pub fn publish(w: &World, prompt: String, force: bool) {
                 name: c.name.into(),
                 rarity: c.rarity.name().into(),
                 color: c.rarity.color().into(),
+                fruit: format!(
+                    "#{:02x}{:02x}{:02x}",
+                    (c.fruit[0] * 255.0) as u8,
+                    (c.fruit[1] * 255.0) as u8,
+                    (c.fruit[2] * 255.0) as u8
+                ),
                 price: compact(c.price),
                 stock: shop.stock.get(k).copied().unwrap_or(0),
                 owned: farm.seeds[k],
@@ -156,6 +165,8 @@ pub fn publish(w: &World, prompt: String, force: bool) {
         last: farm.last.clone(),
         away: farm.away.clone(),
         garden_time: crops::clock(now),
+        clock: crate::look::clock_label(now),
+        night: crate::look::day_phase(now) > 0.5,
         events: schedule.processed as f64,
         queued: schedule.heap.len() as u32,
     });

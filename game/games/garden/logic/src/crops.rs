@@ -399,24 +399,6 @@ pub fn fruit_value(kind: u8, weight: f32, bits: u8) -> u64 {
         .max(1.0) as u64
 }
 
-/// The colour a fruit shows: its crop's, or its strongest mutation's.
-pub fn fruit_color(kind: u8, bits: u8) -> [f32; 3] {
-    if bits & RAINBOW != 0 {
-        [0.85, 0.35, 0.95]
-    } else if bits & GOLD != 0 {
-        [1.0, 0.8, 0.15]
-    } else if bits & SHOCKED != 0 {
-        [0.95, 0.95, 0.4]
-    } else if bits & FROZEN != 0 {
-        [0.75, 0.9, 1.0]
-    } else if bits & (WET | CHILLED) != 0 {
-        let c = crop(kind).fruit;
-        [c[0] * 0.6 + 0.1, c[1] * 0.6 + 0.2, c[2] * 0.6 + 0.4]
-    } else {
-        crop(kind).fruit
-    }
-}
-
 /// "1.2K", "3.4M": the HUD's compact sheckles. Contract's
 /// `formatNumber(n, "compact")` exists, but a world-side string keeps the
 /// shape a list of plain strings.

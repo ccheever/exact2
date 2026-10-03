@@ -7,6 +7,15 @@ use garden_logic::garden::{Census, Schedule};
 use garden_logic::{Garden, Options};
 use std::time::Instant;
 
+/// Saves need every model on screen loaded; the bake writes them to the
+/// game's `assets/` (run the game's bake, or any proof, first).
+fn saved(game: &mut Sim<Garden>) -> Vec<u8> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets");
+    game.load_assets(|name| std::fs::read(dir.join(name)))
+        .unwrap();
+    game.save().unwrap()
+}
+
 fn new(smooth: bool) -> Sim<Garden> {
     Sim::<Garden>::new(Options {
         seed: 1,
@@ -90,11 +99,11 @@ fn entity_ramp() {
         // A mature garden: every fruit on the vine, nothing due.
         let mature = frames(&mut game, 600);
         let t = Instant::now();
-        let saved = game.save().unwrap();
+        let bytes = saved(&mut game);
         let save = ms(t);
         let t = Instant::now();
         let mut back = new(false);
-        back.restore(&saved).unwrap();
+        back.restore(&bytes).unwrap();
         let restore = ms(t);
         let t = Instant::now();
         let h = game.world().hash();
@@ -109,7 +118,7 @@ fn entity_ramp() {
             mature.0,
             mature.1,
             hour / 108_000.0,
-            saved.len()
+            bytes.len()
         );
     }
 }

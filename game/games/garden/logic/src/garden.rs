@@ -182,24 +182,45 @@ pub fn paint(c: [f32; 3]) -> Material {
     Material::rgb(c[0] * c[0], c[1] * c[1], c[2] * c[2])
 }
 
-fn plant_scale(stage: u8) -> f32 {
-    0.25 + 0.75 * stage as f32 / 4.0
+/// A plant's model: one per crop and stage (`art.mjs`).
+pub fn plant_mesh(kind: u8, stage: u8) -> Mesh {
+    Mesh::asset(format!("plant-{}-{stage}.model", crop(kind).id))
 }
 
-fn plant_pose(kind: u8, tile: [u16; 2], scale: f32) -> Transform {
-    let h = crop(kind).height;
-    let mut t = Transform::at(0.0, h * scale / 2.0, 0.0).with_scale(scale);
-    t.position += tile_center(tile);
-    t
+/// A fruit's model: one per crop and look (`art.mjs`). The strongest
+/// mutation shows; an unripe fruit is green.
+pub fn fruit_mesh(kind: u8, ripe: bool, muts: u8) -> Mesh {
+    let look = if !ripe {
+        "unripe"
+    } else if muts & crops::RAINBOW != 0 {
+        "rainbow"
+    } else if muts & crops::GOLD != 0 {
+        "gold"
+    } else if muts & crops::SHOCKED != 0 {
+        "shocked"
+    } else if muts & crops::FROZEN != 0 {
+        "frozen"
+    } else if muts & crops::WET != 0 {
+        "wet"
+    } else if muts & crops::CHILLED != 0 {
+        "chilled"
+    } else {
+        "plain"
+    };
+    Mesh::asset(format!("fruit-{}-{look}.model", crop(kind).id))
+}
+
+fn plant_pose(tile: [u16; 2]) -> Transform {
+    let c = tile_center(tile);
+    Transform::at(c.x, 0.0, c.z)
 }
 
 /// Spawns a plant on a tile at garden time `at` and schedules its first stage.
 pub fn plant(w: &mut World, kind: u8, tile: [u16; 2], at: u64) -> Entity {
     let c = crop(kind);
     let e = w.spawn((
-        plant_pose(kind, tile, plant_scale(0)),
-        Mesh::cylinder(0.35, c.height),
-        paint(c.leaf),
+        plant_pose(tile),
+        plant_mesh(kind, 0),
         Plant {
             kind,
             tile,
@@ -214,14 +235,32 @@ pub fn plant(w: &mut World, kind: u8, tile: [u16; 2], at: u64) -> Entity {
     e
 }
 
+/// Where a slot's fruit hangs on its plant's model, from the tile centre on
+/// the ground. Matches the shapes `art.mjs` draws.
 fn fruit_offset(kind: u8, slot: u8) -> Vec3 {
     let c = crop(kind);
-    if c.slots == 1 {
-        return Vec3::new(0.0, c.height / 2.0 + c.fruit_size * 0.6, 0.0);
+    let (h, n) = (c.height, c.slots as f32);
+    let a = slot as f32 / n * std::f32::consts::TAU + 0.4;
+    let k = (slot % 3) as f32 / 2.0;
+    let ring = |r: f32, y: f32| Vec3::new(math::cos(a) * r, y, math::sin(a) * r);
+    match c.id {
+        // Single harvests sit on (or in) the soil.
+        "carrot" => Vec3::new(0.0, 0.07, 0.0),
+        "watermelon" => Vec3::new(0.0, c.fruit_size * 0.78 + 0.04, 0.0),
+        "pumpkin" => Vec3::new(0.0, c.fruit_size * 0.7 + 0.04, 0.0),
+        "bamboo" => Vec3::new(0.35, 0.12, 0.2),
+        "strawberry" | "blueberry" => ring(0.34, 0.14 + h * (0.15 + 0.35 * k)),
+        "tomato" => ring(0.28, 0.3 + h * 0.5 * k),
+        "corn" => ring(0.12, h * (0.45 + 0.15 * k)),
+        "coconut" => {
+            let top = Vec3::new(-math::sin(0.12) * h * 0.9, 0.08 + h * 0.9 - 0.15, 0.0);
+            top + ring(0.22, 0.0)
+        }
+        "grape" => Vec3::new((slot as f32 / (n - 1.0) - 0.5) * 0.8, h * 0.82, -0.18),
+        "cactus" | "dragon" => ring(0.2, h * (0.55 + 0.35 * k)),
+        // Trees: in the canopy.
+        _ => ring(0.62, h * (0.62 + 0.25 * k)),
     }
-    let a = slot as f32 / c.slots as f32 * std::f32::consts::TAU;
-    let y = c.height * (0.05 + 0.4 * ((slot % 3) as f32 / 2.0));
-    Vec3::new(math::cos(a) * 0.42, y, math::sin(a) * 0.42)
 }
 
 /// Spawns an unripe fruit in a plant's slot and schedules its ripening. A
@@ -235,12 +274,11 @@ pub fn bear(w: &mut World, plant: Entity, kind: u8, slot: u8, at: u64) -> Entity
     let c = crop(kind);
     let ripe_at = at + c.fruit_s as u64 * 1000;
     let base = w.require::<Plant>(plant).tile;
-    let mut pose = Transform::at(0.0, c.height / 2.0, 0.0).with_scale(0.4);
-    pose.position += tile_center(base) + fruit_offset(kind, slot);
+    let mut pose = Transform::default().with_scale(0.4);
+    pose.position = tile_center(base) + fruit_offset(kind, slot);
     let e = w.spawn((
         pose,
-        Mesh::sphere(c.fruit_size),
-        paint([0.55, 0.75, 0.35]),
+        fruit_mesh(kind, false, 0),
         Fruit {
             kind,
             plant: Some(plant),
@@ -312,12 +350,7 @@ fn ripen(w: &mut World, e: Entity) {
     }
     let size = (weight / crop(kind).weight).sqrt();
     w.require_mut::<Transform>(e).scale = Vec3::splat(size);
-    let color = crops::fruit_color(kind, muts);
-    *w.require_mut::<Material>(e) = if muts & (crops::GOLD | crops::RAINBOW | crops::SHOCKED) != 0 {
-        paint(color).emissive(color[0] * 0.5, color[1] * 0.5, color[2] * 0.5)
-    } else {
-        paint(color)
-    };
+    *w.require_mut::<Mesh>(e) = fruit_mesh(kind, true, muts);
     let mut census = w.resource_mut::<Census>();
     census.ripe += 1;
     if muts != 0 {
@@ -376,7 +409,8 @@ fn grow(w: &mut World, e: Entity, at: u64) {
         return;
     };
     w.require_mut::<Plant>(e).stage = stage;
-    *w.require_mut::<Transform>(e) = plant_pose(kind, tile, plant_scale(stage));
+    let _ = tile;
+    *w.require_mut::<Mesh>(e) = plant_mesh(kind, stage);
     let c = crop(kind);
     if stage < 4 {
         w.resource_mut::<Schedule>()
@@ -506,9 +540,7 @@ pub fn animate(w: &World, now: u64) {
         if p.stage < 4 {
             let c = crop(p.kind);
             let f = ((now - p.planted.min(now)) as f32 / (c.grow_s as f32 * 1000.0)).min(1.0);
-            let s = 0.25 + 0.75 * f;
-            t.scale = Vec3::splat(s);
-            t.position.y = c.height * s / 2.0;
+            t.scale = Vec3::splat(0.6 + 0.4 * f);
         }
     }
     for (_, (t, f)) in w.query::<(&mut Transform, &Fruit)>().iter() {

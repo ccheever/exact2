@@ -189,6 +189,7 @@ pub fn resize(w: &mut World, size: u16) {
         farm.size = size;
     }
     lay_ground(w);
+    crate::look::build_fence(w);
 }
 
 /// Sizes the ground, the player's bounds and the overview camera to the garden.
@@ -210,7 +211,8 @@ pub fn lay_ground(w: &World) {
             .lag(0.3)
     } else {
         Follow::new(w.named("player").unwrap())
-            .offset(0.0, 9.0, 11.0)
+            .offset(0.0, 6.5, 8.5)
+            .look_at_offset(0.0, 0.6, 0.0)
             .lag(0.15)
     };
 }

@@ -5,6 +5,15 @@ use garden_logic::garden::{now_ms, Census, Fruit, GardenClock, Plant, Schedule, 
 use garden_logic::shop::Shop;
 use garden_logic::{census_of, Garden, Options};
 
+/// Saves need every model on screen loaded; the bake writes them to the
+/// game's `assets/` (run the game's bake, or any proof, first).
+fn saved(game: &mut Sim<Garden>) -> Vec<u8> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets");
+    game.load_assets(|name| std::fs::read(dir.join(name)))
+        .unwrap();
+    game.save().unwrap()
+}
+
 fn new(seed: u64) -> Sim<Garden> {
     Sim::<Garden>::new(Options {
         seed,
@@ -185,7 +194,7 @@ fn a_later_epoch_grows_the_garden_offline() {
     game.tap("KeyE");
     game.run(2_000.0);
     assert_eq!(game.world().resource::<Census>().ripe, 0);
-    let saved = game.save().unwrap();
+    let bytes = saved(&mut game);
     // A new session an hour later restores that save.
     let mut later = Sim::<Garden>::new(Options {
         seed: 9,
@@ -193,7 +202,7 @@ fn a_later_epoch_grows_the_garden_offline() {
         ..Options::default()
     })
     .unwrap();
-    later.restore_bound(&saved).unwrap();
+    later.restore_bound(&bytes).unwrap();
     later.run(100.0);
     let clock = later.world().resource::<GardenClock>().offline_ms;
     assert!((3_597_000..=3_600_000).contains(&clock), "{clock}");
@@ -213,14 +222,14 @@ fn save_restore_a_big_garden() {
     let mut game = new(1);
     send(&mut game, "fill 2000");
     game.run(5.0 * 60_000.0);
-    let saved = game.save().unwrap();
+    let bytes = saved(&mut game);
     let mut back = new(1);
-    back.restore(&saved).unwrap();
+    back.restore(&bytes).unwrap();
     assert_eq!(back.world().hash(), game.world().hash());
     game.run(60_000.0);
     back.run(60_000.0);
     assert_eq!(back.world().hash(), game.world().hash());
-    assert_eq!(back.save().unwrap(), game.save().unwrap());
+    assert_eq!(saved(&mut back), saved(&mut game));
 }
 
 #[test]
