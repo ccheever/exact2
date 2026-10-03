@@ -1206,8 +1206,9 @@ pub mod web;
 mod asset_name;
 pub use asset_name::asset_name;
 
-/// The panic line a GPU module reports before it aborts.
-fn panic_line(info: &std::panic::PanicHookInfo<'_>) -> String {
+/// The panic line a GPU module reports before it aborts, from the hook's
+/// `PanicHookInfo` ("panicked at <file>:<line>:<column>:\n<message>").
+fn panic_line(info: &dyn std::fmt::Display) -> String {
     format!("GPU module panicked: {info}")
 }
 
@@ -1233,21 +1234,14 @@ pub(crate) fn report_panics() {
 
 #[cfg(test)]
 mod panic_tests {
+    // The formatter alone: the process-wide hook is never swapped under
+    // concurrently running tests.
     #[test]
     fn a_panic_line_names_the_message_and_location() {
-        let previous = std::panic::take_hook();
-        let line = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
-        let seen = line.clone();
-        std::panic::set_hook(Box::new(move |info| {
-            *seen.lock().unwrap() = super::panic_line(info);
-        }));
-        let _ = std::panic::catch_unwind(|| panic!("slot has not been initialized"));
-        std::panic::set_hook(previous);
-        let line = line.lock().unwrap().clone();
-        assert!(
-            line.starts_with("GPU module panicked: panicked at gpu/src/lib.rs:")
-                && line.ends_with("slot has not been initialized"),
-            "{line}"
+        let info = "panicked at gpu/src/frame.rs:12:5:\nslot has not been initialized";
+        assert_eq!(
+            super::panic_line(&info),
+            "GPU module panicked: panicked at gpu/src/frame.rs:12:5:\nslot has not been initialized"
         );
     }
 }
