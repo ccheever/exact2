@@ -1185,9 +1185,8 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       else if (typeof spec === 'string' && spec.startsWith('+')) req.to = s.now + Number(spec.slice(1));
       else req.to = Number(spec);
       if (!req.settle && !Number.isFinite(req.to)) throw new Error(`clock: not a time: ${spec}; use clock +100 or clock settle; state shows the current clock`);
-      // A long seek moves in CLOCK_STEP_MS steps, each its own operation, so no
-      // host's answer window bounds how far one `clock` may go. Ticks, timers and
-      // the final observation are those of one seek.
+      // A long seek moves in CLOCK_STEP_MS steps, each its own operation: no host's answer
+      // window bounds one `clock`. Ticks, timers and the final observation are one seek's.
       while (!req.settle && req.to - s.now > CLOCK_STEP_MS) {
         s.now = (await s.op({ op: 'clock', to: s.now + CLOCK_STEP_MS })).clock;
       }
