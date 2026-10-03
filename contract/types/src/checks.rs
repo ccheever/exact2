@@ -705,6 +705,9 @@ pub(super) const HOST_COMMANDS: &[&str] = &[
     // @ref LLP 1077 D14 — `haptic("success" | "warning" | "error" | …)`.
     "haptic",
     "openURL",
+    // `reload()`: the development host boots the app again, as its dev
+    // menu's Reload does; a host without a dev menu refuses it.
+    "reload",
     "selectText",
     "setScheme",
     // @ref LLP 1069.002 D2 — `HTMLInputElement.showPicker()` on a file input.

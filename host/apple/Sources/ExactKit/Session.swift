@@ -969,6 +969,12 @@ public final class ExactSession {
                     #endif
                     continue
                 }
+                if name == "reload" {
+                    // The dev menu's Reload, from the app; a build without the dev menu refuses it.
+                    guard DevMenu.enabled else { fputs("exact: reload: no dev menu in this build\n", stderr); continue }
+                    app.deliver { DevMenu.reload() }
+                    continue
+                }
                 if name == "haptic" {
                     // @ref LLP 1077 D14 — feedback from app logic.
                     app.deliver { Haptics.play(args.first as? String ?? "") }
