@@ -33,6 +33,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await game.run(50);
   const head = await game.get('bot-2', 'Fighter');
   check('level shot is a headshot for 36', head?.hp === 64, head?.hp);
+  if (host === 'web') await s.screenshot(resolve(out, 'range.png'));
   const marked = await s.tree();
   check('hit marker and damage number', text(marked, 'crosshair') === '×' && marked.nodes.some(n => n.props?.text === '36'));
   check('ammo counts down', text(marked, 'ammo') === '29 / 30');

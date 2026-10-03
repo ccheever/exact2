@@ -80,7 +80,8 @@ component Rivals
         canvas surface=world(seed=7, bots=bots, range=training, paused=paused, restart=again) testId="world" data-pointer-lock="true" width="100%" height="100%" position="relative"
           when hud.hurt
             column testId="hurt" position="absolute" inset=0 pointer-events="none" border-width=10 border-color="#e5484d88"
-          text (hud.marker == "" ? "+" : "×") testId="crosshair" position="absolute" top="50%" left="50%" width=40 height=40 margin-left=-20 margin-top=-20 text-align="center" line-height=40 font-size=(hud.marker == "" ? 26 : 34) font-weight=700 pointer-events="none" color=(hud.marker == "kill" ? "#ff4d4f" : hud.marker == "head" ? "#ffd33d" : hud.marker == "body" ? "#ffffff" : "#ffffffcc")
+          column position="absolute" top="50%" left="50%" width=40 height=40 margin-left=-20 margin-top=-20 align-items="center" justify-content="center" pointer-events="none"
+            text (hud.marker == "" ? "+" : "×") testId="crosshair" line-height=1 font-size=(hud.marker == "" ? 26 : 34) font-weight=700 color=(hud.marker == "kill" ? "#ff4d4f" : hud.marker == "head" ? "#ffd33d" : hud.marker == "body" ? "#ffffff" : "#ffffffcc")
           column testId="marks" position="absolute" top="50%" left="50%" margin-left=28 margin-top=-64 gap=2 pointer-events="none"
             each m in hud.marks key=m.id
               text (m.kill ? `${m.amount} ✚` : `${m.amount}`) font-size=(m.head ? 22 : 17) font-weight=800 color=(m.kill ? "#ff4d4f" : m.head ? "#ffd33d" : "#ffffff")
