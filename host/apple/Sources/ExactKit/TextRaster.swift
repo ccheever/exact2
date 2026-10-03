@@ -56,6 +56,17 @@ struct TextRasterJob {
     /// and a shadow cast 512 points to one side about 2 MB.
     static let maxShadowReach: CGFloat = 512
     private static let space = CGColorSpace(name: CGColorSpace.sRGB)!
+
+    /// A tall paragraph's band around `port`: 32 points past the box each
+    /// side, and as far as runs' own shadows reach sideways (LLP 1077 D3,
+    /// at most `maxShadowReach`), as tall as `maximumBytes` allows.
+    static func band(_ spec: Spec, width: CGFloat, port: CGRect, scale: CGFloat, maximumBytes: CGFloat) -> CGRect {
+        let reach = spec.runShadowReach
+        let wide = width + 64 + reach.left + reach.right
+        let rowBytes = max(1, wide * scale * scale * 4)
+        let height = max(port.height, min(port.height * 2, maximumBytes / rowBytes))
+        return CGRect(x: -32 - reach.left, y: max(-32, port.minY - (height - port.height) / 2), width: wide, height: height)
+    }
     func render(lines reused: [CTLine]? = nil) -> TextRasterImage? {
         var lines: [CTLine]
         if let reused {

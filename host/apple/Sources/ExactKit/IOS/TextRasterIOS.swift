@@ -96,10 +96,8 @@ final class TextRasterizer {
             let port = node.presenter?.textPreparationRect(node) ?? node.bounds
             if let old = node.textRasterKey, let clip = old.clip, clip.contains(port), old.size == key.size,
                old.box == key.box, old.spec == key.spec, old.scale == key.scale { return old }
-            let rowBytes = max(1, (node.bounds.width + 64) * key.scale * key.scale * 4)
-            let height = max(port.height, min(port.height * 2, Self.maximumBytes / rowBytes))
-            key.clip = CGRect(x: -32, y: max(-32, port.minY - (height - port.height) / 2),
-                width: node.bounds.width + 64, height: height)
+            key.clip = TextRasterJob.band(key.spec, width: node.bounds.width, port: port,
+                                          scale: key.scale, maximumBytes: Self.maximumBytes)
         }
         return key
     }

@@ -69,6 +69,23 @@ extension Spec {
     }
 }
 
+extension Spec {
+    /// How far runs' own shadows reach past the box to the left and right,
+    /// each at most `TextRasterJob.maxShadowReach`: what a band's clip must
+    /// admit for them (a paragraph-wide shadow is the layer's, outside it).
+    var runShadowReach: (left: CGFloat, right: CGFloat) {
+        var left: CGFloat = 0, right: CGFloat = 0
+        for run in runs {
+            guard let s = run.shadow, s.count == 7 else { continue }
+            // As `TextRunShadow.reach`: a Gaussian of σ = blur / 2 is spent by 3σ.
+            let spread = s[2] * 1.5 + 1
+            left = max(left, spread - s[0]); right = max(right, spread + s[0])
+        }
+        let cap = TextRasterJob.maxShadowReach
+        return (min(left, cap), min(right, cap))
+    }
+}
+
 /// A run's own shadow as a Core Text attribute: offset x, y and blur in
 /// points (CSS's radius), and its colour.
 final class TextRunShadow: NSObject {

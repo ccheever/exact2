@@ -172,6 +172,38 @@ final class TextPaintTests: XCTestCase {
         XCTAssertLessThan(try frame(5000).maxX, cap, "one wholly past it adds nothing")
     }
 
+    /// A tall paragraph rasters in bands clipped 32 points past its box; a
+    /// run's own shadow cast far sideways widens the band, under the cap,
+    /// and the band's height pays for the width (LLP 1077 D3).
+    func testABandAdmitsARunShadowCastSidewaysPastItsClip() throws {
+        var far = run("Cd", weight: 800)
+        far.shadow = [400, 0, 0, 255, 0, 0, 255]
+        var spec = Spec(runs: [run("Ab ", weight: 800), far], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        spec.gatherShadows()
+        let plain = Spec(runs: [run("Ab ", weight: 800), run("Cd", weight: 800)], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        let port = CGRect(x: 0, y: 0, width: 100, height: 800)
+        let budget: CGFloat = 16 * 1024 * 1024
+        let before = TextRasterJob.band(plain, width: 100, port: port, scale: 3, maximumBytes: budget)
+        XCTAssertEqual(before.minX, -32, "no run shadow: the band as it was")
+        XCTAssertEqual(before.width, 164)
+        let band = TextRasterJob.band(spec, width: 100, port: port, scale: 3, maximumBytes: budget)
+        XCTAssertEqual(band.minX, -32, accuracy: 0.01, "a shadow cast right reaches no further left")
+        XCTAssertGreaterThan(band.maxX, 100 + 400)
+        XCTAssertLessThan(band.height, before.height, "a wider band is shorter for the same bytes")
+
+        let p = engine.paragraph(spec, width: 100)
+        let box = CGRect(x: 0, y: 0, width: 100, height: 5000)
+        let job = TextRasterJob(source: engine.attributed(spec), ranges: p.lines.map { CTLineGetStringRange($0) },
+                                baselines: p.baselines, flush: 0, box: box, size: box.size, scale: 3, clip: band, crop: true)
+        let cd = CGFloat(CTLineGetOffsetForStringIndex(engine.paragraph(plain, width: 100).lines[0], 3, nil))
+        XCTAssertGreaterThan(try XCTUnwrap(job.render()).frame.maxX, cd + 400, "the shadow is in the band's pixels")
+
+        far.shadow = [5000, 0, 40, 255, 0, 0, 255]
+        spec.runs[1] = far
+        let capped = TextRasterJob.band(spec, width: 100, port: port, scale: 3, maximumBytes: budget)
+        XCTAssertEqual(capped.maxX, 100 + 32 + TextRasterJob.maxShadowReach, accuracy: 0.01, "under the cap")
+    }
+
     /// A `line-clamp` paragraph rasters from its published geometry (LLP
     /// 1072 §8.1): a worker shapes the lines, the last one again from the
     /// range it broke at, ending in "…". The same pixels as layout's lines.
