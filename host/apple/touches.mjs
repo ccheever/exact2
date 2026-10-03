@@ -9,7 +9,7 @@
 // Simulator only so far; a phone is LLP 1080.000 stage 4.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { iosTriple, phoneBridge } from './build.mjs';
@@ -34,34 +34,45 @@ export function touchRunner(udid) {
   })).digest('hex').slice(0, 16);
   const dir = resolve(ROOT, 'target/touch-runner', key);
   const app = resolve(dir, 'ExactTouches-Runner.app');
-  if (!existsSync(resolve(dir, 'done'))) {
-    rmSync(dir, { recursive: true, force: true });
-    mkdirSync(dir, { recursive: true });
-    cpSync(resolve(platform, 'Library/Xcode/Agents/XCTRunner.app'), app, { recursive: true });
-    must('plutil', ['-replace', 'CFBundleExecutable', '-string', 'XCTRunner', resolve(app, 'Info.plist')]);
-    must('plutil', ['-replace', 'CFBundleIdentifier', '-string', RUNNER_ID, resolve(app, 'Info.plist')]);
-    must('plutil', ['-replace', 'CFBundleName', '-string', 'ExactTouches-Runner', resolve(app, 'Info.plist')]);
-    // XCTest and what it loads, as Xcode embeds them in a UI-test runner.
-    const frameworks = resolve(app, 'Frameworks');
-    mkdirSync(frameworks, { recursive: true });
-    for (const [from, names] of [[resolve(platform, 'Library/Frameworks'), /^(XCTest|XCUIAutomation|Testing|_Testing_Foundation)\.framework$/], [resolve(platform, 'Library/PrivateFrameworks'), /^(XCT|XCUnit)/], [resolve(platform, 'usr/lib'), /^(libXCTestSwiftSupport|lib_TestingInterop)\.dylib$/]]) {
-      for (const name of readdirSync(from).filter((n) => names.test(n))) cpSync(resolve(from, name), resolve(frameworks, name), { recursive: true });
-    }
-    const bundle = resolve(app, 'PlugIns/ExactTouches.xctest');
-    mkdirSync(bundle, { recursive: true });
-    must('xcrun', ['--sdk', 'iphonesimulator', 'swiftc', '-emit-library', '-O', '-module-name', 'ExactTouches', '-target', iosTriple,
-      '-F', resolve(platform, 'Library/Frameworks'), '-F', resolve(platform, 'Library/PrivateFrameworks'), '-I', resolve(platform, 'usr/lib'), '-L', resolve(platform, 'usr/lib'),
-      '-framework', 'XCTest', '-framework', 'XCUIAutomation', '-Xlinker', '-rpath', '-Xlinker', '@executable_path/Frameworks',
-      '-module-cache-path', resolve(dir, 'cache'), '-o', resolve(bundle, 'ExactTouches'), source]);
-    writeFileSync(resolve(bundle, 'Info.plist'), plist({ CFBundleExecutable: 'ExactTouches', CFBundleIdentifier: 'com.exact.touches', CFBundlePackageType: 'BNDL', CFBundleName: 'ExactTouches', CFBundleVersion: '1', CFBundleSupportedPlatforms: ['iPhoneSimulator'] }));
-    must('codesign', ['--force', '--sign', '-', bundle]);
-    for (const name of readdirSync(frameworks)) must('codesign', ['--force', '--sign', '-', resolve(frameworks, name)]);
-    must('codesign', ['--force', '--sign', '-', '--entitlements', resolve(app, 'RunnerEntitlements.plist'), app]);
-    rmSync(resolve(dir, 'cache'), { recursive: true, force: true });
-    writeFileSync(resolve(dir, 'done'), '');
+  // Built in a directory of its own, then published by one rename: a
+  // published runner is complete and never rewritten, so sessions on other
+  // simulators can build and install from the cache at the same time.
+  if (!existsSync(dir)) {
+    const stage = `${dir}.build-${process.pid}-${randomBytes(4).toString('hex')}`;
+    try {
+      buildRunner(platform, source, stage);
+      try { renameSync(stage, dir); } catch (e) { if (!['EEXIST', 'ENOTEMPTY'].includes(e.code)) throw e; } // another build published first: use it
+    } finally { rmSync(stage, { recursive: true, force: true }); }
   }
   must('xcrun', ['simctl', 'install', udid, app]);
   return { dir, app };
+}
+
+/** Assemble the runner in `dir`: Xcode's XCTRunner.app, the frameworks it loads, the test bundle, signed ad hoc. */
+function buildRunner(platform, source, dir) {
+  const app = resolve(dir, 'ExactTouches-Runner.app');
+  mkdirSync(dir, { recursive: true });
+  cpSync(resolve(platform, 'Library/Xcode/Agents/XCTRunner.app'), app, { recursive: true });
+  must('plutil', ['-replace', 'CFBundleExecutable', '-string', 'XCTRunner', resolve(app, 'Info.plist')]);
+  must('plutil', ['-replace', 'CFBundleIdentifier', '-string', RUNNER_ID, resolve(app, 'Info.plist')]);
+  must('plutil', ['-replace', 'CFBundleName', '-string', 'ExactTouches-Runner', resolve(app, 'Info.plist')]);
+  // XCTest and what it loads, as Xcode embeds them in a UI-test runner.
+  const frameworks = resolve(app, 'Frameworks');
+  mkdirSync(frameworks, { recursive: true });
+  for (const [from, names] of [[resolve(platform, 'Library/Frameworks'), /^(XCTest|XCUIAutomation|Testing|_Testing_Foundation)\.framework$/], [resolve(platform, 'Library/PrivateFrameworks'), /^(XCT|XCUnit)/], [resolve(platform, 'usr/lib'), /^(libXCTestSwiftSupport|lib_TestingInterop)\.dylib$/]]) {
+    for (const name of readdirSync(from).filter((n) => names.test(n))) cpSync(resolve(from, name), resolve(frameworks, name), { recursive: true });
+  }
+  const bundle = resolve(app, 'PlugIns/ExactTouches.xctest');
+  mkdirSync(bundle, { recursive: true });
+  must('xcrun', ['--sdk', 'iphonesimulator', 'swiftc', '-emit-library', '-O', '-module-name', 'ExactTouches', '-target', iosTriple,
+    '-F', resolve(platform, 'Library/Frameworks'), '-F', resolve(platform, 'Library/PrivateFrameworks'), '-I', resolve(platform, 'usr/lib'), '-L', resolve(platform, 'usr/lib'),
+    '-framework', 'XCTest', '-framework', 'XCUIAutomation', '-Xlinker', '-rpath', '-Xlinker', '@executable_path/Frameworks',
+    '-module-cache-path', resolve(dir, 'cache'), '-o', resolve(bundle, 'ExactTouches'), source]);
+  writeFileSync(resolve(bundle, 'Info.plist'), plist({ CFBundleExecutable: 'ExactTouches', CFBundleIdentifier: 'com.exact.touches', CFBundlePackageType: 'BNDL', CFBundleName: 'ExactTouches', CFBundleVersion: '1', CFBundleSupportedPlatforms: ['iPhoneSimulator'] }));
+  must('codesign', ['--force', '--sign', '-', bundle]);
+  for (const name of readdirSync(frameworks)) must('codesign', ['--force', '--sign', '-', resolve(frameworks, name)]);
+  must('codesign', ['--force', '--sign', '-', '--entitlements', resolve(app, 'RunnerEntitlements.plist'), app]);
+  rmSync(resolve(dir, 'cache'), { recursive: true, force: true });
 }
 
 /** A plist from a flat object of strings, booleans, arrays of strings and nested objects. */
@@ -84,28 +95,30 @@ const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { retu
  * The lock that makes one session the device's only toucher (D2). Taken
  * atomically (an exclusive create) with a token naming this session; any
  * live holder refuses, this process included, so two sessions in one
- * process cannot share a device either. A dead holder's lock is taken over
- * under an exclusive takeover file, re-read before it is removed. Released
- * only while it still holds this session's token.
+ * process cannot share a device either. A lock that vanished between the
+ * create and the read is retried by another exclusive create. A dead
+ * holder's lock is removed only under an exclusive takeover file and only
+ * if it still holds the dead token that was seen — only takeovers remove a
+ * dead token, and they are serialized, so a live owner's lock is never
+ * removed. Released only while it still holds this session's token.
  */
 function lock(udid) {
   const path = resolve(tmpdir(), `exact-touches-${udid}.lock`);
   const token = `${process.pid}:${randomBytes(8).toString('hex')}`;
   const create = () => { try { writeFileSync(path, token, { flag: 'wx' }); return true; } catch (e) { if (e.code === 'EEXIST') return false; throw e; } };
-  const holder = () => { try { return readFileSync(path, 'utf8'); } catch { return null; } };
-  if (!create()) {
+  const holder = () => { try { return readFileSync(path, 'utf8'); } catch (e) { if (e.code === 'ENOENT') return null; throw e; } };
+  const owner = (t) => Number(t.split(':')[0]);
+  for (let attempt = 0; !create(); attempt++) {
+    if (attempt > 20) throw new Error(`the device's touch lock keeps changing hands (${path})`);
     const seen = holder();
-    const pid = Number(seen?.split(':')[0]);
-    if (seen != null && alive(pid)) throw new Error(`the device's touches are held by PID ${pid}${pid === process.pid ? ' (another session in this process)' : ''}`);
+    if (seen == null) continue; // released between the create and the read: create again
+    if (alive(owner(seen))) throw new Error(`the device's touches are held by PID ${owner(seen)}${owner(seen) === process.pid ? ' (another session in this process)' : ''}`);
     const takeover = path + '.takeover';
     try { writeFileSync(takeover, token, { flag: 'wx' }); } catch (e) {
       if (e.code === 'EEXIST') throw new Error(`another process is taking over the device's touch lock; if none is, remove ${takeover}`);
       throw e;
     }
-    try {
-      if (holder() === seen) rmSync(path, { force: true });
-      if (!create()) throw new Error(`the device's touches were taken by PID ${Number(holder()?.split(':')[0])} during takeover`);
-    } finally { rmSync(takeover, { force: true }); }
+    try { if (holder() === seen) rmSync(path); } finally { rmSync(takeover, { force: true }); }
   }
   return () => { if (holder() === token) rmSync(path, { force: true }); };
 }
@@ -123,21 +136,31 @@ const RUNNER_MS = 15000;
 export async function openTouches({ udid, appId, appPath, onProcess }) {
   const release = lock(udid);
   let child = null, bridge = null, exited = null, run = null;
-  // Ends the runner: hang up, wait for xcodebuild (3 s), then kill only its PID; the lock goes last.
+  // Ends the runner: hang up, wait for xcodebuild (3 s), SIGTERM, then
+  // SIGKILL — only its recorded PID — and release the lock only once its
+  // exit is confirmed; otherwise the lock stays (stale once this process
+  // ends) and the failure is reported.
   const teardown = async (socket) => {
     try { socket?.destroy(); } catch {}
-    if (child && child.exitCode == null && child.signalCode == null) {
-      if ((await within(exited, 3000, () => 'timeout')) === 'timeout') { try { child.kill('SIGTERM'); } catch {} await within(exited, 3000, () => null); }
-    }
     bridge?.close();
     if (run) rmSync(run, { force: true });
+    if (child && child.exitCode == null && child.signalCode == null) {
+      let gone = (await within(exited, 3000, () => 'timeout')) !== 'timeout';
+      for (const signal of ['SIGTERM', 'SIGKILL']) {
+        if (gone) break;
+        try { child.kill(signal); } catch {}
+        gone = (await within(exited, 3000, () => 'timeout')) !== 'timeout';
+      }
+      for (const stream of [child.stdout, child.stderr]) stream?.destroy();
+      if (!gone) throw new Error(`the touch runner's xcodebuild (PID ${child.pid}) did not exit after SIGKILL; the device's touch lock is kept`);
+    }
     release();
   };
   try {
     const started = Date.now();
-    const { dir, app } = touchRunner(udid);
+    const { app } = touchRunner(udid);
     bridge = await phoneBridge();
-    run = resolve(dir, `run-${process.pid}-${randomBytes(4).toString('hex')}.xctestrun`);
+    run = resolve(tmpdir(), `exact-touches-${process.pid}-${randomBytes(4).toString('hex')}.xctestrun`);
     writeFileSync(run, plist({
       ExactTouches: {
         // A simulator refuses `UseDestinationArtifacts` (device only), so
@@ -166,7 +189,9 @@ export async function openTouches({ udid, appId, appPath, onProcess }) {
       for (let i; (i = buf.indexOf('\n')) >= 0;) { const line = buf.slice(0, i); buf = buf.slice(i + 1); waiting.shift()?.(JSON.parse(line)); }
     });
     socket.on('close', () => fail('the touch runner hung up:\n' + log.slice(-10).join('\n')));
+    // Teardown runs once; a failure to end the runner is kept for `close()` to report.
     let closing = null;
+    const end = () => (closing ??= teardown(socket).then(() => null, (e) => e));
     const ask = async (req, ms = RUNNER_MS) => {
       if (broken || socket.destroyed) return { error: broken ?? 'the touch runner is gone' };
       const reply = new Promise((r) => { waiting.push(r); socket.write(JSON.stringify(req) + '\n'); });
@@ -174,16 +199,17 @@ export async function openTouches({ udid, appId, appPath, onProcess }) {
         // A late reply could answer the next request: the transport is spent.
         const why = `the touch runner did not answer ${req.op} within ${ms / 1000} s; it was stopped`;
         fail(why);
-        closing ??= teardown(socket);
+        end();
         return { error: why };
       });
     };
     return {
       ask, pid: child.pid, started: Date.now() - started, log,
-      async close() { closing ??= teardown(socket); await closing; },
+      end,
+      async close() { const failed = await end(); if (failed) throw failed; },
     };
   } catch (error) {
-    await teardown(null);
+    try { await teardown(null); } catch (e) { error.message += `; ${e.message}`; }
     throw error;
   }
 }
@@ -199,19 +225,21 @@ const sameAim = (a, b) => a.orientation === b.orientation && a.session === b.ses
  * exactly one new touch that began and ended — else an error that says what
  * the log saw. `ask` is the app's carrier; `touches` the runner's.
  */
-export async function realTap({ ask, touches, id, at }) {
+export async function realTap({ ask, touches, id, at, abandon }) {
+  // A failure of the runner or of the app's carrier: no diagnostic read follows it (`tapRefusal`).
+  const transport = (message) => Object.assign(new Error(message), { transport: true });
   const aimReq = { op: 'tap', id, aim: at ? { x: at[0], y: at[1] } : true };
   const first = await ask(aimReq);
   if (first.error) throw new Error(first.error);
   const fg = await touches.ask({ op: 'foreground' });
-  if (fg.error) throw new Error(`tap #${id}: the touch runner: ${fg.error}`);
+  if (fg.error) throw transport(`tap #${id}: the touch runner: ${fg.error}`);
   if (fg.state !== 'runningForeground') throw new Error(`tap #${id}: the app is ${fg.state ?? fg.error}, not in the foreground`);
   const aim = (await ask(aimReq));
   if (aim.error) throw new Error(aim.error);
   if (!sameAim(first.aim, aim.aim)) throw new Error(`tap #${id}: the screen rotated or moved since aim`);
   const a = aim.aim;
   const injected = await touches.ask({ op: 'tap', point: a.point });
-  if (injected.error) throw new Error(`tap #${id}: the touch runner: ${injected.error}`);
+  if (injected.error) throw transport(`tap #${id}: the touch runner: ${injected.error}`);
   // The barrier: every entry after the aim's seq, paged by the last one read
   // (a reply holds 32), each read bounded by what is left of the second.
   const deadline = Date.now() + 1000;
@@ -220,7 +248,14 @@ export async function realTap({ ask, touches, id, at }) {
   for (;;) {
     const left = deadline - Date.now();
     const page = await within(ask({ op: 'tap', log: cursor }), Math.max(left, 1), () => null);
-    if (!page) throw new Error(`tap #${id}: the dispatch log did not answer within 1 s of the touch`);
+    if (!page) {
+      // The app did not answer within the second: its carrier is spent (a
+      // late reply must not answer a later request) and the runner ends now.
+      const why = `tap #${id}: the dispatch log did not answer within 1 s of the touch; the app's carrier and the touch runner were stopped`;
+      abandon?.(why);
+      touches.end?.();
+      throw transport(why);
+    }
     if (page.error) throw new Error(`tap #${id}: the dispatch log: ${page.error}`);
     if (page.lost) throw new Error(`tap #${id}: the dispatch log dropped entries past seq ${cursor}`);
     seen.push(...page.log);
@@ -233,7 +268,7 @@ export async function realTap({ ask, touches, id, at }) {
       if (began.session !== a.session || began.generation !== a.generation) throw new Error(`tap #${id}: the touch landed in session ${began.session} (generation ${began.generation}), not ${a.session}`);
       if (began.node !== a.hit) throw new Error(`tap #${id}: the touch landed on ${began.node == null ? began.view : `node #${began.node}`}, not on node #${a.hit} the aim hit-tested`);
       return {
-        tapped: id, at: at ?? null, delivery: 'platform',
+        tapped: id, at: a.at, delivery: 'platform',
         landed: { session: began.session, generation: began.generation, node: began.node, view: began.view },
         touch: { began: began.t, ended: end.t, moved: seen.filter((e) => e.phase === 'moved').length, type: began.type },
         injected: injected.injected, aim: a.point, orientation: a.orientation,

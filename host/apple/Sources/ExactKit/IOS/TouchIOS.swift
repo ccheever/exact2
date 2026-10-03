@@ -98,6 +98,13 @@ extension Agent {
         return nil
     }
 
+    /// `view` and the Exact nodes enclosing it, innermost first.
+    static func enclosing(_ view: UIView?) -> [NodeView] {
+        var out: [NodeView] = [], at = view
+        while let v = at { if let node = v as? NodeView { out.append(node) }; at = v.superview }
+        return out
+    }
+
     /// The scene's interface orientation, by UIKit's name for it.
     static func orientation(_ scene: UIWindowScene?) -> String {
         switch scene?.effectiveGeometry.interfaceOrientation {
@@ -126,7 +133,6 @@ extension Agent {
         guard UIApplication.shared.applicationState == .active, scene?.activationState == .foregroundActive, win.isKeyWindow else {
             return ["error": "tap #\(v.id): the app is not the foreground, key window"]
         }
-        if let why = substituted(v) { return ["error": "unsupported: tap #\(v.id) \(why); native presentation under a real touch lands at LLP 1080.000 stage 3"] }
         // The point: the request's, else the middle of the target — of a
         // visible shaped fragment for an inline id, as `tap` aims.
         var at = req
@@ -139,6 +145,14 @@ extension Agent {
             return ["error": "tap #\(v.id): the point is outside the viewport; scroll it into view first"]
         }
         if let why = obscured(v, at: p, hit: seen!) { return ["error": "tap #\(v.id): \(why)"] }
+        // Stage 3's boundary, over the target, every node enclosing it (an
+        // invoker around a label) and every node enclosing what the finger
+        // would hit.
+        for node in Agent.enclosing(v) + Agent.enclosing(seen) {
+            if let why = substituted(node) {
+                return ["error": "unsupported: tap #\(v.id)\(node === v ? "" : " (through node #\(node.id))") \(why); native presentation under a real touch lands at LLP 1080.000 stage 3"]
+            }
+        }
         guard let space = scene?.coordinateSpace else { return ["error": "tap #\(v.id): no scene"] }
         let s = win.convert(p, to: space)
         let origin = vp.convert(CGPoint(x: vp.contentOffset.x, y: vp.contentOffset.y), to: space)
@@ -147,6 +161,7 @@ extension Agent {
             "orientation": Agent.orientation(scene),
             "screen": ["w": Agent.r2(space.bounds.width), "h": Agent.r2(space.bounds.height), "x": Agent.r2(origin.x), "y": Agent.r2(origin.y)],
             "point": [Agent.r2(s.x), Agent.r2(s.y)], "node": Int(v.id),
+            "at": [Agent.r2(local.x), Agent.r2(local.y)], // the viewport point, as `tap` replies it
             // The Exact node the window's hit test finds there: where the dispatch log must see the touch land.
             "hit": TouchLog.landing(seen)["node"] ?? NSNull(),
         ] as [String: Any]]

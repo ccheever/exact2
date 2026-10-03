@@ -629,7 +629,8 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
     closing = true;
     try { socket.end(); } catch {}
     await waitAtMost(exited, 2000);
-    await touches?.close();
+    let touchFailure = null;
+    try { await touches?.close(); } catch (e) { touchFailure = e; }
     if (pid) { try { process.kill(pid, 'SIGKILL'); } catch {} }
     await waitAtMost(consoleExited, 1000);
     if (!consoleDone) {
@@ -637,6 +638,7 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
       await consoleExited;
     }
     rmSync(dir, { recursive: true, force: true });
+    if (touchFailure) throw touchFailure;
   };
   try {
     const ready = await waitAtMost(lines.next(), 20000, () => { throw new Error('the app never became ready; ' + hostLines.join('\n')); });
@@ -677,7 +679,7 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
         // never be reported as platform input (LLP 1080.000 D8).
         if (touches && kind === 'press') {
           if (Object.values(guest).some((v) => v != null)) throw new Error('unsupported under --touch platform: a press into an iframe guest or a world entity reaches no real touch yet (LLP 1080.000 stage 1)');
-          return realTap({ ask, touches, id });
+          return realTap({ ask, touches, id, abandon: (why) => lines.fail(why) });
         }
         const r = kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true }) : kind === 'pinch' ? await ask({ op: 'tap', id, pinch: opts.pinch, at: opts.at }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
         if (r.error) throw new Error(r.error);
@@ -691,7 +693,7 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
       close,
     };
   } catch (e) {
-    await close();
+    try { await close(); } catch (failure) { e.message += `; ${failure.message}`; }
     throw e;
   }
 }
@@ -737,6 +739,7 @@ export function worldView(session, name) {
 
 /** Explain a refused placed-child tap using the world's own visibility. */
 export async function tapRefusal(session, target, error) {
+  if (error.transport) return error; // the carrier failed: no diagnostic read can answer
   try {
     for (const canvas of (await session.tree()).nodes.filter(n => n.world)) {
       const canvasName = canvas.props?.testId ?? canvas.id;
