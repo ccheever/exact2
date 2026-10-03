@@ -529,7 +529,70 @@ export function environment() {
     "safe-area-inset-bottom": r2(parseFloat(cs.paddingBottom) || 0),
     "safe-area-inset-left": r2(parseFloat(cs.paddingLeft) || 0),
     "keyboard-inset-height": r2(Math.max(0, innerHeight - (visualViewport?.height ?? innerHeight))),
+    ...foldEnv(),
   };
+}
+
+// @ref LLP 1078 D6, D7 — the fold as the browser reports it: the Device
+// Posture API's `navigator.devicePosture.type` and the viewport segments
+// `window.viewport.segments` (two or more means a divider splits the
+// viewport; the columns are the distinct lefts, the rows the distinct tops).
+// Where the browser lacks the APIs: `continuous`, 1 × 1, which is also what
+// Chromium reports on a flat display. Under the agent, `prefer posture` and
+// `prefer segments` go through CDP's display-feature and posture overrides
+// (the driver), so the browser's own readings change; where CDP offers
+// none, the driver's substitute lands here (`preferFold`) and stands in for
+// them — the facts and `layout.env`, not CSS's own `env()` resolution. The
+// substitute lives on `globalThis.exact`: the JS target's agent reads its own
+// copy of this module (`agent-navigation.js`), and both copies must agree.
+const foldSubstitute = () => globalThis.exact?.foldSubstitute ?? null;
+const r2 = (x) => Math.round(x * 100) / 100;
+function readFold() {
+  const posture = globalThis.navigator?.devicePosture?.type === "folded" ? "folded" : "continuous";
+  const segments = globalThis.viewport?.segments;
+  const rects = Array.isArray(segments) && segments.length >= 2 ? segments.map((s) => [s.x, s.y, s.width, s.height]) : [];
+  const cols = rects.length ? new Set(rects.map((r) => r[0])).size : 1, rows = rects.length ? new Set(rects.map((r) => r[1])).size : 1;
+  return { posture, cols, rows, rects };
+}
+export const fold = () => foldSubstitute() ?? readFold();
+/** `layout.env`'s four names (LLP 1012 §1). */
+export function foldEnv() {
+  const f = fold();
+  return { "device-posture": f.posture, "horizontal-viewport-segments": f.cols, "vertical-viewport-segments": f.rows, "viewport-segments": f.rects.map((r) => r.map(r2)) };
+}
+/** The fold as `exact_resize`'s facts word carries it beside the preference bits (LLP 1078 D6): bit 8 `folded`, bits 9–16 the columns, 17–24 the rows. */
+export function foldBits() { const f = fold(); return (f.posture === "folded" ? 256 : 0) | ((f.cols & 255) << 9) | ((f.rows & 255) << 17); }
+export function onFold(changed) {
+  globalThis.navigator?.devicePosture?.addEventListener?.("change", changed);
+  addEventListener("resize", changed);
+}
+/** The grid a host without a fold makes for `prefer segments <cols>x<rows> [gap <points>]`: the viewport split evenly, the gap centred on each divider; refused by name. */
+export function evenSegments(width, height, cols, rows, gap = 0) {
+  if (!(cols >= 1 && rows >= 1)) throw new Error(`segments ${cols}x${rows}: each count is at least 1`);
+  if (!(Number.isFinite(gap) && gap >= 0)) throw new Error(`segments: gap ${gap} is not a non-negative length`);
+  if (cols * rows === 1) return [];
+  const span = (total, n) => { const bands = (n - 1) * gap; if (bands >= total) throw new Error(`segments ${cols}x${rows} gap ${gap}: the gap is wider than the viewport (${width} × ${height})`); return (total - bands) / n; };
+  const w = span(width, cols), h = span(height, rows), out = [];
+  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) out.push([x * (w + gap), y * (h + gap), w, h]);
+  return out;
+}
+/** The agent's substitute (`prefer`'s `fold` group): `posture`, `cols`, `rows`, `gap`; `null` drops it and the browser's own readings return. */
+export function preferFold(request) {
+  if (request == null) { (globalThis.exact ??= {}).foldSubstitute = null; return foldEnv(); }
+  const next = { ...fold() };
+  let gap = 0, grid = false;
+  for (const [name, raw] of Object.entries(request)) {
+    const n = Number(raw);
+    switch (name) {
+      case "posture": if (raw !== "folded" && raw !== "continuous") throw new Error(`prefer: posture: ${raw} is folded or continuous`); next.posture = raw; break;
+      case "cols": case "rows": if (!(Number.isInteger(n) && n >= 1)) throw new Error(`prefer: segments: ${raw} ${name === "cols" ? "columns" : "rows"} is not a count`); next[name] = n; grid = true; break;
+      case "gap": if (!(Number.isFinite(n) && n >= 0)) throw new Error(`prefer: segments: gap ${raw} is not a length`); gap = n; grid = true; break;
+      default: throw new Error(`prefer: ${name} is not a fold fact this host sets`);
+    }
+  }
+  if (grid) { try { next.rects = evenSegments(innerWidth, innerHeight, next.cols, next.rows, gap); } catch (e) { throw new Error(`prefer: ${e.message}`); } }
+  (globalThis.exact ??= {}).foldSubstitute = next;
+  return foldEnv();
 }
 
 // @ref LLP 1061 D4, LLP 1069.000 D1 — the user's display preferences as the
@@ -738,4 +801,22 @@ export function viewBox(el) {
   const stretch = !flex || /normal|stretch/.test(cs.alignItems);
   if (row) return stretch ? new DOMRect(t.x, top, t.width, bottom - top) : t;
   return stretch ? new DOMRect(left, t.y, right - left, t.height) : t;
+}
+
+// WHATWG URL normalization for the wasm grant parser, using the browser's
+// existing tables. This is pure parsing: it grants no host I/O to the app.
+export function grantOrigins(memory) {
+  return { origin(ptr, len, wildcard, out, capacity) {
+    try {
+      const target = new TextDecoder('utf-8', { fatal: true }).decode(new Uint8Array(memory().buffer, ptr >>> 0, len >>> 0));
+      const u = new URL(target), port = u.port || ({ 'http:': 80, 'https:': 443, 'ws:': 80, 'wss:': 443, 'ftp:': 21 })[u.protocol];
+      if (!u.hostname || port == null) return -1;
+      const address = u.hostname.startsWith('[') || /^(?:https?|wss?|ftp):$/.test(u.protocol) && /^[\d.]+$/.test(u.hostname);
+      if (wildcard && (address || !['', '/'].includes(u.pathname) || target.includes('?') || target.includes('#')
+        || u.hostname.endsWith('.') || u.hostname.split('.').filter(Boolean).length < 2)) return -1;
+      const bytes = new TextEncoder().encode([u.protocol.slice(0, -1), u.hostname.toLowerCase(), port].join('\0'));
+      if (capacity) { if (capacity < bytes.length) return -1; new Uint8Array(memory().buffer, out >>> 0, bytes.length).set(bytes); }
+      return bytes.length;
+    } catch { return -1; }
+  } };
 }

@@ -2,8 +2,8 @@ import { renderMarkup, reportPlace } from "./navigation.js";
 import { conforms, eq } from "./shape.js";
 import { paintList, paintFacts, paintFlush } from "./paint.js";
 export { conforms, eq }; export { paintOwn } from "./paint.js";
-// the JS target's runtime: fine-grained signals over the DOM, for a
-// plan compiled ahead of time by `exact-web-js`. Everything here is imported
+import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head };
+// The JS target's runtime: fine-grained DOM signals for a plan compiled ahead by `exact-web-js`. Everything here is imported
 // by name, so an app's bundle carries only what its generated module uses.
 //
 // Semantics kept from the runner (LLP 1005 §6):
@@ -16,7 +16,6 @@ export { conforms, eq }; export { paintOwn } from "./paint.js";
 //   compiled ones; a source not ready keeps the value and asks again when it
 //   is; a later answer lands in its own commit, if its ticket is current;
 // - timers fire on a clock the host moves (`advance`), each at its own time.
-
 // ---------------------------------------------------------------- signals
 let Listener = null, Owner = null, Queue = [], Flushing = false, Rev = 0;
 const CLEAN = 0, CHECK = 1, DIRTY = 2;
@@ -122,7 +121,9 @@ export const owner = () => Owner, rev = () => Rev, ticket = () => Ticket, nextTi
 // ---------------------------------------------------------------- commits
 /** A typed refusal: the commit rolls back (LLP 1005 §6 atomicity). */
 export class Refusal extends Error {}
-let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false;
+/** A data or shape refusal (the runner's `RunnerError::Data` or `Shape`): one in a reply's commit lets its ticket go (`reply`). */
+class Failed extends Refusal {}
+let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false, Refused = null;
 export const journal = [];
 const say = line => journal.push(`t=${clock.now} ${line}`);
 /** A write inside an action: collected, applied at commit. */
@@ -141,7 +142,7 @@ export function commit(f, what = "commit") {
   if (Poisoned) return say(`refused ${what}: the runner is poisoned; reload`);
   Writes = []; Commands = []; Out = []; Landed = []; Sends = []; Refresh = [];
   stamp();
-  const undo = [], saved = Resources.map(r => r.save()), store = Store.save();
+  const undo = [], saved = Resources.map(r => r.save()), held = Mutations.map(m => m.ticket), store = Store.save();
   let ok = true;
   try {
     untracked(f);
@@ -158,9 +159,9 @@ export function commit(f, what = "commit") {
   } catch (e) {
     ok = false;
     for (const [n, v] of undo.reverse()) write(n, v);
-    Resources.forEach((r, k) => r.restore(saved[k]));
+    Resources.forEach((r, k) => r.restore(saved[k])); Mutations.forEach((m, k) => { m.ticket = held[k]; });
     Store.restore(store);
-    Out = []; Commands = []; Landed = [];
+    Out = []; Commands = []; Landed = []; Refused = e;
     say(`refused ${what}: ${e.message}`);
     if (!(e instanceof Refusal)) console.error(e);
     try { settle(); } catch {}
@@ -191,16 +192,7 @@ export const After = [], Before = [];
 const Scrolls = new Map();
 /** What a commit does once its tree is in place: authored scrolls, then the
  * loaded pieces' publications (also after a list's report, list.js). */
-export function settled() { drain(); Present?.(); if (Docs.size || Marked) markDocument(); paintFlush(); for (const f of After) f(); }
-/** `<html data-scrolldocument>` while an element is the page's scroller
- * (LLP 1048.003 D4), which the shell's rule reads, as the web host's glue. */
-const Docs = new Set();
-let Marked = false;
-function markDocument() {
-  Marked = false;
-  for (const e of Docs) if (!e.isConnected) Docs.delete(e); else Marked ||= e.getAttribute("data-scrolldocument") === "true";
-  document.documentElement?.toggleAttribute?.("data-scrolldocument", Marked);
-}
+export function settled() { drain(); Present?.(); markDocument(); paintFlush(); for (const f of After) f(); }
 let Booting = false; // the boot's own offsets are no reader's scroll (the web host hears none: its input opens after them): `scroll` skips one
 function drain() {
   for (const [e, o] of Scrolls) for (const name in o) {
@@ -217,7 +209,7 @@ export const Hosts = {
   focus: id => document.getElementById(id)?.focus(),
   blur: id => document.getElementById(id)?.blur(),
   setScheme: s => { document.documentElement.style.colorScheme = s === "system" ? "" : s; },
-  copyText: t => navigator.clipboard?.writeText(t),
+  copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), // LLP 1077 D14: vibration where the browser has it
 };
 function command(name, args) {
   const f = Hosts[name];
@@ -355,6 +347,22 @@ function ask(source, args, name) {
   if (a && a.then) { const p = a; return { promise: p }; }
   return a;
 }
+/** The reply to ticket `t` while its target `held()` it: a commit in which `f` takes the source's answer (a TypeScript
+ * promise's value, or the parse of the outcome). A data or shape refusal there (no answer, or one outside its shape) lets
+ * the ticket go in a commit of its own, as the runner's `release_failed` (admission.rs): `gone` takes it out of pending. */
+function reply(t, name, source, held, f, next, gone) {
+  return o => {
+    if (commit(() => {
+      if (!held()) return say(`dropped reply for ${name}: ticket ${t.id} is no longer held`);
+      let p;
+      try { if (o.error !== undefined) throw new Failed(o.error); p = o.v !== undefined ? { v: o.v } : data.parse(source, t.args, o, Store); }
+      catch (e) { throw e instanceof Failed ? e : new Failed(String(e?.message ?? e)); }
+      f(p);
+    }, `reply ${name}; wall ${t.elapsed} ms`) !== false || !(Refused instanceof Failed) || !held()) return;
+    say(`request ${t.id} (${name}) failed and is no longer pending: ${next}`);
+    gone(); commit(() => {}, "a failed request");
+  };
+}
 /** A resource: its value, the arguments it settled with, one ticket in flight. */
 export function res(name, source, args, initial, initialArgs, type, ph) {
   const ver = sig(0), pend = sig(false), fail = sig(null);
@@ -366,26 +374,29 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
   const hold = () => {
     if (r.value !== undefined) return;
     const v = typeof ph === "function" ? ph() : ph;
-    if (v === undefined) throw new Refusal(`${name} answers later and has nothing to show; give it an \`else\``);
+    if (v === undefined) throw new Failed(`${name} answers later and has nothing to show; give it an \`else\``);
     r.value = v;
   };
   const take = (v, a) => {
-    if (type && !conforms(v, type, [0], r.checked)) throw new Refusal(`${name}: the answer does not conform to its shape`);
+    if (type && !conforms(v, type, [0], r.checked)) throw new Failed(`${name}: the answer does not conform to its shape`);
     r.checked = v;
     r.value = v; r.settled = a;
   };
-  const land = t => outcome => commit(() => {
-    if (r.ticket !== t) return say(`dropped reply for ${name}: ticket ${t.id} is no longer held`);
-    const p = outcome.v !== undefined ? { v: outcome.v } : outcome.error ? (() => { throw new Refusal(outcome.error); })() : data.parse(source, t.args, outcome, Store);
+  // A reply the source cannot take leaves the value, failed for its arguments (`r.failed`, the runner's `failed_args`).
+  const land = t => reply(t, name, source, () => r.ticket === t, p => {
     if (p.req) { t.req = p.req; t.id = ++Ticket; send(t, land(t)); return; }
-    take(p.v, t.args); r.ticket = null;
+    take(p.v, t.args); r.ticket = r.failed = null;
     W(pend, false); W(fail, null); W(ver, ver.n.v + 1);
-  }, `reply ${name}; wall ${t.elapsed} ms`);
+  }, "it keeps its last value", () => { r.ticket = null; r.failed = t.args; write(pend.n, false); write(fail.n, t.args); });
   const m = memo(() => {
     ver();
     const a = args();
     const forced = r.forced, reread = r.reread, rev = r.rev;
     r.forced = r.reread = r.rev = false;
+    // A failure keeps the value for its arguments, asking nothing; `refresh` or new ones ask again (settlement.rs). `fail` follows.
+    if (r.failed && (forced || !eq(a, r.failed))) r.failed = null;
+    flag(fail, r.failed);
+    if (r.failed) return r.value;
     if (!forced && !reread && !rev) {
       if (r.settled !== undefined && eq(a, r.settled)) return r.value;
       if (r.ticket && eq(a, r.ticket.args)) return r.value;
@@ -394,15 +405,14 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
     try { ans = ask(source, a, name); }
     catch (e) {
       if (e instanceof Refusal) throw e;
-      if (e.refuse) throw new Refusal(`resource ${name}: ${e.message}`);
-      flag(fail, String(e.message)); say(`resource ${name} failed: ${e.message}`); return r.value;
+      if (e.refuse) throw new Failed(`resource ${name}: ${e.message}`);
+      r.failed = a; flag(fail, a); say(`resource ${name} failed: ${e.message}`); return r.value;
     }
     if (ans && ans.store) r.store = true;
     if (ans && "v" in ans) {
       take(ans.v, a);
       if (r.ticket && !reread) { say(`forget ticket ${r.ticket.id} (${name})`); r.ticket = null; }
       if (!r.ticket) flag(pend, false);
-      flag(fail, null);
       return r.value;
     }
     // A declared refresh at a send re-reads: a request is discarded, and one in flight stays.
@@ -427,8 +437,8 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
     return r.value;
   }, type);
   Object.assign(r, {
-    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store],
-    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) r.ticket.args = x[3]; r.store = x[4]; },
+    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed],
+    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) r.ticket.args = x[3]; r.store = x[4]; r.failed = x[5]; },
     force: undo => { r.forced = true; flag(ver, ver.n.v + 1, undo); },
     reread_: undo => { r.reread = true; flag(ver, ver.n.v + 1, undo); },
     revise: undo => { r.rev = true; flag(ver, ver.n.v + 1, undo); },
@@ -439,8 +449,7 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
   m.r = r;
   return m;
 }
-/** A mutation (LLP 1016): its slot (`option<T>`), the resources it
- * declares it refreshes, and one ticket per send, the newest winning. */
+/** A mutation (LLP 1016): its slot, resources, and newest-winning ticket. */
 export const Mutations = [];
 export function mut(name, slot, refreshes, type) {
   const pend = sig(false);
@@ -448,18 +457,16 @@ export function mut(name, slot, refreshes, type) {
   Mutations.push(m);
   slot.n.m = m;
   const landWrite = (v, undo) => { slot.n.landing = 1; try { undo.push([slot.n, slot.n.v]); write(slot.n, v); } finally { slot.n.landing = 0; } Landed.push(m); };
-  const land = t => outcome => commit(() => {
-    if (m.ticket !== t) return say(`dropped reply for ${name}: ticket ${t.id} is no longer held`);
-    const p = outcome.v !== undefined ? { v: outcome.v } : outcome.error ? (() => { throw new Refusal(outcome.error); })() : data.parse(t.source, t.args, outcome, Store);
+  // A reply the source cannot take ends it unsent: its slot as it was, its `then` unarmed (`reply`).
+  const land = t => reply(t, name, t.source, () => m.ticket === t, p => {
     if (p.req) { t.req = p.req; send(t, land(t)); return; }
-    if (type && !conforms(p.v, type, [0], m.checked)) throw new Refusal(`${name}: the answer does not conform to its shape`);
+    if (type && !conforms(p.v, type, [0], m.checked)) throw new Failed(`${name}: the answer does not conform to its shape`);
     m.checked = p.v;
     m.ticket = null; W(pend, false);
     slot.n.landing = 1; W(slot, p.v); Landed.push(m);
-    // At the reply, the declared refreshes are forced (LLP 1054.000.000 D1).
     for (const r of refreshes) R(r.r);
     queueMicrotask(() => { slot.n.landing = 0; });
-  }, `reply ${name}; wall ${t.elapsed} ms`);
+  }, "it ends unsent", () => { m.ticket = null; write(pend.n, false); });
   Object.assign(m, {
     forget(undo) { if (m.ticket) { say(`forget ticket ${m.ticket.id} (${name})`); m.ticket = null; undo.push([pend.n, pend.n.v]); write(pend.n, false); } },
     send(source, args, undo) {
@@ -472,16 +479,13 @@ export function mut(name, slot, refreshes, type) {
         const t = { id: ++Ticket, source, args, req: a.req, promise: a.promise };
         m.ticket = t; undo.push([pend.n, pend.n.v]); write(pend.n, true); send(t, land(t));
       } else throw new Refusal(`${name}: its source is not ready`);
-      // At the send, the declared refreshes re-read (D1).
       for (const r of refreshes) r.r.reread_(undo);
     },
   });
   m.p = () => pend();
   return m;
 }
-/** `send m = source(args)` inside an action: asked at commit, after its writes. */
 export function M(m, source, args) { Sends.push([m, source, args]); }
-
 // ---------------------------------------------------------------- the DOM
 const SVG = "http://www.w3.org/2000/svg";
 /** An element under `p`: its static class, attributes and text. */
@@ -511,17 +515,15 @@ export function cv(e) {
   s.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;z-index:-1";
   if (Adopt) e.insertBefore(s, at(e)); else e.append(s);
 }
-// ---------------------------------------------------------------- adoption (LLP 1048.000 D6)
 // A page rendered ahead (by the Rust render host or by this runtime under
 // Bun) is adopted, not rebuilt: construction walks the document with a
 // cursor per parent, takes each element whose tag matches, gives it the
 // class it would have had and drops the renderer's view ids, and inserts
 // the region anchors a fresh build would have made. A
-// mismatch abandons adoption and builds afresh.
+// mismatch abandons adoption and builds afresh (LLP 1048.000 D6).
 let Adopt = false;
 class Mismatch extends Refusal {}
-// The next node of the document to adopt under `p`; what adoption inserts
-// goes before it and never moves it.
+// The next node to adopt under `p`; insertions go before it and never move it.
 const at = p => (p.$n === undefined ? (p.$n = p.firstChild) : p.$n);
 function adopt(p, tag, cls, attrs) {
   let e = at(p);
@@ -676,15 +678,27 @@ export function nm(e) {
     .then(h => { h.attach(e); return h.loaded; }, err => { st.state = "unavailable"; st.error = String(err?.message ?? err); say(`native ${st.name} #${id}: unavailable: ${st.error}`); })
     .finally(() => setTimeout(() => inflight.n--));
 }
-/** A dynamic style row: a number takes the unit css.rs gives the row. */
 export function S(e, prop, unit, f) { let rendered = Adopt; effect(() => { css(e, prop, unit, f(), rendered); rendered = false; }); }
 let Scratch = null;
 const Normal = new Map(), same = v => v.replace(/\btransparent\b/g, "rgba(0, 0, 0, 0)");
-/** `t` as the browser serializes it on `prop`, once per value. */
 function normal(prop, t) {
   const k = prop + "\0" + t;
   let v = Normal.get(k);
-  if (v === undefined) { (Scratch ??= document.createElement("i").style).setProperty(prop, t); Normal.set(k, v = same(Scratch.getPropertyValue(prop))); if (Normal.size > 4096) Normal.clear(); }
+  if (v === undefined) { const s = Scratch ??= document.createElement("i").style; s.removeProperty(prop); s.setProperty(prop, t); Normal.set(k, v = same(s.getPropertyValue(prop))); if (Normal.size > 4096) Normal.clear(); }
+  return v;
+}
+function withoutLines(s) { let o = "", bracket = 0; for (let i = 0; i < s.length; i++) { if (s[i] === "\\") { if (!bracket) o += s[i]; if (++i < s.length && !bracket) o += s[i]; } else if (s[i] === "[") bracket++; else if (s[i] === "]" && bracket) bracket--; else if (!bracket) o += s[i]; } return o; }
+function trackCount(s) { let count = 0; for (let i = 0; i < s.length;) { while (/\s/.test(s[i])) i++; if (i >= s.length) break; if (s[i] === "[") { for (i++; i < s.length && s[i] !== "]"; i += s[i] === "\\" ? 2 : 1); i++; continue; } const start = i; let depth = 0; for (; i < s.length; i++) { if (s[i] === "(") depth++; else if (s[i] === ")") depth--; else if (!depth && /\s/.test(s[i])) break; } const part = s.slice(start, i); if (/^repeat\(/i.test(part)) { const comma = part.indexOf(","), n = part.slice(7, comma).trim(); count += (/^\d+$/.test(n) ? Number(n) : 1) * trackCount(part.slice(comma + 1, -1)); } else count++; } return count; }
+export function gridValue(kind, value) {
+  if (value == null) return value;
+  const prop = kind === "tracks" ? "grid-template-columns" : kind === "placement" ? "grid-column" : kind === "flow" ? "grid-auto-flow" : "justify-items", v = normal(prop, String(value));
+  const refuse = why => { say(`unset ${prop}: ${JSON.stringify(value)} (${why})`); return null; };
+  if (!v) return refuse("the browser rejected it");
+  const lower = v.toLowerCase(), wide = /^(?:inherit|initial|unset|revert|revert-layer)$/;
+  if (wide.test(lower)) return refuse("CSS-wide values have no kernel cascade");
+  if (kind === "tracks") { const sizes = withoutLines(lower); if (/^subgrid(?:\s|\[|$)/.test(lower) || /\b(?:calc|min|max|clamp|var|env)\s*\(/.test(sizes)) return refuse("Taffy has no value for it"); for (const m of sizes.matchAll(/(?:^|[^\w.-])(?:\d*\.)?\d+([a-z]+)\b/g)) if (!/^(?:px|fr)$/.test(m[1])) return refuse("Taffy has no value for its unit"); if (trackCount(lower) > 10000) return refuse("Taffy supports at most 10000 explicit tracks"); }
+  if (kind === "placement" && lower.split(/[ \/]+/).some(x => /^-?\d+$/.test(x) && Math.abs(Number(x)) > 10000)) return refuse("Taffy supports grid indexes and spans through 10000");
+  if (kind === "justify" && /^(?:last baseline|legacy(?: (?:left|right|center))?|(?:left|right|center) legacy)$/.test(lower)) return refuse("Taffy has no such alignment mode");
   return v;
 }
 function css(e, prop, unit, v, rendered) {
@@ -702,8 +716,6 @@ function css(e, prop, unit, v, rendered) {
     if (t == null ? !now : same(now) === normal(prop, t)) return;
   }
   if (t == null) return e.style.removeProperty(prop);
-  // A value the row refuses is invalid at computed-value time: unset,
-  // never the earlier declaration (LLP 1005 §6).
   e.style.removeProperty(prop);
   e.style.setProperty(prop, t);
   if (!e.style.getPropertyValue(prop)) say(`unset ${prop}: ${JSON.stringify(v)} is not a value it takes`);
@@ -964,24 +976,13 @@ function input() {
       velocity: { sample: (...a) => Mo?.pan.sample(...a), velocity: (...a) => Mo?.pan.velocity(...a) } });
   }).catch(err => say(`input: ${err.message}`)).finally(() => inflight.n--);
 }
-/** The page's `<head>` fields (LLP 1048.003 D1); a field bound to state
- * follows it while its head is in the tree. */
+/** A `head` (LLP 1048.003 D1): its node, as the kernel keeps it, an inert
+ * element in the tree, and its fields, the page's while it is the innermost
+ * active head (document.js, as runner/src/head.rs). */
 export function hd(p, fields) {
-  // The head's node, as the kernel keeps it: an inert element in the tree.
   const t = document.createElement("template");
   if (Adopt) p.insertBefore(t, at(p)); else p.append(t);
-  for (const [k, v] of Object.entries(fields)) effect(() => head(k, typeof v === "function" ? v() : v));
-}
-/** The head's fields as last set, for a renderer. */
-export const Head = {};
-function head(k, v) {
-  Head[k] = v;
-  if (k === "headTitle") document.title = v;
-  else if (k === "headDescription") {
-    let m = document.querySelector('meta[name="description"]');
-    if (!m) { m = document.createElement("meta"); m.name = "description"; document.head.append(m); }
-    m.content = v;
-  }
+  onEnd(head(t, fields, effect, After));
 }
 
 // ---------------------------------------------------------------- regions
@@ -1293,7 +1294,6 @@ export function x_formatTime(ms, off) {
   const w = Math.trunc(ms) + off * 60000, m = Math.floor((((w % 864e5) + 864e5) % 864e5) / 6e4), h = m / 60 | 0;
   return `${h % 12 || 12}:${String(m % 60).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
 }
-
 // ---------------------------------------------------------------- localized strings (LLP 1060)
 // The plan's tables, base first: [name, rtl, {key: text}]. The locale slot
 // starts at the base, and after boot holds the table the viewer's locale
@@ -1335,7 +1335,6 @@ export function language(slot) {
   if (typeof document !== "object" || !document.documentElement) return;
   effect(() => { const t = table(slot()) ?? Texts[0]; document.documentElement.lang = t[0]; document.documentElement.dir = t[1] ? "rtl" : "ltr"; });
 }
-
 // ---------------------------------------------------------------- the router (LLP 1038; route/src)
 // A Router is [tab, tabs, next]; a Tab [name, stack]; an Entry
 // [id, name, url, tab, params], params positional in the table's
@@ -1407,6 +1406,8 @@ function mint(r, d) { const id = r[2]; r[2] = id + 1; return entry(id, d); }
 const sel = r => r[1].findIndex(t => t[0] === r[0] && t[1].length);
 const copy = r => [r[0], r[1].map(t => [t[0], t[1].slice()]), r[2]];
 export const launch = location => x_open(["", [], 0], location);
+/** A reload's router carry: keep only a stack the new table still describes; otherwise launch its old top. */
+export function carryRouter(old, location) { const tabs = roots().map(i => Routes[i].name), stacks = old?.[1], valid = Array.isArray(stacks) && stacks.length === tabs.length && stacks.every((t, i) => t?.[0] === tabs[i] && Array.isArray(t[1]) && t[1].every(e => { const m = matchRoute(e?.[2] ?? ""); return m && Routes[m[0]].name === e[1]; })); if (!valid) return launch(stacks?.find(t => t?.[0] === old?.[0])?.[1]?.at(-1)?.[2] ?? location); const out = copy(old); for (const t of out[1]) for (const e of t[1]) e[4] = matchRoute(e[2])[1]; return out; }
 export function x_open(r, location) {
   const c = chain(location);
   if (!c.length) return refuse(r, `no route matches ${canonical(location)}`);
@@ -1464,9 +1465,10 @@ export const x_path = (name, ...values) => path(Routes.find(r => r.name === name
  * the web host's own), and a popstate back as the navigation root's
  * `navigate` (LLP 1038 D7, D11). */
 let RouterSlot = null, Shown = null, Navigate = null, History = null; export const pageHistory = () => History; // the page's navigation.js, which the agent observes: its own copy's state is never written
+/** The plan's navigation roots, with a router or without (document.js `projectRoots`). */
+export function navigationRoots(history) { History = history; projectRoots(history, location => Navigate?.(location), say, After); }
 export function router(slot, history) {
-  RouterSlot = slot; History = history;
-  history.connect(document.getElementById("exact-root"), location => Navigate?.(location), say);
+  RouterSlot = slot; navigationRoots(history);
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document, as input-glue.js's rule for the wasm host:
   // a link with its own `press` navigates by it; any other goes to the
@@ -1491,9 +1493,7 @@ export function router(slot, history) {
     const removed = Shown ? Shown[1].flatMap(t => t[1].map(e => e[0])).filter(id => !ids.has(id)) : [];
     Shown = r;
     history.apply({ top: top[0], url: top[2], removed });
-    queueMicrotask(() => history.project(document.getElementById("exact-root"), say));
   });
 }
 export const navigateTo = f => { Navigate = f; };
-/** The route a location matches: its row index (renderers pick a policy by it). */
 export const routeAt = location => matchRoute(canonical(location))?.[0] ?? -1;

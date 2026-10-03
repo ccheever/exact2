@@ -497,6 +497,26 @@ shows the kept answer for one frame and is corrected. No JavaScript before
 first pixel, no bend in the rule, and the shape every native app already
 uses for cached login state. `js/tests/castle.rs` drives all three.
 
+**Identifying arguments (LLP 1027.005, accepted 2026-10-02).** A declaration
+`source(call, …) with context, …` sends all arguments to its source, and a
+change to any argument asks again. Its kept entry contains only the call's
+identifying arguments and the value, under the same 8 KB bound and encoding.
+At a boot whose source is unready, that persisted entry may seed the first
+frame only when its argument count and identifying values match and its
+value fits the current shape. Without `with`, all arguments identify the
+answer, with exactly the existing entry bytes. Runner-owned facts never
+qualify. A boot-local mark preserves this exception through context changes
+before readiness; an identity mismatch or committed activation consumes it,
+and a refused commit restores it with the value. `data_ready` asks with the
+latest full arguments. While that request is pending, the seed stays visible
+but provisional: it is neither carried, checkpointed nor newly persisted.
+Only a fresh valid answer from a successful commit is kept. Every other
+comparison — live requests, pending tickets, failed arguments, reload carry,
+document checkpoints and compiled values — keeps its full-argument rules.
+A source already ready at boot receives no persisted seed. The default web
+JS target keeps no answers; `with` there supplies ordinary trailing arguments
+(LLP 1027.005 D5), and its document checkpoint retains full-argument adoption.
+
 **Where Apple keeps them (2026-09-24).** "Beside the app's secrets" was
 literal on Apple: the host's store held only the names the app granted, so
 every kept write was refused (`store exact.kept.<resource> failed: denied:

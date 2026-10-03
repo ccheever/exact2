@@ -15,8 +15,8 @@
 
 use exact_kernel::style::ColorValue;
 use exact_kernel::{
-    Dimension, Env, NodeRef, NodeType, Overflow, RowValue, StyleId, StyleMask, StyleProps,
-    StyleValue,
+    Dimension, Env, NodeRef, NodeType, Overflow, PropId, PropValue, RowValue, StyleId, StyleMask,
+    StyleProps, StyleValue,
 };
 use exact_motion::Property;
 use std::fmt::Write as _;
@@ -86,12 +86,17 @@ fn presenter_ignores(name: &str) -> bool {
 
 /// [`style_json`], with `width` and `height` kept when `keep_size`.
 pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (String, Vec<Skipped>) {
+    // An undefined segment length is its row's initial value (LLP 1078 D3).
+    let resolved = style.env_resolved(env);
+    let style = &*resolved;
     // Written in place: a list row's mount builds one of these per node,
     // and a `String` per value (`format!`) was most of its cost.
     let mut out = String::with_capacity(256);
     out.push('{');
     let mut skipped = Vec::new();
     let mut first = true;
+    // Colour rows that name a system colour (LLP 1077 D13), by row.
+    let mut systems: Vec<(&str, &str)> = Vec::new();
     for id in style.mask.iter() {
         let name = id.name();
         // LLP 1043.000 M3: the presenter will use resolved shapes.
@@ -150,6 +155,12 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
                 out.push(']');
                 true
             }
+            // Its pair, as any colour; `system_colors` names it.
+            RowValue::ColorValue(c @ ColorValue::System(_)) => {
+                push_color_value(&mut out, c);
+                systems.extend(c.system_name().map(|s| (name, s)));
+                true
+            }
             RowValue::ClipPath(p) => {
                 let commands: Vec<_> = p
                     .commands()
@@ -170,12 +181,125 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
                 );
                 true
             }
-            RowValue::BackgroundImage(g) => match g.gradient() {
+            // @ref LLP 1077 D2 — a mask is a gradient, as the background's.
+            RowValue::MaskImage(g) => match g.gradient() {
                 Some(g) => {
                     out.push_str(&gradient_json(g));
                     true
                 }
-                None => false, // `none`: nothing to paint
+                None => false,
+            },
+            // @ref LLP 1077 D4 — `[{"o":[x,y],"b":blur,"s":spread,"i":1,"c":colour}]`,
+            // the first painted on top; `i` only on an inset one.
+            RowValue::BoxShadow(list) if list.0.is_empty() => false,
+            RowValue::BoxShadow(list) => {
+                out.push('[');
+                for (i, s) in list.0.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    out.push_str("{\"o\":[");
+                    push_num(&mut out, s.offset.x);
+                    out.push(',');
+                    push_num(&mut out, s.offset.y);
+                    out.push_str("],\"b\":");
+                    push_num(&mut out, s.blur);
+                    out.push_str(",\"s\":");
+                    push_num(&mut out, s.spread);
+                    if s.inset {
+                        out.push_str(",\"i\":1");
+                    }
+                    out.push_str(",\"c\":");
+                    push_color_value(&mut out, s.color);
+                    out.push('}');
+                }
+                out.push(']');
+                true
+            }
+            // @ref LLP 1077 D3 — `{"o":[x,y],"b":blur,"c":colour}`; no `c`
+            // is currentcolor, the text's own.
+            RowValue::TextShadow(t) => match t.shadow() {
+                Some(s) => {
+                    out.push_str("{\"o\":[");
+                    push_num(&mut out, s.offset.x);
+                    out.push(',');
+                    push_num(&mut out, s.offset.y);
+                    out.push_str("],\"b\":");
+                    push_num(&mut out, s.blur);
+                    if let Some(c) = s.color {
+                        out.push_str(",\"c\":");
+                        push_color_value(&mut out, c);
+                    }
+                    out.push('}');
+                    true
+                }
+                None => false,
+            },
+            // @ref LLP 1077 D10 — the palette's colours, each four channels
+            // or a light/dark pair of them.
+            RowValue::SymbolPalette(p) if p.0.is_empty() => false,
+            RowValue::SymbolPalette(p) => {
+                out.push('[');
+                for (i, c) in p.0.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    push_color_value(&mut out, *c);
+                }
+                out.push(']');
+                true
+            }
+            // @ref LLP 1077 D8 — `[x, y, z]`; the z axis (CSS's initial) is
+            // no row.
+            RowValue::RotateAxis(a) if a.0 == [0.0, 0.0, 1.0] => false,
+            RowValue::RotateAxis(a) => {
+                out.push('[');
+                push_num(&mut out, a.0[0]);
+                out.push(',');
+                push_num(&mut out, a.0[1]);
+                out.push(',');
+                push_num(&mut out, a.0[2]);
+                out.push(']');
+                true
+            }
+            // @ref LLP 1077 D1 — four corners: K, "inf", "-inf" or "apple".
+            // All `round` is no row: the hosts' arcs.
+            RowValue::CornerShape(c) if c.is_round() => false,
+            RowValue::CornerShape(c) => {
+                out.push('[');
+                for (i, corner) in c.0.iter().enumerate() {
+                    if i > 0 {
+                        out.push(',');
+                    }
+                    match *corner {
+                        exact_kernel::corner::Corner::AppleContinuous => out.push_str("\"apple\""),
+                        exact_kernel::corner::Corner::Superellipse(k) if k == f32::INFINITY => {
+                            out.push_str("\"inf\"")
+                        }
+                        exact_kernel::corner::Corner::Superellipse(k) if k == f32::NEG_INFINITY => {
+                            out.push_str("\"-inf\"")
+                        }
+                        exact_kernel::corner::Corner::Superellipse(k) => push_num(&mut out, k),
+                    }
+                }
+                out.push(']');
+                true
+            }
+            // One layer is its object; several (LLP 1077 D5) an array of
+            // them, the first on top.
+            RowValue::BackgroundImage(g) => match g.layers() {
+                [] => false, // `none`: nothing to paint
+                [one] => {
+                    out.push_str(&gradient_json(one));
+                    true
+                }
+                layers => {
+                    let parts: Vec<String> = layers.iter().map(gradient_json).collect();
+                    out.push('[');
+                    out.push_str(&parts.join(","));
+                    out.push(']');
+                    true
+                }
             },
             RowValue::Enum(e) => {
                 out.push('"');
@@ -258,6 +382,19 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
             out.truncate(mark);
         }
     }
+    if !systems.is_empty() {
+        if !first {
+            out.push(',');
+        }
+        out.push_str("\"system_colors\":{");
+        for (i, (row, system)) in systems.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            let _ = write!(out, "\"{row}\":\"{system}\"");
+        }
+        out.push('}');
+    }
     out.push('}');
     (out, skipped)
 }
@@ -278,11 +415,27 @@ fn push_dimension(out: &mut String, d: Dimension) {
             push_num(out, x);
             out.push('}');
         }
-        Dimension::Env(..) => unreachable!("resolved"),
+        Dimension::Env(..) | Dimension::Segment(..) => unreachable!("resolved"),
     }
 }
 
 /// `[r,g,b,a]`, the channels as integers.
+/// A colour row's value as the presenters read it: four channels, or a
+/// `light-dark()` pair of them (LLP 1034 D1).
+fn push_color_value(out: &mut String, c: ColorValue) {
+    match c.pair() {
+        ColorValue::Fixed(c) => push_rgba(out, [c.r(), c.g(), c.b(), c.a()]),
+        ColorValue::LightDark(l, d) => {
+            out.push('[');
+            push_rgba(out, [l.r(), l.g(), l.b(), l.a()]);
+            out.push(',');
+            push_rgba(out, [d.r(), d.g(), d.b(), d.a()]);
+            out.push(']');
+        }
+        ColorValue::System(_) => {} // `pair` never returns one
+    }
+}
+
 fn push_rgba(out: &mut String, channels: [u8; 4]) {
     out.push('[');
     for (i, c) in channels.into_iter().enumerate() {
@@ -412,21 +565,35 @@ fn paint_over(computed: &mut StyleProps, shown: &Shown) {
         computed.tint_color = fixed(c);
         computed.mask.set(StyleId::TintColor);
     }
-    // A shadow's opacity is folded into its presented colour's alpha.
-    if let Some(g) = shown.get(Property::BoxShadow) {
-        computed.shadow_offset = exact_kernel::Vec2 {
-            x: g.x as f32,
-            y: g.y as f32,
-        };
-        computed.shadow_radius = g.z as f32;
-        computed.mask.set(StyleId::ShadowOffset);
-        computed.mask.set(StyleId::ShadowRadius);
-    }
-    if let Some(c) = shown.get(Property::ShadowColor) {
-        computed.shadow_color = fixed(c);
-        computed.shadow_opacity = 1.0;
-        computed.mask.set(StyleId::ShadowColor);
-        computed.mask.set(StyleId::ShadowOpacity);
+    // @ref LLP 1077 D4 — the engine moves the list's first shadow (one
+    // from `none` is CSS's transparent, zero-length one).
+    let (geometry, color) = (
+        shown.get(Property::BoxShadow),
+        shown.get(Property::ShadowColor),
+    );
+    if geometry.is_some() || color.is_some() {
+        let mut list = computed.box_shadow.0.clone();
+        if list.is_empty() {
+            list.push(exact_kernel::BoxShadow {
+                color: ColorValue::Fixed(exact_kernel::Color::TRANSPARENT),
+                offset: exact_kernel::Vec2 { x: 0.0, y: 0.0 },
+                blur: 0.0,
+                spread: 0.0,
+                inset: false,
+            });
+        }
+        if let Some(g) = geometry {
+            list[0].offset = exact_kernel::Vec2 {
+                x: g.x as f32,
+                y: g.y as f32,
+            };
+            list[0].blur = g.z as f32;
+        }
+        if let Some(c) = color {
+            list[0].color = fixed(c);
+        }
+        computed.box_shadow = exact_kernel::style::BoxShadows(list);
+        computed.mask.set(StyleId::BoxShadow);
     }
 }
 
@@ -467,9 +634,27 @@ pub fn restyle_presented(last: &str, env: &Env, shown: &Shown) -> String {
     let over = entries(&over);
     let key = |e: &str| e.split_once("\":").map(|(k, _)| k.to_owned());
     let taken: Vec<_> = over.iter().map(|e| key(e)).collect();
+    // A colour the motion now paints is no longer the system colour it was
+    // (LLP 1077 D13): its row leaves `system_colors`, the others stay.
     let kept = entries(if last.is_empty() { "{}" } else { last })
         .into_iter()
-        .filter(|e| !taken.contains(&key(e)));
+        .filter(|e| !taken.contains(&key(e)))
+        .filter_map(|e| {
+            match e
+                .strip_prefix("\"system_colors\":{")
+                .and_then(|r| r.strip_suffix('}'))
+            {
+                Some(rows) => {
+                    let rows: Vec<_> = rows
+                        .split(',')
+                        .filter(|r| !taken.contains(&key(r)))
+                        .collect();
+                    (!rows.is_empty()).then(|| format!("\"system_colors\":{{{}}}", rows.join(",")))
+                }
+                None => Some(e.to_string()),
+            }
+        });
+    let over = over.into_iter().map(str::to_string);
     format!("{{{}}}", kept.chain(over).collect::<Vec<_>>().join(","))
 }
 
@@ -587,7 +772,47 @@ pub fn style_json_presented(
             head + "," + &json[1..]
         };
     }
+    // @ref LLP 1053.000.000.000 D2 — an auto glass group's spacing rides the
+    // string the host compares, so a gap, direction or display change sends it.
+    if let Some(points) = glass_auto_spacing(node) {
+        let head = format!("{{\"glass_group_spacing\":{}", num(points));
+        json = if json == "{}" {
+            head + "}"
+        } else {
+            head + "," + &json[1..]
+        };
+    }
     (json, skipped)
+}
+
+/// `glassGroup="auto"`'s spacing (LLP 1053.000.000.000 D2): the gap along the
+/// main axis in points — `column-gap` in a flex row, `row-gap` in a flex
+/// column, the smaller of the two in a grid, `0` otherwise — clamped to
+/// 0–10,000; `None` unless the prop is the reserved `-1`.
+pub fn glass_auto_spacing(node: &NodeRef<'_>) -> Option<f32> {
+    use exact_kernel::{Display, FlexDirection};
+    if !matches!(node.props.get(PropId::GlassGroup), Some(PropValue::Float(f)) if *f == -1.0) {
+        return None;
+    }
+    let s = node.style;
+    let gap = match s.display {
+        Display::Flex => match s.flex_direction {
+            FlexDirection::Row | FlexDirection::RowReverse => s.column_gap,
+            FlexDirection::Column | FlexDirection::ColumnReverse => s.row_gap,
+        },
+        Display::Grid => s.row_gap.min(s.column_gap),
+        _ => 0.0,
+    };
+    Some(gap.clamp(0.0, 10_000.0))
+}
+
+/// [`glass_auto_spacing`] in a node's props: the points as `glassGroup` and
+/// `glassGroupAuto`, so a change to the prop sends them.
+pub fn glass_auto_props(node: &NodeRef<'_>, out: &mut std::collections::BTreeMap<String, String>) {
+    if let Some(points) = glass_auto_spacing(node) {
+        out.insert(PropId::GlassGroup.name().to_string(), num(points));
+        out.insert("glassGroupAuto".to_string(), "true".to_string());
+    }
 }
 
 /// A gradient for the presenter (LLP 1066): its shape — `linear` degrees,
@@ -611,6 +836,14 @@ fn gradient_json(g: &exact_kernel::gradient::Gradient) -> String {
         GradientKind::Linear(Direction::Angle(deg)) => format!("\"linear\":{}", num(deg)),
         GradientKind::Linear(Direction::Corner { right, bottom }) => {
             format!("\"corner\":[{},{}]", u8::from(right), u8::from(bottom))
+        }
+        // @ref LLP 1077 D5 — `[from, x%, xpx, y%, ypx]`.
+        GradientKind::Conic { from, at } => {
+            let axis = |l: Length| match l {
+                Length::Percent(p) => format!("{},0", num(p)),
+                Length::Px(px) => format!("0,{}", num(px)),
+            };
+            format!("\"conic\":[{},{},{}]", num(from), axis(at[0]), axis(at[1]))
         }
         GradientKind::Radial { circle, extent, at } => {
             let axis = |l: Length| match l {
@@ -773,5 +1006,34 @@ mod flow_tests {
             r#"{"background_image":{"radial":[1,0,0,10,25,0],"stops":[0,0,0,0,255,1,255,255,255,255]}}"#
         );
         assert_eq!(json("none"), "{}");
+    }
+
+    #[test]
+    fn a_moving_colour_leaves_system_colours_and_the_rest_stay() {
+        // LLP 1077 D13: the row the motion paints is no longer a system
+        // colour; an untouched one keeps its name.
+        let last = r#"{"text_color":[[0,0,0,255],[255,255,255,255]],"background_color":[[120,120,128,51],[120,120,128,92]],"system_colors":{"text_color":"-apple-system-label","background_color":"-apple-system-fill"}}"#;
+        let mut shown = Shown::default();
+        shown.set(
+            Property::BackgroundColor,
+            Some(exact_motion::Value::rgba8(255, 0, 0, 128)),
+        );
+        let json: serde_json::Value =
+            serde_json::from_str(&restyle_presented(last, &Env::default(), &shown)).unwrap();
+        assert_eq!(
+            json["system_colors"],
+            serde_json::json!({"text_color": "-apple-system-label"})
+        );
+        assert_eq!(
+            json["background_color"],
+            serde_json::json!([255, 0, 0, 128])
+        );
+        shown.set(
+            Property::Color,
+            Some(exact_motion::Value::rgba8(0, 0, 255, 255)),
+        );
+        let json: serde_json::Value =
+            serde_json::from_str(&restyle_presented(last, &Env::default(), &shown)).unwrap();
+        assert!(json.get("system_colors").is_none(), "{json}");
     }
 }

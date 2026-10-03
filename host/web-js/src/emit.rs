@@ -220,6 +220,8 @@ struct Em<'a> {
     refs: bool,
     /// A development build's `data-site`, each element's plan node (LLP 1012.001.000 D6).
     site_attrs: bool,
+    /// The JS dev loop's state checkpoint. Ordinary builds emit none of it.
+    dev_reload: bool,
 }
 
 /// The runner's reserved sources the JS runtime answers itself: the page's
@@ -227,7 +229,7 @@ struct Em<'a> {
 /// facts.js). `exactDelivery` answers what the build baked (facts.js).
 const HOST_FACTS: &[&str] = &["exactViewport", "exactTime", "exactPage", "exactSurface"];
 
-pub fn emit(plan: &Plan, site_attrs: bool) -> Result<Output, String> {
+pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, String> {
     let fonts = crate::faces::fonts(plan)?;
     let sites = Sites::new(plan)?;
     let mut warnings = Vec::new();
@@ -254,6 +256,7 @@ pub fn emit(plan: &Plan, site_attrs: bool) -> Result<Output, String> {
         press_keyframes: rows::press_keyframes(plan),
         refs: rows::can_refer(plan),
         site_attrs,
+        dev_reload,
     };
     em.heights = em.height_targets();
     em.transforms = em.transform_targets();
@@ -281,14 +284,24 @@ pub fn emit(plan: &Plan, site_attrs: bool) -> Result<Output, String> {
                 )
             })
             .collect();
-        let (routes, launch, sig) = (
-            em.uses.rt("routes"),
-            em.uses.rt("launch"),
-            em.uses.rt("sig"),
-        );
+        let (routes, launch) = (em.uses.rt("routes"), em.uses.rt("launch"));
+        let row = plan.slot(slot);
+        let signal = if dev_reload {
+            format!(
+                "$devSig({},{launch}(location.pathname+location.search),{},{},1)",
+                serde_json::to_string(plan.str(row.name)).unwrap(),
+                serde_json::to_string(&type_code(plan, row.ty)).unwrap(),
+                type_json(plan, row.ty)
+            )
+        } else {
+            format!(
+                "{}({launch}(location.pathname+location.search))",
+                em.uses.rt("sig")
+            )
+        };
         let _ = write!(
             body,
-            "{routes}([{}]);const s_{}={sig}({launch}(location.pathname+location.search));",
+            "{routes}([{}]);const s_{}={signal};",
             rows.join(","),
             slot.0
         );
@@ -321,10 +334,20 @@ pub fn emit(plan: &Plan, site_attrs: bool) -> Result<Output, String> {
             })
             .collect();
         let init = code::expression(plan, plan.code(plan.slot(slot).init), &top, &mut em.uses)?;
-        let (strings, sig) = (em.uses.rt("strings"), em.uses.rt("sig"));
+        let strings = em.uses.rt("strings");
+        let row = plan.slot(slot);
+        let signal = if dev_reload {
+            format!(
+                "$devSig({},{init},\"s\",{})",
+                serde_json::to_string(plan.str(row.name)).unwrap(),
+                type_json(plan, row.ty)
+            )
+        } else {
+            format!("{}({init},\"s\")", em.uses.rt("sig"))
+        };
         let _ = write!(
             body,
-            "{strings}([{}]);const s_{}={sig}({init},\"s\");",
+            "{strings}([{}]);const s_{}={signal};",
             tables.join(","),
             slot.0
         );
@@ -339,12 +362,18 @@ pub fn emit(plan: &Plan, site_attrs: bool) -> Result<Output, String> {
         }
         let init = code::expression(plan, plan.code(r.init), &top, &mut em.uses)
             .map_err(|e| format!("slot {}: {e}", plan.str(r.name)))?;
-        let sig = em.uses.rt("sig");
-        let _ = write!(
-            body,
-            "const s_{i}={sig}({init},{});",
-            serde_json::to_string(&type_code(plan, r.ty)).unwrap()
-        );
+        let ty = serde_json::to_string(&type_code(plan, r.ty)).unwrap();
+        if dev_reload {
+            let _ = write!(
+                body,
+                "const s_{i}=$devSig({},{init},{ty},{});",
+                serde_json::to_string(plan.str(r.name)).unwrap(),
+                type_json(plan, r.ty)
+            );
+        } else {
+            let sig = em.uses.rt("sig");
+            let _ = write!(body, "const s_{i}={sig}({init},{ty});");
+        }
     }
     for (i, r) in plan.derives.iter().enumerate() {
         let f = code::function(plan, plan.code(r.body), &top, 0, &mut em.uses)
@@ -394,10 +423,19 @@ pub fn emit(plan: &Plan, site_attrs: bool) -> Result<Output, String> {
         } else {
             value_js(&Value::from_bytes(initial_args).map_err(|e| e.to_string())?)
         };
-        let res = em.uses.rt("res");
+        let res = if dev_reload {
+            "$devRes".to_string()
+        } else {
+            em.uses.rt("res")
+        };
+        let carry = if dev_reload {
+            format!(",{}", type_json(plan, r.ty))
+        } else {
+            String::new()
+        };
         let _ = write!(
             body,
-            "const r_{i}={res}({},{},()=>[{}],{initial},{initial_args},{},{placeholder});",
+            "const r_{i}={res}({},{},()=>[{}],{initial},{initial_args},{},{placeholder}{carry});",
             serde_json::to_string(plan.str(r.name)).unwrap(),
             serde_json::to_string(plan.str(r.source)).unwrap(),
             args.join(","),
@@ -485,9 +523,21 @@ pub fn emit(plan: &Plan, site_attrs: bool) -> Result<Output, String> {
         let language = em.uses.rt("language");
         let _ = write!(body, "{language}(s_{});", slot.0);
     }
+    // A navigation root (an element with `navigationBack`) is projected
+    // with a router or without one, as the web host projects every batch.
+    let roots = plan.router.is_some()
+        || plan.nodes.iter().any(|n| {
+            n.bindings
+                .iter()
+                .map(|b| plan.binding(b))
+                .any(|b| b.kind == BindingKind::Prop && b.id == PropId::NavigationBack as u16)
+        });
     if let Some(slot) = plan.router {
         let router = em.uses.rt("router");
         let _ = write!(body, "{router}(s_{},$navigation);", slot.0);
+    } else if roots {
+        let project = em.uses.rt("navigationRoots");
+        let _ = write!(body, "{project}($navigation);");
     }
     // The state's getters, for the agent (names live in `names.js`).
     let list = |p: &str, n: usize| {
@@ -622,9 +672,10 @@ pub fn emit(plan: &Plan, site_attrs: bool) -> Result<Output, String> {
     );
     let imports: Vec<String> = em.uses.names.iter().cloned().collect();
     let js = format!(
-        "// Generated by exact-web-js from the app's plan. Do not edit.\nimport{{{}}}from\"./rt.js\";{}{}\nexport const sources={{{}}};export const wait={};export default function(){{{body}return $state}}\n",
+        "// Generated by exact-web-js from the app's plan. Do not edit.\nimport{{{}}}from\"./rt.js\";{}{}{}\nexport const sources={{{}}};export const wait={};export default function(){{{body}return $state}}\n",
         imports.join(","),
-        if plan.router.is_some() { "import{navigation as $navigation}from\"./navigation.js\";" } else { "" },
+        if roots { "import{navigation as $navigation}from\"./navigation.js\";" } else { "" },
+        if dev_reload { "import{devResource as $devRes,devSignal as $devSig}from\"./checkpoint.js\";" } else { "" },
         // Loaded pieces, imported only where the plan uses them.
         [
             (em.list, "import{vl as $vl}from\"./list.js\";"),
@@ -906,6 +957,10 @@ impl Em<'_> {
             attrs.push(("data-exact-id".into(), id));
         }
         attrs.extend(self.site_attrs.then(|| ("data-site".into(), i.to_string())));
+        attrs.extend(
+            self.dev_reload
+                .then(|| ("data-carry-type".into(), format!("{node_type:?}"))),
+        );
         let kinds: Vec<EventKind> = row.handlers.iter().map(|h| plan.handler(h).event).collect();
         if !kinds.is_empty() {
             attrs.push((
@@ -1088,8 +1143,11 @@ impl Em<'_> {
                     let prop = PropId::from_wire(b.id).ok_or("unknown prop")?;
                     let name = style::prop_name(node_type, prop)?;
                     // The plan stores editable; HTML exposes the inverse, readonly.
+                    // `glassGroup`'s reserved `-1` is `auto` (LLP 1053.000.000.000 D3).
                     let f = if prop == PropId::Editable {
                         format!("()=>!({f})()")
+                    } else if prop == PropId::GlassGroup {
+                        format!("()=>{{const v=({f})();return v===-1?\"auto\":v}}")
                     } else {
                         f.clone()
                     };

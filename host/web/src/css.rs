@@ -32,27 +32,12 @@ pub struct Skipped {
 pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipped>) {
     let mut out = String::new();
     let mut skipped = Vec::new();
-    let mut shadow: Option<(f32, f32, f32, ColorValue, f32)> = None;
-    let unset = (0.0, 0.0, 0.0, ColorValue::Fixed(Color::TRANSPARENT), 0.0);
     // @ref LLP 1061's ruling: the row and host feedback are independent
     // CSS numbers, multiplied through `scale` without writing `transform`.
     let press = press_composes(style);
     for id in style.mask.iter() {
         let value = style.get(id);
         match (id, &value) {
-            // Rows that compose into one CSS property.
-            (StyleId::ShadowOffset, RowValue::Vec2(v)) => {
-                let s = shadow.get_or_insert(unset);
-                s.0 = v.x;
-                s.1 = v.y;
-            }
-            (StyleId::ShadowRadius, RowValue::Number(n)) => {
-                shadow.get_or_insert(unset).2 = *n as f32
-            }
-            (StyleId::ShadowColor, RowValue::ColorValue(v)) => shadow.get_or_insert(unset).3 = *v,
-            (StyleId::ShadowOpacity, RowValue::Number(n)) => {
-                shadow.get_or_insert(unset).4 = *n as f32
-            }
             (StyleId::Transition, RowValue::Transitions(t)) => {
                 let (mut text, spring_skipped) = transition_css(t);
                 if press {
@@ -149,6 +134,55 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     push_text!(&mut out, "--exact-layout-transition:{};", text);
                 }
             }
+            // @ref LLP 1077 D1 — Apple's continuous curve is no CSS keyword:
+            // the web's stand-in is `superellipse(K)` over the radius scaled
+            // to the same reach (kernel `APPLE_ON_THE_WEB`, declared in LLP
+            // 1001). CSS's own keywords are the browser's.
+            (StyleId::CornerShape, RowValue::CornerShape(c)) => {
+                let (k, _) = exact_kernel::corner::APPLE_ON_THE_WEB;
+                let web = exact_kernel::corner::CornerShape(c.0.map(|corner| match corner {
+                    exact_kernel::corner::Corner::AppleContinuous => {
+                        exact_kernel::corner::Corner::Superellipse(k)
+                    }
+                    other => other,
+                }));
+                push_text!(&mut out, "corner-shape:{};", web.css());
+            }
+            (
+                StyleId::BorderRadiusTopLeft
+                | StyleId::BorderRadiusTopRight
+                | StyleId::BorderRadiusBottomRight
+                | StyleId::BorderRadiusBottomLeft,
+                RowValue::Dimension(d),
+            ) if apple_corner(style, id) => {
+                property(&mut out, id);
+                out.push_str(":calc(");
+                dimension(&mut out, *d);
+                push_text!(
+                    &mut out,
+                    " * {});",
+                    exact_num::Shortest32(exact_kernel::corner::APPLE_ON_THE_WEB.1)
+                );
+            }
+            // @ref LLP 1077 D8 — `rotate` is the angle and its axis, and
+            // `translate` x, y and z: one declaration each.
+            (StyleId::Rotate, RowValue::Number(n)) if style.rotate_axis.0 != [0.0, 0.0, 1.0] => {
+                push_text!(&mut out, "rotate:{} ", style.rotate_axis.css());
+                num_into(&mut out, *n as f32);
+                out.push_str("deg;");
+            }
+            (StyleId::Translate, RowValue::Vec2(v)) if style.translate_z != 0.0 => {
+                out.push_str("translate:");
+                for n in [v.x, v.y, style.translate_z] {
+                    num_into(&mut out, n);
+                    out.push_str("px ");
+                }
+                out.pop();
+                out.push(';');
+            }
+            (StyleId::Perspective, RowValue::Number(n)) if *n == 0.0 => {
+                out.push_str("perspective:none;")
+            }
             (StyleId::Scale, RowValue::Number(n)) if press => {
                 out.push_str("--exact-scale:");
                 num_into(&mut out, *n as f32);
@@ -204,15 +238,11 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                 "font-variant-numeric:{};",
                 exact_kernel::FontVariantNumeric::css(style.font_variant_numeric)
             ),
-            (StyleId::GridTemplateColumns, _)
-            | (StyleId::GridTemplateRows, _)
-            | (StyleId::GridColumn, _)
-            | (StyleId::GridRow, _)
-            | (StyleId::GridAutoFlow, _)
-            | (StyleId::JustifyItems, _) => skipped.push(Skipped {
-                row: id,
-                reason: "grid rows are not lowered in v1",
-            }),
+            (StyleId::GridAutoFlow, RowValue::Enum(flow)) => {
+                out.push_str("grid-auto-flow:");
+                out.push_str(flow);
+                out.push(';');
+            }
             // @ref LLP 1069.011 D8 — the accent also as an inherited custom
             // property a native button's look reads; `auto` is the browser's.
             (StyleId::AccentColor, _) if lowered(id, &value) => {
@@ -239,38 +269,6 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                 reason: "no CSS lowering for this row's codec",
             }),
         }
-    }
-    if let Some((x, y, radius, color, opacity)) = shadow {
-        // The opacity row folds into each colour's alpha, both halves of a
-        // `light-dark()` pair alike: the browser still resolves the pair per
-        // element (LLP 1034 D2, LLP 1064 D3).
-        let fade = |c: Color| {
-            Color::rgba(
-                c.r(),
-                c.g(),
-                c.b(),
-                (c.a() as f32 * opacity.clamp(0.0, 1.0)) as u8,
-            )
-        };
-        let color = match color {
-            ColorValue::Fixed(c) => ColorValue::Fixed(fade(c)),
-            ColorValue::LightDark(l, d) => ColorValue::LightDark(fade(l), fade(d)),
-        };
-        let visible = match color {
-            ColorValue::Fixed(c) => c.a() > 0,
-            ColorValue::LightDark(l, d) => l.a() > 0 || d.a() > 0,
-        };
-        out.push_str("box-shadow:");
-        if visible {
-            for n in [x, y, radius] {
-                num_into(&mut out, n);
-                out.push_str("px ");
-            }
-            declared(&mut out, StyleId::ShadowColor, &RowValue::ColorValue(color));
-        } else {
-            out.push_str("none");
-        }
-        out.push(';');
     }
     (out, skipped)
 }
@@ -397,14 +395,42 @@ pub(crate) fn css_string(value: &str) -> String {
     out
 }
 
+/// Whether the corner a radius row sizes is `-apple-continuous` (LLP 1077 D1).
+fn apple_corner(style: &StyleProps, id: StyleId) -> bool {
+    let i = match id {
+        StyleId::BorderRadiusTopLeft => 0,
+        StyleId::BorderRadiusTopRight => 1,
+        StyleId::BorderRadiusBottomRight => 2,
+        _ => 3,
+    };
+    style.corner_shape.0[i] == exact_kernel::corner::Corner::AppleContinuous
+}
+
 /// One row → one declaration, by the CSS rule for its name and codec.
 /// Whether a row's value is one CSS declaration here.
 fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
     match value {
         RowValue::Vec2(_) => id == StyleId::Translate,
+        // Written with `rotate` and `translate` (LLP 1077 D8).
+        RowValue::RotateAxis(_) => false,
+        // Apple's affordances: no CSS property (LLP 1077 §5).
+        RowValue::SymbolPalette(_) => false,
+        _ if matches!(
+            id,
+            StyleId::SymbolRendering
+                | StyleId::SymbolValue
+                | StyleId::SymbolEffect
+                | StyleId::PressHaptic
+                | StyleId::ContentTransition
+                | StyleId::ScrollEdgeEffect
+                | StyleId::HoverEffect
+                | StyleId::SmartInvert
+        ) =>
+        {
+            false
+        }
+        RowValue::Number(_) if id == StyleId::TranslateZ => false,
         RowValue::Color2(_)
-        | RowValue::Tracks(_)
-        | RowValue::Placement(_)
         | RowValue::Transitions(_)
         | RowValue::Animations(_)
         | RowValue::DragTimeline(_)
@@ -434,6 +460,9 @@ fn spell_property(out: &mut String, id: StyleId) {
         StyleId::PositionType => return out.push_str("position"),
         StyleId::BackdropBlur => return out.push_str("backdrop-filter"),
         StyleId::SvgMask => return out.push_str("mask"),
+        // @ref LLP 1077 D7 — the Compat Standard's prefixed names.
+        StyleId::TextStrokeWidth => return out.push_str("-webkit-text-stroke-width"),
+        StyleId::TextStrokeColor => return out.push_str("-webkit-text-stroke-color"),
         id => id.name(),
     };
     for (prefix, suffix) in [
@@ -470,6 +499,10 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         // no work of ours and no repaint pass. This is the whole reason the
         // kernel keeps the pair instead of flattening it.
         RowValue::ColorValue(ColorValue::Fixed(c)) => rgba_into(out, *c),
+        // A system colour is its pair: Chrome has no `-apple-system-*`.
+        RowValue::ColorValue(c @ ColorValue::System(_)) => {
+            declared(out, id, &RowValue::ColorValue(c.pair()))
+        }
         RowValue::ColorValue(ColorValue::LightDark(l, d)) => {
             out.push_str("light-dark(");
             rgba_into(out, *l);
@@ -496,7 +529,13 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         // The kernel's canonical CSS: explicit stops, `#rrggbbaa` colours and
         // `light-dark()` pairs the browser resolves per element (LLP 1034
         // D2); the browser mixes premultiplied, as CSS says (LLP 1066).
-        RowValue::BackgroundImage(g) => out.push_str(&g.css()),
+        RowValue::BackgroundImage(g) | RowValue::MaskImage(g) => out.push_str(&g.css()),
+        RowValue::TextShadow(s) => out.push_str(&s.css()),
+        RowValue::BoxShadow(s) => out.push_str(&s.css()),
+        RowValue::CornerShape(c) => out.push_str(&c.css()),
+        RowValue::RotateAxis(_) | RowValue::SymbolPalette(_) => {}
+        RowValue::Tracks(tracks) => out.push_str(&tracks.css()),
+        RowValue::Placement(placement) => out.push_str(&placement.css()),
         RowValue::Vec2(v) => {
             num_into(out, v.x);
             out.push_str("px ");
@@ -510,7 +549,6 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             | StyleId::ZIndex
             | StyleId::FontWeight
             | StyleId::Scale
-            | StyleId::ShadowOpacity
             // SVG's unitless numbers (LLP 1055 D2); `r`, `cx`, `cy` are lengths.
             | StyleId::FillOpacity
             | StyleId::StrokeOpacity
@@ -536,11 +574,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
                 out.push_str("px");
             }
         },
-        RowValue::Color2(_)
-        | RowValue::Tracks(_)
-        | RowValue::Placement(_)
-        | RowValue::Transitions(_)
-        | RowValue::Animations(_) => {}
+        RowValue::Color2(_) | RowValue::Transitions(_) | RowValue::Animations(_) => {}
     }
 }
 
@@ -668,6 +702,9 @@ pub(crate) fn dimension(out: &mut String, d: Dimension) {
                 out.push_str("px)");
             }
         }
+        // The browser resolves the segment itself too (LLP 1078 D6): the
+        // text is CSS-ENV-1's, untouched.
+        Dimension::Segment(var, x, y, plus) => exact_kernel::style::env::css(var, x, y, plus, out),
     }
 }
 
@@ -880,51 +917,19 @@ mod declaration_tests {
                 &[],
             ),
             css(&[(StyleId::LineClamp, StyleValue::Number(3.0))], &[]),
+            // LLP 1077 D4: one row, CSS's list.
             css(
-                &[
-                    (StyleId::ShadowOffset, StyleValue::Vec2(0.0, 2.5)),
-                    (StyleId::ShadowRadius, StyleValue::Number(12.0)),
-                    (StyleId::ShadowColor, StyleValue::Text("#11223380".into())),
-                    (StyleId::ShadowOpacity, StyleValue::Number(0.35)),
-                ],
+                &[(
+                    StyleId::BoxShadow,
+                    StyleValue::Text(
+                        "0 2.5px 12px #11223359, inset 0 1px 0 2px light-dark(#00000080, #ffffff)"
+                            .into(),
+                    ),
+                )],
                 &[],
             ),
             css(
-                &[
-                    (StyleId::ShadowOffset, StyleValue::Vec2(-1.0, 1e9)),
-                    (StyleId::ShadowRadius, StyleValue::Number(0.1)),
-                    (StyleId::ShadowColor, StyleValue::Text("#000000".into())),
-                    (StyleId::ShadowOpacity, StyleValue::Number(1.0)),
-                ],
-                &[],
-            ),
-            // LLP 1064: Contract's `box-shadow`, one value to the four rows.
-            css(
-                &[
-                    (
-                        StyleId::ShadowColor,
-                        StyleValue::Text("0 1px 4px light-dark(#00000080, #ffffff)".into()),
-                    ),
-                    (
-                        StyleId::ShadowOffset,
-                        StyleValue::Text("0 1px 4px light-dark(#00000080, #ffffff)".into()),
-                    ),
-                    (
-                        StyleId::ShadowRadius,
-                        StyleValue::Text("0 1px 4px light-dark(#00000080, #ffffff)".into()),
-                    ),
-                    (
-                        StyleId::ShadowOpacity,
-                        StyleValue::Text("0 1px 4px light-dark(#00000080, #ffffff)".into()),
-                    ),
-                ],
-                &[],
-            ),
-            css(
-                &[
-                    (StyleId::ShadowColor, StyleValue::Text("none".into())),
-                    (StyleId::ShadowOpacity, StyleValue::Text("none".into())),
-                ],
+                &[(StyleId::BoxShadow, StyleValue::Text("none".into()))],
                 &[],
             ),
             css(
@@ -965,9 +970,7 @@ mod declaration_tests {
             "font-family:ui-monospace,monospace;",
             "transition:opacity 0.25s ease-in-out 0s,all 0.5s cubic-bezier(0.4,0,0.2,1) 0.1s;",
             "display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden;",
-            "box-shadow:0px 2.5px 12px rgba(17,34,51,0.17254902);",
-            "box-shadow:-1px 1000000000px 0.1px rgba(0,0,0,1);",
-            "box-shadow:0px 1px 4px light-dark(rgba(0,0,0,0.5019608), rgba(255,255,255,1));",
+            "box-shadow:0px 2.5px 12px 0px #11223359, inset 0px 1px 0px 2px light-dark(#00000080, #ffffffff);",
             "box-shadow:none;",
             "text-transform:uppercase;",
             "font-variant-numeric:tabular-nums;white-space:nowrap;",
@@ -1024,9 +1027,99 @@ mod declaration_tests {
         }
     }
 
+    #[test]
+    fn every_grid_row_has_css_and_none_is_skipped() {
+        let t = |s: &str| StyleValue::Text(s.into());
+        for (row, value, want) in [
+            (
+                StyleId::GridTemplateColumns,
+                t("repeat(2, minmax(80px, 1fr)) 25%"),
+                "grid-template-columns:repeat(2, minmax(80px, 1fr)) 25%;",
+            ),
+            (
+                StyleId::GridTemplateRows,
+                t("40px auto min-content max-content"),
+                "grid-template-rows:40px auto min-content max-content;",
+            ),
+            (
+                StyleId::GridColumn,
+                t("-3 / span 2"),
+                "grid-column:-3 / span 2;",
+            ),
+            (StyleId::GridRow, t("2 / -1"), "grid-row:2 / -1;"),
+            (
+                StyleId::GridAutoFlow,
+                t("row dense"),
+                "grid-auto-flow:row dense;",
+            ),
+            (StyleId::JustifyItems, t("center"), "justify-items:center;"),
+        ] {
+            let mut style = StyleProps::default();
+            style.set_dynamic(row, &value).unwrap();
+            let (text, skipped) = css_text(&style, &[]);
+            assert_eq!(text, want, "{row:?}");
+            assert!(skipped.is_empty(), "{row:?}: {skipped:?}");
+        }
+    }
+
     /// LLP 1066: a gradient is one `background-image` declaration after the
     /// colour it paints over; a `light-dark()` stop is the browser's to
     /// resolve, and `none` clears.
+    #[test]
+    fn a_3d_rotate_and_translate_are_one_declaration_each() {
+        let t = |s: &str| StyleValue::Text(s.into());
+        let text = css(
+            &[
+                (StyleId::Rotate, t("y 30deg")),
+                (StyleId::RotateAxis, t("y 30deg")),
+                (StyleId::Translate, t("1px 2px 3px")),
+                (StyleId::TranslateZ, t("1px 2px 3px")),
+                (StyleId::Perspective, StyleValue::Number(800.0)),
+            ],
+            &[],
+        );
+        assert!(text.contains("rotate:y 30deg;"), "{text}");
+        assert!(text.contains("translate:1px 2px 3px;"), "{text}");
+        assert!(text.contains("perspective:800px;"), "{text}");
+        assert_eq!(text.matches("rotate").count(), 1, "{text}");
+    }
+
+    #[test]
+    fn text_stroke_is_the_compat_standards_two_properties() {
+        let t = |s: &str| StyleValue::Text(s.into());
+        let text = css(
+            &[
+                (StyleId::TextStrokeWidth, t("2px #ff0000")),
+                (StyleId::TextStrokeColor, t("2px #ff0000")),
+            ],
+            &[],
+        );
+        assert!(text.contains("-webkit-text-stroke-width:2px;"), "{text}");
+        assert!(text.contains("-webkit-text-stroke-color:"), "{text}");
+    }
+
+    #[test]
+    fn apple_continuous_is_a_superellipse_over_a_scaled_radius() {
+        let t = |s: &str| StyleValue::Text(s.into());
+        let text = css(
+            &[
+                (StyleId::BorderRadiusTopLeft, StyleValue::Number(10.0)),
+                (StyleId::BorderRadiusTopRight, StyleValue::Number(10.0)),
+                (StyleId::CornerShape, t("-apple-continuous squircle")),
+            ],
+            &[],
+        );
+        assert!(
+            text.contains("border-top-left-radius:calc(10px * 1.52);"),
+            "{text}"
+        );
+        assert!(text.contains("border-top-right-radius:10px;"), "{text}");
+        assert!(
+            text.contains("corner-shape:superellipse(1.6) squircle superellipse(1.6) squircle;"),
+            "{text}"
+        );
+    }
+
     #[test]
     fn background_image_is_one_declaration_over_the_colour() {
         let t = |s: &str| StyleValue::Text(s.into());

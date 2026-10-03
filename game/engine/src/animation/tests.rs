@@ -1291,3 +1291,129 @@ fn motion_tracks_replaced_members_and_retained_snapshots() {
     .join()
     .unwrap();
 }
+
+#[test]
+fn layers_blend_add_mask_and_resume_without_changing_the_base_clock() {
+    let mut w = world();
+    let mut model = w.model("rig.model").unwrap().clone();
+    model.nodes[0].name = "root".into();
+    model.nodes.push(Node {
+        name: "child".into(),
+        parent: Some(0),
+        ..Default::default()
+    });
+    let mut overlay = translation("flinch", 1., 6.);
+    overlay.tracks[0].node = 1;
+    model.clips.push(overlay);
+    w.assets.models.insert("rig.model".into(), model.into());
+    let e = w.spawn((
+        Mesh::asset("rig.model"),
+        Animation::play("slow"),
+        Layers(vec![Layer::new(Animation::play("flinch"))
+            .additive()
+            .weight(0.5)
+            .mask(["child"])]),
+    ));
+    for _ in 0..10 {
+        step(&mut w);
+        w.step_clock();
+    }
+    let pose = w.get::<Pose>(e).unwrap();
+    assert!((pose.local[0] - 10. / 60.).abs() < 1e-6);
+    assert!((pose.local[10] - 0.5).abs() < 1e-6);
+    drop(pose);
+    let saved = w.save();
+    for _ in 0..10 {
+        step(&mut w);
+        w.step_clock();
+    }
+    let continued = w.save();
+    w.load(&saved).unwrap();
+    for _ in 0..10 {
+        step(&mut w);
+        w.step_clock();
+    }
+    assert_eq!(w.save(), continued);
+    let clock = w.get::<Layers>(e).unwrap().0[0].animation.time;
+    step(&mut w);
+    step(&mut w);
+    assert!((w.get::<Layers>(e).unwrap().0[0].animation.time - clock - 1. / 60.).abs() < 1e-6);
+}
+
+#[test]
+fn invalid_layer_leaves_controller_and_pose_uncommitted() {
+    let mut w = world();
+    let e = w.spawn((Mesh::asset("rig.model"), Animation::play("slow")));
+    step(&mut w);
+    w.step_clock();
+    let clock = w.get::<Animation>(e).unwrap().time;
+    let pose = crate::bin::to_vec(&*w.get::<Pose>(e).unwrap());
+    w.insert(
+        e,
+        Layers(vec![Layer::new(Animation::play("fast")).mask(["absent"])]),
+    );
+    step(&mut w);
+    assert_eq!(w.get::<Animation>(e).unwrap().time, clock);
+    assert_eq!(crate::bin::to_vec(&*w.get::<Pose>(e).unwrap()), pose);
+    assert!(!w.get::<Layers>(e).unwrap().0[0].animation.sampled);
+}
+
+#[test]
+fn override_layers_and_zero_weight_use_independent_saved_clocks() {
+    let mut w = world();
+    let e = w.spawn((
+        Mesh::asset("rig.model"),
+        Animation::play("slow"),
+        Layers(vec![Layer::new(Animation::play("fast")).weight(0.5)]),
+    ));
+    step(&mut w);
+    w.step_clock();
+    assert!((w.get::<Pose>(e).unwrap().local[0] - 1.5 / 60.).abs() < 1e-6);
+    w.get_mut::<Layers>(e).unwrap().0[0].weight = 0.;
+    step(&mut w);
+    w.step_clock();
+    assert!((w.get::<Pose>(e).unwrap().local[0] - 2. / 60.).abs() < 1e-6);
+    assert!((w.get::<Layers>(e).unwrap().0[0].animation.time - 2. / 60.).abs() < 1e-6);
+}
+
+#[test]
+fn standalone_layers_require_fresh_sockets_and_carry_authored_edits() {
+    let mut w = world();
+    let e = w.spawn_named(
+        "layered",
+        (
+            Mesh::asset("rig.model"),
+            Layers(vec![Layer::new(Animation::play("slow"))]),
+        ),
+    );
+    step(&mut w);
+    w.step_clock();
+    w.step_clock();
+    assert!(socket_stale(&w, e));
+    step(&mut w);
+    assert!(!socket_stale(&w, e));
+    let time = w.get::<Layers>(e).unwrap().0[0].animation.time;
+    let mut fresh = world();
+    fresh.spawn_named(
+        "layered",
+        (
+            Mesh::asset("rig.model"),
+            Layers(vec![
+                Layer::new(Animation::play("slow").speed(2.)).weight(0.25)
+            ]),
+        ),
+    );
+    Definitions::capture(&fresh).apply(&mut w);
+    {
+        let layers = w.get::<Layers>(e).unwrap();
+        let layer = &layers.0[0];
+        assert_eq!(layer.animation.time, time);
+        assert_eq!(layer.animation.speed, 2.);
+        assert_eq!(layer.weight, 0.25);
+    }
+    w.remove::<Layers>(e);
+    assert!(!w.has::<Pose>(e));
+    assert!(!socket_stale(&w, e));
+}
+
+mod layers;

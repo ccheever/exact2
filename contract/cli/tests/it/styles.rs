@@ -484,13 +484,13 @@ fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
             "repeating-linear-gradient() is not implemented",
         ),
         (
-            "conic-gradient(#000, #fff)",
-            "conic gradients are not implemented",
+            "repeating-conic-gradient(#000, #fff)",
+            "repeating-conic-gradient() is not implemented",
         ),
         ("url(a.png)", "an image as a background is not implemented"),
         (
-            "linear-gradient(#000, #fff), linear-gradient(#fff, #000)",
-            "several background layers",
+            "linear-gradient(#000, #fff), linear-gradient(#000, #fff), linear-gradient(#000, #fff), linear-gradient(#000, #fff), linear-gradient(#fff, #000)",
+            "at most four background layers",
         ),
         ("linear-gradient(red, blue)", "a stop's colour is"),
         (
@@ -502,7 +502,8 @@ fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
         assert_eq!(e.id, "lower-attr-value", "{value}: {e}");
         assert!(e.message.contains(says), "{value}: {e}");
     }
-    let e = refused("background-image=(true ? \"none\" : \"conic-gradient(#000, #fff)\")");
+    let e =
+        refused("background-image=(true ? \"none\" : \"repeating-conic-gradient(#000, #fff)\")");
     assert!(e.message.contains("conic"), "{e}");
 }
 
@@ -566,6 +567,99 @@ fn pre_and_backdrop_filter_reach_the_kernel_and_the_rest_of_css_filters_is_refus
             .contains("`backgroundMaterial=\"frosted\"` is not a material; materials: ultra-thin,"),
         "{error}"
     );
+}
+
+/// LLP 1053.000.000.000 D1: `glassGroup="auto"`, alone or in a choice with
+/// numbers (nested too), lowers to the reserved `-1`; every literal arm is a
+/// spacing from 0 to 10,000; any other string is refused.
+#[test]
+fn a_glass_group_may_take_its_spacing_from_its_gap() {
+    use exact_kernel::{PropId, PropValue};
+    let plan = contract::compile(
+        r#"component App
+  state wide = true
+  state inner = true
+  action flip
+    wide = not wide
+  action turn
+    inner = not inner
+  view
+    column
+      row testId="auto" glassGroup="auto" gap=8
+      row testId="choice" glassGroup=(wide ? "auto" : 12)
+      row testId="nested" glassGroup=(wide ? (inner ? 4 : "auto") : 12)
+      Group(spacing="auto")
+      button testId="flip" press=flip
+        text "flip"
+      button testId="turn" press=turn
+        text "turn"
+component Group
+  props
+    spacing: string
+  state on = true
+  derive mode = "auto"
+  view
+    column
+      row testId="forwarded" glassGroup=(on ? "auto" : spacing)
+      row testId="shared" glassGroup=(on ? mode : mode)
+"#,
+    )
+    .unwrap();
+    let plan = contract::bake(plan, NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let spacing = |r: &Runner<NoData>, id: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(id)[0])
+            .unwrap()
+            .props
+            .get(PropId::GlassGroup)
+            .cloned()
+    };
+    assert_eq!(spacing(&r, "auto"), Some(PropValue::Float(-1.0)));
+    assert_eq!(spacing(&r, "choice"), Some(PropValue::Float(-1.0)));
+    assert_eq!(spacing(&r, "nested"), Some(PropValue::Float(4.0)));
+    // A component's derive read twice is a `let` (both reviews of the build).
+    assert_eq!(spacing(&r, "shared"), Some(PropValue::Float(-1.0)));
+    // A component's string prop forwarding "auto" (astra's review).
+    assert_eq!(spacing(&r, "forwarded"), Some(PropValue::Float(-1.0)));
+    let id = |r: &Runner<NoData>, t: &str| {
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(t)[0]).unwrap().id
+    };
+    // The nested "auto" arm, reached.
+    let turn = id(&r, "turn");
+    r.dispatch(turn, exact_runner::Event::Press).unwrap();
+    assert_eq!(spacing(&r, "nested"), Some(PropValue::Float(-1.0)));
+    let flip = id(&r, "flip");
+    r.dispatch(flip, exact_runner::Event::Press).unwrap();
+    assert_eq!(spacing(&r, "choice"), Some(PropValue::Float(12.0)));
+    assert_eq!(spacing(&r, "nested"), Some(PropValue::Float(12.0)));
+    for (value, id, says) in [
+        ("\"wide\"", "lower-attr-value", "or `\"auto\"`"),
+        // Only the literal `"auto"` is a spacing; another string in a choice is refused.
+        ("(w ? \"wide\" : 4)", "lower-attr-value", "or `\"auto\"`"),
+        ("(w ? \"auto\" : -2)", "lower-attr-value", "from 0 to 10000"),
+        ("(w ? 20000 : 4)", "lower-attr-value", "from 0 to 10000"),
+        // A shared derive's spacing is range-checked through its `let`.
+        (
+            "(w ? (w ? -2 : 8) : (w ? -2 : 8))",
+            "lower-attr-value",
+            "from 0 to 10000",
+        ),
+    ] {
+        let source =
+            format!("component App\n  state w = true\n  view\n    box glassGroup={value}\n");
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, id, "{value}: {error:?}");
+        assert!(error.message.contains(says), "{value}: {error:?}");
+    }
 }
 
 /// LLP 1053.000.000 D1, D6: `glassGroup` is a float prop in points that
@@ -758,6 +852,83 @@ fn logical_alignment_keywords_compile_from_the_schema() {
             );
             contract::compile(&source).unwrap_or_else(|e| panic!("{property}: {keyword}: {e}"));
         }
+    }
+}
+
+#[test]
+fn css_grid_rows_compile_with_the_closed_kernel_grammar() {
+    contract::compile(
+        r#"component App
+  state alternate = false
+  view
+    box display="grid" grid-template-columns=(alternate ? "repeat(2, minmax(80px, 1fr))" : "100px 1fr 25%") grid-template-rows="40px auto" grid-auto-flow="column dense" justify-items="center"
+      box grid-column="-3 / span 2" grid-row="2 / -1"
+"#,
+    )
+    .unwrap();
+
+    for (name, value) in [
+        ("grid-template-columns", "auto"),
+        ("grid-template-rows", "25%"),
+        ("grid-column", "2"),
+        ("grid-row", "auto / span 2"),
+        ("grid-template-columns", "100PX"),
+        (
+            "grid-template-columns",
+            "repeat(auto-fit, minmax(80px, 1fr))",
+        ),
+        ("grid-template-columns", "fit-content(40px)"),
+        ("grid-auto-flow", "DENSE"),
+        ("justify-items", "SAFE CENTER"),
+        ("grid-template-columns", "[\\\\31 foo] 40px"),
+        ("grid-column", "\\\\31 foo / 2"),
+        ("grid-row", "2 /* gap */ / span 2"),
+        ("grid-template-columns", "1e2%"),
+    ] {
+        let source = format!("component App\n  view\n    box {name}=\"{value}\"\n");
+        contract::compile(&source).unwrap_or_else(|e| panic!("{name}={value}: {e}"));
+    }
+
+    contract::compile("component App\n  view\n    box grid-column=2\n").unwrap();
+
+    for (name, value, message) in [
+        (
+            "grid-template-columns",
+            "repeat(2, repeat(2, 40px))",
+            "kernel can lay out",
+        ),
+        (
+            "grid-template-rows",
+            "minmax(1fr, 20px)",
+            "kernel can lay out",
+        ),
+        ("grid-column", "0 / auto", "nonzero or named line"),
+        ("grid-row", "span 0", "nonzero or named line"),
+    ] {
+        let source = format!("component App\n  view\n    box {name}=\"{value}\"\n");
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, "lower-attr-value", "{name}={value}: {error:?}");
+        assert!(error.message.contains(message), "{name}={value}: {error:?}");
+    }
+
+    for (name, value) in [
+        ("grid-template-columns", "subgrid [rails]"),
+        ("grid-template-columns", "10em 1fr"),
+        ("grid-column", "inherit"),
+        ("grid-column", "calc(1 + 1)"),
+        ("justify-items", "last baseline"),
+        ("justify-items", "left legacy"),
+        ("justify-items", "var(--items)"),
+        ("grid-template-columns", "repeat(10001, 1px)"),
+        ("grid-column", "10001"),
+        (
+            "grid-template-columns",
+            "minmax(auto, f\\\\69 t-content(40px))",
+        ),
+    ] {
+        let source = format!("component App\n  view\n    box {name}=\"{value}\"\n");
+        let error = contract::compile(&source).unwrap_err();
+        assert_eq!(error.id, "lower-attr-value", "{name}={value}: {error:?}");
     }
 }
 
@@ -959,8 +1130,8 @@ component Corners
 }
 
 #[test]
-fn corner_radii_refuse_negative_lengths_percentages_and_auto() {
-    for value in ["-1px", "-1%", "auto"] {
+fn corner_radii_refuse_negative_nonfinite_lengths_percentages_and_auto() {
+    for value in ["-1px", "-1%", "auto", "3e38in"] {
         let source = format!("component Corners\n  view\n    view border-radius=\"{value}\"\n");
         assert!(contract::compile(&source).is_err(), "{value}");
     }

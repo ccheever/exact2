@@ -1,0 +1,279 @@
+// Duo Lab (LLP 1078 D8): the first consumer of `device-posture` and the
+// viewport segments, and the iPhone Duo's stress fixture — what
+// `bun scripts/smoke.mjs duo` drives through open, book, half and closed.
+//
+// Four screens behind routes. Fold reads the three fields `exactViewport`
+// gained and lays two panes on the segments with `env(viewport-segment-*)`,
+// the fold band empty between them. Images is a virtualized list of a few
+// hundred image rows over four bundled PNGs (the raster budget's stress).
+// Reflow is one long Markdown document and a dense feed (the text caches'
+// stress from 951 to 466 points and back). Combinations pushes a route with
+// an absolutely positioned sheet holding a textarea, so keyboard + sheet +
+// pushed screen + fold is one sequence of taps.
+
+routes nav
+  tab fold "/"
+  tab images "/images"
+  tab reflow "/reflow"
+  tab combos "/combos"
+    note "/combos/note"
+
+// The web's vocabulary, exactly (LLP 1078 D1, D2): two postures, two counts.
+shape Viewport
+  width: number
+  height: number
+  devicePosture: string
+  horizontalViewportSegments: number
+  verticalViewportSegments: number
+shape Item
+  id: number
+  title: string
+  summary: string
+  body: string
+shape ImageRow
+  id: number
+  asset: string
+  caption: string
+shape Document
+  body: string
+shape FeedRow
+  id: number
+  who: string
+  body: string
+
+style Screen
+  position="absolute"
+  top=0
+  left=0
+  right=0
+  bottom=0
+  display="flex"
+  flex-direction="column"
+  background-color="#f4f1ea"
+style Safe
+  box-sizing="border-box"
+  padding-top="env(safe-area-inset-top)"
+  padding-right="env(safe-area-inset-right)"
+  padding-bottom="env(safe-area-inset-bottom)"
+  padding-left="env(safe-area-inset-left)"
+style Title
+  font-size=28
+  font-weight=700
+  letter-spacing=-0.4
+  padding-left=16
+  padding-right=16
+  padding-top=12
+  padding-bottom=4
+style Note
+  font-size=13
+  color="#6b655a"
+  padding-left=16
+  padding-right=16
+style Fact
+  font-size=15
+  font-weight=600
+  font-family="monospace"
+style Card
+  background-color="#ffffff"
+  border-radius=12
+  padding=12
+  box-sizing="border-box"
+style TabOn
+  flex=1
+  padding-top=10
+  padding-bottom=10
+  justify-content="center"
+  align-items="center"
+  background-color="#1b1a17"
+  border-radius=10
+style TabOff
+  flex=1
+  padding-top=10
+  padding-bottom=10
+  justify-content="center"
+  align-items="center"
+  background-color="#e6e0d2"
+  border-radius=10
+
+// A sheet snaps between a peek and a reading height from where it was let go.
+fn sheetStop(projected: number): number = projected < 300 ? 200 : 400
+
+component DuoLab
+  resource viewport = exactViewport() as shape Viewport
+  resource items = items() as shape list<Item>
+  resource rows = imageRows() as shape list<ImageRow>
+  resource doc = document() as shape Document
+  resource feed = feed() as shape list<FeedRow>
+  // Shared across the Fold screen's two layouts: a fold mid-reading keeps the item.
+  state selected = 1
+  state title = ""
+  state draft = ""
+  state noteFocused = false
+  state sheetPx = 400
+  derive current = top(nav)
+  derive twoAcross = viewport.horizontalViewportSegments == 2
+  derive twoDown = viewport.verticalViewportSegments == 2
+  action choose(id: number)
+    selected = id
+  action selectTab(name: string)
+    nav = select(nav, name)
+  action openNote
+    nav = push(nav, path("note"))
+  action back
+    nav = back(nav)
+  action navigate(location: string)
+    nav = open(nav, location)
+  action writeTitle(value: string)
+    title = value
+  action write(value: string)
+    draft = value
+  action focusIn
+    noteFocused = true
+  action focusOut
+    noteFocused = false
+  action snapSheet(height: number, velocity: number)
+    sheetPx = sheetStop(height + velocity * 0.15)
+  action dismiss
+    blur()
+  view
+    main testId="root" navigationKey=`${current.id}` navigationBack="back" navigate=navigate viewport-fit="cover" interactive-widget="resizes-content" width="100%" height="100%" position="relative" overflow="hidden" background-color="#f4f1ea" color="#1b1a17" font-family="system-ui"
+      each entry in stack(nav) key=entry.id
+        column navigationKey=`${entry.id}` class=Screen testId=`screen-${entry.name}`
+          when entry.name == "fold"
+            // Two segments across: the list on the first, the detail on the
+            // second, each inset by the safe areas on its own side; two down
+            // (the Duo's inner panel upright): the list on the upper, the
+            // detail on the lower. The band belongs to neither (LLP 1078 D1,
+            // D3); one segment stacks the panes.
+            when twoAcross
+              column testId="pane-list" width="env(viewport-segment-width 0 0)" height="100%" box-sizing="border-box" padding-top="env(safe-area-inset-top)" padding-bottom="env(safe-area-inset-bottom)" padding-left="env(safe-area-inset-left)"
+                Facts(viewport=viewport)
+                ItemList(items=items, selected=selected, choose=choose)
+                TabBar(tab=nav.tab, select=selectTab)
+              column testId="pane-detail" position="absolute" top=0 left="env(viewport-segment-left 1 0)" width="env(viewport-segment-width 1 0)" height="100%" box-sizing="border-box" padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" background-color="#ebe6da"
+                Detail(items=items, selected=selected)
+            else
+              when twoDown
+                column testId="pane-list" width="100%" height="env(viewport-segment-height 0 0)" box-sizing="border-box" padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-left="env(safe-area-inset-left)"
+                  Facts(viewport=viewport)
+                  ItemList(items=items, selected=selected, choose=choose)
+                column testId="pane-detail" position="absolute" left=0 top="env(viewport-segment-top 0 1)" width="100%" height="env(viewport-segment-height 0 1)" box-sizing="border-box" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" padding-left="env(safe-area-inset-left)" background-color="#ebe6da"
+                  Detail(items=items, selected=selected)
+                  TabBar(tab=nav.tab, select=selectTab)
+              else
+                column testId="pane-list" flex=1 min-height=0 width="100%" box-sizing="border-box" padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-left="env(safe-area-inset-left)"
+                  Facts(viewport=viewport)
+                  ItemList(items=items, selected=selected, choose=choose)
+                column testId="pane-detail" flex=1 min-height=0 width="100%" box-sizing="border-box" padding-right="env(safe-area-inset-right)" padding-left="env(safe-area-inset-left)" background-color="#ebe6da"
+                  Detail(items=items, selected=selected)
+                  TabBar(tab=nav.tab, select=selectTab)
+          when entry.name == "images"
+            column flex=1 min-height=0 width="100%" class=Safe
+              text "Images" class=Title testId="images-title"
+              text `${length(rows)} rows over four pictures; fold mid-scroll.` class=Note
+              list virtualized=true estimated-item-height=236 flex=1 min-height=0 width="100%" overflow-x="hidden" testId="image-list"
+                each row in rows key=row.id
+                  column width="100%" box-sizing="border-box" padding-left=16 padding-right=16 padding-top=12 testId=`image-row-${row.id}`
+                    image row.asset aria-label=row.caption width="100%" height=190 border-radius=12 object-fit="cover" background-color="#d9d4c7"
+                    text row.caption font-size=13 padding-top=6 color="#6b655a"
+              TabBar(tab=nav.tab, select=selectTab)
+          when entry.name == "reflow"
+            column flex=1 min-height=0 width="100%" class=Safe
+              text "Reflow" class=Title testId="reflow-title"
+              scroll flex=1 min-height=0 width="100%" testId="reflow-scroll"
+                column width="100%" box-sizing="border-box" padding=16 gap=16
+                  text doc.body markup="markdown" testId="document" width="100%" font-size=17 line-height="26px"
+                  text "Feed" font-size=22 font-weight=700 testId="feed-title"
+                  each post in feed key=post.id
+                    row gap=10 class=Card testId=`feed-${post.id}`
+                      text post.who font-size=14 font-weight=600 flex-shrink=0 width=72
+                      text post.body font-size=14 flex=1 min-width=0
+              TabBar(tab=nav.tab, select=selectTab)
+          when entry.name == "combos"
+            column flex=1 min-height=0 width="100%" class=Safe
+              text "Combinations" class=Title testId="combos-title"
+              text "Push a screen, open its sheet, raise the keyboard, then fold." class=Note
+              column padding=16 gap=12
+                button press=openNote testId="open-note" padding=14 border-radius=10 background-color="#1b1a17"
+                  text "Push the note screen" font-size=16 font-weight=600 color="#ffffff"
+                text `Draft so far: ${title == "" and draft == "" ? "(nothing)" : title + " / " + draft}` testId="draft-echo" font-size=14 color="#6b655a"
+              column flex=1
+              TabBar(tab=nav.tab, select=selectTab)
+          when entry.name == "note"
+            column flex=1 min-height=0 width="100%" class=Safe background-color="#ddd6c6"
+              row align-items="center" gap=12 padding-left=16 padding-right=16 padding-top=12
+                button press=back testId="note-back" padding=8 border-radius=8 background-color="#1b1a17"
+                  text "Back" font-size=14 font-weight=600 color="#ffffff"
+                text "Note" font-size=20 font-weight=700 testId="note-title"
+              text "A pushed route. The sheet below holds a textarea; its keyboard shortens the viewport (resizes-content)." class=Note padding-top=8
+            column id="note-sheet" testId="note-sheet" position="absolute" bottom=0 left=0 right=0 height=sheetPx max-height="calc(100% - 72px)" box-sizing="border-box" padding=16 padding-right="calc(env(safe-area-inset-right) + 16px)" padding-bottom="calc(env(safe-area-inset-bottom) + 16px)" gap=12 background-color="#ffffff" border-top-left-radius=20 border-top-right-radius=20 transition="height spring(300, 30, 1)"
+              column heightDragFor="note-sheet" heightrelease=snapSheet touch-action="none" testId="sheet-handle" aria-label="Resize the note sheet" gap=3
+                text "Note" font-size=18 font-weight=600
+                text "Drag to resize" font-size=11 color="#6b655a"
+              row gap=12 align-items="center"
+                button press=dismiss testId="note-dismiss" padding=10 border-radius=8 background-color="#e6e0d2"
+                  text "Dismiss the keyboard" font-size=14 font-weight=600
+                text (noteFocused ? "editing" : "idle") testId="note-state" font-size=13 color="#6b655a"
+              input value=title input=writeTitle focus=focusIn blur=focusOut placeholder="Title" testId="note-title-input" aria-label="Title" width="100%" box-sizing="border-box" padding=10 border-width=1 border-style="solid" border-color="#cfc8b8" border-radius=10 font-size=16
+              textarea value=draft input=write focus=focusIn blur=focusOut placeholder="Write, then fold" testId="note-textarea" aria-label="Note" width="100%" min-height=96 box-sizing="border-box" padding=12 border-width=1 border-style="solid" border-color="#cfc8b8" border-radius=10 font-size=16 line-height="22px"
+
+// The three facts and the viewport, printed so a screenshot is its own evidence.
+component Facts
+  props
+    viewport: Viewport
+  view
+    column padding-left=16 padding-right=16 padding-top=12 gap=2
+      text "Fold" font-size=28 font-weight=700 letter-spacing=-0.4 testId="fold-title"
+      row gap=8 align-items="baseline"
+        text "device-posture" class=Note padding=0
+        text viewport.devicePosture class=Fact testId="fact-posture"
+      row gap=8 align-items="baseline"
+        text "horizontal-viewport-segments" class=Note padding=0
+        text `${viewport.horizontalViewportSegments}` class=Fact testId="fact-h"
+      row gap=8 align-items="baseline"
+        text "vertical-viewport-segments" class=Note padding=0
+        text `${viewport.verticalViewportSegments}` class=Fact testId="fact-v"
+      row gap=8 align-items="baseline"
+        text "viewport" class=Note padding=0
+        text `${viewport.width}×${viewport.height}` class=Fact testId="fact-size"
+
+component ItemList
+  props
+    items: list<Item>
+    selected: number
+    choose: action
+  view
+    scroll flex=1 min-height=0 width="100%" testId="item-list"
+      column padding=12 gap=8
+        each item in items key=item.id
+          button press=choose(item.id) testId=`item-${item.id}` class=Card display="flex" flex-direction="column" gap=3 align-items="flex-start" background-color=(item.id == selected ? "#1b1a17" : "#ffffff")
+            text item.title font-size=16 font-weight=600 color=(item.id == selected ? "#ffffff" : "#1b1a17")
+            text item.summary font-size=13 color=(item.id == selected ? "#d9d4c7" : "#6b655a")
+
+component Detail
+  props
+    items: list<Item>
+    selected: number
+  view
+    scroll flex=1 min-height=0 width="100%" testId="detail-scroll"
+      column padding=16 gap=10
+        each item in items key=item.id
+          when item.id == selected
+            text item.title font-size=24 font-weight=700 testId="detail-title"
+            text item.summary font-size=15 color="#6b655a"
+            text item.body font-size=16 line-height="24px" testId="detail-body"
+
+component TabBar
+  props
+    tab: string
+    select: action
+  view
+    row gap=8 padding=12 flex-shrink=0 testId="tab-bar"
+      button press=select("fold") class=(tab == "fold" ? TabOn : TabOff) testId="tab-fold"
+        text "Fold" font-size=13 font-weight=600 color=(tab == "fold" ? "#ffffff" : "#1b1a17")
+      button press=select("images") class=(tab == "images" ? TabOn : TabOff) testId="tab-images"
+        text "Images" font-size=13 font-weight=600 color=(tab == "images" ? "#ffffff" : "#1b1a17")
+      button press=select("reflow") class=(tab == "reflow" ? TabOn : TabOff) testId="tab-reflow"
+        text "Reflow" font-size=13 font-weight=600 color=(tab == "reflow" ? "#ffffff" : "#1b1a17")
+      button press=select("combos") class=(tab == "combos" ? TabOn : TabOff) testId="tab-combos"
+        text "Combos" font-size=13 font-weight=600 color=(tab == "combos" ? "#ffffff" : "#1b1a17")

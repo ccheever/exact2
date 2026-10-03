@@ -339,6 +339,9 @@ fn validate(arena: &NodeArena, ops: &[Op]) -> Result<(), ApplyError> {
                                 count,
                             }
                         }
+                        StyleDomainError::InvalidGridTrack(style) => {
+                            ApplyError::InvalidGridTrack { op_index, style }
+                        }
                         StyleDomainError::InvalidGridSpan(style) => {
                             ApplyError::InvalidGridSpan { op_index, style }
                         }
@@ -609,6 +612,15 @@ pub(crate) fn apply_document(
                     }
                     arena.flags_mut(slot).insert(NodeFlags::PROPS_DIRTY);
                     view_box_changed(arena, layout, slot, *prop, &mut receipt);
+                    if matches!(
+                        prop,
+                        PropId::Type | PropId::AccessibilityRole | PropId::Href
+                    ) {
+                        if let Some(node) = arena.taffy(slot) {
+                            layout.restyle(arena, slot, node);
+                        }
+                        receipt.layout_invalidated = true;
+                    }
                     if prop.affects_measure() {
                         invalidate_text(arena, layout, slot);
                         receipt.layout_invalidated = true;
@@ -631,6 +643,15 @@ pub(crate) fn apply_document(
                         }
                         arena.flags_mut(slot).insert(NodeFlags::PROPS_DIRTY);
                         view_box_changed(arena, layout, slot, *prop, &mut receipt);
+                        if matches!(
+                            prop,
+                            PropId::Type | PropId::AccessibilityRole | PropId::Href
+                        ) {
+                            if let Some(node) = arena.taffy(slot) {
+                                layout.restyle(arena, slot, node);
+                            }
+                            receipt.layout_invalidated = true;
+                        }
                         if prop.affects_measure() {
                             invalidate_text(arena, layout, slot);
                             receipt.layout_invalidated = true;

@@ -293,6 +293,49 @@ final class NodePoolIOSTests: XCTestCase {
         }
     }
 
+    /// LLP 1069.011.000 D8: a row holding controls — a native button and a
+    /// switch — pools around them; each is a new node with a new `UIControl`
+    /// under the next row's id, pressing that id.
+    func testARowPoolsAroundItsControlsWhichAreBuiltFresh() throws {
+        func row(_ base: Int, y: Double) -> [[String: Any]] {
+            [
+                ["op": "create", "id": base, "kind": "view", "props": ["testId": "row-\(base)"]],
+                ["op": "create", "id": base + 1, "kind": "text", "props": ["text": "Row \(base)"], "style": ["font_size": 17.0]],
+                ["op": "create", "id": base + 2, "kind": "control", "handlers": ["press"],
+                 "props": ["type": "button", "accessibilityRole": "button"], "style": ["appearance": "auto", "text_color": [0, 0, 0, 255]]],
+                ["op": "create", "id": base + 3, "kind": "control", "handlers": ["change"],
+                 "props": ["type": "checkbox", "accessibilityRole": "switch", "checked": "true"], "style": ["text_color": [0, 0, 0, 255]]],
+                ["op": "children", "id": base, "ids": [base + 1, base + 2, base + 3]],
+                ["op": "frame", "id": base, "x": 0.0, "y": y, "w": 300.0, "h": 60.0],
+                ["op": "frame", "id": base + 1, "x": 8.0, "y": 10.0, "w": 120.0, "h": 24.0],
+                ["op": "frame", "id": base + 2, "x": 140.0, "y": 10.0, "w": 80.0, "h": 34.0],
+                ["op": "frame", "id": base + 3, "x": 230.0, "y": 10.0, "w": 51.0, "h": 31.0],
+            ]
+        }
+        let p = listFixture(row(10, y: 0), root: 10)
+        p.buttonFace = { _ in var f = ButtonFace(); f.title = "Go"; return f }
+        p.apply(wireBatch([]))
+        let rowView = try XCTUnwrap(p.views[10]), label = try XCTUnwrap(p.views[11])
+        let button = try XCTUnwrap(p.controls.controls[12] as? NativeButtonIOS)
+        let toggle = try XCTUnwrap(p.controls.controls[13])
+        p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12, 13]) + row(20, y: 0)
+            + [["op": "children", "id": 1, "ids": [20]]]))
+        XCTAssertTrue(p.views[20] === rowView && p.views[21] === label, "the plain views, by position")
+        let freshButton = try XCTUnwrap(p.controls.controls[22] as? NativeButtonIOS)
+        let freshToggle = try XCTUnwrap(p.controls.controls[23])
+        XCTAssertFalse(freshButton === button, "a new UIButton")
+        XCTAssertFalse(freshToggle === toggle, "a new switch")
+        XCTAssertNil(p.controls.controls[12]); XCTAssertNil(p.controls.controls[13])
+        XCTAssertNil(button.superview, "the old control left with its node")
+        XCTAssertEqual(p.pool.leavesDropped["control"], 2); XCTAssertEqual(p.pool.leavesBuilt["control"], 2)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        freshButton.sendActions(for: .primaryActionTriggered)
+        XCTAssertEqual(pressed, [22], "the new row's id")
+        button.sendActions(for: .primaryActionTriggered)
+        XCTAssertEqual(pressed, [22], "the old control reaches nothing")
+    }
+
     /// A 2D canvas row (LLP 1056 D10, LLP 1068 §4.0): the canvas is a new
     /// view with no bitmap of the old row's, a late list for the old canvas
     /// lands nowhere, and the new canvas draws its own lifetime's lists.
@@ -384,6 +427,25 @@ final class NodePoolIOSTests: XCTestCase {
         XCTAssertFalse(fresh === view)
         XCTAssertNil(view.superview)
         XCTAssertTrue(glyph.superview === fresh.contentView)
+    }
+
+    /// LLP 1053.000.000.000 (grok's code review): a row recycled from an
+    /// auto group onto a numeric one does not report the old `auto`.
+    func testAnAutoGroupRowRecycledOntoANumericGroupIsNotAuto() throws {
+        guard #available(iOS 26.0, *) else { throw XCTSkip("Liquid Glass is iOS 26") }
+        let p = listFixture(rowOps(10, y: 0, label: "Save 10").enumerated().map { i, op in
+            i == 0 ? op.merging(["props": ["testId": "row-10", "glassGroup": "8", "glassGroupAuto": "true"]]) { $1 } : op
+        }, root: 10)
+        var next = rowOps(20, y: 0, label: "Save 20")
+        next[0]["props"] = ["testId": "row-20", "glassGroup": "12"]
+        p.apply(wireBatch([collections([(20, 20)])] + destroy([10, 11, 12]) + next
+            + [["op": "children", "id": 1, "ids": [20]]]))
+        let row = try XCTUnwrap(p.views[20])
+        XCTAssertNil(row.props["glassGroupAuto"])
+        var native: [String: Any] = [:]
+        row.glassAgentFields(&native)
+        XCTAssertEqual((native["glassGroup"] as? [String: Any])?["spacing"] as? Double, 12)
+        XCTAssertNil((native["glassGroup"] as? [String: Any])?["auto"])
     }
 
     func testAMaterialRowWithoutTheMaterialComesBackWithout() throws {

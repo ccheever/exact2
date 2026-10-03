@@ -580,6 +580,19 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
             };
             quote(&text, out)
         }
+        RowValue::Dimension(Dimension::Segment(var, x, y, offset)) => {
+            let var = var.name();
+            let text = if offset == 0.0 {
+                format!("env(viewport-segment-{var} {x} {y})")
+            } else {
+                format!(
+                    "calc(env(viewport-segment-{var} {x} {y}) {} {}px)",
+                    if offset < 0.0 { "-" } else { "+" },
+                    num(offset.abs() as f64)
+                )
+            };
+            quote(&text, out)
+        }
         RowValue::LineHeight(v) => match v {
             exact_kernel::LineHeight::Number(n) => {
                 let _ = write!(out, "{}", num(n as f64));
@@ -593,6 +606,10 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
         RowValue::ColorValue(ColorValue::LightDark(l, d)) => {
             quote(&format!("light-dark({}, {})", hex(l), hex(d)), out)
         }
+        // A system colour by its name (LLP 1077 D13).
+        RowValue::ColorValue(c @ ColorValue::System(_)) => {
+            quote(c.system_name().unwrap_or("#000"), out)
+        }
         RowValue::Enum(name) => quote(name, out),
         RowValue::Vec2(v) => {
             let _ = write!(out, "[{},{}]", num(v.x as f64), num(v.y as f64));
@@ -603,7 +620,12 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
         RowValue::AnimationTimeline(t) => quote(&t.css(), out),
         RowValue::AnimationRange(r) => quote(&r.css(), out),
         RowValue::TimelineScope(s) => quote(&s.css(), out),
-        RowValue::BackgroundImage(g) => quote(&g.css(), out),
+        RowValue::BackgroundImage(g) | RowValue::MaskImage(g) => quote(&g.css(), out),
+        RowValue::TextShadow(s) => quote(&s.css(), out),
+        RowValue::BoxShadow(s) => quote(&s.css(), out),
+        RowValue::CornerShape(c) => quote(&c.css(), out),
+        RowValue::RotateAxis(a) => quote(&a.css(), out),
+        RowValue::SymbolPalette(p) => quote(&p.css(), out),
         RowValue::ShapeOutside(p) => quote(&p.css(), out),
         RowValue::Transitions(_) => quote("(transition)", out),
         RowValue::Paint(p) => quote(&p.css(), out),
@@ -669,10 +691,14 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
     let _ = write!(s, ",\"seed\":{}", num(place.seed));
     // The device facts (LLP 1069.000; LLP 1069.007 D2), by their web names,
     // whether or not the app declares a source that reads them.
-    let (media, page) = (runner.viewport().preferences, runner.page());
+    let (media, page, fold) = (
+        runner.viewport().preferences,
+        runner.page(),
+        runner.viewport().fold,
+    );
     let _ = write!(
         s,
-        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"rootFontSize\":{}",
+        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"rootFontSize\":{},\"devicePosture\":\"{}\",\"horizontalViewportSegments\":{},\"verticalViewportSegments\":{}",
         media.reduced_motion,
         media.reduced_transparency,
         media.contrast.keyword(),
@@ -680,7 +706,10 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
         page.visibility_state(),
         page.on_line,
         page.can_share,
-        num(runner.root_font_size())
+        num(runner.root_font_size()),
+        fold.posture.keyword(),
+        fold.cols,
+        fold.rows
     );
     s.push_str("},\"derives\":{");
     for (i, row) in plan.derives.iter().enumerate() {

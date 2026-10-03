@@ -70,7 +70,10 @@ extension NodeView {
     var pressFactor: CGFloat { press.idle ? 1 : press.factor(at: CACurrentMediaTime()) }
 
     /// `pressed` changed: ease toward the pressed scale, or back to 1.
-    func pressChanged() { aimPress(pressed, release: !pressed) }
+    func pressChanged() {
+        if pressed { pressHaptic() }
+        aimPress(pressed, release: !pressed)
+    }
     /// The pointer moved while pressed: the feedback follows whether it is
     /// still inside, as the tap's own acceptance does on release.
     func pressFollows(inside: Bool) { if pressed { aimPress(inside) } }
@@ -114,8 +117,16 @@ extension NodeView {
         // Outermost, a layout transition's offset; its size is the surface's
         // alone (`Surface.swift`, LLP 1063).
         let o = transformOriginPoint, d = CGPoint(x: o.x - bounds.midX, y: o.y - bounds.midY), s = scale * pressFactor
+        let outer = CGAffineTransform(translationX: layoutOffset.x, y: layoutOffset.y).concatenating(contextTransform)
+        if let space = spaceTransform(origin: d, scale: s) {
+            // A 3D rotation or a z translation (LLP 1077 D8): the layer's own
+            // transform, the view's affine one left at identity.
+            if transform != .identity { transform = .identity }
+            layer.transform = CATransform3DConcat(space, CATransform3DMakeAffineTransform(outer))
+            return
+        }
         let own = CGAffineTransform(translationX: translate.x + d.x, y: translate.y + d.y).rotated(by: rotate * .pi / 180).scaledBy(x: s, y: s).translatedBy(x: -d.x, y: -d.y)
-        transform = own.concatenating(CGAffineTransform(translationX: layoutOffset.x, y: layoutOffset.y)).concatenating(contextTransform)
+        transform = own.concatenating(outer)
     }
     /// Whether a touch is inside the box as it stands unpressed. The pressed
     /// box is smaller, so testing against it would release a finger resting
@@ -132,21 +143,34 @@ extension NodeView {
         // view where its frame is, never where its layer was moved.
         let shift = presenter?.reorder?.lifts(id) == true ? translate : .zero
         if shift != arrangeShift {
-            setFrameOrigin(NSPoint(x: frame.minX - arrangeShift.x + shift.x, y: frame.minY - arrangeShift.y + shift.y))
+            // Recorded first: moving the frame can lay the view out again,
+            // which comes back here (now from `layout()`).
+            let was = arrangeShift
             arrangeShift = shift
+            setFrameOrigin(NSPoint(x: frame.minX - was.x + shift.x, y: frame.minY - was.y + shift.y))
         }
         // The layer turns about its own origin: move `transform-origin`
         // there, turn, move it back. A press folds into the scale.
         let o = transformOriginPoint, s = scale * pressFactor
+        if let space = spaceTransform(origin: o, scale: s, shift: shift) {
+            // A 3D rotation or a z translation (LLP 1077 D8).
+            layer?.transform = CATransform3DConcat(space, CATransform3DMakeTranslation(layoutOffset.x, layoutOffset.y, 0))
+            return
+        }
         var t = CGAffineTransform(translationX: translate.x - shift.x, y: translate.y - shift.y)
         t = t.translatedBy(x: o.x, y: o.y).rotated(by: rotate * .pi / 180).scaledBy(x: s, y: s).translatedBy(x: -o.x, y: -o.y)
         // Outermost, a layout transition's offset; its size is the surface's
         // alone (`Surface.swift`, LLP 1063).
         layer?.setAffineTransform(t.concatenating(CGAffineTransform(translationX: layoutOffset.x, y: layoutOffset.y)))
     }
-    /// Whether a window point is inside the box. AppKit's conversion ignores
-    /// the layer's transform, so this is the box as it stands unpressed.
-    func pressInside(_ windowPoint: NSPoint) -> Bool { bounds.contains(local(windowPoint)) }
+    /// Whether a window point is inside the box as it stands unpressed.
+    /// `local` reaches a transformed box through its plane, the press
+    /// included (`descend`), so the point is scaled back out as iOS's is —
+    /// once. An untransformed box has no press in it to undo.
+    func pressInside(_ windowPoint: NSPoint) -> Bool {
+        let p = local(windowPoint), f = plane == nil ? 1 : pressFactor, o = transformOriginPoint
+        return bounds.contains(CGPoint(x: o.x + (p.x - o.x) * f, y: o.y + (p.y - o.y) * f))
+    }
     #endif
 }
 

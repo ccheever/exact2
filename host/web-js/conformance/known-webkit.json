@@ -1,0 +1,57 @@
+[
+  {
+    "app": "*",
+    "step": "*",
+    "field": "tree.*",
+    "pattern": "\\|focused» webkit «[^»]*\\|»$",
+    "reason": "WebKit does not focus a button on a mouse click (Safari's macOS convention, as AppKit does); Chrome does. HTML leaves focusing steps on activation to the user agent."
+  },
+  {
+    "app": "caltrain",
+    "step": "*",
+    "field": "layout.station-search.w",
+    "reason": "A text input's intrinsic width (size=20 average characters) is the user agent's: WebKit 223 px, Chrome 201 px."
+  },
+  {
+    "app": "markdown",
+    "step": "*",
+    "field": "layout.open-file.w",
+    "reason": "A native file input's intrinsic width is the user agent's: WebKit 182.25 px, Chrome 164 px."
+  },
+  {
+    "app": "markdown",
+    "step": "*",
+    "field": "layout.open-document.x",
+    "reason": "Follows the wider native file input in the same flex row (layout.open-file.w)."
+  },
+  {
+    "app": "markdown",
+    "step": "*",
+    "field": "layout.open-folder.x",
+    "reason": "Follows the wider native file input in the same flex row (layout.open-file.w)."
+  },
+  {
+    "app": "markdown",
+    "step": "*",
+    "field": "layout.document-name.x",
+    "reason": "Follows the wider native file input in the same flex row (layout.open-file.w)."
+  },
+  {
+    "app": "markdown",
+    "step": "*",
+    "field": "layout.scheme-system.x",
+    "reason": "Follows the wider native file input in the same flex row (layout.open-file.w)."
+  },
+  {
+    "app": "markdown",
+    "step": "*",
+    "field": "layout.scheme-light.x",
+    "reason": "Follows the wider native file input in the same flex row (layout.open-file.w)."
+  },
+  {
+    "app": "markdown",
+    "step": "*",
+    "field": "layout.scheme-dark.x",
+    "reason": "Follows the wider native file input in the same flex row (layout.open-file.w)."
+  }
+]

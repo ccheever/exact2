@@ -224,11 +224,15 @@ pub struct GlowInput {
     pub(crate) material: [f32; 12],
     pub(crate) tween: exact_game::Tween,
     pub(crate) hz: u32,
+    pub(crate) model: bool,
 }
 impl GlowInput {
     pub(crate) fn material_at(&self, seconds: f64) -> [f32; 12] {
         let intensity = self.tween.value_at(seconds, self.hz);
         let mut material = self.material;
+        if self.model {
+            material[9] = intensity.max(0.);
+        }
         for value in &mut material[6..9] {
             let emissive = *value * intensity;
             let shoulder = value.max(2.);

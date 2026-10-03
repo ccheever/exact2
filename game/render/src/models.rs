@@ -379,21 +379,26 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         if replaced {
             self.models.skinning.as_mut().unwrap().mark_fresh(&skins);
         }
+        let mut rigid = skins.iter().skip(model.skins.len());
         let nodes = model
             .nodes
             .iter()
             .zip(model.offsets().map_err(RenderError::scene)?)
             .filter_map(|(n, local)| {
                 n.mesh.map(|m| {
+                    let skin = n
+                        .skin
+                        .map(|s| skins[s as usize])
+                        .or_else(|| rigid.next().copied());
                     (
                         meshes[m as usize],
                         materials[model.meshes[m as usize].material as usize],
-                        if n.skin.is_some() {
+                        if skin.is_some() {
                             Mat4::IDENTITY
                         } else {
                             local
                         },
-                        n.skin.map(|s| skins[s as usize]),
+                        skin,
                     )
                 })
             })

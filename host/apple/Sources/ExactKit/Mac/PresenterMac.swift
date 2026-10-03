@@ -94,6 +94,8 @@ final class Presenter {
     /// `viewport-fit=cover`, zero when the viewport is the content view
     /// below it. Reported to the agent as `env`.
     var insets = NSEdgeInsetsZero
+    /// The posture and the viewport segments last told (LLP 1078 D5): flat, unless an agent preferred otherwise.
+    var fold = ViewportFold.flat
 
     init() {
         viewport.permitsDocumentPrefit = { [weak self] in
@@ -700,7 +702,7 @@ final class Presenter {
 
     func press(_ id: UInt32, fromNativeMenu: Bool = false) {
         guard let node = textHost(id), !node.inert, !node.disabled,
-              fromNativeMenu || !node.isHiddenOrHasHiddenAncestor || toolbar.contains(node) else { return }
+              fromNativeMenu || (segments.shown(node) ?? !node.isHiddenOrHasHiddenAncestor) || toolbar.contains(node) else { return }
         let command = dialogs.command(node, fromNativeMenu: fromNativeMenu)
         let popover = menus.command(node, fromNativeMenu: fromNativeMenu)
         if (command == nil && popover == nil) || node.handlers.contains("press") { onPress?(id) }
@@ -1122,7 +1124,7 @@ final class Presenter {
         if index < 0 { return false }
         if v.field != nil || v.textArea != nil { return true }
         if v.kind == "native", v.presenter?.session?.natives.focusTarget(v) != nil { return true }
-        if v.kind == "button" || v.kind == "toggle" || v.handlers.contains("press") { return true }
+        if v.isButton || v.kind == "toggle" || v.pressable { return true }
         if v.canBecomeKeyView { return true }
         return index > 0
     }
@@ -1177,9 +1179,11 @@ enum Capture {
             }
         }
         hide(view)
+        let fills = hideBoxFills(in: view)
         capturing = true
         view.cacheDisplay(in: view.bounds, to: rep)
         capturing = false
+        restore(fills)
         for o in hidden { o.isHidden = false }
         view.alphaValue = alpha
         return rep

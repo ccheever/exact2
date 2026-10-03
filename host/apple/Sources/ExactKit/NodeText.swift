@@ -94,6 +94,9 @@ extension NodeView {
             // Markdown source: the archive expands it into runs, the same
             // expansion the measurer used (LLP 1045 D3).
             runs = MarkupRuns.expand(source, base: textRun(""), color: channels("text_color", dark: night))
+            // `currentcolor` in a shadow or stroke is each piece's own colour.
+            let rows = RunPaintRows(style), own = channels("text_color", dark: night) ?? [0, 0, 0, 255]
+            for i in runs.indices { (runs[i].shadow, runs[i].stroke) = rows.resolve(dark: night, color: runs[i].color ?? own) }
         } else if let value = props["text"] {
             runs.append(InlineText.run(value, style: style, href: props["href"] ?? "", dark: night))
         } else {
@@ -119,6 +122,8 @@ extension NodeView {
                         overflowWrap: style["overflow_wrap"]?.string == "anywhere" ? 2 : style["overflow_wrap"]?.string == "break-word" ? 1 : 0, direction: rtl ? 1 : 0, whiteSpace: whiteSpace, strut: textRun(""))
         spec.ellipsis = lineClamp == 0 && clips && style["text_overflow"]?.string == "ellipsis"
         spec.source = source
+        // One shadow over the paragraph when its runs agree (LLP 1077 D3).
+        spec.gatherShadows()
         cachedTextSpec = spec
         return spec
     }

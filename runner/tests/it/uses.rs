@@ -199,6 +199,26 @@ fn gradients_are_linked_by_use() {
 }
 
 #[test]
+fn grid_grammars_are_linked_by_any_grid_row() {
+    assert!(!used("component A\n  view\n    box display=\"grid\"\n").has(Capability::Grid));
+    for (row, value, alternative) in [
+        ("grid-template-columns", "1fr 2fr", "auto"),
+        ("grid-template-rows", "auto 40px", "25%"),
+        ("grid-column", "1 / span 2", "auto"),
+        ("grid-row", "rail / 2", "span 2"),
+        ("grid-auto-flow", "column dense", "row"),
+        ("justify-items", "safe center", "stretch"),
+    ] {
+        let literal = used(&format!("component A\n  view\n    box {row}=\"{value}\"\n"));
+        assert!(literal.has(Capability::Grid), "literal {row}");
+        let dynamic = used(&format!(
+            "component A\n  state on = true\n  view\n    box {row}=(on ? \"{value}\" : \"{alternative}\")\n"
+        ));
+        assert!(dynamic.has(Capability::Grid), "dynamic {row}");
+    }
+}
+
+#[test]
 fn a_set_names_what_it_holds_beyond_another() {
     let markdown = Uses::NONE.with(Capability::Markdown);
     assert!(markdown.beyond(markdown).is_empty());

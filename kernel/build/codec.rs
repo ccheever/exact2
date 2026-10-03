@@ -1,3 +1,42 @@
+const CODEC_PATHS: [&str; 5] = [
+    "../vendor/taffy/src/style/grid.rs",
+    "build.rs",
+    "build/codec.rs",
+    "src/style/grid.rs",
+    "src/wire/codec.rs",
+];
+const SCHEMA_PATH: &str = "tables/schema.json";
+const DIGEST_DOMAIN: &[u8] = b"exact-kernel-schema-v1\0";
+
+enum GridSeam {
+    Decode,
+    Encode,
+    Dynamic,
+}
+
+fn emit_grid_seam(w: &mut String, id: &str, seam: GridSeam) -> bool {
+    if !matches!(
+        id,
+        "GridAutoFlow"
+            | "GridTemplateColumns"
+            | "GridTemplateRows"
+            | "GridColumn"
+            | "GridRow"
+            | "JustifyItems"
+    ) {
+        return false;
+    }
+    if id == "GridAutoFlow" {
+        let line = match seam {
+            GridSeam::Decode => "crate::style::decode_grid_rows(&mut out, mask, r)?;",
+            GridSeam::Encode => "crate::style::encode_grid_rows(self, mask, w);",
+            GridSeam::Dynamic => "StyleId::GridAutoFlow | StyleId::GridTemplateColumns | StyleId::GridTemplateRows | StyleId::GridColumn | StyleId::GridRow | StyleId::JustifyItems => crate::style::set_grid_dynamic(self, id, value)?,",
+        };
+        writeln!(w, "            {line}").unwrap();
+    }
+    true
+}
+
 enum Codec {
     Dimension,
     LineHeight,
@@ -52,6 +91,13 @@ fn parse_codec(s: &str) -> Codec {
         "shape-outside" => Codec::CssValue { path: "exact_textflow::ShapeOutside", variant: "ShapeOutside", error: "BadShapeOutside" },
         // @ref LLP 1066 D1
         "background-image" => Codec::CssValue { path: "crate::gradient::BackgroundImage", variant: "BackgroundImage", error: "BadBackgroundImage" },
+        // @ref LLP 1077 D1–D4
+        "symbol-palette" => Codec::CssValue { path: "crate::style::symbols::SymbolPalette", variant: "SymbolPalette", error: "BadSymbolPalette" },
+        "rotate-axis" => Codec::CssValue { path: "crate::style::space::RotateAxis", variant: "RotateAxis", error: "BadRotateAxis" },
+        "box-shadow" => Codec::CssValue { path: "crate::style::BoxShadows", variant: "BoxShadow", error: "BadBoxShadow" },
+        "text-shadow" => Codec::CssValue { path: "crate::style::TextShadow", variant: "TextShadow", error: "BadTextShadow" },
+        "mask-image" => Codec::CssValue { path: "crate::gradient::BackgroundImage", variant: "MaskImage", error: "BadMaskImage" },
+        "corner-shape" => Codec::CssValue { path: "crate::corner::CornerShape", variant: "CornerShape", error: "BadCornerShape" },
         // @ref LLP 1057.003 D1 — drag timelines, CSS scroll-timeline's shape.
         "drag-timeline" => Codec::CssValue { path: "crate::timeline::DragTimeline", variant: "DragTimeline", error: "BadDragTimeline" },
         "animation-timeline" => Codec::CssValue { path: "crate::timeline::AnimationTimeline", variant: "AnimationTimeline", error: "BadAnimationTimeline" },
@@ -248,7 +294,7 @@ impl Codec {
             Codec::Vec2 => format!("w.vec2({access});"),
             Codec::Color2 => format!("w.color2({access});"),
             Codec::Tracks => format!("w.tracks(&{access});"),
-            Codec::Placement => format!("w.placement({access});"),
+            Codec::Placement => format!("w.placement(&{access});"),
             Codec::Transitions => format!("w.transitions(&{access});"),
             Codec::Animations => format!("w.animations(&{access});"),
             Codec::CssValue { .. } => format!("w.string(&{access}.css());"),
@@ -259,7 +305,11 @@ impl Codec {
     fn is_copy(&self) -> bool {
         !matches!(
             self,
-            Codec::Tracks | Codec::Transitions | Codec::Animations | Codec::CssValue { .. }
+            Codec::Tracks
+                | Codec::Placement
+                | Codec::Transitions
+                | Codec::Animations
+                | Codec::CssValue { .. }
         )
     }
 }

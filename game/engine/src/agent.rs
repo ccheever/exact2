@@ -156,21 +156,10 @@ impl<G: Game> Sim<G> {
     }
     /// Named content failures; readiness must never hide a failed declaration.
     pub fn asset_failures(&self) -> impl Iterator<Item = &str> {
-        self.world
-            .assets
-            .states
-            .values()
-            .filter_map(|s| match s {
-                crate::asset::AssetState::Failed(reason) => Some(reason.as_str()),
-                _ => None,
-            })
-            .chain(
-                self.world
-                    .assets
-                    .refusal
-                    .iter()
-                    .map(|(_, reason)| reason.as_str()),
-            )
+        self.world.assets.states.values().filter_map(|s| match s {
+            crate::asset::AssetState::Failed(reason) => Some(reason.as_str()),
+            _ => None,
+        })
     }
 
     /// Answer the engine half of an agent request as JSON, always tagged with tick.

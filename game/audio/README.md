@@ -89,9 +89,19 @@ lower-priority sound, except while a preferred candidate waits for stopped PCM t
 be acknowledged: non-preferred candidates stay stopped so they cannot reclaim that
 capacity. A dropped loop returns at its current phase.
 There is no callback stealing. Final per-channel gains are sanitized to 0..4 at
-this shared boundary. Missing ears silence spatial sounds. Distance gain is
-`1/max(distance,1) * (1-smoothstep(1,40,distance))`; local +X is right and pan is
-equal-power. UI gains apply equally to both channels on both executors.
+this shared boundary. Missing ears silence spatial sounds. Local +X is right
+and pan is equal-power. UI gains apply equally to both channels on both executors.
+
+`audio::Spatial` controls distance attenuation: `distance_model` is
+`DistanceModel::Inverse` (default), `Linear` or `Exponential`; `ref_distance`
+defaults to 1, `max_distance` to 10000 and `rolloff_factor` to 1, following
+[Web Audio](https://www.w3.org/TR/webaudio-1.0/#enumdef-distancemodeltype).
+The default is `1/max(distance,1)` with no 40-unit cutoff. Only the linear model
+uses `max_distance`. Set `rolloff_factor: 0.` to retain directional pan without
+distance attenuation. Attach `Spatial` to an `AudioSource` or an entity followed
+by a voice, or call `world.play("hum").at_point(position).spatial(controls).start()`
+to save controls with that voice. Explicit voice controls override the entity's.
+An attached voice retains the entity's controls and position when it despawns.
 
 Definitions are immutable shared values with a content revision computed at
 registration or restore. A synth-only world saves and hashes exactly as it did

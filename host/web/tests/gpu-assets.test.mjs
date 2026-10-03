@@ -20,7 +20,7 @@ test('asset fetches have at most eight simultaneous requests', async () => {
 });
 test('a failed cosmetic never gets a first-frame stamp or repeated state serialization', () => {
   let reads = 0;
-  const body = 'let recoveringDevice;\n' + source.slice(source.indexOf('function childFrames(entry)'), source.indexOf('// The live frame clock'));
+  const body = 'let recoveringDevice, recoveryTimer;\n' + source.slice(source.indexOf('function childFrames(entry)'), source.indexOf('// The live frame clock'));
   const gpu = {gpu_render:()=>0, gpu_agent:()=>{reads++; return JSON.stringify({world:{assets:[{name:'bad.model',state:'Failed'}]}})}};
   const render = new Function('gpu','hidden','exact','size','clockFor','messages','requestAnimationFrame',body+'return render;')(
     gpu, false, {}, ()=>({w:10,h:10,s:1}), x=>x, ()=>{}, ()=>{});
@@ -59,7 +59,7 @@ test('dev assets obey the same pre-copy byte limit', async () => {
   expect(api.delivered).toEqual([]);
   expect(api.failed[0][1]).toContain('64 MiB');
 });
-test('retirement cancels queued and active names and the whole queue is bounded', async () => {
+test('retirement cancels queued and active names beyond 256 assets', async () => {
   const names = Array.from({length:300},(_,i)=>`${i}.model`);
   const api = harness({names, fetch: (_, {signal}) => new Promise((_, reject) => signal.addEventListener('abort',()=>reject(new Error('aborted'))))});
   api.assets(api.entry);
@@ -69,7 +69,8 @@ test('retirement cancels queued and active names and the whole queue is bounded'
   const remaining = [...api.assetFlights].map(f=>f.name);
   api.cancelAssets(api.entry);
   await Promise.all([...api.assetFlights].map(f=>f.promise));
-  expect(count).toBeLessThanOrEqual(256);
+  expect(count).toBe(300);
+  expect(api.failed).toEqual([]);
   expect(remaining).not.toContain('0.model');
   expect(remaining).not.toContain('20.model');
 });

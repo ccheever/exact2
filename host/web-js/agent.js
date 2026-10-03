@@ -3,8 +3,8 @@
 // `scripts/agent.mjs web` asks. Input and screenshots stay the carrier's own
 // (CDP). Loaded only under `?agent`; never part of an app's boot bytes.
 import names, { types } from './names.js';
-import { R, eq, pieces, pageHistory } from './rt.js';
-import { environment, navigation, guestOutline, guestTap, guestType, viewBox } from './navigation.js';
+import { R, eq, pieces, pageHistory, Head } from './rt.js';
+import { environment, navigation, guestOutline, guestTap, guestType, viewBox, foldEnv, preferFold } from './navigation.js';
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
 const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['placeholder', 'placeholder'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget']];
@@ -181,8 +181,16 @@ export function install(exact) {
     const stale = time ? exact.resources.filter(r => r.source === 'exactTime' && !eq(r.value, time('exactTime', [], r.name))) : [];
     if (stale.length) exact.commit(() => { for (const r of stale) R(r); }, 'time');
   };
+  const settleGpu = async () => await exact.gpu?.settled?.() ?? [];
+  const gpuPendingReply = (req, pending) => {
+    const names = pending.map(item => item.name ?? 'GPU work');
+    return req.op === 'clock' ? { ...tags(), settled: false, reason: 'gpu', pending: names }
+      : { error: `GPU is not settled: ${names.join(', ')}`, pending: names };
+  };
   exact.agentSettled = async (req) => {
     await pieces();
+    const beforeGpu = await settleGpu();
+    if (beforeGpu.length) return gpuPendingReply(req, beforeGpu);
     seek();
     // `tap @t <choice>` / `type @t <value>` answer a held request (D4).
     if ((req.op === 'tap' || req.op === 'type') && req.ticket != null) return (await exact.files?.answer(req)) ?? (exact.auth ? exact.auth.answer(req) : { error: `not pending: @${req.ticket}` });
@@ -265,6 +273,8 @@ export function install(exact) {
             await new Promise(r => requestAnimationFrame(() => r()));
           }
           retime();
+          const gpuPending = await settleGpu();
+          if (gpuPending.length) return gpuPendingReply(req, gpuPending);
           const waiting = holds();
           if (waiting.length) return { clock: exact.clock.now, settled: false, reason: 'device', tickets: waiting.map(h => h.ticket) };
           return { clock: exact.clock.now, settled: !exact.inflight.n };
@@ -287,6 +297,8 @@ export function install(exact) {
         }
         retime(); seek();
         await new Promise(r => requestAnimationFrame(() => r()));
+        const gpuPending = await settleGpu();
+        if (gpuPending.length) return gpuPendingReply(req, gpuPending);
         return { clock: exact.clock.now };
       }
       case 'tags': return tags();
@@ -302,10 +314,14 @@ export function install(exact) {
         const language = { lang: document.documentElement.lang || 'en', dir: document.documentElement.dir || 'ltr' };
         const keyboard = { visible: overlap > 0, overlap: Math.round(overlap * 100) / 100, policy: document.querySelector('[interactiveWidget]')?.getAttribute('interactiveWidget') ?? 'resizes-visual', interactive: false };
         const media = [...document.querySelectorAll('#exact-root video')].map(el => ({ id: id(el), state: { currentTime: el.currentTime, duration: Number.isFinite(el.duration) ? el.duration : null, paused: el.paused, muted: el.muted, volume: el.volume, playbackRate: el.playbackRate, readyState: el.readyState, videoWidth: el.videoWidth, videoHeight: el.videoHeight, src: el.currentSrc, error: el.error ? { code: el.error.code, message: el.error.message } : null, renderer: 'HTMLVideoElement' } }));
-        return { slots, derives, resources, pending, focus, language, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...tags() };
+        // The active head's fields, `null` where none is set, as the runner's `state.head` (agent.rs).
+        const head = Object.fromEntries(['title', 'description', 'image', 'canonical', 'robots', 'status'].map(k => [k, Head['head' + k[0].toUpperCase() + k.slice(1)] ?? null]));
+        return { slots, derives, resources, pending, head, focus, language, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...tags() };
       }
       // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js).
-      case 'prefer': try { return { page: exact.page ? exact.page.prefer(req.page ?? {}) : {} }; } catch (e) { return { error: e.message }; }
+      // The fold group (LLP 1078 D7) likewise: through facts.js where the plan reads the fold's fields (it re-answers them), else the
+      // substitute lands here for `layout.env`; without a fold group the fold stays as it is.
+      case 'prefer': try { return { page: exact.page ? exact.page.prefer(req.page ?? {}) : {}, fold: !req.fold ? foldEnv() : exact.fold ? exact.fold.prefer(req.fold) : preferFold(Object.keys(req.fold).length ? req.fold : null) }; } catch (e) { return { error: e.message }; }
       default: return { error: `${req.op} is not carried by the JS target` };
     }
   };

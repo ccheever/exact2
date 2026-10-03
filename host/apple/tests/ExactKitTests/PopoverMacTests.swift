@@ -198,6 +198,50 @@ final class PopoverMacTests: XCTestCase {
         p.apply(wireBatch([["op": "create", "id": 8, "kind": "native"], ["op": "children", "id": 5, "ids": [8]]]))
         XCTAssertFalse(p.menus.isMenuShaped(pop), "custom content inside a button must keep its pixels")
     }
+    func testNativeHideButtonClosesTheFormThroughAppKit() throws {
+        let p = fixture(), pop = p.views[3]!
+        p.buttonFace = { _ in var face = ButtonFace(); face.title = "Close"; return face }
+        p.apply(wireBatch([
+            ["op": "create", "id": 7, "kind": "control", "props": ["type": "button", "popovertarget": "form", "popovertargetaction": "hide"], "style": ["appearance": "auto"]],
+            ["op": "children", "id": 3, "ids": [4, 7]],
+            ["op": "frame", "id": 7, "x": 10, "y": 80, "w": 80, "h": 30],
+        ]))
+        p.press(2)
+        XCTAssertTrue(p.menus.owns(pop), "the input keeps this a form")
+        let button = try XCTUnwrap(p.controls.controls[7] as? NSButton)
+        button.performClick(nil)
+        XCTAssertFalse(p.menus.isOpen(pop), "a native hide-only row takes its own command")
+        XCTAssertTrue(pop.isHidden)
+        XCTAssertTrue(p.viewport.window?.firstResponder === p.views[2])
+        XCTAssertEqual(p.views[4]?.field?.stringValue, "draft")
+    }
+    func testNativeAndCustomSymbolRowsKeepTheirMenuFacesAndActions() throws {
+        let p = fixture(), pop = p.views[3]!
+        p.buttonFace = { id in
+            var face = ButtonFace()
+            if id == 5 { face.label = "Close"; face.symbol = "xmark" }
+            if id == 7 { face.title = "Send"; face.symbol = "paperplane" }
+            return face
+        }
+        p.apply(wireBatch([
+            ["op": "create", "id": 7, "kind": "control", "handlers": ["press"], "props": ["type": "button", "accessibilityChecked": "true"], "style": ["appearance": "auto"]],
+            ["op": "create", "id": 8, "kind": "image", "props": ["symbolName": "xmark"]],
+            ["op": "children", "id": 5, "ids": [8]],
+            ["op": "children", "id": 3, "ids": [5, 7]],
+        ]))
+        XCTAssertTrue(p.menus.isMenuShaped(pop), "native and custom symbol rows remain menu items")
+        let menu = p.menus.menu(of: pop)
+        XCTAssertEqual(menu.items.map(\.title), ["Close", "Send"])
+        XCTAssertTrue(menu.items.allSatisfy { $0.image != nil })
+        XCTAssertEqual(menu.items.last?.state, .on)
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        p.press(2)
+        defer { p.menus.reset() }
+        let item = try XCTUnwrap(menu.items.last)
+        NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item)
+        XCTAssertEqual(pressed, [7], "a native menu row still invokes the app action")
+    }
     func testNestedAutoPopoversKeepOnlyTheirAncestorBranch() {
         let p = fixture()
         p.apply(wireBatch([

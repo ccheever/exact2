@@ -1,6 +1,7 @@
 // CSS clip-path commands validated by the kernel, shared by UIKit and AppKit:
 // `{"rule": "nonzero" | "evenodd", "commands": [["M", [x, y]], …]}`.
 import CoreGraphics
+import ObjectiveC
 import QuartzCore
 
 enum ClipPath {
@@ -39,5 +40,55 @@ enum ClipPath {
         mask.fillRule = rule == .evenOdd ? .evenOdd : .nonZero
         mask.fillColor = CGColor(gray: 1, alpha: 1)
         return mask
+    }
+}
+
+
+extension NodeView {
+    /// Four equal percentage radii can still be elliptical. Keep the declared
+    /// unequal-corner overflow fallback, but carry this equal outline alongside
+    /// clip-path instead of dropping it when CALayer's circular fast path fails.
+    var ellipticalClip: CGPath? {
+        #if os(macOS)
+        let backdrop = layer?.backgroundFilters?.isEmpty == false
+        #else
+        let backdrop = false
+        #endif
+        guard clipsToBounds || clipBox != nil || backdrop else { return nil }
+        let sizes = cornerSizes(in: bounds)
+        guard let first = sizes.first, first.width != first.height,
+              sizes.allSatisfy({ $0 == first }) else { return nil }
+        return BorderPaint.roundedRect(bounds, sizes)
+    }
+
+    /// The layer's mask as CSS composes it — `mask-image` over `clip-path`
+    /// over the clip's outline (`BoxMaskIOS.swift`, `BoxMaskMac.swift`) — for
+    /// a filtered box's picture.
+    func resolvedClipMask() -> CALayer? {
+        composedMask(shaped: clipBox == nil ? shapedClip() : nil)
+    }
+
+    /// The clip's outline follows a new size or a backdrop coming or going.
+    func syncEllipticalClip() { applyBoxMask() }
+}
+
+/// What a node's mask was built from and what it installed (LLP 1077 D2):
+/// `applyBoxMask` builds again only when an input changed or something
+/// else (a material's radius, a surface, a filter) replaced what it put on.
+final class BoxMaskState {
+    struct Key: Equatable {
+        var image: BatchValue?, clip: BatchValue?, outline: CGPath?, size: CGSize, dark: Bool
+        var clipBox: Bool, filter: Bool, material: Bool, materialOutline: CGPath?
+    }
+    var key: Key?
+    var layerMask: CALayer?
+    var boxMask: CALayer?
+    var effectMask: AnyObject?
+    private static var slot = 0
+    static func of(_ view: NodeView) -> BoxMaskState {
+        if let s = objc_getAssociatedObject(view, &slot) as? BoxMaskState { return s }
+        let s = BoxMaskState()
+        objc_setAssociatedObject(view, &slot, s, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        return s
     }
 }

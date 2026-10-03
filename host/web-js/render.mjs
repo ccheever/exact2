@@ -47,7 +47,7 @@ export function renderer(dist) {
       document, location: { pathname: url.pathname, search: url.search, href: url.href, origin: '' },
       history: { replaceState() {}, pushState() {}, go() {} }, localStorage: { length: 0, key() {}, getItem() { return null; } },
       addEventListener() {}, removeEventListener() {}, requestAnimationFrame: () => 0,
-      setTimeout, clearTimeout, queueMicrotask, performance, console, fetch, URL, URLSearchParams, TextEncoder, TextDecoder,
+      setTimeout, clearTimeout, queueMicrotask, performance, console, fetch, Request, Response, Headers, URL, URLSearchParams, TextEncoder, TextDecoder,
       WebAssembly, atob, btoa, Event: class {}, CustomEvent: class {}, crypto, __exactRender: true, __files: files,
     });
     ctx.globalThis = ctx; ctx.self = ctx;

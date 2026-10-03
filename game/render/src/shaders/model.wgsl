@@ -8,8 +8,12 @@ struct SkinVertex { joints:vec4<u32>, weights:vec4<f32> }
 @group(3) @binding(2) var<storage, read> skin_vertices: array<SkinVertex>;
 fn skinned(draw:ModelInstance,vertex:u32,position:vec3<f32>,normal:vec3<f32>)->mat2x3<f32> {
     if draw.palette==4294967295u {return mat2x3(position,normal);}
-    let v=skin_vertices[vertex]; var m=mat4x4<f32>();
-    for(var i=0u;i<4u;i++) { m+=skin_palette[draw.palette+v.joints[i]]*v.weights[i]; }
+    var m=mat4x4<f32>();
+    if (draw.palette & 2147483648u)!=0u {m=skin_palette[draw.palette & 2147483647u];}
+    else {
+        let v=skin_vertices[vertex];
+        for(var i=0u;i<4u;i++) { m+=skin_palette[draw.palette+v.joints[i]]*v.weights[i]; }
+    }
     let p=(m*vec4(position,1.0)).xyz;
     // Inverse transpose of the blended affine map, including hierarchy shear.
     let cof=mat3x3(cross(m[1].xyz,m[2].xyz),cross(m[2].xyz,m[0].xyz),cross(m[0].xyz,m[1].xyz));
@@ -102,7 +106,7 @@ fn model_shade(input:ModelVarying, front:bool, visibility:f32) -> vec4<f32> {
     let v=normalize(frame.camera_alpha.xyz-input.world);
     let i=input.slot*12u;
     let glow=vec3(materials[i+6u],materials[i+7u],materials[i+8u]);
-    var color=ambient(n,v,base.rgb,metallic,roughness)*ao+emission*baked.emission_cutoff.rgb+glow;
+    var color=ambient(n,v,base.rgb,metallic,roughness)*ao+emission*baked.emission_cutoff.rgb*materials[i+9u]+glow;
     if frame.sun_direction_illuminance.w>0.0 {
         color+=brdf(n,v,normalize(-frame.sun_direction_illuminance.xyz),base.rgb,metallic,roughness)*frame.sun_color_count.xyz*frame.sun_direction_illuminance.w*visibility;
     }

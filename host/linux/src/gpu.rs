@@ -18,6 +18,7 @@ use crate::paint::{Backend, Rect4, Shape, POINTER};
 use crate::text::{Paragraph, RunPaint, TextEngine};
 mod backdrop;
 mod images;
+mod mask;
 use crate::paint::GradientPaint;
 use exact_kernel::gradient::Geometry;
 use images::ImageCache;
@@ -398,7 +399,7 @@ impl Gpu {
 /// the CPU painter's cubic arcs.
 fn shape(s: &Shape) -> BezPath {
     let mut ops = Vec::new();
-    crate::paint::border::rounded_rect(&mut ops, s.rect, s.radii);
+    crate::paint::border::shape_path(&mut ops, s);
     bez(&ops)
 }
 
@@ -590,6 +591,14 @@ impl Backend for Gpu {
                     center.0 as f64,
                     center.1 as f64,
                 ])),
+            ),
+            // A whole turn, turned to start where CSS's `from` does.
+            Geometry::Conic { center, from } => (
+                Gradient::new_sweep((0.0, 0.0), 0.0, std::f32::consts::TAU),
+                Some(
+                    Affine::translate((center.0 as f64, center.1 as f64))
+                        * Affine::rotate(((from - 90.0) as f64).to_radians()),
+                ),
             ),
         };
         let a = self.affine(ts);
@@ -901,6 +910,15 @@ impl Backend for Gpu {
 
     fn pop_opacity(&mut self) {
         self.pop_recorded();
+    }
+
+    fn push_mask(&mut self, s: &Shape, ts: Transform) {
+        let a = self.affine(ts);
+        self.push_recorded(backdrop::Layer::Group(a, shape(s)));
+    }
+
+    fn pop_mask(&mut self, shape: &Shape, mask: &Result<GradientPaint, [u8; 4]>, ts: Transform) {
+        self.pop_masked(shape, mask, ts);
     }
 
     fn pointer(&mut self, x: f32, y: f32) {

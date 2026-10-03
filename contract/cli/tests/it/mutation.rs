@@ -8,6 +8,146 @@ use exact_runner::{
     RunnerError, Value,
 };
 
+const WITH_CONTEXT: &str = r#"component App
+  state car = "train"
+  state minute = 10
+  state display = true
+  derive sample = minute + 1
+  resource status = status(car) with sample, display as shape string
+  resource plain = status(car, sample, display) as shape string
+  resource singleton = singleton() with sample as shape number
+  action tick(value: number)
+    minute = value
+  action toggle
+    display = not display
+  action choose(value: string)
+    car = value
+  view
+    text status
+"#;
+
+#[test]
+fn resource_context_lowers_types_and_evaluates_in_full_argument_order() {
+    use exact_plan::{Plan, TypeKind};
+    #[derive(Default)]
+    struct ContextData(Vec<(String, Vec<Value>)>);
+    impl DataSource for ContextData {
+        fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+            self.0.push((source.into(), args.to_vec()));
+            match (source, args) {
+                ("status", [car, Value::Number(minute), Value::Bool(display)])
+                    if car.as_str().is_some() =>
+                {
+                    Ok(Value::str(&format!(
+                        "{}/{minute}/{display}",
+                        car.as_str().unwrap()
+                    )))
+                }
+                ("singleton", [Value::Number(minute)]) => Ok(Value::Number(*minute)),
+                _ => Err(DataError::Unavailable("wrong argument order".into())),
+            }
+        }
+    }
+    let plan = contract::compile(WITH_CONTEXT).unwrap();
+    let plan = Plan::decode(&plan.encode()).unwrap();
+    assert_eq!(
+        plan.resources
+            .iter()
+            .map(|r| (r.args.len, r.context))
+            .collect::<Vec<_>>(),
+        [(3, 2), (3, 0), (1, 1)]
+    );
+    let signature = plan
+        .sources
+        .iter()
+        .find(|r| plan.str(r.name) == "status")
+        .unwrap();
+    let params: Vec<_> = signature
+        .params
+        .iter()
+        .map(|p| plan.source_param(p).ty)
+        .collect();
+    assert_eq!(
+        params
+            .iter()
+            .map(|ty| plan.type_(*ty).kind)
+            .collect::<Vec<_>>(),
+        [TypeKind::String, TypeKind::Number, TypeKind::Bool]
+    );
+    let typescript = contract::typescript(&plan).unwrap();
+    assert!(typescript.contains(&format!(
+        "\"status\": {{ args: [T{}, T{}, T{}]; result:",
+        params[0].0, params[1].0, params[2].0
+    )));
+    let mut r = Runner::boot(
+        plan,
+        ContextData::default(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let expected = |minute, display| {
+        vec![
+            Value::str("train"),
+            Value::Number(minute),
+            Value::Bool(display),
+        ]
+    };
+    assert_eq!(
+        r.data().0,
+        [
+            ("status".into(), expected(11.0, true)),
+            ("status".into(), expected(11.0, true)),
+            ("singleton".into(), vec![Value::Number(11.0)]),
+        ]
+    );
+    r.act("tick", vec![Value::Number(10.0)]).unwrap();
+    assert_eq!(r.data().0.len(), 3, "equal full arguments reuse the answer");
+    r.act("tick", vec![Value::Number(20.0)]).unwrap();
+    assert_eq!(
+        &r.data().0[3..],
+        [
+            ("status".into(), expected(21.0, true)),
+            ("status".into(), expected(21.0, true)),
+            ("singleton".into(), vec![Value::Number(21.0)]),
+        ]
+    );
+    r.act("toggle", vec![]).unwrap();
+    assert_eq!(
+        &r.data().0[6..],
+        [
+            ("status".into(), expected(21.0, false)),
+            ("status".into(), expected(21.0, false)),
+        ]
+    );
+    assert_eq!(
+        r.resource_args("status"),
+        Some(expected(21.0, false).as_slice())
+    );
+}
+
+#[test]
+fn resource_context_participates_in_source_signature_checks() {
+    for replacement in ["with sample", "with sample, car"] {
+        let error = contract::compile(&WITH_CONTEXT.replace("with sample, display", replacement))
+            .unwrap_err();
+        assert_eq!(error.id, "type-source-signature", "{error}");
+    }
+}
+
+#[test]
+fn resource_context_count_refuses_overflow() {
+    let values = vec!["0"; usize::from(u16::MAX) + 1].join(",");
+    let source = format!(
+        "component App\n  resource result = status() with {values} as shape number\n  view\n    text result\n"
+    );
+    assert_eq!(
+        contract::compile(&source).unwrap_err().id,
+        "lower-resource-context"
+    );
+}
+
 const SRC: &str = r#"
 shape Session
   ok: bool

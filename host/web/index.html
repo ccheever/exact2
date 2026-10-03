@@ -25,6 +25,7 @@
   #exact-root { height: 100%; font-synthesis: none; }
   body { font: 16px system-ui, sans-serif; }
   button, input, textarea { all: unset; display: block; box-sizing: content-box; cursor: default; }
+  select { display: block; }
   /* A link is a bare node too: the UA's link colour, underline and pointer
      go, as a button's control styling does. A \`link\` is block-level like any
      node; a run with an \`href\` stays inline in its paragraph. Markdown's own
@@ -41,7 +42,8 @@
   input, textarea { cursor: text; -webkit-user-select: text; user-select: text; text-transform: none; }
   /* A checkbox, range or date control is the platform's again (LLP 1069.001 D3, D6): its
      size is the UA's; `appearance: none` on the node hands it to the author. */
-  input[type="checkbox"], input[type="range"], input[type="date"], input[type="time"], input[type="datetime-local"] { appearance: auto; cursor: default; -webkit-user-select: none; user-select: none; }
+  input[type="checkbox"], input[type="file"], input[type="range"], input[type="date"], input[type="time"], input[type="datetime-local"] { appearance: auto; cursor: default; -webkit-user-select: none; user-select: none; }
+  input[type="checkbox"] { box-sizing: border-box; }
   /* A native button (LLP 1069.011 D8): the browser's own button where the reset took it, its chrome inside its
      box, the inherited typography reset, its face one row whose title truncates. Its looks read --exact-accent (written
      wherever accent-color is; the browser's AccentColor otherwise); the glass looks copy the materials table's

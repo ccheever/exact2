@@ -26,7 +26,10 @@ are on it and the code exists. It is not a promise about anything not yet built.
 vocabularies, symbol roles and their host mappings, and opcodes are declared. `kernel/build.rs` generates from it — into
 `OUT_DIR`, never committed — the Rust enums, `StyleProps` and its mask, the
 patch/clear operations, the wire codec for style rows, and `SCHEMA_DIGEST`
-(domain-separated SHA-256 of the canonical JSON, first 8 bytes, little-endian).
+(domain-separated SHA-256 of the canonical JSON and the production wire-codec
+sources, first 8 bytes, little-endian). Hashing both makes any handwritten or
+generated codec edit a protocol rotation even when its schema row is unchanged;
+the codec byte/digest snapshot fails if that coupling is removed.
 Every EXWF frame carries the digest; a producer generated from a different table is
 refused at decode (`DecodeError::SchemaDigestMismatch`).
 
@@ -71,7 +74,10 @@ lengths or percentages. A single `border-radius="50%"` sets each corner;
 percentages resolve independently against the border box's width and height,
 then CSS's common overlap reduction applies. Web keeps the authored percentage;
 Apple and Linux paint elliptical corners, including after a resize. Negative
-literal lengths and percentages and `auto` are refused.
+literal lengths and percentages and `auto` are refused. Each corner still takes
+one length or percentage; paired horizontal/vertical radii and the slash-separated
+`border-radius` shorthand are not implemented. Percentage ellipses do not require
+that separate value-pair syntax.
 
 **Border semantics (Codex, 2026-09-11):** four `border_style_*` rows
 (bits 91–94) accept `none | hidden | solid`, initially `none`. Contract's
@@ -318,17 +324,71 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   animation ends. CSS's `animation` does not itself defer destruction. Linux
   refuses it and removes the node immediately, with a journal entry, because
   its painter walks the live kernel tree and has no retained destroyed subtree.
-- **`box-shadow`** ([LLP 1064 D1](1064-box-shadow-and-text-transform.rfc.md))
-  accepts one outer shadow with zero spread, not `inset`, nonzero spread or a
-  list. A missing colour is refused instead of using CSS `currentcolor`.
-  The implementation reuses four scalar shadow rows and one native layer
-  shadow; those rows cannot store current colour, a spread or multiple shadows.
-  These are implementation limits awaiting Charlie's ruling, not CSS semantics.
+- **`box-shadow`** ([LLP 1064 D1](1064-box-shadow-and-text-transform.rfc.md),
+  [LLP 1077 D4](1077-css-visual-properties-native-draws-cheaply.rfc.md)) is
+  one row holding CSS's list (at most eight), outer and inset, with spread. A
+  missing colour is still refused instead of using CSS `currentcolor`. A
+  transition or keyframes move the list's first shadow's offset, blur and
+  colour; the other shadows, and a spread, change at once, where CSS
+  interpolates the lists pairwise.
+- **`background-image` layers** ([LLP 1077 D5](1077-css-visual-properties-native-draws-cheaply.rfc.md))
+  are at most four. Apple draws a conic gradient, and more than one layer,
+  through the box's `draw(_:)` (Core Animation's conic gradient bends CSS's
+  angles in a box that is not square), and a conic `mask-image` as pixels.
 - **Gradient paint under borders** ([LLP 1066 D5](1066-gradients.rfc.md)):
   native hosts extend end colours outside the padding box instead of repeating
   the gradient image as CSS's initial `background-repeat` does. Their gradient
   shaders/layers extend one gradient rather than tiling a padding-box image;
   translucent borders expose the difference.
+- **`corner-shape: -apple-continuous`**, bit 156 ([LLP 1077 D1](1077-css-visual-properties-native-draws-cheaply.rfc.md)),
+  is not a CSS keyword. It names Apple's continuous corner curve, one shape on
+  every host: UIKit and AppKit draw it with `cornerCurve = .continuous` where
+  the box has one radius, and the kernel's outline (`corner::outline`, fitted
+  to UIKit's curve; Linux against the iOS simulator: mean 0.57/255) everywhere
+  else. The web draws `superellipse(1.6)` over the radius scaled by 1.52, the
+  closest CSS shape (2.5% of the radius at worst; a bordered box measured mean
+  6.5/255 against UIKit), and a bound (dynamic) `corner-shape` is not rescaled.
+  CSS's own keywords are CSS's on every host. The inner border edge of any
+  shaped corner is the same shape over the padding box's radii, CSS's rule for
+  round corners.
+- **`mask-image` on a material** ([LLP 1077 D2](1077-css-visual-properties-native-draws-cheaply.rfc.md)):
+  UIKit and AppKit mask the effect view itself (`mask` / `maskImage`), as they
+  require of a visual effect view, so the blur fades and the node's children
+  do not; CSS masks the element and its children together.
+- **`text-shadow`** ([LLP 1077 D3](1077-css-visual-properties-native-draws-cheaply.rfc.md))
+  takes one shadow, not a list, and no spread (CSS has none). On Apple a
+  paragraph drawn without a raster clips its shadow to the view's bounds.
+  Adjacent inline runs with the same shadow and stroke paint as one inline box
+  (all their shadows, then their glyphs). CSS paints each box's shadow over
+  the boxes before it, so a shadow cast back across another run with the same
+  shadow is covered by that run's glyphs here. Runs that differ paint in
+  CSS's order. On Apple a mixed-run shadow reaches at most 512 points past
+  its paragraph's box.
+- **`-webkit-text-stroke`** ([LLP 1077 D7](1077-css-visual-properties-native-draws-cheaply.rfc.md))
+  on Linux is a band of the glyphs' coverage (dilated less eroded), not a
+  stroke of their outlines, so a glyph's overlapping contours show no inner
+  lines as Chrome's and Core Text's do. `background-clip: text` clips to the
+  node's own paragraph, not to text in its descendants.
+- **3D transforms** ([LLP 1077 D8](1077-css-visual-properties-native-draws-cheaply.rfc.md))
+  flatten every box into its parent's plane (`transform-style: preserve-3d`
+  is refused), and a transition between two different `rotate` axes changes
+  the axis at once where CSS slerps. Linux draws a 3D box as a picture warped
+  on the CPU.
+- **Apple's affordances** ([LLP 1077 §5](1077-css-visual-properties-native-draws-cheaply.rfc.md)),
+  rows 162–170, are not CSS: `symbol-rendering`, `symbol-palette`,
+  `symbol-value`, `symbol-effect` (with the `symbolEffectValue` prop),
+  `press-haptic` (host-owned as `press-scale`), `content-transition`,
+  `scroll-edge-effect`, `hover-effect` and `smart-invert`. Each draws on the
+  platform that has it; the web writes no declaration for them and draws a
+  symbol monochrome. The `-apple-system-*` label, fill and separator colours
+  are WebKit's names. The kernel keeps them as themselves (`ColorValue::System`),
+  and each paints as a `light-dark()` pair of UIKit's values. Inside a blur
+  material, Apple draws them vibrantly, blended with what the material blurs:
+  - On macOS, any view in that colour inside the material.
+  - On iOS, only in a material whose box clips its children on both axes, which then hosts them in its effect view.
+    In that material, a paragraph's text and a plain fill (no border, gradient,
+    image, corner shape or `background-clip`) are vibrant.
+  - Everything else, and glass, draws the pair.
 - **Raster `tint-color`** ([LLP 1011 §3](1011-image-v1.spec.md)) is a template
   image operation without a CSS property of that name. On the web the tint is
   a `mask-image` on the `<img>` itself, so it also masks the element's own
@@ -389,6 +449,37 @@ CSS timeline has a drag as its source (LLP 1057.002 §6.10).
   will resolve (D5), and as `--exact-timeline-scope` for the glue's lookup.
 
 Declared deviations, and beside each what is CSS's own:
+**CSS grid's supported grammar follows Chrome's.** Track templates preserve
+named lines and `repeat()` (fixed, `auto-fill` and `auto-fit`) and accept px,
+percent, fr, auto, min/max-content, `fit-content()` and flexible `minmax()`
+maxima. Placement accepts numeric and named lines and spans. Keywords and units
+are ASCII-case-insensitive; nested `repeat()` is refused as invalid CSS.
+All six rows are parsed as CSS tokens, so escapes and comments have their CSS
+meaning; canonical output uses the CSS serializer for identifiers and retains a
+shorthand's trailing placement whenever omission would change that meaning.
+The following Chrome-valid forms are the complete declared grid grammar gaps:
+
+- `subgrid`; Taffy has no subgrid layout algorithm;
+- track lengths in units other than px, and calculated/custom/environment
+  track or placement values (`calc()`, `min()`, `max()`, `clamp()`, `var()`,
+  `env()`); Taffy's portable value has no browser unit context, cascade or
+  calculation resolver;
+- CSS-wide keywords (`inherit`, `initial`, `unset`, `revert`, `revert-layer`)
+  on all six rows, plus custom/environment values on `justify-items`; kernel
+  style rows store specified values without a CSS cascade;
+- `justify-items: last baseline` and its `legacy` modes; Taffy exposes neither
+  alignment mode;
+- more than 10,000 explicit tracks, or a placement index/span whose magnitude
+  exceeds 10,000. Chrome 154 accepts larger specified values and clamps used
+  grid coordinates at 1,000,000; Taffy's layout engine clamps at 10,000, so
+  Exact refuses the larger portable value instead of laying it out differently.
+
+Literal declarations in those gaps are compile errors. The JS target filters
+the same forms after asking Chrome for its specified-value serialization
+(escapes resolved, comments removed), so it cannot lay out a value native
+cleared. A value Chrome rejects clears the row on both paths. Other invalid
+dynamic grammar is dropped exactly as the kernel parser drops it.
+
 `position` is CSS's (LLP 1074 T1, 2026-09-30): `static | relative | absolute`,
 `static` initially. An absolutely positioned box is placed against its nearest
 positioned ancestor, or the root, and sits at its static position on an axis
@@ -640,9 +731,11 @@ nothing (`tests/wire.rs::a_malformed_frame_applies_nothing`).
 Value grammars: dimension = kind byte (0 auto, 1 points, 2 percent) + f32;
 **percent is authored 0–100** on the wire and in storage and converted to Taffy's
 fraction exactly once (`style.rs`); `auto` is admitted per row (`admitsAuto`) and is
-a rejection elsewhere (`AutoNotAdmitted`); colors are `0xRRGGBBAA`; grid tracks are
-a closed six-kind grammar (fr, points, percent, auto, min-content, max-content, ≤32
-tracks); enum bytes outside their vocabulary are rejected, never defaulted.
+a rejection elsewhere (`AutoNotAdmitted`); colors are `0xRRGGBBAA`; grid templates
+and placements are length-prefixed canonical CSS strings, reparsed and domain-
+validated at decode; portable grid templates, indexes and spans above Taffy's
+10,000-track limit are refused rather than clamped. Enum bytes outside
+their vocabulary are rejected, never defaulted.
 
 ## 5. Layout proportional to change (WS-H)
 
@@ -839,7 +932,8 @@ material; this is a semantic floating-surface fallback, not pixel parity. Author
 children use the glass content view unless a scroll/canvas already owns their
 container. AppKit supplies appearance and accessibility adaptation. Glass grouping
 is the `glassGroup` prop (LLP 1053.000.000): its value is the spacing in
-points at which the subtree's glass merges, through `UIGlassContainerEffect`
+points at which the subtree's glass merges (or `"auto"`, the element's gap
+along its main axis, LLP 1053.000.000.000), through `UIGlassContainerEffect`
 or `NSGlassEffectContainerView` as the node's innermost view; it is
 layout-neutral and draws nothing on the web or Linux, and is refused beside a
 material, on a scroll or on a canvas. Declared deviations, measured: inside a

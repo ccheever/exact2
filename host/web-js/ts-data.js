@@ -6,6 +6,7 @@
 // IndexedDB under a handle the store holds; its code is fetched on first
 // use); `openAuthSession` is auth.js.
 import * as source from '__APP_TS__';
+import { install as grantSource } from './ts-fetch.js';
 import { sourceTypes } from './names.js';
 import { checkpoint, clock, commit, journal, R, Resources } from './rt.js';
 __AUTH_IMPORT__
@@ -93,17 +94,18 @@ const native = Object.freeze({
 // the app's grants and its page's store key — none under the agent unless
 // the drive names a scratch store (`storageKey`). Only where the grants
 // name `fs.` or `sqlite.`.
-function storageOf(grants) {
+function storageOf(grants, authority) {
   if (!/^\s*(?:fs|sqlite)\./m.test(grants)) return undefined;
   let fs, sqlite;
-  const key = () => import('./storage-environment.js').then(({ storageKey, agentStorageRefusal }) => {
+  const key = () => { if (authority.error) return Promise.reject(Object.assign(new Error(authority.error), { kind: 'Refused' })); return import('./storage-environment.js').then(({ storageKey, agentStorageRefusal }) => {
     const k = source.appId ? storageKey(source.appId, location.href) : null;
     if (k == null) throw Object.assign(new Error(agentStorageRefusal), { kind: 'Unavailable' });
     return k;
-  });
+  }); };
   const url = name => new URL(name, document.baseURI).href;
-  const files = () => fs ??= key().then(k => import(url('storage-fs.js')).then(m => m.createFileSystem(k, grants)));
-  const databases = () => sqlite ??= key().then(k => import(url('storage-sqlite.js')).then(m => m.createSqlite(k, grants)));
+  const denied = () => Promise.reject(Object.assign(new Error(authority.error), { kind: 'Refused' }));
+  const files = () => authority.error ? denied() : fs ??= key().then(k => import(url('storage-fs.js')).then(m => m.createFileSystem(k, grants)));
+  const databases = () => authority.error ? denied() : sqlite ??= key().then(k => import(url('storage-sqlite.js')).then(m => m.createSqlite(k, grants)));
   const methods = ['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath'];
   return Object.freeze({
     fs: Object.freeze({ directories: Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' }),
@@ -113,8 +115,9 @@ function storageOf(grants) {
   });
 }
 export function install(data, mixed = false, modules = null) {
-  data.appId = source.appId; data.grants = String(source.grants ?? '');
-  const storage = storageOf(data.grants);
+  data.appId = source.appId;
+  const authority = grantSource(data, String(source.grants ?? ''));
+  const storage = storageOf(authority.lines.join('\n'), authority);
   // `modules` loads native.js (an app with a module artifact). Connected
   // after first paint, whether or not anything asks `later`.
   load = modules;
@@ -139,9 +142,10 @@ export function install(data, mixed = false, modules = null) {
     if (!seeded) seed();
     const [params, result] = sourceTypes[name] ?? [[], 'u'];
     // The store as the module sees it (LLP 1018): a read marks the answer.
-    const seen = { get: k => { seen.read = true; return store.get(k); }, set: (k, v) => store.set(k, String(v)), forget: k => store.set(k, null),
-      keepKey: (k, pair) => { const handle = 'exact.key:' + crypto.randomUUID(); store.set(k, handle); return kept().then(s => s.put(handle, pair)); },
-      key: k => { const handle = store.get(k); return handle == null ? Promise.resolve(null) : kept().then(s => s.get(handle)); } };
+    const set = (k, v) => { if (!authority.secret(k)) throw new Error(`secret ${k} is not granted${authority.error ? ': ' + authority.error : ''}`); return store.set(k, v); };
+    const seen = { get: k => { seen.read = true; return authority.secret(k) ? store.get(k) : undefined; }, set: (k, v) => set(k, String(v)), forget: k => set(k, null),
+      keepKey: (k, pair) => { const handle = 'exact.key:' + crypto.randomUUID(); set(k, handle); return kept().then(s => s.put(handle, pair)); },
+      key: k => { const handle = seen.get(k); return handle == null ? Promise.resolve(null) : kept().then(s => s.get(handle)); } };
     asking = target ?? name; watching = name;
     let r;
     try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, storage, modules ? native : null); } finally { asking = ''; watching = null; }

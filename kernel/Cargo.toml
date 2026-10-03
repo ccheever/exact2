@@ -12,10 +12,11 @@ name = "exact_kernel"
 crate-type = ["rlib"]
 
 [dependencies]
+cssparser = { version = "0.37.0", default-features = false }
 exact-motion = { path = "../motion" }
 exact-num = { path = "../num" }
 exact-textflow = { path = "../textflow" }
-taffy = { version = "0.14", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "content_size", "calc"] }
+taffy = { version = "0.14", default-features = false, features = ["std", "taffy_tree", "flexbox", "grid", "block_layout", "content_size", "calc", "parse"] }
 
 [build-dependencies]
 serde = { version = "1.0", features = ["derive"] }

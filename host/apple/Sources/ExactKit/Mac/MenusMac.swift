@@ -1,4 +1,4 @@
-// LLP 1021 D2–D4: only text-button menus project to NSMenu. Other popovers
+// LLP 1021 D2–D4: only button menus project to NSMenu. Other popovers
 // move their actual subtree into the session's top layer, including native
 // editors. The agent uses that same painted presentation for every shape.
 #if os(macOS)
@@ -77,7 +77,7 @@ final class MenuHost: NSObject {
     /// Capture identity before app code runs; a replacement with the same id
     /// must never receive an old invoker's deferred presentation.
     func command(_ source: NodeView, fromNativeMenu: Bool = false) -> (() -> Void)? {
-        guard let presenter, source.kind == "button", !source.disabled, !source.inert,
+        guard let presenter, source.isButton, !source.disabled, !source.inert,
               fromNativeMenu || !source.isHiddenOrHasHiddenAncestor || presenter.toolbar.contains(source),
               let name = source.props["popovertarget"],
               let pop = presenter.carrying("popover").first(where: { $0.props["id"] == name }) else { return nil }
@@ -258,7 +258,10 @@ final class MenuHost: NSObject {
         }
         return !rows.isEmpty && rows.allSatisfy { row in
             if row.props["semanticTag"] == "hr" { return true }
-            return row.kind == "button" && row.container.subviews.compactMap { $0 as? NodeView }.allSatisfy(textOnly)
+            guard row.isButton else { return false }
+            if row.isNativeButton { return true }
+            if let face = row.face, face.fits, !face.raster { return true }
+            return row.container.subviews.compactMap { $0 as? NodeView }.allSatisfy(textOnly)
         }
     }
     func menu(of pop: NodeView) -> NSMenu {
@@ -266,12 +269,14 @@ final class MenuHost: NSObject {
         menu.autoenablesItems = false
         for case let row as NodeView in pop.container.subviews {
             if row.props["semanticTag"] == "hr" { menu.addItem(.separator()); continue }
-            guard row.kind == "button" else { continue }
+            guard row.isButton else { continue }
             let item = NSMenuItem(title: title(of: row), action: #selector(pick(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = NSNumber(value: row.id)
             item.state = row.props["accessibilityChecked"] == "true" ? .on : .off
             item.isEnabled = !row.disabled
+            // A row's symbol is its item's image, custom or native (LLP 1069.011.000 D5).
+            if row.isButton, let symbol = row.face?.symbol { item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) }
             menu.addItem(item)
         }
         return menu
@@ -281,7 +286,15 @@ final class MenuHost: NSObject {
     }
     private func title(of v: NodeView) -> String {
         if v.kind == "text" { return v.paragraphSpec().runs.map(\.text).joined() }
-        return v.container.subviews.compactMap { ($0 as? NodeView).map(title(of:)) }.filter { !$0.isEmpty }.joined(separator: " ")
+        // A native button's children are its face, not views: its title, else its label.
+        if v.isNativeButton { return v.face?.shown ?? "" }
+        // A custom button whose face fits shows it too: a symbol-only row its
+        // label (LLP 1069.011.000 D5); other content keeps its text.
+        if v.isButton, let face = v.face, face.fits, let shown = face.shown { return shown }
+        return v.container.subviews
+            .compactMap { ($0 as? NodeView).map(title(of:)) }
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
     }
 }
 

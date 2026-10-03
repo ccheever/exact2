@@ -4,7 +4,9 @@
 // — against a running app on either host, from one script, with the clock in
 // the driver's hands: nothing moves between two calls unless a call moved it.
 //
-// Usage:  bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--plan <file>] [--world <file>] [--url <page>] [--session <label>] [--open <document> …] [--json] <op> [<op> …]
+// Usage:  bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--browser chrome|firefox|webkit] [--plan <file>] [--world <file>] [--url <page>] [--session <label>] [--open <document> …] [--json] <op> [<op> …]
+//   Web defaults to Chrome; EXACT_WEB_BROWSER selects the same option. Install
+//   the other engines with: bunx playwright@1.63.0 install firefox webkit
 //   tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save
 //   tap <target> [wheel <dx> <dy> [gesture] | into <key> [block <v>] [inline <v>] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name>
 //   tap @N <choice> | type @N <value>   (a held device request, by ticket: LLP 1069.007 D4)
@@ -13,9 +15,10 @@
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, parseFlags, launchFacts, launchEnvironment, refuseStale, warnStale, unchecked, depInfoChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
+import { Cdp, chromium, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
 import { sourceMapReaders, identifyInspectedNode, render } from './agent-inspect.mjs';
+import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
 export { sourceMapReader, identifyInspectedNode, render } from './agent-inspect.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -29,7 +32,7 @@ function worldFile(path) {
   return bytes;
 }
 import { connect } from 'node:net';
-import { contactSheet, decodePng, encodeApng, encodePng } from './png.mjs';
+import { contactSheet, decodePng, encodeApng, encodePng, locateScreen } from './png.mjs';
 /** Film's bounds (LLP 1012.001.000 D2): a drive's pictures, not a recording, decoded in memory at once. */
 const FILM_FRAMES = 240, FILM_PIXELS = 64e6;
 import { tmpdir } from 'node:os';
@@ -66,10 +69,7 @@ export function browserDiagnosticNoise(line) {
 /** Every desktop carrier's viewport unless a drive names one (LLP 1012.001.000 D8, Charlie 2026-09-30: 900, the page's and the conformance run's), so one drive gives one set of numbers on every host. A phone or simulator is its device's size. */
 export const VIEWPORT = [420, 900];
 
-/** Every host's display preferences at launch under the agent (LLP 1069.007 D2). */
-export const LAUNCH_MEDIA = { 'prefers-reduced-motion': 'no-preference', 'prefers-reduced-transparency': 'no-preference', 'prefers-color-scheme': 'light', 'prefers-contrast': 'no-preference' };
-export const PREFERENCES = { 'prefers-reduced-motion': ['reduce', 'no-preference'], 'prefers-reduced-transparency': ['reduce', 'no-preference'], 'prefers-contrast': ['more', 'less', 'custom', 'no-preference'], 'prefers-color-scheme': ['dark', 'light'] }; // `prefer`'s CSS media features and values
-export const PAGE_FACTS = { 'visibility-state': ['visible', 'hidden'], online: ['true', 'false'], 'can-share': ['true', 'false'], 'root-font-size': ['<px>'] }; // `prefer`'s page group (LLP 1069.000 D2, D3, D6; LLP 1069.007 D2)
+export { LAUNCH_MEDIA, PREFERENCES, PAGE_FACTS, FOLD_FACTS, displayFeatures } from './agent-prefer.mjs'; // `prefer`'s tables and the web carrier's CDP path
 /** Refuse to drive anything but a complete, authenticated build of the
  * selected app. The build marker binds every public runtime artifact. */
 export async function assertWebDistApp(dist, app) {
@@ -77,9 +77,13 @@ export async function assertWebDistApp(dist, app) {
   if (!await builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run EXACT_APP_DIR=${shellQuote(app.dir)} EXACT_WEB_DIST=${shellQuote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}`);
 }
 
-async function openWeb({ plan, world, size = VIEWPORT, url: pageURL, app, webDist, onProcess, reuse, storage, facts }) {
+async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: pageURL, app, webDist, onProcess, reuse, storage, facts }) {
+  if (browser !== 'chrome') {
+    const { openPlaywrightWeb } = await import('./agent-playwright.mjs');
+    return openPlaywrightWeb({ browser, plan, world, size, url: pageURL, app, webDist, onProcess, reuse, storage, facts });
+  }
   if (reuse) {
-    if (JSON.stringify(reuse.launchFacts) === JSON.stringify(facts)) {
+    if (reuse.browser === 'chrome' && JSON.stringify(reuse.launchFacts) === JSON.stringify(facts)) {
       try { await reuse.reset(); return reuse; }
       catch (error) { await reuse.close(); throw error; }
     }
@@ -91,8 +95,7 @@ async function openWeb({ plan, world, size = VIEWPORT, url: pageURL, app, webDis
     await assertWebDistApp(dist, selected);
     const js = jsTargetBuild(dist), env = process.env.EXACT_APP_DIR || webDist || process.env.EXACT_WEB_DIST ? `EXACT_APP_DIR=${selected.dir} EXACT_WEB_DIST=${dist} ` : '';
     const command = `${env}bun host/web/build.mjs ${selected.crate('web')}${js ? '' : ' --wasm'}`, changed = webChanges(dist, selected);
-    refuseStale('web', resolve(dist, '.exact-build.json'), changed.app, command);
-    warnStale('web', resolve(dist, '.exact-build.json'), changed.shared, `if they matter, run ${command}`);
+    refuseStale('web', resolve(dist, '.exact-build.json'), changed.all, command);
   }
   // A JS-target build (LLP 1071) is served as its tree. It compiles one plan
   // ahead of time, so `--plan` is a JS build of that plan (host/web-js/build.mjs
@@ -116,7 +119,7 @@ async function openWeb({ plan, world, size = VIEWPORT, url: pageURL, app, webDis
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
   const port = server.address().port;
-  const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  const chrome = chromium().executable;
   const profile = mkdtempSync(resolve(tmpdir(), 'exact-agent-'));
   let child;
   try {
@@ -241,7 +244,7 @@ async function openWeb({ plan, world, size = VIEWPORT, url: pageURL, app, webDis
       return JSON.parse(await evaluate(`exact.agentSettled(${JSON.stringify(req)}).then((r) => JSON.stringify(r))`));
     };
     return {
-      host: 'web', boot: Number(boot), hostLines, evaluate, launchFacts: facts,
+      host: 'web', browser: 'chrome', boot: Number(boot), hostLines, evaluate, call, launchFacts: facts,
       async gpuMs() {
         const ms = await evaluate("document.getElementById('exact-root')?.dataset.gpuMs ?? null");
         return ms == null ? null : Number(ms);
@@ -274,15 +277,7 @@ async function openWeb({ plan, world, size = VIEWPORT, url: pageURL, app, webDis
         this.boot = Number(boot);
       },
       ask,
-      // The browser's own emulation (LLP 1061 D5), which replaces its whole list: queries, CSS and the glue's listeners see it.
-      // The page group is the glue's own value, told the runner as the page's observer tells it (LLP 1069.000 D6; LLP 1069.007 D5: not CDP).
-      async prefer(media, page) {
-        if (Object.keys(media).length) { await call('Emulation.setEmulatedMedia', { features: Object.entries(Object.assign(emulated, media)).map(([name, value]) => ({ name, value })) }); await frame(); }
-        const pageReply = Object.keys(page).length ? await ask({ op: 'prefer', page }) : null;
-        if (pageReply?.error) throw new Error(pageReply.error);
-        if (pageReply) await frame();
-        return { media: await evaluate(`Object.fromEntries(${JSON.stringify(Object.entries(PREFERENCES))}.map(([name, values]) => [name, values.find(v => matchMedia('(' + name + ': ' + v + ')').matches) ?? values.at(-1)]))`), ...(pageReply ? { page: pageReply.page } : {}) };
-      },
+      prefer: (media, page, fold) => preferWeb({ media, page, fold, emulated, call, evaluate, frame, ask }), // the browser's emulation through CDP, the glue's substitute where it offers none (agent-prefer.mjs)
       async input(id, kind, opts) {
         // @ref LLP 1038 D11 — history.go delivers popstate in the page.
         if (kind === 'history') {
@@ -325,7 +320,10 @@ async function openWeb({ plan, world, size = VIEWPORT, url: pageURL, app, webDis
           if (kind === 'down') {
             if (contact) throw new Error('a contact is already down; use `tap up` first');
             const px = opts.x ?? x, py = opts.y ?? y;
-            const t = Date.now() / 1000;
+            // CDP wants epoch seconds; performance.timeOrigin plus the
+            // runner's clock makes the DOM event's timeStamp that clock,
+            // independent of how long the carrier took between operations.
+            const t = (await evaluate('performance.timeOrigin') + (await ask({ op: 'tags' })).clock) / 1000;
             await call('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: px, y: py }], timestamp: t });
             contact = { x: px, y: py, t };
             await frame();
@@ -394,6 +392,8 @@ async function openWeb({ plan, world, size = VIEWPORT, url: pageURL, app, webDis
         return { at: [x, y] };
       },
       async screenshot(path) {
+        const tags = await ask({ op: 'tags' });
+        if (tags.error) throw new Error(tags.error);
         await frame();
         // Images in the viewport finish loading first, up to 3 s: a picture
         // of grey placeholders is not the page (LLP 1054.000 R9). `clock
@@ -408,7 +408,7 @@ async function openWeb({ plan, world, size = VIEWPORT, url: pageURL, app, webDis
         await frame();
         const { data } = await call('Page.captureScreenshot', { format: 'png' });
         writeFileSync(path, Buffer.from(data, 'base64'));
-        return { screenshot: path, w: size[0], h: size[1], ...(pending ? { imagesPending: pending } : {}) };
+        return { ...tags, screenshot: path, w: size[0], h: size[1], ...(pending ? { imagesPending: pending } : {}) };
       },
       close,
     };
@@ -661,14 +661,17 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
     // — a simulator window carries a bezel and a scale of its own that no
     // frame arithmetic knows: the Mac's pointer is hovered at two desktop
     // points inside the window and the app reports where its viewport saw
-    // each (`layout.pointer`); the uniform scale and offset follow. Redone
-    // whenever the window's frame changes.
+    // each (`layout.pointer`). Device Hub emits no hover: match its captured
+    // window against simctl's framebuffer instead. Redone when geometry changes.
     let mapping = null;
     const calibrate = async (p) => {
       const found = await p.ask({ op: 'window', title: dev.name });
       if (found.error) return { error: found.error };
-      const keyOf = (w) => `${w.x},${w.y},${w.w},${w.h}`;
+      if (found.windows.filter(w => w.bundle === 'com.apple.dt.Devices' && w.title === dev.name).length > 1) return { error: 'more than one Device Hub window has this device name; leave only its device window open' };
+      const layout = await ask({ op: 'layout' }), screen = layout.screen;
+      const keyOf = (w) => `${w.id},${w.x},${w.y},${w.w},${w.h},${JSON.stringify(screen)}`;
       if (mapping && found.windows.some((w) => keyOf(w) === mapping.key)) return mapping;
+      if (contact) return { error: 'the simulator geometry changed during the contact; release it before recalibrating' };
       const probe = async (x, y) => {
         const r = await p.ask({ op: 'hover', x, y });
         if (r.error) return { error: r.error };
@@ -677,6 +680,21 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
         return l.pointer ?? null;
       };
       const against = async (w) => {
+        if (w.bundle === 'com.apple.dt.Devices') {
+          if (w.title !== dev.name || !screen) return { error: 'Device Hub image calibration needs the named device window and screen geometry' };
+          const devicePath = resolve(dir, 'device.png'), windowPath = resolve(dir, 'window.png');
+          const captured = spawnSync('xcrun', ['simctl', 'io', dev.udid, 'screenshot', devicePath], { encoding: 'utf8', timeout: 5000 });
+          if (captured.status !== 0) return { error: 'simulator framebuffer capture failed: ' + captured.stderr };
+          const picture = await p.ask({ op: 'snapshot', id: w.id, path: windowPath });
+          if (picture.error) return picture;
+          if (['x','y','w','h'].some(k => picture[k] !== w[k])) return { error: 'the simulator window moved during capture; try again' };
+          const device = decodePng(readFileSync(devicePath)), window = decodePng(readFileSync(windowPath));
+          const m = locateScreen(window, device);
+          if (m.error) return m;
+          const sx = m.scale * device.width / screen.w, sy = m.scale * device.height / screen.h;
+          if (Math.abs(sx - sy) / sx > 0.01) return { error: 'the simulator framebuffer and app screen disagree in aspect ratio' };
+          return { key: keyOf(w), scale: sx, ox: w.x + m.x + screen.x * sx, oy: w.y + m.y + screen.y * sy, window: w };
+        }
         const a = { x: w.x + w.w * 0.5, y: w.y + w.h * 0.45 };
         const b = { x: a.x + w.w * 0.15, y: a.y + w.h * 0.2 };
         const pa = await probe(a.x, a.y);
@@ -690,9 +708,8 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
         return { key: keyOf(w), scale, ox: a.x - pa.x * scale, oy: a.y - pa.y * scale, window: w };
       };
       // The helper cannot tell which simulator window is this device's when
-      // titles are unreadable, and Device Hub's main window is titled with a
-      // device too: the one the app sees a hover in is it. The first
-      // candidate's refusal is the one reported.
+      // titles are unreadable: Simulator's hover identifies the app. Device
+      // Hub requires one exact-name window and a unique framebuffer match.
       let refused = null;
       for (const w of found.windows) {
         const m = await against(w);
@@ -729,10 +746,24 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
         // Device Hub opens for this device, which takes a moment to appear.
         showSimulator(dev);
         for (let i = 0; i < 10 && (await p.ask({ op: 'window', title: dev.name })).named !== true; i++) await sleep(150);
+        const found = await p.ask({ op: 'window', title: dev.name });
+        if (!trusted.capture && found.windows?.some(w => w.bundle === 'com.apple.dt.Devices') && !found.windows.some(w => w.bundle === 'com.apple.iphonesimulator')) return unsupported('Device Hub calibration needs Screen Recording permission for this terminal');
+        const w = found.windows?.find(w => w.title === dev.name && w.bundle === 'com.apple.dt.Devices');
+        if (w) {
+          const raised = await p.ask({ op: 'raise', id: w.id });
+          if (raised.error) return unsupported(raised.error);
+          showSimulator(dev);
+        }
         await sleep(300);
       } else if (!contact) throw new Error('no contact is down');
       if (kind === 'hold') { if (opts.ms) await sleep(opts.ms); return { phase: 'hold', at: [contact.x, contact.y], delivery: 'platform' }; }
       if (kind === 'cancel') return { phase: 'cancel', at: [contact.x, contact.y], delivery: 'unsupported', reason: 'a desktop pointer has no cancel; the contact is still down — send up' };
+      if (kind === 'up') {
+        const sent = await p.ask({ op: 'up', ...contactDesktop });
+        if (sent.error) return unsupported(sent.error);
+        const at = [contact.x, contact.y]; contact = null; contactDesktop = null;
+        return { phase: 'up', at, delivery: 'platform' };
+      }
       const m = await calibrate(p);
       if (m.error) return unsupported(m.error);
       const map = (x, y) => ({ x: m.ox + x * m.scale, y: m.oy + y * m.scale });
@@ -742,29 +773,26 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
         if (!b || (b.w === 0 && b.h === 0)) throw new Error(`view ${id} has no box on screen`);
         const x = opts.x ?? b.x + b.w / 2, y = opts.y ?? b.y + b.h / 2;
         contactDesktop = map(x, y);
-        await p.ask({ op: 'down', ...contactDesktop });
+        const sent = await p.ask({ op: 'down', id: m.window.id, frame: m.window, ...contactDesktop });
+        if (sent.error) { contactDesktop = null; return unsupported(sent.error); }
         contact = { x, y };
         return { contact: id, phase: 'down', at: [x, y], delivery: 'platform', desktop: [contactDesktop.x, contactDesktop.y] };
       }
       if (kind === 'move') {
-        const to = { x: opts.x ?? contact.x + (opts.dx ?? 0), y: opts.y ?? contact.y + (opts.dy ?? 0) };
+        const from = { ...contact }, to = { x: opts.x ?? contact.x + (opts.dx ?? 0), y: opts.y ?? contact.y + (opts.dy ?? 0) };
         const ms = Math.max(0, opts.ms ?? 0);
         const steps = Math.max(1, Math.round(ms / 16));
         for (let i = 1; i <= steps; i++) {
           const t = i / steps;
-          contactDesktop = map(contact.x + (to.x - contact.x) * t, contact.y + (to.y - contact.y) * t);
-          await p.ask({ op: 'move', ...contactDesktop });
+          const at = { x: from.x + (to.x - from.x) * t, y: from.y + (to.y - from.y) * t }, desktop = map(at.x, at.y);
+          const sent = await p.ask({ op: 'move', id: m.window.id, frame: m.window, ...desktop });
+          if (sent.error) return unsupported(sent.error);
+          contact = at; contactDesktop = desktop;
           if (ms) await sleep(ms / steps);
         }
         contact = to;
         return { phase: 'move', at: [to.x, to.y], delivery: 'platform' };
       }
-      contactDesktop = map(contact.x, contact.y);
-      await p.ask({ op: 'up', ...contactDesktop });
-      const at = [contact.x, contact.y];
-      contact = null;
-      contactDesktop = null;
-      return { phase: 'up', at, delivery: 'platform' };
     };
     const closeWithPointer = async () => {
       if (pointer) {
@@ -811,9 +839,7 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
     throw e;
   }
 }
-
 // ---------------------------------------------------------------- the eight operations
-
 /** A convenience over state, screenshot and type; wire replies keep all tags. */
 export function worldView(session, name) {
   return {
@@ -875,13 +901,16 @@ export async function tapRefusal(session, target, error) {
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
  * the same app address on each host; `plan` boots a local compiled contract;
  * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
-export async function open({onProcess,  host = 'web', plan, world, size, env, app, session, documents, url, webDist, reuse, device = false, phone: pick, timing = 'agent', storage, seed, locale, timeZone, epoch } = {}) {
+export async function open({onProcess, host = 'web', browser, plan, world, size, env, app, session, documents, url, webDist, reuse, device = false, phone: pick, timing = 'agent', storage, seed, locale, timeZone, epoch } = {}) {
+  browser ??= 'chrome';
+  if (!['chrome', 'firefox', 'webkit'].includes(browser)) throw new Error(`browser: chrome, firefox or webkit, not ${browser}`);
   const facts = launchFacts({seed, locale, timeZone, epoch, env});
   env = {...env, ...launchEnvironment(facts)};
   if (world && !['web','mac','macos','ios','linux'].includes(host)) throw new Error(`world restore unavailable on this host yet: ${host}`);
   if (world && statSync(world).size > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
   if (world && host !== 'web' && !device) env = {...env, EXACT_WORLD:resolve(world)};
   if (device && host !== 'ios') throw new Error('--device is supported for the standalone ios client');
+  if (host !== 'web' && browser !== 'chrome') throw new Error(`--browser is only supported by the web carrier, not ${host}`);
   // `timing: 'platform'` (LLP 1035.003 D5, opt-in): the carrier stays and the driver still owns the runner's clock,
   // but UIKit's own transitions, sheet presentations and keyboard animations run at their natural timing — the
   // ordinary app with a socket, for observing an interactive gesture's native motion. The frozen clock is the
@@ -907,7 +936,7 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
     : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true, onProcess })
     : host === 'linux' ? await openStdio({ host: 'linux', plan, size: size ?? VIEWPORT, env, app, onProcess })
     : host === 'ios' ? await openIOS({ plan, env, app, size, onProcess })
-    : await openWeb({ plan, world, size, url, app, webDist, onProcess, reuse, storage, facts });
+    : await openWeb({ browser, plan, world, size, url, app, webDist, onProcess, reuse, storage, facts });
   const mapLocator = plan ?? (url && /^https?:\/\//i.test(url) ? url : env?.EXACT_DEV_PLAN ?? process.env.EXACT_DEV_PLAN)
     ?? (carrier.host === 'web' ? resolve(webDist ?? resolve(ROOT, 'host/web/dist'), 'app.plan') : null);
   // Without a plan of the drive's own, a native host runs its bake's: the maps a development bake left (LLP 1012.001.000 D6).
@@ -1068,6 +1097,7 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
      */
     async pointer(phase, opts = {}) {
       if (!['move', 'hold', 'up', 'cancel'].includes(phase)) throw new Error(`pointer: not a phase: ${phase} (move, hold, up, cancel)`);
+      if (carrier.phasedTouch === false) return carrier.input(null, phase, opts);
       if (!s.contact && ['up','cancel'].includes(phase)) {
         const state = await s.state();
         const contacts = (state.world ?? []).flatMap(w => (w.input?.controlContacts ?? []).filter(c=>c.id<4294967292).map(c=>({...c,canvas:w.canvas})));
@@ -1147,18 +1177,11 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
       if (req.settle && r.settled === false) r.diagnostic = r.reason === 'device' ? `clock settle stops at held device requests (${(r.tickets ?? []).map(t => '@' + t).join(' ')}); state shows them under pending; answer with tap @N <choice> or type @N <value>` : r.reason === 'requests' ? 'clock settle gave up on requests still in flight at its bound (20 s native); state shows them under pending, and logs a `request N` with no `fulfil N`' : `clock settle did not reach quiescence: ${JSON.stringify(r.world ?? r)}; state world:* busy shows moving values and busy reasons; state shows held input; logs shows reload/refusals`;
       return r;
     },
-    /** The device facts by their web names (LLP 1061 D5; LLP 1069.000 D6), grouped on the wire as LLP 1069.007 D2 groups them. `media`: `{"prefers-reduced-motion": "reduce"}`, `"prefers-reduced-transparency"` likewise, `"prefers-contrast": "more"|"less"|"custom"|"no-preference"`, `"prefers-color-scheme": "dark"|"light"` (the system's; an app's `setScheme` still wins). `page`: `"visibility-state": "visible"|"hidden"`, `online` and `can-share` `"true"|"false"`, `"root-font-size"` in px (what `rem` follows). Unnamed facts stay. The reply is what the host now reports, by group. */
+    /** The device facts by their web names (LLP 1061 D5; LLP 1069.000 D6), grouped on the wire as LLP 1069.007 D2 groups them. `media`: `{"prefers-reduced-motion": "reduce"}`, `"prefers-reduced-transparency"` likewise, `"prefers-contrast": "more"|"less"|"custom"|"no-preference"`, `"prefers-color-scheme": "dark"|"light"` (the system's; an app's `setScheme` still wins). `page`: `"visibility-state": "visible"|"hidden"`, `online` and `can-share` `"true"|"false"`, `"root-font-size"` in px (what `rem` follows). `fold` (LLP 1078 D7): `posture folded|continuous`, `segments <cols>x<rows>`, `gap <points>` — a host without a fold splits its viewport evenly with the gap centred on each divider; a host with a real fold refuses ("the device decides"). Unnamed facts stay. The reply is what the host now reports, by group. */
     async prefer(facts) {
-      const media = {}, page = {};
-      const expected = () => Object.entries({ ...PREFERENCES, ...PAGE_FACTS }).map(([n, v]) => `${n} ${v.join('|')}`).join(', ');
-      for (const [name, value] of Object.entries(facts ?? {})) {
-        if ((PREFERENCES[name] ?? []).includes(value)) media[name] = value;
-        else if ((PAGE_FACTS[name] ?? []).includes(String(value))) page[name] = PAGE_FACTS[name][0] === 'true' ? String(value) === 'true' : String(value);
-        else if (name === 'root-font-size' && Number(value) > 0 && Number.isFinite(Number(value))) page[name] = Number(value);
-        else throw new Error(`prefer: ${name} ${value}: expected ${expected()}`);
-      }
-      if (carrier.prefer) return s.tagged(await carrier.prefer(media, page));
-      return s.op({ op: 'prefer', ...(Object.keys(media).length || !Object.keys(page).length ? { media } : {}), ...(Object.keys(page).length ? { page } : {}) });
+      const { media, page, fold } = preferGroups(facts);
+      if (carrier.prefer) return s.tagged(await carrier.prefer(media, page, fold));
+      return s.op(preferOp(media, page, fold));
     },
     /** Pixels as PNG (second argument true includes the native window), or a canvas carry with `(path, target, "save")`, or film: `(path, {over, every})` (LLP 1012.001.000 D2). */
     screenshot: async (path, target = false, form) => {
@@ -1226,9 +1249,7 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
   if (timing === 'platform' && carrier.host !== 'web') { const { clock } = await s.op({ op: 'tags' }); if (Number.isFinite(clock)) s.now = clock; }
   return s;
 }
-
 // ---------------------------------------------------------------- the CLI
-
 /** Browser-owned key release carries device identity, never a canvas lookup. */
 export async function browserKey({id, opts, evaluate, ask, call, frame}) {
   if (opts.phase != null && !['down', 'up'].includes(opts.phase)) throw new Error(`key: not a phase: ${opts.phase}`);
@@ -1318,7 +1339,7 @@ export function typeArguments(args) {
  * operations use. One session per file; a failed expect names the test, the
  * line, and what was seen. Returns `{ passed, failed, results }`.
  */
-export async function runTests({ host, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch } = {}) {
+export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch } = {}) {
   const root = resolve(new URL('..', import.meta.url).pathname);
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
   const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
@@ -1328,7 +1349,7 @@ export async function runTests({ host, file, plan, app, size, env, webDist, devi
   // Every test starts from the first frame: a session of its own.
   for (const t of tests) {
     const failures = [];
-    const s = await open({ host, plan, size, env, app, webDist, device, phone, url, seed, locale, timeZone, epoch });
+    const s = await open({ host, browser, plan, size, env, app, webDist, device, phone, url, seed, locale, timeZone, epoch });
     try {
       for (const st of t.steps) {
         const at = `${t.name}: line ${st.line}`;
@@ -1380,8 +1401,9 @@ export async function runTests({ host, file, plan, app, size, env, webDist, devi
 async function main(argv) {
   const { flags, rest } = parseFlags(argv);
   const [host, ...ops] = rest;
+  const browser = flags.browser ?? (host === 'web' ? process.env.EXACT_WEB_BROWSER : undefined);
   if (host && flags.test) {
-    const r = await runTests({ host, file: flags.test, plan: flags.plan, app: flags.app, size: flags.size, device: flags.device, phone: flags.phone, url: flags.url, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch });
+    const r = await runTests({ host, browser, file: flags.test, plan: flags.plan, app: flags.app, size: flags.size, device: flags.device, phone: flags.phone, url: flags.url, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch });
     for (const t of r.results) {
       console.log(`test "${t.name}": ${t.failures.length ? 'FAIL' : 'ok'}`);
       for (const f of t.failures) console.error('  ' + f);
@@ -1390,10 +1412,10 @@ async function main(argv) {
     return r.failed ? 1 : 0;
   }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name> [for <ms>] | tap @N <choice> | type @N <value> | clock <ms|+ms|settle> | prefer <media feature or page fact> <value> […]\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--browser chrome|firefox|webkit] [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--json] <op> [<op> …]\n  web defaults to chrome; EXACT_WEB_BROWSER selects the same option. Install the other engines outside the repo: bunx playwright@1.63.0 install firefox webkit\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name> [for <ms>] | tap @N <choice> | type @N <value> | clock <ms|+ms|settle> | prefer <media feature, page fact, posture folded|continuous, segments <cols>x<rows> [gap <points>]> […]\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
-  const s = await open({ host, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch });
+  const s = await open({ host, browser, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch });
   let at = 0;
   try {
     for (const [k, line] of ops.entries()) {

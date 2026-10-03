@@ -1,0 +1,34 @@
+// LLP 1077 D8's parity page: 3D transforms, the browser the oracle. Each
+// 100×70 cell is a parent with `perspective` holding one 80×50 card: turned
+// about y and x, about an axis of three numbers, moved along z, with the
+// vanishing point at a corner, turned without a perspective (flattened, as
+// CSS draws it), and turned past 90° with its back hidden and shown (its
+// two halves tell which way it faces). `dark` switches the scheme. Chrome's
+// pictures (the web host at 1×) are space.web.png and space.web-dark.png.
+component Space
+  state dark = false
+  action scheme
+    dark = not dark
+    setScheme(dark ? "light" : "dark")
+  view
+    main testId="space" position="relative" width=390 height=460 background-color="light-dark(#ffffff, #121212)"
+      box testId="y" position="absolute" left=20 top=20 width=100 height=70 perspective=200
+        box position="absolute" left=10 top=10 width=80 height=50 rotate="y 40deg" background-image="linear-gradient(to right, #e53935, #1e88e5)"
+      box testId="x" position="absolute" left=145 top=20 width=100 height=70 perspective=150
+        box position="absolute" left=10 top=10 width=80 height=50 rotate="x 50deg" background-image="linear-gradient(#43a047, #fdd835)"
+      box testId="axis" position="absolute" left=270 top=20 width=100 height=70 perspective=250
+        box position="absolute" left=10 top=10 width=80 height=50 border-radius=10 rotate="1 1 0 35deg" background-color="#1e88e5"
+      box testId="z" position="absolute" left=20 top=115 width=100 height=70 perspective=300
+        box position="absolute" left=20 top=15 width=60 height=40 translate="0 0 60px" background-color="#e53935"
+      box testId="origin" position="absolute" left=145 top=115 width=100 height=70 perspective=120 perspective-origin="left top"
+        box position="absolute" left=10 top=10 width=80 height=50 rotate="y 30deg" background-image="linear-gradient(to right, #fdd835, #43a047)"
+      box testId="flat" position="absolute" left=270 top=115 width=100 height=70
+        box position="absolute" left=10 top=10 width=80 height=50 rotate="y 60deg" background-image="linear-gradient(to right, #e53935, #1e88e5)"
+      box testId="hidden" position="absolute" left=20 top=210 width=100 height=70 perspective=200 background-color="light-dark(#eeeeee, #333333)"
+        box position="absolute" left=10 top=10 width=80 height=50 rotate="y 150deg" backface-visibility="hidden" background-color="#e53935"
+      box testId="back" position="absolute" left=145 top=210 width=100 height=70 perspective=200
+        box position="absolute" left=10 top=10 width=80 height=50 rotate="y 150deg" background-image="linear-gradient(to right, light-dark(#e53935, #ce93d8), #1e88e5)"
+      box testId="nested" position="absolute" left=270 top=210 width=100 height=70 perspective=200
+        box position="absolute" left=10 top=10 width=80 height=50 rotate="x -30deg" background-color="#fdd835"
+          box position="absolute" left=20 top=10 width=40 height=30 background-color="#1e88e5"
+      button testId="dark" press=scheme aria-label="Scheme" position="absolute" left=20 top=400 width=40 height=40 background-color="#757575"

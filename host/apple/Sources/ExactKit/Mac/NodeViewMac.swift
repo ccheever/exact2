@@ -77,8 +77,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// A `value` that arrived mid-composition, applied when it ends.
     var pendingValue: String?
     var scroll: ChainingScrollView?
-    /// `box-shadow` (`BoxShadow.swift`).
+    /// `box-shadow` (`BoxShadow.swift`): outer, and inset (LLP 1077 D4).
     var shadowCaster: ShadowCaster?
+    var insetCaster: InsetShadowCaster?
     var clipBox: NSView?
     /// The box's border, gradient and image pixels as sublayers (`BoxLayerMac.swift`).
     var boxBorder: CALayer?
@@ -178,7 +179,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if field != nil || textArea != nil { return false }
         return props["semanticTag"] == "dialog" || isParagraph || tabbable
     }
-    var pressable: Bool { handlers.contains("press") || (kind == "button" && (props["commandfor"] != nil || props["popovertarget"] != nil)) }
+    /// A native button's command is its own too (a confirmation's close row, LLP 1069.011.000 D9).
+    var pressable: Bool { handlers.contains("press") || (isButton && (props["commandfor"] != nil || props["popovertarget"] != nil)) }
     var tabbable: Bool {
         kind == "button" || isNativeButton || canvases?.wantsInput(id) == true || pressable || !handlers.isDisjoint(with: ["focus", "blur", "key"])
     }
@@ -435,11 +437,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let name = props["symbolName"] ?? "", points = number("font_size", 16)
         let weights: [NSFont.Weight] = [.ultraLight, .thin, .light, .regular, .medium, .semibold, .bold, .heavy, .black]
         let index = min(8, max(0, Int((number("font_weight", 400) / 100).rounded()) - 1))
-        let key = "\(source):\(name):\(points):\(index)"
+        let key = "\(source):\(name):\(points):\(index):\(symbolLookKey)"
         if symbolKey != key {
             symbolKey = key; loadGeneration += 1
             let generation = loadGeneration
-            image = name.isEmpty ? nil : NSImage(systemSymbolName: name, accessibilityDescription: nil)?.withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: points > 0 ? points : 1, weight: weights[index]))
+            image = name.isEmpty ? nil : symbolImage(name, symbolConfiguration(NSImage.SymbolConfiguration(pointSize: points > 0 ? points : 1, weight: weights[index])))
             symbolFound = image != nil; if points <= 0 { image = nil }
             if name.isEmpty, !source.hasPrefix("symbol:sf/"), symbolRefusal != source { symbolRefusal = source; presenter?.session?.log("image \(source) refused: unknown symbol role") }
             if !name.isEmpty || source.hasPrefix("symbol:sf/") { symbolRefusal = nil }
@@ -448,7 +450,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 let clip = SymbolClip(); clip.wantsLayer = true; clip.layer?.masksToBounds = true
                 symbolClip = clip; symbolView = leaf; leaf.wantsLayer = true; clip.addSubview(leaf); addSubview(clip)
             }
-            leaf.image = image; leaf.setAccessibilityElement(false)
+            showSymbol(image, on: leaf); leaf.setAccessibilityElement(false)
             let size = image?.size ?? (points > 0 ? CGSize(width: points, height: points) : nil)
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.loadGeneration == generation, let presenter = self.presenter,
@@ -457,6 +459,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             }
         }
         symbolView?.contentTintColor = color("tint_color", .black)
+        if let leaf = symbolView { applySymbolEffect(leaf) }
         layoutSymbol()
     }
     func layoutSymbol() {
@@ -597,7 +600,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// border box (a 100 pt radius on a 28 pt pill is 14), at the current size.
     func applyMaterialRadius() {
         guard let materialView else { return }
-        let radius = cornerRadii(in: bounds).max() ?? 0
+        materialView.wantsLayer = true
+        guard let materialLayer = materialView.layer else { return }
+        let radius = BorderPaint.clip(materialLayer, in: bounds, radii: cornerSizes(in: bounds))
         if #available(macOS 26.0, *), let glass = materialView as? NSGlassEffectView {
             glass.cornerRadius = radius
         } else {
@@ -683,19 +688,17 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return inv.map { $0 / det }
     }
 
-    /// A window point in this node's own coordinates — through the surface's
-    /// placement when this node is under a placed child (LLP 1014 D5), else
-    /// AppKit's own conversion.
+    /// A window point in this node's own coordinates: AppKit's conversion,
+    /// through each transformed box on the way (LLP 1077 D8), and through the
+    /// surface's placement when this node is under a placed child (LLP 1014
+    /// D5) — the canvas reached first the same way, then the child's points.
     func local(_ windowPoint: NSPoint) -> NSPoint {
         guard let placed = placedAncestor, let h = placed.placement, let inv = NodeView.invert(h),
               let overlay = placed.superview, let canvas = overlay.superview as? NodeView else {
-            return convert(windowPoint, from: nil)
+            return descend(windowPoint)
         }
-        let inCanvas = canvas.convert(windowPoint, from: nil)
-        let inChild = NodeView.map(inv, inCanvas)
-        // The child's own points; then down to this node by the untransformed
-        // hierarchy.
-        return convert(inChild, from: placed)
+        let inChild = NodeView.map(inv, canvas.local(windowPoint))
+        return descend(inChild, from: placed)
     }
 
     /// The placement changed: accessibility sees the new box.
@@ -711,7 +714,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// (children the surface left in place) is tested in AppKit's order
     /// without them, and then the canvas itself is the hit.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !inert, !isHiddenOrHasHiddenAncestor, placedAncestor?.placementHidden != true else { return nil }
+        guard !inert, !isHiddenOrHasHiddenAncestor, placedAncestor?.placementHidden != true, let point = spaceHit(point) else { return nil }
         if let clipPath, !clipPath.contains(convert(point, from: superview), using: clipRule) { return nil }
         if isSurfaceControl, bounds.contains(convert(point, from: superview)) { return self }
         func ordinary() -> NSView? {
@@ -745,11 +748,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// agent's `layout` reports.
     override func accessibilityFrame() -> NSRect {
         if placedAncestor?.placementHidden == true { return .zero }
-        guard let placed = placedAncestor, let h = placed.placement, let overlay = placed.superview, let canvas = overlay.superview as? NodeView, let win = window else { return super.accessibilityFrame() }
-        let corners = [NSPoint(x: 0, y: 0), NSPoint(x: bounds.width, y: 0), NSPoint(x: bounds.width, y: bounds.height), NSPoint(x: 0, y: bounds.height)].map { NodeView.map(h, placed.convert($0, from: self)) }
-        let xs = corners.map { $0.x }, ys = corners.map { $0.y }
-        let inCanvas = NSRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
-        return win.convertToScreen(canvas.convert(inCanvas, to: nil))
+        guard placedAncestor?.placement != nil, let win = window else { return super.accessibilityFrame() }
+        return win.convertToScreen(drawnRect(bounds))
     }
 
     /// Whether this view draws in the dark appearance. The **owning view's**
@@ -939,6 +939,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         for k in clear { next.removeValue(forKey: k) }
         for (k, v) in set { next[k] = v }
         props = next
+        if set["symbolEffectValue"] != nil { updateSymbol() }
         applyTextArea()
         if let f = field {
             // `type` changed between password and text: a secure field is a
@@ -1007,6 +1008,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return layerBoxEligible && !Capture.capturing && !drawsPaint
     }
     override func updateLayer() {
+        // AppKit has rewritten the layer's geometry by now: the authored
+        // transform goes back on (as after `layout()`).
+        applyTransform()
         if let readerParagraph {
             readerParagraph.update(self)
             layer?.contents = nil
@@ -1030,8 +1034,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         defer { video?.update() }
         layerPaintCache = nil
         let origin = style["transform_origin"]
+        let old = style
         style = s
         if s["transform_origin"] != origin { applyTransform() }
+        applySpace(changedFrom: old)
         let uniformBorder = number("border_width")
         hasBoxPaint = s["background_color"] != nil || s["background_image"] != nil
             || number("border_width_top", uniformBorder) > 0
@@ -1044,7 +1050,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // Inline text is unmounted run data. Its containing paragraph owns
         // the backing store; create this node's layer only when it mounts.
         if kind != "text" || superview != nil { wantsLayer = true }
-        layer?.mask = ClipPath.mask(clipPath, clipRule)
+        applyBoxMask()
         applyFilter()
         // Scrolling and clipping come from the effective overflow the host
         // wrote in (never from the node's kind): `scroll` on an axis makes a
@@ -1138,7 +1144,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     /// CSS `filter` (LLP 1055.000 D14): the box shows through a filtered
     /// picture (`BoxFilter`), drawn again after each batch.
-    private var boxFilter: BoxFilter?
+    private(set) var boxFilter: BoxFilter?
+    var hasBoxFilter: Bool { boxFilter != nil }
     func applyFilter() {
         // A node with no filter makes no BoxFilter to learn so (three layers
         // per styled node otherwise; iOS's 50e9abf6e).
@@ -1153,7 +1160,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             f.remove()
             boxFilter = nil
             presenter?.boxFilters.remove(self)
-            layer?.mask = ClipPath.mask(clipPath, clipRule)
+            applyBoxMask()
         }
     }
 
@@ -1164,7 +1171,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // properties (`BoxLayerMac.swift`) gets them now, not at the next
         // display, so a new filtered box is not pictured empty.
         if layerBoxEligible, !Capture.capturing { applyLayerPaint() }
-        f.render(layer, clip: ClipPath.mask(clipPath, clipRule), scale: window?.backingScaleFactor ?? 2)
+        f.render(layer, clip: resolvedClipMask(), scale: window?.backingScaleFactor ?? 2)
     }
 
     override func viewDidMoveToSuperview() {
@@ -1191,6 +1198,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         layerPaintCache = nil
         if hasBoxPaint || clipsToBounds || clipBox != nil { applyClipRadius() }
         if materialView != nil { applyMaterialRadius() }
+        if number("backdrop_blur") > 0 { applyBackdrop() }
         // Border, gradient and image sublayers follow the new size.
         if layerBoxEligible && (hasBoxPaint || kind == "image") { needsDisplay = true }
     }
@@ -1199,7 +1207,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard kind == "text" else { return }
         wantsLayer = true
         applyShadow()
-        layer?.mask = boxFilter?.hide ?? ClipPath.mask(clipPath, clipRule)
+        if let hide = boxFilter?.hide { layer?.mask = hide } else { applyBoxMask() }
         layer?.zPosition = usedZIndex
         applyTransform()
     }
@@ -1226,6 +1234,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func layout() {
         if let s = presenter?.session, s.firstLayoutMs == nil { s.firstLayoutMs = ExactEnv.wall() }
         super.layout()
+        // AppKit rewrites a layer-backed view's layer geometry, transform
+        // included, as it lays it out: the authored one goes back on.
+        applyTransform()
+        if style["perspective"] != nil { applyPerspective() }
         if kind == "image" { presenter?.session?.rasters.resized(self) }
         presenter?.collections.changed(id)
         presenter?.transformGeometry.changed()
@@ -1245,10 +1257,13 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         cornerSizes(in: rect, inset: inset).map { $0.width }
     }
     func roundedPath(in rect: NSRect, inset: CGFloat = 0) -> NSBezierPath {
-        NSBezierPath(cgPath: BorderPaint.roundedRect(rect, cornerSizes(in: rect, inset: inset)))
+        NSBezierPath(cgPath: BorderPaint.roundedRect(rect, cornerSizes(in: rect, inset: inset), shape: CornerShape(style["corner_shape"])))
     }
 
     override func draw(_ rect: NSRect) {
+        // The display path a drawn box takes instead of `updateLayer()`:
+        // AppKit has rewritten the layer's transform here too.
+        applyTransform()
         // Selection, capture, and decorated text return to direct painting.
         if textRasterUsesStrips {
             textRasterOverflowLayer?.removeFromSuperlayer()
@@ -1283,13 +1298,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let rounded = cornerRadii(in: bounds).contains { $0 > 0 }
         // The box's outline only where something is painted through it.
         lazy var path = roundedPath(in: bounds)
-        let bg = paintsBox ? color("background_color", .clear) : .clear
         // A layout transition's size shows the surface on its own layer.
-        if paintsBox, bg.alphaComponent > 0, surface == nil {
-            bg.setFill()
-            if rounded { path.fill() } else { NSGraphicsContext.current?.cgContext.fill(bounds) }
-        }
-        if paintsBox, style["background_image"] != nil, let ctx = NSGraphicsContext.current?.cgContext { paintGradient(ctx, clip: path.cgPath) }
+        if paintsBox { drawBackground(path, rounded: rounded) }
+        if let ctx = NSGraphicsContext.current?.cgContext { drawCapturedInsetShadow(ctx) }
         // The host sends each side's colour (`style.rs`), never a uniform
         // one: each side in its colour, joined as the web joins them.
         let uniform = number("border_width")
@@ -1298,7 +1309,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             let top = color("border_color_top", .clear)
             let colors = ["top", "right", "bottom", "left"].map { color("border_color_" + $0, top).cgColor }
             let radii = BorderPaint.radii(style, in: bounds)
-            BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii)
+            BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii, shape: CornerShape(style["corner_shape"]))
         }
         if kind == "image", symbolView == nil, !(layerPaint && imageLayer != nil), let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border
@@ -1332,6 +1343,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
                 }
             } else if let ctx = NSGraphicsContext.current?.cgContext, let paragraph = paragraphLayout() {
                 presenter?.selection.draw(self, paragraph: paragraph, spec: spec, dirty: textDirty)
+                paintBackgroundThroughText(ctx, paragraph: paragraph, spec: spec, in: contentBox())
                 TextEngine.draw(paragraph, spec: spec, in: contentBox(), context: ctx, dirty: textDirty)
             }
         }

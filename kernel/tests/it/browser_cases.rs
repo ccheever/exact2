@@ -45,6 +45,7 @@ pub(crate) fn css_rows(css: &str) -> Rows {
             "aspect-ratio" => &[AspectRatio],
             "display" => &[Display],
             "box-sizing" => &[BoxSizing],
+            "appearance" => &[Appearance],
             "direction" => &[Direction],
             "flex-direction" => &[FlexDirection],
             "flex-wrap" => &[FlexWrap],
@@ -196,11 +197,11 @@ fn empty(parent: u32, ids: &[u32]) -> Vec<(u32, u32, Rows)> {
 fn grid(rows: Rows, columns: &[GridTrack], track_rows: &[GridTrack]) -> StyleProps {
     let mut p = props(&[vec![(Display, t("grid")), (Width, n(400.0))], rows].concat());
     if !columns.is_empty() {
-        p.grid_template_columns = GridTracks(columns.to_vec());
+        p.grid_template_columns = GridTracks::from_tracks(columns.to_vec());
         p.mask.set(GridTemplateColumns);
     }
     if !track_rows.is_empty() {
-        p.grid_template_rows = GridTracks(track_rows.to_vec());
+        p.grid_template_rows = GridTracks::from_tracks(track_rows.to_vec());
         p.mask.set(GridTemplateRows);
     }
     p
@@ -362,6 +363,35 @@ fn normal_alignment_matches_chrome_in_grid_and_flex() {
         &[(2, [0.0, 0.0, 400.0, 30.0]), (3, [0.0, 20.0, 400.0, 10.0])],
     );
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn physical_justify_items_uses_inherited_direction() {
+    for (value, x) in [("left", 0.0), ("right", 80.0)] {
+        let k = lay_out(
+            props(&vec![(Width, n(200.0)), (Direction, t("rtl"))]),
+            vec![
+                (
+                    2,
+                    1,
+                    vec![
+                        (Display, t("grid")),
+                        (Width, n(100.0)),
+                        (JustifyItems, t(value)),
+                    ],
+                ),
+                (3, 2, vec![(Width, n(20.0)), (Height, n(10.0))]),
+            ],
+            &[],
+        );
+        let grid = k.node(2).unwrap().frame;
+        let item = k.node(3).unwrap().frame;
+        assert_eq!(
+            [item.x - grid.x, item.y - grid.y, item.width, item.height],
+            [x, 0.0, 20.0, 10.0],
+            "inherited rtl justify-items: {value}"
+        );
+    }
 }
 
 /// CSS Box Model §4 (CSS 2.1 §8.4): a percentage padding or border width

@@ -5,10 +5,13 @@ component Styles
   state width = 120
   state title = ""
   state body = ""
+  state unlocked = ""
   action titleInput(value: string)
     title = value
   action bodyInput(value: string)
     body = value
+  action unlockedInput(value: string)
+    unlocked = value
   action flip
     on = not on
   action widen
@@ -28,4 +31,4 @@ component Styles
       input testId="title" value=title readonly=on input=titleInput
       textarea testId="body" value=body readonly=(on or width > 300) input=bodyInput
       input testId="locked" value="locked" readonly=true
-      input testId="unlocked" readonly=false
+      input testId="unlocked" value=unlocked readonly=false input=unlockedInput

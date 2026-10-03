@@ -246,6 +246,7 @@ Choose the mechanism from its lifetime:
 | Requirement | Mechanism |
 | --- | --- |
 | Value follows query arguments | `resource result = source(args) as shape T` |
+| Source needs changing context while the same kept answer is suitable at boot | `resource result = source(identity) with context as shape T` |
 | Explicit command with a reply | `mutation reply as shape T`, then `send reply = source(args)` |
 | Re-request current resource arguments | `refresh result` |
 | Refresh reads around a mutation | `mutation … refreshes resourceA, resourceB` |
@@ -257,6 +258,16 @@ Choose the mechanism from its lifetime:
 Resources read as their declared type. Mutations read as `option<T>` and start at
 `none`. Do not treat a resource as an optional wrapper unless its declared type
 itself is optional. A mutation reply is unwrapped with match.
+
+`with` takes one or more expressions, before `as shape`, and appends them to the
+source's arguments. All arguments still trigger re-asks and identify live
+requests. Only an eligible persisted answer admitted while the source is unready
+at boot matches the call arguments alone; it can then stand while activation is
+pending. Without `with`, every argument identifies that kept answer. Keep
+account/tenant IDs and representation choices in the call, credentials below
+the seam, and use `refresh`/`refreshes` for counters whose only purpose is another
+ask. The default web JS target keeps no persisted resource answers
+([LLP 1027.005](../llp/1027.005-resource-identity-and-request-context.rfc.md)).
 
 The current request owns its answer; older replies cannot overwrite a newer
 request. Assigning a mutation forgets its in-flight reply. `refreshes` re-reads

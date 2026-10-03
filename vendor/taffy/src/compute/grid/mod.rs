@@ -70,10 +70,14 @@ pub fn compute_grid_layout<Tree: LayoutGridContainer>(
         if style.box_sizing() == BoxSizing::ContentBox { padding_border_size } else { Size::ZERO };
 
     // EXACT PATCH 12: the container's own size styles through the ratio (`compute::ratio`).
+    // A definite width assigned by the parent (including grid-item stretch during track
+    // measurement) supplies the ratio's automatic height floor just as an authored width does.
     let (style_size, min_size, max_size) = sizes_through_ratio(
         &style,
         padding_border_size,
-        style.size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
+        known_dimensions.or(
+            style.size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
+        ),
         style.min_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
         style.max_size().maybe_resolve(parent_size, |val, basis| tree.calc(val, basis)).maybe_add(box_sizing_adjustment),
     );

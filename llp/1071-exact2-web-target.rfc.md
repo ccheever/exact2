@@ -715,7 +715,7 @@ from (a) today.
 | ~~Text around shapes (`wrap-flow`, LLP 1043.000)~~ landed 2026-09-29 (below) | — | — |
 | Events: ~~pan, panrelease, swiperight, select, cancel, the height, transform and reorder drags~~ (landed 2026-09-29, below); ~~a file input and `showPicker`~~ (landed 2026-09-29, "Files and storage") | — | — |
 | (b)'s documents: canonical, og, robots, status, sitemap | 2–3 days | build-time only |
-| State carried across a dev reload (landed 2026-10-02: slots, §7 "Dev reload"), the rest of the agent (`stages`, plan swap); delivery needs no client on the web: `exactDelivery` answers what the build baked and there is no update store for `deliveryCheck`/`deliveryActivate` to act on (below, "Delivery on the web") | 1–2 weeks | agent-only / <1 KB |
+| ~~State carried across a dev reload~~ (landed 2026-10-02, below), the rest of the agent (`stages`, plan swap); delivery needs no client on the web: `exactDelivery` answers what the build baked and there is no update store for `deliveryCheck`/`deliveryActivate` to act on (below, "Delivery on the web") | 1–2 weeks | agent-only / <1 KB |
 
 ### The tools (2026-09-29)
 
@@ -728,7 +728,7 @@ content-named.
 
 | Tool | Target | How |
 |---|---|---|
-| Dev loop (`host/web/dev.mjs`) | JS (a refusal shows in the page) | `host/web-js/dev.mjs`: an edit under the app, `host/web-js` or the base stylesheet rebuilds (`host/web-js/build.mjs --render none` into a stage renamed over dist; what did not change is not rebuilt) and every page reloads; a failed build's errors show in the page, which keeps the last good build. Edit → first frame 104 ms p50 for the video player (was ~2.2 s), 307 ms for Caltrain, whose first frame waits for its Rust module (below, "Build and toolchain gaps"), against the resident wasm loop's ~20 ms and the 100 ms budget row; no slot values carried. `--wasm`, or a refusal, runs the resident loop |
+| Dev loop (`host/web/dev.mjs`) | JS (a refusal shows in the page) | `host/web-js/dev.mjs`: an edit under the app, `host/web-js` or the base stylesheet rebuilds (`host/web-js/build.mjs --render none` into a stage renamed over dist; what did not change is not rebuilt) and every page reloads; a failed build's errors show in the page, which keeps the last good build. The old page checkpoints the wasm restart's carried set and the new development build consumes it once: compatible root slots, route stacks, settled non-host answers when the emitted data modules have the same digest, clock and focus; no request in flight. Edit → first frame 104 ms p50 for the video player (was ~2.2 s), 273 ms for Caltrain (was 307 ms), whose first frame waits for its Rust module (below, "Build and toolchain gaps"), against the resident wasm loop's ~20 ms and the 100 ms budget row. `--wasm`, or a refusal, runs the resident loop |
 | Delivery (`scripts/deploy.mjs`) | the web root JS when it takes the app | the production wasm bake stays the streams' bundle and receipts; its baked plan compiled to JS (`--production`) is the web root (below, "Delivery on the web") |
 | Agent, web host (`scripts/agent.mjs web`) | what dist holds | a JS dist is served as a tree; the tree reply carries `roots`, the journal a `boot:` line |
 | Smoke (`smoke.mjs web`), the app drive and its tests | the default build | the staged-core check is the wasm's only |
@@ -900,6 +900,7 @@ account) and notifications work in a browser.
 
 **The runtime gaps** (landed 2026-09-29, measured; brotli-11, `app.js`
 bytes against a plan without the feature):
+- **Answers kept between launches** (LLP 1027 D4; [LLP 1027.005](1027.005-resource-identity-and-request-context.rfc.md)). The JS target has no durable kept-answer lifecycle. A TypeScript module is installed before the first commit; a Rust module loaded after first paint also gets no persisted seed. `with` values reach the source as ordinary trailing arguments and participate in every live request comparison. Rendered document checkpoints and dev reload carry retain full-argument matching. The runner admits kept answers only for a source unready at boot; once admitted, an answer remains visible during asynchronous revalidation. A source already ready at boot but slow to answer gets no kept seed on either target. Extending admission or adding durable kept answers to the JS target remains separate work.
 - **`now()`.** A reader of `now()` is re-evaluated at each commit made at a
   later time, as the runner's dependency tracking marks a clock read
   (`instance/deps.rs`), and never by the clock moving alone: `x_now` reads a
@@ -1233,22 +1234,36 @@ process; the dev build renders no pages (`--render none`: a render entry's
 crate bakes the plan, so it rebuilt on every Contract edit) and makes no
 server bundle; the loop runs the JS build directly, with a 5 ms debounce.
 Measured (metrics' dev row, five edits, p50): video player 104 ms (p95
-182; was ~2.2 s), a rebuild ~40 ms of it; Caltrain 307 ms (p95 363), a
-rebuild 60–150 ms and a first frame that waits for its Rust module, as an
+182; was ~2.2 s), a rebuild ~40 ms of it; Caltrain 273 ms (p95 308; the
+previous carry revision was 271/294 and the pre-carry loop 307/363), a
+rebuild 60–150 ms and a first frame that waits for its Rust
+module, as an
 unbaked plan's resources without a compiled value must. The budget row is
 100 ms; the rest is the reload itself.
 
-*State carry* (2026-10-02): a dev reload keeps the slots, as the wasm
-loop's restart does (`Runner::carry`). The dev build (`build.mjs --dev`,
-which only `dev.mjs` passes) has the page write its top-level slots to
-`sessionStorage` just before the loop's reload; the new page, after its
-first commit, writes back each one whose name it still has and whose value
-fits the new plan's type, in one commit, so a carried value never refuses
-the boot. The router's slot is untyped and not carried: the reloaded page
-reads its route from the address, as any reload does. Resources are asked
-again (the wasm loop carries matching answers; here they are re-fetched).
-Checked on Caltrain: `material` and `deck` set by taps survive a Contract
-edit's reload.
+State carry landed 2026-10-02. Immediately before the server-requested
+reload, the page posts one checkpoint to the dev server; the navigation
+names its random handle and the next development document consumes it once
+before its app starts. The handoff has no Web Storage quota. It carries
+the same set as the wasm restart: root slots by authored name and complete
+type, a route stack only while the new route table still describes every
+entry, settled resources by name/source/type and their settled arguments
+only while the emitted TypeScript and Rust logic module digests are unchanged,
+and the clock. The five host-owned sources (`exactDelivery`, `exactViewport`,
+`exactTime`, `exactPage`, `exactSurface`) are always read from the new page.
+Requests in flight, row-owned slots and scroll offsets are not carried. Focus
+follows its logical tree position and node type through virtualized row
+wrappers, suppressing boot autofocus as the wasm host does.
+The hooks, checkpoint metadata and node type attributes are emitted only by
+the dev loop's `build.mjs --dev`; ordinary and production artifacts are
+unchanged (`cf95954a` before/current, raw and brotli-11 respectively:
+RealWorld `app.js` 101625/24172 B both, all JS 128019/33497 B both; Caltrain
+`app.js` 64896/15936 B both, all JS 254604/61618 B both). The browser tests
+drive RealWorld (no GPU surface) across a route, a 6 MiB compatible slot,
+changed-type and removed slots, a settled answer, an imported-helper logic
+edit, a refreshed page fact and focus inside a virtualized row. The automated
+Caltrain drive on the no-adapter fallback keeps its station screen, `Palo`
+query and focused search field while showing an edited label.
 
 **Arrange, the reorder drag; `frame` and `measure`** (landed 2026-09-29,
 measured; brotli):
@@ -1672,6 +1687,74 @@ was heard from any document its guest navigated to (now only from the origin
 of the committed src, as glue.js's `guestMessageAuthorized`). Cost: rt.js
 +849 B minified (+308 B brotli) before tree shaking; agent.js (agent only)
 7.7 → 12.3 KB.
+
+**Failed replies and the document's head** (2026-10-02): two places the JS
+runtime disagreed with the runner, each now held by a synthetic plan and
+equal on the wasm page, the JS page and the Linux reference.
+- *A reply its source cannot take.* A rejected TypeScript promise, a Rust
+  parse that refuses (a failed outcome it does not shape included) or an
+  answer outside the declared shape refused the reply's commit, which put the
+  ticket back: `pending` stayed true for good and `failed` never came. Now a
+  data or shape refusal in a reply's commit, while the ticket is still held,
+  lets it go in a commit of its own, as the runner's `release_failed`
+  (rt.js `reply`): a resource keeps its last value and is failed for those
+  arguments, not asked again for them, asked again for new ones or by
+  `refresh`, the marker restored with a refused commit; a mutation ends
+  unsent, its slot as it was and its `then` unarmed; the journal says
+  `request N (name) failed and is no longer pending: …`. Any other refusal
+  keeps the ticket, and a refused commit now puts back the mutations' tickets
+  too, as the runner restores its pending set. `conformance/failed.contract`
+  asks Completion Storm's `lost` (a request whose reply its parse never takes)
+  and `fixtureStats()` under a shape it lacks: 0 of 20 steps equal before,
+  20 of 20 after.
+- *The head.* Each `head`'s fields were set by their own effects, so the last
+  to run won; a head that left kept its fields, and a covered route's head
+  still won when it changed. `host/web-js/document.js` now finds the active
+  head after each commit's tree update as `runner/src/head.rs` does (the
+  deepest, then the latest in document order, field by field; nothing inside
+  a route its navigation root has not selected, read from `navigationBack`
+  and `navigationKey`, not from the projection), with parentNode and
+  childNodes only, so a render's DOM finds it too; `Head`, `document.title`
+  (the page's own where no head sets one) and the description meta follow it.
+  The scroll-document mark (LLP 1048.003 D4) moved there with it, keeping
+  rt.js at 1,499 lines. The JS agent's `state` reports `head` and
+  `conform.mjs` compares it on every target and step:
+  `conformance/heads.contract` was 0 of 15 steps equal before, 15 of 15 after.
+- *Cost* (`app.js`, raw / gzip / brotli-11, unbaked builds): Caltrain
+  68,303 / 18,554 / 16,160 → 69,955 / 19,139 / 16,690; RealWorld
+  102,883 / 29,011 / 24,666 → 104,444 / 29,634 / 25,186 (the head about
+  two thirds of it, in every app with a `head`).
+- *Found beside them* (QUEUE, since closed): the JS target checked no
+  `net.fetch` grant (a request outside the grants went out where the wasm
+  host refused it); it has since 001e43d03, the whole-set grant admission
+  (`issues/closed/20260924-grant-readers-disagree.md`). The other two are
+  fixed below.
+
+**Navigation roots without a router, and `prepend` under Bun** (2026-10-02):
+- *A navigation root in a plan with no `routes`.* The emitted module
+  connected navigation.js and projected a root (its covered routes hidden
+  and inert) only through the router, a microtask after each change of the
+  router slot, so a plan whose root switched routes from its own state
+  showed every route, each taking presses; the web host connects
+  navigation.js at boot and projects after every batch. Now emit.rs wires
+  any plan with a `navigationBack`, and document.js `projectRoots` connects
+  navigation.js (Escape on a modal route, a popstate's location) and
+  projects now and after every commit's tree, with a router or without, so
+  a router plan is also projected after every commit, not only when its
+  slot changes. `conformance/navroot.contract` (a root over two routes from
+  a `depth` state, a tap on the covered route's control): 5 of 10 steps
+  equal before (the covered route on screen, 14.39% of the pixels), 10 of
+  10 after, and 10 of 10 on the Linux reference.
+- *`prepend` under Bun.* rt.js's `each` prepends a row's anchor and each
+  row's fragment; dom.js had no `prepend`, so a render whose `each` built a
+  row of more than one node, or two rows in one pass, refused its boot (the
+  heads plan at `/detail/7`: "batch.prepend is not a function"). dom.js has
+  it now, and that page renders both routes and the detail's head.
+- *Cost* (`app.js`, raw / brotli-11): a plan with a router about none
+  (Caltrain 74,845 → 74,877 / 17,521 → 17,482); one with no root, none; a
+  root without a router now carries navigation.js's `navigation`, as every
+  wasm page does (the navroot plan 19,639 → 24,778 / 6,971 → 8,545; no app
+  here has one).
 
 ## 8. Rulings and open questions for Charlie
 

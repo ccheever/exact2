@@ -68,15 +68,22 @@ pub enum Capability {
     /// `background-image`'s gradients (LLP 1066): its grammar, for a plan
     /// that binds the row.
     Gradients,
+    /// CSS grid's track, placement and keyword grammars, for a plan that
+    /// binds any of the six grid rows.
+    Grid,
     /// `frame` and `measure` (LLP 1051.000): a plan whose actions read
     /// geometry. Native hosts answer from the kernel; the web links a
     /// synchronous import the page answers.
     Geometry,
+    /// `env(viewport-segment-*)` lengths (LLP 1078 D3): the segment grammar,
+    /// resolution and wire decode, for a plan whose strings name a segment.
+    /// The fold's `exactViewport` fields are the core's.
+    Segments,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 18] = [
+    pub const ALL: [Capability; 20] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -94,7 +101,9 @@ impl Capability {
         Capability::Effects,
         Capability::Animations,
         Capability::Gradients,
+        Capability::Grid,
         Capability::Geometry,
+        Capability::Segments,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -117,7 +126,9 @@ impl Capability {
             Capability::Effects => "effects",
             Capability::Animations => "animations",
             Capability::Gradients => "gradients",
+            Capability::Grid => "grid",
             Capability::Geometry => "geometry",
+            Capability::Segments => "segments",
         }
     }
 
@@ -182,6 +193,12 @@ pub fn uses(plan: &Plan) -> Uses {
     if plan.router.is_some() {
         uses = uses.with(Capability::Router);
     }
+    // A segment length is a value, not a row: any string of the plan's
+    // naming one (a literal, a template's piece) can reach a dimension row,
+    // so the set is never smaller than what a run can reach.
+    if plan.strings.iter().any(|s| names_segment(s)) {
+        uses = uses.with(Capability::Segments);
+    }
     if !plan.surfaces.is_empty()
         || plan
             .resources
@@ -243,8 +260,24 @@ pub fn uses(plan: &Plan) -> Uses {
                 ) {
                     uses = uses.with(Capability::Animations);
                 }
-                if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::BackgroundImage) {
+                if matches!(
+                    StyleId::from_bit(u32::from(binding.id)),
+                    Some(StyleId::BackgroundImage | StyleId::MaskImage)
+                ) {
                     uses = uses.with(Capability::Gradients);
+                }
+                if matches!(
+                    StyleId::from_bit(u32::from(binding.id)),
+                    Some(
+                        StyleId::GridTemplateColumns
+                            | StyleId::GridTemplateRows
+                            | StyleId::GridColumn
+                            | StyleId::GridRow
+                            | StyleId::GridAutoFlow
+                            | StyleId::JustifyItems
+                    )
+                ) {
+                    uses = uses.with(Capability::Grid);
                 }
                 if StyleId::from_bit(u32::from(binding.id)) == Some(StyleId::Transition)
                     && can_be(binding, &|v| v.contains("spring"))
@@ -394,4 +427,12 @@ fn constant_str<'a>(plan: &'a Plan, code: &[u8]) -> Option<&'a str> {
         }
         _ => None,
     }
+}
+
+/// Whether a string names a viewport segment variable (`viewport-segment-`
+/// anywhere in it): a byte scan, so the core carries no string searcher
+/// for it.
+fn names_segment(s: &str) -> bool {
+    const NAME: &[u8] = b"viewport-segment-";
+    s.as_bytes().windows(NAME.len()).any(|w| w == NAME)
 }

@@ -43,12 +43,7 @@ pub trait SecretStore: Send + Sync {
 /// filesystem bounds its components. Refused at grant parse and again at
 /// the store, so a name can never spell a path.
 pub fn is_valid_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() <= 64
-        && name.bytes().all(|b| {
-            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'_' | b'-')
-        })
-        && !name.bytes().all(|b| b == b'.')
+    exact_grants::valid_name(name)
 }
 
 fn check_name(name: &str) -> Result<(), HostError> {

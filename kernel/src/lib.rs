@@ -30,6 +30,7 @@
 pub mod arena;
 pub mod clip;
 pub mod control;
+pub mod corner;
 pub mod error;
 pub mod export;
 mod flow;
@@ -55,7 +56,7 @@ pub mod transform;
 pub mod txn;
 pub mod wire;
 
-pub use control::{ButtonFace, Choice, ControlKind, Range};
+pub use control::{Choice, ControlKind, PressFace, Range};
 pub use error::{
     ApplyError, DecodeError, KernelError, LayoutError, StyleDomainError, StyleValueError,
 };
@@ -68,8 +69,10 @@ pub use node::NodeFacts;
 pub use props::{PropList, PropValue};
 pub use sorted::{SortedMap, SortedSet};
 pub use style::{
-    uses_env, BoxShadow, Color, ColorValue, Dimension, Edge, Env, GridLine, GridPlacement,
-    GridTrack, GridTracks, LineHeight, RowValue, StyleValue, Transitions, Vec2,
+    link_segments, uses_env, BoxShadow, Color, ColorValue, Dimension, Edge, Env, EnvRefusal,
+    GridFitContent, GridLine, GridPlacement, GridRepeat, GridRepeatCount, GridTrack,
+    GridTrackComponent, GridTrackMax, GridTrackMin, GridTracks, LineHeight, Rect, RowValue,
+    SegmentVar, StyleValue, Transitions, Vec2,
 };
 pub use text::case::link as link_text_transform;
 pub use text::{

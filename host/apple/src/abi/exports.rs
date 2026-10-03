@@ -22,6 +22,7 @@ macro_rules! host {
         $crate::collapse_exports!();
         $crate::app_module_exports!();
         $crate::material_exports!();
+        $crate::corner_exports!();
         thread_local! {
             static EXACT_RUNTIMES: ::std::cell::RefCell<$crate::abi::Registry<$data>> = ::std::cell::RefCell::new($crate::abi::Registry::default());
         }
@@ -443,6 +444,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.insets(top, right, bottom, left), |n| n)
         }
 
+        /// The posture and the viewport segments (LLP 1078 D4); returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_segments(rt: u32, posture: u32, cols: u32, rows: u32, count: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.segments(posture, cols, rows, count), |n| n)
+        }
+
         /// The presenter's appearance: nonzero is dark (LLP 1062); returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_scheme(rt: u32, dark: u32) -> u32 {
@@ -526,8 +533,8 @@ macro_rules! host {
         /// A native button's title and symbol (LLP 1069.011 D5), JSON;
         /// returns its length.
         #[no_mangle]
-        pub extern "C" fn exact_button_face(rt: u32, view: u32) -> u32 {
-            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.button_face(view), |n| n)
+        pub extern "C" fn exact_press_face(rt: u32, view: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.press_face(view), |n| n)
         }
 
         /// A select's options and the one it shows (LLP 1069.001 D5), JSON;

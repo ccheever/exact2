@@ -359,7 +359,7 @@ fn deferred_textures_replace_retire_and_move_through_restore_in_name_order() {
     }
     assert!(sim
         .deliver_asset("overflow.tex", Ok(asset::Content::Texture(texture(0))))
-        .is_err());
+        .is_ok());
     let replacement = texture(99);
     let pixels = replacement.mips[0].as_ptr();
     sim.deliver_asset("005.tex", Ok(asset::Content::Texture(replacement)))
@@ -448,15 +448,15 @@ fn cosmetic_names_retire_and_respawn_requests_again() {
     assert_eq!(sim.take_assets(), ["late.model"]);
 }
 #[test]
-fn asset_requests_are_bounded_and_refusal_names_the_excess() {
+fn asset_requests_support_more_than_256_names() {
     let mut sim = Sim::<Cosmetic>::new(()).unwrap();
     for i in 0..300 {
         sim.world_mut()
             .spawn((Transform::default(), Mesh::asset(format!("{i:03}.model"))));
     }
-    assert!(sim.take_assets().len() <= 256);
+    assert_eq!(sim.take_assets().len(), 301);
     let state = sim.agent(r#"{"op":"state"}"#);
-    assert!(state.contains("256") && state.contains("Failed"), "{state}");
+    assert!(!state.contains("Failed"), "{state}");
 }
 
 #[test]

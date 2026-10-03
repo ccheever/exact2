@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 and 20 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 and 21 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -14,9 +14,46 @@
   when a published version provides it. The numbered inventory retains the
   history so a refresh cannot silently lose an Exact correction.
 
-All upstream evidence below refers to the supplied, unmodified 0.14.0 source,
-not to a moving network branch. The package's source is copied in full; examples,
+The original patch descriptions refer to the supplied, unmodified 0.14.0
+source. The dated upstream audit below separately records current upstream work. The package's source is copied in full; examples,
 Cargo.lock, Cargo.toml.orig and packaging receipts are omitted as before.
+
+## Upstream submission audit, 2026-10-02
+
+Initial coverage audit: DioxusLabs/taffy main `fb461a7826e49f488f31220744bf12227ffb580e`.
+The final ratio submission also integrates main `22f941e19e05d1b29621703b4f3a9d96d7839886`.
+The vendored implementation is unchanged; a merged upstream change is not yet
+available to Exact until its dependency is refreshed and checked.
+
+| Patch | Current upstream coverage |
+| --- | --- |
+| 10 | Block percentage padding was merged in [#1187](https://github.com/DioxusLabs/taffy/pull/1187). The remaining two flex paths are merged in [#1209](https://github.com/DioxusLabs/taffy/pull/1209), by `ccheever`; 16 new Chrome-generated variants, eight failing before the fix. |
+| 11 | Missing sizing-mode and margin-collapse cache inputs are submitted in [#1210](https://github.com/DioxusLabs/taffy/pull/1210), by `ccheever`; three restyle regressions fail before the fix. The original percentage-parent-height regression already passes current main and is retained as a control, so no additional parent-height key change was submitted. |
+| 12 | Submitted as [#1213](https://github.com/DioxusLabs/taffy/pull/1213), by `ccheever`, with 500 new Chrome-derived variants. Shared ratio resolution covers block/flex/grid/absolute/root paths, min/max transfer, content minima, percentage bases and content-box ratio semantics. Includes #1210 as a prerequisite and explicitly credits/reconciles overlaps with [#1184](https://github.com/DioxusLabs/taffy/pull/1184) (`l7aromeo`) and [#1081](https://github.com/DioxusLabs/taffy/pull/1081), [#1098](https://github.com/DioxusLabs/taffy/pull/1098), [#1157](https://github.com/DioxusLabs/taffy/pull/1157) (`nicoburns`). |
+| 14 | Negative-margin contribution fixes are already submitted in [#1165](https://github.com/DioxusLabs/taffy/pull/1165) and its dependent [#1166](https://github.com/DioxusLabs/taffy/pull/1166), by `nicoburns`. The earlier [#1164](https://github.com/DioxusLabs/taffy/pull/1164) is merged. Of 32 Chrome variants, eight fail current main and all pass at #1166 head `6c6fcb15a80d58c2ce9f38139e6780df79b86dea`. |
+| 17 | The absolute-inset half is merged in [#1203](https://github.com/DioxusLabs/taffy/pull/1203). Replaced grid alignment is submitted in [#1158](https://github.com/DioxusLabs/taffy/pull/1158), by `nicoburns`, on top of #1157. The three natural-size grid probes fail on current main and pass at #1158's head. Ratio sizing remains tracked with patch 12. |
+| 18 | The shared out-of-flow solver and hoisting are merged in [#1194](https://github.com/DioxusLabs/taffy/pull/1194); the auto-margin inset condition is merged in [#1202](https://github.com/DioxusLabs/taffy/pull/1202). Negative block-axis auto margins and inset/static-position shrink-to-fit are covered by existing [#1206](https://github.com/DioxusLabs/taffy/pull/1206), by `nicoburns`. Ratio semantics remain tracked with patch 12. |
+| 20 | Static positioning and containing-block hoisting are merged in [#1140](https://github.com/DioxusLabs/taffy/pull/1140) and #1194. Existing #1206 covers the remaining RTL static shrink-to-fit cases. Upstream owns the hoist record internally, so Exact's caller-maintained record/replay API is not proposed upstream. |
+
+Fresh coverage audit: 528 preserved Chrome XML probes of negative margins,
+absolute boxes, and static containing blocks pass 480/528 on current main.
+Applying #1206's source (`b0a6a1b3ec5447810184cd7103d140d843af381d`)
+passes 520/528; the remaining eight are the negative-margin cases for patch 14.
+This excludes ratio cases from the claimed coverage. No duplicate PRs or
+comments were sent to the authors of existing work.
+
+The final ratio submission is `da1fac00a19f2fb366c198f7ab16aa6ceac14785`:
+6,978 committed tests pass, four ignored (6,693 XML, 153 unit, 127 handwritten,
+five doctests). A broader audit passed 7,925 XML cases. Its 500 new XML variants
+come from 125 HTML fixtures; natural-ratio choice remains with the host, while
+`aspect_ratio_content_box` declares the chosen ratio's sizing box. Formatting,
+feature checks, gentest compilation, clippy (existing warnings only), and an
+independent exact-commit review passed. The authorized seven-round final pass
+resolved the earlier block, grid, absolute and column-flex regressions without
+changing browser expectations. See the completed submission record in
+`issues/closed/20260930-taffy-patches-not-sent-upstream.md`.
+The submission itself changes no vendored code; other ticket fixes below are
+recorded separately. Refreshing the vendor after upstream merges is still owed.
 
 ## Patch 1: used cross sizes and intrinsic cache entries — upstream
 
@@ -485,6 +522,11 @@ carries the box. The call sites are:
 first tranche left on upstream's `maybe_apply_aspect_ratio`:
 - a flex and a grid container's own size, min and max (`flexbox.rs`
   `compute_flexbox_layout` and `compute_constants`; `grid/mod.rs`);
+- a grid container's parent-assigned dimensions also feed the ratio (2026-10-02):
+  an item stretched to 100px during intrinsic track measurement keeps its 1:1
+  height floor even with an unresolved `height:100%`. The container's ratio floor
+  cannot prematurely become that item's percentage basis. Three literal-Chrome
+  cases in `browser_position.tsv` hold ratio, definite-height and auto parents;
 - grid items, in `grid/alignment.rs::align_and_position_item`, in
   `GridItem::known_dimensions` and in `GridItem::minimum_contribution`, where a
   minimum only the ratio gives (a transferred one, or the floor a derived
@@ -729,3 +771,49 @@ height as a percentage basis in 15, the logical alignment keywords in 148).
 Patch 12 also resolves percentages against the ratio height while allowing the
 content minimum to enlarge the used height, and measures the automatic inline
 minimum for height-derived widths (block, flex, grid, absolute boxes and roots).
+
+## Patch 21: table-marked containers shrink to fit in block flow — to upstream
+
+**Implementer:** Codex, 2026-10-02, for the form-control block-sizing QUEUE item.
+
+Upstream avoids assigning a stretched known width to a table item, which is
+enough for a measured leaf but not for a container: a flex container still
+uses the definite available width. For an auto-width table-marked item, block
+layout now measures its min-content and max-content widths and clamps the
+available width between them before laying it out. Ordinary blocks, flex/grid
+items, absolutely positioned boxes and replaced elements are unchanged.
+
+The root path likewise withholds its normal automatic-width stretch from a
+table-marked root. This matches Chrome's 13 px checkbox for
+`#exact-root > input` in a 400 px wrapper rather than treating the projected
+element as an ordinary block root.
+
+The kernel uses this existing internal marker for HTML form controls. It lets
+Exact's reset `<button>` keep its authored flex-column contents while retaining
+HTML's shrink-to-fit block width; text fields and leaf controls follow the same
+path. `kernel/tests/it/browser_controls.rs` holds the Chrome 154 matrix across
+block, flex row, flex column, grid and absolute placement.
+
+## Patch 25: available space excludes the child's margins
+
+`LayoutInput::available_space` has one border-box convention. Parents subtract
+child margins; leaf and flex entries subtract only their padding and border.
+Flex intrinsic/cross-size probes, grid intrinsic probes and root layout supply
+that border-box space. Block and absolute callers already did. Flex cross-size
+limits use the child's margins, not the container's.
+
+An automatic non-stretched inline size also uses CSS fit-content's intrinsic
+min/available/max clamp in grid and column-flex layout, shared with the absolute
+solver. The width of wrapped ink does not replace the used width. Replaced and
+ratio-specific sizing retain their existing paths.
+
+**Held by** `browser_position::available_space_with_margins_matches_chrome`:
+28 literal-Chrome cases cover absolute and in-flow leaf/block/flex/grid shapes,
+short and unbreakable content, percentage/negative margins, padding and max-width.
+The original ticket's absolute example already matched after patch 18's explicit
+shrink-to-fit width; grid children still double-subtracted margins, and column
+flex children treated block/grid and leaf/flex widths differently.
+
+Both incremental/rehydrated/replayed layout differentials also pass 500 seeds
+each, 40 mutations per seed (2026-10-02); the larger loop was a temporary run,
+with the ordinary checked-in smoke counts restored afterward.

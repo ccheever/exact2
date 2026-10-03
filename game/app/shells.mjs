@@ -98,7 +98,7 @@ export function gameShells(dir, game, workspace) {
   // Cargo already inherits the SDK's config when this workspace is inside it.
   const inherited = realpathSync(root).startsWith(realpathSync(gameRoot) + '/');
   let config = (inherited ? '[build]\n' : readFileSync(resolve(gameRoot,'.cargo/config.toml'),'utf8'))
-    .replace('[build]', `[build]\nbuild-dir = ${JSON.stringify(resolve(source,'target'))}`);
+    .replace('[build]', `[build]\nbuild-dir = ${JSON.stringify(resolve(dir,'target'))}`);
   // Clippy reads the determinism lints from here, for authored and generated logic alike.
   const lints = [resolve(source, 'app/determinism'), resolve(gameRoot, 'app/determinism')].find(path => existsSync(resolve(path, 'clippy.toml')));
   const clippy = lints ? `CLIPPY_CONF_DIR = ${JSON.stringify(lints)}\n` : '';
@@ -164,7 +164,7 @@ export function gameShells(dir, game, workspace) {
     const dataBuildDependency = data ? `app-data = { package = "${data.crate}", path = ${JSON.stringify(relative(shell, dataDir))} }\n` : '';
     const dependencies = kind === 'gpu'
       ? `exact-game-render.workspace = true\n${app.game.audio === true ? "exact-game-audio.workspace = true\n" : ""}game-logic = { package = "${crate}", path = ${JSON.stringify(relative(shell, logicDir))} }\n\n[target.'cfg(target_arch = "wasm32")'.dependencies]\nwasm-bindgen.workspace = true\nwasm-bindgen-futures.workspace = true\nweb-sys.workspace = true\n\n[build-dependencies]\nexact-game.workspace = true\nserde_json = "1"\ngame-logic = { package = "${crate}", path = ${JSON.stringify(relative(shell, logicDir))} }\n${bakeArt ? 'exact-game-bake.workspace = true\n' : ''}`
-      : `exact-runner.workspace = true\nexact-${kind}.workspace = true\n${dataDependency}\n[build-dependencies]\nexact-game-app.workspace = true\n${dataBuildDependency}`;
+      : `exact-runner.workspace = true\nexact-${kind}.workspace = true\n${kind === 'web' ? 'exact-web-capabilities.workspace = true\n' : ''}${dataDependency}\n[build-dependencies]\nexact-game-app.workspace = true\n${dataBuildDependency}`;
     const files = {
       'Cargo.toml': header + dependencies,
       [kind === 'linux' ? 'src/main.rs' : 'src/lib.rs']: kind === 'gpu' ? `exact_game_render::module!(game_logic::${type}${app.game.audio === true ? ", audio" : ""}${app.game.assets === true ? ", assets" : ""});\n` : 'include!(concat!(env!("OUT_DIR"), "/entry.rs"));\n',
@@ -185,7 +185,7 @@ fn main() {
             let value = match value {
                 Value::Number(n) => serde_json::json!(n),
                 Value::Bool(b) => serde_json::json!(b),
-                Value::Str(s) => serde_json::json!(s.as_ref()),
+                s if s.is_str() => serde_json::json!(s.text()),
                 _ => panic!("unsupported surface argument default: {name}"),
             };
             serde_json::json!({"name": name, "default": value})
@@ -304,7 +304,7 @@ export function lintGame(dir, game, {env = process.env} = {}) {
 /** Check the SDK lock against the union of every generated shell's
  * dependencies, or (`update`) rewrite it from that union. */
 export function sdkLock(source = gameRoot, {update = false, env = process.env} = {}) {
-  const path = resolve(source, 'app/shells.lock'), stage = mkdtempSync(resolve(tmpdir(), 'exact-game-lock-'));
+  const path = resolve(source, 'app/shells.lock'), stage = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-game-lock-')));
   try {
     const cargo = Bun.TOML.parse(readFileSync(resolve(source, 'Cargo.toml'), 'utf8'));
     for (const deps of [cargo.workspace.dependencies, ...Object.values(cargo.patch ?? {})])

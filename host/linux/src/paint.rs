@@ -39,7 +39,11 @@ mod placed;
 mod presented;
 mod region;
 mod shadow;
+mod space;
 mod svg;
+mod text_clip;
+mod text_shadow;
+mod text_stroke;
 use inline::{presented_color, presented_text_colors, text_backgrounds, text_palette};
 pub use presented::{PaintValues, Presented};
 pub(crate) use region::{ActionNode, ActionSlot, RegionActions, ScrollBounds};
@@ -66,6 +70,8 @@ pub struct Shape {
     pub rect: Rect4,
     /// The radii.
     pub radii: [(f32, f32); 4],
+    /// CSS `corner-shape` when any corner is not `round` (LLP 1077 D1).
+    pub corners: Option<exact_kernel::corner::CornerShape>,
 }
 
 impl Shape {
@@ -80,6 +86,7 @@ impl Shape {
         Shape {
             rect,
             radii: border::reduced(radii, rect.2, rect.3),
+            corners: None,
         }
     }
 
@@ -88,7 +95,14 @@ impl Shape {
         Shape {
             rect,
             radii: [(0.0, 0.0); 4],
+            corners: None,
         }
+    }
+
+    /// The same box with these corner shapes; `round` ones are none.
+    pub fn with_corners(mut self, corners: Option<exact_kernel::corner::CornerShape>) -> Shape {
+        self.corners = corners.filter(|c| !c.is_round());
+        self
     }
 
     /// Whether any corner is rounded.
@@ -108,6 +122,7 @@ impl Shape {
             self.radii
                 .map(|(x, y)| ((x - by).max(0.0), (y - by).max(0.0))),
         )
+        .with_corners(self.corners)
     }
 }
 
@@ -115,12 +130,15 @@ impl Shape {
 // once; geometry is evaluated at the published frame with ordinary f32 order.
 struct BoxPaint {
     radii: [Dimension; 4],
+    /// CSS `background-clip` (LLP 1077 D6).
+    clip: exact_kernel::BackgroundClip,
+    corners: Option<exact_kernel::corner::CornerShape>,
     widths: [f32; 4],
     colors: [[u8; 4]; 4],
     background: [u8; 4],
-    gradient: Option<gradient::Captured>,
+    gradients: Vec<gradient::Captured>,
     padding: [f32; 4],
-    shadow: Option<shadow::ShadowPaint>,
+    shadows: Vec<shadow::ShadowPaint>,
     /// `backdrop-filter: blur(σ)`, σ in points; 0 for none, or under a
     /// host material, which wins (LLP 1053.000 D3).
     backdrop: f32,
@@ -153,7 +171,7 @@ impl BoxPaint {
             Dimension::Points(p) => p,
             Dimension::Percent(p) => w * p / 100.0,
             Dimension::Calc(p, x) => w * p / 100.0 + x,
-            Dimension::Auto | Dimension::Env(..) => 0.0,
+            Dimension::Auto | Dimension::Env(..) | Dimension::Segment(..) => 0.0,
         };
         // @ref LLP 1053.000 D4 — a material wins over `backdrop-filter`; a
         // name the table lacks draws ultra-thin ([`material_note`]).
@@ -170,6 +188,8 @@ impl BoxPaint {
                 s.border_radius_bottom_left,
             ]
             .map(|d| d.resolve(&env)),
+            corners: Some(s.corner_shape).filter(|c| !c.is_round()),
+            clip: s.background_clip,
             widths,
             colors: colors.map(|c| rgba(c.resolve(dark))),
             background: match material {
@@ -184,8 +204,8 @@ impl BoxPaint {
                 }
                 _ => rgba(s.background_color.resolve(dark)),
             },
-            gradient: gradient::Captured::capture(s, dark),
-            shadow: shadow::ShadowPaint::capture(s, dark),
+            gradients: gradient::Captured::capture(s, dark),
+            shadows: shadow::ShadowPaint::capture(s, dark),
             backdrop: material.map_or(s.backdrop_blur.max(0.0), |m| m.blur),
             padding: [
                 pad(s.padding_top),
@@ -212,7 +232,8 @@ impl BoxPaint {
                     };
                     (resolve(w).max(0.0), resolve(h).max(0.0))
                 }),
-            ),
+            )
+            .with_corners(self.corners),
             content: (
                 x + widths[3] + pad[3],
                 y + widths[0] + pad[0],
@@ -230,33 +251,82 @@ impl BoxPaint {
             backend.backdrop_blur(&geometry.outer, self.backdrop, ts);
         }
         self.emit(geometry, |shape, color| backend.fill(&shape, color, ts));
-        if let Some(g) = &self.gradient {
-            gradient::paint(g, &geometry.outer, self.widths, backend, ts);
+        // The last layer first, so the first is on top (LLP 1077 D5), within
+        // the background's clip (D6).
+        if let Some(clip) = self.background_shape(geometry) {
+            for g in self.gradients.iter().rev() {
+                gradient::paint(g, &geometry.outer, &clip, self.widths, backend, ts);
+            }
+        }
+        for band in self.inset_shadow_fills(geometry) {
+            backend.fill_border(&band, ts);
         }
         for part in self.borders(geometry) {
             backend.fill_border(&part, ts);
         }
     }
-    /// The background: the border box with its radii.
+    /// The background colour: within its `background-clip` (LLP 1077 D6).
     fn emit(&self, geometry: &BoxGeometry, mut emit: impl FnMut(Shape, [u8; 4])) {
-        let outer = geometry.outer;
-        if self.background[3] > 0 && outer.rect.2 > 0.0 && outer.rect.3 > 0.0 {
-            emit(outer, self.background);
+        let Some(shape) = self.background_shape(geometry) else {
+            return;
+        };
+        if self.background[3] > 0 && shape.rect.2 > 0.0 && shape.rect.3 > 0.0 {
+            emit(shape, self.background);
         }
     }
-    /// The `box-shadow`, under everything else (LLP 1064 D2).
+    /// Where the background paints: the border box, the padding box or the
+    /// content box, each with its radii less what it is inset by; `None` for
+    /// `text`, which the paragraph paints (`text_clip`).
+    fn background_shape(&self, geometry: &BoxGeometry) -> Option<Shape> {
+        use exact_kernel::BackgroundClip;
+        let outer = geometry.outer;
+        let inset = match self.clip {
+            BackgroundClip::BorderBox => return Some(outer),
+            BackgroundClip::Text => return None,
+            BackgroundClip::PaddingBox => self.widths,
+            BackgroundClip::ContentBox => {
+                let (w, p) = (self.widths, self.padding);
+                [w[0] + p[0], w[1] + p[1], w[2] + p[2], w[3] + p[3]]
+            }
+        };
+        let (x, y, w, h) = outer.rect;
+        let [t, r, b, l] = inset;
+        let less = |(a, c): (f32, f32), dx: f32, dy: f32| ((a - dx).max(0.0), (c - dy).max(0.0));
+        Some(
+            Shape::elliptical(
+                (x + l, y + t, (w - l - r).max(0.0), (h - t - b).max(0.0)),
+                [
+                    less(outer.radii[0], l, t),
+                    less(outer.radii[1], r, t),
+                    less(outer.radii[2], r, b),
+                    less(outer.radii[3], l, b),
+                ],
+            )
+            .with_corners(outer.corners),
+        )
+    }
+    /// The outer `box-shadow`s, under everything else (LLP 1064 D2), the
+    /// list's first on top (LLP 1077 D4).
     fn shadow_fills(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
-        self.shadow
-            .map_or_else(Vec::new, |s| s.fills(&geometry.outer))
+        self.shadows
+            .iter()
+            .rev()
+            .filter(|s| !s.inset())
+            .flat_map(|s| s.fills(&geometry.outer, self.widths))
+            .collect()
+    }
+    /// The inset `box-shadow`s, over the background and under the border.
+    fn inset_shadow_fills(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
+        self.shadows
+            .iter()
+            .rev()
+            .filter(|s| s.inset())
+            .flat_map(|s| s.fills(&geometry.outer, self.widths))
+            .collect()
     }
     /// The border, one fill per colour, joined as the web joins sides.
     fn borders(&self, geometry: &BoxGeometry) -> Vec<border::BorderFill> {
-        border::border_fills(
-            geometry.outer.rect,
-            geometry.outer.radii,
-            self.widths,
-            self.colors,
-        )
+        border::border_fills(&geometry.outer, self.widths, self.colors)
     }
 }
 type ProjectiveHit = ([f32; 9], Rect4, Option<Rect4>, [[f32; 3]; 2]);
@@ -440,6 +510,16 @@ pub trait Backend {
     fn pop_clip(&mut self);
     /// Composite everything until the matching pop at an opacity.
     fn push_opacity(&mut self, alpha: f32);
+    /// CSS `mask-image` (LLP 1077 D2): what paints until [`Backend::pop_mask`]
+    /// is one group, clipped to `shape`, the border box.
+    fn push_mask(&mut self, _shape: &Shape, _ts: Transform) {
+        self.push_opacity(1.0);
+    }
+    /// The group, kept where `mask` (a gradient, or one colour) is opaque
+    /// over `shape`, the border box, and nowhere outside it.
+    fn pop_mask(&mut self, _shape: &Shape, _mask: &Result<GradientPaint, [u8; 4]>, _ts: Transform) {
+        self.pop_opacity();
+    }
     /// End an opacity layer.
     fn pop_opacity(&mut self);
     /// The pointer arrow at a point.
@@ -509,6 +589,9 @@ pub struct Painter {
     damage: damage::Retained,
     /// `backgroundMaterial` names the schema lacks, and those not yet logged.
     materials: (std::collections::BTreeSet<String>, Vec<String>),
+    /// The node a 3D island paints flat, its own transform being the warp's
+    /// (LLP 1077 D8).
+    pub(crate) flatten: Option<ViewId>,
 }
 
 // O(painted owners) references and numeric publication metadata, not copied
@@ -585,6 +668,7 @@ impl Painter {
             canvases: BTreeMap::new(),
             viewport: (0., 0.),
             cpu_ms: None,
+            flatten: None,
         }
     }
 
@@ -824,6 +908,11 @@ impl Painter {
         let f = node.frame;
         let (x, y, w, h) = paint_rect(f, offset);
         let p = (walk.scene.presented)(id);
+        // @ref LLP 1077 D8 — turned or moved in space: painted apart, warped.
+        if self.spatial(walk, &node, &p, (x, y, w, h), ts, offset, clip_rect) {
+            self.damage.unsupported = true;
+            return;
+        }
         // @ref LLP 1043.000 §3 D7 — collect damage eligibility during the
         // existing paint walk, not an extra whole-document walk per flow tick.
         // A shadow paints outside the node's box, where damage never looks.
@@ -831,12 +920,12 @@ impl Painter {
             || p.dark.is_some_and(|dark| dark != self.dark)
             || p.opacity != 1.0
             || node.node_type == NodeType::Image
-            || node.style.shadow_opacity > 0.0
+            || !node.style.box_shadow.0.is_empty()
             // A backdrop reads what is under it, beyond any damage.
             || node.style.backdrop_blur > 0.0
             || self.material_note(&node)
             || !p.colors.is_empty();
-        let ts = if p.moves() {
+        let ts = if p.moves() && self.flatten != Some(id) {
             // About `transform-origin`, the centre unless authored (LLP 1061 D6).
             ts.pre_concat(p.transform((x, y, w, h), node.style.transform_origin.resolve(w, h)))
         } else {
@@ -863,6 +952,11 @@ impl Painter {
         if drawn.is_none() && opacity < 1.0 {
             self.backend.push_opacity(opacity);
         }
+        // @ref LLP 1077 D2 — the mask is the border box's gradient's alpha.
+        let mask = gradient::Captured::mask(node.style, self.dark).map(|m| m.place((x, y, w, h)));
+        if mask.is_some() {
+            self.backend.push_mask(&Shape::rect((x, y, w, h)), ts);
+        }
         // @ref LLP 1043.000 §3 D7 — polygon demo ink and exclusion share an outline.
         let path_clip = !node.style.clip_path.commands().is_empty()
             && self
@@ -874,6 +968,9 @@ impl Painter {
         self.dark = previous;
         if path_clip {
             self.backend.pop_clip();
+        }
+        if let Some(mask) = &mask {
+            self.backend.pop_mask(&Shape::rect((x, y, w, h)), mask, ts);
         }
         match drawn {
             Some(backend) => self.backend = backend,
@@ -977,9 +1074,16 @@ impl Painter {
                             ts,
                         );
                     }
-                    let mut engine = self.text.borrow_mut();
-                    self.backend
-                        .text(&mut engine, &shown, &palette, (content.0, content.1), ts);
+                    let kernel = walk.scene.kernel;
+                    self.text_paint(
+                        node,
+                        kernel,
+                        &shown,
+                        &palette,
+                        (content.0, content.1),
+                        rect,
+                        ts,
+                    );
                 }
             }
             NodeType::TextInput => {
@@ -1078,7 +1182,7 @@ impl Painter {
                 self.range_control(node, content, ts)
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("button") => {
-                let title = walk.scene.kernel.button_face(node.id).title;
+                let title = walk.scene.kernel.press_face(node.id).and_then(|f| f.title);
                 self.button_control(node, content, ts, title.as_deref().unwrap_or(""));
             }
             NodeType::Control => control::paint(
@@ -1233,7 +1337,7 @@ pub fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         Dimension::Points(p) => p,
         Dimension::Percent(p) => against * p / 100.0,
         Dimension::Calc(p, x) => against * p / 100.0 + x,
-        Dimension::Auto | Dimension::Env(..) => 0.0,
+        Dimension::Auto | Dimension::Env(..) | Dimension::Segment(..) => 0.0,
     };
     let pad_right = pad(node.style.padding_right, node.frame.width);
     let pad_bottom = pad(node.style.padding_bottom, node.frame.width);

@@ -10,8 +10,6 @@ use std::env;
 use std::fmt::Write as _;
 use std::fs;
 use std::path::PathBuf;
-const SCHEMA_PATH: &str = "tables/schema.json";
-const DIGEST_DOMAIN: &[u8] = b"exact-kernel-schema-v1\0";
 #[derive(Deserialize)]
 struct Schema {
     #[serde(rename = "schemaVersion")]
@@ -39,7 +37,6 @@ struct PropRow {
     kind: String,
     #[serde(default)]
     measure: bool,
-    /// May be set in a `style` (LLP 1069.011 D12).
     #[serde(default)]
     styleable: bool,
 }
@@ -107,10 +104,22 @@ fn packed_name(ty: &str, rows: &[(u64, &str)]) -> String {
 include!("build/names.rs");
 include!("build/codec.rs");
 include!("build/validate.rs");
-fn digest(canonical: &str) -> u64 {
+fn digest(canonical: &str, codecs: &[(&str, String)]) -> u64 {
     let mut hasher = Sha256::new();
     hasher.update(DIGEST_DOMAIN);
     hasher.update(canonical.as_bytes());
+    for (path, source) in codecs {
+        hasher.update(b"\0wire-codec\0");
+        hasher.update(path.as_bytes());
+        hasher.update(b"\0");
+        // Tests do not define wire bytes, so exclude them and the snapshot itself.
+        hasher.update(
+            source
+                .split_once("\n#[cfg(test)]\n")
+                .map_or(source.as_str(), |(production, _)| production)
+                .as_bytes(),
+        );
+    }
     let bytes = hasher.finalize();
     let mut first = [0u8; 8];
     first.copy_from_slice(&bytes[..8]);
@@ -188,7 +197,6 @@ fn generate(schema: &Schema, digest: u64) -> String {
         .unwrap();
     }
     writeln!(w, "_ => None, }} }}").unwrap();
-    // @ref LLP 1069.011 D2 — a native button's styles.
     writeln!(
         w,
         "/// `buttonStyle`'s names, one per platform button style (LLP 1069.011 D2).\npub const BUTTON_STYLES: &[&str] = &{:?};",
@@ -223,7 +231,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "use crate::error::{{DecodeError, StyleDomainError}};").unwrap();
     writeln!(
         w,
-        "use crate::error::StyleValueError;\nuse crate::style::{{Color, ColorValue, Dimension, LineHeight, GridPlacement, GridTracks, RowValue, StyleValue, Transitions, Animations, Vec2, MAX_GRID_TRACKS}};"
+        "use crate::error::StyleValueError;\nuse crate::style::{{Color, ColorValue, Dimension, LineHeight, GridPlacement, GridTracks, RowValue, StyleValue, Transitions, Animations, Vec2}};"
     )
     .unwrap();
     writeln!(w, "use crate::wire::codec::{{Reader, Writer}};").unwrap();
@@ -261,7 +269,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     ));
     writeln!(
         w,
-        "/// Domain-separated SHA-256 (first 8 bytes, little-endian) of the canonical schema."
+        "/// Domain-separated SHA-256 (first 8 bytes, little-endian) of the canonical schema and wire codec sources."
     )
     .unwrap();
     writeln!(w, "pub const SCHEMA_DIGEST: u64 = {digest:#018x};").unwrap();
@@ -581,7 +589,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
     // ---- StyleId / StyleCodec --------------------------------------------
     writeln!(w, "/// Wire codec of a style row.").unwrap();
     writeln!(w, "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]").unwrap();
-    writeln!(w, "pub enum StyleCodec {{ Dimension, LineHeight, F32, U8, U16, U32, I32, Rgba8, ColorValue, KeywordColor, Vec2, Color2, Tracks, Placement, Transitions, Animations, ClipPath, ShapeOutside, AspectRatio, Paint, DashArray, Transform, TransformOrigin, PaintOrder, Marker, Filter, BackgroundImage, DragTimeline, AnimationTimeline, AnimationRange, TimelineScope, Enum }}").unwrap();
+    writeln!(w, "pub enum StyleCodec {{ Dimension, LineHeight, F32, U8, U16, U32, I32, Rgba8, ColorValue, KeywordColor, Vec2, Color2, Tracks, Placement, Transitions, Animations, ClipPath, ShapeOutside, AspectRatio, Paint, DashArray, Transform, TransformOrigin, PaintOrder, Marker, Filter, BackgroundImage, BoxShadow, TextShadow, MaskImage, CornerShape, RotateAxis, SymbolPalette, DragTimeline, AnimationTimeline, AnimationRange, TimelineScope, Enum }}").unwrap();
     writeln!(w, "/// One style row; the discriminant is the mask bit.").unwrap();
     writeln!(w, "#[repr(u8)]").unwrap();
     writeln!(
@@ -1105,6 +1113,9 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "        let mut out = StyleProps::default();").unwrap();
     for row in &schema.styles {
         let id = pascal(&row.field);
+        if emit_grid_seam(w, &id, GridSeam::Decode) {
+            continue;
+        }
         let codec = parse_codec(&row.codec);
         writeln!(
             w,
@@ -1131,6 +1142,9 @@ fn generate(schema: &Schema, digest: u64) -> String {
     writeln!(w, "        w.style_mask(mask);").unwrap();
     for row in &schema.styles {
         let id = pascal(&row.field);
+        if emit_grid_seam(w, &id, GridSeam::Encode) {
+            continue;
+        }
         let codec = parse_codec(&row.codec);
         writeln!(
             w,
@@ -1216,7 +1230,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
                 writeln!(w, "        if self.mask.has(StyleId::{id}) && matches!(self.{field}, Dimension::Auto) {{ return Err(StyleDomainError::AutoNotAdmitted(StyleId::{id})); }}").unwrap();
             }
             Codec::Tracks => {
-                writeln!(w, "        if self.mask.has(StyleId::{id}) && self.{field}.0.len() > MAX_GRID_TRACKS {{ return Err(StyleDomainError::TooManyTracks {{ style: StyleId::{id}, count: self.{field}.0.len() }}); }}").unwrap();
+                writeln!(w, "        if self.mask.has(StyleId::{id}) && !self.{field}.is_valid() {{ return Err(StyleDomainError::InvalidGridTrack(StyleId::{id})); }}").unwrap();
             }
             Codec::Placement => {
                 writeln!(w, "        if self.mask.has(StyleId::{id}) && !self.{field}.is_valid() {{ return Err(StyleDomainError::InvalidGridSpan(StyleId::{id})); }}").unwrap();
@@ -1267,6 +1281,9 @@ fn generate(schema: &Schema, digest: u64) -> String {
     let mut groups: Vec<(String, Vec<(String, String)>)> = Vec::new();
     for row in &schema.styles {
         let id = pascal(&row.field);
+        if emit_grid_seam(w, &id, GridSeam::Dynamic) {
+            continue;
+        }
         let conv = match parse_codec(&row.codec) {
             Codec::U8 if row.keywords.is_some() => format!(
                 "{}::bits(value.text(id)?).ok_or(StyleValueError::UnknownEnumValue {{ style: id }})?",
@@ -1283,6 +1300,9 @@ fn generate(schema: &Schema, digest: u64) -> String {
             Codec::ColorValue => "value.color_value(id)?".to_string(),
             Codec::KeywordColor(keyword) => format!("value.keyword_color(id, {keyword:?})?"),
             Codec::Vec2 => "value.vec2(id)?".to_string(),
+            Codec::Enum(name) if matches!(name.as_str(), "GridAutoFlow" | "JustifyItems") => format!(
+                "{name}::from_css(value.text(id)?).ok_or(StyleValueError::UnknownEnumValue {{ style: id }})?"
+            ),
             Codec::Enum(name) => format!(
                 "{name}::from_name(value.text(id)?).ok_or(StyleValueError::UnknownEnumValue {{ style: id }})?"
             ),
@@ -1292,7 +1312,9 @@ fn generate(schema: &Schema, digest: u64) -> String {
             Codec::Animations if row.ends => "Animations::parse(value.text(id)?).ok().filter(|a| a.validate_ending().is_ok()).ok_or(StyleValueError::BadAnimation { style: id })?".to_string(),
             Codec::Animations => "Animations::parse(value.text(id)?).map_err(|_| StyleValueError::BadAnimation { style: id })?".to_string(),
             Codec::CssValue { path, error, .. } => format!("{path}::parse(&value.css_text(id)?).ok_or(StyleValueError::{error} {{ style: id }})?"),
-            Codec::Color2 | Codec::Tracks | Codec::Placement => String::new(),
+            Codec::Tracks => "GridTracks::parse(&value.css_text(id)?).ok_or(StyleValueError::BadGridTracks { style: id })?".to_string(),
+            Codec::Placement => "GridPlacement::parse(&value.css_text(id)?).ok_or(StyleValueError::BadGridPlacement { style: id })?".to_string(),
+            Codec::Color2 => String::new(),
         };
         match groups.iter_mut().find(|(c, _)| *c == conv) {
             Some((_, rows)) => rows.push((id, row.field.clone())),
@@ -1351,7 +1373,7 @@ fn generate(schema: &Schema, digest: u64) -> String {
             Codec::Color2 => format!("RowValue::Color2(self.{f})"),
             Codec::Enum(_) => format!("RowValue::Enum(self.{f}.name())"),
             Codec::Tracks => format!("RowValue::Tracks(&self.{f})"),
-            Codec::Placement => format!("RowValue::Placement(self.{f})"),
+            Codec::Placement => format!("RowValue::Placement(&self.{f})"),
             Codec::Transitions => format!("RowValue::Transitions(&self.{f})"),
             Codec::Animations => format!("RowValue::Animations(&self.{f})"),
             Codec::CssValue { variant, .. } => format!("RowValue::{variant}(&self.{f})"),
@@ -1449,17 +1471,28 @@ fn main() {
     println!("cargo:rerun-if-changed=build/validate.rs");
     println!("cargo:rerun-if-changed={SCHEMA_PATH}");
     println!("cargo:rerun-if-changed=build.rs");
+    for path in CODEC_PATHS {
+        println!("cargo:rerun-if-changed={path}");
+    }
     let raw = fs::read_to_string(SCHEMA_PATH).expect("read tables/schema.json");
     let schema: Schema = serde_json::from_str(&raw).expect("parse tables/schema.json");
     validate(&schema);
-    // Canonical form: serde_json's default map is ordered, so re-serializing the
-    // parsed value sorts keys and normalizes whitespace.
+    // Serde's ordered map sorts keys and normalizes whitespace when re-serialized.
     let value: serde_json::Value = serde_json::from_str(&raw).expect("parse tables/schema.json");
     // Prose keys (`_about`, `_styles`, ...) are documentation, not schema: editing a
     // comment must not rotate the digest and refuse every producer.
     let value = strip_prose(value);
     let canonical = serde_json::to_string(&value).expect("serialize canonical schema");
-    let digest = digest(&canonical);
+    let codecs = CODEC_PATHS
+        .iter()
+        .map(|path| {
+            (
+                *path,
+                fs::read_to_string(path).unwrap_or_else(|error| panic!("read {path}: {error}")),
+            )
+        })
+        .collect::<Vec<_>>();
+    let digest = digest(&canonical, &codecs);
     let code = generate(&schema, digest);
     let out = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR")).join("schema.rs");
     fs::write(&out, code).expect("write generated schema.rs");

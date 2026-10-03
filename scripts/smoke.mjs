@@ -54,9 +54,8 @@ const transcript = () => {
 };
 const pinned = resolve(ROOT, 'scripts/fixtures/transcript.txt');
 if (argv.includes('--record')) { writeFileSync(pinned, transcript()); console.log(`recorded ${pinned.replace(ROOT + '/', '')}`); process.exit(0); }
-
-const host = argv[0] === 'macos' || argv[0] === 'mac' ? 'macos' : argv[0] === 'web' ? 'web' : argv[0] === 'ios' ? 'ios' : argv[0] === 'linux' ? 'linux' : argv[0] === 'host' ? 'host' : argv[0] === 'host-ios' ? 'host-ios' : argv[0] === 'deploy' ? 'deploy' : argv[0] === 'svg' ? 'svg' : argv[0] === 'canvas' ? 'canvas' : argv[0] === 'motion' ? 'motion' : null;
-if (!host) { console.error('usage: bun scripts/smoke.mjs <web|macos|ios|linux|host|host-ios|deploy|svg|canvas|motion> [--app <name>] [--shot <png>] [--hosts linux,macos,ios] | --record'); process.exit(2); }
+const host = argv[0] === 'macos' || argv[0] === 'mac' ? 'macos' : argv[0] === 'web' ? 'web' : argv[0] === 'ios' ? 'ios' : argv[0] === 'linux' ? 'linux' : argv[0] === 'host' ? 'host' : argv[0] === 'host-ios' ? 'host-ios' : argv[0] === 'deploy' ? 'deploy' : argv[0] === 'svg' ? 'svg' : argv[0] === 'canvas' ? 'canvas' : argv[0] === 'motion' ? 'motion' : argv[0] === 'duo' ? 'duo' : null;
+if (!host) { console.error('usage: bun scripts/smoke.mjs <web|macos|ios|linux|host|host-ios|deploy|svg|canvas|motion|duo> [--app <name>] [--shot <png>] [--hosts linux,macos,ios] | --record'); process.exit(2); }
 
 // The two Apple presenters share one Canvases: children captured through the
 // surface, placements (LLP 1014 D2, D5) — what the canvas steps below assert.
@@ -71,6 +70,7 @@ const check = (ok, what) => { if (!ok) failures.push(what); return ok; };
 const t0 = Date.now();
 const byTestId = (t, id) => t.nodes.find((n) => n.props.testId === id);
 const box = (l, id) => l.nodes.find((n) => n.testId === id);
+if (host === 'duo') { const { duoSmoke } = await import('./smoke-duo.mjs'); const r = await duoSmoke({ open: (o) => openAgent({ device, phone, ...o }), check }); console.log(`duo smoke: ${r === 'unsupported' ? 'unsupported' : failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`); for (const f of failures) console.error('  ' + f); process.exit(failures.length ? 1 : 0); }
 
 // A source-checkout invariant for destructive-looking smokes: names,
 // contents, modes, sizes, and mtimes are identical before and after, even
@@ -228,7 +228,7 @@ if (host === 'deploy') {
     await new Promise((done) => webServer.listen(0, '127.0.0.1', done));
     let browser;
     try {
-      browser = await open({ host: 'web', url: `http://127.0.0.1:${webServer.address().port}/` });
+      browser = await open({ host: 'web', browser: 'chrome', url: `http://127.0.0.1:${webServer.address().port}/` });
       // A release admits no agent mode (LLP 1069.007 D2): read the page as a browser shows it.
       const page = (expression) => browser.carrier.evaluate(expression);
       check(await page("document.getElementById('exact-root')?.childElementCount > 0"), 'the published web release booted in Chrome');
@@ -367,7 +367,7 @@ if (host === 'host' || host === 'host-ios') {
   const control = resolve(dir, 'control');
   writeFileSync(control, '');
   const say = (line) => writeFileSync(control, readFileSync(control, 'utf8') + line + '\n');
-  const s = await open({ host, session: 'a', env: { EXACT_HOST_CONTROL: control } });
+  const s = await open({ host, browser: 'chrome', session: 'a', env: { EXACT_HOST_CONTROL: control } });
   const hostFailures = [];
   const trace = process.env.EXACT_SMOKE_TRACE ? (m) => console.log(`[${((Date.now() - t0) / 1000).toFixed(1)}s] ${m}`) : () => {};
   const hcheck = (ok, what) => { trace(`${ok ? 'ok' : 'FAIL'} ${what}`); if (!ok) hostFailures.push(what); return ok; };
@@ -482,7 +482,7 @@ if (host === 'web') {
   }
 }
 
-const s = await open({ host });
+const s = await open({ host, browser: 'chrome' });
 // A web artifact's staged capabilities (LLP 1047.000 §9): the page boots
 // without them, and the first agent call loads inspection before it asks.
 const stages = async () => host === 'web' && !jsTargetBuild(selectedWebDist) ? JSON.parse(await s.carrier.evaluate('JSON.stringify(exact.stages())')) : {};
@@ -705,7 +705,7 @@ try {
       const up = await s.pointer('up');
       check(up.delivery === 'platform' && !s.contact, 'the simulator contact was not released');
       const after = (await s.layout()).nodes.find((n) => n.type === 'ScrollView' && n.sy != null);
-      if (after?.sy) await s.tap('station-name', { wheel: [0, -after.sy] });
+      if (after?.sy) await s.tap(after.id, { wheel: [0, -after.sy] });
     }
   }
   // 4b. A held contact (LLP 1035.003 D1) on the AppKit carrier: the button
@@ -819,7 +819,7 @@ if (!argv.includes('--app-only')) {
   const compiled = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', source, '-o', plan], {cwd:ROOT, encoding:'utf8'});
   check(compiled.status === 0, 'launch facts fixture compiles: ' + compiled.stderr);
   if (compiled.status === 0) for (const options of [{}, {}, {seed:42, locale:'fr-CA', timeZone:'America/Toronto', epoch:'2026-09-21T14:13:20Z'}, {seed:42, locale:'ar-EG', timeZone:'UTC'}]) {
-    const f = await open({host, plan, ...options});
+    const f = await open({host, browser: 'chrome', plan, ...options});
     try {
       const lang = options.locale === 'ar-EG' ? 'ar' : options.locale ? 'fr' : 'en';
       const dir = lang === 'ar' ? 'rtl' : 'ltr';
@@ -857,7 +857,7 @@ const plan = resolve(tmp, 'scroll.plan');
 const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/scroll.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
 if (c.status !== 0) failures.push('the scroll fixture did not compile: ' + c.stderr);
 else {
-  const f = await open({ host, plan });
+  const f = await open({ host, browser: 'chrome', plan });
   try {
     let l = await f.layout();
     check(box(l, 'rows') && box(l, 'root'), 'the fixture did not boot');
@@ -915,7 +915,7 @@ if (caltrainFixture) {
     // over the pinned font the driver sets (§5): the same bytes on every
     // machine, so the reference below is exact, not a band — the GPU painter
     // is held to it by `tests/paint.rs`'s band instead.
-    const f = await open({ host, plan, env: host === 'linux' ? { EXACT_PAINTER: 'cpu' } : undefined });
+    const f = await open({ host, browser: 'chrome', plan, env: host === 'linux' ? { EXACT_PAINTER: 'cpu' } : undefined });
     try {
       let t = await f.tree();
       check(byTestId(t, 'sky-zoom') && byTestId(t, 'sky-label'), 'the canvas fixture did not boot');
@@ -997,7 +997,7 @@ if (caltrainFixture) {
 // card focuses it. Placements settle before each reply; the canvas centre
 // initially reaches no card. The agent clock moves springs deterministically.
 if (deckFixture) {
-  const d = await open({ host });
+    const d = await open({ host, browser: 'chrome' });
   try {
     const reveal = async (id, at) => { const l = await d.layout(), b = box(l, id), mid = b.y + b.h / 2; if (mid < 0 || mid >= l.viewport.h) await d.tap(at, { wheel: [0, mid - l.viewport.h / 2] }); }; // a tap outside the viewport is refused (on a phone: the toggle, the opened deck, then the material buttons above it): a wheel at `at` scrolls `id`'s middle to the viewport's
     await reveal('deck-toggle', 'station-name');
@@ -1061,7 +1061,7 @@ if (deckFixture) {
   else {
     const w = (l, id) => box(l, id)?.w;
     const near = (a, b, tol = 0.05) => Math.abs(a - b) <= tol;
-    const m = await open({ host, plan });
+    const m = await open({ host, browser: 'chrome', plan });
     try {
       await m.tap('toggle');
       // Frozen: the press started two transitions; a wall-clock pause between
@@ -1092,10 +1092,10 @@ if (deckFixture) {
     }
     // One seek across the timer versus stepping across it: the transition is
     // born at the timer's due time either way.
-    const once = await open({ host, plan });
+    const once = await open({ host, browser: 'chrome', plan });
     let oneShot;
     try { await once.clock(1250); oneShot = [w(await once.layout(), 'timed')]; await once.clock(1500); oneShot.push(w(await once.layout(), 'timed')); } finally { await once.close(); }
-    const steps = await open({ host, plan });
+    const steps = await open({ host, browser: 'chrome', plan });
     let stepwise;
     try { await steps.clock(1000); stepwise = [w(await steps.layout(), 'timed')]; await steps.clock(1250); stepwise.push(w(await steps.layout(), 'timed')); await steps.clock(1500); stepwise.push(w(await steps.layout(), 'timed')); } finally { await steps.close(); }
     check(oneShot[0] === 75 && oneShot[1] === 100, `one seek to 1250 then 1500 across the timer: ${oneShot.join(', ')} (expected 75, 100)`);
@@ -1118,7 +1118,7 @@ if (deckFixture) {
   const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/precedence.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
   if (c.status !== 0) failures.push('the precedence fixture did not compile: ' + c.stderr);
   else {
-    const g = await open({ host, plan });
+    const g = await open({ host, browser: 'chrome', plan });
     try {
       const slots = async () => { const { slots } = await g.state(); return `${slots.replies}/${slots.panned}/${slots.pressed}`; };
       const drag = async (target, at, moves) => {
@@ -1169,12 +1169,12 @@ if (deckFixture) {
   const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/insets.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
   if (c.status !== 0) failures.push('the insets fixture did not compile: ' + c.stderr);
   else {
-    const f = await open({ host, plan });
+    const f = await open({ host, browser: 'chrome', plan });
     try {
       let l = await f.layout();
       const env = l.env ?? {};
       const names = ['safe-area-inset-top', 'safe-area-inset-right', 'safe-area-inset-bottom', 'safe-area-inset-left', 'keyboard-inset-height'];
-      check(names.every((k) => typeof env[k] === 'number'), `layout.env is ${JSON.stringify(l.env)}`);
+      check(names.every((k) => typeof env[k] === 'number'), `layout.env is ${JSON.stringify(l.env)}`); check(['continuous', 'folded'].includes(env['device-posture']) && Number.isInteger(env['horizontal-viewport-segments']) && Number.isInteger(env['vertical-viewport-segments']) && Array.isArray(env['viewport-segments']), `layout.env reports the fold by its four names (LLP 1078 D7): ${JSON.stringify(l.env)}`);
       const [top, right, bottom, left] = names.map((k) => env[k] ?? 0);
       const viewport0 = l.viewport;
       const rootBox = box(l, 'root'), content = box(l, 'content');
@@ -1261,7 +1261,7 @@ if (deckFixture) {
   const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/keyboard-bar.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
   if (c.status !== 0) failures.push('the keyboard-bar fixture did not compile: ' + c.stderr);
   else {
-    const f = await open({ host, plan });
+    const f = await open({ host, browser: 'chrome', plan });
     try {
       let l = await f.layout();
       const viewport0 = l.viewport, bottom0 = l.env['safe-area-inset-bottom'];
@@ -1317,7 +1317,7 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
   const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/accessibility.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
   check(c.status === 0, 'accessibility fixture compiles: ' + c.stderr);
   if (c.status === 0) {
-    const f = await open({host, plan, ...(host === 'macos' ? {env:{EXACT_DEV_PLAN:plan}} : {})});
+    const f = await open({host, browser: 'chrome', plan, ...(host === 'macos' ? {env:{EXACT_DEV_PLAN:plan}} : {})});
     try {
       let t = await f.tree();
       check(byTestId(t, 'first')?.focused === true, 'autofocus takes focus after mount');
@@ -1359,7 +1359,7 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
   const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/share.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
   check(c.status === 0, 'share fixture compiles: ' + c.stderr);
   if (c.status === 0) {
-    const f = await open({host, plan, ...(host === 'macos' ? {env:{EXACT_DEV_PLAN:plan}} : {})});
+    const f = await open({host, browser: 'chrome', plan, ...(host === 'macos' ? {env:{EXACT_DEV_PLAN:plan}} : {})});
     try {
       await f.tap('share-link');
       const held = (await f.state()).pending?.find((p) => p.device?.capability === 'share');
@@ -1387,7 +1387,7 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
   const c = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', resolve(ROOT, 'contract/corpus/file-pickers.contract'), '-o', plan], { cwd: ROOT, encoding: 'utf8' });
   check(c.status === 0, 'pickers fixture compiles: ' + c.stderr);
   if (c.status === 0) {
-    const f = await open({host, plan, ...(host === 'macos' ? {env:{EXACT_DEV_PLAN:plan}} : {})});
+    const f = await open({host, browser: 'chrome', plan, ...(host === 'macos' ? {env:{EXACT_DEV_PLAN:plan}} : {})});
     const held = async (capability) => (await f.state()).pending?.find((p) => p.device?.capability === capability);
     const text = async (id) => byTestId(await f.tree(), id)?.props.text;
     try {
@@ -1453,7 +1453,7 @@ if (app.id === 'com.exact.authfixture' && ['web', 'macos', 'ios'].includes(host)
 // each window's title is its `head`'s; Open Recent lists both. Without `file_handlers` there is nothing to route.
 if (host === 'macos' && app.manifest.file_handlers?.length && [app.manifest.launch_handler?.client_mode ?? []].flat().find((m) => m !== 'auto') === 'navigate-new') {
   const docs = [resolve(app.dir, 'README.md'), resolve(ROOT, 'llp/1000-exact2-root.explainer.md')];
-  const d = await open({ host, documents: docs });
+  const d = await open({ host, browser: 'chrome', documents: docs });
   try {
     await d.clock('settle');
     const seen = (await d.state()).documents;

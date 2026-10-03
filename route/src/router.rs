@@ -136,7 +136,8 @@ pub fn open(table: &Table, r: Router, location: &str) -> (Router, Option<Refusal
     commit(r, result)
 }
 
-/// Append one fresh visit to the selected stack, regardless of its declared tab.
+/// Append one fresh visit to the selected stack, regardless of its declared
+/// tab, unless the location is already on top.
 pub fn push(table: &Table, r: Router, location: &str) -> (Router, Option<Refusal>) {
     if r.tabs.is_empty() {
         return open(table, r, location);

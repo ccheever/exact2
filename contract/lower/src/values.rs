@@ -17,6 +17,80 @@ fn literal_text(e: &Expr) -> String {
     }
 }
 
+/// `glassGroup`'s value to compile (LLP 1053.000.000 D1, 1053.000.000.000
+/// D1): each literal spacing, at the top and in every arm of a choice, is 0 to
+/// 10,000 points; `"auto"` is rewritten to the reserved `-1`; any other string
+/// literal is refused.
+pub(crate) fn glass_group(e: &Expr) -> Result<Expr, LowerError> {
+    match e {
+        Expr::Str(s, span) if s == "auto" => Ok(Expr::Number(-1.0, *span)),
+        Expr::Str(s, span) => err(
+            "lower-attr-value",
+            format!("`glassGroup` takes a spacing in points or `\"auto\"`; given `\"{s}\"`"),
+            *span,
+        ),
+        Expr::Ternary(c, a, b, span) => Ok(Expr::Ternary(
+            c.clone(),
+            Box::new(glass_group(a)?),
+            Box::new(glass_group(b)?),
+            *span,
+        )),
+        Expr::Match {
+            subject,
+            var,
+            some,
+            none,
+            span,
+        } => Ok(Expr::Match {
+            subject: subject.clone(),
+            var: var.clone(),
+            some: Box::new(glass_group(some)?),
+            none: Box::new(glass_group(none)?),
+            span: *span,
+        }),
+        // A shared derive's `let`: its value rewritten only when it is a
+        // spacing as written (a condition it binds is not), its body always.
+        Expr::Let {
+            name,
+            value,
+            body,
+            span,
+        } => Ok(Expr::Let {
+            name: name.clone(),
+            value: Box::new(if spacing_tree(value) {
+                glass_group(value)?
+            } else {
+                (**value).clone()
+            }),
+            body: Box::new(glass_group(body)?),
+            span: *span,
+        }),
+        _ => {
+            if let Some(spacing) = numeric_literal(e) {
+                if !(0.0..=10_000.0).contains(&spacing) {
+                    return err(
+                        "lower-attr-value",
+                        format!("`glassGroup` takes a spacing from 0 to 10000 points, or `\"auto\"`; given {spacing}"),
+                        e.span(),
+                    );
+                }
+            }
+            Ok(e.clone())
+        }
+    }
+}
+
+/// Whether a value is a spacing as written: `"auto"`, a number, or a choice
+/// of them.
+fn spacing_tree(e: &Expr) -> bool {
+    match e {
+        Expr::Str(s, _) => s == "auto",
+        Expr::Ternary(_, a, b, _) => spacing_tree(a) && spacing_tree(b),
+        Expr::Match { some, none, .. } => spacing_tree(some) && spacing_tree(none),
+        _ => numeric_literal(e).is_some(),
+    }
+}
+
 pub(crate) fn numeric_literal(e: &Expr) -> Option<f64> {
     match e {
         Expr::Number(n, _) => Some(*n),
@@ -29,10 +103,28 @@ fn whole_i64(n: f64) -> bool {
     n.is_finite() && n.fract() == 0.0 && n >= i64::MIN as f64 && n < -(i64::MIN as f64)
 }
 
+/// A CSS-text row's refusal with the kernel's own reason (LLP 1077).
+fn named(e: &StyleValueError, v: &exact_kernel::StyleValue) -> Option<&'static str> {
+    let exact_kernel::StyleValue::Text(t) = v else {
+        return None;
+    };
+    match e {
+        StyleValueError::BadTextStroke { reason, .. } => (*reason).into(),
+        StyleValueError::BadBoxShadow { .. } => exact_kernel::style::BoxShadows::check(t).err(),
+        StyleValueError::BadTextShadow { .. } => exact_kernel::style::TextShadow::check(t).err(),
+        StyleValueError::BadCornerShape { .. } => exact_kernel::corner::CornerShape::check(t).err(),
+        StyleValueError::BadMaskImage { .. } => {
+            exact_kernel::gradient::BackgroundImage::check_mask(t).err()
+        }
+        _ => None,
+    }
+}
+
 /// The kernel's refusal of a style value, in an author's words.
 pub(crate) fn describe(e: &StyleValueError) -> String {
     match e {
         StyleValueError::WrongKind { expected, .. } => format!("expected {expected}"),
+        StyleValueError::BadEnv { refusal, .. } => refusal.reason().into(),
         StyleValueError::UnknownEnumValue { style } => format!(
             "expected one of {}",
             style.enum_names().iter().map(|name| format!("{name:?}")).collect::<Vec<_>>().join(", ")
@@ -43,7 +135,10 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadShapeOutside { .. } => "expected none, circle(), ellipse(), inset() with one round radius, or polygon() with at most 64 vertices; lengths are points/px or percentages".into(),
         StyleValueError::BadClipPath { .. } => "expected none or path() with explicit absolute M/L/Q/C/Z commands and separated finite coordinates".into(),
         StyleValueError::BadAspectRatio { .. } => "expected auto, a ratio (`16 / 9`, or a number), or both (`auto 4 / 3`); numbers are nonnegative".into(),
-        StyleValueError::BadBackgroundImage { .. } => "expected none, linear-gradient(…) or radial-gradient(…)".into(),
+        StyleValueError::BadBackgroundImage { .. } => "expected none, or up to four of linear-gradient(…), radial-gradient(…) and conic-gradient(…)".into(),
+        StyleValueError::BadMaskImage { .. } => "expected none, or one linear-gradient(…), radial-gradient(…) or conic-gradient(…)".into(),
+        StyleValueError::BadTextShadow { .. } => "expected none, or one shadow: <offset-x> <offset-y> [<blur>] and an optional colour".into(),
+        StyleValueError::BadCornerShape { .. } => "expected one to four of round, squircle, square, bevel, scoop, notch, superellipse(<number>) or -apple-continuous".into(),
         StyleValueError::BadDragTimeline { .. } => "expected none, or a `--name` and an optional axis (`x` or `y`)".into(),
         StyleValueError::BadAnimationTimeline { .. } => "expected auto or a `--name`".into(),
         StyleValueError::BadAnimationRange { .. } => "expected normal, or two distinct lengths (`0px 300px`)".into(),
@@ -58,7 +153,12 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadTransformOrigin { .. } => "`transform-origin` is one or two of left, center, right, top, bottom, a length or a percentage".into(),
         StyleValueError::BadAnimation { .. } => "not a CSS `animation` shorthand: `<name> <duration> [<easing>] [<delay>] [<count>|infinite] [<direction>] [<fill-mode>] [<play-state>]`".into(),
         StyleValueError::Unsupported { .. } => "this row has no dynamic form".into(),
-        StyleValueError::BadBoxShadow { reason, .. } => (*reason).into(),
+        StyleValueError::BadGridTracks { .. } => "expected at most 10,000 CSS grid tracks the kernel can lay out: px, %, fr, auto, min-content, max-content, fit-content(), minmax(), repeat() (including auto-fill/auto-fit), and named lines".into(),
+        StyleValueError::BadGridPlacement { .. } => "expected `auto`, a nonzero or named line through 10,000, or `span N` through 10,000, optionally followed by `/` and a second line".into(),
+        StyleValueError::BadTextStroke { reason, .. } => (*reason).into(),
+        StyleValueError::BadSymbolPalette { .. } => "expected none, or one to three colours".into(),
+        StyleValueError::BadRotateAxis { .. } => "expected an angle, and optionally an axis: `x`, `y`, `z` or three numbers".into(),
+        StyleValueError::BadBoxShadow { .. } => "expected none, or shadows separated by commas: `inset? <x> <y> [<blur> [<spread>]] <colour>`".into(),
         StyleValueError::BadBackdropFilter { reason, .. } => (*reason).into(),
     }
 }
@@ -295,15 +395,24 @@ pub(crate) fn check_style_value(
                     return err("lower-attr-value", format!("`font-variant-numeric: {word}` is CSS, but exact2 implements only `normal` and `tabular-nums`"), span);
                 }
             }
-            // @ref LLP 1066 — the kernel's parse says why, by name.
-            if rows.contains(&StyleId::BackgroundImage) {
-                if let Err(why) = exact_kernel::gradient::BackgroundImage::check(v) {
-                    return err(
-                        "lower-attr-value",
-                        format!("`{}=\"{v}\"`: {why}", a.name),
-                        span,
-                    );
-                }
+            // @ref LLP 1066, LLP 1077 — the kernel's parse says why, by name.
+            let why = if rows.contains(&StyleId::BackgroundImage) {
+                exact_kernel::gradient::BackgroundImage::check(v).err()
+            } else if rows.contains(&StyleId::MaskImage) {
+                exact_kernel::gradient::BackgroundImage::check_mask(v).err()
+            } else if rows.contains(&StyleId::TextShadow) {
+                exact_kernel::style::TextShadow::check(v).err()
+            } else if rows.contains(&StyleId::CornerShape) {
+                exact_kernel::corner::CornerShape::check(v).err()
+            } else {
+                None
+            };
+            if let Some(why) = why {
+                return err(
+                    "lower-attr-value",
+                    format!("`{}=\"{v}\"`: {why}", a.name),
+                    span,
+                );
             }
             if rows.contains(&StyleId::ShapeMargin) && v.trim().ends_with('%') {
                 return err("lower-attr-value", "percentage `shape-margin` is not implemented in exact2 v1; use a nonnegative length in points/px", span);
@@ -322,7 +431,7 @@ pub(crate) fn check_style_value(
             );
         }
         // @ref LLP 1064 D1 — a shadow is text; a number is no shadow.
-        if rows.contains(&StyleId::ShadowOffset)
+        if rows.contains(&StyleId::BoxShadow)
             && (numeric_literal(value).is_some()
                 || (std::ptr::eq(value, &a.value) && matches!(ty, Ty::Number)))
         {
@@ -334,6 +443,7 @@ pub(crate) fn check_style_value(
         }
         // The compiler checks every row's grammar (LLP 1053.000 §2).
         exact_kernel::style::link_backdrop_filter();
+        exact_kernel::style::link_segments();
         exact_kernel::timeline::link();
         let literal = match value {
             expr if numeric_literal(expr).is_some() => {
@@ -387,7 +497,7 @@ pub(crate) fn check_style_value(
                                 a.name,
                                 literal_text(value),
                                 a.name,
-                                describe(&e),
+                                named(&e, &v).map_or_else(|| describe(&e), String::from),
                                 pixels.unwrap_or_default()
                             ),
                             span,
@@ -489,18 +599,6 @@ pub(crate) fn check_prop_value(
                         "`backgroundMaterial=\"{name}\"` is not a material; materials: {}",
                         exact_kernel::generated::MATERIALS.join(", ")
                     ),
-                    span,
-                );
-            }
-        }
-    }
-    // @ref LLP 1053.000.000 D1 — a glass group's spacing: 0 to 10,000 points.
-    if prop == PropId::GlassGroup {
-        if let Some(spacing) = numeric_literal(value) {
-            if !(0.0..=10_000.0).contains(&spacing) {
-                return err(
-                    "lower-attr-value",
-                    format!("`glassGroup` takes a spacing from 0 to 10000 points; given {spacing}"),
                     span,
                 );
             }

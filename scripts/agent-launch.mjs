@@ -1,9 +1,22 @@
 // Session setup shared by the agent CLI and its programmatic driver.
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { relative, resolve } from 'node:path';
+import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { delimiter, relative, resolve } from 'node:path';
 import { pendingBuildInputs } from './app.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
+
+/** One browser lookup for the agent and its tests: an explicit override,
+ * otherwise the platform's ordinary Chromium installation. A bare CHROME
+ * name is resolved through PATH before a test decides whether to skip. */
+export function chromium(environment = process.env, platform = process.platform) {
+  const named = environment.CHROME ?? (platform === 'darwin'
+    ? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome'
+    : '/usr/bin/chromium');
+  const candidates = named.includes('/') ? [resolve(named)]
+    : (environment.PATH ?? '').split(delimiter).filter(Boolean).map(dir => resolve(dir, named));
+  const executable = candidates.find(path => { try { accessSync(path, constants.X_OK); return true; } catch { return false; } });
+  return { executable: executable ?? named, unavailable: executable ? null : `Chromium is missing at ${named}; set CHROME to an installed browser` };
+}
 
 export function parseFlags(argv) {
   const flags = { json: false };
@@ -13,6 +26,7 @@ export function parseFlags(argv) {
     else if (argv[i] === '--world') flags.world = resolve(argv[++i]);
     else if (argv[i] === '--plan') flags.plan = resolve(argv[++i]);
     else if (argv[i] === '--app') flags.app = argv[++i];
+    else if (argv[i] === '--browser') flags.browser = argv[++i];
     else if (argv[i] === '--size') flags.size = argv[++i].split('x').map(Number);
     else if (argv[i] === '--test') flags.test = argv[++i];
     else if (argv[i] === '--session') flags.session = argv[++i];
@@ -108,7 +122,7 @@ export function bakedPlans(linuxBin, bakeDir) {
 }
 
 // Outputs, fixtures and prose are not what a build is made from.
-const NOT_INPUT = /^(target|dist|web-dist|node_modules|corpus|tests|conformance|\..*)$|\.test\.m?js$|\.md$/;
+const NOT_INPUT = /^(target|dist|dist.previous|web-dist|artifacts|node_modules|corpus|tests|conformance|\..*)$|\.test\.m?js$|\.md$/;
 /** Files under `roots` modified after `since`; `{shallow}` roots contribute only their own files. */
 export function newerThan(since, roots, skip = () => false) {
   const out = [];
@@ -140,16 +154,17 @@ export function receiptChanges(receipt, app) {
   return [...new Set([...(build?.binary ? pendingBuildInputs(build) : []), ...own, ...tools])];
 }
 
-/** A web `dist/`: sources newer than its build marker. `app` — the app's own sources, certainly inputs — refuses; `shared` — the roots its target's build reads, a coarse rule named as one — only warns. */
+/** A web `dist/`: app and shared runtime sources newer than its build marker.
+ * Both are build inputs and both refuse a drive; the split makes diagnostics
+ * and tests able to say which side changed without weakening that rule. */
 export function webChanges(dist, app) {
   const marker = resolve(dist, '.exact-build.json');
-  if (!existsSync(marker)) return { app: [], shared: [] };
+  if (!existsSync(marker)) return { app: [], shared: [], all: [] };
   const since = statSync(marker).mtimeMs, js = JSON.parse(readFileSync(marker, 'utf8')).target === 'js';
   const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }] : ['host/web', 'runner', 'kernel', 'plan', 'motion', 'num', 'contract'];
-  return {
-    app: newerThan(since, [app.dir], path => /\/(apple|linux)$/.test(path) && path.startsWith(app.dir + '/')),
-    shared: newerThan(since, roots.map(r => typeof r === 'string' ? resolve(ROOT, r) : { shallow: resolve(ROOT, r.shallow) })),
-  };
+  const appChanges = newerThan(since, [app.dir], path => /\/(apple|linux)$/.test(path) && path.startsWith(app.dir + '/'));
+  const shared = newerThan(since, roots.map(r => typeof r === 'string' ? resolve(ROOT, r) : { shallow: resolve(ROOT, r.shallow) }));
+  return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }
 
 /** The DevTools protocol over Chrome's --remote-debugging-pipe (fd 3 in, fd 4 out; NUL-delimited JSON). A closed pipe or a dead Chrome fails every pending call; every call has a deadline. */

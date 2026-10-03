@@ -22,6 +22,7 @@ pub enum StyleDomainError {
     NonFinite(StyleId),
     AutoNotAdmitted(StyleId),
     TooManyTracks { style: StyleId, count: usize },
+    InvalidGridTrack(StyleId),
     InvalidGridSpan(StyleId),
     InvalidTransition(exact_motion::TransitionError),
     InvalidAnimation(exact_motion::AnimationError),
@@ -48,6 +49,18 @@ pub enum DecodeError {
     BadAspectRatio,
     /// Invalid or unsupported CSS `background-image` value (LLP 1066).
     BadBackgroundImage,
+    /// Invalid or unsupported CSS `box-shadow` (LLP 1077 D4).
+    BadBoxShadow,
+    /// Invalid CSS `rotate` axis (LLP 1077 D8).
+    BadRotateAxis,
+    /// Invalid `symbol-palette` (LLP 1077 D10).
+    BadSymbolPalette,
+    /// Invalid or unsupported CSS `text-shadow` (LLP 1077 D3).
+    BadTextShadow,
+    /// Invalid or unsupported CSS `mask-image` (LLP 1077 D2).
+    BadMaskImage,
+    /// Invalid CSS `corner-shape` (LLP 1077 D1).
+    BadCornerShape,
     /// Invalid `drag-timeline` (LLP 1057.003).
     BadDragTimeline,
     /// Invalid `animation-timeline` (LLP 1057.003).
@@ -113,9 +126,11 @@ pub enum DecodeError {
     UnknownTrackKind(u8),
     /// More grid tracks than the closed grammar allows.
     TooManyTracks(usize),
+    /// A grid track carried a negative breadth, which CSS cannot express.
+    InvalidGridTrack,
     /// A grid placement kind byte is outside the closed grammar.
     UnknownPlacementKind(u8),
-    /// A grid span was zero; CSS spans are positive integers.
+    /// A grid line or span was zero; CSS requires nonzero lines and positive spans.
     InvalidGridSpan,
     /// A `transition` row carried more declarations than the wire admits.
     TooManyTransitions(u8),
@@ -249,7 +264,9 @@ pub enum ApplyError {
         style: StyleId,
         count: usize,
     },
-    /// A grid placement carried a zero span; CSS spans are positive integers.
+    /// A grid template carried a negative breadth, which CSS cannot express.
+    InvalidGridTrack { op_index: usize, style: StyleId },
+    /// A grid placement carried a zero line or span, which CSS cannot express.
     InvalidGridSpan { op_index: usize, style: StyleId },
     /// A `SetStyle` patch carried a `transition` row the evaluator refuses.
     InvalidTransition {
@@ -304,6 +321,10 @@ pub enum LayoutError {
     InvalidIntrinsicSize(ViewId),
     /// An environment with a non-finite inset.
     InvalidEnv,
+    /// A segment grid with a count that is not `cols × rows` (or any
+    /// segment on a 1 × 1 grid), a zero count, or a non-finite rect
+    /// (LLP 1078 D3).
+    InvalidSegments,
     /// A root font size that is not finite and positive (LLP 1069.000 D3).
     InvalidRootFontSize,
     /// A host text callback returned a non-finite or negative metric.
@@ -352,6 +373,7 @@ impl From<StyleDomainError> for DecodeError {
             StyleDomainError::NonFinite(style) => DecodeError::NonFinite(style),
             StyleDomainError::AutoNotAdmitted(style) => DecodeError::AutoNotAdmitted { style },
             StyleDomainError::TooManyTracks { count, .. } => DecodeError::TooManyTracks(count),
+            StyleDomainError::InvalidGridTrack(_) => DecodeError::InvalidGridTrack,
             StyleDomainError::InvalidGridSpan(_) => DecodeError::InvalidGridSpan,
             StyleDomainError::InvalidTransition(error) => DecodeError::InvalidTransition(error),
             StyleDomainError::InvalidAnimation(error) => DecodeError::InvalidAnimation(error),
@@ -424,9 +446,23 @@ pub enum StyleValueError {
     BadColor {
         style: StyleId,
     },
-    /// The row's codec has no dynamic form (grid tracks, placements, gradients).
+    /// The row's codec has no dynamic form.
     Unsupported {
         style: StyleId,
+    },
+    /// Not a grid track list in the kernel's closed CSS grammar.
+    BadGridTracks {
+        style: StyleId,
+    },
+    /// Not a grid line placement in the kernel's closed CSS grammar.
+    BadGridPlacement {
+        style: StyleId,
+    },
+    /// An `env()` text that names one of the kernel's variables wrongly
+    /// (LLP 1078 D10): refused by name, never silently zero.
+    BadEnv {
+        style: StyleId,
+        refusal: crate::style::EnvRefusal,
     },
     /// A `transition` text was not CSS shorthand the evaluator accepts.
     BadTransition {
@@ -446,6 +482,18 @@ pub enum StyleValueError {
     BadBackgroundImage {
         style: StyleId,
     },
+    /// Not `none` or one text shadow (LLP 1077 D3).
+    BadTextShadow {
+        style: StyleId,
+    },
+    /// Not `none` or one gradient mask (LLP 1077 D2).
+    BadMaskImage {
+        style: StyleId,
+    },
+    /// Not one to four corner shapes (LLP 1077 D1).
+    BadCornerShape {
+        style: StyleId,
+    },
     /// Not `none` or a `<dashed-ident>` with an optional axis.
     BadDragTimeline {
         style: StyleId,
@@ -462,10 +510,23 @@ pub enum StyleValueError {
     BadTimelineScope {
         style: StyleId,
     },
-    /// Not one outer CSS `box-shadow` exact2 draws; `reason` names what.
-    BadBoxShadow {
+    /// Not a CSS `rotate` (LLP 1077 D8).
+    BadRotateAxis {
+        style: StyleId,
+    },
+    /// Not `none` or one to three colours (LLP 1077 D10).
+    BadSymbolPalette {
+        style: StyleId,
+    },
+    /// Not `-webkit-text-stroke` (LLP 1077 D7); `reason` names what.
+    BadTextStroke {
         style: StyleId,
         reason: &'static str,
+    },
+    /// Not `none` or a list of CSS `box-shadow`s exact2 draws (LLP 1077 D4);
+    /// the compiler names the reason (`BoxShadows::check`).
+    BadBoxShadow {
+        style: StyleId,
     },
     /// Not CSS `backdrop-filter` as exact2 builds it; `reason` names what.
     BadBackdropFilter {

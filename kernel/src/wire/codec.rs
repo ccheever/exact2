@@ -8,8 +8,7 @@
 use crate::error::DecodeError;
 use crate::generated::{StyleId, StyleMask, STYLE_MASK_WORDS};
 use crate::style::{
-    Color, ColorValue, Dimension, Edge, GridLine, GridPlacement, GridTrack, GridTracks,
-    Transitions, Vec2, MAX_GRID_TRACKS,
+    Color, ColorValue, Dimension, Edge, GridPlacement, GridTracks, Transitions, Vec2,
 };
 use exact_motion::easing::MAX_LINEAR_STOPS;
 use exact_motion::{
@@ -154,8 +153,11 @@ impl<'a> Reader<'a> {
 
     /// Read a dimension: kind byte (0 auto, 1 points, 2 percent, 3–6 an
     /// `env()` length at the top/right/bottom/left safe-area inset, 7 a
-    /// `calc()` of a percent and points) then `f32` (the points added to an
-    /// inset); a `calc()` carries its percent first and a second `f32`.
+    /// `calc()` of a percent and points, 8–13 a viewport segment's
+    /// width/height/top/left/bottom/right) then `f32` (the points added to
+    /// an inset or a segment length); a `calc()` carries its percent first
+    /// and a second `f32`; a segment length carries its two index bytes,
+    /// `x` then `y`, after the `f32` (LLP 1078 D3).
     pub fn dimension(
         &mut self,
         style: StyleId,
@@ -174,6 +176,12 @@ impl<'a> Reader<'a> {
             2 => Dimension::Percent(value),
             3..=6 => Dimension::Env(Edge::from_index(kind - 3).expect("3..=6 is an edge"), value),
             7 => Dimension::Calc(value, self.f32()?),
+            // Linked by use (LLP 1078 D3): unknown to an artifact whose plan names no segment.
+            8..=13 => {
+                let (x, y) = (self.u8()?, self.u8()?);
+                crate::style::env::decode(kind, value, x, y)
+                    .ok_or(DecodeError::UnknownDimensionKind(kind))?
+            }
             other => return Err(DecodeError::UnknownDimensionKind(other)),
         };
         if kind != 0 && !dim.is_finite() {
@@ -203,6 +211,12 @@ impl<'a> Reader<'a> {
         match self.u8()? {
             0 => Ok(ColorValue::Fixed(self.color()?)),
             1 => Ok(ColorValue::LightDark(self.color()?, self.color()?)),
+            2 => match self.u8()? {
+                i if (i as usize) < crate::style::symbols::SYSTEM_COLORS.len() => {
+                    Ok(ColorValue::System(i))
+                }
+                _ => Err(DecodeError::BadColorValue(2)),
+            },
             other => Err(DecodeError::BadColorValue(other)),
         }
     }
@@ -221,48 +235,17 @@ impl<'a> Reader<'a> {
         Ok([self.color()?, self.color()?])
     }
 
-    /// Read a grid track list: count byte, then (kind byte, `f32`) per track.
+    /// Read and validate a grid template from its canonical CSS text.
     pub fn tracks(&mut self) -> Result<GridTracks, DecodeError> {
-        let tracks = self.tracks_for_style()?;
-        if tracks.0.len() > MAX_GRID_TRACKS {
-            return Err(DecodeError::TooManyTracks(tracks.0.len()));
-        }
-        Ok(tracks)
+        self.tracks_for_style()
     }
 
     /// Read the bounded wire representation before applying row-domain rules.
     pub(crate) fn tracks_for_style(&mut self) -> Result<GridTracks, DecodeError> {
-        let count = self.u8()?;
-        let mut out = Vec::with_capacity(count as usize);
-        for _ in 0..count {
-            let kind = self.u8()?;
-            let value = self.f32()?;
-            out.push(match kind {
-                0 => GridTrack::Fr(value),
-                1 => GridTrack::Points(value),
-                2 => GridTrack::Percent(value),
-                3 => GridTrack::Auto,
-                4 => GridTrack::MinContent,
-                5 => GridTrack::MaxContent,
-                other => return Err(DecodeError::UnknownTrackKind(other)),
-            });
-        }
-        Ok(GridTracks(out))
+        GridTracks::parse(self.string()?).ok_or(DecodeError::InvalidGridTrack)
     }
 
-    fn grid_line(&mut self) -> Result<GridLine, DecodeError> {
-        let kind = self.u8()?;
-        let value = self.u16()?;
-        Ok(match kind {
-            0 => GridLine::Auto,
-            1 => GridLine::Line(value as i16),
-            2 => GridLine::Span(value),
-            other => return Err(DecodeError::UnknownPlacementKind(other)),
-        })
-    }
-
-    /// Read a grid placement: start line then end line, each a kind byte and
-    /// a two-byte value (`i16` for a line, `u16` for a span).
+    /// Read and validate a grid placement from its canonical CSS text.
     pub fn placement(&mut self) -> Result<GridPlacement, DecodeError> {
         let placement = self.placement_for_style()?;
         if !placement.is_valid() {
@@ -273,10 +256,7 @@ impl<'a> Reader<'a> {
 
     /// Read the bounded wire representation before applying row-domain rules.
     pub(crate) fn placement_for_style(&mut self) -> Result<GridPlacement, DecodeError> {
-        Ok(GridPlacement {
-            start: self.grid_line()?,
-            end: self.grid_line()?,
-        })
+        GridPlacement::parse(self.string()?).ok_or(DecodeError::InvalidGridSpan)
     }
 
     /// Read a timing function (grammar: `schema.json` `_transitions`).
@@ -510,6 +490,12 @@ impl Writer {
                 self.u8(3 + edge as u8);
                 self.f32(v);
             }
+            Dimension::Segment(var, x, y, v) => {
+                self.u8(8 + var as u8);
+                self.f32(v);
+                self.u8(x);
+                self.u8(y);
+            }
             Dimension::Percent(v) => {
                 self.u8(2);
                 self.f32(v);
@@ -545,6 +531,10 @@ impl Writer {
                 self.color(light);
                 self.color(night);
             }
+            ColorValue::System(i) => {
+                self.u8(2);
+                self.u8(i);
+            }
         }
     }
 
@@ -564,20 +554,7 @@ impl Writer {
 
     /// Append a grid track list.
     pub fn tracks(&mut self, t: &GridTracks) {
-        debug_assert!(t.0.len() <= MAX_GRID_TRACKS);
-        self.u8(t.0.len() as u8);
-        for track in &t.0 {
-            let (kind, value) = match *track {
-                GridTrack::Fr(v) => (0, v),
-                GridTrack::Points(v) => (1, v),
-                GridTrack::Percent(v) => (2, v),
-                GridTrack::Auto => (3, 0.0),
-                GridTrack::MinContent => (4, 0.0),
-                GridTrack::MaxContent => (5, 0.0),
-            };
-            self.u8(kind);
-            self.f32(value);
-        }
+        self.string(t.css());
     }
 
     /// Append a timing function.
@@ -636,27 +613,9 @@ impl Writer {
         }
     }
 
-    fn grid_line(&mut self, line: GridLine) {
-        match line {
-            GridLine::Auto => {
-                self.u8(0);
-                self.i16(0);
-            }
-            GridLine::Line(n) => {
-                self.u8(1);
-                self.i16(n);
-            }
-            GridLine::Span(n) => {
-                self.u8(2);
-                self.u16(n);
-            }
-        }
-    }
-
     /// Append a grid placement.
-    pub fn placement(&mut self, p: GridPlacement) {
-        self.grid_line(p.start);
-        self.grid_line(p.end);
+    pub fn placement(&mut self, p: &GridPlacement) {
+        self.string(&p.css());
     }
 
     /// Append the style mask words.
@@ -670,6 +629,25 @@ impl Writer {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::style::{GridLine, GridTrack, GridTrackMax, GridTrackMin};
+    use crate::SCHEMA_DIGEST;
+
+    #[test]
+    fn wire_codec_bytes_and_schema_digest_move_as_one_snapshot() {
+        let tracks = GridTracks::parse("minmax(80px, 1fr)").unwrap();
+        let placement = GridPlacement::parse("auto / span 2").unwrap();
+        let mut writer = Writer::new();
+        writer.tracks(&tracks);
+        writer.placement(&placement);
+        assert_eq!(
+            writer.into_vec(),
+            b"\x11\0\0\0minmax(80px, 1fr)\x0d\0\0\0auto / span 2"
+        );
+        // build.rs hashes the production codec sources beside the canonical
+        // schema. The literal makes an accidental removal of that coupling a
+        // test failure whenever the byte snapshot above is intentionally moved.
+        assert_eq!(SCHEMA_DIGEST, 0x2e5c_7071_e1fd_dce2);
+    }
 
     #[test]
     fn scalars_round_trip() {
@@ -724,10 +702,10 @@ mod tests {
                 Ok(Dimension::Env(*edge, i as f32 * 1.5))
             );
         }
-        let mut r = Reader::new(&[8u8, 0, 0, 0, 0]);
+        let mut r = Reader::new(&[14u8, 0, 0, 0, 0]);
         assert_eq!(
             r.dimension(StyleId::Width, true),
-            Err(DecodeError::UnknownDimensionKind(8))
+            Err(DecodeError::UnknownDimensionKind(14))
         );
     }
 
@@ -781,25 +759,40 @@ mod tests {
 
     #[test]
     fn tracks_and_placement_round_trip() {
-        let tracks = GridTracks(vec![
+        let tracks = GridTracks::from_tracks(vec![
             GridTrack::Fr(1.0),
             GridTrack::Points(20.0),
             GridTrack::Percent(50.0),
             GridTrack::Auto,
             GridTrack::MinContent,
             GridTrack::MaxContent,
+            GridTrack::MinMax(GridTrackMin::Points(80.0), GridTrackMax::Fr(1.0)),
         ]);
         let placement = GridPlacement {
             start: GridLine::Line(2),
-            end: GridLine::Span(40_000),
+            end: GridLine::Span(10_000),
         };
         let mut w = Writer::new();
         w.tracks(&tracks);
-        w.placement(placement);
+        w.placement(&placement);
         let bytes = w.into_vec();
         let mut r = Reader::new(&bytes);
         assert_eq!(r.tracks().unwrap(), tracks);
         assert_eq!(r.placement().unwrap(), placement);
+
+        for css in ["rail / auto", "\\31 foo / 2"] {
+            let placement = GridPlacement::parse(css).unwrap();
+            let mut w = Writer::new();
+            w.placement(&placement);
+            assert_eq!(Reader::new(&w.into_vec()).placement().unwrap(), placement);
+        }
+
+        let mut w = Writer::new();
+        w.tracks(&GridTracks::from_tracks(vec![GridTrack::Points(-1.0)]));
+        assert_eq!(
+            Reader::new(&w.into_vec()).tracks(),
+            Err(DecodeError::InvalidGridTrack)
+        );
     }
 
     #[test]

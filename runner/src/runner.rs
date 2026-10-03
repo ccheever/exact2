@@ -37,6 +37,8 @@ pub mod picker;
 pub use picker::{Picked, PickerRequest, PICKED};
 mod into_view;
 mod kept;
+#[cfg(test)]
+mod kept_tests;
 mod lines;
 mod lists;
 mod page;
@@ -217,6 +219,10 @@ struct ResourceState {
     /// A placeholder shown before an answer, including after failure, never an answer
     /// to reuse, carry or compile (LLP 1054.000.002 D4).
     placeholder: bool,
+    /// Only a persisted boot seed can match identifying arguments before
+    /// readiness (LLP 1027.005 D3). Settlement and rollback copy this with
+    /// its value; activation or losing that identity consumes it.
+    kept_seed: bool,
 }
 
 /// What a boot starts from besides the plan and the launch.
@@ -827,6 +833,7 @@ impl<D: DataSource> Runner<D> {
                         value: crate::held::Held::new(value.clone()),
                         store_revision: runner.store.revision(),
                         placeholder: false,
+                        kept_seed: false,
                     })
             })
             .collect();
@@ -840,7 +847,7 @@ impl<D: DataSource> Runner<D> {
         // Store-reading resources when the data source is not ready (a
         // TypeScript module before its host loads it, LLP 1027 D4): the
         // answer kept from the last launch seeds the first frame if its
-        // arguments still match and its value still fits; the compiled
+        // identifying arguments still match and its value still fits; the compiled
         // empty-store placeholder is the fallback (settlement); either way
         // the resource is asked again at `data_ready`.
         let ready = runner.data.ready();
@@ -850,7 +857,11 @@ impl<D: DataSource> Runner<D> {
         runner.awaiting = vec![false; runner.plan.resources.len()];
         if !ready {
             for (i, &taken) in seeded.iter().enumerate() {
-                if !runner.plan.resources[i].reader {
+                if !runner.plan.resources[i].reader
+                    || exact_plan::runner_owned_source(
+                        runner.plan.str(runner.plan.resources[i].source),
+                    )
+                {
                     continue;
                 }
                 // An answer the runtime already has isn't asked again when
@@ -867,13 +878,18 @@ impl<D: DataSource> Runner<D> {
                     .store
                     .kept(&kept::kept_name(name))
                     .and_then(kept::decode)
-                    .filter(|(_, value)| runner.check_shape(i, value).is_ok());
+                    .filter(|(args, value)| {
+                        let row = &runner.plan.resources[i];
+                        args.len() == row.args.len as usize - usize::from(row.context)
+                            && runner.check_shape(i, value).is_ok()
+                    });
                 if let Some((args, value)) = seed {
                     runner.resources[i] = Some(ResourceState {
                         args,
                         value: crate::held::Held::new(value),
                         store_revision: runner.store.revision(),
                         placeholder: false,
+                        kept_seed: true,
                     });
                 }
             }
@@ -926,6 +942,12 @@ impl<D: DataSource> Runner<D> {
         runner.log(line);
         if !note.is_empty() {
             runner.log(note);
+        }
+        // Grants that do not parse grant nothing: said once here, and in
+        // each refusal (the store's, the host's).
+        if let Some(why) = runner.store.unparsed() {
+            let line = format!("{why}; nothing is granted");
+            runner.log(line);
         }
         Ok(runner)
     }

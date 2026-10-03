@@ -136,19 +136,25 @@ final class VideoView {
         platformView = nil
     }
     func layout() {
-        guard let owner else { return }
-        platformView?.frame = owner.contentBox()
-        let radius = owner.number("border_radius", owner.number("border_radius_top_left"))
+        guard let owner, let platformView else { return }
+        Self.layout(platformView, in: owner)
+    }
+    static func layout(_ view: MediaPlatformView, in owner: NodeView) {
+        let content = owner.contentBox()
+        view.frame = content
         #if os(macOS)
-        platformView?.wantsLayer = true
-        platformView?.layer?.cornerRadius = radius
-        platformView?.layer?.masksToBounds = true
+        view.wantsLayer = true
+        guard let layer = view.layer else { return }
         #else
-        platformView?.layer.cornerRadius = radius
-        platformView?.layer.masksToBounds = true
+        let layer = view.layer
         #endif
+        let radii = BorderPaint.contentRadii(owner.cornerSizes(in: owner.bounds), outer: owner.bounds, inner: content)
+        BorderPaint.clip(layer, in: CGRect(origin: .zero, size: content.size), radii: radii)
     }
     func update() {
+        // Radius, borders and padding are style, not player props. Refresh
+        // their geometry even when the AVKit update below is deduplicated.
+        layout()
         guard let owner, let module = VideoModule.shared, let handle else { return }
         var props = owner.props
         if props["src"] != autoplaySource {
@@ -193,7 +199,6 @@ final class VideoView {
         last = props
         guard let data = try? JSONSerialization.data(withJSONObject: props) else { return }
         data.withUnsafeBytes { module.update(handle, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
-        layout()
     }
     func state() -> [String: Any] {
         if let handle { VideoModule.shared?.state(handle) }

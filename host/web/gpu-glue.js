@@ -33,7 +33,9 @@ document.head.append(inputStyle);
 let loaded = false, loadMs;
 let recoveringDevice;
 let pendingCutover;
-let recoveryTimer, recoveryFailures = 0, lossDuringRecovery = false;
+const RECOVERY_LIMIT = 5;
+let recoveryTimer, recoveryFailures = 0, recoveryErrorLogged = false, recoveryTerminalLogged = false, lossDuringRecovery = false;
+let terminalDevice = false;
 let raf = null;
 let finishReady;
 const ready = new Promise((resolve) => { finishReady = resolve; });
@@ -70,30 +72,43 @@ function finishRestore(entry, module, error) {
   entry.restoredCarry = true;
   entry.resampleHeld?.();
 }
+const pendingRecovery = () => {
+  const entries = [...surfaces.values()].filter(entry => !entry.terminal);
+  return entries.length ? entries.map(entry => ({name:`GPU recovery ${entry.name}`,canvas:entry.view})) : [{name:"GPU recovery"}];
+};
 async function settled() {
   await ready;
-  await recoveringDevice;
+  const deadline = performance.now() + 2500;
+  while ((recoveringDevice || recoveryTimer) && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 0));
+  if (recoveringDevice || recoveryTimer) return pendingRecovery();
   const pending = await delivery.settled(() => surfaces.values());
   if (!pending.length) {
       // Agent operations return after presentation reaches the committed clock,
       // including a child-text update published by the rendered world.
       // GPU pipeline validation completes on browser promises, independently of
       // simulation time. Surface::preparing keeps gpu_dirty true until usable.
-      const deadline = performance.now() + 2500;
       if (exact.now) for (;;) {
+        if (recoveringDevice || recoveryTimer) {
+          if (performance.now() >= deadline) {
+            pending.push(...pendingRecovery());
+            break;
+          }
+          await new Promise(resolve => setTimeout(resolve, 0));
+          continue;
+        }
         let drew = false;
-        for (const entry of surfaces.values()) if (entry.id && (gpu.gpu_dirty(entry.id) || entry.renderedAt !== exact.now())) {
+        for (const entry of surfaces.values()) if (entry.id && !entry.terminal && (gpu.gpu_dirty(entry.id) || entry.renderedAt !== exact.now())) {
           render(entry, exact.now()); drew = true;
         }
         flush();
         if (!drew) break;
         if (performance.now() >= deadline) {
-          for (const entry of surfaces.values()) if (entry.id && gpu.gpu_dirty(entry.id)) pending.push({name:`GPU presentation ${entry.name}`,canvas:entry.view});
+          for (const entry of surfaces.values()) if (entry.id && !entry.terminal && gpu.gpu_dirty(entry.id)) pending.push({name:`GPU presentation ${entry.name}`,canvas:entry.view});
           break;
         }
         await new Promise(resolve => setTimeout(resolve, 0));
       }
-      if (api.recovery?.status === "recovered") api.recovery.instances = [...surfaces.values()].filter(e => e.id).map(e => ({id:e.id, preparation:JSON.parse(gpu.gpu_agent(e.id, '{"op":"state"}') || "null")}));
+      if (api.recovery?.status === "recovered") api.recovery.instances = [...surfaces.values()].filter(e => e.id && !e.terminal).map(e => ({id:e.id, preparation:JSON.parse(gpu.gpu_agent(e.id, '{"op":"state"}') || "null")}));
   }
   return pending;
 }
@@ -185,8 +200,48 @@ function installCanvas(old, entry) {
   old.el.replaceWith(entry.el);
   if (old.host === old.el) { entry.host = entry.el; exact.views.set(entry.view, entry.el); }
 }
+function resetRecovery() {
+  recoveryFailures = 0;
+  recoveryErrorLogged = false;
+  recoveryTerminalLogged = false;
+  terminalDevice = false;
+}
+function fallback(entry) {
+  if (entry.fallbackApplied) return;
+  entry.fallbackApplied = true;
+  entry.terminal = true;
+  entry.wants = false;
+  for (const row of entry.children ?? []) restoreChild(row);
+  entry.children = undefined;
+  entry.el.style.zIndex = "-1";
+  // Resetting the bitmap once discards stale pixels. Its CSS box stays in the
+  // wrapper, transparent over the wrapper's background and under its children.
+  entry.el.width = 1;
+  entry.el.height = 1;
+}
+function terminalRecovery(outcome) {
+  terminalDevice = true;
+  recoveryFailures = RECOVERY_LIMIT;
+  for (const entry of surfaces.values()) fallback(entry);
+  api.recovery = outcome;
+}
+function reportRecovery(error, terminal) {
+  if (!recoveryErrorLogged || (terminal && !recoveryTerminalLogged)) {
+    exact.devError?.(String(error)); console.error("exact gpu recovery:", error);
+  }
+  recoveryErrorLogged = true;
+  recoveryTerminalLogged ||= terminal;
+}
+function failureOutcome(error) {
+  const text = typeof error === "string" ? error : error?.message ?? String(error);
+  try {
+    const outcome = JSON.parse(text);
+    if (outcome?.status === "failed" && typeof outcome.code === "string" && typeof outcome.error === "string") return outcome;
+  } catch {}
+  return {status:"failed", code:error?.code ?? "recovery", error:text};
+}
 function recoverDevice() {
-  if (recoveringDevice || recoveryTimer || recoveryFailures >= 5 || !loaded) return recoveringDevice;
+  if (recoveringDevice || recoveryTimer || recoveryFailures >= RECOVERY_LIMIT || !loaded) return recoveringDevice;
   lossDuringRecovery = false;
   const module = gpu, entries = [...surfaces.values()].filter(e => e.id);
   const staged = pendingCutover?.module === module ? pendingCutover.staged : entries.map(old => [old, {...old, el:replacementCanvas(old), observer:null, unlisten:null}]);
@@ -194,11 +249,15 @@ function recoverDevice() {
   recoveringDevice = (async () => {
     const outcome = pendingCutover?.module === module ? pendingCutover.outcome : JSON.parse(await module.gpu_recover(new Uint32Array(entries.map(e => e.id)), staged.map(([,e]) => e.el)));
     if (gpu !== module) { for (const [, e] of staged) e.el.remove(); return; }
-    if (["healthy", "no device"].includes(outcome.status)) {
+    if (outcome.status === "healthy") {
       for (const [, e] of staged) e.el.remove();
-      api.recovery = outcome; recoveryFailures = 0; return;
+      api.recovery = outcome; resetRecovery(); return;
     }
-    if (outcome.status !== "recovered") throw new Error(JSON.stringify(outcome));
+    if (outcome.status === "no device") {
+      for (const [, e] of staged) e.el.remove();
+      terminalRecovery(outcome); return;
+    }
+    if (outcome.status !== "recovered") throw Object.assign(new Error(outcome.error ?? JSON.stringify(outcome)), {code:outcome.code});
     pendingCutover = {module, staged, outcome};
     for (const [old, entry] of staged) {
       if (live(old.view) !== old) { module.gpu_destroy(entry.id); continue; }
@@ -212,7 +271,7 @@ function recoverDevice() {
     }
     pendingCutover = null;
     api.recovery = outcome;
-    recoveryFailures = 0;
+    resetRecovery();
     schedule();
   })().catch(error => {
     for (const [old, entry] of staged) {
@@ -227,10 +286,21 @@ function recoverDevice() {
       }
       if (!pendingCutover) { entry.el.width = 0; entry.el.height = 0; entry.el.remove(); }
     }
-    recoveryFailures++;
-    if (recoveryFailures < 5) recoveryTimer = setTimeout(() => { recoveryTimer = null; recoverDevice(); }, 100 * 2 ** (recoveryFailures - 1));
-    api.recovery = {status:"failed", error:String(error)};
-    exact.devError?.(String(error)); console.error("exact gpu recovery:", error);
+    const message = String(error);
+    // An adapter cannot appear during this page's recovery episode. Retrying
+    // requestAdapter after it has said none exists only churns Chromium's
+    // failed WebGPU presentation path and can starve the renderer itself.
+    // Other device-loss failures retain the bounded exponential retry.
+    const noAdapter = error?.code === "no-adapter";
+    recoveryFailures = noAdapter ? RECOVERY_LIMIT : recoveryFailures + 1;
+    const terminal = recoveryFailures >= RECOVERY_LIMIT;
+    const outcome = {status:terminal ? "no device" : "failed", code:error?.code ?? "recovery", error:message};
+    if (terminal) terminalRecovery(outcome);
+    else {
+      api.recovery = outcome;
+      recoveryTimer = setTimeout(() => { recoveryTimer = null; recoverDevice(); }, 100 * 2 ** (recoveryFailures - 1));
+    }
+    reportRecovery(error, terminal);
   }).finally(() => { recoveringDevice = null; if (lossDuringRecovery && !recoveryFailures) queueMicrotask(recoverDevice); });
   return recoveringDevice;
 }
@@ -239,11 +309,11 @@ function recoverDevice() {
 // canvas recorded since the last one once (LLP 1009 D7). It runs before the
 // task that rendered ends, which is when the browser presents the canvases.
 function flush(module = gpu) {
-  if (module && !module.gpu_flush()) console.error("exact gpu:", module.gpu_error());
+  if (module && (module !== gpu || !terminalDevice) && !module.gpu_flush()) console.error("exact gpu:", module.gpu_error());
 }
 
 function render(entry, now) {
-  if ((hidden && !exact.now) || recoveringDevice) return;
+  if (entry.terminal || (hidden && !exact.now) || recoveringDevice || recoveryTimer) return;
   const { w, h, s } = size(entry.el);
   const pw = Math.max(1, Math.round(w * s)), ph = Math.max(1, Math.round(h * s));
   if (entry.el.width !== pw || entry.el.height !== ph) { entry.el.width = pw; entry.el.height = ph; }
@@ -287,7 +357,7 @@ function frame(now) {
   if (period !== sentPeriod && gpu) { sentPeriod = period; gpu.gpu_period(period); }
   let more = false;
   for (const entry of surfaces.values()) {
-    if (!entry.id) continue;
+    if (!entry.id || entry.terminal) continue;
     if (entry.wants || gpu.gpu_dirty(entry.id)) render(entry, at);
     more ||= entry.wants;
   }
@@ -318,7 +388,7 @@ function create(entry, module, carry) {
   }
 }
 function attach(entry) {
-  entry.observer = new ResizeObserver(() => { if (entry.id) { render(entry, frameAt ?? performance.now()); flush(); } });
+  entry.observer = new ResizeObserver(() => { if (entry.id && !entry.terminal) { render(entry, frameAt ?? performance.now()); flush(); } });
   entry.observer.observe(entry.el);
   entry.wantsInput = gpu.gpu_wants_input(entry.id);
   if (entry.wantsInput) listen(entry);
@@ -341,7 +411,9 @@ function restorePending(entry, module = gpu, carrier = exact) {
 }
 
 function ensure(entry) {
-  if (entry.id || !loaded) return;
+  if (entry.id) return;
+  if (terminalDevice) { fallback(entry); return; }
+  if (!loaded) return;
   if (recoveringDevice) { recoveringDevice.then(() => { if (surfaces.get(entry.view) === entry) ensure(entry); }); return; }
   try {
     create(entry, gpu, entry.carry);
@@ -699,19 +771,30 @@ const api = {
     // The node's element hosts its surface <canvas> (glue.js, LLP 1014 D2).
     const host = exact.views.get(view);
     const el = host?.matches("canvas") ? host : host?.querySelector(":scope > canvas[data-surface]");
-    if (!el) return;
+    if (!el?.isConnected) return; // a queued surface can leave before its lazy module arrives
     let entry = surfaces.get(view);
     if (entry && entry.el !== el) { this.destroy(view); entry = null; } // a reload reuses ids
     if (entry && entry.name !== name) { this.destroy(view); entry = null; } // one id cannot retain another plan's surface
-    if (!entry) { entry = { view, host, el, name, values, id: 0, wants: false, wantsInput: false, logCursor: 0 }; surfaces.set(view, entry);
+    if (!entry) {
+      // A replacement can register before the old owner's destroy reaches us.
+      // Only a current, connected canvas holds the publication name.
+      const old = publishers.get(name);
+      if (old && (!old.el.isConnected || exact.views.get(old.view) !== old.host || surfaces.get(old.view) !== old)) {
+        if (surfaces.get(old.view) === old) this.destroy(old.view);
+        else { publishers.delete(name); surfaceRecord(name, null); }
+      }
+      entry = { view, host, el, name, values, id: 0, wants: false, wantsInput: false, logCursor: 0, terminal: terminalDevice }; surfaces.set(view, entry);
       const carried = planCarries.get(name);
       if (carried?.name === name) entry.carry = carried.bytes;
       planCarries.delete(name);
-      if (!publishers.has(name)) publishers.set(name, entry);
+      const publisher = publishers.get(name);
+      const publisherRegistered = publisher && surfaces.get(publisher.view) === publisher
+        && exact.views.get(publisher.view) === publisher.host;
+      if (!publisher || !publisherRegistered || !publisher.el.isConnected) publishers.set(name, entry);
       else console.error(`exact gpu: surface ${name}: duplicate live publisher ignored`);
       ensure(entry); return; }
     entry.values = values;
-    if (entry.id) {
+    if (entry.id && !entry.terminal) {
       const id = entry.id, at = exact.now?.();
       const bind = () => {
         const current = live(view); if (current?.id !== id) return;
@@ -784,9 +867,9 @@ const api = {
       supplyChildren(entry); placeChildren(entry);
     }
   },
-  layout() { for (const entry of surfaces.values()) if (entry.id) { supplyChildren(entry); placeChildren(entry); } schedule(); },
+  layout() { for (const entry of surfaces.values()) if (entry.id && !entry.terminal) { supplyChildren(entry); placeChildren(entry); } schedule(); },
   /// Time moved (the agent's `clock`): render what wants a frame, once.
-  schedule() { for (const entry of surfaces.values()) if (entry.id && entry.wants) { entry.wants = false; gpu.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.()); } schedule(); },
+  schedule() { for (const entry of surfaces.values()) if (entry.id && !entry.terminal && entry.wants) { entry.wants = false; gpu.gpu_bind_at(entry.id, JSON.stringify(entry.values), exact.now?.()); } schedule(); },
 };
 // Standalone, the one module is `exact.gpu`. Routed, the router hands this
 // instance the surfaces queued for its artifact before its script arrived.
@@ -844,7 +927,7 @@ async function swap(version) {
     // canvases; the old canvases and their worlds remain untouched until commit.
     // No await from carry through cutover; input cannot arrive between them.
     for (const old of surfaces.values()) {
-      const entry = { ...old, el: replacementCanvas(old), id: 0, observer: null, unlisten: null };
+      const entry = { ...old, el: replacementCanvas(old), id: 0, observer: null, unlisten: null, terminal: false };
       delete entry.restoreError; delete entry.attemptedCarry;
       delete entry.pendingRestore; delete entry.restoreReported;
       staged.push([old, entry]);
@@ -868,7 +951,7 @@ async function swap(version) {
     surfaces.set(entry.view, entry);
     if (old.id) oldModule.gpu_destroy(old.id);
   }
-  oldModule?.gpu_unload(); gpu = next; loaded = true;
+  oldModule?.gpu_unload(); gpu = next; loaded = true; resetRecovery();
   for (const [old, entry] of staged) {
     for (const row of old.children ?? []) if (!entry.children?.some(next => next.el === row.el)) restoreChild(row);
     placeChildren(entry);
@@ -891,7 +974,12 @@ try {
   replaceShaders(await loadShaders(gpu));
   api.version = version;
   loaded = true;
-} catch (error) { gpu?.gpu_unload(); gpu = undefined; console.error("exact gpu:", error); }
+} catch (error) {
+  gpu?.gpu_unload(); gpu = undefined;
+  const failure = failureOutcome(error);
+  terminalRecovery({...failure, status:"no device"});
+  reportRecovery(Object.assign(new Error(failure.error), {code:failure.code}), true);
+}
 if (loaded) { loadMs = performance.now() - t0; if (stem === "gpu") exact.root.dataset.gpuMs = loadMs.toFixed(1); }
 try {
   const waiting = [...surfaces.values()];

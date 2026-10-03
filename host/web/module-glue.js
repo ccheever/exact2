@@ -47,24 +47,21 @@ const early = new Map(); // `GET url headers` -> [{ response, controller }]
 const earlyKey = (url, headers) => `GET ${url} ${JSON.stringify(headers ?? [])}`;
 // glue.js's `grantAdmits`, the one grant rule (an origin, or `scheme://*.domain`).
 function grantAdmits(granted, url) {
-  let target, grant;
-  try { target = new URL(url); } catch { return false; }
-  const star = /^([a-z][a-z0-9+.-]*):\/\/\*\.([^*/?#]+)$/i.exec(granted);
-  if (!star) {
-    if (granted.includes('*')) return false;
-    try { grant = new URL(granted); } catch { return false; }
-    return grant.origin === target.origin;
-  }
-  try { grant = new URL(`${star[1]}://${star[2]}`); } catch { return false; }
-  const suffix = grant.hostname;
-  return grant.protocol === target.protocol && grant.port === target.port
-    && !/^[\d.]+$|^\[/.test(suffix) && suffix.split('.').length >= 2 && !suffix.endsWith('.')
-    && target.hostname.length > suffix.length + 1 && target.hostname.endsWith('.' + suffix);
+  try {
+    const wild = granted.includes('://*.'), text = wild ? granted.replace('://*.', '://') : granted;
+    const target = new URL(url), grant = new URL(text), host = grant.hostname.toLowerCase(), targetHost = target.hostname.toLowerCase();
+    if (text.includes('*') || grant.protocol !== target.protocol || grant.port !== target.port) return false;
+    if (!wild) return host === targetHost;
+    return ['', '/'].includes(grant.pathname) && !text.includes('?') && !text.includes('#') && !(host.startsWith('[') || /^(?:https?|wss?|ftp):$/.test(grant.protocol) && /^[\d.]+$/.test(host))
+      && host.split('.').filter(Boolean).length >= 2 && !host.endsWith('.') && targetHost.length > host.length + 1 && targetHost.endsWith('.' + host);
+  } catch { return false; }
 }
-function fetchEarly(request, grants) {
+// `unparsed`: the app's grants did not parse (the runner's one parse, in the binary's logic info), so they
+// admit nothing here either, whatever this module's own lines say.
+function fetchEarly(request, grants, unparsed) {
   try { new URL(request.url); } catch { return null; } // a relative (asset) URL is the host's own
   const admits = line => { const [kind, url] = line.trim().split(/\s+/, 2); return kind === 'net.fetch' && !!url && grantAdmits(url, request.url); };
-  if (request.method !== 'GET' || request.body || !grants.split('\n').some(admits)) return null;
+  if (unparsed || request.method !== 'GET' || request.body || !grants.split('\n').some(admits)) return null;
   const key = earlyKey(request.url, request.headers), controller = new AbortController();
   const entry = { controller, response: fetch(request.url, { method: 'GET', headers: request.headers, redirect: 'error', cache: 'default', signal: controller.signal }) };
   entry.response.catch(() => {});
@@ -124,7 +121,7 @@ export async function prepare(payload, admitted, id = nextId++) {
   }
     if (op === 1) {
       // A stream is the page's to open (LLP 1016.000), never fetched early.
-      const request = JSON.parse(value), drop = request.stream ? null : fetchEarly(request, admitted.grants);
+      const request = JSON.parse(value), drop = request.stream ? null : fetchEarly(request, admitted.grants, admitted.unparsed);
       context.requests.set(Number(name), request); if (drop) context.early.set(Number(name), drop); return;
     }
     if (op === 2) { context.reads.push(name); return context.store.get(name); }

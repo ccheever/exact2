@@ -532,10 +532,12 @@ fn clipped_rectangle_fills_match_full_path_pixels() {
                             Shape {
                                 rect: (4.5, 5.25, 77.0, 65.5),
                                 radii: [(radius, radius); 4],
+                                corners: None,
                             },
                             Shape {
                                 rect: (14.0 + offset, 9.0 + offset, 47.5, 46.25),
                                 radii: [(radius / 2.0, radius / 2.0); 4],
+                                corners: None,
                             },
                         ]
                         .into_iter()
@@ -571,6 +573,7 @@ fn clipped_rectangle_fills_match_full_path_pixels() {
                             let shape = Shape {
                                 rect,
                                 radii: [(radius, radius); 4],
+                                corners: None,
                             };
                             raster.fill(&shape, color, transform);
                             let mut paint = Paint::default();
@@ -764,6 +767,7 @@ fn rectangular_damage_fills_keep_mask_pixels_and_clip_lifetime() {
                         let clip = Shape {
                             rect: (16.0, 12.0, 48.0, 40.0),
                             radii: [(7.0, 7.0); 4],
+                            corners: None,
                         };
                         let mut nested = root.clone();
                         nested.intersect_path(
@@ -805,6 +809,7 @@ fn rectangular_damage_fills_keep_mask_pixels_and_clip_lifetime() {
                             let shape = Shape {
                                 rect,
                                 radii: [(radius, radius); 4],
+                                corners: None,
                             };
                             let color = [31 + stage * 23, 117, 193, alpha];
                             raster.fill(&shape, color, ts);
@@ -888,6 +893,7 @@ fn rounded_interiors_match_full_masked_paths_at_edges_and_in_layers() {
                             let shape = Shape {
                                 rect: (3.25, 4.5, 88.25, 70.25),
                                 radii: radii.map(|r| (r, r)),
+                                corners: None,
                             };
                             if layer {
                                 raster.push_opacity(0.37);
@@ -964,6 +970,7 @@ fn damage_begin_resets_frames_and_preserves_full_repaint_fallback() {
                             &Shape {
                                 rect: (2.0, 3.0, 40.0, 32.0),
                                 radii: [(4.0, 4.0); 4],
+                                corners: None,
                             },
                             Transform::identity(),
                         );

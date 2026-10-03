@@ -111,6 +111,12 @@ size_t exact_text_collapse(const uint8_t *utf8, size_t len, const size_t *lens, 
  * the schema has no such material. */
 size_t exact_material_platform(const uint8_t *name, size_t len, uint8_t platform, const uint8_t **out);
 
+/* LLP 1077 D1. A box outline with shaped corners as one closed polygon: `shape` 4 K values
+ * (NaN is -apple-continuous), `radii` 8 (top-left first, horizontal then vertical, reduced).
+ * Writes x,y pairs into `out` when `cap` holds them all; returns the point count. */
+size_t exact_corner_outline(const float *shape, float x, float y, float width, float height,
+    const float *radii, float *out, size_t cap);
+
 /* LLP 1043.000 D5-D7. Same-thread TextShape lifetime, independent of runtime.
  * Non-null buffers must be aligned and valid for their stated counts. */
 typedef struct ExactFlowPair { float x, y; } ExactFlowPair;
@@ -419,6 +425,13 @@ uint32_t exact_list_text(ExactRuntime rt, uint32_t view, uint32_t first_len,
  * safe area itself. A change re-sends the style of every node that reads
  * them and lays out again. */
 uint32_t exact_insets(ExactRuntime rt, float top, float right, float bottom, float left);
+/* @ref LLP 1078 D4: the device's posture (0 continuous, 1 folded) and the
+ * viewport segments a fold makes — cols × rows rects, row-major, each
+ * x y w h as four little-endian floats in the input buffer (count rects;
+ * none for 1 × 1). Sets the kernel's env(viewport-segment-*) grid and
+ * exactViewport's three fields in one batch, as exact_resize sets the
+ * viewport and preferences together. */
+uint32_t exact_segments(ExactRuntime rt, uint32_t posture, uint32_t cols, uint32_t rows, uint32_t count);
 /* The presenter's appearance (nonzero: dark), which a light-dark() colour
  * under paint motion resolves by; a change transitions it (LLP 1062). */
 uint32_t exact_scheme(ExactRuntime rt, uint32_t dark);
@@ -439,9 +452,10 @@ uint32_t exact_intrinsics(ExactRuntime rt, size_t len);
 /* A select's options (LLP 1069.001 D5), JSON in the output buffer, not a
  * batch: {"options":[{"value","label","disabled"}],"chosen":index|null}. */
 uint32_t exact_select_options(ExactRuntime rt, uint32_t view);
-/* A native button's face (LLP 1069.011 D5), JSON in the output buffer, not a
- * batch: {"title":string|null,"symbol":apple-name|null,"leading":bool}. */
-uint32_t exact_button_face(ExactRuntime rt, uint32_t view);
+/* A button's face, custom or native (LLP 1069.011.000 D1), JSON in the output
+ * buffer, not a batch: {"button":bool,"title":string|null,"symbol":apple-name|null,
+ * "raster","leading","fits":bool,"label":string|null,"style",...the native style}. */
+uint32_t exact_press_face(ExactRuntime rt, uint32_t view);
 
 /* The agent API (LLP 1012): a request in the input buffer's first len bytes
  * ({"op":"tree"} / "state" / "logs" / "settle"), the reply in the output

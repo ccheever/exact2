@@ -36,6 +36,19 @@ async function answer(_source:string, args:unknown[], store:Store, storage:Stora
     return run;
   }
   const path = storage.fs.directories.data + "/note";
+  // LLP 1027.005's fixture: file identity selects the cached status; supplied
+  // time decides whether that answer needs fetching again, without ambient time.
+  if (op === "status") {
+    let saved: {text:string; expires:number};
+    try {
+      const bytes = await storage.fs.readFile(storage.fs.directories.data + "/status-" + value);
+      saved = JSON.parse(String.fromCharCode(...new Uint8Array(bytes)));
+    } catch (_) { return {text:"empty"}; }
+    const minute = Number(args[2]);
+    if (minute <= saved.expires) return {text:saved.text};
+    const result = await fetch("https://example.test/status/" + value + "?minute=" + minute);
+    return {text:await result.text()};
+  }
   if (op === "file") {
     await storage.fs.atomicWriteFile(path, new Uint8Array(Array.from(value).map(c=>c.charCodeAt(0))));
     const bytes = new Uint8Array(await storage.fs.readFile(path));

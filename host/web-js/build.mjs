@@ -14,9 +14,11 @@
 // adapter (`agent.js`, only under `?agent`) are separate files.
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { transformSync } from 'rolldown/utils';
+import { parseGrants } from '../web/http-body.js';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants } from './module.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -34,8 +36,10 @@ const out = resolve(opt('--out') ?? `/tmp/exact-web-js-dist/${app}`);
 // sitemap) and head links carried, so the web root it publishes is the
 // wasm root's in everything but the program (LLP 1071 §7, delivery).
 const production = args.includes('--production');
-// `--dev` (host/web-js/dev.mjs): the page carries its slots across a dev reload.
-const dev = args.includes('--dev');
+// `--dev` (host/web-js/dev.mjs): typed state checkpoint hooks that ordinary
+// and production builds neither emit nor link.
+const devReload = args.includes('--dev');
+if (production && devReload) { console.error('--production and --dev are mutually exclusive'); process.exit(2); }
 if (production && !opt('--plan')) { console.error('--production builds over a wasm bake: name its --plan <dist>/app.plan'); process.exit(2); }
 // The source revision a development build's install pages name, read while
 // it builds: optional, so no git, no repository, or a git held past 5 s (a
@@ -65,6 +69,8 @@ const rust = !!manifest.rust?.module || bakes;
 // over another app's sources (`--data`) asks the Rust module only.
 const ts = existsSync(resolve(appDir, 'app.ts')) && !(rust && opt('--data'));
 const mixed = rust && ts;
+const appTs = resolve(appDir, 'app.ts');
+const devLogic = [];
 // Native modules (LLP 1024): the app's module artifact, `modules/web/` beside
 // the page as `modules/`, with the web host's adapter (native.js).
 const pageModules = existsSync(resolve(appDir, 'modules/web/index.js'));
@@ -77,9 +83,9 @@ const gpuSurfaces = existsSync(gpuLib) ? [...readFileSync(gpuLib, 'utf8').matchA
 // changed (module.mjs `fresh`; `cargo run`'s own check costs ~0.4 s an edit).
 const compiler = resolve(process.env.CARGO_TARGET_DIR ? resolve(process.env.CARGO_TARGET_DIR) : resolve(root, 'target'), 'debug/exact-web-js');
 const [cmd, pre] = fresh(compiler, `${compiler}.d`) ? [compiler, []] : ['cargo', ['run', '-q', '-p', 'exact-web-js', '--']];
-const cargo = spawnSync(cmd, [...pre, 'js', input, '-o', gen, ...(production ? [] : ['--sites'])], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
+const cargo = spawnSync(cmd, [...pre, 'js', input, '-o', gen, ...(production ? [] : ['--sites']), ...(devReload ? ['--dev-reload'] : [])], { cwd: root, stdio: 'inherit', env: { ...process.env, EXACT_JS_GPU_SURFACES: gpuSurfaces.join(',') } });
 if (cargo.status !== 0) process.exit(cargo.status ?? 1);
-for (const f of ['rt.js', 'shape.js', 'paint.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['rt.js', 'shape.js', 'paint.js', 'document.js']) cpSync(resolve(here, f), resolve(gen, f));
 // Canvas 2D surfaces (a loaded chunk: this runtime's engine over the web
 // host's own replayer) are drawn by the Rust data module, or by a
 // TypeScript source's `draw` in the page (ts-draw.js, in the same chunk).
@@ -98,6 +104,7 @@ const time = /"exactTime":/.test(readFileSync(resolve(gen, 'app.js'), 'utf8').ma
 const files = existsSync(resolve(gen, 'files.flag'));
 writeFileSync(resolve(gen, 'main.js'), [
   "import app, { sources, wait } from './app.js';",
+  ...(devReload ? ["import { prepareDev } from './checkpoint.js';", "const finishDev = prepareDev();"] : []),
   ...(files ? ["import './files.js';"] : []),
   "import { data, journal, clock, advance, commit, inflight, Views, viewId, After, resolvedLocale, Resources } from './rt.js';",
   ...(time ? [
@@ -110,17 +117,9 @@ writeFileSync(resolve(gen, 'main.js'), [
     "} };",
   ] : []),
   ...(ts ? ["import { install as ts } from './ts-data.js';", `ts(data, ${mixed}${pageModules ? ", () => import('./native.js')" : ''});`] : []),
-  ...(dev ? ["import names from './names.js';", "import { conforms, W } from './rt.js';"] : []),
   "const start = () => {",
   "  const state = app();",
-  // A dev reload keeps the slots, as the wasm loop's restart does
-  // (Runner::carry): each by name, only where its value still fits the new
-  // plan's type, so a carried value never refuses the boot (LLP 1071 §7).
-  ...(dev ? [
-    "  const kept = sessionStorage.exactDevSlots; delete sessionStorage.exactDevSlots;",
-    "  if (kept) { const v = JSON.parse(kept); commit(() => names[0].forEach((n, i) => { if (Object.hasOwn(v, n) && state[0][i].n.t && conforms(v[n], state[0][i].n.t)) W(state[0][i], v[n]); }), 'the slots a dev reload carried'); }",
-    "  globalThis.exactDevCarry = () => { sessionStorage.exactDevSlots = JSON.stringify(Object.fromEntries(names[0].map((n, i) => [n, state[0][i]()]))); };",
-  ] : []),
+  ...(devReload ? ["  finishDev();"] : []),
   "  globalThis.exact = Object.assign(globalThis.exact ?? {}, { ready: true, journal, clock, advance, commit, data, state, inflight, views: Views, viewId, After, resources: Resources });",
   // The agent adapter, only when the agent drives the page.
   ...(production ? [] : ["  if (clock.agent) globalThis.exact.ready = import('./agent.js').then(m => m.install(globalThis.exact));"]),
@@ -131,7 +130,7 @@ writeFileSync(resolve(gen, 'main.js'), [
     // Counted in flight, so `clock settle` waits for the source to be ready.
     "const load = () => import('./rust-data.js').then(m => m.install(data, sources)).finally(() => inflight.n--);",
     "inflight.n++;",
-    "if (wait) load().then(start); else { start(); requestAnimationFrame(() => setTimeout(load)); }",
+    `if (wait || ${mixed}) load().then(start); else { start(); requestAnimationFrame(() => setTimeout(load)); }`,
   ] : ['start();']),
 ].join('\n'));
 for (const f of ['agent.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js', 'motion.js', 'transform.js', 'svg-transform.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js']) cpSync(resolve(here, f), resolve(gen, f));
@@ -160,11 +159,14 @@ if (ts && existsSync(webScript) && !/^\s*fn main\(\)\s*\{\s*exact_js_bake::build
 }
 // A source granted `auth.session` signs in through the system browser (auth.js, LLP 1069.006).
 const grants = ts ? String((await import(resolve(appDir, 'app.ts'))).grants ?? '') : '';
+const grantError = parseGrants(grants).error;
+if (grantError) throw new Error(`grant-parse: app.ts: ${grantError}`);
 const auth = /^\s*auth\.session\s/m.test(grants);
 if (ts) writeFileSync(resolve(gen, 'ts-data.js'), readFileSync(resolve(here, 'ts-data.js'), 'utf8').replace('__APP_TS__', resolve(appDir, 'app.ts'))
   .replace('__AUTH_IMPORT__', auth ? "import { install as signIn } from './auth.js';" : '')
   .replace('__AUTH_INSTALL__', auth ? `signIn(${JSON.stringify(grants)}, () => asking);` : ''));
-for (const f of ['auth-glue.js', 'storage-environment.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
+writeFileSync(resolve(gen, 'ts-fetch.js'), readFileSync(resolve(here, 'ts-fetch.js'), 'utf8').replace('../web/http-body.js', './http-body.js'));
+for (const f of ['auth-glue.js', 'storage-environment.js', 'http-body.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
 cpSync(resolve(here, 'auth.js'), resolve(gen, 'auth.js'));
 cpSync(resolve(here, 'files.js'), resolve(gen, 'files.js'));
 // The server bundle a JavaScript render runs (render.mjs), one script per VM context.
@@ -206,8 +208,18 @@ if (production) for (const f of readdirSync(gen).filter(f => f.endsWith('.js')))
 // Bun's bundler, in this process, for the server bundle. A build that
 // renders nothing (the dev loop's) makes no server bundle.
 const how = opt('--render') ?? 'rust';
+// Inject only into the app's module graph, never the copied host runtime.
+// Oxc resolves lexical bindings, so an authored local `fetch` stays local.
+const scopedModule = (code, id) => {
+  if (!ts || id.startsWith(gen + '/') || id.startsWith(realpathSync(gen) + '/') || !/\.[cm]?[jt]sx?$/.test(id)) return null;
+  const result = transformSync(id, code, { inject: { fetch: [resolve(gen, 'ts-fetch.js'), 'fetch'], ...Object.fromEntries(['globalThis', 'window', 'self'].map(name => [name, [resolve(gen, 'ts-fetch.js'), 'appGlobal']])) } });
+  if (result.errors.length) throw new Error(result.errors.map(e => e.message).join('\n'));
+  return result.code;
+};
 const bundle = async (options) => {
-  const r = await Bun.build(options);
+  const r = await Bun.build({ ...options, plugins: [{ name: 'source-grants', setup(build) {
+    build.onLoad({ filter: /\.[cm]?[jt]sx?$/ }, ({ path }) => { const contents = scopedModule(readFileSync(path, 'utf8'), path); return contents == null ? undefined : { contents, loader: 'js' }; });
+  } }] });
   for (const m of r.logs) console.error(String(m));
   if (!r.success) process.exit(1);
 };
@@ -218,8 +230,21 @@ if (how !== 'none') await bundle({ entrypoints: [resolve(gen, 'main-server.js')]
 // bytes a page downloads before its runtime is up.
 {
   const { rolldown } = await import('rolldown');
-  const b = await rolldown({ input: resolve(gen, 'main.js'), logLevel: 'warn', onLog: (level, log) => console.error(log.message) });
-  await b.write({ dir: out, format: 'esm', minify: true, comments: false, entryFileNames: 'app.js', chunkFileNames: '[name]-[hash].js' });
+  const b = await rolldown({ input: resolve(gen, 'main.js'), plugins: [{ name: 'source-grants', transform: scopedModule }], logLevel: 'warn', onLog: (level, log) => console.error(log.message) });
+  // In a development reload build, put the TypeScript data module and every
+  // helper it imports in one chunk the page really loads. Its emitted bytes,
+  // rather than watcher filenames or source mtimes, are the logic revision.
+  const fromData = (id, getModuleInfo, seen = new Set()) => {
+    if (id === appTs) return true;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return (getModuleInfo(id)?.importers ?? []).some(parent => fromData(parent, getModuleInfo, seen));
+  };
+  const built = await b.write({ dir: out, format: 'esm', minify: true, comments: false, entryFileNames: 'app.js', chunkFileNames: '[name]-[hash].js',
+    ...(devReload && ts ? { manualChunks: (id, { getModuleInfo }) => fromData(id, getModuleInfo) ? 'dev-data' : undefined } : {}) });
+  if (devReload && ts) for (const chunk of built.output.filter(file => file.type === 'chunk' && Object.keys(file.modules).includes(appTs))) {
+    devLogic.push(['typescript', createHash('sha256').update(readFileSync(resolve(out, chunk.fileName))).digest('hex')]);
+  }
   await b.close();
 }
 
@@ -311,10 +336,14 @@ if (rust) {
   const from = opt('--data') ?? (opt('--plan') && dirname(resolve(opt('--plan'))));
   const built = from && existsSync(resolve(from, 'rust/wasm/app.module.wasm')) ? resolve(from, 'rust/wasm/app.module.wasm') : buildModule(app, undefined, canvas2d, appDir);
   cpSync(built, resolve(out, 'rust/wasm/app.module.wasm'));
-  moduleStorage = /^\s*(?:fs|sqlite)\./m.test(await moduleGrants(built));
+  if (devReload) devLogic.push(['rust', createHash('sha256').update(readFileSync(resolve(out, 'rust/wasm/app.module.wasm'))).digest('hex')]);
+  const declared = await moduleGrants(built), invalid = parseGrants(declared).error;
+  if (invalid) throw new Error(`grant-parse: Rust module: ${invalid}`);
+  moduleStorage = /^\s*(?:fs|sqlite)\./m.test(declared);
   if (opt('--plan')) cpSync(resolve(opt('--plan')), resolve(out, 'app.plan'));
   else cpSync(resolve(gen, 'app.plan'), resolve(out, 'app.plan'));
 }
+if (devReload) writeFileSync(resolve(out, '.exact-dev-logic.json'), JSON.stringify({ version: 1, modules: devLogic.sort(([a], [b]) => a.localeCompare(b)) }) + '\n');
 // The web host's own picker and storage adapters beside the page, fetched on
 // first use (files.js; a source's `storage`, ts-data.js and rust-data.js): what host/web/build.mjs ships.
 if (files || moduleStorage || /^\s*(?:fs|sqlite)\./m.test(grants)) {

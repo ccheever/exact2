@@ -35,6 +35,8 @@ pub struct Bridge<D: DataSource> {
     /// reported them (LLP 1061 D4): handed in with each boot and resize, so
     /// a dev restart boots under the current ones.
     preferences: exact_runner::Preferences,
+    /// The fold the page last reported (LLP 1078 D6), beside the preferences.
+    fold: exact_runner::Fold,
     /// What the artifact links that is generic over `D` (LLP 1047 D3), from
     /// the `host!` invocation; the core alone until it says.
     links: crate::HostLinks<D>,
@@ -53,6 +55,7 @@ impl<D: DataSource> Bridge<D> {
             compat: None,
             checkpoint: None,
             preferences: exact_runner::Preferences::NONE,
+            fold: exact_runner::Fold::FLAT,
             links: crate::HostLinks::CORE,
             pan: crate::pan_velocity::PanVelocity::new(),
             input: Vec::new(),
@@ -100,11 +103,15 @@ impl<D: DataSource> Bridge<D> {
             .map(|(digest, page)| (digest.to_string(), page.to_string()));
     }
 
-    /// The page's `prefers-reduced-motion`/`-transparency`/`-contrast`/
-    /// `-color-scheme` as bits
-    /// ([`exact_runner::Preferences::from_bits`]), for the next boot.
+    /// The page's facts as bits, for the next boot: the display preferences
+    /// in bits 0–4 ([`exact_runner::Preferences::from_bits`]) and the fold
+    /// (LLP 1078 D4, D6) above them — bit 8 `folded`, bits 9–16 the columns,
+    /// bits 17–24 the rows (0 reads as 1). The browser resolves the
+    /// `env(viewport-segment-*)` lengths itself; the runner answers the
+    /// three `exactViewport` fields.
     pub fn set_preferences(&mut self, bits: u32) {
         self.preferences = exact_runner::Preferences::from_bits(bits);
+        self.fold = fold_bits(bits);
     }
 
     /// UTF-8 launch location carried after optional plan bytes.
@@ -163,13 +170,19 @@ impl<D: DataSource> Bridge<D> {
     pub fn logic_info(&mut self, data: D) -> u32 {
         if let Some(revision) = data.revision() {
             let mut json = String::from("{");
+            // Grants that do not parse admit nothing (the runner's one parse):
+            // `unparsed` says why, and the module's early fetch stands down.
+            let unparsed = exact_runner::grants::parse(data.grants())
+                .err()
+                .map(|errors| exact_runner::grants::refusal(&errors));
             for (i, (key, value)) in [
                 ("appId", data.app_id()),
                 ("grants", data.grants()),
                 ("revision", revision),
                 ("placement", data.placement().name()),
             ]
-            .iter()
+            .into_iter()
+            .chain(unparsed.as_deref().map(|why| ("unparsed", why)))
             .enumerate()
             {
                 if i > 0 {
@@ -266,6 +279,7 @@ impl<D: DataSource> Bridge<D> {
             width,
             height,
             preferences: self.preferences,
+            fold: self.fold,
         };
         let booted = match self.checkpoint.take() {
             Some((digest, page)) => Host::boot_checkpoint_linked(
@@ -320,6 +334,7 @@ impl<D: DataSource> Bridge<D> {
                 width,
                 height,
                 preferences: self.preferences,
+                fold: self.fold,
             },
             launch,
         ) {
@@ -610,6 +625,7 @@ impl<D: DataSource> Bridge<D> {
             width,
             height,
             preferences: self.preferences,
+            fold: self.fold,
         };
         let out = self.host.as_mut().map_or_else(
             || exact_runner::agent::error("not booted"),
@@ -915,6 +931,16 @@ impl<D: DataSource> Default for Bridge<D> {
     }
 }
 
+/// The fold in a facts word (LLP 1078 D6): bit 8 `folded`, bits 9–16 the
+/// columns, 17–24 the rows, 0 reading as 1.
+fn fold_bits(bits: u32) -> exact_runner::Fold {
+    exact_runner::Fold {
+        posture: exact_runner::Posture::from_bits((bits >> 8) & 1),
+        cols: ((bits >> 9) & 0xff).max(1),
+        rows: ((bits >> 17) & 0xff).max(1),
+    }
+}
+
 fn escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('"', "\\\"")
 }
@@ -1098,9 +1124,11 @@ macro_rules! host {
             EXACT_BRIDGE.with(|b| b.borrow().request_active(ticket))
         }
 
-        /// The viewport or the display preferences (bit 0 reduced motion,
-        /// bit 1 reduced transparency, bit 2 contrast more, bit 3 contrast
-        /// less, bit 4 a dark system) changed; returns the batch length.
+        /// The viewport or the page's facts (bit 0 reduced motion, bit 1
+        /// reduced transparency, bit 2 contrast more, bit 3 contrast less,
+        /// bit 4 a dark system; bit 8 folded, bits 9–16 and 17–24 the
+        /// viewport segment columns and rows, LLP 1078 D6) changed; returns
+        /// the batch length.
         #[no_mangle]
         pub extern "C" fn exact_resize(width: f64, height: f64, now_ms: f64, preferences: u32) -> u32 {
             EXACT_BRIDGE.with(|b| b.borrow_mut().resize(width, height, preferences, now_ms))

@@ -1,0 +1,34 @@
+// Accept fixture (LLP 1078 D1–D3, D9): a cover page whose two panes sit on
+// the viewport segments through `env(viewport-segment-*)` lengths — all six
+// variables, two indices each — and whose text prints the three facts
+// `exactViewport` carries for a fold: `devicePosture`,
+// `horizontalViewportSegments`, `verticalViewportSegments`. With one segment
+// (the bake's answer, a flat display, a closed Duo) the panes stack; with two
+// horizontal segments (`prefer segments 2x1 gap 40`, or the Duo's division
+// region at a book or half angle) the list pane covers segment (0, 0) and the
+// detail pane segment (1, 0), the band between them empty. `-right` and
+// `-bottom` are a segment's edges from the viewport's left and top, as a
+// DOMRect's and Chromium's (LLP 1078 §As built): the marker sits on segment
+// (0, 0)'s bottom-right corner through the `calc()` form.
+shape Viewport
+  width: number
+  height: number
+  devicePosture: string
+  horizontalViewportSegments: number
+  verticalViewportSegments: number
+component Segments
+  resource viewport = exactViewport() as shape Viewport
+  view
+    main testId="root" viewport-fit="cover" width="100%" height="100%" position="relative" display="flex" flex-direction="column" background-color="#12081f"
+      row testId="facts" gap=12 padding=8 flex-shrink=0
+        text viewport.devicePosture testId="fact-posture" font-size=13 color="#ffffff"
+        text `${viewport.horizontalViewportSegments}` testId="fact-h" font-size=13 color="#ffffff"
+        text `${viewport.verticalViewportSegments}` testId="fact-v" font-size=13 color="#ffffff"
+        text `${viewport.width}×${viewport.height}` testId="fact-size" font-size=13 color="#ffffff"
+      when viewport.horizontalViewportSegments == 2
+        column testId="pane-list" position="absolute" top="env(viewport-segment-top 0 0)" left="env(viewport-segment-left 0 0)" width="env(viewport-segment-width 0 0)" height="env(viewport-segment-height 0 0)" background-color="#7c4dff"
+        column testId="pane-detail" position="absolute" top="env(viewport-segment-top 1 0)" left="env(viewport-segment-left 1 0)" width="env(viewport-segment-width 1 0)" height="env(viewport-segment-height 1 0)" background-color="#ffd60a"
+        box testId="corner" position="absolute" left="calc(env(viewport-segment-right 0 0) - 4px)" top="calc(env(viewport-segment-bottom 0 0) - 4px)" width=8 height=8 background-color="#ffffff"
+      else
+        column testId="pane-list" flex=1 width="100%" background-color="#7c4dff"
+        column testId="pane-detail" flex=1 width="100%" background-color="#ffd60a"

@@ -150,6 +150,8 @@ pub(crate) struct Lowerer<'a> {
     parent_positioned: bool,
     /// Where a native button may not be, from the nearest ancestor that says.
     pub(crate) button_context: Option<&'static str>,
+    /// Whether the element being lowered is a popover's direct child.
+    pub(crate) popover_child: bool,
     host_transforms: std::collections::BTreeSet<(Span, u32)>,
 }
 
@@ -249,6 +251,7 @@ fn lower_with_sites(
         svg_depth: 0,
         parent_positioned: true,
         button_context: None,
+        popover_child: false,
         host_transforms: Default::default(),
         each_regions: BTreeMap::new(),
         each_scopes: BTreeMap::new(),
@@ -386,6 +389,16 @@ fn lower_with_sites(
         }
         let range = l.b.args(&args);
         l.b.set_resource_args(l.resources[i], range);
+        // @ref LLP 1027.005 D6 — declare first, install the full argument
+        // list, then count its context tail. No `with` keeps the default 0.
+        if let Some(identity) = r.identity {
+            let context = u16::try_from(r.args.len() - identity).map_err(|_| LowerError {
+                id: "lower-resource-context",
+                message: "a resource supports at most 65535 request context values".into(),
+                span: r.span,
+            })?;
+            l.b.set_resource_context(l.resources[i], context);
+        }
     }
     // @ref LLP 1048.003 D6 — a declared placeholder is a row of its own,
     // after every authored row; its arguments read no state.
@@ -671,6 +684,7 @@ impl<'a> Lowerer<'a> {
                     }
                     None => attrs.as_slice(),
                 };
+                tags::validate_button_display(tag, expanded)?;
                 tags::check_exclusion(&t, expanded, self.parent_positioned)?;
                 let composed = self.compose_animation(expanded)?;
                 let expanded = composed.as_deref().unwrap_or(expanded);
@@ -694,6 +708,8 @@ impl<'a> Lowerer<'a> {
                 };
                 // @ref LLP 1069.001 D1 — `input`'s `type` is a literal: a text
                 // type is a text field, `checkbox` a form control.
+                let canonical_type = controls::canonical_type_attrs(tag, expanded);
+                let expanded = canonical_type.as_deref().unwrap_or(expanded);
                 let control = controls::control(tag, expanded)?;
                 let t = control.map_or(t.clone(), |kind| controls::tag(kind, t.clone()));
                 if control == Some("button") {
@@ -1013,9 +1029,16 @@ impl<'a> Lowerer<'a> {
                         .any(|(id, v)| *id == StyleId::PositionType && *v != "static");
                 let button_context = self.button_context;
                 self.button_context =
-                    controls::button_context(tag, expanded, control).or(button_context);
+                    controls::button_context(tag, control, self.popover_child).or(button_context);
+                // Whether the children lowered next are a popover's direct
+                // children, its rows (LLP 1069.011.000 D5).
+                let popover_child = std::mem::replace(
+                    &mut self.popover_child,
+                    expanded.iter().any(|a| a.name == "popover"),
+                );
                 let lowered = self.nodes(children, Some(id), arm, scope, locals, Some(tag));
                 self.button_context = button_context;
+                self.popover_child = popover_child;
                 self.parent_positioned = parent_positioned;
                 self.svg_depth -= enters as u32;
                 lowered
@@ -1261,8 +1284,15 @@ impl<'a> Lowerer<'a> {
                 });
             }
             tags::AttrTarget::Prop(prop) => {
-                let (code, ty) = self.typed_code(&a.value, scope, locals)?;
-                values::check_prop_value(&a.name, &a.value, a.span, prop, &ty)?;
+                let glass;
+                let value = if prop == exact_kernel::PropId::GlassGroup {
+                    glass = values::glass_group(&a.value)?;
+                    &glass
+                } else {
+                    &a.value
+                };
+                let (code, ty) = self.typed_code(value, scope, locals)?;
+                values::check_prop_value(&a.name, value, a.span, prop, &ty)?;
                 bindings.push(BindingsRow {
                     kind: BindingKind::Prop,
                     id: prop as u16,

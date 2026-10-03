@@ -828,16 +828,6 @@ impl Module {
                 self.error =
                     format!("asset `{name}`: expected a relative asset path without .. segments");
             } else if !inst.answered.contains(&name) && !inst.outstanding.contains(&name) {
-                if inst.answered.len() + inst.outstanding.len() >= 256 {
-                    inst.surface.asset(
-                        &name,
-                        Err(AssetError::Failed(
-                            "surface limit is 256 asset names".into(),
-                        )),
-                    );
-                    inst.dirty = true;
-                    continue;
-                }
                 inst.outstanding.insert(name.clone());
                 wanted.push(name);
             }
@@ -1202,7 +1192,9 @@ pub fn block_on<F: std::future::Future>(f: F) -> F::Output {
 }
 
 mod device;
-pub use device::{load_gpu, requested_features, requested_limits};
+pub use device::{
+    load_gpu, requested_features, requested_limits, DeviceFailure, DeviceFailureKind,
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 pub mod fixture;

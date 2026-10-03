@@ -6,6 +6,7 @@
   "description": "The bake's TypeScript toolchain (LLP 1027 D5, ruled 2026-09-03): Rolldown bundles and strips an app's `app.ts` to one script for hermesc. SQLite WASM is shipped as a lazy browser storage artifact.",
   "devDependencies": {
     "@sqlite.org/sqlite-wasm": "3.53.4-build1",
+    "playwright-core": "1.63.0",
     "rolldown": "1.2.9",
     "snapback4": "0.2.30",
     "typescript": "7.0.2"

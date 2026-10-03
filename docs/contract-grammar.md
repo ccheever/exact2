@@ -121,7 +121,8 @@ section       = "props" block(field)
               | resource | mutation | action | task
               | "view" block(node) ;
 provider      = FIELD [ "=" expr ] NL ;
-resource      = "resource" IDENT "=" source-call "as" "shape" type
+resource      = "resource" IDENT "=" source-call
+                [ "with" expr { "," expr } ] "as" "shape" type
                 [ "else" source-call ] NL ;
 mutation      = "mutation" IDENT "as" "shape" type
                 [ "refreshes" IDENT { "," IDENT } ]
@@ -155,6 +156,12 @@ awaits, or ordinary action-to-action calls. A standalone call statement is a
 host command, not an arbitrary function invocation. `let` is recognized as the
 local-declaration statement when followed by a name; a writable slot named `let`
 can still appear in an ordinary assignment.
+
+A resource's optional `with` supplies one or more request context expressions,
+after its call arguments and before `as shape`. The source receives both lists
+in order; a change to either asks again. Only admission of an eligible persisted
+answer at boot compares the call arguments alone (LLP 1027.005). An empty call
+is valid; an empty `with` is not. `else` keeps its place after the shape.
 
 A resource's `else` is a placeholder. `else empty()` is the resource type's zero,
 with `field=constant` overrides for a record. `else source(values…)` names a source

@@ -467,6 +467,20 @@ pub struct Write {
 }
 
 /// A row's value `none` (or the keyword `auto`/`normal`) writes nothing, as
+/// A bound value naming one of UIKit's system colours as its `light-dark()`
+/// pair, anywhere in the text (a shorthand's colour part too); the kernel's
+/// table, so literal and bound values agree (LLP 1077 D13).
+pub static SYSTEM_COLOR_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    let pairs: Vec<String> = exact_kernel::style::symbols::SYSTEM_COLORS
+        .iter()
+        .map(|(name, l, d)| format!("[\"{name}\",\"light-dark(#{l:08x}, #{d:08x})\"]"))
+        .collect();
+    format!(
+        "v=>typeof v===\"string\"&&/-apple-system-/i.test(v)?[{}].reduce((s,[n,c])=>s.replace(new RegExp(\"(?<![\\\\w#-])\"+n+\"(?![\\\\w-])\",\"gi\"),c),v):v",
+        pairs.join(",")
+    )
+});
+
 /// css.rs writes no declaration for the row's empty value.
 const NONE: &str = "v=>v==null||/^\\s*none\\s*$/i.test(v)?null:v";
 
@@ -501,6 +515,17 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
                 "v=>v==null||/^\\s*none\\s*$/i.test(v)?null:\"paused\"",
             ),
         ],
+        // @ref LLP 1077 §5 — Apple's affordances: no declaration on the web
+        // (its forms are declared in LLP 1001).
+        StyleId::SymbolRendering
+        | StyleId::SymbolPalette
+        | StyleId::SymbolValue
+        | StyleId::SymbolEffect
+        | StyleId::PressHaptic
+        | StyleId::ContentTransition
+        | StyleId::ScrollEdgeEffect
+        | StyleId::HoverEffect
+        | StyleId::SmartInvert => vec![],
         StyleId::Animation => vec![with("animation", NONE)],
         // @ref LLP 1069.011 D8 — and the custom property a native button reads.
         StyleId::AccentColor => vec![
@@ -526,6 +551,22 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             with("timeline-scope", NONE),
             with("--exact-timeline-scope", NONE),
         ],
+        StyleId::GridTemplateColumns | StyleId::GridTemplateRows => vec![with(
+            &css_property(row),
+            "v=>gridValue(\"tracks\",v)",
+        )],
+        StyleId::GridColumn | StyleId::GridRow => vec![with(
+            &css_property(row),
+            "v=>gridValue(\"placement\",v)",
+        )],
+        StyleId::GridAutoFlow => vec![with(
+            "grid-auto-flow",
+            "v=>gridValue(\"flow\",v)",
+        )],
+        StyleId::JustifyItems => vec![with(
+            "justify-items",
+            "v=>gridValue(\"justify\",v)",
+        )],
         // A spring is lowered by the engine (motion.js): the declaration
         // is the rest, as css.rs `transition_css` leaves springs out.
         StyleId::Transition => vec![with(
@@ -537,6 +578,13 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         StyleId::ClipPath => vec![with(
             "clip-path",
             "v=>v==null||/^\\s*(none|path\\(|url\\()/i.test(v)?v:null",
+        )],
+        // @ref LLP 1077 D1 — Apple's curve as the web's stand-in. A bound
+        // radius is not rescaled here, as css.rs scales a static one: a
+        // dynamic `-apple-continuous` reaches less far on the web.
+        StyleId::CornerShape => vec![with(
+            "corner-shape",
+            "v=>v==null?v:v.replace(/-apple-continuous/gi,\"superellipse(1.6)\")",
         )],
         _ => {
             let (name, unit) = style_row(id)?;
@@ -566,6 +614,11 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
     if row == StyleId::LineHeight || row == StyleId::AspectRatio {
         return Ok((css_property(row), String::new()));
     }
+    // These codecs parse CSS text in the kernel. `style_writes` lets Chrome
+    // parse the same authored text after excluding Taffy's declared gaps.
+    if matches!(row.codec(), StyleCodec::Tracks | StyleCodec::Placement) {
+        return Ok((css_property(row), String::new()));
+    }
     // css.rs `declared`: each of these is its value's own CSS text, in the
     // author's grammar. Not an SVG `transform` (SVG's syntax, which the
     // kernel restates as CSS's) or a marker (a reference, see emit.rs).
@@ -579,6 +632,10 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
             | StyleCodec::PaintOrder
             | StyleCodec::Filter
             | StyleCodec::BackgroundImage
+            | StyleCodec::MaskImage
+            | StyleCodec::BoxShadow
+            | StyleCodec::TextShadow
+            | StyleCodec::CornerShape
     ) {
         return Ok((css_property(row), String::new()));
     }
@@ -596,11 +653,7 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
             | StyleCodec::I32
     ) || matches!(
         row,
-        StyleId::ShadowOffset
-            | StyleId::ShadowRadius
-            | StyleId::ShadowColor
-            | StyleId::ShadowOpacity
-            | StyleId::FontFamily
+        StyleId::FontFamily
             | StyleId::LineClamp
             | StyleId::PressScale
             | StyleId::FontVariantNumeric
@@ -639,6 +692,8 @@ fn css_property(id: StyleId) -> String {
         StyleId::PositionType => return "position".into(),
         StyleId::BackdropBlur => return "backdrop-filter".into(),
         StyleId::SvgMask => return "mask".into(),
+        StyleId::TextStrokeWidth => return "-webkit-text-stroke-width".into(),
+        StyleId::TextStrokeColor => return "-webkit-text-stroke-color".into(),
         id => id.name(),
     };
     for (prefix, suffix) in [

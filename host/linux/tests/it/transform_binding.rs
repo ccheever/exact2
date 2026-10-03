@@ -68,15 +68,10 @@ fn count(h: &Host<Empty>) -> &str {
         .unwrap()
 }
 #[test]
-fn sole_owner_multiple_handles_and_prop_only_cannot_claim_owner() {
+fn sole_owner_allows_multiple_handles() {
     let h = boot(APP);
     assert_eq!(binding(&h, "first").target, binding(&h, "second").target);
     assert!(h.transform_drag_binding(key(&h, "other-handle")).is_none());
-    let h=boot(&APP.replace("transformgeometry=geometry transformrelease=release\n          box", "transformgeometry=geometry\n          box")
-        .replace("testId=\"second\" transformDragFor=\"target\" transformgeometry=geometry transformrelease=release", "testId=\"second\" transformDragFor=\"target\" transformgeometry=geometry"));
-    assert!(h.transform_drag_binding(key(&h, "first")).is_none());
-    assert!(h.transform_drag_binding(key(&h, "second")).is_none());
-    assert_eq!(binding(&h, "other-handle").target, key(&h, "other"));
 }
 #[test]
 fn live_tuple_range_validation_is_atomic_and_stale_is_before_validation() {

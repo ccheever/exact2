@@ -22,12 +22,14 @@ pub mod effects;
 pub mod format;
 pub mod geometry;
 pub mod gradients;
+pub mod grid;
 pub mod inspection;
 pub mod markdown;
 pub mod materials;
 pub mod motion;
 pub mod picker;
 pub mod router;
+pub mod segments;
 pub mod share;
 pub mod surfaces;
 pub mod text_transform;
@@ -67,5 +69,7 @@ pub const ALL: exact_web::Linked = linked!(
     effects,
     animations,
     gradients,
-    geometry
+    grid,
+    geometry,
+    segments
 );

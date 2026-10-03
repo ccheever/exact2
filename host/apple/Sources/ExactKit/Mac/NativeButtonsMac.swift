@@ -67,7 +67,8 @@ extension NodeView {
         while let view = at {
             if let node = view as? NodeView {
                 if node.disabled || node.inert { break }
-                if node.handlers.contains("press") {
+                // Its own command is a press as its handler is (a close row in a dialog).
+                if node.pressable {
                     if node.bounds.contains(node.convert(click, from: nil)) { target = node }
                     break
                 }
