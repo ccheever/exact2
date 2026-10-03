@@ -404,6 +404,12 @@ impl FamilyChoice {
 pub struct GlyphRun {
     /// The font's data and collection index.
     pub font: PenikoFont,
+    /// Normalized variation coordinates (a variable face's `wght`).
+    pub coords: std::sync::Arc<[i16]>,
+    /// The face's file and collection index, when it was loaded from one.
+    pub file: Option<(std::sync::Arc<str>, u32)>,
+    /// The weight shaped with (the `wght` a variable face is set to).
+    pub weight: u16,
     /// Points.
     pub size: f32,
     /// Canonical run index, retained across font fallback and wrapping.
@@ -933,9 +939,12 @@ impl TextEngine {
         runs.into_iter()
             .filter_map(
                 |((id, weight, size, run_index, synthetic_italic), glyphs)| {
-                    let font = catalog.font_data(id, Weight(weight))?;
+                    let face = catalog.font_data(id, Weight(weight))?;
                     Some(GlyphRun {
-                        font,
+                        font: face.font,
+                        coords: face.coords,
+                        file: face.file,
+                        weight,
                         size: f32::from_bits(size),
                         run_index,
                         paint: palette[run_index],

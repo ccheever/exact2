@@ -55,6 +55,10 @@ iana-time-zone = "0.1"
 vello = "0.10"
 wgpu = { version = "29", default-features = false, features = ["wgsl", "metal", "vulkan"] }
 
+# Android presents into the window's swapchain (gpu/present.rs).
+[target.'cfg(target_os = "android")'.dependencies]
+raw-window-handle = "0.6"
+
 [target.'cfg(target_os = "linux")'.dependencies]
 drm = "0.15"
 evdev = "0.13"

@@ -38,7 +38,11 @@
 #![deny(missing_docs)]
 
 pub mod agent;
+#[cfg(target_os = "android")]
+pub mod android;
 pub mod app;
+#[cfg(target_os = "android")]
+pub mod canvas;
 mod canvas2d;
 pub mod content_region;
 pub mod delivery;

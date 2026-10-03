@@ -11,7 +11,7 @@ pub(super) struct Catalog {
     pub(super) envelopes: ink::Envelopes,
     glyphs: HashMap<(CacheKey, u32), Option<Rc<Glyph>>>,
     normal: HashMap<(u16, u32, u16, bool), FontMetrics>,
-    font_data: HashMap<(fontdb::ID, u16), Option<PenikoFont>>,
+    font_data: HashMap<(fontdb::ID, u16), Option<FaceData>>,
     weights: HashMap<(u16, u16, bool), u16>,
     pub(super) families: Vec<FamilyChoice>,
     pub(super) declared_faces: HashMap<(u16, u16, bool), fontdb::ID>,
@@ -225,11 +225,31 @@ impl Catalog {
             },
         };
         let db = self.fonts.db();
-        let snapped = db
+        let face = db
             .query(&query)
-            .and_then(|id| db.face(id))
-            .map(|face| face.weight.0)
-            .unwrap_or(weight);
+            .and_then(|id| db.face(id).map(|f| (id, f.weight.0)));
+        // A variable face whose `wght` axis covers the request matches it
+        // exactly (CSS Fonts 4 §5.2: a face's weight is its range), as
+        // Android's variable Roboto must for 600.
+        let snapped = match face {
+            Some((id, w)) if w != weight => {
+                let covers = self.fonts.get_font(id, Weight(w)).is_some_and(|f| {
+                    f.as_swash()
+                        .variations()
+                        .find_by_tag(u32::from_be_bytes(*b"wght"))
+                        .is_some_and(|a| {
+                            (a.min_value()..=a.max_value()).contains(&f32::from(weight))
+                        })
+                });
+                if covers {
+                    weight
+                } else {
+                    w
+                }
+            }
+            Some((_, w)) => w,
+            None => weight,
+        };
         self.weights.insert(key, snapped);
         snapped
     }
@@ -345,13 +365,57 @@ impl Catalog {
         glyph
     }
     // IDs are local to this retained catalog; never query the current engine.
-    pub(super) fn font_data(&mut self, id: fontdb::ID, weight: Weight) -> Option<PenikoFont> {
+    /// The face's data, its variation coordinates, and where it came from.
+    /// For a variable face with a `wght` axis, the
+    /// normalized coordinates that select `weight` on it (what cosmic-text's
+    /// own rasterizer applies; empty for a static face).
+    pub(super) fn font_data(&mut self, id: fontdb::ID, weight: Weight) -> Option<FaceData> {
         let key = (id, weight.0);
         if let Some(f) = self.font_data.get(&key) {
             return f.clone();
         }
-        let f = self.fonts.get_font(id, weight).map(|f| f.as_peniko());
+        let f = self.fonts.get_font(id, weight).map(|f| {
+            let face = f.as_swash();
+            let wght = u32::from_be_bytes(*b"wght");
+            let coords: std::sync::Arc<[i16]> = match face.variations().find_by_tag(wght) {
+                Some(axis) => face
+                    .variations()
+                    .normalized_coords([(
+                        wght,
+                        f32::from(weight.0).clamp(axis.min_value(), axis.max_value()),
+                    )])
+                    .collect(),
+                None => std::sync::Arc::from([]),
+            };
+            let file = self
+                .fonts
+                .db()
+                .face(id)
+                .and_then(|face| match &face.source {
+                    fontdb::Source::File(path) | fontdb::Source::SharedFile(path, _) => Some((
+                        std::sync::Arc::from(path.to_string_lossy().as_ref()),
+                        face.index,
+                    )),
+                    _ => None,
+                });
+            FaceData {
+                font: f.as_peniko(),
+                coords,
+                file,
+            }
+        });
         self.font_data.insert(key, f.clone());
         f
     }
+}
+
+/// A face as the painters draw it.
+#[derive(Clone)]
+pub(super) struct FaceData {
+    pub font: PenikoFont,
+    /// Normalized coordinates selecting the weight on a variable face.
+    pub coords: std::sync::Arc<[i16]>,
+    /// The file and collection index, for a face loaded from one (a
+    /// platform painter loads it by path; LLP 1076 §3.3).
+    pub file: Option<(std::sync::Arc<str>, u32)>,
 }

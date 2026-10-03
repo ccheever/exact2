@@ -23,6 +23,8 @@ mod control_tests;
 #[cfg(test)]
 #[path = "image/decode_tests.rs"]
 mod decode_tests;
+#[path = "image/jpeg.rs"]
+mod jpeg_decode;
 #[path = "image/png.rs"]
 mod png_decode;
 #[path = "image/workers.rs"]

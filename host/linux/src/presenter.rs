@@ -167,6 +167,9 @@ pub enum PainterChoice {
     Gpu,
     /// tiny-skia.
     Cpu,
+    /// Recorded for Android's Canvas (`canvas.rs`).
+    #[cfg(target_os = "android")]
+    Canvas,
 }
 impl PainterChoice {
     /// `EXACT_PAINTER`: `gpu`, `cpu`, or unset (auto).
@@ -174,6 +177,8 @@ impl PainterChoice {
         match std::env::var("EXACT_PAINTER").as_deref() {
             Ok("gpu") => PainterChoice::Gpu,
             Ok("cpu") => PainterChoice::Cpu,
+            #[cfg(target_os = "android")]
+            Ok("canvas") => PainterChoice::Canvas,
             _ => PainterChoice::Auto,
         }
     }
@@ -208,6 +213,14 @@ fn open_backend(choice: PainterChoice) -> Result<(Box<dyn Backend>, PainterInfo)
     let cpu = || (Box::new(Raster::new()) as Box<dyn Backend>, cpu_info());
     match choice {
         PainterChoice::Cpu => Ok(cpu()),
+        #[cfg(target_os = "android")]
+        PainterChoice::Canvas => Ok((
+            Box::new(crate::canvas::Recorder::new()) as Box<dyn Backend>,
+            PainterInfo {
+                name: "canvas",
+                ..cpu_info()
+            },
+        )),
         PainterChoice::Gpu | PainterChoice::Auto => match Gpu::new() {
             Ok(g) => {
                 let info = PainterInfo {

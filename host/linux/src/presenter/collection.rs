@@ -474,7 +474,7 @@ impl<D: DataSource> Presenter<D> {
         next
     }
 
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
     pub(super) fn painted_collection_scroll(
         &self,
         boxes: &[PaintedBox],
@@ -492,7 +492,7 @@ impl<D: DataSource> Presenter<D> {
             .collect()
     }
 
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
     pub(super) fn acknowledge_collection_scroll(&mut self, painted: BTreeMap<ViewId, ModelScroll>) {
         for (view, accepted) in painted {
             let Some(current) = self.pending_model_scroll(view) else {

@@ -1096,6 +1096,7 @@ dependencies = [
  "libc",
  "libloading",
  "png",
+ "raw-window-handle",
  "serde",
  "serde_json",
  "sha2",

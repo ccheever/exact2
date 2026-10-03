@@ -1,5 +1,5 @@
 //! The display loop's input dispatch, testable without a DRM master.
-use crate::input::{InputEvent, Key};
+use crate::input::InputEvent;
 use crate::Presenter;
 use exact_runner::DataSource;
 
@@ -11,7 +11,7 @@ pub(super) fn dispatch<D: DataSource>(
     event: InputEvent,
     now_ms: f64,
 ) -> Result<(), String> {
-    if !matches!(event, InputEvent::Key(_) | InputEvent::Cancel)
+    if !matches!(event, InputEvent::Key { .. } | InputEvent::Cancel)
         && !p.display_input_mapping(viewport, scale)
     {
         // An uncertified physical release must end capture without executing
@@ -46,13 +46,24 @@ pub(super) fn dispatch<D: DataSource>(
         }
         InputEvent::Cancel => p.pointer_cancel(now_ms)?,
         InputEvent::Wheel(dx, dy) => p.wheel_at(pointer.0, pointer.1, dx, dy),
-        InputEvent::Key(Key::Char(c)) => p.key(Some(c), false, now_ms),
-        InputEvent::Key(Key::Backspace) => p.key(None, true, now_ms),
-        InputEvent::Key(Key::Escape) => {
-            p.pointer_cancel(now_ms)?;
-            p.blur();
-        }
-        InputEvent::Key(Key::Enter) => p.key(Some('\n'), false, now_ms),
+        InputEvent::Key {
+            code,
+            shift,
+            down: true,
+            ..
+        } => match crate::input::key(code, shift) {
+            Some((_, "Backspace")) => p.key(None, true, now_ms),
+            Some((_, "Escape")) => {
+                p.pointer_cancel(now_ms)?;
+                p.blur();
+            }
+            Some((_, "Enter")) => p.key(Some('\n'), false, now_ms),
+            Some((_, text)) if text.chars().count() == 1 => {
+                p.key(text.chars().next(), false, now_ms)
+            }
+            _ => {}
+        },
+        InputEvent::Key { .. } => {}
     }
     Ok(())
 }
@@ -104,7 +115,12 @@ mod tests {
     fn relative_and_absolute_display_events_release_or_escape_once() {
         for cancel in [
             None,
-            Some(InputEvent::Key(Key::Escape)),
+            Some(InputEvent::Key {
+                code: 1,
+                shift: false,
+                down: true,
+                repeat: false,
+            }),
             Some(InputEvent::Cancel),
         ] {
             let mut p = fixture();
@@ -182,7 +198,12 @@ mod tests {
                 &mut at,
                 extent,
                 scale,
-                InputEvent::Key(Key::Char('x')),
+                InputEvent::Key {
+                    code: 45,
+                    shift: false,
+                    down: true,
+                    repeat: false,
+                },
                 1.,
             )
             .unwrap();
@@ -291,7 +312,12 @@ mod tests {
         for cancel in [
             None,
             Some(InputEvent::Cancel),
-            Some(InputEvent::Key(Key::Escape)),
+            Some(InputEvent::Key {
+                code: 1,
+                shift: false,
+                down: true,
+                repeat: false,
+            }),
         ] {
             let mut p = Presenter::boot_with(
                 &plan.encode(),

@@ -597,7 +597,7 @@ pub struct Painter {
 // O(painted owners) references and numeric publication metadata, not copied
 // glyphs/commands or a new render graph. The display retains acknowledged A
 // here while one submitted B owns its corresponding leases.
-#[cfg(any(target_os = "linux", test))]
+#[cfg(any(target_os = "linux", target_os = "android", test))]
 pub(crate) struct Presentation {
     text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
     picture: Option<Rc<region::Picture>>,
@@ -633,7 +633,7 @@ impl Painter {
         std::mem::take(&mut self.materials.1)
     }
 
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
     pub(crate) fn presentation(&self) -> Presentation {
         Presentation {
             text: self.accepted_text.clone(),
@@ -644,7 +644,7 @@ impl Painter {
             }),
         }
     }
-    #[cfg(any(target_os = "linux", test))]
+    #[cfg(any(target_os = "linux", target_os = "android", test))]
     pub(crate) fn replace_presentation(&mut self, mut state: Presentation) -> Presentation {
         std::mem::swap(&mut self.accepted_text, &mut state.text);
         std::mem::swap(&mut self.region_picture, &mut state.picture);

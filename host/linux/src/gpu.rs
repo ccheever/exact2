@@ -19,9 +19,13 @@ use crate::text::{Paragraph, RunPaint, TextEngine};
 mod backdrop;
 mod images;
 mod mask;
+#[cfg(target_os = "android")]
+mod present;
 use crate::paint::GradientPaint;
 use exact_kernel::gradient::Geometry;
 use images::ImageCache;
+#[cfg(target_os = "android")]
+pub use present::set_window;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -44,7 +48,9 @@ struct Target {
 pub struct Gpu {
     device: wgpu::Device,
     queue: wgpu::Queue,
-    renderer: Renderer,
+    /// Shared with Android's present thread (`gpu/present.rs`), which renders
+    /// while the next frame is painted.
+    renderer: Arc<std::sync::Mutex<Renderer>>,
     image_refused: bool,
     scene: vello::Scene,
     scale: f32,
@@ -73,6 +79,13 @@ pub struct Gpu {
     pub cached: bool,
     /// The last frame's encode, render, and readback, milliseconds.
     pub last_ms: (f64, f64),
+    /// The window frames are presented to instead of read back (Android).
+    #[cfg(target_os = "android")]
+    present: Option<present::Presenting>,
+    /// Images retired while a frame that may draw them is still rendering
+    /// on the present thread; it unregisters them after its next render.
+    #[cfg(target_os = "android")]
+    retired: Vec<vello::peniko::ImageData>,
 }
 
 /// Run a future to completion on this thread (wgpu's requests complete
@@ -119,9 +132,15 @@ impl Gpu {
             backends: wgpu::Backends::PRIMARY,
             ..wgpu::InstanceDescriptor::new_without_display_handle()
         });
+        #[cfg(target_os = "android")]
+        let window = present::surface(&instance)?;
+        #[cfg(target_os = "android")]
+        let compatible_surface = window.as_ref().map(|w| &w.0);
+        #[cfg(not(target_os = "android"))]
+        let compatible_surface = None;
         let adapter = block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
-            compatible_surface: None,
+            compatible_surface,
             force_fallback_adapter: false,
         }))
         .map_err(|e| format!("no adapter: {e}"))?;
@@ -174,7 +193,14 @@ impl Gpu {
             },
         )
         .map_err(|e| format!("vello: {e}"))?;
+        let renderer = Arc::new(std::sync::Mutex::new(renderer));
         let shaders_ms = t1.elapsed().as_secs_f64() * 1000.0;
+        #[cfg(target_os = "android")]
+        let present = window
+            .map(|(surface, w, h)| {
+                present::Presenting::new(surface, (w, h), &adapter, &device, &queue, &renderer)
+            })
+            .transpose()?;
         if let (Some(cache), Some(path)) = (cache.as_ref(), path) {
             if let Some(bytes) = cache.get_data() {
                 if data.as_deref() != Some(bytes.as_slice()) {
@@ -211,6 +237,10 @@ impl Gpu {
             shaders_ms,
             cached,
             last_ms: (0.0, 0.0),
+            #[cfg(target_os = "android")]
+            present,
+            #[cfg(target_os = "android")]
+            retired: Vec::new(),
         })
     }
 
@@ -224,6 +254,8 @@ impl Gpu {
             let target = self.target(width, height);
             let view = target.view.clone();
             self.renderer
+                .lock()
+                .unwrap()
                 .render_to_texture(
                     &device,
                     &queue,
@@ -349,7 +381,7 @@ impl Gpu {
     }
 
     fn brush(&mut self, image: &Arc<Bitmap>) -> Option<ImageBrush> {
-        let renderer = &mut self.renderer;
+        let renderer = self.renderer.clone();
         let device = &self.device;
         let queue = &self.queue;
         self.images.brush(image, |data, pixels| {
@@ -380,7 +412,7 @@ impl Gpu {
                 },
                 size,
             );
-            renderer.override_image(
+            renderer.lock().unwrap().override_image(
                 data,
                 Some(wgpu::TexelCopyTextureInfoBase {
                     texture,
@@ -433,9 +465,16 @@ impl Backend for Gpu {
         self.height = height;
         self.scene.reset();
         self.layers.clear();
-        let renderer = &mut self.renderer;
+        #[cfg(target_os = "android")]
+        if self.presents() {
+            let retired = &mut self.retired;
+            self.images.begin(|image| retired.push(image));
+            self.image_refused = false;
+            return;
+        }
+        let renderer = self.renderer.clone();
         self.images
-            .begin(|image| renderer.unregister_texture(image));
+            .begin(|image| renderer.lock().unwrap().unregister_texture(image));
         self.image_refused = false;
     }
 
@@ -804,6 +843,10 @@ impl Backend for Gpu {
         origin: (f32, f32),
         ts: Transform,
     ) {
+        #[cfg(target_os = "android")]
+        if present::experiment() == Some("notext") {
+            return;
+        }
         let a = self.affine(ts) * Affine::translate((origin.0 as f64, origin.1 as f64));
         for run in text.glyph_runs(paragraph, palette) {
             if run.paint.color[3] == 0 {
@@ -811,6 +854,7 @@ impl Backend for Gpu {
             }
             self.scene
                 .draw_glyphs(&run.font)
+                .normalized_coords(&run.coords)
                 .font_size(run.size)
                 .brush(color(run.paint.color))
                 .transform(a)
@@ -818,7 +862,7 @@ impl Backend for Gpu {
                     run.synthetic_italic
                         .then(|| Affine::skew(14_f64.to_radians().tan(), 0.0)),
                 )
-                .hint(true)
+                .hint(!cfg!(target_os = "android"))
                 .draw(
                     Fill::NonZero,
                     run.glyphs.iter().map(|(id, x, y)| vello::Glyph {
@@ -944,6 +988,10 @@ impl Backend for Gpu {
     fn finish(&mut self) -> Result<Pixmap, String> {
         if self.image_refused {
             return Err("GPU image descriptor capacity exceeded".into());
+        }
+        #[cfg(target_os = "android")]
+        if self.presents() {
+            return self.present_frame();
         }
         let scene = std::mem::take(&mut self.scene);
         let result = self.render_scene(&scene);
