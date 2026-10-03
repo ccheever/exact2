@@ -22,7 +22,7 @@ shape Card
 shape Post
   id: string
   n: number
-  kind: string
+  kind: "strip" | "inbox" | "text"
   cards: list<Card>
 
 component Carousel
@@ -93,26 +93,27 @@ component PostView
   view
     column testId=`post-${p.n}` width="100%" box-sizing="border-box" padding-top=8 padding-bottom=8 border-bottom-style="solid" border-bottom-width=1 border-color="#e5e7eb"
       text `Post ${p.n}` padding-left=12 font-size=15 font-weight=600 height=24
-      when p.kind == "strip"
-        when virtual
-          list virtualized=true display="flex" width="100%" height=132 overflow-x="scroll" overflow-y="hidden" estimated-item-width=128 padding-top=8 padding-bottom=8 box-sizing="border-box" scrollbar-width="none" testId=`strip-${p.n}`
-            each c in p.cards key=c.id
-              FeedCard(post=p.n, c=c)
-        else
-          list display="flex" width="100%" height=132 overflow-x="scroll" overflow-y="hidden" padding-top=8 padding-bottom=8 box-sizing="border-box" scrollbar-width="none" testId=`strip-${p.n}`
-            each c in p.cards key=c.id
-              FeedCard(post=p.n, c=c)
-      when p.kind == "inbox"
-        when virtual
-          list virtualized=true width="100%" height=300 overflow-x="hidden" estimated-item-height=48 testId=`inbox-${p.n}`
-            each m in p.cards key=m.id
-              Message(post=p.n, m=m)
-        else
-          list width="100%" height=300 overflow-x="hidden" testId=`inbox-${p.n}`
-            each m in p.cards key=m.id
-              Message(post=p.n, m=m)
-      when p.kind == "text"
-        text "An ordinary row between the lists." padding-left=12 font-size=13 color="#6b7280" height=40
+      match p.kind
+        case "strip"
+          when virtual
+            list virtualized=true display="flex" width="100%" height=132 overflow-x="scroll" overflow-y="hidden" estimated-item-width=128 padding-top=8 padding-bottom=8 box-sizing="border-box" scrollbar-width="none" testId=`strip-${p.n}`
+              each c in p.cards key=c.id
+                FeedCard(post=p.n, c=c)
+          else
+            list display="flex" width="100%" height=132 overflow-x="scroll" overflow-y="hidden" padding-top=8 padding-bottom=8 box-sizing="border-box" scrollbar-width="none" testId=`strip-${p.n}`
+              each c in p.cards key=c.id
+                FeedCard(post=p.n, c=c)
+        case "inbox"
+          when virtual
+            list virtualized=true width="100%" height=300 overflow-x="hidden" estimated-item-height=48 testId=`inbox-${p.n}`
+              each m in p.cards key=m.id
+                Message(post=p.n, m=m)
+          else
+            list width="100%" height=300 overflow-x="hidden" testId=`inbox-${p.n}`
+              each m in p.cards key=m.id
+                Message(post=p.n, m=m)
+        case "text"
+          text "An ordinary row between the lists." padding-left=12 font-size=13 color="#6b7280" height=40
 
 component FeedCard
   props
