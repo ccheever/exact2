@@ -142,7 +142,7 @@ record_variants! {
 impl VisitSpans for TypeExpr {
     fn visit_spans(&mut self, visit: &mut impl FnMut(&mut Span)) {
         match self {
-            Self::Named(_, span) => visit(span),
+            Self::Named(_, span) | Self::Choice(_, span) => visit(span),
             Self::Option(inner, span) | Self::List(inner, span) => {
                 inner.visit_spans(visit);
                 visit(span);
@@ -174,7 +174,12 @@ impl VisitSpans for Expr {
             Self::NamedArg(_, inner, span)
             | Self::Some(inner, span)
             | Self::Member(inner, _, span)
-            | Self::Unary(_, inner, span) => {
+            | Self::Unary(_, inner, span)
+            | Self::Case {
+                subject: inner,
+                span,
+                ..
+            } => {
                 inner.visit_spans(visit);
                 visit(span);
             }

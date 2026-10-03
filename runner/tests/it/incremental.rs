@@ -63,6 +63,11 @@ impl Fake {
         match row.kind {
             TypeKind::Number => Value::Number((n % 997) as f64),
             TypeKind::Bool => Value::Bool(n % 3 == 0),
+            // A choice (LLP 1035.005.000 D4a) answers one of its literals.
+            TypeKind::String if row.fields.len > 0 => {
+                let pick = row.fields.start + (n % row.fields.len as u64) as u32;
+                Value::str(plan.str(plan.fields[pick as usize].name))
+            }
             TypeKind::String => Value::str(&format!("#{:06x}", n & 0xff_ffff)),
             TypeKind::Unit => Value::Unit,
             TypeKind::Option if depth < 4 && n % 2 == 0 => {

@@ -1,0 +1,62 @@
+// LLP 1035.005.000 D4a: closed choices of strings. `kind: "heading" | …`
+// declares the strings a field holds; `match` over one names every literal
+// in its arms — a view's, an expression's and an action's — several to an
+// arm as `case "a" | "b"`. A choice is read as a string wherever one is (a
+// template, `==`, a `text`), and a literal stands where a choice is wanted
+// (a record's field, a prop, a parameter, a `fn`'s result). The source's
+// answer is held to the literals as it lands.
+shape Block
+  id: string
+  kind: "heading" | "paragraph" | "item" | "rule"
+  text: string
+
+shape Pick
+  kind: "heading" | "paragraph" | "item" | "rule"
+  depth: number
+
+fn size(kind: "heading" | "paragraph" | "item" | "rule"): number = match kind {
+  case "heading" => 24,
+  case "paragraph" | "item" => 16,
+  case "rule" => 0,
+}
+
+fn opposite(kind: "heading" | "paragraph" | "item" | "rule"): "heading" | "paragraph" | "item" | "rule" = kind == "heading" ? "paragraph" : "heading"
+
+component App
+  resource blocks = blocks() as shape list<Block>
+  state picked = Pick(kind="rule", depth=0)
+  state last = Pick(kind="rule", depth=0)
+  state said = ""
+  derive heading = filter(blocks, b => b.kind == "heading")
+  derive summary = join(map(blocks, b => `${b.kind}:${size(b.kind)}`), " ")
+  derive firstKind = match first(blocks) { case some(b) => b.kind, case none => "none" }
+  action pick(kind: "heading" | "paragraph" | "item" | "rule")
+    picked = Pick(kind=kind, depth=size(kind))
+    last = Pick(last, kind=opposite(kind))
+    match kind
+      case "heading"
+        said = "a title"
+      case "paragraph" | "item"
+        said = "prose"
+      case "rule"
+        said = "a line"
+  view
+    column testId="root"
+      text summary testId="summary"
+      text `${length(heading)} ${firstKind} ${picked.kind}:${picked.depth} ${last.kind} ${said}` testId="state"
+      Badge(kind="rule", label="fixed")
+      each b in blocks key=b.id
+        match b.kind
+          case "heading"
+            text b.text testId=`block-${b.id}` font-size=24 press=pick(b.kind)
+          case "paragraph" | "item"
+            Badge(kind=b.kind, label=b.text)
+          case "rule"
+            view testId=`block-${b.id}` height=1 press=pick("rule")
+
+component Badge
+  props
+    kind: "heading" | "paragraph" | "item" | "rule"
+    label: string
+  view
+    text `${match kind { case "item" => "• ", case "heading" | "paragraph" | "rule" => "" }}${label}` testId=`badge-${kind}-${label}`

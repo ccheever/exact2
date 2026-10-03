@@ -18,6 +18,9 @@ pub fn zero(ty: &Ty, shapes: &Shapes) -> Option<Value> {
     Some(match ty {
         Ty::Number => Value::Number(0.0),
         Ty::String => Value::str(""),
+        // A choice's zero is its first literal, as sorted (LLP 1035.005.000
+        // D4a): `""` is not one of them.
+        Ty::Choice(literals) => Value::str(literals.first()?),
         Ty::Bool => Value::Bool(false),
         Ty::Unit => Value::Unit,
         Ty::Option(_) => Value::Option(None),
@@ -155,6 +158,13 @@ fn constant(
             Some(Value::Number(-n))
         }
         (Ty::String, Expr::Str(s, _)) => Some(Value::str(s)),
+        (Ty::Choice(literals), Expr::Str(s, at)) => {
+            if literals.contains(s) {
+                return Some(Value::str(s));
+            }
+            errors.push(crate::choices::unknown(s, literals, *at));
+            None
+        }
         (Ty::String, Expr::Template(parts, _))
             if parts.iter().all(|p| matches!(p, TemplatePart::Text(_))) =>
         {

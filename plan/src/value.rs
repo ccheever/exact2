@@ -241,7 +241,15 @@ impl Value {
         match (row.kind, self) {
             (TypeKind::Number, Value::Number(n)) => n.is_finite(),
             (TypeKind::Bool, Value::Bool(_)) => true,
-            (TypeKind::String, Value::HeapStr(_) | Value::InlineStr(_)) => true,
+            // A choice (LLP 1035.005.000 D4a) names its literals as fields.
+            (TypeKind::String, Value::HeapStr(_) | Value::InlineStr(_)) => {
+                row.fields.len == 0 || {
+                    let text = self.as_str().unwrap_or_default();
+                    row.fields
+                        .iter()
+                        .any(|f| plan.str(plan.field(f).name) == text)
+                }
+            }
             (TypeKind::Unit, Value::Unit) => true,
             (TypeKind::Option, Value::Option(None)) => true,
             (TypeKind::Option, Value::Option(Some(v))) => {

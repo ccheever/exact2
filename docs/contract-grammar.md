@@ -1,6 +1,6 @@
 # Contract grammar and vocabulary reference
 
-This is a descriptive reference for the compiler on `main` on 2026-10-02, not a
+This is a descriptive reference for the compiler on `main` on 2026-10-03, not a
 proposal for new syntax. The [human guide](contract-for-humans.md) teaches the
 language; the [agent guide](contract-for-agents.md) gives the implementation loop.
 The parser, type checker, and lowering rules are authoritative when this summary
@@ -142,7 +142,9 @@ statement     = IDENT "=" expr NL
               | statement-match ;
 statement-match = "match" expr block(statement-case) ;
 statement-case  = "case" "some" "(" IDENT ")" block(statement)
-                | "case" "none" block(statement) ;
+                | "case" "none" block(statement)
+                | "case" literals block(statement) ;
+literals        = STRING { "|" STRING } ;
 source-call   = IDENT "(" [ arguments ] ")" ;
 ```
 
@@ -151,7 +153,9 @@ a component. Only the root may own resources, mutations, and tasks. A task's
 body has exactly one schedule. The named timer action takes no parameters;
 a millisecond interval is a literal whole number of at least 1.
 
-Both option-match arms are required exactly once. Actions have no loops, returns,
+Both option-match arms are required exactly once. A `match` over a choice of
+strings (see [Expressions and types](#expressions-and-types)) takes `case
+"a"` arms instead, never both kinds, and no `else`. Actions have no loops, returns,
 awaits, or ordinary action-to-action calls. A standalone call statement is a
 host command, not an arbitrary function invocation. `let` is recognized as the
 local-declaration statement when followed by a name; a writable slot named `let`
@@ -185,7 +189,8 @@ when          = "when" expr block(node) [ "else" block(node) ] ;
 each          = "each" IDENT [ "," IDENT ] "in" expr "key" "=" expr block(node) ;
 view-match    = "match" expr block(view-case) ;
 view-case     = "case" "some" "(" IDENT ")" block(node)
-              | "case" "none" block(node) ;
+              | "case" "none" block(node)
+              | "case" literals block(node) ;
 children      = "children" NL ;
 special-word  = "document" | "switch" | "multiple" ;
 ```
@@ -202,14 +207,14 @@ arguments; its name starts uppercase to distinguish it from an element.
 
 An `each` key is a string, number, or boolean, with unique stable values required
 for useful row identity. Its optional second binding is the numeric row index.
-`when` conditions are boolean and `match` subjects are options. Root regions are
-refused: wrap them in an element. `children` requires a declared slot.
+`when` conditions are boolean and `match` subjects are options, or choices
+with `case "…"` arms. Root regions are refused: wrap them in an element. `children` requires a declared slot.
 
 ## Expressions and types
 
 ```ebnf
 type          = "number" | "string" | "bool" | "unit" | IDENT | "action"
-              | "option" "<" type ">" | "list" "<" type ">" ;
+              | "option" "<" type ">" | "list" "<" type ">" | literals ;
 expr          = ternary ;
 ternary       = binary [ "?" expr ":" expr ] ;
 binary        = unary { binary-op unary } ;
@@ -223,7 +228,9 @@ arguments     = argument { "," argument } [ "," ] ;
 argument      = expr | arrow | FIELD "=" expr ;
 arrow         = ( IDENT | "(" [ IDENT { "," IDENT } ] ")" ) "=>" expr ;
 inline-match  = "match" expr "{" "case" "some" "(" IDENT ")" "=>" expr
-                "," "case" "none" "=>" expr [ "," ] "}" ;
+                "," "case" "none" "=>" expr [ "," ] "}"
+              | "match" expr "{" "case" literals "=>" expr
+                { "," "case" literals "=>" expr } [ "," ] "}" ;
 ```
 
 The `binary` production is precedence-resolved, not a claim that all operators
@@ -251,6 +258,25 @@ canvas `surface=` bindings, and specialized host commands (`share`,
 `scrollIntoView`). Ordinary function calls are positional. Arrow expressions are admitted
 as the callbacks to `map` and `filter`, with at most item and index parameters;
 they are not first-class values or event handlers.
+
+A choice, `"heading" | "paragraph"` (LLP 1035.005.000 D4a), is a type wherever
+one is written: a shape's field, a prop or inject, a `fn`'s parameter or result,
+an action's parameter, inside `option<…>` and `list<…>`. Its values are strings:
+on the wire, in the VM, and as TypeScript's union of the literals. A literal is
+letters, digits, `-`, `_`, `.`, `/` and `:`, each once; the literals' order does
+not matter. A `match` over a choice takes at most 64 arms. A choice is read wherever a string is (a template, `+`, `==`, a
+string argument, a text). A string stands where a choice is wanted only as one
+of its literals written there (`kind="rule"`, `cond ? "a" : "b"`, `some("a")`),
+or as a value of the choice or of a choice of some of its literals; any other
+string is refused, and a state initialized with a literal is a `string`. A
+literal compared with a choice must be one of its literals. `match` over a
+choice names every literal once across its arms (`case "a" | "b"` shares one)
+and has no `else`; it reads as nested `when`s, `if`s or `?:`s, so it costs one
+comparison per literal tested. A choice's zero, which `empty()` and a resource
+before its answer use, is its first literal in sorted order. An answer whose
+string is not one of the literals is refused at the data seam as any shape
+mismatch is, on both executors. `contract rust` names each choice an enum
+after the first shape field that holds it (`BlockKind` for `Block.kind`).
 
 An app-declared shape's call constructs a record: either all named fields, or one
 positional base followed by zero or more replacements. A list literal can only

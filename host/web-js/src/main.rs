@@ -15,6 +15,7 @@ mod faces;
 mod facts;
 mod reads;
 mod style;
+mod types;
 
 use std::process::ExitCode;
 

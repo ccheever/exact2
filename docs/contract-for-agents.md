@@ -145,7 +145,15 @@ calls and expressions without creating an indentation block.
 ## Values, expressions, and functions
 
 - Types are `number`, `string`, `bool`, declared shapes, `option<T>`, `list<T>`,
-  and `action` for behavior interfaces. Do not emit authored `any` or object types.
+  closed choices of strings (`kind: "heading" | "paragraph"`), and `action` for
+  behavior interfaces. Do not emit authored `any` or object types.
+- A field, prop or parameter that holds one of a known set of strings is a
+  choice. Dispatch on it with `match kind` and a `case "heading"` arm per
+  literal (`case "item" | "quote"` shares one); every literal needs an arm and
+  there is no `else`. A literal outside the choice is refused where it is
+  written, and a source's answer outside it is refused at the seam. A plain
+  `string` (a state initialized with `"a"`) is never a choice: declare the
+  field, prop or parameter it comes from as one.
 - `none` and `[]` need an inferable element type. A state initialized by either
   usually gets that information from later assignments; a typed argument or
   the other conditional/match arm can also supply it.
@@ -155,8 +163,9 @@ calls and expressions without creating an indentation block.
 - Use field access, arithmetic, comparisons, boolean operators, ternaries, and
   exhaustive option matches. There is no truthiness or optional chaining.
 - Inline match is `match x { case some(v) => a, case none => b }`; the comma is
-  required and the `some` arm comes first. The block statement/view form has
-  separate indented `case` arms.
+  required and the `some` arm comes first. Over a choice it is
+  `match k { case "a" => x, case "b" | "c" => y }`. The block statement/view
+  form has separate indented `case` arms.
 - `map(xs, (x, i) => expr)` and `filter(xs, x => bool)` return values, not nodes.
   `join(xs, separator)` accepts primitive items. `first(xs)` and `at(xs, i)`
   return options; `at` supports negative indices.
@@ -174,7 +183,9 @@ calls and expressions without creating an indentation block.
 For the full roster and special calls, see
 [standard functions and intrinsics](contract-grammar.md#standard-functions-and-intrinsics).
 For record behavior in a callback, use [records](../contract/corpus/records.contract)
-and [the record tests](../contract/cli/tests/it/records.rs).
+and [the record tests](../contract/cli/tests/it/records.rs); for choices,
+[choices](../contract/corpus/choices.contract) and
+[their tests](../contract/cli/tests/it/choices.rs).
 
 ## State and action semantics
 
@@ -205,7 +216,7 @@ derive, resource value, or arbitrary record field. Replace a record with a copie
 record. `send` targets a mutation owned by that component.
 
 Permitted statements: assignment, `let`, `send`, `refresh`, known host command,
-`if`/`else`, and option `match`. No loops or general action calls. The compiler
+`if`/`else`, and `match` over an option or a choice. No loops or general action calls. The compiler
 infers effects from the body; `writes` is a refusal, not an optional annotation.
 Use `symbols` when you need the inferred write set.
 
@@ -303,7 +314,7 @@ or authenticated network session is available while baking. See
 ## Views, layout, and interaction
 
 The view forms are element, component use, `when`/`else`, keyed `each`, exhaustive
-option `match`, and `children`. Wrap root regions in a stable element. A component
+`match` over an option or a choice, and `children`. Wrap root regions in a stable element. A component
 call uses parentheses; a built-in element uses space-separated attributes.
 `button "Save" press=save` is text-child sugar; an explicit text child is useful
 when that label needs its own styling or driver id.
@@ -484,6 +495,7 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | `[a, b]` / `{ title: value }` | Source/list transform / declared record constructor |
 | `{...old, title: value}` | `Shape(old, title=value)`, with the record's declared shape |
 | `if name` for a string | `if name != ""` |
+| `when b.kind == "heading"` … `else` `when b.kind == "rule"` ladders | `kind: "heading" \| "rule"` in the shape, then `match b.kind` with a `case` per literal |
 | `selected.title` when optional | Exhaustive `match selected` |
 | `press={() => save()}` | `press=save` or `press=save(captured)` |
 | Calling an action from another action | Put the statements there; factor calculations into `fn` |

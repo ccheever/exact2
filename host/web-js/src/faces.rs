@@ -67,7 +67,7 @@ pub fn fonts(plan: &Plan) -> Result<Fonts, String> {
     Ok(out)
 }
 
-/// A surface argument's declared type code (`emit::type_code`) when its
+/// A surface argument's declared type code (`types::type_code`) when its
 /// code reads one slot, derive or resource; `None` otherwise, and the data
 /// seam encodes the value by its shape (`host/web-js/rust-data.js`).
 pub fn arg_type(plan: &Plan, code: &[u8]) -> Option<exact_plan::TypesId> {

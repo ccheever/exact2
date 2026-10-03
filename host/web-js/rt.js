@@ -367,7 +367,7 @@ function reply(t, name, source, held, f, next, gone) {
 export function res(name, source, args, initial, initialArgs, type, ph) {
   const ver = sig(0), pend = sig(false), fail = sig(null);
   const kept = checkpoint().kept?.get(name);
-  if (kept) [initialArgs, initial] = kept;
+  if (kept && (!type || conforms(kept[1], type))) [initialArgs, initial] = kept;
   const r = { name, source, type, value: initial, settled: initialArgs, ticket: null, forced: false, reread: false, rev: false, store: false };
   const flag = (s, v, undo) => { if (!eq(s.n.v, v)) { undo?.push([s.n, s.n.v]); write(s.n, v); } };
   // Nothing kept: the placeholder shows, pending (LLP 1048.003 D6).

@@ -72,6 +72,13 @@ fn fold(
             inner.push((name.clone(), at(value)?));
             fold(body, fns, &inner, depth, remaining)?
         }
+        // A `match` over a choice's test (LLP 1035.005.000 D4a).
+        Expr::Case {
+            subject, literals, ..
+        } => match at(subject)? {
+            Constant::Str(s) => Constant::Bool(literals.contains(&s)),
+            _ => return None,
+        },
         Expr::Unary(op, x, _) => match (op, at(x)?) {
             (UnOp::Neg, Constant::Number(n)) => Constant::Number(-n),
             (UnOp::Not, Constant::Bool(b)) => Constant::Bool(!b),

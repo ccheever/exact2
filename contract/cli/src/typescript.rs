@@ -31,6 +31,15 @@ pub fn typescript(plan: &Plan) -> Result<String, String> {
         match row.kind {
             TypeKind::Number => out.push_str("number"),
             TypeKind::Bool => out.push_str("boolean"),
+            // A choice (LLP 1035.005.000 D4a) is TypeScript's union of its literals.
+            TypeKind::String if row.fields.len > 0 => {
+                let literals: Vec<String> = row
+                    .fields
+                    .iter()
+                    .map(|f| quoted(plan.str(plan.field(f).name)))
+                    .collect();
+                out.push_str(&literals.join(" | "));
+            }
             TypeKind::String => out.push_str("string"),
             TypeKind::Unit => out.push_str("null"),
             TypeKind::Option | TypeKind::List => {

@@ -210,11 +210,16 @@ fn walk_use(
                     if !actions && matches!(target_t.props[i], Ty::Action(_)) {
                         continue;
                     }
-                    let t = infer(&arg.value, scope, &types.shapes)?;
-                    if !checks::can_unify(&t, &target_t.props[i]) {
+                    let want = &target_t.props[i];
+                    let t = crate::choices::given(want, &arg.value, scope, &types.shapes)?;
+                    if !want.accepts(&t) {
                         return err(
                             "type-prop",
-                            format!("`{}` expects `{}`, given `{t}`", p.name, target_t.props[i]),
+                            format!(
+                                "`{}` expects `{want}`, given `{t}`{}",
+                                p.name,
+                                crate::choices::hint(want, &t)
+                            ),
                             arg.span,
                         );
                     }

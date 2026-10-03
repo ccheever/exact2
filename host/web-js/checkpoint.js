@@ -1,4 +1,5 @@
 import { carryRouter, clock, res, sig } from './rt.js';
+import { conforms } from './shape.js';
 
 // A render's checkpoint answers (LLP 1048.000 D4), as
 // `exact_web::document::checkpoint` writes them: JSON text, one
@@ -40,16 +41,22 @@ function dev() {
   return Dev;
 }
 
-/** A root slot carried by authored name and full declared shape. */
+/** A root slot carried by authored name and full declared shape, and only
+ * when the value still conforms to its type code: a choice's literals are in
+ * the code, not the declared shape (LLP 1035.005.000 D4a), as the Rust
+ * runner's `init_slots` drops a carried value that does not conform. */
 export function devSignal(name, initial, type, declared, router = false) {
   const cp = dev(), kept = cp?.slots?.find(s => s[0] === name);
-  const value = kept && (router || shape(kept[1], declared)) ? (router ? carryRouter(decode(kept[2]), location.pathname + location.search) : decode(kept[2])) : initial;
+  const carried = kept && (router || shape(kept[1], declared)) ? (router ? carryRouter(decode(kept[2]), location.pathname + location.search) : decode(kept[2])) : undefined;
+  const value = carried !== undefined && (router || !type || conforms(carried, type)) ? carried : initial;
   const out = sig(value, type); out.n.devName = name; out.n.devType = declared; return out;
 }
 
 /** A settled resource carried only for the same source, arguments and type. */
 export function devResource(name, source, args, initial, initialArgs, type, placeholder, declared) {
-  const cp = dev(), kept = cp?.carryAnswers === false ? null : cp?.answers?.find(a => a[0] === name && a[1] === source && shape(a[4], declared));
+  const cp = dev(), found = cp?.carryAnswers === false ? null : cp?.answers?.find(a => a[0] === name && a[1] === source && shape(a[4], declared));
+  // An answer outside a choice's literals is asked again, as Rust's `seed_checkpoint` does.
+  const kept = found && (!type || conforms(decode(found[3]), type)) ? found : null;
   const out = res(name, source, args, kept ? decode(kept[3]) : initial, kept ? decode(kept[2]) : initialArgs, type, placeholder);
   out.r.devType = declared; if (kept?.[5]) out.r.store = true; return out;
 }

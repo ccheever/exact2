@@ -288,9 +288,10 @@ fn scheme_colour(a: &Attr, rows: &[StyleId]) -> Result<(), LowerError> {
     fn reads_scheme(e: &Expr) -> bool {
         match e {
             Expr::Member(_, field, _) if field == "prefersColorScheme" => true,
-            Expr::Member(inner, _, _) | Expr::Unary(_, inner, _) | Expr::Some(inner, _) => {
-                reads_scheme(inner)
-            }
+            Expr::Member(inner, _, _)
+            | Expr::Unary(_, inner, _)
+            | Expr::Some(inner, _)
+            | Expr::Case { subject: inner, .. } => reads_scheme(inner),
             Expr::Binary(_, l, r, _) => reads_scheme(l) || reads_scheme(r),
             Expr::Ternary(c, y, n, _) => reads_scheme(c) || reads_scheme(y) || reads_scheme(n),
             Expr::Call(_, args, _) => args.iter().any(reads_scheme),
@@ -506,7 +507,7 @@ pub(crate) fn check_style_value(
                 }
             }
             None if std::ptr::eq(value, &a.value)
-                && !matches!(ty, Ty::Number | Ty::String | Ty::Unknown) =>
+                && !matches!(ty, Ty::Number | Ty::String | Ty::Choice(_) | Ty::Unknown) =>
             {
                 return err(
                     "lower-attr-type",
@@ -649,7 +650,7 @@ pub(crate) fn check_prop_value(
     let ok = matches!(
         (want, ty),
         (_, Ty::Unknown)
-            | (tags::PropTy::Str, Ty::String)
+            | (tags::PropTy::Str, Ty::String | Ty::Choice(_))
             | (tags::PropTy::Bool, Ty::Bool)
             | (tags::PropTy::Int | tags::PropTy::Float, Ty::Number)
     );

@@ -48,7 +48,7 @@ shape Cell
 
 shape Block
   id: string
-  kind: string
+  kind: "heading" | "paragraph" | "item" | "code" | "quote" | "rule" | "table-row" | "image" | "html"
   depth: number
   marker: string
   text: string
@@ -338,56 +338,50 @@ component Blocks
   props
     block: Block
   view
-    when block.kind == "heading"
-      column width="100%" padding-top=22 padding-bottom=4 testId=`block-${block.id}`
-        text aria-level=block.depth color=theme.strongInk line-height=`${block.depth == 1 ? 38 : block.depth == 2 ? 30 : block.depth == 3 ? 25 : 21}px`
-          Runs(runs=block.runs, size=(block.depth == 1 ? 31 : block.depth == 2 ? 23 : block.depth == 3 ? 18 : 15), weight=(block.depth > 3 ? 600 : 700))
-    else
-      when block.kind == "paragraph"
+    match block.kind
+      case "heading"
+        column width="100%" padding-top=22 padding-bottom=4 testId=`block-${block.id}`
+          text aria-level=block.depth color=theme.strongInk line-height=`${block.depth == 1 ? 38 : block.depth == 2 ? 30 : block.depth == 3 ? 25 : 21}px`
+            Runs(runs=block.runs, size=(block.depth == 1 ? 31 : block.depth == 2 ? 23 : block.depth == 3 ? 18 : 15), weight=(block.depth > 3 ? 600 : 700))
+      case "paragraph"
         view width="100%" padding-top=6 padding-bottom=6 testId=`block-${block.id}`
           text color=theme.ink line-height=1.625
             Runs(runs=block.runs, size=16, weight=400)
-      else
-        when block.kind == "item"
-          row width="100%" box-sizing="border-box" padding-top=2 padding-bottom=2 padding-left=(4 + block.depth * 22) testId=`block-${block.id}`
-            text block.marker font-size=16 line-height=1.625 color=theme.softInk width=26
-            text flex=1 color=theme.ink line-height=1.625
+      case "item"
+        row width="100%" box-sizing="border-box" padding-top=2 padding-bottom=2 padding-left=(4 + block.depth * 22) testId=`block-${block.id}`
+          text block.marker font-size=16 line-height=1.625 color=theme.softInk width=26
+          text flex=1 color=theme.ink line-height=1.625
+            Runs(runs=block.runs, size=16, weight=400)
+      case "code"
+        view width="100%" padding-top=8 padding-bottom=8 testId=`block-${block.id}`
+          view background-color=theme.codeBg border-radius=10 padding=14 width="100%" box-sizing="border-box"
+            text block.text font-family="ui-monospace" font-size=13 line-height="20px" color=theme.ink white-space="pre-wrap"
+      case "quote"
+        row width="100%" padding-top=6 padding-bottom=6 testId=`block-${block.id}`
+          view width=3 background-color=theme.quoteEdge border-radius=2
+          view flex=1 padding-left=16
+            text color=theme.quoteInk line-height=1.625
               Runs(runs=block.runs, size=16, weight=400)
-        else
-          when block.kind == "code"
-            view width="100%" padding-top=8 padding-bottom=8 testId=`block-${block.id}`
-              view background-color=theme.codeBg border-radius=10 padding=14 width="100%" box-sizing="border-box"
-                text block.text font-family="ui-monospace" font-size=13 line-height="20px" color=theme.ink white-space="pre-wrap"
-          else
-            when block.kind == "quote"
-              row width="100%" padding-top=6 padding-bottom=6 testId=`block-${block.id}`
-                view width=3 background-color=theme.quoteEdge border-radius=2
-                view flex=1 padding-left=16
-                  text color=theme.quoteInk line-height=1.625
-                    Runs(runs=block.runs, size=16, weight=400)
-            else
-              when block.kind == "rule"
-                view width="100%" height=1 background-color=theme.edge margin-top=22 margin-bottom=22 testId=`block-${block.id}`
+      case "rule"
+        view width="100%" height=1 background-color=theme.edge margin-top=22 margin-bottom=22 testId=`block-${block.id}`
+      case "table-row"
+        row width="100%" border-bottom-style="solid" border-bottom-width=1 border-color=theme.edge testId=`block-${block.id}`
+          each c in block.cells key=c.id
+            view flex=1 padding=8
+              when block.header
+                text color=theme.strongInk line-height="20px"
+                  Runs(runs=c.runs, size=13, weight=700)
               else
-                when block.kind == "table-row"
-                  row width="100%" border-bottom-style="solid" border-bottom-width=1 border-color=theme.edge testId=`block-${block.id}`
-                    each c in block.cells key=c.id
-                      view flex=1 padding=8
-                        when block.header
-                          text color=theme.strongInk line-height="20px"
-                            Runs(runs=c.runs, size=13, weight=700)
-                        else
-                          text color=theme.ink line-height="20px"
-                            Runs(runs=c.runs, size=13, weight=400)
-                else
-                  when block.kind == "image"
-                    column width="100%" padding-top=10 padding-bottom=10 gap=6 testId=`block-${block.id}`
-                      image block.href width="100%" object-fit="contain" aria-label=block.text
-                      when block.text != ""
-                        text block.text font-size=12 color=theme.faintInk
-                  else
-                    view width="100%" padding-top=4 padding-bottom=4 testId=`block-${block.id}`
-                      text block.text font-family="ui-monospace" font-size=12 color=theme.faintInk
+                text color=theme.ink line-height="20px"
+                  Runs(runs=c.runs, size=13, weight=400)
+      case "image"
+        column width="100%" padding-top=10 padding-bottom=10 gap=6 testId=`block-${block.id}`
+          image block.href width="100%" object-fit="contain" aria-label=block.text
+          when block.text != ""
+            text block.text font-size=12 color=theme.faintInk
+      case "html"
+        view width="100%" padding-top=4 padding-bottom=4 testId=`block-${block.id}`
+          text block.text font-family="ui-monospace" font-size=12 color=theme.faintInk
 
 component Runs
   inject

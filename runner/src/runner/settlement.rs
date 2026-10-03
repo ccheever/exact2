@@ -795,14 +795,17 @@ impl<D: DataSource> Runner<D> {
     }
 }
 
-/// `ty`'s zero (LLP 1054.000.002 D1): `0`, `""`, `false`, `()`, `none`, `[]`,
-/// and a record's fields' zeros in order — the compiler's
-/// `contract_types::placeholder::zero`, over the plan's tables.
+/// `ty`'s zero (LLP 1054.000.002 D1): `0`, `""` (a choice's first literal),
+/// `false`, `()`, `none`, `[]`, and a record's fields' zeros in order — the
+/// compiler's `contract_types::placeholder::zero`, over the plan's tables.
 pub(super) fn zero(plan: &exact_plan::Plan, ty: exact_plan::TypesId) -> Option<Value> {
     let row = plan.types.get(ty.0 as usize)?;
     Some(match row.kind {
+        TypeKind::String => match row.fields.iter().next() {
+            Some(first) => Value::str(plan.str(plan.field(first).name)),
+            None => Value::str(""),
+        },
         TypeKind::Number => Value::Number(0.0),
-        TypeKind::String => Value::str(""),
         TypeKind::Bool => Value::Bool(false),
         TypeKind::Unit => Value::Unit,
         TypeKind::Option => Value::NONE,

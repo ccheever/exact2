@@ -296,7 +296,8 @@ pub struct Field {
     pub span: Span,
 }
 
-/// A written type: `number`, `string`, `bool`, a shape name, `option<T>`, `list<T>`.
+/// A written type: `number`, `string`, `bool`, a shape name, `option<T>`,
+/// `list<T>`, or a closed choice of strings, `"a" | "b"`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeExpr {
     /// A named type: a primitive or a shape.
@@ -305,13 +306,19 @@ pub enum TypeExpr {
     Option(Box<TypeExpr>, Span),
     /// `list<T>`.
     List(Box<TypeExpr>, Span),
+    /// `"a" | "b" | …` (LLP 1035.005.000 D4a): one of these strings, as
+    /// written; a value is a string everywhere it travels.
+    Choice(Vec<String>, Span),
 }
 
 impl TypeExpr {
     /// Where it was written.
     pub fn span(&self) -> Span {
         match self {
-            TypeExpr::Named(_, s) | TypeExpr::Option(_, s) | TypeExpr::List(_, s) => *s,
+            TypeExpr::Named(_, s)
+            | TypeExpr::Option(_, s)
+            | TypeExpr::List(_, s)
+            | TypeExpr::Choice(_, s) => *s,
         }
     }
 }
@@ -904,6 +911,29 @@ pub enum Expr {
         /// Where.
         span: Span,
     },
+    /// One arm's test in a `match` over a choice of strings (LLP 1035.005.000
+    /// D4a): whether `subject` is one of `literals`. Parser-made, never
+    /// written: `match k` with `case "a"` arms is read as nested `when`s,
+    /// `if`s or `?:`s on these tests, the last arm their final `else`. The
+    /// first test of a `match` carries every literal its arms name, `all`,
+    /// which the checker holds to the subject's choice; the others carry
+    /// `None`.
+    Case {
+        /// The value matched.
+        subject: Box<Expr>,
+        /// This arm's literals.
+        literals: Vec<String>,
+        /// On a `match`'s first test, every arm's literals in order, each
+        /// with where it is written.
+        all: Option<Vec<(String, Span)>>,
+        /// Set where expansion carries the test out of a component into its
+        /// use: the component's own check held the `match` to its declared
+        /// choice, so in the use the subject need only be one of `all`
+        /// (a narrower choice, or a literal the use passed).
+        checked: bool,
+        /// The `match`.
+        span: Span,
+    },
     /// `value` evaluated once and bound to `name` in `body`. Compiler-only:
     /// no surface syntax spells it. Expansion introduces it so a child's
     /// derive read twice, or a `fn` call repeated, is computed and emitted
@@ -948,6 +978,7 @@ impl Expr {
             | Expr::Binary(_, _, _, s)
             | Expr::Ternary(_, _, _, s)
             | Expr::Match { span: s, .. }
+            | Expr::Case { span: s, .. }
             | Expr::Arrow { span: s, .. }
             | Expr::Let { span: s, .. } => *s,
         }

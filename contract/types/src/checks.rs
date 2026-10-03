@@ -84,6 +84,7 @@ fn calls_in(e: &Expr, indices: &BTreeMap<&str, usize>, out: &mut Vec<usize>) {
         }
         Expr::Some(x, _)
         | Expr::Unary(_, x, _)
+        | Expr::Case { subject: x, .. }
         | Expr::Member(x, _, _)
         | Expr::NamedArg(_, x, _) => calls_in(x, indices, out),
         Expr::Binary(_, a, b, _) => {
@@ -539,7 +540,7 @@ pub(super) fn check_injects(
     for b in provides {
         provided.push((
             b.name.clone(),
-            infer(&b.expr, scope, &types.shapes)?,
+            crate::choices::provided(&b.expr, scope, &types.shapes)?,
             b.span,
         ));
     }
@@ -586,7 +587,7 @@ fn check_inject_nodes(
                         continue;
                     };
                     let want = &target_t.props[target_c.props.len() + j];
-                    if !can_unify(want, got) {
+                    if !want.accepts(got) {
                         return err(
                             "type-provide",
                             format!(
@@ -612,7 +613,7 @@ fn check_inject_nodes(
                 });
                 let outer = provides.len();
                 for b in &target_c.provides {
-                    let got = infer(&b.expr, &target_scope, &types.shapes)?;
+                    let got = crate::choices::provided(&b.expr, &target_scope, &types.shapes)?;
                     provides.push((b.name.clone(), got, b.span));
                 }
                 let checked = check_inject_nodes(
@@ -769,7 +770,7 @@ fn picker_args(
             second.as_ref().map_or(Ty::String, |(t, _)| t.clone())
         };
         let t = infer(arg, scope, shapes)?;
-        if want.unify(&t).is_none() {
+        if !want.accepts(&t) {
             return wrong(arg.span());
         }
     }
@@ -793,7 +794,7 @@ fn save_file_args(
     }
     for arg in args {
         let t = infer(arg, scope, shapes)?;
-        if Ty::String.unify(&t).is_none() {
+        if !Ty::String.accepts(&t) {
             return err(
                 "type-save-file-argument",
                 format!("`saveFile`'s arguments are strings, not `{t}`"),
@@ -834,7 +835,7 @@ fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Resu
             );
         }
         let t = infer(value, scope, shapes)?;
-        if Ty::String.unify(&t).is_none() {
+        if !Ty::String.accepts(&t) {
             return err(
                 "type-share-argument",
                 format!("`{name}=` is a string, not `{t}`"),
@@ -969,7 +970,7 @@ pub(super) fn check_command(
                 span,
             );
         };
-        if !matches!(infer(text, scope, shapes)?, Ty::String) {
+        if !infer(text, scope, shapes)?.is_text() {
             return err(
                 "type-post-message",
                 format!("the message is a string: {USAGE}"),
@@ -1082,7 +1083,7 @@ pub(super) fn check_view(nodes: &[Node], scope: &Scope, shapes: &Shapes, sink: &
                 let mut inner = scope.clone();
                 inner.push_each(var, index.as_deref(), item);
                 match infer(key, &inner, shapes) {
-                    Ok(Ty::String | Ty::Number | Ty::Bool) => {}
+                    Ok(Ty::String | Ty::Choice(_) | Ty::Number | Ty::Bool) => {}
                     Ok(kt) => sink.push(TypeError {
                         id: "type-each-key",
                         message: format!("a key must be a string, number, or bool, not `{kt}`"),
@@ -1214,9 +1215,9 @@ fn glass_group_value(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, Typ
         Expr::Ternary(..) | Expr::Match { .. } => {
             let (ta, tb) = arms(e, scope, shapes, glass_group_value)?;
             let either = |a: &Ty, b: &Ty| {
-                matches!((a, b), (Ty::Number, Ty::String) | (Ty::String, Ty::Number))
+                (*a == Ty::Number && b.is_text()) || (a.is_text() && *b == Ty::Number)
             };
-            match ta.unify(&tb) {
+            match ta.join(&tb) {
                 Some(t) => Ok(t),
                 None if either(&ta, &tb) => Ok(Ty::Unknown),
                 None => Err(disagree(e, &ta, &tb)),
@@ -1262,8 +1263,8 @@ fn style_value(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError
         return infer(e, scope, shapes);
     }
     let (ta, tb) = arms(e, scope, shapes, style_value)?;
-    let dimension = |t: &Ty| matches!(t, Ty::Number | Ty::String);
-    match ta.unify(&tb) {
+    let dimension = |t: &Ty| *t == Ty::Number || t.is_text();
+    match ta.join(&tb) {
         Some(t) => Ok(t),
         None if dimension(&ta) && dimension(&tb) => Ok(Ty::Unknown),
         None => Err(disagree(e, &ta, &tb)),

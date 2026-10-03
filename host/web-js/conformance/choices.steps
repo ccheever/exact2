@@ -1,0 +1,10 @@
+# Each row's arm, then a choice parameter from a row into an action's
+# `match`; Southern refuses Palo Alto's answer at the seam and keeps
+# Sunnyvale's, then takes Mountain View's.
+tap row-paloalto
+tap row-mv
+tap row-redwood
+tap ask-sunnyvale
+tap ask-paloalto
+tap ask-mv
+tap row-paloalto

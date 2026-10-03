@@ -1,7 +1,8 @@
 //! The runner's reserved sources the JS runtime answers itself (facts.js):
 //! each declared reader's fields, checked against the runner's names.
 
-use crate::emit::{type_json, value_js};
+use crate::emit::value_js;
+use crate::types::type_json;
 use exact_plan::{Plan, Value};
 use std::fmt::Write as _;
 

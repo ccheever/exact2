@@ -1162,3 +1162,219 @@ component A
     let a = 1
   view
     text "a"
+---
+== syntax-choice-literal
+# LLP 1035.005.000 D4a: a choice's literals are spelled as names are.
+shape Block
+  kind: "heading" | "table row"
+component A
+  view
+    text "a"
+---
+== syntax-choice-duplicate
+shape Block
+  kind: "heading" | "heading"
+component A
+  view
+    text "a"
+---
+== syntax-choice-duplicate
+# A literal has one arm in a `match`.
+shape Block
+  kind: "heading" | "rule"
+component A
+  resource b = block() as shape Block
+  view
+    column
+      match b.kind
+        case "heading"
+          text "h"
+        case "rule" | "heading"
+          text "r"
+---
+== syntax-match-else
+# A `match` over a choice names every literal: there is no `else` arm.
+shape Block
+  kind: "heading" | "rule"
+component A
+  resource b = block() as shape Block
+  view
+    column
+      match b.kind
+        case "heading"
+          text "h"
+        else
+          text "r"
+---
+== type-match-missing
+shape Block
+  kind: "heading" | "paragraph" | "rule"
+component A
+  resource b = block() as shape Block
+  view
+    column
+      match b.kind
+        case "heading"
+          text "h"
+        case "paragraph"
+          text "p"
+---
+== type-match-missing
+# The same in an expression's `match`.
+shape Block
+  kind: "heading" | "rule"
+component A
+  resource b = block() as shape Block
+  view
+    text match b.kind { case "heading" => "h" }
+---
+== type-choice-unknown
+# A `case` names one of the choice's literals.
+shape Block
+  kind: "heading" | "rule"
+component A
+  resource b = block() as shape Block
+  view
+    column
+      match b.kind
+        case "heading"
+          text "h"
+        case "rul"
+          text "r"
+---
+== type-choice-unknown
+# So does a literal compared with a choice.
+shape Block
+  kind: "heading" | "rule"
+component A
+  resource b = block() as shape Block
+  view
+    column
+      when b.kind == "headng"
+        text "h"
+---
+== type-choice-unknown
+# And a literal passed where a choice is wanted.
+shape Block
+  kind: "heading" | "rule"
+component A
+  derive b = Block(kind="quote")
+  view
+    text b.kind
+---
+== type-match-subject
+# `case "…"` arms match a choice, never any string.
+component A
+  state kind = "heading"
+  view
+    column
+      match kind
+        case "heading"
+          text "h"
+---
+== type-prop
+# A string that is not a literal is never a choice: match it, or declare
+# where it comes from as one.
+component A
+  state kind = "rule"
+  view
+    column
+      Badge(kind=kind)
+component Badge
+  props
+    kind: "heading" | "rule"
+  view
+    text kind
+---
+== contract-match-arms
+# An expression's `match` takes a choice's arms or an option's, not both.
+shape S
+  k: "a" | "b"
+component A
+  resource s = s() as shape S
+  view
+    text match s.k { case "a" => "A", case some(x) => "B" }
+---
+== syntax-match-else
+# The same in an expression's `match`.
+shape S
+  k: "a" | "b"
+component A
+  resource s = s() as shape S
+  view
+    text match s.k { case "a" => "A", else => "B" }
+---
+== syntax-match-arms
+# Each arm of a `match` over a choice nests the arms after it: at most 64.
+shape S
+  k: "k0" | "k1" | "k2" | "k3" | "k4" | "k5" | "k6" | "k7" | "k8" | "k9" | "k10" | "k11" | "k12" | "k13" | "k14" | "k15" | "k16" | "k17" | "k18" | "k19" | "k20" | "k21" | "k22" | "k23" | "k24" | "k25" | "k26" | "k27" | "k28" | "k29" | "k30" | "k31" | "k32" | "k33" | "k34" | "k35" | "k36" | "k37" | "k38" | "k39" | "k40" | "k41" | "k42" | "k43" | "k44" | "k45" | "k46" | "k47" | "k48" | "k49" | "k50" | "k51" | "k52" | "k53" | "k54" | "k55" | "k56" | "k57" | "k58" | "k59" | "k60" | "k61" | "k62" | "k63" | "k64"
+component A
+  resource s = s() as shape S
+  view
+    column
+      match s.k
+        case "k0"
+        case "k1"
+        case "k2"
+        case "k3"
+        case "k4"
+        case "k5"
+        case "k6"
+        case "k7"
+        case "k8"
+        case "k9"
+        case "k10"
+        case "k11"
+        case "k12"
+        case "k13"
+        case "k14"
+        case "k15"
+        case "k16"
+        case "k17"
+        case "k18"
+        case "k19"
+        case "k20"
+        case "k21"
+        case "k22"
+        case "k23"
+        case "k24"
+        case "k25"
+        case "k26"
+        case "k27"
+        case "k28"
+        case "k29"
+        case "k30"
+        case "k31"
+        case "k32"
+        case "k33"
+        case "k34"
+        case "k35"
+        case "k36"
+        case "k37"
+        case "k38"
+        case "k39"
+        case "k40"
+        case "k41"
+        case "k42"
+        case "k43"
+        case "k44"
+        case "k45"
+        case "k46"
+        case "k47"
+        case "k48"
+        case "k49"
+        case "k50"
+        case "k51"
+        case "k52"
+        case "k53"
+        case "k54"
+        case "k55"
+        case "k56"
+        case "k57"
+        case "k58"
+        case "k59"
+        case "k60"
+        case "k61"
+        case "k62"
+        case "k63"
+        case "k64"

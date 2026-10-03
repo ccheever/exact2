@@ -475,6 +475,7 @@ impl<'a> Resolver<'a> {
                 }
             }
             TypeExpr::List(inner, _) | TypeExpr::Option(inner, _) => self.ty(inner),
+            TypeExpr::Choice(..) => {}
         }
     }
     fn infer(&self, expr: &Expr) -> Ty {
@@ -793,6 +794,13 @@ impl<'a> Resolver<'a> {
             }
             Expr::NamedArg(_, inner, _) | Expr::Some(inner, _) | Expr::Unary(_, inner, _) => {
                 self.expr(inner)
+            }
+            // A `match` over a choice tests its subject once per arm; the
+            // first test stands for the subject as written.
+            Expr::Case { subject, all, .. } => {
+                if all.is_some() {
+                    self.expr(subject)
+                }
             }
             Expr::Ident(name, span) => self.name(name, *span),
             Expr::Member(base, field, span) => {

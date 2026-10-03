@@ -58,7 +58,7 @@ pub(crate) fn check_call(
             );
         }
         let t = infer(value, scope, shapes)?;
-        if !matches!(t, Ty::Number | Ty::String | Ty::Bool) {
+        if !t.is_text() && !matches!(t, Ty::Number | Ty::Bool) {
             return err(
                 "type-strings-argument",
                 format!("`{name}` fills in text, so it is a number, string, or bool, not `{t}`"),

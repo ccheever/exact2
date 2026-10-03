@@ -203,6 +203,9 @@ impl Parser {
                     let subject = self.expr()?;
                     let below = self.last;
                     self.expect_punct("{")?;
+                    if matches!(self.peek2(), TokenKind::Str(_)) {
+                        return self.choice_expr(subject, span, below);
+                    }
                     self.expect_word("case")?;
                     self.expect_word("some")?;
                     self.expect_punct("(")?;

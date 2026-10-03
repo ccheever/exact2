@@ -22,13 +22,14 @@ function writer() {
   };
   return w;
 }
-// A value by its declared type (`n b s u ?T [T {T…}`): the runtime's arrays
+// A value by its declared type (`n b s (a|b…) u ?T [T {T…}`): the runtime's arrays
 // are records or lists, and `null` is none, only by type.
 function encode(w, v, t, i = 0) {
   const c = t[i++];
   if (c === 'n') { w.u8(0); w.f64(v); }
   else if (c === 'b') { w.u8(1); w.u8(v ? 1 : 0); }
   else if (c === 's') { w.u8(2); w.str(v); }
+  else if (c === '(') { w.u8(2); w.str(v); return t.indexOf(')', i) + 1; }
   else if (c === 'u') w.u8(3);
   else if (c === '?') { if (v == null) { w.u8(4); return skip(t, i); } w.u8(5); return encode(w, v, t, i); }
   else if (c === '[') { w.u8(6); w.u32(v.length); let end = skip(t, i); for (const x of v) end = encode(w, x, t, i); return v.length ? end : skip(t, i); }
@@ -38,6 +39,7 @@ function encode(w, v, t, i = 0) {
 function skip(t, i) {
   const c = t[i++];
   if (c === '?' || c === '[') return skip(t, i);
+  if (c === '(') return t.indexOf(')', i) + 1;
   if (c === '{') { while (t[i] !== '}') i = skip(t, i); return i + 1; }
   return i;
 }

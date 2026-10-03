@@ -213,6 +213,8 @@ impl<'a> Layout<'a> {
         let start = self.position(ty.span()).unwrap();
         match ty {
             TypeExpr::Named(..) => start + 1,
+            // Each literal and the `|` before every one after the first.
+            TypeExpr::Choice(literals, _) => start + 2 * literals.len() - 1,
             TypeExpr::List(inner, _) | TypeExpr::Option(inner, _) => {
                 let end = self.ty(inner);
                 self.type_angles.insert(self.tokens[start + 1].span);

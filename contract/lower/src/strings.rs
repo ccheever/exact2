@@ -37,7 +37,7 @@ impl Lowerer<'_> {
                 );
             };
             asm.str(self.b.str(name));
-            if compile(self, asm, value, scope, locals)? != Ty::String {
+            if !compile(self, asm, value, scope, locals)?.is_text() {
                 asm.call(Stdlib::ToString);
             }
         }

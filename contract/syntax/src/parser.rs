@@ -8,6 +8,7 @@ use crate::ast::*;
 use crate::lexer::{template_expr_end, LexError, Lexer, Token, TokenKind};
 use crate::Span;
 
+mod choice;
 mod expr;
 mod keyframes;
 #[path = "routes.rs"]
@@ -578,6 +579,9 @@ impl Parser {
             let span = self.next().span;
             return Ok(TypeExpr::Named("action".into(), span));
         }
+        if matches!(self.peek_kind(), TokenKind::Str(_)) {
+            return self.choice_type();
+        }
         let (name, span) = self.ident()?;
         match name.as_str() {
             "option" | "list" => {
@@ -869,6 +873,17 @@ impl Parser {
     }
 
     fn stmt(&mut self) -> R<Stmt> {
+        // As a view's sites: every later pass walks an action's nesting.
+        if self.view_depth >= 256 {
+            return self.err("syntax-action-depth", "statements nest more than 256 deep, each arm of a `match` over a choice one level: name a branch's work in a `fn`, or flatten its conditions");
+        }
+        self.view_depth += 1;
+        let result = self.stmt_inner();
+        self.view_depth -= 1;
+        result
+    }
+
+    fn stmt_inner(&mut self) -> R<Stmt> {
         if self.at_ident("if") {
             let span = self.expect_word("if")?;
             let cond = self.expr()?;
@@ -891,6 +906,9 @@ impl Parser {
             let span = self.expect_word("match")?;
             let subject = self.expr()?;
             self.newline()?;
+            if self.at_choice_arms() {
+                return self.choice_stmt(subject, span);
+            }
             let mut some = None;
             let mut none = None;
             self.block(|p| {
@@ -1149,6 +1167,9 @@ impl Parser {
                 self.next();
                 let subject = self.expr()?;
                 self.newline()?;
+                if self.at_choice_arms() {
+                    return self.choice_view(subject, span);
+                }
                 let mut some = None;
                 let mut none = None;
                 self.block(|p| {

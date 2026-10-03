@@ -455,8 +455,18 @@ fn refine_params_from_view(
                         if let Some(ai) = c.actions.iter().position(|x| x.name == name) {
                             for (i, arg) in args.iter().enumerate() {
                                 if i < ct.actions[ai].len() {
-                                    let t = infer(arg, scope, shapes)?;
-                                    if let Some(u) = ct.actions[ai][i].unify(&t) {
+                                    let want = &ct.actions[ai][i];
+                                    // A declared parameter keeps its type; an
+                                    // undeclared one takes what every call
+                                    // agrees on (a choice and a string: string).
+                                    let u = if c.actions[ai].params[i].ty.is_some() {
+                                        want.unify(&crate::choices::given(
+                                            want, arg, scope, shapes,
+                                        )?)
+                                    } else {
+                                        want.join(&infer(arg, scope, shapes)?)
+                                    };
+                                    if let Some(u) = u {
                                         ct.actions[ai][i] = u;
                                     }
                                 }
@@ -506,12 +516,22 @@ fn refine_params_from_view(
                                 if args.len() < ct.actions[ai].len() && last < ct.actions[ai].len()
                                 {
                                     let declared = ct.actions[ai][last].clone();
-                                    let Some(unified) = declared.unify(&ty) else {
+                                    // An undeclared parameter takes what every
+                                    // call agrees on, as from an argument.
+                                    let written = c.actions[ai].params[last].ty.is_some();
+                                    let unified = if written {
+                                        declared.unify(&ty)
+                                    } else {
+                                        declared.join(&ty)
+                                    };
+                                    let Some(unified) = unified else {
                                         return err(
                                             "type-handler-payload",
                                             format!(
-                                                "`{}=` supplies `{ty}` to parameter `{}`, declared `{declared}`",
-                                                a.name, c.actions[ai].params[last].name
+                                                "`{}=` supplies `{ty}` to parameter `{}`, {} `{declared}`",
+                                                a.name,
+                                                c.actions[ai].params[last].name,
+                                                if written { "declared" } else { "inferred as" }
                                             ),
                                             a.span,
                                         );
@@ -582,6 +602,7 @@ fn derive_order(c: &Component) -> Vec<usize> {
             }
             Expr::Some(x, _)
             | Expr::Unary(_, x, _)
+            | Expr::Case { subject: x, .. }
             | Expr::Member(x, _, _)
             | Expr::NamedArg(_, x, _) => names(x, out),
             Expr::Binary(_, a, b, _) => {
@@ -666,7 +687,8 @@ fn empty_list_in(e: &Expr) -> Option<Span> {
         Expr::Some(x, _)
         | Expr::Member(x, _, _)
         | Expr::NamedArg(_, x, _)
-        | Expr::Unary(_, x, _) => empty_list_in(x),
+        | Expr::Unary(_, x, _)
+        | Expr::Case { subject: x, .. } => empty_list_in(x),
         Expr::Call(_, args, _) => args.iter().find_map(empty_list_in),
         Expr::Binary(_, a, b, _) => empty_list_in(a).or_else(|| empty_list_in(b)),
         Expr::Ternary(a, b, c, _) => empty_list_in(a)
@@ -710,7 +732,8 @@ fn reads_state(e: &Expr, scope: &Scope) -> Option<(String, Span)> {
             Expr::Some(x, _)
             | Expr::Member(x, _, _)
             | Expr::NamedArg(_, x, _)
-            | Expr::Unary(_, x, _) => walk(x, scope, bound),
+            | Expr::Unary(_, x, _)
+            | Expr::Case { subject: x, .. } => walk(x, scope, bound),
             Expr::Call(_, args, _) => args.iter().find_map(|a| walk(a, scope, bound)),
             Expr::Binary(_, a, b, _) => walk(a, scope, bound).or_else(|| walk(b, scope, bound)),
             Expr::Ternary(a, b, c, _) => walk(a, scope, bound)
