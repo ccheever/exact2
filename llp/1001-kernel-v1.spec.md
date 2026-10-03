@@ -358,6 +358,12 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
 - **`text-shadow`** ([LLP 1077 D3](1077-css-visual-properties-native-draws-cheaply.rfc.md))
   takes one shadow, not a list, and no spread (CSS has none). On Apple a
   paragraph drawn without a raster clips its shadow to the view's bounds.
+  Adjacent inline runs with the same shadow and stroke paint as one inline box
+  (all their shadows, then their glyphs). CSS paints each box's shadow over
+  the boxes before it, so a shadow cast back across another run with the same
+  shadow is covered by that run's glyphs here. Runs that differ paint in
+  CSS's order. On Apple a mixed-run shadow reaches at most 512 points past
+  its paragraph's box.
 - **`-webkit-text-stroke`** ([LLP 1077 D7](1077-css-visual-properties-native-draws-cheaply.rfc.md))
   on Linux is a band of the glyphs' coverage (dilated less eroded), not a
   stroke of their outlines, so a glyph's overlapping contours show no inner

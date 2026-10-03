@@ -76,8 +76,10 @@ impl Painter {
             }
         }
         if steps.len() <= 1 {
-            // One look: today's single pass.
+            // One look: one pass, CSS's order — the box's background
+            // clipped to the glyphs, the shadow, the fill, the stroke.
             let look = looks.first().copied().unwrap_or_default();
+            self.text_clip(node, kernel, paragraph, palette, origin, rect, ts);
             if let Some(shadow) = look.shadow {
                 self.shadow_pass(
                     paragraph,
@@ -87,7 +89,6 @@ impl Painter {
                     ts,
                 );
             }
-            self.text_clip(node, kernel, paragraph, palette, origin, rect, ts);
             self.fill_pass(paragraph, palette, origin, ts);
             if let Some((width, color)) = look.stroke {
                 self.stroke_pass(

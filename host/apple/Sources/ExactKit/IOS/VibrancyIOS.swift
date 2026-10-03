@@ -19,7 +19,8 @@ final class VibrancyView: UIVisualEffectView {}
 /// The container a material last held its children in.
 private final class WeakView {
     weak var view: UIView?
-    init(_ view: UIView) { self.view = view }
+    let hosts: Bool
+    init(_ view: UIView, hosts: Bool) { self.view = view; self.hosts = hosts }
 }
 
 extension NodeView {
@@ -44,9 +45,20 @@ extension NodeView {
         for child in strays { target.addSubview(child) }
         let last = objc_getAssociatedObject(self, &Self.containerSlot) as? WeakView
         let moved = !strays.isEmpty || (last != nil && last?.view !== target)
-        objc_setAssociatedObject(self, &Self.containerSlot, WeakView(target), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        guard moved else { return }
-        presenter?.flats.containerChanged(id)
+        // A glass group keeps `container` while the material starts or stops
+        // hosting it, so the hosting itself is watched too.
+        let hosts = blurHostsChildren
+        let flipped = last != nil && last?.hosts != hosts
+        objc_setAssociatedObject(self, &Self.containerSlot, WeakView(target, hosts: hosts), .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
+        if moved { presenter?.flats.containerChanged(id) }
+        if moved || flipped { vibrancyUnsettled = true }
+    }
+
+    /// After the material's views have all moved (the glass group last,
+    /// `syncGlassGroup`), every descendant re-decides its vibrancy.
+    func settleVibrancy() {
+        guard vibrancyUnsettled else { return }
+        vibrancyUnsettled = false
         syncDescendantVibrancy()
     }
 
@@ -86,11 +98,13 @@ extension NodeView {
             return effect
         }
         let ink = textRasterLayer
-        guard let style, let blur else {
+        guard let style, let blur, !isParagraph || vibrantInk else {
             if let v = vibrancyView {
                 if let ink, ink.superlayer === v.contentView.layer { ink.removeFromSuperlayer(); insertBoxSublayer(ink) }
                 v.removeFromSuperview()
                 vibrancyView = nil
+                // A fill paints its own background again.
+                if !isParagraph { setNeedsDisplay() }
             }
             return nil
         }
@@ -101,6 +115,8 @@ extension NodeView {
             v.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             insertSubview(v, at: 0)
             vibrancyView = v
+            // A fill stops painting its own background (`applyBoxLayer`).
+            if !isParagraph { setNeedsDisplay() }
             // A paragraph's text paints over its box (CSS): above its
             // border and fill layers; a vibrant fill is the box's back.
             if isParagraph, let top = [boxBorder, imageLayer, insetCaster, boxGradient, shadowCaster].compactMap({ $0 }).first(where: { $0.superlayer === layer }) {
@@ -115,6 +131,15 @@ extension NodeView {
             v.contentView.backgroundColor = .white
         }
         return v
+    }
+
+    /// Whether the paragraph's whole ink is its one system colour: no run
+    /// in another colour, and no background, shadow or stroke drawn with it
+    /// (the vibrancy view would take them all). Otherwise it draws its pair.
+    var vibrantInk: Bool {
+        let spec = paragraphSpec(), own = channels("text_color", dark: drawsDark)
+        return spec.shadow == nil
+            && spec.runs.allSatisfy { ($0.color == nil || $0.color == own) && $0.background == nil && $0.shadow == nil && $0.stroke == nil }
     }
 
     /// UIKit's vibrancy style for a system colour, by WebKit's name.
@@ -132,6 +157,11 @@ extension NodeView {
 
     private static var vibrancySlot = 0
     private static var containerSlot = 0
+    private static var unsettledSlot = 0
+    private var vibrancyUnsettled: Bool {
+        get { objc_getAssociatedObject(self, &Self.unsettledSlot) as? Bool ?? false }
+        set { objc_setAssociatedObject(self, &Self.unsettledSlot, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
     var vibrancyView: VibrancyView? {
         get { objc_getAssociatedObject(self, &Self.vibrancySlot) as? VibrancyView }
         set { objc_setAssociatedObject(self, &Self.vibrancySlot, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }

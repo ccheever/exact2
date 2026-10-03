@@ -124,7 +124,9 @@ extension NodeView {
         guard let holder else { return }
         let d = number("perspective")
         guard d > 0 else {
-            if let holder = superview?.layer, !CATransform3DIsIdentity(holder.sublayerTransform) { holder.sublayerTransform = CATransform3DIdentity }
+            // Its own children's holder, as the set below writes (never the
+            // parent's, whose perspective is the parent's own).
+            if !CATransform3DIsIdentity(holder.sublayerTransform) { holder.sublayerTransform = CATransform3DIdentity }
             return
         }
         // The vanishing point, from the holder's anchor.

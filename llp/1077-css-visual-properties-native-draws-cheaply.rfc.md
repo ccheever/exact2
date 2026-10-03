@@ -293,10 +293,13 @@ Rows 154 `text_shadow` (inherited), 155 `mask_image`, 156 `corner_shape`, each C
   - **Seen** on `scripts/fixtures/vibrancy.contract`:
     - iOS, light and dark: the clipping card's labels and fill blend with the backdrop; the other card's labels draw flat.
     - macOS: the label pixels differ from the plain build's, darker under AppKit's blending.
+  - **Review (2026-10-03).** A change of container, of the material's hosting or of a box's parent re-decides vibrancy, a fill leaving it repaints its own background, and removing `perspective` clears the node's own children's holder.
+  - **iOS paragraph limits.** A paragraph is vibrant only when its whole ink is that one system colour: no run in another colour, and no background, shadow or stroke with it. Otherwise it draws the pair, and a system-coloured run in an ordinary paragraph is not vibrant either.
   - **Owed:**
     - an iOS material whose children may overflow
     - drawn text (the non-raster path)
     - vibrancy inside glass
+    - per-run vibrancy (one effect per run's colour)
 - **D15 per-digit roll.** The raster is one picture, so the whole line rolls.
 - **Felt and pointed on a device.** Haptics (D14), the scroll edge (D16) and the pointer (D17) are not observable in the simulator's screenshots.
 - **Web stand-ins** for the symbol effects.

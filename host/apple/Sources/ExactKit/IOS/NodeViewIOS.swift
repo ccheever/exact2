@@ -901,7 +901,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
     }
     func updateMaterial() {
-        defer { syncGlassSlot(); syncGlassGroup() }
+        defer { syncGlassSlot(); syncGlassGroup(); settleVibrancy() }
         let kind = materialRequest
         let supported = kind != nil
         let interactive = Materials.glass(kind) && handlers.contains("press") && !disabled
@@ -1060,6 +1060,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // view styled before it was mounted did not have.
         if superview != nil, layer.zPosition != usedZIndex { layer.zPosition = usedZIndex }
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
+        // A box styled before it joined its parent learns its material now.
+        if superview != nil { syncVibrancy() }
     }
 
     func updateKeyboardDismissal() {
@@ -1141,6 +1143,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // A scroll's children, back out, go where a material holds them.
         if materialView != nil, scroll == nil { rehomeMaterialChildren() }
         syncGlassGroup()
+        settleVibrancy()
     }
 
     /// A native swipe row's scroll container (`swipeContent`, LLP 1008 §9)
