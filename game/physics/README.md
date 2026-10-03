@@ -85,9 +85,6 @@ those pairs and each collider's flags changed. Every body pose, velocity and eve
 over 600 ticks of pile/stack/drop/bounce and 120 of minimal is byte-identical to the
 previous build (native arm64); x86-64 and browser agreement on the new values is not
 yet re-run. They moved again with EXPHYS v3's holes, trajectories again unchanged.
-The x86-64 v2 card passes with the existing pins and all 41 physics tests
-(Rust 1.97.0, 2026-09-21). A 2,134,660-byte query/controller/save trace also
-matches arm64 byte for byte. No pins changed for this verification.
 
 Reproduce from `game/` with `EXACT_UPDATE_TRUST=development`:
 ```
