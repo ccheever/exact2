@@ -380,6 +380,11 @@ fn run<D: DataSource + Default>(
             break;
         }
         let now = wall();
+        // A timer due when a frame is about to paint (a list's live tick in
+        // a fling) runs once that frame is out, as a scrolled list's
+        // collection turn does: it shows a frame later instead of making
+        // this one late.
+        let mut advance_after = false;
         if vsync.arrived.get() && p.host().wants_frames() {
             last_tick = now;
             if let Some(e) = trace(c"exact animation frame", || p.animation_frame(now)) {
@@ -391,7 +396,9 @@ fn run<D: DataSource + Default>(
             .is_some_and(|due| due <= now && now - last_tick >= frame_ms * 0.5)
         {
             last_tick = now;
-            if let Some(e) = trace(c"exact advance", || p.advance(now)) {
+            if vsync.arrived.get() && p.dirty() {
+                advance_after = true;
+            } else if let Some(e) = trace(c"exact advance", || p.advance(now)) {
                 log(&format!("exact: {e}"));
             }
         }
@@ -445,6 +452,11 @@ fn run<D: DataSource + Default>(
                 p.run_deferred_collections()
             }) {
                 painted = true;
+            }
+        }
+        if advance_after {
+            if let Some(e) = trace(c"exact advance", || p.advance(wall())) {
+                log(&format!("exact: {e}"));
             }
         }
         if p.module_pending() {
