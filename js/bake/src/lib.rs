@@ -791,7 +791,12 @@ fn bake_in(
     }
     let script = std::fs::read(stage.join("app.js")).map_err(|e| e.to_string())?;
     let bytecode = std::fs::read(stage.join("app.hbc")).map_err(|e| e.to_string())?;
-    let module = Module::inspect(bytecode.clone())?;
+    let mut module = Module::inspect(bytecode.clone())?;
+    // The 100 ms per-call budget is a runtime promise about a device, not
+    // about a build machine's load: a loaded Mac failed the Signal Clone's
+    // bake at 104.8 ms, then passed on retry. A build fails on the source,
+    // never on how busy the machine was (LLP 1027 §6).
+    module.set_budget_ms(f64::INFINITY);
     let app_id = module.app_id().to_owned();
     let grants = module.grants().to_owned();
     let surfaces: serde_json::Map<String, serde_json::Value> = module

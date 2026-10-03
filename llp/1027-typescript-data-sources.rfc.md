@@ -1349,7 +1349,7 @@ reads only).
   store-reading resource is the observable cost.
 - **Per call:** microseconds to tens of microseconds, per resource
   change, never per frame (§5). The 100 ms per-call budget is a runtime
-  promise about a device. The bake's module (`Module::inspect`) is not held
+  promise about a device. The bake's module (`js/bake`, after `Module::inspect`) is not held
   to it (2026-10-03): a heavily loaded build Mac failed the Signal Clone's
   bake at 104.8 ms and passed on retry. A build fails on the source, not on
   the machine's load. A runaway call hangs the bake as it did before; the

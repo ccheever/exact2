@@ -661,12 +661,6 @@ impl Module {
     pub fn inspect(bytecode: Vec<u8>) -> Result<Module, String> {
         // The bake's module never draws the agent's stream (LLP 1069.005 D2b).
         let mut module = Self::new(bytecode, "", "").with_agent_seed(None);
-        // Nor is it held to the per-call wall-clock budget, a runtime
-        // promise about a phone: a build machine's load is not the app's
-        // (a loaded Mac failed the Signal Clone's bake at 104.8 ms, then
-        // passed on retry). A build fails on what the source is, never on
-        // how busy the machine was (LLP 1027 §6).
-        module.budget_ms = f64::INFINITY;
         let engine = module.load_engine()?;
         module.app_id = engine.string("appId")?;
         module.grants = engine.string("grants")?;
@@ -791,11 +785,6 @@ impl Module {
     /// The heap ceiling for the next [`Module::load`].
     pub fn set_max_heap(&mut self, bytes: u32) {
         self.max_heap = bytes;
-    }
-
-    /// The per-call budget in milliseconds ([`Module::set_budget_ms`]).
-    pub fn budget_ms(&self) -> f64 {
-        self.budget_ms
     }
 
     /// Calls that ran over the budget so far.

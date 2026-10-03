@@ -803,3 +803,36 @@ fn an_alias_resolves_a_mounted_source_alike_in_both_producers_and_names_only_the
         }
     }
 }
+
+/// A first-frame source over the runtime's 100 ms budget still bakes: the
+/// budget is about a device, and a build machine's load must not fail a
+/// build (LLP 1027 §6). The loop is deterministic work, far over 100 ms
+/// on any machine this runs on, so the test never depends on timing.
+#[test]
+fn a_slow_first_frame_source_bakes_whatever_the_wall_clock() {
+    if !exact_js::ENGINE_LINKED {
+        return;
+    }
+    let f = Fixture::new();
+    f.write(
+        "app.ts",
+        &SOURCE.replace(
+            "return prefix + count;",
+            "let n = 0; for (let i = 0; i < 10_000_000; i++) n = (n + i) % 7; return prefix + count + n;",
+        ),
+    );
+    let baked = f.bake();
+    let candidate = paired(&baked);
+    let live = Runner::boot(
+        candidate.plan,
+        candidate.module,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert!(
+        live.resource("message").is_some(),
+        "the slow source's first frame is baked"
+    );
+}
