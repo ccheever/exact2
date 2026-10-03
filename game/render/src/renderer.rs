@@ -1,5 +1,6 @@
 mod culling;
 mod draw;
+mod local;
 mod passes;
 use crate::buffers::{bytes, Buffer, Targets};
 use crate::pipeline::Pipelines;
@@ -56,6 +57,14 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     pub(crate) cull: crate::cull::Cull,
     pub(crate) environment: crate::ibl::EnvironmentLight,
     pub(crate) lights: crate::lights::Lights,
+    pub(crate) local: Option<crate::local_shadows::LocalMaps>,
+    pub(crate) local_plan: crate::local_shadows::Plan,
+    pub(crate) local_culls: Vec<local::LocalCull>,
+    /// Group 1 of forward passes; rebuilt when a shadow texture is replaced.
+    shadow_sample: wgpu::BindGroup,
+    shadow_sample_stale: bool,
+    shadow_placeholder: wgpu::TextureView,
+    shadow_comparison: wgpu::Sampler,
     vertices: Buffer,
     indices: Buffer,
     pub(crate) meshes: Vec<Mesh>,
@@ -193,6 +202,32 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             &lights,
         );
         let targets = Targets::new(device, (64, 64), &pipelines.tone_layout, &uniform);
+        let shadow_placeholder = crate::local_shadows::placeholder(device);
+        let shadow_comparison = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("game shadow comparison"),
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let shadow_sample = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("game shadow sample"),
+            layout: &pipelines.shadow_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&shadow_placeholder),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&shadow_comparison),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&shadow_placeholder),
+                },
+            ],
+        });
         Self {
             models: crate::models::Models::default(),
             quads: crate::quads::Quads::new::<ASSETS>(device, queue, &uniform),
@@ -214,6 +249,13 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             cull,
             environment,
             lights,
+            local: None,
+            local_plan: Default::default(),
+            local_culls: Vec::new(),
+            shadow_sample,
+            shadow_sample_stale: false,
+            shadow_placeholder,
+            shadow_comparison,
             vertices: Buffer::new(device, 1024, wgpu::BufferUsages::VERTEX, "game vertices"),
             indices: Buffer::new(device, 1024, wgpu::BufferUsages::INDEX, "game indices"),
             meshes: Vec::new(),
@@ -629,6 +671,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             &self.lights,
         );
         self.rebind_culled();
+        self.rebind_locals();
     }
     fn rebind_culled(&mut self) {
         self.culled_key = (self.cull.compacted.raw.clone(), self.cull.window);

@@ -13,9 +13,11 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         custom: &[crate::hooks::CustomMaterial],
     ) {
         self.cull_groups(frame, cascades.map_or(0, |c| c.count), custom);
-        if self.cull.stale() {
+        self.local_groups();
+        if self.cull.stale() || self.locals_stale() {
             self.write_cull_setup();
         }
+        self.local_views();
         if self.cull.direct || self.cull.groups.is_empty() {
             return;
         }
@@ -164,6 +166,11 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     self.cull.words.extend(words);
                 }
             }
+        }
+        if self.local_culls.iter().any(|l| !l.cull.groups.is_empty()) {
+            let words = self.cull.words.clone();
+            let items = self.slot_list.len() as u32;
+            self.local_setups(&words, items, records, skins_at);
         }
         self.cull.finish_setup(
             &self.device,

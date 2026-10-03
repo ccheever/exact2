@@ -19,6 +19,10 @@ const SPOT: u32 = 0;
 const POINT: u32 = 1;
 const MANY: u32 = 2;
 const FILL: u32 = 3;
+const SPOT_SHADOW: u32 = 4;
+const SPOT_UNSHADOWED: u32 = 5;
+const POINT_SHADOW: u32 = 6;
+const POINT_UNSHADOWED: u32 = 7;
 // A top-down orthographic view: 20 m tall, so 18 px per metre at 640 × 360,
 // with +X right and +Z down the screen.
 const PX: f32 = 18.;
@@ -85,6 +89,54 @@ impl Game for Lights {
                             range: 0.9,
                             ..Default::default()
                         },
+                    ));
+                }
+            }
+            SPOT_SHADOW | SPOT_UNSHADOWED => {
+                w.spawn((
+                    down(0., 4., 0.),
+                    SpotLight {
+                        intensity: 20_000.,
+                        range: 12.,
+                        inner: 0.2,
+                        outer: 0.3,
+                        shadows: args.kind == SPOT_SHADOW,
+                        ..Default::default()
+                    },
+                ));
+                // Halfway down: its shadow on the floor is twice its width.
+                w.spawn((
+                    Transform {
+                        position: Vec3::new(0., 2., 0.),
+                        scale: Vec3::new(0.6, 0.1, 0.6),
+                        ..Default::default()
+                    },
+                    Mesh::cube(1.),
+                    Material::rgb(0.6, 0.6, 0.6),
+                ));
+            }
+            POINT_SHADOW | POINT_UNSHADOWED => {
+                let lamp = w.spawn((
+                    Transform::at(0., 2., 0.),
+                    PointLight {
+                        intensity: 20_000.,
+                        range: 8.,
+                        ..Default::default()
+                    },
+                ));
+                if args.kind == POINT_SHADOW {
+                    w.insert(lamp, PointShadows);
+                }
+                // Walls on +X and +Z: two cube faces' maps.
+                for (x, z, size) in [(2., 0., Vec3::new(0.2, 2., 3.)), (0., 2.5, Vec3::new(3., 2., 0.2))] {
+                    w.spawn((
+                        Transform {
+                            position: Vec3::new(x, 1., z),
+                            scale: size,
+                            ..Default::default()
+                        },
+                        Mesh::cube(1.),
+                        Material::rgb(0.6, 0.6, 0.6),
                     ));
                 }
             }
@@ -174,4 +226,34 @@ fn the_second_directional_light_is_an_unshadowed_fill() {
     let (image, _) = render(&gpu, FILL, "lights-fill");
     // The first light (the sun) is dark; the second lights the floor alone.
     assert!(at(&image, 0., 0.) > 100., "{}", at(&image, 0., 0.));
+}
+
+#[test]
+fn a_shadowed_spot_light_darkens_the_floor_behind_a_caster() {
+    let Some(gpu) = gpu() else { return };
+    let (shadowed, _) = render(&gpu, SPOT_SHADOW, "lights-spot-shadow");
+    let (open, _) = render(&gpu, SPOT_UNSHADOWED, "lights-spot-unshadowed");
+    // 0.45 m off axis: outside the 0.6 m caster, inside its 1.2 m shadow.
+    let values = [at(&shadowed, 0.45, 0.), at(&open, 0.45, 0.), at(&shadowed, 0.9, 0.)];
+    eprintln!("shadowed, unshadowed, beyond the shadow: {values:?}");
+    assert!(values[0] < 5., "{values:?}");
+    assert!(values[1] > 60., "{values:?}");
+    assert!(values[2] > 40., "{values:?}");
+}
+
+#[test]
+fn a_shadowed_point_light_casts_through_each_cube_face() {
+    let Some(gpu) = gpu() else { return };
+    let (shadowed, _) = render(&gpu, POINT_SHADOW, "lights-point-shadow");
+    let (open, _) = render(&gpu, POINT_UNSHADOWED, "lights-point-unshadowed");
+    // Behind the +X and +Z walls, and the open floor on -X and -Z.
+    let behind = [at(&shadowed, 3., 0.), at(&shadowed, 0., 3.5)];
+    let unshadowed = [at(&open, 3., 0.), at(&open, 0., 3.5)];
+    let away = [at(&shadowed, -3., 0.), at(&shadowed, 0., -3.5)];
+    eprintln!("behind {behind:?}; unshadowed {unshadowed:?}; away {away:?}");
+    for i in 0..2 {
+        assert!(behind[i] < 5., "{behind:?}");
+        assert!(unshadowed[i] > 20., "{unshadowed:?}");
+        assert!((away[i] - unshadowed[i]).abs() <= 2., "{away:?} {unshadowed:?}");
+    }
 }

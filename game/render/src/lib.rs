@@ -21,6 +21,7 @@ mod frame;
 pub mod hooks;
 mod ibl;
 mod lights;
+mod local_shadows;
 mod model_pipeline;
 mod models;
 mod perf;

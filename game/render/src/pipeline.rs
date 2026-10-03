@@ -163,8 +163,10 @@ impl Pipelines {
                 ),
             ],
         );
+        // Group 1 of every forward pipeline: sun cascades, the comparison
+        // sampler and local light shadows (placeholders when absent).
         let shadow_layout = layout(
-            "game sun sample",
+            "game shadow sample",
             &[
                 texture(
                     0,
@@ -172,6 +174,11 @@ impl Pipelines {
                     wgpu::TextureViewDimension::D2Array,
                 ),
                 sampler(1, wgpu::SamplerBindingType::Comparison),
+                texture(
+                    2,
+                    wgpu::TextureSampleType::Depth,
+                    wgpu::TextureViewDimension::D2Array,
+                ),
             ],
         );
         let camera_layout = layout("game cascade camera", &[uniform]);
@@ -236,7 +243,7 @@ impl Pipelines {
                 "game forward",
                 "vs",
                 Some(if shadow { "fs_shadow" } else { "fs" }),
-                &layouts[..if shadow { 2 } else { 1 }],
+                &layouts,
                 &vertex_layout,
                 depth(true, wgpu::CompareFunction::Less, Default::default()),
                 4,
@@ -338,7 +345,6 @@ impl Pipelines {
 }
 
 pub(crate) struct ModelPipelines {
-    pub empty: wgpu::BindGroupLayout,
     pub material: wgpu::BindGroupLayout,
     pub instance: wgpu::BindGroupLayout,
     pub forward: [Option<wgpu::RenderPipeline>; 32],
@@ -349,10 +355,6 @@ pub(crate) struct ModelPipelines {
 impl Pipelines {
     pub fn prepare_model(&mut self, device: &wgpu::Device, model: &exact_game::asset::Model) {
         let family = self.models.get_or_insert_with(|| {
-            let empty = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("game no shadows"),
-                entries: &[],
-            });
             let material = crate::model_pipeline::material_layout(device);
             let instance = crate::model_pipeline::instance_layout(device);
             let shaders = std::array::from_fn(|i| {
@@ -366,10 +368,10 @@ impl Pipelines {
                     label: Some("game model pipeline layout"),
                     bind_group_layouts: &[
                         Some(&self.scene_layout),
-                        Some(match i {
-                            0 => &empty,
-                            1 => &self.shadow_layout,
-                            _ => &self.camera_layout,
+                        Some(if i < 2 {
+                            &self.shadow_layout
+                        } else {
+                            &self.camera_layout
                         }),
                         Some(&material),
                         Some(&instance),
@@ -378,7 +380,6 @@ impl Pipelines {
                 })
             });
             ModelPipelines {
-                empty,
                 material,
                 instance,
                 forward: std::array::from_fn(|_| None),

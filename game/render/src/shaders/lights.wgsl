@@ -48,5 +48,3 @@ fn fill_light(n: vec3<f32>, v: vec3<f32>, base: vec3<f32>, metallic: f32, roughn
     let l = normalize(-frame.fill_direction_illuminance.xyz);
     return brdf(n, v, l, base, metallic, roughness) * frame.fill_color.xyz * frame.fill_direction_illuminance.w;
 }
-// Unshadowed until local shadow maps exist.
-fn light_visibility(at: u32, world: vec3<f32>, n: vec3<f32>, l: vec3<f32>) -> f32 { return 1.0; }

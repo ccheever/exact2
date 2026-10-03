@@ -116,7 +116,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.environment.prepare(&self.queue, &frame.environment);
         if self
             .lights
-            .prepare(&self.device, &self.queue, frame, size, &[])
+            .prepare(&self.device, &self.queue, frame, size, &self.local_plan)
         {
             self.rebind();
         }
@@ -162,7 +162,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             state.times[1] = start.map(|s| s.elapsed());
         }
         self.cull.encode(encoder, self.current, frame.timestamps);
+        self.encode_local_culls(encoder);
         state.draws += self.encode_shadows(encoder, frame, hooks.materials());
+        state.draws += self.encode_local_shadows(encoder, hooks.materials());
         self.encode_forward(encoder, &mut state, frame, hooks, &view)?;
         if scene_copy {
             self.encode_surface(encoder, &mut state, frame, hooks, &view)?;
@@ -338,14 +340,16 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 self.shadows = Some(ShadowMaps::new(
                     &self.device,
                     c.count,
-                    &self.pipelines.shadow_layout,
                     &self.pipelines.camera_layout,
                 ));
+                self.shadow_sample_stale = true;
             }
             self.shadows.as_ref().unwrap().write(&self.queue, c);
-        } else {
-            self.shadows = None;
+        } else if self.shadows.take().is_some() {
+            self.shadow_sample_stale = true;
         }
+        self.prepare_local(frame);
+        self.refresh_shadow_sample();
         if frame.environment.bloom.is_some() {
             if self.bloom.is_none() {
                 self.bloom = Some(BloomTargets::new(

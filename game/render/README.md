@@ -124,7 +124,17 @@ saved types.
   against their individual plane depths. Raster depth bias is zero. Thin sheets
   cast; back faces are culled. Supported direct sun fades over N·L 0.01→0.005;
   at/below 0.005 no singular plane slope is evaluated, including beyond shadow reach.
-  Shadow-disabled lighting is unfaded. Ambient/emission/point lights are unaffected.
+  Shadow-disabled lighting is unfaded. Ambient, emission and the fill light are unaffected.
+- Local light shadows: a `SpotLight` with `shadows` takes one 1024² Depth32Float
+  layer (a perspective view of its cone, up to 170°), a `PointLight` with the
+  `PointShadows` marker six (a cube's faces, picked per pixel by the major axis
+  from the light). Lights are served nearest first while the frame has layers
+  left, at most eight (`local_shadows::MAX_VIEWS`): a shadowed point light and two
+  spots, or eight spots; the rest light unshadowed. Each layer's casters are culled
+  on the GPU (four views per cull pass) and drawn depth-only with the sun's caster
+  pipelines. Receivers offset 1.5 texels along the normal (less towards the light)
+  and take 3×3 PCF. Forward passes always bind group 1 (cascades, the comparison
+  sampler, local maps), with a one-texel placeholder for an absent map.
 - Bloom defaults to threshold 1, intensity 0.16, radius 1.5: one-sided knee, 13-tap
   downsampling and additive tent upsampling. Up to six RGBA16F levels, stopping
   before either dimension falls below 8; tiny outputs retain one level.

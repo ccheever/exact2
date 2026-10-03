@@ -55,7 +55,6 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            pass.set_bind_group(1, &shadows.cameras[i], &[]);
             pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
             pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
             let view = 1 + i as u32;
@@ -63,35 +62,43 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 if group.flags & (1 << view) == 0 {
                     continue;
                 }
-                if let Some(material) = self.model_material(group.batch) {
-                    if let Some(custom) = custom.iter().find(|c| c.material == material) {
-                        let binds = self.custom_bindings.as_ref().unwrap();
-                        pass.set_pipeline(&custom.shadow);
-                        pass.set_bind_group(1, &shadows.cameras[i], &[]);
-                        pass.set_bind_group(2, &custom.resources, &[]);
-                        pass.set_bind_group(3, &binds.instances.as_ref().unwrap().1, &[]);
-                    } else {
-                        let material = &self.models.materials[material.0];
-                        pass.set_pipeline(
-                            self.pipelines.models.as_ref().unwrap().shadow[usize::from(
-                                material.double_sided,
-                            ) + 2 * usize::from(
-                                group.mirrored,
-                            )]
-                            .as_ref()
-                            .unwrap(),
-                        );
-                        pass.set_bind_group(2, material.bind.as_ref().unwrap(), &[]);
-                        pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
-                    }
-                } else {
-                    pass.set_pipeline(&self.pipelines.shadow[usize::from(group.mirrored)]);
-                }
+                self.set_depth_pipeline(&mut pass, group, &shadows.cameras[i], custom);
                 self.draw_group(&mut pass, view, index);
                 draws += 1;
             }
         }
         draws
+    }
+
+    /// A depth-only caster pipeline and its groups 1-3 for one draw group.
+    pub(super) fn set_depth_pipeline(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        group: &crate::cull::Group,
+        camera: &wgpu::BindGroup,
+        custom: &[CustomMaterial],
+    ) {
+        if let Some(material) = self.model_material(group.batch) {
+            if let Some(custom) = custom.iter().find(|c| c.material == material) {
+                let binds = self.custom_bindings.as_ref().unwrap();
+                pass.set_pipeline(&custom.shadow);
+                pass.set_bind_group(2, &custom.resources, &[]);
+                pass.set_bind_group(3, &binds.instances.as_ref().unwrap().1, &[]);
+            } else {
+                let material = &self.models.materials[material.0];
+                pass.set_pipeline(
+                    self.pipelines.models.as_ref().unwrap().shadow
+                        [usize::from(material.double_sided) + 2 * usize::from(group.mirrored)]
+                    .as_ref()
+                    .unwrap(),
+                );
+                pass.set_bind_group(2, material.bind.as_ref().unwrap(), &[]);
+                pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
+            }
+        } else {
+            pass.set_pipeline(&self.pipelines.shadow[usize::from(group.mirrored)]);
+        }
+        pass.set_bind_group(1, camera, &[]);
     }
 
     /// Opaque groups and quads, the hook's opaque stage, sky and background; with
@@ -171,13 +178,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                         .as_ref()
                         .unwrap(),
                     );
-                    pass.set_bind_group(
-                        1,
-                        self.shadows
-                            .as_ref()
-                            .map_or_else(|| self.models.no_shadow.as_ref().unwrap(), |s| &s.sample),
-                        &[],
-                    );
+                    pass.set_bind_group(1, &self.shadow_sample, &[]);
                     pass.set_bind_group(2, material.bind.as_ref().unwrap(), &[]);
                     pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
                 }
@@ -185,9 +186,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 pass.set_pipeline(
                     &self.pipelines.forward[variant + 4 * usize::from(group.mirrored)],
                 );
-                if let Some(shadows) = &self.shadows {
-                    pass.set_bind_group(1, &shadows.sample, &[]);
-                }
+                pass.set_bind_group(1, &self.shadow_sample, &[]);
             }
             if group.range.start != self.batches[group.batch].slots.start {
                 state.draws += 1;
@@ -375,13 +374,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     .unwrap(),
                 );
                 pass.set_bind_group(0, &self.scene_binds[self.current], &[0]);
-                pass.set_bind_group(
-                    1,
-                    self.shadows
-                        .as_ref()
-                        .map_or_else(|| self.models.no_shadow.as_ref().unwrap(), |s| &s.sample),
-                    &[],
-                );
+                pass.set_bind_group(1, &self.shadow_sample, &[]);
                 pass.set_bind_group(2, material.bind.as_ref().unwrap(), &[]);
                 pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
                 pass.set_vertex_buffer(0, self.vertices.raw.slice(..));

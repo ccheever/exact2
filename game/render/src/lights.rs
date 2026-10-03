@@ -47,7 +47,7 @@ impl Lights {
         queue: &wgpu::Queue,
         frame: &FrameInput<'_>,
         size: (u32, u32),
-        shadow_layers: &[Option<u32>],
+        shadows: &crate::local_shadows::Plan,
     ) -> bool {
         let lights = &frame.lights[..frame.lights.len().min(crate::MAX_LIGHTS)];
         self.info = [0.; 4];
@@ -128,11 +128,16 @@ impl Lights {
         let grid = records;
         let indices = grid + 2 * CELLS;
         let total: u32 = self.counts.iter().sum();
+        let matrices = indices + total as usize;
         self.words.clear();
-        self.words.resize(indices + total as usize, 0);
+        self.words.resize(matrices + shadows.views.len() * 16, 0);
+        for (i, view) in shadows.views.iter().enumerate() {
+            self.words[matrices + i * 16..matrices + (i + 1) * 16]
+                .copy_from_slice(&view.to_cols_array().map(f32::to_bits));
+        }
         for (i, light) in lights.iter().enumerate() {
             let [inner, outer] = light.cone.unwrap_or([-2., -2.]);
-            let shadow = shadow_layers.get(i).copied().flatten();
+            let shadow = shadows.layers.get(i).copied().flatten();
             let record: [f32; RECORD_WORDS] = [
                 light.position.x,
                 light.position.y,
@@ -147,9 +152,9 @@ impl Lights {
                 light.direction.z,
                 outer,
                 inner,
-                shadow.map_or(-1., |layer| layer as f32),
-                0.,
-                0.,
+                shadow.map_or(-1., |(layer, _)| layer as f32),
+                shadow.map_or(0., |(layer, _)| (matrices + layer as usize * 16) as f32),
+                shadow.map_or(0., |(_, texel)| texel),
             ];
             self.words[i * RECORD_WORDS..(i + 1) * RECORD_WORDS]
                 .copy_from_slice(&record.map(f32::to_bits));

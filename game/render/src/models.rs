@@ -62,7 +62,6 @@ pub(crate) struct Models {
     pub instances: Option<Buffer>,
     pub skinning: Option<crate::skinning::Skinning>,
     pub bind: Option<wgpu::BindGroup>,
-    pub no_shadow: Option<wgpu::BindGroup>,
     pub transparent: Vec<(usize, u32, f32)>,
     pub poses: Vec<[exact_game::Transform; 2]>,
     pub pose_indices: Vec<usize>,
@@ -156,11 +155,6 @@ impl Models {
         ));
         self.skinning = Some(skinning);
         self.instances = Some(instances);
-        self.no_shadow = Some(device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("game no shadows"),
-            layout: &family.empty,
-            entries: &[],
-        }));
     }
     pub fn set(
         &mut self,
