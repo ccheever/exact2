@@ -1005,8 +1005,7 @@ impl<G: Game> Sim<G> {
                     self.world.observe(&mut self.observations[0]);
                 }
                 if left == 0 {
-                    self.world
-                        .observe_with_hash(&mut self.observations[1], true);
+                    self.world.observe(&mut self.observations[1]);
                     self.world
                         .compare(&self.observations[0], &self.observations[1]);
                     self.last_epoch.set(self.world.mutation_epoch());

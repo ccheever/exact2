@@ -31,8 +31,8 @@ pub(crate) struct Hierarchy {
     stack: Vec<u32>,
     mark: u32,
     // Per page: the pose epoch at which a propagated global last changed.
-    pub(super) epochs: Vec<u64>,
-    pub(super) epoch: u64,
+    pub(crate) epochs: Vec<u64>,
+    pub(crate) epoch: u64,
 }
 #[derive(Default)]
 pub(super) struct Node {

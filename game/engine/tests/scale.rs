@@ -142,3 +142,30 @@ fn saves_cost_bytes_per_change_not_per_entity() {
         );
     }
 }
+
+/// Diary limit 5 (garden) and forest limit 3: a seekable advance observed the
+/// whole world, about 1.2 µs per entity: 91.7 ms per observed tick at 214k
+/// entities, 125 ms per `Sim::run` at 100k.
+#[test]
+#[ignore = "release observation cost measurement"]
+fn an_observed_tick_costs_what_changed() {
+    for plants in [2_000, 10_000, 50_000] {
+        for walker in [false, true] {
+            let mut s = sim(plants, true, walker);
+            let entities = s.world().len();
+            s.run(0.0);
+            let mut samples = Vec::new();
+            for _ in 0..50 {
+                let start = std::time::Instant::now();
+                s.run(1000.0 / 60.0);
+                std::hint::black_box(s.world().hash());
+                samples.push(start.elapsed().as_secs_f64() * 1000.0);
+            }
+            println!(
+                "plants {plants} entities {entities} walker {walker}: one observed tick and hash \
+                 median {:.3} ms",
+                median(samples)
+            );
+        }
+    }
+}

@@ -186,7 +186,7 @@ fn wildcard_state_is_complete_bounded_and_narrowable() {
 }
 
 #[test]
-fn seeks_hash_only_twice_and_live_never_hashes() {
+fn seeks_hash_only_rows_written_since_and_live_never_hashes() {
     use std::sync::atomic::{AtomicUsize, Ordering};
     static WRITES: AtomicUsize = AtomicUsize::new(0);
     #[derive(Default)]
@@ -206,12 +206,16 @@ fn seeks_hash_only_twice_and_live_never_hashes() {
     let mut s = Sim::<Moving>::new(()).unwrap();
     s.world_mut().spawn(Counted);
     s.advance(0.0, Clock::Seekable);
+    // A new row is hashed once; a seek's two samples share its unwritten page.
     s.advance(60_000.0, Clock::Seekable);
-    assert_eq!(WRITES.swap(0, Ordering::Relaxed), 2);
+    assert_eq!(WRITES.swap(0, Ordering::Relaxed), 1);
     s.advance(60_000.0, Clock::Seekable);
     assert_eq!(WRITES.load(Ordering::Relaxed), 0);
     s.advance(60_017.0, Clock::Seekable);
-    assert_eq!(WRITES.swap(0, Ordering::Relaxed), 2);
+    assert_eq!(WRITES.load(Ordering::Relaxed), 0);
+    let _ = s.world().query::<&mut Counted>().iter().count();
+    s.advance(60_034.0, Clock::Seekable);
+    assert_eq!(WRITES.swap(0, Ordering::Relaxed), 1);
     s.advance(60_100.0, Clock::Live);
     assert_eq!(WRITES.load(Ordering::Relaxed), 0);
 }

@@ -196,6 +196,12 @@ non-ambient resources, springs and explicit `busy(reason)` declarations particip
 Physics remains busy while a dynamic body is awake; settling never forces sleep.
 A one-tick advance compares before/after; a longer seek observes its final tick
 pair. Zero ticks retain the previous answer. Live ticks do not perform observation.
+Observation and `World::hash` are paged: each re-reads only the component pages
+written (or inserted into) since it last looked, the entity-table pages a spawn or
+despawn touched, and resources whose revision moved, so an observed tick costs
+what changed rather than the world (0.1 ms at 216k entities, against ~90 ms).
+The hash is a stream over page digests in type-name and page order; it is the
+same on every host and for a world freshly loaded from the same save.
 
 Mark cosmetic entities `Ambient`. Declare `ambient_resource::<T>()` and
 `derived_publication(name)` in setup/register when appropriate; these policies

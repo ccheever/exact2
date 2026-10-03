@@ -197,7 +197,8 @@ pub struct World {
     epoch: std::rc::Rc<std::cell::Cell<u64>>,
     observed_epoch: u64,
     hash_cache: std::cell::Cell<Option<(u64, u64)>>,
-    hash_prefix: RefCell<Option<(u64, hash::Hasher)>>,
+    // Paged digests behind hash and observation; never saved.
+    digests: RefCell<digest::Digests>,
     // Executor phase, never saved: audio authored in a tick starts at its end.
     pub(crate) in_tick: bool,
     pub(crate) followed: std::cell::Cell<bool>,
@@ -226,10 +227,6 @@ pub struct World {
     entities_revision: u64,
     pub(crate) presentation_generation: u64,
 }
-const SINGLETON: Entity = Entity {
-    index: 0,
-    generation: 0,
-};
 const MAGIC: &[u8; 8] = b"EXGAME\0\x04";
 
 impl World {
@@ -244,7 +241,7 @@ impl World {
             epoch,
             observed_epoch: 0,
             hash_cache: std::cell::Cell::new(None),
-            hash_prefix: RefCell::new(None),
+            digests: RefCell::default(),
             changing: Vec::new(),
             observation: ObservationState::Unknown,
             in_tick: false,
@@ -365,6 +362,7 @@ impl World {
             self.alive_mask.push(0);
         }
         self.alive_mask[word] |= 1 << (index % 64);
+        self.digests.get_mut().touch(index);
         self.entities_revision = self.entities_revision.wrapping_add(1);
         self.fresh.push(e);
         self.index_name(index, true);
@@ -397,6 +395,7 @@ impl World {
         slot.alive = false;
         slot.name = None;
         self.alive_mask[e.index as usize / 64] &= !(1 << (e.index % 64));
+        self.digests.get_mut().touch(e.index);
         self.state.free.0.insert(e.index);
         self.entities_revision = self.entities_revision.wrapping_add(1);
         self.log(format_args!("despawn #{}", e.index));
@@ -1006,7 +1005,7 @@ impl World {
             .expect("world clock exhausted");
     }
 
-    fn write(&self, w: &mut dyn Writer, delivery: bool, at: At) {
+    fn write(&self, w: &mut dyn Writer, at: At) {
         self.check_reads(at);
         w.begin_struct();
         w.field("state");
@@ -1021,68 +1020,22 @@ impl World {
             w.begin_struct();
             for (name, s) in storages {
                 w.key(name);
-                if delivery {
-                    s.write_save(w);
-                    continue;
-                }
-                s.write(w, &|index| {
-                    if kind == "resources" {
-                        SINGLETON
-                    } else {
-                        self.entity_at(index)
-                    }
-                });
+                s.write_save(w);
             }
             w.end_struct();
         }
-        if delivery {
-            self.assets.write_identity(w);
-        }
-        if delivery && !self.messages.borrow().is_empty() {
+        self.assets.write_identity(w);
+        if !self.messages.borrow().is_empty() {
             w.field("messages");
             self.messages.borrow().write(w);
         }
         w.end_struct();
     }
-    /// Hash simulation state in type-name order, excluding saved delivery queues.
-    #[track_caller]
-    pub fn hash(&self) -> u64 {
-        let at = Location::caller();
-        if let Some((epoch, hash)) = self.hash_cache.get() {
-            if epoch == self.mutation_epoch() {
-                return hash;
-            }
-        }
-        let prefix = self.hash_prefix.borrow();
-        let mut w = if let Some((epoch, prefix)) = &*prefix {
-            (*epoch == self.mutation_epoch()).then(|| prefix.clone())
-        } else {
-            None
-        };
-        let hash = if let Some(w) = &mut w {
-            self.check_reads(at);
-            w.field("resources");
-            w.begin_struct();
-            for (name, s) in &self.resources {
-                w.key(name);
-                s.write(w, &|_| SINGLETON);
-            }
-            w.end_struct();
-            w.end_struct();
-            w.finish()
-        } else {
-            let mut w = hash::Hasher::default();
-            self.write(&mut w, false, at);
-            w.finish()
-        };
-        self.hash_cache.set(Some((self.mutation_epoch(), hash)));
-        hash
-    }
     /// Write a versioned save; NaNs are canonicalized and caches are excluded.
     #[track_caller]
     pub fn save(&self) -> Vec<u8> {
         let mut w = bin::Encoder::prefixed(MAGIC);
-        self.write(&mut w, true, Location::caller());
+        self.write(&mut w, Location::caller());
         w.finish()
     }
     /// Atomically replace simulation state. Registered types survive the replacement;
@@ -1242,10 +1195,13 @@ impl World {
 mod tests;
 
 mod inspect;
-pub(crate) use inspect::{Observation, ObservationState};
+pub(crate) use inspect::ObservationState;
 
 mod save;
 use save::Free;
+
+mod digest;
+pub(crate) use digest::Observation;
 
 #[cfg(test)]
 mod nearest_xz_mut_tests {

@@ -2,7 +2,7 @@
 //! between descriptors. Presence bits own values; every access holds a row lease,
 //! or checks that no exclusive lease is live before reading every row.
 use super::{At, Conflict, Holds, Lease, Leases, Party, Storage, Via, EVERY, PAGE, WORDS};
-use crate::{Data, DataError, Entity, Now, Reader, Writer};
+use crate::{Data, DataError, Now, Reader, Writer};
 use std::{
     alloc::{alloc_zeroed, dealloc, handle_alloc_error, Layout},
     cell::Cell,
@@ -100,6 +100,7 @@ pub(crate) struct RawStorage {
     revision: Cell<u64>,
     membership: u64,
     epoch: Rc<Cell<u64>>,
+    instance: u64,
 }
 impl RawStorage {
     pub(super) fn new<C: Data>(name: &'static str, epoch: Rc<Cell<u64>>) -> Self {
@@ -116,7 +117,12 @@ impl RawStorage {
             revision: Cell::new(0),
             membership: 0,
             epoch,
+            instance: super::instance(),
         }
+    }
+    /// Process-unique identity of this storage, for caches keyed by page generation.
+    pub(crate) fn instance(&self) -> u64 {
+        self.instance
     }
     pub(crate) fn len(&self) -> usize {
         self.len
@@ -344,50 +350,22 @@ impl RawStorage {
         unsafe { (self.desc.write)(self.ptr(index), w) };
         true
     }
-    pub(super) fn snapshot(
-        &self,
-        skip: Option<&Storage<crate::Ambient>>,
-        out: &mut Vec<(usize, u64)>,
-        mut full: Option<&mut crate::hash::Hasher>,
-        entity: &dyn Fn(usize) -> Entity,
-    ) {
+    /// Hash each present row of one page, in index order.
+    pub(super) fn digest_page(&self, page: usize, each: &mut dyn FnMut(usize, u64)) {
         self.reading();
-        if let Some(w) = &mut full {
-            w.begin_seq(self.len);
-        }
-        for i in self.indices(None) {
-            let observe = !skip.is_some_and(|s| s.has(i));
-            if !observe && full.is_none() {
-                continue;
-            }
-            // SAFETY: presence proves initialization; no exclusive lease is live.
-            let value = self.ptr(i);
-            if let Some(w) = &mut full {
-                w.item();
-                w.begin_seq(2);
-                w.item();
-                entity(i).write(*w);
-                w.item();
-                if observe {
-                    out.push((
-                        i,
-                        w.with_observation_by(|w| unsafe { (self.desc.write)(value, w) }),
-                    ));
-                } else {
-                    unsafe { (self.desc.write)(value, *w) };
-                }
-                w.end_seq();
-            } else {
+        let words = (page * WORDS..(page + 1) * WORDS).filter(|&w| w < self.mask.len());
+        for word in words {
+            let mut bits = self.mask[word];
+            while bits != 0 {
+                let i = word * 64 + bits.trailing_zeros() as usize;
+                bits &= bits - 1;
                 let mut w = crate::hash::Hasher::default();
-                unsafe { (self.desc.write)(value, &mut w) };
-                out.push((i, w.finish()));
+                // SAFETY: presence proves initialization; no exclusive lease is live.
+                unsafe { (self.desc.write)(self.ptr(i), &mut w) };
+                each(i, w.finish());
             }
-        }
-        if let Some(w) = &mut full {
-            w.end_seq();
         }
     }
-
     pub(super) fn moving(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> bool {
         self.reading();
         self.indices(skip.map(|s| &s.raw)).any(|i| {
@@ -421,21 +399,6 @@ impl RawStorage {
             at = at.max(unsafe { (self.desc.settle)(self.ptr(i), now) }?);
         }
         Some(at)
-    }
-    pub(super) fn write(&self, w: &mut dyn Writer, entity: &dyn Fn(usize) -> Entity) {
-        self.reading();
-        w.begin_seq(self.len);
-        for index in self.indices(None) {
-            w.item();
-            w.begin_seq(2);
-            w.item();
-            entity(index).write(w);
-            w.item();
-            // SAFETY: the bit proves initialization; no exclusive lease is live.
-            unsafe { (self.desc.write)(self.ptr(index), w) };
-            w.end_seq();
-        }
-        w.end_seq();
     }
     /// The columnar save payload: runs of present indices, then the rows'
     /// shapes and scalar columns. Generations live in the entity table.
