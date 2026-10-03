@@ -161,6 +161,19 @@ impl RawStorage {
     pub(crate) fn membership(&self) -> u64 {
         self.membership
     }
+    /// Pages with a row handed out mutably, inserted or removed after the
+    /// storage revision `since`, in ascending order.
+    pub(crate) fn changed_pages(&self, since: u64) -> impl Iterator<Item = usize> + '_ {
+        let generations = self.generations.iter().enumerate();
+        generations.filter_map(move |(page, g)| (g.get() > since).then_some(page))
+    }
+    /// The storage revision at which this page was last marked; 0 if never.
+    pub(crate) fn page_generation(&self, page: usize) -> u64 {
+        self.generations.get(page).map_or(0, Cell::get)
+    }
+    pub(crate) fn page_count(&self) -> usize {
+        self.generations.len()
+    }
     pub(super) fn mark_page(&self, page: usize) {
         if let Some(generation) = self.generations.get(page) {
             generation.set(self.revision.get());

@@ -381,6 +381,7 @@ impl World {
         if let Some(detach) = self.detach {
             detach(self, e);
         }
+        self.hierarchy.despawning(e.index);
         self.mutated();
         let generation = self.state.slots[e.index as usize]
             .generation

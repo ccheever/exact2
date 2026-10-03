@@ -23,9 +23,18 @@ and randomness; `Sim` owns input. The renderer interpolates completed ticks.
 - `near` and `near_xz` read global poses in entity order, including parented
   entities. `nearest_xz_mut` supplies one entity and its mutable component together.
 - `despawn(e)` removes that entity immediately. After the tick, the simulation
-  removes its descendants and propagates transforms. `children(e)` scans; a tick
-  that needs a child list can keep it in a component. Saved parent cycles refuse
-  to load; a runtime cycle drops its highest-index edge and journals the repair.
+  removes its descendants and propagates transforms. Both cost what changed:
+  after the first propagation they visit only despawned parents and the
+  `Parent`/`Transform` pages written, and recompute only the subtrees under rows
+  whose values differ, so a static hierarchy costs nothing per tick.
+  `children(e)` scans; a tick that needs a child list can keep it in a component.
+  Saved parent cycles refuse to load; a runtime cycle drops its highest-index edge
+  and journals the repair.
+- `pose_cursor()` and `poses_changed_since(cursor)` name the blocks of `PAGE`
+  entities whose local `Transform` rows were written or whose propagated global
+  poses changed since the cursor was taken: physics scenes, render feeds and other
+  derived caches skip the rest. A block may hold no changed pose; an unreported
+  block holds none. A cursor from before a load or restore reports every block.
 
 `w.dt()` is one fixed step. `w.tick_end()` names the endpoint currently being
 written; use it when retargeting motion. `w.now()` names the completed boundary.
