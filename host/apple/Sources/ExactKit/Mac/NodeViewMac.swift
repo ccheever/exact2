@@ -688,18 +688,16 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return inv.map { $0 / det }
     }
 
-    /// A window point in this node's own coordinates — through the surface's
-    /// placement when this node is under a placed child (LLP 1014 D5), else
-    /// AppKit's own conversion; through each box in space on the way (D8).
+    /// A window point in this node's own coordinates: AppKit's conversion,
+    /// through each transformed box on the way (LLP 1077 D8), and through the
+    /// surface's placement when this node is under a placed child (LLP 1014
+    /// D5) — the canvas reached first the same way, then the child's points.
     func local(_ windowPoint: NSPoint) -> NSPoint {
         guard let placed = placedAncestor, let h = placed.placement, let inv = NodeView.invert(h),
               let overlay = placed.superview, let canvas = overlay.superview as? NodeView else {
             return descend(windowPoint)
         }
-        let inCanvas = canvas.convert(windowPoint, from: nil)
-        let inChild = NodeView.map(inv, inCanvas)
-        // The child's own points; then down to this node by the untransformed
-        // hierarchy.
+        let inChild = NodeView.map(inv, canvas.local(windowPoint))
         return descend(inChild, from: placed)
     }
 
@@ -750,11 +748,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// agent's `layout` reports.
     override func accessibilityFrame() -> NSRect {
         if placedAncestor?.placementHidden == true { return .zero }
-        guard let placed = placedAncestor, let h = placed.placement, let overlay = placed.superview, let canvas = overlay.superview as? NodeView, let win = window else { return super.accessibilityFrame() }
-        let corners = [NSPoint(x: 0, y: 0), NSPoint(x: bounds.width, y: 0), NSPoint(x: bounds.width, y: bounds.height), NSPoint(x: 0, y: bounds.height)].map { NodeView.map(h, placed.convert($0, from: self)) }
-        let xs = corners.map { $0.x }, ys = corners.map { $0.y }
-        let inCanvas = NSRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
-        return win.convertToScreen(canvas.convert(inCanvas, to: nil))
+        guard placedAncestor?.placement != nil, let win = window else { return super.accessibilityFrame() }
+        return win.convertToScreen(drawnRect(bounds))
     }
 
     /// Whether this view draws in the dark appearance. The **owning view's**

@@ -650,10 +650,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
               let overlay = placed.superview, let canvas = overlay.superview as? NodeView else {
             return convert(windowPoint, from: nil)
         }
-        let inCanvas = canvas.convert(windowPoint, from: nil)
-        let inChild = NodeView.map(inv, inCanvas)
-        // The child's own points; then down to this node by the untransformed
-        // hierarchy.
+        // The canvas reached the same way (a placement above it included),
+        // then the child's own points, then down to this node.
+        let inChild = NodeView.map(inv, canvas.local(windowPoint))
         return convert(inChild, from: placed)
     }
 
@@ -732,11 +731,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     override var accessibilityFrame: CGRect {
         get {
             if placedAncestor?.placementHidden == true { return .zero }
-            guard let placed = placedAncestor, let h = placed.placement, let overlay = placed.superview, let canvas = overlay.superview as? NodeView else { return super.accessibilityFrame }
-            let corners = [CGPoint(x: 0, y: 0), CGPoint(x: bounds.width, y: 0), CGPoint(x: bounds.width, y: bounds.height), CGPoint(x: 0, y: bounds.height)].map { NodeView.map(h, placed.convert($0, from: self)) }
-            let xs = corners.map { $0.x }, ys = corners.map { $0.y }
-            let inCanvas = CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
-            return UIAccessibility.convertToScreenCoordinates(inCanvas, in: canvas)
+            guard placedAncestor?.placement != nil, let window else { return super.accessibilityFrame }
+            return UIAccessibility.convertToScreenCoordinates(drawnRect(bounds, in: window), in: window)
         }
         set { super.accessibilityFrame = newValue }
     }

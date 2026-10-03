@@ -88,6 +88,48 @@ final class SpaceHitIOSTests: XCTestCase {
         XCTAssertEqual(NodeView.map(h, .zero).x, 150, accuracy: 1e-3)
     }
 
+    // A canvas whose surface placed a 60 pt button 50 pt in, inside a box
+    // translated 100 pt: the button is drawn at (150, 50)…(210, 110). UIKit
+    // carries the ancestor's transform; the placement composes with it for
+    // the hit, a point in the button and the agent's box.
+    func testACanvasPlacedChildInsideATranslatedBoxResolvesWhereDrawn() throws {
+        let session = ExactApp.shared.makeSession(label: "placed-in-translated")
+        defer { session.destroy() }
+        let p = session.presenter
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "canvas"],
+            ["op": "create", "id": 3, "kind": "button", "handlers": ["press"]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "children", "id": 2, "ids": [3]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 300.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 200.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 60.0, "h": 60.0],
+            ["op": "present", "id": 1, "property": "translate", "x": 100.0, "y": 0.0],
+        ]))
+        window.layoutIfNeeded()
+        let box = try XCTUnwrap(p.views[1]), button = try XCTUnwrap(p.views[3])
+        button.placement = [1, 0, 50, 0, 1, 50, 0, 0, 1, 0]
+        button.alpha = 0
+        let sup = try XCTUnwrap(box.superview)
+        XCTAssertTrue(box.hitTest(sup.convert(CGPoint(x: 180, y: 80), to: box), with: nil) === button, "where it is drawn")
+        XCTAssertFalse(box.hitTest(sup.convert(CGPoint(x: 80, y: 80), to: box), with: nil) === button, "placed, but not translated")
+        let inButton = button.local(sup.convert(CGPoint(x: 180, y: 80), to: nil))
+        XCTAssertEqual(inButton.x, 30, accuracy: 1e-6)
+        XCTAssertEqual(inButton.y, 30, accuracy: 1e-6)
+        let seen = Agent(session: session).box(button)
+        let expected = sup.convert(CGPoint(x: 150, y: 50), to: p.viewport)
+        XCTAssertEqual(seen.minX, expected.x - p.viewport.contentOffset.x, accuracy: 1e-6)
+        XCTAssertEqual(seen.minY, expected.y - p.viewport.contentOffset.y, accuracy: 1e-6)
+        XCTAssertEqual(seen.width, 60, accuracy: 1e-6)
+        XCTAssertEqual(seen.height, 60, accuracy: 1e-6)
+    }
+
     func testAHiddenBackFaceTakesNoHit() throws {
         let (_, parent, child) = try fixture(degrees: 150, child: ["backface_visibility": "hidden"])
         XCTAssertFalse(parent.hitTest(CGPoint(x: 100, y: 100), with: nil) === child)

@@ -111,6 +111,56 @@ final class SpaceHitMacTests: XCTestCase {
         XCTAssertFalse(child.pressInside(parent.convert(NSPoint(x: 40, y: 100), to: nil)), "outside it")
     }
 
+    // A canvas whose surface placed a 60 pt button 50 pt in, inside a box
+    // translated 100 pt: the button is drawn at (150, 50)…(210, 110) of the
+    // box's untranslated space. The hit, a point in the button (the release's
+    // inside test, inline and SVG targets) and the agent's box all compose
+    // the ancestor's transform, the placement and the button's own space.
+    func testACanvasPlacedChildInsideATranslatedBoxResolvesWhereDrawn() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "placed-in-translated")
+        defer { session.destroy() }
+        let p = session.presenter
+        p.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 400)
+        let window = NSWindow(contentRect: p.viewport.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = p.viewport
+        self.window = window
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view"],
+            ["op": "create", "id": 2, "kind": "canvas"],
+            ["op": "create", "id": 3, "kind": "button", "handlers": ["press"]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "children", "id": 2, "ids": [3]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 300.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 200.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 60.0, "h": 60.0],
+            ["op": "present", "id": 1, "property": "translate", "x": 100.0, "y": 0.0],
+        ]))
+        p.viewport.layoutSubtreeIfNeeded()
+        let box = try XCTUnwrap(p.views[1]), button = try XCTUnwrap(p.views[3])
+        button.placement = [1, 0, 50, 0, 1, 50, 0, 0, 1, 0]
+        button.alphaValue = 0
+        // Points in the box's untranslated space, which AppKit's own
+        // conversion uses (it ignores the layer's transform).
+        let sup = try XCTUnwrap(box.superview)
+        func inWindow(_ x: CGFloat, _ y: CGFloat) -> NSPoint { box.convert(NSPoint(x: x, y: y), to: nil) }
+        XCTAssertTrue(box.hitTest(sup.convert(NSPoint(x: 180, y: 80), from: box)) === button, "where it is drawn")
+        XCTAssertFalse(box.hitTest(sup.convert(NSPoint(x: 80, y: 80), from: box)) === button, "placed, but not translated")
+        XCTAssertEqual(button.local(inWindow(180, 80)).x, 30, accuracy: 1e-6)
+        XCTAssertEqual(button.local(inWindow(180, 80)).y, 30, accuracy: 1e-6)
+        XCTAssertTrue(button.pressInside(inWindow(180, 80)), "a release where it is drawn is inside")
+        XCTAssertFalse(button.pressInside(inWindow(80, 80)))
+        let seen = Agent(session: session).box(button)
+        let clip = p.viewport.contentView
+        let expected = clip.convert(NSPoint(x: 150, y: 50), from: box)
+        XCTAssertEqual(seen.minX, expected.x - clip.bounds.origin.x, accuracy: 1e-6)
+        XCTAssertEqual(seen.minY, expected.y - clip.bounds.origin.y, accuracy: 1e-6)
+        XCTAssertEqual(seen.width, 60, accuracy: 1e-6)
+        XCTAssertEqual(seen.height, 60, accuracy: 1e-6)
+    }
+
     func testAnUnturnedBoxIsUnchanged() {
         let (_, parent, child) = fixture(child: ["rotate_axis": [0, 1, 0]], degrees: 0)
         XCTAssertTrue(hit(parent, 55, 55) === child)

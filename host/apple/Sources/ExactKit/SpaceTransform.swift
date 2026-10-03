@@ -50,15 +50,25 @@ extension NodeView {
         let own = placement == nil && !placementHidden && !CATransform3DIsIdentity(layer?.transform ?? CATransform3DIdentity) ? layer : nil
         #endif
         // The superview's layer holds the perspective (`applyPerspective`);
-        // AppKit attaches it as the superlayer only once the window draws.
-        guard let own, let holder = superview?.layer else { return nil }
+        // AppKit attaches it as the superlayer only once the window draws,
+        // and a superview with no layer (a root) holds none.
+        guard let own, superview != nil else { return nil }
         func anchor(_ l: CALayer) -> CATransform3D {
             let b = l.bounds
             return CATransform3DMakeTranslation(b.minX + b.width * l.anchorPoint.x, b.minY + b.height * l.anchorPoint.y, 0)
         }
         var m = CATransform3DConcat(CATransform3DInvert(anchor(own)), own.transform)
-        m = CATransform3DConcat(m, CATransform3DMakeTranslation(own.position.x, own.position.y, 0))
-        if !CATransform3DIsIdentity(holder.sublayerTransform) {
+        // Where the anchor sits in the superview: on macOS from the frame,
+        // AppKit's own geometry, since the layer's position is in its
+        // superlayer's space, which is not the superview's until a layerless
+        // superview's subtree is attached and flipped.
+        #if os(iOS)
+        let position = own.position
+        #else
+        let position = CGPoint(x: frame.minX + frame.width * own.anchorPoint.x, y: frame.minY + frame.height * own.anchorPoint.y)
+        #endif
+        m = CATransform3DConcat(m, CATransform3DMakeTranslation(position.x, position.y, 0))
+        if let holder = superview?.layer, !CATransform3DIsIdentity(holder.sublayerTransform) {
             let a = anchor(holder)
             m = CATransform3DConcat(CATransform3DConcat(CATransform3DConcat(m, CATransform3DInvert(a)), holder.sublayerTransform), a)
         }
@@ -114,7 +124,7 @@ extension NodeView {
         guard let holder else { return }
         let d = number("perspective")
         guard d > 0 else {
-            if !CATransform3DIsIdentity(holder.sublayerTransform) { holder.sublayerTransform = CATransform3DIdentity }
+            if let holder = superview?.layer, !CATransform3DIsIdentity(holder.sublayerTransform) { holder.sublayerTransform = CATransform3DIdentity }
             return
         }
         // The vanishing point, from the holder's anchor.
@@ -170,14 +180,15 @@ extension NodeView {
         return convert(p, from: at)
     }
 
-    /// `p` in this node's coordinates in `top`'s: `descend` the other way.
-    func ascend(_ p: NSPoint, to top: NSView) -> NSPoint {
+    /// `p` in this node's coordinates in `top`'s (the window's when nil):
+    /// `descend` the other way.
+    func ascend(_ p: NSPoint, to top: NSView?) -> NSPoint {
         var p = p, v: NSView = self
         while v !== top, let sup = v.superview {
             p = (v as? NodeView)?.plane.map { NodeView.map($0, p) } ?? v.convert(p, to: sup)
             v = sup
         }
-        return v === top ? p : top.convert(p, from: v)
+        return v === top ? p : top?.convert(p, from: v) ?? v.convert(p, to: nil)
     }
 
     /// Whether this node or one above it is drawn off its frame.
@@ -188,3 +199,38 @@ extension NodeView {
     }
 }
 #endif
+
+#if os(iOS)
+typealias SpaceView = UIView
+#else
+typealias SpaceView = NSView
+#endif
+
+extension NodeView {
+    /// `p` in this node's coordinates where it is drawn in `top`'s (the
+    /// window's when nil): through each transformed box (UIKit's conversion
+    /// carries them; AppKit's does not, so `ascend`), and through the
+    /// placement of a child a canvas's surface placed (LLP 1014 D5), the
+    /// canvas then carried out the same way — `local` the other way.
+    func drawnPoint(_ p: CGPoint, in top: SpaceView? = nil) -> CGPoint {
+        func out(_ v: NodeView, _ p: CGPoint, _ top: SpaceView?) -> CGPoint {
+            #if os(iOS)
+            return v.convert(p, to: top)
+            #else
+            return v.ascend(p, to: top)
+            #endif
+        }
+        guard let placed = placedAncestor, let h = placed.placement, let canvas = placed.superview?.superview as? NodeView else {
+            return out(self, p, top)
+        }
+        return canvas.drawnPoint(NodeView.map(h, out(self, p, placed)), in: top)
+    }
+
+    /// The bounds in `top`'s coordinates of `r` as drawn (`drawnPoint`).
+    func drawnRect(_ r: CGRect, in top: SpaceView? = nil) -> CGRect {
+        let corners = [CGPoint(x: r.minX, y: r.minY), CGPoint(x: r.maxX, y: r.minY), CGPoint(x: r.maxX, y: r.maxY), CGPoint(x: r.minX, y: r.maxY)]
+            .map { drawnPoint($0, in: top) }
+        let xs = corners.map { $0.x }, ys = corners.map { $0.y }
+        return CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+    }
+}
