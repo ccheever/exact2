@@ -376,7 +376,8 @@ pub fn explode(w: &mut World, owner: u32, at: Vec3, direct: Option<Entity>) -> V
                 let kick = push * KNOCKBACK * (0.35 + 0.65 * falloff);
                 f.knock += Vec3::new(kick.x, 0.0, kick.z);
                 let mut c = w.require_mut::<exact_game_physics::CapsuleController>(victim);
-                c.velocity.y = c.velocity.y.max(0.0) + (kick.y.max(0.0) + 3.0 * falloff);
+                // Lift replaces (never adds to) a jump: a rocket jump clears the deck.
+                c.velocity.y = c.velocity.y.max(kick.y.max(0.0) * 0.6 + 2.5 * falloff);
             }
         }
         out.extend(damage(w, owner, victim, amount, false, Weapon::Rocket));
