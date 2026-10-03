@@ -340,6 +340,16 @@ test('--allow-host admits a tunnel name to every request but never makes it loca
   assert.equal(gate.check(request('evil.abc.tuft.dev')).allowed,false);
   assert.equal(gate.check(request('rebound.example:8879')).allowed,false);
   assert.deepEqual(gate.check(request('127.0.0.1:8879')),{allowed:true,local:true});
+  // A tunnel that rewrites Host to loopback still carries the internet: not local.
+  for (const header of ['forwarded','x-forwarded-for','x-forwarded-host'])
+    assert.deepEqual(gate.check({headers:{host:'127.0.0.1:8879',[header]:'for=203.0.113.9'},socket:{remoteAddress:'127.0.0.1'}}),{allowed:true,local:false},header);
+  // A cross-site browser POST is refused; a same-origin or Origin-less one is not.
+  const post=(origin,host='127.0.0.1:8879')=>gate.check({method:'POST',headers:{host,...(origin===undefined?{}:{origin})},socket:{remoteAddress:'127.0.0.1'}});
+  assert.deepEqual(post('https://evil.example'),{allowed:false,local:false});
+  assert.deepEqual(post('null'),{allowed:false,local:false});
+  assert.deepEqual(post('http://127.0.0.1:8879'),{allowed:true,local:true});
+  assert.deepEqual(post(undefined),{allowed:true,local:true});
+  assert.deepEqual(post('https://abc.tuft.dev','abc.tuft.dev'),{allowed:true,local:false});
   for (const bad of [undefined,'','https://abc.tuft.dev','*.tuft.dev','abc.tuft.dev/','-abc.example','a b'])
     assert.throws(()=>allowHostName(bad),/--allow-host takes a host name/);
   assert.throws(()=>allowHostArgs(['--allow-host']),/--allow-host/);

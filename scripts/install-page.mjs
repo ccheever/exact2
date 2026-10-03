@@ -268,7 +268,9 @@ export function installBrowserOrigins({host, port, interfaces = networkInterface
  * `allowHosts` name (`--allow-host`, a tunnel's public name) is admitted too:
  * `name` at any port, `name:port` at that port. A request is local — it may
  * see the installer's token — only from a loopback peer naming a loopback
- * host, never through an allowed name. */
+ * host, never through an allowed name, and never with a proxy's forwarding
+ * headers: a tunnel that rewrites Host to 127.0.0.1 is still the internet. A
+ * browser POST whose Origin is not the host it names is refused (cross-site). */
 export function developmentGate(origins, port, allowHosts = []) {
   const loopback = [`http://127.0.0.1:${port}`, `http://localhost:${port}`].map(origin => new URL(origin));
   const names = new Set([...origins.map(o => new URL(o.origin).host), ...loopback.map(u => u.host)]);
@@ -278,9 +280,16 @@ export function developmentGate(origins, port, allowHosts = []) {
     loopbackOrigins: loopback.map(u => u.origin),
     allowHosts: allowed,
     check(req) {
-      const host = String(req.headers.host ?? '').toLowerCase();
+      const headers = req.headers ?? {};
+      const host = String(headers.host ?? '').toLowerCase();
       const name = host.replace(/:\d+$/, '');
-      return { allowed: names.has(host) || allowed.some(a => a === host || a === name), local: loopback.some(u => u.host === host) && peers.has(req.socket?.remoteAddress) };
+      const forwarded = ['forwarded', 'x-forwarded-for', 'x-forwarded-host'].some(h => headers[h] !== undefined);
+      let crossSite = false;
+      if (req.method === 'POST' && headers.origin !== undefined) {
+        try { crossSite = new URL(headers.origin).host.toLowerCase() !== host; } catch { crossSite = true; }
+      }
+      const admitted = !crossSite && (names.has(host) || allowed.some(a => a === host || a === name));
+      return { allowed: admitted, local: admitted && !forwarded && loopback.some(u => u.host === host) && peers.has(req.socket?.remoteAddress) };
     },
   };
 }
