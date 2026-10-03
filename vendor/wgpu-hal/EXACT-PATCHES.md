@@ -1,4 +1,4 @@
-# wgpu-hal 30.0.1 — four local patches, all in the Metal backend
+# wgpu-hal 30.0.1 — five local patches, all in the Metal backend
 
 Complete crates.io archive, including the upstream MIT/Apache licenses and
 `.cargo_vcs_info.json`. No feature change or dependency upgrade. Every changed
@@ -98,6 +98,18 @@ compositor (LLP 1068 §4.5, "a presentation signal before unhiding"), because
 the layer still shows the last picture presented to it. Not proposed
 upstream: wgpu has no presentation callbacks, and a general one would belong
 on the surface.
+
+## 5. An sRGB surface is color-matched on macOS
+
+`src/metal/surface.rs`, `configure`: for `SurfaceColorSpace::Srgb` upstream
+sets the layer's `colorspace` to nil, "the layer's default, which treats
+contents as sRGB". That holds on iOS. On macOS a nil `CAMetalLayer.colorspace`
+means no color matching: the values are shown as the display's own, so an
+sRGB canvas is oversaturated on a P3 panel, its colours change with the
+display and its preset, and so does every capture of it (Caltrain's macOS
+canvas reference moved by R +3, G −3, B +1 at the bright end). On macOS
+`Srgb` sets `kCGColorSpaceSRGB`; iOS is unchanged. The web shows a canvas as
+sRGB, so this is the browser's picture too. **Upstreamable as it stands.**
 
 ## Updating
 
