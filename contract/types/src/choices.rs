@@ -126,25 +126,59 @@ pub(crate) fn given(want: &Ty, e: &Expr, scope: &Scope, shapes: &Shapes) -> Resu
 }
 
 /// A provided value's type, before the injects it fills are known: a
-/// string literal, or a `?:` of them, is the choice of those literals, which
-/// a `string` inject and any choice holding them accept.
+/// string literal is the choice of itself, and `some`, `?:` and an
+/// option's `match` of literals the choice of all of them, which a `string`
+/// inject and any choice holding them accept.
 pub(crate) fn provided(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
-    fn literals(e: &Expr, out: &mut Vec<String>) -> bool {
-        match e {
-            Expr::Str(s, _) => {
-                out.push(s.clone());
-                true
+    let t = infer(e, scope, shapes)?;
+    Ok(literal_type(e).filter(|l| t.accepts(l)).unwrap_or(t))
+}
+
+/// The type of an expression whose every string is a literal written in it,
+/// with each literal its own choice; `None` for anything else.
+fn literal_type(e: &Expr) -> Option<Ty> {
+    fn union(a: Ty, b: Ty) -> Option<Ty> {
+        match (a, b) {
+            (Ty::Choice(mut x), Ty::Choice(y)) => {
+                x.extend(y);
+                Some(Ty::choice(&x))
             }
-            Expr::Ternary(_, a, b, _) => literals(a, out) && literals(b, out),
-            _ => false,
+            (Ty::Option(x), Ty::Option(y)) => Some(Ty::Option(Box::new(union(*x, *y)?))),
+            (Ty::Unknown, t) | (t, Ty::Unknown) => Some(t),
+            _ => None,
         }
     }
-    let t = infer(e, scope, shapes)?;
-    let mut found = Vec::new();
-    Ok(if t == Ty::String && literals(e, &mut found) {
-        Ty::choice(&found)
-    } else {
-        t
+    match e {
+        Expr::Str(s, _) => Some(Ty::Choice(vec![s.clone()])),
+        Expr::None(_) => Some(Ty::Option(Box::new(Ty::Unknown))),
+        Expr::Some(x, _) => Some(Ty::Option(Box::new(literal_type(x)?))),
+        Expr::Ternary(_, a, b, _) => union(literal_type(a)?, literal_type(b)?),
+        Expr::Match { some, none, .. } => union(literal_type(some)?, literal_type(none)?),
+        _ => None,
+    }
+}
+
+/// Whether the subject of a component's `match`, as its use substituted it,
+/// is always one of `all`: a literal among them, a narrower choice, or
+/// branches of those.
+fn fits(
+    subject: &Expr,
+    all: &[(String, Span)],
+    scope: &Scope,
+    shapes: &Shapes,
+) -> Result<bool, TypeError> {
+    let among = |l: &String| all.iter().any(|(a, _)| a == l);
+    Ok(match subject {
+        Expr::Str(s, _) => among(s),
+        Expr::Ternary(_, a, b, _) => {
+            infer(subject, scope, shapes)?;
+            fits(a, all, scope, shapes)? && fits(b, all, scope, shapes)?
+        }
+        _ => match infer(subject, scope, shapes)? {
+            Ty::Choice(c) => c.iter().all(among),
+            Ty::Unknown => true,
+            _ => false,
+        },
     })
 }
 
@@ -202,11 +236,23 @@ pub(crate) fn case(
     scope: &Scope,
     shapes: &Shapes,
 ) -> Result<Ty, TypeError> {
-    // A component's or a `fn`'s test, with what its use passed substituted
-    // in: checked in its own declaration against the declared choice, and
-    // the use's value against that choice where it was passed.
+    // A component's test, carried into its use: its own check held the
+    // `match` to the declared choice; here the subject is one of its arms'.
     if checked {
-        return Ok(Ty::Bool);
+        return match all {
+            Some(all) if !fits(subject, all, scope, shapes)? => {
+                let t = infer(subject, scope, shapes)?;
+                err(
+                    "type-match-subject",
+                    format!(
+                        "this component's `match` takes `{}`, but where it is used its subject is `{t}`: match the choice prop itself, or a derive of it (a state's type is inferred, and a literal makes it a `string`)",
+                        spell(&all.iter().map(|(l, _)| l.clone()).collect::<Vec<_>>())
+                    ),
+                    subject.span(),
+                )
+            }
+            _ => Ok(Ty::Bool),
+        };
     }
     let t = infer(subject, scope, shapes)?;
     let choice = match &t {

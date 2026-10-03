@@ -826,6 +826,11 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                         );
                     }
                 }
+                // A bare `action` prop types nothing it is given: each
+                // argument is still checked as an expression on its own.
+                for arg in args.iter().skip(params.len()) {
+                    infer(arg, scope, shapes)?;
+                }
                 Ty::Action(params.iter().skip(args.len()).cloned().collect())
             } else if let Some(f) = Stdlib::from_name(name).filter(|f| lists::is_list_op(*f)) {
                 return lists::infer_call(f, args, *span, scope, shapes);

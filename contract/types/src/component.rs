@@ -516,7 +516,14 @@ fn refine_params_from_view(
                                 if args.len() < ct.actions[ai].len() && last < ct.actions[ai].len()
                                 {
                                     let declared = ct.actions[ai][last].clone();
-                                    let Some(unified) = declared.unify(&ty) else {
+                                    // An undeclared parameter takes what every
+                                    // call agrees on, as from an argument.
+                                    let unified = if c.actions[ai].params[last].ty.is_some() {
+                                        declared.unify(&ty)
+                                    } else {
+                                        declared.join(&ty)
+                                    };
+                                    let Some(unified) = unified else {
                                         return err(
                                             "type-handler-payload",
                                             format!(

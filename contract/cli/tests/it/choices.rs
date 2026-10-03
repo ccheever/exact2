@@ -234,3 +234,63 @@ fn every_literal_names_a_rust_variant() {
         "{rust}"
     );
 }
+
+#[test]
+fn a_components_match_carried_into_its_use_takes_only_its_arms_literals() {
+    // Passed a bare `action` prop, the `match` is checked in the component.
+    let src = "shape S\n  k: \"a\" | \"b\" | \"c\"\ncomponent App\n  state out = \"\"\n  resource s = s() as shape S\n  action set(x: string)\n    out = x\n  view\n    Child(kind=s.k, picked=set)\ncomponent Child\n  props\n    kind: \"a\" | \"b\" | \"c\"\n    picked: action\n  view\n    button \"go\" press=picked(match kind { case \"a\" => \"A\", case \"b\" => \"B\" })\n";
+    assert_eq!(compiled(src), "type-match-missing");
+    // A number in a component whose `match` is over a bare-action argument.
+    let src = "component App\n  state out = \"\"\n  action set(s: string)\n    out = s\n  view\n    Child(kind=123, picked=set)\ncomponent Child\n  props\n    kind: number\n    picked: action\n  view\n    button \"go\" press=picked(match kind { case \"a\" => \"A\", case \"b\" => \"B\" })\n";
+    assert_eq!(compiled(src), "type-match-subject");
+    // A same-named narrower value passes through.
+    let src = "fn a(): \"a\" = \"a\"\ncomponent App\n  state kind = a()\n  view\n    Child(kind=kind)\ncomponent Child\n  props\n    kind: \"a\" | \"b\"\n  view\n    text match kind { case \"a\" => \"A\", case \"b\" => \"B\" }\n";
+    assert_eq!(compiled(src), "ok");
+    // A state a choice prop initializes is a `string` at the use: refused,
+    // and the refusal says to match the prop.
+    let src = "component App\n  view\n    column\n      Child(k=\"a\")\ncomponent Child\n  props\n    k: \"a\" | \"b\"\n  state mode = k\n  view\n    column\n      match mode\n        case \"a\"\n          text \"A\"\n        case \"b\"\n          text \"B\"\n";
+    let e = contract::compile(src).unwrap_err();
+    assert_eq!(e.id, "type-match-subject", "{e}");
+    assert!(e.message.contains("match the choice prop itself"), "{e}");
+}
+
+#[test]
+fn a_payload_and_a_provided_option_agree_as_arguments_do() {
+    for (a, b) in [
+        (
+            "button \"c\" press=pick(firstKind())",
+            "input type=\"text\" input=pick",
+        ),
+        (
+            "input type=\"text\" input=pick",
+            "button \"c\" press=pick(firstKind())",
+        ),
+    ] {
+        let src = format!("fn firstKind(): \"a\" = \"a\"\ncomponent App\n  state s = \"\"\n  action pick(k)\n    s = k\n  view\n    column\n      {a}\n      {b}\n");
+        assert_eq!(compiled(&src), "ok", "{a}");
+    }
+    let src = "component App\n  state c = true\n  provide\n    kind = c ? some(\"a\") : none\n  view\n    column\n      Child()\ncomponent Child\n  inject\n    kind: option<\"a\" | \"b\">\n  view\n    text \"x\"\n";
+    assert_eq!(compiled(src), "ok");
+}
+
+#[test]
+fn nested_action_matches_are_refused_past_256_levels() {
+    let lits: Vec<String> = (0..63).map(|i| format!("\"k{i}\"")).collect();
+    let mut src = format!(
+        "fn k(): {} = \"k62\"\ncomponent App\n  state n = 0\n  action go\n",
+        lits.join(" | ")
+    );
+    let mut indent = 4;
+    for _ in 0..5 {
+        src += &format!("{}match k()\n", " ".repeat(indent));
+        for l in &lits {
+            src += &format!("{}case {l}\n", " ".repeat(indent + 2));
+        }
+        indent += 4;
+    }
+    src += &format!(
+        "{}n = 2\n  view\n    text \"x\" press=go\n",
+        " ".repeat(indent)
+    );
+    assert_eq!(compiled(&src), "syntax-action-depth");
+}

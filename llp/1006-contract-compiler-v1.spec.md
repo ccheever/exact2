@@ -336,7 +336,7 @@ literals to an arm as `case "a" | "b"`, every literal named and no `else`, in
 a view, an action and an expression. The parser reads it as nested `when`s,
 `if`s or `?:`s on `Expr::Case` tests, so nothing after the checker knows it
 was a `match`. Refusals: `syntax-choice-literal`, `syntax-choice-duplicate`,
-`syntax-match-else`, `syntax-match-arms` (more than 64), `type-choice-unknown` (a literal outside the choice, in
+`syntax-match-else`, `syntax-match-arms` (more than 64), `syntax-action-depth`, `type-choice-unknown` (a literal outside the choice, in
 a `case`, beside `==`, or where the choice is wanted), `type-match-missing`,
 and `type-match-subject` for a subject that is not a choice. The plan holds a
 choice as a `string` type row whose fields name its literals; `Value::conforms`

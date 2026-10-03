@@ -926,9 +926,10 @@ pub enum Expr {
         /// On a `match`'s first test, every arm's literals in order, each
         /// with where it is written.
         all: Option<Vec<(String, Span)>>,
-        /// Set where expansion substituted into the subject: the test is a
-        /// component's or a `fn`'s, already checked against its declared
-        /// choice, and what replaced the subject was checked at the use.
+        /// Set where expansion carries the test out of a component into its
+        /// use: the component's own check held the `match` to its declared
+        /// choice, so in the use the subject need only be one of `all`
+        /// (a narrower choice, or a literal the use passed).
         checked: bool,
         /// The `match`.
         span: Span,

@@ -184,12 +184,12 @@ pub(super) fn subst_expr<T: SubstitutionValue>(e: &Expr, s: &mut Subst<'_, T>) -
             subject,
             literals,
             all,
-            checked,
             span,
+            ..
         } => {
             let replaced = subst_expr(subject, s);
             Expr::Case {
-                checked: *checked || replaced != **subject,
+                checked: true,
                 subject: Box::new(replaced),
                 literals: literals.clone(),
                 all: all.clone(),

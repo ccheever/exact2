@@ -873,6 +873,17 @@ impl Parser {
     }
 
     fn stmt(&mut self) -> R<Stmt> {
+        // As a view's sites: every later pass walks an action's nesting.
+        if self.view_depth >= 256 {
+            return self.err("syntax-action-depth", "statements nest more than 256 deep, each arm of a `match` over a choice one level: name a branch's work in a `fn`, or flatten its conditions");
+        }
+        self.view_depth += 1;
+        let result = self.stmt_inner();
+        self.view_depth -= 1;
+        result
+    }
+
+    fn stmt_inner(&mut self) -> R<Stmt> {
         if self.at_ident("if") {
             let span = self.expect_word("if")?;
             let cond = self.expr()?;
