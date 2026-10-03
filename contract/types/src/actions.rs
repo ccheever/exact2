@@ -31,6 +31,10 @@ pub(super) fn check_body(
         shapes,
         sink,
         lifted,
+        tails: contract_syntax::inline::tail::tail_positions(stmts)
+            .into_iter()
+            .map(|s| s as *const Stmt)
+            .collect(),
     };
     cx.block(stmts, scope, &Lets::default());
 }
@@ -41,6 +45,9 @@ struct Cx<'c, 's> {
     shapes: &'c Shapes,
     sink: &'s mut Sink,
     lifted: bool,
+    /// The body's statements in tail position: the only place an action
+    /// prop may be called (its tail call).
+    tails: Vec<*const Stmt>,
 }
 
 impl Cx<'_, '_> {
@@ -172,7 +179,17 @@ impl Cx<'_, '_> {
                 }
             }
             Stmt::Command { name, args, span } => {
-                return checks::check_command(name, args, scope, shapes, *span)
+                // A marked tail call the expansion could not resolve: it
+                // already said why.
+                if name.starts_with(contract_syntax::inline::TAIL) {
+                    return Ok(());
+                }
+                if self.tails.contains(&(stmt as *const Stmt)) {
+                    if let Some((Ref::Prop(_), Ty::Action(params))) = scope.lookup(name) {
+                        return tail_args(name, params, args, scope, shapes, *span);
+                    }
+                }
+                return checks::check_command(name, args, scope, shapes, *span);
             }
             Stmt::Send {
                 target,
@@ -339,4 +356,39 @@ fn names<'e>(e: &'e Expr, bound: &mut Vec<&'e str>, out: &mut Vec<(&'e str, Span
             bound.truncate(bound.len() - params.len());
         }
     }
+}
+
+/// An action prop called as an action's last statement (LLP 1017 P4c, the
+/// tail call): every remaining parameter supplied, each of its type. The
+/// call runs after the action's own writes, in the same commit.
+fn tail_args(
+    name: &str,
+    params: &[Ty],
+    args: &[Expr],
+    scope: &Scope,
+    shapes: &Shapes,
+    span: Span,
+) -> Result<(), TypeError> {
+    if !params.is_empty() && args.len() != params.len() {
+        return err(
+            "type-arity",
+            format!(
+                "`{name}` takes {} argument(s) here, given {}",
+                params.len(),
+                args.len()
+            ),
+            span,
+        );
+    }
+    for (arg, pt) in args.iter().zip(params) {
+        let t = infer(arg, scope, shapes)?;
+        if !checks::can_unify(&t, pt) {
+            return err(
+                "type-argument",
+                format!("`{name}` expects `{pt}`, given `{t}`"),
+                arg.span(),
+            );
+        }
+    }
+    Ok(())
 }

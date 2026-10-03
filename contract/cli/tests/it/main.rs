@@ -73,6 +73,7 @@ mod styles;
 mod surface;
 mod svg;
 mod symbols;
+mod tail_call;
 mod tests_decl;
 mod text_item;
 mod time;

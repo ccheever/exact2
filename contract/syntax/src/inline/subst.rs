@@ -453,7 +453,7 @@ fn occurs(e: &Expr, name: &str) -> bool {
     }
 }
 
-fn stmt_occurs(st: &Stmt, name: &str) -> bool {
+pub(super) fn stmt_occurs(st: &Stmt, name: &str) -> bool {
     match st {
         Stmt::Assign { target, expr, .. } => target == name || occurs(expr, name),
         Stmt::Let { name: n, expr, .. } => n == name || occurs(expr, name),

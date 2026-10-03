@@ -18,6 +18,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 mod derives;
 mod subst;
+pub mod tail;
 #[cfg(test)]
 mod tests;
 
@@ -219,6 +220,7 @@ fn expand_with_sites(file: &File, capture_sites: bool) -> (Expanded, Vec<SyntaxE
             action_instances.push(instance);
         }
     }
+    tail::resolve(&mut root.actions, &records, &mut ctx.errors);
     let expanded = Expanded {
         root,
         owners,
@@ -398,6 +400,49 @@ fn inline_nodes(
                         )
                     })
                     .collect();
+                // An action prop an action calls last (its tail call): the
+                // action it names, and the arguments it was curried with,
+                // captured as the props above are (they are the parent's).
+                let mut captures = captures;
+                let mut tails: BTreeMap<String, (String, Vec<Expr>)> = BTreeMap::new();
+                for (pi, prop) in c.props.iter().enumerate() {
+                    let is_action = matches!(prop.ty.as_ref(), Some(TypeExpr::Named(name, _)) if name == "action");
+                    let called = c
+                        .actions
+                        .iter()
+                        .any(|a| tail_calls(&a.body).contains(&prop.name.as_str()));
+                    let Some(value) = child_subst.get(&prop.name).filter(|_| is_action && called)
+                    else {
+                        continue;
+                    };
+                    let (target, curried) = match value {
+                        Expr::Ident(target, _) => (target.clone(), Vec::new()),
+                        Expr::Call(target, curried, _) => (target.clone(), curried.clone()),
+                        other => {
+                            ctx.refuse(
+                                "syntax-tail-call",
+                                format!("`{}` is called by an action, so it must name an action, as `{}=act` or `{}=act(args)` does", prop.name, prop.name, prop.name),
+                                other.span(),
+                            );
+                            continue;
+                        }
+                    };
+                    let mut held = Vec::new();
+                    for (j, arg) in curried.into_iter().enumerate() {
+                        let hidden = format!("@capture:{n}:a{pi}:{j}");
+                        held.push(Expr::Ident(hidden.clone(), prop.span));
+                        captures.push((
+                            Param {
+                                name: hidden,
+                                ty: None,
+                                span: prop.span,
+                            },
+                            arg,
+                            String::new(),
+                        ));
+                    }
+                    tails.insert(prop.name.clone(), (target, held));
+                }
                 for action in &c.actions {
                     child_subst.insert(
                         action.name.clone(),
@@ -443,7 +488,8 @@ fn inline_nodes(
                 }
                 for a in &c.actions {
                     let mut action_subst = BTreeMap::new();
-                    for (param, _, source_name) in &captures {
+                    for (param, _, source_name) in captures.iter().filter(|(_, _, n)| !n.is_empty())
+                    {
                         action_subst.insert(
                             source_name.clone(),
                             Expr::Ident(param.name.clone(), param.span),
@@ -478,10 +524,13 @@ fn inline_nodes(
                                 .map(|(param, _, _)| param.clone())
                                 .chain(a.params.iter().cloned())
                                 .collect(),
-                            body: subst_stmts(
-                                &a.body,
-                                &mut Subst::new(&action_subst, records),
-                                &names,
+                            body: tail_marked(
+                                subst_stmts(
+                                    &a.body,
+                                    &mut Subst::new(&action_subst, records),
+                                    &names,
+                                ),
+                                &tails,
                             ),
                             span: a.span,
                         },
@@ -707,4 +756,53 @@ fn rename_nodes(nodes: &[Node], map: &BTreeMap<String, String>, n: u32) -> Vec<N
             }
         })
         .collect()
+}
+
+/// The action props an action body calls in tail position (`close()` last,
+/// or last in a last `if`/`match` branch): LLP 1017 P4c, the tail call
+/// Charlie admitted 2026-10-03. The type pass refuses one anywhere else.
+pub fn tail_calls(body: &[crate::ast::Stmt]) -> Vec<&str> {
+    tail::tail_positions(body)
+        .into_iter()
+        .filter_map(|s| match s {
+            crate::ast::Stmt::Command { name, .. } => Some(name.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The prefix a lifted action's tail call is marked with: `@tail:<action>`,
+/// the root action the prop named. `@` cannot begin an authored name.
+pub const TAIL: &str = "@tail:";
+
+/// A lifted body whose tail calls name an action prop, each pointed at the
+/// action the prop named, with its curried arguments first.
+fn tail_marked(
+    body: Vec<crate::ast::Stmt>,
+    tails: &BTreeMap<String, (String, Vec<Expr>)>,
+) -> Vec<crate::ast::Stmt> {
+    use crate::ast::Stmt;
+    let mut body = body;
+    match body.last_mut() {
+        Some(Stmt::Command { name, args, .. }) => {
+            if let Some((target, held)) = tails.get(name.as_str()) {
+                *name = format!("{TAIL}{target}");
+                let mut all = held.clone();
+                all.append(args);
+                *args = all;
+            }
+        }
+        Some(Stmt::If {
+            then, otherwise, ..
+        }) => {
+            *then = tail_marked(std::mem::take(then), tails);
+            *otherwise = tail_marked(std::mem::take(otherwise), tails);
+        }
+        Some(Stmt::Match { some, none, .. }) => {
+            some.1 = tail_marked(std::mem::take(&mut some.1), tails);
+            *none = tail_marked(std::mem::take(none), tails);
+        }
+        _ => {}
+    }
+    body
 }

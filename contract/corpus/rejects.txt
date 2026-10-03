@@ -863,12 +863,15 @@ component A
       text "a"
 ---
 == type-unknown-command
-# Nor is an action prop.
+# Nor is an action prop, except as the action's last statement (its tail
+# call, LLP 1017 §11).
 component Child
   props
     comment: action
+  state sent = false
   action go
     comment("x")
+    sent = true
   view
     button press=go
       text "a"

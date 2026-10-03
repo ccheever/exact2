@@ -140,3 +140,39 @@ Sol (ultra) and Grok (xhigh) each saw r2 and the other's sub-LLP, answered §8's
 ## Process note
 
 `rules/DEFERRED.md` §Process: no refine loops, no READY verdicts. This document had none; it is one read of the record, written in a day, with paths so the read can be checked. Linked into `llp/current/` once the working set had room (15 of 15 with it; a peer session archived two links the same afternoon). The same question was then put, blind and with §5–§8 withheld, to two outside families: Grok 4.6 (LLP 1017.001) and GPT-5.6 Sol via codex (LLP 1017.002) — each with the same brief, the same capsule, and the same two worked samples, so the three answers read side by side. Where this document and a diary disagree, the diary is the record.
+
+## 11. The tail call (Charlie, 2026-10-03)
+
+P4c had child actions reach their parent only through `action` props bound
+to elements, so a child could not decide, in its own logic, to tell its
+parent. The Signal Clone's photo viewer is the consumer: a drag's release
+decides whether to dismiss. The workaround moved the viewer's pan, zoom and
+dismissal state to the root. Charlie, asked through the coordinator: yes.
+
+**The rule.** A child's action may call one of its `action` props as its last
+statement, or as the last statement of the branches of a last `if` or `match`
+(tail position). The arguments complete the prop's parameters, after any
+curried at the use (`close=dismiss("photo")`). Anywhere else the call is
+still refused (`type-unknown-command`, which now names the tail position).
+An action still does not call a root action by name, and nothing returns a
+value.
+
+**What it means.** The compiler marks the call while inlining (`@tail:<action>`,
+`contract/syntax/src/inline.rs`) and then puts the named action's statements
+in its place (`inline/tail.rs`). Its parameters become `let`s of the call's
+arguments, renamed apart. The call is exactly those statements run last in
+the caller. It is one commit, every statement reads the state as the action
+found it (as any statement in an action does), and the callee's writes land
+after the caller's (`a = 1` then a callee's `a = 2` leaves 2). The writes
+allowlist is the union, because it is computed from the inlined body. No
+plan opcode and no runtime change, so both runners and every host run it
+already. A chain of tail calls inlines in order. A cycle is refused
+(`syntax-tail-cycle`), and so is a caller `let` that would hide a name the
+callee reads (`syntax-tail-capture`: rename the local). An action prop
+argument that does not name an action, a ternary for instance, is refused at
+the use (`syntax-tail-call`).
+
+Tests: `contract/cli/tests/it/tail_call.rs`, run on the runner. They cover a
+conditional dismiss, curried arguments ahead of the call's own, reads before
+and writes after the caller's, the refusal anywhere but the tail, and the
+capture refusal. DEFERRED records the ruling under **Actions**.

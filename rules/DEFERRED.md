@@ -357,6 +357,18 @@ reading. Nothing that isn't HTML is added by it.
   §4.8, §5.3; Charlie, 2026-09-27). A reused view is indistinguishable from a
   new element; state that must survive scrolling lives in keyed data.
 
+**Actions** — an action does not call an action (LLP 1017 P4c: a child
+reaches its parent through `action` props bound to elements).
+**Expanded (Charlie, 2026-10-03: yes to the action-prop tail call):** a
+child's action may call one of its `action` props as its last statement (or
+the last statement of a last `if`/`match` branch). The compiler puts the named
+action's statements there, so it runs last in the same commit (LLP 1017 §P4c,
+"The tail call"). The Signal Clone's photo viewer is the consumer: its release
+decides to dismiss. Unblocks a child that decides, in its own logic, to tell
+its parent. Take: none offered; waived by Charlie's approval. Still refused:
+an action calling a root action by name, a call anywhere but the tail,
+recursion, and a return value.
+
 **Motion** — **in v1**, in the LLP 1002 shape: CSS's `transition` model. Targets
 are kernel style rows (`translate`, `scale`, `rotate`, `opacity`); a `transition`
 row on the node says how they get there; the web host emits it as CSS and does

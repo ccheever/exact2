@@ -937,7 +937,7 @@ pub(super) fn check_command(
                 "`{name}` is an action, not a host command: an action is not callable from an action; put its statements here, or bind it to an element (`press={name}`)"
             ),
             Some((Ref::Prop(_), Ty::Action(_))) => format!(
-                "`{name}` is an action prop, not a host command: an action is not callable from an action; bind it to an element (`press={name}`)"
+                "`{name}` is an action prop: an action calls one only as its last statement (its tail call), or binds it to an element (`press={name}`)"
             ),
             _ => format!(
                 "`{name}` is not a host command; the hosts answer {}",
