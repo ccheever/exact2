@@ -74,7 +74,11 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
 
     /// The local culls' groups: every caster in each of its four views.
     pub(super) fn local_groups(&mut self) {
-        let used = self.local_plan.views.len().div_ceil(crate::cull::VIEWS as usize);
+        let used = self
+            .local_plan
+            .views
+            .len()
+            .div_ceil(crate::cull::VIEWS as usize);
         for (i, local) in self.local_culls.iter_mut().enumerate() {
             local.cull.groups.clear();
             if i >= used {
@@ -109,7 +113,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 let at = index * crate::cull::GROUP_WORDS + 7;
                 local.cull.words[at] = (local.cull.words[at] & !15) | (group.flags & 15);
             }
-            local.cull.finish_setup(&self.device, &self.queue, items, records, skins);
+            local
+                .cull
+                .finish_setup(&self.device, &self.queue, items, records, skins);
         }
     }
     /// Bind each used local cull and write its views.

@@ -1,12 +1,12 @@
 //! Public, independently authored render-hook proof; no consumer game or ocean code.
 //! @ref llp/1046.006.000-render-hooks.rfc.md#5-order-of-work
+use exact_game::Args;
 use exact_game::{Environment, Game, Input, World};
 use exact_game_render::{
     FrameView, HookGpu, Hooks, Needs, PostInputs, RenderError, RenderWorld, SceneCopy, WorldSurface,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use exact_gpu::fixture;
-use exact_game::Args;
 use exact_gpu::{wgpu, Frame, Surface, Value};
 
 pub struct TestGame;
@@ -586,7 +586,10 @@ impl<const SHADOWS: bool> Hooks for MaterialHooks<SHADOWS> {
         }
         "#;
         let forward = if SHADOWS {
-            format!("{}\n{shadowed}", exact_game_render::hooks::MATERIAL_SHADOWS_WGSL)
+            format!(
+                "{}\n{shadowed}",
+                exact_game_render::hooks::MATERIAL_SHADOWS_WGSL
+            )
         } else {
             forward.to_owned()
         };
@@ -677,7 +680,11 @@ fn custom_material_forward_shaders_sample_the_engine_shadow_maps() {
         surface.bind(&[Value::Bool(caster)], None).unwrap();
         let (image, _) = fixture::render(&gpu, &mut surface, &frame()).unwrap();
         assert!(surface.error().is_none(), "{:?}", surface.error());
-        image.save(if caster { "custom-shadowed" } else { "custom-unshadowed" });
+        image.save(if caster {
+            "custom-shadowed"
+        } else {
+            "custom-unshadowed"
+        });
         image
     };
     let (open, shadowed) = (render(false), render(true));

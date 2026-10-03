@@ -257,7 +257,14 @@ impl EnvironmentLight {
             self.key = None;
             self.prefiltered = None;
             let view = map.as_ref().map_or(&self.placeholder, |m| m.view);
-            self.bind = map_bind(device, &self.layout, &self.uniform, view, &self.map_sampler, &self.sh);
+            self.bind = map_bind(
+                device,
+                &self.layout,
+                &self.uniform,
+                view,
+                &self.map_sampler,
+                &self.sh,
+            );
             if let Some(m) = &map {
                 let mut words = [0f32; (STRIDE as usize / 4) * (MIPS as usize) * 6];
                 for mip in 0..MIPS {
@@ -792,7 +799,13 @@ mod tests {
         // 64 x 32 RGBM: a warm upper hemisphere at radiance 2, a dark blue lower one.
         let (w, h) = (64u32, 32u32);
         let texels: Vec<u8> = (0..w * h)
-            .flat_map(|i| if i / w < h / 2 { [255, 128, 0, 128] } else { [0, 0, 64, 32] })
+            .flat_map(|i| {
+                if i / w < h / 2 {
+                    [255, 128, 0, 128]
+                } else {
+                    [0, 0, 64, 32]
+                }
+            })
             .collect();
         use wgpu::util::DeviceExt;
         let texture = gpu.device.create_texture_with_data(
@@ -822,7 +835,12 @@ mod tests {
             intensity: 1.,
             rgbm: 4.,
         };
-        light.prepare(&gpu.device, &gpu.queue, &Environment::default(), Some(source()));
+        light.prepare(
+            &gpu.device,
+            &gpu.queue,
+            &Environment::default(),
+            Some(source()),
+        );
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
         light.encode(&mut encoder);
         gpu.queue.submit([encoder.finish()]);
@@ -837,11 +855,16 @@ mod tests {
             *v = f32::from_ne_bytes(words[i * 4..i * 4 + 4].try_into().unwrap());
         }
         let (top, bottom) = (evaluate(&c, Vec3::Y), evaluate(&c, -Vec3::Y));
-        assert!(top.x > 1. && top.x > 4. * bottom.x && bottom.z > top.z, "{top} {bottom}");
+        assert!(
+            top.x > 1. && top.x > 4. * bottom.x && bottom.z > top.z,
+            "{top} {bottom}"
+        );
         // An unchanged map is not prefiltered again; the sky's colours are ignored.
         let updates = light.updates;
-        let mut sky = Environment::default();
-        sky.zenith = [1., 0., 0.];
+        let sky = Environment {
+            zenith: [1., 0., 0.],
+            ..Default::default()
+        };
         light.prepare(&gpu.device, &gpu.queue, &sky, Some(source()));
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
         light.encode(&mut encoder);

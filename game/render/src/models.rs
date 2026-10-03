@@ -677,7 +677,8 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             Moved::Pages { pages, parented } if !initial && !rebuilt => {
                 touched.append(&mut models.moving);
                 let history = &models.pose_history;
-                let at = |index: usize| history.partition_point(|h| (h.entity.index() as usize) < index);
+                let at =
+                    |index: usize| history.partition_point(|h| (h.entity.index() as usize) < index);
                 for &page in pages {
                     touched.extend(at(page * exact_game::PAGE)..at((page + 1) * exact_game::PAGE));
                 }
@@ -699,7 +700,9 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                     let digest = world
                         .get::<exact_game::Mesh>(models.pose_history[i].entity)
                         .and_then(|m| match &*m {
-                            exact_game::Mesh::Asset(name) => models.loaded.get(name).map(|m| m.digest),
+                            exact_game::Mesh::Asset(name) => {
+                                models.loaded.get(name).map(|m| m.digest)
+                            }
                             _ => None,
                         })
                         .unwrap_or(0);

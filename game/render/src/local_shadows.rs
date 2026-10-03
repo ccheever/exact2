@@ -29,8 +29,10 @@ impl Plan {
         for light in lights.iter().take(crate::MAX_LIGHTS) {
             let need = if light.cone.is_some() { 1 } else { 6 };
             if !light.shadows
-                || !(light.intensity > 0.)
-                || !(light.range > 0.)
+                || light.intensity.is_nan()
+                || light.intensity <= 0.
+                || light.range.is_nan()
+                || light.range <= 0.
                 || !light.position.is_finite()
                 || self.views.len() + need > MAX_VIEWS
             {
@@ -43,7 +45,11 @@ impl Plan {
                 Some([_, outer]) => {
                     let fov = (2. * outer.clamp(-1., 1.).acos()).clamp(0.01, MAX_FOV);
                     let direction = light.direction.normalize_or(-Vec3::Z);
-                    let up = if direction.y.abs() > 0.99 { Vec3::Z } else { Vec3::Y };
+                    let up = if direction.y.abs() > 0.99 {
+                        Vec3::Z
+                    } else {
+                        Vec3::Y
+                    };
                     self.views.push(
                         directx::perspective(fov, 1., near, light.range)
                             * glam::camera::rh::view::look_to_mat4(light.position, direction, up),
@@ -51,12 +57,8 @@ impl Plan {
                     2. * (fov * 0.5).tan() / RESOLUTION as f32
                 }
                 None => {
-                    let projection = directx::perspective(
-                        std::f32::consts::FRAC_PI_2,
-                        1.,
-                        near,
-                        light.range,
-                    );
+                    let projection =
+                        directx::perspective(std::f32::consts::FRAC_PI_2, 1., near, light.range);
                     // Face order +X −X +Y −Y +Z −Z: lights.wgsl picks by major axis.
                     for (axis, up) in [
                         (Vec3::X, -Vec3::Y),
@@ -66,8 +68,10 @@ impl Plan {
                         (Vec3::Z, -Vec3::Y),
                         (-Vec3::Z, -Vec3::Y),
                     ] {
-                        self.views
-                            .push(projection * glam::camera::rh::view::look_to_mat4(light.position, axis, up));
+                        self.views.push(
+                            projection
+                                * glam::camera::rh::view::look_to_mat4(light.position, axis, up),
+                        );
                     }
                     2. / RESOLUTION as f32
                 }

@@ -180,7 +180,10 @@ impl Game for Grove {
         let mut positions = Vec::new();
         let mut normals = Vec::new();
         for i in 0..8 {
-            let (a, b) = (i as f32 * 0.785_398_2, (i + 1) as f32 * 0.785_398_2);
+            let (a, b) = (
+                i as f32 * std::f32::consts::FRAC_PI_4,
+                (i + 1) as f32 * std::f32::consts::FRAC_PI_4,
+            );
             let p = [
                 [0., 4., 0.],
                 [math::cos(a), 0., math::sin(a)],
@@ -256,20 +259,22 @@ fn grove_frame_cpu() {
         .unwrap();
     surface.device_ready(exact_gpu::wgpu::Features::empty());
     surface.prepare_assets(&gpu.device, &gpu.queue, format);
-    let texture = gpu.device.create_texture(&exact_gpu::wgpu::TextureDescriptor {
-        label: Some("grove"),
-        size: exact_gpu::wgpu::Extent3d {
-            width: 640,
-            height: 360,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: exact_gpu::wgpu::TextureDimension::D2,
-        format,
-        usage: exact_gpu::wgpu::TextureUsages::RENDER_ATTACHMENT,
-        view_formats: &[],
-    });
+    let texture = gpu
+        .device
+        .create_texture(&exact_gpu::wgpu::TextureDescriptor {
+            label: Some("grove"),
+            size: exact_gpu::wgpu::Extent3d {
+                width: 640,
+                height: 360,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: exact_gpu::wgpu::TextureDimension::D2,
+            format,
+            usage: exact_gpu::wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
     let view = texture.create_view(&Default::default());
     let mut samples = Vec::new();
     for i in 0..400 {

@@ -15,7 +15,11 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     /// The world's depth range, or the viewmodel layer's: while any viewmodel
     /// draws, it takes the nearest `VIEWMODEL_DEPTH` and the world the rest.
     fn scene_viewport(&self, pass: &mut wgpu::RenderPass<'_>, size: (u32, u32), viewmodel: bool) {
-        let split = if self.viewmodels { crate::VIEWMODEL_DEPTH } else { 0. };
+        let split = if self.viewmodels {
+            crate::VIEWMODEL_DEPTH
+        } else {
+            0.
+        };
         let (near, far) = if viewmodel { (0., split) } else { (split, 1.) };
         pass.set_viewport(0.0, 0.0, size.0 as f32, size.1 as f32, near, far);
         pass.set_scissor_rect(0, 0, size.0, size.1);

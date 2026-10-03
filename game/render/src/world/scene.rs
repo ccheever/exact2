@@ -1,7 +1,6 @@
 use crate::{FrameInput, LightInput, Shadows, Sun, MAX_LIGHTS};
 use exact_game::{
-    Camera, DirectionalLight, Entity, Parent, PointLight, PointShadows, SpotLight, Transform,
-    World,
+    Camera, DirectionalLight, Entity, Parent, PointLight, PointShadows, SpotLight, Transform, World,
 };
 use glam::{Mat4, Vec3};
 
@@ -246,11 +245,14 @@ impl Scene {
                     (self.lights[at].light, self.lights[at].lit) = (emitter, lit);
                     at += 1;
                 } else if let Some(t) = pose(w, e) {
-                    fresh.push((false, Light {
-                        history: History::new(e, t),
-                        light: emitter,
-                        lit,
-                    }));
+                    fresh.push((
+                        false,
+                        Light {
+                            history: History::new(e, t),
+                            light: emitter,
+                            lit,
+                        },
+                    ));
                 }
             }
             let mut at = points;
@@ -261,11 +263,14 @@ impl Scene {
                     (self.lights[at].light, self.lights[at].lit) = (emitter, lit);
                     at += 1;
                 } else if let Some(t) = pose(w, e) {
-                    fresh.push((true, Light {
-                        history: History::new(e, t),
-                        light: emitter,
-                        lit,
-                    }));
+                    fresh.push((
+                        true,
+                        Light {
+                            history: History::new(e, t),
+                            light: emitter,
+                            lit,
+                        },
+                    ));
                 }
             }
             self.first_spot = points;

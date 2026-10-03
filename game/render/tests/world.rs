@@ -574,7 +574,11 @@ fn a_viewmodel_draws_in_front_of_the_wall_it_reaches_into() {
     let red = |marked: bool| {
         let mut s = WorldSurface::<Viewmodel>::default();
         s.bind(&[Value::Bool(marked)], None).unwrap();
-        let name = if marked { "viewmodel-marked" } else { "viewmodel-plain" };
+        let name = if marked {
+            "viewmodel-marked"
+        } else {
+            "viewmodel-plain"
+        };
         let image = render(&gpu, &mut s, 0., name);
         image.count(|p| u16::from(p[0]) > 2 * u16::from(p[1]).max(20))
     };

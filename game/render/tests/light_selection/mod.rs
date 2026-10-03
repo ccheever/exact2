@@ -309,7 +309,10 @@ fn candela_and_lux_share_one_scale() {
     // A 10,000 cd lamp 1 m from a surface delivers the 10,000 lux of the default sun.
     let mut w = World::new(60, 0);
     w.spawn((Transform::default(), Camera::default()));
-    w.spawn((Transform::default(), exact_game::DirectionalLight::default()));
+    w.spawn((
+        Transform::default(),
+        exact_game::DirectionalLight::default(),
+    ));
     w.spawn((
         Transform::at(1., 0., 0.),
         PointLight {

@@ -128,7 +128,10 @@ impl Game for Lights {
                     w.insert(lamp, PointShadows);
                 }
                 // Walls on +X and +Z: two cube faces' maps.
-                for (x, z, size) in [(2., 0., Vec3::new(0.2, 2., 3.)), (0., 2.5, Vec3::new(3., 2., 0.2))] {
+                for (x, z, size) in [
+                    (2., 0., Vec3::new(0.2, 2., 3.)),
+                    (0., 2.5, Vec3::new(3., 2., 0.2)),
+                ] {
                     w.spawn((
                         Transform {
                             position: Vec3::new(x, 1., z),
@@ -194,7 +197,12 @@ fn a_spot_light_lights_its_cone_and_a_point_light_everywhere_in_range() {
     let (spot, _) = render(&gpu, SPOT, "lights-spot");
     let (point, _) = render(&gpu, POINT, "lights-point");
     // The cone's edge on the floor is 4 m × tan 0.3 ≈ 1.24 m from its axis.
-    let values = [at(&spot, 0., 0.), at(&spot, 0.6, 0.), at(&spot, 2.5, 0.), at(&point, 2.5, 0.)];
+    let values = [
+        at(&spot, 0., 0.),
+        at(&spot, 0.6, 0.),
+        at(&spot, 2.5, 0.),
+        at(&point, 2.5, 0.),
+    ];
     eprintln!("spot axis, inside, outside; point outside the cone: {values:?}");
     assert!(values[0] > 60. && values[1] > 60., "{values:?}");
     assert_eq!(values[2], 0., "{values:?}");
@@ -217,7 +225,10 @@ fn forty_point_lights_all_light_the_floor_and_none_are_dropped() {
         assert_eq!(at(&image, x + 1., z + 1.), 0., "light {i}");
     }
     assert!(dark.is_empty(), "unlit under lights {dark:?}");
-    assert!(state.contains(r#""lights":{"drawn":40,"dropped":0}"#), "{state}");
+    assert!(
+        state.contains(r#""lights":{"drawn":40,"dropped":0}"#),
+        "{state}"
+    );
 }
 
 #[test]
@@ -234,7 +245,11 @@ fn a_shadowed_spot_light_darkens_the_floor_behind_a_caster() {
     let (shadowed, _) = render(&gpu, SPOT_SHADOW, "lights-spot-shadow");
     let (open, _) = render(&gpu, SPOT_UNSHADOWED, "lights-spot-unshadowed");
     // 0.45 m off axis: outside the 0.6 m caster, inside its 1.2 m shadow.
-    let values = [at(&shadowed, 0.45, 0.), at(&open, 0.45, 0.), at(&shadowed, 0.9, 0.)];
+    let values = [
+        at(&shadowed, 0.45, 0.),
+        at(&open, 0.45, 0.),
+        at(&shadowed, 0.9, 0.),
+    ];
     eprintln!("shadowed, unshadowed, beyond the shadow: {values:?}");
     assert!(values[0] < 5., "{values:?}");
     assert!(values[1] > 60., "{values:?}");
@@ -254,6 +269,9 @@ fn a_shadowed_point_light_casts_through_each_cube_face() {
     for i in 0..2 {
         assert!(behind[i] < 5., "{behind:?}");
         assert!(unshadowed[i] > 20., "{unshadowed:?}");
-        assert!((away[i] - unshadowed[i]).abs() <= 2., "{away:?} {unshadowed:?}");
+        assert!(
+            (away[i] - unshadowed[i]).abs() <= 2.,
+            "{away:?} {unshadowed:?}"
+        );
     }
 }

@@ -63,7 +63,7 @@ impl Lights {
             let centre = view.transform_point3(light.position);
             let r = light.range.max(0.);
             let (front, back) = (-centre.z - r, -centre.z + r);
-            if back < near || !(r > 0.) || !centre.is_finite() {
+            if back < near || r.is_nan() || r <= 0. || !centre.is_finite() {
                 self.spans.push(None);
                 continue;
             }
@@ -72,7 +72,10 @@ impl Lights {
             // every corner is in front of the camera; otherwise cover the screen.
             let (mut lo, mut hi) = (glam::Vec2::splat(-1.), glam::Vec2::splat(1.));
             if front > near {
-                (lo, hi) = (glam::Vec2::splat(f32::INFINITY), glam::Vec2::splat(-f32::INFINITY));
+                (lo, hi) = (
+                    glam::Vec2::splat(f32::INFINITY),
+                    glam::Vec2::splat(-f32::INFINITY),
+                );
                 for corner in 0..8 {
                     let offset = Vec3::new(
                         if corner & 1 == 0 { -r } else { r },
