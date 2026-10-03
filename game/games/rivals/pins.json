@@ -1,9 +1,17 @@
 {
+  "ticks": {
+    "0": "0x43ddb86583af9a6d",
+    "1080": "0x2bdee9eeafba4807"
+  },
+  "saves": {
+    "continuation": "7580aadf98a61099a458f4e862e53c9cc440452148413c87a4c7dae9842da00f"
+  },
+  "hosts": [
+    "linux",
+    "web"
+  ],
+  "inputs": "8b13772d1053c8e3a6d820fad20203824a4afc3f757d195095a83b803368ffcb",
   "game": "rivals",
-  "ticks": {},
-  "saves": {},
-  "hosts": [],
-  "generated": "bun game/prove.mjs rivals",
-  "at": "unverified",
-  "help": "First baseline: bun game/prove.mjs rivals; changed golden: add --repin. Empty pins fail ordinary proofs."
+  "generated": "bun game/prove.mjs rivals --hosts 'linux,web'",
+  "at": "b0fc57fc725d1cb42e789544d1a3bc85ccf4c356"
 }
