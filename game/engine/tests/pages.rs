@@ -214,3 +214,48 @@ fn sparse_owned_components_expose_only_initialized_runs() {
         [1, 2, 64, PAGE + 2].map(|i| (i as u32, format!("value {i}")))
     );
 }
+
+#[test]
+fn changed_rows_name_each_write_insert_and_removal_since_a_revision() {
+    use exact_game::Component;
+    #[derive(Default, Component)]
+    struct Selected;
+    let mut w = World::new(60, 0);
+    let entities: Vec<_> = (0..PAGE * 2)
+        .map(|_| w.spawn(Transform::default()))
+        .collect();
+    let changed = |w: &World, since| {
+        w.changed::<Transform>(since)
+            .map(|e| e.index())
+            .collect::<Vec<_>>()
+    };
+    let since = w.revision::<Transform>();
+    assert!(changed(&w, since).is_empty());
+    drop(w.get_mut::<Transform>(entities[3]).unwrap());
+    w.insert(entities[PAGE + 1], Transform::at(1., 0., 0.));
+    assert_eq!(changed(&w, since), [3, PAGE as u32 + 1]);
+    let since = w.revision::<Transform>();
+    w.insert(entities[9], Selected);
+    // A query constructed before the revision is read still reports its rows.
+    let mut query = w.query::<&mut Transform>().with::<Selected>();
+    let late = w.revision::<Transform>();
+    for (_, t) in query.iter() {
+        t.position.y = 2.;
+    }
+    drop(query);
+    assert_eq!(changed(&w, late), [9]);
+    for (_, mut t) in w.query::<(&Selected, Option<&mut Transform>)>() {
+        t.as_mut().unwrap().position.x = 2.;
+    }
+    assert_eq!(changed(&w, since), [9]);
+    let since = w.revision::<Transform>();
+    w.despawn(entities[PAGE + 5]);
+    w.remove::<Transform>(entities[0]);
+    assert_eq!(changed(&w, since), [0, PAGE as u32 + 5]);
+    let gone = w.changed::<Transform>(since).last().unwrap();
+    assert!(!w.contains(gone) && gone.index() == entities[PAGE + 5].index());
+    let since = w.revision::<Transform>();
+    let _ = w.get::<Transform>(entities[1]);
+    let _ = w.query::<&Transform>().iter().count();
+    assert!(changed(&w, since).is_empty(), "shared reads are not writes");
+}

@@ -94,6 +94,10 @@ pub(crate) struct RawStorage {
     pub(super) pages: Vec<Option<Bytes>>,
     counts: Vec<usize>,
     pub(super) generations: Vec<Cell<u64>>,
+    // The revision of each slot's last write, insertion or removal (PAGE per page),
+    // and the newest of each 64 consecutive slots, so a scan skips quiet runs.
+    rows: Vec<Cell<u64>>,
+    runs: Vec<Cell<u64>>,
     pub(super) mask: Vec<u64>,
     len: usize,
     pub(super) holds: Holds,
@@ -110,6 +114,8 @@ impl RawStorage {
             pages: vec![],
             counts: vec![],
             generations: vec![],
+            rows: vec![],
+            runs: vec![],
             mask: vec![],
             len: 0,
             holds: Holds::default(),
@@ -165,6 +171,27 @@ impl RawStorage {
         if let Some(generation) = self.generations.get(page) {
             generation.set(self.revision.get());
         }
+    }
+    pub(super) fn mark_row(&self, index: usize) {
+        if let Some(row) = self.rows.get(index) {
+            row.set(self.revision.get());
+            self.runs[index / 64].set(self.revision.get());
+        }
+    }
+    /// Indices of rows written, inserted or removed after revision `since`, ascending.
+    pub(crate) fn changed(&self, since: u64) -> impl Iterator<Item = u32> + '_ {
+        self.generations
+            .iter()
+            .enumerate()
+            .filter(move |(_, g)| g.get() > since)
+            .flat_map(move |(page, _)| page * WORDS..(page + 1) * WORDS)
+            .filter(move |&run| self.runs[run].get() > since)
+            .flat_map(move |run| {
+                let rows = &self.rows[run * 64..(run + 1) * 64];
+                (0..64)
+                    .filter(move |&i| rows[i].get() > since)
+                    .map(move |i| (run * 64 + i) as u32)
+            })
     }
     pub(super) fn edited(&self) {
         self.epoch.set(self.epoch.get().wrapping_add(1));
@@ -262,6 +289,7 @@ impl RawStorage {
         self.edited();
         if self.has(index) {
             self.mark_page(index / PAGE);
+            self.mark_row(index);
             // SAFETY: disjoint initialized values of the descriptor's type. Swap
             // before dropping so a panicking destructor leaves the slot live.
             unsafe {
@@ -276,9 +304,12 @@ impl RawStorage {
             self.pages.resize_with(page + 1, || None);
             self.counts.resize(page + 1, 0);
             self.generations.resize_with(page + 1, || Cell::new(0));
+            self.rows.resize_with((page + 1) * PAGE, || Cell::new(0));
+            self.runs.resize_with((page + 1) * WORDS, || Cell::new(0));
             self.mask.resize((page + 1) * WORDS, 0);
         }
         self.mark_page(page);
+        self.mark_row(index);
         self.pages[page].get_or_insert_with(|| Bytes::new(self.page_layout));
         // SAFETY: exclusive vacant aligned slot, matching size; transfers ownership
         // including any owned fields, without interpreting potentially padded bytes.
@@ -291,6 +322,7 @@ impl RawStorage {
         self.edited();
         self.membership = self.membership.wrapping_add(1);
         self.mark_page(index / PAGE);
+        self.mark_row(index);
         self.mask[index / 64] &= !(1 << (index % 64));
         self.len -= 1;
         self.counts[index / PAGE] -= 1;
@@ -469,6 +501,8 @@ impl RawStorage {
                 crate::data::limits::reserve(r, &mut self.pages, pages)?;
                 crate::data::limits::reserve(r, &mut self.counts, counts)?;
                 crate::data::limits::reserve(r, &mut self.generations, pages)?;
+                crate::data::limits::reserve(r, &mut self.rows, pages * PAGE)?;
+                crate::data::limits::reserve(r, &mut self.runs, words)?;
                 crate::data::limits::reserve(r, &mut self.mask, words)?;
             }
             if self.pages.get(page).is_none_or(Option::is_none) {

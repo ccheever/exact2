@@ -5,7 +5,10 @@ use exact_game::{
     Data, Entity, Transform,
 };
 use rapier3d::{pipeline::PhysicsWorld, prelude::*};
-use std::{cell::RefCell, collections::BTreeMap};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
+};
 
 // Bump when Rapier, its serde representation, or bincode options change.
 const SNAPSHOT: &[u8] = b"EXPHYS\0\x02";
@@ -29,10 +32,46 @@ impl Entry {
             .map(|h| ColliderHandle::from_raw_parts(h[0], h[1]))
     }
 }
+// The world and write revisions the last sync observed; derived, never saved.
+#[derive(Clone)]
+pub(crate) struct Synced {
+    pub world: exact_game::WorldId,
+    pub presentation: u64,
+    pub revisions: [u64; 4],
+}
 pub(crate) struct Live {
     pub rapier: PhysicsWorld,
     pub entries: BTreeMap<Entity, Entry>,
     pub reverse: BTreeMap<[u32; 2], Entity>,
+    // Derived from entries: entities holding a Rapier body, entities that were
+    // parented at the last sync, and each index's entry.
+    pub bodies: BTreeSet<Entity>,
+    pub parented: BTreeSet<Entity>,
+    pub slots: BTreeMap<u32, Entity>,
+    // Collider handles removed this step, unmapped once its events are named.
+    pub removed: Vec<[u32; 2]>,
+    pub synced: Option<Synced>,
+}
+impl Live {
+    fn new(rapier: PhysicsWorld, entries: BTreeMap<Entity, Entry>) -> Self {
+        Self {
+            reverse: entries
+                .values()
+                .filter_map(|e| e.collider_handle.map(|h| (h, e.entity)))
+                .collect(),
+            bodies: entries
+                .values()
+                .filter(|e| e.body_handle.is_some())
+                .map(|e| e.entity)
+                .collect(),
+            parented: BTreeSet::new(),
+            slots: entries.keys().map(|e| (e.index(), *e)).collect(),
+            removed: Vec::new(),
+            synced: None,
+            rapier,
+            entries,
+        }
+    }
 }
 impl Default for Live {
     fn default() -> Self {
@@ -40,11 +79,7 @@ impl Default for Live {
         rapier
             .integration_parameters
             .normalized_allowed_linear_error = 0.0001;
-        Self {
-            rapier,
-            entries: BTreeMap::new(),
-            reverse: BTreeMap::new(),
-        }
+        Self::new(rapier, BTreeMap::new())
     }
 }
 #[derive(Default, Data)]
@@ -74,20 +109,14 @@ impl Saved {
             .with_limit(payload.len() as u64)
             .deserialize(payload)
             .map_err(|e| DataError::new(format!("physics: invalid snapshot: {e}")))?;
-        self.live = Some(Live {
+        self.live = Some(Live::new(
             rapier,
-            entries: self
-                .entries
+            self.entries
                 .iter()
                 .cloned()
                 .map(|e| (e.entity, e))
                 .collect(),
-            reverse: self
-                .entries
-                .iter()
-                .filter_map(|e| e.collider_handle.map(|h| (h, e.entity)))
-                .collect(),
-        });
+        ));
         Ok(())
     }
     fn refresh(&mut self) -> usize {

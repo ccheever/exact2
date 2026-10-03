@@ -153,6 +153,7 @@ impl<C: Data> Storage<C> {
         let lease = self.raw.lease_row(index, true, leases, at).ok_or(Refused)?;
         self.edited();
         self.mark_page(index / PAGE);
+        self.mark_row(index);
         Ok(Some(RefMut {
             ptr: self.ptr(index),
             _lease: lease,

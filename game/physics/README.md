@@ -9,7 +9,9 @@ the actual `displacement` and `grounded` state.
 
 - Entity-ordered insertion maps `Body`, `Collider` and world `Transform` to Rapier;
   ordered handle maps and last-write comparisons detect edits, teleports and removal.
-  Synchronization visits the union of Body/Collider membership, not every living entity.
+  Synchronization visits the rows written since the previous step (`World::changed`),
+  every Body and every parented collider; the first step after setup, restore or clone
+  visits every row. A static collider without a Body costs nothing per tick.
   Dynamic poses, velocities and sleep return to components; kinematics use next pose.
 - One step uses `world.dt()`. A collision-only pass after moving kinematics supplies
   same-tick sensor transitions. Events are sorted; `Announce` journals transitions.
@@ -23,11 +25,13 @@ the actual `displacement` and `grounded` state.
 - `let q = physics::queries(world); q.raycast(..); q.sweep(..);` shares a lazy
   query scene retained in the world's physics executor, outside Data and hashes.
   Drop the scope before structural edits or `step`; the next scope reuses it.
-  Body/Collider/Transform/Parent write revisions (including membership and load)
-  invalidate it, so same-tick edits are visible on the next operation. Unchanged
-  queries/ticks do not rebuild; a relevant edit still costs an O(n) scene rebuild.
+  Each operation updates only the colliders whose Body/Collider/Transform/Parent rows
+  were written since the last one, plus parented colliders (their pose follows their
+  ancestors), so same-tick edits are visible. A write to a collider-free entity (a
+  camera, a tracer) costs a membership test; loading or another world rebuilds.
   The free query functions are thin one-shot calls through this same cache.
-  The capsule handle uses the shared scene. Capsules use Rapier's steps/slopes/snap, saved-pose platform transport and an
+  The capsule handle queries a BVH of only the colliders it can reach that step,
+  built in entity order, so its result never depends on the scene's edit history. Capsules use Rapier's steps/slopes/snap, saved-pose platform transport and an
   80 kg default push budget. A default 1 m³ crate is 1,000 kg and cannot be pushed
   by that controller; author `Body { mass: 10., ..Default::default() }` for a light crate.
   Movement and push share the layer-mask/sensor/self filter;
