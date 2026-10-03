@@ -1075,8 +1075,7 @@ impl Painter {
                         );
                     }
                     let kernel = walk.scene.kernel;
-                    self.text_shadow(kernel, &shown, &palette, (content.0, content.1), ts);
-                    self.text_clip(
+                    self.text_paint(
                         node,
                         kernel,
                         &shown,
@@ -1085,16 +1084,6 @@ impl Painter {
                         rect,
                         ts,
                     );
-                    if !self.text_stroke(kernel, &shown, &palette, (content.0, content.1), ts) {
-                        let mut engine = self.text.borrow_mut();
-                        self.backend.text(
-                            &mut engine,
-                            &shown,
-                            &palette,
-                            (content.0, content.1),
-                            ts,
-                        );
-                    }
                 }
             }
             NodeType::TextInput => {

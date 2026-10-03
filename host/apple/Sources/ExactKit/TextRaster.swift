@@ -49,6 +49,12 @@ struct TextRasterJob {
     var clamped: CFRange? = nil
 
     static let maxInkOverflow: CGFloat = 256
+    /// How far past the box a run's own `text-shadow` may reach in these
+    /// pixels (LLP 1077 D3): its offset plus 1.5× its blur, per side. Past
+    /// it the shadow is cut, so a huge value cannot size an absurd bitmap:
+    /// a 390 × 70 paragraph at 3× is at most 1414 × 1094 points, 56 MB,
+    /// and a shadow cast 512 points to one side about 2 MB.
+    static let maxShadowReach: CGFloat = 512
     private static let space = CGColorSpace(name: CGColorSpace.sRGB)!
     func render(lines reused: [CTLine]? = nil) -> TextRasterImage? {
         var lines: [CTLine]
@@ -79,13 +85,20 @@ struct TextRasterJob {
         // overhang can paint beyond any edge; include that ink in the bitmap.
         let bounds = CGRect(origin: .zero, size: size)
         var painted = CGRect.null
+        // Ink may pass the box by `maxInkOverflow`; runs' shadows further.
+        var limit = bounds.insetBy(dx: -Self.maxInkOverflow, dy: -Self.maxInkOverflow)
         for (line, position) in zip(lines, positions) {
             let ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
             if !ink.isNull, !ink.isEmpty {
                 let glyphs = CGRect(x: position.x + ink.minX, y: position.y - ink.maxY, width: ink.width, height: ink.height)
                 painted = painted.union(glyphs.insetBy(dx: -1 / scale, dy: -1 / scale))
                 // Runs' own shadows are in these pixels (LLP 1077 D3).
-                painted = painted.union(TextRunShadow.reach(line, ink: glyphs))
+                let shadows = TextRunShadow.reach(line, ink: glyphs)
+                if !shadows.isNull {
+                    painted = painted.union(shadows)
+                    let most = bounds.insetBy(dx: -Self.maxShadowReach, dy: -Self.maxShadowReach)
+                    limit = limit.union(shadows.intersection(most))
+                }
             }
             if crop {
                 // The line box too: decorations paint in it, outside the glyphs.
@@ -96,7 +109,7 @@ struct TextRasterJob {
             for (fill, _) in TextLinePaint.backgrounds(line, at: position) { painted = painted.union(fill) }
         }
         func aligned(_ r: CGRect) -> CGRect {
-            var r = r.intersection(bounds.insetBy(dx: -Self.maxInkOverflow, dy: -Self.maxInkOverflow))
+            var r = r.intersection(limit)
             if let clip { r = r.intersection(clip) }
             guard r != bounds, !r.isNull else { return r }
             let left = floor(r.minX * scale) / scale

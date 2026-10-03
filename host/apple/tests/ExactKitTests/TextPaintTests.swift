@@ -147,6 +147,31 @@ final class TextPaintTests: XCTestCase {
         XCTAssertNil(engine.attributed(same).attribute(.exactShadow, at: 4, effectiveRange: nil))
     }
 
+    /// A run's own shadow past the raster's 256-point ink allowance stays in
+    /// its pixels, as the layer shadow a uniform paragraph casts would, up
+    /// to `maxShadowReach`; a huge one is cut there (LLP 1077 D3).
+    func testARunShadowFarPastTheBoxStaysInTheRasterUpToItsCap() throws {
+        func frame(_ dx: Double) throws -> CGRect {
+            var far = run("Cd", weight: 800)
+            far.shadow = [dx, 0, 0, 255, 0, 0, 255]
+            var spec = Spec(runs: [run("Ab ", weight: 800), far], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+            spec.gatherShadows()
+            XCTAssertNil(spec.shadow, "mixed runs: the raster carries the shadow")
+            let p = engine.paragraph(spec, width: 200)
+            let box = CGRect(x: 0, y: 0, width: 200, height: 60)
+            let job = TextRasterJob(source: engine.attributed(spec), ranges: p.lines.map { CTLineGetStringRange($0) },
+                                    baselines: p.baselines, flush: 0, box: box, size: box.size, scale: 2)
+            return try XCTUnwrap(job.render()).frame
+        }
+        let cd = CGFloat(CTLineGetOffsetForStringIndex(engine.paragraph(
+            Spec(runs: [run("Ab ", weight: 800), run("Cd", weight: 800)], align: 0, lineClamp: 0, color: [0, 0, 0, 255]),
+            width: 200).lines[0], 3, nil))
+        XCTAssertGreaterThan(try frame(400).maxX, cd + 400, "the shadow of Cd, 400 points on, is in the pixels")
+        let cap = 200 + TextRasterJob.maxShadowReach
+        XCTAssertEqual(try frame(Double(cap - cd - 5)).maxX, cap, accuracy: 1, "a shadow across the cap is cut there")
+        XCTAssertLessThan(try frame(5000).maxX, cap, "one wholly past it adds nothing")
+    }
+
     /// A `line-clamp` paragraph rasters from its published geometry (LLP
     /// 1072 §8.1): a worker shapes the lines, the last one again from the
     /// range it broke at, ending in "…". The same pixels as layout's lines.

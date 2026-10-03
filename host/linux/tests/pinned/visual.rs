@@ -427,3 +427,64 @@ fn every_space_case_matches_chrome_light_then_dark() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+/// CSS paints each inline box's shadow and then its text, box after box:
+/// a later run's shadow cast back over an earlier run lands over that run's
+/// glyphs, not under them (LLP 1077 D3). Two paragraphs, the same runs: in
+/// `cast` the second run's shadow falls 60 points left, onto the first's
+/// glyphs, which are black in `plain`; there the shadow's red must show.
+#[test]
+fn a_later_runs_shadow_paints_over_an_earlier_runs_glyphs() {
+    const PAGE: &str = r##"
+component Order
+  view
+    main position="relative" width=390 height=200 background-color="#ffffff"
+      text testId="plain" position="absolute" left=20 top=20 width=350 height=70 font-size=40 font-weight=800 color="#000000"
+        text "AAAA"
+        text "B"
+      text testId="cast" position="absolute" left=20 top=110 width=350 height=70 font-size=40 font-weight=800 color="#000000"
+        text "AAAA"
+        text "B" text-shadow="-60px 0 0 #ff0000"
+"##;
+    for choice in painters() {
+        crate::pin_font();
+        let plan = contract::compile(PAGE).unwrap();
+        let assets =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../scripts/fixtures");
+        let mut p =
+            Presenter::boot_with(&plan.encode(), NoData, (390.0, 200.0), 1.0, assets, choice)
+                .unwrap()
+                .0;
+        let (plain, cast) = (view(&p, "plain"), view(&p, "cast"));
+        let boxes = p.boxes();
+        let rect = |id| boxes.iter().find(|b| b.id == id).unwrap().rect;
+        let ((px, py, w, h), (cx, cy, _, _)) = (rect(plain), rect(cast));
+        let frame = p.frame();
+        let rgb = |x: f32, y: f32| {
+            let c = frame.pixel(x as u32, y as u32).unwrap().demultiply();
+            [c.red(), c.green(), c.blue()]
+        };
+        let (mut glyph, mut red) = (0, 0);
+        for dy in 0..h as u32 {
+            for dx in 0..w as u32 {
+                let [r, g, b] = rgb(px + dx as f32, py + dy as f32);
+                if r > 40 || g > 40 || b > 40 {
+                    continue;
+                }
+                glyph += 1;
+                let [r, g, b] = rgb(cx + dx as f32, cy + dy as f32);
+                if r > 180 && g < 80 && b < 80 {
+                    red += 1;
+                }
+            }
+        }
+        assert!(
+            glyph > 500,
+            "{choice:?}: the runs paint ({glyph} glyph pixels)"
+        );
+        assert!(
+            red > 100,
+            "{choice:?}: {red} of {glyph} glyph pixels show the later run's shadow"
+        );
+    }
+}

@@ -6,96 +6,50 @@
 
 use super::{Painter, Rect4};
 use crate::text::{Paragraph, RunPaint};
-use exact_kernel::{Kernel, StyleId, StyleMask};
 use std::sync::Arc;
 use tiny_skia::{Pixmap, Transform};
 
 impl Painter {
-    /// Paint `paragraph` at `origin`, then one stroke island per width;
-    /// `false` when no run has a stroke and the caller paints the fill.
-    pub(super) fn text_stroke(
+    /// The stroke of the runs `stroked` paints (the rest transparent), as
+    /// one band island of `width` over their glyphs (`text_paint` orders it).
+    pub(super) fn stroke_pass(
         &mut self,
-        kernel: &Kernel,
         paragraph: &Paragraph,
-        palette: &[RunPaint],
+        stroked: &[RunPaint],
+        width: f32,
         origin: (f32, f32),
         ts: Transform,
-    ) -> bool {
-        let mut mask = StyleMask::of(StyleId::TextStrokeWidth);
-        mask.set(StyleId::TextStrokeColor);
-        let mut groups: Vec<(f32, Vec<RunPaint>)> = Vec::new();
-        for (i, run) in palette.iter().enumerate() {
-            let Some(node) = kernel.node(run.source) else {
-                continue;
-            };
-            let style = node.computed_style(mask);
-            let width = style.text_stroke_width;
-            if !(width > 0.0 && width.is_finite()) {
-                continue;
-            }
-            let group = groups
-                .iter()
-                .position(|(w, _)| *w == width)
-                .unwrap_or_else(|| {
-                    groups.push((
-                        width,
-                        palette
-                            .iter()
-                            .map(|r| RunPaint {
-                                color: [0; 4],
-                                ..*r
-                            })
-                            .collect(),
-                    ));
-                    groups.len() - 1
-                });
-            // Width and colour inherit independently; `currentcolor` is
-            // this run's presented colour, even in a shared-width island.
-            groups[group].1[i].color = style
-                .text_stroke_color
-                .map_or(run.color, |c| super::rgba(c.resolve(self.dark)));
-        }
-        if groups.is_empty() {
-            return false;
-        }
+    ) {
+        let reach = width + 1.0;
+        let rect: Rect4 = (
+            origin.0 - reach,
+            origin.1 - reach,
+            paragraph.width + 2.0 * reach,
+            paragraph.height + 2.0 * reach,
+        );
+        let radius = width / 2.0 * self.scale;
+        let Some(mut band) = self.island(rect, |p, t| {
+            let text = p.text.clone();
+            let mut engine = text.borrow_mut();
+            p.backend.text(&mut engine, paragraph, stroked, origin, t);
+        }) else {
+            return;
+        };
+        let mut inside = band.clone();
+        morphology(&mut band, radius, true);
+        morphology(&mut inside, radius, false);
+        // The band: what the dilation covers and the erosion does not.
+        for (px, e) in band
+            .data_mut()
+            .chunks_exact_mut(4)
+            .zip(inside.data().chunks_exact(4))
         {
-            let mut engine = self.text.borrow_mut();
-            self.backend
-                .text(&mut engine, paragraph, palette, origin, ts);
-        }
-        for (width, stroked) in groups {
-            let reach = width + 1.0;
-            let rect: Rect4 = (
-                origin.0 - reach,
-                origin.1 - reach,
-                paragraph.width + 2.0 * reach,
-                paragraph.height + 2.0 * reach,
-            );
-            let radius = width / 2.0 * self.scale;
-            let Some(mut band) = self.island(rect, |p, t| {
-                let text = p.text.clone();
-                let mut engine = text.borrow_mut();
-                p.backend.text(&mut engine, paragraph, &stroked, origin, t);
-            }) else {
-                continue;
-            };
-            let mut inside = band.clone();
-            morphology(&mut band, radius, true);
-            morphology(&mut inside, radius, false);
-            // The band: what the dilation covers and the erosion does not.
-            for (px, e) in band
-                .data_mut()
-                .chunks_exact_mut(4)
-                .zip(inside.data().chunks_exact(4))
-            {
-                let keep = 255 - e[3] as u32;
-                for v in px.iter_mut() {
-                    *v = ((*v as u32 * keep + 127) / 255) as u8;
-                }
+            let keep = 255 - e[3] as u32;
+            for v in px.iter_mut() {
+                *v = ((*v as u32 * keep + 127) / 255) as u8;
             }
-            self.backend.island_image(Arc::new(band), rect, ts, 0);
         }
-        true
+        self.backend.island_image(Arc::new(band), rect, ts, 0);
     }
 }
 
