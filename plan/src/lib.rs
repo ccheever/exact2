@@ -278,6 +278,14 @@ impl Plan {
         }
         // @ref LLP 1038 D5 — compiled data and its argument list form one cache entry.
         for (i, resource) in self.resources.iter().enumerate() {
+            // @ref LLP 1027.005 D6 — the identity is the remaining prefix.
+            if u32::from(resource.context) > resource.args.len {
+                return Err(PlanError::BadReference {
+                    table: "resources",
+                    row: i as u32,
+                    field: "context",
+                });
+            }
             let valid = if resource.initial.len == 0 {
                 resource.initial_args.len == 0
             } else {

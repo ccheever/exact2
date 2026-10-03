@@ -4,7 +4,7 @@
 //! data source is ready — a TypeScript module its host loads after first
 //! pixel — and the runner asks again at `data_ready`.
 //!
-//! Encoded as the arguments (one canonical list) and the value, hex, joined
+//! Encoded as the identifying arguments (one canonical list) and the value, hex, joined
 //! by `|`; a kept answer whose arguments no longer match, whose bytes no
 //! longer decode, or whose value no longer fits the declared shape is
 //! simply not used, and the compiled empty-store placeholder stands.
@@ -70,6 +70,9 @@ fn fits(args: &[Value], value: &Value) -> bool {
 }
 
 pub(super) fn decode(text: &str) -> Option<(Vec<Value>, Value)> {
+    if text.len() > MAX_KEPT_BYTES {
+        return None;
+    }
     let (a, v) = text.split_once('|')?;
     let args = match Value::from_bytes(&unhex(a)?).ok()? {
         Value::List(items) => items.to_vec(),
@@ -126,6 +129,11 @@ impl<D: DataSource> Runner<D> {
         {
             return;
         }
+        // @ref LLP 1027.005 D6 — context reaches the source but does not
+        // enter the kept entry or its 8 KB budget. With no context these
+        // are the exact same arguments and encoding as before.
+        let row = &self.plan.resources[i];
+        let args = &args[..row.args.len as usize - usize::from(row.context)];
         if !fits(args, value) {
             return;
         }

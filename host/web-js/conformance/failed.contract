@@ -12,6 +12,10 @@
 // ends unsent, its slot as it was and its `then` not run. `sent` counts the
 // requests `lost` sent, so an ask that should not happen shows. The root
 // paints the page white over the data app's manifest background.
+// LLP 1027.005: `probe` passes its call argument first and context last. A
+// context-only change retries a failed ask; an equal context does not. `sent`
+// exposes every ask, so dropping the tail, swapping argument order or using
+// only identity for failed-request equality disagrees with the Rust runner.
 shape Mismatch
   message: number
   received: number
@@ -19,8 +23,9 @@ shape Mismatch
 component Failed
   state n = 0
   state tick = 0
+  state context = 0
   state log = ""
-  resource probe = lost(floor(n / 10), 0) as shape number
+  resource probe = lost(floor(n / 10)) with context as shape number
   resource sent = lost(0, tick) as shape number
   resource stats = fixtureStats() as shape Mismatch else empty()
   mutation write as shape number refreshes probe then onWrite
@@ -32,6 +37,9 @@ component Failed
     tick = tick + 1
   action retry
     refresh probe
+    tick = tick + 1
+  action setContext(value: number)
+    context = value
     tick = tick + 1
   action sendNow
     send write = lost(0, tick)
@@ -58,6 +66,10 @@ component Failed
           text "ask 1"
         button press=ask(11) testId="ask-11"
           text "ask 1 again"
+        button press=setContext(1) testId="context-1"
+          text "context 1"
+        button press=setContext(2) testId="context-2"
+          text "context 2"
         button press=ask(-10) testId="ask-bad"
           text "ask -1"
         button press=ask(20) testId="ask-20"
