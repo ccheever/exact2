@@ -50,7 +50,7 @@ pub(crate) fn collider(c: &Collider, t: Transform, body: Option<&Body>) -> Colli
             Group::from_bits_retain(c.mask),
             InteractionTestMode::And,
         ))
-        .active_collision_types(ActiveCollisionTypes::all())
+        .active_collision_types(collision_types(c.sensor))
         .active_events(ActiveEvents::COLLISION_EVENTS);
     if let Some(b) = body.filter(|b| b.mass > 0.0) {
         builder.mass(b.mass)
@@ -130,6 +130,16 @@ pub(crate) fn pending(world: &World, live: &Live) -> Pending {
             .collect(),
         full: false,
         synced,
+    }
+}
+// Two fixed solids never exchange impulses; their contact manifolds were the bulk
+// of a static world's snapshot and of each step's pair walk. A sensor still
+// reports touching anything, fixed or not.
+fn collision_types(sensor: bool) -> ActiveCollisionTypes {
+    if sensor {
+        ActiveCollisionTypes::all()
+    } else {
+        ActiveCollisionTypes::all() - ActiveCollisionTypes::FIXED_FIXED
     }
 }
 pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {

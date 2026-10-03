@@ -17,6 +17,8 @@ the actual `displacement` and `grounded` state.
   same-tick sensor transitions. Events are sorted; `Announce` journals transitions.
   Sleeping bodies still step; any awake dynamic body reports busy to Sim, even
   when its pose is unchanged. Support edits wake all.
+  Two fixed solids (colliders without a Body, or with a Static one) never pair, so a
+  static world carries no contact state; a sensor pairs with anything, fixed or not.
 - Density defaults to 1000 kg/m³; explicit mass is kg. Friction combines geometrically,
   restitution by maximum. Contact slop is 0.1 mm; other integration defaults are Rapier's.
 - Shapes: sphere, box, Y capsule/cylinder (total height), static mesh and heightfield
@@ -66,6 +68,11 @@ The minimal-120 pin changed because awake work now enters the existing saved bus
 reasons. Native arm64, x86-64 and Chrome Wasm agree in Off/Save/FreshGame; pile-600 is
 unchanged. This legacy physics card keeps both values in [tests/pins.json](tests/pins.json)
 rather than using the game prover's `--repin` command.
+Both pins moved on 2026-10-03 when fixed solids stopped pairing: the snapshot lost
+those pairs and each collider's flags changed. Every body pose, velocity and event
+over 600 ticks of pile/stack/drop/bounce and 120 of minimal is byte-identical to the
+previous build (native arm64); x86-64 and browser agreement on the new values is not
+yet re-run.
 The x86-64 v2 card passes with the existing pins and all 41 physics tests
 (Rust 1.97.0, 2026-09-21). A 2,134,660-byte query/controller/save trace also
 matches arm64 byte for byte. No pins changed for this verification.

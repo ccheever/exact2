@@ -402,3 +402,32 @@ fn resume_mid_bounce_every_tick() {
         );
     }
 }
+#[test]
+fn fixed_solids_make_no_pairs_but_fixed_sensors_still_touch() {
+    let mut w = World::new(60, 0);
+    physics::register(&mut w);
+    let snapshot = |w: &World| w.resource::<Physics>().refresh_snapshot();
+    w.spawn((Transform::default(), Collider::default()));
+    physics::step(&mut w);
+    let one = snapshot(&w);
+    // A hundred static solids overlapping the first and each other.
+    for i in 0..100 {
+        w.spawn((Transform::at(i as f32 * 0.01, 0., 0.), Collider::default()));
+    }
+    physics::step(&mut w);
+    assert!(physics::events(&w).is_empty(), "fixed solids touched");
+    let per = (snapshot(&w) - one) / 100;
+    assert!(per < 400, "a static collider costs {per} snapshot bytes");
+    let sensor = w.spawn((
+        Transform::default(),
+        Collider {
+            sensor: true,
+            ..Collider::default()
+        },
+    ));
+    physics::step(&mut w);
+    assert_eq!(physics::events(&w).len(), 101);
+    assert!(physics::events(&w)
+        .iter()
+        .all(|t| t.began && (t.a == sensor || t.b == sensor)));
+}
