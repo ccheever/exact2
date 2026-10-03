@@ -143,6 +143,10 @@ sun disc is left out because the sun is a direct light. When those colours chang
 (irradiance / π, in the frame uniform's `irradiance`, part of `FRAME_WGSL`) and
 renders a 32² RGBA16F cube whose six mips hold GGX-prefiltered radiance, roughness
 `mip / 5`, 256 samples per texel: 36 small passes before the frame's geometry.
+Diffuse SH follows every change; the cube is prefiltered again only when a colour
+moves more than 2% from the colours it was filtered from, or after the sky holds
+still for 30 frames, when it is made exact. A dusk dimming 0.1% a tick prefilters
+about once per 20 ticks instead of every tick.
 Primitive and model shaders share `ibl.wgsl`: split-sum specular samples the cube at
 the reflected direction and `roughness × 5` and scales it by Karis's analytic
 environment BRDF; diffuse is SH irradiance × base × (1 − metallic) × (1 − specular).

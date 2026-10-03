@@ -25,6 +25,10 @@ pub(crate) struct EnvironmentLight {
     uniform: wgpu::Buffer,
     bind: wgpu::BindGroup,
     key: Option<[u32; 9]>,
+    // The colours the cube was last prefiltered from, and prepares since the
+    // sky last changed.
+    prefiltered: Option<[[f32; 3]; 3]>,
+    still: u32,
     pending: bool,
     /// SH9 irradiance / π, premultiplied for the shader's polynomial basis.
     pub irradiance: [f32; 36],
@@ -146,6 +150,8 @@ impl EnvironmentLight {
             uniform,
             bind,
             key: None,
+            prefiltered: None,
+            still: 0,
             pending: false,
             irradiance: [0.; 36],
             updates: 0,
@@ -153,15 +159,27 @@ impl EnvironmentLight {
     }
 
     /// Project a changed sky and queue its prefilter for the next `encode`.
+    /// Diffuse SH follows every change. The specular cube (36 passes) is
+    /// prefiltered again only once a colour moves more than `DRIFT` from what it
+    /// was filtered from, or once the sky has held still for `SETTLE` prepares,
+    /// so a dusk that changes every tick costs a pass per few percent.
     pub fn prepare(&mut self, queue: &wgpu::Queue, environment: &exact_game::Environment) {
         let colors = [environment.zenith, environment.horizon, environment.ground];
         let key: [u32; 9] = std::array::from_fn(|i| colors[i / 3][i % 3].to_bits());
         if self.key == Some(key) {
-            return;
+            self.still = self.still.saturating_add(1);
+            if self.still != SETTLE || self.prefiltered == Some(colors) {
+                return;
+            }
+        } else {
+            self.key = Some(key);
+            self.still = 0;
+            self.irradiance = Sky::of(environment).irradiance();
+            if self.prefiltered.is_some_and(|old| !drifted(&old, &colors)) {
+                return;
+            }
         }
-        self.key = Some(key);
-        let sky = Sky::of(environment);
-        self.irradiance = sky.irradiance();
+        self.prefiltered = Some(colors);
         let mut words = [0f32; (STRIDE as usize / 4) * (MIPS as usize) * 6];
         for mip in 0..MIPS {
             for face in 0..6 {
@@ -208,6 +226,17 @@ impl EnvironmentLight {
         }
         self.updates += 1;
     }
+}
+
+/// Relative colour change that re-prefilters the specular cube at once.
+const DRIFT: f32 = 0.02;
+/// Prepares without a sky change after which a drifted cube is made exact.
+const SETTLE: u32 = 30;
+fn drifted(old: &[[f32; 3]; 3], new: &[[f32; 3]; 3]) -> bool {
+    old.iter()
+        .flatten()
+        .zip(new.iter().flatten())
+        .any(|(a, b)| (a - b).abs() > DRIFT * a.abs().max(b.abs()) + 1e-4)
 }
 
 /// The procedural sky as a function of direction: frame.wgsl's `environment()`.
@@ -556,6 +585,43 @@ mod tests {
             red.at(32, 20)[0] > top[0] + 20,
             "a new sky is reflected at once"
         );
+    }
+
+    #[test]
+    fn a_drifting_sky_prefilters_per_few_percent_and_settles_exactly() {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
+        let mut light = EnvironmentLight::new(&gpu.device, false);
+        let mut step = |light: &mut EnvironmentLight, e: &Environment| {
+            light.prepare(&gpu.queue, e);
+            let mut encoder = gpu.device.create_command_encoder(&Default::default());
+            light.encode(&mut encoder);
+            gpu.queue.submit([encoder.finish()]);
+            light.updates
+        };
+        let mut e = Environment::default();
+        assert_eq!(step(&mut light, &e), 1);
+        // A dusk that dims 0.1% a tick: diffuse follows every tick, the cube
+        // only once a colour has moved 2%.
+        let first = light.irradiance;
+        let mut updates = Vec::new();
+        for _ in 0..60 {
+            for c in [&mut e.zenith, &mut e.horizon, &mut e.ground] {
+                *c = c.map(|v| v * 0.999);
+            }
+            let sh = light.irradiance;
+            updates.push(step(&mut light, &e));
+            assert_ne!(light.irradiance, sh);
+        }
+        assert_ne!(light.irradiance, first);
+        assert_eq!(updates.last(), Some(&3), "{updates:?}");
+        // Held still, the drifted cube is made exact once.
+        for _ in 0..SETTLE + 5 {
+            step(&mut light, &e);
+        }
+        assert_eq!(light.updates, 4);
+        assert_eq!(light.prefiltered, Some([e.zenith, e.horizon, e.ground]));
     }
 
     #[test]
