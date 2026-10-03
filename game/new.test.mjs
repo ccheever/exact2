@@ -509,6 +509,7 @@ test('game/dev.mjs takes the next free port unless --port names a busy one', asy
     assert.deepEqual(chosen.args,['--wasm','--port',String(chosen.port)]);
     await assert.rejects(devPort(['--port','8850']),/--port 8850: 127\.0\.0\.1:8850 is in use; choose another --port/);
     await assert.rejects(devPort(['--port','x']),/--port needs a port number/);
+    await assert.rejects(devPort(['--port=8850']),/--port 8850: 127\.0\.0\.1:8850 is in use/);
     assert.deepEqual(await devPort(['--port',String(chosen.port)]),{port:chosen.port,args:['--port',String(chosen.port)]});
   } finally {await new Promise(ok=>held.close(ok));}
 });
