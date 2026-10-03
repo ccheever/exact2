@@ -91,8 +91,8 @@ struct LiveTime {
     slew_left: Option<f64>,
     lookahead: f64,
 }
-/// Opt-in save reconstruction at the last tick of every advance and every 16th
-/// tick inside one. Never enabled by default.
+/// Opt-in save reconstruction at the last tick of every advance, every tick that
+/// received input, and every 16th tick inside an advance. Never enabled by default.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Paranoid {
     /// Normal execution.
@@ -136,6 +136,8 @@ pub struct Sim<G: Game> {
     pub(crate) input: Input,
     queue: VecDeque<Queued>,
     overflow_logged: bool,
+    // Posts a full input queue refused; reported in agent state, never saved.
+    pub(crate) refused_posts: u64,
     rebase_queue: bool,
     pub(crate) restored: bool,
     pub(crate) last_us: Option<i64>,
@@ -539,6 +541,7 @@ impl<G: Game> Sim<G> {
             input,
             queue,
             overflow_logged: false,
+            refused_posts: 0,
             rebase_queue: false,
             restored: false,
             last_us: None,
@@ -747,11 +750,24 @@ impl<G: Game> Sim<G> {
         }
         let (mut position, mut e) = (position, e);
         if self.queue.len() == QUEUE_LIMIT {
-            let drop = self
-                .queue
-                .iter()
-                .position(|e| e.event.is_move())
-                .unwrap_or(0);
+            // A posted message is never dropped silently: a full queue refuses
+            // the new post, by name, and a device event never displaces one.
+            let message = |e: &Queued| matches!(e.event, InputEvent::Message { .. });
+            let drop = (!message(&e))
+                .then(|| {
+                    let moves = self.queue.iter().position(|e| e.event.is_move());
+                    moves.or_else(|| self.queue.iter().position(|e| !message(e)))
+                })
+                .flatten();
+            let Some(drop) = drop else {
+                self.refused_posts += u64::from(message(&e));
+                self.world.log(if message(&e) {
+                    "postMessage refused: the input queue holds 1024 events; post less often"
+                } else {
+                    "input queue overflow: every queued event is a posted message; dropped the new event"
+                });
+                return;
+            };
             let was_move = self.queue[drop].event.is_move();
             let dropped = self.queue.remove(drop).expect("a queued event");
             position -= usize::from(drop < position);
@@ -1011,6 +1027,7 @@ impl<G: Game> Sim<G> {
             self.world.begin_tick();
             self.input.clear_edges();
             let end = (self.world.tick() as u128 + 1) * 1_000_000;
+            let mut delivered = false;
             while self.queue.front().is_some_and(|e| {
                 e.world_us.is_some_and(|us| {
                     let stamp = us as u128 * G::HZ as u128;
@@ -1018,6 +1035,7 @@ impl<G: Game> Sim<G> {
                 })
             }) {
                 self.input.apply(self.queue.pop_front().unwrap().event);
+                delivered = true;
             }
             self.restored = false;
             self.restored_from = None;
@@ -1028,9 +1046,11 @@ impl<G: Game> Sim<G> {
             self.world.propagate();
             self.world.step_clock();
             // Paranoid modes round-trip at every point an advance can be observed
-            // (its last tick) and every PARANOID_EVERY-th tick inside it.
+            // (its last tick), at every tick that received input, and every
+            // PARANOID_EVERY-th tick inside an advance.
             if let Some(rebuild) = self.paranoid {
-                if self.world.tick() == target || self.world.tick().is_multiple_of(PARANOID_EVERY) {
+                let tick = self.world.tick();
+                if tick == target || delivered || tick.is_multiple_of(PARANOID_EVERY) {
                     rebuild(self);
                 }
             }
@@ -1249,7 +1269,7 @@ impl<G: Game> Sim<G> {
         });
     }
     /// Post a message into the world at the current clock, as Contract's
-    /// `postMessage(surface, text)` does; the next tick reads it in `Input::messages`.
+    /// `postMessage(text, surface)` does; the next tick reads it in `Input::messages`.
     pub fn post(&mut self, text: impl Into<String>) {
         self.input(InputEvent::Message {
             text: text.into(),

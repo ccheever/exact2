@@ -715,12 +715,11 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "lang" => AttrTarget::Prop(p("lang")),
         "src" => AttrTarget::Prop(p("src")),
         "sandbox" => AttrTarget::Prop(p("sandbox")),
-        // The Popover API, by its own names (LLP 1021 D1): a container with
-        // `popover` is hidden until its invoker — a `button` whose
-        // `popovertarget` names the container's `id` — toggles it; open
-        // state is the host's, never the plan's (D2). `aria-checked` is the
-        // ARIA state a menu row's dot would hand-draw; a native menu renders
-        // it as the platform's checkmark (D3).
+        // The Popover API, by its own names (LLP 1021 D1): a container with `popover` is
+        // hidden until its invoker — a `button` whose `popovertarget` names the container's
+        // `id` — toggles it; open state is the host's, never the plan's (D2). `aria-checked`
+        // is the ARIA state a menu row's dot would hand-draw; a native menu renders it as the
+        // platform's checkmark (D3).
         "id" => AttrTarget::Prop(p("id")),
         "popover" => AttrTarget::Prop(p("popover")),
         "popovertarget" => AttrTarget::Prop(p("popovertarget")),
