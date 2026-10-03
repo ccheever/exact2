@@ -638,6 +638,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "navigationPresentation" => AttrTarget::Prop(p("navigationPresentation")),
         "navigationDetent" => AttrTarget::Prop(p("navigationDetent")),
         "navigationSource" => AttrTarget::Prop(p("navigationSource")),
+        // @ref LLP 1075.003 §3.5 — the route's content scroll view, by HTML id.
+        "navigationScroll" => AttrTarget::Prop(p("navigationScroll")),
+        // @ref LLP 1075.003.000 — the node the app's native code receives.
+        "hook" => AttrTarget::Prop(p("hook")),
         "closedby" => AttrTarget::Prop(p("closedby")),
         "contextTarget" => AttrTarget::Prop(p("contextTarget")),
         "contextMagnify" => AttrTarget::Prop(p("contextMagnify")),
@@ -723,6 +727,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-checked" => AttrTarget::Prop(p("accessibilityChecked")),
         // @ref LLP 1039 D6 — vertical tablists retain authored layout.
         "aria-orientation" => AttrTarget::Prop(p("accessibilityOrientation")),
+        // @ref LLP 1075.003 §3.7 — a tab names its tabpanel.
+        "aria-controls" => AttrTarget::Prop(p("accessibilityControls")),
         "aria-selected" => AttrTarget::Prop(p("accessibilitySelected")),
         "aria-expanded" => AttrTarget::Prop(p("accessibilityExpanded")),
         "aria-hidden" => AttrTarget::Prop(p("accessibilityElementsHidden")),

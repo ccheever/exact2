@@ -50,6 +50,8 @@ final class Presenter {
     lazy var menus = MenuHost(presenter: self)
     lazy var segments = SegmentHost(self)
     lazy var controls = ControlHost(self)
+    /// Nodes marked `hook="word"` (LLP 1075.003.000).
+    lazy var elements = ElementHooks(self)
     lazy var navigation = NavigationHost(presenter: self)
     lazy var modals = ModalHost(presenter: self)
     /// SVG scenes and CSS animations (LLP 1055 D4, D7).
@@ -300,6 +302,7 @@ final class Presenter {
         leaves.reset()
         flats.reset()
         modals.reset()
+        elements.reset()
         navigation.reset()
         session?.canvases.reset()
         for id in Array(leaving.keys) { _ = endExit(id) }
@@ -412,6 +415,14 @@ final class Presenter {
             session?.log("focus \"\(name)\" refused: no live node with that id")
             return
         }
+        focus(target, args, selectText: selectText)
+    }
+
+    /// A hook's `focus()` on the node it resolved (LLP 1075.003 §3.4).
+    func focusNode(_ target: NodeView) { focus(target, [target.props["id"] ?? ""], selectText: false) }
+
+    private func focus(_ target: NodeView, _ args: [Any], selectText: Bool) {
+        let name = target.props["id"] ?? "#\(target.id)"
         // UIKit may not announce its next transition until after the outgoing
         // sheet starts dismissing. The selected route's editor already exists,
         // but cannot receive focus until its controller mounts it in a window.
@@ -576,6 +587,11 @@ final class Presenter {
         }
     }
     func intrinsic(_ id: UInt32, _ size: CGSize?) { onIntrinsic?([(id, size)]) }
+    /// What native containers cover of boxes (LLP 1075.003 §3.5).
+    var onCovers: (([(UInt32, HostCover?)]) -> Void)?
+    /// Work for after the batch being applied, or now: a hook's act on an
+    /// authored element never lands inside a batch (LLP 1075.003 §3.4).
+    func afterBatch(_ work: @escaping () -> Void) { if applying { waiting.append((nil, work)) } else { work() } }
     /// Symbols and projected controls report after the batch that creates
     /// them: all sizes from a turn reach the runner under one layout.
     private struct QueuedIntrinsic { weak var view: NodeView?; let generation: Int; let size: CGSize? }
@@ -618,6 +634,9 @@ final class Presenter {
         defer { Self.signposts.endInterval("apply", post) }
         collections.beginBatch(batch)
         if !applying { flats.begin(batch) }
+        // Hooked nodes this batch destroys end first, so a reusable hook has
+        // undone its additions before the pool looks at their rows.
+        elements.begin(batch)
         pool.begin(batch)
         swipeActions.prepare()
         prepareContexts(batch)
@@ -713,14 +732,16 @@ final class Presenter {
                 v.applyProps(set: op.props, clear: [])
                 if reused != nil { v.finishReuse() }
                 views[id] = v
+                elements.created(v)
                 if v.kind == "video" { leaves.created(v) }
                 if v.kind == "list" { listViews[id] = v }
                 if v.isParagraph { textViews[id] = v }
             case .paragraph:
                 applyParagraph(id, op.runs)
             case .props:
-                if flats.isFlat(id) { if op.props.isEmpty { continue }; flats.promote(id) }
+                if flats.isFlat(id) { if FlatLeaves.onlyData(op) { continue }; flats.promote(id) }
                 views[id]?.applyProps(set: op.props, clear: op.clear)
+                elements.propsChanged(id)
             case .flow:
                 views[id]?.applyFlow(op.payload["shapes"] as? [[String: Any]] ?? [])
             case .style:
@@ -755,6 +776,7 @@ final class Presenter {
                 if flats.isFlat(id) { flats.promote(id) }
                 beginExit(id)
             case .destroy:
+                elements.destroyed(id)
                 if flats.isFlat(id) { flats.destroy(id); continue }
                 if endExit(id) { continue }
                 // A collection's retired row parks for the next of its shape.

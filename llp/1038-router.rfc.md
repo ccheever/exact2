@@ -649,9 +649,15 @@ Each with the trigger that would earn it back:
   cannot spell its URLs without one.
 - Router-owned scroll restoration: mounted rows keep their own scroll. A
   measured case where a remounted row must restore a position.
-- Retained *views* for unselected tabs (their entries are retained, their
+- ~~Retained *views* for unselected tabs (their entries are retained, their
   rows are not): a measured Interview complaint about a tab forgetting its
-  place. It needs one navigation owner per tab in the Apple projection.
+  place. It needs one navigation owner per tab in the Apple projection.~~
+  Built 2026-10-02 (LLP 1075.003 §3.7, James's app the consumer): a root's
+  tablist names its tabpanels with `aria-controls`, each panel holds one
+  tab's stack, and every tab's rows stay mounted. The web and AppKit hide and
+  inert the unselected panels (D6); UIKit gives each tab its own navigation
+  controller under a tab bar controller, or under the app's own container
+  through the module's `tabContainer` hook.
 - Restoring the pre-reload stack or the last session's location: a host
   could pass the last `router` op's url as the launch location under a
   manifest key, with no router change. An app that asks. Ruled no for v1

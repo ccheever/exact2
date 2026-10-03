@@ -31,9 +31,26 @@
 // 104  prepare_for_reuse(handle) → 0 reset, else refused   size ≥ 112; nullable
 //        (LLP 1068 §4.8): as if created with no props; the next set_props is
 //        a first mount, and `load` follows once no pixel of the last row shows
-//
 // 112  focus_target(handle) → borrowed NSView * / UIView *; size ≥ 120; nullable
 //        the platform view or an attached descendant; nil refuses focus
+// 120  module_connect(module, host_table)       size ≥ 144; the hooks (LLP
+//        1075.003 §3.2), NativeHooks.swift: the host's callbacks, once
+// 128  module_navigation(module, event, controller, flags) → flags
+//        event 0 built (the hook runs), 1 retired; bit 0 showsBar
+// 136  module_route(module, event, controller, navigation, scroll, json, len)
+//        event 0 built, 1 changed, 2 ended; json {"key", "data": {…}}
+// 144  module_tabs(module, event, controller, index)      size ≥ 168
+//        event 0 built, 1 retired, 2 the router selected `index` in the
+//        app's container, 3 the app's container retired
+// 152  module_tab_container(module, json, len, controllers, count) → container
+//        json {"names", "nodes", "selected"}; retained once, or nil (Exact's)
+// 160  platform_controller(handle) → UIViewController *, a native screen's
+// 168  module_element(module, event, view, platform, json, len) → flags
+//        size ≥ 176 (LLP 1075.003.000): a node marked `hook="word"`; event
+//        0 built, 1 changed, 2 ended; json {"hook", "node", "id", "kind",
+//        "data"}; flags bit 0: the hook made it reusable
+// 176  module_toolbar(module, toolbar, window)        size ≥ 184; macOS:
+//        the window toolbar Exact installed (LLP 1075.003.000 §3.7)
 //
 //   event(ctx, nonce, kind, bytes, len)          kind: EventKind 0–8 — press,
 //     change, hover, focus, blur, key, submit, load, message; change, key and
@@ -103,6 +120,13 @@ private final class NativeTable {
     let moduleLater: ModuleLaterFn
     let moduleCall: ModuleLaterFn
     var prepareForReuse: ReuseFn?
+    /// The hooks (LLP 1075.003 §3.2), in a table of 144 bytes or more.
+    var connect: HookConnectFn?, navigationHook: HookNavigationFn?, routeHook: HookRouteFn?
+    /// Tabs and native screens, in a table of 168 bytes or more.
+    var tabsHook: HookTabsFn?, tabContainerHook: HookTabContainerFn?, platformController: ViewFn?
+    /// Hooked nodes (LLP 1075.003.000), in a table of 176 bytes or more;
+    /// the window toolbar's hook (macOS), in one of 184 or more.
+    var elementHook: HookElementFn?, toolbarHook: HookToolbarFn?
     var agentInput: SetFn?
     var focusTarget: ViewFn?
 
@@ -156,6 +180,18 @@ private final class NativeTable {
         loaded.agentInput = pointer(64).map { unsafeBitCast($0, to: SetFn.self) }
         loaded.focusTarget = size >= 120 ? pointer(112).map { unsafeBitCast($0, to: ViewFn.self) } : nil
         loaded.prepareForReuse = size >= 112 ? pointer(104).map { unsafeBitCast($0, to: ReuseFn.self) } : nil
+        if size >= 144 {
+            loaded.connect = pointer(120).map { unsafeBitCast($0, to: HookConnectFn.self) }
+            loaded.navigationHook = pointer(128).map { unsafeBitCast($0, to: HookNavigationFn.self) }
+            loaded.routeHook = pointer(136).map { unsafeBitCast($0, to: HookRouteFn.self) }
+        }
+        if size >= 168 {
+            loaded.tabsHook = pointer(144).map { unsafeBitCast($0, to: HookTabsFn.self) }
+            loaded.tabContainerHook = pointer(152).map { unsafeBitCast($0, to: HookTabContainerFn.self) }
+            loaded.platformController = pointer(160).map { unsafeBitCast($0, to: ViewFn.self) }
+        }
+        if size >= 176 { loaded.elementHook = pointer(168).map { unsafeBitCast($0, to: HookElementFn.self) } }
+        if size >= 184 { loaded.toolbarHook = pointer(176).map { unsafeBitCast($0, to: HookToolbarFn.self) } }
         return .success(loaded)
     }
 }
@@ -180,6 +216,10 @@ private final class NativeEntry {
     var view: NativePlatformView?
     var props = "{}"
     var snapshotBit = false
+    #if os(iOS)
+    /// A native screen's controller, a child of its route's while it lives.
+    var screen: UIViewController?
+    #endif
     var intrinsicSize: CGSize?
     var hasIntrinsicReport = false
     init(owner: NodeView) { self.owner = owner; self.id = owner.id }
@@ -339,10 +379,12 @@ final class NativeViews {
         let path = NativeViews.modulePath(session: session)
         let after = session?.firstDrawMs.map { String(format: "%.1f", ExactEnv.wall() - $0) } ?? "?"
         log("loading \(path) \(after) ms after first pixel")
+        let started = CFAbsoluteTimeGetCurrent()
         let loaded = NativeTable.load(path: path)
         NativeProcess.table = loaded
+        let took = String(format: "%.1f", (CFAbsoluteTimeGetCurrent() - started) * 1000)
         switch loaded {
-        case .success(let t): log("loaded \((t.path as NSString).lastPathComponent): \(t.roster.keys.sorted().joined(separator: ", "))")
+        case .success(let t): log("loaded \((t.path as NSString).lastPathComponent) in \(took) ms: \(t.roster.keys.sorted().joined(separator: ", "))")
         case .failure(let f): log("\(f.state): \(f.message)")
         }
         return loaded
@@ -350,8 +392,16 @@ final class NativeViews {
 
     // MARK: The session's module (LLP 1067.000 Q5–Q7)
 
-    private var instance: UnsafeMutableRawPointer?
+    private(set) var instance: UnsafeMutableRawPointer?
     private var instanceFailure: NativeFailure?
+    /// Whether the module's hooks are connected, and who replays them for
+    /// the objects built before (LLP 1075.003 §3.2; NativeHooks.swift).
+    var hooksConnected = false
+    var onHooksConnected: (() -> Void)?
+    var hookCalls: (navigation: HookNavigationFn, route: HookRouteFn)?
+    var tabCalls: (HookTabsFn, HookTabContainerFn)?
+    var elementCall: HookElementFn?
+    var toolbarCall: HookToolbarFn?
 
     /// The session's one module instance, made at the first view or long
     /// call that needs it. Main thread.
@@ -375,6 +425,10 @@ final class NativeViews {
         }
         instance = made
         log("module instance made (agent \(ExactEnv.agentMode))")
+        if let connect = table.connect, let navigation = table.navigationHook, let route = table.routeHook {
+            let tabs = table.tabsHook.flatMap { tabs in table.tabContainerHook.map { (tabs, $0) } }
+            connectHooks(connect, navigation, route, tabs, table.elementHook, table.toolbarHook, made)
+        }
         return .success(made)
     }
 
@@ -462,6 +516,7 @@ final class NativeViews {
         #endif
         guard let instance, case .success(let table)? = NativeProcess.table else { return }
         self.instance = nil
+        hooksConnected = false
         table.moduleDestroy(instance)
         log("module instance destroyed")
     }
@@ -526,9 +581,13 @@ final class NativeViews {
         #else
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         #endif
-        owner.addSubview(view)
         entry.handle = handle
         entry.view = view
+        #if os(iOS)
+        contain(entry, table: table) { owner.addSubview(view) }
+        #else
+        owner.addSubview(view)
+        #endif
         entry.props = props
         entry.state = "ready"
         entry.error = nil
@@ -552,6 +611,13 @@ final class NativeViews {
     static func install(table: UnsafeRawPointer) { NativeProcess.table = NativeTable.read(table, path: "test") }
     static func uninstallTable() { NativeProcess.table = nil }
     func install(module: UnsafeMutableRawPointer) { instance = module; gateOpen = true }
+    /// Tests: the process's artifact from a file and this session's module
+    /// made from it now, as the paint gate makes it (its hooks connect).
+    func installArtifact(_ path: String) {
+        NativeProcess.table = NativeTable.load(path: path)
+        hasAppModule = true
+        prepareAppModule()
+    }
     var holds: ((NodeView) -> Bool)?
     var measured: ((String, TimeInterval) -> Void)?
     func release(_ owner: NodeView) {
@@ -733,7 +799,9 @@ final class NativeViews {
         if park(entry) { return }
         #endif
         if entry.instance != 0 { NativeProcess.set(entry.instance, nil) }
-        #if os(macOS)
+        #if os(iOS)
+        release(entry)
+        #else
         // Retire a descendant/field editor before destroying its module instance.
         entry.owner?.presenter?.keyViewLoopStale = true
         if ownsFocus(entry) { entry.view?.window?.makeFirstResponder(nil) }
@@ -917,6 +985,49 @@ extension NodeView {
 
 #if os(iOS)
 extension NativeViews {
+    /// A native screen (LLP 1075.003 §3.6): its controller becomes a child
+    /// of the controller its node shows in (a route's), so UIKit gives it
+    /// appearance calls, the safe area and traits, in UIKit's order: added
+    /// as a child, its view `insert`ed, then moved in. A node created in the
+    /// batch that mounts its route is in no controller yet: it is contained
+    /// once that batch is applied.
+    fileprivate func contain(_ entry: NativeEntry, table: NativeTable, retry: Bool = true, insert: () -> Void = {}) {
+        guard let handle = entry.handle, let made = table.platformController?(handle), let owner = entry.owner else { return insert() }
+        let screen = Unmanaged<UIViewController>.fromOpaque(made).takeUnretainedValue()
+        var responder: UIResponder? = owner
+        while let next = responder, !(next is UIViewController) { responder = next.next }
+        guard let parent = responder as? UIViewController else {
+            insert()
+            guard retry, let presenter = owner.presenter else { return log("\(entry.name) #\(entry.id): a screen with no controller to hold it") }
+            presenter.afterBatch { [weak self, weak entry] in
+                guard let self, let entry, self.entries[entry.id] === entry, entry.screen == nil,
+                      case .success(let table)? = NativeProcess.table else { return }
+                self.contain(entry, table: table, retry: false)
+            }
+            return
+        }
+        if screen.parent != nil, screen.parent !== parent {
+            screen.willMove(toParent: nil)
+            screen.removeFromParent()
+        }
+        let adds = screen.parent !== parent
+        if adds { parent.addChild(screen) }
+        insert()
+        if adds { screen.didMove(toParent: parent) }
+        entry.screen = screen
+        if adds { log("\(entry.name) #\(entry.id): a screen in \(type(of: parent))") }
+    }
+
+    /// A screen's view leaves with its controller, in UIKit's order; a plain
+    /// module view just leaves.
+    fileprivate func release(_ entry: NativeEntry) {
+        guard let screen = entry.screen else { return }
+        screen.willMove(toParent: nil)
+        entry.view?.removeFromSuperview()
+        screen.removeFromParent()
+        entry.screen = nil
+    }
+
     /// Parked instances per tag, and the rows one instance serves before it
     /// is destroyed (LLP 1068 §6, measured on the iPad, §0.3): an instance
     /// keeps what it drew for every region it showed — a map served without
@@ -947,6 +1058,7 @@ extension NativeViews {
         if list.count >= Self.reuseCap { discard(list.removeFirst()) }
         view.alpha = 1
         view.isHidden = false
+        release(entry)
         view.removeFromSuperview()
         entry.nonce = 0; entry.revealing = false; entry.sizing = false; entry.owner = nil
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -988,7 +1100,7 @@ extension NativeViews {
         // often the next row's, until the node is laid out (`laidOut`) — a
         // map's resize to nothing and back costs as much as its reset.
         if owner.bounds.isEmpty { view.autoresizingMask = []; entry.sizing = true } else { view.frame = owner.contentBox() }
-        owner.addSubview(view)
+        contain(entry, table: table) { owner.addSubview(view) }
         let status = json.withUnsafeBytes { p in table.setProps(handle, p.bindMemory(to: UInt8.self).baseAddress, UInt32(json.count), &error, UInt32(error.count)) }
         entry.props = props
         entry.state = "ready"

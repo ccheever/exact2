@@ -676,6 +676,15 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             );
             continue;
         }
+        // @ref LLP 1075.003 §3.3 — the app's words are real attributes.
+        if let (PropId::Dataset, PropValue::Str(json)) = (id, value) {
+            if let Some(dataset) = crate::link::linked().dataset {
+                for (word, value) in dataset(json) {
+                    out.insert("data-".to_owned() + &word, value);
+                }
+            }
+            continue;
+        }
         let text = match value {
             PropValue::Str(s) => s.clone(),
             PropValue::Bool(b) => b.to_string(),
@@ -698,6 +707,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::AccessibilityRole => "role",
             PropId::AccessibilityHint => "aria-description",
             PropId::AccessibilityOrientation => "aria-orientation",
+            PropId::AccessibilityControls => "aria-controls",
             PropId::AccessibilityHeadingLevel => "aria-level",
             PropId::AccessibilityPosInSet => "aria-posinset",
             PropId::AccessibilitySetSize => "aria-setsize",
@@ -1016,5 +1026,148 @@ impl<D: exact_runner::DataSource> super::Host<D> {
                 m.css = css;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod dataset_tests {
+    use exact_kernel::{NodeFacts, NodeType, PropId, PropKind, PropList, PropValue, StyleProps};
+
+    fn written(
+        node_type: NodeType,
+        prop: PropId,
+        value: PropValue,
+    ) -> super::SortedMap<String, String> {
+        let style = StyleProps::default();
+        let mut props = PropList::new();
+        props.set(prop, value);
+        super::props_of(&NodeFacts {
+            id: 1,
+            node_type,
+            style: &style,
+            props: &props,
+            is_root: false,
+            inline_run: false,
+        })
+    }
+
+    /// An SVG filter primitive's own prop: the compiler sets it only on an
+    /// `fe*` or `filter` element, which writes it under its own name.
+    fn svg_only(prop: PropId) -> bool {
+        let name = prop.name();
+        name.starts_with("pointsAt")
+            || name.starts_with("specular")
+            || name.ends_with("ChannelSelector")
+            || matches!(
+                name,
+                "amplitude"
+                    | "azimuth"
+                    | "baseFrequency"
+                    | "bias"
+                    | "diffuseConstant"
+                    | "divisor"
+                    | "edgeMode"
+                    | "elevation"
+                    | "exponent"
+                    | "filterUnits"
+                    | "in"
+                    | "in2"
+                    | "intercept"
+                    | "k1"
+                    | "k2"
+                    | "k3"
+                    | "k4"
+                    | "kernelMatrix"
+                    | "limitingConeAngle"
+                    | "mode"
+                    | "numOctaves"
+                    | "operator"
+                    | "order"
+                    | "preserveAlpha"
+                    | "primitiveUnits"
+                    | "result"
+                    | "seed"
+                    | "slope"
+                    | "stdDeviation"
+                    | "stitchTiles"
+                    | "surfaceScale"
+                    | "tableValues"
+                    | "targetX"
+                    | "targetY"
+                    | "values"
+            )
+    }
+
+    /// @ref LLP 1075.003 §3.3 — every `data-` name this host writes on an
+    /// HTML element for a prop of its own is a word Contract refuses, so an
+    /// app's `data-*` never lands on one.
+    #[test]
+    fn every_data_name_the_host_writes_is_a_reserved_word() {
+        let kinds = [
+            NodeType::View,
+            NodeType::Text,
+            NodeType::Pressable,
+            NodeType::TextInput,
+            NodeType::Image,
+            NodeType::NativeView,
+            NodeType::ScrollView,
+            NodeType::List,
+            NodeType::Video,
+            NodeType::WebView,
+            NodeType::Canvas,
+            NodeType::Svg,
+            NodeType::Control,
+        ];
+        for prop in PropId::ALL {
+            if prop == PropId::Dataset || svg_only(prop) {
+                continue;
+            }
+            let value = match prop.kind() {
+                PropKind::Str => PropValue::Str("x".into()),
+                PropKind::Bool => PropValue::Bool(true),
+                PropKind::Int => PropValue::Int(1),
+                PropKind::Float => PropValue::Float(1.0),
+            };
+            for kind in kinds {
+                for name in written(kind, prop, value.clone()).keys() {
+                    if let Some(word) = name.strip_prefix("data-") {
+                        assert!(
+                            contract_lower::dataset::reserved(word),
+                            "`{name}` (from {}) is not reserved in contract/lower/src/dataset.rs",
+                            prop.name()
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_dataset_is_one_attribute_per_word() {
+        crate::link::link(crate::Linked {
+            dataset: Some(crate::document::dataset),
+            ..crate::link::linked()
+        });
+        let out = written(
+            NodeType::View,
+            PropId::Dataset,
+            PropValue::Str(r#"{"large-title":"Inbox","trailing":"compose"}"#.into()),
+        );
+        assert_eq!(
+            out.get("data-large-title").map(String::as_str),
+            Some("Inbox")
+        );
+        assert_eq!(
+            out.get("data-trailing").map(String::as_str),
+            Some("compose")
+        );
+        assert!(out.get("data-dataset").is_none());
+        assert_eq!(
+            crate::document::dataset(r#"{"a":"q\"\\\t\u0001","b":""}"#),
+            vec![
+                ("a".into(), "q\"\\\t\u{1}".into()),
+                ("b".into(), String::new())
+            ]
+        );
     }
 }

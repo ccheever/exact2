@@ -42,6 +42,7 @@ import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { checkModuleRoster, copyShaders, appleCargoClaims, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesIos, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
+import { writeDataKeys } from './data-keys.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const run = (cmd, args, opts = {}) => {
@@ -1123,7 +1124,11 @@ function main(args) {
   // `modules/apple/*.swift`, one dylib under one load name. A release build
   // whose roster names a tag the artifact lacks fails here, named.
   const modulesLoadName = 'libexact_modules.dylib';
-  const moduleSources = app.modules.apple.length ? [resolve(root, 'host/apple/modules/ExactNativeModule.swift'), ...app.modules.apple] : [];
+  // @ref LLP 1075.003 Q2 — the app's `data-*` words as typed keys, written
+  // from app.json `data` beside the glue (built, never committed).
+  const dataKeys = resolve(swiftBuildRoot, `ExactDataKeys-${app.id}.swift`);
+  if (app.modules.apple.length) writeDataKeys(app, dataKeys);
+  const moduleSources = app.modules.apple.length ? [resolve(root, 'host/apple/modules/ExactNativeModule.swift'), dataKeys, ...app.modules.apple] : [];
   const modulesBuilt = moduleSources.length ? resolve(webBuildDir, modulesLoadName) : null;
   // The slice of each `modules/apple/*.xcframework` for this build, read
   // from the xcframework's own Info.plist (`AvailableLibraries`: platform,
@@ -1454,6 +1459,24 @@ function test(args) {
       });
       return;
     }
+    // The fixture's plan and hook module (LLP 1075.003 §3.9), built for the
+    // tests' simulator so they run its hooks over its routes: the glue, its
+    // typed keys, its Swift.
+    const fixture = resolveApp('native-fixture'), fixtureDir = resolve(paths.namespace, 'fixture-module');
+    writeDataKeys(fixture, resolve(fixtureDir, 'ExactDataKeys.swift'));
+    // Its Contract under the identity of the app the tests link, which the
+    // runner requires of a plan (an app's plan boots in no other app).
+    const source = resolve(fixtureDir, 'app');
+    mkdirSync(source, { recursive: true });
+    cpSync(resolve(fixture.dir, 'app.contract'), resolve(source, 'app.contract'));
+    writeFileSync(resolve(source, 'app.json'), JSON.stringify({ ...fixture.manifest, $schema: undefined, id: app.id, app: { ...fixture.manifest.app, id: app.id } }));
+    env.TEST_RUNNER_EXACT_FIXTURE_PLAN = resolve(fixtureDir, 'app.plan');
+    run('cargo', ['run', '-q', '-p', 'contract', '--bin', 'contract', '--manifest-path', resolve(root, 'Cargo.toml'), '--',
+      'build', resolve(source, 'app.contract'), '-o', env.TEST_RUNNER_EXACT_FIXTURE_PLAN]);
+    env.TEST_RUNNER_EXACT_FIXTURE_MODULE = resolve(fixtureDir, 'libexact_modules.dylib');
+    runApple('xcrun', ['--sdk', 'iphonesimulator', 'swiftc', '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules',
+      '-module-cache-path', resolve(fixtureDir, 'cache'), resolve(root, 'host/apple/modules/ExactNativeModule.swift'), resolve(fixtureDir, 'ExactDataKeys.swift'),
+      ...fixture.modules.apple, '-target', iosTriple, '-o', env.TEST_RUNNER_EXACT_FIXTURE_MODULE]);
     const classes = readdirSync(resolve(pkg, 'tests/ExactKitTests')).filter(f => f.endsWith('IOSTests.swift')).map(f => f.slice(0, -'.swift'.length));
     if (!classes.length) { console.log('host/apple: no *IOSTests to run'); return; }
     const pick = args.includes('--sim') ? args[args.indexOf('--sim') + 1] : process.env.EXACT_SIM;

@@ -674,3 +674,29 @@ component Child
     assert_eq!(text_of(&r, "value-100"), "600");
     assert_eq!(text_of(&r, "value-2"), "56");
 }
+
+#[test]
+fn a_row_owned_state_reaches_the_rows_of_the_uses_own_each() {
+    // A use inside an `each` row owns its state on that row; the rows of the
+    // use's own `each` (or list) read it through their frames, so a write
+    // revisits them. The other row's use keeps its own value.
+    for list in [
+        "column",
+        "list virtualized=true height=400 estimated-item-height=40",
+    ] {
+        let src = format!("shape Station\n  id: string\n  name: string\ncomponent App\n  resource stations = stations(\"asc\") as shape list<Station>\n  view\n    column\n      each outer in stations key=outer.id\n        Rows(outer=outer, items=stations)\ncomponent Rows\n  props\n    outer: Station\n    items: list<Station>\n  state on = false\n  action flip\n    on = not on\n  view\n    column\n      button \"flip\" press=flip testId=`flip-${{outer.id}}`\n      {list}\n        each item in items key=item.id\n          text (on ? \"on\" : \"off\") height=40 testId=`row-${{outer.id}}-${{item.id}}`\n");
+        let mut r = Runner::boot(
+            contract::compile(&src).unwrap(),
+            Stations,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        assert_eq!(text_of(&r, "row-mv-pa"), "off", "{list}");
+        r.dispatch(view_of(&r, "flip-mv"), Event::Press).unwrap();
+        assert_eq!(text_of(&r, "row-mv-mv"), "on", "{list}");
+        assert_eq!(text_of(&r, "row-mv-pa"), "on", "{list}");
+        assert_eq!(text_of(&r, "row-pa-pa"), "off", "{list}");
+    }
+}

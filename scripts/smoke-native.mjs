@@ -8,12 +8,14 @@
 // shows the boxes and the tokened snapshot answers (Apple); and the failure
 // family — missing artifact, missing factory, wrong ABI, refused props —
 // each yields its named status, an empty box, a log line and a running app.
+// Then the hooks (LLP 1075.003): data-* words, the authored header under the
+// agent, the hooks' journal on iOS, and a push and its Back.
 import { spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { serveStatic } from '../host/web/serve.mjs';
+import { jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 import { decodePng } from './png.mjs';
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -105,6 +107,128 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     st = await s.state();
     // (A browser's real pointer also hovers and focuses the element first.)
     check(st.slots.events.startsWith(EXPECTED_EVENTS) && st.slots.events.endsWith('press;'), `${host} native: a tap on the box is the node's press: ${JSON.stringify(st.slots.events)}`);
+    // The hooks (LLP 1075.003): the route's data-* words, the authored header
+    // under the agent (one presentation, LLP 1021 D4), the hooks' moments in
+    // the journal (iOS; macOS projects no routes; the web's are checked
+    // below), and a push and its Back.
+    t = await s.tree();
+    const words = host === 'web'
+      ? await s.carrier.evaluate(`JSON.stringify((({ menu, screen, transition, violate }) => ({ menu, screen, transition, violate }))(document.querySelector('[data-testid="route-home"]').dataset))`)
+      : byTestId(t, 'route-home')?.props.dataset;
+    check(words === '{"menu":"compose","screen":"home","transition":"false","violate":"false"}', `${host} native: the route carries its data-* words: ${words}`);
+    const header = (await s.layout()).nodes.find((n) => n.testId === 'header-home');
+    check(header?.h > 0, `${host} native: the agent sees the authored header: ${JSON.stringify(header)}`);
+    // `logs` reads on from where it last stopped: the journal is both reads.
+    logs = await s.logs();
+    const journal = `${lines}\n${logs.lines.join('\n')}`;
+    if (host === 'ios') {
+      check(/hook: connected/.test(journal) && /hook navigation #1: built[\s\S]*hook route \d+: built/.test(journal), `${host} native: a stack's hook runs before its routes': ${journal.split('\n').filter((l) => /hook/.test(l)).join(' | ')}`);
+    } else if (host === 'macos') {
+      // macOS projects no routes; the web's page module has its own (below).
+      check(!/hook (navigation|route)/.test(journal), `${host} native: no route hook runs on macOS: ${logs.lines.filter((l) => /hook/.test(l)).join(' | ')}`);
+    }
+    await s.tap('compose-home'); await settle(s);
+    check((await s.state()).slots.composed === 1, `${host} native: the authored Compose runs the handler a bar item presses`);
+    // The window toolbar's hook (macOS, LLP 1075.003.000 §3.7): its display
+    // mode and an item of the app's after Exact's, whose own items still press.
+    if (host === 'macos') {
+      await s.clock('settle');
+      const bar = (await s.state()).window?.toolbar;
+      check(bar?.installed && bar.displayMode === 1 && bar.appItems?.includes('fixture.hooked') && bar.items?.at(-1) === 'fixture.hooked',
+        `${host} native: the toolbar hook sets the display mode and adds an item after Exact's: ${JSON.stringify(bar)}`);
+      await s.tap('toolbar-compose'); await settle(s);
+      check((await s.state()).slots.composed === 2, `${host} native: Exact's toolbar item still presses its command`);
+    }
+    await s.tap('detail'); await settle(s);
+    t = await until(s, 'the detail route is pushed', (t) => !!byTestId(t, 'route-detail'));
+    // Hooked nodes (LLP 1075.003.000): the tree shows each word, the hook
+    // hears a node's mount and its data-* change (`state` counts them; on the
+    // web the fixture's page module does), and a development build journals a
+    // write to what Exact owns of one (iOS).
+    const webCalls = async () => JSON.parse(await s.carrier.evaluate('JSON.stringify(globalThis.exactFixtureHooks ?? {})'));
+    const hookCalls = async (word) => host === 'web'
+      ? Object.fromEntries(Object.entries(await webCalls()).filter(([k]) => k.startsWith(word + ':')).map(([k, v]) => [k.slice(word.length + 1), v]))
+      : (await s.state()).hooks?.[word]?.calls ?? {};
+    {
+      await s.clock('settle');
+      check(byTestId(await s.tree(), 'hooked-badge')?.props.hook === 'badge', `${host} native: the tree shows a node's hook word`);
+      const badge = await hookCalls('badge');
+      check(badge.built === 1 && badge.changed === 1, `${host} native: a hooked node is built, and its data-* change reaches its hook: ${JSON.stringify(badge)}`);
+      if (host === 'ios') {
+        await s.tap('violate'); await settle(s);
+        await s.tap('violate'); await settle(s);
+        const owned = (await s.logs()).lines.join('\n');
+        check(/element detail-list #\d+: contentInset changed outside Exact, which owns it/.test(owned), `${host} native: the development check covers hooked nodes`);
+      }
+    }
+    // An authored scrollTop lands as the browser's (LLP 1075.003 §3.7).
+    await s.tap('scroll-80'); await settle(s);
+    const scrolled = (await s.layout()).nodes.find((n) => n.testId === 'list-detail');
+    check(scrolled?.sy === 80, `${host} native: scrollTop 80 is an offset of 80: ${JSON.stringify(scrolled)}`);
+    await s.tap('scroll-0'); await settle(s);
+    await s.tap('back'); await settle(s);
+    t = await until(s, 'Back pops the detail route', (t) => !byTestId(t, 'route-detail'));
+    if (host === 'ios') {
+      logs = await s.logs();
+      check(logs.lines.some((l) => /hook route \d+: ended/.test(l)), `${host} native: a popped route's hook hears routeEnded`);
+    }
+    // A list whose rows each hold a hooked node: the journal names what the
+    // word gives up and warns for it in a row; a retired row's hook hears
+    // `ended`; on iOS no row holding one is reused (LLP 1075.003.000 §3.3).
+    {
+      const takes = (await s.state()).pool?.takes;
+      await s.tap('rows'); await settle(s);
+      t = await until(s, 'the hooked list shows rows', (t) => !!byTestId(t, 'row-1'));
+      await s.clock('settle');
+      check((await hookCalls('dot')).built > 0, `${host} native: each shown row's node is hooked`);
+      await s.tap('hooked-list', { wheel: [0, 4000] }); await settle(s); await s.clock('settle');
+      const dot = await hookCalls('dot');
+      check(dot.ended > 0, `${host} native: a retired row's hook hears ended: ${JSON.stringify(dot)}`);
+      if (host === 'ios') check((await s.state()).pool?.takes === takes, `${host} native: a row holding a hooked node is never reused: ${takes} → ${(await s.state()).pool?.takes}`);
+      const said = (await s.logs()).lines.join('\n');
+      const gave = host === 'ios' ? /hook element dot: a view, not a flat leaf; its row is not reused/ : /hook element dot: nothing beyond the call/;
+      check(gave.test(said) && /hook element dot is in a row of list hooked-list/.test(said), `${host} native: the journal says what a hooked node gives up: ${said.split('\n').filter((l) => /hook element dot/.test(l)).slice(0, 3).join(' | ')}`);
+      // A hook that undoes what it adds says so (`reusable`, LLP
+      // 1075.003.000.000 §8): its rows are reused again. The live rows read
+      // the component's state the button flips, so their hooks hear it now.
+      if (host === 'ios') {
+        await s.tap('reuse'); await settle(s); await s.clock('settle');
+        const live = (await s.tree()).nodes.filter((n) => n.props.hook === 'dot');
+        check(live.length > 0 && live.every((n) => n.props.dataset === '{"reuse":"true"}'), `${host} native: the live rows re-read the state the button flips: ${live.length} rows, ${[...new Set(live.map((n) => n.props.dataset))]}`);
+        const from = (await s.state()).pool?.takes;
+        await s.tap('hooked-list', { wheel: [0, -4000] }); await settle(s); await s.clock('settle');
+        const st = await s.state(), freed = (await s.logs()).lines.join('\n');
+        check(st.pool?.takes > from && st.hooks?.dot?.reusable > 0 && /hook element dot: its hook undoes what it adds; its row is reused/.test(freed),
+          `${host} native: a reusable hook's rows are reused: takes ${from} → ${st.pool?.takes}, ${JSON.stringify(st.hooks?.dot)}`);
+      }
+      await s.tap('back'); await settle(s);
+      t = await until(s, 'Back pops the rows route', (t) => !byTestId(t, 'hooked-list'));
+    }
+    // The page module's container hooks (LLP 1075.003.000 §3.7): the root,
+    // its tablist, each route as it mounts and as it leaves.
+    if (host === 'web') {
+      await s.clock('settle');
+      const c = await webCalls();
+      check(c['navigation:built'] === 1 && c['tabs:built'] === 1 && c['route:built'] >= 3 && c['route:ended'] >= 2,
+        `${host} native: the page module's container hooks run as routes mount and leave: ${JSON.stringify(c)}`);
+    }
+    // A sheet over the tabs, and its Close (LLP 1075.003 §3.7, from James's review).
+    // (macOS projects no routes: there the sheet is its route, shown.)
+    const sheetShown = async () => host === 'macos' ? !!byTestId(await s.tree(), 'route-sheet') : (await s.state()).navigation?.presentation === 'modal';
+    await s.tap('sheet'); await settle(s);
+    check(await sheetShown(), `${host} native: the sheet is presented over the tabs`);
+    await s.tap('close-sheet'); await settle(s);
+    check(!(await sheetShown()), `${host} native: Close dismisses the sheet`);
+    // Retained tabs (LLP 1075.003 §3.7): a tab's scroll survives a switch away and back.
+    await s.tap('tab-second'); await settle(s); await s.clock('settle');
+    await s.tap('list-second', { wheel: [0, 300] }); await settle(s); await s.clock('settle');
+    const offset = async () => (await s.layout()).nodes.find((n) => n.testId === 'list-second')?.sy;
+    const away = await offset();
+    await s.tap('tab-home'); await settle(s); await s.clock('settle');
+    await s.tap('tab-second'); await settle(s); await s.clock('settle');
+    const kept = await offset();
+    check(away > 0 && kept === away, `${host} native: a tab's scroll survives a switch: ${away} → ${kept}`);
+    await s.tap('tab-home'); await settle(s);
     // Refused props: named, the last accepted kept, the app still running.
     const before = st.slots.received;
     await s.tap('reject'); await settle(s);
@@ -230,6 +354,40 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
       await s.type('dialog-input', { key: 'Escape', for: 10 }); await settle(s);
       dialogState = await s.state();
       check(dialogState.dialog == null && dialogState.focus.logical === dialogOpener && dialogState.slots.dialogValue === 'modal draft', 'macos native: Escape closes and releases safely, restores focus and preserves the draft');
+      const popoverTree = await s.tree();
+      const popover = byTestId(popoverTree, 'native-popover').id;
+      const search = byTestId(popoverTree, 'popover-search').id;
+      const popoverInput = byTestId(popoverTree, 'popover-input').id;
+      const bump = byTestId(popoverTree, 'bump').id;
+      check(byTestId(popoverTree, 'native-popover').open === false, 'macos popover: the closed form does not paint in agent mode');
+      const hiddenType = await s.carrier.ask({ op: 'type', id: search, text: 'forbidden' });
+      check(Boolean(hiddenType.error) && (await s.state()).slots.popoverSearch === '', 'macos popover: a closed field refuses input');
+      await s.tap('open-native-popover'); await settle(s);
+      let popoverState = await s.state();
+      check(popoverState.navigation.popover?.popover === popover && popoverState.focus.logical === search, 'macos popover: a target-only button opens the real form and autofocuses its search field');
+      await s.type('popover-search', 'find models'); await settle(s);
+      await s.type('popover-input', 'custom draft'); await settle(s);
+      popoverState = await s.state();
+      check(popoverState.slots.popoverSearch === 'find models' && popoverState.slots.popoverValue === 'custom draft' && popoverState.focus.logical === popoverInput && popoverState.focus.responder === 'FixtureEditor', 'macos popover: both the ordinary field and native editor receive text');
+      await s.screenshot(resolve(shots ?? tmp, 'native-popover.png'));
+      await s.type('popover-search', { key: 'Tab' }); await settle(s);
+      check(await focus() === popoverInput, 'macos popover: Tab from the search field reaches the native editing descendant');
+      await s.type('popover-close', { key: 'Shift+Tab' }); await settle(s);
+      check(await focus() === popoverInput, 'macos popover: reverse Tab also reaches the native editing descendant');
+      await s.type('popover-close', { key: 'Tab' }); await settle(s);
+      check(await focus() === bump, 'macos popover: Tab returns to the page after the invoker');
+      await s.type('bump', { key: 'Escape', for: 10 }); await settle(s);
+      popoverState = await s.state();
+      check(popoverState.navigation.popover == null && popoverState.focus.logical === bump, 'macos popover: Escape closes without stealing focus back from the page');
+      await s.tap('open-native-popover'); await settle(s);
+      check((await s.state()).slots.popoverValue === 'custom draft' && (await s.state()).slots.popoverSearch === 'find models', 'macos popover: reopening preserves both drafts');
+      const countBeforeDismiss = (await s.state()).slots.count;
+      await s.tap('bump'); await settle(s);
+      popoverState = await s.state();
+      check(popoverState.navigation.popover == null && popoverState.slots.count === countBeforeDismiss + 1, 'macos popover: outside click dismisses and still activates its button');
+      await s.tap('open-native-popover'); await settle(s);
+      await s.tap('popover-close'); await settle(s);
+      check((await s.state()).navigation.popover == null && byTestId(await s.tree(), 'native-popover').open === false, 'macos popover: the hide-only button closes the form');
     }
     // A plan reload reuses the defined elements (web).
     if (host === 'web') {
@@ -265,7 +423,8 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
       const dir = resolve(tmp, name);
       cpSync(webDist, dir, { recursive: true });
       change(dir);
-      const server = createServer((req, res) => serveStatic(dir, req, res));
+      // A JS-target build's agent pieces are served as `serve.mjs` serves them.
+      const server = createServer((req, res) => jsTargetBuild(webDist) ? serveBuildTree(dir, req, res) : serveStatic(dir, req, res));
       return new Promise((ok) => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${server.address().port}/`, close: () => server.close() })));
     };
     const missing = await variant('missing', (dir) => rmSync(resolve(dir, 'modules'), { recursive: true, force: true }));

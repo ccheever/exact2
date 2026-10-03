@@ -81,7 +81,16 @@ pub struct Linked {
     /// `frame` and `measure` (LLP 1051.000 D4): the page's answers, through
     /// one import `geometry-glue.js` answers.
     pub geometry: exact_runner::GeometryLink,
+    /// `data-*` words (LLP 1075.003 §3.3): a `dataset` row's pairs, each
+    /// written as its own attribute.
+    pub dataset: Option<DatasetPairs>,
+    /// A navigation root's tabs (LLP 1075.003 §3.7): its routes as each
+    /// tab's stack shows them.
+    pub tabs: Option<crate::document::TabRoutes>,
 }
+
+/// A `dataset` row's `(word, value)` pairs: [`crate::document::dataset`].
+pub type DatasetPairs = fn(&str) -> Vec<(String, String)>;
 
 /// `backgroundMaterial`'s pair: a material's CSS variables appended to a
 /// style, and the line to log, once, for a name the table lacks.
@@ -133,6 +142,8 @@ impl Linked {
         grid: None,
         geometry: None,
         segments: None,
+        dataset: None,
+        tabs: None,
     };
 
     /// The capabilities registered here.
@@ -197,6 +208,12 @@ impl Linked {
         }
         if self.segments.is_some() {
             uses = uses.with(Capability::Segments);
+        }
+        if self.dataset.is_some() {
+            uses = uses.with(Capability::Dataset);
+        }
+        if self.tabs.is_some() {
+            uses = uses.with(Capability::Tabs);
         }
         uses
     }

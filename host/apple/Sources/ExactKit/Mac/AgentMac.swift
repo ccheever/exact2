@@ -120,9 +120,11 @@ extension Agent {
         }
         // @ref LLP 1038 D11 — last op, never inferred from route props.
         navigation["url"] = session.routerOp?["url"] ?? NSNull()
+        navigation["popover"] = presenter.menus.observation ?? NSNull()
         // The window's title as AppKit shows it (LLP 1048.003 D1).
-        let window: [String: Any] = ["title": presenter.root.window?.title ?? NSNull()]
-        return ["focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window, "dialog": presenter.dialogs.observation ?? NSNull()]
+        let window: [String: Any] = ["title": presenter.root.window?.title ?? NSNull(), "toolbar": presenter.toolbar.summary]
+        return ["focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window,
+                "dialog": presenter.dialogs.observation ?? NSNull(), "hooks": presenter.elements.observation]
     }
 
     /// A view's box in the viewport: the clip view's space, less its scroll
@@ -328,6 +330,7 @@ extension Agent {
         let send = { [self] (type: NSEvent.EventType, p: CGPoint) in
             let t = contactClock
             if let e = NSEvent.mouseEvent(with: type, location: toWindow(p), modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1) {
+                presenter.menus.pointer(e)
                 win.sendEvent(e)
             }
         }
@@ -535,11 +538,13 @@ extension Agent {
             // NSTextView and AVKit controls may track synchronously inside mouseDown.
             // Put this click's release in the queue before entering that loop.
             NSApp.postEvent(up, atStart: true)
+            presenter.menus.pointer(down)
             win.sendEvent(down)
             // The queue's wrapper identifies the release, but its window location
             // is re-derived from the window server's and lands elsewhere by the
             // window's screen offset: a pointer tap pressed down and released
             // outside its button. Send this click's own release.
+            presenter.menus.pointer(up)
             if release.takeQueued(from: NSApp) != nil {
                 win.sendEvent(up)
             }
@@ -652,16 +657,23 @@ extension Agent {
                 }
             }()
             let t = ProcessInfo.processInfo.systemUptime
-            guard let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code),
-                  let up = NSEvent.keyEvent(with: .keyUp, location: .zero, modifierFlags: modifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code)
+            // Both character fields preserve Shift. AppKit interprets a
+            // Shift-Tab as BackTab (U+0019), not a forward Tab with flags.
+            let characters = code == 48 && modifiers.contains(.shift) ? "\u{19}" : chars
+            guard let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code),
+                  let up = NSEvent.keyEvent(with: .keyUp, location: .zero, modifierFlags: modifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)
             else { return ["error": "no key event"] }
             // This driver sends directly to NSWindow, bypassing NSApplication's
             // local monitor. Use the same session command router first.
             presenter.flushKeyViewLoop()
-            if phase != "up", presenter.dialogs.key(down) || presenter.shortcuts.perform(down) {
+            if phase != "up", presenter.menus.key(down) || presenter.dialogs.key(down) || presenter.shortcuts.perform(down) {
+                if phase != "down" { _ = presenter.menus.key(up) }
                 if phase == "down", let release = req["releaseKey"] as? String {
                     // A host command consumed the down; its up belongs to no module instance.
-                    keyReleases[release] = { ["phase": "up", "delivery": "recognized"] }
+                    keyReleases[release] = { [weak presenter] in
+                        _ = presenter?.menus.key(up)
+                        return ["phase": "up", "delivery": "recognized"]
+                    }
                 }
                 return ["typed": Int(v.id), "key": chord, "value": v.textArea?.string ?? v.field?.stringValue ?? ""]
             }

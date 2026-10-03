@@ -187,7 +187,7 @@ extension Agent {
         // The list pool and the leaves it holds mid-fling (LLP 1068 §6, §5.1).
         var pool = presenter.pool.observation.merging(presenter.leaves.observation) { a, _ in a }.merging(presenter.flats.observation) { a, _ in a }
         pool["native"] = session.natives.observation
-        return ["focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window, "pool": pool]
+        return ["focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window, "pool": pool, "hooks": presenter.elements.observation]
     }
 
     /// A view's box in the viewport: the viewport's content space less its
@@ -227,7 +227,7 @@ extension Agent {
             if v.scrollDormant { n["sx"] = 0.0; n["sy"] = 0.0 }
             if let sv = v.scroll {
                 n["sx"] = Agent.r2(sv.contentOffset.x)
-                n["sy"] = Agent.r2(sv.contentOffset.y)
+                n["sy"] = Agent.r2(sv.contentOffset.y + v.scrollTopInset(sv))
                 // How far past its own ends it sits: a stretched bounce is a
                 // state a driver cannot read from the offset alone.
                 let past = { (value: CGFloat, start: CGFloat, end: CGFloat) -> CGFloat in

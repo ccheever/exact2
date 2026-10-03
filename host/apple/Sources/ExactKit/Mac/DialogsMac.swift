@@ -30,7 +30,7 @@ final class DialogHost {
     func owns(_ node: NodeView) -> Bool { entries.contains { $0.dialog === node } }
     func blocks(_ node: NSView) -> Bool {
         guard let active else { return false }
-        return node !== active && !node.isDescendant(of: active)
+        return presenter?.menus.contains(active, node) != true
     }
     private func live(_ node: NodeView) -> Bool { presenter?.views[node.id] === node }
     private func focusOwner(_ window: NSWindow) -> NSView? {
@@ -57,6 +57,7 @@ final class DialogHost {
               let parent = dialog.superview, parent.isDescendant(of: presenter.root) || parent === presenter.root
                 || entries.contains(where: { parent.isDescendant(of: $0.dialog) || parent === $0.dialog }) else { return }
         let entry = Entry(dialog, previous: focusOwner(window))
+        presenter.menus.reset()
         entries.append(entry)
         entry.backdrop.host = self
         entry.backdrop.autoresizingMask = [.width, .height]
@@ -76,6 +77,9 @@ final class DialogHost {
     }
     func close(_ dialog: NodeView, restoreFocus: Bool = true) {
         guard let i = entries.firstIndex(where: { $0.dialog === dialog }) else { return }
+        for popover in presenter?.menus.presented ?? [] where presenter?.menus.contains(dialog, popover) == true {
+            presenter?.menus.close(popover, restoreFocus: false)
+        }
         let window = presenter?.viewport.window
         let hadFocus = window.map { ownsFocus($0) } ?? false
         let entry = entries.remove(at: i)
@@ -129,7 +133,7 @@ final class DialogHost {
             }
         }
         var changed = false
-        for dialog in presenter.carrying("tag:dialog") {
+        for dialog in presenter.carrying("tag:dialog") where dialog.props["popover"] == nil {
             let hidden = !owns(dialog) || dialog.style["display"]?.string == "none"
             if dialog.isHidden != hidden { dialog.isHidden = hidden; changed = true }
         }
@@ -177,6 +181,7 @@ final class DialogHost {
             guard !node.inert, !node.disabled, !node.isHidden else { return }
             if Presenter.tabbable(node) { nodes.append(node) }
             for case let child as NodeView in node.container.subviews { walk(child) }
+            for popover in presenter.menus.following(node) { walk(popover) }
         }
         walk(dialog)
         return nodes.enumerated().sorted { a, b in
