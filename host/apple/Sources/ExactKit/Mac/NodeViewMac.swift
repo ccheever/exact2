@@ -223,6 +223,15 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         }
         let name = NodeView.keyName(event)
         if handlers.contains("key") { presenter?.key(id, name) }
+        // Sequential focus follows the web from every stop: AppKit moves on
+        // from a text field's editor by itself, but from any other view only
+        // when macOS "Keyboard navigation" is on, while Exact puts buttons
+        // and native editors in the loop either way (`canBecomeKeyView`).
+        if name == "Tab", event.modifierFlags.intersection([.command, .control, .option]).isEmpty, let window {
+            presenter?.flushKeyViewLoop()
+            if event.modifierFlags.contains(.shift) { window.selectPreviousKeyView(self) } else { window.selectNextKeyView(self) }
+            return
+        }
         if pressable, name == "Enter" || name == " " {
             let canvas = inputCanvas, ownerWindow = window
             presenter?.press(id)
