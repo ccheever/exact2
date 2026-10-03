@@ -119,15 +119,23 @@ impl Saved {
             .iter()
             .filter_map(|e| Some((e.collider_handle?, e)))
             .collect();
+        // A hole over a missing or invalid entry fails the read by name; nothing
+        // here may panic, since release builds abort.
+        let mut refused = None;
         let fill = |h: ColliderHandle| {
-            let e = owners.get(&raw(h))?;
-            // A crafted hole over an invalid entry fails the read instead of panicking.
-            std::panic::catch_unwind(|| rebuild(e)).ok()?
+            let rebuilt = owners
+                .get(&raw(h))
+                .ok_or("physics: a collider hole has no entry")
+                .and_then(|e| rebuild(e));
+            rebuilt.map_err(|e| refused = Some(e)).ok()
         };
         let rapier = bincode::DefaultOptions::new()
             .with_limit(payload.len() as u64)
             .deserialize_seed(FillHoles(fill), payload)
-            .map_err(|e| DataError::new(format!("physics: invalid snapshot: {e}")))?;
+            .map_err(|e| match refused {
+                Some(why) => DataError::new(format!("physics: invalid snapshot: {why}")),
+                None => DataError::new(format!("physics: invalid snapshot: {e}")),
+            })?;
         let entries = entries.into_iter().map(|(k, e)| (k, e.clone())).collect();
         self.live = Some(Live::new(rapier, entries));
         Ok(())
@@ -199,14 +207,16 @@ impl Data for Executor {
 }
 // A static collider exactly as sync builds it, settled as after a step. Only a
 // collider without a Body is rebuilt; its entry is the component it was built from.
-fn rebuild(e: &Entry) -> Option<rapier3d::prelude::Collider> {
-    let c = e.collider.as_ref().filter(|_| e.body.is_none())?;
-    Some(
-        crate::step::collider(c, e.pose, None)
-            .position(crate::math::pose(e.pose))
-            .build()
-            .settled(),
-    )
+fn rebuild(e: &Entry) -> Result<rapier3d::prelude::Collider, &'static str> {
+    let c = e
+        .collider
+        .as_ref()
+        .filter(|_| e.body.is_none())
+        .ok_or("physics: a collider hole's entry is not a static collider")?;
+    Ok(crate::step::try_collider(c, e.pose, None)?
+        .position(crate::math::try_pose(e.pose)?)
+        .build()
+        .settled())
 }
 // Mark each static collider whose rebuild is byte-identical to the live one, so
 // the snapshot carries its entry (its components) but not Rapier's copy.
@@ -218,7 +228,10 @@ fn verify(live: &mut Live) {
         }
         let entry = &live.entries[e];
         let co = &live.rapier.colliders[ColliderHandle::from_raw_parts(h[0], h[1])];
-        if rebuild(entry).is_some_and(|fresh| bytes(&fresh).ok() == bytes(co).ok()) {
+        let same = |fresh: rapier3d::prelude::Collider| {
+            bytes(co).is_ok_and(|live| bytes(&fresh).is_ok_and(|fresh| fresh == live))
+        };
+        if rebuild(entry).is_ok_and(same) {
             live.elidable.insert(*h);
         }
     }
@@ -245,6 +258,99 @@ mod tests {
             "{error}"
         );
         assert!(error.contains(&format!("{:02x?}", saved.bytes)), "{error}");
+    }
+
+    // A save is input: a hole over an entry that cannot be rebuilt is refused by
+    // name during the read (release builds abort on panic, so nothing may panic).
+    #[test]
+    fn holes_over_invalid_entries_are_refused_by_name() {
+        use crate::{Collider, Shape};
+        use exact_game::{Quat, Vec3, World};
+        let mut w = World::new(60, 0);
+        crate::register(&mut w);
+        w.spawn((Transform::default(), Collider::default()));
+        crate::step(&mut w);
+        let physics = w.resource::<crate::Physics>();
+        let mut good = physics.executor.0.borrow_mut();
+        good.refresh();
+        let (bytes, entries) = (good.bytes.clone(), good.entries.clone());
+        let shape = |shape| Collider {
+            shape,
+            ..Collider::default()
+        };
+        let cases: Vec<(Option<Collider>, Transform, &str)> = vec![
+            (
+                Some(Collider {
+                    bounce: 2.0,
+                    ..Collider::default()
+                }),
+                Transform::default(),
+                "invalid material",
+            ),
+            (
+                Some(Collider::default()),
+                Transform {
+                    rotation: Quat::from_xyzw(0.0, 0.0, 0.0, 2.0),
+                    ..Transform::default()
+                },
+                "invalid pose",
+            ),
+            (
+                Some(shape(Shape::Capsule {
+                    radius: 1.0,
+                    height: 1.0,
+                })),
+                Transform::default(),
+                "twice its radius",
+            ),
+            (
+                Some(shape(Shape::Heightfield {
+                    rows: 3,
+                    cols: 3,
+                    heights: vec![0.0; 4],
+                    scale: Vec3::ONE,
+                })),
+                Transform::default(),
+                "invalid heightfield",
+            ),
+            (
+                Some(shape(Shape::Mesh {
+                    vertices: vec![Vec3::ZERO; 3],
+                    indices: vec![[0, 1, 7]],
+                })),
+                Transform::default(),
+                "invalid mesh",
+            ),
+            (
+                Some(shape(Shape::Box {
+                    half: Vec3::splat(1e30),
+                })),
+                Transform {
+                    scale: Vec3::splat(1e30),
+                    ..Transform::default()
+                },
+                "overflows",
+            ),
+            (None, Transform::default(), "not a static collider"),
+        ];
+        for (collider, pose, why) in cases {
+            let mut entries = entries.clone();
+            entries[0].collider = collider;
+            entries[0].pose = pose;
+            let mut saved = Saved {
+                bytes: bytes.clone(),
+                entries,
+                ..Saved::default()
+            };
+            let error = saved.decode().unwrap_err().to_string();
+            assert!(error.contains(why), "{why}: {error}");
+        }
+        let mut saved = Saved {
+            bytes,
+            entries,
+            ..Saved::default()
+        };
+        saved.decode().unwrap();
     }
 
     #[test]

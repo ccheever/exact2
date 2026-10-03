@@ -16,26 +16,34 @@ pub(crate) fn body_type(kind: BodyKind) -> RigidBodyType {
     }
 }
 pub(crate) fn collider(c: &Collider, t: Transform, body: Option<&Body>) -> ColliderBuilder {
-    assert!(
+    try_collider(c, t, body).unwrap_or_else(|e| panic!("{e}"))
+}
+// Every refusal reachable while building a collider, for a save's rebuilt holes.
+pub(crate) fn try_collider(
+    c: &Collider,
+    t: Transform,
+    body: Option<&Body>,
+) -> Result<ColliderBuilder, &'static str> {
+    math::check(
         c.friction.is_finite() && c.friction >= 0.0 && (0.0..=1.0).contains(&c.bounce),
-        "physics: invalid material"
-    );
-    assert!(
+        "physics: invalid material",
+    )?;
+    math::check(
         !matches!(c.shape, Shape::Mesh { .. } | Shape::Heightfield { .. })
             || body.is_none_or(|b| b.kind == BodyKind::Static),
-        "physics: mesh/heightfield must be static"
-    );
-    assert!(c.offset.is_finite(), "physics: invalid collider offset");
-    let shape = math::shape(&c.shape, t.scale);
+        "physics: mesh/heightfield must be static",
+    )?;
+    math::check(c.offset.is_finite(), "physics: invalid collider offset")?;
+    let shape = math::try_shape(&c.shape, t.scale)?;
     let shape = if c.offset == exact_game::Vec3::ZERO {
         shape
     } else {
         SharedShape::compound(vec![(
-            math::pose(Transform::at(
+            math::try_pose(Transform::at(
                 c.offset.x * t.scale.x,
                 c.offset.y * t.scale.y,
                 c.offset.z * t.scale.z,
-            )),
+            ))?,
             shape,
         )])
     };
@@ -52,11 +60,11 @@ pub(crate) fn collider(c: &Collider, t: Transform, body: Option<&Body>) -> Colli
         ))
         .active_collision_types(collision_types(c.sensor))
         .active_events(ActiveEvents::COLLISION_EVENTS);
-    if let Some(b) = body.filter(|b| b.mass > 0.0) {
+    Ok(if let Some(b) = body.filter(|b| b.mass > 0.0) {
         builder.mass(b.mass)
     } else {
         builder.density(1000.0)
-    }
+    })
 }
 // The rows one sync visits. Every other row equals its entry by construction:
 // the last sync recorded it and nothing has written it since, so visiting it would
