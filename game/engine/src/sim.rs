@@ -136,6 +136,8 @@ pub struct Sim<G: Game> {
     pub(crate) input: Input,
     queue: VecDeque<Queued>,
     overflow_logged: bool,
+    // Posts a full input queue refused; reported in agent state, never saved.
+    pub(crate) refused_posts: u64,
     rebase_queue: bool,
     pub(crate) restored: bool,
     pub(crate) last_us: Option<i64>,
@@ -537,6 +539,7 @@ impl<G: Game> Sim<G> {
             input,
             queue,
             overflow_logged: false,
+            refused_posts: 0,
             rebase_queue: false,
             restored: false,
             last_us: None,
@@ -742,11 +745,24 @@ impl<G: Game> Sim<G> {
         }
         let mut position = position;
         if self.queue.len() == QUEUE_LIMIT {
-            let drop = self
-                .queue
-                .iter()
-                .position(|e| e.event.is_move())
-                .unwrap_or(0);
+            // A posted message is never dropped silently: a full queue refuses
+            // the new post, by name, and a device event never displaces one.
+            let message = |e: &Queued| matches!(e.event, InputEvent::Message { .. });
+            let drop = (!message(&e))
+                .then(|| {
+                    let moves = self.queue.iter().position(|e| e.event.is_move());
+                    moves.or_else(|| self.queue.iter().position(|e| !message(e)))
+                })
+                .flatten();
+            let Some(drop) = drop else {
+                self.refused_posts += u64::from(message(&e));
+                self.world.log(if message(&e) {
+                    "postMessage refused: the input queue holds 1024 events; post less often"
+                } else {
+                    "input queue overflow: every queued event is a posted message; dropped the new event"
+                });
+                return;
+            };
             let was_move = self.queue[drop].event.is_move();
             if drop == 0 {
                 self.queue.pop_front();

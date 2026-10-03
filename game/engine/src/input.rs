@@ -500,7 +500,8 @@ impl Input {
         self.wheel
     }
     /// Messages posted into the world that this tick receives, in arrival order.
-    /// Each is delivered to exactly one tick; none is saved once delivered.
+    /// A message waits in the input queue (and in a save taken meanwhile) until
+    /// its tick; once that tick has read it, it is gone from later saves.
     pub fn messages(&self) -> &[String] {
         &self.messages
     }
