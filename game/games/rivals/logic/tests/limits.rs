@@ -43,7 +43,12 @@ fn time_ticks(sim: &mut Sim<Rivals>, ticks: u32) -> (f64, f64, f64, f64) {
     }
     let mean = samples.iter().sum::<f64>() / samples.len() as f64;
     let max = samples.iter().cloned().fold(0.0, f64::max);
-    (mean, quantile(samples.clone(), 0.5), quantile(samples, 0.99), max)
+    (
+        mean,
+        quantile(samples.clone(), 0.5),
+        quantile(samples, 0.99),
+        max,
+    )
 }
 
 #[test]
@@ -54,7 +59,11 @@ fn bench_bots() {
         sim.key_down("KeyF");
         time_ticks(&mut sim, 120);
         let (mean, p50, p99, max) = time_ticks(&mut sim, 1200);
-        let hits = sim.world().resource::<rivals_logic::round::Round>().log.len();
+        let hits = sim
+            .world()
+            .resource::<rivals_logic::round::Round>()
+            .log
+            .len();
         println!(
             "bots {bots:>2}: tick mean {mean:>7.1} µs  p50 {p50:>7.1}  p99 {p99:>7.1}  max {max:>8.1}  (hits {hits}, budget 8333 µs)"
         );
@@ -81,7 +90,9 @@ fn bench_seekable_observation() {
             frame(&mut sim);
         }
         let live = t.elapsed().as_secs_f64() * 1e6 / 600.0;
-        println!("{bots:>2} bots, one tick per advance: seekable {seekable:.1} µs, live {live:.1} µs");
+        println!(
+            "{bots:>2} bots, one tick per advance: seekable {seekable:.1} µs, live {live:.1} µs"
+        );
     }
 }
 
@@ -93,7 +104,12 @@ fn keep_rockets(sim: &mut Sim<Rivals>, n: usize, k: &mut u32) {
     for _ in flying..n {
         *k += 1;
         let a = *k as f32 * 2.399;
-        let dir = Vec3::new(math::cos(a), 0.35 + 0.3 * math::sin(*k as f32), math::sin(a)).normalize();
+        let dir = Vec3::new(
+            math::cos(a),
+            0.35 + 0.3 * math::sin(*k as f32),
+            math::sin(a),
+        )
+        .normalize();
         // Owner 31 is nobody: rockets damage every fighter they find.
         weapons::spawn_rocket(w, 31, Vec3::new(0.0, 3.5, 0.0) + dir * 3.2, dir * 12.0, now);
     }
@@ -206,7 +222,10 @@ fn parry_capsule_rays_miss() {
     let c = w.spawn((
         Transform::at(0.0, 0.92, 13.0),
         Collider {
-            shape: Shape::Capsule { radius: 0.35, height: 1.8 },
+            shape: Shape::Capsule {
+                radius: 0.35,
+                height: 1.8,
+            },
             layer: 4,
             ..Collider::default()
         },
@@ -224,12 +243,17 @@ fn parry_capsule_rays_miss() {
                 first.get_or_insert((x, dy));
             }
             let dir = (target - eye).normalize();
-            analytic += usize::from(rivals_logic::fighter::ray_capsule(eye, dir, Vec3::new(x, 0.92, 13.0)).is_none());
+            analytic += usize::from(
+                rivals_logic::fighter::ray_capsule(eye, dir, Vec3::new(x, 0.92, 13.0)).is_none(),
+            );
         }
     }
     println!("engine raycast missed {misses} of {} rays aimed inside a capsule (first at {first:?}); analytic missed {analytic}", n * 4);
     assert_eq!(analytic, 0);
-    assert!(misses > 0, "Parry's capsule raycast no longer misses: delete the workaround");
+    assert!(
+        misses > 0,
+        "Parry's capsule raycast no longer misses: delete the workaround"
+    );
 }
 
 /// A rocket at 2 km/s (17 m per tick) still stops at a 0.2 m wall: it sweeps.
@@ -241,7 +265,13 @@ fn swept_rockets_do_not_tunnel() {
     let wall = Mesh::cuboid(Vec3::new(4.0, 4.0, 0.2));
     w.spawn((Transform::at(-19.0, 2.0, -15.5), Collider::of(&wall), wall));
     let now = w.seconds() as f32;
-    weapons::spawn_rocket(w, 31, Vec3::new(-19.0, 2.0, 15.0), Vec3::new(0.0, 0.0, -2000.0), now);
+    weapons::spawn_rocket(
+        w,
+        31,
+        Vec3::new(-19.0, 2.0, 15.0),
+        Vec3::new(0.0, 0.0, -2000.0),
+        now,
+    );
     sim.run(100.0);
     let w = sim.world();
     assert_eq!(w.query::<&Rocket>().iter().count(), 0, "rocket exploded");
@@ -251,7 +281,10 @@ fn swept_rockets_do_not_tunnel() {
         .find(|(_, (fx, _))| fx.grow > 0.0)
         .map(|(_, (_, t))| t.position)
         .expect("an explosion");
-    assert!((blast.z + 15.4).abs() < 0.1, "exploded at the wall's face: {blast}");
+    assert!(
+        (blast.z + 15.4).abs() < 0.1,
+        "exploded at the wall's face: {blast}"
+    );
 }
 
 /// The engine's Body has no CCD switch, yet Rapier's dynamic spheres stop at a
@@ -299,8 +332,6 @@ fn dynamic_bodies_do_not_tunnel_through_thin_walls() {
     assert!(ends.iter().all(|z| (*z + 4.925).abs() < 0.01), "{ends:?}");
 }
 
-
-
 /// Input to displayed pose, through the engine's own live clock: a display
 /// callback every frame (`Clock::Live` with the frame period), mouse events
 /// arriving between frames, and the pose the renderer would draw (the last two
@@ -308,7 +339,13 @@ fn dynamic_bodies_do_not_tunnel_through_thin_walls() {
 /// visible change and to the whole turn, in ms; and for a steady 2,000 pt/s
 /// mouse, the coefficient of variation of the per-frame turn (judder).
 fn live_latency<G: Game<Args = Options>>(display_hz: f64) -> (Vec<f64>, Vec<f64>, f64) {
-    let mut sim = Sim::<G>::new(Options { seed: 3, bots: 3, range: true, ..Options::default() }).unwrap();
+    let mut sim = Sim::<G>::new(Options {
+        seed: 3,
+        bots: 3,
+        range: true,
+        ..Options::default()
+    })
+    .unwrap();
     sim.viewport(1280.0, 720.0);
     let period = 1000.0 / display_hz;
     sim.frame_period(period);
@@ -323,7 +360,13 @@ fn live_latency<G: Game<Args = Options>>(display_hz: f64) -> (Vec<f64>, Vec<f64>
     };
     yaws.push(yaw_of(sim.world()));
     let (mut x, mut seed) = (640.0f32, 0x2545F491u32);
-    sim.input(InputEvent::Pointer { id: 1, phase: PointerPhase::Move, x, y: 360.0, at_ms: 0.0 });
+    sim.input(InputEvent::Pointer {
+        id: 1,
+        phase: PointerPhase::Move,
+        x,
+        y: 360.0,
+        at_ms: 0.0,
+    });
     for _ in 0..120 {
         frame(&mut sim, t, &mut yaws);
         t += period;
@@ -334,7 +377,13 @@ fn live_latency<G: Game<Args = Options>>(display_hz: f64) -> (Vec<f64>, Vec<f64>
         let at = t - period + period * (seed >> 8) as f64 / (1u32 << 24) as f64;
         let shown = frame(&mut sim, t - period + 1e-6, &mut yaws);
         x += 40.0;
-        sim.input(InputEvent::Pointer { id: 1, phase: PointerPhase::Move, x, y: 360.0, at_ms: at });
+        sim.input(InputEvent::Pointer {
+            id: 1,
+            phase: PointerPhase::Move,
+            x,
+            y: 360.0,
+            at_ms: at,
+        });
         let goal = shown - 40.0 * rivals_logic::DEFAULT_SENSITIVITY;
         let (mut f, mut w) = (None, None);
         let mut ft = t;
@@ -351,7 +400,9 @@ fn live_latency<G: Game<Args = Options>>(display_hz: f64) -> (Vec<f64>, Vec<f64>
         }
         let end = frame(&mut sim, ft, &mut yaws);
         first.push(f.expect("the turn shows"));
-        whole.push(w.unwrap_or_else(|| panic!("the turn completes: shown {shown} goal {goal} end {end}")));
+        whole.push(
+            w.unwrap_or_else(|| panic!("the turn completes: shown {shown} goal {goal} end {end}")),
+        );
         t = ft + 10.0 * period;
         frame(&mut sim, t - period, &mut yaws);
     }
@@ -365,7 +416,13 @@ fn live_latency<G: Game<Args = Options>>(display_hz: f64) -> (Vec<f64>, Vec<f64>
         while event < t {
             event += 1.0;
             x += 2.0;
-            sim.input(InputEvent::Pointer { id: 1, phase: PointerPhase::Move, x, y: 360.0, at_ms: event });
+            sim.input(InputEvent::Pointer {
+                id: 1,
+                phase: PointerPhase::Move,
+                x,
+                y: 360.0,
+                at_ms: event,
+            });
         }
         let now = frame(&mut sim, t, &mut yaws);
         if t > start + 200.0 {
@@ -374,7 +431,8 @@ fn live_latency<G: Game<Args = Options>>(display_hz: f64) -> (Vec<f64>, Vec<f64>
         last = now;
     }
     let mean = deltas.iter().sum::<f64>() / deltas.len() as f64;
-    let sd = (deltas.iter().map(|d| (d - mean) * (d - mean)).sum::<f64>() / deltas.len() as f64).sqrt();
+    let sd =
+        (deltas.iter().map(|d| (d - mean) * (d - mean)).sum::<f64>() / deltas.len() as f64).sqrt();
     (first, whole, (sd / mean).abs())
 }
 
@@ -399,6 +457,9 @@ fn mouse_latency_by_tick_and_display_rate() {
     }
     // A completed turn never takes more than a display frame plus two ticks.
     for (display, hz, w95, _) in rows {
-        assert!(w95 <= 1000.0 / display + 2000.0 / hz as f64 + 0.5, "{display} {hz} {w95}");
+        assert!(
+            w95 <= 1000.0 / display + 2000.0 / hz as f64 + 0.5,
+            "{display} {hz} {w95}"
+        );
     }
 }

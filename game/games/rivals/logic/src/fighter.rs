@@ -277,7 +277,9 @@ pub fn step(w: &mut World, e: Entity, intent: &Intent) -> physics::CapsuleStep {
     // Knockback is game-owned; a wall that stopped the capsule absorbs it.
     let achieved = result.displacement / dt;
     let mut f = w.require_mut::<Fighter>(e);
-    if f.knock.length_squared() > 0.0 && achieved.length_squared() < velocity.length_squared() * 0.25 {
+    if f.knock.length_squared() > 0.0
+        && achieved.length_squared() < velocity.length_squared() * 0.25
+    {
         f.knock = Vec3::ZERO;
     }
     if !alive {
@@ -311,7 +313,9 @@ pub fn ray_capsule(origin: Vec3, dir: Vec3, centre: Vec3) -> Option<f32> {
         let oc = origin - c;
         let b = dir.dot(oc);
         let h = b * b - (oc.dot(oc) - RADIUS * RADIUS);
-        (h >= 0.0).then(|| -b - exact_game::math::sqrt(h)).filter(|t| *t >= 0.0)
+        (h >= 0.0)
+            .then(|| -b - exact_game::math::sqrt(h))
+            .filter(|t| *t >= 0.0)
     };
     let ba = pb - pa;
     let oa = origin - pa;

@@ -91,7 +91,10 @@ pub fn roots(w: &World) -> Vec<(Entity, u32)> {
         .collect()
 }
 fn root_of(w: &World, slot: u32) -> Option<Entity> {
-    roots(w).into_iter().find(|(_, s)| *s == slot).map(|(e, _)| e)
+    roots(w)
+        .into_iter()
+        .find(|(_, s)| *s == slot)
+        .map(|(e, _)| e)
 }
 /// Layer mask of every fighter (bits 1..).
 pub fn fighters_mask(w: &World) -> u32 {
@@ -315,7 +318,12 @@ pub fn fly(w: &mut World) -> Vec<Damage> {
             let step = r.velocity * dt;
             let hit = q.raycast(*at, step, step.length(), !(1u32 << r.owner));
             match hit {
-                Some(h) => blasts.push((*e, r.owner, h.point - step.normalize() * 0.05, Some(h.entity))),
+                Some(h) => blasts.push((
+                    *e,
+                    r.owner,
+                    h.point - step.normalize() * 0.05,
+                    Some(h.entity),
+                )),
                 None if now - r.born > ROCKET_LIFE || (*at + step).y < -5.0 => {
                     blasts.push((*e, r.owner, *at, None))
                 }
@@ -369,7 +377,11 @@ pub fn explode(w: &mut World, owner: u32, at: Vec3, direct: Option<Entity>) -> V
         if slot == owner {
             amount *= SELF_SPLASH;
         }
-        let push = if distance > 0.01 { to / distance } else { Vec3::Y };
+        let push = if distance > 0.01 {
+            to / distance
+        } else {
+            Vec3::Y
+        };
         {
             let mut f = w.require_mut::<Fighter>(victim);
             if f.alive {

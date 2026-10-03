@@ -6,11 +6,7 @@ use rivals_logic::round::Round;
 use rivals_logic::{Options, Rivals};
 
 fn game(options: Options) -> Sim<Rivals> {
-    let mut sim = Sim::<Rivals>::new(Options {
-        seed: 7,
-        ..options
-    })
-    .unwrap();
+    let mut sim = Sim::<Rivals>::new(Options { seed: 7, ..options }).unwrap();
     sim.viewport(1280.0, 720.0);
     sim
 }
@@ -73,7 +69,10 @@ fn mouse_look_turns_by_sensitivity() {
     sim.run(50.0);
     let after = fighter(&sim, "player").yaw;
     let turned = before - after;
-    assert!((turned - 100.0 * rivals_logic::DEFAULT_SENSITIVITY).abs() < 1e-5, "{turned}");
+    assert!(
+        (turned - 100.0 * rivals_logic::DEFAULT_SENSITIVITY).abs() < 1e-5,
+        "{turned}"
+    );
 }
 
 #[test]
@@ -82,15 +81,32 @@ fn rocket_splash_and_knockback() {
     sim.run(300.0);
     sim.tap("Digit2");
     sim.run(400.0);
-    let before = sim.world().require::<exact_game::Transform>("bot-2").position;
+    let before = sim
+        .world()
+        .require::<exact_game::Transform>("bot-2")
+        .position;
     sim.tap("KeyF");
     sim.run(600.0);
     let r = round(&sim);
     assert!(r.log.iter().any(|d| d.victim == 3), "{:?}", r.log);
     // Neighbours four metres away take splash too.
-    assert!(r.log.iter().filter(|d| d.weapon == rivals_logic::weapons::Weapon::Rocket).count() >= 2, "{:?}", r.log);
-    let after = sim.world().require::<exact_game::Transform>("bot-2").position;
-    assert!((after - before).length() > 0.5 || !fighter(&sim, "bot-2").alive, "{before} {after}");
+    assert!(
+        r.log
+            .iter()
+            .filter(|d| d.weapon == rivals_logic::weapons::Weapon::Rocket)
+            .count()
+            >= 2,
+        "{:?}",
+        r.log
+    );
+    let after = sim
+        .world()
+        .require::<exact_game::Transform>("bot-2")
+        .position;
+    assert!(
+        (after - before).length() > 0.5 || !fighter(&sim, "bot-2").alive,
+        "{before} {after}"
+    );
 }
 
 #[test]
@@ -148,7 +164,12 @@ fn replay_gives_the_same_kills() {
             ..Options::default()
         });
         scripted(&mut sim, 30);
-        let kills: Vec<_> = round(&sim).log.iter().filter(|d| d.killed).map(|d| (d.attacker, d.victim)).collect();
+        let kills: Vec<_> = round(&sim)
+            .log
+            .iter()
+            .filter(|d| d.killed)
+            .map(|d| (d.attacker, d.victim))
+            .collect();
         (sim.world().hash(), kills, round(&sim).log.len())
     };
     let (a, b) = (run(), run());
@@ -193,12 +214,21 @@ fn rounds_end_at_five_kills_and_restart() {
     let mut over = false;
     for _ in 0..240 {
         sim.run(1000.0);
-        if sim.world().published("over").is_some_and(|v| v.as_bool() == Some(true)) || round(&sim).over_until > 0.0 {
+        if sim
+            .world()
+            .published("over")
+            .is_some_and(|v| v.as_bool() == Some(true))
+            || round(&sim).over_until > 0.0
+        {
             over = true;
             break;
         }
     }
-    assert!(over, "round never ended: {:?}", fighter(&sim, "bot-1").kills);
+    assert!(
+        over,
+        "round never ended: {:?}",
+        fighter(&sim, "bot-1").kills
+    );
     assert_eq!(fighter(&sim, "bot-1").kills, 5);
     assert_eq!(round(&sim).winner, "bot-1");
     sim.run(4500.0);

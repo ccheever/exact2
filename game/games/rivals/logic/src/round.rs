@@ -172,7 +172,11 @@ pub fn respawn(w: &mut World) {
             .copied()
             .unwrap_or([0.0, 0.0]);
         fighter::place(w, e, best);
-        w.log(format!("respawn {} at {:?}", w.require::<Fighter>(e).label, best));
+        w.log(format!(
+            "respawn {} at {:?}",
+            w.require::<Fighter>(e).label,
+            best
+        ));
     }
 }
 
@@ -211,7 +215,11 @@ pub fn next_round(w: &mut World, duel: bool) {
             f.kills = 0;
             f.deaths = 0;
         }
-        let spawn = if duel { SPAWNS[i % 2] } else { SPAWNS[i % SPAWNS.len()] };
+        let spawn = if duel {
+            SPAWNS[i % 2]
+        } else {
+            SPAWNS[i % SPAWNS.len()]
+        };
         fighter::place(w, e, spawn);
     }
     let mut r = w.resource_mut::<Round>();

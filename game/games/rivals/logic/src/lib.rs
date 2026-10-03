@@ -138,7 +138,10 @@ pub mod rates {
 pub fn actions() -> Actions {
     Actions::new()
         .stick("move", Stick::wasd())
-        .stick("look", Stick::keys("ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"))
+        .stick(
+            "look",
+            Stick::keys("ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"),
+        )
         .button("jump", &["Space"])
         .button("sprint", &["ShiftLeft", "ShiftRight"])
         .button("slide", &["KeyC", "ControlLeft"])
@@ -166,7 +169,11 @@ pub fn setup(w: &mut World, args: &Options) {
     let player = fighter::spawn(w, 1, "player", false, [0.2, 0.5, 0.9]);
     fighter::place(w, player, arena::SPAWNS[0]);
     let count = args.bot_count();
-    let skill = if args.skill > 0.0 { args.skill.min(1.0) } else { 0.55 };
+    let skill = if args.skill > 0.0 {
+        args.skill.min(1.0)
+    } else {
+        0.55
+    };
     for i in 0..count {
         let label = format!("bot-{}", i + 1);
         let e = fighter::spawn(w, i + 2, &label, true, COLORS[i as usize % COLORS.len()]);
@@ -413,7 +420,8 @@ pub fn camera_follow(w: &mut World) {
             at.y -= 0.12;
         }
         if vm.weapon == Weapon::Knife && swing < 1.0 {
-            at += Vec3::new(-0.15, 0.05, -0.15) * exact_game::math::sin(swing * std::f32::consts::PI);
+            at +=
+                Vec3::new(-0.15, 0.05, -0.15) * exact_game::math::sin(swing * std::f32::consts::PI);
         }
         if t.position != at {
             t.position = at;

@@ -88,7 +88,10 @@ pub fn sees(w: &World, own: u32, from: Vec3, target: &Seen) -> bool {
 pub fn think(w: &World, e: Entity, all: &[Seen], covers: &[Vec3]) -> Intent {
     let now = w.seconds() as f32;
     let dt = w.dt();
-    let me = *all.iter().find(|s| s.entity == e).expect("bot is a fighter");
+    let me = *all
+        .iter()
+        .find(|s| s.entity == e)
+        .expect("bot is a fighter");
     let (own, yaw, pitch, weapon, ammo, reloading) = {
         let f = w.require::<Fighter>(e);
         let ammo = match f.weapon {
@@ -96,7 +99,14 @@ pub fn think(w: &World, e: Entity, all: &[Seen], covers: &[Vec3]) -> Intent {
             Weapon::Rocket => f.rocket_ammo,
             Weapon::Knife => 1,
         };
-        (f.bit(), f.yaw, f.pitch, f.weapon, ammo, f.reload_until > 0.0)
+        (
+            f.bit(),
+            f.yaw,
+            f.pitch,
+            f.weapon,
+            ammo,
+            f.reload_until > 0.0,
+        )
     };
     let mut b = w.require_mut::<Brain>(e);
     let mut intent = Intent::default();
@@ -129,7 +139,11 @@ pub fn think(w: &World, e: Entity, all: &[Seen], covers: &[Vec3]) -> Intent {
                 }
                 b.target = Some(slot);
                 b.visible = true;
-                b.plan = if b.plan == Plan::Cover { Plan::Cover } else { Plan::Fight };
+                b.plan = if b.plan == Plan::Cover {
+                    Plan::Cover
+                } else {
+                    Plan::Fight
+                };
             }
             None => {
                 b.visible = false;
@@ -207,7 +221,8 @@ pub fn think(w: &World, e: Entity, all: &[Seen], covers: &[Vec3]) -> Intent {
             Some(Weapon::Knife)
         } else if weapon == Weapon::Knife || (weapon == Weapon::Rocket && ammo == 0) {
             Some(Weapon::Rifle)
-        } else if weapon == Weapon::Rifle && (6.0..22.0).contains(&distance) && w.chance(0.25 * dt) {
+        } else if weapon == Weapon::Rifle && (6.0..22.0).contains(&distance) && w.chance(0.25 * dt)
+        {
             Some(Weapon::Rocket)
         } else {
             None
@@ -267,7 +282,11 @@ pub fn think(w: &World, e: Entity, all: &[Seen], covers: &[Vec3]) -> Intent {
         }
         _ => {
             // Hunt toward where the target was, or wander between cover points.
-            let goal = if target.is_some() { b.last_seen } else { b.goal };
+            let goal = if target.is_some() {
+                b.last_seen
+            } else {
+                b.goal
+            };
             if (goal - me.at).length() < 2.0 || now >= b.wander_until {
                 b.goal = *w.pick(covers).unwrap_or(&Vec3::ZERO);
                 b.wander_until = now + w.rand(3.0..6.0);
