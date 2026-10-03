@@ -72,3 +72,15 @@ trims it once a frame (`host/linux/src/text.rs`, `SHAPED_WORD_FRAMES`). Upstream
 is shaped in, so a word shaped right-to-left could be served left-to-right;
 `shape_run_cached` (`src/shape.rs`) now sets `rtl` in the key. On the heavy list
 at 96k dp/s on a Nothing A069P, a list's collection turns spent ~8% less.
+
+## A face's variable weight axis is read once per font system
+
+`FontMatchKey::new` (`src/font/system.rs`) decided whether a face of another
+weight is variable over the asked one by opening and mapping the face's file
+and reading its `wght` axis, for every face, for every attrs the font system
+had not matched before: a boot that shapes regular, semibold and italic runs
+opened every installed font file once per weight and style. The range is now
+kept per face (`FontSystem::weight_axes`, `None` for a face with no `wght`
+axis), so a face's file is read for it at most once. The match keys and
+their order are unchanged. The heavy list's boot and first frame on a Mac:
+41 → 33 ms.
