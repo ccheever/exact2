@@ -456,9 +456,11 @@ test('a root crate\'s new registry dependency resolves before the SDK lock is re
   const lock=(...blocks)=>`version = 4\n\n${blocks.join('\n')}`;
   // 15856ff7 gave kernel cssparser 0.37.0 and updated only the root Cargo.lock.
   const sdk=lock(block('itoa','1.0.15','aa'),block('exact-kernel','0.1.0'));
-  const root=lock(block('cssparser','0.37.0','bb'),block('itoa','1.0.9','cc'),block('caltrain-web','0.1.0'),block('exact-kernel','0.1.0'));
+  const root=lock(block('cssparser','0.37.0','bb'),block('itoa','1.0.9','cc'),block('itoa','2.0.1','ee'),block('caltrain-web','0.1.0'),block('exact-kernel','0.1.0'));
   const seeded=withRootPins(sdk,root), members=new Set(['x-logic']);
-  assert.deepEqual(Bun.TOML.parse(seeded).package.map(p=>`${p.name} ${p.version}`),['itoa 1.0.15','exact-kernel 0.1.0','cssparser 0.37.0'],'only registry packages new to the SDK are added');
+  // A new major of a package the SDK lock holds (itoa 2) is new to it; a compatible one is not.
+  assert.deepEqual(Bun.TOML.parse(seeded).package.map(p=>`${p.name} ${p.version}`),['itoa 1.0.15','exact-kernel 0.1.0','cssparser 0.37.0','itoa 2.0.1'],'only registry packages new to the SDK are added');
+  assert.deepEqual(outsideSdkLock(lock(block('itoa','2.0.1','ee')),seeded,members),[]);
   assert.deepEqual(outsideSdkLock(lock(block('cssparser','0.37.0','bb'),block('itoa','1.0.15','aa')),seeded,members),[]);
   assert.deepEqual(outsideSdkLock(lock(block('cssparser','0.37.1','dd')),seeded,members),[`cssparser 0.37.1 ${registry}`],'the root lock decides the version');
   assert.deepEqual(outsideSdkLock(lock(block('itoa','1.0.9','cc')),seeded,members),[`itoa 1.0.9 ${registry}`],'the SDK lock still decides its own packages');
