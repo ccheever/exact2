@@ -1,10 +1,19 @@
 component Accessibility
   state count = 0
   state shown = true
+  state named = false
+  state checked = false
+  state secret = ""
   action increment
     count = count + 1
   action toggle
     shown = not shown
+  action nameIt
+    named = true
+  action setChecked(on: bool)
+    checked = on
+  action writeSecret(value)
+    secret = value
   task ticker mount
     every(1000, toggle)
   view
@@ -25,3 +34,20 @@ component Accessibility
       button press=increment aria-pressed="mixed" testId="mixed"
         text "Mixed"
       text "20¢" role="status" aria-label="20 sheckles" testId="labelled"
+      // LLP 1080.002 §3: what `tree --ax` must see, and what its findings must catch.
+      button press=increment aria-label=(named ? "Add" : "") testId="unnamed"
+        image "symbol:compose" width=20 height=20
+      button press=nameIt testId="name-it"
+        text "Name it"
+      column inert=true testId="inert-box"
+        button press=increment testId="inert-button"
+          text "Hidden"
+      column role="img" aria-label="Chart" testId="chart"
+        button press=increment testId="chart-button"
+          text "Inside"
+      text "Section" aria-level=2 testId="heading"
+      text testId="para"
+        text "Read the "
+        text "guide" href="https://example.com/" testId="guide"
+      input type="checkbox" checked=checked change=setChecked aria-label="Checked" testId="check"
+      input type="password" value=secret input=writeSecret aria-label="Secret" testId="secret"

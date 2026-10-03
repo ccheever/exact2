@@ -478,5 +478,137 @@
     "delivery": "platform",
     "carrier": "macos",
     "mode": "agent"
+  },
+  "ax": {
+    "epoch": 4,
+    "incarnation": 1,
+    "clock": 0,
+    "ax": {
+      "source": "chrome-cdp",
+      "platform": "Chrome 153.0.0.0",
+      "order": "tree",
+      "coverage": {
+        "roots": [
+          "document"
+        ],
+        "complete": true,
+        "visited": 9
+      },
+      "modal": {
+        "present": false
+      },
+      "elements": [
+        {
+          "i": 0,
+          "parent": null,
+          "id": 2,
+          "via": "self",
+          "testId": "first",
+          "role": "button",
+          "name": "Increment",
+          "states": {
+            "focused": true
+          },
+          "interactive": true,
+          "frame": {
+            "x": 0,
+            "y": 40,
+            "w": 420,
+            "h": 18,
+            "source": "layout"
+          },
+          "native": {
+            "role": "button",
+            "class": "button"
+          }
+        },
+        {
+          "i": 1,
+          "parent": 0,
+          "id": 2,
+          "via": "owner",
+          "role": "StaticText",
+          "name": "Increment",
+          "states": {},
+          "interactive": false,
+          "native": {
+            "role": "StaticText"
+          }
+        },
+        {
+          "i": 2,
+          "parent": null,
+          "id": 9,
+          "via": "self",
+          "testId": "unnamed",
+          "role": "button",
+          "name": "",
+          "states": {},
+          "interactive": true,
+          "frame": {
+            "x": 0,
+            "y": 96,
+            "w": 20,
+            "h": 20,
+            "source": "layout"
+          },
+          "native": {
+            "role": "button",
+            "class": "button"
+          }
+        },
+        {
+          "i": 3,
+          "parent": null,
+          "id": 14,
+          "via": "self",
+          "testId": "heading",
+          "role": "heading",
+          "name": "Section",
+          "states": {
+            "level": 2
+          },
+          "interactive": false,
+          "native": {
+            "role": "heading",
+            "class": "h2"
+          }
+        },
+        {
+          "i": 4,
+          "parent": null,
+          "id": 17,
+          "via": "self",
+          "testId": "secret",
+          "role": "textbox",
+          "name": "Secret",
+          "states": {
+            "protected": true
+          },
+          "interactive": true,
+          "native": {
+            "role": "textbox",
+            "class": "input"
+          }
+        }
+      ],
+      "intent": {
+        "9": {
+          "testId": "unnamed",
+          "handlers": [
+            "press"
+          ]
+        }
+      },
+      "findings": [
+        {
+          "kind": "unnamed",
+          "i": 2,
+          "id": 9,
+          "testId": "unnamed",
+          "detail": "button"
+        }
+      ]
+    }
   }
 }

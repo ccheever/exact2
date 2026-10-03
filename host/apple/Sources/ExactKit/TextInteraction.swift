@@ -57,6 +57,8 @@ extension NodeView {
         // accessibility element. Expose the paragraph plus its link targets.
         isAccessibilityElement = !inlineText.contains(where: { !($0.props["href"] ?? "").isEmpty || !$0.handlers.isEmpty || $0.props["accessibilityLabel"] != nil })
         accessibilityTraits.insert(.staticText)
+        // `aria-level` is a heading, as on the web and macOS (found by `tree --ax` parity, LLP 1080.002).
+        if let level = Int(props["accessibilityHeadingLevel"] ?? ""), (1...6).contains(level) { accessibilityTraits.insert(.header) } else { accessibilityTraits.remove(.header) }
         accessibilityLabel = label
         #endif
     }
@@ -86,9 +88,10 @@ extension NodeView {
 }
 
 #if os(macOS)
-private final class InlineAccessibility: NSAccessibilityElement {
+private final class InlineAccessibility: NSAccessibilityElement, AgentOwned {
     weak var owner: NodeView?
     let id: UInt32
+    var agentViewId: UInt32? { id } // the run's own view (LLP 1080.002 D5)
     init(owner: NodeView, run: InlineText, text: NSString) {
         self.owner = owner; id = run.id
         super.init()
@@ -113,9 +116,10 @@ private final class InlineAccessibility: NSAccessibilityElement {
     override func accessibilityPerformPress() -> Bool { owner?.activateInline(id) ?? false }
 }
 #else
-private final class InlineAccessibility: UIAccessibilityElement {
+private final class InlineAccessibility: UIAccessibilityElement, AgentOwned {
     weak var owner: NodeView?
     let id: UInt32
+    var agentViewId: UInt32? { id } // the run's own view (LLP 1080.002 D5)
     init(owner: NodeView, run: InlineText, text: NSString) {
         self.owner = owner; id = run.id
         super.init(accessibilityContainer: owner)

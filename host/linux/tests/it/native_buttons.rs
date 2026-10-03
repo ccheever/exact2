@@ -129,9 +129,12 @@ fn a_native_tab_presses_on_enter_as_a_button_does() {
     // A held key's repeats press it once, as a native `role="button"`'s do.
     p.type_key(tab, "Enter", "Enter", true, true).unwrap();
     p.type_key(tab, "Enter", "Enter", false, false).unwrap();
-    // Its name is its face's title, as painted (grok's code review).
-    let tree = exact_linux::agent::handle(&mut p, r#"{"op":"tree"}"#);
-    assert!(tree.contains(r#""accessibleName":"INBOX""#), "{tree}");
+    // Its face's title is as painted (grok's code review); this host
+    // exposes no accessibility tree to name it in (LLP 1080.002 D2).
+    let face = p.host().kernel().press_face(tab).and_then(|f| f.title);
+    assert_eq!(face.as_deref(), Some("INBOX"));
+    let ax = exact_linux::agent::handle(&mut p, r#"{"op":"tree","ax":true}"#);
+    assert!(ax.contains(r#""unavailable":true"#), "{ax}");
     let k = p.host().kernel();
     let count = k.node(id(&p, "count")).unwrap();
     let text: String = count

@@ -1278,7 +1278,8 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
     try {
       let t = await f.tree();
       check(byTestId(t, 'first')?.focused === true, 'autofocus takes focus after mount');
-      check(byTestId(t, 'first')?.accessibleName === 'Increment', 'button name is its text'); check(byTestId(t, 'labelled')?.accessibleName === '20 sheckles' && byTestId(t, 'live-count')?.accessibleName === undefined, `a label names a text, and an unlabelled text has no name (accname): ${JSON.stringify([byTestId(t, 'labelled')?.accessibleName, byTestId(t, 'live-count')?.accessibleName])}`);
+      const axName = async (id) => { const ax = (await f.tree(null, {ax: true})).ax; return ax.unavailable ? (host === 'linux' ? 'unavailable' : null) : ax.elements.find(e => e.testId === id)?.name; }; // LLP 1080.002
+      check(await axName('first') === (host === 'linux' ? 'unavailable' : 'Increment'), 'button name is its text, as the platform exposes it'); check(host === 'linux' || await axName('labelled') === '20 sheckles', 'a label names a text, as the platform exposes it');
       check(byTestId(t, 'toggle')?.props.autofocus === false, 'autofocus=false remains false');
       check(byTestId(t, 'live-count')?.props.accessibilityLive === 'polite' && byTestId(t, 'live-container')?.props.accessibilityLive === 'assertive', 'both live region priorities are in tree');
       await f.tap('first');
@@ -1295,9 +1296,8 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
         writeFileSync(source, readFileSync(resolve(ROOT, 'contract/corpus/accessibility.contract'), 'utf8').replace('text "Other"', 'text "Other reloaded"'));
         const rebuilt = spawnSync('cargo', ['run', '-q', '--release', '-p', 'contract', '--', 'build', source, '-o', plan], {cwd:ROOT, encoding:'utf8'});
         check(rebuilt.status === 0, 'reload fixture compiles: ' + rebuilt.stderr);
-        let tree;
-        for (let i = 0; i < 100; i++) { tree = await f.tree(); if (byTestId(tree, 'other')?.accessibleName === 'Other reloaded') break; await sleep(20); }
-        check(byTestId(tree, 'other')?.accessibleName === 'Other reloaded', 'development plan reloaded in the same session: ' + JSON.stringify(await f.logs()));
+        let tree; for (let i = 0; i < 100; i++) { tree = await axName('other'); if (tree === 'Other reloaded') break; await sleep(20); }
+        check(tree === 'Other reloaded', 'development plan reloaded in the same session: ' + JSON.stringify(await f.logs()));
         const reloaded = await f.tree();
         check(byTestId(reloaded, 'first')?.focused !== true, 'reload does not steal focus for First');
         check(byTestId(reloaded, 'other')?.focused === true, 'reload keeps the focus on Other, at its place in the tree');

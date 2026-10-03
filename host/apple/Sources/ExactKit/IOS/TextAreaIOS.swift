@@ -140,6 +140,12 @@ final class TextArea: UITextView {
 }
 
 extension NodeView {
+    /// A single-line field is the element VoiceOver reaches: it carries the
+    /// node's name and identifier (found by `tree --ax`, LLP 1080.002).
+    func applyFieldName(_ f: UITextField) {
+        f.accessibilityLabel = props["accessibilityLabel"]
+        f.accessibilityIdentifier = props["testId"]
+    }
     // CSS auto leaves UIKit's editor tint alone. An explicit caret colour
     // also colours UIKit's selection handles and highlight.
     var caretColor: UIColor? { channels("caret_color").map { TextEngine.color($0) } }
