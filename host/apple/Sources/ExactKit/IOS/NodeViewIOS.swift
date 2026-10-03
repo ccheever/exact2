@@ -551,7 +551,10 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if !decelerate { followEndIfOwed() }
     }
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { followEndIfOwed() }
-    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) { followingEndAnimated = false }
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
+        followingEndAnimated = false
+        presenter?.collections.animationEnded(id)
+    }
     private func followEndIfOwed() {
         guard followsEndAfterInteraction, let sv = scroll else { return }
         followsEndAfterInteraction = false
@@ -562,6 +565,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         followingEndAnimated = false
+        presenter?.collections.animationEnded(id, dragging: true)
         presenter?.collections.userIntent(id, travel: true)
         retainedScrollTop = nil
     }

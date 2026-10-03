@@ -284,7 +284,8 @@ extension CollectionHost {
         let now = Double(horizontal ? clip.bounds.minX - content.minX : clip.bounds.minY - content.minY)
         correct(id, top: now + (delta.isFinite ? delta : 0), extent: extent)
     }
-    func correct(_ id: UInt32, top: Double, extent: Double) {
+    func landAnimation(_ id: UInt32) {}
+    func correct(_ id: UInt32, top: Double, extent: Double, smooth: Bool = false) {
         guard let node = presenter?.views[id], let scroll = node.scroll,
               let document = scroll.documentView else { return }
         let content = node.contentBox()

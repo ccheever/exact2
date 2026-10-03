@@ -116,6 +116,9 @@ pub(crate) struct Collection {
     geometry: Option<CollectionFeedback>,
     correction: Option<AnchorCorrection>,
     follow_end: bool,
+    /// The list's `scroll-behavior: smooth`: its end-follow and its smooth
+    /// `scrollIntoView` corrections ask the host to animate (LLP 1070.000 §6.2).
+    smooth: bool,
     edge_handlers: [bool; 2],
     reorderable: bool,
     edge_armed: [bool; 2],
@@ -239,6 +242,7 @@ impl Collection {
         let descriptor = plan.node(node);
         let mut enabled = false;
         let mut follow_end = false;
+        let mut smooth = false;
         let mut at_end = false;
         let mut estimated_height = ESTIMATED_HEIGHT;
         let mut initial: Option<usize> = None;
@@ -271,6 +275,12 @@ impl Collection {
                 && u.eval(binding.expr, frames)?.as_str() == Some("flex")
             {
                 axis = ListAxis::Horizontal;
+            }
+            if binding.kind == BindingKind::Style
+                && binding.id == exact_kernel::StyleId::ScrollBehavior as u16
+                && u.eval(binding.expr, frames)?.as_str() == Some("smooth")
+            {
+                smooth = true;
             }
             if binding.kind == BindingKind::Prop && binding.id == PropId::Virtualized as u16 {
                 enabled = u.eval(binding.expr, frames)? == Value::Bool(true);
@@ -378,6 +388,7 @@ impl Collection {
             geometry: None,
             correction: None,
             follow_end,
+            smooth,
             edge_handlers: [EventKind::Reachstart, EventKind::Reachend].map(|event| {
                 descriptor
                     .handlers
@@ -638,10 +649,18 @@ impl Collection {
                     Some(_) => None,
                     None => Some(g.offset),
                 };
+                // A followed end that moved, once the list has opened, is the
+                // reader's own content arriving (a message sent): smooth if
+                // the list says so.
+                let smooth = self.smooth
+                    && index::SizeIndex::follows_end(&anchor)
+                    && !self.at_end
+                    && from.is_none();
                 self.correction = Some(AnchorCorrection {
                     scroll_sequence: g.scroll_sequence,
                     offset: corrected,
                     from,
+                    smooth,
                 });
                 g.offset = corrected;
                 if self.restored_at.is_some() {

@@ -97,6 +97,10 @@ pub struct AnchorCorrection {
     /// frame that lays the moved rows out (a fling keeps its velocity).
     /// None: an authored position (a restore, `scrollIntoView`), absolute.
     pub from: Option<f64>,
+    /// Animate to `offset` with the platform's scroll animation (a smooth
+    /// `scrollIntoView`, or a `scroll-behavior: smooth` list following its
+    /// end), rather than set it (LLP 1070.000 §6.2). Absolute only.
+    pub smooth: bool,
 }
 /// The axis a collection scrolls on, fixed when it is created from its
 /// list's style (LLP 1070 H1): `display: block` is vertical, `display:
@@ -329,6 +333,9 @@ pub fn snapshots_json(snapshots: &[CollectionSnapshot]) -> String {
             .unwrap();
             if let Some(from) = correction.from {
                 write!(out, ",\"from\":{}", exact_num::Shortest(from)).unwrap();
+            }
+            if correction.smooth {
+                out.push_str(",\"smooth\":true");
             }
             out.push('}');
         } else {

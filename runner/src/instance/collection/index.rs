@@ -473,6 +473,11 @@ impl SizeIndex {
         })
     }
 
+    /// Whether the anchor follows the end.
+    pub(crate) fn follows_end(anchor: &Anchor) -> bool {
+        anchor.follows_end
+    }
+
     /// O(log N) while the anchor survives. Deletion fallback scans the old order
     /// only after structural edits (which already permit an index rebuild).
     /// Drop/recapture the anchor after applying the correction; retaining many old

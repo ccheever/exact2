@@ -116,6 +116,7 @@ final class Presenter {
         viewport.addSubview(root)
         viewport.delegate = scrollPump
         collections.motion = { [unowned self] id in
+            if collections.animating.contains(id) { return nil }
             let velocity = scrollPump.velocity(id)
             return velocity == 0 ? nil : velocity
         }

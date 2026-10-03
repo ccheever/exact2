@@ -8,6 +8,8 @@ mod fill;
 mod ownership;
 #[path = "rekey_tests.rs"]
 mod rekey;
+#[path = "smooth_tests.rs"]
+mod smooth;
 
 fn code(b: &mut PlanBuilder, emit: impl FnOnce(&mut Asm)) -> exact_plan::Code {
     let mut a = Asm::new();
@@ -18,6 +20,9 @@ fn binding(kind: BindingKind, id: u16, expr: exact_plan::Code) -> BindingsRow {
     BindingsRow { kind, id, expr }
 }
 fn plan(n: usize, row_state: bool, follow: bool) -> Plan {
+    plan_with(n, row_state, follow, false)
+}
+fn plan_with(n: usize, row_state: bool, follow: bool, smooth: bool) -> Plan {
     let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
     let num = b.primitive(TypeKind::Number);
     let list = b.list(num);
@@ -34,12 +39,18 @@ fn plan(n: usize, row_state: bool, follow: bool) -> Plan {
     let enabled = b.constant(&Value::Bool(true));
     let follow = b.constant(&Value::Bool(follow));
     let height = b.constant(&Value::Number(320.0));
+    let behavior = b.constant(&Value::str(if smooth { "smooth" } else { "auto" }));
     let root = b.node(
         NodeType::List as u8,
         None,
         None,
         0,
         &[
+            binding(
+                BindingKind::Style,
+                exact_kernel::StyleId::ScrollBehavior as u16,
+                behavior,
+            ),
             binding(BindingKind::Prop, PropId::Virtualized as u16, enabled),
             binding(BindingKind::Prop, PropId::ScrollFollowEnd as u16, follow),
             binding(
@@ -582,6 +593,7 @@ fn snapshot_json_preserves_u64_metadata_as_decimal_strings() {
             scroll_sequence: (1_u64 << 53) + 3,
             offset: 16.5,
             from: None,
+            smooth: false,
         }),
         pending: true,
     };
