@@ -37,13 +37,15 @@ export function install(exact) {
     if ('value' in el && el.tagName !== 'BUTTON' && el.type !== 'checkbox') props.value = el.value;
     // The runner's props that element.rs writes as attributes, by its names.
     for (const [attr, prop, num] of PROPS) if (el.hasAttribute(attr)) props[prop] = num ? Number(el.getAttribute(attr)) : el.getAttribute(attr);
+    // The intent `tree --ax` reads (LLP 1080.002 D7), as the runner names it.
+    if (el.hasAttribute('inert')) props.inert = true;
+    if (el.getAttribute('aria-hidden') === 'true') props.accessibilityElementsHidden = true;
     if (el.hasAttribute('autofocus')) props.autofocus = true; else if (el.dataset.autofocus === 'false') props.autofocus = false;
     const n = { id: id(el), type: type(el), depth, props };
     if (el.dataset.exactOn) n.handlers = el.dataset.exactOn.split(' ');
     if (document.activeElement === el) n.focused = true;
-    // As glue.js's `tree` adds them: a pressable's accessible name, and an
-    // iframe's url, load state and same-origin guest outline (LLP 1020 D4).
-    if (el.matches('button, a, [role=button]')) n.accessibleName = el.getAttribute('aria-label') ?? el.textContent.trim();
+    // As glue.js's `tree` adds them: an iframe's url, load state and
+    // same-origin guest outline (LLP 1020 D4).
     // A module view's status (LLP 1024 D8.3): what native-glue.js keeps on
     // the element, as glue.js's `tree` reports it.
     if (el.exactNative) n.module = el.exactNative.status();
@@ -314,6 +316,8 @@ export function install(exact) {
         return { clock: exact.clock.now };
       }
       case 'tags': return tags();
+      // @ref LLP 1080.002 D4 — the ids `tree` gives, where CDP's DOM snapshot reads them, and the document's nonce.
+      case 'axStamp': { all(); for (const [i, el] of views) if (el.isConnected && el.getAttribute('data-agent-view') !== String(i)) el.setAttribute('data-agent-view', i); return { ...tags(), nonce: performance.timeOrigin }; }
       case 'state': {
         const [slots, derives, resources] = names.map((list, k) => Object.fromEntries(list.map((n, i) => [n, typed(exact.state[k][i](), types[k][i])])));
         // What is in flight: the network's by resource, then held device requests.

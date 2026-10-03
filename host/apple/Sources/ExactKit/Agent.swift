@@ -163,7 +163,8 @@ public final class Agent {
             return
         }
         switch op {
-        case "tree": Agent.reply(session.canvases.decorate(req, accessibilityTree(session.natives.decorate(session.webviews.tree(line)))))
+        case "tree" where req["ax"] as? Bool == true: Agent.reply(accessibilityElementsTree(req)) // LLP 1080.002
+        case "tree": Agent.reply(session.canvases.decorate(req, decorateTree(session.natives.decorate(session.webviews.tree(line)))))
         case "layout": Agent.reply(tagged(inspectLayout(req) ?? layout(req))) // LLP 1080.001: `native`, `agree`
         // A call that moved something settles the canvases before it
         // replies (LLP 1012's fixed point; LLP 1014 D5 reads placements

@@ -1024,6 +1024,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             applyPlaceholder(f)
             // The web's `type` and `inputmode`, as UIKit spells them.
             let type = props["type"] ?? "text"
+            // A single-line field is the element VoiceOver reaches: it carries the node's name (LLP 1080.002).
+            f.accessibilityLabel = props["accessibilityLabel"]
+            f.accessibilityIdentifier = props["testId"]
             f.isSecureTextEntry = type == "password"
             f.textContentType = type == "password" ? .password : type == "email" ? .emailAddress : nil
             let traitsChanged = f.autocapitalizationType != inputCapitalization || f.autocorrectionType != inputCorrection || f.spellCheckingType != inputSpellChecking

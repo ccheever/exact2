@@ -1062,7 +1062,6 @@ function tree(request) {
   for (const node of reply.nodes ?? []) {
     const el = views.get(node.id);
     node.focused = el === document.activeElement;
-    if (el?.matches("button, a, [role=button]")) node.accessibleName = el.getAttribute("aria-label") ?? el.textContent.trim();
     if (el?.exactNative) node.module = el.exactNative.status();
     if (!(el instanceof HTMLIFrameElement)) continue;
     node.url = el.getAttribute("src") ?? "";
@@ -1175,6 +1174,9 @@ function agentReply(request) {
         return tree(request);
       case "tags":
         return ask(request);
+      case "axStamp": // @ref LLP 1080.002 D4 — each live view's id where CDP's DOM snapshot reads it, and the document's nonce
+        for (const [id, el] of views) if (el.isConnected && el.getAttribute("data-agent-view") !== String(id)) el.setAttribute("data-agent-view", id);
+        return tagged({ nonce: performance.timeOrigin });
       default:
         return ask(request);
     }

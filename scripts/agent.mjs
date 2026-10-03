@@ -20,6 +20,7 @@ import { Cdp, chromium, traceLocators, parseFlags, launchFacts, launchEnvironmen
 export { Cdp } from './agent-launch.mjs';
 import { sourceMapReaders, identifyInspectedNode, render, perfOp, readTrace, renderTrace, layoutArgs } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
+import { axTree } from './agent-ax.mjs';
 export { sourceMapReader, identifyInspectedNode, render } from './agent-inspect.mjs';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
@@ -826,7 +827,8 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     async tree(target, options = {}) {
       const under = typeof options === "string" ? {under:options} : {};
       if (typeof target === "string" && target.startsWith("world:")) return s.op({op:"tree", ...await s.target(target), world:true, ...under});
-      const {shallow = false} = typeof options === "object" && options ? options : {};
+      const {shallow = false, ax = false} = typeof options === "object" && options ? options : {};
+      if (ax) return axTree(s, target, options); // LLP 1080.002: the platform's accessibility tree
       const req = { op: 'tree' };
       if (target != null) req.target = typeof target === 'number' || /^\d+$/.test(String(target)) ? Number(target) : target;
       if (shallow !== false) req.shallow = shallow;
@@ -1295,7 +1297,7 @@ async function main(argv) {
       const [op, ...args] = line.trim().split(/\s+/);
       let r;
       switch (op) {
-        case 'tree': r = await s.tree(args[0], args[1] === 'under' ? args[2] : undefined); break;
+        case 'tree': r = args[0] === '--ax' ? await s.tree(args[1], {ax: true}) : await s.tree(args[0], args[1] === 'under' ? args[2] : undefined); break;
         case 'state': r = await s.state(args[0], args[1] === 'under' ? args[2] : undefined, args[1] === 'pose', args[1] === 'busy'); break;
         case 'logs': r = await s.logs(); break;
         case 'layout': r = await s.layout(...layoutArgs(args)); break;

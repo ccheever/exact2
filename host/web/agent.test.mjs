@@ -993,3 +993,83 @@ test("a drive's storage is only a scratch store it names, apart from the app's o
   for (const name of ['', '.', '..', 'a/b', '%2e%2e']) expect(() => storageKey('com.example.app', `http://127.0.0.1:1/?agent=1&storage=${name}`)).toThrow('storage: one name');
   for (const host of ['web', 'linux']) await expect(open({ host, storage: '../x' })).rejects.toThrow('--storage: one name');
 });
+
+// @ref LLP 1080.002 D7–D9 — the findings, parity and transcript over hand-written replies.
+import { axFindings, axParity, axClean, axFinish, renderAx } from '../../scripts/agent-ax.mjs';
+const axReply = (elements, extra = {}) => ({ epoch: 3, incarnation: 1, clock: 0, ax: { source: 'chrome-cdp', platform: 'Chrome 1', order: 'tree',
+  coverage: { roots: ['document'], complete: true, visited: elements.length }, modal: { present: false }, elements, ...extra } });
+const el = (i, role, name, more = {}) => ({ i, parent: null, id: i + 10, via: 'self', role, name, states: {}, interactive: ['button', 'link', 'textbox', 'checkbox'].includes(role), native: { role }, ...more });
+const axPlain = { nodes: [
+  { id: 10, parent: null, props: { testId: 'play' }, children: [] },
+  { id: 11, parent: null, props: { testId: 'box', inert: true }, children: [12] },
+  { id: 12, parent: 11, props: { testId: 'inside' }, children: [] },
+  { id: 13, parent: null, props: { testId: 'sheet' }, children: [14] },
+  { id: 14, parent: 13, props: { testId: 'ok' }, children: [] },
+  { id: 15, parent: null, props: { testId: 'behind' }, children: [] } ] };
+
+test('tree --ax: unnamed fires on an interactive element with no name and is silent once named', () => {
+  const unnamed = axFinish(axReply([el(0, 'button', '')]), axPlain, null).ax.findings;
+  expect(unnamed.map(f => [f.kind, f.testId])).toEqual([['unnamed', 'play']]);
+  expect(axFinish(axReply([el(0, 'button', 'Play')]), axPlain, null).ax.findings).toEqual([]);
+  // Text is not interactive: an empty name there is no finding.
+  expect(axFinish(axReply([el(0, 'StaticText', '')]), axPlain, null).ax.findings).toEqual([]);
+});
+
+test('tree --ax: exposed-hidden fires under an inert ancestor in intent and is silent outside it', () => {
+  const r = axFinish(axReply([el(2, 'button', 'Hidden')]), axPlain, null);
+  expect(r.ax.findings.map(f => [f.kind, f.testId, f.under])).toEqual([['exposed-hidden', 'inside', 11]]);
+  expect(r.ax.intent[11]).toEqual({ inert: true, testId: 'box' });
+  expect(axFinish(axReply([el(4, 'button', 'Ok')]), axPlain, null).ax.findings).toEqual([]);
+});
+
+test('tree --ax: outside-modal fires for an element outside the open modal, by the platform or UIKit\'s rule', () => {
+  const sheet = el(3, 'dialog', 'Sheet'), ok = el(4, 'button', 'Ok', { parent: 0 }), behind = el(5, 'button', 'Behind');
+  sheet.i = 0; ok.i = 1; behind.i = 2;
+  const modal = { present: true, element: 0, id: 13, by: 'dialog:modal' };
+  const web = axFinish(axReply([sheet, ok, behind], { modal }), axPlain, null).ax.findings;
+  expect(web.map(f => [f.kind, f.testId, f.basis])).toEqual([['outside-modal', 'behind', 'platform']]);
+  const kit = axFinish(axReply([sheet, ok, { ...behind, outsideModal: false }], { modal, source: 'uikit' }), axPlain, null).ax.findings;
+  expect(kit).toEqual([]);
+  const leak = axFinish(axReply([sheet, ok, { ...behind, outsideModal: true }], { modal, source: 'uikit' }), axPlain, null).ax.findings;
+  expect(leak.map(f => [f.kind, f.basis])).toEqual([['outside-modal', 'documented-rule']]);
+});
+
+test('tree --ax: a targeted read keeps its subtree, the chain above it, and its ancestors\' intent', () => {
+  const box = el(1, 'group', 'Box'), inside = el(2, 'button', 'Hidden', { parent: 0 });
+  box.i = 0; inside.i = 1;
+  const r = axFinish(axReply([el(0, 'button', 'Play'), box, inside].map((e, i) => ({ ...e, i, parent: e === inside ? 1 : null }))), axPlain, 'inside');
+  expect(r.ax.elements.map(e => e.testId)).toEqual(['inside']);
+  expect(r.ax.ancestors).toEqual([{ id: 11, role: 'group', name: 'Box' }]);
+  expect(r.ax.intent[11].inert).toBe(true);
+});
+
+test('tree --ax: parity joins by unique testId, normalizes the fixture controls, and refuses a partial side', () => {
+  const web = axReply([el(0, 'checkbox', 'Checked', { testId: 'check', states: { checked: true } }), el(1, 'button', 'Add', { testId: 'add' }), el(2, 'button', 'A', { testId: 'dup' }), el(3, 'button', 'B', { testId: 'dup' })]);
+  const ios = axReply([
+    el(0, 'checkbox', 'Checked', { testId: 'check', value: 'checked', native: { role: ['button'] } }),
+    el(1, 'button', 'Plus', { testId: 'add', native: { role: ['button'] } })], { source: 'uikit' });
+  const { findings, unjoined } = axParity(web, ios);
+  expect(findings.map(f => f.detail)).toEqual(['name "Add" (web) vs "Plus" (uikit)']);
+  expect(unjoined).toEqual([]);
+  expect(() => axParity({ ...web, spanned: true }, ios)).toThrow(/spanned/);
+});
+
+test('tree --ax: no findings means clean only with complete coverage and the expected views joined', () => {
+  const r = axFinish(axReply([el(0, 'button', 'Play')]), axPlain, null);
+  expect(axClean(r, ['play'])).toBe(true);
+  expect(axClean(r, ['missing'])).toBe(false);
+  const partial = axReply([el(0, 'button', 'Play')], { truncated: { elements: 'unknown', fields: 0 } });
+  expect(axClean(partial)).toBe(false);
+  expect(renderAx(partial)).toContain('(no findings — coverage incomplete)');
+});
+
+test('tree --ax renders each element with its join and frame, then its findings', () => {
+  const r = axFinish(axReply([el(0, 'button', '', { frame: { x: 1, y: 2, w: 3, h: 4, source: 'layout' } }), el(2, 'button', 'Hidden', { via: 'owner' })]), axPlain, null);
+  const text = renderAx(r);
+  expect(text).toMatch(/^ax {7}chrome-cdp · Chrome 1 · order tree · epoch 3 · incarnation 1 · clock 0 ms · 2 elements/);
+  expect(text).toContain('button "" #10 [play] 1,2 3×4');
+  expect(text).toContain('button "Hidden" #12^ [inside]');
+  expect(text).toContain('! unnamed button #10 [play]');
+  expect(text).toContain('! exposed while hidden: button "Hidden" under #11 (inert) #12 [inside]');
+  expect(renderAx({ ax: { unavailable: true, reason: 'no AT-SPI tree (LLP 1015 §7)' } })).toBe('ax       unavailable: no AT-SPI tree (LLP 1015 §7)');
+});

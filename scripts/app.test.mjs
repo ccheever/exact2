@@ -348,9 +348,6 @@ test('deploy excludes generated shells and regenerates them from captured game s
 }), 30000); // three lockfiles, a commit, a capture and cargo metadata: 1.8 s at load 35, past five seconds on a loaded Mac
 
 
-test('rendered tree includes focus and the computed accessible name', async () => {
-  const { render } = await import('./agent.mjs');
-  const line = render('tree', {nodes:[{id:1, depth:0, type:'View', props:{testId:'play'}, focused:true, accessibleName:'Play'}]});
   assert.match(line, /\[focused\]/);
   assert.match(line, /name="Play"/);
 });
