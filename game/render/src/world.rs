@@ -330,6 +330,10 @@ impl Feed {
     pub fn unshown_motion(&mut self, motion: glam::Vec2) {
         self.scene.unshown = motion;
     }
+    /// Whether the fed camera has a `MouseLook` (else no frame reads the motion).
+    pub fn mouse_look(&self) -> bool {
+        self.scene.has_look()
+    }
     /// Frame projection at the CSS-pixel viewport size, including integer scaling.
     pub fn frame_pixels(
         &mut self,

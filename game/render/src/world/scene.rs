@@ -229,6 +229,9 @@ impl Scene {
         }
         self.versions = Some(versions);
     }
+    pub(super) fn has_look(&self) -> bool {
+        self.look.is_some()
+    }
     // The camera's MouseLook and the histories of everything under it, kept as
     // the camera's own is; the descendants are found again when the hierarchy
     // or the component changes.
