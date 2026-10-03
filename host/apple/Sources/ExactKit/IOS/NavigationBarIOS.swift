@@ -17,6 +17,13 @@ import UIKit
 struct HeaderShape: Equatable {
     struct Item: Equatable {
         let id: UInt32, title: String, symbol: String?, label: String?, disabled: Bool
+        /// A face drawn from the button's one filled box (an avatar or a
+        /// badge: a shape holding a text or a symbol), when the button has
+        /// one: the item's image, in the box's own colours and corners.
+        let badge: BadgeFace?
+        /// The popover a button opens (`popovertarget`): the item's menu,
+        /// its rows read when it opens, as LLP 1021 D3's pull-down.
+        let menu: String?
         /// A native button's prominent style: a prominent bar item (iOS 26),
         /// as LLP 1069.011.000 D2 maps `NSToolbarItem`.
         let prominent: Bool
@@ -38,6 +45,8 @@ struct HeaderShape: Equatable {
                 walk(button)
             }
             id = button.id
+            badge = button.isNativeButton ? nil : BadgeFace(button)
+            menu = button.props["popovertargetaction"] == "hide" ? nil : button.props["popovertarget"]
             self.symbol = symbol
             title = text
             label = button.props["accessibilityLabel"] ?? face?.label
@@ -45,7 +54,7 @@ struct HeaderShape: Equatable {
             prominent = ["filled", "bordered-prominent", "prominent-glass", "prominent-clear-glass"].contains(face?.style ?? "")
         }
         /// Everything a bar item is made from.
-        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(prominent)" }
+        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(prominent):\(badge?.source ?? ""):\(menu ?? "")" }
     }
     let header: NodeView
     let title: String
@@ -63,7 +72,7 @@ struct HeaderShape: Equatable {
             for case let child as NodeView in node.container.subviews {
                 if child.isParagraph, child.props["accessibilityHeadingLevel"] != nil {
                     headings.append(child)
-                } else if child.handlers.contains("press") {
+                } else if child.handlers.contains("press") || (child.isButton && child.props["popovertarget"] != nil && child.props["popovertargetaction"] != "hide") {
                     guard !backIsUIKits || back == nil || child.props["id"] != back else { continue }
                     if headings.isEmpty { before.append(Item(child)) } else { after.append(Item(child)) }
                 } else {
@@ -82,6 +91,60 @@ struct HeaderShape: Equatable {
 
     static func == (a: HeaderShape, b: HeaderShape) -> Bool {
         a.header === b.header && a.title == b.title && a.level == b.level && a.leading == b.leading && a.trailing == b.trailing
+    }
+}
+
+/// A bar item's face drawn from a button whose one child is a filled box
+/// holding a text or a symbol (an avatar, a badge): CSS's colours and
+/// corners at the bar's image size, light and dark, as UIKit draws a
+/// raster item image (`.alwaysOriginal`).
+struct BadgeFace: Equatable {
+    static let size: CGFloat = 36
+    let text: String, symbol: String?
+    let light: [[Double]], dark: [[Double]]
+    let corners: [CGSize]
+    init?(_ button: NodeView) {
+        let kids = button.container.subviews.compactMap { $0 as? NodeView }
+        guard kids.count == 1, let box = kids.first, box.channels("background_color") != nil else { return nil }
+        var text = "", symbol: String?, ink: NodeView?
+        func walk(_ node: NodeView) {
+            for case let child as NodeView in node.container.subviews {
+                if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty { symbol = symbol ?? name; ink = ink ?? child }
+                else if child.isParagraph, text.isEmpty { text = child.accessibleText; ink = ink ?? child }
+                else { walk(child) }
+            }
+        }
+        walk(box)
+        guard !text.isEmpty || symbol != nil else { return nil }
+        let key = symbol == nil ? "text_color" : "tint_color"
+        func colours(_ dark: Bool) -> [[Double]] {
+            [box.channels("background_color", dark: dark) ?? [0, 0, 0, 0], ink?.channels(key, dark: dark) ?? (dark ? [1, 1, 1, 1] : [0, 0, 0, 1])]
+        }
+        self.text = text; self.symbol = symbol
+        light = colours(false); dark = colours(true)
+        corners = box.cornerSizes(in: CGRect(x: 0, y: 0, width: Self.size, height: Self.size))
+    }
+    var source: String { "\(text)|\(symbol ?? "")|\(light)|\(dark)|\(corners)" }
+
+    var image: UIImage {
+        let light = draw(self.light).withRenderingMode(.alwaysOriginal)
+        light.imageAsset?.register(draw(self.dark).withRenderingMode(.alwaysOriginal), with: UITraitCollection(userInterfaceStyle: .dark))
+        return light
+    }
+    private func draw(_ c: [[Double]]) -> UIImage {
+        let rect = CGRect(x: 0, y: 0, width: Self.size, height: Self.size)
+        return UIGraphicsImageRenderer(size: rect.size).image { _ in
+            TextEngine.color(c[0]).setFill()
+            UIBezierPath(cgPath: BorderPaint.roundedRect(rect, corners, shape: nil)).fill()
+            let ink = TextEngine.color(c[1])
+            if let symbol, let glyph = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: Self.size * 0.42))?.withTintColor(ink, renderingMode: .alwaysOriginal) {
+                glyph.draw(at: CGPoint(x: (rect.width - glyph.size.width) / 2, y: (rect.height - glyph.size.height) / 2))
+            } else {
+                let attrs: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: Self.size * 0.42, weight: .medium), .foregroundColor: ink]
+                let s = (text as NSString).size(withAttributes: attrs)
+                (text as NSString).draw(at: CGPoint(x: (rect.width - s.width) / 2, y: (rect.height - s.height) / 2), withAttributes: attrs)
+            }
+        }
     }
 }
 
@@ -291,11 +354,34 @@ extension NavigationHost {
         let press = BarPress(i.id, self)
         c.barPresses.append(press)
         let action = #selector(BarPress.press)
-        let item = i.symbol.flatMap { UIImage(systemName: $0) }.map { UIBarButtonItem(image: $0, style: .plain, target: press, action: action) }
-            ?? UIBarButtonItem(title: i.title, style: .plain, target: press, action: action)
+        let image = i.badge?.image ?? i.symbol.flatMap { UIImage(systemName: $0) }
+        let item: UIBarButtonItem
+        if let name = i.menu {
+            // A pull-down: UIKit opens it on tap; the rows are the popover's,
+            // read as it opens, after the button's own press (both fire, as
+            // LLP 1021 D1 has it on the web).
+            let id = i.id
+            let deferred = UIDeferredMenuElement.uncached { [weak self] completion in
+                guard let self else { return completion([]) }
+                if self.presenter.views[id]?.handlers.contains("press") == true { self.presenter.press(id) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+                    guard let self, let pop = self.presenter.carrying("popover").first(where: { $0.props["id"] == name }) else { return completion([]) }
+                    completion(self.presenter.menus.items(of: pop))
+                }
+            }
+            item = image.map { UIBarButtonItem(image: $0, menu: UIMenu(children: [deferred])) }
+                ?? UIBarButtonItem(title: i.title, menu: UIMenu(children: [deferred]))
+        } else {
+            item = image.map { UIBarButtonItem(image: $0, style: .plain, target: press, action: action) }
+                ?? UIBarButtonItem(title: i.title, style: .plain, target: press, action: action)
+        }
         item.accessibilityLabel = i.label ?? (i.title.isEmpty ? nil : i.title)
         item.isEnabled = !i.disabled
-        if #available(iOS 26.0, *), i.prominent { item.style = .prominent }
+        if #available(iOS 26.0, *) {
+            if i.prominent { item.style = .prominent }
+            // A drawn face is its own shape: no glass capsule around it.
+            if i.badge != nil { item.hidesSharedBackground = true }
+        }
         return item
     }
 

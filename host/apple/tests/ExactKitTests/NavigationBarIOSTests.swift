@@ -108,6 +108,31 @@ final class NavigationBarIOSTests: XCTestCase {
         until("Compose pressed once") { state(session, "composed") as? Double == 1 }
     }
 
+    /// LLP 1075.003 §9.6: a button whose one child is a filled box is an
+    /// image item drawn from it; a popover's invoker is an item whose menu
+    /// holds the popover's rows, each pressing its authored button.
+    func testABadgeButtonIsAnImageItemAndAPopoverInvokerAMenuItem() throws {
+        let session = try fixture("bar-badge-menu", module: false)
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let top = try XCTUnwrap(nav.topViewController)
+        let left = top.navigationItem.leftBarButtonItems ?? []
+        let badge = try XCTUnwrap(left.first { $0.accessibilityLabel == "Profile" }, "the badge button is an item")
+        let image = try XCTUnwrap(badge.image, "drawn from the box")
+        XCTAssertEqual(image.size, CGSize(width: 36, height: 36))
+        XCTAssertEqual(image.renderingMode, .alwaysOriginal, "the box's own colours, not the bar's tint")
+        XCTAssertNil(badge.menu)
+        try tap(badge)
+        until("the badge pressed its button") { state(session, "composed") as? Double == 1 }
+        let more = try XCTUnwrap(left.first { $0.accessibilityLabel == "More" }, "the popover's invoker is an item")
+        let menu = try XCTUnwrap(more.menu, "with the popover as its menu")
+        XCTAssertNil(more.action, "UIKit opens the menu on a tap")
+        XCTAssertTrue(menu.children.first is UIDeferredMenuElement, "rows read as it opens")
+        let pop = try XCTUnwrap(session.presenter.carrying("popover").first { $0.props["id"] == "bar-menu" })
+        let rows = session.presenter.menus.items(of: pop)
+        let row = try XCTUnwrap(rows.first as? UIAction)
+        XCTAssertEqual(row.title, "Bump from the bar")
+    }
+
     func testAPushedRouteShowsBackAsTheAuthoredControlAndAPopPressesItOnce() throws {
         let session = try fixture("bar-push", module: false)
         let agent = Agent(session: session)

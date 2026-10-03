@@ -168,9 +168,22 @@ component NativeFixture
                   when e.name == "sheet"
                     button id="back" press=back testId="close-sheet" aria-label="Close" padding=6 background-color="#e5e7eb"
                       image "symbol:close" width=20 height=20
+                  when e.name == "home"
+                    // A drawn face (LLP 1075.003 §9.6): a button whose one
+                    // child is a filled box holding a text is an image item.
+                    button press=compose aria-label="Profile" testId="badge-item" padding=0
+                      column width=32 height=32 border-radius=16 background-color="#e3e3fe" align-items="center" justify-content="center"
+                        text "AB" font-size=13 color="#3838f5"
+                    // A popover's invoker is a bar item opening a UIMenu.
+                    button popovertarget="bar-menu" aria-label="More" testId="menu-item" padding=6 background-color="#e5e7eb"
+                      image "symbol:sf/ellipsis.circle" width=20 height=20
                   text (e.name == "home" ? "Fixture" : e.name == "detail" ? "Detail" : e.name == "rows" ? "Rows" : e.name == "sheet" ? "Sheet" : "Second") aria-level=(e.name == "home" or e.name == "second" ? 1 : 2) testId=`title-${e.name}` flex=1 font-weight=700 font-size=20
                   button id="compose" press=compose aria-label="Compose" testId=`compose-${e.name}` padding=6 background-color="#e5e7eb"
                     image "symbol:compose" width=20 height=20
+                when e.name == "home"
+                  column id="bar-menu" popover="auto" position="absolute" role="menu" width=200 padding=8 background-color="#ffffff"
+                    button press=bump popovertarget="bar-menu" popovertargetaction="hide" role="menuitem" testId="bar-menu-bump" height=44
+                      text "Bump from the bar"
                 when e.name == "home"
                   column testId="fixture" gap=8 padding=12
                     row gap=6 flex-wrap="wrap"
