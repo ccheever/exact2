@@ -110,10 +110,27 @@ impl World {
         );
         let epochs = &self.hierarchy.epochs;
         let parented = self.storage::<crate::Parent>();
+        // Follower subtrees move with their rig's Pose and Transform: re-read on
+        // each new tick or pose (pose_cursor's own condition), never by epoch alone.
+        let sockets = self.socket_pages();
+        let moved = (
+            self.tick(),
+            self.revision::<crate::Transform>(),
+            self.revision::<crate::Pose>(),
+        );
+        let moved = moved.0 ^ moved.1.rotate_left(21) ^ moved.2.rotate_left(42);
         refresh(
             &mut d.globals,
-            epochs.len(),
-            |p| (epochs[p], ambient_key(p), self.presentation_generation),
+            epochs.len().max(sockets.last().map_or(0, |p| p + 1)),
+            |p| {
+                let rig = if sockets.contains(&p) { moved } else { 0 };
+                let epoch = epochs.get(p).copied().unwrap_or(0);
+                (
+                    epoch,
+                    ambient_key(p),
+                    self.presentation_generation ^ rig.rotate_left(7),
+                )
+            },
             |p| {
                 let mut rows = Vec::new();
                 for i in p * PAGE..(p + 1) * PAGE {
