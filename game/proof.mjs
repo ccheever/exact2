@@ -59,6 +59,18 @@ function validateWorldCapture(capture) {
 }
 
 /** Exact JSON-value comparison, with stable entity names and positional array indices. */
+/** The accessible names the platform exposes (LLP 1080.002 `tree --ax`), for
+ * a proof's name checks: `{unavailable: true}` where the host exposes no
+ * accessibility tree (Linux), else `name(testId)` (the view's own element first)
+ * and `all`, every element's name. A check reads `ax.unavailable || ax.name(id) === X`. */
+export async function axNames(session) {
+  const {ax} = await session.tree(null, {ax: true});
+  if (ax?.unavailable) return {unavailable: true, name: () => undefined, all: []};
+  const elements = ax?.elements ?? [];
+  const of = id => elements.find(e => e.testId === id && e.via === 'self') ?? elements.find(e => e.testId === id);
+  return {unavailable: false, name: id => of(id)?.name, frame: id => of(id)?.frame, all: elements.map(e => e.name)};
+}
+
 export function diffWorlds(before, after, {limit = 100} = {}) {
   validateWorldCapture(before); validateWorldCapture(after);
   if (before.name !== after.name) throw new Error('cannot compare captures of different games');

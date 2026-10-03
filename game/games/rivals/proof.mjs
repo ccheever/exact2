@@ -4,7 +4,7 @@
 // save restored in a fresh process, and pause/restart. Web adds screenshots.
 import {resolve} from 'node:path';
 import {readFileSync} from 'node:fs';
-import { proof } from "../../proof.mjs";
+import { proof, axNames } from "../../proof.mjs";
 
 const node = (tree, id) => tree.nodes.find(n => n.props?.testId === id);
 const text = (tree, id) => node(tree, id)?.props?.text;
@@ -20,7 +20,8 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   }
   const s = await open();
   const title = await s.tree();
-  check('Duel is initially focused and named', node(title, 'play')?.focused === true && node(title, 'play')?.accessibleName === 'Play');
+  const titleAx = await axNames(s);
+  check('Duel is initially focused and named', node(title, 'play')?.focused === true && (titleAx.unavailable || titleAx.name('play') === 'Play'));
   check('title offers duel, free-for-all and range', ['play', 'ffa', 'range'].every(id => !!node(title, id)) && title.nodes.some(n => n.props?.text === 'RIVALS'));
   check('world loads after a mode is chosen', !node(title, 'world'));
   await s.tap('range');
@@ -97,7 +98,8 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await duel.save(resolve(out, 'continued.world'));
   pinSave('continuation', resolve(out, 'continued.world'));
   await d.tap('pause');
-  check('Pause offers Restart', node(await d.tree(), 'restart')?.accessibleName === 'Restart');
+  const pausedAx = await axNames(d);
+  check('Pause offers Restart', !!node(await d.tree(), 'restart') && (pausedAx.unavailable || pausedAx.name('restart') === 'Restart'));
   await d.tap('restart');
   const reset = await d.tree();
   check('Restart clears the score', text(reset, 'you-kills') === '0' && text(reset, 'rival-kills') === '0' && text(reset, 'hp') === '100');
