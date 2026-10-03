@@ -425,6 +425,10 @@ impl Scene {
                 intensity: m.intensity,
                 rgbm: m.rgbm,
             }),
+            ambient_occlusion: w
+                .try_resource::<exact_game::AmbientOcclusion>()
+                .as_deref()
+                .copied(),
             timestamps: None,
             attachments: &self.attachments.output,
         }

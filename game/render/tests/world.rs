@@ -587,3 +587,65 @@ fn a_viewmodel_draws_in_front_of_the_wall_it_reaches_into() {
     assert_eq!(plain, 0, "the wall hides an ordinary child");
     assert!(marked > 1000, "{marked}");
 }
+
+#[derive(Default, exact_game::Args)]
+struct OcclusionArgs {
+    on: bool,
+}
+struct Occlusion;
+impl Game for Occlusion {
+    const ID: &'static str = "ambient-occlusion";
+    type Args = OcclusionArgs;
+    fn setup(w: &mut World, args: &OcclusionArgs) {
+        w.insert_resource(exact_game::Environment {
+            bloom: None,
+            fog: None,
+            ..Default::default()
+        });
+        if args.on {
+            w.insert_resource(exact_game::AmbientOcclusion::default());
+        }
+        w.spawn((
+            Transform::at(0., 2.5, 3.).looking_at(Vec3::new(0., 0.3, 0.), Vec3::Y),
+            Camera::default(),
+        ));
+        w.spawn((
+            Transform::default(),
+            Mesh::plane(20., 20.),
+            Material::rgb(0.7, 0.7, 0.7),
+        ));
+        w.spawn((
+            Transform::at(0., 0.5, 0.),
+            Mesh::cube(1.),
+            Material::rgb(0.7, 0.7, 0.7),
+        ));
+    }
+    fn tick(_: &mut World, _: &Input, _: &OcclusionArgs) {}
+}
+#[test]
+fn ambient_occlusion_darkens_contacts_and_is_off_by_default() {
+    let Some(gpu) = gpu() else { return };
+    let image = |on: bool| {
+        let mut s = WorldSurface::<Occlusion>::default();
+        s.bind(&[Value::Bool(on)], None).unwrap();
+        render(
+            &gpu,
+            &mut s,
+            0.,
+            if on { "occlusion-on" } else { "occlusion-off" },
+        )
+    };
+    let (off, on) = (image(false), image(true));
+    let lum = |p: [u8; 4]| u32::from(p[0]) + u32::from(p[1]) + u32::from(p[2]);
+    // Find the floor's darkening right under the cube's front edge, and none far away.
+    let (mut darkest, mut far) = (0i64, 0i64);
+    for x in 200..440 {
+        for y in 200..300 {
+            darkest = darkest.max(i64::from(lum(off.at(x, y))) - i64::from(lum(on.at(x, y))));
+        }
+        far = far.max((i64::from(lum(off.at(x, 350))) - i64::from(lum(on.at(x, 350)))).abs());
+    }
+    eprintln!("occlusion: largest contact darkening {darkest}, far floor change {far}");
+    assert!(darkest > 30, "{darkest}");
+    assert!(far <= 3, "{far}");
+}

@@ -111,7 +111,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             self.models
                 .custom_data(&self.queue, |slot| hooks.instance_data(slot));
         }
-        let (scene_copy, retained) = self.prepare_targets(size, needs);
+        let (scene_copy, retained) =
+            self.prepare_targets(size, needs, frame.ambient_occlusion.is_some());
         let cascades = self.prepare_effects(frame);
         let map = frame.environment_map.and_then(|m| {
             let texture = self.models.textures.get(m.texture).filter(|t| t.active)?;
@@ -182,6 +183,23 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.encode_forward(encoder, &mut state, frame, hooks, &view)?;
         if scene_copy {
             self.encode_surface(encoder, &mut state, frame, hooks, &view)?;
+        }
+        if let Some(settings) = frame.ambient_occlusion {
+            if self.ssao.as_ref().is_none_or(|s| !s.fits(&self.targets)) {
+                self.ssao = Some(crate::ssao::Ssao::new(&self.device, &self.targets));
+                self.texture_creations += 1;
+            }
+            self.ssao.as_ref().unwrap().encode(
+                &self.queue,
+                encoder,
+                frame,
+                settings,
+                &self.targets.resolved,
+                size,
+            );
+            state.draws += 2;
+        } else {
+            self.ssao = None;
         }
         self.encode_post(encoder, target, &mut state, frame, hooks, &view)?;
         self.cull.copy_counts(&self.device, encoder);
@@ -289,9 +307,15 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     }
 
     // Attachments grow in 64-pixel buckets; hook services add retained targets.
-    fn prepare_targets(&mut self, size: (u32, u32), needs: crate::Needs) -> (bool, bool) {
+    fn prepare_targets(
+        &mut self,
+        size: (u32, u32),
+        needs: crate::Needs,
+        occlusion: bool,
+    ) -> (bool, bool) {
         let scene_copy = needs.contains(crate::Needs::SCENE_COPY);
-        let retained = scene_copy || needs.contains(crate::Needs::FINAL_DEPTH);
+        // Occlusion reads the forward pass's depth too.
+        let retained = scene_copy || occlusion || needs.contains(crate::Needs::FINAL_DEPTH);
         let replace_targets = size.0 > self.targets.size.0
             || size.1 > self.targets.size.1
             || retained != self.targets.retained;
@@ -302,6 +326,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 bucket(size.1).max(self.targets.size.1),
             );
             self.bloom = None;
+            self.ssao = None;
             self.targets = Targets::with_retention(
                 &self.device,
                 capacity,

@@ -64,6 +64,25 @@ impl EnvironmentMap {
     }
 }
 
+/// Screen-space ambient occlusion, an optional effect: inserting this resource
+/// turns it on. Creases and contacts darken where nearby geometry covers a
+/// surface's hemisphere within `radius`.
+#[derive(Clone, Copy, Debug, PartialEq, Resource)]
+pub struct AmbientOcclusion {
+    /// Sampling radius in metres.
+    pub radius: f32,
+    /// Darkening at full coverage: 1 turns a fully covered pixel black.
+    pub intensity: f32,
+}
+impl Default for AmbientOcclusion {
+    fn default() -> Self {
+        Self {
+            radius: 0.5,
+            intensity: 1.0,
+        }
+    }
+}
+
 /// Exponential fog, thinning with world height.
 #[derive(Clone, Copy, Debug, PartialEq, Data)]
 pub struct Fog {

@@ -34,6 +34,7 @@ mod renderer;
 mod shadows;
 pub mod shapes;
 mod skinning;
+mod ssao;
 mod surface;
 mod timing;
 mod trace;
@@ -313,6 +314,8 @@ pub struct FrameInput<'a> {
     /// An authored environment map lighting the scene in place of the sky:
     /// a texture added under this name, its intensity and RGBM range.
     pub environment_map: Option<EnvironmentMapInput<'a>>,
+    /// Screen-space ambient occlusion; None (the default) draws none.
+    pub ambient_occlusion: Option<exact_game::AmbientOcclusion>,
     /// Optional pass timestamps. Requires TIMESTAMP_QUERY on the device.
     /// Reserve [`GPU_PASS_COUNT`] pairs in the query set. Resolve/read outside draw.
     pub timestamps: Option<&'a wgpu::QuerySet>,
@@ -339,6 +342,7 @@ impl Default for FrameInput<'_> {
             attachments: &[],
             environment: Environment::default(),
             environment_map: None,
+            ambient_occlusion: None,
             timestamps: None,
         }
     }

@@ -138,6 +138,13 @@ saved types.
   pipelines. Receivers offset 1.5 texels along the normal (less towards the light)
   and take 3×3 PCF. Forward passes always bind group 1 (cascades, the comparison
   sampler, local maps), with a one-texel placeholder for an absent map.
+- Screen-space ambient occlusion is off by default; inserting the engine's
+  `AmbientOcclusion { radius, intensity }` resource (or setting
+  `FrameInput::ambient_occlusion`) turns it on. It retains the forward depth, takes
+  16 hemisphere samples per pixel within `radius` metres around a normal rebuilt
+  from depth, blurs 4×4 and multiplies the resolved HDR colour before post and
+  bloom. It darkens all light at a crease, not only ambient, and translucent
+  surfaces over a crease take its darkening. Off, no texture or pass exists.
 - Bloom defaults to threshold 1, intensity 0.16, radius 1.5: one-sided knee, 13-tap
   downsampling and additive tent upsampling. Up to six RGBA16F levels, stopping
   before either dimension falls below 8; tiny outputs retain one level.
