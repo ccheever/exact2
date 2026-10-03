@@ -776,7 +776,8 @@ function apply(batch) {
         else if (op.name === "postMessage") { // the inverse of `message=`: text into the named surface, every one in order
           const text = String(op.args?.[0] ?? ""), name = String(op.args?.[1] ?? ""), at = now();
           if (globalThis.exact.gpu) globalThis.exact.gpu.post(name, text, at);
-          else (globalThis.exact.pendingPosts ??= []).push({ name, text, at, generation: incarnation });
+          else if ((globalThis.exact.pendingPosts ??= []).filter(p => p.name === name).length >= 64) log(`postMessage: dropped: 64 posts already wait for surface "${name}"`);
+          else globalThis.exact.pendingPosts.push({ name, text, at, generation: incarnation });
         }
         else if (op.name === "showPicker") { // LLP 1069.002 D2, D9: the element's own picker, inside the press's activation; under the agent, a hold
           const el = [...views.values()].find(el => el.id === op.args?.[0] && el.type === "file");

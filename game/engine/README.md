@@ -120,7 +120,9 @@ The other way, Contract's `postMessage("buy carrot", "world")` posts text into
 the surface of that name. Each message is input stamped at the call: the next
 tick reads it in `input.messages()`, in arrival order, never coalesced (two presses
 between ticks are two messages). A paused world holds them for its first tick
-after the pause. A message waiting for its tick saves with the input queue; one
+after the pause. Every host holds a post until a canvas of that surface is live (at
+most 64 per surface; past that a post is dropped and logged) and delivers it to
+the live one with the lowest view id. A message waiting for its tick saves with the input queue; one
 delivered is gone. Messages are at most 64 KiB; keep data in the world and post
 commands. `Sim::post(text)` does the same in tests.
 

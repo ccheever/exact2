@@ -483,7 +483,10 @@ impl<D: DataSource> Presenter<D> {
                     let (text, name) = (arg(0).unwrap_or_default(), arg(1).unwrap_or_default());
                     let event = serde_json::json!({"t":"message","text":text,"at":self.host.now()});
                     if !self.surfaces.post(name, event) {
-                        eprintln!("exact: postMessage: refused: no live surface named \"{name}\"");
+                        self.host.log(format!(
+                            "postMessage: dropped: {} posts already wait for surface \"{name}\"",
+                            crate::surfaces::POST_BOUND
+                        ));
                     }
                 }
                 // @ref LLP 1069.002 D8 — refused with `cancel`; the agent's

@@ -310,7 +310,12 @@ pub(crate) struct Surfaces {
     pub(crate) error: Option<String>,
     work: Vec<RequestOut>,
     outcomes: Vec<(u64, Outcome)>,
+    // postMessage events waiting for a live canvas of their surface name.
+    posts: BTreeMap<String, Vec<Value>>,
 }
+/// Posts held per surface name until a canvas of that name is live; past it a
+/// post is dropped and logged. The same bound and rule on every host.
+pub(crate) const POST_BOUND: usize = 64;
 impl Surfaces {
     pub(crate) fn enqueue(&mut self, request: RequestOut, admitted: &str) {
         let oversized = matches!(
@@ -801,16 +806,35 @@ impl Surfaces {
         result
     }
 
-    /// `postMessage(name, text)`: one message event into the live canvas that
-    /// owns the surface name (the publisher), else its lowest view.
+    /// `postMessage(text, name)`: one message event for the live canvas of that
+    /// surface name with the lowest view id, held until one is live. False when
+    /// POST_BOUND posts already wait for the name (the post is dropped).
     pub(crate) fn post(&mut self, name: &str, event: Value) -> bool {
-        let view = self
-            .canvases
-            .iter()
-            .filter(|(_, c)| c.name == name)
-            .min_by_key(|(view, c)| (!c.owner, **view))
-            .map(|(view, _)| *view);
-        view.is_some_and(|view| self.input(view, event))
+        let queue = self.posts.entry(name.into()).or_default();
+        if queue.len() >= POST_BOUND {
+            return false;
+        }
+        queue.push(event);
+        self.deliver_posts();
+        true
+    }
+    /// Deliver held posts whose surface has a live canvas now, in order.
+    pub(crate) fn deliver_posts(&mut self) {
+        let names: Vec<String> = self.posts.keys().cloned().collect();
+        for name in names {
+            let view = self
+                .canvases
+                .iter()
+                .filter(|(_, c)| c.name == name)
+                .map(|(view, _)| *view)
+                .min();
+            if let Some(view) = view {
+                for event in self.posts.remove(&name).unwrap_or_default() {
+                    // A refusal (an oversized message) is the surface's error.
+                    self.input(view, event);
+                }
+            }
+        }
     }
     pub(crate) fn wants_input(&self, view: u32) -> bool {
         self.canvases.get(&view).is_some_and(|c| unsafe {
@@ -854,6 +878,7 @@ impl<D: DataSource> Presenter<D> {
             let changed = self
                 .surfaces
                 .sync(&mut self.host, &self.compat, &self.assets);
+            self.surfaces.deliver_posts();
             self.cancel_removed_controls();
             let outcomes = self.surfaces.take_outcomes();
             if !outcomes.is_empty() {
