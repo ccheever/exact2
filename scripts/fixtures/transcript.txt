@@ -96,3 +96,12 @@ t=4990000 advance → 1 timer fired, epoch 9
 
 --- tap
 {"at":[210,45.5],"tapped":3,"target":"go","delivery":"platform","carrier":"macos","mode":"agent"}
+
+--- ax
+ax       chrome-cdp · Chrome 153.0.0.0 · order tree · epoch 4 · incarnation 1 · clock 0 ms · 5 elements
+button "Increment" [focused] #2 [first] 0,40 420×18
+button "" #9 [unnamed] 0,96 20×20
+heading "Section" [level=2] #14 [heading]
+textbox "Secret" [protected] #17 [secret]
+findings
+  ! unnamed button #9 [unnamed]

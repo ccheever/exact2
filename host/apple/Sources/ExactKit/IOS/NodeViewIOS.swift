@@ -1021,7 +1021,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             f.tintColor = props["emojiPicker"] == "true" ? .clear : nil
             if (set["emojiPicker"] != nil || clear.contains("emojiPicker")), f.isFirstResponder { f.reloadInputViews() }
             if let v = props["value"] { writeValue(v, into: f) }
-            applyPlaceholder(f)
+            applyPlaceholder(f); applyFieldName(f)
             // The web's `type` and `inputmode`, as UIKit spells them.
             let type = props["type"] ?? "text"
             f.isSecureTextEntry = type == "password"

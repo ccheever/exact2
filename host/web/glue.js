@@ -1069,11 +1069,6 @@ function tree(request) {
   for (const node of reply.nodes ?? []) {
     const el = views.get(node.id);
     node.focused = el === document.activeElement;
-    // The accessible name as Chrome computes it (accname 1.2): a non-empty
-    // `aria-label` (an image's `alt`) names any element; a button or link is
-    // named by its content too. Every host reports the same rule.
-    const label = el?.getAttribute(el.localName === "img" ? "alt" : "aria-label");
-    if (label || el?.matches("button, a, [role=button], [role=link]")) node.accessibleName = label || el.textContent.trim();
     if (el?.exactNative) node.module = el.exactNative.status();
     if (!(el instanceof HTMLIFrameElement)) continue;
     node.url = el.getAttribute("src") ?? "";
@@ -1186,6 +1181,9 @@ function agentReply(request) {
         return tree(request);
       case "tags":
         return ask(request);
+      case "axStamp": // @ref LLP 1080.002 D4 — each live view's id where CDP's DOM snapshot reads it, and the document's nonce
+        for (const [id, el] of views) if (el.isConnected && el.getAttribute("data-agent-view") !== String(id)) el.setAttribute("data-agent-view", id);
+        return tagged({ nonce: performance.timeOrigin });
       default:
         return ask(request);
     }

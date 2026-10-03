@@ -14,7 +14,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     func hides(_ node: NodeView) -> Bool { projected && node === owner }
     private weak var heading: NodeView?
     private var order: [NSToolbarItem.Identifier] = []
-    private var projected = false
+    private(set) var projected = false
     private var savedAccessibilityHidden = false
     private var syncing = false
     private var savedTitle = ""

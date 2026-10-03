@@ -1044,19 +1044,12 @@ fn accessibility_focus_is_session_scoped_and_buttons_activate_from_keys() {
         .find(|n| n["id"] == other)
         .unwrap();
     assert_eq!(row["focused"], true);
-    assert_eq!(row["accessibleName"], "Other");
-    // The web's accname: a label names a text; an unlabelled text has none.
-    let named = |test_id: &str| {
-        let row = tree["nodes"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .find(|n| n["props"]["testId"] == test_id)
-            .unwrap();
-        row.get("accessibleName").cloned()
-    };
-    assert_eq!(named("labelled"), Some("20 sheckles".into()));
-    assert_eq!(named("live-count"), None);
+    let ax: serde_json::Value = serde_json::from_str(&exact_linux::agent::handle(
+        &mut p,
+        r#"{"op":"tree","ax":true}"#,
+    ))
+    .unwrap();
+    assert_eq!(ax["ax"]["unavailable"], true);
     let state: serde_json::Value =
         serde_json::from_str(&exact_linux::agent::handle(&mut p, r#"{"op":"state"}"#)).unwrap();
     assert_eq!(state["focus"]["logical"], other);
