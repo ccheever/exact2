@@ -189,6 +189,8 @@ struct Identity {
     widths: HashMap<Width, Snapshot>,
     intrinsic: [Option<TextMetrics>; 2],
     used: u64,
+    // The spec is immutable: its key cost is counted once, at creation.
+    key_bytes: usize,
 }
 
 struct Handoff {
@@ -206,15 +208,13 @@ impl Identity {
             .map_or(0, |s| s.accessible_capacity_bytes + s.flow_capacity_bytes())
     }
     fn key_bytes(&self) -> usize {
-        self.spec.runs.capacity() * size_of::<Run>()
-            + self.spec.strut.text.capacity()
-            + self
-                .spec
-                .runs
-                .iter()
-                .map(|r| r.text.capacity())
-                .sum::<usize>()
+        self.key_bytes
     }
+}
+fn key_bytes(spec: &Spec) -> usize {
+    spec.runs.capacity() * size_of::<Run>()
+        + spec.strut.text.capacity()
+        + spec.runs.iter().map(|r| r.text.capacity()).sum::<usize>()
 }
 
 pub(super) struct Cache {
@@ -226,6 +226,9 @@ pub(super) struct Cache {
     handoffs: Vec<Handoff>,
     // Non-owning shortcuts, one latest metric identity per owner; no revisions.
     bindings: Vec<(ParagraphStamp, (u64, u64))>,
+    // Every binding names a current identity: none was removed since the last
+    // prune, and each bound since named one. Pruning is then a no-op.
+    bindings_current: bool,
 }
 impl Default for Cache {
     fn default() -> Self {
@@ -236,6 +239,7 @@ impl Default for Cache {
             target: COLD_BYTES,
             handoffs: Vec::new(),
             bindings: Vec::new(),
+            bindings_current: true,
         }
     }
 }
@@ -284,15 +288,27 @@ impl Cache {
         if self.bindings.len() == COLD_IDENTITIES {
             self.bindings.remove(0);
         }
+        if !self.current(key) {
+            self.bindings_current = false;
+        }
         self.bindings.push((stamp.clone(), key));
     }
+    fn current(&self, key: (u64, u64)) -> bool {
+        self.identities
+            .get(&key.0)
+            .is_some_and(|bucket| bucket.iter().any(|e| e.id == key.1))
+    }
     fn prune_bindings(&mut self) {
+        if self.bindings_current {
+            return;
+        }
         let identities = &self.identities;
         self.bindings.retain(|(_, key)| {
             identities
                 .get(&key.0)
                 .is_some_and(|bucket| bucket.iter().any(|e| e.id == key.1))
         });
+        self.bindings_current = true;
     }
 
     pub fn prepare_handoff(&mut self, identity: u64, width: Width) {
@@ -369,25 +385,28 @@ impl Cache {
         }
         self.trim(None);
         self.serial += 1;
+        // Moving spare capacity would change key_bytes and cold eviction.
+        // Only a new canonical-capacity identity can bypass the old clone.
+        let spec = Arc::new(match spec {
+            Cow::Owned(spec)
+                if spec.runs.capacity() == spec.runs.len()
+                    && std::iter::once(&spec.strut)
+                        .chain(&spec.runs)
+                        .all(|r| r.text.capacity() == r.text.len()) =>
+            {
+                spec
+            }
+            other => other.as_ref().clone(),
+        });
+        let key_bytes = key_bytes(&spec);
         self.identities.entry(hash).or_default().push(Identity {
             id: self.serial,
-            // Moving spare capacity would change key_bytes and cold eviction.
-            // Only a new canonical-capacity identity can bypass the old clone.
-            spec: Arc::new(match spec {
-                Cow::Owned(spec)
-                    if spec.runs.capacity() == spec.runs.len()
-                        && std::iter::once(&spec.strut)
-                            .chain(&spec.runs)
-                            .all(|r| r.text.capacity() == r.text.len()) =>
-                {
-                    spec
-                }
-                other => other.as_ref().clone(),
-            }),
+            spec,
             source: None,
             widths: HashMap::new(),
             intrinsic: [None; 2],
             used: self.clock,
+            key_bytes,
         });
         (hash, self.serial)
     }
@@ -416,6 +435,9 @@ impl Cache {
     }
     /// BEFORE allocating a new width layout: every unpinned old width of this exact
     /// identity dies; its immutable shape remains. Pinned widths stay indexed.
+    /// The cold target is enforced by the `insert` or `set_intrinsic` that
+    /// always follows: eviction is oldest-first, so one trim after the layout
+    /// evicts what a trim before it and another after it would.
     pub fn before_shape(&mut self, key: (u64, u64)) {
         let entry = self.entry(key);
         for value in entry.widths.values_mut() {
@@ -424,7 +446,6 @@ impl Cache {
         entry
             .widths
             .retain(|_, value| value.weak.strong_count() != 0);
-        self.trim(Some(key.1));
     }
     pub fn insert(&mut self, key: (u64, u64), width: Width, p: &Rc<Paragraph>) {
         self.clock += 1;
@@ -559,6 +580,7 @@ impl Cache {
             bucket.retain(Identity::pinned);
             !bucket.is_empty()
         });
+        self.bindings_current = false;
         self.prune_bindings();
     }
     pub fn trim(&mut self, keep: Option<u64>) {
@@ -567,19 +589,19 @@ impl Cache {
         // eviction policy, including that phantom count.
         let mut count = usize::from(keep.is_some());
         for entry in self.identities.values_mut().flatten() {
-            entry
-                .widths
-                .retain(|_, value| value.weak.strong_count() != 0);
-            if !entry.pinned() {
-                bytes += entry.key_bytes() + entry.source_bytes();
-                count += usize::from(Some(entry.id) != keep);
-            }
-            for slot in entry.widths.values() {
-                if !slot.pinned() {
-                    if let Some(p) = &slot.cold {
-                        bytes += p.layout_capacity_bytes() + p.private_text_bytes_estimate;
-                    }
+            let mut pinned = false;
+            entry.widths.retain(|_, slot| {
+                let strong = slot.weak.strong_count();
+                if strong > usize::from(slot.cold.is_some()) {
+                    pinned = true;
+                } else if let Some(p) = &slot.cold {
+                    bytes += p.layout_capacity_bytes() + p.private_text_bytes_estimate;
                 }
+                strong != 0
+            });
+            if !pinned {
+                bytes += entry.key_bytes + entry.source_bytes();
+                count += usize::from(Some(entry.id) != keep);
             }
         }
         if bytes <= self.target && count <= COLD_IDENTITIES {
@@ -645,6 +667,7 @@ impl Cache {
                 let bucket = self.identities.get_mut(&hash).unwrap();
                 let pos = bucket.iter().position(|e| e.id == id).unwrap();
                 let old = bucket.remove(pos);
+                self.bindings_current = false;
                 bytes = bytes.saturating_sub(old.key_bytes() + old.source_bytes());
                 count -= 1;
                 if bucket.is_empty() {
@@ -698,6 +721,7 @@ impl Cache {
             let bucket = self.identities.get_mut(&hash).unwrap();
             let pos = bucket.iter().position(|e| e.id == id).unwrap();
             let old = bucket.remove(pos);
+            self.bindings_current = false;
             bytes = bytes.saturating_sub(old.key_bytes() + old.source_bytes());
             count -= 1;
             if bucket.is_empty() {
