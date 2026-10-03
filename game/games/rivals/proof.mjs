@@ -120,7 +120,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
     const f = await open({fresh:true});
     await f.tap('ffa');
     await f.world('world').key_down('KeyF');
-    await f.world('world').run(5000);
+    await f.world('world').run(2600);
     await f.screenshot(resolve(out, 'game.png'));
     await f.close();
   }

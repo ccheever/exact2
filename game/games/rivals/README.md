@@ -19,7 +19,7 @@ two seconds at the spawn farthest from living enemies.
 
 | | |
 |---|---|
-| Look | mouse (move over the canvas), or the arrow keys |
+| Look | mouse (a click captures it; Esc releases), or the arrow keys |
 | Move · sprint · jump · slide | WASD · Shift · Space · C (while running) |
 | Fire · reload | click or F · R |
 | Weapons | 1 assault rifle · 2 rocket launcher · 3 knife (or the wheel) |
