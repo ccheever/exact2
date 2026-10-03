@@ -129,7 +129,11 @@ final class CanvasInput {
             guard buttons & bit != 0 else { return false }
             buttons &= ~bit
             if buttons != 0 { phase = "move" }
-        } else if buttons == 0 && !locked && !fallsThrough(event, view) { return false }
+        } else if buttons == 0 && !locked && !fallsThrough(event, view) {
+            // Off the canvas the pointer still moves: the first move back in is
+            // its own motion, not the distance travelled outside.
+            last = view.local(windowPoint(event, view)); return false
+        }
         let point = view.local(windowPoint(event, view))
         // Locked, the cursor stays put and the motion is the device's (unbounded
         // by the window or screen edge); otherwise it is the position's change.
