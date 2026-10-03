@@ -36,8 +36,16 @@ final class RouteController: UIViewController {
         view = UIView()
         // The sheet supplies its surface behind transparent authored corners.
         // Dimming belongs outside that surface, to UIKit's presentation.
+        // A dynamic colour: the route's own background resolved for the
+        // controller's current appearance, re-resolved by UIKit when it
+        // changes (a route loaded before its window has a trait collection
+        // would otherwise keep the light colour in dark mode). A route
+        // without one shows the system background, not white.
         view.backgroundColor = node.props["navigationPresentation"] == "modal"
-            ? .secondarySystemGroupedBackground : node.color("background_color", .white)
+            ? .secondarySystemGroupedBackground
+            : UIColor { [weak node] traits in
+                node?.channels("background_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .systemBackground
+            }
         view.addSubview(node)
     }
     func mount() {
