@@ -726,10 +726,7 @@ extension Agent {
     }
 
     func screenshot(_ req: [String: Any]) -> [String: Any] {
-        // Images on screen land first; one landing reports its natural
-        // size, which can move what is on screen.
-        var loading = 0
-        if session.rasters.loadingOnScreen > 0 { loading = waitForImages(); presenter.settlePump() }
+        let loading = settleForPicture()
         // A canvas painting its children through its surface (LLP 1014)
         // shows its last capture: what is pending is captured and rendered
         // at the agent's clock first, as `clock` leaves it.

@@ -157,6 +157,8 @@ final class Canvases {
         /// The last readback's picture, kept while the module reports
         /// nothing dirty and the surface wants no frame at a new clock —
         /// so the line map, once drawn, costs the sky's capture nothing.
+        /// A render or a capture of its children may consume the dirty
+        /// flag the picture predates, so either drops it.
         var picture: CGImage?
         /// The artifact whose surface this canvas is (LLP 1009 D6), once created.
         var module: GpuModule?
@@ -407,6 +409,7 @@ final class Canvases {
         defer { e.capturing = false }
         guard let overlay = e.view.overlay, e.view.window != nil, let metal = e.view.metal else { return }
         e.view.needsCapture = false
+        e.picture = nil
         // Nothing to paint and nothing painted before: no texture at all.
         guard !overlay.subviews.isEmpty || e.uploaded else { return }
         let scale = captureScale(of: metal)
@@ -639,6 +642,7 @@ final class Canvases {
     private func renderNow(_ m: GpuModule, _ e: Entry, _ metal: MetalView, _ now: Double, tick: Int) {
         let scale = Float(metal.metalLayer.contentsScale)
         let r = m.render(e.id, Float(metal.bounds.width), Float(metal.bounds.height), scale, now)
+        e.picture = nil
         // A render that went without a drawable recorded nothing: no frame
         // to submit for it, and its tick's frame is still to draw.
         let drew = m.starved?(e.id) != 1

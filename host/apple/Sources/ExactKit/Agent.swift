@@ -502,8 +502,7 @@ public final class Agent {
     /// How many were still loading at the bound (`screenshot`'s `imagesPending`,
     /// as on the web, LLP 1054.000 R9).
     @discardableResult
-    func waitForImages() -> Int {
-        let end = Date(timeIntervalSinceNow: 3)
+    func waitForImages(until end: Date = Date(timeIntervalSinceNow: 3)) -> Int {
         var loading = session.rasters.loadingOnScreen
         while loading > 0 && Date() < end {
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01))
@@ -511,6 +510,20 @@ public final class Agent {
         }
         AnimatedRasters.shared.evaluate()
         return loading
+    }
+
+    /// What a screenshot shows, settled: the pump and the images on screen
+    /// in turn under one 3 s bound, since an image landing can relayout and
+    /// mount rows with images of their own. How many were still loading
+    /// after the last settle (`imagesPending`).
+    func settleForPicture() -> Int {
+        let end = Date(timeIntervalSinceNow: 3)
+        while true {
+            presenter.settlePump()
+            let loading = session.rasters.loadingOnScreen
+            if loading == 0 || Date() >= end { return loading }
+            waitForImages(until: end)
+        }
     }
 
     /// How many requests the runner has in flight (`state.pending`).
