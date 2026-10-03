@@ -1021,12 +1021,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             f.tintColor = props["emojiPicker"] == "true" ? .clear : nil
             if (set["emojiPicker"] != nil || clear.contains("emojiPicker")), f.isFirstResponder { f.reloadInputViews() }
             if let v = props["value"] { writeValue(v, into: f) }
-            applyPlaceholder(f)
+            applyPlaceholder(f); applyFieldName(f)
             // The web's `type` and `inputmode`, as UIKit spells them.
             let type = props["type"] ?? "text"
-            // A single-line field is the element VoiceOver reaches: it carries the node's name (LLP 1080.002).
-            f.accessibilityLabel = props["accessibilityLabel"]
-            f.accessibilityIdentifier = props["testId"]
             f.isSecureTextEntry = type == "password"
             f.textContentType = type == "password" ? .password : type == "email" ? .emailAddress : nil
             let traitsChanged = f.autocapitalizationType != inputCapitalization || f.autocorrectionType != inputCorrection || f.spellCheckingType != inputSpellChecking
