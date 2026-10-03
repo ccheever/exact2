@@ -275,6 +275,25 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     t = await until(s, 'a remount attaches a new instance', (t) => module(t, 'box')?.state === 'ready');
     await settle(s);
     check((await s.state()).slots.loads === 3, `${host} native: the new instance loaded`);
+    // Under the agent a closed popover paints nothing and covers nothing
+    // (LLP 1021 D4, as on the web and macOS): its opener's tap shows it in
+    // place, a tap outside dismisses it and still presses, its hide-only
+    // button closes it.
+    if (host === 'ios') {
+      const pop = byTestId(await s.tree(), 'native-popover');
+      check(pop?.open === false, 'ios popover: closed, it does not paint in agent mode');
+      await s.tap('open-native-popover'); await settle(s);
+      const opened = await s.state();
+      check(byTestId(await s.tree(), 'native-popover')?.open === true && opened.navigation.popover?.popover === pop?.id, `ios popover: its opener's tap shows it: ${JSON.stringify(opened.navigation.popover)}`);
+      check(opened.focus.logical === byTestId(await s.tree(), 'popover-search')?.id, `ios popover: it focuses its autofocus field: ${JSON.stringify(opened.focus)}`);
+      const count = opened.slots.count;
+      await s.tap('bump'); await settle(s);
+      const dismissed = await s.state();
+      check(byTestId(await s.tree(), 'native-popover')?.open === false && dismissed.navigation.popover == null && dismissed.slots.count === count + 1, 'ios popover: a tap outside dismisses it and still presses');
+      await s.tap('open-native-popover'); await settle(s);
+      await s.tap('popover-close'); await settle(s);
+      check(byTestId(await s.tree(), 'native-popover')?.open === false, 'ios popover: its hide-only button closes it');
+    }
     if (host === 'macos') {
       const input = byTestId(await s.tree(), 'native-input').id;
       const plainId = byTestId(await s.tree(), 'plain').id;

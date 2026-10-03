@@ -879,6 +879,8 @@ final class Presenter {
     func placeChildren(_ parent: NodeView, _ ids: [UInt32]) {
         let want = ids.compactMap { views[$0] }
         let container = parent.container
+        // An open popover under the agent stays in the top layer.
+        menus.children(container, want)
         let wanted = Set(want.map(ObjectIdentifier.init))
         var current = container.subviews
         for case let child as NodeView in current where !wanted.contains(ObjectIdentifier(child)) && !pool.isParked(child) && !isLeaving(child) {
@@ -887,7 +889,7 @@ final class Presenter {
         // In order, below anything else in the container (a scroll
         // view's indicators): inserting a subview at an index moves
         // it when it is already there. One already there stays.
-        let contained = want.filter { !navigation.ownsContainment(of: $0, under: parent) }
+        let contained = want.filter { !navigation.ownsContainment(of: $0, under: parent) && !menus.lifted($0) }
         current = container.subviews
         for (i, child) in contained.enumerated() where !(i < current.count && current[i] === child) {
             container.insertSubview(child, at: i)

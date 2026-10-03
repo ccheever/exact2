@@ -215,9 +215,7 @@ extension Agent {
             var row = row
             if let id = row["id"] as? Int, let node = presenter.views[UInt32(id)] {
                 row["focused"] = focus == id
-                #if os(macOS)
                 if node.props["popover"] != nil { row["open"] = presenter.menus.isOpen(node) }
-                #endif
                 if node.placedAncestor != nil {
                     #if os(macOS)
                     let frame = node.accessibilityFrame()

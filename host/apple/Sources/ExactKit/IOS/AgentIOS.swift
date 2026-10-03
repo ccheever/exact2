@@ -435,6 +435,12 @@ extension Agent {
             if let reply = recognizedPan(phase, req) { return reply }
             return ["phase": phase, "delivery": "unsupported", "reason": "the iOS carrier synthesizes no touch (LLP 1008 §9); a contact needs the Simulator backend of LLP 1035.003 §3"]
         }
+        // The painted popovers under the agent (LLP 1021 D4): a tap opens,
+        // closes or dismisses them first, then is delivered as any tap.
+        if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil {
+            presenter.menus.agentTap(node)
+        }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
            let activated = presenter.menus.activate(node) {
