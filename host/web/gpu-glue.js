@@ -508,6 +508,22 @@ function listen(entry) {
   mutations.observe(el, {subtree:true, childList:true, attributes:true, attributeFilter:["data-action"]});
   const fallsThrough = (event) => event.target === el || event.target === entry.el;
   const point = (event) => { const r = el.getBoundingClientRect(); return { x: event.clientX - r.left, y: event.clientY - r.top }; };
+  // A canvas marked data-pointer-lock="true" (mouse look) captures the mouse on a
+  // press. While locked the world sees an unbounded position that accumulates raw
+  // movement, so its pointer deltas never stop at the canvas or screen edge; after
+  // the lock ends, positions keep that offset so no delta jumps.
+  const lockable = () => (el.dataset.pointerLock ?? entry.el.dataset?.pointerLock) === "true";
+  let last = null, offset = { x: 0, y: 0 }, wasLocked = false;
+  const pointerAt = (event) => {
+    const p = point(event), locked = document.pointerLockElement === el;
+    if (locked && last) last = { x: last.x + (event.movementX || 0), y: last.y + (event.movementY || 0) };
+    else {
+      if (wasLocked && last) offset = { x: last.x - p.x, y: last.y - p.y };
+      last = { x: p.x + offset.x, y: p.y + offset.y };
+    }
+    wasLocked = locked;
+    return last;
+  };
   for (const phase of ["down", "move", "up", "cancel"]) on(`pointer${phase}`, (event) => {
     const wasControl = controls.has(event.pointerId);
     cancelRemoved();
@@ -526,7 +542,8 @@ function listen(entry) {
     }
     if (!fallsThrough(event)) return;
     if (phase === "down") { if (!editable(document.activeElement)) el.focus({ preventScroll: true }); try { el.setPointerCapture(event.pointerId); } catch {} }
-    send(event, { t: "pointer", phase, id: event.pointerId, ...point(event), kind: event.pointerType || "mouse", buttons: event.buttons });
+    if (phase === "down" && event.pointerType === "mouse" && lockable() && document.pointerLockElement !== el) Promise.resolve(el.requestPointerLock?.()).catch(() => {});
+    send(event, { t: "pointer", phase, id: event.pointerId, ...pointerAt(event), kind: event.pointerType || "mouse", buttons: event.buttons });
   });
   on("lostpointercapture", event => {
     const button = controls.get(event.pointerId);
