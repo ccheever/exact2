@@ -245,6 +245,17 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.check_capacity("transforms", end)?;
         self.ensure_slots(end);
         self.transforms[self.current].write(&self.queue, u64::from(first_slot) * 40, bytes(values));
+        // Slots past the history's high-water mark have never had a previous
+        // pose: an entity spawned in an earlier tick of a multi-tick advance
+        // is no longer `fresh` when the presentation feeds. It starts with its
+        // current pose as history, as a fresh one does.
+        let history = &mut self.transforms[1 - self.current];
+        let known = history.live / 40;
+        if end > known {
+            let from = known.max(u64::from(first_slot));
+            let skip = (from - u64::from(first_slot)) as usize * 10;
+            history.write(&self.queue, from * 40, bytes(&values[skip..]));
+        }
         Ok(())
     }
 
@@ -685,6 +696,31 @@ pub(crate) fn viewport(pass: &mut wgpu::RenderPass<'_>, size: (u32, u32)) {
 #[cfg(test)]
 mod packing_tests {
     use super::*;
+    /// A slot first written after a history swap (an entity spawned in an
+    /// earlier tick of a multi-tick advance, so never `fresh` when the
+    /// presentation feeds) has no history yet; it draws without interpolation
+    /// instead of refusing the batch.
+    #[test]
+    fn slots_first_written_after_a_swap_take_their_current_pose_as_history() {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
+        let mut r = RendererWithAssets::<false>::new(
+            &gpu.device,
+            &gpu.queue,
+            wgpu::TextureFormat::Rgba8Unorm,
+        );
+        let (vertices, indices) = crate::shapes::plane();
+        let mesh = r.add_mesh(&vertices, &indices);
+        let pose = [0., 0., 0., 0., 0., 0., 1., 1., 1., 1.];
+        r.write_transforms_both(0, &pose).unwrap();
+        r.write_materials(0, &[1.; 12 * 3000]).unwrap();
+        r.begin_tick();
+        r.write_transforms(0, &pose.repeat(3000)).unwrap();
+        r.set_batches(&[Batch::new(mesh, 0..3000)], &(0..3000).collect::<Vec<_>>())
+            .unwrap();
+        assert!(r.transforms.iter().all(|b| b.live == 3000 * 40));
+    }
     #[test]
     fn primitive_batches_skip_model_allocations_and_keep_attachment_winding() {
         let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
