@@ -2,8 +2,10 @@
 // moves the focus among exact2's nodes — what a keyboard can focus, and any
 // enabled press target — and reports each move as focus and blur. Select
 // presses the focused node. Menu presses the active route's Back control
-// (LLP 1075 D1) while a route can pop; otherwise its recognizer is removed,
-// so Menu reaches tvOS and leaves the app, as tvOS requires at an app's root.
+// (LLP 1075 D1) while a route can pop, else a shown button that declares
+// `aria-keyshortcuts="Escape"` (the key macOS presses it with). With neither,
+// its recognizer is removed, so Menu reaches tvOS and leaves the app, as
+// tvOS requires at an app's root.
 #if os(tvOS)
 import UIKit
 
@@ -16,9 +18,11 @@ extension NodeView {
         super.didUpdateFocus(in: context, with: coordinator)
         if context.nextFocusedItem === self {
             showFocusRing(true)
+            repaintThrough()
             if handlers.contains("focus") { presenter?.focus(id) }
         } else if context.previouslyFocusedItem === self {
             showFocusRing(false)
+            repaintThrough()
             if handlers.contains("blur") { presenter?.blur(id) }
         }
     }
@@ -39,7 +43,7 @@ final class MenuKey: NSObject {
     init(presenter: Presenter) { self.presenter = presenter }
 
     func sync() {
-        let wanted = presenter.navigation.menuGoesBack
+        let wanted = presenter.navigation.menuGoesBack || escapeControl != nil
         if wanted, tap == nil, let view = presenter.session?.view {
             let recognizer = UITapGestureRecognizer(target: self, action: #selector(menu))
             recognizer.allowedPressTypes = [NSNumber(value: UIPress.PressType.menu.rawValue)]
@@ -51,6 +55,16 @@ final class MenuKey: NSObject {
         }
     }
 
-    @objc private func menu() { presenter.navigation.menuBack() }
+    /// The shown, enabled press target that declares Escape as its key.
+    private var escapeControl: NodeView? {
+        presenter.carrying("accessibilityKeyShortcuts").first {
+            $0.window != nil && !sequence(first: $0 as UIView, next: \.superview).contains(where: \.isHidden) && !$0.disabled && !$0.inert && $0.handlers.contains("press")
+                && ($0.props["accessibilityKeyShortcuts"] ?? "").split(whereSeparator: \.isWhitespace).contains("Escape")
+        }
+    }
+
+    @objc private func menu() {
+        if presenter.navigation.menuGoesBack { presenter.navigation.menuBack() } else if let control = escapeControl { presenter.press(control.id) }
+    }
 }
 #endif
