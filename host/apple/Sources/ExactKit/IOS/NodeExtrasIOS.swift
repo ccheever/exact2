@@ -66,6 +66,7 @@ final class NodeExtras {
     var beforeLayoutScroll: CGPoint?
     var hiddenScroll: CGPoint?
     var followedScroll: (top: CGFloat, end: Bool)?
+    var followsEndAfterInteraction = false
     var anchoredScrollTop: CGFloat?
     var retainedScrollTop: CGFloat?
     var materialKind: String?
@@ -150,6 +151,7 @@ extension NodeView {
     var beforeLayoutScroll: CGPoint? { get { extras?.beforeLayoutScroll } set { if newValue != nil || extras != nil { more.beforeLayoutScroll = newValue } } }
     var hiddenScroll: CGPoint? { get { extras?.hiddenScroll } set { if newValue != nil || extras != nil { more.hiddenScroll = newValue } } }
     var followedScroll: (top: CGFloat, end: Bool)? { get { extras?.followedScroll } set { if newValue != nil || extras != nil { more.followedScroll = newValue } } }
+    var followsEndAfterInteraction: Bool { get { extras?.followsEndAfterInteraction ?? false } set { if newValue || extras != nil { more.followsEndAfterInteraction = newValue } } }
     var anchoredScrollTop: CGFloat? { get { extras?.anchoredScrollTop } set { if newValue != nil || extras != nil { more.anchoredScrollTop = newValue } } }
     var retainedScrollTop: CGFloat? { get { extras?.retainedScrollTop } set { if newValue != nil || extras != nil { more.retainedScrollTop = newValue } } }
     var materialKind: String? { get { extras?.materialKind } set { if newValue != nil || extras != nil { more.materialKind = newValue } } }

@@ -545,6 +545,20 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         canvases?.scheduleCapture()
     }
 
+    /// The end the reader was following moved during their interaction:
+    /// settle there when it ends, as a browser's scroll anchoring does.
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { followEndIfOwed() }
+    }
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { followEndIfOwed() }
+    private func followEndIfOwed() {
+        guard followsEndAfterInteraction, let sv = scroll else { return }
+        followsEndAfterInteraction = false
+        let maximum = max(-sv.adjustedContentInset.top, sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)
+        if sv.contentOffset.y >= maximum - 80 { sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: maximum), animated: true) }
+        anchoredScrollTop = maximum
+    }
+
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         presenter?.collections.userIntent(id)
         retainedScrollTop = nil
@@ -860,6 +874,18 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         let y = prior.end ? maximum : min(maximum, max(minimum, top))
         let inactive = window == nil || presenter?.navigation.isInactiveRoute(containing: self) == true
         retainedScrollTop = !prior.end && top > maximum && (inactive || retainedScrollTop != nil) ? top : nil
+        // While the reader's finger is down or the fling is running, an
+        // absolute write would cut the pan, the deceleration or the rubber
+        // band (a batch every 250 ms yanked a bottom overscroll back to the
+        // end, mid-drag). Follow the end once the interaction is over, and
+        // keep a surviving row in place by moving the offset by its shift
+        // only, without clamping, as UIKit's own contentOffsetAdjustment does.
+        if sv.isTracking || sv.isDecelerating {
+            if prior.end { followsEndAfterInteraction = true }
+            else if top != prior.top { sv.contentOffset.y += top - prior.top }
+            anchoredScrollTop = sv.contentOffset.y
+            return
+        }
         if sv.contentOffset.y != y { sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: y), animated: false) }
         // UIKit quantizes the assigned offset. Compare its actual stored value
         // next time so that rounding cannot masquerade as a reader's scroll.
