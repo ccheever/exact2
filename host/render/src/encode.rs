@@ -397,7 +397,10 @@ pub(crate) fn none_match(header: Option<&str>, etag: &str) -> bool {
 /// Every file under `dist` worth compressing, the pages aside, by the
 /// canonical path the server finds a request's file at, smallest first: the
 /// glue a first load waits on is ready in moments, the wasm (seconds at
-/// brotli's best) after it.
+/// brotli's best) after it. A hidden directory is passed over: the JS
+/// build's `.gen` holds its intermediates, which no page loads (1.4 MB for
+/// RealWorld, 2.8 s of CPU at brotli's best on every start); a file there
+/// that is asked for is compressed when it is ([`Variants::serve`]).
 pub(crate) fn files(dist: &Path) -> Vec<PathBuf> {
     let mut found = Vec::new();
     let Ok(root) = dist.canonicalize() else {
@@ -411,7 +414,9 @@ pub(crate) fn files(dist: &Path) -> Vec<PathBuf> {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                dirs.push(path);
+                if !entry.file_name().to_string_lossy().starts_with('.') {
+                    dirs.push(path);
+                }
                 continue;
             }
             let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -534,5 +539,17 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn bind_compresses_no_hidden_directory() {
+        let dir = std::env::temp_dir().join(format!("exact-render-files-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join(".gen")).unwrap();
+        std::fs::write(dir.join("app.js"), "x").unwrap();
+        std::fs::write(dir.join(".gen/app.js"), "x").unwrap();
+        let found = files(&dir);
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(found.len(), 1);
+        assert!(found[0].ends_with("app.js") && !found[0].to_string_lossy().contains(".gen"));
     }
 }
