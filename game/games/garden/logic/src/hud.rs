@@ -66,9 +66,10 @@ pub struct BagHud {
     pub bag_pages: u32,
 }
 
-/// Backpack rows per published page. A surface's whole public record is
-/// limited to 64 KiB (`runner/src/surface_record.rs`), about 600 rows of
-/// this shape with the rest of the HUD; past that the HUD resource fails.
+/// Backpack rows per published page. The whole record may be 16 MiB and a
+/// change re-encodes only its field, but a 164,000-fruit backpack is still a
+/// 13.6 MB field rebuilt on every harvest (311 ms); a page of 200 is 18 KB
+/// (18 ms), and is the size Grow a Garden's own backpack holds.
 pub const BAG_PAGE: usize = 200;
 
 /// Publishes what changed. `prompt` is the player's tile text.

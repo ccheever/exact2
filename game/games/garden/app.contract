@@ -47,19 +47,12 @@ shape Hud
 shape Time
   epochAtZero: number
 
-// Commands reach the world as one live string and a number that changes
-// (`cmd`, `cmdId`): the world applies a command once, when the number moves,
-// and acknowledges it with `done <id>`. The acknowledgement can arrive after
-// the next press, so ids keep counting (`sent`) and only a matching one
-// returns the HUD to rest.
+// Commands (`buy carrot`, `sell all`, …) are messages to the world.
 component Garden
   state playing = false
   state again = false
   state paused = false
   state panel = "shop"
-  state cmd = ""
-  state cmdId = 0
-  state sent = 0
   state smooth = false
   resource hud = exactSurface("world") as shape Hud
   resource time = exactTime() as shape Time
@@ -78,16 +71,7 @@ component Garden
     panel = panel == p ? "" : p
 
   action run(c: string)
-    cmd = c
-    cmdId = sent + 1
-    sent = sent + 1
-
-  // The world applied command `m`: rest at id 0 until the next one, unless
-  // a newer command went out before the acknowledgement arrived.
-  action done(m: string)
-    if m == `done ${cmdId}`
-      cmd = ""
-      cmdId = 0
+    postMessage("world", c)
 
   action toggleSmooth
     smooth = not smooth
@@ -95,10 +79,10 @@ component Garden
   view
     main width="100%" height="100%" background-color="#1b2a1f" color="#fdfbf3" font-family="system-ui"
       when playing
-        canvas surface=world(seed=7, paused=paused, restart=again, cmd=cmd, cmd_id=cmdId, epoch=time.epochAtZero, smooth=smooth) message=done testId="world" width="100%" height="100%" position="relative"
+        canvas surface=world(seed=7, paused=paused, restart=again, epoch=time.epochAtZero, smooth=smooth) testId="world" width="100%" height="100%" position="relative"
           column testId="hud" position="absolute" top=12 left=12 right=12 gap=8
             row testId="topbar" gap=8 align-items="center" flex-wrap="wrap"
-              text `${hud.sheckles}¢` testId="sheckles" role="status" aria-label=`${hud.sheckles_n} sheckles` padding=10 border-radius=10 background-color="#14532dd9" font-size=20 font-weight=800 color="#bef264"
+              text `${hud.sheckles}¢` testId="sheckles" aria-label=`${hud.sheckles_n} sheckles` padding=10 border-radius=10 background-color="#14532dd9" font-size=20 font-weight=800 color="#bef264"
               text (hud.weather_left == "" ? hud.weather : `${hud.weather} · ${hud.weather_left}`) testId="weather" aria-live="polite" padding=10 border-radius=10 background-color=(hud.weather == "Clear" ? "#1e293bcc" : "#1d4ed8d9")
               text `Restock ${hud.restock_in}` testId="restock" padding=10 border-radius=10 background-color="#1e293bcc"
               text `${hud.plants} plants · ${hud.ripe}/${hud.fruit} ripe · ${hud.mutated} mutated` testId="census" padding=10 border-radius=10 background-color="#1e293bcc" font-size=13

@@ -1,4 +1,4 @@
-use exact_game::{Args, Sim};
+use exact_game::Sim;
 use garden_logic::crops::{kind_of, CROPS};
 use garden_logic::farm::Farm;
 use garden_logic::garden::{now_ms, Census, Fruit, GardenClock, Plant, Schedule, Weather};
@@ -13,18 +13,9 @@ fn new(seed: u64) -> Sim<Garden> {
     .unwrap()
 }
 
-/// The HUD's command channel: a string and a number that changes.
+/// A HUD command, as Contract's `postMessage("world", cmd)` sends it.
 fn send(game: &mut Sim<Garden>, cmd: &str) {
-    let id = game.args().cmd_id + 1;
-    let o = Options {
-        seed: game.args().seed,
-        cmd: cmd.into(),
-        cmd_id: id,
-        epoch: game.args().epoch,
-        smooth: game.args().smooth,
-        ..Options::default()
-    };
-    game.bind(&o.values(), None).unwrap();
+    game.post(cmd);
     game.run(100.0);
 }
 
@@ -266,26 +257,14 @@ fn expand_costs_and_grows() {
     assert_eq!(sheckles(&game), 1_000_000 - 6 * 6 * 6 * 25);
 }
 
-/// Two commands between two ticks: only the second applies. The channel is
-/// one live string and its number, so the HUD cannot queue.
+/// Two commands between two ticks are two messages: both apply.
 #[test]
-fn two_commands_in_one_tick_keep_only_the_last() {
+fn two_commands_in_one_tick_both_apply() {
     let mut game = new(7);
-    for (i, cmd) in ["buy carrot", "buy carrot"].iter().enumerate() {
-        let o = Options {
-            seed: 7,
-            cmd: (*cmd).into(),
-            cmd_id: i as u32 + 1,
-            ..Options::default()
-        };
-        game.bind(&o.values(), None).unwrap();
-    }
+    game.post("buy carrot");
+    game.post("buy carrot");
     game.run(100.0);
-    assert_eq!(
-        game.world().resource::<Farm>().seeds[0],
-        2,
-        "one of two buys applied"
-    );
+    assert_eq!(game.world().resource::<Farm>().seeds[0], 3);
 }
 
 #[test]

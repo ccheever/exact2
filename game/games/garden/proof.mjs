@@ -18,9 +18,8 @@ const label = (tree, id) => {
   return tree.nodes.find(m => m.parent === n.id && m.props?.text != null)?.props.text;
 };
 const ms = t => Math.round(performance.now() - t);
-// The exact purse, from the sheckles' aria-label. Web and macOS report an
-// accessibleName only for controls; Linux names a labelled text too (diary).
-const purseOf = tree => Number(node(tree, 'sheckles')?.props?.accessibilityLabel?.split(' ')[0]);
+// The exact purse, from the sheckles' accessible name.
+const purseOf = tree => Number(node(tree, 'sheckles')?.accessibleName?.split(' ')[0]);
 
 if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave, say}) => {
   const log = say ?? console.log;
@@ -58,7 +57,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   pin(0, await game.snapshot());
   let t = await s.tree();
   check('starting purse and hand', text(t, 'sheckles') === '20¢' && text(t, 'held') === 'Holding Carrot ×1', [text(t, 'sheckles'), text(t, 'held')]);
-  check('sheckles carry an exact label', node(t, 'sheckles')?.props?.accessibilityLabel === '20 sheckles' && node(t, 'sheckles')?.props?.accessibilityRole === 'status', node(t, 'sheckles')?.props);
+  check('sheckles have an accessible name', node(t, 'sheckles')?.accessibleName === '20 sheckles', node(t, 'sheckles')?.accessibleName);
   check('the shop lists every seed', (await s.tree('shop-list')).nodes.filter(n => n.props?.testId?.startsWith('shop-')).length === 15);
 
   await game.run(100);
@@ -98,31 +97,29 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   check('buying spends and fills the hand', purseOf(t) === purse - 10 && text(t, 'held') === 'Holding Carrot ×1', [purseOf(t), text(t, 'held')]);
   check('an owned seed offers to hold it', node(t, 'equip-carrot')?.accessibleName === 'Hold Carrot, 1 owned', node(t, 'equip-carrot')?.accessibleName);
   check('an unaffordable seed is disabled', node(t, 'buy-grape')?.props?.disabled === true, node(t, 'buy-grape')?.props);
-  // Two presses with no tick between them: the command channel is one live
-  // string and its number, so the first is overwritten (diary: limits).
+  // Two presses with no tick between them are two messages.
   await s.tap('buy-carrot');
   await s.tap('buy-carrot');
   await game.run(100);
   const held = text(await s.tree(), 'held');
-  log(`OBSERVE two buys between ticks: ${held}`);
-  check('two presses between ticks buy at least one', /^Holding Carrot ×[23]$/.test(held), held);
+  check('two presses between ticks buy two', held === 'Holding Carrot ×3', held);
 
   await s.tap('tools-tab');
-  await s.tap('fill-100');
+  await s.tap('fill-1000');
   await game.run(100);
   t = await s.tree();
-  check('fill plants a hundred', text(t, 'census')?.startsWith('100 plants'), text(t, 'census'));
+  check('fill plants a thousand', text(t, 'census')?.startsWith('1000 plants'), text(t, 'census'));
   await game.run(150_000);
   t = await s.tree();
   const census = text(t, 'census');
   check('two and a half minutes ripen fruit', /^\d+ plants · [1-9]\d*\/\d+ ripe/.test(census), census);
-  const mid = await game.snapshot();
-  check('a hundred plants and their fruit stay under the 512-entity read', !mid.truncated && mid.entities.length > 200, mid.entities.length);
+  const mid = await game.snapshot({all:true});
+  check('every page of a thousand plants and their fruit reads at one tick', mid.entities.length > 2000, mid.entities.length);
   pin(mid.tick, mid);
   await game.save(resolve(out, 'garden.world'));
-  const checkpoint = await game.snapshot();
+  const checkpoint = await game.snapshot({all:true});
   await game.run(60_000);
-  const continued = await game.snapshot();
+  const continued = await game.snapshot({all:true});
   await game.save(resolve(out, 'continued.world'));
   pinSave('continuation', resolve(out, 'continued.world'));
   await s.close();
@@ -130,9 +127,9 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   const back = await open({fresh:true, world:resolve(out, 'garden.world'), epoch:EPOCH});
   await back.tap('play');
   const restored = back.world('world');
-  check('a fresh process restores the garden', JSON.stringify(await restored.snapshot()) === JSON.stringify(checkpoint));
+  check('a fresh process restores the garden', JSON.stringify(await restored.snapshot({all:true})) === JSON.stringify(checkpoint));
   await restored.run(60_000);
-  check('and continues identically', JSON.stringify(await restored.snapshot()) === JSON.stringify(continued));
+  check('and continues identically', JSON.stringify(await restored.snapshot({all:true})) === JSON.stringify(continued));
   await restored.save(resolve(out, 'restored.world'));
   check('continuation saves are byte-identical', readFileSync(resolve(out, 'continued.world')).equals(readFileSync(resolve(out, 'restored.world'))));
   await back.close();

@@ -3,21 +3,26 @@
 //! `cargo test --release --manifest-path game/games/garden/.shells/Cargo.toml
 //!  -p garden-logic --test render -- --ignored --nocapture --test-threads 1`
 use exact_game::{Args, Value};
-use exact_game_render::exact_gpu::{fixture, Frame, Surface};
+use exact_game_render::exact_gpu::{fixture, Frame, InputEvent, Surface};
 use exact_game_render::WorldSurface;
 use garden_logic::{Garden, Options};
 use std::time::Instant;
 
-fn bind(surface: &mut WorldSurface<Garden>, cmd: &str, id: u32) {
+fn bind(surface: &mut WorldSurface<Garden>) {
     let o = Options {
         seed: 1,
-        cmd: cmd.into(),
-        cmd_id: id,
         smooth: std::env::var("GARDEN_SMOOTH").is_ok(),
         ..Options::default()
     };
     let values: Vec<Value> = o.values();
     surface.bind(&values, None).unwrap();
+}
+
+fn post(surface: &mut WorldSurface<Garden>, frame: &Frame, text: &str) {
+    surface.input(&InputEvent::Message {
+        text: text.into(),
+        at_ms: frame.now_ms,
+    });
 }
 
 fn field<'a>(state: &'a str, key: &str) -> &'a str {
@@ -49,7 +54,7 @@ fn frames_at_scale() {
     println!("| plants | entities | wall ms/frame mean / p95 / max | feed ms | encode ms | draws | instances | triangles | gpu passes |");
     for n in sizes {
         let mut surface = WorldSurface::<Garden>::default();
-        bind(&mut surface, "", 0);
+        bind(&mut surface);
         let mut frame = Frame {
             width: 1280.,
             height: 720.,
@@ -65,9 +70,9 @@ fn frames_at_scale() {
             fixture::render(&gpu, surface, frame).unwrap();
         };
         step(&mut surface, &mut frame, 0.);
-        bind(&mut surface, "zoom", 1);
+        post(&mut surface, &frame, "zoom");
         step(&mut surface, &mut frame, 34.);
-        bind(&mut surface, &format!("fill {n}"), 2);
+        post(&mut surface, &frame, &format!("fill {n}"));
         step(&mut surface, &mut frame, 34.);
         // Two and a half minutes on: most plants mature, fruit on the vine.
         // GARDEN_AT=5000 measures while everything is still growing.

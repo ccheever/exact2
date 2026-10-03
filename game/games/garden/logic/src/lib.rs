@@ -20,12 +20,6 @@ pub struct Options {
     pub paused: bool,
     #[restart]
     pub restart: bool,
-    /// The HUD's latest command (`buy carrot`, `sell all`, …) and its
-    /// number: a command applies once, when its number changes.
-    #[live]
-    pub cmd: String,
-    #[live]
-    pub cmd_id: u32,
     /// The host's Unix time (ms) at its clock zero (`exactTime().epochAtZero`).
     /// A later session whose epoch is ahead of this world's clock grows the
     /// garden by the difference.
@@ -64,9 +58,7 @@ impl Game for Garden {
     fn register(w: &mut World, _: &std::collections::BTreeMap<&str, Value>) {
         // Plants and fruit first appear mid-game; a fresh process restoring a
         // save must know them.
-        w.register::<Plant>()
-            .register::<Fruit>()
-            .register::<Parent>();
+        w.register::<Plant>().register::<Fruit>();
     }
     fn setup(w: &mut World, args: &Options) {
         w.reseed(args.seed);
@@ -134,17 +126,10 @@ impl Game for Garden {
             garden::animate(w, now);
         }
         let mut acted = false;
-        // The HUD resets its command to id 0 when the world acknowledges it
-        // (`done <id>`), so a resting HUD binds the same arguments in every
-        // session and a restore with fresh HUD state saves byte-identically.
-        if args.cmd_id == 0 {
-            if w.resource::<Farm>().cmd_seen != 0 {
-                w.resource_mut::<Farm>().cmd_seen = 0;
-            }
-        } else if w.resource::<Farm>().cmd_seen != args.cmd_id {
-            w.resource_mut::<Farm>().cmd_seen = args.cmd_id;
-            farm::command(w, &args.cmd);
-            w.emit(format!("done {}", args.cmd_id));
+        // HUD commands (`buy carrot`, `sell all`, …) arrive as messages,
+        // each once, in order.
+        for cmd in input.messages() {
+            farm::command(w, cmd);
             acted = true;
         }
         w.character("player")

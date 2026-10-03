@@ -1,7 +1,7 @@
 //! The measurements in the diary. Ignored by default; run in release:
 //! `cargo test --release --manifest-path game/games/garden/.shells/Cargo.toml
 //!  -p garden-logic --test scale -- --ignored --nocapture --test-threads 1`
-use exact_game::{Args, Clock, Sim};
+use exact_game::{Clock, Sim};
 use garden_logic::farm::Farm;
 use garden_logic::garden::{Census, Schedule};
 use garden_logic::{Garden, Options};
@@ -17,14 +17,7 @@ fn new(smooth: bool) -> Sim<Garden> {
 }
 
 fn send(game: &mut Sim<Garden>, cmd: &str) -> f64 {
-    let o = Options {
-        seed: 1,
-        cmd: cmd.into(),
-        cmd_id: game.args().cmd_id + 1,
-        smooth: game.args().smooth,
-        ..Options::default()
-    };
-    game.bind(&o.values(), None).unwrap();
+    game.post(cmd);
     let t = Instant::now();
     game.run(1000.0 / 30.0);
     t.elapsed().as_secs_f64() * 1000.0

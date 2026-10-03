@@ -43,12 +43,13 @@ Rainbow (0.1%, ×50), and the weather's — Rain makes it Wet (×2), Snow Chille
   `exactTime().epochAtZero` as the live `epoch` argument; a world restored in a
   later session whose epoch is ahead of where its own clock says it is grows by
   the difference. The proof restores the same save an hour later (`--epoch`).
-- **Commands** (buy, sell, harvest, expand, fill, away) reach the world as one
-  live string and a number (`cmd`, `cmd_id`); the world answers `done <id>`
-  through `message=`, and the HUD rests at id 0, so a resting HUD binds the
-  same arguments in every session and restored saves stay byte-identical.
+- **Commands** (buy, sell, harvest, expand, fill, away) are messages:
+  Contract's `postMessage("world", "buy carrot")`, read once each, in order,
+  from `input.messages()`.
 - **The HUD** is three published records — status, shop, backpack — each
   republished only when it changes (status at most once a garden second).
+  The backpack is published 200 rows a page: a 164,000-fruit backpack would be
+  a 13.6 MB field rebuilt on every harvest.
 
 | File | |
 |---|---|

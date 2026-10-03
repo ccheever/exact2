@@ -341,3 +341,62 @@ the HUD instead.
   seed shop with rarity colours and disabled buttons, virtualized backpack with
   pages, tools, prompts and touch controls, all with accessible names on the
   controls.
+
+## After the fix lane (2026-10-03, merged `roblox/integrate` @ 347534e2)
+
+The lead merged the engine fix lanes; this game was adapted to them and
+re-measured. Release builds, hostless unless noted; the machine's load was 13–37
+during these runs, so differences under ~30% are noise.
+
+| item | before | after |
+|---|---|---|
+| HUD → world commands | live `cmd`/`cmd_id` + `done <id>` ack protocol; 2 presses between ticks → 1 applied | `postMessage("world", …)` / `input.messages()`; 2 presses → 2 applied (proof checks ×3). Game diff −107/+51 lines |
+| +1 h seek, 50,000 plants, fruit **parented** | 483 s | **0.54 s** |
+| +1 h seek, 50,000 plants, fruit in world space | 0.58 s | 0.34 s |
+| mature live frame, 214,288 entities, parented | 1.261 ms | 0.001 ms |
+| renderer feed per frame, 50,000 plants (offscreen) | — | parented **1.86 ms**, max frame 16.7 ms; world space 0.019 ms, max 7.5 ms |
+| save, 214,288 entities (EXGAME v4) | 58.1 MB, save 191 ms, restore 356 ms, hash 152 ms | **6.4 MB**, 166 ms, 139 ms, **1.7 ms** |
+| one observed tick, 214,288 entities | 91.7 ms | 40.7 ms |
+| observed tick with a 164,284-fruit backpack | 408 ms | 17 ms (paged) |
+| backpack field, 164,284 fruit, unpaged | refused (64 KiB cap) | 13.6 MB, harvest-one 311 ms (cap now 16 MiB) |
+| backpack field, paged 200 | 18.5 KB | 18.5 KB, harvest-one 18 ms |
+| harvest all / sell all / 8 h away, 50,000 plants | 597 / 399 / 358 ms | 250 / 13 / 135 ms |
+| fresh-process restore of the 21,100-plant save, Linux / web | 12.2 MB: 303 / 2,929 ms | 2.2 MB: 225 / 1,876 ms |
+
+Choices:
+
+- **Fruit stays in world space.** The hierarchy's dirty tracking fixed the
+  simulation (483 s → 0.54 s), but the renderer's feed still poses every
+  parented entity on every tick (`world.rs`, the `(&Parent, &Transform)`
+  overrides): 1.86 ms a frame at 50,000 plants against 0.019 ms unparented.
+  That is the remaining per-tick parenting cost.
+- **The backpack keeps its 200-row pages.** The 16 MiB cap would hold a 164,000
+  fruit backpack (13.6 MB, ~190,000 rows at most), but each harvest rebuilds the
+  field (311 ms against 18 ms), and Grow a Garden's own backpack is 200.
+- Removed: the `Parent` registration, the ack protocol and its `cmd`/`cmd_id`
+  arguments, the proof's label workaround (`props.accessibilityLabel`) and the
+  purse's `role="status"` — `accessibleName` is checked again and passes on web.
+  The proof's mid-game pin now reads every page of a 1,000-plant garden (>2,000
+  entities) at one tick with `snapshot({all:true})`, instead of a 100-plant one.
+
+**New limit — a host seek now pays for every intermediate HUD publication.**
+On real hosts (gpu-dev Linux; Chrome) the same `--scale --huge` run:
+
+| | before | after |
+|---|---:|---:|
+| `clock +60000`, 100 plants, Linux | 7 ms | 284 ms |
+| `clock +3600000`, 21,100 plants, Linux | 337 ms | **31,765 ms** |
+| `clock +3600000`, 21,100 plants, web | 759 ms | **33,285 ms** |
+
+The hostless `Sim` seek is unaffected (0.34 s at 50,000 plants). A `sample` of
+the Linux host during the hour's seek is in tiny-skia painting, the text
+cache and `exact_runner::surface_record` JSON decoding: the status record
+changes once a garden second, and each change appears to be delivered, laid out
+and painted inside the seek (~9 ms each, 3,600 of them), where the seek used to
+deliver only its end. Not changed here; reported to the lead.
+
+Proofs after the merge: logic tests 11 + 3 green; Linux and web proofs pass
+every check except the three pins, which moved as expected (the world hash
+and save format changed) and agree between the hosts — tick 0
+`0x567fb953a3936f0f`, tick 5136 `0x84bdee160cf25b17`, continuation
+`d6f75574…`. Not re-pinned, per the lead, until the engine is final.

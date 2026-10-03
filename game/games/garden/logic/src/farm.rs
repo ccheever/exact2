@@ -25,7 +25,6 @@ pub struct Farm {
     pub size: u16,
     /// The plant on each tile, row-major over `size`.
     pub tiles: Vec<Option<Entity>>,
-    pub cmd_seen: u32,
     pub harvested: u64,
     pub earned: u64,
     pub last: String,
