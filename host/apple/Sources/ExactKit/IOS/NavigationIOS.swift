@@ -744,4 +744,14 @@ private final class RevealTick: NSObject {
     init(_ host: NavigationHost) { self.host = host }
     @objc func tick() { if let host { host.revealTick() } }
 }
+#if os(tvOS)
+extension NavigationHost {
+    /// Whether the Siri Remote's Menu goes back: a route to pop and a Back control.
+    var menuGoesBack: Bool { (navigation?.viewControllers.count ?? 0) > 1 && backControl != nil }
+    func menuBack() {
+        guard menuGoesBack, !changing, let control = backControl else { return }
+        presenter.press(control.id)
+    }
+}
+#endif
 #endif

@@ -52,6 +52,9 @@ enum FocusSearch {
 }
 /// A session's viewport (`Presenter.viewport`), which answers the search.
 final class Viewport: ScrollView {
+    // tvOS focuses exact2's own nodes (RemoteTVOS), so its search sees every view.
+    #if !os(tvOS)
     override func focusItems(in rect: CGRect) -> [any UIFocusItem] { FocusSearch.items(self, in: rect) }
+    #endif
 }
 #endif

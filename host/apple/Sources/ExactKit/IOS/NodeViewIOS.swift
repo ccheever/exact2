@@ -290,12 +290,21 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         let ring = focusRing ?? CAShapeLayer()
         ring.path = roundedPath(in: bounds.insetBy(dx: 1.5, dy: 1.5), inset: 1.5).cgPath
         ring.fillColor = nil
+        #if os(tvOS)
+        // tvOS tints white; the ring must read across a room.
+        ring.strokeColor = UIColor.systemBlue.cgColor
+        ring.lineWidth = 4
+        #else
         ring.strokeColor = tintColor.cgColor
         ring.lineWidth = 3
+        #endif
         if ring.superlayer !== layer { layer.addSublayer(ring) }
         focusRing = ring
     }
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        #if os(tvOS)
+        if remoteSelect(presses, down: true) { return }
+        #endif
         let presses=pressedControls(presses,down:true)
         if presses.isEmpty {return}
         if inputCanvas?.canvasInput?.presses(presses, down: true, source: self) == true { return }
@@ -305,6 +314,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         presenter?.key(id, NodeView.keyName(key))
     }
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
+        #if os(tvOS)
+        if remoteSelect(presses, down: false) { return }
+        #endif
         let presses=pressedControls(presses,down:false)
         if presses.isEmpty {return}
         if inputCanvas?.canvasInput?.presses(presses, down: false, source: self) != true { super.pressesEnded(presses, with: event) }

@@ -69,6 +69,9 @@ final class Presenter {
     /// Nodes marked `hook="word"` (LLP 1075.003.000).
     lazy var elements = ElementHooks(self)
     lazy var navigation = NavigationHost(presenter: self)
+    #if os(tvOS)
+    lazy var menuKey = MenuKey(presenter: self)
+    #endif
     lazy var modals = ModalHost(presenter: self)
     /// SVG scenes and CSS animations (LLP 1055 D4, D7).
     let svg = SvgHost()
@@ -873,6 +876,9 @@ final class Presenter {
         }
         pendingScrolls = pendingScrolls.filter { views[$0]?.pendingScrollTop != nil || views[$0]?.pendingScrollLeft != nil }
         navigation.sync(batch)
+        #if os(tvOS)
+        menuKey.sync()
+        #endif
         segments.sync()
         controls.sync()
         menus.sync()
