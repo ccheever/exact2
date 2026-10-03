@@ -106,6 +106,7 @@ struct Harness {
 fn env<'a>(plan: &'a Plan, slots: &'a [Value]) -> Env<'a> {
     Env {
         plan,
+        decoded: None,
         // Test harnesses outlive every Env they build; leak one table per call.
         strings: Box::leak(crate::vm::intern(plan).into_boxed_slice()),
         slots,

@@ -1317,6 +1317,7 @@ impl<D: DataSource> Runner<D> {
     fn env<'a>(&'a self, params: &'a [Value], frames: &'a [Frame]) -> Env<'a> {
         Env {
             plan: &self.plan,
+            decoded: self.sites.decoded(),
             strings: &self.strings,
             router: self.router.as_deref(),
             lists: self.links.lists,

@@ -515,6 +515,15 @@ pub struct Sites {
     deps: Deps,
     /// The plan's `@keyframes`, parsed once (LLP 1055 D5).
     keyframes: bridge::KeyframesTable,
+    /// The plan's code pool, decoded once (`vm::decode_pool`).
+    decoded: Option<Vec<crate::vm::Instruction>>,
+}
+
+impl Sites {
+    /// The plan's code pool decoded, for [`crate::vm::Env::decoded`].
+    pub(crate) fn decoded(&self) -> Option<&[crate::vm::Instruction]> {
+        self.decoded.as_deref()
+    }
 }
 
 impl std::ops::Deref for SiteIndex {
@@ -610,6 +619,7 @@ impl Sites {
             sites,
             deps: Deps::default(),
             keyframes: bridge::keyframes(plan),
+            decoded: crate::vm::decode_pool(&plan.code),
         };
         index.deps = Deps::new(plan, &index);
         index

@@ -82,6 +82,9 @@ impl Frame {
 pub struct Env<'a> {
     /// The plan the code belongs to.
     pub plan: &'a Plan,
+    /// The plan's code pool decoded once ([`decode_pool`]), when the caller
+    /// keeps it: an evaluation then reads instructions, not bytes.
+    pub decoded: Option<&'a [Instruction]>,
     /// The plan's string pool, interned once per runner ([`intern`]) as
     /// values: a string literal is inline text or one shared allocation,
     /// never a fresh one, and two evaluations of one literal are the same
@@ -242,7 +245,7 @@ impl Extent {
             Value::List(_) | Value::Record(_) | Value::Option(Some(_)) => None,
             v if v.is_str() => Some(Extent {
                 nodes: 1,
-                bytes: v.as_str().unwrap_or_default().len() as u64,
+                bytes: v.text_len().unwrap_or_default() as u64,
                 depth: 0,
             }),
             _ => Some(Extent {
@@ -332,7 +335,7 @@ fn measure(v: &Value, depth: u32, total: &mut Extent, pc: usize) -> Result<(), T
     total.nodes += 1;
     total.depth = total.depth.max(depth);
     match v {
-        v if v.is_str() => total.bytes += v.as_str().unwrap_or_default().len() as u64,
+        v if v.is_str() => total.bytes += v.text_len().unwrap_or_default() as u64,
         Value::Option(Some(inner)) => {
             total.check(pc)?;
             measure(inner, depth + 1, total, pc)?;
@@ -455,26 +458,196 @@ pub fn is_literal(code: &[u8]) -> bool {
 /// Evaluate `code` in `env`. `allowed_writes` bounds `StoreSlot`; an action
 /// passes its `writes` range, an expression passes nothing.
 pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcome, Trap> {
+    match env
+        .decoded
+        .and_then(|pool| Decoded::of(pool, &env.plan.code, code))
+    {
+        Some(decoded) => run(code, decoded, env, allowed_writes),
+        None => run(
+            code,
+            Bytes {
+                code,
+                r: Reader::new(code),
+            },
+            env,
+            allowed_writes,
+        ),
+    }
+}
+
+/// Every instruction of a plan's code pool, in order, each `pc` its offset
+/// in the pool; `None` when the pool doesn't decode from end to end (an
+/// evaluation then decodes its body's bytes as it goes).
+pub fn decode_pool(pool: &[u8]) -> Option<Vec<Instruction>> {
+    instructions(pool).collect::<Result<_, _>>().ok()
+}
+
+/// Where [`run`] reads its instructions: a body's bytes, or its run of a
+/// decoded pool.
+trait Stream: Sized + Clone {
+    /// The offset of the next instruction in the body (its length at the end).
+    fn position(&self) -> usize;
+    fn is_empty(&self) -> bool;
+    fn next(&mut self) -> Result<Instruction, Trap>;
+    /// The stream at `target`, an instruction's offset or the body's end.
+    fn at(&self, target: usize) -> Option<Self>;
+
+    /// The next instruction when it is a `Field`: its index and offset, and
+    /// the stream past it. A load followed by a field read pushes the field
+    /// alone, never cloning (and dropping) the record it reads it from.
+    fn field_next(&self) -> Option<(u16, usize, Self)> {
+        let mut past = self.clone();
+        let i = past.next().ok()?;
+        (i.op == Opcode::Field).then_some((i.args[0] as u16, i.pc, past))
+    }
+}
+
+#[derive(Clone)]
+struct Bytes<'c> {
+    code: &'c [u8],
+    r: Reader<'c>,
+}
+
+impl Stream for Bytes<'_> {
+    fn position(&self) -> usize {
+        self.r.position()
+    }
+    fn is_empty(&self) -> bool {
+        self.r.is_empty()
+    }
+    fn next(&mut self) -> Result<Instruction, Trap> {
+        decode(&mut self.r)
+    }
+    fn at(&self, target: usize) -> Option<Self> {
+        let r = jump(self.code, u32::try_from(target).ok()?)?;
+        Some(Bytes { code: self.code, r })
+    }
+}
+
+/// A body's instructions in a decoded pool: `base` is the body's offset in
+/// the pool, `len` its length; positions are the body's own, as [`Bytes`]'.
+#[derive(Clone, Copy)]
+struct Decoded<'p> {
+    ins: &'p [Instruction],
+    next: usize,
+    base: usize,
+    len: usize,
+}
+
+impl<'p> Decoded<'p> {
+    /// `code`'s run in `decoded`, when `code` is a body of `pool` that starts
+    /// and ends on instructions there.
+    fn of(decoded: &'p [Instruction], pool: &[u8], code: &[u8]) -> Option<Decoded<'p>> {
+        let base = (code.as_ptr() as usize).checked_sub(pool.as_ptr() as usize)?;
+        if base + code.len() > pool.len() {
+            return None;
+        }
+        let from = decoded.binary_search_by_key(&base, |i| i.pc).ok()?;
+        let to = decoded.partition_point(|i| i.pc < base + code.len());
+        if to < decoded.len() && decoded[to].pc != base + code.len() {
+            return None;
+        }
+        Some(Decoded {
+            ins: &decoded[from..to],
+            next: 0,
+            base,
+            len: code.len(),
+        })
+    }
+}
+
+impl Stream for Decoded<'_> {
+    fn position(&self) -> usize {
+        self.ins
+            .get(self.next)
+            .map_or(self.len, |i| i.pc - self.base)
+    }
+    fn is_empty(&self) -> bool {
+        self.next >= self.ins.len()
+    }
+    fn next(&mut self) -> Result<Instruction, Trap> {
+        let mut i = *self
+            .ins
+            .get(self.next)
+            .ok_or(Trap::Malformed { pc: self.len })?;
+        self.next += 1;
+        i.pc -= self.base;
+        Ok(i)
+    }
+    fn at(&self, target: usize) -> Option<Self> {
+        let next = if target == self.len {
+            self.ins.len()
+        } else {
+            self.ins
+                .binary_search_by_key(&(self.base + target), |i| i.pc)
+                .ok()?
+        };
+        Some(Decoded { next, ..*self })
+    }
+    fn field_next(&self) -> Option<(u16, usize, Self)> {
+        let i = self.ins.get(self.next).filter(|i| i.op == Opcode::Field)?;
+        let past = Decoded {
+            next: self.next + 1,
+            ..*self
+        };
+        Some((i.args[0] as u16, i.pc - self.base, past))
+    }
+}
+
+fn run<S: Stream>(
+    code: &[u8],
+    mut r: S,
+    env: &Env<'_>,
+    allowed_writes: &[u32],
+) -> Result<Outcome, Trap> {
     let mut stack: Vec<Value> = Vec::with_capacity(16);
     let mut locals: Vec<Value> = Vec::new();
     let mut out = Outcome::default();
     let mut extents = Extents::default();
     let mut callbacks: Vec<Callback> = Vec::new();
     let mut steps = 0u32;
-    let mut r = Reader::new(code);
     let malformed = |pc: usize| Trap::Malformed { pc };
     // A jump inside a callback body stays inside it (the plan checker's
     // rule, checked again here: a plan is never trusted).
-    let jump_to = |target: u32, callbacks: &[Callback], pc: usize| {
+    let jump_to = |r: &S, target: u32, callbacks: &[Callback], pc: usize| {
         if callbacks.last().is_some_and(|c| target as usize > c.end) {
             return Err(Trap::BadJump { pc, target });
         }
-        jump(code, target).ok_or(Trap::BadJump { pc, target })
+        r.at(target as usize).ok_or(Trap::BadJump { pc, target })
     };
     macro_rules! pop {
         ($pc:expr) => {
             stack.pop().ok_or(Trap::StackUnderflow { pc: $pc })?
         };
+    }
+    // A value read in place: pushed as it is, or, when a `Field` follows,
+    // only that field (the `Field` arm's traps, at its offset).
+    macro_rules! push_read {
+        ($v:expr) => {{
+            let v: &Value = $v;
+            // Not across a callback body's end, where the run ends first.
+            match r
+                .field_next()
+                .filter(|(_, at, _)| callbacks.last().is_none_or(|c| c.end != *at))
+            {
+                Some((index, pc, past)) => {
+                    let Value::Record(fields) = v else {
+                        return Err(Trap::TypeMismatch {
+                            pc,
+                            op: Opcode::Field,
+                        });
+                    };
+                    stack.push(
+                        fields
+                            .get(index as usize)
+                            .cloned()
+                            .ok_or(Trap::BadField { pc, index })?,
+                    );
+                    r = past;
+                }
+                None => stack.push(v.clone()),
+            }
+        }};
     }
     macro_rules! num2 {
         ($pc:expr, $op:expr, $f:expr) => {{
@@ -514,7 +687,7 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
             c.next += 1;
             if c.next < c.items.len() {
                 c.begin(&mut locals, &mut steps)?;
-                r = jump(code, c.start as u32).ok_or(Trap::Malformed { pc })?;
+                r = r.at(c.start).ok_or(Trap::Malformed { pc })?;
                 break;
             }
             let c = callbacks.pop().expect("the last callback");
@@ -537,7 +710,7 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
             op,
             args,
             number: f64_arg,
-        } = decode(&mut r)?;
+        } = r.next()?;
         match op {
             Opcode::Number => stack.push(Value::Number(f64_arg)),
             Opcode::Bool => stack.push(Value::Bool(args[0] != 0)),
@@ -635,10 +808,11 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                 } else {
                     &frame.bound
                 };
-                stack.push(v.clone().ok_or(Trap::BadScope {
+                let v = v.as_ref().ok_or(Trap::BadScope {
                     pc,
                     depth: depth as u16,
-                })?);
+                })?;
+                push_read!(v);
             }
             Opcode::Field => {
                 let index = args[0] as u16;
@@ -727,12 +901,12 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                     _ => return Err(Trap::TypeMismatch { pc, op }),
                 }
             }
-            Opcode::Jump => r = jump_to(args[0] as u32, &callbacks, pc)?,
+            Opcode::Jump => r = jump_to(&r, args[0] as u32, &callbacks, pc)?,
             Opcode::JumpIfFalse => {
                 let target = args[0] as u32;
                 match pop!(pc) {
                     Value::Bool(true) => {}
-                    Value::Bool(false) => r = jump_to(target, &callbacks, pc)?,
+                    Value::Bool(false) => r = jump_to(&r, target, &callbacks, pc)?,
                     _ => return Err(Trap::TypeMismatch { pc, op }),
                 }
             }
@@ -740,7 +914,7 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                 let target = args[0] as u32;
                 match stack.last() {
                     Some(Value::Option(Some(_))) => {}
-                    Some(Value::Option(None)) => r = jump_to(target, &callbacks, pc)?,
+                    Some(Value::Option(None)) => r = jump_to(&r, target, &callbacks, pc)?,
                     Some(_) => return Err(Trap::TypeMismatch { pc, op }),
                     None => return Err(Trap::StackUnderflow { pc }),
                 }
@@ -801,7 +975,7 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                     return Err(Trap::TypeMismatch { pc, op });
                 };
                 if items.is_empty() {
-                    r = jump_to(end as u32, &callbacks, pc)?;
+                    r = jump_to(&r, end as u32, &callbacks, pc)?;
                     stack.push(Value::List(items));
                     continue;
                 }
@@ -896,12 +1070,13 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                 let v = pop!(pc);
                 locals.push(v);
             }
-            Opcode::LoadLocal => stack.push(locals.get(args[0] as usize).cloned().ok_or(
-                Trap::BadScope {
+            Opcode::LoadLocal => {
+                let v = locals.get(args[0] as usize).ok_or(Trap::BadScope {
                     pc,
                     depth: args[0] as u16,
-                },
-            )?),
+                })?;
+                push_read!(v);
+            }
             Opcode::DropLocal => {
                 if callbacks
                     .last()
@@ -951,6 +1126,7 @@ mod tests {
         let strings = intern(&plan);
         let env = Env {
             plan: &plan,
+            decoded: None,
             strings: &strings,
             router: None,
             lists: None,
@@ -1055,6 +1231,7 @@ mod tests {
         let strings = intern(&plan);
         let env = Env {
             plan: &plan,
+            decoded: None,
             strings: &strings,
             router: None,
             lists: None,
@@ -1259,6 +1436,7 @@ mod tests {
             let strings = intern(&plan);
             let env = Env {
                 plan: &plan,
+                decoded: None,
                 strings: &strings,
                 router: None,
                 lists: None,
