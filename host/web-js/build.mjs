@@ -15,10 +15,9 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { transformSync } from 'rolldown/utils';
-import { parseGrants } from '../web/http-body.js';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants } from './module.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -59,6 +58,16 @@ mkdirSync(gen, { recursive: true });
 
 const input = opt('--plan') ?? opt('--contract') ?? resolve(appDir, 'app.contract');
 const manifest = JSON.parse(readFileSync(resolve(appDir, 'app.json'), 'utf8'));
+// documents-glue reads the app's web manifest lazily. The JS path exits from
+// host/web/build.mjs after this builder succeeds, so it owns the same artifact.
+const webManifestKeys = ['name', 'short_name', 'id', 'start_url', 'display', 'theme_color', 'background_color', 'icons', 'lang', 'file_handlers', 'launch_handler'];
+const webManifest = Object.fromEntries(webManifestKeys.filter(key => manifest[key] !== undefined).map(key => [key, manifest[key]]));
+if (webManifest.file_handlers) webManifest.file_handlers = webManifest.file_handlers.filter(handler => !Object.keys(handler.accept ?? {}).includes('inode/directory'));
+if (!webManifest.file_handlers?.length) delete webManifest.file_handlers;
+webManifest.name ??= manifest.app?.name ?? manifest.name;
+webManifest.start_url ??= '/';
+webManifest.lang ??= 'en';
+writeFileSync(resolve(out, 'manifest.json'), JSON.stringify(webManifest, null, 2) + '\n');
 // Rust data: the app's own module (`rust.module`), or a module generated
 // from the DataSource its web build bakes with (host/web-js/module.mjs).
 const bakes = existsSync(resolve(appDir, 'web/build.rs')) && /contract::bake\(\s*plan,/.test(readFileSync(resolve(appDir, 'web/build.rs'), 'utf8'));
@@ -75,9 +84,16 @@ const devLogic = [];
 // the page as `modules/`, with the web host's adapter (native.js).
 const pageModules = existsSync(resolve(appDir, 'modules/web/index.js'));
 // The page module's container hooks (LLP 1075.003.000 §3.7): their glue loads
-// only for a page module that exports one.
-const page = pageModules ? await import(resolve(appDir, 'modules/web/index.js')) : {};
-const containerHooks = ['navigation', 'route', 'routeEnded', 'tabs'].some(n => typeof page[n] === 'function');
+// only for a page module that exports one. Read from its source, never run:
+// a browser module may touch the DOM as it loads. `export *` may export one.
+const pageSource = pageModules ? readFileSync(resolve(appDir, 'modules/web/index.js'), 'utf8') : '';
+const hookName = '(?:navigation|route|routeEnded|tabs)';
+const containerHooks = [
+  new RegExp(`\\bexport\\s+(?:async\\s+)?function\\s*\\*?\\s*${hookName}\\b`),
+  new RegExp(`\\bexport\\s+(?:const|let|var)\\s+${hookName}\\b`),
+  new RegExp(`\\bexport\\s*\\{[^}]*\\b${hookName}\\b[^}]*\\}`),
+  /\bexport\s*\*\s*from\b/,
+].some(r => r.test(pageSource));
 // The surfaces the app's GPU module draws (its crate's surface table); any
 // other surface is drawn by a data source on Canvas 2D, which the backend
 // refuses by name.
@@ -106,6 +122,38 @@ cpSync(resolve(root, 'host/web/canvas2d-glue.js'), resolve(gen, 'canvas2d-glue.j
 const time = /"exactTime":/.test(readFileSync(resolve(gen, 'app.js'), 'utf8').match(/export const sources=\{[^}]*\}/)?.[0] ?? '');
 // A file input, `saveFile` or `share` (files.js), registered before any press.
 const files = existsSync(resolve(gen, 'files.flag'));
+// App generation may create files imported by app.ts. Run it before reading
+// the declaration, as the wasm build does.
+const webScript = resolve(appDir, 'web/build.rs');
+if (ts && existsSync(webScript) && !/^\s*fn main\(\)\s*\{\s*exact_js_bake::build\w*\(/m.test(readFileSync(webScript, 'utf8'))) {
+  const r = spawnSync('cargo', ['check', '-q', '--manifest-path', resolve(appDir, 'web/Cargo.toml')], { cwd: root, stdio: 'inherit' });
+  if (r.status !== 0) { console.error(`${app}: its web build script failed`); process.exit(1); }
+}
+const normalizeGrants = (label, spec, stem) => {
+  const file = resolve(gen, `${stem}.grants`);
+  writeFileSync(file, spec);
+  const result = spawnSync(cmd, [...pre, 'normalize-grants', file], { cwd: root, encoding: 'utf8' });
+  if (result.status !== 0) { console.error(result.stderr); process.exit(result.status ?? 1); }
+  const set = JSON.parse(result.stdout);
+  if (set.error) throw new Error(`grant-parse: ${label}: ${set.error}`);
+  return set;
+};
+const grants = ts ? String((await import(resolve(appDir, 'app.ts'))).grants ?? '') : '';
+const tsGrantSet = normalizeGrants(ts ? 'app.ts' : 'TypeScript', grants, 'typescript');
+let moduleStorage = false, rustGrants = '', rustGrantSet = normalizeGrants('Rust module', '', 'rust');
+if (rust) {
+  mkdirSync(resolve(out, 'rust/wasm'), { recursive: true });
+  const from = opt('--data') ?? (opt('--plan') && dirname(resolve(opt('--plan'))));
+  const built = from && existsSync(resolve(from, 'rust/wasm/app.module.wasm')) ? resolve(from, 'rust/wasm/app.module.wasm') : buildModule(app, undefined, canvas2d, appDir);
+  cpSync(built, resolve(out, 'rust/wasm/app.module.wasm'));
+  if (devReload) devLogic.push(['rust', createHash('sha256').update(readFileSync(resolve(out, 'rust/wasm/app.module.wasm'))).digest('hex')]);
+  rustGrants = await moduleGrants(built);
+  rustGrantSet = normalizeGrants(ts ? 'Rust module' : 'app', rustGrants, 'rust');
+  moduleStorage = /^\s*(?:fs|sqlite)\./m.test(rustGrants);
+  if (opt('--plan')) cpSync(resolve(opt('--plan')), resolve(out, 'app.plan'));
+  else cpSync(resolve(gen, 'app.plan'), resolve(out, 'app.plan'));
+}
+writeFileSync(resolve(gen, 'admission-data.js'), `import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(${JSON.stringify(tsGrantSet)}),rustGrantSet=createGrantSet(${JSON.stringify(rustGrantSet)});\n`);
 writeFileSync(resolve(gen, 'main.js'), [
   "import app, { sources, wait } from './app.js';",
   ...(devReload ? ["import { prepareDev } from './checkpoint.js';", "const finishDev = prepareDev();"] : []),
@@ -152,26 +200,14 @@ cpSync(resolve(root, 'host/web/navigation.js'), resolve(gen, 'navigation.js'));
 // (every slot's type) would otherwise ride in every page's entry module.
 for (const f of ['navigation.js', 'names.js']) cpSync(resolve(gen, f), resolve(gen, 'agent-' + f));
 writeFileSync(resolve(gen, 'agent.js'), readFileSync(resolve(gen, 'agent.js'), 'utf8').replace("from './names.js'", "from './agent-names.js'").replace("from './navigation.js'", "from './agent-navigation.js'"));
-// A TypeScript app whose web build script does more than bake it (Messages
-// compiles its schema and copies its device into files its TypeScript
-// imports, gitignored) has that script run first, as the wasm build does:
-// `cargo check` runs the build script, and Cargo reruns it only when its
-// inputs changed.
-const webScript = resolve(appDir, 'web/build.rs');
-if (ts && existsSync(webScript) && !/^\s*fn main\(\)\s*\{\s*exact_js_bake::build\w*\(/m.test(readFileSync(webScript, 'utf8'))) {
-  const r = spawnSync('cargo', ['check', '-q', '--manifest-path', resolve(appDir, 'web/Cargo.toml')], { cwd: root, stdio: 'inherit' });
-  if (r.status !== 0) { console.error(`${app}: its web build script failed`); process.exit(1); }
-}
 // A source granted `auth.session` signs in through the system browser (auth.js, LLP 1069.006).
-const grants = ts ? String((await import(resolve(appDir, 'app.ts'))).grants ?? '') : '';
-const grantError = parseGrants(grants).error;
-if (grantError) throw new Error(`grant-parse: app.ts: ${grantError}`);
 const auth = /^\s*auth\.session\s/m.test(grants);
 if (ts) writeFileSync(resolve(gen, 'ts-data.js'), readFileSync(resolve(here, 'ts-data.js'), 'utf8').replace('__APP_TS__', resolve(appDir, 'app.ts'))
   .replace('__AUTH_IMPORT__', auth ? "import { install as signIn } from './auth.js';" : '')
   .replace('__AUTH_INSTALL__', auth ? `signIn(${JSON.stringify(grants)}, () => asking);` : ''));
-writeFileSync(resolve(gen, 'ts-fetch.js'), readFileSync(resolve(here, 'ts-fetch.js'), 'utf8').replace('../web/http-body.js', './http-body.js'));
-for (const f of ['auth-glue.js', 'storage-environment.js', 'http-body.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
+for (const f of ['auth-glue.js', 'storage-environment.js', 'http-body.js', 'grant-admission.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
+writeFileSync(resolve(gen, 'admission.js'), readFileSync(resolve(here, 'admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'"));
+cpSync(resolve(here, 'ts-fetch.js'), resolve(gen, 'ts-fetch.js'));
 cpSync(resolve(here, 'auth.js'), resolve(gen, 'auth.js'));
 cpSync(resolve(here, 'files.js'), resolve(gen, 'files.js'));
 // The server bundle a JavaScript render runs (render.mjs), one script per VM context.
@@ -316,6 +352,32 @@ if (existsSync(resolve(gen, 'flow.flag'))) cpSync(buildFlow(), resolve(out, 'tex
 // makes it, with the web host's glue: a loaded capability.
 // Built again only when something a module was built from changed (Cargo's
 // dep-info, module.mjs `fresh`): the bindings and wasm-opt with it.
+const literalModuleURLs = code => [...code.matchAll(/new\s+URL\(\s*['"]([^'":/#][^'"]*)['"]\s*,\s*import\.meta\.url\s*\)/g)].map(match => match[1]);
+const moduleImports = code => new Bun.Transpiler({ loader: 'js' }).scanImports(code).map(entry => entry.path).filter(path => path.startsWith('.'));
+const publicDependency = (from, specifier) => normalize(resolve('/', dirname(from), specifier)).replace(/^\//, '');
+async function copyLazyModules(roots) {
+  const { webHostFiles } = await import('../../scripts/app.mjs');
+  const inventory = webHostFiles(), queue = roots.map(name => ({ name, source: inventory[name] })), copied = new Set();
+  while (queue.length) {
+    const { name, source } = queue.shift();
+    if (copied.has(name)) continue;
+    copied.add(name);
+    if (!source) {
+      if (!existsSync(resolve(out, name))) throw new Error(`lazy module dependency ${name} has no build source`);
+      continue;
+    }
+    const from = resolve(root, source), code = name.endsWith('.js') || name.endsWith('.mjs') ? readFileSync(from, 'utf8') : null;
+    mkdirSync(dirname(resolve(out, name)), { recursive: true });
+    cpSync(from, resolve(out, name));
+    if (code != null) for (const specifier of [...moduleImports(code), ...literalModuleURLs(code)]) {
+      const dependency = publicDependency(name, specifier);
+      if (dependency.startsWith('..')) throw new Error(`${name}: lazy dependency leaves the build root: ${specifier}`);
+      const sibling = resolve(dirname(from), specifier);
+      queue.push({ name: dependency, source: inventory[dependency] ?? (existsSync(sibling) ? sibling : null) });
+    }
+  }
+}
+
 if (existsSync(gpuLib)) {
   const { gpuModules, resolveApp, webGpuArtifacts, copyShaders, shaderWatchRoots } = await import('../../scripts/app.mjs');
   const target = resolveApp(app), cache = resolve(target.target, 'web-js-gpu', target.name);
@@ -328,33 +390,19 @@ if (existsSync(gpuLib)) {
     copyShaders(target, resolve(cache, 'shaders'));
   }
   cpSync(cache, out, { recursive: true });
-  for (const f of ['gpu-glue.js', 'gpu-assets.js', 'pace.js']) cpSync(resolve(root, 'host/web', f), resolve(out, f));
+  await copyLazyModules(['gpu-glue.js']);
 }
 if (pageModules) cpSync(resolve(appDir, 'modules/web'), resolve(out, 'modules'), { recursive: true });
 if (existsSync(resolve(appDir, 'assets'))) cpSync(resolve(appDir, 'assets'), resolve(out, 'assets'), { recursive: true });
 if (existsSync(resolve(appDir, 'deck'))) cpSync(resolve(appDir, 'deck'), resolve(out, 'deck'), { recursive: true });
-// The Rust data module and the plan it binds, from the wasm build the baked plan came from.
-// `--data <dist>` names another wasm build's module (a synthetic plan over an app's sources).
-let moduleStorage = false;
-if (rust) {
-  mkdirSync(resolve(out, 'rust/wasm'), { recursive: true });
-  const from = opt('--data') ?? (opt('--plan') && dirname(resolve(opt('--plan'))));
-  const built = from && existsSync(resolve(from, 'rust/wasm/app.module.wasm')) ? resolve(from, 'rust/wasm/app.module.wasm') : buildModule(app, undefined, canvas2d, appDir);
-  cpSync(built, resolve(out, 'rust/wasm/app.module.wasm'));
-  if (devReload) devLogic.push(['rust', createHash('sha256').update(readFileSync(resolve(out, 'rust/wasm/app.module.wasm'))).digest('hex')]);
-  const declared = await moduleGrants(built), invalid = parseGrants(declared).error;
-  if (invalid) throw new Error(`grant-parse: Rust module: ${invalid}`);
-  moduleStorage = /^\s*(?:fs|sqlite)\./m.test(declared);
-  if (opt('--plan')) cpSync(resolve(opt('--plan')), resolve(out, 'app.plan'));
-  else cpSync(resolve(gen, 'app.plan'), resolve(out, 'app.plan'));
-}
 if (devReload) writeFileSync(resolve(out, '.exact-dev-logic.json'), JSON.stringify({ version: 1, modules: devLogic.sort(([a], [b]) => a.localeCompare(b)) }) + '\n');
 // The web host's own picker and storage adapters beside the page, fetched on
 // first use (files.js; a source's `storage`, ts-data.js and rust-data.js): what host/web/build.mjs ships.
 if (files || moduleStorage || /^\s*(?:fs|sqlite)\./m.test(grants)) {
-  const { webHostFiles } = await import('../../scripts/app.mjs');
-  for (const [name, source] of Object.entries(webHostFiles('storage'))) cpSync(resolve(root, source), resolve(out, name));
-  for (const f of ['picker-glue.js', 'documents-glue.js']) cpSync(resolve(root, 'host/web', f), resolve(out, f));
+  const storageGrants = /^\s*(?:fs|sqlite)\./m.test(grants);
+  const seeds = [files && resolve(gen, 'files.js'), (moduleStorage || storageGrants) && resolve(gen, 'admission.js'), storageGrants && resolve(gen, 'ts-data.js')].filter(Boolean);
+  const roots = seeds.flatMap(seed => literalModuleURLs(readFileSync(seed, 'utf8'))).map(specifier => specifier.replace(/^\.\//, ''));
+  await copyLazyModules(roots);
 }
 // The plan beside the pages: a render server (either renderer) reads it.
 if (opt('--plan') && !existsSync(resolve(out, 'app.plan'))) cpSync(resolve(opt('--plan')), resolve(out, 'app.plan'));

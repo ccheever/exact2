@@ -65,6 +65,9 @@ private struct TabBarFace: Equatable {
 final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate {
     unowned let presenter: Presenter
     private var controls: [UInt32: ExactSegmentedControl] = [:]
+    /// The segmented control a tablist or radio group projects to, if any:
+    /// a hooked node's platform object (LLP 1075.003.000 §3.2).
+    func control(of id: UInt32) -> UISegmentedControl? { controls[id] }
     private var bars: [UInt32: ExactTabBar] = [:]
     private var sizes: [UInt32: CGSize] = [:]
     private var hidden: [UInt32: Bool] = [:]

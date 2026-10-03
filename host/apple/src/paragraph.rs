@@ -202,7 +202,13 @@ impl<D: DataSource> Host<D> {
             if owner != id {
                 let node = self.runner.kernel().node(id).expect("live");
                 self.keys.insert(node.key, id);
+                // @ref LLP 1075.003.000 §3.3 — an inline run is its
+                // paragraph's text, not a view: its hook reaches nothing here.
+                let hook = node.props.str(PropId::Hook).map(str::to_owned);
                 self.inline_runs.insert(id, (owner, events.to_vec()));
+                if let Some(word) = hook.filter(|w| self.viewless_hooks.insert(w.clone())) {
+                    self.log(&format!("hook element {word}: an inline text run has no view on this host; its hook is not called"));
+                }
                 return;
             }
         }

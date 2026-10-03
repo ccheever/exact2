@@ -141,6 +141,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
       const bar = (await s.state()).window?.toolbar;
       check(bar?.installed && bar.displayMode === 1 && bar.appItems?.includes('fixture.hooked') && bar.items?.at(-1) === 'fixture.hooked',
         `${host} native: the toolbar hook sets the display mode and adds an item after Exact's: ${JSON.stringify(bar)}`);
+      check(bar?.appEnabled?.every(Boolean), `${host} native: the app's own toolbar item is enabled (its target validates it): ${JSON.stringify(bar?.appEnabled)}`);
       await s.tap('toolbar-compose'); await settle(s);
       check((await s.state()).slots.composed === 2, `${host} native: Exact's toolbar item still presses its command`);
     }
@@ -159,6 +160,9 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
       check(byTestId(await s.tree(), 'hooked-badge')?.props.hook === 'badge', `${host} native: the tree shows a node's hook word`);
       const badge = await hookCalls('badge');
       check(badge.built === 1 && badge.changed === 1, `${host} native: a hooked node is built, and its data-* change reaches its hook: ${JSON.stringify(badge)}`);
+      // The host's own count of the calls (`state.hooks`), every host alike.
+      const counted = (await s.state()).hooks?.badge;
+      check(counted?.calls?.built === 1 && counted.calls.changed === 1 && counted.live === 1, `${host} native: state.hooks counts the hook's calls: ${JSON.stringify(counted)}`);
       if (host === 'ios') {
         await s.tap('violate'); await settle(s);
         await s.tap('violate'); await settle(s);

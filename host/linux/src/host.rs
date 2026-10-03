@@ -144,6 +144,12 @@ impl<D: DataSource> Host<D> {
         region: Option<crate::content_region::ContentRegionRegistration>,
     ) -> Result<(Host<D>, Option<String>), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
+        // @ref LLP 1075.003.000 §3.3 — this host has no native objects for a
+        // hook to reach: a plan that marks nodes is told so once, at boot.
+        let hooked = plan.bindings.iter().any(|b| {
+            b.kind == exact_plan::BindingKind::Prop
+                && exact_kernel::PropId::from_wire(b.id) == Some(exact_kernel::PropId::Hook)
+        });
         // Native hosts link every row's grammar (LLP 1053.000 §2).
         exact_kernel::style::link_backdrop_filter();
         exact_kernel::style::link_segments();
@@ -224,6 +230,11 @@ impl<D: DataSource> Host<D> {
         let error = host.layout().err();
         host.observe_layout();
         host.present();
+        if hooked {
+            host.runner.log(
+                "hook: this host has no native objects; hooked nodes are shown and never called",
+            );
+        }
         Ok((host, error))
     }
 

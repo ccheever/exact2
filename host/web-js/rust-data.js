@@ -1,4 +1,6 @@
-import { installGrants, parseGrants, boundedHttpBody } from './http-body.js';
+import { admitsSecret, createRequestExecutor, fetchHostAsset, sameGrantDeclaration, setAppGrantSet } from './admission.js';
+import { rustGrantSet, tsGrantSet } from './admission-data.js';
+import { boundedHttpBody } from './http-body.js';
 // A Rust data module on the JS runtime (LLP 1029.000's seam, ABI 3,
 // `logic/abi/src/lib.rs`): the app's importless module wasm and its plan,
 // fetched after first pixel; once bound and activated, every answer is a
@@ -62,7 +64,7 @@ function reader(b) {
   return r;
 }
 
-export async function install(data, sources, load = p => fetch(p).then(r => r.arrayBuffer())) {
+export async function install(data, sources, load = p => fetchHostAsset(p).then(r => r.arrayBuffer())) {
   const [wasm, plan] = await Promise.all([load('./rust/wasm/app.module.wasm'), load('./app.plan')]);
   // Bytes, or a module a renderer compiled once for every render.
   const made = await WebAssembly.instantiate(wasm, {}), instance = made.instance ?? made;
@@ -103,7 +105,7 @@ export async function install(data, sources, load = p => fetch(p).then(r => r.ar
   };
   const op = (code, fill) => { const w = writer(); w.u32(ABI); w.u8(code); fill?.(w); return call(w.done()); };
   let r = op(0); r.u8(); const meta = [r.str(), r.str()];
-  const authority = installGrants(data, 'rust', meta[1]);
+  if (!sameGrantDeclaration(rustGrantSet, meta[1])) throw new Error('Rust module grants differ from the admitted build');
   r = op(1, w => w.bytes(new Uint8Array(plan))); r.u8(); result(r);
   r = op(2); r.u8(); result(r);
   // One call (`call_request`): source, arguments by type, the store's
@@ -112,7 +114,7 @@ export async function install(data, sources, load = p => fetch(p).then(r => r.ar
     const r = op(code, w => {
       w.str(source); w.u8(6); w.u32(args.length);
       const t = sources[source] ?? ''; let i = 0; for (const a of args) i = encode(w, a, t, i);
-      const pairs = [...store.map].filter(([k]) => authority.secret(k));
+      const pairs = [...store.map].filter(([k]) => admitsSecret(rustGrantSet, k));
       w.u32(pairs.length); for (const [k, v] of pairs) { w.str(k); w.str(v); }
       if (outcome) {
         if (outcome.storage) { w.u8(5); w.bytes(outcome.storage); }
@@ -123,7 +125,7 @@ export async function install(data, sources, load = p => fetch(p).then(r => r.ar
     if (r.u8() !== 2) throw new Error('expected a call reply');
     const observed = r.u8() === 1;
     const writes = [];
-    for (let n = r.u32(); n--;) { const k = r.str(); const v = r.u8() ? r.str() : null; if (k.startsWith('exact.kept.') || !authority.secret(k)) throw new Error(`secret ${k} is not granted${authority.error ? ': ' + authority.error : ''}`); writes.push([k, v]); }
+    for (let n = r.u32(); n--;) { const k = r.str(); const v = r.u8() ? r.str() : null; if (!admitsSecret(rustGrantSet, k)) throw new Error(`secret ${k} is not granted`); writes.push([k, v]); }
     let out;
     try { out = result(r); } catch (error) { if (error.refuse) for (const [k, v] of writes) store.set(k, v); throw error; }
     for (const [k, v] of writes) store.set(k, v);
@@ -133,23 +135,12 @@ export async function install(data, sources, load = p => fetch(p).then(r => r.ar
   const rust = (source, args, store) => callWith(3, source, args, store), ts = data.ts;
   data.answer = ts ? (source, args, store, target) => { try { return rust(source, args, store); } catch (e) { if (e.unknown) return ts(source, args, store, target); throw e; } } : rust;
   data.parse = (source, args, outcome, store) => callWith(4, source, args, store, outcome);
-  // The host runs the request (`glue.js` `ask`): the browser's fetch.
-  let storage = null;
-  data.fetch = async req => {
-    if (authority.error) return { failed: 2, message: authority.error };
-    if (req.scope != null && (typeof req.scope !== 'string' || req.scope.split('\n').map(s => s.trim()).filter(Boolean).some(s => !authority.lines.includes(s)))) return { failed: 2, message: 'request scope exceeds source grants' };
-    if (req.storage != null) {
-      storage ??= import(new URL('storage-request.js', document.baseURI).href).then(m => m.createStorageRequests(data.appId, authority.lines.join('\n')));
-      return { storage: await (await storage).run(req.storage, req.scope ?? undefined) };
-    }
-    const scoped = req.scope == null ? null : parseGrants(req.scope);
-    const asset = req.method === 'GET' && !req.raw?.length && !req.headers.length && /^\/assets\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(req.url);
-    if (!asset && (!authority.permits(req.url) || scoped && !scoped.permits(req.url))) return { failed: 2, message: `refused by grant: ${req.url}` };
-    const res = await fetch(req.url, { redirect: 'error', method: req.method, headers: req.headers, body: ['GET', 'HEAD'].includes(req.method) ? undefined : req.raw });
-    return { status: res.status, headers: [...res.headers], body: await boundedHttpBody(res, req.maxResponseBytes) };
-  };
+  // The host runs the request under this child's own authority. An absent
+  // request scope is therefore the Rust child set, not the mixed-app union.
+  data.fetch = createRequestExecutor(data.appId ?? meta[0], rustGrantSet, boundedHttpBody);
   // What a loaded capability needs of the module (canvas2d.js's draws).
   data.logic = { exports: e, session, writer, reader, encode, ABI };
   data.appId ??= meta[0];
+  data.grants = setAppGrantSet(tsGrantSet, rustGrantSet);
   for (const f of data.q.splice(0)) f();
 }

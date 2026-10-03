@@ -117,6 +117,8 @@ pub struct Host<D: DataSource> {
     mirror: IdMap<ViewId, Mirror>,
     keys: IdMap<NodeKey, ViewId>,
     inline_runs: IdMap<ViewId, (ViewId, Vec<EventKind>)>,
+    /// Hook words journaled as having no view here (an inline run's).
+    viewless_hooks: std::collections::BTreeSet<String>,
     /// SVG scenes and lowered CSS animations (LLP 1055 D4, D7).
     svg: svg::SvgState,
     /// 2D canvases whose replays the presenter has not caught up with: a
@@ -387,6 +389,7 @@ impl<D: DataSource> Host<D> {
             mirror: IdMap::default(),
             keys: IdMap::default(),
             inline_runs: IdMap::default(),
+            viewless_hooks: Default::default(),
             svg: svg::SvgState::new(cfg!(target_os = "ios")),
             canvas_held: IdSet::default(),
             canvas_kept: Default::default(),

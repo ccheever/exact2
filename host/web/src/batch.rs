@@ -644,6 +644,8 @@ impl Batch {
             s.push_str(",\"error\":");
             quote(&exact_runner::grants::refusal(errors), &mut s);
         }
+        s.push_str(",\"set\":");
+        s.push_str(&exact_runner::grants::normalized_json(grants));
         s.push('}');
         self.ops.push(s);
     }

@@ -283,7 +283,7 @@ if (existsSync(resolve(binaryenBin, 'wasm-opt'))) process.env.PATH = `${binaryen
 // Groups preserve capability-based shipping; none of these imports enters boot.
 const WEB_HOST_GROUPS = {
   base: ['glue.js', 'navigation.js', 'textflow-glue.js', 'timer-glue.js', 'input-glue.js',
-    'http-body.js', 'media-glue.js', 'list-selection.js', 'markup-editor.js', 'document-glue.js',
+    'http-body.js', 'grant-admission.js', 'media-glue.js', 'list-selection.js', 'markup-editor.js', 'document-glue.js',
     'motion-glue.js', 'collection-glue.js', 'canvas2d-glue.js', 'presence-glue.js', 'picker-glue.js',
     'documents-glue.js', 'auth-glue.js', 'image-glue.js', 'geometry-glue.js'],
   module: ['module-glue.js', 'module-worker.js', 'module-prelude.js'],
