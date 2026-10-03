@@ -111,40 +111,42 @@ component Forest
             text "Keep the fire lit. The Deer hunts outside its light." width="100%" text-align="center" color="#a7b0a3"
           row gap=8 align-items="center"
             text "Trees" width=64
-            button press=size(1000) testId="trees-1k" padding=10 border-radius=10 background-color=(trees == 1000 ? "#e8ad61" : "#2d3a33")
+            button press=size(1000) aria-pressed=(trees == 1000) testId="trees-1k" padding=10 border-radius=10 background-color=(trees == 1000 ? "#e8ad61" : "#2d3a33")
               text "1k"
-            button press=size(2000) testId="trees-2k" padding=10 border-radius=10 background-color=(trees == 2000 ? "#e8ad61" : "#2d3a33")
+            button press=size(2000) aria-pressed=(trees == 2000) testId="trees-2k" padding=10 border-radius=10 background-color=(trees == 2000 ? "#e8ad61" : "#2d3a33")
               text "2k"
-            button press=size(5000) testId="trees-5k" padding=10 border-radius=10 background-color=(trees == 5000 ? "#e8ad61" : "#2d3a33")
+            button press=size(5000) aria-pressed=(trees == 5000) testId="trees-5k" padding=10 border-radius=10 background-color=(trees == 5000 ? "#e8ad61" : "#2d3a33")
               text "5k"
-            button press=size(20000) testId="trees-20k" padding=10 border-radius=10 background-color=(trees == 20000 ? "#e8ad61" : "#2d3a33")
+            button press=size(20000) aria-pressed=(trees == 20000) testId="trees-20k" padding=10 border-radius=10 background-color=(trees == 20000 ? "#e8ad61" : "#2d3a33")
               text "20k"
-            button press=size(100000) testId="trees-100k" padding=10 border-radius=10 background-color=(trees == 100000 ? "#e8ad61" : "#2d3a33")
+            button press=size(100000) aria-pressed=(trees == 100000) testId="trees-100k" padding=10 border-radius=10 background-color=(trees == 100000 ? "#e8ad61" : "#2d3a33")
               text "100k"
-            button press=size(250000) testId="trees-250k" padding=10 border-radius=10 background-color=(trees == 250000 ? "#e8ad61" : "#2d3a33")
+            button press=size(250000) aria-pressed=(trees == 250000) testId="trees-250k" padding=10 border-radius=10 background-color=(trees == 250000 ? "#e8ad61" : "#2d3a33")
               text "250k"
           row gap=8 align-items="center"
             text "Wolves" width=64
-            button press=pack(8) testId="wolves-8" padding=10 border-radius=10 background-color=(wolves == 8 ? "#e8ad61" : "#2d3a33")
+            button press=pack(8) aria-pressed=(wolves == 8) testId="wolves-8" padding=10 border-radius=10 background-color=(wolves == 8 ? "#e8ad61" : "#2d3a33")
               text "8"
-            button press=pack(64) testId="wolves-64" padding=10 border-radius=10 background-color=(wolves == 64 ? "#e8ad61" : "#2d3a33")
+            button press=pack(64) aria-pressed=(wolves == 64) testId="wolves-64" padding=10 border-radius=10 background-color=(wolves == 64 ? "#e8ad61" : "#2d3a33")
               text "64"
-            button press=pack(512) testId="wolves-512" padding=10 border-radius=10 background-color=(wolves == 512 ? "#e8ad61" : "#2d3a33")
+            button press=pack(512) aria-pressed=(wolves == 512) testId="wolves-512" padding=10 border-radius=10 background-color=(wolves == 512 ? "#e8ad61" : "#2d3a33")
               text "512"
-            button press=pack(4096) testId="wolves-4096" padding=10 border-radius=10 background-color=(wolves == 4096 ? "#e8ad61" : "#2d3a33")
+            button press=pack(4096) aria-pressed=(wolves == 4096) testId="wolves-4096" padding=10 border-radius=10 background-color=(wolves == 4096 ? "#e8ad61" : "#2d3a33")
               text "4096"
           row gap=8 align-items="center"
             text "Torches" width=64
-            button press=light(0) testId="torches-0" padding=10 border-radius=10 background-color=(torches == 0 ? "#e8ad61" : "#2d3a33")
+            button press=light(0) aria-pressed=(torches == 0) testId="torches-0" padding=10 border-radius=10 background-color=(torches == 0 ? "#e8ad61" : "#2d3a33")
               text "0"
-            button press=light(16) testId="torches-16" padding=10 border-radius=10 background-color=(torches == 16 ? "#e8ad61" : "#2d3a33")
+            button press=light(16) aria-pressed=(torches == 16) testId="torches-16" padding=10 border-radius=10 background-color=(torches == 16 ? "#e8ad61" : "#2d3a33")
               text "16"
-            button press=light(64) testId="torches-64" padding=10 border-radius=10 background-color=(torches == 64 ? "#e8ad61" : "#2d3a33")
+            button press=light(64) aria-pressed=(torches == 64) testId="torches-64" padding=10 border-radius=10 background-color=(torches == 64 ? "#e8ad61" : "#2d3a33")
               text "64"
+            button press=light(256) aria-pressed=(torches == 256) testId="torches-256" padding=10 border-radius=10 background-color=(torches == 256 ? "#e8ad61" : "#2d3a33")
+              text "256"
           row gap=8
-            button press=toggleLite testId="lite" padding=10 border-radius=10 background-color=(lite ? "#e8ad61" : "#2d3a33")
+            button press=toggleLite aria-pressed=lite testId="lite" padding=10 border-radius=10 background-color=(lite ? "#e8ad61" : "#2d3a33")
               text (lite ? "Grid collision" : "Rapier collision")
-            button press=togglePrimitives testId="primitives" padding=10 border-radius=10 background-color=(primitives ? "#e8ad61" : "#2d3a33")
+            button press=togglePrimitives aria-pressed=primitives testId="primitives" padding=10 border-radius=10 background-color=(primitives ? "#e8ad61" : "#2d3a33")
               text (primitives ? "Primitive trees" : "Generated pines")
           text `${trees} trees · ${wolves} wolves · ${lite ? "grid" : "Rapier"} collision · ${primitives ? "primitive" : "generated"} trees · ${torches} torches` testId="choice" color="#a7b0a3"
           button press=play autofocus aria-label="Play" testId="play" padding=16 border-radius=12 background-color="#e8ad61"

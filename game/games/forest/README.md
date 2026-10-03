@@ -38,12 +38,13 @@ choice rebuilds the world.
   and chopping visit the 3×3 cells around a point instead of every tree. Trees are
   instances of one generated pine model, or a trunk and crown of primitives.
 - `camp.rs`: the cycle, the sky (`Environment` is written only when it changes),
-  the sun moving into a dim blue moon, and the fire's point light. Point
-  intensities are authored in the sun's units (`CANDELA`): the renderer passes
-  `PointLight.intensity` through unscaled.
+  the sun fading out under a second, unshadowed `DirectionalLight` (the moon), and
+  the fire: a shadow-casting `PointLight` whose range follows the fuel.
 - `creatures.rs`: the Deer and the wolves are state machines over grid steering.
-  The flashlight is a cone test against the player's facing; there is no spotlight,
-  so its light is a point light pushed ahead of the player.
+  The flashlight's effect is a cone test against the player's facing; its light is
+  a shadow-casting `SpotLight` from the player's chest.
+  The Deer's `Visible` is written only when it changes: a mutable borrow alone
+  makes the renderer rebuild every batch (it cost 100+ ms a frame at 100k trees).
 - `player.rs`: Rapier's `CapsuleController` against trunk colliders, or the same
   grid push-out the creatures use (`lite`), plus needs, carrying and children.
 

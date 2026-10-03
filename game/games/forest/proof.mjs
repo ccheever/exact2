@@ -28,16 +28,13 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
     return false;
   };
 
-  // One agent advance is one browser evaluation with a 15 s answer window; under the
-  // Save mode every tick round-trips a ~6 MB save, so seek one second at a time.
-  const runFor = async (g, ms) => { for (let left = ms; left > 0; left -= 1000) await g.run(Math.min(left, 1000)); };
   if (process.argv.includes('--screenshot-only')) {
     // Pixels only: a day frame, then the same camp at night with the flashlight.
     check('screenshot uses web', host === 'web');
     await s.tap('play');
     await game.run(1500);
     await s.screenshot(resolve(out, 'day.png'));
-    await runFor(game, (DAY - DAWN + 2) * 1000);
+    await game.run((DAY - DAWN + 2) * 1000);
     await game.hold('KeyW', 700);
     await game.tap('KeyF');
     await game.run(300);
@@ -55,7 +52,10 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   check('the census counts the forest', await text('census') === '2000 trees · 8 wolves', await text('census'));
 
   // Chop the tree nearest the fire.
-  const tree = await game.local_position('first-tree');
+  // Every page of the world, read at one tick: the standing tree nearest the fire.
+  const trees = (await game.snapshot({all: true})).entities.filter(e => e.components?.Tree);
+  check('every tree is readable past the first page', trees.length === 2000, trees.length);
+  const tree = trees.map(e => e.components.Transform.position).sort((a, b) => Math.hypot(a[0], a[2]) - Math.hypot(b[0], b[2]))[0];
   check('walk to the nearest tree', await walkTo(s, [tree[0], 0, tree[2] + 1.2], 0.5), await game.local_position('player'));
   await game.run(300);
   check('a tree in reach offers a chop', await text('prompt') === 'E: chop', await text('prompt'));
@@ -82,7 +82,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
 
   // Wait for dark at the fire.
   const now = (await game.snapshot()).tick / 60;
-  await runFor(game, (DAY - DAWN - now + 3) * 1000);
+  await game.run((DAY - DAWN - now + 3) * 1000);
   check('night falls', await text('day') === 'Day 1 · Night', await text('day'));
   const deer = await game.get('deer', 'Deer');
   check('the Deer stalks at night', JSON.stringify(deer).includes('Stalk'), deer);

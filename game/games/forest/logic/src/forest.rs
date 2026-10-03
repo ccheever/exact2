@@ -220,11 +220,6 @@ pub fn grow(w: &mut World, trees: u32, primitives: bool, colliders: bool) {
         grove.standing += 1;
         turns[c] = w.rand(0.0..std::f32::consts::TAU);
     }
-    // The tree nearest the fire is named so agents can find one to chop.
-    let first = (0..n).filter(|&c| grove.hp[c] > 0).min_by(|&a, &b| {
-        let r = |c: usize| grove.x[c] * grove.x[c] + grove.z[c] * grove.z[c];
-        r(a).total_cmp(&r(b))
-    });
     for c in 0..n {
         if grove.hp[c] == 0 {
             continue;
@@ -273,15 +268,6 @@ pub fn grow(w: &mut World, trees: u32, primitives: bool, colliders: bool) {
                     },
                     ..Default::default()
                 },
-            );
-        }
-        if Some(c) == first {
-            w.spawn_named(
-                "first-tree",
-                (
-                    Transform::at(grove.x[c], pose.position.y, grove.z[c]),
-                    Ambient,
-                ),
             );
         }
         grove.trunk[c] = trunk;

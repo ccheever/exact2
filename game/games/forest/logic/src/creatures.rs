@@ -172,11 +172,10 @@ pub fn step(w: &World, s: &Scene) -> Outcome {
         ..Default::default()
     };
     let outside = s.player.length() > s.safe;
-    // The Deer.
-    for (_, (pose, deer, visible)) in w
-        .query::<(&mut Transform, &mut Deer, &mut Visible)>()
-        .iter()
-    {
+    // The Deer. Visibility is written only when it changes: a mutable borrow of
+    // `Visible` alone tells the renderer to rebuild every batch.
+    let mut show = None;
+    for (e, (pose, deer)) in w.query::<(&mut Transform, &mut Deer)>().iter() {
         if !s.night {
             if deer.mind != Mind::Hidden {
                 *deer = Deer {
@@ -184,7 +183,7 @@ pub fn step(w: &World, s: &Scene) -> Outcome {
                     strikes: deer.strikes,
                     ..Default::default()
                 };
-                visible.0 = false;
+                show = Some((e, false));
                 pose.position.y = -50.0;
             }
             continue;
@@ -196,7 +195,7 @@ pub fn step(w: &World, s: &Scene) -> Outcome {
             let (x, z) = g.resolve(at.x, at.z, 0.5);
             pose.position = Vec3::new(x, height(x, z) + 1.6, z);
             deer.mind = Mind::Stalk;
-            visible.0 = true;
+            show = Some((e, true));
         }
         let to = planar(s.player - pose.position);
         let d = to.length();
@@ -272,6 +271,9 @@ pub fn step(w: &World, s: &Scene) -> Outcome {
         if deer.mind != Mind::Stunned {
             pose.rotation = Quat::from_rotation_y(deer.heading);
         }
+    }
+    if let Some((e, shown)) = show {
+        w.get_mut::<Visible>(e).unwrap().0 = shown;
     }
     // Wolves.
     for (_, (pose, wolf)) in w.query::<(&mut Transform, &mut Wolf)>().iter() {

@@ -9,9 +9,6 @@ pub const PERIOD: f32 = DAY + NIGHT;
 const DUSK: f32 = 10.0;
 const DAWN: f32 = 8.0;
 pub const MAX_FUEL: f32 = 100.0;
-/// The renderer scales the sun's lux by 0.0003 but passes PointLight "candela"
-/// through unscaled, so point intensities are authored in the sun's units here.
-pub const CANDELA: f32 = 0.0003;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Resource)]
 pub struct Cycle {
@@ -128,16 +125,30 @@ pub fn build(w: &mut World) {
             DirectionalLight::default(),
         ),
     );
+    // The second directional light is an unshadowed fill: the moon.
+    w.spawn_named(
+        "moon",
+        (
+            Transform::at(-21.0, 51.0, -24.0).looking_at(Vec3::ZERO, Vec3::Y),
+            DirectionalLight {
+                color: [0.55, 0.65, 1.0],
+                illuminance: 0.0,
+                shadows: false,
+            },
+        ),
+    );
     w.spawn_named(
         "fire",
         (
-            // High enough that the ground at the edge of the light is not grazed.
+            // High enough that the ground at the edge of the light is not grazed,
+            // and above the flame so the trees, not the logs, throw the shadows.
             Transform::at(0.0, 3.0, 0.0),
             PointLight {
                 color: [1.0, 0.55, 0.2],
                 intensity: 0.0,
                 range: 1.0,
             },
+            LightShadows,
         ),
     );
     w.spawn_named(
@@ -213,7 +224,7 @@ pub fn torches(w: &mut World, count: u32) {
             },
             PointLight {
                 color: [1.0, 0.6, 0.25],
-                intensity: 2000.0 * CANDELA * 25.0,
+                intensity: 50_000.0,
                 range: 8.0,
             },
         ));
@@ -250,22 +261,27 @@ pub fn step(w: &mut World, player: Vec3) -> bool {
     let sun_angle = (t / DAY).clamp(0.0, 1.0) * std::f32::consts::PI;
     let (s, c) = math::sin_cos(sun_angle);
     let sun = Vec3::new(c * 0.8, s.max(0.08) * 1.2, 0.35).normalize();
-    let moon = Vec3::new(-0.35, 0.85, -0.4).normalize();
-    let toward = sun.lerp(moon, dark).normalize();
     *w.require_mut::<Transform>("sun") = Transform::at(
-        player.x + toward.x * 60.0,
-        toward.y * 60.0,
-        player.z + toward.z * 60.0,
+        player.x + sun.x * 60.0,
+        sun.y * 60.0,
+        player.z + sun.z * 60.0,
     )
     .looking_at(Vec3::new(player.x, 0.0, player.z), Vec3::Y);
     {
+        // The sun fades out at dusk; its shadows stop once it no longer lights anything.
         let mut light = w.require_mut::<DirectionalLight>("sun");
-        let day_lux = 9000.0 * (0.35 + 0.65 * s.max(0.0));
-        let next = math::lerp(day_lux, 500.0, dark);
-        let color = mix3([1.0, 0.94, 0.85], [0.55, 0.65, 1.0], dark);
-        if light.illuminance != next || light.color != color {
+        let next = 9000.0 * (0.35 + 0.65 * s.max(0.0)) * (1.0 - dark);
+        let shadows = dark < 0.95;
+        if light.illuminance != next || light.shadows != shadows {
             light.illuminance = next;
-            light.color = color;
+            light.shadows = shadows;
+        }
+    }
+    {
+        let mut moon = w.require_mut::<DirectionalLight>("moon");
+        let next = 900.0 * dark;
+        if moon.illuminance != next {
+            moon.illuminance = next;
         }
     }
     // The fire: light radius follows fuel; intensity keeps the edge equally lit.
@@ -273,7 +289,7 @@ pub fn step(w: &mut World, player: Vec3) -> bool {
         let mut light = w.require_mut::<PointLight>("fire");
         light.range = radius * 1.7 + 0.01;
         light.intensity = if radius > 0.0 {
-            3000.0 * CANDELA * radius * radius
+            3000.0 * radius * radius
         } else {
             0.0
         };

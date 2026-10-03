@@ -1,5 +1,5 @@
 //! The player's body and needs, the things they carry, and the lost children.
-use crate::camp::{Fire, CANDELA, MAX_FUEL};
+use crate::camp::{Fire, MAX_FUEL};
 use crate::forest::{self, height, Grove};
 use exact_game::motion::{Gravity, Move};
 use exact_game::*;
@@ -9,6 +9,7 @@ pub const PACK: usize = 5;
 const CHOP_REACH: f32 = 1.4;
 const PICK_REACH: f32 = 1.8;
 const FIRE_REACH: f32 = 3.6;
+const FLASH_RANGE: f32 = 18.0;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Data)]
 pub enum Kind {
@@ -139,11 +140,14 @@ pub fn spawn(w: &mut World, colliders: bool, children: u32) {
         "flashlight",
         (
             Transform::at(0.0, 1.2, 0.0),
-            PointLight {
+            SpotLight {
                 color: [1.0, 0.95, 0.8],
                 intensity: 0.0,
-                range: 10.0,
+                range: FLASH_RANGE,
+                inner: 0.25,
+                outer: 0.5,
             },
+            LightShadows,
         ),
     );
     w.spawn_named(
@@ -379,8 +383,8 @@ pub fn walk(w: &mut World, wish: Vec3, colliders: bool, safe: f32) {
     }
 }
 
-/// Place the flashlight's light ahead of the player. There is no spotlight, so
-/// the beam is a point light pushed forward along the facing.
+/// The flashlight: a shadowed spot at chest height along the facing, tipped down
+/// to meet the ground ahead.
 pub fn flashlight(w: &mut World, toggle: bool) {
     let (on, facing) = {
         let mut p = w.require_mut::<Player>("player");
@@ -390,9 +394,10 @@ pub fn flashlight(w: &mut World, toggle: bool) {
         (p.flashlight, p.facing)
     };
     let at = w.require::<Transform>("player").position;
-    let mut t = w.require_mut::<Transform>("flashlight");
-    t.position = at + facing * 4.0 + Vec3::Y * 1.6;
-    w.require_mut::<PointLight>("flashlight").intensity = if on { 30_000.0 * CANDELA } else { 0.0 };
+    let from = at + facing * 0.4 + Vec3::Y * 0.5;
+    *w.require_mut::<Transform>("flashlight") = Transform::at(from.x, from.y, from.z)
+        .looking_at(at + facing * 12.0 - Vec3::Y * 0.6, Vec3::Y);
+    w.require_mut::<SpotLight>("flashlight").intensity = if on { 250_000.0 } else { 0.0 };
 }
 
 /// Lost children wait; followers trail the player and are rescued in the light.

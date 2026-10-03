@@ -324,3 +324,69 @@ turns derived from their own state. No `HashMap`; no lint fired.
   byte-identically in a fresh process mid-night on the first try.
 - **The fire's light, fog and bloom at night** look like the game with no shader
   work: see `artifacts/screens/night-2k-deer-stunned.png`.
+
+## After the fix lane (2026-10-03, `roblox/integrate` merged at 470dc4c4)
+
+The engine lanes landed photometric light units, `SpotLight`, `LightShadows`,
+clustered local lights past 16, a second `DirectionalLight` as fill, SSAO,
+incremental physics colliders with static-collider holes in saves, per-page feed
+and observation, columnar saves (EXGAME v4), a sampled Save proof mode,
+self-chunking seeks, paged `state`/`snapshot({all})`, readable resources and
+`aria-pressed`. The game was adapted, not redesigned:
+
+- `CANDELA` is gone; point and spot intensities are plain candela again.
+- The flashlight is a `SpotLight` (inner 0.25, outer 0.5 rad, 18 m, 250,000 cd)
+  from the player's chest, tipped toward the ground 12 m ahead, with
+  `LightShadows`. The campfire's point light has `LightShadows` too: the player,
+  logs and stones throw shadows away from the fire by day and night. The moon is a
+  second, unshadowed `DirectionalLight` (900 lux at night); the sun fades out and
+  drops its shadows after dusk.
+- The proof no longer chunks seeks, finds the nearest tree by reading every page
+  of the world (`snapshot({all: true})`, 2,000 trees) instead of a named
+  `first-tree` marker entity, which is gone; title toggles carry `aria-pressed`.
+  A `torches-256` choice was added.
+- **A correction to limit 4.** After the merge the web feed was still 31–47 ms at
+  20k pines and 330 ms at 100k–250k, though the engine's own `feed_cpu_cost`
+  measures 0.008 ms for 200k static primitives. The cause was the game: the Deer's
+  loop queried `&mut Visible` every tick, and a mutable borrow alone advances the
+  column's revision, so the renderer rebuilt every batch every tick. Writing
+  `Visible` only when it changes took the feed to 0.13–2.2 ms. Most of what limit 4
+  attributed to `model_poses` before the fix lane was this; the README now says so.
+  The engine lesson stands as friction: nothing warns that a `&mut` query term on a
+  render-relevant column costs O(world) per tick even when no value changes.
+
+Before → after, same machine and probes (native: `scale.rs`, release, live clock;
+web: `bench.mjs`, headless Chrome, load 10–28, interleaved where it mattered):
+
+| measurement | before | after |
+|---|---|---|
+| Rapier tick, native, 1k / 5k / 20k / 100k trees (mean; p50) | 0.82 / 5.1 / 24.2 / — ms | 0.25 / 0.11 / 0.91 / 5.1 ms; p50 0.07 / 0.07 / 0.17 / 0.61 |
+| grid-collision tick, native, 1k / 20k / 100k / 250k | 0.021 / 0.085 / 0.43 / — ms | 0.019 / 0.093 / 1.25 / 2.4 ms (p50 0.46 / 1.12 at 100k / 250k; load 37) |
+| Rapier tick, web, 1k / 5k / 20k | 1.25 / 5.75 / 24.0 ms | 0.20 / 0.21 / 0.30 ms |
+| save, Rapier, 1k / 5k / 20k / 100k | 3.0 / 14.8 / 58.5 / — MB | 0.43 / 2.0 / 7.4 / 36.8 MB |
+| save, grid, 1k / 5k / 20k / 100k / 250k | 0.27 / 1.19 / 4.16 / 20.2 / 50.3 MB | 0.15 / 0.62 / 1.88 / 8.7 / 21.4 MB |
+| one seekable `Sim::run` tick, grid, 1k / 20k / 100k | 1.6 / 26.8 / 124.7 ms | 0.24 / 0.83 / 8.6 ms |
+| web feed per frame, 5k / 20k / 100k / 250k pines | 5–6 / 58–65 / 102 / 260 ms | 0.13 / 0.21 / 0.84 / 2.2 ms |
+| web feed, 100k primitive trees (204k entities) | 131 ms | 1.1 ms |
+| web tick + feed + encode per frame, 250k pines | ~275 ms (15 ticks/frame) | ~13 ms (4.6 ticks × 2.2 + 2.2 + 0.75) |
+| web, 5k trees + 4,096 wolves | tick 2.9, feed 9.1 ms | tick 2.6, feed 7.8 ms (before the `Visible` fix) |
+| local lights, 2k trees, forward pass: fire only / 16 / 64 / 256 torches | 4.4 / 5.1 / 5.1 (16 drawn) / — ms | 5.2 / 6.3–7.3 / 6.0–7.0 / 5.5–8.6 ms, all drawn; encode 0.44 → 2.0 ms at 256 |
+| Linux proof, Off / Save mode | 15 / 205–310 s | 3.3 / 19.9 s (13.2 / 23.1 s with a GPU rebuild) |
+| web proof, Off / Save mode (incl. build) | 117 / 507 s | 87–101 / 149 s |
+| hostless tests (9) | 8.6–30 s | 0.3–1.0 s |
+
+Rapier now costs about what the grid does per tick (0.17 vs 0.10 ms p50 at 20k)
+and stays the default; its saves remain 4× the grid's (36.8 vs 8.7 MB at 100k), so
+the 16 MiB surface limit now arrives at about 45k Rapier trees or 190k grid trees.
+A native full `World::hash` of a Rapier world is still slow (660 ms at 100k, 0.05 ms
+without Rapier), though seeks no longer pay it. The flashlight's shadowed spot
+and the fire's shadows show in `artifacts/screens/night-camp-after.png` and
+`day-camp-after.png`; the stunned Deer in `night-2k-deer-stunned-after.png`. Local
+shadow views have no row of their own in `world.gpuMs`, so their cost is folded
+into the forward pass above. SSAO was not tried.
+
+Pins: the merge moved every hash (paged hash, EXGAME v4, EXPHYS v3), and the game's
+changes (no marker entity, the moon, the `Visible` write) moved them again. Linux
+and web agree with each other in every run (tick 0 `0x9fa895b6db68d24f` in the last
+web Save-mode run), and every gameplay check passes; only the three pin checks
+fail. Not re-pinned, as asked.
