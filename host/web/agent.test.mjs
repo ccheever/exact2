@@ -1129,3 +1129,37 @@ test('tree --ax: parity reports a state one side can observe and does not, befor
   // disabled is reported only when true: its absence on both sides agrees.
   expect(axParity(web, axReply([el(0, 'heading', 'Section', { testId: 'h', states: { level: 2 } }), el(1, 'checkbox', 'C', { testId: 'c', states: { checked: false } })])).findings).toEqual([]);
 });
+
+// Astra's round 2 (llp/reviews/code-2026-10-03-1080.002-ax-tree-r2.astra.md): 3 and 4.
+test('tree --ax: parity compares expanded where a side reports it, and AppKit\'s true-only report', () => {
+  const web = axReply([el(0, 'button', 'Toggle', { testId: 'toggle', states: { expanded: true } }), el(1, 'button', 'Other', { testId: 'other', states: { expanded: false } })]);
+  const ios = axReply([el(0, 'button', 'Toggle', { testId: 'toggle', states: { expanded: false }, native: { role: ['button'] } }), el(1, 'button', 'Other', { testId: 'other', states: { expanded: false }, native: { role: ['button'] } })], { source: 'uikit' });
+  expect(axParity(web, ios).findings.map(f => f.detail)).toEqual(['expanded true (web) vs false (uikit)']);
+  const mac = axReply([el(0, 'button', 'Toggle', { testId: 'toggle', native: { role: 'AXButton' } }), el(1, 'button', 'Other', { testId: 'other', native: { role: 'AXButton' } })], { source: 'appkit' });
+  expect(axParity(web, mac).findings.map(f => f.detail)).toEqual(['expanded true (web) vs not reported (appkit)']);
+  const agree = axReply([el(0, 'button', 'Toggle', { testId: 'toggle', states: { expanded: true }, native: { role: 'AXButton' } }), el(1, 'button', 'Other', { testId: 'other', native: { role: 'AXButton' } })], { source: 'appkit' });
+  expect(axParity(web, agree).findings).toEqual([]);
+});
+
+test('tree --ax: sixty long guest-frame URLs still leave a reply within 256 KB, their truncation counted', async () => {
+  const docs = Array.from({ length: 61 }, (_, k) => ({ documentURL: k + 2, nodes: { backendNodeId: [], attributes: [], parentIndex: [], nodeType: [], nodeName: [] }, layout: { nodeIndex: [], bounds: [] } }));
+  const strings = ['data-agent-view', '1', ...Array.from({ length: 61 }, (_, k) => `https://example.com/${k}/` + 'x'.repeat(5000))];
+  docs[0] = { nodes: { backendNodeId: [100], attributes: [[0, 1]], parentIndex: [-1], nodeType: [1], nodeName: [0] }, layout: { nodeIndex: [], bounds: [] } };
+  const snapshot = { strings, documents: docs };
+  const carrier = { browser: 'chrome', axEnabled: 'Chrome 1', async evaluate() { return 'Chrome/1'; },
+    async call(m) { return m === 'Accessibility.getFullAXTree' ? { nodes: [{ nodeId: 'r', role: { value: 'RootWebArea' }, childIds: ['b'] }, button] } : snapshot; },
+    async ask() { return { nonce: 1, epoch: 1, incarnation: 1, clock: 0 }; } };
+  const { reply } = await webAx(carrier, {}, async () => ({ epoch: 1, incarnation: 1, nodes: [{ id: 1, props: {}, children: [] }] }));
+  const r = axFinish(reply, { nodes: [{ id: 1, props: {}, children: [] }] }, null);
+  expect(Buffer.byteLength(JSON.stringify(r))).toBeLessThanOrEqual(256 * 1024);
+  expect(r.ax.coverage.excluded.length).toBe(8);
+  expect(r.ax.coverage.excludedMore).toBe(52);
+  expect(r.ax.coverage.excluded.every(x => x.frame.length <= 200)).toBe(true);
+  expect(r.ax.coverage.complete).toBe(false);
+  expect(r.ax.elements.length).toBe(1);
+  // And a reply whose metadata alone is too big gives the metadata up, counted, never the bound.
+  const huge = axReply([], { coverage: { roots: ['document'], complete: true, visited: 0, excluded: Array.from({ length: 60 }, () => ({ frame: 'x'.repeat(5000), reason: 'r' })) } });
+  const h = axFinish(huge, { nodes: [] }, null);
+  expect(Buffer.byteLength(JSON.stringify(h))).toBeLessThanOrEqual(256 * 1024);
+  expect(h.ax.truncated.excluded).toBe(60);
+});

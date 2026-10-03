@@ -123,8 +123,17 @@ final class AccessibilityTreeIOSTests: XCTestCase {
     func testATargetScopesTheReplyAndTheWireRefusesWhatD1Refuses() throws {
         let p = try fixture()
         let box = try XCTUnwrap(p.views[4])
-        let ax = p.axElements(roots: [p.viewport], scope: box)
-        XCTAssertEqual(elements(ax).compactMap { $0["testId"] as? String }, ["inside"])
+        _ = box
+        // A projected element (a swipe cell, here a declared owner) lives
+        // outside its view's subtree; the scope is the joined ids, so it stays.
+        final class Projected: UIAccessibilityElement, AgentOwned { var agentViewId: UInt32? { 5 } }
+        let projected = Projected(accessibilityContainer: try XCTUnwrap(p.views[2]))
+        projected.isAccessibilityElement = true
+        projected.accessibilityLabel = "Projected"
+        p.views[2]?.isAccessibilityElement = false
+        p.views[2]?.accessibilityElements = [projected]
+        let ax = p.axElements(roots: [p.viewport], scope: [4, 5])
+        XCTAssertEqual(Set(elements(ax).compactMap { $0["name"] as? String }), ["Inside", "Projected"])
         XCTAssertNotNil(ax["ancestors"])
         let session = ExactApp.shared.makeSession(label: "ax-wire")
         defer { session.destroy() }

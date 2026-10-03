@@ -79,8 +79,22 @@ final class AccessibilityTreeMacTests: XCTestCase {
 
     func testATargetScopesTheReply() throws {
         let p = try fixture()
-        let ax = p.axElements(roots: [p.viewport], scope: try XCTUnwrap(p.views[2]))
+        let ax = p.axElements(roots: [p.viewport], scope: [2])
         XCTAssertEqual(elements(ax).compactMap { $0["testId"] as? String }, ["named"])
+    }
+
+    /// D3: a sheet is this session's only when it holds this session's views;
+    /// another session's (or the host app's) sheet is foreign and not walked.
+    func testOnlyASheetHoldingTheSessionsViewsIsItsOwn() throws {
+        let p = try fixture(), other = Presenter()
+        let foreign = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        foreign.contentView = other.viewport
+        guard case .foreign = p.axSheet(foreign) else { return XCTFail("another presenter's sheet is foreign") }
+        guard case .owned = other.axSheet(foreign) else { return XCTFail("a sheet holding the presenter's viewport is its own") }
+        let mine = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: false)
+        mine.contentView?.addSubview(try XCTUnwrap(p.views[3]))
+        guard case .owned = p.axSheet(mine) else { return XCTFail("a sheet holding one of the presenter's views is its own") }
+        guard case .none = p.axSheet(nil) else { return XCTFail("no sheet") }
     }
 }
 #endif

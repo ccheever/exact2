@@ -6,7 +6,7 @@
 // Observations only: Chrome's names and roles are kept as Chrome gives them.
 
 const ROLES_INTERACTIVE = new Set(['button', 'link', 'textbox', 'searchbox', 'checkbox', 'switch', 'slider', 'tab', 'menuitem', 'combobox', 'option']);
-const FIELD = 200, BYTES = 256 * 1024, DEPTH = 64;
+const FIELD = 200, BYTES = 256 * 1024, DEPTH = 64, EXCLUDED = 8;
 
 /** A request's `limit`, validated (D7): an integer 1–2000, 500 when absent. */
 export function axLimit(limit) {
@@ -132,9 +132,12 @@ function collectWeb(nodes, snapshot, limit) {
     for (const c of n.childIds ?? []) { const child = byId.get(c); if (child) walk(child, me, depth + 1); }
   };
   if (root) walk(root, null, 0);
-  const excluded = snapshot.documents.length > 1 ? snapshot.documents.slice(1).map(d => ({ frame: str(d.documentURL), reason: 'frame-scoped AX tree; the carrier attaches one page target' })) : [];
+  // Guest frames are named, each URL cut and at most EXCLUDED of them; the rest are counted.
+  const frames = snapshot.documents.slice(1);
+  const excluded = frames.slice(0, EXCLUDED).map(d => ({ frame: cut(str(d.documentURL), truncated), reason: 'frame-scoped AX tree; the carrier attaches one page target' }));
   const ax = { source: 'chrome-cdp', platform: '', order: 'tree',
-    coverage: { roots: ['document'], complete: more === 0 && cutoff === 0, visited, ...(excluded.length ? { excluded } : {}) },
+    coverage: { roots: ['document'], complete: more === 0 && cutoff === 0 && frames.length === 0, visited, ...(excluded.length ? { excluded } : {}),
+      ...(frames.length > EXCLUDED ? { excludedMore: frames.length - EXCLUDED } : {}) },
     modal, elements };
   // A depth cutoff leaves descendants unread and uncounted: the remainder is unknown.
   if (more || cutoff || truncated.fields) ax.truncated = { elements: cutoff ? 'unknown' : more, fields: truncated.fields };
@@ -181,20 +184,32 @@ export function axFinish(reply, tree, target) {
     ax.findings = all.filter(f => kept.has(f.i));
   };
   settle();
-  // The serialized UTF-8 budget (D7): drop elements from the end until it fits.
+  // The serialized UTF-8 budget (D7), measured with every field the reply
+  // will carry, truncation included: elements go from the end; then the
+  // metadata (excluded frames, the ancestor chain) gives way, counted.
+  const size = () => Buffer.byteLength(JSON.stringify(reply));
+  const base = typeof ax.truncated?.elements === 'number' ? ax.truncated.elements : ax.truncated?.elements;
   let dropped = 0;
-  while (ax.elements.length && Buffer.byteLength(JSON.stringify(reply)) > BYTES) {
-    const over = Buffer.byteLength(JSON.stringify(reply)) - BYTES;
-    const n = Math.max(1, Math.min(ax.elements.length, Math.ceil(over / 200)));
+  const mark = () => {
+    ax.truncated = { ...(ax.truncated ?? { fields: 0 }), elements: typeof base === 'string' ? base : (base ?? 0) + dropped };
+    ax.coverage.complete = false;
+  };
+  while (ax.elements.length && size() > BYTES) {
+    const n = Math.max(1, Math.min(ax.elements.length, Math.ceil((size() - BYTES) / 200)));
     ax.elements = ax.elements.slice(0, ax.elements.length - n);
     dropped += n;
     settle();
+    mark();
   }
-  if (dropped) {
-    ax.truncated ??= { elements: 0, fields: 0 };
-    ax.truncated.elements = typeof ax.truncated.elements === 'number' ? ax.truncated.elements + dropped : 'unknown';
+  for (const key of ['excluded', 'ancestors']) {
+    if (size() <= BYTES) break;
+    const holder = key === 'excluded' ? ax.coverage : ax;
+    if (!holder[key]?.length) continue;
+    ax.truncated = { ...(ax.truncated ?? { elements: 0, fields: 0 }), [key]: holder[key].length };
+    holder[key] = [];
     ax.coverage.complete = false;
   }
+  if (size() > BYTES) throw new Error(`tree --ax: the reply cannot be bounded to ${BYTES} bytes`);
   return reply;
 }
 
@@ -247,9 +262,13 @@ export function axRole(e, source) {
 // The states each source can observe, and the roles a state applies to (D6).
 // `disabled` is reported only when true on every source, so absence is its false;
 // `checked` and `level` are always reported where they apply, so absence is missing.
-const CAN = { 'chrome-cdp': ['checked', 'level', 'disabled'], uikit: ['checked', 'disabled'], appkit: ['checked', 'level', 'disabled'] };
-const APPLIES = { checked: r => r === 'checkbox', level: r => r === 'heading', disabled: () => true };
+// `expanded` is reported where a control has it (Chrome's aria-expanded, UIKit's
+// accessibilityExpandedStatus); AppKit's accessor cannot tell false from
+// unsupported, so the AppKit walk reports it only when true (TRUE_ONLY).
+const CAN = { 'chrome-cdp': ['checked', 'level', 'disabled', 'expanded'], uikit: ['checked', 'disabled', 'expanded'], appkit: ['checked', 'level', 'disabled', 'expanded'] };
+const APPLIES = { checked: r => r === 'checkbox', level: r => r === 'heading', disabled: () => true, expanded: () => true };
 const ABSENT_IS_FALSE = new Set(['disabled']);
+const TRUE_ONLY = { appkit: new Set(['expanded']) };
 const checkedOf = (e, source) => source === 'uikit' && (e.value === 'checked' || e.value === 'unchecked') ? e.value === 'checked' : e.states?.checked;
 
 /** Parity against the web by unique testId (D6): role, name, and the states
@@ -280,6 +299,10 @@ export function axParity(web, other, testIds) {
       if (!APPLIES[s](rx) || !APPLIES[s](ry)) continue;
       let vx = s === 'checked' ? checkedOf(x, sa) : x.states?.[s], vy = s === 'checked' ? checkedOf(y, sb) : y.states?.[s];
       if (ABSENT_IS_FALSE.has(s)) { vx ??= false; vy ??= false; }
+      // Expanded applies where either side reports it.
+      if (s === 'expanded' && vx == null && vy == null) continue;
+      // A true-only report: absence is "not true", which agrees with false.
+      if (TRUE_ONLY[sb]?.has(s) && vy == null) { if (vx === true) findings.push({ kind: 'parity', testId: t, detail: `${s} true (web) vs not reported (${sb})` }); continue; }
       if (vx == null || vy == null) findings.push({ kind: 'parity', testId: t, detail: `${s} missing on ${vx == null ? 'web' : sb} (${vx ?? '—'} vs ${vy ?? '—'})` });
       else if (vx !== vy) findings.push({ kind: 'parity', testId: t, detail: `${s} ${vx} (web) vs ${vy} (${sb})` });
     }

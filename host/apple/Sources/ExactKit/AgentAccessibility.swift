@@ -9,10 +9,8 @@
 // The driver adds the views' intent and the findings (`scripts/agent-ax.mjs`).
 #if os(macOS)
 import AppKit
-typealias AxView = NSView
 #else
 import UIKit
-typealias AxView = UIView
 #endif
 
 /// An accessibility object standing for one Exact view it is not itself:
@@ -32,19 +30,29 @@ extension Agent {
             limit = i
         }
         if let raw = req["excluded"], !(raw is Bool) || CFGetTypeID(raw as CFTypeRef) != CFBooleanGetTypeID() { return ["error": "tree --ax: excluded is a boolean"] }
-        var scope: AxView?
+        // A target is resolved through the runner's logical tree (inline runs
+        // included), and the reply keeps the elements joined to its subtree's
+        // ids, wherever the host projected them.
+        var scope: Set<UInt32>?
         if let target = req["target"] {
-            let id = (target as? NSNumber).flatMap { UInt32(exactly: $0.doubleValue) }
-            let found = id.flatMap { presenter.views[$0] } ?? (target as? String).flatMap { t in presenter.views.values.filter { $0.props["testId"] == t }.min { $0.id < $1.id } }
-            guard let found else { return ["error": "no view matches \(target)"] }
-            scope = found
+            guard target is NSNumber || target is String,
+                  let data = try? JSONSerialization.data(withJSONObject: ["op": "tree", "target": target]),
+                  let tree = try? JSONSerialization.jsonObject(with: Data(session.agent(String(decoding: data, as: UTF8.self)).utf8)) as? [String: Any] else {
+                return ["error": "no view matches \(target)"]
+            }
+            if let error = tree["error"] { return ["error": error] }
+            scope = Set((tree["nodes"] as? [[String: Any]] ?? []).compactMap { ($0["id"] as? NSNumber).map { $0.uint32Value } })
         }
         guard let view = session.view, view.window != nil else { return tagged(["ax": ["unavailable": true, "reason": "unmounted"]]) }
         let session = self.session
         var limits: [[String: Any]] = []
         var modalRoot: AnyObject?
         #if os(macOS)
-        if let sheet = view.window?.attachedSheet, let content = sheet.contentView { modalRoot = content }
+        switch presenter.axSheet(view.window?.attachedSheet) {
+        case .owned(let content): modalRoot = content
+        case .foreign: limits.append(["root": "sheet", "reason": "a sheet this session cannot be shown to own blocks its window; it is not walked"])
+        case .none: break
+        }
         if presenter.toolbar.projected, view.window?.toolbar != nil {
             limits.append(["root": "toolbar", "reason": "the window toolbar this session projected is not walked; its commands' authored views are hidden"])
         }
@@ -63,7 +71,7 @@ extension Agent {
         while let s = v?.superview, !(s is UIWindow) { v = s }
         if let top = v, top !== view, !view.isDescendant(of: top), !top.isDescendant(of: view) { roots.append(top) }
         #else
-        if let sheet = view.window?.attachedSheet, let content = sheet.contentView { roots.append(content) }
+        if case .owned(let content) = presenter.axSheet(view.window?.attachedSheet) { roots.append(content) }
         #endif
         return roots
     }
@@ -90,8 +98,8 @@ extension Presenter {
     /// The elements under `roots`, the platform's facts each (D2, D7);
     /// `foreign` names another session's surface, where the walk stops;
     /// `modalRoot` is a presentation the platform makes modal (an AppKit sheet);
-    /// `scope` keeps the elements of one view's subtree, with the chain above.
-    func axElements(roots: [AnyObject], limit: Int = 500, excluded: Bool = false, scope: AxView? = nil, modalRoot: AnyObject? = nil,
+    /// `scope` keeps the elements joined to those ids, with the chain above.
+    func axElements(roots: [AnyObject], limit: Int = 500, excluded: Bool = false, scope: Set<UInt32>? = nil, modalRoot: AnyObject? = nil,
                     limits: [[String: Any]] = [], foreign: @escaping (AnyObject) -> Bool = { _ in false }) -> [String: Any] {
         // A scroll view's indicators and other unexposed views cost visits too.
         var w = AxWalk(limit: limit, budget: 5 * limit + 64, excluded: excluded, foreign: foreign, modalRoot: modalRoot, limits: limits)
@@ -118,7 +126,7 @@ extension Presenter {
         var elements = w.elements
         var ancestors: [[String: Any]] = []
         if let scope {
-            let kept = w.objects.indices.filter { k in axHome(w.objects[k]).map { $0 === scope || $0.isDescendant(of: scope) } ?? false }
+            let kept = w.elements.indices.filter { k in (w.elements[k]["id"] as? UInt32).map(scope.contains) ?? false }
             if let first = kept.first {
                 var p = w.elements[first]["parent"] as? Int
                 while let k = p { ancestors.insert(["i": k, "id": w.elements[k]["id"] ?? NSNull(), "role": w.elements[k]["role"] ?? "", "name": w.elements[k]["name"] ?? ""], at: 0); p = w.elements[k]["parent"] as? Int }
@@ -236,20 +244,20 @@ extension Presenter {
     /// control has none, and its accessor's default `false` is not a state.
     struct AxFacts {
         var role: String?, subrole: String?, label: String?, title: String?, help: String?, value: Any?
-        var enabled = true, focused = false, selected = false, element = false
+        var enabled = true, focused = false, selected = false, element = false, expanded = false
         var frame: NSRect = .zero, identifier: String?, children: [Any] = []
     }
     static func axFacts(_ obj: AnyObject) -> AxFacts? {
         if let v = obj as? NSView {
             return AxFacts(role: v.accessibilityRole()?.rawValue, subrole: v.accessibilitySubrole()?.rawValue, label: v.accessibilityLabel(), title: v.accessibilityTitle(),
                            help: v.accessibilityHelp(), value: v.accessibilityValue(), enabled: v.accessibilityAttributeValue(.enabled) as? Bool ?? true, focused: v.isAccessibilityFocused(),
-                           selected: v.isAccessibilitySelected(), element: v.isAccessibilityElement(), frame: v.accessibilityFrame(), identifier: v.accessibilityIdentifier(),
+                           selected: v.isAccessibilitySelected(), element: v.isAccessibilityElement(), expanded: v.isAccessibilityExpanded(), frame: v.accessibilityFrame(), identifier: v.accessibilityIdentifier(),
                            children: v.accessibilityChildrenInNavigationOrder() ?? v.accessibilityChildren() ?? [])
         }
         if let e = obj as? NSAccessibilityElement {
             return AxFacts(role: e.accessibilityRole()?.rawValue, subrole: e.accessibilitySubrole()?.rawValue, label: e.accessibilityLabel(), title: e.accessibilityTitle(),
                            help: e.accessibilityHelp(), value: e.accessibilityValue(), enabled: e.accessibilityAttributeValue(.enabled) as? Bool ?? true, focused: e.isAccessibilityFocused(),
-                           selected: e.isAccessibilitySelected(), element: e.isAccessibilityElement(), frame: e.accessibilityFrame(), identifier: e.accessibilityIdentifier(),
+                           selected: e.isAccessibilitySelected(), element: e.isAccessibilityElement(), expanded: e.isAccessibilityExpanded(), frame: e.accessibilityFrame(), identifier: e.accessibilityIdentifier(),
                            children: e.accessibilityChildrenInNavigationOrder() ?? e.accessibilityChildren() ?? [])
         }
         guard let o = obj as? NSObject else { return nil }
@@ -263,8 +271,18 @@ extension Presenter {
         }
         return AxFacts(role: a("AXRole") as? String, subrole: a("AXSubrole") as? String, label: a("AXDescription") as? String, title: a("AXTitle") as? String,
                        help: a("AXHelp") as? String, value: a("AXValue"), enabled: a("AXEnabled") as? Bool ?? true, focused: a("AXFocused") as? Bool ?? false,
-                       selected: a("AXSelected") as? Bool ?? false, element: !o.accessibilityIsIgnored(), frame: frame, identifier: a("AXIdentifier") as? String,
+                       selected: a("AXSelected") as? Bool ?? false, element: !o.accessibilityIsIgnored(), expanded: a("AXExpanded") as? Bool ?? false, frame: frame, identifier: a("AXIdentifier") as? String,
                        children: a("AXChildren") as? [Any] ?? [])
+    }
+    enum AxSheet { case none, owned(NSView), foreign }
+    /// A sheet attached to the window is this session's only when its
+    /// content holds this presenter's own views (D3); any other sheet blocks
+    /// the window and is someone else's.
+    func axSheet(_ sheet: NSWindow?) -> AxSheet {
+        guard let sheet else { return .none }
+        guard let content = sheet.contentView else { return .foreign }
+        let mine = viewport.window === sheet || views.values.contains { $0.window === sheet }
+        return mine ? .owned(content) : .foreign
     }
     private func children(of obj: AnyObject, into w: inout AxWalk) -> [AnyObject] {
         let all = NSAccessibility.unignoredChildren(from: Self.axFacts(obj)?.children ?? [])
@@ -305,6 +323,9 @@ extension Presenter {
         if secure { states["protected"] = true }
         if traits.contains(.notEnabled) { states["disabled"] = true }
         if traits.contains(.selected) { states["selected"] = true }
+        if #available(iOS 18, *) {
+            switch o.accessibilityExpandedStatus { case .expanded: states["expanded"] = true; case .collapsed: states["expanded"] = false; default: break }
+        }
         let editable = obj is UITextField || obj is UITextView
         e["role"] = forced ?? (editable ? "textbox" : names.contains("button") && (value == "checked" || value == "unchecked") ? "checkbox"
             : names.contains("link") ? "link" : names.contains("header") ? "heading" : names.contains("searchField") ? "searchbox"
@@ -337,6 +358,8 @@ extension Presenter {
         if !f.enabled { states["disabled"] = true }
         if f.focused { states["focused"] = true }
         if f.selected { states["selected"] = true }
+        // AppKit's accessor answers false for "not expanded" and "no such state" alike: only true is a fact.
+        if f.expanded { states["expanded"] = true }
         let r = f.role ?? "AXUnknown"
         let mapped = ["AXButton": "button", "AXLink": "link", "AXHeading": "heading", "AXTextField": "textbox", "AXTextArea": "textbox",
                       "AXCheckBox": "checkbox", "AXStaticText": "text", "AXGroup": "group", "AXImage": "image", "AXList": "list"][r]
@@ -364,18 +387,6 @@ extension Presenter {
         w.elements.append(e)
         w.objects.append(obj)
         return i
-    }
-
-    /// The nearest view an accessibility object lives in (for scoping).
-    private func axHome(_ obj: AnyObject) -> AxView? {
-        #if os(iOS)
-        if let v = obj as? UIView { return v }
-        return (obj as? UIAccessibilityElement)?.accessibilityContainer as? UIView
-        #else
-        if let v = obj as? NSView { return v }
-        if let c = obj as? NSCell { return c.controlView }
-        return (obj as? NSAccessibilityElement)?.accessibilityParent() as? NSView
-        #endif
     }
 
     /// D5: the view an element is, the view that declared it, or the view above it.
