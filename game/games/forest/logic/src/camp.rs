@@ -1,0 +1,243 @@
+//! The day/night cycle, the sky and the campfire whose light is the safe zone.
+use exact_game::*;
+
+/// Seconds of daylight, including dusk.
+pub const DAY: f32 = 80.0;
+/// Seconds of night.
+pub const NIGHT: f32 = 50.0;
+pub const PERIOD: f32 = DAY + NIGHT;
+const DUSK: f32 = 10.0;
+const DAWN: f32 = 8.0;
+pub const MAX_FUEL: f32 = 100.0;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Resource)]
+pub struct Cycle {
+    /// The current day, from 1.
+    pub day: u32,
+    /// Seconds into the current day/night period.
+    pub t: f32,
+    /// Nights survived.
+    pub survived: u32,
+}
+
+impl Cycle {
+    pub fn night(&self) -> bool {
+        self.t >= DAY
+    }
+    /// 0 in full daylight, 1 in full night.
+    pub fn darkness(&self) -> f32 {
+        if self.t < DAWN {
+            1.0 - math::smoothstep(0.0, DAWN, self.t)
+        } else if self.t < DAY - DUSK {
+            0.0
+        } else if self.t < DAY {
+            math::smoothstep(DAY - DUSK, DAY, self.t)
+        } else {
+            1.0
+        }
+    }
+    pub fn phase(&self) -> &'static str {
+        if self.night() {
+            "Night"
+        } else if self.t >= DAY - DUSK {
+            "Dusk"
+        } else if self.t < DAWN && self.day > 1 {
+            "Dawn"
+        } else {
+            "Day"
+        }
+    }
+    /// Seconds until the next day/night change.
+    pub fn left(&self) -> f32 {
+        if self.night() {
+            PERIOD - self.t
+        } else {
+            DAY - self.t
+        }
+    }
+}
+
+/// Fuel in the fire, 0..MAX_FUEL. The safe radius grows with it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Resource)]
+pub struct Fire {
+    pub fuel: f32,
+    pub fed: u32,
+}
+
+impl Fire {
+    pub fn radius(&self) -> f32 {
+        if self.fuel <= 0.0 {
+            0.0
+        } else {
+            4.0 + self.fuel * 0.2
+        }
+    }
+}
+
+const DAY_SKY: ([f32; 3], [f32; 3], [f32; 3]) =
+    ([0.22, 0.42, 0.78], [0.58, 0.68, 0.72], [0.05, 0.06, 0.03]);
+const NIGHT_SKY: ([f32; 3], [f32; 3], [f32; 3]) =
+    ([0.002, 0.003, 0.009], [0.006, 0.009, 0.02], [0.001, 0.001, 0.002]);
+
+fn mix3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
+    [
+        math::lerp(a[0], b[0], t),
+        math::lerp(a[1], b[1], t),
+        math::lerp(a[2], b[2], t),
+    ]
+}
+
+pub fn environment(dark: f32) -> Environment {
+    let fog = mix3([0.5, 0.6, 0.62], [0.004, 0.006, 0.012], dark);
+    Environment {
+        zenith: mix3(DAY_SKY.0, NIGHT_SKY.0, dark),
+        horizon: mix3(DAY_SKY.1, NIGHT_SKY.1, dark),
+        ground: mix3(DAY_SKY.2, NIGHT_SKY.2, dark),
+        ambient: math::lerp(0.6, 0.12, dark),
+        fog: Some(Fog {
+            color: Some(fog),
+            ..Fog::new(math::lerp(0.007, 0.03, dark), 0.04)
+        }),
+        bloom: Some(Bloom {
+            threshold: 1.0,
+            intensity: math::lerp(0.12, 0.3, dark),
+            radius: 1.5,
+        }),
+        ..Environment::default()
+    }
+}
+
+pub fn build(w: &mut World) {
+    w.insert_resource(Cycle {
+        day: 1,
+        t: DAWN,
+        survived: 0,
+    });
+    w.insert_resource(Fire {
+        fuel: 60.0,
+        fed: 0,
+    });
+    w.insert_resource(environment(0.0));
+    w.spawn_named(
+        "sun",
+        (
+            Transform::at(30.0, 60.0, 20.0).looking_at(Vec3::ZERO, Vec3::Y),
+            DirectionalLight::default(),
+        ),
+    );
+    w.spawn_named(
+        "fire",
+        (
+            Transform::at(0.0, 0.9, 0.0),
+            PointLight {
+                color: [1.0, 0.55, 0.2],
+                intensity: 0.0,
+                range: 1.0,
+            },
+        ),
+    );
+    w.spawn_named(
+        "flame",
+        (
+            Transform::at(0.0, 0.45, 0.0),
+            Mesh::sphere(0.45),
+            Material {
+                color: [1.0, 0.5, 0.1, 1.0],
+                ..Material::glow([6.0, 2.2, 0.4])
+            },
+        ),
+    );
+    w.spawn_named(
+        "embers",
+        (
+            Transform::at(0.0, 0.6, 0.0),
+            Emitter {
+                gravity: Vec3::new(0.0, 1.5, 0.0),
+                speed: 1.2,
+                spread: 0.35,
+                size: [0.09, 0.0],
+                bound: [-3.0, -1.0, -3.0, 3.0, 6.0, 3.0],
+                ..Emitter::sparks().rate(40.0).lifetime(1.6).seed(9)
+            },
+        ),
+    );
+    for k in 0..6 {
+        let a = k as f32 / 6.0 * std::f32::consts::TAU;
+        let (s, c) = math::sin_cos(a);
+        w.spawn((
+            Transform {
+                position: Vec3::new(c * 0.55, 0.15, s * 0.55),
+                rotation: Quat::from_rotation_y(-a) * Quat::from_rotation_x(1.3),
+                scale: Vec3::ONE,
+            },
+            Mesh::cylinder(0.12, 1.1),
+            Material::rgb(0.2, 0.12, 0.06),
+        ));
+    }
+    for k in 0..10 {
+        let a = k as f32 / 10.0 * std::f32::consts::TAU;
+        let (s, c) = math::sin_cos(a);
+        w.spawn((
+            Transform::at(c * 1.25, 0.1, s * 1.25),
+            Mesh::sphere(0.22),
+            Material::rgb(0.3, 0.3, 0.32),
+        ));
+    }
+}
+
+/// Advance the clock, burn fuel and present the sky and the fire.
+/// Returns true on the tick a night is survived.
+pub fn step(w: &mut World, player: Vec3) -> bool {
+    let dt = w.dt();
+    let (dawned, dark, night) = {
+        let mut c = w.resource_mut::<Cycle>();
+        c.t += dt;
+        let mut dawned = false;
+        if c.t >= PERIOD {
+            c.t -= PERIOD;
+            c.day += 1;
+            c.survived += 1;
+            dawned = true;
+        }
+        (dawned, c.darkness(), c.night())
+    };
+    let radius = {
+        let mut f = w.resource_mut::<Fire>();
+        f.fuel = (f.fuel - dt * if night { 0.6 } else { 0.4 }).max(0.0);
+        f.radius()
+    };
+    // The sky only changes at dusk and dawn; equal writes would still re-light it.
+    let env = environment(dark);
+    if *w.resource::<Environment>() != env {
+        *w.resource_mut::<Environment>() = env;
+    }
+    let t = w.resource::<Cycle>().t;
+    let sun_angle = (t / DAY).clamp(0.0, 1.0) * std::f32::consts::PI;
+    let (s, c) = math::sin_cos(sun_angle);
+    let sun = Vec3::new(c * 0.8, s.max(0.08) * 1.2, 0.35).normalize();
+    let moon = Vec3::new(-0.35, 0.85, -0.4).normalize();
+    let toward = sun.lerp(moon, dark).normalize();
+    *w.require_mut::<Transform>("sun") =
+        Transform::at(player.x + toward.x * 60.0, toward.y * 60.0, player.z + toward.z * 60.0)
+            .looking_at(Vec3::new(player.x, 0.0, player.z), Vec3::Y);
+    {
+        let mut light = w.require_mut::<DirectionalLight>("sun");
+        let day_lux = 9000.0 * (0.35 + 0.65 * s.max(0.0));
+        let next = math::lerp(day_lux, 120.0, dark);
+        let color = mix3([1.0, 0.94, 0.85], [0.55, 0.65, 1.0], dark);
+        if light.illuminance != next || light.color != color {
+            light.illuminance = next;
+            light.color = color;
+        }
+    }
+    // The fire: light radius follows fuel; intensity keeps the edge equally lit.
+    {
+        let mut light = w.require_mut::<PointLight>("fire");
+        light.range = radius * 1.7 + 0.01;
+        light.intensity = if radius > 0.0 { 900.0 * radius * radius } else { 0.0 };
+    }
+    let flame = 0.25 + radius / 24.0 * 0.9;
+    w.require_mut::<Transform>("flame").scale = Vec3::splat(flame);
+    w.require_mut::<Emitter>("embers").rate = radius * 3.0;
+    dawned
+}

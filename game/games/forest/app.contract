@@ -1,0 +1,139 @@
+shape Hud
+  day: number
+  phase: string
+  left: number
+  survived: number
+  health: number
+  hunger: number
+  battery: number
+  flashlight: bool
+  fuel: number
+  radius: number
+  logs: number
+  scrap: number
+  food: number
+  prompt: string
+  rescued: number
+  children: number
+  dead: bool
+  deer: string
+  chasing: number
+  trees: number
+  wolves: number
+
+// The title chooses the forest's size and the pack count; both rebuild the world.
+// `lite` swaps Rapier's trunk colliders for game-code collision on the tree grid.
+component Forest
+  state playing = false
+  state again = false
+  state paused = false
+  state trees = 2000
+  state wolves = 8
+  state lite = false
+  state primitives = false
+  resource hud = exactSurface("world") as shape Hud
+
+  action play
+    playing = true
+    paused = false
+
+  action size(n: number)
+    trees = n
+
+  action pack(n: number)
+    wolves = n
+
+  action toggleLite
+    lite = not lite
+
+  action togglePrimitives
+    primitives = not primitives
+
+  action togglePause
+    paused = not paused
+
+  action restart
+    again = not again
+    paused = false
+
+  action menu
+    playing = false
+    paused = false
+
+  view
+    main width="100%" height="100%" background-color="#070b0a" color="#eef2e8"
+      when playing
+        canvas surface=world(seed=7, trees=trees, wolves=wolves, children=2, primitives=primitives, lite=lite, paused=paused, restart=again) testId="world" width="100%" height="100%" position="relative"
+          row position="absolute" top=16 left=16 right=16 gap=12 align-items="flex-start" justify-content="space-between"
+            column testId="clock" gap=4 padding=12 border-radius=12 background-color="#070b0acc" min-width=180
+              text `Day ${hud.day} · ${hud.phase}` testId="day" font-size=20 font-weight=700 color=(hud.phase == "Night" ? "#93a4ff" : "#f6d77a")
+              text `${hud.left} s until ${hud.phase == "Night" ? "dawn" : "night"}` testId="left" font-size=13 color="#a7b0a3"
+              text `Nights survived: ${hud.survived}` testId="survived" aria-live="polite"
+            column testId="fire" gap=4 padding=12 border-radius=12 background-color="#070b0acc" align-items="center"
+              text `Fire ${hud.fuel}%` testId="fuel" font-weight=700 color=(hud.fuel < 20 ? "#ff7a59" : "#ffb35c")
+              text `Safe radius ${hud.radius} m` testId="radius" font-size=13 color="#a7b0a3"
+            row gap=8
+              when paused
+                button press=restart testId="restart" aria-label="Restart" padding=12 border-radius=12 background-color="#2d3a33"
+                  text "Restart"
+                button press=menu testId="menu" aria-label="Menu" padding=12 border-radius=12 background-color="#2d3a33"
+                  text "Menu"
+              button press=togglePause testId="pause" aria-label=(paused ? "Resume" : "Pause") padding=12 border-radius=12 background-color="#070b0acc"
+                text (paused ? "Resume" : "Pause")
+          column testId="vitals" position="absolute" left=16 bottom=16 gap=4 padding=12 border-radius=12 background-color="#070b0acc"
+            text `Health ${hud.health}` testId="health" color=(hud.health < 30 ? "#ff7a59" : "#eef2e8")
+            text `Hunger ${hud.hunger}` testId="hunger" color=(hud.hunger < 25 ? "#ff7a59" : "#eef2e8")
+            text `Flashlight ${hud.flashlight ? "on" : "off"} · ${hud.battery}%` testId="battery"
+            text `Carrying ${hud.logs} logs · ${hud.scrap} scrap · ${hud.food} food` testId="pack"
+            text `Children ${hud.rescued} of ${hud.children} rescued` testId="children"
+          column position="absolute" right=16 bottom=16 gap=4 padding=12 border-radius=12 background-color="#070b0acc" align-items="flex-end"
+            text `Deer: ${hud.deer}` testId="deer" color=(hud.deer == "Chase" ? "#ff7a59" : "#a7b0a3")
+            text `${hud.chasing} hunting you` testId="chasing" font-size=13 color="#a7b0a3"
+            text `${hud.trees} trees · ${hud.wolves} wolves` testId="census" font-size=13 color="#a7b0a3"
+          when hud.prompt != ""
+            text hud.prompt testId="prompt" position="absolute" left="40%" bottom=96 padding=12 border-radius=12 background-color="#070b0acc"
+          when hud.dead
+            column testId="dead" position="absolute" inset=0 align-items="center" justify-content="center" gap=16 background-color="#000000b3"
+              text "The forest took you" font-size=36 font-weight=800
+              text `You survived ${hud.survived} nights` testId="final"
+              button press=restart autofocus aria-label="Try again" testId="again" padding=16 border-radius=12 background-color="#e8ad61"
+                text "Try again" color="#070b0a"
+      else
+        column width="100%" height="100%" box-sizing="border-box" padding=24 align-items="center" justify-content="center" gap=20
+          text "99 Nights in the Forest" font-size=44 font-weight=800
+          column width="100%" max-width=420 align-items="center" gap=6
+            text "WASD moves · E chops, picks up, feeds the fire" width="100%" text-align="center"
+            text "F flashlight · Q eats" width="100%" text-align="center"
+            text "Keep the fire lit. The Deer hunts outside its light." width="100%" text-align="center" color="#a7b0a3"
+          row gap=8 align-items="center"
+            text "Trees" width=64
+            button press=size(1000) testId="trees-1k" padding=10 border-radius=10 background-color=(trees == 1000 ? "#e8ad61" : "#2d3a33")
+              text "1k"
+            button press=size(2000) testId="trees-2k" padding=10 border-radius=10 background-color=(trees == 2000 ? "#e8ad61" : "#2d3a33")
+              text "2k"
+            button press=size(5000) testId="trees-5k" padding=10 border-radius=10 background-color=(trees == 5000 ? "#e8ad61" : "#2d3a33")
+              text "5k"
+            button press=size(20000) testId="trees-20k" padding=10 border-radius=10 background-color=(trees == 20000 ? "#e8ad61" : "#2d3a33")
+              text "20k"
+            button press=size(100000) testId="trees-100k" padding=10 border-radius=10 background-color=(trees == 100000 ? "#e8ad61" : "#2d3a33")
+              text "100k"
+            button press=size(250000) testId="trees-250k" padding=10 border-radius=10 background-color=(trees == 250000 ? "#e8ad61" : "#2d3a33")
+              text "250k"
+          row gap=8 align-items="center"
+            text "Wolves" width=64
+            button press=pack(8) testId="wolves-8" padding=10 border-radius=10 background-color=(wolves == 8 ? "#e8ad61" : "#2d3a33")
+              text "8"
+            button press=pack(64) testId="wolves-64" padding=10 border-radius=10 background-color=(wolves == 64 ? "#e8ad61" : "#2d3a33")
+              text "64"
+            button press=pack(512) testId="wolves-512" padding=10 border-radius=10 background-color=(wolves == 512 ? "#e8ad61" : "#2d3a33")
+              text "512"
+            button press=pack(4096) testId="wolves-4096" padding=10 border-radius=10 background-color=(wolves == 4096 ? "#e8ad61" : "#2d3a33")
+              text "4096"
+          row gap=8
+            button press=toggleLite testId="lite" padding=10 border-radius=10 background-color=(lite ? "#e8ad61" : "#2d3a33")
+              text (lite ? "Grid collision" : "Rapier collision")
+            button press=togglePrimitives testId="primitives" padding=10 border-radius=10 background-color=(primitives ? "#e8ad61" : "#2d3a33")
+              text (primitives ? "Primitive trees" : "Generated pines")
+          text `${trees} trees · ${wolves} wolves · ${lite ? "grid" : "Rapier"} collision · ${primitives ? "primitive" : "generated"} trees` testId="choice" color="#a7b0a3"
+          button press=play autofocus aria-label="Play" testId="play" padding=16 border-radius=12 background-color="#e8ad61"
+            text "Play" font-size=20 color="#070b0a"
