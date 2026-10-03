@@ -1,7 +1,7 @@
 //! An allocation owns this account, never a session, mailbox or payload.
 use crate::{Refusal, Stats};
 use std::sync::{
-    atomic::{AtomicU64, Ordering},
+    atomic::{AtomicU64, AtomicUsize, Ordering},
     Arc, Condvar, Mutex, Weak,
 };
 
@@ -9,12 +9,17 @@ use std::sync::{
 pub(crate) struct Wake {
     pub sequence: Mutex<u64>,
     pub changed: Condvar,
+    /// Workers waiting on `changed`, counted under `sequence`'s lock: a
+    /// notify with none waiting makes no wake system call.
+    pub waiters: AtomicUsize,
 }
 impl Wake {
     pub fn notify(&self) {
         let mut sequence = self.sequence.lock().unwrap();
         *sequence = sequence.wrapping_add(1);
-        self.changed.notify_all();
+        if self.waiters.load(Ordering::Relaxed) > 0 {
+            self.changed.notify_all();
+        }
     }
 }
 
