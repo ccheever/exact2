@@ -253,7 +253,7 @@ export function afterPaintPieces(load, o) {
     .then(([c, m]) => {
       const common = { views: o.views, now: o.now, generation: o.generation, inert: o.inert, applyBatch: o.applyBatch, ready: o.ready };
       const request = facts => o.wasm('exact_motion', m.motionBytes(facts)) ?? { accepted: false };
-      const collections = c.collectionController({ root: o.root, views: o.views, settled: () => arrange.commit(), report(bytes) {
+      const collections = c.collectionController({ root: o.root, views: o.views, agent: !!o.agent?.(), settled: () => arrange.commit(), report(bytes) {
         const batch = o.wasm('exact_collection_feedback', bytes);
         return batch ? c.applyCollectionFeedback(batch, o.applyBatch) : false;
       } });

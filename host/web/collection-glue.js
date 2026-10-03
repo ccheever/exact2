@@ -50,7 +50,7 @@ export function applyCollectionFeedback(batch, applyBatch) {
 
 // `report(bytes, facts, fill)`: the wire bytes for the wasm runner, the
 // same facts as values for the JS target's (host/web-js/list.js).
-export function collectionController({ root, views, report, settled=()=>{},
+export function collectionController({ root, views, report, settled=()=>{}, agent = false,
   requestFrame = fn => requestAnimationFrame(fn), cancelFrame = id => cancelAnimationFrame(id), now = () => performance.now() }) {
   const states = new Map(), dirty = new Set(), waiting = new Set(), rowOwners = new WeakMap(), doc = root.ownerDocument;
   let settling = false, frame = null, delivering = false, interaction = null, reportsLeft = 4, notification=false, reported = 0;
@@ -227,13 +227,16 @@ export function collectionController({ root, views, report, settled=()=>{},
         ...measurements.flatMap(r => [r.view, r.epoch, r.size])].join('|');
       for (const [el, value] of measuredSizes) if (s.observed.has(el)) s.observed.set(el, value);
       if (s.signature === signature && jump == null && !s.snapshot.pending) continue;
-      const v = jump == null && !settling ? velocity(s) : 0;
+      // Under the agent a frame fills as a settle does: what it builds may
+      // not depend on the wall clock (a frame's time slice, a velocity), or
+      // which rows a list has measured, and so where it stands, would vary.
+      const v = jump == null && !settling && !agent ? velocity(s) : 0;
       // While its outer list moves, an inner list builds only what it owes
       // (LLP 1070 F2); its pending reply continues the fill at rest.
       const outer = s.snapshot.parent == null ? null : states.get(s.snapshot.parent);
       // The agent's settle ends motion and builds all a report owes at once,
       // as the native pumps do.
-      const fill = { velocity: v, ancestorMoving: !settling && !!outer && velocity(outer) !== 0, limit: settling ? null : jump != null ? 2
+      const fill = { velocity: v, ancestorMoving: !settling && !agent && !!outer && velocity(outer) !== 0, limit: settling || agent ? null : jump != null ? 2
         : Math.max(1, fits(s, deadline - now()), rowsToCover(s, rects, g, v * interval * 2 / 1000)) };
       let bytes;
       try { bytes = collectionBytes(facts, fill); } catch { continue; }

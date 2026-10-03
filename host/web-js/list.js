@@ -8,7 +8,7 @@
 // `scrollIntoView` (LLP 1070.000, into_view.rs) is carried, and Arrange's
 // preview (reorder.rs) by reorder.js, which the motion piece loads for a
 // reorder drag; not carried (refused at build): a dynamic `virtualized`.
-import { sig, effect, scope, end, untracked, write, writeItem, owner, onEnd, viewId, Views, inflight, After, rev, ticket, journal, Resources, Mutations, unadopted, adopting, adoptRow, settled, Refusal, Hosts, exitView } from "./rt.js";
+import { sig, effect, scope, end, untracked, write, writeItem, owner, onEnd, viewId, Views, inflight, After, rev, ticket, journal, Resources, Mutations, unadopted, adopting, adoptRow, settled, Refusal, Hosts, exitView, clock } from "./rt.js";
 
 const BOOTSTRAP_ROWS = 16, ESTIMATED = 32, LEAD_SECONDS = 0.25, FAR_VIEWPORTS = 2, KEPT = 4096;
 const lead = (port, v) => { const extra = Math.min(Math.abs(v) * LEAD_SECONDS, port * 2); return v > 0 ? [port, port + extra] : [port + extra, port]; };
@@ -722,7 +722,7 @@ function load() {
   if (Loading || typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
   inflight.n++;
   Loading = new Promise(r => requestAnimationFrame(() => r())).then(() => import("./collection-glue.js")).then(({ collectionController }) => {
-    Controller = collectionController({ root: document.getElementById("exact-root"), views: Views, report, settled() {} });
+    Controller = collectionController({ root: document.getElementById("exact-root"), views: Views, report, agent: clock.agent, settled() {} });
     Published = "";
     publish();
   }).catch(e => console.error("exact: collections:", e)).finally(() => inflight.n--);
