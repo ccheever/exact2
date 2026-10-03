@@ -490,39 +490,47 @@ rather than `continuous`. On the Duo simulator the posture now leads the rects b
 a beat later), two sends instead of one; the smoke reads both after the pose settles.
 
 **The pushed route's keyboard, found (2026-10-02, lane/duo-kinks2).** Not the host's.
-The simulator had a hardware keyboard attached, which is why UIKit raised no software
-keyboard for a first responder (`native.firstResponder true`, `keyboard.visible false`,
-inset 0 is exactly that state's signature). The Duo's own log (`simctl spawn … log show`,
-`com.apple.BackBoard:Keyboard`) shows "Hardware keyboard attached" — transport
-CoreDevice, the Device Hub's window for the device, which routes the Mac's keyboard to it
-and leaves it attached after the window closes — at 14:36:23, 15:59:28, 17:43:27 and
-21:17:45, detached at 14:15:39, 17:41:38 and 19:33:24. The run that "passed every
-`input` keyboard check and failed only the pushed route" (captures 14:21–14:43) ran its
-`insets` and `keyboard-bar` legs 14:21–14:25, detached, and its duo-lab session's combos
-leg from 14:37:14, attached: one run, two states, and the smoke's one-shot probe had
-measured the first. The 19:04–19:08 run sat inside an attached window and lost all 28
-keyboard checks. The Mac-wide `ConnectHardwareKeyboard` preference the smoke printed
-(`0` throughout) is not the simulator's state; Xcode 27 ships no Simulator.app, and
-the state is per device and sticky. On a fresh `iPhone Duo` (iOS 27.1, booted
-headless, no hub window) the same bundles raise the keyboard in the pushed route at
-every pose — `bun scripts/smoke.mjs duo --only lab`: ok in 796.7 s, no failures, probe
-264 — and so does 82a3a6766's own build (keyboard 264, the sheet's bottom at the
-keyboard-shortened viewport, 405 of 669; dismiss restores 669), so no commit since
-changed it; two phone-class simulators without a hub window (iPhone 17 Pro on 26.5,
-iPhone 17e on 27.0) raise it there too (335 and 328). Under the driver's `type` a
-`textarea` raises the keyboard as well (responder `TextArea`, `visible true`) — the
-"textarea takes no keyboard" above was the same attached state. The smoke now probes the
-software keyboard in its own session at the start and again at the first keyboard that
-fails to rise, and reports the checks unsupported from there, naming the attached
-keyboard, never as the host's failure. The two 120 s `clock` silences at the closed
-pose are unreproduced: both fell in attached windows (the 14:40:15 → 14:42:54 gap in
-the straddling run; the later one in a run with no keyboard anywhere), none in a run with
+The simulator's software keyboard was minimized: the device's own
+`com.apple.keyboard.preferences` `AutomaticMinimizationEnabled = 1` — the software
+keyboard minimized behind the hardware keyboard a simulator always has (the Mac's,
+through CoreDevice), what Simulator.app's "Connect Hardware Keyboard" used to set —
+which is why UIKit raised no keyboard for a first responder (`native.firstResponder
+true`, `keyboard.visible false`, inset 0 is exactly that state's signature). The key is
+causal and sticky per device: on a fresh `iPhone Duo` (iOS 27.1, booted headless) the
+`insets` fixture raises 264; `simctl spawn <udid> defaults write
+com.apple.keyboard.preferences AutomaticMinimizationEnabled -bool true` and it raises
+nothing (`visible false`, guide 635); `defaults delete` and it is 264 again. It is
+written by the Device Hub (Xcode 27 ships no Simulator.app): each device's
+`com.apple.keyboard.preferences.plist` was written at the instants backboardd logs
+"Hardware keyboard attached" (transport CoreDevice) on *every* booted simulator at once
+— 21:17:45, 21:57:54, 23:13:57 — and the iPhone 17e, which raised its keyboard at 21:35,
+had the key and raised nothing after its plist's 21:57:54 write; the attach line itself is
+not the state (a fresh device raised its keyboard through one). The Duo (B82DBA04) and
+E083487E (the one the running hub holds a window for) carry the key; the run that "passed
+every `input` keyboard check and failed only the pushed route" (captures 14:21–14:43)
+ran its `insets` and `keyboard-bar` legs 14:21–14:25 and its duo-lab combos leg from
+14:37:14, across the 14:36:23 attach instant: one run, two states, and the smoke's
+one-shot probe had measured the first. The 19:04–19:08 run lost all 28 keyboard checks
+the same way. The Mac-wide `ConnectHardwareKeyboard` preference the smoke printed (`0`
+throughout) is not the simulator's state. On a fresh Duo the same bundles raise the
+keyboard in the pushed route at every pose — `bun scripts/smoke.mjs duo --only lab`: ok
+in 796.7 s, no failures — and so does 82a3a6766's own build (keyboard 264, the sheet's
+bottom at the keyboard-shortened viewport, 405 of 669; dismiss restores 669), so no
+commit since changed it; two phone-class simulators without the key (iPhone 17 Pro on
+26.5, iPhone 17e on 27.0 before its write) raise it too (335 and 328). Under the driver's
+`type` a `textarea` raises the keyboard as well (responder `TextArea`, `visible true`) —
+the "textarea takes no keyboard" above was the same minimized state. The smoke now reads
+the key beside its start-of-run fixture probe and again at the first keyboard that fails
+to rise mid-run — never a second session, since the iOS carrier terminates the running
+copy of the bundle, the leg's own: set, the keyboard checks are unsupported from there
+and the line names the key and the `defaults delete` that clears it; clear, the checks
+run and fail as the host's. The two 120 s `clock` silences at the closed pose are
+unreproduced: both fell in minimized windows (the 14:40:15 → 14:42:54 gap in the
+straddling run; the later one in a run with no keyboard anywhere), none in a run with
 the software keyboard (gaps of 39–41 s, and five pushed-route cycles through closed →
 open → closed with the keyboard up on the fresh Duo: worst operation 11.1 s, the hinge
-move itself), and the attached state cannot be produced from an agent session (the
-simulator's IOKit has no `IOHIDUserDevice`; a hub window opened by URL attached
-nothing) — reproduce by hand with a hub window open on the device, and `sample` the
-process during the silence. The real phone (iPhone 13 Pro Max) could not be driven:
-the agent carrier is an outbound TCP connection to the Mac, which iOS holds behind the
-"Duo Lab would like to find and connect to devices on your local network" prompt
-(`connect: No route to host` until someone taps Allow).
+move itself); reproduce with the key written on the device, and `sample` the process
+during the silence. The real phone (iPhone 13 Pro Max) could not be driven: the agent
+carrier is an outbound TCP connection to the Mac, which iOS holds behind the "Duo Lab
+would like to find and connect to devices on your local network" prompt (`connect: No
+route to host` until someone taps Allow).
