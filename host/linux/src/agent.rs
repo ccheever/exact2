@@ -9,7 +9,7 @@
 //!
 //! @ref LLP 1015 §5; LLP 1012 §3–§4
 
-mod contact;
+pub(crate) mod contact;
 
 use crate::presenter::Presenter;
 use exact_runner::agent::{error, field_bool, field_num, field_str, num};
@@ -119,7 +119,15 @@ fn tagged<D: DataSource>(p: &Presenter<D>, line: &str, mut reply: String) -> Str
     reply
 }
 
-fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
+pub(crate) fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
+    // An agent's taps and contacts reach a canvas as a finger, as on the web
+    // and iOS, so a proof leaves the same world on every host.
+    p.agent_finger(true);
+    let reply = answer_line(p, line);
+    p.agent_finger(false);
+    reply
+}
+fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let id = || field_num(line, "id").map(|n| n as u32);
     let q: serde_json::Value = serde_json::from_str(line).unwrap_or_default();
     if let Some(view) = id() {
@@ -544,8 +552,13 @@ fn accessibility_tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String
                 });
             }
             if let Some(node) = p.host().kernel().node(id) {
-                if node.props.str(PropId::AccessibilityLabel).is_some()
-                    || node.props.str(PropId::Text).is_some()
+                // The web's rule (glue.js `tree`): a non-empty label names any
+                // node; a button or link is named by its content too.
+                let label = node
+                    .props
+                    .str(PropId::AccessibilityLabel)
+                    .filter(|l| !l.is_empty());
+                if label.is_some()
                     || matches!(
                         node.props.str(PropId::AccessibilityRole),
                         Some("button" | "link")
@@ -558,7 +571,7 @@ fn accessibility_tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String
                         == Some(exact_kernel::ControlKind::Button);
                     // A native button's name is its label, else its face's
                     // title as painted (LLP 1069.011.000 D1).
-                    row["accessibleName"] = match node.props.str(PropId::AccessibilityLabel) {
+                    row["accessibleName"] = match label {
                         Some(label) => label.to_owned(),
                         None if native => p
                             .host()

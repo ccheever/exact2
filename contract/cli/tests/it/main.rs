@@ -2,6 +2,7 @@
 
 mod action_related;
 mod announce;
+mod aria;
 mod at;
 mod auth;
 mod baked_release;
@@ -72,6 +73,7 @@ mod surface;
 mod svg;
 mod symbols;
 mod tests_decl;
+mod text_item;
 mod time;
 mod timelines;
 mod transform_binding;

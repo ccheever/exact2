@@ -1297,8 +1297,14 @@ impl<'a> Lowerer<'a> {
                 } else {
                     &a.value
                 };
-                let (code, ty) = self.typed_code(value, scope, locals)?;
+                let (mut asm, mut depth) = (Asm::new(), locals);
+                let ty = expr::compile(self, &mut asm, value, scope, &mut depth)?;
                 values::check_prop_value(&a.name, value, a.span, prop, &ty)?;
+                // ARIA's tristate is a word; a bool is written as `true`/`false`.
+                if prop == exact_kernel::PropId::AccessibilityPressed && ty == Ty::Bool {
+                    asm.call(exact_plan::Stdlib::ToString);
+                }
+                let code = self.b.code(asm);
                 bindings.push(BindingsRow {
                     kind: BindingKind::Prop,
                     id: prop as u16,

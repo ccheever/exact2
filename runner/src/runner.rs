@@ -405,6 +405,7 @@ pub struct Runner<D: DataSource> {
     time: crate::time::WallTime,
     place: crate::time::Place,
     surface_records: exact_kernel::SortedMap<String, String>,
+    surface_refusals: exact_kernel::SortedMap<String, String>,
     /// What the host links of the runner's own answers (LLP 1047 D3).
     links: RunnerLinks,
     router: Option<Box<dyn router::Routing>>,
@@ -793,6 +794,7 @@ impl<D: DataSource> Runner<D> {
             time: Default::default(),
             place: Default::default(),
             surface_records: Default::default(),
+            surface_refusals: Default::default(),
             links,
             router,
             poisoned: false,

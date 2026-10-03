@@ -40,7 +40,9 @@ pub use exact_game_derive::{Args, Component, Data, Resource};
 pub use exact_motion::spring::SpringConfig;
 pub use exact_plan::Value;
 pub use glam::{Affine3A, Mat4, Quat, Vec2, Vec3, Vec3Swizzles, Vec4};
-pub use input::{Actions, Input, InputEvent, PointerPhase, PointerState, Region, Stick};
+pub use input::{
+    Actions, Input, InputEvent, PointerPhase, PointerState, Region, Stick, MOUSE_BUTTONS,
+};
 pub use placed::{CanvasChild, Facing, Placed, PlacedPlane};
 pub use rng::{RangeValue, Rng};
 pub use scene::*;

@@ -149,16 +149,19 @@ fn epoch_pause_live_gap_and_backwards_clock() {
 fn touch_is_data_and_pointer_wheel_deltas_expire() {
     let mut s = sim();
     s.viewport(800.0, 600.0);
-    for (id, phase, x, y) in [
-        (1, PointerPhase::Down, 100.0, 300.0),
-        (1, PointerPhase::Move, 160.0, 240.0),
-        (2, PointerPhase::Down, 700.0, 300.0),
+    for (id, phase, x, y, dx, dy) in [
+        (1, PointerPhase::Down, 100.0, 300.0, 0.0, 0.0),
+        (1, PointerPhase::Move, 160.0, 240.0, 60.0, -60.0),
+        (2, PointerPhase::Down, 700.0, 300.0, 0.0, 0.0),
     ] {
         s.input(InputEvent::Pointer {
             id,
             phase,
             x,
             y,
+            dx,
+            dy,
+            buttons: 0,
             at_ms: 0.0,
         });
     }
@@ -184,6 +187,26 @@ fn touch_is_data_and_pointer_wheel_deltas_expire() {
     s.input(InputEvent::Blur { at_ms: 34.0 });
     s.advance(100.0, Clock::Seekable);
     assert_eq!(s.world().resource::<Counts>().released, 1);
+}
+/// Moves coalesced inside one tick keep every event's device motion: a locked
+/// pointer's position never changes, so a position difference would lose it.
+#[test]
+fn coalesced_moves_keep_their_motion_and_the_first_move_counts() {
+    let mut s = sim();
+    for (at_ms, dx) in [(1.0, 5.0), (2.0, 7.0), (3.0, -2.0)] {
+        s.input(InputEvent::Pointer {
+            id: 1,
+            phase: PointerPhase::Move,
+            x: 40.0,
+            y: 30.0,
+            dx,
+            dy: 1.0,
+            buttons: 0,
+            at_ms,
+        });
+    }
+    s.advance(16.667, Clock::Seekable);
+    assert_eq!(s.world().resource::<Counts>().pointer, Vec2::new(10.0, 3.0));
 }
 #[derive(Default, Component)]
 struct Nested {
@@ -344,6 +367,30 @@ fn explicit_events_are_saved_in_order_and_publication_is_separate() {
     );
 }
 
+/// An overflowing queue drops its oldest move, but that move's motion joins the
+/// pointer's next event: 1,100 one-point moves in 1,100 ticks still turn 1,100.
+/// Before: 1,024 (the 76 dropped moves' motion was lost).
+#[test]
+fn overflow_drops_a_moves_position_but_keeps_its_motion() {
+    let mut s = sim();
+    for i in 0..1100 {
+        s.input(InputEvent::Pointer {
+            id: 1,
+            phase: PointerPhase::Move,
+            x: i as f32,
+            y: 0.0,
+            dx: 1.0,
+            dy: 0.0,
+            buttons: 0,
+            at_ms: 20.0 * (i + 1) as f64,
+        });
+    }
+    s.advance(30_000.0, Clock::Seekable);
+    assert_eq!(
+        s.world().resource::<Counts>().pointer,
+        Vec2::new(1100.0, 0.0)
+    );
+}
 #[test]
 fn overflow_warning_is_saved_behavior() {
     let mut a = sim();
@@ -502,6 +549,9 @@ fn restore_touch_viewport_continues_headless_and_resize_replaces_it() {
         phase: PointerPhase::Down,
         x: 700.0,
         y: 300.0,
+        dx: 0.0,
+        dy: 0.0,
+        buttons: 0,
         at_ms: 0.0,
     });
     a.run(100.0);
@@ -521,13 +571,13 @@ fn old_save_containers_are_refused_by_name_atomically() {
     let mut s = sim();
     let saved = s.save().unwrap();
     let mut old = saved.clone();
-    assert!(saved.starts_with(b"EXSIM\0\x05"));
+    assert!(saved.starts_with(b"EXSIM\0\x06"));
     old[6] = 4;
     assert!(s
         .restore(&old)
         .unwrap_err()
         .to_string()
-        .contains("EXSIM v5"));
+        .contains("EXSIM v6"));
     assert_eq!(s.save().unwrap(), saved);
     let saved = s.world().save();
     let mut old = saved.clone();
@@ -542,6 +592,15 @@ fn old_save_containers_are_refused_by_name_atomically() {
     assert_eq!(s.world().save(), saved);
 }
 
+/// A v5 save (before pointer motion and mouse buttons) is refused by name.
+#[test]
+fn a_v5_save_is_refused_by_name() {
+    let mut s = sim();
+    let mut old = s.save().unwrap();
+    old[6] = 5;
+    let error = s.restore(&old).unwrap_err().to_string();
+    assert!(error.contains("EXSIM v5 save predates v6"), "{error}");
+}
 #[test]
 fn wrong_magic_reports_actual_bytes_and_expected_format() {
     let mut s = sim();
@@ -556,7 +615,7 @@ fn wrong_magic_reports_actual_bytes_and_expected_format() {
         let seen = format!("{:02x?}", &bytes[..bytes.len().min(8)]);
         let error = s.restore(&bytes).unwrap_err().to_string();
         assert!(
-            error.contains(&seen) && error.contains("EXSIM v5"),
+            error.contains(&seen) && error.contains("EXSIM v6"),
             "{error}"
         );
         let error = s.world_mut().load(&bytes).unwrap_err().to_string();
@@ -1216,6 +1275,9 @@ fn saves_canonicalize_consumed_input_edges_and_preserve_pending_events() {
             phase: PointerPhase::Down,
             x: 100.,
             y: 100.,
+            dx: 0.,
+            dy: 0.,
+            buttons: 1,
             at_ms: epoch + 6.,
         });
         s.input(InputEvent::Pointer {
@@ -1223,6 +1285,9 @@ fn saves_canonicalize_consumed_input_edges_and_preserve_pending_events() {
             phase: PointerPhase::Move,
             x: 110.,
             y: 105.,
+            dx: 10.,
+            dy: 5.,
+            buttons: 1,
             at_ms: epoch + 7.,
         });
         s.input(InputEvent::Wheel {

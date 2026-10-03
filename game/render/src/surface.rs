@@ -602,8 +602,11 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Surface
                 phase,
                 x,
                 y,
+                dx,
+                dy,
+                kind,
+                buttons,
                 at_ms,
-                ..
             } => E::Pointer {
                 id: u64::from(*id),
                 phase: match phase {
@@ -614,6 +617,14 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> Surface
                 },
                 x: *x,
                 y: *y,
+                dx: *dx,
+                dy: *dy,
+                // A finger's contact is its phase, not a mouse button.
+                buttons: if *kind == exact_gpu::PointerKind::Touch {
+                    0
+                } else {
+                    *buttons
+                },
                 at_ms: *at_ms,
             },
             InputEvent::Control {

@@ -611,6 +611,12 @@
       "_comment": "@ref LLP 1010 §6.5: `scroll-start` on a virtualized list, `start` (the default) or `end` — where it opens."
     },
     {
+      "id": 224,
+      "name": "accessibilityPressed",
+      "kind": "str",
+      "_comment": "ARIA `aria-pressed` on a button: a toggle button's state, `true`, `false` or `mixed`; absent (or any other word), the button is no toggle. A bool expression is written as `true`/`false`."
+    },
+    {
       "id": 81,
       "name": "accessibilityPosInSet",
       "kind": "int"

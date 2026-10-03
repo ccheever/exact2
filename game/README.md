@@ -41,6 +41,9 @@ app-runtime edits reload the page. The server also prints **Open in native**.
 Edits inside `Game::setup` take effect on a fresh game; in the starter, pause and
 choose **Restart** to apply them.
 To explore the existing sample instead, run `bun game/dev.mjs beacons`.
+`game/dev.mjs` passes the dev server's flags through (`--port`, `--lan`, and
+`--allow-host <name>`, repeatable, to serve the game through a tunnel such as
+`tuft host`; without it a request under any name but the printed ones gets 421).
 
 In another terminal, establish the new game's proof baseline:
 
@@ -179,6 +182,9 @@ The dev compiler retains its last good plan on an error.
 | A first-person weapon | Add `ViewModel` to each part; it draws in front of the world and casts no shadow |
 | Contact shadows in creases | `w.insert_resource(AmbientOcclusion::default())` turns on SSAO (off by default) |
 | Lighting from a photographed sky | `w.insert_resource(EnvironmentMap::new("sky.tex"))` with the equirect in `Game::ASSETS` |
+| Mouse look | `input.pointer()`'s `delta` is the device's motion this tick, not a difference of positions. Mark the canvas `data-pointer-lock="true"` (declared in `app.json`'s `data`) and a mouse press captures the mouse on the web, macOS and iPadOS (`GCMouse`) until Escape or blur, so the delta never stops at an edge; the Linux host always sends evdev's relative motion. |
+| Turn the drawn camera between ticks | Put `MouseLook { yaw_per_point, pitch_per_point, pitch_limit }` on the camera at the rates the tick turns it by: the drawn camera and its children turn by `Sim::unshown_motion()`, so a turn shows at the next frame whatever the tick and display rates (`engine/tests/look.rs`). Presentation only; insert it in `setup` or register it. |
+| Right or middle mouse button | Bind it as a key: `.button("aim", &["MouseRight"])`; `MouseLeft` and `MouseMiddle` too (`MOUSE_BUTTONS`). Touch contacts press none. |
 
 `Character` saves velocity and configuration and reports displacement, grounded,
 jumped and landed. `near`/`near_xz` use current global poses, inclusive radii and
@@ -218,7 +224,11 @@ together. Nested records, lists, options and scalars retain their names and JSON
 Contract validates kinds against the shape: missing fields default, extra fields
 are ignored. Enum variants are not Contract values. Rust field names are not
 checked against the Contract shape at bake time. A rebuild or restore publishes
-again; no app data module is needed.
+again; no app data module is needed. The whole record may be up to 16 MiB of JSON
+(a whole inventory fits); a field change re-encodes only that field. A record over
+the limit, or one the shape refuses, leaves the last accepted one standing and is
+named, with its size and the limit, in the app's log and the agent's
+`state.surfaceRefusals`.
 Only the first live canvas owns a given surface's public record.
 
 `w.emit("won")` separately queues a string for the canvas's `message=` handler.

@@ -1067,3 +1067,47 @@ fn a_slot_reoccupied_between_feeds_takes_its_current_pose_as_history() {
         "no frame interpolates from the old occupant"
     );
 }
+
+#[test]
+fn mouse_look_turns_the_drawn_camera_and_its_children_about_the_eye() {
+    let mut w = World::new(60, 0);
+    let look = exact_game::MouseLook {
+        yaw_per_point: -0.01,
+        pitch_per_point: -0.01,
+        pitch_limit: 0.5,
+    };
+    let camera = w.spawn((Transform::at(1., 2., 3.), Camera::default(), look));
+    let gun = w.spawn((
+        Transform::at(0.3, -0.2, -0.5),
+        Parent(camera),
+        Mesh::cube(0.1),
+    ));
+    w.propagate();
+    let mut f = Feed::default();
+    let mut r = Recording::default();
+    f.feed_to(&w, &mut r).unwrap();
+    assert!(
+        f.frame(&w, 1., 1.).attachments.is_empty(),
+        "no motion, no turn"
+    );
+    // 50 points left: half a radian of yaw, drawn only.
+    f.unshown_motion(exact_game::Vec2::new(-50., 0.));
+    let frame = f.frame(&w, 1., 1.);
+    let eye = frame.view.inverse();
+    assert!(frame.camera_position.distance(Vec3::new(1., 2., 3.)) < 1e-5);
+    let forward = Quat::from_rotation_y(0.5) * -Vec3::Z;
+    assert!((eye.transform_vector3(-Vec3::Z) - forward).length() < 1e-5);
+    // The viewmodel turns with it: it stays put in the camera's view.
+    let held = frame.attachments.iter().find(|a| a.entity == gun).unwrap();
+    let in_view = (frame.view * held.matrix).w_axis.truncate();
+    assert!((in_view - Vec3::new(0.3, -0.2, -0.5)).length() < 1e-5);
+    // Pitch stops at the game's limit, and each frame's motion is its own.
+    f.unshown_motion(exact_game::Vec2::new(0., -1000.));
+    let up = f
+        .frame(&w, 1., 1.)
+        .view
+        .inverse()
+        .transform_vector3(-Vec3::Z);
+    assert!((up.y - exact_game::math::sin(0.5)).abs() < 1e-4);
+    assert!(f.frame(&w, 1., 1.).attachments.is_empty());
+}

@@ -734,6 +734,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-controls" => AttrTarget::Prop(p("accessibilityControls")),
         "aria-selected" => AttrTarget::Prop(p("accessibilitySelected")),
         "aria-expanded" => AttrTarget::Prop(p("accessibilityExpanded")),
+        "aria-pressed" => AttrTarget::Prop(p("accessibilityPressed")),
         "aria-hidden" => AttrTarget::Prop(p("accessibilityElementsHidden")),
         // SVG 2 attributes CSS cannot set (LLP 1055 D1/D2), by their SVG names.
         "viewBox" => AttrTarget::Prop(p("viewBox")),

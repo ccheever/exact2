@@ -173,6 +173,9 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface
         if !self.perf.armed() {
             self.gpu_timing = None;
         }
+        if feed.mouse_look() {
+            feed.unshown_motion(sim.unshown_motion());
+        }
         let mut input = feed.frame_pixels(sim.world(), sim.alpha(), (frame.width, frame.height));
         self.perf.lights(input.lights.len(), input.lights_dropped);
         let cascades = input

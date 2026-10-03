@@ -381,6 +381,13 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
           await call('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: vk, ...(key.length === 1 ? { text: key } : {}) });
           await call('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: vk });
         }
+        else if (kind === 'press' && await evaluate(`(() => { const hit = document.elementFromPoint(${x}, ${y}), host = hit?.closest('[data-gpu-input]'); return !!host && (hit === host || hit.localName === 'canvas'); })()`)) {
+          // A tap on a world's canvas is a finger, as a held contact is here and
+          // every tap is on iOS and Linux, so a proof leaves one world everywhere.
+          if (!touch) { await call('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 2 }); touch = true; }
+          await call('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+          await call('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        }
         else if (kind === 'press') {
           await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
           await call('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
@@ -426,18 +433,22 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
 export function jsonLines(readable, writable, hostLines) {
   const waiting = [];
   let failure = null;
-  let buf = '';
+  // A large reply (a `state` carrying a 16 MiB surface record) arrives in
+  // many chunks: hold them and look for the newline in each new chunk only.
+  let parts = [];
   readable.setEncoding('utf8');
   readable.on('data', (d) => {
-    buf += d;
     let i;
-    while ((i = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, i);
-      buf = buf.slice(i + 1);
+    while ((i = d.indexOf('\n')) >= 0) {
+      parts.push(d.slice(0, i));
+      const line = parts.join('');
+      parts = [];
+      d = d.slice(i + 1);
       const w = waiting.shift();
       if (!w) { hostLines.push('app: ' + line); continue; }
       try { w.resolve(JSON.parse(line)); } catch { w.reject(new Error('unreadable reply: ' + line)); }
     }
+    if (d) parts.push(d);
   });
   const next = () => failure ? Promise.reject(failure) : new Promise((resolve, reject) => waiting.push({ resolve, reject }));
   return {

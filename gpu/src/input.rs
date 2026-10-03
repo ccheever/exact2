@@ -50,6 +50,12 @@ pub enum InputEvent {
         x: f32,
         /// Vertical point in the canvas.
         y: f32,
+        /// Horizontal device motion since this pointer's previous event, in
+        /// points. Unbounded by the canvas or screen edge while the pointer is
+        /// locked (`data-pointer-lock`), when the position stays put.
+        dx: f32,
+        /// Vertical device motion since this pointer's previous event.
+        dy: f32,
         /// Device kind.
         kind: PointerKind,
         /// The web's pressed-button bit mask.

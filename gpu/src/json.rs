@@ -359,6 +359,8 @@ pub fn parse_input(text: &str) -> Result<crate::InputEvent, String> {
                 },
                 x: point("x")?,
                 y: point("y")?,
+                dx: point("dx")?,
+                dy: point("dy")?,
                 kind: match string("kind")?.as_str() {
                     "mouse" => PointerKind::Mouse,
                     "touch" => PointerKind::Touch,

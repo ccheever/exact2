@@ -1278,7 +1278,7 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
     try {
       let t = await f.tree();
       check(byTestId(t, 'first')?.focused === true, 'autofocus takes focus after mount');
-      check(byTestId(t, 'first')?.accessibleName === 'Increment', 'button name is its text');
+      check(byTestId(t, 'first')?.accessibleName === 'Increment', 'button name is its text'); check(byTestId(t, 'labelled')?.accessibleName === '20 sheckles' && byTestId(t, 'live-count')?.accessibleName === undefined, `a label names a text, and an unlabelled text has no name (accname): ${JSON.stringify([byTestId(t, 'labelled')?.accessibleName, byTestId(t, 'live-count')?.accessibleName])}`);
       check(byTestId(t, 'toggle')?.props.autofocus === false, 'autofocus=false remains false');
       check(byTestId(t, 'live-count')?.props.accessibilityLive === 'polite' && byTestId(t, 'live-container')?.props.accessibilityLive === 'assertive', 'both live region priorities are in tree');
       await f.tap('first');
@@ -1286,7 +1286,7 @@ if ((host === 'web' || apple || host === 'linux') && !argv.includes('--app-only'
       check(byTestId(t, 'live-count')?.props.text === 'Count 1', 'live text changes through an action');
       await f.tap('other');
       check(byTestId(await f.tree(), 'other')?.focused === true, 'a text update does not steal focus back');
-      await f.clock('+1000'); await f.clock('+1000');
+      check(byTestId(t, 'pressed')?.props.accessibilityPressed === 'true' && byTestId(t, 'mixed')?.props.accessibilityPressed === 'mixed', `aria-pressed is in the tree: ${JSON.stringify([byTestId(t, 'pressed')?.props, byTestId(t, 'mixed')?.props])}`); await f.clock('+1000'); check(byTestId(await f.tree(), 'pressed')?.props.accessibilityPressed === 'false', 'aria-pressed follows its bool'); await f.clock('+1000');
       t = await f.tree();
       check(byTestId(t, 'other')?.focused === true, 'remount does not steal focus from Other');
       check((await f.state()).focus.logical === byTestId(t, 'other')?.id, 'state agrees with tree focus');
