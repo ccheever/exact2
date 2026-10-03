@@ -134,7 +134,7 @@ pub(crate) fn compile(
                         asm.str(id);
                     }
                     TemplatePart::Expr(x) => {
-                        if compile(l, asm, x, scope, locals)? != Ty::String {
+                        if !compile(l, asm, x, scope, locals)?.is_text() {
                             asm.call(Stdlib::ToString);
                         }
                     }
@@ -381,7 +381,7 @@ pub(crate) fn compile(
                     let ta = compile(l, asm, a, scope, locals)?;
                     let tb = compile(l, asm, b, scope, locals)?;
                     asm.simple(match op {
-                        BinOp::Add if ta == Ty::String => Opcode::Concat,
+                        BinOp::Add if ta.is_text() => Opcode::Concat,
                         BinOp::Add => Opcode::Add,
                         BinOp::Sub => Opcode::Sub,
                         BinOp::Mul => Opcode::Mul,
@@ -396,7 +396,7 @@ pub(crate) fn compile(
                         BinOp::And | BinOp::Or => unreachable!(),
                     });
                     match op {
-                        BinOp::Add if ta == Ty::String && tb == Ty::String => Ty::String,
+                        BinOp::Add if ta.is_text() && tb.is_text() => Ty::String,
                         BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem
                             if ta == Ty::Number && tb == Ty::Number =>
                         {
@@ -420,7 +420,25 @@ pub(crate) fn compile(
             asm.place(otherwise);
             let tb = compile(l, asm, b, scope, locals)?;
             asm.place(end);
-            ta.unify(&tb).unwrap_or(Ty::Unknown)
+            ta.join(&tb).unwrap_or(Ty::Unknown)
+        }
+        // An arm's test in a `match` over a choice (LLP 1035.005.000 D4a):
+        // `subject == "a" or subject == "b"`, compiled as written so.
+        Expr::Case {
+            subject,
+            literals,
+            span,
+            ..
+        } => {
+            let test = literals
+                .iter()
+                .map(|lit| {
+                    let lit = Box::new(Expr::Str(lit.clone(), *span));
+                    Expr::Binary(BinOp::Eq, subject.clone(), lit, *span)
+                })
+                .reduce(|a, b| Expr::Binary(BinOp::Or, Box::new(a), Box::new(b), *span))
+                .expect("an arm names a literal");
+            compile(l, asm, &test, scope, locals)?
         }
         Expr::Match {
             subject,
@@ -450,7 +468,7 @@ pub(crate) fn compile(
             asm.simple(Opcode::Pop);
             let tb = compile(l, asm, none, scope, locals)?;
             asm.place(end);
-            ta.unify(&tb).unwrap_or(Ty::Unknown)
+            ta.join(&tb).unwrap_or(Ty::Unknown)
         }
         Expr::Let {
             name, value, body, ..

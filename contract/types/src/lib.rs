@@ -19,6 +19,7 @@
 
 mod actions;
 mod checks;
+mod choices;
 mod component;
 mod geometry;
 mod lists;
@@ -55,6 +56,9 @@ pub enum Ty {
     List(Box<Ty>),
     /// A shape, by name.
     Record(String),
+    /// `"a" | "b"` (LLP 1035.005.000 D4a): one of these strings, sorted and
+    /// distinct, so two spellings of one set are one type.
+    Choice(Vec<String>),
     /// An action reference with its parameter types.
     Action(Vec<Ty>),
     /// Not yet known (only inside an `option` from `none`, a `list` from
@@ -72,6 +76,7 @@ impl std::fmt::Display for Ty {
             Ty::Option(t) => write!(f, "option<{t}>"),
             Ty::List(t) => write!(f, "list<{t}>"),
             Ty::Record(n) => write!(f, "{n}"),
+            Ty::Choice(literals) => write!(f, "{}", choices::spell(literals)),
             Ty::Action(ps) => write!(
                 f,
                 "action({})",
@@ -120,9 +125,9 @@ impl Ty {
     pub fn matches_roster(&self, spec: &str) -> bool {
         match spec {
             "number" => *self == Ty::Number,
-            "string" => *self == Ty::String,
+            "string" => self.is_text(),
             "bool" => *self == Ty::Bool,
-            "any" => matches!(self, Ty::Number | Ty::String | Ty::Bool | Ty::List(_)),
+            "any" => self.is_text() || matches!(self, Ty::Number | Ty::Bool | Ty::List(_)),
             _ => *self == Self::from_roster(spec) && *self != Ty::Unknown,
         }
     }
@@ -146,8 +151,8 @@ impl Ty {
 /// call that would fail at runtime (`length(5)`) is refused here instead.
 fn roster_accepts(f: Stdlib, spec: &str, t: &Ty) -> bool {
     match (f, spec) {
-        (Stdlib::Length | Stdlib::IsEmpty, "any") => matches!(t, Ty::String | Ty::List(_)),
-        (Stdlib::ToString, "any") => matches!(t, Ty::Number | Ty::String | Ty::Bool),
+        (Stdlib::Length | Stdlib::IsEmpty, "any") => t.is_text() || matches!(t, Ty::List(_)),
+        (Stdlib::ToString, "any") => t.is_text() || matches!(t, Ty::Number | Ty::Bool),
         (Stdlib::First | Stdlib::At, "any") => matches!(t, Ty::List(_)),
         _ => t.matches_roster(spec),
     }
@@ -310,6 +315,7 @@ impl Shapes {
             },
             TypeExpr::Option(inner, _) => Ty::Option(Box::new(self.resolve(inner)?)),
             TypeExpr::List(inner, _) => Ty::List(Box::new(self.resolve(inner)?)),
+            TypeExpr::Choice(literals, _) => Ty::choice(literals),
         })
     }
 
@@ -648,7 +654,7 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
             for p in parts {
                 if let TemplatePart::Expr(x) = p {
                     let t = infer(x, scope, shapes)?;
-                    if !matches!(t, Ty::Number | Ty::String | Ty::Bool) {
+                    if !t.is_text() && !matches!(t, Ty::Number | Ty::Bool) {
                         return err(
                             "type-template-part",
                             format!("a template part must be a number, string, or bool, not `{t}`"),
@@ -773,13 +779,14 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                     );
                 }
                 for (i, (arg, want)) in args.iter().zip(params).enumerate() {
-                    let t = infer(arg, scope, shapes)?;
-                    if !checks::can_unify(want, &t) {
+                    let t = choices::given(want, arg, scope, shapes)?;
+                    if !want.accepts(&t) {
                         return err(
                             "type-argument",
                             format!(
-                                "argument {} of `{name}` expects `{want}`, given `{t}`",
-                                i + 1
+                                "argument {} of `{name}` expects `{want}`, given `{t}`{}",
+                                i + 1,
+                                choices::hint(want, &t)
                             ),
                             arg.span(),
                         );
@@ -806,11 +813,14 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                     );
                 }
                 for (arg, pt) in args.iter().zip(params.iter()) {
-                    let t = infer(arg, scope, shapes)?;
-                    if !checks::can_unify(&t, pt) {
+                    let t = choices::given(pt, arg, scope, shapes)?;
+                    if !pt.accepts(&t) {
                         return err(
                             "type-argument",
-                            format!("`{name}` expects `{pt}`, given `{t}`"),
+                            format!(
+                                "`{name}` expects `{pt}`, given `{t}`{}",
+                                choices::hint(pt, &t)
+                            ),
                             arg.span(),
                         );
                     }
@@ -896,7 +906,7 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
             match op {
                 BinOp::Add => match (&ta, &tb) {
                     (Ty::Number, Ty::Number) => Ty::Number,
-                    (Ty::String, Ty::String) => Ty::String,
+                    (a, b) if a.is_text() && b.is_text() => Ty::String,
                     _ => {
                         return err(
                             "type-operand",
@@ -928,7 +938,9 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                     Ty::Bool
                 }
                 BinOp::Eq | BinOp::Ne => {
-                    if !checks::can_unify(&ta, &tb) {
+                    choices::compared(&ta, b)?;
+                    choices::compared(&tb, a)?;
+                    if ta.join(&tb).is_none() {
                         return err(
                             "type-operand",
                             format!("cannot compare `{ta}` with `{tb}`"),
@@ -951,8 +963,14 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
         }
         Expr::Ternary(..) | Expr::Match { .. } => {
             let (ta, tb) = arms(e, scope, shapes, infer)?;
-            ta.unify(&tb).ok_or_else(|| disagree(e, &ta, &tb))?
+            ta.join(&tb).ok_or_else(|| disagree(e, &ta, &tb))?
         }
+        Expr::Case {
+            subject,
+            literals,
+            all,
+            span,
+        } => choices::case(subject, literals, all.as_deref(), *span, scope, shapes)?,
         Expr::Let {
             name, value, body, ..
         } => {
@@ -1116,11 +1134,15 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
                 .map(|(i, p)| (p.name.clone(), Ref::Local(i as u32), params[i].clone()))
                 .collect(),
         );
-        let t = infer(&f.body, &scope, &shapes)?;
-        if !checks::can_unify(ret, &t) {
+        let t = choices::given(ret, &f.body, &scope, &shapes)?;
+        if !ret.accepts(&t) {
             return err(
                 "type-fn-return",
-                format!("`fn {}` declares `{ret}` but its body is `{t}`", f.name),
+                format!(
+                    "`fn {}` declares `{ret}` but its body is `{t}`{}",
+                    f.name,
+                    choices::hint(ret, &t)
+                ),
                 f.body.span(),
             );
         }

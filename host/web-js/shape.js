@@ -1,5 +1,5 @@
 // A value's shape check by the plan's type codes (LLP 1005 §3), for rt.js.
-/** Whether `v` conforms to type code `t` (`n b s u ?T [T {T…}`), from `i`;
+/** Whether `v` conforms to type code `t` (`n b s (a|b…) u ?T [T {T…}`), from `i`;
  * numbers are finite, as the runner's shape checks require. `o` is a value
  * that conformed: a part of `v` that is the same array as its part in `o`
  * conforms as it did, unchecked (the Rust runner's `Conformed` re-checks
@@ -10,6 +10,8 @@ export function conforms(v, t, i = [0], o) {
   if (c === "n") return typeof v === "number" && isFinite(v);
   if (c === "b") return typeof v === "boolean";
   if (c === "s") return typeof v === "string";
+  // A choice (LLP 1035.005.000 D4a): one of its literals.
+  if (c === "(") { const end = t.indexOf(")", i[0]), ok = typeof v === "string" && t.slice(i[0], end).split("|").includes(v); i[0] = end + 1; return ok; }
   if (c === "u") return v == null;
   if (c === "?") { if (v == null) { skip(t, i); return true; } return conforms(v, t, i, o); }
   if (c === "[") {
@@ -21,7 +23,7 @@ export function conforms(v, t, i = [0], o) {
   if (c === "{") { let k = 0; const was = Array.isArray(o) ? o : null; for (; t[i[0]] !== "}"; k++) if (!Array.isArray(v) || !conforms(v[k], t, i, was?.[k])) return false; i[0]++; return v.length === k; }
   return true;
 }
-function skip(t, i) { const c = t[i[0]++]; if (c === "?" || c === "[") skip(t, i); else if (c === "{") { while (t[i[0]] !== "}") skip(t, i); i[0]++; } }
+function skip(t, i) { const c = t[i[0]++]; if (c === "?" || c === "[") skip(t, i); else if (c === "(") i[0] = t.indexOf(")", i[0]) + 1; else if (c === "{") { while (t[i[0]] !== "}") skip(t, i); i[0]++; } }
 /** Plan value equality: signed zero, NaN, and recursively equal lists. */
 export function eq(a, b) {
   if (a === b) return a !== 0 || 1 / a === 1 / b;

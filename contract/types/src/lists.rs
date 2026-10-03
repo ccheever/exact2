@@ -2,7 +2,7 @@
 //! operations, typed here because a callback is not a value the roster
 //! table can describe.
 
-use crate::{checks, err, infer, Ref, Scope, Shapes, Ty, TypeError};
+use crate::{err, infer, Ref, Scope, Shapes, Ty, TypeError};
 use contract_syntax::{Expr, Span};
 use exact_plan::Stdlib;
 
@@ -48,7 +48,7 @@ pub(crate) fn infer_call(
         }
     };
     if f == Stdlib::Join {
-        if !matches!(item, Ty::String | Ty::Number | Ty::Bool | Ty::Unknown) {
+        if !item.is_text() && !matches!(item, Ty::Number | Ty::Bool | Ty::Unknown) {
             return err(
                 "type-argument",
                 format!(
@@ -58,7 +58,7 @@ pub(crate) fn infer_call(
             );
         }
         let separator = infer(second, scope, shapes)?;
-        if !checks::can_unify(&Ty::String, &separator) {
+        if !Ty::String.accepts(&separator) {
             return err(
                 "type-argument",
                 format!("argument 2 of `join` expects `string`, given `{separator}`"),

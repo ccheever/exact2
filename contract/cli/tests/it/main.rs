@@ -9,6 +9,7 @@ mod baked_release;
 mod borders;
 mod branch;
 mod checkpoint;
+mod choices;
 mod collection;
 mod collection_axis;
 mod collection_bounds;

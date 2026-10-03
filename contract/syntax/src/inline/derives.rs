@@ -433,6 +433,7 @@ fn each_child<'a>(e: &'a Expr, f: &mut dyn FnMut(&'a Expr)) {
     match e {
         Expr::Some(x, _)
         | Expr::Unary(_, x, _)
+        | Expr::Case { subject: x, .. }
         | Expr::Member(x, _, _)
         | Expr::NamedArg(_, x, _) => f(x),
         Expr::Binary(_, a, b, _) => {
@@ -478,6 +479,17 @@ fn map_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> Expr {
     match e {
         Expr::Some(x, s) => Expr::Some(Box::new(f(x)), *s),
         Expr::Unary(op, x, s) => Expr::Unary(*op, Box::new(f(x)), *s),
+        Expr::Case {
+            subject,
+            literals,
+            all,
+            span,
+        } => Expr::Case {
+            subject: Box::new(f(subject)),
+            literals: literals.clone(),
+            all: all.clone(),
+            span: *span,
+        },
         Expr::Member(x, field, s) => Expr::Member(Box::new(f(x)), field.clone(), *s),
         Expr::NamedArg(n, x, s) => Expr::NamedArg(n.clone(), Box::new(f(x)), *s),
         Expr::Binary(op, x, y, s) => {

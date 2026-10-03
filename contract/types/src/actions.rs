@@ -142,12 +142,15 @@ impl Cx<'_, '_> {
                     // A mutation's slot may be assigned (`session = none`);
                     // its type is `option<T>` and is never inferred from here.
                     if let Some(mi) = c.mutations.iter().position(|m| &m.name == target) {
-                        let t = infer(expr, scope, shapes)?;
                         let mt = Ty::Option(Box::new(self.ct.mutations[mi].clone()));
-                        if !checks::can_unify(&mt, &t) {
+                        let t = crate::choices::given(&mt, expr, scope, shapes)?;
+                        if !mt.accepts(&t) {
                             return err(
                                 "type-assign",
-                                format!("`{target}` is `{mt}`, cannot assign `{t}`"),
+                                format!(
+                                    "`{target}` is `{mt}`, cannot assign `{t}`{}",
+                                    crate::choices::hint(&mt, &t)
+                                ),
                                 *span,
                             );
                         }
@@ -159,13 +162,23 @@ impl Cx<'_, '_> {
                         *span,
                     );
                 };
-                let t = infer(expr, scope, shapes)?;
-                match self.ct.slots[si].unify(&t) {
+                let slot = &self.ct.slots[si];
+                let t = crate::choices::given(slot, expr, scope, shapes)?;
+                // A slot keeps its type where the value is one of it (a
+                // choice where it holds a string); `?`s fill in from writes.
+                match slot
+                    .unify(&t)
+                    .or_else(|| slot.accepts(&t).then(|| slot.clone()))
+                {
                     Some(u) => self.ct.slots[si] = u,
                     None => {
                         return err(
                             "type-assign",
-                            format!("`{target}` is `{}`, cannot assign `{t}`", self.ct.slots[si]),
+                            format!(
+                                "`{target}` is `{}`, cannot assign `{t}`{}",
+                                self.ct.slots[si],
+                                crate::choices::hint(&self.ct.slots[si], &t)
+                            ),
                             *span,
                         )
                     }
@@ -301,7 +314,8 @@ fn names<'e>(e: &'e Expr, bound: &mut Vec<&'e str>, out: &mut Vec<(&'e str, Span
         Expr::Some(x, _)
         | Expr::Member(x, _, _)
         | Expr::NamedArg(_, x, _)
-        | Expr::Unary(_, x, _) => names(x, bound, out),
+        | Expr::Unary(_, x, _)
+        | Expr::Case { subject: x, .. } => names(x, bound, out),
         Expr::Call(_, args, _) => args.iter().for_each(|a| names(a, bound, out)),
         Expr::Binary(_, a, b, _) => {
             names(a, bound, out);

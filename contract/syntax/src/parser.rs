@@ -8,6 +8,7 @@ use crate::ast::*;
 use crate::lexer::{template_expr_end, LexError, Lexer, Token, TokenKind};
 use crate::Span;
 
+mod choice;
 mod expr;
 mod keyframes;
 #[path = "routes.rs"]
@@ -578,6 +579,9 @@ impl Parser {
             let span = self.next().span;
             return Ok(TypeExpr::Named("action".into(), span));
         }
+        if matches!(self.peek_kind(), TokenKind::Str(_)) {
+            return self.choice_type();
+        }
         let (name, span) = self.ident()?;
         match name.as_str() {
             "option" | "list" => {
@@ -891,6 +895,9 @@ impl Parser {
             let span = self.expect_word("match")?;
             let subject = self.expr()?;
             self.newline()?;
+            if self.at_choice_arms() {
+                return self.choice_stmt(subject, span);
+            }
             let mut some = None;
             let mut none = None;
             self.block(|p| {
@@ -1149,6 +1156,9 @@ impl Parser {
                 self.next();
                 let subject = self.expr()?;
                 self.newline()?;
+                if self.at_choice_arms() {
+                    return self.choice_view(subject, span);
+                }
                 let mut some = None;
                 let mut none = None;
                 self.block(|p| {

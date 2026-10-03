@@ -194,7 +194,7 @@ pub fn expand_path(
         if segment.starts_with(':') {
             let arg = values.next().expect("arity checked");
             let value = match infer(arg, scope, shapes)? {
-                Ty::String => arg.clone(),
+                Ty::String | Ty::Choice(_) => arg.clone(),
                 Ty::Number => Expr::Call("toString".into(), vec![arg.clone()], arg.span()),
                 ty => {
                     return err(

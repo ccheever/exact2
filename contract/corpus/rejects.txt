@@ -1162,3 +1162,126 @@ component A
     let a = 1
   view
     text "a"
+---
+== syntax-choice-literal
+# LLP 1035.005.000 D4a: a choice's literals are spelled as names are.
+shape Block
+  kind: "heading" | "table row"
+component A
+  view
+    text "a"
+---
+== syntax-choice-duplicate
+shape Block
+  kind: "heading" | "heading"
+component A
+  view
+    text "a"
+---
+== syntax-choice-duplicate
+# A literal has one arm in a `match`.
+shape Block
+  kind: "heading" | "rule"
+component A
+  resource b = block() as shape Block
+  view
+    column
+      match b.kind
+        case "heading"
+          text "h"
+        case "rule" | "heading"
+          text "r"
+---
+== syntax-match-else
+# A `match` over a choice names every literal: there is no `else` arm.
+shape Block
+  kind: "heading" | "rule"
+component A
+  resource b = block() as shape Block
+  view
+    column
+      match b.kind
+        case "heading"
+          text "h"
+        else
+          text "r"
+---
+== type-match-missing
+shape Block
+  kind: "heading" | "paragraph" | "rule"
+component A
+  resource b = block() as shape Block
+  view
+    column
+      match b.kind
+        case "heading"
+          text "h"
+        case "paragraph"
+          text "p"
+---
+== type-match-missing
+# The same in an expression's `match`.
+shape Block
+  kind: "heading" | "rule"
+component A
+  resource b = block() as shape Block
+  view
+    text match b.kind { case "heading" => "h" }
+---
+== type-choice-unknown
+# A `case` names one of the choice's literals.
+shape Block
+  kind: "heading" | "rule"
+component A
+  resource b = block() as shape Block
+  view
+    column
+      match b.kind
+        case "heading"
+          text "h"
+        case "rul"
+          text "r"
+---
+== type-choice-unknown
+# So does a literal compared with a choice.
+shape Block
+  kind: "heading" | "rule"
+component A
+  resource b = block() as shape Block
+  view
+    column
+      when b.kind == "headng"
+        text "h"
+---
+== type-choice-unknown
+# And a literal passed where a choice is wanted.
+shape Block
+  kind: "heading" | "rule"
+component A
+  derive b = Block(kind="quote")
+  view
+    text b.kind
+---
+== type-match-subject
+# `case "…"` arms match a choice, never any string.
+component A
+  state kind = "heading"
+  view
+    column
+      match kind
+        case "heading"
+          text "h"
+---
+== type-prop
+# A string that is not a literal is never a choice: match it, or declare
+# where it comes from as one.
+component A
+  state kind = "rule"
+  view
+    column
+      Badge(kind=kind)
+component Badge
+  props
+    kind: "heading" | "rule"
+  view
+    text kind

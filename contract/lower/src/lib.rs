@@ -557,6 +557,10 @@ impl<'a> Lowerer<'a> {
         Ok(match t {
             Ty::Number => self.b.primitive(TypeKind::Number),
             Ty::String => self.b.primitive(TypeKind::String),
+            Ty::Choice(literals) => {
+                let literals: Vec<&str> = literals.iter().map(String::as_str).collect();
+                self.b.choice(&literals)
+            }
             Ty::Bool => self.b.primitive(TypeKind::Bool),
             Ty::Unit => self.b.primitive(TypeKind::Unit),
             Ty::Option(inner) => {

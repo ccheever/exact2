@@ -79,11 +79,14 @@ pub(crate) fn infer_record(
             );
         }
         given.push(name);
-        let t = infer(value, scope, shapes)?;
-        if !checks::can_unify(want, &t) {
+        let t = crate::choices::given(want, value, scope, shapes)?;
+        if !want.accepts(&t) {
             return err(
                 "type-argument",
-                format!("field `{name}` of `{shape}` is `{want}`, given `{t}`"),
+                format!(
+                    "field `{name}` of `{shape}` is `{want}`, given `{t}`{}",
+                    crate::choices::hint(want, &t)
+                ),
                 value.span(),
             );
         }

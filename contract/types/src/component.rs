@@ -455,8 +455,9 @@ fn refine_params_from_view(
                         if let Some(ai) = c.actions.iter().position(|x| x.name == name) {
                             for (i, arg) in args.iter().enumerate() {
                                 if i < ct.actions[ai].len() {
-                                    let t = infer(arg, scope, shapes)?;
-                                    if let Some(u) = ct.actions[ai][i].unify(&t) {
+                                    let want = &ct.actions[ai][i];
+                                    let t = crate::choices::given(want, arg, scope, shapes)?;
+                                    if let Some(u) = want.unify(&t) {
                                         ct.actions[ai][i] = u;
                                     }
                                 }
@@ -582,6 +583,7 @@ fn derive_order(c: &Component) -> Vec<usize> {
             }
             Expr::Some(x, _)
             | Expr::Unary(_, x, _)
+            | Expr::Case { subject: x, .. }
             | Expr::Member(x, _, _)
             | Expr::NamedArg(_, x, _) => names(x, out),
             Expr::Binary(_, a, b, _) => {
@@ -666,7 +668,8 @@ fn empty_list_in(e: &Expr) -> Option<Span> {
         Expr::Some(x, _)
         | Expr::Member(x, _, _)
         | Expr::NamedArg(_, x, _)
-        | Expr::Unary(_, x, _) => empty_list_in(x),
+        | Expr::Unary(_, x, _)
+        | Expr::Case { subject: x, .. } => empty_list_in(x),
         Expr::Call(_, args, _) => args.iter().find_map(empty_list_in),
         Expr::Binary(_, a, b, _) => empty_list_in(a).or_else(|| empty_list_in(b)),
         Expr::Ternary(a, b, c, _) => empty_list_in(a)
@@ -710,7 +713,8 @@ fn reads_state(e: &Expr, scope: &Scope) -> Option<(String, Span)> {
             Expr::Some(x, _)
             | Expr::Member(x, _, _)
             | Expr::NamedArg(_, x, _)
-            | Expr::Unary(_, x, _) => walk(x, scope, bound),
+            | Expr::Unary(_, x, _)
+            | Expr::Case { subject: x, .. } => walk(x, scope, bound),
             Expr::Call(_, args, _) => args.iter().find_map(|a| walk(a, scope, bound)),
             Expr::Binary(_, a, b, _) => walk(a, scope, bound).or_else(|| walk(b, scope, bound)),
             Expr::Ternary(a, b, c, _) => walk(a, scope, bound)

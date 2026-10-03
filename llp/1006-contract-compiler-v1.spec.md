@@ -326,6 +326,22 @@ structural, as it was for records from sources. `contract fmt` keeps a named
 argument's `=` against its name (`empty(field=value)` too), as an
 attribute's.
 
+**Choices** (LLP 1035.005.000 D4a, 2026-10-03). A type may be a closed
+choice of strings, `"heading" | "paragraph"`, wherever a type is written; its
+values are strings on the wire, in the VM and in TypeScript. A choice is read
+wherever a string is; a string stands where a choice is wanted only as one of
+its literals written there, or as a value of that choice (or of a choice of
+some of its literals). `match` over a choice takes `case "a"` arms, several
+literals to an arm as `case "a" | "b"`, every literal named and no `else`, in
+a view, an action and an expression. The parser reads it as nested `when`s,
+`if`s or `?:`s on `Expr::Case` tests, so nothing after the checker knows it
+was a `match`. Refusals: `syntax-choice-literal`, `syntax-choice-duplicate`,
+`syntax-match-else`, `type-choice-unknown` (a literal outside the choice, in
+a `case`, beside `==`, or where the choice is wanted), `type-match-missing`,
+and `type-match-subject` for a subject that is not a choice. The plan holds a
+choice as a `string` type row whose fields name its literals; `Value::conforms`
+and the JavaScript target's `shape.js` hold an answer to them.
+
 `includes(text, substring) -> bool` performs a case-sensitive literal substring
 search (the empty substring matches), as the web's `String.prototype.includes`
 does; `startsWith(text, prefix)` and `endsWith(text, suffix)` are the web's
@@ -427,6 +443,9 @@ checked standalone. Roster calls are checked against the table's `params`/
 without constructing a merged type. Type inference uses `Ty::unify` wherever
 it needs the merged value. Function body checking borrows the resolved signature;
 only the parameter types entering the body's owned scope are cloned.
+Choices are `choices.rs` (`Ty::accepts`, directional where `unify` is not;
+`Ty::join` for branches; `given`, a literal where a choice is wanted; the
+`Case` test), and `parser/choice.rs` in the syntax crate.
 Action bodies are `actions.rs` (`check_body`: block scopes, the `let` rules);
 record builds are `records.rs`, which lowering and `symbols` share for
 `is_record_call` and the base (LLP 1035.005.000 D2/D3). `contract symbols`
@@ -636,6 +655,12 @@ child action beside the root's names. Nine reject fixtures, one per new id.
 `host/web-js/conformance/records.contract` drives both features on the wasm
 runner and the JavaScript target. Every other root's plan is byte-identical
 (117 roots, 2026-10-02).
+
+`choices.contract` (LLP 1035.005.000 D4a) runs on the runner in
+`contract/cli/tests/it/choices.rs`, with eleven reject fixtures;
+`host/web-js/conformance/choices.contract` drives it on both executors.
+Markdown, Markdown Stress, LLP, Exact Live and Carousel dispatch on a choice
+(2026-10-03).
 
 Three apps adopt them (2026-10-02). Fieldnotes' editing session is one
 `Session` record (note id, saved id, `draft` and `original` as

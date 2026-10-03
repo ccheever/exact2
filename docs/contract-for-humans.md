@@ -172,7 +172,8 @@ formatting, or `contract fmt file.contract` to write it.
 ## Values and types
 
 Contract has closed types: `number`, `string`, `bool`, declared records,
-`option<T>`, and `list<T>`. Component interfaces can also use the bare type
+`option<T>`, `list<T>`, and closed choices of strings such as
+`"heading" | "paragraph"`. Component interfaces can also use the bare type
 `action`. There is no authored `any`, nullable field shorthand, or arbitrary
 JavaScript object. The compiler infers states and derives, but fields, component
 props, injections, and function signatures declare their types.
@@ -221,6 +222,33 @@ action's assignment of `some(...)`, to infer the element type. Actions and the
 view see that type, but derives are typed first: match such a state in the view,
 not in a derive. Similarly, `[]` needs an inferable list element type. A nonempty list literal such as `[1, 2]` is not
 supported; obtain lists from sources, record fields, or list operations.
+
+A field, prop or parameter that holds one of a known set of strings declares
+the set. Its values are still strings, on the wire and in TypeScript, where it
+is the same union; `match` dispatches on it with one arm per literal, and an arm
+may name several:
+
+```text
+shape Block
+  kind: "heading" | "paragraph" | "item" | "rule"
+  text: string
+
+match block.kind
+  case "heading"
+    text block.text font-size=24
+  case "paragraph" | "item"
+    text block.text
+  case "rule"
+    view height=1
+```
+
+Every literal needs an arm and there is no `else`, so adding a literal to the
+type names every `match` that must handle it. A literal outside the set is
+refused wherever it is written (`case "headng"`, `block.kind == "headng"`,
+`Block(kind="quote", …)`), and a source's answer outside it is refused as a
+wrong shape is. A choice reads as a string anywhere one is read. A string
+becomes a choice only as one of its literals written where the choice is
+wanted; a state initialized with `"heading"` is a `string`.
 
 ## State, derives, and actions
 

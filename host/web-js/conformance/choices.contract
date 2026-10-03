@@ -1,0 +1,82 @@
+// Synthetic conformance plan (LLP 1035.005.000 D4a): closed choices of
+// strings over Caltrain's stations. `Station.id` lists every id, so the
+// nearest five land and each row takes the arm of a view's `match`; an
+// expression's and an action's `match` take a row's id; a literal stands for
+// a choice in a record and a prop. `Southern.id` lists three of them: asked
+// for Palo Alto, `station` answers an id that is not one, and both executors
+// refuse the commit that asked, as for any answer of the wrong shape, so
+// Southern keeps the station it had.
+shape Location
+  lat: number
+  lon: number
+
+shape Station
+  id: "sf" | "22nd" | "millbrae" | "sanmateo" | "redwood" | "paloalto" | "mv" | "sunnyvale" | "sj"
+  name: string
+  zone: number
+  distance: number
+
+shape Southern
+  id: "mv" | "sunnyvale" | "sj"
+  name: string
+  zone: number
+  distance: number
+
+shape Chosen
+  id: "sf" | "22nd" | "millbrae" | "sanmateo" | "redwood" | "paloalto" | "mv" | "sunnyvale" | "sj"
+  times: number
+
+fn county(id: "sf" | "22nd" | "millbrae" | "sanmateo" | "redwood" | "paloalto" | "mv" | "sunnyvale" | "sj"): string = match id {
+  case "sf" | "22nd" => "San Francisco",
+  case "millbrae" | "sanmateo" | "redwood" => "San Mateo",
+  case "paloalto" | "mv" | "sunnyvale" | "sj" => "Santa Clara",
+}
+
+component Choices
+  resource loc = defaultLocation() as shape Location
+  resource close = nearest(loc, 5) as shape list<Station>
+  state southId = "sj"
+  resource south = station(southId, loc) as shape Southern
+  state chosen = Chosen(id="sf", times=0)
+  state said = ""
+  derive north = filter(close, s => s.id == "redwood" or s.id == "sanmateo")
+  action choose(id: "sf" | "22nd" | "millbrae" | "sanmateo" | "redwood" | "paloalto" | "mv" | "sunnyvale" | "sj")
+    chosen = Chosen(chosen, id=id, times=chosen.times + 1)
+    match id
+      case "paloalto"
+        said = "home"
+      case "sf" | "22nd" | "millbrae" | "sanmateo" | "redwood"
+        said = "north of home"
+      case "mv" | "sunnyvale" | "sj"
+        said = "south of home"
+  action ask(id: string)
+    southId = id
+  view
+    column testId="root" gap=4 padding=8 background-color="#ffffff"
+      text `${chosen.id} ${chosen.times} ${county(chosen.id)} ${said} · ${length(north)} north` testId="chosen"
+      text `${south.id} ${south.name} ${failed(south) ? "refused" : "ok"}` testId="south"
+      Tag(id="sj")
+      each s in close key=s.id
+        match s.id
+          case "paloalto"
+            button press=choose(s.id) testId=`row-${s.id}`
+              text `${s.name} (home)`
+          case "sf" | "22nd" | "millbrae" | "sanmateo" | "redwood"
+            button press=choose(s.id) testId=`row-${s.id}`
+              Tag(id=s.id)
+          case "mv" | "sunnyvale" | "sj"
+            button press=choose(s.id) testId=`row-${s.id}`
+              text `${s.name} ↓`
+      row gap=8
+        button press=ask("sunnyvale") testId="ask-sunnyvale"
+          text "sunnyvale"
+        button press=ask("paloalto") testId="ask-paloalto"
+          text "palo alto"
+        button press=ask("mv") testId="ask-mv"
+          text "mountain view"
+
+component Tag
+  props
+    id: "sf" | "22nd" | "millbrae" | "sanmateo" | "redwood" | "paloalto" | "mv" | "sunnyvale" | "sj"
+  view
+    text `${id}: ${county(id)}` testId=`tag-${id}`

@@ -196,6 +196,45 @@ impl PlanBuilder {
         })
     }
 
+    /// A closed choice of strings (LLP 1035.005.000 D4a): a `string` row
+    /// whose fields name its literals, sorted, each typed `string`. A value
+    /// conforms when it is one of them; a `string` row with no fields is any
+    /// string.
+    pub fn choice(&mut self, literals: &[&str]) -> TypesId {
+        let string = self.primitive(TypeKind::String);
+        let mut literals = literals.to_vec();
+        literals.sort_unstable();
+        literals.dedup();
+        let name = self.str(TypeKind::String.name());
+        // Interned by its literals before its fields are pushed again.
+        let found = self.plan.types.iter().position(|t| {
+            t.kind == TypeKind::String
+                && t.fields.len as usize == literals.len()
+                && t.fields.len > 0
+                && t.fields
+                    .iter()
+                    .zip(&literals)
+                    .all(|(f, l)| self.plan.str(self.plan.field(f).name) == *l)
+        });
+        if let Some(i) = found {
+            return TypesId(i as u32);
+        }
+        let start = self.plan.fields.len() as u32;
+        for literal in &literals {
+            let name = self.str(literal);
+            self.plan.fields.push(FieldsRow { name, ty: string });
+        }
+        self.push_type(TypesRow {
+            kind: TypeKind::String,
+            elem: None,
+            fields: FieldsRange {
+                start,
+                len: literals.len() as u32,
+            },
+            name,
+        })
+    }
+
     /// `Option<elem>`.
     pub fn option(&mut self, elem: TypesId) -> TypesId {
         let name = self.str("option");

@@ -66,7 +66,8 @@ fn strict_calls(e: &Expr, is_fn: &dyn Fn(&str) -> bool, out: &mut Vec<Expr>) {
         Expr::Member(x, _, _)
         | Expr::NamedArg(_, x, _)
         | Expr::Some(x, _)
-        | Expr::Unary(_, x, _) => strict_calls(x, is_fn, out),
+        | Expr::Unary(_, x, _)
+        | Expr::Case { subject: x, .. } => strict_calls(x, is_fn, out),
         // A call both branches make is made on every path.
         Expr::Ternary(c, a, b, _) => {
             strict_calls(c, is_fn, out);
@@ -135,7 +136,8 @@ fn names(e: &Expr, out: &mut Vec<String>) {
         Expr::Member(x, _, _)
         | Expr::NamedArg(_, x, _)
         | Expr::Some(x, _)
-        | Expr::Unary(_, x, _) => names(x, out),
+        | Expr::Unary(_, x, _)
+        | Expr::Case { subject: x, .. } => names(x, out),
         Expr::Binary(_, a, b, _) => {
             names(a, out);
             names(b, out);
@@ -239,7 +241,8 @@ fn each_child(e: &Expr, free: &[String], f: &mut dyn FnMut(&Expr)) {
         Expr::Member(x, _, _)
         | Expr::NamedArg(_, x, _)
         | Expr::Some(x, _)
-        | Expr::Unary(_, x, _) => f(x),
+        | Expr::Unary(_, x, _)
+        | Expr::Case { subject: x, .. } => f(x),
         Expr::Binary(_, a, b, _) => {
             f(a);
             f(b);
@@ -298,6 +301,17 @@ fn map_children(e: Expr, f: &mut dyn FnMut(Expr) -> Expr) -> Expr {
         Expr::NamedArg(n, x, s) => Expr::NamedArg(n, b(x), s),
         Expr::Some(x, s) => Expr::Some(b(x), s),
         Expr::Unary(op, x, s) => Expr::Unary(op, b(x), s),
+        Expr::Case {
+            subject,
+            literals,
+            all,
+            span,
+        } => Expr::Case {
+            subject: b(subject),
+            literals,
+            all,
+            span,
+        },
         Expr::Binary(op, x, y, s) => {
             let x = b(x);
             Expr::Binary(op, x, b(y), s)

@@ -180,6 +180,17 @@ pub(super) fn subst_expr<T: SubstitutionValue>(e: &Expr, s: &mut Subst<'_, T>) -
         }
         Expr::Some(x, span) => Expr::Some(Box::new(subst_expr(x, s)), *span),
         Expr::Unary(op, x, span) => Expr::Unary(*op, Box::new(subst_expr(x, s)), *span),
+        Expr::Case {
+            subject,
+            literals,
+            all,
+            span,
+        } => Expr::Case {
+            subject: Box::new(subst_expr(subject, s)),
+            literals: literals.clone(),
+            all: all.clone(),
+            span: *span,
+        },
         Expr::Binary(op, a, b, span) => Expr::Binary(
             *op,
             Box::new(subst_expr(a, s)),
@@ -369,7 +380,8 @@ fn free_names(e: &Expr, bound: &mut Vec<String>, out: &mut BTreeSet<String>) {
         Expr::Member(o, _, _)
         | Expr::NamedArg(_, o, _)
         | Expr::Some(o, _)
-        | Expr::Unary(_, o, _) => free_names(o, bound, out),
+        | Expr::Unary(_, o, _)
+        | Expr::Case { subject: o, .. } => free_names(o, bound, out),
         Expr::Binary(_, a, b, _) => {
             free_names(a, bound, out);
             free_names(b, bound, out);
@@ -427,7 +439,8 @@ fn occurs(e: &Expr, name: &str) -> bool {
         Expr::Member(o, _, _)
         | Expr::NamedArg(_, o, _)
         | Expr::Some(o, _)
-        | Expr::Unary(_, o, _) => occurs(o, name),
+        | Expr::Unary(_, o, _)
+        | Expr::Case { subject: o, .. } => occurs(o, name),
         Expr::Binary(_, a, b, _) => occurs(a, name) || occurs(b, name),
         Expr::Ternary(a, b, c, _) => occurs(a, name) || occurs(b, name) || occurs(c, name),
         Expr::Match {
