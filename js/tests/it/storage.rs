@@ -659,7 +659,7 @@ fn returning_storage_status_keeps_identity_and_revalidates_with_current_context(
                     // The kept answer still stands while freshness revalidation
                     // has reached the network; no provisional value is written.
                     assert_eq!(text(runner.resource("status").unwrap().clone()), "saved A");
-                    assert!(runner.store().writes().is_empty());
+                    assert!(runner.take_store_writes().is_empty());
                     fetched.push(request.request.url);
                     response("current A")
                 };
@@ -742,7 +742,7 @@ component App
     next.act("sample", vec![Value::Number(300.)]).unwrap();
     assert_eq!(text(next.resource("status").unwrap().clone()), "saved A");
     assert!(next.take_requests().is_empty());
-    assert!(next.store().writes().is_empty());
+    assert!(next.take_store_writes().is_empty());
     next.data().activate().unwrap();
     next.data_ready().unwrap();
     assert_eq!(text(next.resource("status").unwrap().clone()), "saved A");
@@ -751,7 +751,10 @@ component App
         ["https://example.test/status/A?minute=300"]
     );
     assert_eq!(text(next.resource("status").unwrap().clone()), "current A");
-    assert_eq!(next.store().writes().len(), 1);
+    let writes = next.take_store_writes();
+    assert_eq!(writes.len(), 1);
+    assert_eq!(writes[0].name, "exact.kept.status");
+    assert!(writes[0].value.is_some());
 
     let mut other = Runner::boot_stored(
         baked,
