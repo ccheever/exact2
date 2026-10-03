@@ -898,3 +898,18 @@ does not alter the measured runner or replace the paired diagnostic above.
 **2026-09-19 tall-card bootstrap estimate:** shared `virtualized=true` lists accept the existing `estimated-item-height` as one positive literal. The runner seeds its height index from that hint and bounds bootstrap by the previous 16 × 32-point provisional budget (at most sixteen rows); measured heights replace the estimate. Invalidated heights revert to the authored estimate. Compiler cases and a 25,000-row integration exercise verify bounded bootstrap, replacement by actual measurements, distant scroll and return without rebuilding the source. Six compiler collection tests, 64 runner collection tests, targeted package tests and clippy pass. Shop's alternating simulator comparison reports median exec-to-first-draw 566.2 → 426.4 ms over five launches per build. Web must also exclude collection snapshot views from legacy list registration: the authored estimate otherwise activates `exact_list` on a shared collection and poisons the runner. The reproduced failure is fixed and Shop's full-feed browser/iOS probes pass. These are consumer-specific measurements, not whole-runtime or physical-phone parity.
 
 **2026-09-20 Shop compiler integration:** current main routed a shared `virtualized=true` list through legacy explicit-height validation and rejected its existing estimate. Restricting legacy validation to lists without a `virtualized` attribute restores the shared collection validator, including its unbounded-viewport diagnostic. The pre-change consumer build and existing collection case failed; all six collection compiler cases and the Shop web/device builds pass afterward. The broader Contract suite stops at `lint::conditional_style_literals_are_refused_at_the_offending_branch`, whose column fixture expects `top="0px"` to be invalid although current lowering accepts it; this is outside the list branch. Full runtime checks are recorded separately and are not claimed green.
+
+### 6.7 A smooth scroller follows its end smoothly (2026-10-03)
+
+`scroll-behavior: smooth` already animated a `scrollTop`/`scrollLeft` write
+(eccb78d7). On iOS a `scrollFollowEnd` scroller's own follow of a grown end
+(a message appended) was still an instant jump, while the browser, whose
+follow writes `scrollTop`, animates it under the same property. Now
+`restoreScrollPosition` follows a grown end with UIKit's scroll animation when
+the scroller is `scroll-behavior: smooth`, outside an interaction and outside
+the agent's frozen clock; a shrink or an upward move still lands at once. While
+the animation runs, the scroller still counts as following its end
+(`followingEndAnimated`, cleared when the animation ends or a drag begins), so
+a batch mid-flight does not mistake the animated offset for a reader's scroll.
+Consumer: the Signal Clone app's transcript (send scrolls the new message in,
+as Signal does).
