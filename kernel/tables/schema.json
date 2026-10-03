@@ -605,6 +605,12 @@
       "kind": "str"
     },
     {
+      "id": 223,
+      "name": "scrollStart",
+      "kind": "str",
+      "_comment": "@ref LLP 1010 §6.5: `scroll-start` on a virtualized list, `start` (the default) or `end` — where it opens."
+    },
+    {
       "id": 81,
       "name": "accessibilityPosInSet",
       "kind": "int"

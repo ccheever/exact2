@@ -7,6 +7,7 @@ mod nest;
 mod rekey;
 mod reorder;
 mod reorder_api;
+mod start;
 #[cfg(test)]
 mod tests;
 mod traversal;
@@ -140,9 +141,13 @@ pub(crate) struct Collection {
     target: Option<into_view::Target>,
     /// The latest request here and how it stands, for `state`.
     into_view_status: Option<(Rc<str>, IntoViewStatus)>,
-    /// Where the window starts before the host reports: 0, or a restored
-    /// position.
+    /// Where the window starts before the host reports: 0, a restored
+    /// position, or the end.
     start_offset: f64,
+    /// `scroll-start: end`, until the list has opened there.
+    at_end: bool,
+    /// Consecutive reports that said the port was travelling, while it opens.
+    end_travel: u8,
 }
 fn index_error(e: index::IndexError) -> InstanceError {
     InstanceError::Collection(e.to_string())
@@ -234,6 +239,7 @@ impl Collection {
         let descriptor = plan.node(node);
         let mut enabled = false;
         let mut follow_end = false;
+        let mut at_end = false;
         let mut estimated_height = ESTIMATED_HEIGHT;
         let mut initial: Option<usize> = None;
         let mut axis = ListAxis::Vertical;
@@ -271,6 +277,9 @@ impl Collection {
             }
             if binding.kind == BindingKind::Prop && binding.id == PropId::ScrollFollowEnd as u16 {
                 follow_end = u.eval(binding.expr, frames)? == Value::Bool(true);
+            }
+            if binding.kind == BindingKind::Prop && binding.id == PropId::ScrollStart as u16 {
+                at_end = u.eval(binding.expr, frames)?.as_str() == Some("end");
             }
             if binding.kind == BindingKind::Prop
                 && (binding.id == PropId::EstimatedItemHeight as u16
@@ -392,6 +401,8 @@ impl Collection {
             target: None,
             into_view_status: None,
             start_offset: 0.0,
+            at_end,
+            end_travel: 0,
         });
         this.update_data(u, frames, true)?;
         Ok(Some(this))
@@ -488,6 +499,7 @@ impl Collection {
             }
             self.restore(anchor)?;
         }
+        self.start_at_end();
         self.realize_window(u, frames, true, CollectionFill::default())?;
         if changed {
             let unchanged = previous.is_some_and(|mut before| {
@@ -604,11 +616,7 @@ impl Collection {
             .as_ref()
             .map(|g| {
                 self.index
-                    .capture_anchor(
-                        g.offset,
-                        g.port_main,
-                        self.follow_end && self.preview.is_none(),
-                    )
+                    .capture_anchor(self.anchor_offset(g.offset), g.port_main, self.follows())
                     .map_err(index_error)
             })
             .transpose()
@@ -723,11 +731,7 @@ impl Collection {
             port = Some((window.offset, window.offset + g.port_main));
             window.segments
         } else {
-            let first = self
-                .index
-                .row_at(self.start_offset)
-                .map_err(index_error)?
-                .unwrap_or(0);
+            let first = self.bootstrap_first()?;
             std::iter::once(first..self.index.len().min(first + self.bootstrap_rows)).collect()
         };
         let mut old: BTreeMap<String, Mounted> = std::mem::take(&mut self.mounted)
@@ -1133,14 +1137,16 @@ impl Collection {
             .geometry
             .as_ref()
             .map_or(feedback.port_main, |g| g.port_main);
+        self.leave_end_if_moved(fill.velocity);
+        let extent = self.index.total_height();
         let anchor = Some(match self.restoring(&feedback) {
             Some(anchor) => anchor,
             None => self
                 .index
                 .capture_anchor(
-                    feedback.offset,
+                    self.anchor_offset(feedback.offset),
                     anchor_height,
-                    self.follow_end && self.preview.is_none(),
+                    self.follows(),
                 )
                 .map_err(index_error)?,
         });
@@ -1163,6 +1169,7 @@ impl Collection {
         self.restore(anchor)?;
         self.settle_into_view(u.env.plan, feedback.offset);
         self.realize_window(u, frames, false, fill)?;
+        self.settle_start(extent);
         let mut now = self.snapshot();
         // Receiving a newer sequence without changing rows/extent/correction is
         // a fact update, not a new frame (avoids post-layout feedback loops).
@@ -1242,6 +1249,7 @@ impl Collection {
         };
         if feedback.measurements.iter().any(remeasures)
             || self.restored_at.is_some()
+            || self.at_end
             || self.target.is_some()
             || self.pending
             || self.preview.is_some()

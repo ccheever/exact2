@@ -17,6 +17,13 @@ import UIKit
 struct HeaderShape: Equatable {
     struct Item: Equatable {
         let id: UInt32, title: String, symbol: String?, label: String?, disabled: Bool
+        /// A face drawn from the button's one filled box (an avatar or a
+        /// badge: a shape holding a text or a symbol), when the button has
+        /// one: the item's image, in the box's own colours and corners.
+        let badge: BadgeFace?
+        /// The popover a button opens (`popovertarget`): the item's menu,
+        /// its rows read when it opens, as LLP 1021 D3's pull-down.
+        let menu: String?
         /// A native button's prominent style: a prominent bar item (iOS 26),
         /// as LLP 1069.011.000 D2 maps `NSToolbarItem`.
         let prominent: Bool
@@ -38,6 +45,8 @@ struct HeaderShape: Equatable {
                 walk(button)
             }
             id = button.id
+            badge = button.isNativeButton ? nil : BadgeFace(button)
+            menu = button.props["popovertargetaction"] == "hide" ? nil : button.props["popovertarget"]
             self.symbol = symbol
             title = text
             label = button.props["accessibilityLabel"] ?? face?.label
@@ -45,12 +54,15 @@ struct HeaderShape: Equatable {
             prominent = ["filled", "bordered-prominent", "prominent-glass", "prominent-clear-glass"].contains(face?.style ?? "")
         }
         /// Everything a bar item is made from.
-        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(prominent)" }
+        var source: String { "\(id):\(title):\(symbol ?? ""):\(label ?? ""):\(disabled):\(prominent):\(badge?.source ?? ""):\(menu ?? "")" }
     }
     let header: NodeView
     let title: String
     let level: Int
     let leading: [Item], trailing: [Item]
+    /// The header's `input type="search"`, if it has one: the item's
+    /// search controller (LLP 1075.003 §9.6).
+    let search: NodeView?
 
     /// `back` names the stack's Back control, left to UIKit's back button
     /// when there is one (`backIsUIKits`): the root of a presented stack
@@ -58,12 +70,14 @@ struct HeaderShape: Equatable {
     init?(route: NodeView, back: String?, backIsUIKits: Bool = true) {
         guard let header = route.container.subviews.lazy.compactMap({ $0 as? NodeView }).first,
               header.props["semanticTag"] == "header" else { return nil }
-        var headings: [NodeView] = [], before: [Item] = [], after: [Item] = []
+        var headings: [NodeView] = [], before: [Item] = [], after: [Item] = [], search: NodeView?
         func walk(_ node: NodeView) {
             for case let child as NodeView in node.container.subviews {
                 if child.isParagraph, child.props["accessibilityHeadingLevel"] != nil {
                     headings.append(child)
-                } else if child.handlers.contains("press") {
+                } else if child.kind == "input", child.props["type"] == "search" {
+                    search = search ?? child
+                } else if child.handlers.contains("press") || (child.isButton && child.props["popovertarget"] != nil && child.props["popovertargetaction"] != "hide") {
                     guard !backIsUIKits || back == nil || child.props["id"] != back else { continue }
                     if headings.isEmpty { before.append(Item(child)) } else { after.append(Item(child)) }
                 } else {
@@ -78,10 +92,65 @@ struct HeaderShape: Equatable {
         level = Int(headings[0].props["accessibilityHeadingLevel"] ?? "") ?? 2
         leading = before
         trailing = after
+        self.search = search
     }
 
     static func == (a: HeaderShape, b: HeaderShape) -> Bool {
-        a.header === b.header && a.title == b.title && a.level == b.level && a.leading == b.leading && a.trailing == b.trailing
+        a.header === b.header && a.title == b.title && a.level == b.level && a.leading == b.leading && a.trailing == b.trailing && a.search === b.search
+    }
+}
+
+/// A bar item's face drawn from a button whose one child is a filled box
+/// holding a text or a symbol (an avatar, a badge): CSS's colours and
+/// corners at the bar's image size, light and dark, as UIKit draws a
+/// raster item image (`.alwaysOriginal`).
+struct BadgeFace: Equatable {
+    static let size: CGFloat = 36
+    let text: String, symbol: String?
+    let light: [[Double]], dark: [[Double]]
+    let corners: [CGSize]
+    init?(_ button: NodeView) {
+        let kids = button.container.subviews.compactMap { $0 as? NodeView }
+        guard kids.count == 1, let box = kids.first, box.channels("background_color") != nil else { return nil }
+        var text = "", symbol: String?, ink: NodeView?
+        func walk(_ node: NodeView) {
+            for case let child as NodeView in node.container.subviews {
+                if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty { symbol = symbol ?? name; ink = ink ?? child }
+                else if child.isParagraph, text.isEmpty { text = child.accessibleText; ink = ink ?? child }
+                else { walk(child) }
+            }
+        }
+        walk(box)
+        guard !text.isEmpty || symbol != nil else { return nil }
+        let key = symbol == nil ? "text_color" : "tint_color"
+        func colours(_ dark: Bool) -> [[Double]] {
+            [box.channels("background_color", dark: dark) ?? [0, 0, 0, 0], ink?.channels(key, dark: dark) ?? (dark ? [1, 1, 1, 1] : [0, 0, 0, 1])]
+        }
+        self.text = text; self.symbol = symbol
+        light = colours(false); dark = colours(true)
+        corners = box.cornerSizes(in: CGRect(x: 0, y: 0, width: Self.size, height: Self.size))
+    }
+    var source: String { "\(text)|\(symbol ?? "")|\(light)|\(dark)|\(corners)" }
+
+    var image: UIImage {
+        let light = draw(self.light).withRenderingMode(.alwaysOriginal)
+        light.imageAsset?.register(draw(self.dark).withRenderingMode(.alwaysOriginal), with: UITraitCollection(userInterfaceStyle: .dark))
+        return light
+    }
+    private func draw(_ c: [[Double]]) -> UIImage {
+        let rect = CGRect(x: 0, y: 0, width: Self.size, height: Self.size)
+        return UIGraphicsImageRenderer(size: rect.size).image { _ in
+            TextEngine.color(c[0]).setFill()
+            UIBezierPath(cgPath: BorderPaint.roundedRect(rect, corners, shape: nil)).fill()
+            let ink = TextEngine.color(c[1])
+            if let symbol, let glyph = UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: Self.size * 0.42))?.withTintColor(ink, renderingMode: .alwaysOriginal) {
+                glyph.draw(at: CGPoint(x: (rect.width - glyph.size.width) / 2, y: (rect.height - glyph.size.height) / 2))
+            } else {
+                let attrs: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: Self.size * 0.42, weight: .medium), .foregroundColor: ink]
+                let s = (text as NSString).size(withAttributes: attrs)
+                (text as NSString).draw(at: CGPoint(x: (rect.width - s.width) / 2, y: (rect.height - s.height) / 2), withAttributes: attrs)
+            }
+        }
     }
 }
 
@@ -109,6 +178,39 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
 
     override func forwardingTarget(for selector: Selector!) -> Any? {
         app?.responds(to: selector) == true ? app : nil
+    }
+}
+
+/// A header's search field as UIKit's search controller (LLP 1075.003
+/// §9.6): text, focus and blur go to the authored field's handlers.
+final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate, UISearchControllerDelegate {
+    let controller = UISearchController(searchResultsController: nil)
+    weak var host: NavigationHost?
+    weak var field: NodeView?
+    private var last: String?
+    init(host: NavigationHost) {
+        self.host = host
+        super.init()
+        controller.searchResultsUpdater = self
+        controller.searchBar.delegate = self
+        controller.delegate = self
+        controller.obscuresBackgroundDuringPresentation = false
+        controller.hidesNavigationBarDuringPresentation = true
+    }
+    func updateSearchResults(for search: UISearchController) {
+        let text = search.searchBar.text ?? ""
+        guard text != last, let field, let presenter = host?.presenter, presenter.views[field.id] === field else { return }
+        last = text
+        presenter.typed(field.id, text, input: field.handlers.contains("input"))
+    }
+    func searchBarTextDidBeginEditing(_ bar: UISearchBar) {
+        guard let field, field.handlers.contains("focus") else { return }
+        host?.presenter.focus(field.id)
+    }
+    func searchBarTextDidEndEditing(_ bar: UISearchBar) {
+        guard let field else { return }
+        host?.presenter.commitEdit(field.id, bar.text ?? "", change: field.handlers.contains("change"))
+        if field.handlers.contains("blur") { host?.presenter.blur(field.id) }
     }
 }
 
@@ -209,6 +311,7 @@ extension NavigationHost {
                 project(shape, into: c, canGoBack: canGoBack, shows: shows)
             }
             collapse(c, shape: shape, scroll: scroll)
+            if shows { searchField(shape?.search, in: c) }
             guard c.projected != signature || !c.hooked else { continue }
             c.projected = signature
             guard presenter.session?.natives.hooksConnected == true else { continue }
@@ -239,6 +342,32 @@ extension NavigationHost {
             header.isHidden = true
             c.lifted = header
         }
+    }
+
+    /// A header's search field is the item's `UISearchController` (§9.6):
+    /// its placeholder and value are the field's; what the reader types is
+    /// the field's `input` (and `focus`, `blur`), as typing in it would be.
+    private func searchField(_ field: NodeView?, in c: RouteController) {
+        guard let field else {
+            if c.search != nil { c.navigationItem.searchController = nil; c.search = nil }
+            return
+        }
+        let search = c.search ?? HeaderSearch(host: self)
+        if c.search !== search {
+            c.search = search
+            c.navigationItem.searchController = search.controller
+            c.navigationItem.hidesSearchBarWhenScrolling = false
+            if #available(iOS 16.0, *) { c.navigationItem.preferredSearchBarPlacement = .stacked }
+            c.definesPresentationContext = true
+        }
+        search.field = field
+        let bar = search.controller.searchBar
+        let placeholder = field.props["placeholder"] ?? ""
+        if bar.placeholder != placeholder { bar.placeholder = placeholder }
+        // The Contract's value wins unless the reader is typing it.
+        let value = field.props["value"] ?? ""
+        if !bar.isFirstResponder, bar.text != value { bar.text = value }
+        bar.accessibilityIdentifier = field.props["testId"]
     }
 
     /// UIKit's back button stands for each route's authored Back control,
@@ -291,11 +420,34 @@ extension NavigationHost {
         let press = BarPress(i.id, self)
         c.barPresses.append(press)
         let action = #selector(BarPress.press)
-        let item = i.symbol.flatMap { UIImage(systemName: $0) }.map { UIBarButtonItem(image: $0, style: .plain, target: press, action: action) }
-            ?? UIBarButtonItem(title: i.title, style: .plain, target: press, action: action)
+        let image = i.badge?.image ?? i.symbol.flatMap { UIImage(systemName: $0) }
+        let item: UIBarButtonItem
+        if let name = i.menu {
+            // A pull-down: UIKit opens it on tap; the rows are the popover's,
+            // read as it opens, after the button's own press (both fire, as
+            // LLP 1021 D1 has it on the web).
+            let id = i.id
+            let deferred = UIDeferredMenuElement.uncached { [weak self] completion in
+                guard let self else { return completion([]) }
+                if self.presenter.views[id]?.handlers.contains("press") == true { self.presenter.press(id) }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { [weak self] in
+                    guard let self, let pop = self.presenter.carrying("popover").first(where: { $0.props["id"] == name }) else { return completion([]) }
+                    completion(self.presenter.menus.items(of: pop))
+                }
+            }
+            item = image.map { UIBarButtonItem(image: $0, menu: UIMenu(children: [deferred])) }
+                ?? UIBarButtonItem(title: i.title, menu: UIMenu(children: [deferred]))
+        } else {
+            item = image.map { UIBarButtonItem(image: $0, style: .plain, target: press, action: action) }
+                ?? UIBarButtonItem(title: i.title, style: .plain, target: press, action: action)
+        }
         item.accessibilityLabel = i.label ?? (i.title.isEmpty ? nil : i.title)
         item.isEnabled = !i.disabled
-        if #available(iOS 26.0, *), i.prominent { item.style = .prominent }
+        if #available(iOS 26.0, *) {
+            if i.prominent { item.style = .prominent }
+            // A drawn face is its own shape: no glass capsule around it.
+            if i.badge != nil { item.hidesSharedBackground = true }
+        }
         return item
     }
 
