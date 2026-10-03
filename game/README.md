@@ -242,9 +242,12 @@ Every update records the matching source-input digest; a Git commit is recorded
 when one exists. A game without commits can repin under the same agreement checks.
 `CHROME` selects the headless browser.
 
-Paranoid runs check simulation and saves. Each tick uses the normal restore path,
-which resets presentation interpolation; use ordinary runs for appearance and
-motion comparisons.
+Paranoid runs check simulation and saves. Save and FreshGame modes rebuild the
+world through the normal restore path at the last tick of every advance (every
+point a proof observes) and every 16th tick inside one, which resets presentation
+interpolation; use ordinary runs for appearance and motion comparisons. The
+driver moves a long `clock +N` in one-second steps, each its own operation, so a
+seek's length is not bounded by a host's answer window (Chrome's 15 s).
 
 `PASS` means the complete saved baseline was checked. Partial/build-only runs and
 baseline collection report `UNVERIFIED`; failed assertions report `FAIL`. A

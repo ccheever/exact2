@@ -91,13 +91,14 @@ struct LiveTime {
     slew_left: Option<f64>,
     lookahead: f64,
 }
-/// Opt-in save reconstruction after every completed tick. Never enabled by default.
+/// Opt-in save reconstruction at the last tick of every advance and every 16th
+/// tick inside one. Never enabled by default.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Paranoid {
     /// Normal execution.
     #[default]
     Off,
-    /// Rebuild through the production restore path after every tick.
+    /// Rebuild through the production restore path at each sampled tick.
     Save,
     /// Also discard and decode immutable assets before reconstructing the world.
     FreshGame,
@@ -151,6 +152,7 @@ pub struct Sim<G: Game> {
     game: PhantomData<G>,
 }
 const QUEUE_LIMIT: usize = 1024;
+const PARANOID_EVERY: u64 = 16;
 pub(crate) fn micros(ms: f64) -> i64 {
     (ms * 1000.0).round() as i64
 }
@@ -996,8 +998,12 @@ impl<G: Game> Sim<G> {
             self.world.reap_orphans();
             self.world.propagate();
             self.world.step_clock();
+            // Paranoid modes round-trip at every point an advance can be observed
+            // (its last tick) and every PARANOID_EVERY-th tick inside it.
             if let Some(rebuild) = self.paranoid {
-                rebuild(self);
+                if self.world.tick() == target || self.world.tick() % PARANOID_EVERY == 0 {
+                    rebuild(self);
+                }
             }
             if clock == Clock::Seekable {
                 let left = target - self.world.tick();

@@ -169,3 +169,20 @@ fn an_observed_tick_costs_what_changed() {
         }
     }
 }
+
+/// Forest diary limit 7: Save mode round-tripped the whole save every tick
+/// (Linux 205-310 s against 15 s Off; web 507 s against 117 s).
+#[test]
+#[ignore = "release paranoid cost measurement"]
+fn paranoid_save_costs_a_fraction_of_a_round_trip_per_tick() {
+    for mode in [Paranoid::Off, Paranoid::Save] {
+        let mut s = sim(2_000, true, true).paranoid(mode);
+        s.run(0.0);
+        let start = std::time::Instant::now();
+        s.run(2_000.0);
+        println!(
+            "paranoid {mode:?}, 8,668 entities, a 2 s seek in one advance: {:.1} ms",
+            start.elapsed().as_secs_f64() * 1000.0
+        );
+    }
+}

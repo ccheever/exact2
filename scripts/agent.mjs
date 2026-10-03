@@ -163,8 +163,8 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     const target = targetInfos.find((t) => t.type === 'page') ?? (await cdp.send('Target.createTarget', { url: 'about:blank' }));
     const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
     const heldKeys = new Map();
-    const call = async (method, params) => {
-      const reply = await cdp.send(method, params, sessionId);
+    const call = async (method, params, timeoutMs) => {
+      const reply = await cdp.send(method, params, sessionId, timeoutMs);
       if (method === 'Input.dispatchKeyEvent') {
         if (params.type === 'keyUp') heldKeys.delete(params.code);
         else if (params.type === 'keyDown' || params.type === 'rawKeyDown') heldKeys.set(params.code, params);
@@ -193,8 +193,8 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     ` });
     // The viewport exactly: Chrome will not make a window narrower than 500.
     await call('Emulation.setDeviceMetricsOverride', { width: size[0], height: size[1], deviceScaleFactor: 1, mobile: false });
-    const evaluate = async (expression) => {
-      const r = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
+    const evaluate = async (expression, timeoutMs) => {
+      const r = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }, timeoutMs);
       if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
       return r.result.value;
     };
@@ -241,7 +241,9 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
         await frame();
         return { resized: pair, viewport: await evaluate('[innerWidth, innerHeight]'), delivery: 'browser-viewport' };
       }
-      return JSON.parse(await evaluate(`exact.agentSettled(${JSON.stringify(req)}).then((r) => JSON.stringify(r))`));
+      // A settle runs up to the page's 20 s deadline twice (requests, then rounds).
+      const timeout = req.op === 'clock' && req.settle ? 60000 : undefined;
+      return JSON.parse(await evaluate(`exact.agentSettled(${JSON.stringify(req)}).then((r) => JSON.stringify(r))`, timeout));
     };
     return {
       host: 'web', browser: 'chrome', boot: Number(boot), hostLines, evaluate, call, launchFacts: facts,
@@ -839,6 +841,7 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
     throw e;
   }
 }
+const CLOCK_STEP_MS = 1000;
 // ---------------------------------------------------------------- the eight operations
 /** A convenience over state, screenshot and type; wire replies keep all tags. */
 export function worldView(session, name) {
@@ -1182,6 +1185,12 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       else if (typeof spec === 'string' && spec.startsWith('+')) req.to = s.now + Number(spec.slice(1));
       else req.to = Number(spec);
       if (!req.settle && !Number.isFinite(req.to)) throw new Error(`clock: not a time: ${spec}; use clock +100 or clock settle; state shows the current clock`);
+      // A long seek moves in CLOCK_STEP_MS steps, each its own operation, so no
+      // host's answer window bounds how far one `clock` may go. Ticks, timers and
+      // the final observation are those of one seek.
+      while (!req.settle && req.to - s.now > CLOCK_STEP_MS) {
+        s.now = (await s.op({ op: 'clock', to: s.now + CLOCK_STEP_MS })).clock;
+      }
       const r = await s.op(req);
       s.now = r.clock;
       if (req.settle && r.settled === false) r.diagnostic = r.reason === 'device' ? `clock settle stops at held device requests (${(r.tickets ?? []).map(t => '@' + t).join(' ')}); state shows them under pending; answer with tap @N <choice> or type @N <value>` : r.reason === 'requests' ? 'clock settle gave up on requests still in flight at its bound (20 s native); state shows them under pending, and logs a `request N` with no `fulfil N`' : `clock settle did not reach quiescence: ${JSON.stringify(r.world ?? r)}; state world:* busy shows moving values and busy reasons; state shows held input; logs shows reload/refusals`;
