@@ -1207,7 +1207,7 @@ if (deckFixture) {
       const note = box(l, 'note');
       check(l.viewport.h === viewport0.h && box(l, 'root').h === rootBox.h, `the layout viewport does not change for a keyboard: ${JSON.stringify(l.viewport)}, root ${JSON.stringify(box(l, 'root'))}`);
       if (host === 'ios') {
-        check(kb > 100, `the software keyboard rose on the simulator: keyboard-inset-height ${kb} (Simulator › I/O › Keyboard › Connect Hardware Keyboard hides it)`);
+        check(kb > 100, `the software keyboard rose on the simulator: keyboard-inset-height ${kb} (a hardware keyboard attached to the simulator hides it — a Device Hub window's, sticky after the window closes; `simctl spawn <udid> log show` says "Hardware keyboard attached"; close the window or boot a fresh device)`);
         check(note.y + note.h <= l.viewport.h - kb + 0.01 && note.y < noteBefore.y, `the field is revealed above the keyboard: ${JSON.stringify(note)} under a keyboard of ${kb} in ${l.viewport.h}; before ${JSON.stringify(noteBefore)}`);
         console.log(`${host} insets: safe area ${top}/${right}/${bottom}/${left}, the viewport ${l.viewport.w}×${l.viewport.h}; the keyboard ${kb} revealed the field at y ${note.y} (was ${noteBefore.y})`);
       } else {
