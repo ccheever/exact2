@@ -97,6 +97,7 @@ cargo clippy -p exact-game-physics --all-targets -- -D warnings
 cargo fmt --all -- --check
 cargo run -p exact-game-physics --release --example pile -- 1000 2000 5000
 cargo run -p exact-game-physics --release --example pile -- --verify
+cargo test -p exact-game-physics --release --test scale -- --ignored --nocapture
 cargo build -p exact-game-physics --profile web --target wasm32-unknown-unknown --example minimal
 ```
 
