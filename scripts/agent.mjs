@@ -1186,11 +1186,11 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       else req.to = Number(spec);
       if (!req.settle && !Number.isFinite(req.to)) throw new Error(`clock: not a time: ${spec}; use clock +100 or clock settle; state shows the current clock`);
       // A long seek moves in CLOCK_STEP_MS steps, each its own operation: no host's answer
-      // window bounds one `clock`. Ticks, timers and the final observation are one seek's.
-      while (!req.settle && req.to - s.now > CLOCK_STEP_MS) {
-        s.now = (await s.op({ op: 'clock', to: s.now + CLOCK_STEP_MS })).clock;
-      }
-      const r = await s.op(req);
+      // window bounds one `clock`. Ticks, timers and the final observation are one seek's;
+      // what a step reported (a settle reason, a GPU status) and the final reply omits stays.
+      let step = {};
+      while (!req.settle && req.to - s.now > CLOCK_STEP_MS) s.now = (step = await s.op({ op: 'clock', to: s.now + CLOCK_STEP_MS })).clock;
+      const r = { ...step, ...await s.op(req) };
       s.now = r.clock;
       if (req.settle && r.settled === false) r.diagnostic = r.reason === 'device' ? `clock settle stops at held device requests (${(r.tickets ?? []).map(t => '@' + t).join(' ')}); state shows them under pending; answer with tap @N <choice> or type @N <value>` : r.reason === 'requests' ? 'clock settle gave up on requests still in flight at its bound (20 s native); state shows them under pending, and logs a `request N` with no `fulfil N`' : `clock settle did not reach quiescence: ${JSON.stringify(r.world ?? r)}; state world:* busy shows moving values and busy reasons; state shows held input; logs shows reload/refusals`;
       return r;
