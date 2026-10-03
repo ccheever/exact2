@@ -194,7 +194,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         if let url = incoming, url.isFileURL { ExactIOS.session.openDocument(url) }
         else if let url = incoming, !ExactDevelopmentLink.claims(url) { ExactIOS.session.openURL(url) }
         ExactEnv.stamp("before boot")
-        let w = UIWindow(windowScene: ws)
+        let w = ExactWindow(windowScene: ws)
         // The launch screen's colour until the first frame names the canvas,
         // so nothing lighter or darker shows between them.
         w.backgroundColor = launchColor

@@ -686,28 +686,7 @@ try {
   tree = await s.tree();
   check(byTestId(tree, 'station-name')?.props.text === 'Palo Alto', `after picking Palo Alto the station is ${byTestId(tree, 'station-name')?.props.text}`);
   check(byTestId(tree, 'home-screen'), 'picking a station did not return home');
-  // 4c. A held contact on the simulator (LLP 1035.003 §3, candidate 1): a
-  // desktop pointer into the Simulator's window, mapped by the driver; a
-  // finger down on the title, dragged up while the page is read
-  // mid-gesture, held still, lifted. A machine without Accessibility for
-  // this terminal reports `unsupported` with the reason — printed, not
-  // failed and not faked — so the step stays visibly unverified there.
-  if (host === 'ios') {
-    const down = await s.tap('station-name', { down: true });
-    if (down.delivery === 'unsupported') {
-      console.log(`ios contact: unsupported — ${down.reason}`);
-    } else {
-      await s.pointer('move', { dx: 0, dy: -200, ms: 200 });
-      const held = await s.layout();
-      const page = held.nodes.find((n) => n.type === 'ScrollView' && n.sy != null);
-      check(page && page.sy > 50, `a held drag of 200 up scrolled the page by ${page?.sy} (delivery ${down.delivery}, desktop ${JSON.stringify(down.desktop)})`);
-      await s.pointer('hold', { ms: 300 });
-      const up = await s.pointer('up');
-      check(up.delivery === 'platform' && !s.contact, 'the simulator contact was not released');
-      const after = (await s.layout()).nodes.find((n) => n.type === 'ScrollView' && n.sy != null);
-      if (after?.sy) await s.tap(after.id, { wheel: [0, -after.sy] });
-    }
-  }
+  // 4c. Real touches on a simulator are `scripts/smoke-touch.mjs` (LLP 1080.000).
   // 4b. A held contact (LLP 1035.003 D1) on the AppKit carrier: the button
   // goes down on Change station, leaves it, and is cancelled — on a mouse a
   // release where the pointer is (de13a93f), outside the button, so nothing
@@ -1110,8 +1089,8 @@ if (deckFixture) {
 // swipe row inside a panning surface. A horizontal drag is the inner swipe's
 // and the pan never fires; a vertical one falls to the pan; a drag that starts
 // on the row's button is neither's (rule 3's boundary); a tap presses it. The
-// same numbers on every host that can hold a contact; iOS without the desktop
-// pointer answers `unsupported`, said so, not faked.
+// same numbers on every host that can hold a contact; iOS, which holds none
+// (LLP 1080.000 P3), answers `unsupported`, said so, not faked.
 {
   const tmp = mkdtempSync(resolve(tmpdir(), 'exact-smoke-'));
   const plan = resolve(tmp, 'precedence.plan');

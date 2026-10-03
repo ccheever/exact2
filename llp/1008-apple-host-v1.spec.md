@@ -1112,16 +1112,14 @@ a 335 keyboard, the bar's bottom 840 → 539, the bottom inset 34 → 0, all
 back on dismiss; Weird Castle's root uses it, with a yellow bar under its
 screens. Not built: `env(keyboard-inset-*)`, the `overlays-content` mode.
 
-**A contact on the simulator** (LLP 1035.003 §3 candidate 1, 2026-09-10):
-the app synthesizes no touch. The driver posts a real mouse into the
-simulator's window (`host/apple/pointer.swift`: Simulator.app's, or under
-Xcode 27, which ships none, the window Device Hub opens for the device,
-2026-09-30), calibrated by hovering at
-two desktop points and reading where the viewport saw the pointer
-(`layout.pointer`, a hover recognizer the presenter installs only under the
-agent), and refuses — naming the covering app — when the simulator's window
-is not the topmost at the point, or saying so when the Mac's screen is locked. `layout` also reports `screen` (the
-device's size and scale, and the viewport's origin on it).
+**Real touches on the simulator** (LLP 1080.000, 2026-10-03; the desktop
+pointer of LLP 1035.003 §3 is deleted): under `--touch platform` the driver
+starts an XCTest touch runner before the app, and a `tap` is a real touch
+from it — aimed by the host, confirmed by `ExactWindow`'s dispatch log —
+with `delivery: platform`. No touch stays down across requests, so a
+contact's phases answer `unsupported`. `layout` also reports `screen` (the
+device's size and scale, the viewport's origin on it, and the scene's
+interface orientation).
 
 **The agent (LLP 1012) on iOS.** A simulator app has no stdin, so
 `EXACT_AGENT=1` with `EXACT_AGENT_SOCKET=<path>` listens on a Unix socket
@@ -1156,8 +1154,8 @@ editor, `keyboard.visible` false, the stack as `NavigationRules.stack`'s
 prefix and `idle`. Every reply the host answers itself (`layout`, `tap`,
 `type`, `clock`, `screenshot`) is tagged `epoch`/`incarnation`/`clock` through
 the runner's `tags` message (D3, `Agent.tagged`). **`tap` is the one declared
-deviation from §1's contract**: UIKit offers no public touch synthesis, so
-a tap hit-tests through the window (UIKit's own, placements included) and
+deviation from §1's contract** unless the session runs `--touch platform`
+(above): UIKit offers no in-process touch synthesis, so a tap hit-tests through the window (UIKit's own, placements included) and
 delivers the press by the responder-chain rule a touch gets
 (`NodeView.activate`, which VoiceOver's `accessibilityActivate` also uses);
 a wheel applies LLP 1010's chaining rule from the hit view up. `type` is

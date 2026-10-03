@@ -112,14 +112,6 @@ final class Presenter {
         return guide.height > container.safeAreaInsets.bottom + 1 ? guide.minY : nil
     }
 
-    /// Where the platform's pointer last hovered over the viewport, in its
-    /// content space — kept only under the agent (LLP 1035.003 §3): the
-    /// driver calibrates its desktop-to-device mapping by hovering the Mac's
-    /// pointer at known desktop points and reading where the app saw it,
-    /// which no window frame can tell it (a Simulator window carries a
-    /// bezel and a scale of its own).
-    private(set) var lastPointer: CGPoint?
-
     init() {
         viewport.addSubview(root)
         viewport.delegate = scrollPump
@@ -133,17 +125,6 @@ final class Presenter {
         collections.rescued = { [unowned self] in paintVisibleText() }
         viewport.contentInsetAdjustmentBehavior = .never
         viewport.backgroundColor = .white
-        if ExactEnv.agentMode {
-            let hover = UIHoverGestureRecognizer(target: self, action: #selector(pointerMoved(_:)))
-            hover.delaysTouchesBegan = false
-            hover.delaysTouchesEnded = false
-            hover.cancelsTouchesInView = false
-            viewport.addGestureRecognizer(hover)
-        }
-    }
-
-    @objc func pointerMoved(_ gesture: UIHoverGestureRecognizer) {
-        lastPointer = gesture.location(in: viewport)
     }
 
     func observeKeyboard() {
