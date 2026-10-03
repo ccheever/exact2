@@ -86,8 +86,11 @@ rather than using the game prover's `--repin` command.
 Both pins moved on 2026-10-03 when fixed solids stopped pairing: the snapshot lost
 those pairs and each collider's flags changed. Every body pose, velocity and event
 over 600 ticks of pile/stack/drop/bounce and 120 of minimal is byte-identical to the
-previous build (native arm64); x86-64 and browser agreement on the new values is not
-yet re-run. They moved again with EXPHYS v3's holes, trajectories again unchanged.
+previous build (native arm64). They moved again with EXPHYS v3's holes, trajectories
+again unchanged. The current values (pile-600 0xd049aba543e7d682, minimal-120
+0xab0b2a772f504293) agree on native arm64 and in the `minimal` example's Wasm
+(`--profile web`) under headless Chrome and Bun, Off/Save/FreshGame alike
+(2026-10-03). x86-64 is not re-run: this Mac has no Rosetta.
 
 Reproduce from `game/` with `EXACT_UPDATE_TRUST=development`:
 ```
