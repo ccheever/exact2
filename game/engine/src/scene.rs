@@ -742,6 +742,18 @@ mod tests {
             for e in a.entities() {
                 let (ga, gb) = (a.global(e), b.global(e));
                 assert_eq!(ga, gb, "round {round} #{}", e.index());
+                let scan: Vec<_> = a
+                    .query::<&Parent>()
+                    .iter()
+                    .filter(|(_, p)| p.0 == e)
+                    .map(|(c, _)| c)
+                    .collect();
+                assert_eq!(
+                    a.children(e),
+                    scan,
+                    "round {round} children of #{}",
+                    e.index()
+                );
             }
         }
         assert!(a.hierarchy.ready());

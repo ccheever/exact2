@@ -92,6 +92,24 @@ impl Hierarchy {
             self.despawned.push(index);
         }
     }
+    /// `e`'s direct children in entity order, while the links reflect every
+    /// Parent row: no Parent written and no involved entity despawned since.
+    pub(crate) fn children(&self, w: &World, e: Entity) -> Option<Vec<Entity>> {
+        if !self.ready || !self.despawned.is_empty() || w.revision::<Parent>() != self.parents {
+            return None;
+        }
+        let mut out = Vec::new();
+        let mut c = self.links.get(e.index() as usize).map_or(NONE, |l| l.first);
+        while c != NONE {
+            let n = &self.nodes[c as usize];
+            if n.parent == Some(e) {
+                out.push(n.entity);
+            }
+            c = self.links[c as usize].next;
+        }
+        out.sort_by_key(|e| e.index());
+        Some(out)
+    }
     fn member(&self, index: usize) -> bool {
         self.nodes.get(index).is_some_and(|n| n.done == self.stamp)
     }

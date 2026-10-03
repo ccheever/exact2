@@ -834,12 +834,16 @@ impl World {
     pub fn entities_revision(&self) -> u64 {
         self.entities_revision
     }
-    /// Scan for direct children in entity order, for tools;
-    /// a tick that needs children keeps them in a component.
+    /// Direct children in entity order. After a propagate with no Parent written
+    /// or entity despawned since, this reads the hierarchy's links (O(children));
+    /// otherwise it scans every Parent row.
     #[track_caller]
     pub fn children(&self, e: Entity) -> Vec<Entity> {
         if !self.contains(e) {
             return vec![];
+        }
+        if let Some(children) = self.hierarchy.children(self, e) {
+            return children;
         }
         self.query::<&Parent>()
             .iter()
