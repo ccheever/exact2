@@ -376,3 +376,149 @@ adapted, not re-pinned (the lead holds the repin until the engine is final).
   18 pass with the lints (`shells.mjs --test`). Game logic 2,017 lines (−1: the
   analytic capsule out, aiming and MouseLook in).
 
+
+## Art pass
+
+2026-10-03, branch `art/rivals` from `roblox/integrate` (every engine fix in). Brief:
+let the model author much better graphics itself — no downloaded assets — and record
+what that costs and where the engine stops the art. Same builder.
+
+### What was made, and how
+
+- **`art-src/` (Bun, 840 lines, five files)** draws every texture per pixel and
+  writes glTF: `png.mjs` (a PNG encoder, tileable value noise and fbm, a 5×7 pixel
+  font, height → normal maps), `gltf.mjs` (a glTF 2.0 writer; rounded boxes,
+  cylinders, prisms, spheres with metre-scaled planar UVs), `textures.mjs`, `models.mjs`
+  and `gen.mjs` (`bun game/games/rivals/art-src/gen.mjs`, about 3 s).
+- **Textures (512², albedo + normal + metallic-roughness):** grey-blue trim-sheet wall
+  plates with seams, bolts, grime streaks and an orange accent line; slate floor tiles
+  with wear and inlaid lines; orange ribbed crates with chipped edges and a RIVALS
+  stencil; the deck's teal plate with hazard edges and an emission map lighting its
+  seams; red and blue RIVALS banners; brushed gunmetal. Skies: an RGBM equirect dusk
+  (sun glow, clouds) and night (stars, moon) for `EnvironmentMap`.
+- **Models:** the arena, built from `arena.json` — the same file the game's colliders
+  now read, so what you see and what you hit cannot drift — with trimmed wall caps,
+  glowing team lines (red end, blue end), banners as decals 3 cm off the walls, four
+  floodlight pylons; a rifle (receiver, handguard, barrel, brake, optic with a red
+  dot, stock, grip) plus a separate magazine; a rocket launcher; a knife; a rocket;
+  a muzzle flash (blended, emissive petals); and a soldier — hips, spine, head with
+  helmet and glowing visor, two-segment arms and legs, boots, a rifle on the chest —
+  in eight team colours, with Idle, Run and an additive Flinch clip.
+- **In the game (+537 −199 lines of Rust):** bots are animated (`Animator` blending
+  Idle→Run by speed; a `Layers` additive Flinch on every hit; hidden while dead). The
+  weapons are `ViewModel` models that bob with your stride, kick and pitch with recoil,
+  tilt and **drop the magazine** to reload, **turn over to inspect** (T), come to the
+  centre to aim, and show a muzzle flash with a point light. Bots get muzzle flashes
+  and lights; bullets throw sparks (orange off walls, red off fighters); rockets
+  carry a light and leave smoke puffs; explosions are a swelling fireball, a fire
+  burst, a smoke burst and a fading 9,000 cd flash. Lighting: the dusk sky as
+  environment light, a low warm sun with shadows, four pylon floodlights (two with
+  `LightShadows`), SSAO, stronger bloom, thinner warm fog; a **night arena** on the
+  title (moonlight, 2.5 Mcd floods, the glow trim doing the work).
+- **HUD:** a four-tick crosshair, a four-bar hit marker (white body, yellow head, red
+  kill), italic damage numbers, blue/red gradient score plates, a kill feed with
+  weapon glyphs and a headshot mark, an inset red damage vignette, ELIMINATED and
+  VICTORY/DEFEAT screens with round tallies, a gradient title.
+
+Screenshots (ignored, `game/games/rivals/artifacts/art/`): `before-{gameplay,closeup,wide}.png`
+(the greybox), `after-{gameplay,closeup,wide}.png` (dusk), `night-{gameplay,closeup,wide}.png`.
+
+**Gameplay is unchanged.** The colliders are the same boxes; no effect draws from
+the world RNG (bursts are seeded from the tick and a salt). The scripted 30 s
+replay gives 289 shots, 10 deaths and the same ten kills as before the pass. The
+pins moved (new entities and animation state) and were re-pinned with that reason:
+tick 0 `0xe4a8cfcdccd41d7a` → `0xda38bb0b0026731e`, tick 1080 `0xf0f3b95bede822ab` →
+`0xfbc8e1b971fb386c`, continuation `63bf2ecc…` → `44b6a655…`;
+`bun game/prove.mjs rivals --hosts linux,web --compare-saves` is **PROOF PASS**.
+
+### How it looks and feels
+
+A real step. The greybox read as coloured capsules in a white room; now there is a
+place: a warm dusk arena with a colour identity (orange accents, red end, blue end,
+teal deck), soldiers with silhouettes that run, flinch when hit and point rifles,
+and a night version that is the best-looking thing here — the floods throw shadowed
+pools and the trim glows through the bloom. Honest weaknesses: the soldiers are
+blocky toys (rigid parts, no skinning, no faces, the arms do not quite meet the
+rifle); the procedural textures are clean but generic — at dusk the walls read as
+bathroom tile; particles are soft dots, so smoke and fire look like confetti; the
+first-person rifle is still a heavy dark block from the shooter's eye; the sky you
+see is a gradient, not the clouds the lighting uses.
+
+### Cost
+
+| | before (greybox) | after |
+|---|---:|---:|
+| `gpu_bg.wasm` (gzip) | 1,661 KiB (677) | 1,999 KiB (802) — the model-capable module |
+| `app.wasm` (gzip) | 781 KiB (342) | 795 KiB (347) |
+| art sources in git | 0 | 5.9 MB (17 files; soldiers are 8 × 485 KB) |
+| baked assets, all three families | 0 | 43 MiB: RGBA8 25.3, BC 7.3, ASTC 7.3, models 3.2 |
+| what one desktop browser fetches | 0 | ~10.6 MiB (BC + models; 1.9 MB gzipped) |
+| draws per frame (all views) | 25 | 726 (1,200 before merging soldier materials) |
+| triangles (camera) | 9,193 | 54,973 |
+| tap → world ready, web (agent, warm cache) | — | 350–600 ms |
+| frame wall time p50 / p95, 1920×1080, 4× MSAA, live 120 Hz, 7 bots (A/B interleaved, load ~15) | 1.66–1.73 / 1.9–2.2 ms | dusk 6.7–9.8 / 13–17 ms; night 6.2–10.2 / 8.8–14.6 ms |
+| GPU forward + sky p50 | 0.41 ms | 2.0–2.5 ms |
+
+The frame bench is `logic/tests/frame.rs`: the real `WorldSurface` offscreen on this
+Mac's GPU, every frame submitted and waited for. **The art pass costs about 4–5× the
+frame time and breaks the 120 Hz budget at p95** (8.3 ms); it holds 60 Hz. One-off
+toggles (same load, single runs): SSAO off took p50 to 5.3 / 4.9 ms (≈ 2.5 ms of
+SSAO), the spot shadows off to 5.7 / 6.0 ms (≈ 1 ms per shadowed spot). The GPU timer
+rings name only the forward, cascade and cull passes, so most of the gap is
+unattributed (below). The machine and its GPU were shared with two other art lanes
+the whole time: single runs swung 2×, which is why the table gives ranges.
+
+### Where the engine and tooling limited the art
+
+1. **Every PNG under `art/` bakes as a sprite** (recursively), so a model's textures
+   cannot sit beside its glTF: they would also bake as standalone sprite textures
+   (my first bake was 101 MiB). Textures are embedded in each glTF instead.
+2. **Textures cannot be shared between models.** The bake names them per model
+   (`rifle/0-srgb-straight.tex`), so the gunmetal set ships four times (rifle,
+   magazine, launcher, knife). An arena-wide trim sheet only works because the
+   arena is one model.
+3. **No per-instance tint for models.** `Material` colours primitives only, so eight
+   team colours are eight soldier models: 3.9 MB of source and eight times the
+   geometry in memory for one shape.
+4. **A standalone texture is a sprite:** sRGB, nearest-filtered, nearest mips, RGBA8
+   in all three families. That is what `EnvironmentMap` gets — the sky is
+   nearest-sampled and costs ~0.7 MB × 3 per variant. There is no linear or filtered
+   option for a PNG.
+5. **No visible skybox.** `EnvironmentMap` lights the scene but "the visible sky and
+   background stay procedural", so the clouds and sun glow I painted light the arena
+   and are never seen; the visible sky is a three-colour gradient.
+6. **No decals.** Banners and stencils are quads floated 3 cm off the wall or painted
+   into textures; bullet holes and scorch marks were not attempted.
+7. **Particles are local-space soft dots.** An emitter's particles move with it, so a
+   rocket trail is an emitter entity per puff (every third tick per rocket), and
+   there are no textures, flipbooks or stretched sparks: fire, smoke and sparks all
+   look like round blobs.
+8. **Cosmetics are simulation state.** Effects, emitters, lights and animation are
+   saved and hashed, so a purely visual pass moves every pin and must stay off the
+   world RNG to keep the fight identical. Seeding bursts from the tick works but is
+   easy to get wrong.
+9. **An asset first referenced mid-game breaks saves while in flight.** The first
+   rocket spawned at tick 179 requested `rocket.model`; the paranoid Save proof (a
+   save every tick) aborted with "assets are not ready: rocket.model" on Linux and as
+   `RuntimeError: unreachable` in the browser. Listing it in `Game::ASSETS` was not
+   enough; a hidden entity referencing it at setup fixed it.
+10. **GPU timings miss the expensive passes.** `world.gpuMs` covers forward, cascades,
+    cull and hooks; SSAO, local spot shadows, bloom, tone mapping and particles are
+    untimed. Here, 2–2.5 ms of a 6–10 ms frame is attributed.
+11. **Draws scale with node meshes and views.** Each rigid soldier part is a draw in
+    each of up to eight views (camera, three cascades, two spot layers), so seven
+    animated bots were 1,200 draws until cloth, skin and kit shared one vertex-coloured
+    material (726). Skinning one mesh per soldier would collapse that, but authoring
+    a skin in code was out of scope for this pass.
+12. **The asset pipeline adds build time.** Turning on `game.assets` changes the Cargo
+    graph (`--update-lock` again), the first bake compiles `exact-game-bake` (1 min
+    41 s), and a web build with art took 75–140 s against ~30 s warm before.
+13. **Tooling drift mid-pass:** plain `tree` stopped reporting `accessibleName` (LLP
+    1080.002 moved names to `tree --ax`, unavailable on Linux), so two of my proof's
+    checks failed until they read the authored `accessibilityLabel`. Contract had
+    everything the HUD wanted (`rotate`, `box-shadow` inset, linear/radial gradients,
+    `text-shadow`, dynamic `testId`) and compiled on the first try.
+14. **My own trap, recorded because it is easy to fall into:** glTF node rotations
+    for a limb hanging along −Y — positive X swings it forward, a knee bends with
+    negative X. Three render rounds went into soldiers in a T-pose with the rifle
+    pointing at the sky before the rifle moved to the chest.
