@@ -1,6 +1,5 @@
 //! The forest: rolling terrain, a jittered grid of trees and the grid lookups
 //! that collision and navigation use instead of scanning every tree.
-use exact_game::asset::MeshData;
 use exact_game::*;
 use exact_game_physics::{Collider, Shape};
 
@@ -26,7 +25,64 @@ pub struct Grove {
     pub hp: Vec<u8>,
     pub trunk: Vec<Entity>,
     pub crown: Vec<Entity>,
+    /// Model index into `KINDS` and the tree's yaw, for the wind's sway.
+    pub kind: Vec<u8>,
+    pub turn: Vec<f32>,
     pub standing: u32,
+}
+
+/// The tree models, with the share of the forest each takes.
+pub const KINDS: [(&str, f32); 5] = [
+    ("pine_a.model", 0.42),
+    ("pine_b.model", 0.26),
+    ("pine_c.model", 0.08),
+    ("oak.model", 0.14),
+    ("birch.model", 0.10),
+];
+/// Undergrowth models with their shares and scale ranges.
+const UNDER: [(&str, f32, f32, f32); 5] = [
+    ("fern.model", 0.32, 0.8, 1.4),
+    ("bush.model", 0.2, 0.7, 1.3),
+    ("grass.model", 0.26, 0.8, 1.5),
+    ("rock_a.model", 0.1, 0.6, 1.6),
+    ("rock_b.model", 0.12, 0.6, 1.4),
+];
+/// Every model and sky the forest loads before setup.
+pub const ASSETS: &[&str] = &[
+    "pine_a.model",
+    "pine_b.model",
+    "pine_c.model",
+    "oak.model",
+    "birch.model",
+    "fern.model",
+    "bush.model",
+    "grass.model",
+    "rock_a.model",
+    "rock_b.model",
+    "log.model",
+    "firelog.model",
+    "deer_body.model",
+    "deer_leg.model",
+    "wolf_body.model",
+    "wolf_leg.model",
+    "survivor_body.model",
+    "survivor_arm.model",
+    "survivor_leg.model",
+    "beam.model",
+    "sky_day.tex",
+    "sky_night.tex",
+];
+
+fn pick<T: Copy>(w: &World, table: &[(&'static str, f32, T)]) -> (usize, &'static str, T) {
+    let mut roll = w.rand(0.0..1.0);
+    for (k, &(name, share, extra)) in table.iter().enumerate() {
+        roll -= share;
+        if roll <= 0.0 {
+            return (k, name, extra);
+        }
+    }
+    let last = table.len() - 1;
+    (last, table[last].0, table[last].2)
 }
 
 /// The tree a cell holds, if one is standing there.
@@ -147,30 +203,33 @@ pub fn grow(w: &mut World, trees: u32, primitives: bool, colliders: bool) {
     let side = (2.0 * half / CELL) as u32;
     let half = side as f32 * CELL * 0.5;
     let n = (side * side) as usize;
-    let samples = (2.0 * half / SAMPLE) as u32 + 1;
-    let heights: Vec<f32> = (0..samples * samples)
-        .map(|k| {
-            let (c, r) = (k % samples, k / samples);
-            height(
-                -half + c as f32 * SAMPLE * (2.0 * half) / ((samples - 1) as f32 * SAMPLE),
-                -half + r as f32 * SAMPLE * (2.0 * half) / ((samples - 1) as f32 * SAMPLE),
-            )
-        })
-        .collect();
-    let (mut mesh, shape) = Shape::heightfield(
-        samples,
-        samples,
-        heights,
-        Vec3::new(2.0 * half, 1.0, 2.0 * half),
-    )
-    .expect("terrain");
+    // The collider samples every 4 m; the drawn ground every 2 m where the world
+    // is small enough to afford it, so its colour noise reads at walking scale.
+    let heightfield = |spacing: f32| {
+        let samples = (2.0 * half / spacing) as u32 + 1;
+        let step = 2.0 * half / (samples - 1) as f32;
+        let heights: Vec<f32> = (0..samples * samples)
+            .map(|k| {
+                height(
+                    -half + (k % samples) as f32 * step,
+                    -half + (k / samples) as f32 * step,
+                )
+            })
+            .collect();
+        Shape::heightfield(
+            samples,
+            samples,
+            heights,
+            Vec3::new(2.0 * half, 1.0, 2.0 * half),
+        )
+        .expect("terrain")
+    };
+    let (_, shape) = heightfield(SAMPLE);
+    let (mut mesh, _) = heightfield(if half <= 400.0 { 2.0 } else { SAMPLE });
     mesh.colors = mesh
         .positions
         .chunks_exact(3)
-        .flat_map(|p| {
-            let k = (p[1] * 0.25 + 0.5).clamp(0.0, 1.0);
-            [0.05 + 0.04 * k, 0.11 + 0.07 * k, 0.04 + 0.02 * k, 1.0]
-        })
+        .flat_map(|p| ground_color(p[0], p[1], p[2]))
         .collect();
     let ground = w.generated("terrain.model", mesh).expect("terrain model");
     let terrain = w.spawn_named("terrain", (Transform::default(), ground));
@@ -183,7 +242,6 @@ pub fn grow(w: &mut World, trees: u32, primitives: bool, colliders: bool) {
             },
         );
     }
-    let pine = w.generated("pine.model", pine()).expect("pine model");
     let mut grove = Grove {
         side,
         half,
@@ -193,6 +251,8 @@ pub fn grow(w: &mut World, trees: u32, primitives: bool, colliders: bool) {
         hp: vec![0; n],
         trunk: vec![Entity::default(); n],
         crown: vec![Entity::default(); n],
+        kind: vec![0; n],
+        turn: vec![0.0; n],
         standing: 0,
     };
     let open: Vec<usize> = (0..n)
@@ -205,7 +265,6 @@ pub fn grow(w: &mut World, trees: u32, primitives: bool, colliders: bool) {
         })
         .collect();
     let mut left = trees.min(open.len() as u32);
-    let mut turns = vec![0.0; n];
     for (k, &c) in open.iter().enumerate() {
         let remaining = (open.len() - k) as f32;
         if left == 0 || !w.chance(left as f32 / remaining) {
@@ -218,7 +277,9 @@ pub fn grow(w: &mut World, trees: u32, primitives: bool, colliders: bool) {
         grove.scale[c] = w.rand(0.75..1.35);
         grove.hp[c] = TREE_HP;
         grove.standing += 1;
-        turns[c] = w.rand(0.0..std::f32::consts::TAU);
+        grove.turn[c] = w.rand(0.0..std::f32::consts::TAU);
+        let kinds = KINDS.map(|(name, share)| (name, share, ()));
+        grove.kind[c] = pick(w, &kinds).0 as u8;
     }
     for c in 0..n {
         if grove.hp[c] == 0 {
@@ -227,7 +288,7 @@ pub fn grow(w: &mut World, trees: u32, primitives: bool, colliders: bool) {
         let s = grove.scale[c];
         let pose = Transform {
             position: grove.at(c as u32),
-            rotation: Quat::from_rotation_y(turns[c]),
+            rotation: Quat::from_rotation_y(grove.turn[c]),
             scale: Vec3::splat(s),
         };
         let tree = Tree { cell: c as u32 };
@@ -251,7 +312,7 @@ pub fn grow(w: &mut World, trees: u32, primitives: bool, colliders: bool) {
             ));
             trunk
         } else {
-            w.spawn((pose, pine.clone(), tree))
+            w.spawn((pose, Mesh::asset(KINDS[grove.kind[c] as usize].0), tree))
         };
         if colliders {
             w.insert(
@@ -272,7 +333,87 @@ pub fn grow(w: &mut World, trees: u32, primitives: bool, colliders: bool) {
         }
         grove.trunk[c] = trunk;
     }
+    // Undergrowth: about half the cells carry a fern, bush, tuft or rock, kept
+    // off the trunks; tufts thicken toward the clearing's edge.
+    let under = UNDER.map(|(name, share, lo, hi)| (name, share, (lo, hi)));
+    for c in 0..n {
+        let (i, j) = ((c as u32 % side) as f32, (c as u32 / side) as f32);
+        let (cx, cz) = (-half + (i + 0.5) * CELL, -half + (j + 0.5) * CELL);
+        let r = (cx * cx + cz * cz).sqrt();
+        if r < 7.0 || cx.abs() > half - CELL || cz.abs() > half - CELL || !w.chance(0.5) {
+            continue;
+        }
+        let x = cx + w.rand(-2.2..2.2);
+        let z = cz + w.rand(-2.2..2.2);
+        let (_, name, (lo, hi)) = pick(w, &under);
+        let s = w.rand(lo..hi);
+        let turn = w.rand(0.0..std::f32::consts::TAU);
+        let (x, z) = grove.resolve(x, z, 0.7);
+        w.spawn((
+            Transform {
+                position: Vec3::new(x, height(x, z) - 0.03, z),
+                rotation: Quat::from_rotation_y(turn),
+                scale: Vec3::splat(s),
+            },
+            Mesh::asset(name),
+            Ambient,
+        ));
+    }
     w.insert_resource(grove);
+}
+
+/// Forest-floor colour: moss, bare soil and leaf litter in drifting patches,
+/// worn earth around the fire. Linear vertex colours.
+fn ground_color(x: f32, y: f32, z: f32) -> [f32; 4] {
+    let n1 = math::sin(x * 0.31 + z * 0.17) * math::sin(x * 0.13 - z * 0.29 + 1.3);
+    let n2 = math::sin(x * 0.9 + 2.0 * math::sin(z * 0.23)) * math::cos(z * 0.77 - x * 0.11);
+    let moss = [0.03, 0.09, 0.018];
+    let soil = [0.055, 0.036, 0.02];
+    let litter = [0.13, 0.07, 0.022];
+    let a = math::smoothstep(-0.3, 0.6, n1);
+    let b = math::smoothstep(0.2, 0.9, n2) * 0.7;
+    let mut c = [0.0; 3];
+    for k in 0..3 {
+        c[k] = (moss[k] * a + soil[k] * (1.0 - a)) * (1.0 - b) + litter[k] * b;
+    }
+    let r = (x * x + z * z).sqrt();
+    let worn = 1.0 - math::smoothstep(3.0, 9.0, r);
+    let lift = 1.0 + y * 0.05;
+    [
+        (c[0] * (1.0 - worn) + 0.07 * worn) * lift,
+        (c[1] * (1.0 - worn) + 0.05 * worn) * lift,
+        (c[2] * (1.0 - worn) + 0.035 * worn) * lift,
+        1.0,
+    ]
+}
+
+/// Wind: the standing trees within `reach` of a point lean and recover on slow,
+/// position-shifted waves. Trees outside it keep their last lean.
+pub fn sway(w: &World, around: Vec3, reach: f32) {
+    let g = w.resource::<Grove>();
+    let t = w.tick_end().seconds() as f32;
+    let span = (reach / CELL).ceil() as i32;
+    let Some((ci, cj)) = g.cell_of(around.x, around.z) else {
+        return;
+    };
+    let n = g.side as i32;
+    for j in (cj - span).max(0)..=(cj + span).min(n - 1) {
+        for i in (ci - span).max(0)..=(ci + span).min(n - 1) {
+            let c = (j * n + i) as usize;
+            if g.hp[c] == 0 {
+                continue;
+            }
+            let (x, z) = (g.x[c], g.z[c]);
+            let gust = 0.6 + 0.4 * math::sin(t * 0.37 + x * 0.02);
+            let lean = 0.022 * gust * math::sin(t * 1.3 + x * 0.11 + z * 0.07);
+            let side = 0.012 * gust * math::sin(t * 0.9 + z * 0.13 + 1.7);
+            if let Some(mut pose) = w.get_mut::<Transform>(g.trunk[c]) {
+                pose.rotation = Quat::from_rotation_x(lean)
+                    * Quat::from_rotation_z(side)
+                    * Quat::from_rotation_y(g.turn[c]);
+            }
+        }
+    }
 }
 
 /// Fell one tree: remove its entities and collider. Returns the stump position.
@@ -293,44 +434,4 @@ pub fn fell(w: &mut World, cell: u32) -> Vec3 {
         w.despawn(crown);
     }
     Vec3::new(at.x, height(at.x, at.z), at.z)
-}
-
-/// A low-poly pine: a hexagonal trunk and two cones, flat-shaded with vertex colours.
-pub fn pine() -> MeshData {
-    let mut m = MeshData::default();
-    let bark = [0.22, 0.13, 0.07, 1.0];
-    let (dark, light) = ([0.04, 0.16, 0.06, 1.0], [0.07, 0.24, 0.08, 1.0]);
-    frustum(&mut m, 6, 0.0, 0.32, 2.2, 0.26, bark);
-    frustum(&mut m, 8, 1.6, 2.1, 5.2, 0.0, dark);
-    frustum(&mut m, 8, 3.8, 1.5, 7.4, 0.0, light);
-    m.bounds = [-2.1, 0.0, -2.1, 2.1, 7.4, 2.1];
-    m
-}
-
-/// Append an open-ended frustum (a cone when `r1` is zero) with a closed base.
-fn frustum(m: &mut MeshData, sides: u32, y0: f32, r0: f32, y1: f32, r1: f32, color: [f32; 4]) {
-    let ring = |k: u32, r: f32, y: f32| {
-        let (s, c) = math::sin_cos(k as f32 / sides as f32 * std::f32::consts::TAU);
-        Vec3::new(c * r, y, s * r)
-    };
-    let mut tri = |a: Vec3, b: Vec3, c: Vec3| {
-        let n = (b - a).cross(c - a).normalize_or_zero();
-        let base = (m.positions.len() / 3) as u32;
-        for p in [a, b, c] {
-            m.positions.extend([p.x, p.y, p.z]);
-            m.normals.extend([n.x, n.y, n.z]);
-            m.uvs.extend([0.0, 0.0]);
-            m.colors.extend(color);
-        }
-        m.indices.extend([base, base + 1, base + 2]);
-    };
-    for k in 0..sides {
-        let (a, b) = (ring(k, r0, y0), ring(k + 1, r0, y0));
-        let (c, d) = (ring(k, r1, y1), ring(k + 1, r1, y1));
-        tri(a, c, b);
-        if r1 > 0.0 {
-            tri(b, c, d);
-        }
-        tri(Vec3::new(0.0, y0, 0.0), a, b);
-    }
 }

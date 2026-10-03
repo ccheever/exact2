@@ -3,6 +3,7 @@ pub mod camp;
 pub mod creatures;
 pub mod forest;
 pub mod player;
+pub mod rig;
 
 use camp::{Cycle, Fire};
 use creatures::{Deer, Scene};
@@ -74,6 +75,7 @@ pub struct Forest;
 impl Game for Forest {
     const ID: &'static str = "forest";
     const HZ: u32 = 60;
+    const ASSETS: &'static [&'static str] = forest::ASSETS;
     type Args = Options;
     fn actions() -> Actions {
         Actions::new()
@@ -155,6 +157,8 @@ impl Game for Forest {
             w.emit("died");
         }
         let rescued = player::children(w, at, scene.safe);
+        forest::sway(w, at, 30.0);
+        rig::step(w);
         emitter::step(w);
         let act = player::action(w, w.require::<Transform>("player").position);
         hud(w, act, rescued, outcome.chasing);

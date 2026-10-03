@@ -1,6 +1,7 @@
 //! The player's body and needs, the things they carry, and the lost children.
 use crate::camp::{Fire, MAX_FUEL};
 use crate::forest::{self, height, Grove};
+use crate::rig::{self, Gait};
 use exact_game::motion::{Gravity, Move};
 use exact_game::*;
 use exact_game_physics::{self as physics, CapsuleController};
@@ -63,11 +64,7 @@ pub struct Child {
 
 fn item_look(kind: Kind) -> (Mesh, Material, f32) {
     match kind {
-        Kind::Log => (
-            Mesh::cylinder(0.18, 1.1),
-            Material::rgb(0.3, 0.18, 0.09),
-            0.18,
-        ),
+        Kind::Log => (Mesh::asset("log.model"), Material::default(), 0.16),
         Kind::Scrap => (
             Mesh::cube(0.45),
             Material::rgb(0.45, 0.47, 0.5).metallic(0.8).rough(0.4),
@@ -79,11 +76,7 @@ fn item_look(kind: Kind) -> (Mesh, Material, f32) {
 
 pub fn drop_item(w: &mut World, kind: Kind, x: f32, z: f32) -> Entity {
     let (mesh, material, lift) = item_look(kind);
-    let rotation = if kind == Kind::Log {
-        Quat::from_rotation_z(std::f32::consts::FRAC_PI_2)
-    } else {
-        Quat::IDENTITY
-    };
+    let rotation = Quat::from_rotation_y(x * 1.7 + z);
     w.spawn((
         Transform {
             position: Vec3::new(x, height(x, z) + lift, z),
@@ -115,8 +108,7 @@ pub fn spawn(w: &mut World, colliders: bool, children: u32) {
         "player",
         (
             Transform::at(0.0, 0.91, 3.0),
-            Mesh::capsule(0.35, 1.8),
-            Material::rgb(0.85, 0.45, 0.12),
+            Gait::new(1.5),
             Player {
                 facing: Vec3::NEG_Z,
                 health: 100.0,
@@ -136,6 +128,16 @@ pub fn spawn(w: &mut World, colliders: bool, children: u32) {
             },
         );
     }
+    // The body turns on a child pivot at the feet: the capsule itself stays upright.
+    let avatar = w.spawn_named(
+        "avatar",
+        (
+            Parent(player),
+            Transform::at(0.0, -0.9, 0.0).looking_at(Vec3::new(0.0, -0.9, -1.0), Vec3::Y),
+            Mesh::asset("survivor_body.model"),
+        ),
+    );
+    survivor_limbs(w, avatar, player);
     w.spawn_named(
         "flashlight",
         (
@@ -150,6 +152,16 @@ pub fn spawn(w: &mut World, colliders: bool, children: u32) {
             LightShadows,
         ),
     );
+    let flashlight = w.resolve("flashlight").unwrap();
+    w.spawn_named(
+        "beam",
+        (
+            Parent(flashlight),
+            Transform::default(),
+            Mesh::asset("beam.model"),
+            Visible(false),
+        ),
+    );
     w.spawn_named(
         "camera",
         (
@@ -159,7 +171,7 @@ pub fn spawn(w: &mut World, colliders: bool, children: u32) {
                 ..Camera::default()
             },
             Follow::new(player)
-                .offset(0.0, 12.0, 11.0)
+                .offset(0.0, 12.0, 10.5)
                 .look_at_offset(0.0, 0.0, -1.5)
                 .lag(0.12),
         ),
@@ -170,14 +182,44 @@ pub fn spawn(w: &mut World, colliders: bool, children: u32) {
         let r = (0.3 + 0.45 * (k as f32 / children.max(1) as f32)) * half;
         let (s, c) = math::sin_cos(a);
         let (x, z) = w.resource::<Grove>().resolve(c * r, s * r, 1.2);
-        w.spawn_named(
+        let child = w.spawn_named(
             format!("child-{}", k + 1),
             (
-                Transform::at(x, height(x, z) + 0.6, z),
-                Mesh::capsule(0.25, 1.2),
-                Material::rgb(0.25, 0.55, 0.95),
+                Transform::at(x, height(x, z), z).with_scale(0.62),
+                Mesh::asset("survivor_body.model"),
+                Material::rgb(0.45, 0.65, 1.0),
                 Child::default(),
+                Gait::new(1.0),
             ),
+        );
+        survivor_limbs(w, child, child);
+    }
+}
+
+/// Arms swing against the legs; both hang from pivots on the survivor model.
+fn survivor_limbs(w: &mut World, body: Entity, owner: Entity) {
+    use std::f32::consts::PI;
+    for side in [-1.0f32, 1.0] {
+        let phase = if side < 0.0 { 0.0 } else { PI };
+        rig::limb(
+            w,
+            body,
+            owner,
+            "survivor_leg.model",
+            Vec3::new(side * 0.1, 0.84, 0.0),
+            phase,
+            0.55,
+            5.0,
+        );
+        rig::limb(
+            w,
+            body,
+            owner,
+            "survivor_arm.model",
+            Vec3::new(side * 0.25, 1.42, 0.0),
+            phase + PI,
+            0.45,
+            5.0,
         );
     }
 }
@@ -234,9 +276,9 @@ fn restack(w: &mut World) {
     let pack = w.require::<Player>("player").pack.clone();
     for (k, e) in pack.into_iter().enumerate() {
         let mut t = w.require_mut::<Transform>(e);
-        t.position = Vec3::new(0.0, -0.1 + k as f32 * 0.32, 0.42);
-        t.rotation = Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)
-            * Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
+        // Strapped across the top of the backpack, one above another.
+        t.position = Vec3::new(0.0, 1.5 + k as f32 * 0.3, -0.3);
+        t.rotation = Quat::IDENTITY;
     }
 }
 
@@ -265,7 +307,8 @@ pub fn interact(w: &mut World, act: Action, eat: bool) {
         }
         Action::Take(e, _) => {
             w.require_mut::<Item>(e).carried = true;
-            w.insert(e, Parent(player));
+            let avatar = w.resolve("avatar").unwrap();
+            w.insert(e, Parent(avatar));
             w.require_mut::<Player>(player).pack.push(e);
             restack(w);
         }
@@ -358,6 +401,15 @@ pub fn walk(w: &mut World, wish: Vec3, colliders: bool, safe: f32) {
     if planar.length() > 0.5 {
         p.facing = planar.normalize();
     }
+    w.require_mut::<Gait>("player")
+        .walk(planar.length() * dt, dt);
+    let turn = Quat::from_rotation_y(math::atan2(p.facing.x, p.facing.z));
+    {
+        let mut avatar = w.require_mut::<Transform>("avatar");
+        if avatar.rotation != turn {
+            avatar.rotation = turn;
+        }
+    }
     p.cooldown = (p.cooldown - dt).max(0.0);
     if p.dead {
         return;
@@ -397,7 +449,10 @@ pub fn flashlight(w: &mut World, toggle: bool) {
     let from = at + facing * 0.4 + Vec3::Y * 0.5;
     *w.require_mut::<Transform>("flashlight") = Transform::at(from.x, from.y, from.z)
         .looking_at(at + facing * 12.0 - Vec3::Y * 0.6, Vec3::Y);
-    w.require_mut::<SpotLight>("flashlight").intensity = if on { 250_000.0 } else { 0.0 };
+    w.require_mut::<SpotLight>("flashlight").intensity = if on { 500_000.0 } else { 0.0 };
+    if w.require::<Visible>("beam").0 != on {
+        w.require_mut::<Visible>("beam").0 = on;
+    }
 }
 
 /// Lost children wait; followers trail the player and are rescued in the light.
@@ -405,7 +460,7 @@ pub fn children(w: &World, player: Vec3, safe: f32) -> u32 {
     let dt = w.dt();
     let g = w.resource::<Grove>();
     let mut rescued = 0;
-    for (_, (pose, child)) in w.query::<(&mut Transform, &mut Child)>().iter() {
+    for (_, (pose, child, gait)) in w.query::<(&mut Transform, &mut Child, &mut Gait)>().iter() {
         match child.fate {
             Fate::Lost => {}
             Fate::Following => {
@@ -416,7 +471,17 @@ pub fn children(w: &World, player: Vec3, safe: f32) -> u32 {
                     let (vx, vz) = g.steer(pose.position.x, pose.position.z, v.x, v.z, 0.25);
                     let (x, z) =
                         g.resolve(pose.position.x + vx * dt, pose.position.z + vz * dt, 0.25);
-                    pose.position = Vec3::new(x, height(x, z) + 0.6, z);
+                    let next = Vec3::new(x, height(x, z), z);
+                    gait.walk(
+                        Vec3::new(next.x - pose.position.x, 0.0, next.z - pose.position.z).length(),
+                        dt,
+                    );
+                    if vx * vx + vz * vz > 1e-4 {
+                        pose.rotation = Quat::from_rotation_y(math::atan2(vx, vz));
+                    }
+                    pose.position = next;
+                } else {
+                    gait.walk(0.0, dt);
                 }
                 if Vec3::new(pose.position.x, 0.0, pose.position.z).length() < safe.max(3.0) {
                     child.fate = Fate::Rescued;

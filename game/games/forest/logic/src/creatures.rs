@@ -2,6 +2,7 @@
 //! Neither has a physics body; both walk the analytic terrain and slide
 //! around trunks through the grove's cells.
 use crate::forest::{height, Grove};
+use crate::rig::{self, Gait};
 use exact_game::*;
 
 /// What the Deer is doing. It exists only at night.
@@ -73,39 +74,25 @@ const FLASH_RANGE: f32 = 14.0;
 const FLASH_COS: f32 = 0.766; // 40°, wide enough for eight-way keyboard aim
 
 pub fn spawn_deer(w: &mut World, half: f32) {
-    w.spawn_named(
+    let deer = w.spawn_named(
         "deer",
         (
             Transform::at(0.0, -50.0, half * 0.8),
-            Mesh::capsule(0.45, 3.2),
-            Material::rgb(0.08, 0.06, 0.05).rough(0.9),
+            Mesh::asset("deer_body.model"),
             Visible(false),
             Deer::default(),
+            Gait::new(2.6),
         ),
     );
-    let deer = w.resolve("deer").unwrap();
-    for (name, x) in [("deer-eye-l", -0.17), ("deer-eye-r", 0.17)] {
-        w.spawn_named(
-            name,
-            (
-                Parent(deer),
-                Transform::at(x, 1.25, 0.42),
-                Mesh::sphere(0.07),
-                Material::glow([4.0, 0.25, 0.1]),
-            ),
-        );
-    }
-    for (name, x) in [("antler-l", -0.35), ("antler-r", 0.35)] {
-        w.spawn_named(
-            name,
-            (
-                Parent(deer),
-                Transform::at(x, 1.85, 0.0).with_scale(Vec3::new(0.08, 0.9, 0.08)),
-                Mesh::cube(1.0),
-                Material::rgb(0.75, 0.7, 0.6),
-            ),
-        );
-    }
+    rig::legs(
+        w,
+        deer,
+        "deer_leg.model",
+        Vec3::new(0.17, 1.66, 0.36),
+        Vec3::new(0.15, 1.6, -0.52),
+        0.5,
+        5.0,
+    );
 }
 
 pub fn spawn_wolves(w: &mut World, count: u32, half: f32) {
@@ -121,16 +108,25 @@ pub fn spawn_wolves(w: &mut World, count: u32, half: f32) {
         let x = home.x + w.rand(-4.0..4.0);
         let z = home.z + w.rand(-4.0..4.0);
         let heading = w.rand(0.0..std::f32::consts::TAU);
-        w.spawn((
-            Transform::at(x, height(x, z) + 0.45, z),
-            Mesh::cuboid(Vec3::new(0.5, 0.6, 1.3)),
-            Material::rgb(0.32, 0.31, 0.3).rough(0.95),
+        let wolf = w.spawn((
+            Transform::at(x, height(x, z), z),
+            Mesh::asset("wolf_body.model"),
             Wolf {
                 home,
                 heading,
                 ..Default::default()
             },
+            Gait::new(1.3),
         ));
+        rig::legs(
+            w,
+            wolf,
+            "wolf_leg.model",
+            Vec3::new(0.12, 0.62, 0.3),
+            Vec3::new(0.12, 0.6, -0.38),
+            0.6,
+            4.0,
+        );
     }
 }
 
@@ -175,7 +171,7 @@ pub fn step(w: &World, s: &Scene) -> Outcome {
     // The Deer. Visibility is written only when it changes: a mutable borrow of
     // `Visible` alone tells the renderer to rebuild every batch.
     let mut show = None;
-    for (e, (pose, deer)) in w.query::<(&mut Transform, &mut Deer)>().iter() {
+    for (e, (pose, deer, gait)) in w.query::<(&mut Transform, &mut Deer, &mut Gait)>().iter() {
         if !s.night {
             if deer.mind != Mind::Hidden {
                 *deer = Deer {
@@ -193,7 +189,7 @@ pub fn step(w: &World, s: &Scene) -> Outcome {
             let away = planar(-s.player).normalize_or(Vec3::Z);
             let at = away * (s.safe + 22.0);
             let (x, z) = g.resolve(at.x, at.z, 0.5);
-            pose.position = Vec3::new(x, height(x, z) + 1.6, z);
+            pose.position = Vec3::new(x, height(x, z), z);
             deer.mind = Mind::Stalk;
             show = Some((e, true));
         }
@@ -263,7 +259,8 @@ pub fn step(w: &World, s: &Scene) -> Outcome {
         }
         // The beam slows it as well as stunning it.
         let want = if lit { want * 0.35 } else { want };
-        let (p, heading) = walk(&g, pose.position, want, 0.5, s.safe + 1.5, 1.6, dt);
+        let (p, heading) = walk(&g, pose.position, want, 0.5, s.safe + 1.5, 0.0, dt);
+        gait.walk(planar(p - pose.position).length(), dt);
         pose.position = p;
         if heading.is_finite() {
             deer.heading = heading;
@@ -276,7 +273,7 @@ pub fn step(w: &World, s: &Scene) -> Outcome {
         w.get_mut::<Visible>(e).unwrap().0 = shown;
     }
     // Wolves.
-    for (_, (pose, wolf)) in w.query::<(&mut Transform, &mut Wolf)>().iter() {
+    for (_, (pose, wolf, gait)) in w.query::<(&mut Transform, &mut Wolf, &mut Gait)>().iter() {
         let to = planar(s.player - pose.position);
         let d = to.length();
         let sense = if s.night { 22.0 } else { 12.0 };
@@ -322,7 +319,8 @@ pub fn step(w: &World, s: &Scene) -> Outcome {
             out.damage += 8.0;
             wolf.cooldown = 1.4;
         }
-        let (p, heading) = walk(&g, pose.position, want, 0.4, s.safe + 1.0, 0.45, dt);
+        let (p, heading) = walk(&g, pose.position, want, 0.4, s.safe + 1.0, 0.0, dt);
+        gait.walk(planar(p - pose.position).length(), dt);
         pose.position = p;
         if heading.is_finite() {
             if wolf.mode != Pack::Wander {

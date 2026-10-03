@@ -29,12 +29,19 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   };
 
   if (process.argv.includes('--screenshot-only')) {
-    // Pixels only: a day frame, then the same camp at night with the flashlight.
+    // Pixels only: the camp by day, the forest edge by day (a close-up of the trees),
+    // dusk on the way back, then the camp at night with the flashlight.
     check('screenshot uses web', host === 'web');
     await s.tap('play');
     await game.run(1500);
     await s.screenshot(resolve(out, 'day.png'));
-    await game.run((DAY - DAWN + 2) * 1000);
+    await game.hold('KeyW', 2600);
+    await game.run(400);
+    await s.screenshot(resolve(out, 'forest.png'));
+    await game.hold('KeyS', 2600);
+    await game.run((DAY - DAWN - 12.5) * 1000);
+    await s.screenshot(resolve(out, 'dusk.png'));
+    await game.run(12000);
     await game.hold('KeyW', 700);
     await game.tap('KeyF');
     await game.run(300);
@@ -43,7 +50,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
     return;
   }
   const title = await s.tree();
-  check('Play is initially focused and named', node(title, 'play')?.focused === true && node(title, 'play')?.accessibleName === 'Play');
+  check('Play is initially focused and named', node(title, 'play')?.focused === true && node(title, 'play')?.props?.accessibilityLabel === 'Play');
   check('the title offers forest sizes', ['trees-1k', 'trees-5k', 'trees-20k', 'trees-100k'].every(id => node(title, id)));
   check('2k trees and Rapier are the default', node(title, 'choice')?.props?.text === '2000 trees · 8 wolves · Rapier collision · generated trees · 0 torches', node(title, 'choice')?.props?.text);
   await s.tap('play');

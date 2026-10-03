@@ -12,6 +12,11 @@ use std::time::Instant;
 
 const TICK: f64 = 1000.0 / 60.0;
 
+fn baked(name: &str) -> Result<Vec<u8>, String> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets");
+    std::fs::read(dir.join(name)).map_err(|e| format!("{name}: {e}"))
+}
+
 fn rss_mib() -> f64 {
     let out = std::process::Command::new("ps")
         .args(["-o", "rss=", "-p", &std::process::id().to_string()])
@@ -58,13 +63,16 @@ fn main() {
         let (trees, wolves) = if axis == "wolves" { (5000, n) } else { (n, 8) };
         let base = rss_mib();
         let t = Instant::now();
-        let mut sim = Sim::<Forest>::new(Options {
-            trees,
-            wolves,
-            lite,
-            primitives,
-            ..Options::default()
-        })
+        let mut sim = Sim::<Forest>::with_assets(
+            Options {
+                trees,
+                wolves,
+                lite,
+                primitives,
+                ..Options::default()
+            },
+            baked,
+        )
         .unwrap();
         let setup = t.elapsed().as_secs_f64() * 1000.0;
         let rss = rss_mib() - base;
@@ -91,13 +99,16 @@ fn main() {
         let saved = sim.save().unwrap();
         let save_ms = t.elapsed().as_secs_f64() * 1000.0;
         let t = Instant::now();
-        let mut fresh = Sim::<Forest>::new(Options {
-            trees,
-            wolves,
-            lite,
-            primitives,
-            ..Options::default()
-        })
+        let mut fresh = Sim::<Forest>::with_assets(
+            Options {
+                trees,
+                wolves,
+                lite,
+                primitives,
+                ..Options::default()
+            },
+            baked,
+        )
         .unwrap();
         fresh.restore(&saved).unwrap();
         let restore_ms = t.elapsed().as_secs_f64() * 1000.0 - setup;

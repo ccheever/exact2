@@ -8,12 +8,21 @@ use forest_logic::{Forest, Options};
 
 const TICK: f64 = 1000.0 / 60.0;
 
+/// The bake's outputs: `shells.mjs --test` bakes `art/` into `assets/` first.
+fn baked(name: &str) -> Result<Vec<u8>, String> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets");
+    std::fs::read(dir.join(name)).map_err(|e| format!("{name}: {e}"))
+}
+
 fn game(trees: u32, lite: bool) -> Sim<Forest> {
-    Sim::<Forest>::new(Options {
-        trees,
-        lite,
-        ..Options::default()
-    })
+    Sim::<Forest>::with_assets(
+        Options {
+            trees,
+            lite,
+            ..Options::default()
+        },
+        baked,
+    )
     .unwrap()
 }
 
