@@ -739,7 +739,9 @@ struct Painted {
 
 /// At most this many frames move the last paint before one paints again:
 /// what it leaves stale (boxes, hits, which pictures show) stays this fresh.
-const MOVES: u32 = 6;
+const MOVES: u32 = 30;
+/// The same, once rows have mounted out of view since the last paint.
+const MOVES_MOUNTED: u32 = 6;
 
 impl<D: DataSource + Default> CanvasHost<D> {
     /// Boot `D`'s app over a view of `size` pixels at `scale` pixels per
@@ -884,6 +886,24 @@ impl<D: DataSource + Default> CanvasHost<D> {
         let _s = Section::begin(c"exact refine");
         self.scrolled = false;
         self.prefetching = true;
+        // Pictures coming into view while frames move: requested now, where
+        // their rows are, not at the next paint.
+        if self.moved > 0 {
+            if let Some(painted) = &self.painted {
+                let now = self.p.scroll_offsets();
+                let moved: std::collections::BTreeMap<ViewId, (f32, f32)> = painted
+                    .groups
+                    .iter()
+                    .map(|(id, at)| {
+                        let to = now.get(id).copied().unwrap_or((0.0, 0.0));
+                        (*id, (at.0 - to.0, at.1 - to.1))
+                    })
+                    .collect();
+                if let Some(e) = self.p.sync_images_moved(&moved) {
+                    eprintln!("exact: {e}");
+                }
+            }
+        }
         let before = self.p.still();
         let wanted = self.p.refine_deferred(true);
         // Only the pass changed the kernel (rows out of view): no paint now.
@@ -916,7 +936,15 @@ impl<D: DataSource + Default> CanvasHost<D> {
 
     fn shift(&mut self, at: f64) -> Option<Vec<u32>> {
         let p = &self.p;
-        if !p.dirty() || self.force || self.moved >= self.moves {
+        // Rows mounted out of view since the paint (a quiet epoch) show at the
+        // next one, so it comes sooner: they may scroll in within a quarter
+        // second.
+        let limit = if self.quiet.is_some() {
+            self.moves.min(MOVES_MOUNTED)
+        } else {
+            self.moves
+        };
+        if !p.dirty() || self.force || self.moved >= limit {
             return None;
         }
         let painted = self.painted.as_ref()?;

@@ -34,6 +34,16 @@ impl<D: DataSource> Presenter<D> {
     }
 
     pub(super) fn sync_images(&mut self) -> Option<String> {
+        self.sync_images_moved(&BTreeMap::new())
+    }
+
+    /// Which pictures show, when the last paint was moved since (`moved`: by
+    /// scroller, how far its rows moved, in points): those rows' boxes are
+    /// taken where they are now, inside their scroller's box.
+    pub(crate) fn sync_images_moved(
+        &mut self,
+        moved: &BTreeMap<ViewId, (f32, f32)>,
+    ) -> Option<String> {
         let epoch = self.host.kernel().epoch();
         if self.images.order.as_ref().is_none_or(|(e, _)| *e != epoch) {
             let kernel = self.host.kernel();
@@ -56,8 +66,23 @@ impl<D: DataSource> Presenter<D> {
             .map(|(_, o)| o.clone())
             .unwrap_or_default();
         let host = &self.host;
-        let boxes: std::collections::HashMap<ViewId, &crate::paint::PaintedBox> =
-            self.boxes.iter().rev().map(|b| (b.id, b)).collect();
+        let boxes: std::collections::HashMap<ViewId, (usize, &crate::paint::PaintedBox)> = self
+            .boxes
+            .iter()
+            .enumerate()
+            .rev()
+            .map(|(i, b)| (b.id, (i, b)))
+            .collect();
+        type Shift = (usize, usize, (f32, f32), Option<crate::paint::Rect4>);
+        let shifts: Vec<Shift> = self
+            .brush
+            .row_groups()
+            .iter()
+            .filter_map(|(g, a, b)| {
+                let d = moved.get(g)?;
+                Some((*a, *b, *d, boxes.get(g).map(|(_, s)| s.rect)))
+            })
+            .collect();
         let viewport = self.viewport;
         let reports = self
             .images
@@ -65,15 +90,23 @@ impl<D: DataSource> Presenter<D> {
                 if host.route_visibility(id).0 {
                     return false;
                 }
-                let Some(b) = boxes.get(&id) else {
+                let Some((i, b)) = boxes.get(&id) else {
                     return true;
                 };
                 let (mut x, mut y, mut w, mut h) = b.rect;
+                let mut clip = b.clip;
+                if let Some((_, _, d, port)) =
+                    shifts.iter().find(|(a, e, _, _)| (*a..*e).contains(i))
+                {
+                    x += d.0;
+                    y += d.1;
+                    clip = *port;
+                }
                 // An auto-sized first load has no natural dimensions yet. Permit
                 // that point to load; its accepted backing will supply geometry.
                 w = w.max(1.);
                 h = h.max(1.);
-                if let Some((cx, cy, cw, ch)) = b.clip {
+                if let Some((cx, cy, cw, ch)) = clip {
                     let right = (x + w).min(cx + cw);
                     let bottom = (y + h).min(cy + ch);
                     x = x.max(cx);

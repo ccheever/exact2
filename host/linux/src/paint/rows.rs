@@ -83,6 +83,9 @@ pub(super) struct Rows {
     world: Option<(u32, u32, bool)>,
     /// `EXACT_ROWS=0` turns rows off, for comparison.
     off: Option<bool>,
+    /// This walk's scrollers with rows: each one's id and the range of the
+    /// walk's boxes its rows pushed.
+    groups: Vec<(ViewId, usize, usize)>,
 }
 
 /// Room around a row's boxes for what paints outside them (shadows).
@@ -145,6 +148,7 @@ impl Painter {
             .off
             .get_or_insert_with(|| std::env::var("EXACT_ROWS").is_ok_and(|v| v == "0"));
         self.rows.frame += 1;
+        self.rows.groups.clear();
         self.rows.active = !off
             && self.backend.rows()
             && walk.skip.is_none()
@@ -180,6 +184,28 @@ impl Painter {
         for id in std::mem::take(&mut self.rows.freed) {
             self.backend.row_free(id);
         }
+    }
+
+    /// A scroller's rows begin: the backend groups them; their boxes are noted.
+    pub(super) fn group_begin(&mut self, walk: &Walk<'_, '_>, id: ViewId) {
+        let scroll = walk.scene.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
+        self.backend.group_begin(id, scroll);
+        self.rows
+            .groups
+            .push((id, walk.boxes.len(), walk.boxes.len()));
+    }
+
+    pub(super) fn group_end(&mut self, walk: &Walk<'_, '_>) {
+        self.backend.group_end();
+        if let Some(g) = self.rows.groups.last_mut() {
+            g.2 = walk.boxes.len();
+        }
+    }
+
+    /// The last walk's scrollers with rows and the range of its boxes each
+    /// one's rows are: the boxes a moved paint moved.
+    pub(crate) fn row_groups(&self) -> &[(ViewId, usize, usize)] {
+        &self.rows.groups
     }
 
     /// Whether `node`'s children are rows this walk. A scroller inside a

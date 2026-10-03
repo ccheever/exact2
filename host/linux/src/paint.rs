@@ -1305,13 +1305,7 @@ impl Painter {
         );
         let rows = self.has_rows(node);
         if rows {
-            let scroll = walk
-                .scene
-                .scroll
-                .get(&node.id)
-                .copied()
-                .unwrap_or((0.0, 0.0));
-            self.backend.group_begin(node.id, scroll);
+            self.group_begin(walk, node.id);
         }
         for child in children {
             if rows {
@@ -1321,7 +1315,7 @@ impl Painter {
             }
         }
         if rows {
-            self.backend.group_end();
+            self.group_end(walk);
         }
         if let Some(child) = lift {
             self.node(walk, child, ts, child_offset, child_rect);
