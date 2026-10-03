@@ -205,9 +205,21 @@ fn paint_bit(property: Property) -> u16 {
         .map_or(0, |i| 1 << i)
 }
 
-fn color(c: ColorValue, dark: bool) -> Value {
+fn color(c: ColorValue, dark: bool) -> Option<Value> {
+    // LLP 1100 D3: a profile's colour is never interpolated; it flips discretely.
+    if matches!(c, ColorValue::Profiled(_)) {
+        return None;
+    }
+    // LLP 1100 D2: a wide colour moves in Oklab, unclipped.
+    if let ColorValue::Wide(id) = c {
+        if let Some(w) = crate::style::wide::wide(id) {
+            let half = w.half(dark);
+            let [l, a, b] = exact_color::MixSpace::Oklab.from_linear_srgb(half.linear_srgb());
+            return Some(Value::oklab(l, a, b, half.alpha));
+        }
+    }
     let c = c.resolve(dark);
-    Value::rgba8(c.r(), c.g(), c.b(), c.a())
+    Some(Value::rgba8(c.r(), c.g(), c.b(), c.a()))
 }
 
 /// A node's paint targets under an appearance (LLP 1055.000 D6, LLP 1062
@@ -253,8 +265,8 @@ pub fn color_targets(
     }
     let text = node.text_color();
     let paint = |id: StyleId| match node.computed(id) {
-        crate::style::RowValue::Paint(crate::svg::Paint::Color(c)) => Some(color(*c, dark)),
-        crate::style::RowValue::Paint(crate::svg::Paint::CurrentColor) => Some(color(text, dark)),
+        crate::style::RowValue::Paint(crate::svg::Paint::Color(c)) => color(*c, dark),
+        crate::style::RowValue::Paint(crate::svg::Paint::CurrentColor) => color(text, dark),
         _ => None,
     };
     let [top, right, bottom, left] = s.border_colors(text);
@@ -268,15 +280,15 @@ pub fn color_targets(
         .into_iter()
         .map(|p| {
             let value = match p {
-                Property::Color => Some(color(text, dark)),
-                Property::BackgroundColor => Some(color(s.background_color.unwrap_or(text), dark)),
+                Property::Color => color(text, dark),
+                Property::BackgroundColor => color(s.background_color.unwrap_or(text), dark),
                 Property::Fill => paint(StyleId::Fill),
                 Property::Stroke => paint(StyleId::Stroke),
-                Property::BorderTopColor => Some(color(top, dark)),
-                Property::BorderRightColor => Some(color(right, dark)),
-                Property::BorderBottomColor => Some(color(bottom, dark)),
-                Property::BorderLeftColor => Some(color(left, dark)),
-                Property::TintColor => Some(color(s.tint_color.unwrap_or(text), dark)),
+                Property::BorderTopColor => color(top, dark),
+                Property::BorderRightColor => color(right, dark),
+                Property::BorderBottomColor => color(bottom, dark),
+                Property::BorderLeftColor => color(left, dark),
+                Property::TintColor => color(s.tint_color.unwrap_or(text), dark),
                 Property::BoxShadow => Some(first.map_or(Value::ZERO, |f| {
                     Value::four(f.offset.x as f64, f.offset.y as f64, f.blur as f64, 0.0)
                 })),

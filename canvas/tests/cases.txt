@@ -255,6 +255,26 @@ strokeStyle = "color(srgb 1 0 0.5)"
 fillStyle = "lab(50, 40, 59.5)"
 ? fillStyle => oklch(0.7 0.1 200 / 0.5)
 
+## a display-p3 canvas keeps each colour's serialisation (display-p3)
+fillStyle = "red"
+? fillStyle => #ff0000
+fillRect(0, 0, 1, 1)
+fillStyle = "color(display-p3 1 0 0)"
+? fillStyle => color(display-p3 1 0 0)
+fillRect(0, 0, 1, 1)
+strokeStyle = "oklch(0.7 0.25 150 / 0.5)"
+? strokeStyle => oklch(0.7 0.25 150 / 0.5)
+strokeRect(0, 0, 1, 1)
+shadowColor = "color(display-p3 0 1 0)"
+shadowColor = "#00ff00"
+? shadowColor => #00ff00
+g = createLinearGradient(0, 0, 10, 0)
+g.addColorStop(0, "color(display-p3 0 0 1)")
+g.addColorStop(1, "white")
+fillStyle = g
+fillRect(0, 0, 10, 10)
+putImageData(ctx.createImageData(2, 2), 0, 0)
+
 ## stage 2: conic gradients and pixels throw by the IDL
 g = createConicGradient(NaN, 1, 2) ! TypeError
 g = createConicGradient(0.5, 40, 50)

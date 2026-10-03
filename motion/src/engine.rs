@@ -508,7 +508,13 @@ impl Engine {
         self.running.retain(|key| {
             let slot = self.slots.get_mut(key).expect("running slot");
             let sample = slot.running().expect("indexed curve").sample(now);
-            slot.set_presented(sample.value);
+            // Done presents the target in its own encoding: the curve may
+            // have run in Oklab (LLP 1100 D2).
+            slot.set_presented(if sample.done {
+                slot.target
+            } else {
+                sample.value
+            });
             if sample.done {
                 slot.set_running(None);
                 slot.set_owner(None);
@@ -698,7 +704,7 @@ mod tests {
         assert_eq!(engine.settle_time(), None);
         // A settled slot is its target alone.
         assert!(engine.slots.values().all(|slot| slot.live.is_none()));
-        assert_eq!(std::mem::size_of::<Slot>(), 40);
+        assert_eq!(std::mem::size_of::<Slot>(), 48);
 
         engine
             .set_transitions(

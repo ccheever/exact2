@@ -1110,6 +1110,7 @@ dependencies = [
  "caltrain",
  "caltrain-data",
  "contract",
+ "exact-color",
  "exact-data",
  "exact-kernel",
  "exact-markdown",
@@ -1142,6 +1143,7 @@ name = "exact-bake"
 version = "0.1.0"
 dependencies = [
  "contract",
+ "exact-color",
  "exact-filesystem",
  "exact-gpu-reflect",
  "exact-kernel",
@@ -1156,6 +1158,7 @@ dependencies = [
 name = "exact-canvas"
 version = "0.1.0"
 dependencies = [
+ "exact-color",
  "exact-motion",
  "exact-num",
 ]
@@ -1172,6 +1175,13 @@ dependencies = [
  "vello_shaders",
  "wgpu 29.0.4",
  "wgpu-hal 29.0.4",
+]
+
+[[package]]
+name = "exact-color"
+version = "0.1.0"
+dependencies = [
+ "exact-num",
 ]
 
 [[package]]
@@ -1303,6 +1313,7 @@ name = "exact-kernel"
 version = "0.1.0"
 dependencies = [
  "cssparser",
+ "exact-color",
  "exact-motion",
  "exact-num",
  "exact-svg-filter",
@@ -1328,6 +1339,7 @@ dependencies = [
  "drm",
  "evdev",
  "exact-canvas",
+ "exact-color",
  "exact-data",
  "exact-kernel",
  "exact-motion",
@@ -1467,6 +1479,7 @@ dependencies = [
 name = "exact-motion"
 version = "0.1.0"
 dependencies = [
+ "exact-color",
  "exact-num",
  "libm",
 ]

@@ -30,6 +30,9 @@ struct Gradient {
     let shape: Shape
     private let light: [CGFloat]
     private let dark: [CGFloat]?
+    /// Stops CSS interpolated outside sRGB (LLP 1100 D2): already dense, in
+    /// extended linear sRGB with alpha 0–1.
+    private let linear: Bool
 
     init?(_ value: BatchValue?) {
         guard case .object(let o)? = value, let light = o["stops"]?.numbers,
@@ -47,6 +50,7 @@ struct Gradient {
         }
         self.light = light.map { CGFloat($0) }
         dark = o["dark"]?.numbers.map { $0.map { CGFloat($0) } }
+        linear = o["space"]?.string == "srgb-linear"
     }
 
     /// A `background-image`'s layers (LLP 1077 D5): one gradient's object,
@@ -83,6 +87,14 @@ struct Gradient {
     /// steps leave it nothing to disagree about.
     func stops(dark isDark: Bool, dense: Bool = false) -> ([CGFloat], [CGColor]) {
         var s = isDark ? dark ?? light : light
+        if linear, let space = CGColorSpace(name: CGColorSpace.extendedLinearSRGB) {
+            var locations: [CGFloat] = [], colors: [CGColor] = []
+            for i in stride(from: 0, to: s.count, by: 5) {
+                locations.append(s[i])
+                colors.append(CGColor(colorSpace: space, components: Array(s[i + 1..<i + 5])) ?? CGColor(gray: 0, alpha: 0))
+            }
+            return (locations, colors)
+        }
         if dense {
             var out: [CGFloat] = []
             for i in stride(from: 0, to: s.count, by: 5) {
@@ -163,7 +175,7 @@ struct Gradient {
             return
         }
         let (locations, colors) = stops(dark: dark)
-        guard let g = CGGradient(colorsSpace: CGColorSpace(name: CGColorSpace.sRGB), colors: colors as CFArray, locations: locations) else { return }
+        guard let g = CGGradient(colorsSpace: CGColorSpace(name: linear ? CGColorSpace.extendedLinearSRGB : CGColorSpace.sRGB), colors: colors as CFArray, locations: locations) else { return }
         switch place {
         case .axial(let a, let b):
             ctx.drawLinearGradient(g, start: a, end: b, options: [.drawsBeforeStartLocation, .drawsAfterEndLocation])
@@ -210,13 +222,12 @@ struct Gradient {
         }
     }
 
-    /// Straight sRGB mixing, as the stops are already laid out to look as
-    /// CSS's premultiplied mix does.
+    /// Straight mixing in the stops' own space, as the stops are already
+    /// laid out to look as CSS's premultiplied mix does.
     private static func mix(_ a: CGColor, _ b: CGColor, _ t: CGFloat) -> CGColor {
         let x = a.components ?? [0, 0, 0, 0], y = b.components ?? [0, 0, 0, 0]
-        guard x.count == 4, y.count == 4 else { return t < 0.5 ? a : b }
-        return CGColor(srgbRed: x[0] + (y[0] - x[0]) * t, green: x[1] + (y[1] - x[1]) * t,
-                       blue: x[2] + (y[2] - x[2]) * t, alpha: x[3] + (y[3] - x[3]) * t)
+        guard x.count == 4, y.count == 4, let space = a.colorSpace else { return t < 0.5 ? a : b }
+        return CGColor(colorSpace: space, components: (0..<4).map { x[$0] + (y[$0] - x[$0]) * t }) ?? a
     }
 
     /// A gradient layer covering `bounds`, placed in `box` (same space).

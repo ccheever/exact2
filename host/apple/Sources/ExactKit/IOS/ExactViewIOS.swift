@@ -73,6 +73,10 @@ public final class ExactView: UIView {
         #endif
         session.presenter.observeKeyboard()
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self, UITraitAccessibilityContrast.self]) { (view: ExactView, _: UITraitCollection) in view.reportScheme(); view.setNeedsLayout() }
+        // HDR held back for a backgrounded scene, and released (LLP 1100 D9).
+        if #available(iOS 26, *) {
+            registerForTraitChanges([UITraitHDRHeadroomUsageLimit.self]) { (view: ExactView, _: UITraitCollection) in view.session.rasters.displayChanged() }
+        }
         // A hinge moving from flat to a book angle changes the division
         // regions' `isActive` without changing any bounds; nothing else would
         // lay out again (LLP 1078 D5). The status is kept: the posture

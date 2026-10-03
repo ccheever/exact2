@@ -21,6 +21,7 @@
 
 mod class;
 mod collection;
+mod color_profile;
 mod contain;
 pub mod controls;
 pub mod dataset;
@@ -312,6 +313,7 @@ fn lower_with_sites(
     }
     let refused = l.declare_keyframes(file);
     l.errors.extend(refused);
+    l.declare_color_profiles(file);
     // Shapes first, in declaration order, so type ids are stable.
     for s in &file.shapes {
         l.ty_id(&Ty::Record(s.name.clone()))?;

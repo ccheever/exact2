@@ -277,6 +277,8 @@ pub struct Value {
     pub z: f64,
     /// Fourth component (a colour's alpha; a layout box's height).
     pub w: f64,
+    /// A colour stored as premultiplied OKLab rather than sRGB (LLP 1100 D2).
+    pub oklab: bool,
 }
 
 impl Value {
@@ -295,7 +297,49 @@ impl Value {
 
     /// A four-component value.
     pub const fn four(x: f64, y: f64, z: f64, w: f64) -> Value {
-        Value { x, y, z, w }
+        Value {
+            x,
+            y,
+            z,
+            w,
+            oklab: false,
+        }
+    }
+
+    /// A colour from OKLab components and alpha, stored premultiplied.
+    pub fn oklab(l: f64, a: f64, b: f64, alpha: f64) -> Value {
+        Value {
+            oklab: true,
+            ..Value::four(l * alpha, a * alpha, b * alpha, alpha)
+        }
+    }
+
+    /// The same colour as premultiplied OKLab (itself when it already is).
+    pub fn to_oklab(self) -> Value {
+        if self.oklab {
+            return self;
+        }
+        let alpha = self.w.clamp(0.0, 1.0);
+        if alpha == 0.0 {
+            return Value::oklab(0.0, 0.0, 0.0, 0.0);
+        }
+        let rgb = [self.x / alpha, self.y / alpha, self.z / alpha].map(exact_color::srgb_to_linear);
+        let [l, a, b] = exact_color::MixSpace::Oklab.from_linear_srgb(rgb);
+        Value::oklab(l, a, b, alpha)
+    }
+
+    /// A colour's straight extended linear sRGB and alpha, unclipped.
+    pub fn linear_srgb(self) -> ([f64; 3], f64) {
+        let alpha = self.w.clamp(0.0, 1.0);
+        if alpha == 0.0 {
+            return ([0.0; 3], 0.0);
+        }
+        let c = [self.x / alpha, self.y / alpha, self.z / alpha];
+        if self.oklab {
+            (exact_color::MixSpace::Oklab.to_linear_srgb(c), alpha)
+        } else {
+            (c.map(exact_color::srgb_to_linear), alpha)
+        }
     }
 
     /// A colour from straight sRGB components in 0–1, stored premultiplied:
@@ -312,6 +356,11 @@ impl Value {
 
     /// A colour value as straight 8-bit RGBA (alpha 0 is transparent black).
     pub fn to_rgba8(self) -> [u8; 4] {
+        if self.oklab {
+            let [r, g, b, a] = self.straight();
+            let q = |v: f64| (v * 255.0).round().clamp(0.0, 255.0) as u8;
+            return [q(r), q(g), q(b), q(a)];
+        }
         let a = self.w.clamp(0.0, 1.0);
         let q = |v: f64| (v * 255.0).round().clamp(0.0, 255.0) as u8;
         if a <= 0.0 {
@@ -327,6 +376,11 @@ impl Value {
         let a = self.w.clamp(0.0, 1.0);
         if a == 0.0 {
             return [0.0; 4];
+        }
+        if self.oklab {
+            let ([r, g, b], a) = self.linear_srgb();
+            let c = |v: f64| exact_color::linear_to_srgb(v).clamp(0.0, 1.0);
+            return [c(r), c(g), c(b), a];
         }
         let c = |v: f64| (v / a).clamp(0.0, 1.0);
         [c(self.x), c(self.y), c(self.z), a]
@@ -351,17 +405,23 @@ impl Value {
 
     /// Each component through `f`.
     pub fn map(self, f: impl Fn(f64) -> f64) -> Value {
-        Value::four(f(self.x), f(self.y), f(self.z), f(self.w))
+        Value {
+            oklab: self.oklab,
+            ..Value::four(f(self.x), f(self.y), f(self.z), f(self.w))
+        }
     }
 
-    /// Two values componentwise through `f`.
+    /// Two values componentwise through `f`; mixed encodings meet in OKLab.
     pub fn zip(self, other: Value, f: impl Fn(f64, f64) -> f64) -> Value {
-        Value::four(
-            f(self.x, other.x),
-            f(self.y, other.y),
-            f(self.z, other.z),
-            f(self.w, other.w),
-        )
+        let (a, b) = if self.oklab != other.oklab {
+            (self.to_oklab(), other.to_oklab())
+        } else {
+            (self, other)
+        };
+        Value {
+            oklab: a.oklab,
+            ..Value::four(f(a.x, b.x), f(a.y, b.y), f(a.z, b.z), f(a.w, b.w))
+        }
     }
 
     /// The components, in order.

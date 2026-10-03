@@ -91,6 +91,7 @@ fn first_presented_skin_matches_current_pose_in_its_rectangle() {
             period_ms: 1000. / 60.,
             children_generation: 0,
             shader_generation: 0,
+            headroom: 1.0,
         };
         fixture::render(gpu, &mut s, &f).unwrap();
         f.now_ms = 1000. / 240.;
@@ -272,6 +273,7 @@ fn rigid_node_animation_moves_pixels_and_glow_dims_baked_emission() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let render = |surface: &mut WorldSurface<Rigid, exact_game_render::ModelExecutor, true>,
                   frame: &Frame| {

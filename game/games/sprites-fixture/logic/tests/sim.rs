@@ -110,6 +110,7 @@ fn rendered_atlas_and_mid_fall_restore() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let first = fixture::render(&gpu, &mut s, &f).unwrap().0;
     f.now_ms = 2500.;

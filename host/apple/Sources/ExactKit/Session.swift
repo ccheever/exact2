@@ -154,7 +154,7 @@ public final class ExactApp {
     /// The plan last applied across the app, also used by newly created sessions.
     private(set) var lastPlan: Data?
     private(set) var lastModule: ExactModule?
-    private(set) var resolver: AssetResolver!
+    private(set) var resolver: AssetResolver! { didSet { ProfileSpaces.resolver = resolver } }
     private var transaction = false
     /// A retryable image preparation; the current sessions remain live.
     public private(set) var generationPending = false

@@ -428,6 +428,13 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 }
             }
             ("prefers-color-scheme", v @ ("light" | "dark")) => dark = v == "dark",
+            // @ref LLP 1100 D10 — this host draws sRGB and SDR only.
+            ("color-gamut", "srgb") | ("dynamic-range", "standard") => {}
+            ("color-gamut" | "dynamic-range", v) => {
+                return error(&format!(
+                    "prefer: {name}: {v}: this host draws sRGB and standard dynamic range only"
+                ))
+            }
             _ => {
                 return error(&format!(
                     "prefer: {name}: {value} is not a preference this host sets"
@@ -481,6 +488,8 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         "prefers-reduced-transparency": keyword(preferences.reduced_transparency),
         "prefers-contrast": preferences.contrast.keyword(),
         "prefers-color-scheme": if p.scheme.1 { "dark" } else { "light" },
+        "color-gamut": "srgb",
+        "dynamic-range": "standard",
     }, "page": {
         "visibility-state": page.visibility_state(),
         "online": page.on_line,

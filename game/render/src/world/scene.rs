@@ -567,6 +567,7 @@ impl Scene {
                 .copied(),
             timestamps: None,
             attachments: &self.attachments.output,
+            headroom: 1.0,
         }
     }
 }

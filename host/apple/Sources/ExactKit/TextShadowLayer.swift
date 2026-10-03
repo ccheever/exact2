@@ -8,11 +8,11 @@ import QuartzCore
 enum TextShadowLayer {
     /// `shadow`: offset x, y, blur, r g b a (0–255), as `Spec.shadow`.
     static func apply(_ shadow: [Double]?, to layer: CALayer) {
-        guard let s = shadow, s.count == 7 else {
+        guard let s = shadow, TextEngine.isShadow(s) else {
             if layer.shadowOpacity != 0 { layer.shadowOpacity = 0; layer.shouldRasterize = false }
             return
         }
-        layer.shadowColor = CGColor(srgbRed: s[3] / 255, green: s[4] / 255, blue: s[5] / 255, alpha: s[6] / 255)
+        layer.shadowColor = TextEngine.shadowColor(s)
         layer.shadowOpacity = 1
         layer.shadowOffset = CGSize(width: s[0], height: s[1])
         // Core Animation's radius is the Gaussian's σ; CSS's is twice it.

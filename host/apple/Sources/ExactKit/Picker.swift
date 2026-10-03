@@ -166,19 +166,36 @@ final class Picker: NSObject {
     }
 
     /// D6: JPEG at quality 0.9, orientation applied, with no metadata copied
-    /// (so no location).
+    /// (so no location). The color profile is kept, and an HDR photo is
+    /// written with an ISO 21496-1 gain map from iOS 18 / macOS 15; before
+    /// that it becomes its SDR picture (LLP 1100 D13).
     static func jpeg(from: URL, to: URL) throws {
         guard let source = CGImageSourceCreateWithURL(from as CFURL, nil),
               let (w, h) = pixels(from),
-              let image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
-                  kCGImageSourceCreateThumbnailFromImageAlways: true,
-                  kCGImageSourceCreateThumbnailWithTransform: true,
-                  kCGImageSourceThumbnailMaxPixelSize: max(w, h),
-              ] as CFDictionary),
               let destination = CGImageDestinationCreateWithURL(to as CFURL, UTType.jpeg.identifier as CFString, 1, nil)
         else { throw CocoaError(.fileReadCorruptFile) }
-        CGImageDestinationAddImage(destination, image, [kCGImageDestinationLossyCompressionQuality: 0.9] as CFDictionary)
+        var decode: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(w, h),
+        ]
+        var encode: [CFString: Any] = [kCGImageDestinationLossyCompressionQuality: 0.9]
+        if #available(iOS 18, macOS 15, *), isHDR(source) {
+            decode[kCGImageSourceDecodeRequest] = kCGImageSourceDecodeToHDR
+            encode[kCGImageDestinationEncodeRequest] = kCGImageDestinationEncodeToISOGainmap
+        }
+        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, decode as CFDictionary)
+        else { throw CocoaError(.fileReadCorruptFile) }
+        CGImageDestinationAddImage(destination, image, encode as CFDictionary)
         guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown) }
+    }
+
+    /// A gain map of either kind, or a PQ or HLG transfer (LLP 1100 D4).
+    static func isHDR(_ source: CGImageSource) -> Bool {
+        if CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, kCGImageAuxiliaryDataTypeHDRGainMap) != nil { return true }
+        if #available(iOS 18, macOS 15, *),
+           CGImageSourceCopyAuxiliaryDataInfoAtIndex(source, 0, kCGImageAuxiliaryDataTypeISOGainMap) != nil { return true }
+        return CGImageSourceCreateImageAtIndex(source, 0, nil)?.colorSpace.map(isHDRSpace) ?? false
     }
 
     /// `accept` as Apple's types: `image/*` and `video/*` their families,

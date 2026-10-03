@@ -19,6 +19,7 @@ crate-type = ["rlib"]
 [dependencies]
 exact-data = { path = "../../data" }
 exact-textflow = { path = "../../textflow" }
+exact-color = { path = "../../color" }
 exact-kernel = { path = "../../kernel" }
 exact-markdown = { path = "../../markdown" }
 exact-motion = { path = "../../motion" }

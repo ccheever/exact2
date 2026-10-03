@@ -27,6 +27,7 @@ fn frame(now_ms: f64) -> Frame {
         period_ms: 0.0,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     }
 }
 fn render<G: Game>(gpu: &Gpu, surface: &mut WorldSurface<G>, now: f64, name: &str) -> Pixels {

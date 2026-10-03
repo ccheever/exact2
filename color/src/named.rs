@@ -1,7 +1,4 @@
-//! CSS's named colours (CSS Color 4 §6.1, `<named-color>`): the 148 keywords
-//! a browser accepts, each an opaque sRGB colour, in any ASCII case as CSS
-//! takes them. Motion sits below the kernel, so the one table is here: a
-//! keyframe's colour and the kernel's `Color::parse` both look names up in it.
+//! CSS's named colours (CSS Color 4 §6.1), in any ASCII case.
 
 /// Sorted by name for a binary search.
 const NAMED: [(&str, [u8; 3]); 148] = [
@@ -155,8 +152,8 @@ const NAMED: [(&str, [u8; 3]); 148] = [
     ("yellowgreen", [154, 205, 50]),
 ];
 
-/// The colour a CSS colour keyword names, or `None`.
-pub fn named(text: &str) -> Option<[u8; 3]> {
+/// The colour a CSS colour keyword names.
+pub(crate) fn named(text: &str) -> Option<[u8; 3]> {
     if text.len() > 20 || !text.is_ascii() {
         return None;
     }

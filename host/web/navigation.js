@@ -718,7 +718,8 @@ export function preferFold(request) {
 // `pointer: coarse` (bit 5), `pointer: none` (bit 6) and `hover: none` (bit 7),
 // zero being a mouse. Told with each boot and resize.
 let preferenceQueries;
-const queries = () => (preferenceQueries ??= [["(prefers-reduced-motion: reduce)", 1], ["(prefers-reduced-transparency: reduce)", 2], ["(prefers-contrast: more)", 4], ["(prefers-contrast: less)", 8], ["(prefers-contrast: custom)", 12], ["(prefers-color-scheme: dark)", 16], ["(pointer: coarse)", 32], ["(pointer: none)", 64], ["(hover: none)", 128]].map(([q, bits]) => [matchMedia(q), bits]));
+// Bits 8–9 `color-gamut` (256 p3; 512 with it, rec2020) and bit 10 `dynamic-range: high` (LLP 1100 D9).
+const queries = () => (preferenceQueries ??= [["(prefers-reduced-motion: reduce)", 1], ["(prefers-reduced-transparency: reduce)", 2], ["(prefers-contrast: more)", 4], ["(prefers-contrast: less)", 8], ["(prefers-contrast: custom)", 12], ["(prefers-color-scheme: dark)", 16], ["(pointer: coarse)", 32], ["(pointer: none)", 64], ["(hover: none)", 128], ["(color-gamut: p3)", 256], ["(color-gamut: rec2020)", 512], ["(dynamic-range: high)", 1024]].map(([q, bits]) => [matchMedia(q), bits]));
 export const preferences = () => queries().reduce((bits, [q, bit]) => bits | (q.matches ? bit : 0), 0);
 export const onPreferences = (changed) => queries().forEach(([q]) => q.addEventListener("change", changed));
 

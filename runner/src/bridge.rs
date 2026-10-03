@@ -147,6 +147,15 @@ pub struct KeyframesTable(
 /// The plan's `keyframes` table. The compiler validated every row; one that
 /// no longer parses (a plan from another evaluator) names nothing.
 pub fn keyframes(plan: &exact_plan::Plan) -> KeyframesTable {
+    // @ref LLP 1100 D3 — the plan's `@color-profile`s, before any style row
+    // that names one is parsed.
+    for row in &plan.profiles {
+        exact_kernel::style::profiled::declare(
+            plan.str(row.name),
+            plan.str(row.src),
+            plan.str(row.intent),
+        );
+    }
     KeyframesTable(
         plan.keyframes
             .iter()

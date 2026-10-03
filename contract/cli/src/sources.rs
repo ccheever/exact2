@@ -541,6 +541,8 @@ impl Loader<'_> {
             styles: all!(styles),
             keyframes: all!(keyframes),
             timelines: all!(timelines),
+            // CSS `@color-profile`s are global by name too (LLP 1100 D3).
+            color_profiles: all!(color_profiles),
             fns: all!(fns),
             components: all!(components),
         }

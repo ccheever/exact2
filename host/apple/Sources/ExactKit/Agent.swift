@@ -197,6 +197,7 @@ public final class Agent {
         case "clock": let r = clock(req); session.tellAgentOffset(); Agent.reply(tagged(r))
         case "prefer": Agent.reply(tagged(prefer(req)))
         case "screenshot": Agent.reply(tagged(screenshot(req)))
+        case "sample": Agent.reply(tagged(sample(req)))
         case "logs":
             var forward = req
             forward.removeValue(forKey: "session")
@@ -320,12 +321,16 @@ public final class Agent {
         if let fold, let refused = preferFold(fold) { return ["error": refused] }
         var (motion, transparency, contrast) = (DisplayPreferences.reducedMotion, DisplayPreferences.reducedTransparency, DisplayPreferences.contrast)
         var dark: Bool?
+        var (gamut, high) = (DisplayPreferences.gamut, DisplayPreferences.highDynamicRange)
         for (name, value) in media ?? [:] {
             switch (name, value) {
             case ("prefers-reduced-motion", "reduce"), ("prefers-reduced-motion", "no-preference"): motion = value == "reduce"
             case ("prefers-reduced-transparency", "reduce"), ("prefers-reduced-transparency", "no-preference"): transparency = value == "reduce"
             case ("prefers-contrast", "more"), ("prefers-contrast", "less"), ("prefers-contrast", "custom"), ("prefers-contrast", "no-preference"): contrast = value
             case ("prefers-color-scheme", "light"), ("prefers-color-scheme", "dark"): dark = value == "dark"
+            // @ref LLP 1100 D9
+            case ("color-gamut", "srgb"), ("color-gamut", "p3"), ("color-gamut", "rec2020"): gamut = value
+            case ("dynamic-range", "standard"), ("dynamic-range", "high"): high = value == "high"
             default: return ["error": "prefer: \(name): \(value) is not a preference this host sets"]
             }
         }
@@ -344,6 +349,11 @@ public final class Agent {
         // The scheme first: the preferences' notification reads it.
         if let dark { systemScheme(dark: dark) }
         DisplayPreferences.agentContrast = contrast
+        if DisplayPreferences.gamut != gamut || DisplayPreferences.highDynamicRange != high {
+            DisplayRange.pinned = high ? 4 : 1
+            DisplayPreferences.agentGamut = gamut
+            session.rasters.displayChanged()
+        }
         systemContrast(more: DisplayPreferences.contrast == "more")
         DisplayPreferences.agent = (motion, transparency)
         if page != nil { PageFacts.agent = facts }
@@ -351,7 +361,9 @@ public final class Agent {
         return ["media": ["prefers-reduced-motion": keyword(DisplayPreferences.reducedMotion),
                           "prefers-reduced-transparency": keyword(DisplayPreferences.reducedTransparency),
                           "prefers-contrast": DisplayPreferences.contrast,
-                          "prefers-color-scheme": systemDark ? "dark" : "light"],
+                          "prefers-color-scheme": systemDark ? "dark" : "light",
+                          "color-gamut": DisplayPreferences.gamut,
+                          "dynamic-range": DisplayPreferences.highDynamicRange ? "high" : "standard"],
                 "page": ["visibility-state": PageFacts.hidden ? "hidden" : "visible",
                          "online": PageFacts.onLine, "can-share": PageFacts.canShare, "can-open-files": PageFacts.canOpenFiles, "root-font-size": PageFacts.rootFontSize],
                 "fold": presenter.fold.env]

@@ -24,9 +24,35 @@ pub struct PixelSize {
     pub height: u32,
 }
 
+/// The storage a decode produces (LLP 1100 D7). Every adapter applies EXIF
+/// orientation and decodes the first frame.
+pub mod variant {
+    /// 8-bit sRGB: a standard picture, or one an adapter can only show as sRGB.
+    pub const SRGB8: u32 = 1;
+    /// 8-bit in the picture's own colour space: a wide picture.
+    pub const OWN8: u32 = 2;
+    /// 16-bit float in the picture's own colour space: a deep picture, or an
+    /// HDR picture's SDR rendition when that is deeper than 8 bits.
+    pub const DEEP: u32 = 3;
+    /// 16-bit float, extended range, with headroom: an HDR picture shown as HDR.
+    pub const HDR: u32 = 4;
+    /// 8-bit in the picture's own space for a deep or HDR picture that did not
+    /// fit the budget at full depth: the budget's last resort.
+    pub const REDUCED8: u32 = 5;
+
+    /// Bytes per pixel of a variant's output, or `None` for an unknown one.
+    pub fn bytes_per_pixel(variant: u32) -> Option<u64> {
+        match variant {
+            SRGB8 | OWN8 | REDUCED8 => Some(4),
+            DEEP | HDR => Some(8),
+            _ => None,
+        }
+    }
+}
+
 /// Source IDs belong to the adapter's bounded live/job/cache resolver mapping.
 /// Never intern every visited source. `generation` identifies immutable bytes.
-/// `variant` identifies the adapter's fixed orientation/color decoding policy.
+/// `variant` is one of [`variant`]'s storage formats.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct RasterKey {
     pub source: u64,
@@ -65,8 +91,8 @@ pub struct DecodeCost {
 }
 
 impl DecodeCost {
-    /// Both native adapters normalize to premultiplied RGBA8. Admission checks
-    /// stride >= requested width * 4 and output bytes == stride * height.
+    /// Admission checks stride >= requested width * the variant's bytes per
+    /// pixel ([`variant::bytes_per_pixel`]) and output bytes == stride * height.
     pub fn checked(stride: u64, height: u32, scratch: u64, copy: u64) -> Result<Self, Refusal> {
         let output_bytes = stride
             .checked_mul(u64::from(height))

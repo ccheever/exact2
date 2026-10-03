@@ -33,6 +33,8 @@ struct Log {
     pictures: bool,
     parked: Vec<(u64, u32, u64)>,
     retired: Vec<(u64, u32)>,
+    /// Each draw's request was for a `display-p3` canvas.
+    p3: Vec<bool>,
 }
 
 struct Spark(Rc<RefCell<Log>>);
@@ -71,6 +73,7 @@ impl DataSource for Spark {
         Ok(n == 4.0)
     }
     fn draw(&mut self, request: &DrawRequest<'_>, ctx: &Context2d) -> Drawn {
+        self.0.borrow_mut().p3.push(request.p3);
         if self.0.borrow().later {
             self.0
                 .borrow_mut()
@@ -92,8 +95,12 @@ impl DataSource for Spark {
 }
 
 fn boot() -> (Runner<Spark>, Rc<RefCell<Log>>) {
+    boot_source(SOURCE)
+}
+
+fn boot_source(source: &str) -> (Runner<Spark>, Rc<RefCell<Log>>) {
     let log = Rc::new(RefCell::new(Log::default()));
-    let plan = contract::compile(SOURCE).unwrap();
+    let plan = contract::compile(source).unwrap();
     let r = Runner::boot(
         plan,
         Spark(log.clone()),
@@ -111,6 +118,7 @@ fn geometry(w: f64, h: f64, scale: f64) -> Geometry {
         height: h,
         scale,
         bitmap: None,
+        settings: Default::default(),
     }
 }
 
@@ -309,4 +317,48 @@ fn an_image_a_draw_asks_for_redraws_it_when_it_decodes() {
     r.draw_canvases(&|_| true);
     assert_eq!(r.take_canvas_lists().len(), 1);
     assert_eq!(log.borrow().frames.last().unwrap().cause.primary(), "font");
+}
+
+/// LLP 1100 D12a: `color-space` and `color-type` are the canvas's getContext
+/// settings: the draw is told, the host's bitmap carries them, a change is
+/// a new generation, and float16 counts 8 bytes a pixel.
+#[test]
+fn a_canvas_settings_reach_the_draw_and_the_host() {
+    let (mut r, log) = boot_source(
+        "component App
+  state wide = true
+  action narrow
+    wide = false
+  view
+    canvas surface=spark(1) width=100 height=50 color-space=(wide ? \"display-p3\" : \"srgb\") color-type=\"float16\"
+",
+    );
+    let view = r.canvas_views()[0];
+    let settings = r.canvas_settings(view);
+    assert!(settings.p3 && settings.float16);
+    r.set_canvas_geometry(
+        view,
+        Geometry {
+            settings,
+            ..geometry(100.0, 50.0, 1.0)
+        },
+    );
+    r.draw_canvases(&|_| true);
+    let lists = r.take_canvas_lists();
+    assert!(lists.iter().all(|l| l.settings == settings));
+    assert_eq!(log.borrow().p3, [true]);
+    r.act("narrow", vec![]).unwrap();
+    let settings = r.canvas_settings(view);
+    assert!(!settings.p3 && settings.float16);
+    r.set_canvas_geometry(
+        view,
+        Geometry {
+            settings,
+            ..geometry(100.0, 50.0, 1.0)
+        },
+    );
+    r.draw_canvases(&|_| true);
+    let lists = r.take_canvas_lists();
+    assert!(lists[0].fresh && lists[0].generation == 1, "a new context");
+    assert_eq!(log.borrow().p3.last(), Some(&false));
 }

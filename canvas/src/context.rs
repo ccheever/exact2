@@ -24,7 +24,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 mod image;
 #[path = "context/text.rs"]
 mod text;
-pub use image::{images_in, CanvasPattern, ImageData, ImageSlot, ImageTable, Images};
+pub use image::{images_in, CanvasPattern, ColorSpace, ImageData, ImageSlot, ImageTable, Images};
 
 /// A thrown `DOMException` (or `TypeError`, by name).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -104,6 +104,28 @@ pub struct Env {
     /// The canvas node's CSS `direction` is `rtl`: what `direction =
     /// "inherit"` resolves to.
     pub rtl: bool,
+    /// The canvas is `display-p3` (LLP 1100 D12a): its lists carry Display P3 bytes.
+    pub p3: bool,
+}
+
+impl Env {
+    /// A colour's list operands in the canvas's space. A wide colour's P3
+    /// bytes come from its text, since its sRGB channels are clipped.
+    pub(crate) fn operands(&self, c: Rgba, text: Option<&str>) -> [f64; 4] {
+        if !self.p3 {
+            return c.operands();
+        }
+        let p3 = match text.and_then(exact_color::parse) {
+            Some(exact_color::Parsed::Wide(w)) => w.display_p3_8(),
+            _ => exact_color::srgb8_to_p3(exact_color::Rgba8 {
+                r: c.r,
+                g: c.g,
+                b: c.b,
+                a: c.a,
+            }),
+        };
+        [p3.r as f64, p3.g as f64, p3.b as f64, c.a]
+    }
 }
 
 /// `DOMMatrix`'s 2D members, detached: what `get_transform` returns.
@@ -235,10 +257,14 @@ impl Inner {
 
     pub(crate) fn paint_op(&mut self, fill: bool, paint: &Paint) {
         match (fill, paint) {
-            (true, Paint::Color(c, _)) => self.op(Op::FillColor, &c.operands()),
+            (true, Paint::Color(c, text)) => {
+                self.op(Op::FillColor, &self.env.operands(*c, text.as_deref()))
+            }
             (true, Paint::Gradient(id)) => self.op(Op::FillGradient, &[*id as f64]),
             (true, Paint::Pattern(id)) => self.op(Op::FillPattern, &[*id as f64]),
-            (false, Paint::Color(c, _)) => self.op(Op::StrokeColor, &c.operands()),
+            (false, Paint::Color(c, text)) => {
+                self.op(Op::StrokeColor, &self.env.operands(*c, text.as_deref()))
+            }
             (false, Paint::Gradient(id)) => self.op(Op::StrokeGradient, &[*id as f64]),
             (false, Paint::Pattern(id)) => self.op(Op::StrokePattern, &[*id as f64]),
         }
@@ -381,9 +407,10 @@ impl CanvasGradient {
                 format!("The provided value ({offset}) is outside the range (0.0, 1.0)."),
             );
         }
-        let c = match color::parse(color) {
-            Some(Parsed::Color(c) | Parsed::Wide(c, _)) => c,
-            Some(Parsed::Current) => Rgba::BLACK,
+        let (c, text) = match color::parse(color) {
+            Some(Parsed::Color(c)) => (c, None),
+            Some(Parsed::Wide(c, text)) => (c, Some(text)),
+            Some(Parsed::Current) => (Rgba::BLACK, None),
             None => {
                 return throw(
                     "SyntaxError",
@@ -392,7 +419,7 @@ impl CanvasGradient {
             }
         };
         let mut inner = lock(&self.inner);
-        let [r, g, b, a] = c.operands();
+        let [r, g, b, a] = inner.env.operands(c, text.as_deref());
         inner.op(Op::ColorStop, &[self.id as f64, offset, r, g, b, a]);
         Ok(())
     }
@@ -980,6 +1007,7 @@ impl Context2d {
 
     fn set_style_str(&self, fill: bool, v: &str) {
         let mut g = self.g();
+        let p3 = g.env.p3;
         let Some((c, text)) = g.color(v) else {
             return;
         };
@@ -990,8 +1018,9 @@ impl Context2d {
             &mut g.state.stroke
         };
         if *slot != p {
-            let changed =
-                !matches!((&*slot, &p), (Paint::Color(a, _), Paint::Color(b, _)) if a == b);
+            // A wide colour whose sRGB clip is the same still changes a
+            // `display-p3` canvas's bytes.
+            let changed = !matches!((&*slot, &p), (Paint::Color(a, x), Paint::Color(b, y)) if a == b && (!p3 || x == y));
             *slot = p.clone();
             if changed {
                 g.paint_op(fill, &p);
@@ -1168,8 +1197,9 @@ impl Context2d {
         let Some((c, text)) = g.color(v) else {
             return;
         };
-        if g.state.shadow_color.0 != c {
-            g.op(Op::ShadowColor, &c.operands());
+        if g.state.shadow_color != (c, text.clone()) {
+            let operands = g.env.operands(c, text.as_deref());
+            g.op(Op::ShadowColor, &operands);
         }
         g.state.shadow_color = (c, text);
     }

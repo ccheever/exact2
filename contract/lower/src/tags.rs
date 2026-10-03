@@ -544,6 +544,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // `width`/`height` content attributes (Contract's are the CSS box).
         "bitmap-width" => AttrTarget::Prop(p("bitmapWidth")),
         "bitmap-height" => AttrTarget::Prop(p("bitmapHeight")),
+        // LLP 1100 D12a: getContext's settings.
+        "color-space" => AttrTarget::Prop(p("colorSpace")),
+        "color-type" => AttrTarget::Prop(p("colorType")),
         "scrollTop" => AttrTarget::Prop(p("scrollTop")),
         "scrollLeft" => AttrTarget::Prop(p("scrollLeft")),
         "swipeContent" => AttrTarget::Prop(p("swipeContent")),
@@ -940,6 +943,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "scroll-edge-effect" => styles(&[StyleId::ScrollEdgeEffect]),
         "hover-effect" => styles(&[StyleId::HoverEffect]),
         "smart-invert" => styles(&[StyleId::SmartInvert]),
+        "dynamic-range-limit" => styles(&[StyleId::DynamicRangeLimit]),
         // @ref LLP 1061 D1 — host-owned press feedback; not a motion target.
         "press-scale" => styles(&[StyleId::PressScale]),
         _ => return None,

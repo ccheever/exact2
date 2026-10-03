@@ -290,6 +290,8 @@ final class RasterLoaderTests: XCTestCase {
         loader.load(node, source: "same.png", resolver: replacement)
         settle { node.raster != nil && node.raster !== oldBacking }
         XCTAssertEqual(node.raster?.image.naturalSize, CGSize(width: 90, height: 45))
+        // The image layer takes the new pixels at once (LLP 1100 D9).
+        if let layer = node.imageLayer { XCTAssertTrue((layer.contents as AnyObject?) === node.raster?.image.image) }
         XCTAssertEqual(oldBacking?.image.naturalSize, CGSize(width: 120, height: 60))
         expired = nil
     }
@@ -363,7 +365,7 @@ private final class RasterAdmissionFlood: @unchecked Sendable {
                         var d = ExactRasterDemand()
                         d.view = UInt64(i); d.view_generation = 1; d.source = serial; d.generation = 1
                         d.width = 1; d.height = 1; d.natural_width = 1; d.natural_height = 1
-                        d.encoded_bytes = 4; d.header_bytes = 4; d.stride = 4
+                        d.encoded_bytes = 4; d.header_bytes = 4; d.stride = 4; d.variant = RasterVariant.own8
                         requests[i] = exact_raster_request(session, d)
                         if requests[i] != 0 { lock.lock(); count += 1; lock.unlock() }
                     }

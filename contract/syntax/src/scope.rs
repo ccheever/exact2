@@ -109,6 +109,8 @@ pub fn rescope(file: &mut File, scope: &Scope) -> Result<(), SyntaxError> {
         styles,
         keyframes,
         timelines,
+        // A `@color-profile`'s dashed name is global, as in CSS.
+        color_profiles: _,
         fns,
         tests,
         launch: _,

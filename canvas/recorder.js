@@ -187,8 +187,19 @@ function wide(name, body) {
     : kind === 4 ? v.map(toLinear) : kind === 5 ? v : kind === 6 ? mul3(XYZ_TO_SRGB, mul3(P3_TO_XYZ, v.map(toLinear)))
     : kind === 7 ? mul3(XYZ_TO_SRGB, v) : mul3(XYZ_TO_SRGB, mul3(D50_TO_D65, v));
   const out = [...lin.map((x) => channel(fromLinear(x) * 255)), Math.round(alpha * 255) / 255];
+  out.lin = lin;
   out.text = `${space ? `color(${space} ` : `${name}(`}${v.map(jsNumber).join(" ")}${alpha < 1 ? ` / ${jsNumber(alpha)}` : ""})`;
   return out;
+}
+// A `display-p3` canvas's colours (LLP 1100 D12a; color/src/lib.rs
+// `LINEAR_SRGB_TO_P3`, the same digits, so the two agree to the byte).
+const LINEAR_SRGB_TO_P3 = [[0.8224619687143622, 0.17753803128563764, 0], [0.033194198850961525, 0.966805801149038, 0], [0.01708263072111999, 0.07239744066396336, 0.9105199286149165]];
+const LINEAR_P3_TO_SRGB = [[1.22494017628056, -0.22494017628055996, 0], [-0.04205695470968818, 1.0420569547096883, 0], [-0.01963755459033439, -0.0786360455506318, 1.0982736001409665]];
+const bytesThrough = (m, lin) => mul3(m, lin).map((x) => channel(fromLinear(x) * 255));
+/** A colour's list operands in the canvas's space: a wide one's P3 bytes from its own components. */
+function operands(c, p3) {
+  if (!p3) return c.slice(0, 4);
+  return [...bytesThrough(LINEAR_SRGB_TO_P3, c.lin ?? c.slice(0, 3).map((v) => toLinear(v / 255))), c[3]];
 }
 /** A CSS colour as `[r, g, b, a]` (a wide one with its `.text`), `"current"`, or null. */
 export function parseColor(input) {
@@ -486,7 +497,7 @@ export class CanvasGradient {
     let c = parseColor(String(color));
     if (c === "current") c = BLACK;
     if (!c) throwDom("SyntaxError", `The value provided ('${color}') could not be parsed as a color.`);
-    this._inner.op(OP.ColorStop, [this._id, offset, c[0], c[1], c[2], c[3]]);
+    this._inner.op(OP.ColorStop, [this._id, offset, ...operands(c, this._inner.env.p3)]);
   }
   get [Symbol.toStringTag]() { return "CanvasGradient"; }
 }
@@ -505,7 +516,9 @@ export class CanvasPattern {
 /** `ImageData`: raw RGBA pixels, non-premultiplied. The platform's own
  * when there is one (the web), else this. */
 class ImageDataShim {
-  constructor(a, b, c) {
+  constructor(a, b, c, d) {
+    const space = (typeof a === "number" ? c : d)?.colorSpace ?? "srgb";
+    if (space !== "srgb" && space !== "display-p3") throw new TypeError(`The provided value '${space}' is not a valid enum value of type PredefinedColorSpace.`);
     let data, w, h;
     if (typeof a === "number") {
       w = Math.trunc(a); h = Math.trunc(b);
@@ -516,12 +529,12 @@ class ImageDataShim {
       if (!data || !data.length || data.length % 4) throwDom("InvalidStateError", "The input data length is not a non-zero multiple of 4.");
       if (!w || (data.length / 4) % w) throwDom("IndexSizeError", "The input data length is not a multiple of (4 * width).");
       h = data.length / 4 / w;
-      if (c !== undefined && c >>> 0 !== h) throwDom("IndexSizeError", "The input data length is not equal to (4 * width * height).");
+      if (c != null && c >>> 0 !== h) throwDom("IndexSizeError", "The input data length is not equal to (4 * width * height).");
     }
     Object.defineProperty(this, "width", { value: w, enumerable: true });
     Object.defineProperty(this, "height", { value: h, enumerable: true });
     Object.defineProperty(this, "data", { value: data, enumerable: true });
-    Object.defineProperty(this, "colorSpace", { value: "srgb", enumerable: true });
+    Object.defineProperty(this, "colorSpace", { value: space, enumerable: true });
   }
   get [Symbol.toStringTag]() { return "ImageData"; }
 }
@@ -536,7 +549,7 @@ function dimension(v, which) {
 }
 
 class Inner {
-  constructor() { this.state = defaults(); this.stack = []; this.writer = new Writer(); this.sealed = []; this.subpath = null; this.nextId = 0; this.imageIds = new Map(); this.env = { canvas: 0, currentColor: null, rtl: false, host: null }; this.notes = []; }
+  constructor() { this.state = defaults(); this.stack = []; this.writer = new Writer(); this.sealed = []; this.subpath = null; this.nextId = 0; this.imageIds = new Map(); this.env = { canvas: 0, currentColor: null, rtl: false, p3: false, host: null }; this.notes = []; }
   op(code, operands) {
     if (this.writer.len + 8 + operands.length * 8 > SEAL && this.writer.ops) { this.sealed.push(this.writer.finish()); this.writer = new Writer(); }
     this.writer.op(code, operands);
@@ -545,7 +558,7 @@ class Inner {
   paintOp(fill, p) {
     if (p.gradient !== undefined) this.op(fill ? OP.FillGradient : OP.StrokeGradient, [p.gradient]);
     else if (p.pattern !== undefined) this.op(fill ? OP.FillPattern : OP.StrokePattern, [p.pattern]);
-    else this.op(fill ? OP.FillColor : OP.StrokeColor, p.color.slice(0, 4));
+    else this.op(fill ? OP.FillColor : OP.StrokeColor, operands(p.color, this.env.p3));
   }
   color(v) {
     const c = parseColor(String(v));
@@ -912,7 +925,7 @@ export class Recorder {
     p = { color: c, text: c.text };
     const old = g.state[slot];
     if (!samePaint(old, p)) {
-      const changed = old.color === undefined || !sameColor(old.color, c);
+      const changed = old.color === undefined || !sameColor(old.color, c) || (g.env.p3 && old.text !== p.text);
       g.state[slot] = p;
       if (changed) g.paintOp(fill, p);
     }
@@ -957,7 +970,7 @@ export class Recorder {
   set shadowColor(v) {
     const g = this._, c = g.color(v);
     if (!c) return;
-    if (!sameColor(g.state.shadow.color, c)) g.op(OP.ShadowColor, c.slice(0, 4));
+    if (!sameColor(g.state.shadow.color, c) || g.state.shadow.text !== c.text) g.op(OP.ShadowColor, operands(c, g.env.p3));
     g.state.shadow = { color: c, text: c.text };
   }
   get shadowBlur() { return this._.state.shadowBlur; }
@@ -1038,8 +1051,9 @@ export class Recorder {
     return new CanvasPattern(g, id);
   }
   createImageData(a, b) {
-    if (a && typeof a === "object") return new ImageDataClass(a.width, a.height);
-    return new ImageDataClass(dimension(a, "width"), dimension(b, "height"));
+    const settings = { colorSpace: this._.env.p3 ? "display-p3" : "srgb" };
+    if (a && typeof a === "object") return new ImageDataClass(a.width, a.height, settings);
+    return new ImageDataClass(dimension(a, "width"), dimension(b, "height"), settings);
   }
   putImageData(data, dx, dy, x = 0, y = 0, w = data.width, h = data.height) {
     const all = [dx, dy, x, y, w, h].map(Number);
@@ -1052,9 +1066,13 @@ export class Recorder {
     w = Math.min(w, data.width - x); h = Math.min(h, data.height - y);
     if (w <= 0 || h <= 0) return;
     const ops = [dx + x, dy + y, w, h], d = data.data;
+    // Pixels in another space than the canvas's are converted to it, as
+    // HTML's put does (canvas/src/context/image.rs, the same arithmetic).
+    const from = data.colorSpace === "display-p3", m = from === this._.env.p3 ? null : from ? LINEAR_P3_TO_SRGB : LINEAR_SRGB_TO_P3;
     for (let row = y; row < y + h; row++) for (let col = x; col < x + w; col++) {
       const i = (row * data.width + col) * 4;
-      ops.push(d[i] * 16777216 + d[i + 1] * 65536 + d[i + 2] * 256 + d[i + 3]);
+      const [r, g, b] = m ? bytesThrough(m, [d[i], d[i + 1], d[i + 2]].map((v) => toLinear(v / 255))) : [d[i], d[i + 1], d[i + 2]];
+      ops.push(r * 16777216 + g * 65536 + b * 256 + d[i + 3]);
     }
     this._.op(OP.PutImageData, ops);
   }
@@ -1088,7 +1106,7 @@ export function canvasSeam(draw) {
       let entry = recorders.get(canvas);
       if (!entry || entry.generation !== generation) { entry = { generation, rec: new Recorder() }; recorders.set(canvas, entry); }
       const inner = entry.rec._;
-      inner.env = { canvas, currentColor: request.currentColor ?? null, rtl: request.rtl === true, host: host ?? null };
+      inner.env = { canvas, currentColor: request.currentColor ?? null, rtl: request.rtl === true, p3: request.colorSpace === "display-p3", host: host ?? null };
       let wants = false, error = null;
       try {
         const result = draw(surface, args, entry.rec, Object.freeze(frame));

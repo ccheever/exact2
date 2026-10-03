@@ -110,6 +110,7 @@ extension NodeView {
         if l.contentsRect != unit { l.contentsRect = unit }
         let frame = AnimatedRasters.shared.frame(for: self) ?? bitmap.image
         if (l.contents as AnyObject?) !== frame { l.contents = frame }
+        l.applyDynamicRange(hdr: bitmap.isHDR, headroom: bitmap.headroom, limit: style["dynamic_range_limit"]?.string)
         if l.cornerRadius != radius { l.cornerRadius = radius }
         if l.cornerCurve != layer.cornerCurve { l.cornerCurve = layer.cornerCurve }
         if radius > 0, l.maskedCorners != corners { l.maskedCorners = corners }
@@ -185,8 +186,8 @@ extension NodeView {
     /// uniform border following the curve, the radius clipping children only
     /// where the overflow clips.
     func applyBoxLayer() {
-        defer { syncEllipticalClip() }
-        let background = channels("background_color").map { TextEngine.color($0).cgColor }
+        defer { syncEllipticalClip(); applyColorRanges() }
+        let background = cgColor("background_color")
         let fill = background.flatMap { $0.alpha > 0 ? $0 : nil }
         let uniform = number("border_width")
         let sides = ["top", "right", "bottom", "left"]

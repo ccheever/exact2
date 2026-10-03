@@ -733,6 +733,16 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
                 None => quote("transparent", out),
             }
         }
+        // @ref LLP 1100 D2 — a colour in its own space reports as CSS writes it.
+        RowValue::ColorValue(ColorValue::Wide(id)) => match exact_kernel::style::wide::wide(id) {
+            Some(w) => quote(&w.text, out),
+            None => quote("transparent", out),
+        },
+        RowValue::ColorValue(c @ (ColorValue::Moving(..) | ColorValue::Profiled(_))) => {
+            let mut text = String::new();
+            exact_kernel::gradient::color_css(&mut text, c);
+            quote(&text, out)
+        }
         RowValue::Enum(name) => quote(name, out),
         RowValue::Vec2(v) => {
             let _ = write!(out, "[{},{}]", num(v.x as f64), num(v.y as f64));
@@ -821,7 +831,7 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
     );
     let _ = write!(
         s,
-        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"canOpenFiles\":{},\"rootFontSize\":{},\"devicePosture\":\"{}\",\"horizontalViewportSegments\":{},\"verticalViewportSegments\":{}",
+        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"canOpenFiles\":{},\"rootFontSize\":{},\"devicePosture\":\"{}\",\"horizontalViewportSegments\":{},\"verticalViewportSegments\":{},\"colorGamut\":\"{}\",\"dynamicRange\":\"{}\"",
         media.reduced_motion,
         media.reduced_transparency,
         media.contrast.keyword(),
@@ -833,7 +843,9 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
         num(runner.root_font_size()),
         fold.posture.keyword(),
         fold.cols,
-        fold.rows
+        fold.rows,
+        media.gamut.keyword(),
+        if media.high_dynamic_range { "high" } else { "standard" }
     );
     s.push_str("},\"derives\":{");
     for (i, row) in plan.derives.iter().enumerate() {

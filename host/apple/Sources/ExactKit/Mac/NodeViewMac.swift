@@ -425,7 +425,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// loader to report (`RasterLoader.reconcile`, one report per turn).
     func acceptRaster(_ lease: NativeRasterLease, generation: Int) -> CGSize? {
         guard loadGeneration == generation, let presenter, presenter.views[id] === self else { return nil }
-        raster = lease; AnimatedRasters.shared.attach(self)
+        // A redisplay doesn't re-ask the image layer for a replaced bitmap.
+        raster = lease; AnimatedRasters.shared.attach(self); applyImageLayer()
         self.needsDisplay = true
         if let c = canvasAbove { c.needsCapture = true; canvases?.scheduleCapture() }
         return lease.image.naturalSize
@@ -756,6 +757,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     func channels(_ key: String, dark: Bool? = nil) -> [Double]? {
         style[key]?.channels(dark: dark ?? drawsDark, contrast: drawsHighContrast)
     }
+    func textChannels(_ key: String, dark: Bool? = nil) -> [Double]? { style[key]?.textChannels(dark: dark ?? drawsDark, contrast: drawsHighContrast) }
 
     /// Whether any colour on this node is a pair — what says an appearance
     /// change is something to this view rather than nothing.
@@ -764,8 +766,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     func color(_ key: String, _ fallback: NSColor) -> NSColor {
-        guard let c = channels(key) else { return fallback }
-        return NSColor(srgbRed: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
+        cgColor(key).flatMap { NSColor(cgColor: $0) } ?? fallback
+    }
+    /// A colour row as Core Graphics draws it (LLP 1100 D2).
+    func cgColor(_ key: String, dark: Bool? = nil) -> CGColor? {
+        style[key]?.cgColor(dark: dark ?? drawsDark, contrast: drawsHighContrast)
     }
 
     /// The appearance changed under this view. A repaint is not enough: the
@@ -1032,6 +1037,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if old["cursor"] != s["cursor"] { window?.invalidateCursorRects(for: self) }
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)
+        syncDynamicRange(from: old)
         let uniformBorder = number("border_width")
         hasBoxPaint = s["background_color"] != nil || s["background_image"] != nil
             || number("border_width_top", uniformBorder) > 0
@@ -1263,6 +1269,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
 
     override func draw(_ rect: NSRect) {
+        syncDrawnRange()
         // The display path a drawn box takes instead of `updateLayer()`:
         // AppKit has rewritten the layer's transform here too.
         applyTransform()

@@ -40,7 +40,6 @@ pub mod easing;
 pub mod engine;
 pub mod gesture;
 pub mod math;
-pub mod named;
 pub mod parse;
 pub mod property;
 pub mod spring;

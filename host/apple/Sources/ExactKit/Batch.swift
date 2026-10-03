@@ -2,6 +2,7 @@
 // presentation. Style names/values still come from kernel/tables/schema.json;
 // this is a consumer of that wire, not another declaration table.
 import Foundation
+import CoreGraphics
 
 /// JSON values for style rows and the heterogeneous capability payloads. No
 /// Objective-C containers or conditional bridges enter ordinary presentation.
@@ -32,7 +33,7 @@ enum BatchValue: Equatable {
         }
     }
     var isSchemeColor: Bool {
-        if case .object(let o) = self { return o["sys"] != nil }
+        if case .object(let o) = self { return o["sys"] != nil || o["cs"]?.array?.count == 2 }
         return array?.count == 2 && array?.first?.numbers?.count == 4 && array?.last?.numbers?.count == 4
     }
     func channels(dark: Bool, contrast: Bool? = nil, elevated: Bool = false, tint: PlatformColor? = nil) -> [Double]? {
@@ -41,9 +42,58 @@ enum BatchValue: Equatable {
         if case .object(let o) = self, let name = o["sys"]?.string {
             return SystemColor.channels(name, dark: dark, contrast: contrast, elevated: elevated, tintColor: tint, fallback: o["c"]?.channels(dark: dark))
         }
+        // A colour in its own space (LLP 1100 D2): its sRGB clip; a profile's
+        // colour has none on the wire, so Core Graphics converts it (D3).
+        if case .object(let o) = self, o["cs"] != nil {
+            if let c = o["c"] { return c.channels(dark: dark) }
+            guard let cg = cgColor(dark: dark), let srgb = CGColorSpace(name: CGColorSpace.sRGB),
+                  let c = cg.converted(to: srgb, intent: .relativeColorimetric, options: nil)?.components, c.count == 4 else { return nil }
+            return c.map { (Double($0) * 255).rounded() }
+        }
         guard let a = array, a.count == 2, let c = a[dark ? 1 : 0].numbers, c.count == 4 else { return nil }
         return c
     }
+    /// A colour in its own space (LLP 1100 D2): `{"cs": …, "c": …}`.
+    var isWideColor: Bool {
+        if case .object(let o) = self { return o["cs"] != nil }
+        return false
+    }
+    /// Text's channels (LLP 1100 D2): the sRGB four, then for a colour in its
+    /// own space its space (0 sRGB, 1 Display P3, 2 linear sRGB) and its four
+    /// components, which `TextEngine.color` reads.
+    func textChannels(dark: Bool, contrast: Bool? = nil, elevated: Bool = false, tint: PlatformColor? = nil) -> [Double]? {
+        guard let c = channels(dark: dark, contrast: contrast, elevated: elevated, tint: tint) else { return nil }
+        guard case .object(let o) = self, let halves = o["cs"]?.array, !halves.isEmpty,
+              case .object(let half) = halves[dark && halves.count > 1 ? 1 : 0] else { return c }
+        if let code = ["srgb": 0.0, "display-p3": 1, "srgb-linear": 2][half["s"]?.string ?? ""],
+           let v = half["v"]?.numbers, v.count == 4 { return c + [code] + v }
+        // A profile's colour: as extended sRGB (LLP 1100 D3).
+        guard let cg = cgColor(dark: dark), let space = CGColorSpace(name: CGColorSpace.extendedSRGB),
+              let e = cg.converted(to: space, intent: .relativeColorimetric, options: nil)?.components, e.count == 4 else { return c }
+        return c + [0] + e.map { Double($0) }
+    }
+    /// The colour as Core Graphics draws it: in its own space, unclipped
+    /// (LLP 1100 D2), else from its sRGB channels.
+    func cgColor(dark: Bool, contrast: Bool? = nil, elevated: Bool = false, tint: PlatformColor? = nil) -> CGColor? {
+        if case .object(let o) = self, let halves = o["cs"]?.array, !halves.isEmpty,
+           case .object(let half) = halves[dark && halves.count > 1 ? 1 : 0],
+           let name = half["s"]?.string, let v = half["v"]?.numbers {
+            // @ref LLP 1100 D3
+            if let space = ProfileSpaces.space(name) {
+                guard v.count == space.numberOfComponents + 1 else { return nil }
+                return CGColor(colorSpace: space, components: v.map { CGFloat($0) }).map(ColorRange.tagged)
+            }
+            guard v.count == 4, let space = CGColorSpace(name: Self.wideSpaces[name] ?? CGColorSpace.extendedLinearSRGB) else { return nil }
+            return CGColor(colorSpace: space, components: v.map { CGFloat($0) }).map(ColorRange.tagged)
+        }
+        guard let c = channels(dark: dark, contrast: contrast, elevated: elevated, tint: tint) else { return nil }
+        return CGColor(srgbRed: c[0] / 255, green: c[1] / 255, blue: c[2] / 255, alpha: c[3] / 255)
+    }
+    /// The spaces a wide colour crosses the wire in, in their extended forms;
+    /// Rust (`push_wide`) sends any other as extended linear sRGB.
+    private static let wideSpaces: [String: CFString] = [
+        "srgb": CGColorSpace.extendedSRGB, "display-p3": CGColorSpace.extendedDisplayP3,
+        "srgb-linear": CGColorSpace.extendedLinearSRGB]
     /// Only capability/region/collection adapters still take heterogeneous data.
     var any: Any {
         switch self {

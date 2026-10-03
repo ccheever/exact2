@@ -332,3 +332,65 @@ fn conic_gradients_and_layers_parse_and_round_trip() {
     .is_err());
     assert!(BackgroundImage::check_mask("conic-gradient(#000, #fff)").is_ok());
 }
+
+/// LLP 1100 D2.
+#[test]
+fn a_gradient_interpolates_in_the_space_css_says() {
+    let g = |css: &str| {
+        BackgroundImage::check(css)
+            .unwrap()
+            .gradient()
+            .unwrap()
+            .clone()
+    };
+    // Legacy colours: unsampled.
+    let legacy = g("linear-gradient(#ff0000, #0000ff)");
+    assert_eq!(legacy.interpolation(), None);
+    assert_eq!(legacy.resolved(false).len(), 2);
+    let written = g("linear-gradient(to right in oklch longer hue, red, blue)");
+    assert_eq!(
+        written.css(),
+        "linear-gradient(90deg in oklch longer hue, #ff0000ff 0%, #0000ffff 100%)"
+    );
+    assert_eq!(
+        BackgroundImage::check(&written.css())
+            .unwrap()
+            .gradient()
+            .unwrap(),
+        &written,
+        "the text round-trips"
+    );
+    let alone = g("radial-gradient(in display-p3, red, blue)");
+    assert_eq!(alone.css(), "radial-gradient(ellipse farthest-corner at 50% 50% in display-p3, #ff0000ff 0%, #0000ffff 100%)");
+    // A modern stop: Oklab, sampled, unclipped.
+    let wide = g("linear-gradient(color(display-p3 1 0 0), color(display-p3 0 0 1))");
+    assert_eq!(
+        wide.interpolation(),
+        Some(exact_color::Interpolation::OKLAB)
+    );
+    let ramp = wide.interpolated(false).unwrap();
+    assert_eq!(ramp.len(), 17);
+    assert!(
+        ramp[0].1[0] > 1.0,
+        "P3 red is outside sRGB: {:?}",
+        ramp[0].1
+    );
+    // Oklab's midpoint of red and blue is lighter than sRGB's.
+    let mid_ok = g("linear-gradient(in oklab, red, blue)").resolved(false)[8].1;
+    let mid_srgb = g("linear-gradient(in srgb, red, blue)").resolved(false)[8].1;
+    let lum = |c: Color| c.r() as u32 + c.g() as u32 + c.b() as u32;
+    assert!(lum(mid_ok) > lum(mid_srgb), "{mid_ok:?} vs {mid_srgb:?}");
+    for (css, says) in [
+        (
+            "linear-gradient(in cmyk, red, blue)",
+            "`in` names a color space",
+        ),
+        (
+            "linear-gradient(red in oklab, blue)",
+            "before the first color stop",
+        ),
+    ] {
+        let why = BackgroundImage::check(css).unwrap_err();
+        assert!(why.contains(says), "{css}: {why}");
+    }
+}

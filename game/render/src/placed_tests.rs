@@ -285,6 +285,7 @@ fn captured_children_share_draw_and_hit_depth_and_a_wall_occludes_them() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let pixels = fixture::render(&gpu, &mut s, &frame).unwrap().0;
     let [r, g, b, _] = pixels.at(50, 50);

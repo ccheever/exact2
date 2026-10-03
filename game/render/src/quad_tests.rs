@@ -155,6 +155,7 @@ fn equal_depth_uses_layer_then_slot_and_mask_respects_cutoff_with_signed_scale()
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let pixels = fixture::render(&gpu, &mut s, &frame).unwrap().0;
     let [r, g, b, _] = pixels.at(50, 50);
@@ -227,6 +228,7 @@ fn retired_sprite_waits_for_redelivery_and_reuses_identical_texture() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let before = fixture::render(&gpu, &mut s, &frame).unwrap().0;
     for (name, retired) in [("away.tex", "white.tex"), ("white.tex", "away.tex")] {
@@ -505,6 +507,7 @@ fn same_owner_sprite_then_particle_is_pinned_and_adjacent_sprites_batch() {
         period_ms: 0.,
         children_generation: 0,
         shader_generation: 0,
+        headroom: 1.0,
     };
     let pixels = fixture::render(&gpu, &mut s, &f).unwrap().0;
     let [r, _, b, _] = pixels.at(50, 50);
