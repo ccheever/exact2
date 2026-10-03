@@ -262,6 +262,8 @@ pub struct Feed {
     generation: u64,
     parents: Vec<exact_game::Entity>,
     overrides: Vec<(exact_game::Entity, [f32; 10])>,
+    // Each slot's occupant generation + 1 at the last history swap (0: none).
+    occupants: Vec<u32>,
     // Transform page generations as model poses last saw them.
     model_pages: Vec<u64>,
     changed_pages: Vec<usize>,
@@ -288,6 +290,7 @@ impl Default for Feed {
             generation: 0,
             parents: Vec::new(),
             overrides: Vec::new(),
+            occupants: Vec::new(),
             model_pages: Vec::new(),
             changed_pages: Vec::new(),
             scene: Scene::default(),
@@ -318,6 +321,7 @@ impl Feed {
         }
         self.materials.reset();
         self.parents.clear();
+        self.occupants.clear();
         self.model_pages.clear();
         self.assets.records.clear();
         self.assets.entities.clear();
@@ -455,6 +459,29 @@ impl Feed {
             }
             if !self.scratch.is_empty() {
                 r.transforms(run, &self.scratch, initial)?;
+            }
+            // A slot whose occupant changed since the last swap has no history of
+            // its own: an entity spawned in an earlier tick of a multi-tick
+            // advance is no longer fresh, and its slot's history holds the
+            // previous occupant (or nothing). It starts from its current pose.
+            if initial || next.live != old.live {
+                for e in w.entities() {
+                    let slot = e.index() as usize;
+                    if self.occupants.len() <= slot {
+                        self.occupants.resize(slot + 1, 0);
+                    }
+                    let occupant = e.generation().wrapping_add(1);
+                    if std::mem::replace(&mut self.occupants[slot], occupant) == occupant
+                        || initial
+                        || w.is_fresh(e)
+                    {
+                        continue;
+                    }
+                    if let Some(t) = scene::pose(w, e) {
+                        r.previous(e.index(), &floats(t))?;
+                        self.transforms[1 - self.current].invalidate(slot / PAGE);
+                    }
+                }
             }
             if !initial {
                 for &e in w.fresh() {

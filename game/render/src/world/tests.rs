@@ -1021,3 +1021,49 @@ fn model_glow_scales_baked_emission_without_a_material_component() {
         .any(|c| matches!(c, Call::Material(..))));
     assert!(feed.frame(&w, 1., 1.).glows.is_empty());
 }
+
+#[test]
+fn a_slot_reoccupied_between_feeds_takes_its_current_pose_as_history() {
+    struct Recycle;
+    impl Game for Recycle {
+        type Args = ();
+        const ID: &'static str = "feed-recycle";
+        fn setup(w: &mut World, _: &()) {
+            w.spawn_named("old", (Transform::at(5., 0., 0.), Mesh::cube(1.0)));
+            w.spawn((Transform::default(), Mesh::cube(1.0)));
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            match w.tick() {
+                3 => {
+                    let old = w.named("old").unwrap();
+                    w.despawn(old);
+                }
+                4 => {
+                    w.spawn_named("new", (Transform::at(-7., 0., 0.), Mesh::cube(1.0)));
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut sim = Sim::<Recycle>::new(()).unwrap();
+    let mut f = Feed::default();
+    let mut r = Recording::default();
+    f.feed_to(sim.world(), &mut r).unwrap();
+    for _ in 0..3 {
+        sim.run(1000. / 60.);
+        f.feed_to(sim.world(), &mut r).unwrap();
+    }
+    // Ticks 3-5 run without a feed: the old occupant leaves, the new one
+    // arrives and stops being fresh before the presentation sees it.
+    sim.run(3000. / 60.);
+    let new = sim.world().named("new").unwrap();
+    assert_eq!(new.index(), 0, "the slot is recycled");
+    assert!(!sim.world().is_fresh(new));
+    f.feed_to(sim.world(), &mut r).unwrap();
+    assert_eq!(r.position(new, false).x, -7.);
+    assert_eq!(
+        r.position(new, true).x,
+        -7.,
+        "no frame interpolates from the old occupant"
+    );
+}
