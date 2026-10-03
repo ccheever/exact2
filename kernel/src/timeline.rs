@@ -11,7 +11,9 @@
 //!   the axis (`y` if unsaid), as presented, so a release's spring moves it
 //!   too.
 //! - `animation-timeline: auto | <dashed-ident>` on a consumer: its
-//!   `animation`s follow the named timeline instead of the clock.
+//!   `animation`s follow the named timeline instead of the clock. Its third
+//!   value, `clock(<ident>)`, keeps them on the clock and only syncs their
+//!   starts (LLP 1055.002); the lookup never sees it.
 //! - `animation-range: normal | <length> <length>` on the consumer: the
 //!   positions where its animations are at 0% and 100%; outside them the
 //!   progress clamps.
@@ -78,6 +80,17 @@ pub struct DragTimeline {
     pub axis: Axis,
 }
 
+/// `clock(<ident>)`'s ident: a Contract name, `[A-Za-z_][A-Za-z0-9_]*`.
+fn clock_name(token: &str) -> Option<&str> {
+    let name = token.strip_prefix("clock(")?.strip_suffix(')')?.trim();
+    let mut chars = name.chars();
+    (chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_'))
+    .then_some(name)
+}
+
 fn dashed(token: &str) -> Option<String> {
     let rest = token.strip_prefix("--")?;
     (!rest.is_empty()
@@ -122,12 +135,15 @@ impl DragTimeline {
     }
 }
 
-/// `animation-timeline`: `auto` (the clock) or a named timeline.
+/// `animation-timeline`: `auto` (the clock), a named timeline, or a clock
+/// timeline, `clock(<ident>)`: the clock, from a start every animation on
+/// the same one shares (LLP 1055.002 D2, a deviation LLP 1001 declares).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AnimationTimeline(pub Option<String>);
 
 impl AnimationTimeline {
-    /// `auto` or a `<dashed-ident>`; `None` also while unlinked.
+    /// `auto`, a `<dashed-ident>` or `clock(<ident>)`; `None` also while
+    /// unlinked.
     pub fn parse(css: &str) -> Option<Self> {
         (LINKED.get()?.timeline)(css)
     }
@@ -137,7 +153,20 @@ impl AnimationTimeline {
         if t.eq_ignore_ascii_case("auto") {
             return Some(Self(None));
         }
+        if let Some(name) = clock_name(t) {
+            return Some(Self(Some(format!("clock({name})"))));
+        }
         dashed(t).map(|n| Self(Some(n)))
+    }
+
+    /// The named timeline's `<dashed-ident>`, which the lookup resolves.
+    pub fn name(&self) -> Option<&str> {
+        self.0.as_deref().filter(|t| t.starts_with("--"))
+    }
+
+    /// The clock timeline's name.
+    pub fn clock(&self) -> Option<&str> {
+        self.0.as_deref().and_then(clock_name)
     }
 
     /// The declaration's value.
@@ -279,6 +308,15 @@ mod tests {
             AnimationTimeline::parse("auto"),
             Some(AnimationTimeline(None))
         );
+        let c = AnimationTimeline::parse(" clock( Pending ) ").unwrap();
+        assert_eq!(
+            (c.css().as_str(), c.clock(), c.name()),
+            ("clock(Pending)", Some("Pending"), None)
+        );
+        assert_eq!(AnimationTimeline::parse("--a").unwrap().clock(), None);
+        for bad in ["clock()", "clock(--a)", "clock(1a)", "clock(a b)", "clock"] {
+            assert_eq!(AnimationTimeline::parse(bad), None, "{bad:?}");
+        }
         let r = AnimationRange::parse("0px 300px").unwrap();
         assert_eq!(r.css(), "0px 300px");
         assert_eq!(r.progress(150.0), Some(0.5));

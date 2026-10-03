@@ -339,10 +339,10 @@ export function presenceLoader(load, root, apply, log) {
 // The agent's browser clock (LLP 1012): author-paused animations keep their
 // own time (LLP 1055 D10); every other animation follows the runner's clock.
 export function animationClock(now, settled, synced) {
-  const starts = new WeakMap(), held = new WeakSet();
+  const starts = new WeakMap(), held = new WeakSet(), clocks = animationClocks(document);
   return {
     register(t) {
-      for (const a of document.getAnimations()) if (!starts.has(a)) { starts.set(a, t); if (a.playState === 'paused') held.add(a); }
+      for (const a of document.getAnimations()) if (!starts.has(a)) { starts.set(a, clocks.start(a, t) ?? t); if (a.playState === 'paused') held.add(a); }
     },
     seek(to) {
       for (const a of document.getAnimations()) {
@@ -364,6 +364,46 @@ export function animationClock(now, settled, synced) {
         if (timing && timing.endTime !== Infinity && !held.has(a)) to = Math.max(to, (starts.get(a) ?? now()) + timing.endTime);
       }
       return to;
+    },
+  };
+}
+
+// Synced animations (LLP 1055.002): a node whose `animation-timeline` is
+// `clock(Name)` carries `--exact-animation-clock:Name` (css.rs), and each CSS
+// animation on it joins that clock. A clock is one origin, set when an
+// animation joins it idle (no other member unfinished) and kept while it is
+// busy; a joiner starts on the latest cycle boundary at or before it joins
+// (a cycle is two iterations under `alternate`), so it ends where it would.
+// `start` is the synced start at `now` (the agent's clock seeks from it);
+// `sync`, after a commit, sets each joined or resumed animation's
+// `startTime` once on the page's timeline. Nothing runs per frame.
+export function animationClocks(root) {
+  const origins = new Map(), members = new Map(), paused = new WeakMap();
+  const clockOf = a => a.animationName === undefined ? '' : a.effect?.target?.style?.getPropertyValue('--exact-animation-clock').trim() ?? '';
+  const live = a => a.effect?.target?.isConnected && a.playState !== 'idle' && a.playState !== 'finished';
+  function start(a, now) {
+    const c = clockOf(a);
+    if (!c) return null;
+    let m = members.get(c);
+    if (!m) members.set(c, m = new Set());
+    for (const b of m) if (b === a || !live(b)) m.delete(b);
+    if (!m.size) origins.set(c, now);
+    m.add(a);
+    const { duration, direction } = a.effect.getComputedTiming(), period = duration * (/alternate/.test(direction) ? 2 : 1);
+    return period > 0 && Number.isFinite(period) ? now - (now - origins.get(c)) % period : now;
+  }
+  return {
+    start,
+    sync(now = document.timeline.currentTime) {
+      if (!root.querySelector('[style*="--exact-animation-clock"]')) return;
+      for (const a of document.getAnimations()) {
+        const is = a.playState === 'paused', was = paused.get(a);
+        if (was === is) continue;
+        paused.set(a, is);
+        // Paused, it still holds the clock busy; a start would unpause it.
+        const s = start(a, now);
+        if (s !== null && !is) a.startTime = s;
+      }
     },
   };
 }

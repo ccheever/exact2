@@ -2,6 +2,7 @@
 
 mod animation;
 mod cadence;
+mod clock;
 mod descriptor;
 mod easing;
 mod engine;

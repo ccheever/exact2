@@ -390,6 +390,15 @@ impl Parser {
                     }
                     file.keyframes.push(decl);
                 }
+                TokenKind::Ident(w) if w == "timeline" => {
+                    let span = self.expect_word("timeline")?;
+                    let name = self.named_ident(span)?;
+                    self.newline()?;
+                    if let Some(first) = file.timelines.iter().find(|t| t.name == name) {
+                        return duplicate("timeline", &name, span, first.span);
+                    }
+                    file.timelines.push(TimelineDecl { name, span });
+                }
                 TokenKind::Ident(w) if w == "fn" => file.fns.push(self.fn_decl()?),
                 TokenKind::Ident(w) if w == "test" => file.tests.push(self.test_decl()?),
                 TokenKind::Ident(w) if w == "component" => {
@@ -408,7 +417,7 @@ impl Parser {
                     return self.err(
                         "syntax-expected-declaration",
                         format!(
-                        "expected `routes`, `font`, `shape`, `style`, `keyframes`, `fn`, `use`, or `component`, found {}",
+                        "expected `routes`, `font`, `shape`, `style`, `keyframes`, `timeline`, `fn`, `use`, or `component`, found {}",
                         describe(other)
                     ),
                     )
@@ -532,7 +541,10 @@ impl Parser {
                 }
                 other => other,
             };
-            if !matches!(value, Expr::Number(..) | Expr::Str(..) | Expr::Bool(..)) {
+            // A `timeline`'s name is a constant too (LLP 1055.002 D2).
+            let timeline = matches!(aname.as_str(), "animation-timeline" | "animationTimeline")
+                && matches!(value, Expr::Ident(..));
+            if !timeline && !matches!(value, Expr::Number(..) | Expr::Str(..) | Expr::Bool(..)) {
                 return Err(SyntaxError {
                     id: "contract-style-literal",
                     message: format!("`{aname}` in `{owner}` must be a literal: a style is constant, and a node's own attribute may compute"),

@@ -92,7 +92,12 @@ impl Engine {
                     let (start, hold) = match (prior.hold, a.paused) {
                         (hold, _) if bound => (prior.start, hold),
                         (None, true) => (prior.start, Some(now - prior.start)),
-                        (Some(held), false) => (now - held, None),
+                        // A play on a clock timeline rejoins its phase
+                        // (LLP 1055.002 D6); any other continues.
+                        (Some(held), false) if self.animation_clock(node).is_none() => {
+                            (now - held, None)
+                        }
+                        (Some(_), false) => (self.clock_start(node, a, now, &old), None),
                         (hold, _) => (prior.start, hold),
                     };
                     AnimationPlay {
@@ -104,7 +109,7 @@ impl Engine {
                 }
                 None => AnimationPlay {
                     animation: a.clone(),
-                    start: now,
+                    start: self.clock_start(node, a, now, &old),
                     hold: a.paused.then_some(0.0),
                     dark: self.dark_of(node),
                 },
