@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import {proof} from '../../proof.mjs';
+import {proof, axNames} from '../../proof.mjs';
 import {decodePng} from '../../../scripts/png.mjs';
 import {readFileSync,writeFileSync} from 'node:fs';
 import {resolve} from 'node:path';
@@ -32,7 +32,7 @@ if (import.meta.main) await proof(import.meta,async ({pin, pinSave, open,check,e
   const initialTick=(await w.snapshot()).tick;
   const tuples={initial:{...Object.fromEntries(['x','y','w','h'].map(k=>[k,first[k]])),tick:initialTick}};
   check('initial placement pinned at tick zero',initialTick===0);
-  const firstAX=node(await s.tree(),'sign')?.accessibilityFrame;
+  const firstAX=(await axNames(s)).frame?.('sign');
   const oracle={x:430.91,y:299.76,w:140.23,h:30.55};
   check('placed sign matches Placed::project within 0.5 px at 1280x720',Object.entries(oracle).every(([k,v])=>Math.abs(first[k]-v)<=0.5),first);
   await s.tap('hud');await s.clock('+0');
@@ -65,8 +65,10 @@ if (import.meta.main) await proof(import.meta,async ({pin, pinSave, open,check,e
     check('orbit moves sign placed box',Math.abs(after.x-first.x)>1,after);
     check('HUD stays at kernel frame',equal(await box('hud'),hud));
     if(host==='macos') {
-      const sign=node(await s.tree(),'sign');
-      check('accessible sign text uses the placed frame',sign?.props.text==='The lantern path' && Math.abs(sign.accessibilityFrame[2]-after.w)<0.1 && Math.abs(sign.accessibilityFrame[3]-after.h)<0.1 && Math.abs((sign.accessibilityFrame[0]-firstAX[0])-(after.x-first.x))<0.1 && Math.abs((sign.accessibilityFrame[1]-firstAX[1])+(after.y+after.h-first.y-first.h))<0.1 && !sign.accessibilityHidden,sign);
+      // The ax element's frame (LLP 1080.002), in viewport points, y down; an
+      // element present in the platform's tree is exposed, not hidden.
+      const sign=node(await s.tree(),'sign'), ax=(await axNames(s)).frame('sign');
+      check('accessible sign text uses the placed frame',sign?.props.text==='The lantern path' && !!ax && !!firstAX && Math.abs(ax.w-after.w)<0.1 && Math.abs(ax.h-after.h)<0.1 && Math.abs((ax.x-firstAX.x)-(after.x-first.x))<0.1 && Math.abs((ax.y-firstAX.y)-(after.y-first.y))<0.1,{sign,ax,firstAX});
     }
   }
   const mid=await w.snapshot(),save=resolve(out,'placed.world');await w.save(save);

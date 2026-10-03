@@ -11,7 +11,7 @@ import {tmpdir} from 'node:os';
 import {agreePins, webUnavailable, pinRecorder, proofStatus, facilityReport, artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt, proofInputFiles} from './proof.mjs';
 import {proofCommand, worldObservations, pinRevision} from './proof.mjs';
 import {comparePlacement} from './games/placement-fixture/proof.mjs';
-import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp} from '../scripts/agent.mjs';
+import {typeArguments, typeFor, browserKey, nativeKey, render, worldView, tapRefusal, assertWebDistApp, clockSpan} from '../scripts/agent.mjs';
 
 test('external app sources and assets include every extension while outputs stay excluded', () => {
   const directory = mkdtempSync(resolve(tmpdir(), 'external-proof-inputs-'));
@@ -673,7 +673,8 @@ test('clock settle diagnostic names busy, held input, and logs on a real unsettl
   const source=readFileSync(resolve(import.meta.dir,'../scripts/agent.mjs'),'utf8');
   const a=source.indexOf("    async clock(spec = 'settle') {"), b=source.indexOf('\n    /** Pixels as PNG',a);
   const s={now:0,op:async req=>{expect(req).toEqual({op:'clock',settle:true});return {clock:100,settled:false,world:{changing:['player']}};}};
-  const clock=new Function('s',`return ({${source.slice(a,b)}}).clock;`)(s);
+  // The method reads the module's step constant and growth rule; pass them in as the module would.
+  const clock=new Function('s','CLOCK_STEP_MS','clockSpan',`return ({${source.slice(a,b)}}).clock;`)(s,1000,clockSpan);
   const reply=await clock();
   expect(reply.diagnostic).toContain('clock settle did not reach quiescence');
   expect(reply.diagnostic).toContain('state world:* busy');
