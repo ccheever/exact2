@@ -6,6 +6,7 @@ pub mod farm;
 pub mod garden;
 pub mod hud;
 pub mod look;
+pub mod models;
 pub mod shop;
 
 use exact_game::character::Character;
@@ -49,6 +50,7 @@ impl Game for Garden {
     /// A garden does not need 120 Hz: walking interpolates, and every tick
     /// of an hour-long `clock +N` seek is paid for.
     const HZ: u32 = 30;
+    const ASSETS: &'static [&'static str] = models::MODELS;
     type Args = Options;
     fn actions() -> Actions {
         Actions::new()

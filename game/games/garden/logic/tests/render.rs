@@ -105,6 +105,10 @@ fn frames_at_scale() {
             wall.push(t.elapsed().as_secs_f64() * 1000.);
         }
         let state = surface.agent(r#"{"op":"state"}"#).unwrap();
+        if std::env::var("GARDEN_GPU").is_ok() {
+            let at = state.find("\"gpuMs\"").unwrap_or(0);
+            println!("gpu passes: {}", &state[at..(at + 1500).min(state.len())]);
+        }
         let mean = wall.iter().sum::<f64>() / wall.len() as f64;
         wall.sort_by(f64::total_cmp);
         let feed = field(&state, "feedMs");

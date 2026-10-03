@@ -15,10 +15,13 @@ fn saved(game: &mut Sim<Garden>) -> Vec<u8> {
 }
 
 fn new(seed: u64) -> Sim<Garden> {
-    Sim::<Garden>::new(Options {
-        seed,
-        ..Options::default()
-    })
+    Sim::<Garden>::with_assets(
+        Options {
+            seed,
+            ..Options::default()
+        },
+        read,
+    )
     .unwrap()
 }
 
@@ -185,22 +188,28 @@ fn away_is_the_same_as_playing_through() {
 #[test]
 fn a_later_epoch_grows_the_garden_offline() {
     let epoch = 1.8e12;
-    let mut game = Sim::<Garden>::new(Options {
-        seed: 9,
-        epoch,
-        ..Options::default()
-    })
+    let mut game = Sim::<Garden>::with_assets(
+        Options {
+            seed: 9,
+            epoch,
+            ..Options::default()
+        },
+        read,
+    )
     .unwrap();
     game.tap("KeyE");
     game.run(2_000.0);
     assert_eq!(game.world().resource::<Census>().ripe, 0);
     let bytes = saved(&mut game);
     // A new session an hour later restores that save.
-    let mut later = Sim::<Garden>::new(Options {
-        seed: 9,
-        epoch: epoch + 3_600_000.0,
-        ..Options::default()
-    })
+    let mut later = Sim::<Garden>::with_assets(
+        Options {
+            seed: 9,
+            epoch: epoch + 3_600_000.0,
+            ..Options::default()
+        },
+        read,
+    )
     .unwrap();
     later.restore_bound(&bytes).unwrap();
     later.run(100.0);
@@ -290,4 +299,31 @@ fn schedule_stays_bounded() {
         "{queued}"
     );
     assert_eq!(CROPS.len(), 14);
+}
+
+#[test]
+fn weather_particles_follow_the_sky() {
+    use exact_game::Emitter;
+    use garden_logic::garden::Sky;
+    let mut game = new(7);
+    game.run(1000.0);
+    assert!(!game.world().require::<Emitter>("weather").running);
+    game.world_mut().resource_mut::<Weather>().sky = Sky::Snow;
+    game.run(2000.0);
+    let e = game.world().require::<Emitter>("weather");
+    assert!(
+        e.running && e.state.alive > 100,
+        "running {} alive {}",
+        e.running,
+        e.state.alive
+    );
+}
+
+/// The bake's output, as a host delivers it.
+fn read(name: &str) -> std::io::Result<Vec<u8>> {
+    std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../assets")
+            .join(name),
+    )
 }

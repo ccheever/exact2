@@ -1,18 +1,18 @@
 {
   "ticks": {
-    "0": "0x567fb953a3936f0f",
-    "5136": "0x84bdee160cf25b17"
+    "0": "0xd91032ff95f1b555",
+    "5136": "0x9b805f6613b20084"
   },
   "saves": {
-    "continuation": "d6f7557487094baac139cd7ec3af383da5307c2271c051dc1c732c59e0aff5ba"
+    "continuation": "cce9a639f9446159993bfc70563ef78738528014e7422f0bcc5e58820d573988"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "e95130e1d5e7bc7d2c434c0df2444241163464ab66524e894cac288ccd17e75e",
+  "inputs": "89c44d87a260892bf95b67e2f69734e9e3201845aa0fa15da651d12401dabb21",
   "game": "garden",
   "generated": "bun game/prove.mjs garden --repin --hosts 'linux,web'",
-  "at": "5541429fefcdf057741e1a277924c13de887ace2",
-  "reason": "engine fix lanes merged (roblox/integrate b61db278a): paged world hash and EXGAME v4 saves; commands are postMessage messages; mid-game pin reads a 1,000-plant garden's every page"
+  "at": "7c1abcefb4372e5826432527cf1393bff1f207c3",
+  "reason": "art pass: plants, fruit and the farmer are baked glTF models (Mesh::asset per crop stage and mutation look); fence, lanterns, stall, keeper, model catalogue, weather emitter, moon and a day/night cycle are new entities and resources"
 }

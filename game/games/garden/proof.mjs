@@ -260,5 +260,9 @@ async function shots({open, check, out, host}) {
   await s.tap('tools-tab');
   await game.run(300_000);
   await s.screenshot(resolve(out, `${prefix}-night.png`));
+  // Wait for weather, and look at it.
+  for (let i = 0; i < 60 && text(await s.tree(), 'weather') === 'Clear'; i++) await game.run(20_000);
+  await game.run(3_000);
+  await s.screenshot(resolve(out, `${prefix}-weather.png`));
   await s.close();
 }

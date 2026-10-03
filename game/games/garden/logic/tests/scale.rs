@@ -17,11 +17,14 @@ fn saved(game: &mut Sim<Garden>) -> Vec<u8> {
 }
 
 fn new(smooth: bool) -> Sim<Garden> {
-    Sim::<Garden>::new(Options {
-        seed: 1,
-        smooth,
-        ..Options::default()
-    })
+    Sim::<Garden>::with_assets(
+        Options {
+            seed: 1,
+            smooth,
+            ..Options::default()
+        },
+        read,
+    )
     .unwrap()
 }
 
@@ -175,4 +178,13 @@ fn backpack_republish() {
             idle.0
         );
     }
+}
+
+/// The bake's output, as a host delivers it.
+fn read(name: &str) -> std::io::Result<Vec<u8>> {
+    std::fs::read(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../assets")
+            .join(name),
+    )
 }

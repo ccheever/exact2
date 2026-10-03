@@ -200,6 +200,18 @@ pub fn dress(w: &mut World) {
             },
         ),
     );
+    // Keep every model resident. A declared asset (`Game::ASSETS`) is
+    // retired once nothing shows it, and showing it again makes it pending
+    // until the host delivers it anew: a save at that tick refuses, which a
+    // paranoid proof (a save every tick) always hits when fruit ripens into
+    // a new look. One speck per model, far past the far plane, keeps them all.
+    for name in crate::models::MODELS {
+        w.spawn((
+            Transform::at(-5000.0, -500.0, -5000.0).with_scale(0.001),
+            Mesh::asset(*name),
+            Ambient,
+        ));
+    }
     w.insert_resource(Lighting::default());
     w.insert_resource(AmbientOcclusion {
         radius: 0.45,
@@ -405,7 +417,11 @@ pub fn step(w: &mut World) {
         env.exposure = 1.0 + 1.2 * (1.0 - day);
         env.sun_disc = if overcast > 0.0 { 0.0 } else { 0.0055 };
         // From the overview the fog would hide the garden; thin it.
-        let thin = if w.resource::<Farm>().overview { 0.15 } else { 1.0 };
+        let thin = if w.resource::<Farm>().overview {
+            0.15
+        } else {
+            1.0
+        };
         env.fog = Some(Fog {
             color: Some(horizon),
             ..Fog::new((0.003 + 0.012 * overcast) * thin, 0.05)
@@ -448,6 +464,8 @@ pub fn step(w: &mut World) {
         e.state = state;
     }
     walk(w, now);
+    // Emitters are stepped explicitly, as physics and animation are.
+    emitter::step(w);
 }
 
 fn mix3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
