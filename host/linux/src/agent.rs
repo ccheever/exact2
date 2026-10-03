@@ -9,7 +9,7 @@
 //!
 //! @ref LLP 1015 §5; LLP 1012 §3–§4
 
-mod contact;
+pub(crate) mod contact;
 
 use crate::presenter::Presenter;
 use exact_runner::agent::{error, field_bool, field_num, field_str, num};

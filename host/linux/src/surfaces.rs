@@ -872,11 +872,26 @@ impl<D: DataSource> Presenter<D> {
     }
     pub(crate) fn surface_pointer(&mut self, id: u32, x: f32, y: f32, at: f64) -> Option<u32> {
         let view = self.input_surface(id)?;
-        let (ox, oy, _, _) = self.rect_of(view)?;
+        self.rect_of(view)?;
         for (phase, buttons) in [("down", 1), ("up", 0)] {
-            self.surfaces.input(view, json!({"t":"pointer","id":1,"phase":phase,"kind":"mouse","buttons":buttons,"x":x-ox,"y":y-oy,"at":at}));
+            self.canvas_pointer(view, phase, buttons, x, y, at);
         }
         Some(view)
+    }
+    /// One mouse pointer event to canvas `view`, at a viewport point.
+    pub(crate) fn canvas_pointer(
+        &mut self,
+        view: u32,
+        phase: &str,
+        buttons: u32,
+        x: f32,
+        y: f32,
+        at: f64,
+    ) -> bool {
+        let Some((ox, oy, _, _)) = self.rect_of(view) else {
+            return false;
+        };
+        self.surfaces.input(view, json!({"t":"pointer","id":1,"phase":phase,"kind":"mouse","buttons":buttons,"x":x-ox,"y":y-oy,"at":at}))
     }
     pub(crate) fn surface_request(&mut self, view: u32, mut q: Value) -> Value {
         let rect = self.rect_of(view);

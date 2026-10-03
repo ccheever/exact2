@@ -695,3 +695,77 @@ fn a_declared_module_is_routed_by_surface_and_verified_by_its_own_card() {
         .contains("missing baked identity"));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// A held contact on a canvas is the canvas's own (rivals diary, limit 7): the
+/// presenter used to retire it at its first move (`contact:false`) and the
+/// world saw neither the down nor any move, so mouse look could not turn.
+#[test]
+fn held_canvas_contact_streams_down_moves_and_up_to_the_canvas() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    let (ox, oy, _, _) = p.rect_of(raw).unwrap();
+    let ask = |p: &mut Presenter<NoData>, q: Value| -> Value {
+        serde_json::from_str(&crate::agent::contact::answer(p, &q)).unwrap()
+    };
+    let before = unsafe {
+        p.surfaces.abis[""].symbol::<unsafe extern "C" fn() -> u32>(b"test_input_count")()
+    };
+    let down = ask(
+        &mut p,
+        json!({"op":"tap","id":raw,"phase":"down","x":ox + 50.,"y":oy + 70.}),
+    );
+    assert_eq!(down["contact"], true, "{down}");
+    let (id, count, event) = last_input(&p);
+    assert_eq!(id, p.surfaces.canvases[&raw].id);
+    assert_eq!(count, before + 1);
+    assert_eq!(
+        (event["phase"].as_str(), event["buttons"].as_u64()),
+        (Some("down"), Some(1))
+    );
+    assert_eq!(
+        (event["x"].as_f64(), event["y"].as_f64()),
+        (Some(50.), Some(70.))
+    );
+    // 100 points over 100 ms: seven samples, every one a move the world sees.
+    let moved = ask(
+        &mut p,
+        json!({"op":"tap","phase":"move","dx":100,"dy":0,"ms":100}),
+    );
+    assert_eq!(moved["contact"], true, "{moved}");
+    assert_eq!(moved["delivery"], "presenter");
+    let (_, count, event) = last_input(&p);
+    assert_eq!(count, before + 8);
+    assert_eq!(
+        (event["phase"].as_str(), event["buttons"].as_u64()),
+        (Some("move"), Some(1))
+    );
+    assert_eq!(
+        event["x"].as_f64(),
+        Some(150.),
+        "the canvas keeps the contact off its edge"
+    );
+    let up = ask(&mut p, json!({"op":"tap","phase":"up"}));
+    assert_eq!(up["contact"], false, "{up}");
+    let (_, count, event) = last_input(&p);
+    assert_eq!(count, before + 9, "the up adds no zero-length move");
+    assert_eq!(
+        (event["phase"].as_str(), event["buttons"].as_u64()),
+        (Some("up"), Some(0))
+    );
+    assert_eq!(event["x"].as_f64(), Some(150.));
+    // A click without movement is still one down and one up, and Escape (a
+    // cancel) ends a held contact with the canvas's `cancel`.
+    assert!(p.pointer_down(ox + 20., oy + 80., 200.).unwrap());
+    p.pointer_up(ox + 20., oy + 80., 210.).unwrap();
+    let (_, count, event) = last_input(&p);
+    assert_eq!((count, event["phase"].as_str()), (before + 11, Some("up")));
+    assert!(p.pointer_down(ox + 20., oy + 80., 220.).unwrap());
+    p.pointer_cancel(230.).unwrap();
+    let (_, count, event) = last_input(&p);
+    assert_eq!(
+        (count, event["phase"].as_str()),
+        (before + 13, Some("cancel"))
+    );
+    assert!(p.contact_position().is_none());
+    done(p, path);
+}

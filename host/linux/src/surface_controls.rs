@@ -494,6 +494,20 @@ impl<D: DataSource> Presenter<D> {
             }
             return Some(control);
         }
+        self.focus_for_press(hit, now_ms);
+        if self.press_range(hit, x) || self.toggle_control(hit, now_ms) {
+            return Some(hit);
+        }
+        let Some(target) = self.handler_target(hit, EventKind::Press) else {
+            return self.surface_pointer(hit, x, y, now_ms);
+        };
+        self.dispatch_press(target, now_ms, true);
+        Some(target)
+    }
+
+    /// A press moves focus to the nearest focusable node at or above `hit`,
+    /// except that a canvas press leaves an editor focused.
+    fn focus_for_press(&mut self, hit: ViewId, now_ms: f64) {
         let mut focus = Some(hit);
         while let Some(id) = focus {
             if self.focusable(id) {
@@ -512,14 +526,32 @@ impl<D: DataSource> Presenter<D> {
             }
             self.queue_collections();
         }
-        if self.press_range(hit, x) || self.toggle_control(hit, now_ms) {
-            return Some(hit);
+    }
+
+    /// The canvas a held contact on `hit` belongs to: the one `press_at` would
+    /// hand a click to, when no menu, control, range, toggle or press handler
+    /// takes it first. The canvas then sees the contact's down, every move and
+    /// its up as they happen, as the web's pointer events do.
+    pub(crate) fn canvas_contact_target(&self, hit: ViewId) -> Option<u32> {
+        let node = self.host.kernel().node(hit)?;
+        if self.menu.is_some()
+            || node.node_type == NodeType::Control
+            || crate::navigation::popover_invoker(self.host.kernel(), hit)
+            || self.brush.region_blocks_action(hit)
+            || self.control_target(hit).is_some()
+            || self.handler_target(hit, EventKind::Press).is_some()
+        {
+            return None;
         }
-        let Some(target) = self.handler_target(hit, EventKind::Press) else {
-            return self.surface_pointer(hit, x, y, now_ms);
-        };
-        self.dispatch_press(target, now_ms, true);
-        Some(target)
+        self.input_surface(hit)
+    }
+
+    /// A held contact's down on its canvas: focus as a press does, then the
+    /// pointer's `down`. False when the canvas refuses it.
+    pub(crate) fn canvas_contact_down(&mut self, hit: ViewId, x: f32, y: f32, at: f64) -> bool {
+        self.focus_for_press(hit, at);
+        self.input_surface(hit)
+            .is_some_and(|view| self.canvas_pointer(view, "down", 1, x, y, at))
     }
 
     pub(crate) fn dispatch_press(&mut self, target: ViewId, now_ms: f64, pointer: bool) {
