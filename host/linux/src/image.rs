@@ -63,6 +63,10 @@ pub struct Images {
     /// The image nodes in preorder, as of a kernel epoch: the walk
     /// [`Images::sync_visible`] needs, redone only after a commit.
     pub(crate) order: Option<(u64, Vec<ViewId>)>,
+    /// Whether the last sync found only symbols (an em square from the
+    /// node's font size, which only a commit changes): until the next
+    /// commit a sync has nothing to do.
+    pub(crate) only_symbols: bool,
 }
 
 /// Accepted pixels and natural size, or explicit empty-source removal.
@@ -87,6 +91,7 @@ impl Images {
             decode_enabled: true,
             deferred: 0,
             order: None,
+            only_symbols: false,
         }
     }
     pub(crate) fn candidate(&self, assets: Assets) -> Self {
@@ -134,6 +139,7 @@ impl Images {
     ) -> Vec<Report> {
         let mut reports = Vec::new();
         let mut seen = BTreeSet::new();
+        let mut only_symbols = true;
         self.deferred = 0;
         for id in live {
             let Some(node) = kernel.node(*id) else {
@@ -171,10 +177,11 @@ impl Images {
                 symbol_size: None,
             });
             view.desired = (node.frame.width * scale, node.frame.height * scale);
-            view.visible = visible(*id);
             // LLP 1035.004.000: symbols are an empty em square on Linux,
-            // never a file request and never the previously accepted raster.
+            // never a file request and never the previously accepted raster
+            // (so where one is on screen never matters).
             if source.starts_with("symbol:") {
+                view.visible = true;
                 if let Some((request, _)) = view.request.take() {
                     self.backend.cancel(request);
                 }
@@ -194,6 +201,8 @@ impl Images {
                 }
                 continue;
             }
+            only_symbols = false;
+            view.visible = visible(*id);
             if view.symbol_size.take().is_some() {
                 reports.push((*id, None));
             }
@@ -238,6 +247,7 @@ impl Images {
         for id in gone {
             self.remove(id);
         }
+        self.only_symbols = only_symbols && self.deferred == 0;
         reports.extend(self.poll());
         reports
     }
@@ -469,6 +479,7 @@ impl Images {
         self.views.clear();
         self.bitmaps.clear();
         self.loaded.clear();
+        self.only_symbols = false;
         self.generation = self.backend.generation();
     }
     pub(crate) fn wake_fd(&self) -> std::os::fd::RawFd {

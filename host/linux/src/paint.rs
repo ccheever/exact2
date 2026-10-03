@@ -1287,7 +1287,7 @@ impl Painter {
                 _ => std::cmp::Ordering::Equal,
             },
         );
-        let rows = self.has_rows(node);
+        let rows = self.has_rows(node, (child_offset.0 - offset.0, child_offset.1 - offset.1));
         for child in children {
             if rows {
                 self.row(walk, child, ts, child_offset, child_rect);

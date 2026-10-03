@@ -17,8 +17,8 @@ impl<D: DataSource> Presenter<D> {
 
     pub(super) fn apply_reports(&mut self, reports: Vec<crate::image::Report>) -> bool {
         let any = !reports.is_empty();
-        for (view, size) in reports {
-            if let Some(e) = self.host.set_intrinsic(view, size) {
+        if any {
+            if let Some(e) = self.host.set_intrinsics(&reports) {
                 eprintln!("exact: {e}");
             }
         }
@@ -35,6 +35,12 @@ impl<D: DataSource> Presenter<D> {
 
     pub(super) fn sync_images(&mut self) -> Option<String> {
         let epoch = self.host.kernel().epoch();
+        // Nothing but symbols, and no commit since: their sizes stand, and
+        // no picture can be wanted, so nothing is walked (a scroll frame).
+        if self.images.only_symbols && self.images.order.as_ref().is_some_and(|(e, _)| *e == epoch)
+        {
+            return None;
+        }
         if self.images.order.as_ref().is_none_or(|(e, _)| *e != epoch) {
             let kernel = self.host.kernel();
             let order = self
@@ -56,8 +62,11 @@ impl<D: DataSource> Presenter<D> {
             .map(|(_, o)| o.clone())
             .unwrap_or_default();
         let host = &self.host;
-        let boxes: std::collections::HashMap<ViewId, &crate::paint::PaintedBox> =
-            self.boxes.iter().rev().map(|b| (b.id, b)).collect();
+        // Built only when a picture asks where it is (symbols never do).
+        let all = &self.boxes;
+        let boxes = std::cell::OnceCell::<
+            std::collections::HashMap<ViewId, &crate::paint::PaintedBox>,
+        >::new();
         let viewport = self.viewport;
         let reports = self
             .images
@@ -65,7 +74,10 @@ impl<D: DataSource> Presenter<D> {
                 if host.route_visibility(id).0 {
                     return false;
                 }
-                let Some(b) = boxes.get(&id) else {
+                let Some(b) = boxes
+                    .get_or_init(|| all.iter().rev().map(|b| (b.id, b)).collect())
+                    .get(&id)
+                else {
                     return true;
                 };
                 let (mut x, mut y, mut w, mut h) = b.rect;
@@ -83,11 +95,10 @@ impl<D: DataSource> Presenter<D> {
                 }
                 w > 0. && h > 0. && x < viewport.0 && y < viewport.1 && x + w > 0. && y + h > 0.
             });
-        let mut error = None;
-        for (view, size) in reports {
-            error = error.or(self.host.set_intrinsic(view, size));
-            self.dirty = true;
+        if reports.is_empty() {
+            return None;
         }
-        error
+        self.dirty = true;
+        self.host.set_intrinsics(&reports)
     }
 }

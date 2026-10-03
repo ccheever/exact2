@@ -145,11 +145,13 @@ impl<D: DataSource> Host<D> {
         launch: &str,
         region: Option<crate::content_region::ContentRegionRegistration>,
     ) -> Result<(Host<D>, Option<String>), HostError> {
-        let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
+        let plan = section(c"exact boot host decode", || Plan::decode(plan_bytes))
+            .map_err(HostError::Plan)?;
         // Native hosts link every row's grammar (LLP 1053.000 §2).
         exact_kernel::style::link_backdrop_filter();
         exact_kernel::timeline::link();
         let kernel = Kernel::new(measurer);
+        let runner_section = Section::new(c"exact boot runner");
         let mut runner = Runner::boot_with_delivery(
             plan,
             data,
@@ -161,6 +163,7 @@ impl<D: DataSource> Host<D> {
             launch,
         )
         .map_err(HostError::Runner)?;
+        drop(runner_section);
         if let Some(action) = region.and_then(|r| r.activate) {
             runner.act(action, Vec::new()).map_err(HostError::Runner)?;
         }
@@ -223,7 +226,7 @@ impl<D: DataSource> Host<D> {
                 .map_err(HostError::Layout)?,
             );
         }
-        let error = host.layout().err();
+        let error = section(c"exact boot layout", || host.layout().err());
         host.observe_layout();
         host.present();
         Ok((host, error))
@@ -890,10 +893,60 @@ impl<D: DataSource> Host<D> {
     /// An image loaded: its intrinsic size in points (`None` when it failed
     /// or was cleared). Lays out again.
     pub fn set_intrinsic(&mut self, view: ViewId, size: Option<(f32, f32)>) -> Option<String> {
-        match self.runner.kernel_mut().set_intrinsic_size(view, size) {
-            Ok(()) => self.layout().err(),
-            Err(e) => Some(format!("intrinsic: {e:?}")),
+        self.set_intrinsics(&[(view, size)])
+    }
+
+    /// New symbol images take their em square before this commit lays out
+    /// (LLP 1035.004.000: a symbol is an empty em square on Linux), as the
+    /// picture sync would report it after: a mounted list row is laid out
+    /// once, not once more for its icons.
+    fn size_symbols(&mut self, created: &[exact_kernel::NodeKey]) {
+        let mut sizes = Vec::new();
+        let kernel = self.runner.kernel();
+        for key in created {
+            let Some(node) = kernel.node_by_key(*key) else {
+                continue;
+            };
+            if node.node_type == exact_kernel::NodeType::Image
+                && node
+                    .props
+                    .str(exact_kernel::PropId::ImageSource)
+                    .is_some_and(|s| s.starts_with("symbol:"))
+            {
+                let size = node
+                    .computed_style(exact_kernel::StyleMask::INHERITED)
+                    .font_size;
+                if size > 0.0 {
+                    sizes.push((node.id, (size, size)));
+                }
+            }
         }
+        for (view, size) in sizes {
+            let _ = self
+                .runner
+                .kernel_mut()
+                .set_intrinsic_size(view, Some(size));
+        }
+    }
+
+    /// Several pictures' sizes, then one layout (a list row's symbols arrive
+    /// together; a layout each made one mount lay out once per icon).
+    pub fn set_intrinsics(&mut self, sizes: &[(ViewId, Option<(f32, f32)>)]) -> Option<String> {
+        let mut error = None;
+        let mut any = false;
+        for (view, size) in sizes {
+            if self.runner.kernel().intrinsic_size(*view) == *size {
+                continue;
+            }
+            match self.runner.kernel_mut().set_intrinsic_size(*view, *size) {
+                Ok(()) => any = true,
+                Err(e) => error = error.or(Some(format!("intrinsic: {e:?}"))),
+            }
+        }
+        if any {
+            error = error.or(self.layout().err());
+        }
+        error
     }
 
     /// The viewport changed: lay out again.
@@ -1052,6 +1105,7 @@ impl<D: DataSource> Host<D> {
                     self.keys.insert(*key, node.id);
                 }
             }
+            self.size_symbols(&r.created);
         }
         self.track_presence(receipts);
         if receipts.iter().any(|t| !t.receipt.created.is_empty()) {
@@ -1222,4 +1276,27 @@ fn physical_memory() -> u64 {
             Some(kb * 1024)
         })
         .unwrap_or(8 << 30)
+}
+
+/// A trace section on Android (Perfetto shows it on the thread), nothing
+/// elsewhere: boot phases, for the cold start.
+pub(crate) fn section<T>(name: &'static core::ffi::CStr, f: impl FnOnce() -> T) -> T {
+    let _s = Section::new(name);
+    f()
+}
+
+/// An open trace section, closed when dropped.
+pub(crate) struct Section;
+impl Section {
+    pub(crate) fn new(_name: &'static core::ffi::CStr) -> Section {
+        #[cfg(target_os = "android")]
+        crate::android::section_begin(_name);
+        Section
+    }
+}
+impl Drop for Section {
+    fn drop(&mut self) {
+        #[cfg(target_os = "android")]
+        crate::android::section_end();
+    }
 }

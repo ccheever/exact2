@@ -6,6 +6,13 @@ use crate::generated::PropId;
 use crate::id::ViewId;
 
 impl Kernel {
+    /// The host intrinsic size a node holds, if any.
+    pub fn intrinsic_size(&self, view: ViewId) -> Option<(f32, f32)> {
+        self.arena
+            .slot_of(view)
+            .and_then(|slot| self.arena.intrinsic(slot))
+    }
+
     /// Host intrinsic size (`None` to forget it). Replaced elements keep
     /// their natural ratio; a projected tablist uses the height as its automatic
     /// minimum (LLP 1059); a form control takes it as its size, with no ratio

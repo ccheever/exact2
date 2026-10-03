@@ -52,6 +52,10 @@ struct Row {
     images: Vec<(ViewId, Option<std::sync::Weak<Bitmap>>)>,
     /// Each node's frame relative to the row's (x, y) and its size.
     frames: Vec<(NodeKey, [f32; 4])>,
+    /// The scroll offset of each scroller inside the row when recorded: a
+    /// scroller moves without a commit (host state), so the row is valid
+    /// only while every one sits where it sat.
+    scrolls: Vec<(ViewId, (f32, f32))>,
     unsupported: bool,
     /// What the row's drawing covers, relative to its origin.
     bounds: Rect4,
@@ -68,6 +72,7 @@ struct Capture {
     images: Vec<(ViewId, Option<std::sync::Weak<Bitmap>>)>,
     text: Vec<(NodeKey, Rc<Paragraph>)>,
     frames: Vec<(NodeKey, [f32; 4])>,
+    scrolls: Vec<(ViewId, (f32, f32))>,
 }
 
 #[derive(Default)]
@@ -183,12 +188,13 @@ impl Painter {
     }
 
     /// Whether `node`'s children are rows this walk. A scroller inside a
-    /// recording row moves without a commit: that row is not kept.
-    pub(super) fn has_rows(&mut self, node: &NodeRef<'_>) -> bool {
+    /// recording row moves without a commit: the row keeps its offset and
+    /// is recorded again once it moves (a swipe row's horizontal scroller).
+    pub(super) fn has_rows(&mut self, node: &NodeRef<'_>, scroll: (f32, f32)) -> bool {
         let (x, y) = effective_overflow(node);
-        if self.rows.recording.is_some() {
+        if let Some(c) = &mut self.rows.recording {
             if x == Overflow::Scroll || y == Overflow::Scroll {
-                self.row_refuse();
+                c.scrolls.push((node.id, scroll));
             }
             return false;
         }
@@ -237,6 +243,10 @@ impl Painter {
         !row.stale
             && row.scale == scale
             && row.size == (node.frame.width, node.frame.height)
+            && row
+                .scrolls
+                .iter()
+                .all(|(id, at)| walk.scene.scroll.get(id).copied().unwrap_or((0.0, 0.0)) == *at)
             && row
                 .images
                 .iter()
@@ -362,6 +372,7 @@ impl Painter {
                     .into_iter()
                     .map(|(k, f)| (k, [f[0] - x0, f[1] - y0, f[2], f[3]]))
                     .collect(),
+                scrolls: capture.scrolls,
                 unsupported: row_unsupported,
                 bounds,
                 seen: frame,

@@ -78,6 +78,9 @@ mod events_tests;
 
 /// The presenter: one host, its painter, and the host state.
 pub struct Presenter<D: DataSource> {
+    /// Scrolled lists whose collection turn waits for the frame (see
+    /// [`Presenter::set_deferred_collections`]); `None` when turns run at once.
+    deferred_collections: Option<Vec<ViewId>>,
     pub(crate) host: Host<D>,
     pub(crate) surfaces: crate::surfaces::Surfaces,
     module: Option<crate::delivery::Module>,
@@ -360,13 +363,19 @@ impl<D: DataSource> Presenter<D> {
                 .map_err(|e| HostError::Painter(format!("content raster context: {e:?}")))?;
         }
         let t = std::time::Instant::now();
-        let decoded = Plan::decode(plan).map_err(HostError::Plan)?;
-        let text = TextEngine::shared_for_assets(&decoded, &assets);
+        let decoded = crate::host::section(c"exact boot decode", || Plan::decode(plan))
+            .map_err(HostError::Plan)?;
+        let text = crate::host::section(c"exact boot fonts", || {
+            TextEngine::shared_for_assets(&decoded, &assets)
+        });
         if let Some(reason) = assets.take_refusal() {
             return Err(HostError::Asset(reason));
         }
         let fonts_ms = t.elapsed().as_secs_f64() * 1000.0;
-        let (backend, painter) = open_backend(choice).map_err(HostError::Painter)?;
+        let (backend, painter) =
+            crate::host::section(c"exact boot painter", || open_backend(choice))
+                .map_err(HostError::Painter)?;
+        let _host_section = crate::host::Section::new(c"exact boot host");
         let (mut host, error) = Host::boot_at_with_region(
             plan,
             data,
@@ -378,6 +387,7 @@ impl<D: DataSource> Presenter<D> {
             launch,
             region,
         )?;
+        drop(_host_section);
         let mut images = Images::with_assets(assets.clone());
         images.fit(viewport, scale);
         if assets.is_selected() {
@@ -432,6 +442,7 @@ impl<D: DataSource> Presenter<D> {
             control_bindings: BTreeMap::new(),
             boxes: Vec::new(),
             dirty: true,
+            deferred_collections: None,
             scheme: (None, false),
             surfaces: Default::default(),
             module: None,
@@ -687,6 +698,11 @@ impl<D: DataSource> Presenter<D> {
     /// The focused input.
     pub fn focus(&self) -> Option<ViewId> {
         self.focus
+    }
+
+    /// Paint again at the next frame (a host whose surface came back).
+    pub fn repaint(&mut self) {
+        self.dirty = true;
     }
 
     /// Whether the picture is stale.
@@ -1145,6 +1161,32 @@ impl<D: DataSource> Presenter<D> {
         ))
     }
 
+    /// Run a scrolled list's collection turn (feedback, rows mounted and
+    /// unmounted, the commit's layout) after the frame that shows the new
+    /// offset rather than before it: the frame paints the rows already
+    /// mounted — the list's overscan covers the travel — and the turn runs
+    /// in the time left before the next one (RecyclerView's prefetch after
+    /// the frame). The host calls [`Presenter::run_deferred_collections`]
+    /// once its frame is submitted.
+    pub fn set_deferred_collections(&mut self, on: bool) {
+        if !on {
+            self.run_deferred_collections();
+        }
+        self.deferred_collections = on.then(Vec::new);
+    }
+
+    /// The collection turns deferred since the last call; whether any ran.
+    pub fn run_deferred_collections(&mut self) -> bool {
+        let views = match &mut self.deferred_collections {
+            Some(views) if !views.is_empty() => std::mem::take(views),
+            _ => return false,
+        };
+        for id in views {
+            self.collection_scrolled(id);
+        }
+        true
+    }
+
     /// A wheel at a point (the web's sign: a positive `dy` scrolls down).
     /// A phase-less tick is its own gesture and is not split (LLP 1070 G2,
     /// Chrome's measured tick): the innermost scroll container under the point
@@ -1197,7 +1239,14 @@ impl<D: DataSource> Presenter<D> {
                     };
                     self.scroll.insert(id, (nx, ny));
                     self.dirty = true;
-                    self.collection_scrolled(id);
+                    match &mut self.deferred_collections {
+                        Some(views) => {
+                            if !views.contains(&id) {
+                                views.push(id);
+                            }
+                        }
+                        None => self.collection_scrolled(id),
+                    }
                     if let Some(error) = self.refresh_transform_geometry() {
                         self.host.log(error);
                     }
