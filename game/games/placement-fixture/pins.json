@@ -9,8 +9,8 @@
     "linux",
     "web"
   ],
-  "inputs": "4a554a8404baa4eb24cbb511d2e9bac127f537e5afff2c1d6e9a1f2b3c2c1f12",
+  "inputs": "b01b3ef2b8d8d0752a88199d7d0b8038b225c0ac3d5e3f3a9a3f8fc332bc195e",
   "game": "placement-fixture",
   "generated": "bun game/prove.mjs placement-fixture --repin --hosts 'linux,web'",
-  "at": "1e0457c44d6d361f0db6b0c4a8e11bd18ea080ab"
+  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
 }

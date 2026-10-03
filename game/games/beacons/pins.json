@@ -10,8 +10,8 @@
     "linux",
     "web"
   ],
-  "inputs": "65e6ba7c85c4c574214a13149b1a30726b2f1a80884fe7a95d2c8a6c77aa473f",
+  "inputs": "9c5e5977c26e1539ca25fd0c0a202c00591a94059ff41ad2d47de8571ee50a21",
   "game": "beacons",
   "generated": "bun game/prove.mjs beacons --repin --hosts 'linux,web'",
-  "at": "1e0457c44d6d361f0db6b0c4a8e11bd18ea080ab"
+  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
 }

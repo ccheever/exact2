@@ -1,17 +1,16 @@
 {
   "ticks": {
-    "0": "0xb55be7ab9411a6ca",
-    "60": "0x778d4f87ff834909"
+    "0": "0xdd18ad0f216a2cd9",
+    "60": "0x483c73a4464f6d73"
   },
   "saves": {
-    "continuation": "50002ed077b5de5673f5a5f47d1fd1beb4c5a24290343c2bf2ebff6a55de5091"
+    "continuation": "8024cc5922074402fdab428e2e7c76fb340b28cc08aec2620004fc81cbd440c7"
   },
   "hosts": [
     "linux"
   ],
-  "inputs": "256ae108bc272e49745dee42db07ff7e6f0404aaafa7c2f3f69d1a7d2503b1fa",
+  "inputs": "7b0b12734ceb01fc0d6d417c073cf237190ab88807d91c2cb2664fea5505acc7",
   "game": "asset-fixture",
   "generated": "bun game/prove.mjs asset-fixture --repin --hosts linux",
-  "at": "e8abc4e5252f9332325f191f8e58571c9006478b",
-  "reason": "Engine fix lane: paged world hash and columnar saves (EXGAME v4); same simulation, new encodings."
+  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
 }

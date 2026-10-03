@@ -10,8 +10,8 @@
     "linux",
     "web"
   ],
-  "inputs": "696ce72888589cccf50172a02bbed41a1ab45b382397d9ccce2cbae68854c13f",
+  "inputs": "4da9d338fb67b0e491566c8f65d83fbdcb68677fab22194e98f4e8ea4c811f9c",
   "game": "greybox",
   "generated": "bun game/prove.mjs greybox --repin --hosts 'linux,web'",
-  "at": "1e0457c44d6d361f0db6b0c4a8e11bd18ea080ab"
+  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
 }

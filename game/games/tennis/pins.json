@@ -10,8 +10,8 @@
     "linux",
     "web"
   ],
-  "inputs": "3e7569eb48bfcdcd058dba288864887623b7ec093d038c9ba524bbd7484a0adb",
+  "inputs": "34c1a43e8a9e4fe85d709cab0f5b08d8a9359f1a3d776067fdf3d38b3f12c7e0",
   "game": "tennis",
   "generated": "bun game/prove.mjs tennis --repin --hosts 'linux,web'",
-  "at": "1e0457c44d6d361f0db6b0c4a8e11bd18ea080ab"
+  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
 }
