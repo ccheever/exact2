@@ -194,7 +194,7 @@ extension NodeView {
         // does, and a `line-clamp`'s last line is made again from the range
         // it broke at (`LineGeometry.clamped`), as on iOS (873cec46e): a
         // clamped or ellipsized label no longer paints on the main thread.
-        guard kind == "text", isParagraph, flowShapes.isEmpty, !hasBoxPaint, !Capture.capturing,
+        guard kind == "text", isParagraph, flowShapes.isEmpty, !hasBoxPaint, !Capture.capturing, backgroundClip != "text",
               bounds.width > 0, bounds.height > 0, bounds.height <= TextRasterizer.maxHeight, !textIsSmall,
               window != nil, readerParagraph == nil, let presenter else { return false }
         if presenter.selection.isActive, let selected = presenter.selection.range(self), selected.length > 0 { return false }
@@ -275,7 +275,10 @@ extension NodeView {
         guard !textRasterUsesStrips, let layer, let surface = textRaster else { return }
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        if textRasterFrame == CGRect(origin: .zero, size: bounds.size) {
+        // A `text-shadow` is cast by a sublayer of its own: the view's layer
+        // would cast its box too (LLP 1077 D3).
+        let shadow = textRasterKey?.spec.shadow
+        if textRasterFrame == CGRect(origin: .zero, size: bounds.size), shadow == nil {
             textRasterOverflowLayer?.removeFromSuperlayer()
             textRasterOverflowLayer = nil
             layer.contentsScale = textRasterScale
@@ -290,6 +293,7 @@ extension NodeView {
             ink.contentsScale = textRasterScale
             ink.contentsGravity = .resize
             ink.contents = surface
+            TextShadowLayer.apply(shadow, to: ink)
         }
         textRasterPending = false
         CATransaction.commit()

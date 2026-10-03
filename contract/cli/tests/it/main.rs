@@ -77,3 +77,4 @@ mod trim;
 mod typescript;
 mod r#use;
 mod viewport;
+mod visual;

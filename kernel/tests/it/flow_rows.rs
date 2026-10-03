@@ -11,9 +11,9 @@ fn defaults_masks_and_wire_vocabulary() {
     assert_eq!(defaults.shape_outside, ShapeOutside::default());
     assert_eq!(defaults.shape_margin.to_bits(), 0f32.to_bits());
     for (id, bit) in [
-        (StyleId::WrapFlow, 95),
-        (StyleId::ShapeOutside, 96),
-        (StyleId::ShapeMargin, 97),
+        (StyleId::WrapFlow, 92),
+        (StyleId::ShapeOutside, 93),
+        (StyleId::ShapeMargin, 94),
     ] {
         assert_eq!(id as u32, bit);
         assert!(!id.inherited());

@@ -321,17 +321,59 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   animation ends. CSS's `animation` does not itself defer destruction. Linux
   refuses it and removes the node immediately, with a journal entry, because
   its painter walks the live kernel tree and has no retained destroyed subtree.
-- **`box-shadow`** ([LLP 1064 D1](1064-box-shadow-and-text-transform.rfc.md))
-  accepts one outer shadow with zero spread, not `inset`, nonzero spread or a
-  list. A missing colour is refused instead of using CSS `currentcolor`.
-  The implementation reuses four scalar shadow rows and one native layer
-  shadow; those rows cannot store current colour, a spread or multiple shadows.
-  These are implementation limits awaiting Charlie's ruling, not CSS semantics.
+- **`box-shadow`** ([LLP 1064 D1](1064-box-shadow-and-text-transform.rfc.md),
+  [LLP 1077 D4](1077-css-visual-properties-native-draws-cheaply.rfc.md)) is
+  one row holding CSS's list (at most eight), outer and inset, with spread. A
+  missing colour is still refused instead of using CSS `currentcolor`. A
+  transition or keyframes move the list's first shadow's offset, blur and
+  colour; the other shadows, and a spread, change at once, where CSS
+  interpolates the lists pairwise.
+- **`background-image` layers** ([LLP 1077 D5](1077-css-visual-properties-native-draws-cheaply.rfc.md))
+  are at most four. Apple draws a conic gradient, and more than one layer,
+  through the box's `draw(_:)` (Core Animation's conic gradient bends CSS's
+  angles in a box that is not square), and a conic `mask-image` as pixels.
 - **Gradient paint under borders** ([LLP 1066 D5](1066-gradients.rfc.md)):
   native hosts extend end colours outside the padding box instead of repeating
   the gradient image as CSS's initial `background-repeat` does. Their gradient
   shaders/layers extend one gradient rather than tiling a padding-box image;
   translucent borders expose the difference.
+- **`corner-shape: -apple-continuous`**, bit 156 ([LLP 1077 D1](1077-css-visual-properties-native-draws-cheaply.rfc.md)),
+  is not a CSS keyword. It names Apple's continuous corner curve, one shape on
+  every host: UIKit and AppKit draw it with `cornerCurve = .continuous` where
+  the box has one radius, and the kernel's outline (`corner::outline`, fitted
+  to UIKit's curve; Linux against the iOS simulator: mean 0.57/255) everywhere
+  else. The web draws `superellipse(1.6)` over the radius scaled by 1.52, the
+  closest CSS shape (2.5% of the radius at worst; a bordered box measured mean
+  6.5/255 against UIKit), and a bound (dynamic) `corner-shape` is not rescaled.
+  CSS's own keywords are CSS's on every host. The inner border edge of any
+  shaped corner is the same shape over the padding box's radii, CSS's rule for
+  round corners.
+- **`mask-image` on a material** ([LLP 1077 D2](1077-css-visual-properties-native-draws-cheaply.rfc.md)):
+  UIKit and AppKit mask the effect view itself (`mask` / `maskImage`), as they
+  require of a visual effect view, so the blur fades and the node's children
+  do not; CSS masks the element and its children together.
+- **`text-shadow`** ([LLP 1077 D3](1077-css-visual-properties-native-draws-cheaply.rfc.md))
+  takes one shadow, not a list, and no spread (CSS has none). On Apple a
+  paragraph drawn without a raster clips its shadow to the view's bounds.
+- **`-webkit-text-stroke`** ([LLP 1077 D7](1077-css-visual-properties-native-draws-cheaply.rfc.md))
+  on Linux is a band of the glyphs' coverage (dilated less eroded), not a
+  stroke of their outlines, so a glyph's overlapping contours show no inner
+  lines as Chrome's and Core Text's do. `background-clip: text` clips to the
+  node's own paragraph, not to text in its descendants.
+- **3D transforms** ([LLP 1077 D8](1077-css-visual-properties-native-draws-cheaply.rfc.md))
+  flatten every box into its parent's plane (`transform-style: preserve-3d`
+  is refused), and a transition between two different `rotate` axes changes
+  the axis at once where CSS slerps. Linux draws a 3D box as a picture warped
+  on the CPU.
+- **Apple's affordances** ([LLP 1077 §5](1077-css-visual-properties-native-draws-cheaply.rfc.md)),
+  rows 162–170, are not CSS: `symbol-rendering`, `symbol-palette`,
+  `symbol-value`, `symbol-effect` (with the `symbolEffectValue` prop),
+  `press-haptic` (host-owned as `press-scale`), `content-transition`,
+  `scroll-edge-effect`, `hover-effect` and `smart-invert`. Each draws on the
+  platform that has it; the web writes no declaration for them and draws a
+  symbol monochrome. The `-apple-system-*` label, fill and separator colours
+  are WebKit's names, resolved on every host as `light-dark()` pairs of
+  UIKit's values.
 - **Raster `tint-color`** ([LLP 1011 §3](1011-image-v1.spec.md)) is a template
   image operation without a CSS property of that name. On the web the tint is
   a `mask-image` on the `<img>` itself, so it also masks the element's own

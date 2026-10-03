@@ -30,7 +30,9 @@ fn translate_text_is_a_narrow_css_pixel_subset_with_atomic_refusal() {
         "0 1",
         "none",
         "1px,2px",
-        "1px 2px 0px",
+        // A third length is `translate`'s z (LLP 1077 D8), a fourth nothing.
+        "1px 2px 0px 0px",
+        "1px 2px 3",
         "10% 0",
         "calc(1px + 2px) 0",
         "NaNpx 0",
@@ -53,12 +55,7 @@ fn translate_text_is_a_narrow_css_pixel_subset_with_atomic_refusal() {
     }
     s.set_dynamic(StyleId::Translate, &StyleValue::Vec2(5.0, -7.0))
         .unwrap();
-    s.set_dynamic(StyleId::ShadowOffset, &StyleValue::Vec2(1.0, 2.0))
-        .unwrap();
     let before = s.clone();
-    assert!(s
-        .set_dynamic(StyleId::ShadowOffset, &StyleValue::Text("1px 2px".into()))
-        .is_err());
     assert!(s
         .set_dynamic(StyleId::Translate, &StyleValue::Number(0.0))
         .is_err());
@@ -176,7 +173,7 @@ fn every_dynamic_codec_fills_its_row_and_marks_the_mask() {
         .unwrap();
     s.set_dynamic(StyleId::FlexDirection, &StyleValue::Text("column".into()))
         .unwrap();
-    s.set_dynamic(StyleId::ShadowOffset, &StyleValue::Vec2(1.0, 2.0))
+    s.set_dynamic(StyleId::Translate, &StyleValue::Vec2(1.0, 2.0))
         .unwrap();
     assert_eq!(s.width, Dimension::Percent(50.0));
     assert_eq!(s.height, Dimension::Auto);
@@ -189,7 +186,7 @@ fn every_dynamic_codec_fills_its_row_and_marks_the_mask() {
     );
     assert_eq!(s.text_color, ColorValue::Fixed(Color(0x1122_33ff)));
     assert_eq!(s.flex_direction, exact_kernel::FlexDirection::Column);
-    assert_eq!((s.shadow_offset.x, s.shadow_offset.y), (1.0, 2.0));
+    assert_eq!((s.translate.x, s.translate.y), (1.0, 2.0));
     for id in [
         StyleId::Width,
         StyleId::Height,
@@ -199,7 +196,7 @@ fn every_dynamic_codec_fills_its_row_and_marks_the_mask() {
         StyleId::BackgroundColor,
         StyleId::TextColor,
         StyleId::FlexDirection,
-        StyleId::ShadowOffset,
+        StyleId::Translate,
     ] {
         assert!(s.mask.has(id), "{id:?} marked");
     }
@@ -567,6 +564,9 @@ fn every_row_writes_its_own_field_and_no_other() {
         StyleValue::Text("url(#m)".into()),
         StyleValue::Text("--t".into()),
         StyleValue::Text("0px 300px".into()),
+        StyleValue::Text("squircle".into()),
+        StyleValue::Text("1px 2px #000".into()),
+        StyleValue::Text("y 30deg".into()),
     ];
     let mut unwritten = Vec::new();
     let base = StyleProps::default();

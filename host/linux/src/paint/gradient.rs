@@ -25,8 +25,22 @@ pub struct GradientPaint {
 }
 
 impl Captured {
-    pub(super) fn capture(style: &StyleProps, dark: bool) -> Option<Captured> {
-        let gradient = style.background_image.gradient()?.clone();
+    /// The layers, the first on top (LLP 1077 D5).
+    pub(super) fn capture(style: &StyleProps, dark: bool) -> Vec<Captured> {
+        style
+            .background_image
+            .layers()
+            .iter()
+            .map(|gradient| Captured {
+                stops: gradient.resolved(dark),
+                gradient: gradient.clone(),
+            })
+            .collect()
+    }
+
+    /// CSS `mask-image`'s gradient (LLP 1077 D2), placed in the border box.
+    pub(super) fn mask(style: &StyleProps, dark: bool) -> Option<Captured> {
+        let gradient = style.mask_image.gradient()?.clone();
         let stops = gradient.resolved(dark);
         Some(Captured { gradient, stops })
     }
@@ -39,6 +53,10 @@ impl Captured {
             Geometry::Linear { start, end } => Geometry::Linear {
                 start: (start.0 + x, start.1 + y),
                 end: (end.0 + x, end.1 + y),
+            },
+            Geometry::Conic { center, from } => Geometry::Conic {
+                center: (center.0 + x, center.1 + y),
+                from,
             },
             Geometry::Radial { center, radii } => {
                 if radii.0 <= 0.0 || radii.1 <= 0.0 {
@@ -58,10 +76,12 @@ impl Captured {
     }
 }
 
-/// Fill `shape` with the gradient through a backend's two primitives.
+/// Fill `clip` with the gradient, placed in `outer`'s padding box, through
+/// a backend's two primitives.
 pub(super) fn paint(
     captured: &Captured,
     outer: &Shape,
+    clip: &Shape,
     widths: [f32; 4],
     backend: &mut dyn super::Backend,
     ts: tiny_skia::Transform,
@@ -77,7 +97,7 @@ pub(super) fn paint(
         (h - widths[0] - widths[2]).max(0.0),
     );
     match captured.place(padding) {
-        Ok(gradient) => backend.fill_gradient(outer, &gradient, ts),
-        Err(color) => backend.fill(outer, color, ts),
+        Ok(gradient) => backend.fill_gradient(clip, &gradient, ts),
+        Err(color) => backend.fill(clip, color, ts),
     }
 }

@@ -45,7 +45,7 @@ pub enum AttrTarget {
 /// - Motion (an animation, a transition, a press scale, a timeline): the
 ///   browser makes the box a containing block while a transform runs, so it
 ///   is one at rest too.
-pub const CONTAINS_ABSOLUTE: [StyleId; 15] = [
+pub const CONTAINS_ABSOLUTE: [StyleId; 16] = [
     StyleId::OverflowX,
     StyleId::OverflowY,
     StyleId::Translate,
@@ -61,6 +61,8 @@ pub const CONTAINS_ABSOLUTE: [StyleId; 15] = [
     StyleId::PressScale,
     StyleId::DragTimeline,
     StyleId::AnimationTimeline,
+    // CSS: `perspective` makes a containing block too (LLP 1077 D8).
+    StyleId::Perspective,
 ];
 
 /// Whether an attribute makes its box a containing block (see
@@ -677,6 +679,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "scrollFollowEnd" => AttrTarget::Prop(p("scrollFollowEnd")),
         "refreshing" => AttrTarget::Prop(p("refreshing")),
         "keyboardDismissMode" => AttrTarget::Prop(p("keyboardDismissMode")),
+        // @ref LLP 1077 D12 — what a discrete symbol effect plays on.
+        "symbolEffectValue" => AttrTarget::Prop(p("symbolEffectValue")),
         "href" => AttrTarget::Prop(p("href")),
         "disabled" => AttrTarget::Prop(p("disabled")),
         "inert" => AttrTarget::Prop(p("inert")),
@@ -872,6 +876,16 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "background-color" => styles(&[StyleId::BackgroundColor]),
         // @ref LLP 1066 — `none` or one linear/radial gradient.
         "background-image" => styles(&[StyleId::BackgroundImage]),
+        // @ref LLP 1077 D1–D3
+        "mask-image" => styles(&[StyleId::MaskImage]),
+        "text-shadow" => styles(&[StyleId::TextShadow]),
+        "corner-shape" => styles(&[StyleId::CornerShape]),
+        "background-clip" => styles(&[StyleId::BackgroundClip]),
+        // @ref LLP 1077 D7 — the Compat Standard's names; the shorthand
+        // binds both rows, each taking its part.
+        "-webkit-text-stroke" => styles(&[StyleId::TextStrokeWidth, StyleId::TextStrokeColor]),
+        "-webkit-text-stroke-width" => styles(&[StyleId::TextStrokeWidth]),
+        "-webkit-text-stroke-color" => styles(&[StyleId::TextStrokeColor]),
         "caret-color" => styles(&[StyleId::CaretColor]),
         // @ref LLP 1069.001 D6 — a form control's tint and whether the
         // platform draws it.
@@ -880,12 +894,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "tint-color" => styles(&[StyleId::TintColor]),
         "opacity" => styles(&[StyleId::Opacity]),
         // @ref LLP 1064 D1 — one value, each row takes its part of the parse.
-        "box-shadow" => styles(&[
-            StyleId::ShadowColor,
-            StyleId::ShadowOffset,
-            StyleId::ShadowRadius,
-            StyleId::ShadowOpacity,
-        ]),
+        "box-shadow" => styles(&[StyleId::BoxShadow]),
         // @ref LLP 1053.000 D1 — `none` or one `blur(<length>)`; the rest of
         // CSS's filter functions are refused by name.
         "backdrop-filter" => styles(&[StyleId::BackdropBlur]),
@@ -1009,9 +1018,24 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // @ref LLP 1063 — how the laid-out box moves when layout moves it.
         "layout-transition" => styles(&[StyleId::LayoutTransition]),
         "interpolate-size" => styles(&[StyleId::InterpolateSize]),
-        "translate" => styles(&[StyleId::Translate]),
+        // @ref LLP 1077 D8 — one value to two rows: x and y, and z; the
+        // angle, and its axis.
+        "translate" => styles(&[StyleId::Translate, StyleId::TranslateZ]),
         "scale" => styles(&[StyleId::Scale]),
-        "rotate" => styles(&[StyleId::Rotate]),
+        "rotate" => styles(&[StyleId::Rotate, StyleId::RotateAxis]),
+        "perspective" => styles(&[StyleId::Perspective]),
+        "perspective-origin" => styles(&[StyleId::PerspectiveOrigin]),
+        "backface-visibility" => styles(&[StyleId::BackfaceVisibility]),
+        // @ref LLP 1077 §5 — declared rows CSS has no name for.
+        "symbol-rendering" => styles(&[StyleId::SymbolRendering]),
+        "symbol-palette" => styles(&[StyleId::SymbolPalette]),
+        "symbol-value" => styles(&[StyleId::SymbolValue]),
+        "symbol-effect" => styles(&[StyleId::SymbolEffect]),
+        "press-haptic" => styles(&[StyleId::PressHaptic]),
+        "content-transition" => styles(&[StyleId::ContentTransition]),
+        "scroll-edge-effect" => styles(&[StyleId::ScrollEdgeEffect]),
+        "hover-effect" => styles(&[StyleId::HoverEffect]),
+        "smart-invert" => styles(&[StyleId::SmartInvert]),
         // @ref LLP 1061 D1 — host-owned press feedback; not a motion target.
         "press-scale" => styles(&[StyleId::PressScale]),
         _ => return None,

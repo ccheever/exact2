@@ -24,7 +24,10 @@ pub use crate::gradient::link as link_gradients;
 pub use effects::link as link_effects;
 pub mod relative;
 mod shadow;
-pub use shadow::BoxShadow;
+pub mod space;
+pub(crate) mod stroke;
+pub mod symbols;
+pub use shadow::{BoxShadow, BoxShadows, GlyphShadow, TextShadow};
 
 /// Largest grid track list the closed grammar carries.
 pub const MAX_GRID_TRACKS: usize = 32;
@@ -434,28 +437,11 @@ impl StyleValue {
         })
     }
 
-    /// A `box-shadow` given to one of its four rows: that row's part.
-    /// @ref LLP 1064 D1
-    fn box_shadow(&self, style: StyleId) -> Option<Result<BoxShadow, StyleValueError>> {
-        match self {
-            StyleValue::Text(t) => Some(
-                BoxShadow::parse(t)
-                    .map_err(|reason| StyleValueError::BadBoxShadow { style, reason }),
-            ),
-            _ => None,
-        }
-    }
-
     pub(crate) fn f32(&self, style: StyleId) -> Result<f32, StyleValueError> {
-        if matches!(style, StyleId::ShadowRadius | StyleId::ShadowOpacity) {
-            if let Some(shadow) = self.box_shadow(style) {
-                let shadow = shadow?;
-                return Ok(if style == StyleId::ShadowRadius {
-                    shadow.blur
-                } else {
-                    shadow.opacity
-                });
-            }
+        // @ref LLP 1077 D7, D8, D11 — the rows that take CSS text or a
+        // range of their own.
+        if let Some(value) = space::f32_row(self, style) {
+            return value;
         }
         // @ref LLP 1053.000 D1 — CSS `backdrop-filter`: `none` or one `blur()`.
         if style == StyleId::BackdropBlur {
@@ -592,9 +578,6 @@ impl StyleValue {
             if let Some(pair) = ColorValue::parse_light_dark(t) {
                 return Ok(pair);
             }
-            if style == StyleId::ShadowColor && Color::parse(t).is_none() {
-                return self.box_shadow(style).expect("text").map(|s| s.color);
-            }
         }
         self.color(style).map(ColorValue::Fixed)
     }
@@ -608,6 +591,14 @@ impl StyleValue {
         match self {
             StyleValue::Auto if keyword == "auto" => Ok(None),
             StyleValue::Text(t) if t.eq_ignore_ascii_case(keyword) => Ok(None),
+            // @ref LLP 1077 D7 — a colour, else the shorthand's colour part.
+            StyleValue::Text(t) if style == StyleId::TextStrokeColor => {
+                self.color_value(style).map(Some).or_else(|_| {
+                    stroke::parse(t)
+                        .map(|(_, c)| c)
+                        .map_err(|reason| StyleValueError::BadTextStroke { style, reason })
+                })
+            }
             _ => self.color_value(style).map(Some),
         }
     }
@@ -630,9 +621,6 @@ impl StyleValue {
     pub(crate) fn vec2(&self, style: StyleId) -> Result<Vec2, StyleValueError> {
         match self {
             StyleValue::Vec2(x, y) if x.is_finite() && y.is_finite() => Ok(Vec2 { x: *x, y: *y }),
-            StyleValue::Text(_) if style == StyleId::ShadowOffset => {
-                self.box_shadow(style).expect("text").map(|s| s.offset)
-            }
             StyleValue::Text(t) if style == StyleId::Translate => {
                 parse_translate(t).ok_or(StyleValueError::WrongKind {
                     style,
@@ -716,7 +704,12 @@ fn parse_translate(text: &str) -> Option<Vec2> {
         Some(s) => parse_pixel_length(s)?,
         None => 0.0,
     };
-    if parts.next().is_some() {
+    // A third length is `translate`'s z, its own row (LLP 1077 D8).
+    if parts
+        .next()
+        .is_some_and(|z| parse_pixel_length(z).is_none())
+        || parts.next().is_some()
+    {
         return None;
     }
     Some(Vec2 { x, y })
@@ -768,10 +761,15 @@ impl ColorValue {
         matches!(self, ColorValue::LightDark(..))
     }
 
-    /// `light-dark(<color>, <color>)`, CSS's own spelling and nothing else.
-    /// Whitespace is free; anything that is not two parseable colours is not
-    /// this function, and falls through to the plain colour parse.
+    /// `light-dark(<color>, <color>)`, CSS's own spelling, or one of UIKit's
+    /// label, fill and separator colours by WebKit's name, which is such a
+    /// pair (LLP 1077 D13). Whitespace is free; anything that is not two
+    /// parseable colours is not this function, and falls through to the
+    /// plain colour parse.
     pub fn parse_light_dark(text: &str) -> Option<ColorValue> {
+        if let Some(system) = symbols::system_color(text) {
+            return Some(system);
+        }
         let inner = text.trim().strip_prefix("light-dark(")?.strip_suffix(')')?;
         // The comma between the two colours, not one inside an `rgb()`.
         let mut depth = 0;
@@ -912,6 +910,18 @@ pub enum RowValue<'a> {
     Filter(&'a crate::svg::filter::FilterList),
     /// CSS `background-image`: `none` or one gradient (LLP 1066).
     BackgroundImage(&'a crate::gradient::BackgroundImage),
+    /// CSS `box-shadow`: `none` or a list (LLP 1077 D4).
+    BoxShadow(&'a BoxShadows),
+    /// CSS `text-shadow` (LLP 1077 D3).
+    TextShadow(&'a TextShadow),
+    /// CSS `mask-image`: `none` or one gradient (LLP 1077 D2).
+    MaskImage(&'a crate::gradient::BackgroundImage),
+    /// CSS `corner-shape` (LLP 1077 D1).
+    CornerShape(&'a crate::corner::CornerShape),
+    /// CSS `rotate`'s axis (LLP 1077 D8).
+    RotateAxis(&'a space::RotateAxis),
+    /// A symbol's palette (LLP 1077 D10).
+    SymbolPalette(&'a symbols::SymbolPalette),
     /// A dimension.
     Dimension(Dimension),
     /// A number (`f32`, `u8`, `u16`, `u32`, `i32` rows).
@@ -964,6 +974,12 @@ impl RowValue<'_> {
             | RowValue::AnimationTimeline(_)
             | RowValue::TimelineScope(_)
             | RowValue::BackgroundImage(_)
+            | RowValue::TextShadow(_)
+            | RowValue::BoxShadow(_)
+            | RowValue::MaskImage(_)
+            | RowValue::CornerShape(_)
+            | RowValue::RotateAxis(_)
+            | RowValue::SymbolPalette(_)
             | RowValue::Color(_)
             | RowValue::ColorValue(_)
             | RowValue::Color2(_)

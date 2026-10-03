@@ -325,6 +325,16 @@ reading. Nothing that isn't HTML is added by it.
   floating control without a canvas. **Ratified (Charlie, 2026-09-27; take
   waived):** CSS's own row, run natively by the browser and held to Chrome's
   pixels elsewhere; kept as built.
+- **CSS visual properties native hosts draw cheaply (Charlie, 2026-10-02: "Waive
+  the take"; LLP 1077):** `corner-shape`, `mask-image`, `text-shadow`,
+  `box-shadow` lists/`inset`/spread, `conic-gradient()` and stacked
+  `background-image` layers, `background-clip: text`, `-webkit-text-stroke`, and
+  3D transforms without `preserve-3d`, each CSS's own grammar held to Chrome.
+  Unblocks native-looking corners, edge fades and text over imagery without an
+  SVG island. Also admitted ("do all of them"), LLP 1077 §5: SF Symbol rendering
+  modes, variable values and effects; vibrancy; press haptics; rolling numerals; the
+  scroll edge effect; iPad pointer effects; smart-invert opt-out. Still out:
+  `mix-blend-mode` on boxes (LLP 1077 D9).
 - No virtualList v2 (cert wires, extent demand, proxy lanes). **Admitted 2026-09-14
   (Charlie: "ok do what you think"):** a straightforward windowed list with bounded
   row/view lifetime and a separate decoded-image budget (LLP 1010 §6). Unblocks

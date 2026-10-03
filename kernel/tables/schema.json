@@ -576,25 +576,25 @@
       "kind": "float"
     },
     {
-      "id": 218,
+      "id": 219,
       "name": "dataset",
       "kind": "str",
       "_comment": "@ref LLP 1075.003 §3.3: a node's data-* words as one JSON object of strings, keys sorted (the NativeProps opcode); data-<word> attributes on the web, read by a native hook."
     },
     {
-      "id": 219,
+      "id": 220,
       "name": "navigationScroll",
       "kind": "str",
       "_comment": "@ref LLP 1075.003 §3.5: the HTML id of the route's content scroll view, resolved inside the route as its Back control is."
     },
     {
-      "id": 220,
+      "id": 221,
       "name": "accessibilityControls",
       "kind": "str",
       "_comment": "@ref LLP 1075.003 §3.7: aria-controls, the HTML id of the element a control controls; a tab names its tabpanel."
     },
     {
-      "id": 221,
+      "id": 222,
       "name": "hook",
       "kind": "str",
       "_comment": "@ref LLP 1075.003.000: the word naming a node the app's native code receives (its view and platform object); a hooked node leaves the host's fast path. data-hook on the web."
@@ -1271,6 +1271,12 @@
       "kind": "str",
       "styleable": true,
       "_comment": "@ref LLP 1069.011 D2: a native button's style, a name in `buttonStyles`; absent, `bordered`. Only on a `button` whose appearance is `auto`."
+    },
+    {
+      "id": 218,
+      "name": "symbolEffectValue",
+      "kind": "str",
+      "_comment": "@ref LLP 1077 D12: a symbol's discrete effect (bounce, wiggle) plays each time this value changes, as SwiftUI's `.symbolEffect(_:value:)`."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
@@ -1419,6 +1425,91 @@
         "underline-line-through"
       ],
       "default": "none"
+    },
+    "SymbolRendering": {
+      "values": [
+        "monochrome",
+        "hierarchical",
+        "palette",
+        "multicolor"
+      ],
+      "default": "monochrome"
+    },
+    "SymbolEffect": {
+      "values": [
+        "none",
+        "bounce",
+        "pulse",
+        "wiggle",
+        "breathe",
+        "rotate",
+        "variable-color",
+        "scale",
+        "replace"
+      ],
+      "default": "none"
+    },
+    "PressHaptic": {
+      "values": [
+        "none",
+        "selection",
+        "impact-light",
+        "impact-medium",
+        "impact-heavy",
+        "impact-soft",
+        "impact-rigid"
+      ],
+      "default": "none"
+    },
+    "ContentTransition": {
+      "values": [
+        "none",
+        "numeric",
+        "numeric-countdown"
+      ],
+      "default": "none"
+    },
+    "ScrollEdgeEffect": {
+      "values": [
+        "automatic",
+        "soft",
+        "hard",
+        "none"
+      ],
+      "default": "automatic"
+    },
+    "HoverEffect": {
+      "values": [
+        "auto",
+        "highlight",
+        "lift",
+        "hover",
+        "none"
+      ],
+      "default": "auto"
+    },
+    "SmartInvert": {
+      "values": [
+        "auto",
+        "ignore"
+      ],
+      "default": "auto"
+    },
+    "BackfaceVisibility": {
+      "values": [
+        "visible",
+        "hidden"
+      ],
+      "default": "visible"
+    },
+    "BackgroundClip": {
+      "values": [
+        "border-box",
+        "padding-box",
+        "content-box",
+        "text"
+      ],
+      "default": "border-box"
     },
     "BoxSizing": {
       "values": [
@@ -2132,47 +2223,25 @@
     },
     {
       "bit": 57,
-      "field": "shadow_color",
-      "codec": "color",
-      "default": 0
+      "field": "box_shadow",
+      "codec": "box-shadow",
+      "_comment": "@ref LLP 1077 D4: CSS `box-shadow`, `none` or a list (at most 8) of shadows, each `inset? <length>{2,4} <color>` in any order, painted as CSS paints outer and inset shadows; it replaced LLP 1064's four shadow rows. A missing colour is refused (LLP 1064 D1)."
     },
     {
       "bit": 58,
-      "field": "shadow_offset",
-      "codec": "vec2",
-      "default": [
-        0,
-        0
-      ]
-    },
-    {
-      "bit": 59,
-      "field": "shadow_radius",
-      "codec": "f32",
-      "default": 0,
-      "_comment": "@ref LLP 1064 D2: CSS `box-shadow`'s blur radius in points, a Gaussian of standard deviation radius / 2. The four shadow rows are one CSS `box-shadow`, painted only outside the border box."
-    },
-    {
-      "bit": 60,
-      "field": "shadow_opacity",
-      "codec": "f32",
-      "default": 0
-    },
-    {
-      "bit": 61,
       "field": "caret_color",
       "codec": "auto-color",
       "inherited": true,
       "default": "auto"
     },
     {
-      "bit": 62,
+      "bit": 59,
       "field": "backdrop_blur",
       "codec": "f32",
       "default": 0
     },
     {
-      "bit": 63,
+      "bit": 60,
       "field": "translate",
       "codec": "vec2",
       "default": [
@@ -2181,24 +2250,24 @@
       ]
     },
     {
-      "bit": 64,
+      "bit": 61,
       "field": "scale",
       "codec": "f32",
       "default": 1
     },
     {
-      "bit": 65,
+      "bit": 62,
       "field": "rotate",
       "codec": "f32",
       "default": 0
     },
     {
-      "bit": 66,
+      "bit": 63,
       "field": "object_fit",
       "codec": "enum:ObjectFit"
     },
     {
-      "bit": 67,
+      "bit": 64,
       "field": "font_size",
       "codec": "f32",
       "inherited": true,
@@ -2207,7 +2276,7 @@
       "default": 16
     },
     {
-      "bit": 68,
+      "bit": 65,
       "field": "font_weight",
       "codec": "u16",
       "inherited": true,
@@ -2216,7 +2285,7 @@
       "default": 400
     },
     {
-      "bit": 69,
+      "bit": 66,
       "field": "font_style",
       "codec": "enum:FontStyle",
       "inherited": true,
@@ -2224,7 +2293,7 @@
       "layout": true
     },
     {
-      "bit": 70,
+      "bit": 67,
       "field": "font_family",
       "codec": "u16",
       "inherited": true,
@@ -2233,14 +2302,14 @@
       "default": 0
     },
     {
-      "bit": 71,
+      "bit": 68,
       "field": "text_align",
       "codec": "enum:TextAlign",
       "inherited": true,
       "text": true
     },
     {
-      "bit": 72,
+      "bit": 69,
       "field": "line_height",
       "codec": "line-height",
       "inherited": true,
@@ -2249,7 +2318,7 @@
       "default": "normal"
     },
     {
-      "bit": 73,
+      "bit": 70,
       "field": "letter_spacing",
       "codec": "f32",
       "inherited": true,
@@ -2258,12 +2327,12 @@
       "default": 0
     },
     {
-      "bit": 74,
+      "bit": 71,
       "field": "text_decoration_line",
       "codec": "enum:TextDecorationLine"
     },
     {
-      "bit": 75,
+      "bit": 72,
       "field": "font_variant_numeric",
       "codec": "u8",
       "keywords": "FontVariantNumeric",
@@ -2273,7 +2342,7 @@
       "default": 0
     },
     {
-      "bit": 76,
+      "bit": 73,
       "field": "line_clamp",
       "codec": "u32",
       "text": true,
@@ -2281,25 +2350,25 @@
       "default": 0
     },
     {
-      "bit": 77,
+      "bit": 74,
       "field": "text_overflow",
       "codec": "enum:TextOverflow",
       "text": true
     },
     {
-      "bit": 78,
+      "bit": 75,
       "field": "text_color",
       "codec": "color",
       "inherited": true,
       "default": 255
     },
     {
-      "bit": 79,
+      "bit": 76,
       "field": "transition",
       "codec": "transitions"
     },
     {
-      "bit": 80,
+      "bit": 77,
       "field": "white_space",
       "codec": "enum:WhiteSpace",
       "inherited": true,
@@ -2307,55 +2376,55 @@
       "layout": true
     },
     {
-      "bit": 81,
+      "bit": 78,
       "field": "overscroll_behavior_x",
       "codec": "enum:OverscrollBehavior"
     },
     {
-      "bit": 82,
+      "bit": 79,
       "field": "overscroll_behavior_y",
       "codec": "enum:OverscrollBehavior"
     },
     {
-      "bit": 83,
+      "bit": 80,
       "field": "field_sizing",
       "codec": "enum:FieldSizing",
       "text": true,
       "layout": true
     },
     {
-      "bit": 84,
+      "bit": 81,
       "field": "scroll_snap_type",
       "codec": "enum:ScrollSnapType"
     },
     {
-      "bit": 85,
+      "bit": 82,
       "field": "scroll_snap_align",
       "codec": "enum:ScrollSnapAlign"
     },
     {
-      "bit": 86,
+      "bit": 83,
       "field": "touch_action",
       "codec": "enum:TouchAction"
     },
     {
-      "bit": 87,
+      "bit": 84,
       "field": "clip_path",
       "codec": "clip-path"
     },
     {
-      "bit": 88,
+      "bit": 85,
       "field": "scrollbar_width",
       "codec": "enum:ScrollbarWidth"
     },
     {
-      "bit": 89,
+      "bit": 86,
       "field": "tint_color",
       "codec": "color",
       "default": 255
     },
     {
-      "bit": 90,
+      "bit": 87,
       "field": "overflow_wrap",
       "codec": "enum:OverflowWrap",
       "inherited": true,
@@ -2363,64 +2432,64 @@
       "layout": true
     },
     {
-      "bit": 91,
+      "bit": 88,
       "field": "border_style_top",
       "codec": "enum:BorderStyle",
       "layout": true
     },
     {
-      "bit": 92,
+      "bit": 89,
       "field": "border_style_right",
       "codec": "enum:BorderStyle",
       "layout": true
     },
     {
-      "bit": 93,
+      "bit": 90,
       "field": "border_style_bottom",
       "codec": "enum:BorderStyle",
       "layout": true
     },
     {
-      "bit": 94,
+      "bit": 91,
       "field": "border_style_left",
       "codec": "enum:BorderStyle",
       "layout": true
     },
     {
-      "bit": 95,
+      "bit": 92,
       "field": "wrap_flow",
       "codec": "enum:WrapFlow",
       "layout": true,
       "_comment": "@ref LLP 1043.000 \u00a73 D1: only absolute + both excludes. Ignored on non-absolute nodes; other wire values behave as auto."
     },
     {
-      "bit": 96,
+      "bit": 93,
       "field": "shape_outside",
       "codec": "shape-outside",
       "default": "none",
       "layout": true
     },
     {
-      "bit": 97,
+      "bit": 94,
       "field": "shape_margin",
       "codec": "f32",
       "default": 0,
       "layout": true
     },
     {
-      "bit": 98,
+      "bit": 95,
       "field": "interpolate_size",
       "codec": "enum:InterpolateSize",
       "inherited": true
     },
     {
-      "bit": 99,
+      "bit": 96,
       "field": "scroll_behavior",
       "codec": "enum:ScrollBehavior",
       "_comment": "CSS `scroll-behavior`: `smooth` animates a scrollTop/scrollLeft prop write on every host; a user's own scroll is never affected."
     },
     {
-      "bit": 100,
+      "bit": 97,
       "field": "fill",
       "codec": "paint",
       "default": "black",
@@ -2428,276 +2497,276 @@
       "_comment": "@ref LLP 1055 D2: SVG 2 presentation properties as CSS rows, inherited as SVG says. paint: none | currentcolor | <color>."
     },
     {
-      "bit": 101,
+      "bit": 98,
       "field": "stroke",
       "codec": "paint",
       "default": "none",
       "inherited": true
     },
     {
-      "bit": 102,
+      "bit": 99,
       "field": "stroke_width",
       "codec": "f32",
       "default": 1,
       "inherited": true
     },
     {
-      "bit": 103,
+      "bit": 100,
       "field": "stroke_linecap",
       "codec": "enum:StrokeLinecap",
       "inherited": true
     },
     {
-      "bit": 104,
+      "bit": 101,
       "field": "stroke_linejoin",
       "codec": "enum:StrokeLinejoin",
       "inherited": true
     },
     {
-      "bit": 105,
+      "bit": 102,
       "field": "stroke_miterlimit",
       "codec": "f32",
       "default": 4,
       "inherited": true
     },
     {
-      "bit": 106,
+      "bit": 103,
       "field": "stroke_dasharray",
       "codec": "dasharray",
       "default": "none",
       "inherited": true
     },
     {
-      "bit": 107,
+      "bit": 104,
       "field": "stroke_dashoffset",
       "codec": "f32",
       "default": 0,
       "inherited": true
     },
     {
-      "bit": 108,
+      "bit": 105,
       "field": "fill_opacity",
       "codec": "f32",
       "default": 1,
       "inherited": true
     },
     {
-      "bit": 109,
+      "bit": 106,
       "field": "stroke_opacity",
       "codec": "f32",
       "default": 1,
       "inherited": true
     },
     {
-      "bit": 110,
+      "bit": 107,
       "field": "fill_rule",
       "codec": "enum:FillRule",
       "inherited": true
     },
     {
-      "bit": 111,
+      "bit": 108,
       "field": "cx",
       "codec": "dimension",
       "default": 0,
       "_comment": "SVG 2 geometry properties (LLP 1055.000 D4): lengths in user units or percentages of the nearest viewport."
     },
     {
-      "bit": 112,
+      "bit": 109,
       "field": "cy",
       "codec": "dimension",
       "default": 0
     },
     {
-      "bit": 113,
+      "bit": 110,
       "field": "r",
       "codec": "dimension",
       "default": 0
     },
     {
-      "bit": 114,
+      "bit": 111,
       "field": "animation",
       "codec": "animations",
       "_comment": "@ref LLP 1055 D5: CSS `animation`, each entry with its resolved @keyframes (grammar: `_animations`)."
     },
     {
-      "bit": 115,
+      "bit": 112,
       "field": "x",
       "codec": "dimension",
       "default": 0,
       "_comment": "@ref LLP 1055.000 D4: SVG 2 geometry properties x, y, rx, ry as CSS rows."
     },
     {
-      "bit": 116,
+      "bit": 113,
       "field": "y",
       "codec": "dimension",
       "default": 0
     },
     {
-      "bit": 117,
+      "bit": 114,
       "field": "rx",
       "codec": "dimension",
       "admitsAuto": true,
       "default": "auto"
     },
     {
-      "bit": 118,
+      "bit": 115,
       "field": "ry",
       "codec": "dimension",
       "admitsAuto": true,
       "default": "auto"
     },
     {
-      "bit": 119,
+      "bit": 116,
       "field": "transform",
       "codec": "transform",
       "_comment": "@ref LLP 1055.000 D5: CSS `transform` on SVG elements; SVG's attribute grammar is its presentation attribute."
     },
     {
-      "bit": 120,
+      "bit": 117,
       "field": "transform_origin",
       "codec": "transform-origin",
       "_comment": "CSS `transform-origin`; an SVG element without the row takes the UA's `0 0`."
     },
     {
-      "bit": 121,
+      "bit": 118,
       "field": "transform_box",
       "codec": "enum:TransformBox"
     },
     {
-      "bit": 122,
+      "bit": 119,
       "field": "vector_effect",
       "codec": "enum:VectorEffect",
       "_comment": "@ref LLP 1055.000 D5: SVG 2 `vector-effect`: none | non-scaling-stroke."
     },
     {
-      "bit": 123,
+      "bit": 120,
       "field": "visibility",
       "codec": "enum:Visibility",
       "inherited": true,
       "_comment": "CSS `visibility`, honoured by SVG elements (LLP 1055.000 D19)."
     },
     {
-      "bit": 124,
+      "bit": 121,
       "field": "stop_color",
       "codec": "paint",
       "default": "black",
       "_comment": "@ref LLP 1055.000 D7: SVG 2 stop-color (a colour or currentcolor; `none` is refused) and stop-opacity, not inherited."
     },
     {
-      "bit": 125,
+      "bit": 122,
       "field": "stop_opacity",
       "codec": "f32",
       "default": 1
     },
     {
-      "bit": 126,
+      "bit": 123,
       "field": "paint_order",
       "codec": "paint-order",
       "inherited": true,
       "_comment": "SVG 2 paint-order: normal, or fill/stroke/markers in an order."
     },
     {
-      "bit": 127,
+      "bit": 124,
       "field": "clip_rule",
       "codec": "enum:ClipRule",
       "inherited": true,
       "_comment": "@ref LLP 1055.000 D10: SVG 2 clip-rule."
     },
     {
-      "bit": 128,
+      "bit": 125,
       "field": "text_anchor",
       "codec": "enum:TextAnchor",
       "inherited": true,
       "_comment": "@ref LLP 1055.000 D11: SVG 2 text-anchor and dominant-baseline, inherited."
     },
     {
-      "bit": 129,
+      "bit": 126,
       "field": "dominant_baseline",
       "codec": "enum:DominantBaseline",
       "inherited": true
     },
     {
-      "bit": 130,
+      "bit": 127,
       "field": "pointer_events",
       "codec": "enum:PointerEvents",
       "inherited": true,
       "_comment": "@ref LLP 1055.000 D17: SVG 2 pointer-events on SVG elements (auto is visiblePainted)."
     },
     {
-      "bit": 131,
+      "bit": 128,
       "field": "marker_start",
       "codec": "marker",
       "inherited": true,
       "_comment": "@ref LLP 1055.000 D9: SVG 2 marker-start, marker-mid and marker-end: none or url(#id), inherited."
     },
     {
-      "bit": 132,
+      "bit": 129,
       "field": "marker_mid",
       "codec": "marker",
       "inherited": true
     },
     {
-      "bit": 133,
+      "bit": 130,
       "field": "marker_end",
       "codec": "marker",
       "inherited": true
     },
     {
-      "bit": 134,
+      "bit": 131,
       "field": "svg_mask",
       "codec": "marker",
       "_comment": "@ref LLP 1055.000 D10: CSS `mask` on SVG elements: none or url(#id) naming a `mask` (the CSS property is `mask`; `mask` is the row mask's own name here)."
     },
     {
-      "bit": 135,
+      "bit": 132,
       "field": "mask_type",
       "codec": "enum:MaskType",
       "_comment": "@ref LLP 1055.000 D10: CSS Masking `mask-type` on a `mask` element."
     },
     {
-      "bit": 136,
+      "bit": 133,
       "field": "filter",
       "codec": "filter",
       "_comment": "@ref LLP 1055.000 D14: CSS `filter` on SVG elements: none, url(#id) and the filter functions, in order."
     },
     {
-      "bit": 137,
+      "bit": 134,
       "field": "flood_color",
       "codec": "paint",
       "default": "black",
       "_comment": "@ref LLP 1055.000 D14: flood-color and flood-opacity (feFlood, feDropShadow), lighting-color, not inherited; color-interpolation-filters, inherited."
     },
     {
-      "bit": 138,
+      "bit": 135,
       "field": "flood_opacity",
       "codec": "f32",
       "default": 1
     },
     {
-      "bit": 139,
+      "bit": 136,
       "field": "lighting_color",
       "codec": "paint",
       "default": "white"
     },
     {
-      "bit": 140,
+      "bit": 137,
       "field": "color_interpolation_filters",
       "codec": "enum:ColorInterpolationFilters",
       "inherited": true
     },
     {
-      "bit": 141,
+      "bit": 138,
       "field": "mix_blend_mode",
       "codec": "enum:MixBlendMode",
       "_comment": "@ref LLP 1055.000 D19, \u00a78 ruling 6: mix-blend-mode and isolation on SVG elements; the web, macOS and Linux blend, iOS declares it unsupported."
     },
     {
-      "bit": 142,
+      "bit": 139,
       "field": "isolation",
       "codec": "enum:Isolation"
     },
     {
-      "bit": 143,
+      "bit": 140,
       "field": "text_transform",
       "codec": "enum:TextTransform",
       "inherited": true,
@@ -2705,33 +2774,33 @@
       "layout": true
     },
     {
-      "bit": 144,
+      "bit": 141,
       "field": "background_image",
       "codec": "background-image",
       "_comment": "@ref LLP 1066: CSS `background-image` — `none`, or one linear-gradient()/radial-gradient(). Painted over background-color, clipped as the background is."
     },
     {
-      "bit": 145,
+      "bit": 142,
       "field": "exit_animation",
       "codec": "animations",
       "ends": true,
       "_comment": "@ref LLP 1063: an `animation` the node plays as it leaves; the outermost removed node stays as a ghost until it ends, so every one must end. Grammar: `_animations`."
     },
     {
-      "bit": 146,
+      "bit": 143,
       "field": "layout_transition",
       "codec": "transitions",
       "_comment": "@ref LLP 1063: how the node's laid-out origin in its parent moves when layout moves it; the last declaration naming no property governs. Grammar: `_transitions`."
     },
     {
-      "bit": 147,
+      "bit": 144,
       "field": "press_scale",
       "codec": "f32",
       "default": 1,
       "_comment": "@ref LLP 1061 D1: the uniform scale a node shows while a pointer holds it pressed, about `transform-origin`; 1 is none. Not CSS: the host owns the feedback (no runner round trip), eased in 120 ms, and keeps it under reduced motion. It composes with, never replaces, the `scale` row."
     },
     {
-      "bit": 148,
+      "bit": 145,
       "field": "accent_color",
       "codec": "auto-color",
       "inherited": true,
@@ -2739,34 +2808,164 @@
       "_comment": "@ref LLP 1069.001 D6: CSS `accent-color`, the tint of a form control (a checkbox's fill, a switch's on track); auto is the platform's."
     },
     {
-      "bit": 149,
+      "bit": 146,
       "field": "appearance",
       "codec": "enum:Appearance",
       "_comment": "@ref LLP 1069.001 D6: CSS `appearance`; auto draws the platform's control, none hands the look to the author's box. Not inherited, as in CSS."
     },
     {
-      "bit": 150,
+      "bit": 147,
       "field": "drag_timeline",
       "codec": "drag-timeline",
       "_comment": "@ref LLP 1057.003 D1: `none | <dashed-ident> [x | y]?`, a timeline the node's presented translate drives (a drag's held value, then its release spring); CSS scroll-timeline's shape with a drag as its source, a deviation LLP 1001 declares."
     },
     {
-      "bit": 151,
+      "bit": 148,
       "field": "animation_timeline",
       "codec": "animation-timeline",
       "_comment": "@ref LLP 1057.003 D1: CSS `animation-timeline`, `auto | <dashed-ident>`: the node's animations are held at the named drag timeline's progress, never played on the clock."
     },
     {
-      "bit": 152,
+      "bit": 149,
       "field": "animation_range",
       "codec": "animation-range",
       "_comment": "@ref LLP 1057.003 D1: CSS `animation-range`, `normal | <length> <length>`: where on the timeline the animations run 0% to 100%."
     },
     {
-      "bit": 153,
+      "bit": 150,
       "field": "timeline_scope",
       "codec": "timeline-scope",
       "_comment": "@ref LLP 1057.003 D4: CSS `timeline-scope`, `none | all | <dashed-ident>#`: names a timeline declared below the node (its single declaring descendant, else an inactive timeline) in scope for the node's subtree. Not inherited, as in CSS."
+    },
+    {
+      "bit": 151,
+      "field": "text_shadow",
+      "codec": "text-shadow",
+      "inherited": true,
+      "_comment": "@ref LLP 1077 D3: CSS `text-shadow`, `none` or one shadow (no list, no spread), under the glyphs and decorations; a missing colour is currentcolor. Inherited, as in CSS."
+    },
+    {
+      "bit": 152,
+      "field": "mask_image",
+      "codec": "mask-image",
+      "_comment": "@ref LLP 1077 D2: CSS `mask-image`, `none` or one gradient in background-image's grammar (LLP 1066), its alpha over the border box. Not inherited."
+    },
+    {
+      "bit": 153,
+      "field": "corner_shape",
+      "codec": "corner-shape",
+      "_comment": "@ref LLP 1077 D1: CSS `corner-shape`, one to four of round | squircle | square | bevel | scoop | notch | superellipse(K), plus -apple-continuous (Apple's continuous curve on every host; declared in LLP 1001). Shapes the corners `border-radius` sizes."
+    },
+    {
+      "bit": 154,
+      "field": "text_stroke_width",
+      "codec": "f32",
+      "default": 0,
+      "inherited": true,
+      "_comment": "@ref LLP 1077 D7: the Compat Standard's `-webkit-text-stroke-width`, a width in px centred on the glyphs' outlines and painted over their fill; 0 is none. Inherited, as in Compat."
+    },
+    {
+      "bit": 155,
+      "field": "text_stroke_color",
+      "codec": "current-color",
+      "default": "currentcolor",
+      "inherited": true,
+      "_comment": "@ref LLP 1077 D7: `-webkit-text-stroke-color`, initial currentcolor. Inherited."
+    },
+    {
+      "bit": 156,
+      "field": "background_clip",
+      "codec": "enum:BackgroundClip",
+      "_comment": "@ref LLP 1077 D6: CSS `background-clip`: the background colour and image painted within the border box (initial), the padding box, the content box, or the glyphs of the node's own text. Not inherited."
+    },
+    {
+      "bit": 157,
+      "field": "rotate_axis",
+      "codec": "rotate-axis",
+      "_comment": "@ref LLP 1077 D8: the axis of CSS `rotate` (`x`, `y`, `z` or three numbers), set with `rotate`'s angle by the one `rotate` attribute; initial z. The angle is `rotate` (bit 62), which the engine animates."
+    },
+    {
+      "bit": 158,
+      "field": "translate_z",
+      "codec": "f32",
+      "default": 0,
+      "_comment": "@ref LLP 1077 D8: CSS `translate`'s third length, px, set with x and y by the one `translate` attribute."
+    },
+    {
+      "bit": 159,
+      "field": "perspective",
+      "codec": "f32",
+      "default": 0,
+      "_comment": "@ref LLP 1077 D8: CSS `perspective`, px; 0 is `none`. On the parent: it projects its children's 3D transforms."
+    },
+    {
+      "bit": 160,
+      "field": "perspective_origin",
+      "codec": "transform-origin",
+      "_comment": "@ref LLP 1077 D8: CSS `perspective-origin`, the vanishing point in the parent's box; initial 50% 50%."
+    },
+    {
+      "bit": 161,
+      "field": "backface_visibility",
+      "codec": "enum:BackfaceVisibility",
+      "_comment": "@ref LLP 1077 D8: CSS `backface-visibility`: a hidden box turned away from the viewer paints nothing."
+    },
+    {
+      "bit": 162,
+      "field": "symbol_rendering",
+      "codec": "enum:SymbolRendering",
+      "inherited": true,
+      "_comment": "@ref LLP 1077 D10: not CSS. How an SF Symbol draws: monochrome (in `color`), hierarchical, palette (`symbol-palette`), or multicolor. Inherited, as SwiftUI's environment is; the web draws monochrome."
+    },
+    {
+      "bit": 163,
+      "field": "symbol_palette",
+      "codec": "symbol-palette",
+      "inherited": true,
+      "_comment": "@ref LLP 1077 D10: not CSS. A symbol's palette, one to three colours, under `symbol-rendering: palette`. Inherited."
+    },
+    {
+      "bit": 164,
+      "field": "symbol_value",
+      "codec": "f32",
+      "default": -1,
+      "_comment": "@ref LLP 1077 D11: not CSS. A variable symbol's value, 0 to 1 (Wi-Fi bars, volume); `none` (-1) draws it whole."
+    },
+    {
+      "bit": 165,
+      "field": "symbol_effect",
+      "codec": "enum:SymbolEffect",
+      "_comment": "@ref LLP 1077 D12: not CSS. An SF Symbol effect: a continuing one (pulse, breathe, rotate, variable-color, scale) plays while set; a discrete one (bounce, wiggle) plays each time `symbolEffectValue` changes; replace plays when the source changes."
+    },
+    {
+      "bit": 166,
+      "field": "press_haptic",
+      "codec": "enum:PressHaptic",
+      "_comment": "@ref LLP 1077 D14: not CSS. Host-owned feedback when a pointer presses the node, as `press-scale` is (no runner round trip): a selection tick or an impact."
+    },
+    {
+      "bit": 167,
+      "field": "content_transition",
+      "codec": "enum:ContentTransition",
+      "_comment": "@ref LLP 1077 D15: not CSS. How a text's digits change: numeric rolls each changed digit (up, or down for numeric-countdown)."
+    },
+    {
+      "bit": 168,
+      "field": "scroll_edge_effect",
+      "codec": "enum:ScrollEdgeEffect",
+      "_comment": "@ref LLP 1077 D16: not CSS. A scroll container's edge effect where content meets a bar (iOS 26): automatic, soft, hard or none."
+    },
+    {
+      "bit": 169,
+      "field": "hover_effect",
+      "codec": "enum:HoverEffect",
+      "_comment": "@ref LLP 1077 D17: not CSS. The iPad pointer's effect over the node: highlight, lift or hover; auto is the platform's."
+    },
+    {
+      "bit": 170,
+      "field": "smart_invert",
+      "codec": "enum:SmartInvert",
+      "_comment": "@ref LLP 1077 D18: not CSS. Whether Smart Invert leaves the node's pixels alone: auto ignores images, video and canvases; ignore leaves any node's."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

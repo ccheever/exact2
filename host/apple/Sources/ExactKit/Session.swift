@@ -957,6 +957,11 @@ public final class ExactSession {
                     #endif
                     continue
                 }
+                if name == "haptic" {
+                    // @ref LLP 1077 D14 — feedback from app logic.
+                    app.deliver { Haptics.play(args.first as? String ?? "") }
+                    continue
+                }
                 if name == "share" {
                     app.deliver { [weak self] in self?.share(args, source: source) }
                     continue

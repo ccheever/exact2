@@ -227,7 +227,7 @@ extension NodeView {
         // does (LLP 1053 G5): a label stretched across a row rasters its text,
         // not a backing store of the row's width. A `line-clamp`'s last line
         // is made again from the range it broke at (`LineGeometry.clamped`).
-        guard isParagraph && flowShapes.isEmpty && !Capture.capturing && window != nil
+        guard isParagraph && flowShapes.isEmpty && !Capture.capturing && window != nil && backgroundClip != "text"
             && bounds.width > 0 && bounds.height > 0 else { return false }
         return canvasAbove == nil
     }
@@ -256,12 +256,12 @@ extension NodeView {
         // the next frame's changes, rather than alone.
         let ink = textRasterLayer ?? InkLayer()
         // Above the box's border (`applyBoxLayer`), under everything else.
-        if ink.superlayer == nil {
-            if let border = boxBorder { layer.insertSublayer(ink, above: border) } else { layer.insertSublayer(ink, at: 0) }
-        }
+        if ink.superlayer == nil { textRasterLayer = ink; insertBoxSublayer(ink) }
         ink.frame = result.frame
         ink.contentsScale = key.scale
+        NumeralRoll.roll(ink, node: self)
         ink.contents = result.image
+        TextShadowLayer.apply(key.spec.shadow, to: ink)
         textRasterLayer = ink
     }
     func dropTextRaster() {

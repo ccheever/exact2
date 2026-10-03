@@ -130,10 +130,7 @@ fn tree() -> (Kernel, exact_kernel::CommitReceipt) {
             id: 2,
             patch: patch(&[
                 (StyleId::BackgroundColor, "light-dark(#ffffff, #000000)"),
-                (StyleId::ShadowColor, "0 4px 12px #00000080"),
-                (StyleId::ShadowOffset, "0 4px 12px #00000080"),
-                (StyleId::ShadowRadius, "0 4px 12px #00000080"),
-                (StyleId::ShadowOpacity, "0 4px 12px #00000080"),
+                (StyleId::BoxShadow, "0 4px 12px #00000080"),
                 (
                     StyleId::Transition,
                     "background-color 200ms, color 1s, border-color 1s, box-shadow 320ms",
