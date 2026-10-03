@@ -897,10 +897,8 @@ function applyBatch(batch) {
     // What the ops since the last marker started belongs to that marker's
     // time — register before the clock moves on to where the batch landed.
     register(agentClock);
-    const moved = batch.clock != null && batch.clock > agentClock;
-    if (moved) agentClock = batch.clock;
-    // A same-clock seek registers the batch's animations; its timelines op,
-    // not the agent, owns post-commit reconciliation.
+    const moved = batch.clock != null && batch.clock > agentClock; if (moved) agentClock = batch.clock;
+    // A same-clock seek registers the batch's animations; its timelines op, not the agent, owns post-commit reconciliation.
     followOnSeek = moved; try { seek(agentClock); } finally { followOnSeek = true; }
     if (timelinesMoved) motion.followTimelines(); arrange.commit();
   } else if (timelinesMoved) motion.followTimelines(); // a boot or commit while drag timelines are bound (LLP 1057.003 D4); the agent's seek follows them
