@@ -1,9 +1,17 @@
 {
+  "ticks": {
+    "0": "0x828be9d37d1f3469",
+    "4500": "0xcc809bc72cd80213"
+  },
+  "saves": {
+    "night": "df2abecafe5396b55141ec391ebfaf6ffe32ad6aa8dc41bf7fc8e9ec613c291d"
+  },
+  "hosts": [
+    "linux",
+    "web"
+  ],
+  "inputs": "0162cfc71d26842ef5fe9aa3b351f8a3299168ef7555a3f9ca40251dc1f7dee0",
   "game": "forest",
-  "ticks": {},
-  "saves": {},
-  "hosts": [],
-  "generated": "bun game/prove.mjs forest",
-  "at": "unverified",
-  "help": "First baseline: bun game/prove.mjs forest; changed golden: add --repin. Empty pins fail ordinary proofs."
+  "generated": "bun game/prove.mjs forest --hosts 'linux,web'",
+  "at": "7122b127630e5178f702665a0de71d56a99d9b9a"
 }

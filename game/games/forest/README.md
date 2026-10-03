@@ -1,52 +1,52 @@
-# Forest
+# Forest — 99 Nights in the Forest, greybox
 
-`bun proof.mjs` verifies gameplay, Contract text/accessibility and saves on the GPU-less Linux host. `bun proof.mjs web` adds pixels. First run `bun '../../prove.mjs' .` to fill empty pins after every mode and host agrees; accept later intentional changes with `--repin`.
+A clone of the Roblox game aimed at the engine's limits: world scale, light and
+atmosphere, many agents. The findings are in
+[the diary](../../diaries/005-forest.md).
 
-Rust hostless tests read simulation time with `sim.world().now()` and save with
-`sim.save()`. JavaScript app proofs inspect the running host with
-`await session.world('world').snapshot()`.
+```sh
+bun game/dev.mjs forest                       # play
+bun game/prove.mjs forest                     # verify against pins.json
+bun game/games/forest/proof.mjs web           # pixels: artifacts/web/day.png, night.png
+bun game/app/shells.mjs game/games/forest --test
+```
 
-The simulation defaults to 120 Hz: the measured 60 Hz tick-wait p95 was about 17 ms. Choosing 60 Hz is an explicit latency/CPU trade, not the starter default.
+## Playing
 
-The canvas binds `world(seed=7, paused=paused, restart=again)` by the names in
-`Options`. Reorder these arguments freely; omitted fields use `Options::default()`.
-`world()` takes every default; short positional calls take the remaining defaults.
-Raw host JSON key order is not a hash input.
+WASD moves. **E** chops the tree in reach (three blows; it drops two logs), picks up
+a log, scrap or food (five at most, stacked on your back), feeds the fire when you
+stand at it, or takes a lost child by the hand. **Q** eats. **F** toggles the
+flashlight. Days are 80 s and nights 50 s.
 
-Capture the picture below with `bun proof.mjs web --screenshot-only` at `artifacts/web/game.png`.
-This reports `UNVERIFIED` because it skips gameplay checks; `bun proof.mjs web` runs the full browser proof.
-The grid, sky-colored height fog, sun shadows, beacon pads and bloom are starter defaults.
-Victory uses the beacon count from setup; extending the Rust scene list needs no Contract edit.
-Gameplay reloads preserve the running world. To apply edits inside `setup`, pause
-and choose **Restart**; setup runs again and play resumes from the beginning.
-`Glow(Tween)` on a `Material::glow` mesh is sampled by the renderer at frame time;
-the tick only retargets the tween. The scene steps `Follow` after your tick.
-`scene::follow(w)` remains optional when you need to choose an earlier ordering.
+The fire burns its fuel; its light and the safe radius shrink with it (4 m plus
+0.2 m per fuel point). At night the Deer comes out at the edge of the light. It
+will not enter the light; outside it, it closes in and charges. Hold the flashlight
+on it for 0.6 s to stun it. Wolves roam in packs and bite outside the light, and
+they scatter from the flashlight. Hunger drains; starving costs health, and the
+fire heals you and recharges the flashlight. Bring both children into the light.
+The HUD counts the nights you survive.
 
-![Starter proof capture](artifacts/web/game.png)
+The title chooses the size of the forest (1k–250k trees; the world grows to keep
+the density), the wolf count, extra torch lights, Rapier or grid collision against
+trunks, and generated pines or primitive trees. These are canvas arguments, so a
+choice rebuilds the world.
 
-One `nearest_xz_mut` result supplies both the lighting write and the HUD name;
-`w.count::<Beacon>(|b| b.lit)` supplies the total. The proof checks W against
-`d = a*m*(m+1)/(2*h*h) + (n-m)*v/h`, where `m=min(n,floor(v*h/a))`.
-Character uses constant acceleration up to its speed limit, so this is the sum
-of its semi-implicit velocity steps, with a 1 mm float tolerance. Hash pins still
-check the exact saved simulation. Space and Enter on the focused Pause button
-activate that button without reaching the world.
+## How it is built
 
-This game is the files you write: `logic/src/lib.rs`, `app.contract` and
-`proof.mjs`, with `logic/tests/` for hostless tests and the tool-written
-`pins.json`. Identity derives from the directory name and `Game::ID`; add an
-`app.json` only for keys you author (a title, `game.audio`, a bundle id). The
-bake generates everything else, ignored, under `.shells/`. Linux proofs use the
-incremental `gpu-dev` profile; web, Apple and deploy retain their production
-profiles. `EXACT_GAME_PROOF_PROFILE=release bun proof.mjs` checks Linux against
-release without changing the game.
+- `forest.rs`: one tree at most per 5 m cell, placed by selection sampling. The
+  `Grove` resource keeps per-cell positions and hit points, so collision, steering
+  and chopping visit the 3×3 cells around a point instead of every tree. Trees are
+  instances of one generated pine model, or a trunk and crown of primitives.
+- `camp.rs`: the cycle, the sky (`Environment` is written only when it changes),
+  the sun moving into a dim blue moon, and the fire's point light. Point
+  intensities are authored in the sun's units (`CANDELA`): the renderer passes
+  `PointLight.intensity` through unscaled.
+- `creatures.rs`: the Deer and the wolves are state machines over grid steering.
+  The flashlight is a cone test against the player's facing; there is no spotlight,
+  so its light is a point light pushed ahead of the player.
+- `player.rs`: Rapier's `CapsuleController` against trunk colliders, or the same
+  grid push-out the creatures use (`lite`), plus needs, carrying and children.
 
-Run the Rust tests, from a fresh clone too, with
-`bun '../../app/shells.mjs' . --test`: it generates `.shells/`,
-resolves against the SDK's lock offline and locked, and checks the SDK's
-determinism lints (exact2's `game/README.md`, "Determinism — the contract").
-To depend on another crate, write `logic/Cargo.toml` (`package.workspace =
-"../.shells"`, SDK crates as `exact-game.workspace = true`), then capture
-this game's own lock with `bun '../../app/shells.mjs' . --update-lock`
-and commit `Cargo.lock`.
+`logic/examples/scale.rs` and `bench.mjs` are the measuring tools behind the
+diary's tables: hostless tick, save and restore costs, and live frame costs in
+headless Chrome.
