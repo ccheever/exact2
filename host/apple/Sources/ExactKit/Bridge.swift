@@ -321,6 +321,8 @@ final class Runtime {
         }
     }
     func dblclick(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 11, 0, now)) } }
+    /// `pointerdown` (29) or `pointerup` (30), LLP 1005 §3.
+    func pointer(_ view: UInt32, down: Bool, now: Double) -> Batch { on { read(exact_dispatch(rt, view, down ? 29 : 30, 0, now)) } }
     func submit(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 7, 0, now)) } }
     func media(_ view: UInt32, event: String, payload: String, now: Double) -> Batch {
         return on {

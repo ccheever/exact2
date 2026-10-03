@@ -214,6 +214,12 @@ pub enum Event {
     Contextmenu,
     /// A double click, or the platform’s double tap.
     Dblclick,
+    /// A touch or primary button went down on the view (DOM's
+    /// `pointerdown`), before any gesture is recognized (LLP 1005 §3).
+    Pointerdown,
+    /// That touch or button came up, or the platform cancelled it (DOM's
+    /// `pointerup`; a `pointercancel` is delivered as one).
+    Pointerup,
     /// A platform-recognized right swipe.
     Swiperight,
     /// A pull past the top of a scroll container asked for fresh content
@@ -769,6 +775,8 @@ impl<D: DataSource> Runner<D> {
                 Event::Message(_) => "message",
                 Event::Contextmenu => "contextmenu",
                 Event::Dblclick => "dblclick",
+                Event::Pointerdown => "pointerdown",
+                Event::Pointerup => "pointerup",
                 Event::Swiperight => "swiperight",
                 Event::Refresh => "refresh",
                 Event::Scroll(_, _) => "scroll",
@@ -851,6 +859,8 @@ impl<D: DataSource> Runner<D> {
             Event::Message(message) => (EventKind::Message, Some(Value::str(message)), "message"),
             Event::Contextmenu => (EventKind::Contextmenu, None, "contextmenu"),
             Event::Dblclick => (EventKind::Dblclick, None, "dblclick"),
+            Event::Pointerdown => (EventKind::Pointerdown, None, "pointerdown"),
+            Event::Pointerup => (EventKind::Pointerup, None, "pointerup"),
             Event::Swiperight => (EventKind::Swiperight, None, "swiperight"),
             Event::Refresh => (EventKind::Refresh, None, "refresh"),
             Event::Scroll(_, _) => (EventKind::Scroll, None, "scroll"),

@@ -424,6 +424,8 @@ fn refine_params_from_view(
                             | "message"
                             | "contextmenu"
                             | "dblclick"
+                            | "pointerdown"
+                            | "pointerup"
                             | "swiperight"
                             | "refresh"
                             | "reachstart"

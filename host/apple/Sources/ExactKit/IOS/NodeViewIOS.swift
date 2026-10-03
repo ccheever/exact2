@@ -170,6 +170,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             removeGestureRecognizer(g)
             doubleRecognizer = nil
         }
+        syncPointerRecognizer()
     }
     @objc func openContext(_ gesture: UILongPressGestureRecognizer) {
         guard gesture.state == .began, !disabled else { return }

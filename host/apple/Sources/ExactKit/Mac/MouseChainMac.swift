@@ -112,6 +112,28 @@ extension NodeView {
         }
         return nil
     }
+    /// `pointerdown` (LLP 1005 §3): the primary button down on the innermost
+    /// enabled node from here up that hears `pointerdown` or `pointerup`;
+    /// it is held until the button comes up, wherever that is.
+    func pointerPressed() {
+        guard let presenter, presenter.pointerHeld == nil else { return }
+        var next: NSView? = self
+        while let view = next {
+            if let node = view as? NodeView, node.handlers.contains("pointerdown") || node.handlers.contains("pointerup") {
+                guard !node.disabled else { return }
+                presenter.pointerHeld = node.id
+                if node.handlers.contains("pointerdown") { presenter.pointer(node.id, down: true) }
+                return
+            }
+            next = view.superview
+        }
+    }
+    /// `pointerup` for the node the button went down on.
+    func pointerReleased() {
+        guard let presenter, let held = presenter.pointerHeld else { return }
+        presenter.pointerHeld = nil
+        if let node = presenter.views[held], node.handlers.contains("pointerup") { presenter.pointer(held, down: false) }
+    }
     func dispatchDblclick(_ node: NodeView?) {
         guard let node, let presenter = node.presenter, presenter.views[node.id] === node, !node.disabled else { return }
         presenter.dblclick(node.id)

@@ -36,6 +36,29 @@ final class GesturePrecedenceMacTests: XCTestCase {
         XCTAssertEqual(MouseChain.ordered([nil, nil, nil, nil, nil]), [])
     }
 
+    /// LLP 1005 §3: the button down on a child reaches the nearest node
+    /// hearing `pointerdown`/`pointerup`, down before the press, up when it
+    /// lifts, as the web's order has it.
+    func testPointerDownAndUpReachTheNearestPointerNodeAroundThePress() {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "button", "handlers": ["press", "pointerdown", "pointerup"]],
+            ["op": "create", "id": 2, "kind": "view"],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0],
+            ["op": "frame", "id": 2, "x": 10.0, "y": 10.0, "w": 50.0, "h": 50.0]
+        ])
+        var log: [String] = []
+        p.onPress = { log.append("press \($0)") }
+        p.onPointer = { id, down in log.append("\(down ? "down" : "up") \(id)") }
+        let child = p.views[2]!
+        child.mouseDown(with: event(.leftMouseDown, child))
+        XCTAssertEqual(log, ["down 1"], "before any press")
+        child.mouseUp(with: event(.leftMouseUp, child))
+        XCTAssertEqual(log, ["down 1", "up 1", "press 1"])
+        XCTAssertNil(p.pointerHeld)
+    }
+
     func testDoubleClickPressesTwiceThenDoubleClicks() {
         let p = host([
             ["op": "create", "id": 1, "kind": "view", "handlers": ["press", "dblclick"]],

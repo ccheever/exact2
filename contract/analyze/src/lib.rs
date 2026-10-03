@@ -282,7 +282,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 40] = [
+pub const HANDLERS: [&str; 42] = [
     "press",
     "change",
     "input",
@@ -298,6 +298,10 @@ pub const HANDLERS: [&str; 40] = [
     "message",
     "contextmenu",
     "dblclick",
+    // A touch or button went down on the node, and came up or was cancelled
+    // (DOM's names; Charlie, 2026-10-03: hold-to-record, LLP 1005 §3).
+    "pointerdown",
+    "pointerup",
     "swiperight",
     "refresh",
     "scroll",

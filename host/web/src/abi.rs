@@ -486,6 +486,9 @@ impl<D: DataSource> Bridge<D> {
             9 => Event::Message(payload),
             10 => Event::Contextmenu,
             11 => Event::Dblclick,
+            // @ref LLP 1005 §3 — pointer down and up (Charlie, 2026-10-03).
+            29 => Event::Pointerdown,
+            30 => Event::Pointerup,
             12 => Event::Swiperight,
             // Scroll, media, pan, selection and pan release (LLP 1057 §10.6).
             13 | 19 | 20 | 21 | 28 => match Event::of_host_kind(kind, &payload) {

@@ -472,6 +472,36 @@ reorder, `when` flip, timers, commands, refusals leave the kernel untouched,
 schema mismatch), the `math` pins. All under `cargo test --workspace`; clippy
 `-D warnings`, fmt, wasm, and `caps` green on 2026-08-28.
 
+**`pointerdown` and `pointerup`** (2026-10-03, Charlie: yes, with the Signal
+Clone's hold-to-record mic as the consumer; DEFERRED under Motion's gesture
+arena). These are DOM's names for a touch or the primary button going down on
+a node, and coming up or being cancelled. A cancel is delivered as
+`pointerup`, so an action that started something always hears the end.
+Neither carries a payload, and neither is recognized: the down fires before
+any gesture has decided, and both sit beside `press`, `pan` and
+`contextmenu` without taking anything from them. On the web a cancel is
+DOM's `pointercancel`. DOM's order holds: down, up, then the click's
+`press`. The innermost node that hears either one takes the pointer, and its
+up arrives wherever the pointer lifts (a pointer capture on the web; AppKit's
+own mouse-up routing; the touch on UIKit).
+- **Web** (`glue.js` with `input-glue.js` `pointer`; the JS target's
+  `pointer.js`): the element's own events.
+- **iOS** (`IOS/PointerIOS.swift`): a gesture recognizer that only observes.
+  It never recognizes and can neither prevent nor be prevented, so a press,
+  a pan, a long press and the scroll view keep their touches.
+- **macOS** (`MouseChainMac`): `mouseDown`/`mouseUp`, on the innermost
+  enabled node from the hit view up, held on the presenter until the button
+  comes up.
+- **Linux:** not built; the events never fire.
+- **ABI:** dispatch kinds 29 and 30.
+- **Agent:** `tap` remains an activation (`press`). The pointer events are
+  driven by real touches (LLP 1080.000's `touch: platform`) or by the hosts'
+  tests.
+
+Tests: `contract/cli/tests/it/pointer.rs` (the runner and DOM's order),
+`testAPointerNodeObservesItsTouchWithoutPreventingAnything` (iOS), and
+`testPointerDownAndUpReachTheNearestPointerNodeAroundThePress` (macOS).
+
 `swiperight` is the next EventKind after `dblclick`: a recognized, payload-free
 host event. It preserves authored action arguments and journals once on a
 completed swipe. Move/cancel samples do not enter the runner.

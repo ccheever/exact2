@@ -29,6 +29,34 @@ final class GesturePrecedenceIOSTests: XCTestCase {
         wait(for: [turn], timeout: 1)
     }
 
+    /// LLP 1005 §3: a node hearing `pointerdown`/`pointerup` carries an
+    /// observer that never recognizes, so it takes nothing from a press or a
+    /// scroll; its touch down and up are the two events.
+    func testAPointerNodeObservesItsTouchWithoutPreventingAnything() throws {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "button", "handlers": ["press", "pointerdown", "pointerup"]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0]
+        ])
+        var log: [String] = []
+        p.onPointer = { id, down in log.append("\(down ? "down" : "up") \(id)") }
+        let node = try XCTUnwrap(p.views[1])
+        let g = try XCTUnwrap(node.gestureRecognizers?.compactMap { $0 as? PointerRecognizer }.first)
+        XCTAssertFalse(g.cancelsTouchesInView)
+        XCTAssertFalse(g.canPrevent(UIPanGestureRecognizer()))
+        XCTAssertFalse(g.canBePrevented(by: UIPanGestureRecognizer()))
+        let touch = UITouch()
+        g.touchesBegan([touch], with: UIEvent())
+        XCTAssertEqual(log, ["down 1"])
+        g.touchesMoved([touch], with: UIEvent())
+        g.touchesCancelled([touch], with: UIEvent())
+        XCTAssertEqual(log, ["down 1", "up 1"], "a cancel is an up")
+        // Without the handlers the observer goes.
+        node.handlers = ["press"]
+        node.updateContextGestures()
+        XCTAssertNil(node.gestureRecognizers?.first { $0 is PointerRecognizer })
+    }
+
     func testTheSecondTapStillPressesAndDblclickComesAfterIt() throws {
         let p = host([
             ["op": "create", "id": 1, "kind": "view", "handlers": ["press", "dblclick"]],

@@ -1322,6 +1322,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
     override func mouseDown(with event: NSEvent) {
         guard !inert else { return }
+        pointerPressed()
         if isSurfaceControl { _ = control("down", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "down") == true { return }
         presenter?.leaves.pressed(self) // a held leaf's box was clicked: made now (LLP 1068 §5.1)
@@ -1378,6 +1379,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         presenter?.contextmenu(id)
     }
     override func mouseUp(with event: NSEvent) {
+        pointerReleased()
         guard !inert else { return }
         if isSurfaceControl || ownsSurfaceControl { _ = control("up", point: local(event.locationInWindow), timestamp: event.timestamp); finishPointerPress(); return }
         if canvasInput?.pointer(event, phase: "up") == true { return }

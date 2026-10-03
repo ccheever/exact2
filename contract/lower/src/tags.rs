@@ -567,6 +567,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "message" => AttrTarget::Handler("message"),
         "contextmenu" => AttrTarget::Handler("contextmenu"),
         "dblclick" => AttrTarget::Handler("dblclick"),
+        // @ref LLP 1005 §3 — DOM's pointer down and up (a cancel is an up).
+        "pointerdown" => AttrTarget::Handler("pointerdown"),
+        "pointerup" => AttrTarget::Handler("pointerup"),
         "reachstart" => AttrTarget::Handler("reachstart"),
         "reachend" => AttrTarget::Handler("reachend"),
         "swiperight" => AttrTarget::Handler("swiperight"),

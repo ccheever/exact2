@@ -1191,6 +1191,8 @@ impl Em<'_> {
                 | EventKind::Message
                 | EventKind::Contextmenu
                 | EventKind::Dblclick
+                | EventKind::Pointerdown
+                | EventKind::Pointerup
                 | EventKind::Play
                 | EventKind::Playing
                 | EventKind::Pause

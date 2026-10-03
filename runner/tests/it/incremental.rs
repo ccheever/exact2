@@ -201,6 +201,8 @@ fn event(rng: &mut Rng, kind: EventKind) -> Option<Event> {
         EventKind::Message => Event::Message(text(rng)),
         EventKind::Contextmenu => Event::Contextmenu,
         EventKind::Dblclick => Event::Dblclick,
+        EventKind::Pointerdown => Event::Pointerdown,
+        EventKind::Pointerup => Event::Pointerup,
         EventKind::Swiperight => Event::Swiperight,
         EventKind::Scroll => Event::Scroll(0.0, (rng.below(5) * 40) as f64),
         EventKind::Navigate => Event::Navigate(rng.pick(&["/", "/t/1", "/nowhere"]).to_string()),

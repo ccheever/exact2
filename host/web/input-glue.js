@@ -109,6 +109,22 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   }, true);
   for (const type of ["pointerup", "pointercancel"]) document.addEventListener(type, e => { if (e.pointerId === press?.id) release(); }, true);
   return {
+    // @ref LLP 1005 §3 — `pointerdown`/`pointerup`, DOM's own: the primary
+    // button or a touch going down on the node, then up or cancelled (a
+    // cancel is an up), held through a pointer capture so the up arrives
+    // wherever it lifts. `fire(29)` is down, `fire(30)` up.
+    pointer(el, on, fire) {
+      let held = null;
+      const wants = kind => el.exactHandlers?.includes(kind);
+      const up = e => { if (e.pointerId !== held) return; held = null; if (wants("pointerup")) fire(30); };
+      on("pointerup", up); on("pointercancel", up);
+      return e => {
+        if (e.button !== 0 || held !== null || el.matches(":disabled") || inertAncestor(el)) return;
+        held = e.pointerId;
+        if (wants("pointerup")) { try { el.setPointerCapture(e.pointerId); } catch {} }
+        if (wants("pointerdown")) fire(29);
+      };
+    },
     pan(el, id, on) {
       // @ref LLP 1043.000 §3 D8: one coalesced action per display frame.
       // LLP 1057.001 §1: an inner swipe that is still deciding (its pointer

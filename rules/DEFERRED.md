@@ -395,6 +395,14 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   Unblocks throwing what a `pan` drags by state, a card flung off a stack
   (`apps/spark`, admitted with it). Take: none: this is 1057 phase 2's item
   with its consumer. Still no phases, pointer ids or per-frame callbacks.
+  **Expanded (Charlie, 2026-10-03: yes to `pointerdown`/`pointerup`):** DOM's
+  two events, a touch or the primary button going down on a node and coming
+  up (a cancel is an up), with no payload and no recognition. They observe
+  beside `press`, `pan` and `contextmenu` and take nothing from them (LLP 1005
+  §Events). The Signal Clone's hold-to-record mic is the consumer: recording
+  starts the moment the finger lands. Unblocks hold-to-act controls. Take:
+  none offered; waived by Charlie's approval. Still no pointer coordinates,
+  moves, ids or multi-touch.
   **Expanded (Charlie, 2026-09-29: "Yeah add the every frame task"; take
   waived, none offered; waiver confirmed by Charlie 2026-09-30):** one root task form, `every(frame, action)`
   (LLP 1073): the action once per presented frame, never caught up, and on
