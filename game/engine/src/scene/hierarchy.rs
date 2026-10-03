@@ -110,6 +110,18 @@ impl Hierarchy {
         out.sort_by_key(|e| e.index());
         Some(out)
     }
+    /// Visit `root` and, after a propagate, its linked descendants.
+    pub(crate) fn subtree(&self, root: usize, visit: &mut dyn FnMut(usize)) {
+        let mut stack = vec![root as u32];
+        while let Some(i) = stack.pop() {
+            visit(i as usize);
+            let mut c = self.links.get(i as usize).map_or(NONE, |l| l.first);
+            while c != NONE {
+                stack.push(c);
+                c = self.links[c as usize].next;
+            }
+        }
+    }
     fn member(&self, index: usize) -> bool {
         self.nodes.get(index).is_some_and(|n| n.done == self.stamp)
     }

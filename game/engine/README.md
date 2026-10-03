@@ -131,7 +131,7 @@ most 64 per surface; past that a post is dropped and logged) and delivers it to
 the live one with the lowest view id. A message waiting for its tick saves with
 the input queue; one delivered is gone. Messages are at most 64 KiB; keep data in
 the world and post commands. A full input queue (1,024 events) refuses a new post
-with a journal line and counts it in `state`'s `input.refusedPosts`; device events
+with a journal line (one per overflow episode) and counts it in `state`'s `input.refusedPosts`; device events
 never displace a message. `Sim::post(text)` does the same in tests.
 
 ## Movement, animation and sound

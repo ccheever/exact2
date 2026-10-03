@@ -30,6 +30,8 @@ fn revisions(w: &World) -> [u64; COLUMNS] {
 pub(crate) struct Cached {
     world: exact_game::WorldId,
     presentation: u64,
+    // The world's mutation epoch when the scene was last checked under leases.
+    epoch: u64,
     revisions: [u64; COLUMNS],
     scene: Scene,
     #[cfg(test)]
@@ -53,18 +55,29 @@ pub fn queries(world: &World) -> Queries<'_> {
 }
 impl Queries<'_> {
     pub(crate) fn scene(&self) -> RefMut<'_, Scene> {
+        // Nothing in the world has been written or borrowed mutably since the last
+        // checked operation (every storage write and mutable lease advances the
+        // epoch), so neither the scene nor the absence of a writer can have changed.
+        let w = self.world;
+        let epoch = w.mutation_epoch();
+        let cache = self.physics.executor.1.borrow_mut();
+        if cache.as_ref().is_some_and(|c| {
+            c.epoch == epoch && c.presentation == w.presentation_generation() && c.world == w.id()
+        }) {
+            return RefMut::map(cache, |c| &mut c.as_mut().unwrap().scene);
+        }
+        drop(cache);
         // Even an unchanged revision cannot authorize reading a live mutable lease.
         // Hold every row of the relevant columns before consulting the derived cache;
-        // a query leases nothing until iterated.
+        // a query leases nothing until iterated. CapsuleController is read only for
+        // membership, which no row lease can change, so it takes none.
         // @ref llp/1046.003-game-engine-as-built.explainer.md#row-leases-2026-09-23
         let _leases = (
             self.world.pages::<Body>(),
             self.world.pages::<Collider>(),
             self.world.pages::<Transform>(),
             self.world.pages::<Parent>(),
-            self.world.pages::<CapsuleController>(),
         );
-        let w = self.world;
         let revisions = revisions(w);
         let mut cache = self.physics.executor.1.borrow_mut();
         let current = cache
@@ -76,6 +89,7 @@ impl Queries<'_> {
             *cache = Some(Cached {
                 world: w.id(),
                 presentation: w.presentation_generation(),
+                epoch,
                 revisions,
                 scene: Scene::new(w),
                 #[cfg(test)]
@@ -87,6 +101,7 @@ impl Queries<'_> {
                 c.scene.update(w, &c.revisions, &revisions);
                 c.revisions = revisions;
             }
+            c.epoch = epoch;
         }
         RefMut::map(cache, |c| &mut c.as_mut().unwrap().scene)
     }

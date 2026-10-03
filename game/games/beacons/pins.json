@@ -4,15 +4,14 @@
     "90": "0x56d7b1520ecf2871"
   },
   "saves": {
-    "continuation": "a0db3082507b74afddb3692484fdd3cc7e337f0a1017d703781c8bf6b24ab732"
+    "continuation": "998493cefe1c20cb6f4dbe96b01162802992063da6d26a90e6c87896cca508d9"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "70395ff3c2ba388adcc928e4b7b5613580511ecc5ec84b9dac9e862e1f61e460",
+  "inputs": "65e6ba7c85c4c574214a13149b1a30726b2f1a80884fe7a95d2c8a6c77aa473f",
   "game": "beacons",
   "generated": "bun game/prove.mjs beacons --repin --hosts 'linux,web'",
-  "at": "122f548c0811783e2862869ff89d4dd2f9f11c9c",
-  "reason": "Engine fix lane: the world hash is a stream over paged digests and saves are columnar (EXGAME v4); same simulation, new hash and save encodings."
+  "at": "1e0457c44d6d361f0db6b0c4a8e11bd18ea080ab"
 }

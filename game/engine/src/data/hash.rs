@@ -80,6 +80,9 @@ impl Hasher {
     }
 }
 impl Writer for Hasher {
+    fn digests(&self) -> bool {
+        true
+    }
     fn bytes(&mut self, value: super::Bulk<'_>) {
         self.raw(&[17 + value.kind() as u8]);
         self.raw(&(value.byte_len() as u64).to_le_bytes());

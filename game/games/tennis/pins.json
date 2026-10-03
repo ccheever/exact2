@@ -4,14 +4,14 @@
     "1420": "0xa174a4d137ea52e7"
   },
   "saves": {
-    "continuation": "9fd0ffa61743184d125c53d246208f3916049088237abfb5ee522c4f8f547aaf"
+    "continuation": "29933d08217e675510a9926956ef750c205750837b7582a01ae7bafa86b7c485"
   },
   "hosts": [
-    "linux"
+    "linux",
+    "web"
   ],
-  "inputs": "c72847463c069fda98d9130fc83fc2a3b3bb539ebefb0180d43d6c2f93e672df",
+  "inputs": "3e7569eb48bfcdcd058dba288864887623b7ec093d038c9ba524bbd7484a0adb",
   "game": "tennis",
-  "generated": "bun game/prove.mjs tennis --repin --hosts linux",
-  "at": "e8abc4e5252f9332325f191f8e58571c9006478b",
-  "reason": "Engine fix lane: paged world hash and columnar saves (EXGAME v4); same simulation, new encodings."
+  "generated": "bun game/prove.mjs tennis --repin --hosts 'linux,web'",
+  "at": "1e0457c44d6d361f0db6b0c4a8e11bd18ea080ab"
 }

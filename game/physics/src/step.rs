@@ -160,6 +160,7 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
         if let Some(h) = live.entries.get(&e).and_then(|entry| entry.collider_handle) {
             live.elidable.remove(&h);
         }
+        live.digests.remove(&e);
         let b = world.get::<Body>(e);
         let c = world.get::<Collider>(e);
         let t = world.get::<Transform>(e);
@@ -332,6 +333,7 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
             continue;
         }
         let entry = live.entries.remove(e).unwrap();
+        live.digests.remove(e);
         if let Some(h) = entry.bh() {
             live.rapier.remove_body(h);
         } else if let Some(h) = entry.ch() {
@@ -483,6 +485,7 @@ pub fn step(world: &mut World) {
         live.elidable.remove(&h);
     }
     for e in &live.bodies {
+        live.digests.remove(e);
         let entry = live.entries.get_mut(e).unwrap();
         let handle = entry.bh().unwrap();
         let rb = &live.rapier.bodies[handle];
