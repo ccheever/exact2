@@ -494,9 +494,21 @@ from `tree`, `state`, or `layout`. The old repo's six primitives grew eighty wir
 one reasonable "view" at a time; the count is the cost. (Charlie, 2026-08-29.)
 
 Not shipping: session record/replay, causal trace, behavior diff and verify, mutation
-dry-run, contract witness / dataflow / ~~source-map~~ / bindings, accessibility audit, plan
+dry-run, contract witness / dataflow / ~~source-map~~ / bindings, accessibility audit (narrowed below), plan
 drag, correlate, visual query, network, perf, pasteboard, onboarding,
 revalidate, code grant/resume/cancel.
+
+**Narrowed (Charlie, 2026-10-03, waiver: "I guess that trade makes sense ?
+idk wdy"; LLP 1080.002):** `tree --ax` reads the platform's own exposed
+accessibility tree — Chrome's computed tree, UIKit's and AppKit's
+accessibility properties; Linux `unavailable` — and the driver reports four
+fixed findings over it: an unnamed interactive element, an element exposed
+under a declared-inert or hidden view, an element exposed outside an open
+modal, and a role or name disagreeing with the web for a `testId`-joined
+fixture control. Still refused: scoring, a rule catalog, WCAG checks
+(contrast, target size, heading structure), reading-order claims, and
+driving VoiceOver. The guessed `accessibleName` on `tree` is deleted because
+the platform's tree supersedes it, not as the take.
 
 Admitted 2026-09-10 (Charlie, LLP 1035 §5; 1035.002 D6, 1035.005 D3): **a
 development-only map from plan node to its declaration and component call-site
