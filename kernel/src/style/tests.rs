@@ -28,12 +28,23 @@ fn env_lengths_parse_by_the_css_grammar_and_resolve_against_the_environment() {
         Dimension::parse_env("calc(env(safe-area-inset-right)-2.5px)"),
         Some(Dimension::Env(Edge::Right, -2.5))
     );
+    // Addition commutes: the length may come first (CSS's grammar).
+    assert_eq!(
+        Dimension::parse_env("calc(300px + env(safe-area-inset-bottom))"),
+        Some(Dimension::Env(Edge::Bottom, 300.0))
+    );
+    assert_eq!(
+        Dimension::parse_env("calc( 2.5px+env(safe-area-inset-left) )"),
+        Some(Dimension::Env(Edge::Left, 2.5))
+    );
     for bad in [
         "env(safe-area-inset-middle)",
         "env(keyboard-inset-height)",
         "calc(env(safe-area-inset-top) + 12)",
         "calc(env(safe-area-inset-top) * 2)",
-        "calc(12px + env(safe-area-inset-top))",
+        "calc(12px - env(safe-area-inset-top))",
+        "calc(12px + env(safe-area-inset-top) + 1px)",
+        "calc(12 + env(safe-area-inset-top))",
         "env(safe-area-inset-top, 0px)",
         "12px",
         "auto",

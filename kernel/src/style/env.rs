@@ -425,7 +425,8 @@ fn term(inner: &str) -> Result<Dimension, EnvRefusal> {
 
 /// An `env()` length by CSS's grammar: `env(safe-area-inset-<edge>)`,
 /// `env(viewport-segment-<var> <x> <y>)`, or either inside
-/// `calc(env(…) ± <n>px)`. `Ok(None)` when the text is not an `env()` form
+/// `calc(env(…) ± <n>px)` or `calc(<n>px + env(…))` (addition commutes;
+/// `<n>px - env(…)` negates the variable, which no row can hold). `Ok(None)` when the text is not an `env()` form
 /// at all (a `calc()` of percent and points, a plain length); `Err` when it
 /// names one of the kernel's variables wrongly (LLP 1078 D10).
 pub fn parse(text: &str) -> Result<Option<Dimension>, EnvRefusal> {
@@ -438,7 +439,7 @@ pub fn parse(text: &str) -> Result<Option<Dimension>, EnvRefusal> {
     };
     let body = body.trim();
     if !body.starts_with("env(") {
-        return Ok(None);
+        return leading_length(body);
     }
     // `env(...) ± <n>px`: the operator is the first `+`/`-` after the
     // closing paren of the `env(...)` term.
@@ -465,6 +466,32 @@ pub fn parse(text: &str) -> Result<Option<Dimension>, EnvRefusal> {
     Ok(Some(match dim {
         Dimension::Env(edge, _) => Dimension::Env(edge, sign * plus),
         Dimension::Segment(var, x, y, _) => Dimension::Segment(var, x, y, sign * plus),
+        other => other,
+    }))
+}
+
+/// `<n>px + env(…)`, a calc body whose length comes first: the same
+/// dimension as `env(…) + <n>px`. `Ok(None)` for anything else.
+fn leading_length(body: &str) -> Result<Option<Dimension>, EnvRefusal> {
+    let Some(at) = body.find("env(") else {
+        return Ok(None);
+    };
+    let (number, env) = body.split_at(at);
+    let Some(number) = number.trim_end().strip_suffix('+') else {
+        return Ok(None);
+    };
+    let Some(number) = number.trim().strip_suffix("px") else {
+        return Ok(None);
+    };
+    let Ok(plus) = exact_num::parse_f32(number.trim()) else {
+        return Ok(None);
+    };
+    if !plus.is_finite() || !env.ends_with(')') || env.find(')') != Some(env.len() - 1) {
+        return Ok(None);
+    }
+    Ok(Some(match term(env)? {
+        Dimension::Env(edge, _) => Dimension::Env(edge, plus),
+        Dimension::Segment(var, x, y, _) => Dimension::Segment(var, x, y, plus),
         other => other,
     }))
 }

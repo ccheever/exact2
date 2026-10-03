@@ -658,7 +658,10 @@ the frame once more per backdrop node. The measured bounds are LLP 1053.000 §3.
 - **The environment** (2026-08-30). A dimension row takes a fourth kind beside
   `auto`, points, and percent: an `env()` length — CSS's
   `env(safe-area-inset-<edge>)` and `calc(env(safe-area-inset-<edge>) ± <n>px)`,
-  parsed once in `style.rs` (`Dimension::parse_env`; text on a dimension row is
+  or `calc(<n>px + env(…))`, since addition commutes (2026-10-03: the Signal
+  Clone's `calc(300px + env(…))` was refused while the other order compiled;
+  `<n>px - env(…)` negates the inset, which no dimension holds, and is still
+  refused), parsed once in `style.rs` (`Dimension::parse_env`; text on a dimension row is
   that or a rejection; wire kinds 3–6, one per edge, the `f32` the added points;
   no fallback argument, since the host always defines the four). The kernel
   holds one `Env` — the four insets in points, the host's, set with the viewport
