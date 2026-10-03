@@ -6,6 +6,7 @@ final class CanvasInput {
     weak var view: NodeView?
     private var tracking: NSTrackingArea?
     private var inactive: NSObjectProtocol?
+    private var resigned: NSObjectProtocol?
     private var keys: Set<String> = []
     private var buttons = 0
     private var modifiers: Set<String> = []
@@ -18,6 +19,11 @@ final class CanvasInput {
         self.view = view
         updateTracking()
         inactive = NotificationCenter.default.addObserver(forName: NSApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in self?.blur() }
+        // Another window taking the keyboard while the app stays active must not
+        // leave the cursor hidden and held.
+        resigned = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: nil, queue: .main) { [weak self] note in
+            if let self, note.object as? NSWindow === self.view?.window { self.unlock() }
+        }
         focusIfUnheld()
         DispatchQueue.main.async { [weak self] in self?.focusIfUnheld() }
     }
@@ -29,6 +35,7 @@ final class CanvasInput {
     deinit {
         unlock()
         if let inactive { NotificationCenter.default.removeObserver(inactive) }
+        if let resigned { NotificationCenter.default.removeObserver(resigned) }
         if let tracking { view?.removeTrackingArea(tracking) }
     }
     func updateTracking() {
