@@ -165,6 +165,12 @@ fn backpack_republish() {
         let one = ms(t);
         let idle = frames(&mut game, 120);
         let observed = observed_tick(&mut game);
-        println!("| {bag} | {one:.2} | {:.3} | {observed:.2} |", idle.0);
+        game.world_mut().resource_mut::<Farm>().bag_dirty = true;
+        game.run(1000.0 / 30.0);
+        let record = game.take_published().map_or(0, |r| r.len());
+        println!(
+            "| {bag} | {one:.2} | {:.3} | {observed:.2} | {record} |",
+            idle.0
+        );
     }
 }

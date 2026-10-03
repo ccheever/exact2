@@ -18,6 +18,8 @@ pub struct Farm {
     pub seeds: Vec<u32>,
     pub held: Option<u8>,
     pub bag: Vec<Item>,
+    /// The backpack page the HUD shows, newest first.
+    pub bag_page: u32,
     pub next_item: u32,
     /// Tiles per side.
     pub size: u16,
@@ -287,7 +289,8 @@ pub fn observe_epoch(w: &mut World, epoch: f64) {
 }
 
 /// Applies one HUD command: `buy carrot`, `equip carrot`, `sell all`,
-/// `sell 12`, `harvest all`, `expand`, `zoom`, `fill 2000`, `away 3600`.
+/// `sell 12`, `harvest all`, `page next`, `expand`, `zoom`, `fill 2000`,
+/// `away 3600`.
 pub fn command(w: &mut World, cmd: &str) {
     let mut words = cmd.split_whitespace();
     let verb = words.next().unwrap_or("");
@@ -311,6 +314,16 @@ pub fn command(w: &mut World, cmd: &str) {
             Ok(format!("Sold for {total}¢"))
         }
         "harvest" => Ok(format!("Harvested {}", harvest_all(w))),
+        "page" => {
+            let mut farm = w.resource_mut::<Farm>();
+            let pages = farm.bag.len().div_ceil(crate::hud::BAG_PAGE).max(1) as u32;
+            farm.bag_page = match arg {
+                "next" => (farm.bag_page + 1).min(pages - 1),
+                _ => farm.bag_page.saturating_sub(1),
+            };
+            farm.bag_dirty = true;
+            Ok(format!("Backpack page {}", farm.bag_page + 1))
+        }
         "expand" => {
             let cost = w.resource::<Farm>().expand_cost();
             let size = w.resource::<Farm>().size;

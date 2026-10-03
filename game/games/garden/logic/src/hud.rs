@@ -62,7 +62,14 @@ pub struct BagHud {
     pub bag: Vec<BagRow>,
     pub bag_count: u32,
     pub bag_value: String,
+    pub bag_page: u32,
+    pub bag_pages: u32,
 }
+
+/// Backpack rows per published page. A surface's whole public record is
+/// limited to 64 KiB (`runner/src/surface_record.rs`), about 600 rows of
+/// this shape with the rest of the HUD; past that the HUD resource fails.
+pub const BAG_PAGE: usize = 200;
 
 /// Publishes what changed. `prompt` is the player's tile text.
 pub fn publish(w: &World, prompt: String, force: bool) {
@@ -95,9 +102,14 @@ pub fn publish(w: &World, prompt: String, force: bool) {
         w.publish_record(&ShopHud { shop: rows });
     }
     if bag_dirty {
+        let pages = farm.bag.len().div_ceil(BAG_PAGE).max(1);
+        let page = (farm.bag_page as usize).min(pages - 1);
         let rows = farm
             .bag
             .iter()
+            .rev()
+            .skip(page * BAG_PAGE)
+            .take(BAG_PAGE)
             .map(|i| BagRow {
                 id: i.id.to_string(),
                 label: i.label(),
@@ -111,6 +123,8 @@ pub fn publish(w: &World, prompt: String, force: bool) {
             bag: rows,
             bag_count: farm.bag.len() as u32,
             bag_value: compact(total),
+            bag_page: page as u32 + 1,
+            bag_pages: pages as u32,
         });
     }
     let census = w.resource::<Census>();
