@@ -166,6 +166,7 @@ impl Collection {
             .map_or(self.start_offset, |g| g.offset);
         let offset = self.aligned(u.env.plan, position, align, current);
         self.restored_at = None;
+        self.at_end = false;
         self.target = Some(Target {
             key: self.index.shared_key(position).expect("resolved").clone(),
             align,

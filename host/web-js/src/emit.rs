@@ -1291,7 +1291,7 @@ impl Em<'_> {
     /// What the runner reads when a virtualized list is created
     /// (`Collection::create`), evaluated there: its axis, its literal sizes,
     /// its row estimate, `scrollFollowEnd` (read again at each update),
-    /// `scroll-restoration`, its edges' handlers, and its plan site.
+    /// `scroll-start`, `scroll-restoration`, its edges' handlers, and its plan site.
     fn list_options(
         &mut self,
         i: u32,
@@ -1307,6 +1307,7 @@ impl Em<'_> {
             "!1".to_string(),
         );
         let mut init = "void 0".to_string();
+        let mut at_end = "!1".to_string();
         for b in plan.nodes[i as usize]
             .bindings
             .iter()
@@ -1341,6 +1342,9 @@ impl Em<'_> {
                     follow = format!("()=>{value}")
                 }
                 BindingKind::Prop if b.id == PropId::InitialItemCount as u16 => init = value,
+                BindingKind::Prop if b.id == PropId::ScrollStart as u16 => {
+                    at_end = format!("({value})===\"end\"")
+                }
                 BindingKind::Prop if b.id == PropId::ScrollRestoration as u16 => {
                     manual = format!("({value})===\"manual\"")
                 }
@@ -1348,7 +1352,7 @@ impl Em<'_> {
             }
         }
         Ok(format!(
-            "{{x:{x},ph:[{}],pw:[{}],est:{est},init:{init},follow:{follow},manual:{manual},start:{},end:{},site:\"{i}\"}}",
+            "{{x:{x},ph:[{}],pw:[{}],est:{est},init:{init},atEnd:{at_end},follow:{follow},manual:{manual},start:{},end:{},site:\"{i}\"}}",
             ph.join(","),
             pw.join(","),
             edges[0],

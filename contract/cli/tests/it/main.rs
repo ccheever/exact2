@@ -15,6 +15,7 @@ mod collection_edge_async;
 mod collection_edges;
 mod collection_into_view;
 mod collection_nest;
+mod collection_start;
 mod compose;
 mod controls;
 mod corpus;
