@@ -1148,6 +1148,23 @@ mod declaration_tests {
         );
     }
 
+    /// A link's underline and pointer, by their CSS names.
+    #[test]
+    fn underline_colour_offset_and_cursor() {
+        let t = |s: &str| StyleValue::Text(s.into());
+        assert_eq!(
+            css(
+                &[
+                    (StyleId::TextDecorationColor, t("light-dark(#a3a3a3, #5c5c5c)")),
+                    (StyleId::TextUnderlineOffset, StyleValue::Number(3.0)),
+                    (StyleId::Cursor, t("pointer")),
+                ],
+                &[]
+            ),
+            "text-decoration-color:light-dark(rgba(163,163,163,1), rgba(92,92,92,1));text-underline-offset:3px;cursor:pointer;"
+        );
+    }
+
     /// The feedback's separate factor leaves the row's scale and
     /// authored transition list intact; 1 needs no effect.
     #[test]
