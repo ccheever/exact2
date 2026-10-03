@@ -315,7 +315,8 @@ module `gpu_bg.wasm` 1,424 KiB (584 KiB gzip), loaded on demand.
 
 ## After the fix lane
 
-2026-10-03, `roblox/integrate` merged into `roblox/rivals` (ef5223a3). The game was
+2026-10-03, `roblox/integrate` merged into `roblox/rivals` (ef5223a3, again with
+core's review fixes and the batched-ray fix). The game was
 adapted, not re-pinned (the lead holds the repin until the engine is final).
 
 - **Workarounds deleted.** `fighter::ray_capsule` and the `parry_capsule_rays_miss`
@@ -349,14 +350,17 @@ adapted, not re-pinned (the lead holds the repin until the engine is final).
   asserted >10 logged hits, which the round reset can clear; it now compares every
   fighter's shots, kills, deaths, rounds and health across two runs and asks for a
   real fight (this script: 289 shots, 10 deaths, ten kills, identical twice).
-- **Query scene** (limit 5, re-measured at load average 23–27, against ~16 before):
-  ray-then-write over 500 rockets 3,736 → ~306 µs, the batched loop 79 → ~210 µs, so
-  the obvious loop is now as cheap as the careful one. But one cached ray went
-  0.2 → 0.5–0.8 µs and a batched ray 0.16 → 0.42 µs: a possible 2.5× per-ray cost
-  from tracking written rows, or the load. Worth a quiet-machine rerun before calling it.
-- **Tick costs** (release, live clock, same load caveat; three runs, middle shown):
-  7 bots 127 → 123 µs, 23 bots 545 → 367 µs; 7 bots + 200 rockets 188 → 204–218 µs,
-  + 1,000 rockets 347 → 517–597 µs (the per-ray cost above).
+- **Query scene** (limit 5, re-measured after integrate's batched-ray fix b4de29c6,
+  load average 22–30 against ~16 before; two runs): ray-then-write over 500 rockets
+  3,736 → 460–1,602 µs, batched 79 → ~181 µs (it was ~210 µs before b4de29c6).
+  My bench's "one ray" (a `physics::raycast` free call timed alone) reads 0.5–0.7 µs
+  against 0.2 µs before; the physics lane measures the cached ray at ~0.22 µs,
+  twice as fast as main, so I read my per-ray numbers as load noise. A quiet-machine
+  rerun would settle both.
+- **Tick costs** (release, live clock, same load; two runs): 7 bots 127 → 128–164 µs,
+  23 bots 545 → 398–491 µs; 7 bots + 200 rockets 188 → 194–240 µs, + 1,000 rockets
+  347 → 467–578 µs. Within noise of the first post-merge run; all far inside the
+  8,333 µs budget.
 - **Viewmodel.** Every weapon part carries `ViewModel`: against the north wall the
   whole rifle now draws (`artifacts/web/wall.png`; limit 10 fixed).
 - **Proofs.** Linux 28 checks pass, web 28 pass; each fails only its three pins, the
