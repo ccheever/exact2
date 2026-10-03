@@ -124,7 +124,7 @@ export class Refusal extends Error {}
 /** A data or shape refusal (the runner's `RunnerError::Data` or `Shape`): one in a reply's commit lets its ticket go (`reply`). */
 class Failed extends Refusal {}
 let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false, Refused = null;
-export const journal = [];
+export const journal = Object.assign([], { start: 0, push(...l) { const over = Array.prototype.push.apply(this, l) - 4096; if (over > 0) this.start += this.splice(0, over).length; return this.length; } }); // the runner's ring (JOURNAL_RING): `start` is the oldest line's index
 const say = line => journal.push(`t=${clock.now} ${line}`);
 /** A write inside an action: collected, applied at commit. */
 export function W(s, v) { Writes.push([s.n, v]); }
@@ -741,7 +741,7 @@ export function Sr(e, prop, unit, f) {
     }
   });
 }
-export { svgTransform } from "./svg-transform.js"; export { ds } from "./dataset.js"; export { hk } from "./hooks.js";
+export { svgTransform } from "./svg-transform.js"; export { ds } from "./dataset.js"; export { hk } from "./hooks.js"; export { pf } from "./perf.js";
 /** Loaded pieces' hooks: `style(e, prop, value)` takes a dynamic row's
  * write on a node the motion piece holds (motion.js). */
 export const Hooks = {};
@@ -1219,7 +1219,7 @@ export function mount(f) {
   let built = false;
   Adopt = !!(checkpoint().kept && root.firstElementChild);
   // Elapsed time continues from where a render's clock stopped.
-  start = performance.now() - clock.now;
+  start = clock.start = performance.now() - clock.now;
   const adopting = Adopt;
   // What the reader did before the runtime ran (the capture script), and
   // what each edited control showed then: the commit writes the state's

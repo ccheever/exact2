@@ -198,14 +198,6 @@ final class Canvases {
     var unflushed: [GpuModule] = []
     /// Captures since launch (LLP 1014 D3).
     var captures = 0
-    /// The measure's window (EXACT_FPS): renders and captures since the last
-    /// report, and the time they took (capture: paint and upload).
-    var windowRenders = 0
-    var windowRenderSeconds = 0.0
-    /// Submits in the window: one per module a flush reached with a frame open.
-    var windowSubmits = 0
-    var windowCaptures = 0
-    var windowCaptureSeconds = 0.0
     private var captureScheduled = false
     var frameNow: Double?
     var settling = false
@@ -342,7 +334,6 @@ final class Canvases {
         let children = overlay.subviews.compactMap { $0 as? NodeView }
         var uploaded = 0
         let t0 = CACurrentMediaTime()
-        defer { windowCaptures += 1; windowCaptureSeconds += CACurrentMediaTime() - t0 }
         for (i, child) in children.enumerated() {
             if child.frame.width <= 0 || child.frame.height <= 0 || child.style["display"]?.string == "none" {
                 let r = m.child(e.id, UInt32(i), child.props["testId"] ?? "", 0, 0, 0, 0, 0, 0, nil, 0)
@@ -445,8 +436,6 @@ final class Canvases {
             r = m.texture(e.id, w, h, UnsafePointer(data.assumingMemoryBound(to: UInt8.self)), len)
         }
         let t2 = CACurrentMediaTime()
-        windowCaptures += 1
-        windowCaptureSeconds += t2 - t0
         if r != 0 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)); return }
         e.uploaded = true
         captures += 1
@@ -635,7 +624,6 @@ final class Canvases {
             renderNow(m, e, metal, now, tick: ticks)
             more = more || e.wants
         }
-        windowSubmits += unflushed.count
         flushRecorded()
         lastTickNow = now
         ticks += 1
@@ -650,7 +638,6 @@ final class Canvases {
 
     private func renderNow(_ m: GpuModule, _ e: Entry, _ metal: MetalView, _ now: Double, tick: Int) {
         let scale = Float(metal.metalLayer.contentsScale)
-        let t0 = CACurrentMediaTime()
         let r = m.render(e.id, Float(metal.bounds.width), Float(metal.bounds.height), scale, now)
         // A render that went without a drawable recorded nothing: no frame
         // to submit for it, and its tick's frame is still to draw.
@@ -659,8 +646,6 @@ final class Canvases {
         // A module that cannot say when a first frame is shown (`gpu_seen`):
         // the frame just recorded is presented by this tick's flush.
         if drew, metal.awaitingFirstFrame, m.seen == nil, r < 2 { DispatchQueue.main.async { metal.reveal() } }
-        windowRenders += 1
-        windowRenderSeconds += CACurrentMediaTime() - t0
         if r == 2 { FileHandle.standardError.write(Data("exact gpu: \(m.error())\n".utf8)) }
         rendered(e, r)
         rendered += 1
@@ -695,7 +680,6 @@ final class Canvases {
             if let landed = m.landed, landed(e.id) == 0 { continue }
             renderNow(m, e, metal, now, tick: ticks - 1)
         }
-        windowSubmits += unflushed.count
         flushRecorded()
     }
 }

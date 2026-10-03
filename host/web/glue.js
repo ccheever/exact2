@@ -164,6 +164,7 @@ let agentClock = agentMode ? 0 : null;
 const { register, seek: seekAnimations, settle: settleCandidate } = animationClock(() => agentClock, () => ask({ op: "settle" }).settle, () => { motion.followTimelines(); presence.live?.sync(); });
 const seek = to => { (imageHold ??= loadAfterPaint('./image-glue.js', 'holdImages').then(f => f({ root, now: () => agentClock }))).then(h => h.seek()); seekAnimations(to); };
 const now = () => agentClock ?? performance.now() - t0;
+let frameSampler = null; // a development page's frame sampler (frames.js, LLP 1079 D3)
 let timelinesMoved = false; // a batch's `timelines` op: its consumers are sought once it is applied
 let bootAttempt = 0;
 let devAssets = null;
@@ -881,6 +882,7 @@ function apply(batch) {
 }
 function applyBatch(batch) {
   if (page?.hold(batch) || presence.hold(batch)) return { timers: batch.timers, batch }; textflow?.beforeBatch(batch);
+  const began = frameSampler ? performance.now() : 0; // what applying it cost, for the next frame's record (LLP 1079 D3)
   globalThis.exact.applyDepth = (globalThis.exact.applyDepth ?? 0) + 1; try {
   const timers = apply(batch); letGo();
   motion.commit(); arrange.commit();
@@ -894,7 +896,7 @@ function applyBatch(batch) {
   timelinesMoved = false;
   flowBatch(batch);
   return { timers, batch };
-  } finally { if (--globalThis.exact.applyDepth === 0) { globalThis.exact.gpu?.drainRecords(); globalThis.exact.gpu?.layout?.(); } }
+  } finally { const outer = --globalThis.exact.applyDepth === 0; if (outer) { globalThis.exact.gpu?.drainRecords(); globalThis.exact.gpu?.layout?.(); } frameSampler?.batch(batch.seq, outer ? performance.now() - began : 0); }
 }
 function send(len) {
   return applyBatch(JSON.parse(readOut(len))).timers;
@@ -1093,6 +1095,7 @@ function agentReply(request) {
       if (r.capability === "export" && r.node != null) return picker().then(m => m.answerSave(r, held.text)).then(out => tagged({ ...r, ...out })); // LLP 1069.010 D3: the bytes go back to the driver
       return r.capability === "pick" && r.node != null ? picker().then(m => m.answer(r.node, r.answered === "cancel" ? null : files ?? [])).then(() => tagged(r)) : tagged(r);
     }
+    if (request.op === "perf" && request.frames) return { virtual: true }; // the agent's clock presents no frame (LLP 1079 D4)
     switch (request.op) {
       case "state": {
         const st = ask(request);
@@ -1305,6 +1308,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   }
   const batch = JSON.parse(readOut(len));
   if (batch.error) throw new Error(batch.error);
+  frameSampler?.reset(); // a new runner numbers its transactions afresh (LLP 1079 D3)
   if (module) { activeModule?.realm?.dispose(); activeModule = module; setInputReady(true); }
   navigation.reset(batch.ops.find(op => op.op === "router"));
   const oldAssets = devAssets;
@@ -1451,6 +1455,7 @@ async function main() {
   const activate = async () => {
     loadGpuIfNeeded(); if (wasm.exact_motion) pieces.preload(); if (globalThis.launchQueue) documentsGlue().catch(console.error); // motion links its export (LLP 1047 D3); an installed app's launch files (LLP 1069.010)
     if (!agentMode) loadAfterPaint('./timer-glue.js', 'createTimerScheduler').then(create => { timerFactory = create; startClock(); }).catch(console.error);
+    if (!agentMode && AGENT_ADMITTED) loadAfterPaint('./frames.js', 'createFrameSampler').then(create => { frameSampler = globalThis.exact.frames = create({ origin: () => t0, log, target: 'wasm', covers: ['input', 'scroll', 'batches', 'animations', 'canvas'], gather: () => loadStage('inspection').then(() => ({ journal: ask({ op: 'logs', since: 0 }), perf: ask({ op: 'perf' }) })) }); }).catch(console.error); // a development page's frames (LLP 1079 D3)
     // @ref LLP 1043.000 §3 D8 — one optional load, no activation wait or retry queue.
     loadAfterPaint('./input-glue.js', 'createInputHandlers').then(create => {
       inputHandlers = create({ root, views, retiredViews, agentMode, ready: () => inputReady, inertAncestor,

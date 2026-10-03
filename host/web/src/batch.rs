@@ -11,6 +11,7 @@ use exact_num::{push_text, text, Piece, Shortest};
 pub struct Batch {
     ops: Vec<String>,
     collection_accepted: bool,
+    seq: Option<(u64, u64)>,
 }
 
 /// Validate before token translation or storage/continuation serialization.
@@ -708,6 +709,14 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// The kernel transactions this batch carries, `"seq":[first,last]`, when
+    /// the runner measures (LLP 1079 D3): a development page's frame sampler
+    /// joins its frames to them.
+    pub fn seq(mut self, range: Option<(u64, u64)>) -> Batch {
+        self.seq = range;
+        self
+    }
+
     /// @ref LLP 1043.000 §3 D8 — carry the runner deadline, not a poll interval.
     /// The batch as one JSON document:
     /// `{"ops":[…],"timers":bool,"clock":ms,"error":null|"…"}` — `clock` is
@@ -738,6 +747,9 @@ impl Batch {
         }
         if self.collection_accepted {
             s.push_str(",\"accepted\":true");
+        }
+        if let Some((first, last)) = self.seq {
+            push_text!(&mut s, ",\"seq\":[{},{}]", first, last);
         }
         push_text!(
             &mut s,

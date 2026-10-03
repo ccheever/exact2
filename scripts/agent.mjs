@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
-// The agent API's driver (LLP 1012): the nine operations —
-//   tree · screenshot · tap · type · state · layout · logs · clock · prefer
+// The agent API's driver (LLP 1012, 1079): the ten operations —
+//   tree · screenshot · tap · type · state · layout · logs · clock · prefer · perf
 // — against a running app on either host, from one script, with the clock in
 // the driver's hands: nothing moves between two calls unless a call moved it.
 //
@@ -10,14 +10,15 @@
 //   tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save
 //   tap <target> [wheel <dx> <dy> [gesture] | into <key> [block <v>] [inline <v>] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name>
 //   tap @N <choice> | type @N <value>   (a held device request, by ticket: LLP 1069.007 D4)
-//   clock <ms|+ms|settle> | prefer <media feature or page fact> <value> […]
+//   clock <ms|+ms|settle> | prefer <media feature or page fact> <value> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>]
+//   bun scripts/agent.mjs trace <file>   (a development session's trace, LLP 1079 D5: no app runs)
 // A target is a testId or a view id; each op is one argument (quote it).
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, chromium, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
+import { Cdp, chromium, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
-import { sourceMapReaders, identifyInspectedNode, render } from './agent-inspect.mjs';
+import { sourceMapReaders, identifyInspectedNode, render, perfOp, readTrace, renderTrace } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
 export { sourceMapReader, identifyInspectedNode, render } from './agent-inspect.mjs';
 import { spawn, spawnSync } from 'node:child_process';
@@ -983,6 +984,13 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       s.logCursor = r.next;
       return { lines: r.lines, host: carrier.hostLines.splice(0), from: r.from, next: r.next, dropped, ...(r.world ? { world: r.world } : {}) };
     },
+    /** `perf [<target>]` (LLP 1079 D2): the plan sites under a view (every root's without one), each with its work across its instances' lifetimes and its source line; `{frames:true}` is the host's presented frames (D4). */
+    async perf(target, frames) {
+      if (frames) return s.op({ op: 'perf', frames: true, ...(frames.late != null ? { late: frames.late } : {}) });
+      const r = await s.op({ op: 'perf', ...(target != null ? { target: /^\d+$/.test(String(target)) ? Number(target) : target } : {}) });
+      if (await sourceMaps.refresh()) for (const site of r.sites) { const n = { planDigest: r.plan, site: site.site }; sourceMaps.attach(n); site.source = n.sourceMap; }
+      return { target: target ?? null, ...r };
+    },
     /** Every on-screen view's box in the viewport (scroll folded in), with its testId and type from the tree. With a target, `node` explains that one node (LLP 1035.002 D1): every row it sets or inherits with where the value came from, its box in each coordinate space the host has, the scroll and clip chains above it, whether it is hidden, inert, in the viewport or clipped away, and what the host mounted for it — observations of the runner's memory and the host's view tree, never a second model. */
     async layout(target, at) {
       if (typeof target === "string" && target.startsWith("world:")) return s.op({op:"layout", ...await s.target(target), ...(at ? {world:true,x:at[0],y:at[1]} : {})});
@@ -1411,15 +1419,16 @@ async function main(argv) {
     console.log(`${r.passed} passed, ${r.failed} failed`);
     return r.failed ? 1 : 0;
   }
+  // A trace a person's session saved (LLP 1079 D5), read back with no app running.
+  if (host === 'trace' && ops.length === 1) { const t = await readTrace(ops[0], traceLocators); console.log(flags.json ? JSON.stringify(t) : renderTrace(t)); return 0; }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--browser chrome|firefox|webkit] [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--json] <op> [<op> …]\n  web defaults to chrome; EXACT_WEB_BROWSER selects the same option. Install the other engines outside the repo: bunx playwright@1.63.0 install firefox webkit\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name> [for <ms>] | tap @N <choice> | type @N <value> | clock <ms|+ms|settle> | prefer <media feature, page fact, posture folded|continuous, segments <cols>x<rows> [gap <points>]> […]\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--browser chrome|firefox|webkit] [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--json] <op> [<op> …]\n  web defaults to chrome; EXACT_WEB_BROWSER selects the same option. Install the other engines outside the repo: bunx playwright@1.63.0 install firefox webkit\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name> [for <ms>] | tap @N <choice> | type @N <value> | clock <ms|+ms|settle> | prefer <media feature, page fact, posture folded|continuous, segments <cols>x<rows> [gap <points>]> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>]\n       bun scripts/agent.mjs trace <file>   (a development session\'s trace, LLP 1079 D5)\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
   const s = await open({ host, browser, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch });
   let at = 0;
-  try {
-    for (const [k, line] of ops.entries()) {
-      at = k + 1;
+  // One op line; `perf … during "<op>" …` drives its own through here.
+  const step = async (line) => {
       const [op, ...args] = line.trim().split(/\s+/);
       let r;
       switch (op) {
@@ -1463,8 +1472,15 @@ async function main(argv) {
         case 'type': r = await s.type(...typeArguments(args)); break;
         case 'clock': r = await s.clock(args[0] ?? 'settle'); break;
         case 'prefer': r = await s.prefer(Object.fromEntries(args.flatMap((a, i) => i % 2 ? [] : [[a, args[i + 1]]]))); break;
-        default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, screenshot, tap, type, clock, prefer)`);
+        case 'perf': r = await perfOp(s, args, line, step); break;
+        default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, screenshot, tap, type, clock, prefer, perf)`);
       }
+      return [op, r];
+  };
+  try {
+    for (const [k, line] of ops.entries()) {
+      at = k + 1;
+      const [op, r] = await step(line);
       console.log(flags.json ? JSON.stringify(r) : render(op, r));
     }
     return 0;

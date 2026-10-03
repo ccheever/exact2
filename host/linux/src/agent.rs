@@ -145,6 +145,9 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     }
     match field_str(line, "op").as_deref() {
         Some("tree") => accessibility_tree(p, line),
+        // The agent's clock presents no frame (LLP 1079 D4); the display
+        // loop's are sampled there (frames.rs). `perf <target>` is the runner's.
+        Some("perf") if field_bool(line, "frames") => r#"{"virtual":true}"#.to_string(),
         Some("state") => {
             p.boxes();
             // The runner's state, then the sections a painter cannot observe

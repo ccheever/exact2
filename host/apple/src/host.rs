@@ -358,6 +358,8 @@ impl<D: DataSource> Host<D> {
             launch,
         )
         .map_err(HostError::Runner)?;
+        // @ref LLP 1079 D1 — a development build measures its work.
+        runner.measure_unless_production(compat, true);
         if let Some(action) = region.and_then(|r| r.activate) {
             runner.act(action, Vec::new()).map_err(HostError::Runner)?;
         }
@@ -1123,6 +1125,7 @@ impl<D: DataSource> Host<D> {
     fn finish(&self, mut batch: Batch, error: Option<String>) -> String {
         batch.spatial = self.engine.spatial();
         batch.frames = self.runner.wants_frames();
+        batch.seq = self.runner.seq_range();
         batch.canvas_frames(self.runner.canvas_wants_frame());
         batch.finish(
             self.runner.timer_due_ms(),

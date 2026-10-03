@@ -40,7 +40,7 @@ import { webDist, cargoReproducibilityFlags, compilerPaths, developmentBuildEnv,
 import { developmentLinks } from '../apple/build.mjs';
 import { webRequestURL } from '../../scripts/origin.mjs';
 import { localInstaller } from './local-install.mjs';
-import { applyShaderTreeChange, sendStaticBody, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
+import { applyShaderTreeChange, sendStaticBody, applyStaticChange, applyStaticTreeChange, builtAppMatches, developmentOpenPage, readDevGenerationAsync, readStaticFileAsync, readWebRequest, reflectShaderFiles, saveTrace, retainDevGeneration, shaderInterfaceDigests, syncStaticTree, watchStaticTrees, webContentType, webEnvelope, MODULE_FILES, moduleCards } from './serve.mjs';
 
 const argv = process.argv.slice(2);
 const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : fallback; };
@@ -975,7 +975,9 @@ const server = createServer(async (req, res) => {
   if (!url) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
   const devBeacon = url.pathname === '/__dev/reloaded' || url.pathname === '/__dev/painted' || url.pathname === '/__dev/gpu';
   const localInstall = url.pathname === LOCAL_IOS_INSTALL_ENDPOINT;
-  if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && (devBeacon || localInstall))) { res.writeHead(405); res.end(); return; }
+  const trace = url.pathname === '/__exact/trace';
+  if (req.method !== 'GET' && req.method !== 'HEAD' && !(req.method === 'POST' && (devBeacon || localInstall || trace))) { res.writeHead(405); res.end(); return; }
+  if (trace) return saveTrace(req, res, { app, dist, root });
   if (url.pathname === '/__dev/gpu') {
     const timing = gpuTimings.get(Number(url.searchParams.get('g')));
     if (timing) console.log(`gpu: rebuilt in ${timing.ms} ms · swapped in ${url.searchParams.get('swap')} ms · build start → running ${Date.now()-timing.start} ms (warm budget 2000 ms)`);

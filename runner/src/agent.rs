@@ -31,6 +31,7 @@ pub fn handle<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
         Some("state") => state(runner),
         Some("tags") => tags(runner),
         Some("holds") => holds(runner),
+        Some("perf") => crate::perf::reply(runner, request),
         // What `showPicker(id)` names (LLP 1069.002 D2): the file input's
         // view, `accept` and `multiple`, for the host that presents it.
         Some("picker") => match field_str(request, "id") {
@@ -223,17 +224,44 @@ fn tree_request<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
             _ => return error("tree shallow must be a boolean"),
         },
     };
-    if after_key(request, "target").is_none() {
+    let Some((root, depth)) = (match target(runner, request) {
+        Ok(found) => found,
+        Err(e) => return error(&e),
+    }) else {
         if shallow {
             return error("shallow tree needs a target");
         }
         return tree(runner);
+    };
+    let kernel = runner.kernel();
+    if shallow {
+        let mut row = kernel.row(root).expect("located live node");
+        row.depth = depth;
+        return tree_rows(runner, &[row], &[root]);
+    }
+    let mut subtree = kernel.rows(Some(root)).unwrap_or_default();
+    for row in &mut subtree {
+        row.depth = row.depth.saturating_add(depth);
+    }
+    tree_rows(runner, &subtree, &[root])
+}
+
+/// The view a request's `target` names — a view id, or a testId's first
+/// match in preorder on a selected route — and its depth; `None` when the
+/// request names none. Shared by `tree` and `perf` (LLP 1079 D2).
+pub(crate) fn target<D: DataSource>(
+    runner: &Runner<D>,
+    request: &str,
+) -> Result<Option<(u32, u16)>, String> {
+    if after_key(request, "target").is_none() {
+        return Ok(None);
     }
     let name = field_str(request, "target");
     let id = field_num(request, "target")
         .filter(|n| *n >= 0.0 && *n <= u32::MAX as f64 && *n == n.trunc());
     if name.is_none() && id.is_none() {
-        return error("tree target must be a view id or testId");
+        let op = field_str(request, "op").unwrap_or_default();
+        return Err(format!("{op} target must be a view id or testId"));
     }
     let kernel = runner.kernel();
     let locate = |id| {
@@ -265,22 +293,13 @@ fn tree_request<D: DataSource>(runner: &Runner<D>, request: &str) -> String {
             .find(|(id, _)| !runner.inactive(*id))
             .or_else(|| located.first().copied())
     };
-    let Some((root, depth)) = found else {
-        return error(&format!(
+    match found {
+        Some(found) => Ok(Some(found)),
+        None => Err(format!(
             "no view matches {}",
             name.unwrap_or_else(|| num(id.unwrap()).to_string())
-        ));
-    };
-    if shallow {
-        let mut row = kernel.row(root).expect("located live node");
-        row.depth = depth;
-        return tree_rows(runner, &[row], &[root]);
+        )),
     }
-    let mut subtree = kernel.rows(Some(root)).unwrap_or_default();
-    for row in &mut subtree {
-        row.depth = row.depth.saturating_add(depth);
-    }
-    tree_rows(runner, &subtree, &[root])
 }
 
 /// Every live root and node, in structural preorder.

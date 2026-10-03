@@ -319,7 +319,9 @@ document cites it rather than restating it as a second law. **`prefer`
 (2026-09-27, LLP 1061 D5) is the ninth** (Charlie, 2026-09-27: "relax the
 rule and allow a 9th button"): a display preference is no input, so it is
 not a form of `tap` or `type`. It is the operation that sets every device
-fact (LLP 1069.007 §3 P1), and a tenth now replaces one of the nine.
+fact (LLP 1069.007 §3 P1). **`perf` (2026-10-02, LLP 1079) is the tenth**, under
+Charlie's waiver: a subtree's work by plan site and a host's presented frames.
+An eleventh replaces one of the ten.
 
 ## 2. The clock
 

@@ -4,6 +4,7 @@
 // (CDP). Loaded only under `?agent`; never part of an app's boot bytes.
 import names, { types } from './names.js';
 import { R, eq, pieces, pageHistory, Head } from './rt.js';
+import * as perf from './perf.js';
 import { environment, navigation, guestOutline, guestTap, guestType, viewBox, foldEnv, preferFold } from './navigation.js';
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
@@ -240,7 +241,14 @@ export function install(exact) {
           return el instanceof HTMLIFrameElement ? guestTap(el, req) : {};
         }
       case 'type': { const el = views.get(req.id); return el instanceof HTMLIFrameElement ? guestType(el, req) : {}; }
-      case 'logs': { const from = req.since ?? 0; return { lines: exact.journal.slice(from), from, next: exact.journal.length }; }
+      case 'logs': { const j = exact.journal, from = Math.max(req.since ?? 0, j.start); return { lines: j.slice(from - j.start), from, next: j.start + j.length }; }
+      // `perf <target>` (LLP 1079 D2): the plan sites under a view, with their work (perf.js).
+      case 'perf': {
+        if (req.frames) return { virtual: true }; // the agent's clock presents no frame (LLP 1079 D4)
+        let el = document.getElementById('exact-root');
+        if (req.target != null) { const hit = all().find(n => n.id === req.target || n.props.testId === req.target); if (!hit) return { error: `no view matches ${req.target}` }; el = views.get(hit.id); }
+        return perf.reply(el, tags());
+      }
       case 'clock': {
         if (req.settle) {
           // Settled: no request in flight and no commit pending, within 20 s.

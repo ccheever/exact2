@@ -1228,7 +1228,9 @@ processes` shows it). A phone that is asleep, on another network, or with
 Wi-Fi off is `unavailable` to `devicectl`; the script says so and stops
 after signing.
 
-**The frame rate on the phone, measured (2026-08-30).** `EXACT_FPS=1` makes
+**The frame rate on the phone, measured (2026-08-30).** (`EXACT_FPS` was
+deleted on 2026-10-03 for `perf frames` and Save Trace, LLP 1079 D7; this is
+how the measurement below was taken.) `EXACT_FPS=1` made
 the display link run always and report once a second — frames delivered,
 the longest gap, the canvases' renders and captures with their times — to
 stderr (which `devicectl device process launch --console` relays), to

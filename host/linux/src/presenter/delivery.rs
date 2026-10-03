@@ -204,6 +204,7 @@ impl<D: DataSource> Presenter<D> {
             .map_err(HostError::Asset)?;
         self.updates.as_mut().unwrap().boot_started();
         self.host = host;
+        self.replaced();
         if self.display.new_session() {
             self.painted = false;
         }

@@ -478,9 +478,9 @@ highlight is (a shrink is feedback, not motion).
 
 **Tooling** — no Design Mode, no Guide system, no devtools UI, no TUI host, no blog/CMS.
 
-**Agent API** — 9 operations, not 90:
+**Agent API** — 10 operations, not 90:
 
-`tree` · `screenshot` · `tap` · `type` · `state` · `layout` · `logs` · `clock` · `prefer`
+`tree` · `screenshot` · `tap` · `type` · `state` · `layout` · `logs` · `clock` · `prefer` · `perf`
 
 **Ruled (Charlie, 2026-09-27: "relax the rule and allow a 9th button"; LLP 1061
 D5, LLP 1069.007 §3 P1):** `prefer` stays as the ninth operation, and it is the
@@ -488,7 +488,12 @@ one that sets every device fact by its web name: display preferences, and the
 page and place facts of LLP 1069.000. A new fact is a form of `prefer`, never a
 tenth operation.
 
-**A tenth operation replaces one of the nine, same PR.** A new input is a form of
+**Ruled (Charlie, 2026-10-02: "it's probably worth a waiver to a 10th op I think";
+LLP 1079 D7):** `perf` is the tenth operation and takes none away: a subtree's work
+by plan site, and a host's presented frames. A new measurement is a form of `perf`,
+never an eleventh operation.
+
+**An eleventh operation replaces one of the ten, same PR.** A new input is a form of
 `tap` or `type` (a wheel is a `tap`; so would a drag be); a new question is answered
 from `tree`, `state`, or `layout`. The old repo's six primitives grew eighty wire names
 one reasonable "view" at a time; the count is the cost. (Charlie, 2026-08-29.)
@@ -496,7 +501,9 @@ one reasonable "view" at a time; the count is the cost. (Charlie, 2026-08-29.)
 Not shipping: session record/replay, causal trace, behavior diff and verify, mutation
 dry-run, contract witness / dataflow / ~~source-map~~ / bindings, accessibility audit (narrowed below), plan
 drag, correlate, visual query, network, perf, pasteboard, onboarding,
-revalidate, code grant/resume/cancel.
+revalidate, code grant/resume/cancel. (`perf` shipped as LLP 1079 narrows it: work
+counts and presented frames; never a causal trace, a flame chart, a devtools UI or
+production telemetry.)
 
 **Narrowed (Charlie, 2026-10-03, waiver: "I guess that trade makes sense ?
 idk wdy"; LLP 1080.002):** `tree --ax` reads the platform's own exposed

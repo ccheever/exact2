@@ -19,6 +19,7 @@ extension BatchReader {
         var ops: [BatchOp] = [], timers = false, motion = false, pending = false, spatial = false, canvas = false, frames = false, canvasOwed = false
         var clock: Double?, due: Double?, error: String?
         var images: [String] = []
+        var seq: (UInt64, UInt64)?
         var seen: Set<String> = []
         try object { r, key in
             guard seen.insert(key).inserted else { try r.skip(); return }
@@ -36,6 +37,9 @@ extension BatchReader {
             case "clock": clock = try r.number()
             case "timer_due_ms": due = try r.number()
             case "error": error = try r.string()
+            case "seq":
+                let range = try r.array { try $0.number() }
+                if range.count == 2, range.allSatisfy({ $0 >= 0 && $0 == $0.rounded() }) { seq = (UInt64(range[0]), UInt64(range[1])) }
             default: try r.skip()
             }
         }
@@ -45,6 +49,7 @@ extension BatchReader {
         batch.frames = frames
         batch.canvasOwed = canvasOwed
         batch.canvasImages = images
+        batch.seq = seq
         return batch
     }
 

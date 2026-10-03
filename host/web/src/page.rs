@@ -505,7 +505,7 @@ impl<D: DataSource> crate::Host<D> {
         let delivery = compat.map_or_else(Default::default, |json| {
             exact_runner::Delivery::default().with_compat(json)
         });
-        let runner = Runner::boot_checkpoint_linked(
+        let mut runner = Runner::boot_checkpoint_linked(
             crate::link::runner_links(),
             plan,
             data,
@@ -517,6 +517,8 @@ impl<D: DataSource> crate::Host<D> {
             launch,
         )
         .map_err(crate::HostError::Runner)?;
+        // @ref LLP 1079 D1 — as `Host::boot_linked`.
+        runner.measure_unless_production(compat, false);
         // The renderer's location: the runtime's only input of its own is its
         // first tree, so a query the app doesn't read adopts the same document.
         // The projection's per-view results serve the first batch too.

@@ -293,6 +293,8 @@ const WEB_HOST_GROUPS = {
   gpu: ['gpu-glue.js', 'pace.js', 'gpu-assets.js'],
   gpuModules: ['gpu-modules.js'],
   native: ['native-glue.js'],
+  // A development page's frame sampler (LLP 1079 D3); a production build ships none.
+  development: ['frames.js'],
 };
 
 /** The AT Protocol client-metadata documents an app with auth sessions

@@ -379,10 +379,11 @@ public final class ExactSession {
     /// The file picker (LLP 1069.002).
     lazy var picker = Picker(session: self)
     let frames: Frames
+    /// A development session's presented frames (LLP 1079 D3); a production bake has none.
+    private(set) var sampler: FrameSampler?
     var clockTimer: Timer?
     /// The runner deadline `clockTimer` fires for.
     private var clockDue: Double?
-    private var timerTrace = SessionTimerTrace()
     /// The agent's clock (milliseconds) when the driver owns time; nil runs
     /// on the wall clock.
     public var clock: Double?
@@ -470,6 +471,7 @@ public final class ExactSession {
         webviews.session = self
         natives.session = self
         frames.session = self
+        sampler = FrameSampler.measured ? FrameSampler(session: self) : nil
         runtime.setMeasure(TextEngine.measureText, ctx: text.measuring.opaque)
         runtime.setFonts(TextEngine.installFonts, ctx: text.measuring.opaque)
         // LLP 1056 D8, D9: Canvas 2D measures with this engine and draws the
@@ -763,6 +765,7 @@ public final class ExactSession {
         ExactEnv.stamp("runner + layout")
         let tApply = CACurrentMediaTime()
         if batch.error == nil {
+            sampler?.reset() // a new runner numbers its transactions afresh (LLP 1079 D3)
             // A fresh boot over a running app (the dev menu's reload from
             // the baked plan) starts the views over; the library already
             // replaced its host.
@@ -850,6 +853,7 @@ public final class ExactSession {
         booted = true
         app.lifecycle?.generationStarted(app, token: updateToken)
         autofocusHeld = restart
+        sampler?.reset() // a new runner numbers its transactions afresh (LLP 1079 D3)
         apply(batch)
         tellTime()
         view?.rebooted()
@@ -887,6 +891,9 @@ public final class ExactSession {
         if !applying, !landing, fillInFlight || tickInFlight || canvasInFlight, hasPublished { landFill() }
         let outermost = !applying
         applying = true
+        // What applying it cost, with its transactions, for the next sampled frame (LLP 1079 D3).
+        let began = sampler == nil ? 0 : CACurrentMediaTime()
+        defer { sampler?.batch(batch.seq, ms: outermost ? (CACurrentMediaTime() - began) * 1000 : 0) }
         // Each batch says what its turn left owed; batches apply in the
         // owner's order, so the last one applied is the runner's now.
         canvasOwed = batch.canvasOwed
@@ -916,9 +923,6 @@ public final class ExactSession {
         if firstDrawMs != nil { canvases.loadIfNeeded(); natives.loadIfNeeded(); drainSurfaceWork() } else { DispatchQueue.main.async { [weak self] in guard let self else { return }; canvases.loadIfNeeded(); drainSurfaceWork(); frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) } }
         timerDue = batch.timerDueMs
         scheduleClock(due: batch.timerDueMs)
-        if ExactEnv.environment["EXACT_TIMER_TRACE"] == "1", !ExactEnv.agentMode {
-            if let line = timerTrace.record(batch, at: ExactEnv.wall()) { fputs(line + "\n", stderr) }
-        }
         if outermost {
             while !pendingSurfaceRecords.isEmpty {
                 let (name, json) = pendingSurfaceRecords.removeFirst()
@@ -1225,15 +1229,6 @@ public final class ExactSession {
     /// window starts its key-view loop at the view.
     public func moveFocus(backward: Bool) { presenter.moveFocus(backward: backward) }
     #endif
-    #if canImport(UIKit)
-    /// EXACT_FPS (iOS): the measure's report line, once a second.
-    public var onFrameReport: ((String) -> Void)? {
-        get { frames.onReport }
-        set { frames.onReport = newValue }
-    }
-    /// Keep the display link running regardless (the fps measure).
-    public func runFramesAlways() { frames.run(true) }
-    #endif
 
     /// Everything attributable to this session goes (D2): the display link
     /// and clock, the surface instances, the web views, the views, the
@@ -1246,6 +1241,7 @@ public final class ExactSession {
         clockTimer?.invalidate()
         clockTimer = nil
         frames.run(false)
+        sampler?.stop()
         DisplayPreferences.forget(preferenceObservers)
         PageFacts.forget(pageObservers)
         presenter.reset()
@@ -1275,30 +1271,6 @@ enum SessionClockTimer {
     }
 }
 
-/// Wall-clock observation of actual presenter applies, never the agent clock.
-/// Flow applies (not ops in one catch-up burst) are the animation cadence oracle.
-struct SessionTimerTrace {
-    private var started: Double?
-    private var lastFlow: Double?
-    private var applies = 0, flowApplies = 0, flowOps = 0
-    private var maxGap = 0.0
-    mutating func record(_ batch: Batch, at now: Double) -> String? {
-        if started == nil { started = now }
-        if !batch.ops.isEmpty { applies += 1 }
-        let count = batch.ops.filter { $0.op == .flow }.count
-        if count > 0 {
-            if let lastFlow { maxGap = max(maxGap, now - lastFlow) }
-            lastFlow = now
-            flowApplies += 1; flowOps += count
-        }
-        let elapsed = now - started!
-        guard elapsed >= 1000 else { return nil }
-        let line = String(format: "exact timer trace: elapsed_ms=%.1f applies=%d flow_applies=%d flow_ops=%d max_gap_ms=%.2f", elapsed, applies, flowApplies, flowOps, maxGap)
-        started = now; applies = 0; flowApplies = 0; flowOps = 0; maxGap = 0
-        return line
-    }
-}
-
 /// Frames come from the display link, only while motion runs or a canvas
 /// has something to render (LLP 1009 D4), per session.
 final class Frames: NSObject {
@@ -1325,22 +1297,8 @@ final class Frames: NSObject {
             s.canvases.settle(now: s.now())
         }
     }
-    #if canImport(UIKit)
-    /// EXACT_FPS=1 (iOS): the display link runs always and the measure
-    /// reports once a second (`main.swift` prints it).
-    let fpsMode = ExactEnv.environment["EXACT_FPS"] == "1"
-    var ticks = 0
-    var lastTick = 0.0
-    var longest = 0.0
-    var reported = 0.0
-    var onReport: ((String) -> Void)?
-    #endif
-
     @objc func tick(_ link: CADisplayLink) {
         guard let s = session else { return }
-        #if canImport(UIKit)
-        if fpsMode { measure(link.timestamp) }
-        #endif
         s.canvases.lifecycle.frame()
         // Motion keeps its existing sampling clock; canvas frames target presentation.
         let frameNow = s.clock ?? (link.targetTimestamp - ExactEnv.t0) * 1000
@@ -1374,28 +1332,9 @@ final class Frames: NSObject {
         run(motion || canvas2d || timerSoon || more || s.canvases.wantsFrames || s.canvases.lifecycle.needsRetry)
     }
 
-    #if canImport(UIKit)
-    func measure(_ t: Double) {
-        if lastTick > 0 { longest = max(longest, t - lastTick) }
-        lastTick = t
-        ticks += 1
-        if reported == 0 { reported = t }
-        guard t - reported >= 1, let c = session?.canvases else { return }
-        var line = String(format: "fps %.0f · longest gap %.1f ms · renders %d avg %.1f ms · submits %d · captures %d avg %.1f ms", Double(ticks) / (t - reported), longest * 1000, c.windowRenders, c.windowRenderSeconds * 1000 / Double(max(1, c.windowRenders)), c.windowSubmits, c.windowCaptures, c.windowCaptureSeconds * 1000 / Double(max(1, c.windowCaptures)))
-        if !Capture.cpu, let sh = Shadow.shared, c.windowCaptures > 0 { line += String(format: " (mirror %.1f, gpu %.1f, read %.1f)", sh.lastMirrorMs, sh.lastRenderMs, sh.lastReadMs) }
-        onReport?(line)
-        ticks = 0; longest = 0; reported = t
-        c.windowRenders = 0; c.windowRenderSeconds = 0; c.windowSubmits = 0; c.windowCaptures = 0; c.windowCaptureSeconds = 0
-    }
-    #endif
-
     func run(_ wanted: Bool) {
         if wanted, session?.clock != nil { requestCanvas() }
-        #if canImport(UIKit)
-        let on = (wanted || fpsMode) && session?.clock == nil
-        #else
         let on = wanted && session?.clock == nil
-        #endif
         if on, link == nil {
             #if canImport(UIKit)
             let l = CADisplayLink(target: self, selector: #selector(tick(_:)))
@@ -1418,7 +1357,7 @@ final class Frames: NSObject {
             // that runs for minutes — asks no more. The link exists only
             // while something wants frames, so an idle app drops to no link
             // at all (LLP 1061 D4).
-            let fullRate = fpsMode || (motion && spatial) || session?.canvases.wantsFrames == true
+            let fullRate = (motion && spatial) || session?.canvases.wantsFrames == true
             let rate = Float(min(120, session?.presenter.viewport.window?.screen.maximumFramesPerSecond ?? 60))
             link.preferredFrameRateRange = fullRate ? CAFrameRateRange(minimum: min(80, rate), maximum: rate, preferred: rate)
                 : motion ? CAFrameRateRange(minimum: min(30, rate), maximum: min(60, rate), preferred: min(60, rate)) : .default

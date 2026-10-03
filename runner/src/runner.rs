@@ -42,6 +42,7 @@ mod kept_tests;
 mod lines;
 mod lists;
 mod page;
+mod perf;
 pub mod router;
 pub use lists::ListTextPosition;
 mod settlement;
@@ -1279,6 +1280,7 @@ impl<D: DataSource> Runner<D> {
                     return Err(e.into());
                 }
             };
+        self.tally(&ops, &receipt.touched);
         for note in std::mem::take(&mut self.notes) {
             self.log(note);
         }
@@ -1293,6 +1295,7 @@ impl<D: DataSource> Runner<D> {
         if !cleanup.is_empty() {
             self.batch += 1;
             let tail = self.kernel.apply(0, self.batch, &cleanup)?;
+            self.tally(&cleanup, &tail.touched);
             receipt.batch = tail.batch;
             receipt.epoch = tail.epoch;
             for key in tail.touched {

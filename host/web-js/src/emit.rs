@@ -1118,7 +1118,7 @@ impl Em<'_> {
             self.markdown = true;
         }
         self.editor(i, element, &e)?;
-        for b in row.bindings.iter() {
+        for (k, b) in row.bindings.iter().enumerate() {
             let b = plan.binding(b);
             if style::literal(plan, plan.code(b.expr)).is_some() {
                 continue;
@@ -1127,6 +1127,7 @@ impl Em<'_> {
                 .f(b.expr, scope)
                 .map_err(|x| format!("node {i}: {x}"))?;
             let at = self.out.len();
+            let (raw, f) = (f.clone(), self.counted(i, k, f));
             self.paint_binding(node_type, b, &e, &f);
             match b.kind {
                 BindingKind::Prop if markdown && b.id == PropId::Text as u16 => {
@@ -1155,7 +1156,7 @@ impl Em<'_> {
                 BindingKind::Style => self.style_row(i, b, &parts, &e, &f)?,
             }
             // The row item's fields it reads (LLP 1071.000 D3).
-            if let Some(m) = crate::reads::field_mask(&f).filter(|_| self.out.len() > at) {
+            if let Some(m) = crate::reads::field_mask(&raw).filter(|_| self.out.len() > at) {
                 let (fm, stmt) = (self.uses.rt("fm"), self.out.split_off(at));
                 let _ = write!(self.out, "{fm}({m},()=>{{{stmt}}});");
             }

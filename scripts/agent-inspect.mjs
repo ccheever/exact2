@@ -34,6 +34,8 @@ export function sourceMapReader(locator) {
     && value.end_col >= value.col && typeof value.component === 'string';
   const at = value => ({file: value.file, line: value.line, col: value.col, end_col: value.end_col, component: value.component});
   return {
+    /** A map a trace carries (LLP 1079 D5): found by its own digest, as a refreshed one is. */
+    add(map) { if (digest(map?.digest) && Array.isArray(map.nodes)) maps.set(map.digest, map); },
     async refresh() {
       if (!locator) return false;
       try {
@@ -91,6 +93,7 @@ export function sourceMapReader(locator) {
 export function sourceMapReaders(locators) {
   const readers = locators.length ? locators.map(sourceMapReader) : [sourceMapReader(null)];
   return {
+    add(map) { readers[0].add(map); },
     async refresh() { return (await Promise.all(readers.map(r => r.refresh()))).some(Boolean); },
     attach(node) { for (const r of readers) { r.attach(node); if (node.sourceMap?.status === 'compatible') return; } },
   };
@@ -125,6 +128,10 @@ export function identifyInspectedNode(reply, target) {
  *   logs    "(N earlier lines dropped by the journal ring)" when dropped > 0; the journal lines as they are;
  *           the host's lines indented two spaces; "(nothing new)" when there is nothing
  *   state   the JSON, indented two spaces
+ *   perf    {target} — seq [A..]B · clock [X..]Y ms · incarnation I [· partial: N walked]
+ *           one row per site: component, file:line (or `site N`), then each counter the host has
+ *   perf frames  period P ms (source) · presented N · late L · missed M · segments S, the window's
+ *           percentiles, then one line per late frame; `virtual clock: no frame was presented`
  *   others  the JSON on one line
  */
 export function render(op, r) {
@@ -165,6 +172,8 @@ export function render(op, r) {
       return [...(r.dropped > 0 ? [`(${r.dropped} earlier lines dropped by the journal ring)`] : []), ...r.lines, ...(r.world ?? []).flatMap((w) => w.lines.map((line) => 'world ' + line)), ...(r.host ?? []).map((l) => '  ' + l)].join('\n') || '(nothing new)';
     case 'state':
       return q(r, null, 2);
+    case 'perf':
+      return renderPerf(r);
     case 'type':
       if (r.steps) return r.steps.map(step => `${step.op} ${step.args.map(a => typeof a === 'string' ? a : q(a)).join(' ')}\n${step.error ? 'ERROR ' + step.error : render(step.op, step.reply)}`).join('\n');
       return q(r);
@@ -217,4 +226,107 @@ function renderNode(n) {
   if (n.native) out.push(`  native ${sorted(n.native).map(([k, v]) => `${k}=${typeof v === 'string' ? v : q(v)}`).join(' ')}`);
   if (n.browser) out.push(`  browser ${sorted(n.browser).map(([k, v]) => `${k}=${q(v)}`).join(' ')}`);
   return out;
+}
+
+/** The counters a `perf` site row may carry, in the order they print (LLP 1079 D1). */
+const COUNTERS = ['instances', 'created', 'retired', 'evaluated', 'unchanged', 'authored', 'inherited', 'moved'];
+
+/** `perf [<target>] [during "<op>" …]` and `perf frames [late <n>]` (LLP
+ * 1079 D2, D4). `during` reads, drives each quoted op through `step`, reads
+ * again, and subtracts: the delta belongs to the driver, a read changes nothing. */
+export async function perfOp(s, args, line, step) {
+  if (args[0] === 'frames') return s.perf(null, { frames: true, late: args[1] === 'late' ? Number(args[2]) : undefined });
+  const target = args[0] && args[0] !== 'during' ? args[0] : undefined;
+  const at = line.search(/\sduring\s/);
+  if (at < 0) return s.perf(target);
+  const ops = [...line.slice(at).matchAll(/"((?:[^"\\]|\\.)*)"/g)].map(m => JSON.parse(`"${m[1]}"`));
+  if (!ops.length) throw Error('perf … during: quote each op, as perf feed during "tap start" "clock +1000"');
+  const before = await s.perf(target);
+  for (const op of ops) await step(op);
+  return perfDelta(before, await s.perf(target));
+}
+
+/** Two `perf` reads' difference, site by site. Refused by name when they
+ * describe different runs: another plan, another incarnation, or counters
+ * that went backwards (a runner that restarted in place). */
+export function perfDelta(a, b) {
+  if (!a.plan || !b.plan) throw Error('perf: a read names no plan; no difference is defined');
+  // A bounded first read leaves sites out: their whole lifetime would read as new work.
+  if (a.truncated) throw Error(`perf: the first read was partial (${a.walked} walked); name a narrower target`);
+  if (a.plan !== b.plan) throw Error(`perf: the plan changed between the reads (${a.plan?.slice(0, 12)} → ${b.plan?.slice(0, 12)}); no difference is defined`);
+  if (a.incarnation !== b.incarnation) throw Error(`perf: incarnation ${a.incarnation} → ${b.incarnation} between the reads; no difference is defined`);
+  if (b.seq < a.seq) throw Error(`perf: seq went back (${a.seq} → ${b.seq}): the runner restarted between the reads`);
+  const before = new Map(a.sites.map(x => [x.site, x]));
+  const sites = b.sites.map(x => {
+    const was = before.get(x.site), d = { ...x };
+    for (const k of COUNTERS.slice(1)) if (typeof x[k] === 'number') {
+      d[k] = x[k] - (was?.[k] ?? 0);
+      if (d[k] < 0) throw Error(`perf: site ${x.site}'s ${k} went back (${was[k]} → ${x[k]}): the runner restarted between the reads`);
+    }
+    return d;
+  });
+  return { ...b, sites, from: { seq: a.seq, clock: a.clock } };
+}
+
+function renderPerf(r) {
+  if (r.virtual) return 'virtual clock: no frame was presented (LLP 1079 D4)';
+  if (r.unavailable) return 'this host observes no presented frames';
+  if (r.lifetime) {
+    const w = r.window ?? {}, f = n => n == null ? '—' : `${n} ms`;
+    const out = [`period ${r.period.ms} ms (${r.period.source}) · presented ${r.lifetime.presented} · late ${r.lifetime.late} · missed ${r.lifetime.missed} · segments ${r.lifetime.segments}${r.covers?.length ? ` · covers ${r.covers.join(', ')}` : ''}`,
+      `window t=${w.from}..${w.to} · ${w.samples} samples (${w.dropped} dropped) · p50 ${f(w.p50)} · p95 ${f(w.p95)} · p99 ${f(w.p99)} · max ${f(w.max)}`];
+    for (const l of r.late ?? []) out.push(`  t=${l.t} late: ${l.missed} missed (${l.interval} ms) · seq ${l.seq ? l.seq.join('..') : '—'}${l.apply != null ? ` · apply ${l.apply}` : ''}${l.layout != null ? ` · layout ${l.layout}` : ''}${l.loaf ? ` · loaf script ${l.loaf.script}${l.loaf.styleLayout != null ? ` style+layout ${l.loaf.styleLayout}` : ''}` : ''}`);
+    return out.join('\n');
+  }
+  const round = x => typeof x === 'number' ? Math.round(x * 100) / 100 : x;
+  const span = (from, to) => from != null && from !== to ? `${round(from)}..${round(to)}` : `${round(to)}`;
+  const cols = COUNTERS.filter(k => r.sites.some(x => typeof x[k] === 'number'));
+  // A component used twice is two sites: the nearest call site tells them apart.
+  const where = x => x.source?.status === 'compatible' ? `${x.source.file.split('/').pop()}:${x.source.line}${x.source.chain.length ? ` (from :${x.source.chain[0].line})` : ''}` : `site ${x.site}`;
+  const rows = r.sites.map(x => [x.source?.status === 'compatible' ? x.source.component : '?', where(x), ...cols.map(k => String(x[k]))]);
+  const head = ['component', 'site', ...cols], width = head.map((h, i) => Math.max(h.length, ...rows.map(row => row[i].length)));
+  const pad = row => '  ' + row.map((c, i) => c.padEnd(width[i])).join('  ').trimEnd();
+  const unmapped = r.sites.find(x => x.source?.status !== 'compatible');
+  return [`${r.target ?? 'every root'} — seq ${span(r.from?.seq, r.seq)} · clock ${span(r.from?.clock, r.clock)} ms · incarnation ${r.incarnation}${r.truncated ? ` · partial: ${r.walked} walked` : ''}${unmapped ? ` · source unavailable: ${unmapped.source?.reason ?? 'no development source map'}` : ''}`,
+    pad(head), ...rows.map(pad)].join('\n');
+}
+
+/** `bun scripts/agent.mjs trace <file>` (LLP 1079 D5): a person's session
+ * read back with no app running. The trace's own source map joins its sites;
+ * without one, `locators` are tried as the live driver tries them. */
+export async function readTrace(file, locate = () => []) {
+  const t = JSON.parse(readFileSync(file, 'utf8'));
+  const maps = sourceMapReaders(t.map ? [] : locate(t.identity?.app));
+  if (t.map) maps.add(t.map); else await maps.refresh();
+  const perf = t.perf && !t.perf.error ? { target: 'every root', ...t.perf } : null;
+  for (const site of perf?.sites ?? []) { const n = { planDigest: perf.plan ?? t.plan, site: site.site }; maps.attach(n); site.source = n.sourceMap; }
+  return { ...t, perf };
+}
+
+/** A trace as text: who and what made it, each timing's proxy, the frames,
+ * each late frame beside the journal lines stamped in its interval and the
+ * transactions it carried (D4: juxtaposition, never a cause), the sites. */
+export function renderTrace(t) {
+  const id = t.identity ?? {};
+  const out = [`trace · ${[id.host, id.target].filter(Boolean).join('/')} · ${id.app ?? 'app ?'} · ${id.trust ?? 'trust ?'} · commit ${id.commit?.slice(0, 12) ?? '?'}${id.working_tree ? ' (dirty)' : ''} · ${[id.platform, id.arch, id.cpu, id.os, id.device].filter(Boolean).join(' ')}`];
+  if (t.proxies) out.push(`proxies · ${Object.entries(t.proxies).map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : v}`).join(' · ')}`);
+  if (t.frames?.lifetime) {
+    out.push('', renderPerf({ ...t.frames, late: [] }));
+    // Beside each late frame, the journal lines appended just before its own
+    // line — at most five, none from before the previous late frame: the
+    // journal's `t=` is the runner's logical clock, which need not be the
+    // frame's (a page adopted from a checkpoint keeps the render's).
+    const lines = t.journal?.lines ?? [];
+    for (const r of t.frames.late ?? []) {
+      const at = lines.findIndex(l => l.includes(` frame late at ${r.t}:`));
+      let from = at;
+      while (from > 0 && at - from < 5 && !lines[from - 1].includes(' frame late at ')) from--;
+      const near = at < 0 ? [] : lines.slice(from, at);
+      const n = r.seq ? r.seq[1] - r.seq[0] + 1 : 0;
+      out.push(`  late at ${r.t}: ${r.missed} missed (${r.interval} ms) · ${n} transaction${n === 1 ? '' : 's'}${r.seq ? ` (seq ${r.seq.join('..')})` : ''}${r.apply ? ` · apply ${r.apply}` : ''}${r.layout != null ? ` · layout ${r.layout}` : ''}${r.paint != null ? ` · paint ${r.paint}` : ''}${r.loaf ? ` · loaf script ${r.loaf.script}${r.loaf.styleLayout != null ? ` style+layout ${r.loaf.styleLayout}` : ''}` : ''}${at < 0 ? ' · its journal line is gone (the ring turned over)' : ` · ${near.length} journal line${near.length === 1 ? '' : 's'} before it`}`);
+      for (const l of near) out.push(`    ${l}`);
+    }
+  } else if (t.frames) out.push('', renderPerf(t.frames));
+  if (t.perf) out.push('', renderPerf(t.perf));
+  return out.join('\n');
 }

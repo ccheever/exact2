@@ -201,16 +201,6 @@ final class SessionClockTimerTests: XCTestCase {
         XCTAssertGreaterThan(maxGap, 40, "the old timer must fail the animation gap bar")
     }
 
-    func testTraceRejectsOldPollingEvenWhenBurstContainsManyFlowOps() {
-        var trace = SessionTimerTrace()
-        let burst = batchFixture(ops: Array(repeating: ["op": "flow"], count: 15), timers: true, motion: false, clock: nil, error: nil)
-        for now in stride(from: 0.0, to: 1000, by: 250) { XCTAssertNil(trace.record(burst, at: now)) }
-        let line = trace.record(burst, at: 1000)!
-        XCTAssertTrue(line.contains("flow_applies=5"), line)
-        XCTAssertTrue(line.contains("flow_ops=75"), line)
-        XCTAssertTrue(line.contains("max_gap_ms=250.00"), line)
-    }
-
     func testClockRunsWhileTrackingModeIsActive() {
         XCTAssertTrue(Thread.isMainThread)
         let mode = trackingMode(), ticks = ClockTicks()

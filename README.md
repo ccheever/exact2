@@ -580,7 +580,7 @@ else here was admitted because a real app needed it.
   replaced live in development. Every web build gets an install page, and
   `exact release` signs and notarizes a Mac app
   ([LLP 1030](llp/1030-delivery-unified.rfc.md)).
-- **Agents and tests.** The nine operations on every host, including a physical
+- **Agents and tests.** The ten operations on every host, including a physical
   iPhone; Contract tests; source maps; filmed screenshots.
 
 ### Not yet, or not at all
