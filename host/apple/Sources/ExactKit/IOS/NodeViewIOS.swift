@@ -671,7 +671,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// without them, and then the canvas itself is the hit. (`point` is in
     /// this view's own coordinates — UIKit's convention, not AppKit's.)
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        if placedAncestor?.placementHidden == true { return nil }
+        // UIKit's conversion already carries a box in space through its
+        // plane (LLP 1077 D8); a hidden back face is the host's to refuse.
+        if placedAncestor?.placementHidden == true || hidesBack() { return nil }
         if let clipPath, !clipPath.contains(point, using: clipRule) { return nil }
         if props["swipeIndicator"] == "true" { return nil }
         if isSurfaceControl, !inert, !isHidden, isUserInteractionEnabled, bounds.contains(point) { return self }

@@ -690,17 +690,17 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
 
     /// A window point in this node's own coordinates — through the surface's
     /// placement when this node is under a placed child (LLP 1014 D5), else
-    /// AppKit's own conversion.
+    /// AppKit's own conversion; through each box in space on the way (D8).
     func local(_ windowPoint: NSPoint) -> NSPoint {
         guard let placed = placedAncestor, let h = placed.placement, let inv = NodeView.invert(h),
               let overlay = placed.superview, let canvas = overlay.superview as? NodeView else {
-            return convert(windowPoint, from: nil)
+            return descend(windowPoint)
         }
         let inCanvas = canvas.convert(windowPoint, from: nil)
         let inChild = NodeView.map(inv, inCanvas)
         // The child's own points; then down to this node by the untransformed
         // hierarchy.
-        return convert(inChild, from: placed)
+        return descend(inChild, from: placed)
     }
 
     /// The placement changed: accessibility sees the new box.
@@ -716,7 +716,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// (children the surface left in place) is tested in AppKit's order
     /// without them, and then the canvas itself is the hit.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !inert, !isHiddenOrHasHiddenAncestor, placedAncestor?.placementHidden != true else { return nil }
+        guard !inert, !isHiddenOrHasHiddenAncestor, placedAncestor?.placementHidden != true, let point = spaceHit(point) else { return nil }
         if let clipPath, !clipPath.contains(convert(point, from: superview), using: clipRule) { return nil }
         if isSurfaceControl, bounds.contains(convert(point, from: superview)) { return self }
         func ordinary() -> NSView? {

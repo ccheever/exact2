@@ -315,7 +315,6 @@ Two independent audits of the six commits. Fixed in round 1:
 Owed from the review (not fixed):
 
 - **Apple text shadow under transparent text.** Core Text casts no shadow from a clear fill. Chrome does draw it.
-- **3D on Apple: hit-testing and back faces.** A turned box is hit-tested in its flat frame. A hidden back face still takes touches.
 - **`paint-order: stroke`** is not a row. The stroke always draws over the fill, as Chrome's default does.
 - **A material's children under a mask** (declared in LLP 1001).
 
@@ -338,6 +337,10 @@ Round 2 audited the round-1 fixes and the merge with main's percentage-radius cl
   - A bound colour's system names resolve after any map the row has (`accent-color`), in any case.
   - A string zero perspective (`0px`) is `none`.
   - A vendor-prefixed attribute may have spaces before its `=`.
+
+### 3D hits on Apple (2026-10-02)
+
+Built from the review's owed list. A box in space now takes taps where it is drawn, and a hidden back face takes none, on iOS and macOS. UIKit already converts a point through a layer's 3D transform and its parent's `sublayerTransform`, so iOS keeps its own hit test and only refuses a box whose hidden back face is toward the viewer. AppKit places every view at its frame, so on macOS the host carries the point through the box's plane: the layer's transform about its anchor, then the parent's perspective, read from the layers as drawn (`SpaceTransform.swift`). The same map serves the hit test, `local` (inline runs, SVG targets, the press's inside test) and the agent's box. XCTests on both platforms check a turned box, a box moved along z and a hidden back face; on iOS they also check that this plane matches UIKit's own conversion. `scripts/fixtures/space-hits.contract` drives taps on a moved box, a turned box, and a hidden card over another, on both platforms.
 
 ## 7. Open questions for Charlie
 

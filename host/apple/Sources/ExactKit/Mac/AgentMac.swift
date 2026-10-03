@@ -143,6 +143,14 @@ extension Agent {
             let r = canvas.convert(inCanvas, to: clip)
             return NSRect(x: r.origin.x - clip.bounds.origin.x, y: r.origin.y - clip.bounds.origin.y, width: r.width, height: r.height)
         }
+        // In space (LLP 1077 D8): the bounds of the box as drawn, its corners
+        // through each plane, as `getBoundingClientRect` reports a 3D box.
+        if let n = v as? NodeView, n.inSpace {
+            let corners = [NSPoint(x: bounds.minX, y: bounds.minY), NSPoint(x: bounds.maxX, y: bounds.minY), NSPoint(x: bounds.maxX, y: bounds.maxY), NSPoint(x: bounds.minX, y: bounds.maxY)]
+                .map { n.ascend($0, to: clip) }
+            let xs = corners.map { $0.x }, ys = corners.map { $0.y }
+            return NSRect(x: xs.min()! - clip.bounds.origin.x, y: ys.min()! - clip.bounds.origin.y, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+        }
         let r = v.convert(bounds.applying(v.layer?.affineTransform() ?? .identity), to: clip)
         return NSRect(x: r.origin.x - clip.bounds.origin.x, y: r.origin.y - clip.bounds.origin.y, width: r.width, height: r.height)
     }
