@@ -47,7 +47,7 @@ final class NativeContextsIOSTests: XCTestCase {
                    ["op": "frame", "id": 6, "x": 410.0, "y": 0.0, "w": 40.0, "h": 50.0]]
                 + [["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [3, 4, 5, 6]], ["op": "roots", "ids": [1]],
                    ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 80.0], ["op": "content", "id": 1, "x": 0.0, "y": 0.0, "w": 450.0, "h": 80.0]],
-            faces: [4: face("Delete", symbol: "trash"), 5: face(nil, symbol: "bell", label: "Hide alerts"), 6: face(nil, symbol: "pin", label: "Pin")])
+            faces: [4: face("Delete", symbol: "trash"), 5: face(nil, symbol: "bell", label: "Hide alerts"), 6: face("Pin", symbol: "pin", label: "Pin")])
         let owner = try XCTUnwrap(p.views[1])
         p.swipeActions.touch(owner)
         let table = try XCTUnwrap(owner.subviews.compactMap { $0 as? UITableView }.first)
@@ -57,6 +57,9 @@ final class NativeContextsIOSTests: XCTestCase {
         let delete = configuration.actions[0], mute = configuration.actions[1], pin = configuration.actions[2]
         XCTAssertEqual(delete.style, .destructive)
         XCTAssertNotNil(delete.image, "its symbol")
+        XCTAssertEqual(delete.title, "Delete", "and its visible title under it")
+        XCTAssertNil(mute.title, "a symbol alone shows no title")
+        XCTAssertEqual(pin.title, "Pin", "a custom action's too")
         let red = UIContextualAction(style: .destructive, title: nil) { _, _, _ in }.backgroundColor
         XCTAssertEqual(delete.backgroundColor, red, "UIKit's red: a destructive action's accent sets nothing")
         XCTAssertEqual(pin.image?.isSymbolImage, true, "a custom action's symbol is a system image, not a snapshot")

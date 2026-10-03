@@ -314,6 +314,12 @@ final class SwipeActionsHost {
             }
             return true
         }
+        /// A visible title beside an action's image: UIKit draws it under the
+        /// glyph, as the authored button shows it. An image alone stays alone.
+        private func shownTitle(_ target: NodeView) -> String? {
+            guard let title = target.face?.title, !title.isEmpty else { return nil }
+            return title
+        }
         private func configuration(_ controls: [NodeView]) -> UISwipeActionsConfiguration? {
             let actions = controls.filter(enabled).map { target in
                 let destructive = target.props["destructive"] == "true"
@@ -334,6 +340,7 @@ final class SwipeActionsHost {
                     if let symbol = target.face?.symbol, let image = UIImage(systemName: symbol) {
                         image.accessibilityLabel = host.label(target)
                         images[target.id] = image; action.image = image
+                        action.title = shownTitle(target)
                     } else { action.title = host.label(target) }
                     return action
                 }
@@ -343,6 +350,7 @@ final class SwipeActionsHost {
                 if let face = target.face, face.fits, !face.raster, let symbol = face.symbol, let image = UIImage(systemName: symbol) {
                     image.accessibilityLabel = host.label(target)
                     images[target.id] = image; action.image = image
+                    action.title = shownTitle(target)
                     return action
                 }
                 if let glyph = target.container.subviews.first as? NodeView, !glyph.bounds.isEmpty {
@@ -360,6 +368,7 @@ final class SwipeActionsHost {
                         }.withRenderingMode(.alwaysOriginal)
                         image.accessibilityLabel = host.label(target)
                         images[target.id] = image; action.image = image
+                        if !glyph.isParagraph { action.title = shownTitle(target) }
                     }
                 } else { action.title = host.label(target) }
                 return action
