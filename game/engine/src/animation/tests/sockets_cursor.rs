@@ -46,4 +46,27 @@ fn a_socket_followers_child_in_another_block_is_reported_as_the_rig_animates() {
     // Nothing moved since this cursor: nothing is reported.
     let still = w.pose_cursor();
     assert_eq!(w.poses_changed_since(still).count(), 0);
+    // A paused world still reports what its followers follow: an edited
+    // follower, a replaced mesh, a hot-reloaded model, a name now elsewhere.
+    let edits: [&dyn Fn(&mut World); 4] = [
+        &|w| w.get_mut::<SocketFollow>(follower).unwrap().offset = Transform::at(0., 5., 0.),
+        &|w| {
+            w.insert(rig, Mesh::asset("rig.model"));
+        },
+        &|w| {
+            let model = w.assets.models.get("rig.model").unwrap().clone();
+            w.assets.models.insert("rig.model".into(), model);
+        },
+        &|w| {
+            w.spawn_named("rig", ());
+        },
+    ];
+    for (i, edit) in edits.iter().enumerate() {
+        let cursor = w.pose_cursor();
+        edit(&mut w);
+        assert!(
+            w.poses_changed_since(cursor).any(|p| p == block),
+            "edit {i}"
+        );
+    }
 }

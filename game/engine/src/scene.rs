@@ -86,8 +86,8 @@ pub struct PoseCursor {
     generation: u64,
     transforms: u64,
     hierarchy: u64,
-    tick: u64,
-    poses: u64,
+    // What a socket follower's pose depends on (World::rig_key).
+    rig: [u64; 7],
 }
 
 /// Hierarchy edge. Descendants of a dead parent leave at the end of the tick.
@@ -597,9 +597,22 @@ impl World {
             generation: self.presentation_generation,
             transforms: self.revision::<Transform>(),
             hierarchy: self.hierarchy.epoch,
-            tick: self.tick(),
-            poses: self.revision::<crate::Pose>(),
+            rig: self.rig_key(),
         }
+    }
+    /// Everything a socket follower's global can follow: time, the rig's Transform
+    /// and Pose, the followers themselves, meshes and delivered models (an asset
+    /// hot-reload), and entity names (a FollowTarget::Name resolving elsewhere).
+    pub(crate) fn rig_key(&self) -> [u64; 7] {
+        [
+            self.tick(),
+            self.revision::<Transform>(),
+            self.revision::<crate::Pose>(),
+            self.revision::<crate::SocketFollow>(),
+            self.revision::<Mesh>(),
+            self.model_revision(),
+            self.entities_revision(),
+        ]
     }
     /// Blocks of every socket follower and its descendants: their globals follow
     /// an animated rig's Pose and Transform, which writes none of their rows.
@@ -627,12 +640,9 @@ impl World {
         let all = since.generation != self.presentation_generation;
         let transforms = self.storage::<Transform>();
         let epochs = &self.hierarchy.epochs;
-        // A follower's subtree moves with its rig: report it whenever time, a
-        // Transform or a Pose moved since the cursor.
-        let now = self.pose_cursor();
-        let sockets = if (now.tick, now.transforms, now.poses)
-            != (since.tick, since.transforms, since.poses)
-        {
+        // A follower's subtree moves with its rig: report it whenever anything
+        // its pose follows moved since the cursor, paused or not.
+        let sockets = if self.rig_key() != since.rig {
             self.socket_pages()
         } else {
             Default::default()

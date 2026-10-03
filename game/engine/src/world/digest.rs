@@ -14,7 +14,7 @@ type Rows = Rc<[(u32, u32, u64)]>;
 
 #[derive(Clone, Default)]
 struct Page {
-    key: Option<(u64, u64, u64)>,
+    key: Option<(u64, u64, u64, u64)>,
     all: u64,
     len: usize,
     rows: Rows,
@@ -28,6 +28,9 @@ pub(crate) struct Digests {
     components: BTreeMap<&'static str, (u64, Vec<Page>)>,
     resources: BTreeMap<&'static str, ((u64, u64), u64)>,
     rng: Option<((u64, u64), u64)>,
+    // The rig key follower pages were last read at, and a count of its changes.
+    rig: Option<[u64; 7]>,
+    rig_epoch: u64,
 }
 impl Digests {
     /// A spawn or despawn changed this slot's generation, liveness or name.
@@ -52,7 +55,7 @@ type Computed = (u64, usize, Vec<(u32, u32, u64)>);
 fn refresh(
     pages: &mut Vec<Page>,
     count: usize,
-    key: impl Fn(usize) -> (u64, u64, u64),
+    key: impl Fn(usize) -> (u64, u64, u64, u64),
     mut compute: impl FnMut(usize) -> Computed,
 ) {
     pages.resize_with(count, Page::default);
@@ -92,6 +95,7 @@ impl World {
                     stamps.get(p).copied().unwrap_or(0),
                     ambient_key(p),
                     fill as u64,
+                    0,
                 )
             },
             |p| {
@@ -110,26 +114,22 @@ impl World {
         );
         let epochs = &self.hierarchy.epochs;
         let parented = self.storage::<crate::Parent>();
-        // Follower subtrees move with their rig's Pose and Transform: re-read on
-        // each new tick or pose (pose_cursor's own condition), never by epoch alone.
+        // Follower subtrees move with their rig: re-read them whenever anything
+        // their poses follow changed (World::rig_key), never by epoch alone.
         let sockets = self.socket_pages();
-        let moved = (
-            self.tick(),
-            self.revision::<crate::Transform>(),
-            self.revision::<crate::Pose>(),
-        );
-        let moved = moved.0 ^ moved.1.rotate_left(21) ^ moved.2.rotate_left(42);
+        let rig = self.rig_key();
+        if d.rig != Some(rig) {
+            d.rig = Some(rig);
+            d.rig_epoch += 1;
+        }
+        let rig_epoch = d.rig_epoch;
         refresh(
             &mut d.globals,
             epochs.len().max(sockets.last().map_or(0, |p| p + 1)),
             |p| {
-                let rig = if sockets.contains(&p) { moved } else { 0 };
                 let epoch = epochs.get(p).copied().unwrap_or(0);
-                (
-                    epoch,
-                    ambient_key(p),
-                    self.presentation_generation ^ rig.rotate_left(7),
-                )
+                let rig = if sockets.contains(&p) { rig_epoch } else { 0 };
+                (epoch, ambient_key(p), self.presentation_generation, rig)
             },
             |p| {
                 let mut rows = Vec::new();
@@ -156,7 +156,7 @@ impl World {
             refresh(
                 pages,
                 storage.page_count(),
-                |p| (storage.page_generation(p), ambient_key(p), 0),
+                |p| (storage.page_generation(p), ambient_key(p), 0, 0),
                 |p| {
                     let mut all = Vec::new();
                     let mut rows = Vec::new();

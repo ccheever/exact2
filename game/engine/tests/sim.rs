@@ -1432,6 +1432,18 @@ fn posted_messages_reach_one_tick_each_in_order_and_are_saved_only_while_pending
         .filter(|e| e.line.contains("postMessage refused"))
         .count();
     assert_eq!(refusals, 1, "one journal line per overflow episode");
+    // The drained queue ends the episode: the next overflow journals again.
+    full.bind(&[Value::Bool(true)], None).unwrap();
+    for i in 0..1100 {
+        full.post(format!("n{i}"));
+    }
+    let refusals = full
+        .world()
+        .journal()
+        .iter()
+        .filter(|e| e.line.contains("postMessage refused"))
+        .count();
+    assert_eq!(refusals, 2, "two separate overflow episodes give two lines");
     // Oversized messages refuse by name and change nothing.
     let mut big = Sim::<Shop>::new(Options::default()).unwrap();
     big.run(0.);
