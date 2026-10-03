@@ -1641,7 +1641,8 @@
     "ScrollSnapAlign": {
       "values": [
         "none",
-        "start"
+        "start",
+        "end"
       ],
       "default": "none"
     },

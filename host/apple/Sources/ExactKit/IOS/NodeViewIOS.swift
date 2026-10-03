@@ -607,7 +607,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
     }
 
-    /// CSS's admitted `x mandatory` / `start` scroll snap. UIKit supplies
+    /// CSS's admitted `x mandatory` / `start` and `end` scroll snap. UIKit supplies
     /// the projected resting offset and owns the resulting deceleration.
     func scrollViewWillEndDragging(_ scrollView: UIScrollView, withVelocity velocity: CGPoint, targetContentOffset: UnsafeMutablePointer<CGPoint>) {
         guard (style["scroll_snap_type"]?.string) == "x mandatory" else { return }
@@ -615,12 +615,18 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         var positions: [CGFloat] = []
         func visit(_ view: UIView) {
             for case let node as NodeView in view.subviews where !node.isHidden {
-                if (node.style["scroll_snap_align"]?.string) == "start" {
+                let align = node.style["scroll_snap_align"]?.string
+                if align == "start" || align == "end" {
                     let rect = node.convert(node.bounds, to: scrollView)
+                    let width = scrollView.bounds.width
                     // A snap area wider than the viewport can be explored
-                    // freely while it covers the viewport (CSS Snap §5.2.2).
-                    let start = min(maximum, max(0, rect.minX))
-                    let end = min(maximum, max(start, rect.maxX - scrollView.bounds.width))
+                    // freely while it covers the viewport (CSS Snap §5.2.2);
+                    // a narrower one rests with its start, or its end, at
+                    // the viewport's.
+                    let wide = rect.width >= width
+                    let at = align == "end" && !wide ? rect.maxX - width : rect.minX
+                    let start = min(maximum, max(0, at))
+                    let end = wide ? min(maximum, max(start, rect.maxX - width)) : start
                     positions.append(min(end, max(start, targetContentOffset.pointee.x)))
                 }
                 // A nested scroll container captures its own snap areas.

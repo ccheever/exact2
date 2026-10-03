@@ -1141,6 +1141,11 @@ mod declaration_tests {
             css(&[(StyleId::BackgroundImage, t("none"))], &[]),
             "background-image:none;"
         );
+        // LLP 1008: the admitted snap alignments are CSS's own.
+        assert_eq!(
+            css(&[(StyleId::ScrollSnapAlign, t("end"))], &[]),
+            "scroll-snap-align:end;"
+        );
         // LLP 1066 D7: the browser's own `fixed`, the gradient box the viewport.
         assert_eq!(
             css(&[(StyleId::BackgroundAttachment, t("fixed"))], &[]),

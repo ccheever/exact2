@@ -836,9 +836,11 @@ with the projection (`/tmp/messages-swipe-accessibility/verification.json`).
 This verifies the named-button boundary, not a complete VoiceOver interaction.
 
 **Horizontal scroll snap** (2026-09-09, Messages): the admitted CSS subset is
-`scroll-snap-type: none | x mandatory` and `scroll-snap-align: none | start`.
+`scroll-snap-type: none | x mandatory` and `scroll-snap-align: none | start | end`
+(`end` 2026-10-03, asked for by the Signal Clone's swipe row before native swipe
+actions: a narrower area rests with its end at the viewport's end).
 The browser executes these as CSS. UIKit's `scrollViewWillEndDragging` finds
-the nearest captured start position to its projected destination and adjusts
+the nearest captured position to its projected destination and adjusts
 `targetContentOffset`; UIKit owns dragging and deceleration, using its fast
 rate for mandatory snapping (normal otherwise). Oversized snap
 areas remain freely scrollable while they cover the viewport; nested scroll
