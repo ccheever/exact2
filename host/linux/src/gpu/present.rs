@@ -45,7 +45,9 @@ pub fn set_window(window: *mut c_void, width: u32, height: u32) {
 /// The window named on this thread, for a custom painter that presents
 /// itself (`presenter::set_custom_painter`).
 pub fn current_window() -> Option<(*mut c_void, u32, u32)> {
-    WINDOW.get().map(|(w, width, height)| (w.as_ptr(), width, height))
+    WINDOW
+        .get()
+        .map(|(w, width, height)| (w.as_ptr(), width, height))
 }
 
 struct Job {
@@ -256,7 +258,10 @@ impl Presenting {
                 "vello's texture blitted on the host thread"
             }
         );
-        if !direct && experiment() != Some("blit") {
+        // Without storage writes on the swapchain (some GPUs offer none in
+        // RGBA8), the present thread blits vello's own texture instead; the
+        // host-thread blit path remains only for an explicit experiment.
+        if experiment() == Some("hostblit") {
             return Ok(Presenting {
                 surface: Some((surface, config)),
                 blitter: Some(wgpu::util::TextureBlitter::new(device, format)),

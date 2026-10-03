@@ -213,6 +213,7 @@ impl<D: DataSource> Presenter<D> {
         self.brush.text = text;
         self.assets = assets;
         images.enable_decode();
+        images.fit(self.viewport, self.brush.scale);
         self.images = images;
         self.executor = self.host.executor();
         self.parked.clear();

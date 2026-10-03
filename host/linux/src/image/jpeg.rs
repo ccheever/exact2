@@ -131,6 +131,14 @@ pub(super) fn decode<R: Read + Seek>(
         return Err(Refusal::Stale);
     }
     let (w, h) = (plan.pixels.width, plan.pixels.height);
+    crate::android::section_begin(c"exact jpeg decode");
+    struct End;
+    impl Drop for End {
+        fn drop(&mut self) {
+            crate::android::section_end();
+        }
+    }
+    let _end = End;
     let stride = w as usize * 4;
     let mut out = vec![0u8; stride * h as usize];
     let mut decoder = std::ptr::null_mut();
