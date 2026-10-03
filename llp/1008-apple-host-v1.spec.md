@@ -1046,6 +1046,29 @@ runtime already believes them applied. The deferred change retains the keyboard'
 animation duration and curve; it is independent of the removed view's lifetime.
 The Messages forwarding-cancel/Back drive verifies the inbox's painted search
 position returns to its original full-height position.
+**`interactive-widget="overlays-content"` and the keyboard toolbar
+(2026-10-03, §9.1).** CSS's third value: the keyboard covers the viewport and
+nothing is resized. Its consumer, the Signal Clone app (an outside app,
+`~/.tuft/projects/signal-exact2`), wanted Signal's own technique: its input
+toolbar pinned to the keyboard's top while the transcript keeps its layout
+and only gains a bottom inset. Under this mode `Presenter.applyKeyboard`
+neither insets the viewport nor has `fit` frame it; `KeyboardToolbars.ride`
+lifts each `role="toolbar" toolbarPlacement="keyboard"` by the keyboard's
+overlap less the gap below the toolbar and its own bottom padding (which
+already clears the home indicator), as a transform (`keyboardLift`, outermost
+in `applyTransform`), and gives every scroller whose bottom meets the
+toolbar's top, across its width, a `contentInset.bottom` and indicator inset
+of the same amount, keeping one that was at its end at its end. Both are set
+inside the keyboard's animation block, so they move with its duration and
+curve; no frame changes and no batch runs as the keyboard moves. When the
+keyboard goes the lift and the insets come back exactly (each scroller's
+owned inset is remembered). The web and the other hosts have no keyboard
+toolbar: on the web the keyboard covers the page under this mode, as the
+browser defines it (a declared difference; Safari ignores
+`interactive-widget` anyway). XCTest: `KeyboardToolbarIOSTests`. A software
+keyboard could not be shown on this Mac's Xcode 27 simulators (no
+Simulator.app to clear *Connect Hardware Keyboard*), so the real keyboard
+drive is owed on a phone.
 **Authored inertness (2026-09-11, LLP 1035.001 D3):** a node becoming inert
 ends editing within its subtree and excludes that subtree from UIKit input and
 accessibility. Direct activation checks the entire ancestor chain before choosing

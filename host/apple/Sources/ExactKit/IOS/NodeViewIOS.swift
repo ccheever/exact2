@@ -551,6 +551,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if !decelerate { followEndIfOwed() }
     }
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { followEndIfOwed() }
+    func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) { followingEndAnimated = false }
     private func followEndIfOwed() {
         guard followsEndAfterInteraction, let sv = scroll else { return }
         followsEndAfterInteraction = false
@@ -560,6 +561,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        followingEndAnimated = false
         presenter?.collections.userIntent(id)
         retainedScrollTop = nil
     }
@@ -831,8 +833,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // That clamp is not the reader choosing the end. Keep its intended offset
         // until the returning viewport can fit it, or the reader scrolls again.
         if anchoredScrollTop != sv.contentOffset.y { retainedScrollTop = nil }
+        // An animated follow of the end (below) is still the end, mid-flight.
         followedScroll = (retainedScrollTop ?? sv.contentOffset.y,
-                          retainedScrollTop == nil && sv.contentOffset.y >= maximum - 1)
+                          (retainedScrollTop == nil && sv.contentOffset.y >= maximum - 1) || followingEndAnimated)
         guard let followedScroll, !followedScroll.end, followedScroll.top > -sv.adjustedContentInset.top else { return }
         // A scroll by the reader invalidates the prior choice. Anchoring's
         // own adjustment does not: keep the same surviving row across batches.
@@ -886,7 +889,14 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             anchoredScrollTop = sv.contentOffset.y
             return
         }
-        if sv.contentOffset.y != y { sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: y), animated: false) }
+        if sv.contentOffset.y != y {
+            // `scroll-behavior: smooth`: an end that moved down (a message
+            // appended) is followed with UIKit's scroll animation, as a
+            // smooth `scrollTop` write is; a shrink or a jump up lands at once.
+            let animate = prior.end && y > sv.contentOffset.y && style["scroll_behavior"]?.string == "smooth" && !ExactEnv.agentFreezes && window != nil
+            followingEndAnimated = animate
+            sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: y), animated: animate)
+        }
         // UIKit quantizes the assigned offset. Compare its actual stored value
         // next time so that rounding cannot masquerade as a reader's scroll.
         anchoredScrollTop = sv.contentOffset.y
