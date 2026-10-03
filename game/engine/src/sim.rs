@@ -761,11 +761,15 @@ impl<G: Game> Sim<G> {
                 .flatten();
             let Some(drop) = drop else {
                 self.refused_posts += u64::from(message(&e));
-                self.world.log(if message(&e) {
-                    "postMessage refused: the input queue holds 1024 events; post less often"
-                } else {
-                    "input queue overflow: every queued event is a posted message; dropped the new event"
-                });
+                // Once per overflow episode, as for dropped events; state counts each.
+                if !self.overflow_logged {
+                    self.world.log(if message(&e) {
+                        "postMessage refused: the input queue holds 1024 events; post less often (state input.refusedPosts counts them)"
+                    } else {
+                        "input queue overflow: every queued event is a posted message; dropped the new event"
+                    });
+                    self.overflow_logged = true;
+                }
                 return;
             };
             let was_move = self.queue[drop].event.is_move();

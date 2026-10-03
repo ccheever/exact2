@@ -326,6 +326,7 @@ pub(crate) struct Surfaces {
 }
 /// Posts held per surface name until a canvas of that name is live; past it a
 /// post is dropped and logged. The same bound and rule on every host.
+/// Web: glue.js POST_BOUND (gpu-glue.js reads it); Apple: Canvases.postBound.
 pub(crate) const POST_BOUND: usize = 64;
 impl Surfaces {
     pub(crate) fn enqueue(&mut self, request: RequestOut, admitted: &str) {

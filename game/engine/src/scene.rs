@@ -86,6 +86,8 @@ pub struct PoseCursor {
     generation: u64,
     transforms: u64,
     hierarchy: u64,
+    tick: u64,
+    poses: u64,
 }
 
 /// Hierarchy edge. Descendants of a dead parent leave at the end of the tick.
@@ -595,7 +597,26 @@ impl World {
             generation: self.presentation_generation,
             transforms: self.revision::<Transform>(),
             hierarchy: self.hierarchy.epoch,
+            tick: self.tick(),
+            poses: self.revision::<crate::Pose>(),
         }
+    }
+    /// Blocks of every socket follower and its descendants: their globals follow
+    /// an animated rig's Pose and Transform, which writes none of their rows.
+    /// Empty without attachments; costs the followers' subtrees, not the world.
+    pub(crate) fn socket_pages(&self) -> std::collections::BTreeSet<usize> {
+        let mut pages = std::collections::BTreeSet::new();
+        if self.attachments.is_none() {
+            return pages;
+        }
+        if let Some(followers) = self.storage::<crate::SocketFollow>() {
+            for i in followers.indices(None) {
+                self.hierarchy.subtree(i, &mut |j| {
+                    pages.insert(j / crate::PAGE);
+                });
+            }
+        }
+        pages
     }
     /// The first entity index of each block of `PAGE` slots in which a local
     /// Transform row was written (or inserted or removed), or a propagated global
@@ -606,11 +627,25 @@ impl World {
         let all = since.generation != self.presentation_generation;
         let transforms = self.storage::<Transform>();
         let epochs = &self.hierarchy.epochs;
-        let pages = transforms.map_or(0, |s| s.page_count()).max(epochs.len());
+        // A follower's subtree moves with its rig: report it whenever time, a
+        // Transform or a Pose moved since the cursor.
+        let now = self.pose_cursor();
+        let sockets = if (now.tick, now.transforms, now.poses)
+            != (since.tick, since.transforms, since.poses)
+        {
+            self.socket_pages()
+        } else {
+            Default::default()
+        };
+        let pages = transforms
+            .map_or(0, |s| s.page_count())
+            .max(epochs.len())
+            .max(sockets.last().map_or(0, |p| p + 1));
         (0..pages)
             .filter(move |&page| {
                 all || transforms.is_some_and(|s| s.page_generation(page) > since.transforms)
                     || epochs.get(page).is_some_and(|&e| e > since.hierarchy)
+                    || sockets.contains(&page)
             })
             .map(|page| (page * crate::PAGE) as u32)
     }

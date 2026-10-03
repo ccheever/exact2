@@ -27,7 +27,8 @@ const pendingRecords = [];
 let drainingRecords = false;
 let planCarries = new Map();
 const surfaces = new Map(); // view id -> surface, input listeners and journal cursor
-// postMessage(text, name): held per surface name (at most 64) until a canvas of
+// postMessage(text, name): held per surface name (at most exact.postBound, glue.js's
+// POST_BOUND = Linux POST_BOUND = Apple Canvases.postBound) until a canvas of
 // that name is live, then delivered in order to the live one with the lowest view.
 const posts = new Map(); // surface name -> posted message events awaiting its canvas
 function deliverPosts(name) {
@@ -728,7 +729,7 @@ const api = {
   // delivered in order; held until the canvas's surface exists.
   post(name, text, at) {
     const queued = posts.get(name) ?? posts.set(name, []).get(name);
-    if (queued.length >= 64) { console.warn(`exact: postMessage: dropped: 64 posts already wait for surface "${name}"`); return; }
+    if (queued.length >= (exact.postBound ?? 64)) { console.warn(`exact: postMessage: dropped: ${exact.postBound ?? 64} posts already wait for surface "${name}"`); return; }
     queued.push(JSON.stringify({ t: "message", text, at }));
     deliverPosts(name);
   },
