@@ -1,4 +1,10 @@
 {
-  "data": ["pointer-lock"],
-  "game": { "crate": "rivals-logic", "type": "Rivals" }
+  "data": [
+    "pointer-lock"
+  ],
+  "game": {
+    "crate": "rivals-logic",
+    "type": "Rivals",
+    "assets": true
+  }
 }

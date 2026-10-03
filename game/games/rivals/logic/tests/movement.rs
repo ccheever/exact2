@@ -1,17 +1,20 @@
 //! The character controller under a shooter's demands: ramps, jumping onto
 //! cover, sliding along walls without sticking, slides and rocket jumps.
+mod common;
 use exact_game::{Sim, Transform, Vec3};
 use rivals_logic::fighter::{self, Fighter};
 use rivals_logic::{Options, Rivals};
 
 fn range() -> Sim<Rivals> {
-    let mut sim = Sim::<Rivals>::new(Options {
-        seed: 5,
-        bots: 1,
-        range: true,
-        ..Options::default()
-    })
-    .unwrap();
+    let mut sim = common::loaded(
+        Sim::<Rivals>::new(Options {
+            seed: 5,
+            bots: 1,
+            range: true,
+            ..Options::default()
+        })
+        .unwrap(),
+    );
     sim.run(100.0);
     sim
 }

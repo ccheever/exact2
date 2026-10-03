@@ -5,21 +5,35 @@
 //! `cargo test -p rivals-logic --release --test frame -- --ignored --nocapture`
 use exact_game::Value;
 use exact_game_render::exact_gpu::{fixture, wgpu, Frame, Surface};
-use exact_game_render::WorldSurface;
+use exact_game_render::{ModelPresentation, WorldSurface};
 use rivals_logic::Rivals;
 use std::time::Instant;
 
-type Canvas = WorldSurface<Rivals>;
+type Canvas = WorldSurface<Rivals, ModelPresentation, true>;
 
 #[test]
 #[ignore]
 fn frame_time_ffa_1080p() {
+    measure("dusk", &[Value::Number(7.0), Value::Number(7.0)]);
+    measure(
+        "night",
+        &[
+            Value::Number(7.0),
+            Value::Number(7.0),
+            Value::Number(0.0),
+            Value::Bool(false),
+            Value::Bool(true),
+        ],
+    );
+}
+
+fn measure(label: &str, args: &[Value]) {
     let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
         return;
     };
     let mut surface = Canvas::default();
     surface.device_ready(gpu.device.features());
-    surface.bind(&[Value::Number(7.0), Value::Number(7.0)], None).unwrap();
+    surface.bind(args, None).unwrap();
     // Deliver every requested asset from the bake's output, then prepare them.
     for _ in 0..4 {
         let requests = surface.assets().requests;
@@ -27,8 +41,13 @@ fn frame_time_ffa_1080p() {
             break;
         }
         for name in requests {
-            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../assets").join(&name);
-            surface.asset(&name, Ok(&std::fs::read(&path).unwrap_or_else(|e| panic!("{name}: {e}"))));
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../assets")
+                .join(&name);
+            surface.asset(
+                &name,
+                Ok(&std::fs::read(&path).unwrap_or_else(|e| panic!("{name}: {e}"))),
+            );
         }
         surface.prepare_assets(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
     }
@@ -36,7 +55,11 @@ fn frame_time_ffa_1080p() {
     let format = wgpu::TextureFormat::Rgba8Unorm;
     let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("frame bench"),
-        size: wgpu::Extent3d { width: 1920, height: 1080, depth_or_array_layers: 1 },
+        size: wgpu::Extent3d {
+            width: 1920,
+            height: 1080,
+            depth_or_array_layers: 1,
+        },
         mip_level_count: 1,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
@@ -64,7 +87,9 @@ fn frame_time_ffa_1080p() {
         surface.render(&frame, &gpu.device, &gpu.queue, &mut encoder, &view, format);
         gpu.queue.submit([encoder.finish()]);
         surface.submitted();
-        gpu.device.poll(wgpu::PollType::wait_indefinitely()).unwrap();
+        gpu.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .unwrap();
         if i >= 300 {
             walls.push(start.elapsed().as_secs_f64() * 1000.0);
         }
@@ -73,13 +98,15 @@ fn frame_time_ffa_1080p() {
     walls.sort_by(f64::total_cmp);
     let q = |p: f64| walls[((walls.len() - 1) as f64 * p) as usize];
     println!(
-        "frame wall ms (sim+feed+encode+GPU, 1920x1080, 4xMSAA): p50 {:.2} p95 {:.2} p99 {:.2} max {:.2}",
+        "{label}: frame wall ms (sim+feed+encode+GPU, 1920x1080, 4xMSAA): p50 {:.2} p95 {:.2} p99 {:.2} max {:.2}",
         q(0.5),
         q(0.95),
         q(0.99),
         walls[walls.len() - 1]
     );
-    let state = surface.agent(r#"{"op":"state","perf":true}"#).unwrap_or_default();
+    let state = surface
+        .agent(r#"{"op":"state","perf":true}"#)
+        .unwrap_or_default();
     let perf = state.find("\"perf\"").map(|i| &state[i..]).unwrap_or("");
-    println!("armed {armed}; perf: {}", &perf[..perf.len().min(1800)]);
+    println!("{label}: armed {armed}; perf: {perf}");
 }

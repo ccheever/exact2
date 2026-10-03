@@ -22,6 +22,8 @@ pub struct Options {
     pub skill: f32,
     /// Training range: bots stand still and never fire.
     pub range: bool,
+    /// The night arena: moonlight, floodlights and glowing trim.
+    pub night: bool,
     /// Radians of turn per canvas point of mouse movement; 0 picks the default.
     #[live]
     pub sensitivity: f32,
@@ -38,15 +40,25 @@ impl Options {
 
 pub const DEFAULT_SENSITIVITY: f32 = 0.0025;
 const KEY_TURN: f32 = 2.4;
-const COLORS: [[f32; 3]; 8] = [
-    [0.86, 0.22, 0.24],
-    [0.94, 0.62, 0.12],
-    [0.55, 0.30, 0.85],
-    [0.15, 0.70, 0.45],
-    [0.90, 0.35, 0.65],
-    [0.20, 0.55, 0.90],
-    [0.65, 0.65, 0.20],
-    [0.40, 0.80, 0.85],
+/// Every model and sky the arena loads before setup (art-src/gen.mjs makes them).
+pub const ASSETS: &[&str] = &[
+    "arena.model",
+    "rifle.model",
+    "mag.model",
+    "launcher.model",
+    "knife.model",
+    "rocket.model",
+    "flash.model",
+    "soldier0.model",
+    "soldier1.model",
+    "soldier2.model",
+    "soldier3.model",
+    "soldier4.model",
+    "soldier5.model",
+    "soldier6.model",
+    "soldier7.model",
+    "sky.tex",
+    "sky_night.tex",
 ];
 
 #[derive(Clone, Debug, Default, Data)]
@@ -84,6 +96,7 @@ pub struct Rivals;
 impl Game for Rivals {
     const ID: &'static str = "rivals";
     const HZ: u32 = 120;
+    const ASSETS: &'static [&'static str] = ASSETS;
     type Args = Options;
     fn actions() -> Actions {
         actions()
@@ -111,6 +124,7 @@ pub mod rates {
             impl Game for $name {
                 const ID: &'static str = "rivals";
                 const HZ: u32 = $hz;
+                const ASSETS: &'static [&'static str] = ASSETS;
                 type Args = Options;
                 fn actions() -> Actions {
                     actions()
@@ -151,6 +165,7 @@ pub fn actions() -> Actions {
         .button("rifle", &["Digit1"])
         .button("rocket", &["Digit2"])
         .button("knife", &["Digit3"])
+        .button("inspect", &["KeyT"])
 }
 
 pub fn register(w: &mut World) {
@@ -159,15 +174,19 @@ pub fn register(w: &mut World) {
         .register::<Brain>()
         .register::<Rocket>()
         .register::<Effect>()
-        .register::<Ambient>();
+        .register::<Ambient>()
+        .register::<Emitter>()
+        .register::<PointLight>()
+        .register::<Animator>()
+        .register::<animation::Layers>();
     w.register_resource::<Round>();
 }
 
 pub fn setup(w: &mut World, args: &Options) {
     w.reseed(args.seed);
     register(w);
-    arena::build(w);
-    let player = fighter::spawn(w, 1, "player", false, [0.2, 0.5, 0.9]);
+    arena::build(w, args.night);
+    let player = fighter::spawn(w, 1, "player", false, None);
     fighter::place(w, player, arena::SPAWNS[0]);
     let count = args.bot_count();
     let skill = if args.skill > 0.0 {
@@ -177,7 +196,7 @@ pub fn setup(w: &mut World, args: &Options) {
     };
     for i in 0..count {
         let label = format!("bot-{}", i + 1);
-        let e = fighter::spawn(w, i + 2, &label, true, COLORS[i as usize % COLORS.len()]);
+        let e = fighter::spawn(w, i + 2, &label, true, Some(i as usize % 8));
         let spawn = if args.range {
             [-2.0 + 2.0 * (i % 3) as f32, 12.0 - 3.0 * (i / 3) as f32]
         } else if count == 1 {
@@ -222,73 +241,97 @@ pub fn setup(w: &mut World, args: &Options) {
     publish(w, args);
 }
 
-/// First-person weapon models, children of the camera.
+/// Weapons are modelled at life size and drawn smaller, nearer: as an FPS does.
+const VIEW_SCALE: f32 = 0.72;
+
+/// First-person weapon models, children of the camera, drawn in the viewmodel
+/// layer so they never sink into walls. Each knows how it animates.
 fn viewmodel(w: &mut World, camera: Entity) {
-    let dark = Material::rgb(0.12, 0.13, 0.15).metallic(0.6).rough(0.4);
-    let parts: [(&str, Weapon, Vec3, Mesh, Material, Quat); 5] = [
-        (
-            "vm-rifle",
-            Weapon::Rifle,
-            Vec3::new(0.2, -0.19, -0.58),
-            Mesh::cuboid(Vec3::new(0.06, 0.08, 0.45)),
-            dark,
-            Quat::IDENTITY,
-        ),
+    use Part::*;
+    let rifle = Vec3::new(0.12, -0.15, -0.5);
+    let launcher = Vec3::new(0.15, -0.15, -0.42);
+    let parts = [
+        ("vm-rifle", Weapon::Rifle, Body, rifle, "rifle.model"),
         (
             "vm-rifle-mag",
             Weapon::Rifle,
-            Vec3::new(0.2, -0.27, -0.52),
-            Mesh::cuboid(Vec3::new(0.04, 0.12, 0.07)),
-            Material::rgb(0.75, 0.55, 0.2),
-            Quat::IDENTITY,
+            Mag,
+            rifle + Vec3::new(0.0, -0.035, -0.14) * VIEW_SCALE,
+            "mag.model",
+        ),
+        (
+            "vm-rifle-flash",
+            Weapon::Rifle,
+            Flash,
+            rifle + Vec3::new(0.0, 0.012, -0.57) * VIEW_SCALE,
+            "flash.model",
         ),
         (
             "vm-rocket",
             Weapon::Rocket,
-            Vec3::new(0.22, -0.2, -0.4),
-            Mesh::cylinder(0.08, 0.75),
-            Material::rgb(0.25, 0.42, 0.25).rough(0.7),
-            Quat::from_rotation_x(std::f32::consts::FRAC_PI_2),
+            Body,
+            launcher,
+            "launcher.model",
+        ),
+        (
+            "vm-rocket-flash",
+            Weapon::Rocket,
+            Flash,
+            launcher + Vec3::new(0.0, 0.0, -0.64) * VIEW_SCALE,
+            "flash.model",
         ),
         (
             "vm-knife",
             Weapon::Knife,
-            Vec3::new(0.22, -0.2, -0.38),
-            Mesh::cuboid(Vec3::new(0.02, 0.05, 0.3)),
-            Material::rgb(0.85, 0.87, 0.9).metallic(0.9).rough(0.2),
-            Quat::IDENTITY,
-        ),
-        (
-            "vm-knife-grip",
-            Weapon::Knife,
-            Vec3::new(0.22, -0.21, -0.2),
-            Mesh::cuboid(Vec3::new(0.035, 0.06, 0.12)),
-            Material::rgb(0.1, 0.1, 0.1),
-            Quat::IDENTITY,
+            Body,
+            Vec3::new(0.19, -0.19, -0.3),
+            "knife.model",
         ),
     ];
-    for (name, weapon, at, mesh, material, rotation) in parts {
-        let mut t = Transform::at(at.x, at.y, at.z);
-        t.rotation = rotation;
+    for (name, weapon, part, at, model) in parts {
         w.spawn_named(
             name,
             (
                 Parent(camera),
-                t,
-                mesh,
-                material,
-                Visible(weapon == Weapon::Rifle),
+                Transform::at(at.x, at.y, at.z).with_scale(VIEW_SCALE),
+                Mesh::asset(model),
+                Visible(weapon == Weapon::Rifle && part != Flash),
                 ViewModel,
-                WeaponPart { weapon, rest: at },
+                WeaponPart {
+                    weapon,
+                    part,
+                    rest: at,
+                },
             ),
         );
     }
+    // The muzzle's light: off until a shot.
+    w.spawn_named(
+        "vm-light",
+        (
+            Parent(camera),
+            Transform::at(0.15, -0.1, -0.9),
+            PointLight {
+                color: [1.0, 0.7, 0.35],
+                intensity: 0.0,
+                range: 9.0,
+            },
+        ),
+    );
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Data)]
+pub enum Part {
+    #[default]
+    Body,
+    Mag,
+    Flash,
+}
 /// One part of a first-person weapon model and where it rests.
 #[derive(Clone, Debug, Default, Component)]
 pub struct WeaponPart {
     pub weapon: Weapon,
+    pub part: Part,
     pub rest: Vec3,
 }
 
@@ -336,6 +379,7 @@ pub fn player_intent(w: &World, input: &Input, args: &Options) -> Intent {
         fire: input.held("fire") || input.pressed("fire"),
         aim: input.held("aim"),
         reload: input.pressed("reload"),
+        inspect: input.pressed("inspect"),
         switch,
         yaw,
         pitch,
@@ -381,15 +425,39 @@ pub fn tick(w: &mut World, input: &Input, args: &Options) {
         hits.extend(weapons::act(w, *e, intent, at + Vec3::new(0.0, eye, 0.0)));
     }
     hits.extend(weapons::fly(w));
+    // Bots hit this tick flinch: an additive layer over their run or idle.
+    let flinched: Vec<String> = hits
+        .iter()
+        .filter(|h| !h.killed)
+        .filter_map(|h| weapons::fighter_root(w, h.victim))
+        .filter_map(|e| {
+            w.get::<Fighter>(e)
+                .filter(|f| f.bot)
+                .map(|f| f.label.clone())
+        })
+        .collect();
     round::score(w, hits);
     round::respawn(w);
     round::check_win(w);
     for s in bots::snapshot(w) {
         let f = w.require::<Fighter>(s.entity).clone();
         if f.bot {
-            fighter::face(w, &f.label, f.yaw);
+            fighter::pose(w, &f.label, f.yaw, f.planar.length(), f.alive);
         }
     }
+    for victim in flinched {
+        if let Some(e) = w.named(&format!("{victim}-model")) {
+            w.insert(
+                e,
+                animation::Layers(vec![animation::Layer::new(
+                    Animation::play("Flinch").once(),
+                )
+                .additive()]),
+            );
+        }
+    }
+    animation::step(w);
+    emitter::step(w);
     camera_follow(w, args);
     weapons::effects(w);
     publish(w, args);
@@ -423,9 +491,11 @@ fn mouse_look(w: &mut World, args: &Options, on: bool) {
     }
 }
 
-/// The camera sits at the player's eye; the viewmodel kicks with recoil and
-/// comes to the centre when aiming down sights.
+/// The camera sits at the player's eye. The weapon bobs with your stride, kicks
+/// with recoil, tilts and drops its magazine to reload, turns over to inspect,
+/// comes to the centre when aiming, and flashes at the muzzle with each shot.
 pub fn camera_follow(w: &mut World, args: &Options) {
+    use std::f32::consts::PI;
     let now = w.seconds() as f32;
     let (at, f) = {
         let e = w.named("player").expect("player");
@@ -443,30 +513,72 @@ pub fn camera_follow(w: &mut World, args: &Options) {
         w.require_mut::<Camera>("camera").fov_y_degrees = fov;
     }
     mouse_look(w, args, f.alive);
+    let speed = (f.planar.length() / fighter::SPRINT).min(1.0);
+    let bob = Vec3::new(
+        0.006 * math::cos(now * 7.0),
+        0.009 * math::sin(now * 14.0),
+        0.0,
+    ) * speed;
     let swing = (now - f.swing_at).clamp(0.0, 0.3) / 0.3;
+    let reload = if f.reload_until > now {
+        1.0 - (f.reload_until - now) / weapons::reload_time(f.weapon)
+    } else {
+        1.0
+    };
+    let inspect = ((now - f.inspect_at) / 1.6).clamp(0.0, 1.0);
+    let flashing = now - f.shot_at < 0.04 && f.alive;
     for (_, (vm, t, visible)) in w
         .query::<(&WeaponPart, &mut Transform, &mut Visible)>()
         .iter()
     {
-        let show = f.alive && vm.weapon == f.weapon;
+        let held = f.alive && vm.weapon == f.weapon;
+        let show = held
+            && match vm.part {
+                Part::Flash => flashing,
+                Part::Mag => reload >= 1.0 || !(0.3..0.55).contains(&reload),
+                Part::Body => true,
+            };
         if visible.0 != show {
             visible.0 = show;
         }
-        let mut at = vm.rest + Vec3::new(0.0, 0.0, 0.06 * f.kick);
+        let mut at = vm.rest + bob + Vec3::new(0.0, 0.0, 0.05 * f.kick);
+        let mut rot = Quat::from_rotation_x(0.12 * f.kick);
         if f.aiming {
-            at.x -= 0.2;
-            at.y += 0.06;
+            at.x -= 0.16;
+            at.y += 0.05;
         }
-        if f.reload_until > 0.0 {
-            at.y -= 0.12;
+        if reload < 1.0 {
+            let s = math::sin(PI * reload);
+            at.y -= 0.05 * s;
+            rot *= Quat::from_rotation_z(0.45 * s);
+            if vm.part == Part::Mag {
+                at.y -= if reload < 0.5 {
+                    0.4 * (reload / 0.5) * (reload / 0.5)
+                } else {
+                    0.25 * (1.0 - (reload - 0.5) / 0.5)
+                };
+            }
+        }
+        if inspect < 1.0 && vm.part == Part::Body {
+            rot *= Quat::from_rotation_y(0.9 * math::sin(PI * inspect))
+                * Quat::from_rotation_z(0.6 * math::sin(2.0 * PI * inspect));
         }
         if vm.weapon == Weapon::Knife && swing < 1.0 {
-            at +=
-                Vec3::new(-0.15, 0.05, -0.15) * exact_game::math::sin(swing * std::f32::consts::PI);
+            let s = math::sin(swing * PI);
+            at += Vec3::new(-0.15, 0.05, -0.15) * s;
+            rot *= Quat::from_rotation_y(0.9 * s);
         }
-        if t.position != at {
+        if vm.part == Part::Flash {
+            rot = Quat::from_rotation_z(f.shots as f32 * 1.7);
+        }
+        if t.position != at || t.rotation != rot {
             t.position = at;
+            t.rotation = rot;
         }
+    }
+    let light = if flashing { 1600.0 } else { 0.0 };
+    if w.require::<PointLight>("vm-light").intensity != light {
+        w.require_mut::<PointLight>("vm-light").intensity = light;
     }
 }
 

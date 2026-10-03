@@ -1,12 +1,13 @@
 //! Hostless fights: the training range, duels against the bot, determinism
 //! and saves. Input arrives as the hosts deliver it: keys and pointer moves.
+mod common;
 use exact_game::{InputEvent, PointerPhase, Sim};
 use rivals_logic::fighter::Fighter;
 use rivals_logic::round::Round;
 use rivals_logic::{Options, Rivals};
 
 fn game(options: Options) -> Sim<Rivals> {
-    let mut sim = Sim::<Rivals>::new(Options { seed: 7, ..options }).unwrap();
+    let mut sim = common::loaded(Sim::<Rivals>::new(Options { seed: 7, ..options }).unwrap());
     sim.viewport(1280.0, 720.0);
     sim
 }

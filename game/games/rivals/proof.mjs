@@ -66,7 +66,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   const splashed = await Promise.all(['bot-1', 'bot-2', 'bot-3'].map(b => game.get(b, 'Fighter')));
   check('splash hits the neighbours too', splashed.filter(f => f.hp < 100 || !f.alive).length >= 2, splashed.map(f => f.hp));
   const feed = await s.tree();
-  check('a kill reaches the kill feed', !!node(feed, 'feed') && feed.nodes.some(n => n.props?.text === '[rocket]'));
+  check('a kill reaches the kill feed', !!node(feed, 'feed-rocket'));
   await game.tap('Digit3');
   await game.hold('KeyW', 450);
   await game.run(300);

@@ -1,6 +1,7 @@
 //! Where the engine's limits are, measured. The plain tests assert behaviour
 //! (hitscan on moving capsules, no tunneling); the ignored ones are timings:
 //! `cargo test -p rivals-logic --release --test limits -- --ignored --nocapture`.
+mod common;
 use exact_game::*;
 use exact_game::{InputEvent, PointerPhase};
 use exact_game_physics::{self as physics, Body, Collider, Shape};
@@ -13,12 +14,14 @@ fn quantile(mut v: Vec<f64>, q: f64) -> f64 {
     v[((v.len() - 1) as f64 * q) as usize]
 }
 fn ffa(bots: u32) -> Sim<Rivals> {
-    let mut sim = Sim::<Rivals>::new(Options {
-        seed: 11,
-        bots,
-        ..Options::default()
-    })
-    .unwrap();
+    let mut sim = common::loaded(
+        Sim::<Rivals>::new(Options {
+            seed: 11,
+            bots,
+            ..Options::default()
+        })
+        .unwrap(),
+    );
     sim.viewport(1280.0, 720.0);
     sim
 }
@@ -308,13 +311,15 @@ fn motion<G: Game>(sim: &mut Sim<G>, at_ms: f64, dx: f32) {
 /// visible change and to the whole turn, in ms; and for a steady 2,000 pt/s
 /// mouse, the coefficient of variation of the per-frame turn (judder).
 fn live_latency<G: Game<Args = Options>>(display_hz: f64, look: bool) -> (Vec<f64>, Vec<f64>, f64) {
-    let mut sim = Sim::<G>::new(Options {
-        seed: 3,
-        bots: 3,
-        range: true,
-        ..Options::default()
-    })
-    .unwrap();
+    let mut sim = common::loaded(
+        Sim::<G>::new(Options {
+            seed: 3,
+            bots: 3,
+            range: true,
+            ..Options::default()
+        })
+        .unwrap(),
+    );
     sim.viewport(1280.0, 720.0);
     let period = 1000.0 / display_hz;
     sim.frame_period(period);

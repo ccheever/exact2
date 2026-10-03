@@ -52,6 +52,15 @@ impl Weapon {
     }
 }
 
+/// Seconds a weapon takes to reload.
+pub fn reload_time(weapon: Weapon) -> f32 {
+    match weapon {
+        Weapon::Rifle => RIFLE_RELOAD,
+        Weapon::Rocket => ROCKET_RELOAD,
+        Weapon::Knife => 1.0,
+    }
+}
+
 /// A rocket in flight. Each tick it sweeps a ray over its whole step, so no
 /// speed can tunnel through a wall or a capsule.
 #[derive(Clone, Debug, Default, Component)]
@@ -66,6 +75,9 @@ pub struct Rocket {
 pub struct Effect {
     pub until: f32,
     pub grow: f32,
+    /// A light's peak intensity, faded out over the effect's life.
+    pub light: f32,
+    pub born: f32,
 }
 
 /// One landed hit, for hit markers, damage numbers and the round rules.
@@ -108,12 +120,14 @@ pub struct Shot {
     pub fighter: Option<Entity>,
     pub distance: f32,
     pub point: Vec3,
+    pub normal: Vec3,
 }
 pub fn hitscan(w: &World, origin: Vec3, dir: Vec3, range: f32, own: u32) -> Option<Shot> {
     physics::raycast(w, origin, dir, range, !own).map(|h| Shot {
         fighter: w.has::<Fighter>(h.entity).then_some(h.entity),
         distance: h.distance,
         point: h.point,
+        normal: h.normal,
     })
 }
 
@@ -194,6 +208,8 @@ pub fn act(w: &mut World, e: Entity, intent: &fighter::Intent, origin: Vec3) -> 
                 Weapon::Knife => KNIFE_INTERVAL,
             };
         f.shots += 1;
+        f.shot_at = now;
+        f.inspect_at = -10.0;
         let moving = f.planar.length() > 2.0;
         (f.weapon, f.yaw, f.pitch, f.bloom, f.slot, moving, f.aiming)
     };
@@ -216,6 +232,12 @@ pub fn act(w: &mut World, e: Entity, intent: &fighter::Intent, origin: Vec3) -> 
                 let head = point.y - centre.y >= HEAD_FROM;
                 let amount = RIFLE_BODY * if head { HEAD_MULTIPLIER } else { 1.0 };
                 out.extend(damage(w, slot, victim, amount, head, Weapon::Rifle));
+            }
+            if let Some(h) = hit {
+                impact(w, h.point, h.normal, h.fighter.is_some(), e.index() as u64);
+            }
+            if w.require::<Fighter>(e).bot {
+                muzzle(w, origin + dir * 0.75 + Vec3::new(0.0, -0.12, 0.0), dir);
             }
             {
                 let mut f = w.require_mut::<Fighter>(e);
@@ -275,10 +297,11 @@ pub fn spawn_rocket(w: &mut World, owner: u32, at: Vec3, velocity: Vec3, now: f3
     t.rotation = Quat::from_rotation_arc(Vec3::Y, velocity.normalize());
     w.spawn((
         t,
-        Mesh::cylinder(0.09, 0.5),
-        Material {
-            color: [0.9, 0.9, 0.9, 1.0],
-            ..Material::glow([4.0, 1.6, 0.3])
+        Mesh::asset("rocket.model"),
+        PointLight {
+            color: [1.0, 0.55, 0.2],
+            intensity: 300.0,
+            range: 6.0,
         },
         Rocket {
             owner,
@@ -319,8 +342,12 @@ pub fn fly(w: &mut World) -> Vec<Damage> {
             }
         }
     }
+    let puff = w.tick() % 3 == 0;
     for (e, to) in moves {
         w.require_mut::<Transform>(e).position = to;
+        if puff {
+            trail(w, to, e.index() as u64);
+        }
     }
     let mut out = Vec::new();
     for (e, owner, at, direct) in blasts {
@@ -382,16 +409,65 @@ pub fn explode(w: &mut World, owner: u32, at: Vec3, direct: Option<Entity>) -> V
         }
         out.extend(damage(w, owner, victim, amount, false, Weapon::Rocket));
     }
+    // The blast: a fireball that swells, fire and smoke, and a flash of light.
     w.spawn((
-        Transform::at(at.x, at.y, at.z).with_scale(0.4),
+        Transform::at(at.x, at.y, at.z).with_scale(0.3),
         Mesh::sphere(1.0),
         Material {
             color: [1.0, 0.6, 0.2, 0.9],
-            ..Material::glow([6.0, 2.4, 0.5])
+            ..Material::glow([7.0, 2.6, 0.5])
         },
         Effect {
-            until: now + 0.25,
-            grow: SPLASH_RADIUS * 3.0,
+            until: now + 0.18,
+            grow: SPLASH_RADIUS * 3.5,
+            ..Effect::default()
+        },
+        Ambient,
+    ));
+    let salt = (at.x.to_bits() as u64) << 32 | at.z.to_bits() as u64;
+    w.spawn((
+        Transform::at(at.x, at.y, at.z),
+        burst(
+            70,
+            0.55,
+            9.0,
+            std::f32::consts::PI,
+            2.0,
+            [0.7, 0.1],
+            [[1.0, 0.75, 0.3, 1.0], [1.0, 0.15, 0.02, 0.0]],
+            true,
+            seed(w, salt),
+        ),
+        PointLight {
+            color: [1.0, 0.6, 0.25],
+            intensity: 0.0,
+            range: 14.0,
+        },
+        Effect {
+            until: now + 0.4,
+            light: 9000.0,
+            born: now,
+            ..Effect::default()
+        },
+        Ambient,
+    ));
+    w.spawn((
+        Transform::at(at.x, at.y + 0.3, at.z),
+        burst(
+            36,
+            1.6,
+            2.8,
+            std::f32::consts::PI,
+            -0.8,
+            [0.6, 1.8],
+            [[0.35, 0.32, 0.3, 0.7], [0.2, 0.2, 0.22, 0.0]],
+            false,
+            seed(w, salt ^ 1),
+        ),
+        Effect {
+            until: now + 1.7,
+            born: now,
+            ..Effect::default()
         },
         Ambient,
     ));
@@ -420,6 +496,7 @@ fn tracer(w: &mut World, from: Vec3, to: Vec3, now: f32) {
         Effect {
             until: now + 0.05,
             grow: 0.0,
+            ..Effect::default()
         },
         Ambient,
     ));
@@ -433,6 +510,7 @@ fn tracer(w: &mut World, from: Vec3, to: Vec3, now: f32) {
         Effect {
             until: now + 0.08,
             grow: 0.0,
+            ..Effect::default()
         },
         Ambient,
     ));
@@ -450,6 +528,10 @@ pub fn effects(w: &mut World) {
             t.scale += Vec3::splat(fx.grow * dt);
         }
     }
+    for (_, (fx, light)) in w.query::<(&Effect, &mut PointLight)>().iter() {
+        let left = ((fx.until - now) / (fx.until - fx.born).max(1e-3)).clamp(0.0, 1.0);
+        light.intensity = fx.light * left * left;
+    }
     for e in dead {
         w.despawn(e);
     }
@@ -458,4 +540,116 @@ pub fn effects(w: &mut World) {
 /// Root entity of a slot (for the round rules).
 pub fn fighter_root(w: &World, slot: u32) -> Option<Entity> {
     root_of(w, slot)
+}
+
+/// A one-shot particle burst along local +Y (`seed` keeps it off the world RNG,
+/// so effects never change the fight).
+#[allow(clippy::too_many_arguments)]
+fn burst(
+    count: u32,
+    life: f32,
+    speed: f32,
+    spread: f32,
+    gravity: f32,
+    size: [f32; 2],
+    color: [[f32; 4]; 2],
+    additive: bool,
+    seed: u64,
+) -> Emitter {
+    Emitter {
+        rate: 0.0,
+        lifetime: life,
+        speed,
+        spread,
+        gravity: Vec3::new(0.0, -gravity, 0.0),
+        drag: 1.5,
+        size,
+        color,
+        additive,
+        seed,
+        bound: [-6.0, -6.0, -6.0, 6.0, 6.0, 6.0],
+        ..Emitter::default()
+    }
+    .burst(count)
+}
+fn seed(w: &World, salt: u64) -> u64 {
+    w.tick().wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ salt
+}
+/// Sparks where a bullet lands, thrown back along the surface normal.
+pub fn impact(w: &mut World, at: Vec3, normal: Vec3, flesh: bool, salt: u64) {
+    let now = w.seconds() as f32;
+    let mut t = Transform::at(at.x, at.y, at.z);
+    t.rotation = Quat::from_rotation_arc(Vec3::Y, normal.normalize_or(Vec3::Y));
+    let color = if flesh {
+        [[1.0, 0.25, 0.15, 1.0], [0.5, 0.02, 0.02, 0.0]]
+    } else {
+        [[1.0, 0.85, 0.45, 1.0], [1.0, 0.3, 0.05, 0.0]]
+    };
+    w.spawn((
+        t,
+        burst(
+            14,
+            0.35,
+            5.0,
+            0.9,
+            9.0,
+            [0.045, 0.0],
+            color,
+            true,
+            seed(w, salt),
+        ),
+        Effect {
+            until: now + 0.45,
+            born: now,
+            ..Effect::default()
+        },
+        Ambient,
+    ));
+}
+/// A bot's muzzle: a flash model and a brief light.
+pub fn muzzle(w: &mut World, at: Vec3, dir: Vec3) {
+    let now = w.seconds() as f32;
+    let mut t = Transform::at(at.x, at.y, at.z);
+    t.rotation = Quat::from_rotation_arc(-Vec3::Z, dir);
+    w.spawn((
+        t,
+        Mesh::asset("flash.model"),
+        PointLight {
+            color: [1.0, 0.7, 0.35],
+            intensity: 900.0,
+            range: 7.0,
+        },
+        Effect {
+            until: now + 0.05,
+            light: 900.0,
+            born: now,
+            ..Effect::default()
+        },
+        Ambient,
+    ));
+}
+/// A rocket's trail: a puff of smoke and embers left in the world every few
+/// ticks (an emitter's particles move with it, so a trail is many emitters).
+pub fn trail(w: &mut World, at: Vec3, salt: u64) {
+    let now = w.seconds() as f32;
+    w.spawn((
+        Transform::at(at.x, at.y, at.z),
+        burst(
+            3,
+            0.9,
+            0.4,
+            1.5,
+            -0.6,
+            [0.12, 0.55],
+            [[0.85, 0.8, 0.75, 0.55], [0.4, 0.4, 0.42, 0.0]],
+            false,
+            seed(w, salt),
+        ),
+        Effect {
+            until: now + 1.0,
+            born: now,
+            ..Effect::default()
+        },
+        Ambient,
+    ));
 }

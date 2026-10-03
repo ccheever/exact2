@@ -44,6 +44,7 @@ component Rivals
   state playing = false
   state bots = 1
   state training = false
+  state night = false
   state again = false
   state paused = false
   resource hud = exactSurface("world") as shape Hud
@@ -63,6 +64,9 @@ component Rivals
     training = true
     playing = true
 
+  action toggleNight
+    night = not night
+
   action togglePause
     paused = not paused
 
@@ -77,48 +81,72 @@ component Rivals
   view
     main width="100%" height="100%" background-color="#10141b" color="#f5f7fa"
       when playing
-        canvas surface=world(seed=7, bots=bots, range=training, paused=paused, restart=again) testId="world" data-pointer-lock="true" width="100%" height="100%" position="relative"
+        canvas surface=world(seed=7, bots=bots, range=training, night=night, paused=paused, restart=again) testId="world" data-pointer-lock="true" width="100%" height="100%" position="relative"
           when hud.hurt
-            column testId="hurt" position="absolute" inset=0 pointer-events="none" border-width=10 border-color="#e5484d88"
-          column position="absolute" top="50%" left="50%" width=40 height=40 margin-left=-20 margin-top=-20 align-items="center" justify-content="center" pointer-events="none"
-            text (hud.marker == "" ? "+" : "×") testId="crosshair" line-height=1 font-size=(hud.marker == "" ? 26 : 34) font-weight=700 color=(hud.marker == "kill" ? "#ff4d4f" : hud.marker == "head" ? "#ffd33d" : hud.marker == "body" ? "#ffffff" : "#ffffffcc")
-          column testId="marks" position="absolute" top="50%" left="50%" margin-left=28 margin-top=-64 gap=2 pointer-events="none"
+            column testId="hurt" position="absolute" inset=0 pointer-events="none" box-shadow="inset 0 0 140px rgba(229, 40, 50, 0.65)"
+          column position="absolute" top="50%" left="50%" width=60 height=60 margin-left=-30 margin-top=-30 align-items="center" justify-content="center" pointer-events="none"
+            box position="absolute" left=29 top=14 width=2 height=10 border-radius=1 background-color="#ffffffe6" box-shadow="0 0 2px #000000"
+            box position="absolute" left=29 top=36 width=2 height=10 border-radius=1 background-color="#ffffffe6" box-shadow="0 0 2px #000000"
+            box position="absolute" left=14 top=29 width=10 height=2 border-radius=1 background-color="#ffffffe6" box-shadow="0 0 2px #000000"
+            box position="absolute" left=36 top=29 width=10 height=2 border-radius=1 background-color="#ffffffe6" box-shadow="0 0 2px #000000"
+            when hud.marker != ""
+              box position="absolute" left=13 top=10 width=3 height=12 rotate=-45 border-radius=1 background-color=(hud.marker == "kill" ? "#ff3b3b" : hud.marker == "head" ? "#ffd33d" : "#ffffff")
+              box position="absolute" left=44 top=10 width=3 height=12 rotate=45 border-radius=1 background-color=(hud.marker == "kill" ? "#ff3b3b" : hud.marker == "head" ? "#ffd33d" : "#ffffff")
+              box position="absolute" left=13 top=38 width=3 height=12 rotate=45 border-radius=1 background-color=(hud.marker == "kill" ? "#ff3b3b" : hud.marker == "head" ? "#ffd33d" : "#ffffff")
+              box position="absolute" left=44 top=38 width=3 height=12 rotate=-45 border-radius=1 background-color=(hud.marker == "kill" ? "#ff3b3b" : hud.marker == "head" ? "#ffd33d" : "#ffffff")
+            text (hud.marker == "" ? "·" : "×") testId="crosshair" line-height=1 font-size=(hud.marker == "" ? 14 : 18) font-weight=800 color=(hud.marker == "kill" ? "#ff3b3b" : hud.marker == "head" ? "#ffd33d" : "#ffffff")
+          column testId="marks" position="absolute" top="50%" left="50%" margin-left=34 margin-top=-70 gap=2 pointer-events="none"
             each m in hud.marks key=m.id
-              text (m.kill ? `${m.amount} ✚` : `${m.amount}`) font-size=(m.head ? 22 : 17) font-weight=800 color=(m.kill ? "#ff4d4f" : m.head ? "#ffd33d" : "#ffffff")
-          row testId="score" position="absolute" top=16 left="50%" width=360 margin-left=-180 justify-content="center" align-items="center" gap=14 padding=10 border-radius=12 background-color="#10141bcc" pointer-events="none"
-            text "You" font-weight=700 color="#6cb6ff"
-            text `${hud.kills}` testId="you-kills" font-size=28 font-weight=800
-            column align-items="center" gap=2
-              text `First to ${hud.to_win}` font-size=12 color="#9aa4b2"
-              text `Round ${hud.round} · ${hud.you_rounds}–${hud.rival_rounds}` testId="rounds" font-size=12 color="#9aa4b2"
-            text `${hud.rival_kills}` testId="rival-kills" font-size=28 font-weight=800
-            text hud.rival font-weight=700 color="#ff8a8a"
+              text (m.kill ? `${m.amount} ✚` : `${m.amount}`) font-size=(m.head ? 24 : 18) font-weight=900 font-style="italic" color=(m.kill ? "#ff3b3b" : m.head ? "#ffd33d" : "#ffffff") text-shadow="0 2px 3px rgba(0, 0, 0, 0.7)"
+          row testId="score" position="absolute" top=14 left="50%" width=420 margin-left=-210 justify-content="center" align-items="stretch" gap=0 border-radius=14 pointer-events="none" box-shadow="0 6px 20px rgba(0, 0, 0, 0.35)"
+            row flex-grow=1 justify-content="flex-end" align-items="center" gap=10 padding-left=14 padding-right=14 padding-top=8 padding-bottom=8 border-top-left-radius=14 border-bottom-left-radius=14 background-image="linear-gradient(90deg, #12305ecc 0%, #1f6fd1ee 100%)"
+              text "YOU" font-weight=900 letter-spacing=2 color="#d6e8ff"
+              text `${hud.kills}` testId="you-kills" font-size=30 font-weight=900
+            column align-items="center" justify-content="center" gap=1 padding-left=10 padding-right=10 background-color="#0d1118ee"
+              text `FIRST TO ${hud.to_win}` font-size=10 font-weight=800 letter-spacing=1 color="#9aa4b2"
+              text `R${hud.round} · ${hud.you_rounds}–${hud.rival_rounds}` testId="rounds" font-size=12 font-weight=700 color="#e8ad61"
+            row flex-grow=1 justify-content="flex-start" align-items="center" gap=10 padding-left=14 padding-right=14 padding-top=8 padding-bottom=8 border-top-right-radius=14 border-bottom-right-radius=14 background-image="linear-gradient(90deg, #d13a2fee 0%, #5e1712cc 100%)"
+              text `${hud.rival_kills}` testId="rival-kills" font-size=30 font-weight=900
+              text hud.rival font-weight=800 color="#ffd9d4"
           column testId="feed" position="absolute" top=16 right=16 gap=6 align-items="flex-end" pointer-events="none"
             each f in hud.feed key=f.id
-              row gap=8 padding-top=4 padding-bottom=4 padding-left=10 padding-right=10 border-radius=8 background-color=(f.you ? "#2b3a55e6" : "#10141bcc")
+              row gap=8 align-items="center" padding-top=5 padding-bottom=5 padding-left=10 padding-right=12 border-radius=6 background-color=(f.you ? "#1b2f52e6" : "#0d1118d9") border-left-width=3 border-color=(f.you ? "#4ea1ff" : "#ff5a4f")
                 when f.killer != ""
-                  text f.killer font-weight=700 color=(f.killer == "player" ? "#6cb6ff" : "#ff8a8a")
-                text (f.head ? `[${f.weapon} ◎]` : `[${f.weapon}]`) color="#c9d1d9"
-                text f.victim font-weight=700 color=(f.victim == "player" ? "#6cb6ff" : "#ff8a8a")
-          column testId="health" position="absolute" left=16 bottom=16 gap=6 padding=12 border-radius=12 background-color="#10141bcc" pointer-events="none"
-            text `${hud.hp}` testId="hp" font-size=30 font-weight=800 color=(hud.hp > 40 ? "#f5f7fa" : "#ff6b6b")
+                  text f.killer font-weight=800 color=(f.killer == "player" ? "#7cc0ff" : "#ff9a8f")
+                text (f.weapon == "rocket" ? "➶" : f.weapon == "knife" ? "🗡" : "︻デ═") testId=`feed-${f.weapon}` font-size=14 color="#e8ad61"
+                when f.head
+                  text "◎" color="#ffd33d" font-weight=900
+                text f.victim font-weight=800 color=(f.victim == "player" ? "#7cc0ff" : "#ff9a8f")
+          column testId="health" position="absolute" left=16 bottom=16 gap=6 padding=12 padding-right=16 border-radius=12 background-image="linear-gradient(180deg, #0d1118dd 0%, #0d1118f2 100%)" pointer-events="none" border-left-width=4 border-color=(hud.hp > 40 ? "#3fb950" : "#ff4d4f")
+            row align-items="flex-end" gap=6
+              text `${hud.hp}` testId="hp" font-size=34 font-weight=900 font-style="italic" color=(hud.hp > 40 ? "#f5f7fa" : "#ff6b6b")
+              text "HP" font-size=12 font-weight=800 color="#9aa4b2" padding-bottom=6
             column width=200 height=8 border-radius=4 background-color="#2d333b"
-              column width=(hud.hp * 2) height=8 border-radius=4 background-color=(hud.hp > 40 ? "#3fb950" : "#ff6b6b")
-          column testId="weapon" position="absolute" right=16 bottom=16 gap=6 align-items="flex-end" padding=12 border-radius=12 background-color="#10141bcc" pointer-events="none"
-            text (hud.reloading ? "Reloading…" : hud.slot == 3 ? "—" : `${hud.ammo} / ${hud.mag}`) testId="ammo" font-size=28 font-weight=800
-            text hud.weapon testId="weapon-name" color="#c9d1d9"
+              column width=(hud.hp * 2) height=8 border-radius=4 background-image=(hud.hp > 40 ? "linear-gradient(90deg, #2ea043 0%, #7ee787 100%)" : "linear-gradient(90deg, #da3633 0%, #ff7b72 100%)")
+          column testId="weapon" position="absolute" right=16 bottom=16 gap=6 align-items="flex-end" padding=12 border-radius=12 background-image="linear-gradient(180deg, #0d1118dd 0%, #0d1118f2 100%)" pointer-events="none" border-right-width=4 border-color="#e8ad61"
+            text (hud.reloading ? "Reloading…" : hud.slot == 3 ? "—" : `${hud.ammo} / ${hud.mag}`) testId="ammo" font-size=30 font-weight=900 font-style="italic"
+            text hud.weapon testId="weapon-name" font-weight=700 color="#c9d1d9"
             row gap=6
-              text "1 Rifle" padding=4 border-radius=6 font-size=12 background-color=(hud.slot == 1 ? "#e8ad61" : "#2d333b") color=(hud.slot == 1 ? "#10141b" : "#c9d1d9")
-              text "2 Rockets" padding=4 border-radius=6 font-size=12 background-color=(hud.slot == 2 ? "#e8ad61" : "#2d333b") color=(hud.slot == 2 ? "#10141b" : "#c9d1d9")
-              text "3 Knife" padding=4 border-radius=6 font-size=12 background-color=(hud.slot == 3 ? "#e8ad61" : "#2d333b") color=(hud.slot == 3 ? "#10141b" : "#c9d1d9")
+              text "1 Rifle" padding=4 border-radius=6 font-size=12 font-weight=700 background-color=(hud.slot == 1 ? "#e8ad61" : "#2d333b") color=(hud.slot == 1 ? "#10141b" : "#c9d1d9")
+              text "2 Rockets" padding=4 border-radius=6 font-size=12 font-weight=700 background-color=(hud.slot == 2 ? "#e8ad61" : "#2d333b") color=(hud.slot == 2 ? "#10141b" : "#c9d1d9")
+              text "3 Knife" padding=4 border-radius=6 font-size=12 font-weight=700 background-color=(hud.slot == 3 ? "#e8ad61" : "#2d333b") color=(hud.slot == 3 ? "#10141b" : "#c9d1d9")
           when not hud.alive and not hud.over
-            column testId="dead" position="absolute" top="34%" left=0 right=0 align-items="center" gap=6 pointer-events="none"
-              text `Eliminated by ${hud.killed_by}` font-size=26 font-weight=800 color="#ff8a8a"
-              text `Respawning in ${hud.respawn}` color="#c9d1d9"
+            column testId="dead" position="absolute" top="30%" left=0 right=0 align-items="center" gap=6 pointer-events="none"
+              text "ELIMINATED" font-size=34 font-weight=900 letter-spacing=6 color="#ff5a4f" text-shadow="0 3px 10px rgba(0, 0, 0, 0.6)"
+              text `by ${hud.killed_by} · respawning in ${hud.respawn}` font-weight=700 color="#e6edf3"
           when hud.over
-            column testId="round-over" position="absolute" inset=0 align-items="center" justify-content="center" gap=10 background-color="#10141baa" pointer-events="none"
-              text (hud.you_won ? "You win the round" : `${hud.winner} wins the round`) testId="winner" font-size=40 font-weight=800 color=(hud.you_won ? "#6cb6ff" : "#ff8a8a")
-              text `Rounds ${hud.you_rounds}–${hud.rival_rounds} · accuracy ${hud.accuracy}%` color="#c9d1d9"
+            column testId="round-over" position="absolute" inset=0 align-items="center" justify-content="center" gap=16 pointer-events="none" background-image=(hud.you_won ? "radial-gradient(circle at 50% 45%, #1f6fd1cc 0%, #0b1a33ee 70%)" : "radial-gradient(circle at 50% 45%, #d13a2fcc 0%, #2a0b08ee 70%)")
+              text (hud.you_won ? "VICTORY" : "DEFEAT") font-size=72 font-weight=900 font-style="italic" letter-spacing=8 color="#ffffff" text-shadow="0 6px 24px rgba(0, 0, 0, 0.5)"
+              text (hud.you_won ? "You win the round" : `${hud.winner} wins the round`) testId="winner" font-size=24 font-weight=800 color=(hud.you_won ? "#cfe6ff" : "#ffd9d4")
+              row gap=14 align-items="center"
+                column align-items="center" padding=14 border-radius=12 background-color="#00000055" min-width=110
+                  text `${hud.you_rounds}` font-size=40 font-weight=900 color="#7cc0ff"
+                  text "YOU" font-size=12 font-weight=800 letter-spacing=2 color="#cfe6ff"
+                text "–" font-size=36 font-weight=900
+                column align-items="center" padding=14 border-radius=12 background-color="#00000055" min-width=110
+                  text `${hud.rival_rounds}` font-size=40 font-weight=900 color="#ff9a8f"
+                  text "RIVAL" font-size=12 font-weight=800 letter-spacing=2 color="#ffd9d4"
+              text `Accuracy ${hud.accuracy}% · next round in a moment` color="#e6edf3"
           when paused
             column testId="paused" position="absolute" inset=0 align-items="center" justify-content="center" gap=14 background-color="#10141bcc"
               text "Paused" font-size=40 font-weight=800
@@ -136,8 +164,8 @@ component Rivals
             button action="fire" testId="fire" aria-label="Fire" padding=16 border-radius=12 background-color="#e8ad61"
               text "Fire" color="#10141b"
       else
-        column width="100%" height="100%" box-sizing="border-box" padding=24 align-items="center" justify-content="center" gap=22
-          text "RIVALS" font-size=56 font-weight=900 letter-spacing=4
+        column width="100%" height="100%" box-sizing="border-box" padding=24 align-items="center" justify-content="center" gap=22 background-image="radial-gradient(circle at 50% 30%, #3a2a55 0%, #10141b 65%)"
+          text "RIVALS" font-size=72 font-weight=900 font-style="italic" letter-spacing=10 text-shadow="0 6px 24px rgba(232, 173, 97, 0.45)"
           text "First to five kills takes the round" color="#9aa4b2"
           column width="100%" max-width=360 align-items="center" gap=6
             text "Mouse or arrow keys look · WASD move" width="100%" text-align="center"
@@ -150,3 +178,5 @@ component Rivals
               text "Free for all" font-size=20
             button press=range aria-label="Training range" testId="range" padding=16 border-radius=12 background-color="#354751"
               text "Range" font-size=20
+          button press=toggleNight aria-label=(night ? "Night arena: on" : "Night arena: off") testId="night" padding=12 border-radius=10 background-color=(night ? "#2b3a55" : "#354751")
+            text (night ? "Arena: night" : "Arena: dusk")

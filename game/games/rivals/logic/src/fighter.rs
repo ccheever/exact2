@@ -40,6 +40,7 @@ pub struct Intent {
     /// Aim down sights: a narrower view, a tighter spread, a slower walk.
     pub aim: bool,
     pub reload: bool,
+    pub inspect: bool,
     pub switch: Option<Weapon>,
     /// Look change in radians this tick.
     pub yaw: f32,
@@ -67,6 +68,8 @@ pub struct Fighter {
     /// View climb from recoil still to recover.
     pub climb: f32,
     pub swing_at: f32,
+    pub shot_at: f32,
+    pub inspect_at: f32,
     pub knock: Vec3,
     /// Input-driven horizontal velocity; knockback adds on top of it.
     pub planar: Vec3,
@@ -99,6 +102,8 @@ impl Fighter {
         self.reload_until = 0.0;
         self.bloom = 0.0;
         self.kick = 0.0;
+        self.shot_at = -10.0;
+        self.inspect_at = -10.0;
         self.climb = 0.0;
         self.knock = Vec3::ZERO;
         self.planar = Vec3::ZERO;
@@ -120,8 +125,9 @@ pub fn look(yaw: f32, pitch: f32) -> Quat {
     Quat::from_rotation_y(yaw) * Quat::from_rotation_x(pitch)
 }
 
-/// Spawn a fighter root (physics capsule) and its visible body and head.
-pub fn spawn(w: &mut World, slot: u32, label: &str, bot: bool, color: [f32; 3]) -> Entity {
+/// Spawn a fighter root (physics capsule) and, for a bot, its soldier model in
+/// team colour `look` (the player is a camera: no body to draw).
+pub fn spawn(w: &mut World, slot: u32, label: &str, bot: bool, look: Option<usize>) -> Entity {
     let mut f = Fighter {
         slot,
         label: label.into(),
@@ -153,42 +159,20 @@ pub fn spawn(w: &mut World, slot: u32, label: &str, bot: bool, color: [f32; 3]) 
             f,
         ),
     );
-    let [r, g, b] = color;
-    let visible = Visible(bot);
-    w.spawn_named(
-        format!("{label}-body"),
-        (
-            Parent(root),
-            Transform::at(0.0, -0.15, 0.0),
-            Mesh::capsule(RADIUS, 1.5),
-            Material::rgb(r, g, b),
-            visible,
-        ),
-    );
-    w.spawn_named(
-        format!("{label}-head"),
-        (
-            Parent(root),
-            Transform::at(0.0, 0.66, 0.0),
-            Mesh::sphere(0.22),
-            Material::rgb(0.95, 0.80, 0.66),
-            visible,
-        ),
-    );
-    // A visor shows which way a bot faces.
-    w.spawn_named(
-        format!("{label}-visor"),
-        (
-            Parent(root),
-            Transform::at(0.0, 0.68, -0.18),
-            Mesh::cuboid(Vec3::new(0.3, 0.08, 0.1)),
-            Material {
-                color: [0.1, 0.1, 0.12, 1.0],
-                ..Material::glow([r * 2.0, g * 2.0, b * 2.0])
-            },
-            visible,
-        ),
-    );
+    if let Some(look) = look {
+        w.spawn_named(
+            format!("{label}-model"),
+            (
+                Parent(root),
+                Transform::default(),
+                Mesh::asset(format!("soldier{look}.model")),
+                Animator::new([State::blend(
+                    "move",
+                    Blend::across([(0.0, "Idle"), (WALK, "Run")]).parameter("speed"),
+                )]),
+            ),
+        );
+    }
     root
 }
 
@@ -217,6 +201,9 @@ pub fn step(w: &mut World, e: Entity, intent: &Intent) -> physics::CapsuleStep {
     let (velocity, alive) = {
         let mut f = w.require_mut::<Fighter>(e);
         let mut c = w.require_mut::<CapsuleController>(e);
+        if intent.inspect && f.alive && f.reload_until == 0.0 {
+            f.inspect_at = now;
+        }
         f.aiming = f.alive && intent.aim && f.weapon != Weapon::Knife && !f.sliding(now);
         if f.alive {
             f.yaw = exact_game::math::wrap_angle(f.yaw + intent.yaw);
@@ -298,17 +285,21 @@ pub fn step(w: &mut World, e: Entity, intent: &Intent) -> physics::CapsuleStep {
     result
 }
 
-/// Turn the visible body (a child: the capsule root must stay upright).
-pub fn face(w: &World, label: &str, yaw: f32) {
-    for part in ["body", "head", "visor"] {
-        if let Some(mut t) = w.get_mut::<Transform>(format!("{label}-{part}").as_str()) {
-            let r = Quat::from_rotation_y(yaw);
-            if t.rotation != r {
-                t.rotation = r;
-                if part == "visor" {
-                    t.position = Vec3::new(0.0, 0.68, 0.0) + r * Vec3::new(0.0, 0.0, -0.18);
-                }
-            }
+/// Turn and animate a bot's soldier (a child: the capsule root stays upright),
+/// hidden while dead. Speed drives the idle–run blend.
+pub fn pose(w: &mut World, label: &str, yaw: f32, speed: f32, alive: bool) {
+    let name = format!("{label}-model");
+    if let Some(mut t) = w.get_mut::<Transform>(name.as_str()) {
+        let r = Quat::from_rotation_y(yaw);
+        if t.rotation != r {
+            t.rotation = r;
         }
+    }
+    if let Some(mut a) = w.get_mut::<Animator>(name.as_str()) {
+        a.set("speed", speed);
+    }
+    let shown = w.get::<Visible>(name.as_str()).is_none_or(|v| v.0);
+    if let Some(e) = w.named(&name).filter(|_| shown != alive) {
+        w.insert(e, Visible(alive));
     }
 }
