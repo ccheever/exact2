@@ -19,6 +19,9 @@ the actual `displacement` and `grounded` state.
   when its pose is unchanged. Support edits wake all.
   Two fixed solids (colliders without a Body, or with a Static one) never pair, so a
   static world carries no contact state; a sensor pairs with anything, fixed or not.
+  So a static collider the game teleports or carries under a parent (it has no Body)
+  emits no Touch, and journals no Announce, against static walls or terrain; give it
+  a Kinematic Body, or make it a sensor, to keep those transitions.
 - Density defaults to 1000 kg/m³; explicit mass is kg. Friction combines geometrically,
   restitution by maximum. Contact slop is 0.1 mm; other integration defaults are Rapier's.
 - Shapes: sphere, box, Y capsule/cylinder (total height), static mesh and heightfield
