@@ -144,7 +144,7 @@ component Caltrain
         section role="region" aria-label="Deck fixture" testId="deck-screen" padding=20 gap=12
           row align-items="center" justify-content="space-between"
             text "Web deck" font-size=20 font-weight=700 color="#ffffff"
-            button press=goHome aria-label="Back" testId="deck-back" padding=8 background-color="#ffffff"
+            button press=goHome aria-label="Back" aria-keyshortcuts="Escape" testId="deck-back" padding=8 background-color="#ffffff"
               text "Back" font-size=13
           // The hosted-deck sandbox pair (LLP 1020 §8 Q1's survey): same-origin
           // scripts, so the agent's guest outline is live on the web arm too.
@@ -309,7 +309,7 @@ component Content
               text "Matches" font-size=12 font-weight=700 letter-spacing=0.8 color="#999999"
               each s in matches key=s.id
                 StationRow(station=s, press=selectStation, hover=hoverStation, hot=(hoverOn and s.id == hoverId))
-          button press=goHome aria-label="Back" testId="stations-back"
+          button press=goHome aria-label="Back" aria-keyshortcuts="Escape" testId="stations-back"
             text "Back" font-size=13
 
 component DirectionCard
