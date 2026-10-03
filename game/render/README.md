@@ -260,15 +260,27 @@ including on entities without a `Material` component. Removing `Glow` restores
 authored emission. The model-only multiplier uses material slot 9 (primitive
 dimension X for primitive draws); it does not change authored model assets.
 
-Camera/sun/point rotations use normalized linear interpolation histories. The first posed sun
-wins. Point-light selection is feed-only: up to sixteen with positive tick-end
-intensity, ordered by squared camera distance then entity index. `Lit` contributes
-its nonnegative tick-end multiplier to eligibility. There is no incumbent advantage
-or saved selection; continuous feeds, long seeks and restores select the same order.
-At the sixteen-light boundary, two lights exchanging distance order can visibly
-pop between included and excluded; there is no hysteresis or crossfade.
+Camera/sun/light rotations use normalized linear interpolation histories. The first
+two posed `DirectionalLight`s in entity order light the scene: the first is the sun
+(shadowed when its `shadows` is set), the second an unshadowed fill such as the
+moon. Local lights are `PointLight` and `SpotLight` (a cone along the entity's −Z:
+full intensity inside `inner`, smoothly zero at `outer`, both half-angles in
+radians). Selection is feed-only: lights with positive tick-end intensity and
+range, ordered by squared camera distance, then points before spots, then entity
+index; the first `MAX_LIGHTS` (256) are drawn. `Lit` contributes its nonnegative
+tick-end multiplier to eligibility. There is no incumbent advantage or saved
+selection; continuous feeds, long seeks and restores select the same order. Lights
+past the cap are counted in `FrameInput::lights_dropped` and
+`state.world.perf.lights` (`{drawn, dropped}`), and the first frame that drops any
+logs a warning.
 
-`Lit(Spring)` on a point light samples the saved spring at presentation seconds and
+Each frame the renderer bins the drawn lights on the CPU into a 16 × 9 × 24 grid
+of screen tiles and exponential view-depth slices (`lights.rs`); the forward and
+model shaders read the fragment's cluster from one storage buffer (`lights.wgsl`).
+A light joins every cluster its range sphere may touch, so a pixel skips only
+lights whose windowed contribution is exactly zero there, in frame order.
+
+`Lit(Spring)` on a point or spot light samples the saved spring at presentation seconds and
 multiplies `PointLight.intensity`; negative overshoot clamps to zero. Keep the authored
 intensity constant and retarget once with `lit.to(now, 1.0)`. Sampling changes no
 world bytes. `Glow(Tween)` independently controls material emission. The GPU regression
