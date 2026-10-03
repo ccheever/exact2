@@ -509,16 +509,19 @@ function listen(entry) {
   const fallsThrough = (event) => event.target === el || event.target === entry.el;
   const point = (event) => { const r = el.getBoundingClientRect(); return { x: event.clientX - r.left, y: event.clientY - r.top }; };
   // A canvas marked data-pointer-lock="true" (mouse look) captures the mouse on a
-  // press. Every pointer event carries the device's motion (movementX/Y) beside its
-  // position, so while locked the world's deltas never stop at the canvas or screen
-  // edge though the position stays put.
+  // press. Locked, a pointer event's motion is the device's (movementX/Y), so the
+  // world's deltas never stop at the canvas or screen edge though the position
+  // stays put; unlocked it is the position's change, as on every other host. A
+  // down or up carries none.
   const lockable = () => (el.dataset.pointerLock ?? entry.el.dataset?.pointerLock) === "true";
-  let last = null;
-  const pointerAt = (event) => {
-    const p = point(event), from = last;
-    last = p;
-    const dx = event.movementX ?? (from ? p.x - from.x : 0), dy = event.movementY ?? (from ? p.y - from.y : 0);
-    return { ...p, dx, dy };
+  const last = new Map(); // each pointer's last point on the canvas
+  on("pointerleave", (event) => { if (document.pointerLockElement !== el) last.delete(event.pointerId); });
+  const pointerAt = (event, phase) => {
+    const p = point(event), from = last.get(event.pointerId);
+    if ((phase === "up" || phase === "cancel") && event.pointerType !== "mouse") last.delete(event.pointerId); else last.set(event.pointerId, p);
+    if (phase !== "move") return { ...p, dx: 0, dy: 0 };
+    if (document.pointerLockElement === el) return { ...p, dx: event.movementX || 0, dy: event.movementY || 0 };
+    return { ...p, dx: from ? p.x - from.x : 0, dy: from ? p.y - from.y : 0 };
   };
   // The secondary button and the middle button are the world's (MouseRight, MouseMiddle).
   on("contextmenu", (event) => { if (fallsThrough(event)) event.preventDefault(); });
@@ -542,7 +545,7 @@ function listen(entry) {
     if (!fallsThrough(event)) return;
     if (phase === "down") { if (!editable(document.activeElement)) el.focus({ preventScroll: true }); try { el.setPointerCapture(event.pointerId); } catch {} }
     if (phase === "down" && event.pointerType === "mouse" && lockable() && document.pointerLockElement !== el) Promise.resolve(el.requestPointerLock?.()).catch(() => {});
-    send(event, { t: "pointer", phase, id: event.pointerId, ...pointerAt(event), kind: event.pointerType || "mouse", buttons: event.buttons });
+    send(event, { t: "pointer", phase, id: event.pointerId, ...pointerAt(event, phase), kind: event.pointerType || "mouse", buttons: event.buttons });
   });
   on("lostpointercapture", event => {
     const button = controls.get(event.pointerId);
