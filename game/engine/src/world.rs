@@ -239,7 +239,7 @@ impl World {
         let epoch = std::rc::Rc::new(std::cell::Cell::new(0));
         let mut rng = storage::Singleton::new("Rng", epoch.clone());
         rng.insert(Rng::new(seed));
-        Self {
+        let mut world = Self {
             assets: Default::default(),
             epoch,
             observed_epoch: 0,
@@ -274,7 +274,27 @@ impl World {
             fresh: vec![],
             entities_revision: 0,
             presentation_generation: 0,
-        }
+        };
+        world.register_scene();
+        world
+    }
+    // The engine's own scene components restore in any process, however late a
+    // game first spawns one. Registration is not state; executor-linked
+    // components (animation, sockets, audio) still register where they install.
+    fn register_scene(&mut self) {
+        use crate::scene::*;
+        self.register::<Transform>()
+            .register::<Parent>()
+            .register::<Mesh>()
+            .register::<crate::Material>()
+            .register::<Camera>()
+            .register::<DirectionalLight>()
+            .register::<PointLight>()
+            .register::<Visible>()
+            .register::<Ambient>()
+            .register::<Follow>()
+            .register::<Glow>()
+            .register::<Lit>();
     }
     /// Identity of this world instance, excluded from saves and hashes.
     pub fn id(&self) -> WorldId {

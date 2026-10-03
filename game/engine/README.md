@@ -17,7 +17,9 @@ and randomness; `Sim` owns input. The renderer interpolates completed ticks.
   its lease for the returned row. [Borrowing](#borrowing) is per row.
 - Use `insert_resource`, `resource`, `resource_mut` and `try_resource` for singleton
   state. Register types that first appear mid-game in `Game::register` so a fresh
-  process can restore them.
+  process can restore them. The engine's scene components (`Transform`, `Parent`,
+  `Mesh`, `Material`, `Camera`, lights, `Visible`, `Ambient`, `Follow`, `Glow`,
+  `Lit`) are registered by every world.
 - `near` and `near_xz` read global poses in entity order, including parented
   entities. `nearest_xz_mut` supplies one entity and its mutable component together.
 - `despawn(e)` removes that entity immediately. After the tick, the simulation
