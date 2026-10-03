@@ -22,13 +22,23 @@ fn ffa(bots: u32) -> Sim<Rivals> {
     sim.viewport(1280.0, 720.0);
     sim
 }
+/// One live display frame at 120 Hz: exactly one tick, without the seekable
+/// clock's settle observation (a whole-world comparison per advance).
+fn frame(sim: &mut Sim<Rivals>) {
+    let next = sim.world().seconds() * 1000.0 + 1000.0 / 120.0;
+    sim.advance(next, exact_game::Clock::Live);
+}
+fn live(mut sim: Sim<Rivals>) -> Sim<Rivals> {
+    sim.frame_period(1000.0 / 120.0);
+    sim.advance(0.0, exact_game::Clock::Live);
+    sim
+}
 /// Per-tick wall time over `ticks` ticks, in microseconds: (mean, p50, p99, max).
 fn time_ticks(sim: &mut Sim<Rivals>, ticks: u32) -> (f64, f64, f64, f64) {
-    let ms = 1000.0 / 120.0;
     let mut samples = Vec::new();
     for _ in 0..ticks {
         let t = Instant::now();
-        sim.run(ms);
+        frame(sim);
         samples.push(t.elapsed().as_secs_f64() * 1e6);
     }
     let mean = samples.iter().sum::<f64>() / samples.len() as f64;
@@ -40,7 +50,7 @@ fn time_ticks(sim: &mut Sim<Rivals>, ticks: u32) -> (f64, f64, f64, f64) {
 #[ignore]
 fn bench_bots() {
     for bots in [1, 3, 7, 11, 15, 23] {
-        let mut sim = ffa(bots);
+        let mut sim = live(ffa(bots));
         sim.key_down("KeyF");
         time_ticks(&mut sim, 120);
         let (mean, p50, p99, max) = time_ticks(&mut sim, 1200);
@@ -48,6 +58,30 @@ fn bench_bots() {
         println!(
             "bots {bots:>2}: tick mean {mean:>7.1} µs  p50 {p50:>7.1}  p99 {p99:>7.1}  max {max:>8.1}  (hits {hits}, budget 8333 µs)"
         );
+    }
+}
+
+/// The seekable clock (agents, proofs, `Sim::run`) observes the final tick pair
+/// of every advance to answer `settle`; the live clock does not. Same fight, both.
+#[test]
+#[ignore]
+fn bench_seekable_observation() {
+    for bots in [7, 23] {
+        let mut seek = ffa(bots);
+        seek.key_down("KeyF");
+        let t = Instant::now();
+        for _ in 0..600 {
+            seek.run(1000.0 / 120.0);
+        }
+        let seekable = t.elapsed().as_secs_f64() * 1e6 / 600.0;
+        let mut sim = live(ffa(bots));
+        sim.key_down("KeyF");
+        let t = Instant::now();
+        for _ in 0..600 {
+            frame(&mut sim);
+        }
+        let live = t.elapsed().as_secs_f64() * 1e6 / 600.0;
+        println!("{bots:>2} bots, one tick per advance: seekable {seekable:.1} µs, live {live:.1} µs");
     }
 }
 
@@ -69,14 +103,13 @@ fn keep_rockets(sim: &mut Sim<Rivals>, n: usize, k: &mut u32) {
 #[ignore]
 fn bench_rockets() {
     for n in [0usize, 50, 200, 500, 1000] {
-        let mut sim = ffa(7);
+        let mut sim = live(ffa(7));
         let mut k = 0;
-        let ms = 1000.0 / 120.0;
         let mut samples = Vec::new();
         for i in 0..600 {
             keep_rockets(&mut sim, n, &mut k);
             let t = Instant::now();
-            sim.run(ms);
+            frame(&mut sim);
             if i >= 60 {
                 samples.push(t.elapsed().as_secs_f64() * 1e6);
             }
