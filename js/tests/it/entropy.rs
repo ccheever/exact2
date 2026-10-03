@@ -258,6 +258,13 @@ fn under_the_agent_two_runs_draw_the_same_stream_and_outside_it_the_os() {
     assert!(os_a.0 != os_b.0 && os_a.0 != SEED_1_UUID && is_v4(&os_a.0));
     // The bake's module never draws the stream, whatever the environment.
     let mut baked = Module::inspect(HBC.to_vec()).unwrap();
+    // Nor is it held to the runtime's wall-clock budget: a build machine's
+    // load never fails a bake.
+    assert_eq!(baked.budget_ms(), f64::INFINITY);
+    assert_eq!(
+        Module::new(HBC.to_vec(), "", "").budget_ms(),
+        exact_js::DEFAULT_BUDGET_MS
+    );
     baked.bind(&plan());
     let mut store = Store::new(GRANTS, vec![]);
     assert_ne!(
