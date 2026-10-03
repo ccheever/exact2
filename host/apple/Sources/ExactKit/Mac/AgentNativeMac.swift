@@ -91,6 +91,9 @@ extension Presenter {
             if segments.inspectionOwns(sub) { return ("segment", id) }
             if Self.platformKinds.contains(o.kind) || o.props["hook"] != nil { return ("platform", id) }
         }
+        // A content region's surface (`RegionController.flush`): this
+        // session's, by its controller; its interior is the region's own.
+        if let surface = sub as? RegionSurfaceMac, let regions = session?.regions, surface.owner === regions { return ("region", owner?.id) }
         if menus.inspectionOwns(sub) { return ("menu", owner?.id) }
         if dialogs.inspectionOwns(sub) { return ("dialog", owner?.id) }
         if sub === viewport { return ("viewport", nil) }
@@ -213,6 +216,22 @@ extension Presenter {
             }
         }
         if !inFlight { compareFrames(kernel, seen: seen, report: report) }
+        labelDisagreements(report, kernel: kernel)
+    }
+
+    /// testIds from the snapshot the walk read, never a later tree: a live
+    /// node (mapped and in `frames`) gives its own; a retired one none.
+    private func labelDisagreements(_ report: AgreementReport, kernel: KernelFrames) {
+        func testId(_ id: Any?) -> String? {
+            guard let id = id as? Int, let v = views[UInt32(id)], kernel.frames[UInt32(id)] != nil else { return nil }
+            return v.props["testId"]
+        }
+        report.found = report.found.map { d in
+            var d = d
+            if let t = testId(d["id"]) { d["testId"] = t }
+            if let t = testId(d["under"]) { d["underTestId"] = t }
+            return d
+        }
     }
 
     private func compareFrames(_ kernel: KernelFrames, seen: [UInt32: NodeView], report: AgreementReport) {

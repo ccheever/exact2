@@ -114,6 +114,18 @@ final class AgreementIOSTests: XCTestCase {
         XCTAssertEqual(r.found.first?["id"] as? Int, 12)
     }
 
+    func testADisagreementCarriesTheTestIdOfItsOwnSnapshot() throws {
+        let p = fixture()
+        try XCTUnwrap(p.views[10]).isHidden = true
+        let r = agree(p, kernel())
+        XCTAssertEqual(r.found.first?["id"] as? Int, 10)
+        XCTAssertEqual(r.found.first?["testId"] as? String, "row-10", "labelled from the walk's presenter, never a later tree")
+        // A node the kernel retired is not labelled from a map entry left behind.
+        let gone = agree(p, kernel(row: false))
+        XCTAssertEqual(gone.found.first?["retired"] as? Int, 10)
+        XCTAssertNil(gone.found.first?["testId"])
+    }
+
     func testALeavingTreeMustNotTakeInput() throws {
         let p = fixture()
         p.beginExit(12)

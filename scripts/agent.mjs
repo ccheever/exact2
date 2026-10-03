@@ -18,7 +18,7 @@
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
 import { Cdp, chromium, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
-import { sourceMapReaders, identifyInspectedNode, render, perfOp, readTrace, renderTrace, layoutArgs, joinAgreement } from './agent-inspect.mjs';
+import { sourceMapReaders, identifyInspectedNode, render, perfOp, readTrace, renderTrace, layoutArgs } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
 export { sourceMapReader, identifyInspectedNode, render } from './agent-inspect.mjs';
 import { spawn, spawnSync } from 'node:child_process';
@@ -853,8 +853,8 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     },
     /** Every on-screen view's box in the viewport (scroll folded in), with its testId and type from the tree. With a target, `node` explains that one node (LLP 1035.002 D1): every row it sets or inherits with where the value came from, its box in each coordinate space the host has, the scroll and clip chains above it, whether it is hidden, inert, in the viewport or clipped away, and what the host mounted for it — observations of the runner's memory and the host's view tree, never a second model. */
     async layout(target, at, inspect = {}) { // inspect: {native: {depth, limit}} | {agree: true, limit} (LLP 1080.001)
-      // testIds join only within one snapshot: a second try, then ids alone, the span reported.
-      if (inspect.agree) for (let i = 0; ; i++) { const r = await s.op({ op: 'layout', agree: true, ...(inspect.limit != null ? { limit: inspect.limit } : {}) }); if (joinAgreement(r, await s.tree()) || i === 1) return r; }
+      // The host labels disagreements with testIds from the walk's own snapshot (no second read to join).
+      if (inspect.agree) return s.op({ op: 'layout', agree: true, ...(inspect.limit != null ? { limit: inspect.limit } : {}) });
       if (typeof target === "string" && target.startsWith("world:")) return s.op({op:"layout", ...await s.target(target), ...(at ? {world:true,x:at[0],y:at[1]} : {})});
       // `layout <canvas> at <x> <y>` is the world's pick (@ref llp/1046.001-agent-interface-to-a-game.rfc.md D2).
       if (target != null && at) return s.op({op:"layout", id:(await s.find(target)).id, world:true, x:at[0], y:at[1]});

@@ -673,7 +673,7 @@ test('restart waits for an old flow load, disposes synchronously, and ordinary c
 test('non-flow operation transcripts remain byte-for-byte equal to the existing fixture', () => {
   const samples = JSON.parse(readFileSync(new URL('../../scripts/fixtures/transcript.json', import.meta.url), 'utf8'));
   const expected = readFileSync(new URL('../../scripts/fixtures/transcript.txt', import.meta.url), 'utf8');
-  const actual = Object.entries(samples).map(([name, value]) => `--- ${name}\n${render(['empty', 'dropped'].includes(name) ? 'logs' : name, value)}`).join('\n\n') + '\n';
+  const actual = Object.entries(samples).map(([name, value]) => `--- ${name}\n${render(['empty', 'dropped'].includes(name) ? 'logs' : name.split(' ')[0], value)}`).join('\n\n') + '\n';
   expect(actual).toBe(expected);
 });
 

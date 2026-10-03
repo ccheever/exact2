@@ -286,6 +286,22 @@ extension Presenter {
             }
         }
         if !inFlight { compareFrames(kernel, seen: seen, report: report) }
+        labelDisagreements(report, kernel: kernel)
+    }
+
+    /// testIds from the snapshot the walk read, never a later tree: a live
+    /// node (mapped and in `frames`) gives its own; a retired one none.
+    private func labelDisagreements(_ report: AgreementReport, kernel: KernelFrames) {
+        func testId(_ id: Any?) -> String? {
+            guard let id = id as? Int, let v = views[UInt32(id)], kernel.frames[UInt32(id)] != nil else { return nil }
+            return v.props["testId"]
+        }
+        report.found = report.found.map { d in
+            var d = d
+            if let t = testId(d["id"]) { d["testId"] = t }
+            if let t = testId(d["under"]) { d["underTestId"] = t }
+            return d
+        }
     }
 
     /// `frame` (D2): only an ordinary node — in a window, untransformed in
