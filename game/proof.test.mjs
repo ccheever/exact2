@@ -1430,3 +1430,23 @@ test('repin provenance distinguishes commit-less games from broken Git repositor
     expect(() => pinRevision(dir, 'digest')).toThrow('git provenance failed');
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });
+
+test('a split clock grows at most 4x a step and never past ten world minutes', async () => {
+  const {clockSpan} = await import('../scripts/agent.mjs');
+  expect(clockSpan(1000, 1)).toBe(4000);
+  expect(clockSpan(400_000, 1)).toBe(600_000);
+  expect(clockSpan(8000, 6000)).toBe(4000);
+  expect(clockSpan(1000, 60_000)).toBe(1000);
+  // A step lasts about the 3 s budget times how much heavier the world got
+  // since the step before: 1.5x heavier each step stays near 4.5 s, far inside
+  // Chrome's 15 s, through an hour.
+  // Cost is wall ms per world ms, measured on the step before.
+  let span = 1000, worst = 0;
+  for (let now = 0, cost = 1e-5; now < 3_600_000; now += span) {
+    const measured = span * cost;
+    cost = Math.min(cost * 1.5, 2e-3); // the world gets heavier as it plays
+    worst = Math.max(worst, span * cost);
+    span = clockSpan(span, measured);
+  }
+  expect(worst).toBeLessThanOrEqual(4500 + 1e-6);
+});
