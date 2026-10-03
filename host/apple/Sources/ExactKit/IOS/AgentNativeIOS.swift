@@ -218,6 +218,7 @@ extension Presenter {
         if !kernel.complete { report.incomplete("frames-cap") }
         if inFlight { report.incomplete("in-flight") }
         let kept = keptTrees()
+        let retiringRoots = modals.inspectionRetiring
         report.walked = roots.map(\.1)
         var seen: [UInt32: NodeView] = [:]
         var stack: [(UIView, NodeView?)] = roots.reversed().map { ($0.0, nil) }
@@ -252,7 +253,12 @@ extension Presenter {
                         continue
                     }
                     if kept.parked.members.contains(ObjectIdentifier(n)) || kept.leaving.contains(ObjectIdentifier(n)) { continue }
-                    if judged {
+                    // A retiring modal keeps its removed route on screen until
+                    // UIKit's dismissal ends (`ModalIOS.swift`): kept on purpose.
+                    if retiringRoots.contains(where: { n === $0 || n.isDescendant(of: $0) }) { continue }
+                    // An unmapped node view is a leak wherever it hangs, an
+                    // opaque controller interior included (D3: nodes there are matched).
+                    do {
                         var fields: [String: Any] = ["class": "NodeView", "retired": Int(n.id), "frame": AgreementReport.rect(box(n))]
                         if let o = owner { fields["under"] = Int(o.id) }
                         report.add("stray", fields)

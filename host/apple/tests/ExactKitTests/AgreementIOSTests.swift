@@ -138,6 +138,23 @@ final class AgreementIOSTests: XCTestCase {
         XCTAssertTrue(r.incomplete.isEmpty, "a complete walk that disagrees, not an incomplete one")
     }
 
+    func testARetiredNodeViewInsideAControllersViewIsAStray() throws {
+        let p = fixture()
+        // A controller's interior is UIKit's (opaque), but a node view in it
+        // is still matched: one the kernel and the map both dropped is a leak.
+        let controller = UIViewController()
+        let row = try XCTUnwrap(p.views[10])
+        controller.view.frame = row.bounds
+        row.addSubview(controller.view)
+        XCTAssertEqual(agree(p, kernel()).counts, [:], "the controller's view is accounted for")
+        controller.view.addSubview(NodeView(id: 99, kind: "view", presenter: p))
+        let r = agree(p, kernel())
+        XCTAssertEqual(r.counts["stray"], 1, "\(r.found)")
+        XCTAssertEqual(r.found.first?["retired"] as? Int, 99)
+        XCTAssertTrue(r.incomplete.isEmpty)
+        withExtendedLifetime(controller) {}
+    }
+
     /// Flat leaves (LLP 1068 §6.1) under a box: two alike bars of `size`.
     private func flats(size: Double) -> Presenter {
         let p = Presenter()

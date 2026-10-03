@@ -189,7 +189,8 @@ extension Presenter {
                         continue
                     }
                     if leaving.contains(ObjectIdentifier(n)) { continue }
-                    if judged {
+                    // An unmapped node view is a leak wherever it hangs (D3).
+                    do {
                         var fields: [String: Any] = ["class": "NodeView", "retired": Int(n.id), "frame": AgreementReport.rect(box(n))]
                         if let o = owner { fields["under"] = Int(o.id) }
                         report.add("stray", fields)

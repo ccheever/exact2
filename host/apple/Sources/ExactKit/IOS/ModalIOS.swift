@@ -155,6 +155,11 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
             return (view, "modal #\(layer.route.id)\(retiring ? " (retiring)" : "")", owned)
         }
     }
+    /// The removed routes and navigations a dismissal keeps on screen until
+    /// UIKit ends it: unmapped node views on purpose.
+    var inspectionRetiring: [UIView] {
+        (layers + retiring).flatMap { [$0.controller.retiringRoot, $0.controller.retiringNavigation?.viewIfLoaded].compactMap { $0 } }
+    }
     func holdsGeometry(_ id: UInt32) -> Bool { (layers + retiring).contains { $0.geometry[id] != nil } }
     var defersFocus: Bool { closing || layers.contains { $0.presenting } }
     var closedby: String? { layers.last?.route.props["closedby"] }
