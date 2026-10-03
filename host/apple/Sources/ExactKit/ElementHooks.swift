@@ -217,8 +217,14 @@ final class ElementHooks {
 
     // MARK: Acting on an element (LLP 1075.003 §3.4)
 
-    /// A hook's `click()`, `focus()` or `blur()` on a node, as the DOM's,
-    /// after the batch being applied. False when refused.
+    /// What a hook asks of an element runs on the main queue's next turn:
+    /// after the batch being applied and after the session has finished with
+    /// it (its timers and frame requests), never inside either, so a hook
+    /// called from a batch or a reset never applies a batch of its own there.
+    static func later(_ work: @escaping () -> Void) { DispatchQueue.main.async(execute: work) }
+
+    /// A hook's `click()`, `focus()` or `blur()` on a node, as the DOM's, on
+    /// the next turn (`later`). False when refused.
     func act(_ id: UInt32, _ action: UInt32) -> Bool {
         #if os(iOS)
         return presenter.navigation.act(id, action)
@@ -227,12 +233,12 @@ final class ElementHooks {
         switch action {
         case 0:
             guard node.handlers.contains("press"), !node.disabled else { return false }
-            presenter.afterBatch { [weak presenter = self.presenter, weak node] in
+            Self.later { [weak presenter = self.presenter, weak node] in
                 if let presenter, let node, presenter.views[id] === node { presenter.press(id) }
             }
         case 1, 2:
-            presenter.afterBatch { [weak node] in
-                guard let node, let window = node.window else { return }
+            Self.later { [weak presenter = self.presenter, weak node] in
+                guard let presenter, let node, presenter.views[id] === node, let window = node.window else { return }
                 let responder: NSView = node.textArea ?? node.field ?? node
                 if action == 1 {
                     if responder.acceptsFirstResponder { window.makeFirstResponder(responder) }

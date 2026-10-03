@@ -319,18 +319,25 @@ extension NavigationHost {
 
     /// A hook's act on an authored element, as the DOM's: `click()` presses
     /// it as a tap does, `focus()` and `blur()` follow the focus rules. Each
-    /// waits until the batch being applied is done. False when refused.
+    /// runs on the main queue's next turn (`ElementHooks.later`). False when
+    /// refused.
     func act(_ id: UInt32, _ action: UInt32) -> Bool {
         guard let node = presenter.views[id] else { return false }
         switch action {
         case 0:
             guard node.handlers.contains("press"), !node.disabled else { return false }
             // Still the node it was when asked: a reload restarts node ids.
-            presenter.afterBatch { [weak presenter = self.presenter, weak node] in
+            ElementHooks.later { [weak presenter = self.presenter, weak node] in
                 if let presenter, let node, presenter.views[id] === node { presenter.press(id) }
             }
-        case 1: presenter.afterBatch { [weak presenter = self.presenter, weak node] in if let node { presenter?.focusNode(node) } }
-        case 2: presenter.afterBatch { [weak node] in if let node { _ = (node.textArea ?? node.field ?? node).resignFirstResponder() } }
+        case 1:
+            ElementHooks.later { [weak presenter = self.presenter, weak node] in
+                if let presenter, let node, presenter.views[id] === node { presenter.focusNode(node) }
+            }
+        case 2:
+            ElementHooks.later { [weak presenter = self.presenter, weak node] in
+                if let presenter, let node, presenter.views[id] === node { _ = (node.textArea ?? node.field ?? node).resignFirstResponder() }
+            }
         default: return false
         }
         return true

@@ -21,17 +21,21 @@ const page = () => Page ??= painted().then(() => import("./native.js")).then(m =
 // `state.hooks` (the agent), as Apple's: per word, its live nodes, and its
 // calls by moment. A row's calls after the first of each moment are counted,
 // not journaled, so a fling does not flood the journal.
-const stats = {};
-const counted = word => stats[word] ??= { live: 0, reusable: 0, lost: [], calls: {} };
+const stats = Object.create(null);
+const counted = word => stats[word] ??= { live: 0, reusable: 0, lost: [], calls: Object.create(null) };
+const publish = () => { if (globalThis.exact) globalThis.exact.hookStats ??= stats; };
 
 /** The page module's `element` hook for `e`, and its end. */
 export function hk(e) {
   if (typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
-  if (globalThis.exact) globalThis.exact.hookStats ??= stats;
+  publish();
   const word = e.getAttribute("data-hook"), id = viewId(e);
+  // What a hook asks of an element runs after the effect or commit that
+  // called the hook (a microtask), never inside it, as on Apple.
+  const later = act => queueMicrotask(() => { if (h.isLive) h.element?.[act](); });
   const h = {
     hook: word, element: e, data: e.dataset, isNew: true, isLive: true,
-    click() { if (h.isLive) e.click(); }, focus() { if (h.isLive) e.focus(); }, blur() { if (h.isLive) e.blur(); },
+    click() { if (h.isLive) later("click"); }, focus() { if (h.isLive) later("focus"); }, blur() { if (h.isLive) later("blur"); },
   };
   let module = null, inRow = false;
   const call = (name, moment) => {
@@ -44,6 +48,7 @@ export function hk(e) {
   page().then(m => {
     if (!h.isLive) return;
     module = m;
+    publish();
     counted(word).live++;
     if (!said.has(word)) { said.add(word); say(`element ${word}: nothing beyond the call on this host (LLP 1075.003.000)`); }
     const row = e.closest("[data-listitemkey]");
@@ -75,6 +80,7 @@ export function hk(e) {
     // may give the element to another row.
     h.isLive = false;
     if (told) { counted(word).live--; call("elementEnded", "ended"); }
+    h.data = { ...e.dataset };
     h.element = null;
   });
 }

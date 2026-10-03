@@ -84,16 +84,13 @@ const devLogic = [];
 // the page as `modules/`, with the web host's adapter (native.js).
 const pageModules = existsSync(resolve(appDir, 'modules/web/index.js'));
 // The page module's container hooks (LLP 1075.003.000 §3.7): their glue loads
-// only for a page module that exports one. Read from its source, never run:
-// a browser module may touch the DOM as it loads. `export *` may export one.
+// only for a page module that exports one. Its exports are read by Bun's
+// parser, never run: a browser module may touch the DOM as it loads. An
+// `export *` may export one.
 const pageSource = pageModules ? readFileSync(resolve(appDir, 'modules/web/index.js'), 'utf8') : '';
-const hookName = '(?:navigation|route|routeEnded|tabs)';
-const containerHooks = [
-  new RegExp(`\\bexport\\s+(?:async\\s+)?function\\s*\\*?\\s*${hookName}\\b`),
-  new RegExp(`\\bexport\\s+(?:const|let|var)\\s+${hookName}\\b`),
-  new RegExp(`\\bexport\\s*\\{[^}]*\\b${hookName}\\b[^}]*\\}`),
-  /\bexport\s*\*\s*from\b/,
-].some(r => r.test(pageSource));
+const pageExports = pageModules ? new Bun.Transpiler({ loader: 'js' }).scan(pageSource) : { exports: [], imports: [] };
+const containerHooks = pageExports.exports.some(n => ['navigation', 'route', 'routeEnded', 'tabs'].includes(n))
+  || /\bexport\s*\*\s*from\b/.test(pageSource);
 // The surfaces the app's GPU module draws (its crate's surface table); any
 // other surface is drawn by a data source on Canvas 2D, which the backend
 // refuses by name.
