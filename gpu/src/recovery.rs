@@ -77,7 +77,7 @@ impl Module {
             .await
             .map_err(RecoveryFailure::device)?;
         self.set_gpu(gpu);
-        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
         if let Err(error) = self.reattach_layers() {
             self.lose_device();
             return Err(RecoveryFailure::other(error));
@@ -91,7 +91,7 @@ impl Module {
         Ok(self.recovery_report())
     }
 
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
     fn reattach_layers(&mut self) -> Result<(), String> {
         let gpu = self.gpu.as_ref().ok_or("no device")?;
         for inst in self.instances.values_mut() {

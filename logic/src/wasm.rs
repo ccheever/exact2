@@ -7,7 +7,7 @@ use wasmi::{
 
 const FUEL: u64 = 20_000_000;
 struct Wasm {
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
     stateless: bool,
     store: Store<StoreLimits>,
     memory: Memory,
@@ -61,7 +61,7 @@ pub(crate) fn load(bytes: &[u8]) -> Result<Box<dyn Executor>, String> {
     if version != ABI {
         return Err("Rust wasm export ABI differs".into());
     }
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
     let stateless = match instance.get_typed_func::<(), u32>(&store, "exact_logic_stateless") {
         Ok(function) => function.call(&mut store, ()).map_err(err)? == 1,
         Err(_) => false,
@@ -75,7 +75,7 @@ pub(crate) fn load(bytes: &[u8]) -> Result<Box<dyn Executor>, String> {
         return Err("Rust wasm could not create session".into());
     }
     Ok(Box::new(Wasm {
-        #[cfg(not(target_os = "ios"))]
+        #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
         stateless,
         memory,
         session,
@@ -110,7 +110,7 @@ impl Drop for Wasm {
     }
 }
 impl Executor for Wasm {
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
     fn stateless(&self) -> bool {
         self.stateless
     }

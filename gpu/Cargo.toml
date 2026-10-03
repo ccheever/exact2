@@ -32,7 +32,7 @@ exact-gpu-reflect = { path = "reflect" }
 
 # A Metal texture the host rendered, imported as it is (LLP 1008 §9): the
 # crates wgpu-hal's Metal backend types it with, the same versions.
-[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))'.dependencies]
 objc2 = "0.6"
 objc2-metal = "0.3"
 # The Metal backend this module presents through is exact2's patched copy

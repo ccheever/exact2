@@ -394,7 +394,7 @@ impl<D: DataSource> Host<D> {
             keys: IdMap::default(),
             inline_runs: IdMap::default(),
             viewless_hooks: Default::default(),
-            svg: svg::SvgState::new(cfg!(target_os = "ios")),
+            svg: svg::SvgState::new(cfg!(any(target_os = "ios", target_os = "tvos"))),
             canvas_held: IdSet::default(),
             canvas_kept: Default::default(),
             canvas_deferred: false,
@@ -405,7 +405,10 @@ impl<D: DataSource> Host<D> {
             collections_json: "[]".into(),
             engine: {
                 let mut engine = Engine::new();
-                engine.set_lowered_properties(&svg::lowered(cfg!(target_os = "ios")));
+                engine.set_lowered_properties(&svg::lowered(cfg!(any(
+                    target_os = "ios",
+                    target_os = "tvos"
+                ))));
                 engine
             },
             paint: paint::Paint::default(),

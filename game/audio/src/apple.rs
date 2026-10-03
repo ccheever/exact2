@@ -574,7 +574,7 @@ unsafe extern "C" fn render(
     0
 }
 
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
 mod device {
     use super::*;
     use crate::Output;
@@ -661,7 +661,7 @@ mod device {
             };
             #[cfg(target_os = "macos")]
             let subtype = u32::from_be_bytes(*b"def ");
-            #[cfg(target_os = "ios")]
+            #[cfg(any(target_os = "ios", target_os = "tvos"))]
             let subtype = u32::from_be_bytes(*b"rioc");
             let desc = Description {
                 kind: u32::from_be_bytes(*b"auou"),
@@ -798,7 +798,7 @@ mod device {
         }
     }
 }
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
 pub use device::AppleOutput;
 
 #[cfg(test)]

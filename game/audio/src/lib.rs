@@ -10,10 +10,10 @@ use exact_game::{
     math, Quat, Vec3, World,
 };
 use std::{collections::BTreeMap, sync::Arc};
-#[cfg(any(target_os = "macos", target_os = "ios", test))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos", test))]
 #[allow(unsafe_code)]
 mod apple;
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
 pub use apple::AppleOutput;
 #[cfg(target_arch = "wasm32")]
 mod web;
