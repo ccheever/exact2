@@ -46,10 +46,26 @@ struct CollectionCursor {
     private(set) var sequence: UInt64 = 0
     private var correctedRevision: UInt64?
     mutating func advance() { if sequence < UInt64.max { sequence += 1 } }
+    /// The sequence of the last move that was not the reader's travel (an
+    /// authored offset, a port resize): a relative correction from before
+    /// it is stale, as an absolute one is.
+    private(set) var jumpedAt: UInt64 = 0
+    mutating func jump() { advance(); jumpedAt = sequence }
     mutating func takeCorrection(revision: UInt64, sequence: UInt64) -> Bool {
         guard sequence == self.sequence, correctedRevision.map({ revision > $0 }) ?? true else { return false }
         correctedRevision = revision
         return true
+    }
+    /// The correction an anchor's (`from`) still owes, once per revision:
+    /// a relative move, whatever the port did since. A later revision
+    /// carrying the same anchor's correction owes only what it adds.
+    private var shifted: (sequence: UInt64, from: Double, offset: Double)?
+    mutating func takeShift(revision: UInt64, _ c: CollectionSnapshot.Correction) -> Double? {
+        guard let from = c.from, c.sequence >= jumpedAt, correctedRevision.map({ revision > $0 }) ?? true else { return nil }
+        correctedRevision = revision
+        let done = shifted.flatMap { $0.sequence == c.sequence && $0.from == from ? $0.offset : nil } ?? from
+        shifted = (c.sequence, from, c.offset)
+        return c.offset - done
     }
 }
 
@@ -89,6 +105,8 @@ struct CollectionSnapshot {
     struct Correction {
         let sequence: UInt64
         let offset: Double
+        /// An anchor's correction: the offset it was taken at (relative).
+        var from: Double? = nil
     }
     let view: UInt32
     /// The main axis (LLP 1070 H1): a row list scrolls on x, and `extent`,
@@ -121,7 +139,7 @@ struct CollectionSnapshot {
         if let raw = value["correction"], !(raw is NSNull) {
             guard let raw = raw as? [String: Any], let seq = Self.uint(raw["scrollSequence"]),
                   let offset = Self.number(raw["offset"]) else { return nil }
-            correction = Correction(sequence: seq, offset: offset)
+            correction = Correction(sequence: seq, offset: offset, from: Self.number(raw["from"]))
         }
         self.view = view; self.revision = revision; self.sequence = sequence
         self.horizontal = (value["axis"] as? String) == "x"
@@ -282,9 +300,18 @@ final class CollectionHost {
         for (view, entry) in entries {
             guard let port = geometry(view) else { continue }
             let dimensions = [port.portCross, port.portMain, port.cross]
-            if let previous = entry.port, previous != dimensions { entry.cursor.advance() }
+            if let previous = entry.port, previous != dimensions { entry.cursor.jump() }
             entry.port = dimensions
-            if let correction = entry.snapshot.correction,
+            if let correction = entry.snapshot.correction, correction.from != nil {
+                // Rows before the anchor changed size in this batch: the
+                // offset moves with them before this frame displays, even
+                // under a pan or a fling, which go on from there.
+                if let delta = entry.cursor.takeShift(revision: entry.snapshot.revision, correction) {
+                    correcting = true
+                    shift(view, by: delta, extent: entry.snapshot.extent)
+                    correcting = false
+                }
+            } else if let correction = entry.snapshot.correction,
                entry.cursor.takeCorrection(revision: entry.snapshot.revision, sequence: correction.sequence) {
                 correcting = true
                 correct(view, top: correction.offset, extent: entry.snapshot.extent)
@@ -323,9 +350,12 @@ final class CollectionHost {
     func ancestorMoving(_ view: UInt32) -> Bool {
         entries[view]?.snapshot.parent.flatMap { motion?($0) } != nil
     }
-    func userIntent(_ view: UInt32) {
+    /// The port is about to move: by the reader (`travel`, a drag or a
+    /// wheel beginning) or to an authored offset.
+    func userIntent(_ view: UInt32, travel: Bool = false) {
         guard let entry = entries[view], !correcting else { return }
-        entry.cursor.advance(); dirty.insert(view)
+        if travel { entry.cursor.advance() } else { entry.cursor.jump() }
+        dirty.insert(view)
         schedule()
     }
     func changed(_ view: UInt32, user: Bool = false) {

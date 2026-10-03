@@ -83,13 +83,20 @@ pub struct CollectionRow {
     /// Whether the estimate has been confirmed in this epoch.
     pub measured: bool,
 }
-/// Apply only if the host has not advanced beyond `scroll_sequence`.
+/// Apply only if the host has not advanced beyond `scroll_sequence`, unless
+/// it is relative (`from`).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AnchorCorrection {
     /// Scroll sequence whose anchor was preserved.
     pub scroll_sequence: u64,
     /// Corrected content-relative offset on the main axis.
     pub offset: f64,
+    /// An anchor's correction: the offset the anchor was taken at, so
+    /// `offset - from` is how far the content before it moved. A host may
+    /// add that to the offset it has now, whatever it sampled since, in the
+    /// frame that lays the moved rows out (a fling keeps its velocity).
+    /// None: an authored position (a restore, `scrollIntoView`), absolute.
+    pub from: Option<f64>,
 }
 /// The axis a collection scrolls on, fixed when it is created from its
 /// list's style (LLP 1070 H1): `display: block` is vertical, `display:
@@ -315,11 +322,15 @@ pub fn snapshots_json(snapshots: &[CollectionSnapshot]) -> String {
         if let Some(correction) = c.correction {
             write!(
                 out,
-                "{{\"scrollSequence\":\"{}\",\"offset\":{}}}",
+                "{{\"scrollSequence\":\"{}\",\"offset\":{}",
                 correction.scroll_sequence,
                 exact_num::Shortest(correction.offset)
             )
             .unwrap();
+            if let Some(from) = correction.from {
+                write!(out, ",\"from\":{}", exact_num::Shortest(from)).unwrap();
+            }
+            out.push('}');
         } else {
             out.push_str("null");
         }

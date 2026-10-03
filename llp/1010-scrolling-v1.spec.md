@@ -732,7 +732,21 @@ Hosts report the actual nested scrollport, content-relative offset, offered
 row width and measured wrappers. Width/content changes issue fresh measurement
 epochs. Stale revisions, sequences and epochs cannot overwrite newer geometry.
 Anchor corrections are tied to the accepted scroll sequence, preserving a key
-and its offset or falling back to surviving neighbors. End-follow is explicit
+and its offset or falling back to surviving neighbors. An anchor's correction
+whose row stayed put (not an end it follows, the start, or an offset the end
+clamped, which stay absolute: the host's own clamp has moved there) also says
+the offset it was taken at (`from`, 2026-10-02): the rows before the anchor
+moved by `offset - from`, and a host moves the port by that much in the
+layout pass that lays them out, whatever it sampled since and under a pan or a
+fling too, which go on from there at their velocity (UIKit's
+`contentOffsetAdjustment`). Once per revision; a later revision of the same
+correction (one no report has acknowledged grows from where it began) moves
+only by what it adds; one from before an authored offset or a port resize is
+stale, as an absolute one is. Authored positions (a restore, `scrollIntoView`)
+stay absolute. Measured on the Signal Clone's transcript (iOS simulator, 60 fps
+recordings, 8 flings into older history, estimates of 100 for rows of 40–110):
+45 backward frames before, of up to ~40 pt each; none after, over 958 moving
+frames. End-follow is explicit
 and only applies when the user was already at the end; native eager end-follow
 must not run independently on a virtualized list.
 

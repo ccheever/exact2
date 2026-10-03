@@ -255,7 +255,14 @@ class Collection {
     if (!a || !g) return;
     const c = this.index.restoreAnchor(a, g.port_main);
     if (Math.abs(c - g.offset) > 0.01) {
-      this.correction = { scrollSequence: g.scroll_sequence, offset: c };
+      // An anchor's correction is relative where its row stayed put
+      // (mod.rs `restore`): from where the anchor was taken, or from where
+      // an unacknowledged one began.
+      const was = this.correction;
+      const kept = !a.follows && a.row !== null && c < this.index.maxOffset(g.port_main) - 0.01;
+      const from = !kept ? undefined : was ? (was.scrollSequence === g.scroll_sequence ? was.from : undefined) : g.offset;
+      this.correction = from === undefined ? { scrollSequence: g.scroll_sequence, offset: c }
+        : { scrollSequence: g.scroll_sequence, offset: c, from };
       g.offset = c;
       if (this.restoredAt) this.startOffset = c;
     }

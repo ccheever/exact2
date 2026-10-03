@@ -328,6 +328,7 @@ impl Collection {
         self.correction = Some(AnchorCorrection {
             scroll_sequence: 0,
             offset,
+            from: None,
         });
         self.realize_window(u, frames, false, CollectionFill::default())?;
         advance(&mut self.revision)?;

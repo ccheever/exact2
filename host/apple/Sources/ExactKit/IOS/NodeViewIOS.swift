@@ -562,7 +562,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         followingEndAnimated = false
-        presenter?.collections.userIntent(id)
+        presenter?.collections.userIntent(id, travel: true)
         retainedScrollTop = nil
     }
 

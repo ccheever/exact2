@@ -215,10 +215,10 @@ export function collectionController({ root, views, report, settled=()=>{},
       // is assigned, so its rows exist before any frame shows it.
       if (jump != null) {
         g = { ...g, raw: g.raw + Math.max(0, Math.min(jump, s.port[A.scrollSize] - s.port[A.client])) - s.port[A.offset] };
-        s.sequence++;
+        s.sequence++; s.jumpedAt = s.sequence;
       }
       const dimensions = dimensionsOf(g);
-      if (s.dimensions !== null && dimensions !== s.dimensions) s.sequence++;
+      if (s.dimensions !== null && dimensions !== s.dimensions) { s.sequence++; s.jumpedAt = s.sequence; }
       s.dimensions = dimensions;
       const facts = { view: s.snapshot.view, revision: s.snapshot.revision, scroll_sequence: s.sequence,
         offset: Math.max(0, g.raw + (s.clamp?.at === s.port[A.offset] ? s.clamp.from - s.clamp.at : 0)), port_main: g.portMain, port_cross: g.portCross, cross: g.cross,
@@ -417,6 +417,32 @@ export function collectionController({ root, views, report, settled=()=>{},
         if (snapshot.seeking && !s.seeking) s.input = false;
         s.seeking = snapshot.seeking === true;
         const correction = snapshot.correction;
+        // An anchor's correction (`from`) is relative: the rows before the
+        // anchor moved by `offset - from` in this commit, so the port moves
+        // with them before it paints, whatever was scrolled since the report
+        // (a fling's frames). Once: a later revision with the same anchor's
+        // correction owes only what it adds.
+        // Not one from before an authored jump or a resize (`jumpedAt`).
+        if (correction && Number.isFinite(correction.from) && s.corrected !== snapshot.revision
+            && BigInt(correction.scrollSequence) >= (s.jumpedAt ?? 0n)) {
+          const g = geometry(s), name = AXES[axis].offset;
+          // H4: a row list moving under the user's hand is not corrected
+          // (below); a vertical one moves with its rows, mid-fling too.
+          const moving = axis === 'x' && velocity(s) !== 0;
+          if (g && !moving && (s.dimensions === null || s.dimensions === dimensionsOf(g))) {
+            s.corrected = snapshot.revision;
+            const last = s.shifted;
+            const done = last && last.scrollSequence === correction.scrollSequence && last.from === correction.from ? last.offset : correction.from;
+            s.shifted = correction;
+            if (correction.offset !== done) {
+              const was = port[name];
+              port[name] += correction.offset - done;
+              s.offset = port[name]; // consume the programmatic scroll echo
+              // Not the reader's travel: its velocity reads on from here.
+              if (s.travel) s.travel.at += port[name] - was;
+            }
+          }
+        } else
         // A request's correction is authored: the browser's clamps and
         // scroll anchoring since the runner's last report don't void it.
         if (correction && s.corrected !== snapshot.revision

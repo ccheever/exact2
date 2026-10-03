@@ -628,9 +628,20 @@ impl Collection {
                 .restore_anchor(&anchor, g.port_main)
                 .map_err(index_error)?;
             if (corrected - g.offset).abs() > 0.01 {
+                // Relative only where the anchor's row stayed put (an end
+                // followed or clamped is absolute: the host's own clamp has
+                // moved it). One not yet acknowledged by a report is still
+                // the host's to apply: this one moves on from where it began.
+                let from = match self.correction {
+                    _ if !self.index.kept_row(&anchor, g.port_main, corrected) => None,
+                    Some(c) if c.scroll_sequence == g.scroll_sequence => c.from,
+                    Some(_) => None,
+                    None => Some(g.offset),
+                };
                 self.correction = Some(AnchorCorrection {
                     scroll_sequence: g.scroll_sequence,
                     offset: corrected,
+                    from,
                 });
                 g.offset = corrected;
                 if self.restored_at.is_some() {

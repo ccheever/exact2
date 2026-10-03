@@ -73,11 +73,40 @@ extension CollectionHost {
         guard let node = presenter?.views[id], !hidden(node) else { return nil }
         return Double(horizontal ? node.bounds.width : node.bounds.height)
     }
-    func correct(_ id: UInt32, top: Double, extent: Double) {
+    /// An anchor's correction (`CollectionCursor.takeShift`): the offset
+    /// moves by `delta` in the layout pass that moved the rows. Assigning
+    /// `contentOffset` keeps a pan or a deceleration going from the new
+    /// offset at its velocity, as `UICollectionView`'s self-sizing
+    /// invalidation does with its content offset adjustment.
+    func shift(_ id: UInt32, by delta: Double, extent: Double) {
         guard let node = presenter?.views[id], let scroll = node.scroll else { return }
-        let content = node.contentBox(), insets = scroll.adjustedContentInset
+        fit(node, scroll, extent: extent)
+        guard delta != 0, delta.isFinite else { return }
         let horizontal = entries[id]?.snapshot.horizontal ?? false
-        if horizontal {
+        let insets = scroll.adjustedContentInset
+        var target = scroll.contentOffset
+        if horizontal { target.x += CGFloat(delta) } else { target.y += CGFloat(delta) }
+        if !(scroll.isTracking || scroll.isDragging || scroll.isDecelerating) {
+            // At rest the port stays inside the content (under a finger or
+            // a fling UIKit's own rubber band owns the overshoot).
+            if horizontal {
+                let maximum = max(-insets.left, scroll.contentSize.width + insets.right - scroll.bounds.width)
+                target.x = min(maximum, max(-insets.left, target.x))
+            } else {
+                let maximum = max(-insets.top, scroll.contentSize.height + insets.bottom - scroll.bounds.height)
+                target.y = min(maximum, max(-insets.top, target.y))
+            }
+        }
+        guard scroll.contentOffset != target else { return }
+        let moved = horizontal ? target.x - scroll.contentOffset.x : target.y - scroll.contentOffset.y
+        scroll.contentOffset = target
+        // Not the reader's travel: the fill's velocity reads on from here.
+        presenter?.scrollPump.shifted(id, by: moved)
+    }
+    /// The content size the list's extent needs.
+    private func fit(_ node: NodeView, _ scroll: UIScrollView, extent: Double) {
+        let content = node.contentBox()
+        if entries[node.id]?.snapshot.horizontal ?? false {
             let right = node.bounds.width - content.maxX
             let width = max(scroll.bounds.width, max(CGFloat(extent) + content.minX + right, node.content.width))
             if scroll.contentSize.width != width { scroll.contentSize.width = width }
@@ -86,9 +115,16 @@ extension CollectionHost {
             let height = max(scroll.bounds.height, max(CGFloat(extent) + content.minY + bottom, node.content.height))
             if scroll.contentSize.height != height { scroll.contentSize.height = height }
         }
-        // UIKit owns dragging/deceleration. A matching historical anchor is
-        // not permission to interrupt that animation with setContentOffset.
-        // The next native offset notification supplies the continuing intent.
+    }
+    func correct(_ id: UInt32, top: Double, extent: Double) {
+        guard let node = presenter?.views[id], let scroll = node.scroll else { return }
+        let content = node.contentBox(), insets = scroll.adjustedContentInset
+        let horizontal = entries[id]?.snapshot.horizontal ?? false
+        fit(node, scroll, extent: extent)
+        // UIKit owns dragging/deceleration. An authored position is not
+        // permission to interrupt that animation with setContentOffset (an
+        // anchor's correction moves with it instead: `shift`). The next
+        // native offset notification supplies the continuing intent.
         guard !scroll.isTracking, !scroll.isDragging, !scroll.isDecelerating else { return }
         let target: CGPoint
         if horizontal {

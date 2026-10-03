@@ -1068,7 +1068,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if (ox == "scroll" || oy == "scroll") && scroll == nil {
             let sv = ChainingScrollView(frame: bounds)
             sv.collectionWillScroll = { [weak self] in
-                guard let self else { return }; presenter?.collections.userIntent(id)
+                guard let self else { return }; presenter?.collections.userIntent(id, travel: true)
             }
             sv.drawsBackground = false
             sv.scrollerStyle = .overlay

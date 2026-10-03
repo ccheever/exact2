@@ -184,6 +184,7 @@ impl Collection {
                 self.correction = Some(AnchorCorrection {
                     scroll_sequence: g.scroll_sequence,
                     offset,
+                    from: None,
                 });
             }
             None => {
@@ -191,6 +192,7 @@ impl Collection {
                 self.correction = Some(AnchorCorrection {
                     scroll_sequence: 0,
                     offset,
+                    from: None,
                 });
             }
         }
@@ -288,6 +290,7 @@ impl Collection {
         self.correction = Some(AnchorCorrection {
             scroll_sequence: sequence,
             offset: desired,
+            from: None,
         });
         if let Some(t) = &mut self.target {
             t.reports += 1;
