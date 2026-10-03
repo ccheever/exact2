@@ -848,8 +848,8 @@ export function worldView(session, name) {
   return {
     /** The first page of entities (512), or every page with {all:true}, read at one tick and hash. */
     async snapshot({all = false} = {}) {
-      const page = all ? {limit:5000} : {};
-      const first = await session.state(`${name}:*`, undefined, false, false, page);
+      const page = {limit:5000};
+      const first = all ? await session.state(`${name}:*`, undefined, false, false, page) : await session.state(`${name}:*`);
       const {tick, hash} = first, entities = [...first.entities];
       for (let r = first; all && r.truncated;) {
         r = await session.state(`${name}:*`, undefined, false, false, {...page, from:r.next});

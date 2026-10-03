@@ -280,6 +280,32 @@ test('world convenience keeps simulation fields only and dispatches the existing
   expect(calls[2].reply).toMatchObject({clock:0,epoch:2,incarnation:2});
 });
 
+test('a complete world snapshot reads every page at one tick and hash', async () => {
+  const all = Array.from({length:12}, (_, id) => ({id, name:null, components:{}}));
+  const pages = [];
+  let hash = '0x1';
+  const session = {
+    async state(target, under, pose, busy, page = {}) {
+      pages.push(page);
+      const from = page.from ?? 0, to = Math.min(all.length, from + 5);
+      return {tick:7, hash, entities:all.slice(from, to), truncated:to < all.length, total:all.length, ...(to < all.length ? {next:to} : {})};
+    },
+  };
+  const w = worldView(session, 'world');
+  // The 5-entity pages stand in for the driver's limit of 5,000.
+  const {entities, truncated} = await w.snapshot({all:true});
+  expect(entities.map(e => e.id)).toEqual(all.map(e => e.id));
+  expect(truncated).toBe(false);
+  expect(pages.map(p => p.from ?? 0)).toEqual([0, 5, 10]);
+  pages.length = 0;
+  session.state = async (target, under, pose, busy, page = {}) => {
+    pages.push(page);
+    if (page.from) hash = '0x2';
+    return {tick:7, hash, entities:all.slice(0, 5), truncated:true, next:5};
+  };
+  await expect(w.snapshot({all:true})).rejects.toThrow(/world changed while paging/);
+});
+
 
  test('world get translates only the named missing-entity refusal', async () => {
    for (const error of ['no view matches arena', 'no entity named `other`', 'device lost']) {
