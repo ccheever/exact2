@@ -122,7 +122,7 @@ extension ControlHost {
         let face = presenter.buttonFace?(owner.id) ?? ButtonFace()
         let written = NativeButtonIOS.Written(
             face: face, accent: accent, enabled: !owner.disabled,
-            label: owner.props["accessibilityLabel"] ?? face.title, testId: owner.props["testId"],
+            label: owner.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 } ?? face.title, testId: owner.props["testId"],
             selected: owner.props["accessibilitySelected"] == "true", expanded: owner.props["accessibilityExpanded"],
             pressed: owner.pressedState)
         guard button.written != written else { return }
