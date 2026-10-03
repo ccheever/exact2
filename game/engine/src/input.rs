@@ -174,6 +174,14 @@ pub enum InputEvent {
         x: f32,
         /// Vertical canvas coordinate.
         y: f32,
+        /// Horizontal device motion since this pointer's previous event, in
+        /// points: unbounded by the canvas or screen edge (a locked pointer).
+        dx: f32,
+        /// Vertical device motion since this pointer's previous event.
+        dy: f32,
+        /// Held mouse buttons as the web's `PointerEvent.buttons` bits: 1
+        /// primary, 2 secondary, 4 middle. Touch contacts report 0.
+        buttons: u32,
         /// Host clock milliseconds.
         at_ms: f64,
     },
@@ -232,7 +240,14 @@ impl InputEvent {
             return false;
         }
         match (self, other) {
-            (Self::Pointer { id: a, .. }, Self::Pointer { id: b, .. }) => a == b,
+            (
+                Self::Pointer {
+                    id: a, buttons: ab, ..
+                },
+                Self::Pointer {
+                    id: b, buttons: bb, ..
+                },
+            ) => a == b && ab == bb,
             (
                 Self::Control {
                     name: a, id: ai, ..
@@ -242,6 +257,15 @@ impl InputEvent {
                 },
             ) => a == b && ai == bi,
             _ => false,
+        }
+    }
+    /// A coalesced move keeps the latest position and the motion of both.
+    pub(crate) fn add_motion(&mut self, earlier: &Self) {
+        if let (Self::Pointer { dx, dy, .. }, Self::Pointer { dx: ex, dy: ey, .. }) =
+            (self, earlier)
+        {
+            *dx += ex;
+            *dy += ey;
         }
     }
     pub(crate) fn set_at_ms(&mut self, value: f64) {
@@ -272,9 +296,13 @@ pub struct PointerState {
     pub position: Vec2,
     /// Whether contact remains down.
     pub down: bool,
-    /// Movement accumulated since the last tick.
+    /// Device motion accumulated since the last tick, in points. A locked
+    /// pointer's motion is unbounded while its position stays put.
     pub delta: Vec2,
 }
+/// Mouse buttons bind as keys of these names, by `PointerEvent.buttons` bit.
+pub const MOUSE_BUTTONS: [(&str, u32); 3] =
+    [("MouseLeft", 1), ("MouseRight", 2), ("MouseMiddle", 4)];
 #[derive(Clone, Default, Data)]
 struct Contact {
     id: u64,
@@ -334,7 +362,9 @@ impl Input {
             }
         }
         match event {
-            InputEvent::Pointer { x, y, .. } if !x.is_finite() || !y.is_finite() => {
+            InputEvent::Pointer { x, y, dx, dy, .. }
+                if !x.is_finite() || !y.is_finite() || !dx.is_finite() || !dy.is_finite() =>
+            {
                 return Err("input needs finite points".into())
             }
             InputEvent::Wheel { dx, dy, .. } if !dx.is_finite() || !dy.is_finite() => {
@@ -499,14 +529,21 @@ impl Input {
         }
         self.clear_edges();
     }
+    fn mouse_buttons(&self) -> u32 {
+        MOUSE_BUTTONS
+            .iter()
+            .filter(|(code, _)| self.keys.binary_search_by(|k| k.as_str().cmp(code)).is_ok())
+            .fold(0, |mask, (_, bit)| mask | bit)
+    }
     pub(crate) fn apply(&mut self, event: InputEvent) {
         if matches!(event, InputEvent::Wheel { .. })
             || (matches!(
                 event,
                 InputEvent::Pointer {
                     phase: PointerPhase::Move,
+                    buttons,
                     ..
-                }
+                } if buttons & 7 == self.mouse_buttons()
             ) && self.contacts.is_empty())
             || self.actions.is_none()
             || matches!(&event, InputEvent::Key { code, down, .. } if self.keys.contains(code) == *down)
@@ -584,12 +621,32 @@ impl Input {
                 self.pointer = None;
             }
             InputEvent::Pointer {
-                id, phase, x, y, ..
+                id,
+                phase,
+                x,
+                y,
+                dx,
+                dy,
+                buttons,
+                ..
             } => {
+                for (code, bit) in MOUSE_BUTTONS {
+                    match (
+                        self.keys.binary_search_by(|k| k.as_str().cmp(code)),
+                        buttons & bit != 0,
+                    ) {
+                        (Err(i), true) => self.keys.insert(i, code.into()),
+                        (Ok(i), false) => {
+                            self.keys.remove(i);
+                        }
+                        _ => {}
+                    }
+                }
                 let position = Vec2::new(x, y);
+                let motion = Vec2::new(dx, dy);
                 if let Some(p) = &mut self.pointer {
                     if p.id == id {
-                        p.delta += position - p.position;
+                        p.delta += motion;
                         p.position = position;
                         p.down = matches!(phase, PointerPhase::Down)
                             || (p.down && phase == PointerPhase::Move);
@@ -602,7 +659,7 @@ impl Input {
                         id,
                         position,
                         down: phase == PointerPhase::Down,
-                        delta: Vec2::ZERO,
+                        delta: motion,
                     });
                 }
                 match phase {
@@ -767,6 +824,19 @@ mod control_tests {
                 phase: PointerPhase::Down,
                 x: f32::INFINITY,
                 y: 0.,
+                dx: 0.,
+                dy: 0.,
+                buttons: 1,
+                at_ms: 0.,
+            },
+            InputEvent::Pointer {
+                id: 1,
+                phase: PointerPhase::Move,
+                x: 0.,
+                y: 0.,
+                dx: f32::NAN,
+                dy: 0.,
+                buttons: 0,
                 at_ms: 0.,
             },
         ] {
@@ -820,12 +890,23 @@ mod control_tests {
                 at_ms: 0.,
             });
         }
-        let pointer = |phase, x, y| InputEvent::Pointer {
-            id: 1,
-            phase,
-            x,
-            y,
-            at_ms: 0.,
+        let last = std::cell::Cell::new(Vec2::new(20., 40.));
+        let pointer = |phase, x, y| {
+            let to = Vec2::new(x, y);
+            let by = to - last.get();
+            if to.is_finite() {
+                last.set(to);
+            }
+            InputEvent::Pointer {
+                id: 1,
+                phase,
+                x,
+                y,
+                dx: by.x,
+                dy: by.y,
+                buttons: u32::from(phase == PointerPhase::Down),
+                at_ms: 0.,
+            }
         };
         for (x, y) in [(20., 40.), (50., 70.), (f32::NAN, 70.), (80., 90.)] {
             input.apply(pointer(PointerPhase::Move, x, y));
@@ -852,6 +933,57 @@ mod control_tests {
         assert!(!input.pointer().unwrap().down);
         assert_eq!(input.pointer().unwrap().delta, Vec2::new(10., 10.));
         assert!(input.pressed("move") && input.released("move") && input.held("move"));
+    }
+    #[test]
+    fn mouse_buttons_bind_as_keys_and_motion_is_the_devices() {
+        let mut input = Input::new(
+            Actions::new()
+                .button("fire", &["MouseLeft"])
+                .button("aim", &["MouseRight"])
+                .button("ping", &["MouseMiddle"]),
+        );
+        let mouse = |phase, dx, buttons| InputEvent::Pointer {
+            id: 1,
+            phase,
+            x: 10.,
+            y: 10.,
+            dx,
+            dy: -1.,
+            buttons,
+            at_ms: 0.,
+        };
+        // A locked pointer: the position stays, the motion is unbounded.
+        for _ in 0..3 {
+            input.apply(mouse(PointerPhase::Move, 500., 0));
+        }
+        let p = input.pointer().unwrap();
+        assert_eq!(
+            (p.position, p.delta),
+            (Vec2::new(10., 10.), Vec2::new(1500., -3.))
+        );
+        input.clear_edges();
+        // The secondary button alone begins the contact, as the web's pointerdown.
+        input.apply(mouse(PointerPhase::Down, 0., 2));
+        assert!(input.pressed("aim") && input.held("aim") && !input.held("fire"));
+        input.clear_edges();
+        // Chorded buttons change on moves.
+        input.apply(mouse(PointerPhase::Move, 2., 3));
+        input.apply(mouse(PointerPhase::Move, 2., 7));
+        assert!(input.pressed("fire") && input.pressed("ping") && !input.pressed("aim"));
+        assert!(input.held("aim") && input.held("fire") && input.held("ping"));
+        input.clear_edges();
+        input.apply(mouse(PointerPhase::Move, 2., 6));
+        assert!(input.released("fire") && input.held("aim"));
+        input.apply(mouse(PointerPhase::Up, 0., 0));
+        assert!(input.released("aim") && input.released("ping"));
+        assert!(!input.held("aim") && !input.held("fire") && !input.held("ping"));
+        input.clear_edges();
+        // A hover move with a button held (pressed off the canvas) holds it;
+        // blur releases every device.
+        input.apply(mouse(PointerPhase::Move, 1., 2));
+        assert!(input.pressed("aim") && input.held("aim"));
+        input.apply(InputEvent::Blur { at_ms: 0. });
+        assert!(!input.held("aim"));
     }
     #[test]
     fn repeated_keys_preserve_edges_and_independent_control_ownership() {

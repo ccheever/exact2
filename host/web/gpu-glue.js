@@ -509,21 +509,20 @@ function listen(entry) {
   const fallsThrough = (event) => event.target === el || event.target === entry.el;
   const point = (event) => { const r = el.getBoundingClientRect(); return { x: event.clientX - r.left, y: event.clientY - r.top }; };
   // A canvas marked data-pointer-lock="true" (mouse look) captures the mouse on a
-  // press. While locked the world sees an unbounded position that accumulates raw
-  // movement, so its pointer deltas never stop at the canvas or screen edge; after
-  // the lock ends, positions keep that offset so no delta jumps.
+  // press. Every pointer event carries the device's motion (movementX/Y) beside its
+  // position, so while locked the world's deltas never stop at the canvas or screen
+  // edge though the position stays put.
   const lockable = () => (el.dataset.pointerLock ?? entry.el.dataset?.pointerLock) === "true";
-  let last = null, offset = { x: 0, y: 0 }, wasLocked = false;
+  let last = null;
   const pointerAt = (event) => {
-    const p = point(event), locked = document.pointerLockElement === el;
-    if (locked && last) last = { x: last.x + (event.movementX || 0), y: last.y + (event.movementY || 0) };
-    else {
-      if (wasLocked && last) offset = { x: last.x - p.x, y: last.y - p.y };
-      last = { x: p.x + offset.x, y: p.y + offset.y };
-    }
-    wasLocked = locked;
-    return last;
+    const p = point(event), from = last;
+    last = p;
+    const dx = event.movementX ?? (from ? p.x - from.x : 0), dy = event.movementY ?? (from ? p.y - from.y : 0);
+    return { ...p, dx, dy };
   };
+  // The secondary button and the middle button are the world's (MouseRight, MouseMiddle).
+  on("contextmenu", (event) => { if (fallsThrough(event)) event.preventDefault(); });
+  on("mousedown", (event) => { if (event.button === 1 && fallsThrough(event)) event.preventDefault(); });
   for (const phase of ["down", "move", "up", "cancel"]) on(`pointer${phase}`, (event) => {
     const wasControl = controls.has(event.pointerId);
     cancelRemoved();

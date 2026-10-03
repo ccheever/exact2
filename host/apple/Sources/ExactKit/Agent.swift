@@ -56,6 +56,8 @@ public final class Agent {
     var contactClock: Double = 0
     #endif
     weak var canvasContact: NodeView?
+    /// The last point the agent's pointer sent its canvas (iOS), for its motion.
+    var canvasPoint: CGPoint?
     var keyReleases: [String: () -> [String: Any]] = [:]
 
     /// Where replies go: the stream the requests came on.

@@ -149,16 +149,19 @@ fn epoch_pause_live_gap_and_backwards_clock() {
 fn touch_is_data_and_pointer_wheel_deltas_expire() {
     let mut s = sim();
     s.viewport(800.0, 600.0);
-    for (id, phase, x, y) in [
-        (1, PointerPhase::Down, 100.0, 300.0),
-        (1, PointerPhase::Move, 160.0, 240.0),
-        (2, PointerPhase::Down, 700.0, 300.0),
+    for (id, phase, x, y, dx, dy) in [
+        (1, PointerPhase::Down, 100.0, 300.0, 0.0, 0.0),
+        (1, PointerPhase::Move, 160.0, 240.0, 60.0, -60.0),
+        (2, PointerPhase::Down, 700.0, 300.0, 0.0, 0.0),
     ] {
         s.input(InputEvent::Pointer {
             id,
             phase,
             x,
             y,
+            dx,
+            dy,
+            buttons: 0,
             at_ms: 0.0,
         });
     }
@@ -184,6 +187,26 @@ fn touch_is_data_and_pointer_wheel_deltas_expire() {
     s.input(InputEvent::Blur { at_ms: 34.0 });
     s.advance(100.0, Clock::Seekable);
     assert_eq!(s.world().resource::<Counts>().released, 1);
+}
+/// Moves coalesced inside one tick keep every event's device motion: a locked
+/// pointer's position never changes, so a position difference would lose it.
+#[test]
+fn coalesced_moves_keep_their_motion_and_the_first_move_counts() {
+    let mut s = sim();
+    for (at_ms, dx) in [(1.0, 5.0), (2.0, 7.0), (3.0, -2.0)] {
+        s.input(InputEvent::Pointer {
+            id: 1,
+            phase: PointerPhase::Move,
+            x: 40.0,
+            y: 30.0,
+            dx,
+            dy: 1.0,
+            buttons: 0,
+            at_ms,
+        });
+    }
+    s.advance(16.667, Clock::Seekable);
+    assert_eq!(s.world().resource::<Counts>().pointer, Vec2::new(10.0, 3.0));
 }
 #[derive(Default, Component)]
 struct Nested {
@@ -502,6 +525,9 @@ fn restore_touch_viewport_continues_headless_and_resize_replaces_it() {
         phase: PointerPhase::Down,
         x: 700.0,
         y: 300.0,
+        dx: 0.0,
+        dy: 0.0,
+        buttons: 0,
         at_ms: 0.0,
     });
     a.run(100.0);
@@ -1216,6 +1242,9 @@ fn saves_canonicalize_consumed_input_edges_and_preserve_pending_events() {
             phase: PointerPhase::Down,
             x: 100.,
             y: 100.,
+            dx: 0.,
+            dy: 0.,
+            buttons: 1,
             at_ms: epoch + 6.,
         });
         s.input(InputEvent::Pointer {
@@ -1223,6 +1252,9 @@ fn saves_canonicalize_consumed_input_edges_and_preserve_pending_events() {
             phase: PointerPhase::Move,
             x: 110.,
             y: 105.,
+            dx: 10.,
+            dy: 5.,
+            buttons: 1,
             at_ms: epoch + 7.,
         });
         s.input(InputEvent::Wheel {

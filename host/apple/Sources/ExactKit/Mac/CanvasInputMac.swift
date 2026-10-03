@@ -9,6 +9,10 @@ final class CanvasInput {
     private var keys: Set<String> = []
     private var buttons = 0
     private var modifiers: Set<String> = []
+    private var last: NSPoint?
+    /// The mouse is captured for mouse look (`data-pointer-lock="true"`): the
+    /// cursor is hidden and held still, and moves carry the device's deltas.
+    private(set) var locked = false
 
     init(view: NodeView) {
         self.view = view
@@ -23,6 +27,7 @@ final class CanvasInput {
         if current == nil || current === window || current === window.contentView || current === v.presenter?.viewport || current === v.presenter?.session?.view { _ = v.focusCanvas() }
     }
     deinit {
+        unlock()
         if let inactive { NotificationCenter.default.removeObserver(inactive) }
         if let tracking { view?.removeTrackingArea(tracking) }
     }
@@ -33,15 +38,35 @@ final class CanvasInput {
         view.addTrackingArea(area)
         tracking = area
     }
+    /// The web's `requestPointerLock` on AppKit: the cursor leaves the
+    /// mouse's control until Escape, blur or the canvas goes away.
+    private func lock() {
+        guard !locked else { return }
+        locked = CGAssociateMouseAndMouseCursorPosition(0) == .success
+        if locked { NSCursor.hide() }
+    }
+    func unlock() {
+        guard locked else { return }
+        locked = false
+        CGAssociateMouseAndMouseCursorPosition(1)
+        NSCursor.unhide()
+    }
+    private var lockable: Bool {
+        guard let data = view?.props["dataset"]?.data(using: .utf8),
+              let words = try? JSONSerialization.jsonObject(with: data) as? [String: String] else { return false }
+        return words["pointer-lock"] == "true"
+    }
     func blur() {
         guard let view else { return }
-        buttons = 0; modifiers.removeAll(); keys.removeAll()
+        unlock()
+        buttons = 0; modifiers.removeAll(); keys.removeAll(); last = nil
         if let c=view.canvases, let e=c.entries[view.id] {c.cancelControls(e)}
         view.canvases?.input(view, ["t": "blur"])
     }
     func key(_ event: NSEvent, down: Bool, source: NodeView) -> Bool {
         guard let view else { return false }
         let code = KeyCodes.mac[Int(event.keyCode)] ?? "Unidentified"
+        if down && code == "Escape" { unlock() }
         if (source.isSurfaceControl || !down) && ["Space", "Enter", "NumpadEnter"].contains(code) {
             if down && event.isARepeat { return true }
             if source.controlKey(code, down: down, timestamp: event.timestamp) { return true }
@@ -85,16 +110,26 @@ final class CanvasInput {
     func pointer(_ event: NSEvent, phase: String) -> Bool {
         guard let view, !view.disabled, !view.inert else { return false }
         let bit = event.buttonNumber == 0 ? 1 : event.buttonNumber == 1 ? 2 : event.buttonNumber == 2 ? 4 : 1 << min(event.buttonNumber, 30)
+        var phase = phase
         if phase == "down" {
-            guard fallsThrough(event, view) else { return false }
+            guard locked || fallsThrough(event, view) else { return false }
             _ = view.focusSurfacePointer()
+            // A second button joins the held contact as a move, as the web's chorded buttons do.
+            if buttons != 0 { phase = "move" }
             buttons |= bit
+            if lockable { lock() }
         } else if phase == "up" {
             guard buttons & bit != 0 else { return false }
             buttons &= ~bit
-        } else if buttons == 0 && !fallsThrough(event, view) { return false }
+            if buttons != 0 { phase = "move" }
+        } else if buttons == 0 && !locked && !fallsThrough(event, view) { return false }
         let point = view.local(windowPoint(event, view))
-        view.canvases?.input(view, ["t": "pointer", "phase": phase, "id": 1, "x": point.x, "y": point.y, "kind": "mouse", "buttons": buttons], timestamp: event.timestamp)
+        // Locked, the cursor stays put and the motion is the device's (unbounded
+        // by the window or screen edge); otherwise it is the position's change.
+        let moved = [.mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged].contains(event.type)
+        let (dx, dy) = !moved ? (0, 0) : locked ? (event.deltaX, event.deltaY) : last.map { (point.x - $0.x, point.y - $0.y) } ?? (0, 0)
+        last = point
+        view.canvases?.input(view, ["t": "pointer", "phase": phase, "id": 1, "x": point.x, "y": point.y, "dx": dx, "dy": dy, "kind": "mouse", "buttons": buttons], timestamp: event.timestamp)
         return true
     }
     func wheel(_ event: NSEvent) -> Bool {

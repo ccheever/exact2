@@ -769,3 +769,60 @@ fn held_canvas_contact_streams_down_moves_and_up_to_the_canvas() {
     assert!(p.contact_position().is_none());
     done(p, path);
 }
+
+/// A canvas sees the pointer's motion beside its position (the device's own,
+/// from evdev, past the screen's edge), its hover, and the secondary and
+/// middle buttons as the web's chorded buttons (rivals diary, limit 2).
+#[test]
+fn canvas_pointer_carries_motion_hover_and_the_other_buttons() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    let (ox, oy, _, _) = p.rect_of(raw).unwrap();
+    let phase = |p: &Presenter<NoData>| {
+        let (_, _, e) = last_input(p);
+        (
+            e["phase"].as_str().unwrap().to_string(),
+            e["buttons"].as_u64().unwrap(),
+            e["dx"].as_f64().unwrap(),
+            e["dy"].as_f64().unwrap(),
+        )
+    };
+    p.pointer_move(ox + 10., oy + 60., 0.).unwrap();
+    assert_eq!(phase(&p), ("move".into(), 0, 0., 0.), "a hover");
+    p.pointer_move(ox + 14., oy + 57., 1.).unwrap();
+    assert_eq!(phase(&p), ("move".into(), 0, 4., -3.));
+    // At the screen's edge the position stops; the device's motion does not.
+    p.raw_motion(25., 0.);
+    p.pointer_move(ox + 14., oy + 57., 2.).unwrap();
+    assert_eq!(phase(&p), ("move".into(), 0, 25., 0.));
+    // A held contact pinned at the edge still turns, and motion never lingers.
+    assert!(p.pointer_down(ox + 14., oy + 57., 2.5).unwrap());
+    p.raw_motion(30., 0.);
+    p.pointer_move(ox + 14., oy + 57., 2.6).unwrap();
+    assert_eq!(phase(&p), ("move".into(), 1, 30., 0.));
+    p.pointer_up(ox + 14., oy + 57., 2.7).unwrap();
+    p.raw_motion(9., 9.);
+    p.pointer_move(ox + 500., oy + 57., 2.8).unwrap();
+    p.pointer_move(ox + 14., oy + 57., 2.9).unwrap();
+    assert_eq!(
+        phase(&p),
+        ("move".into(), 0, 0., 0.),
+        "off the canvas, then back"
+    );
+    p.pointer_aux(2, true, ox + 14., oy + 57., 3.);
+    assert_eq!(
+        phase(&p),
+        ("down".into(), 2, 0., 0.),
+        "right alone is a down"
+    );
+    assert!(p.pointer_down(ox + 14., oy + 57., 4.).unwrap());
+    assert_eq!(phase(&p), ("move".into(), 3, 0., 0.), "a chord is a move");
+    p.pointer_aux(4, true, ox + 14., oy + 57., 5.);
+    assert_eq!(phase(&p), ("move".into(), 7, 0., 0.));
+    p.pointer_aux(2, false, ox + 14., oy + 57., 6.);
+    p.pointer_aux(4, false, ox + 14., oy + 57., 7.);
+    assert_eq!(phase(&p), ("move".into(), 1, 0., 0.));
+    p.pointer_up(ox + 14., oy + 57., 8.).unwrap();
+    assert_eq!(phase(&p), ("up".into(), 0, 0., 0.), "the last button up");
+    done(p, path);
+}

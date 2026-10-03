@@ -1,5 +1,13 @@
 #if os(iOS)
+import GameController
 import UIKit
+
+/// Whether a canvas asks for iPadOS pointer lock (`data-pointer-lock="true"`,
+/// after a press on it): an app's view controller answers `prefersPointerLocked`
+/// with this, as ExactIOS's does.
+public enum ExactPointerLock {
+    public static var preferred: Bool { CanvasInput.wantsPointerLock }
+}
 
 final class CanvasInput {
     weak var view: NodeView?
@@ -22,18 +30,58 @@ final class CanvasInput {
         _ = v.focusCanvas()
     }
     deinit {
+        unlock()
         if let inactive { NotificationCenter.default.removeObserver(inactive) }
         view?.isMultipleTouchEnabled = multiple
     }
+    /// iPadOS pointer lock for a canvas marked `data-pointer-lock="true"`: the
+    /// app's controller answers `prefersPointerLocked` from this, and while the
+    /// scene is locked a connected mouse's raw motion and its three buttons
+    /// (GameController's `GCMouse`) reach the canvas as the web's locked pointer.
+    nonisolated(unsafe) static private(set) var wantsPointerLock = false
+    private var locking = false, mouseButtons = 0
+    private var lockable: Bool {
+        guard let data = view?.props["dataset"]?.data(using: .utf8),
+              let words = try? JSONSerialization.jsonObject(with: data) as? [String: String] else { return false }
+        return words["pointer-lock"] == "true"
+    }
+    private var sceneLocked: Bool { view?.window?.windowScene?.pointerLockState?.isLocked == true }
+    private func lock() {
+        guard !locking, lockable, let input = GCMouse.current?.mouseInput else { return }
+        locking = true; CanvasInput.wantsPointerLock = true
+        view?.window?.rootViewController?.setNeedsUpdateOfPrefersPointerLocked()
+        input.mouseMovedHandler = { [weak self] _, dx, dy in self?.locked(dx: CGFloat(dx), dy: CGFloat(-dy), bit: 0, down: false) }
+        for (bit, button) in [(1, input.leftButton), (2, input.rightButton), (4, input.middleButton)] {
+            button?.pressedChangedHandler = { [weak self] _, _, down in self?.locked(dx: 0, dy: 0, bit: bit, down: down) }
+        }
+    }
+    func unlock() {
+        guard locking else { return }
+        locking = false; CanvasInput.wantsPointerLock = false; mouseButtons = 0
+        if let input = GCMouse.current?.mouseInput {
+            input.mouseMovedHandler = nil
+            for button in [input.leftButton, input.rightButton, input.middleButton] { button?.pressedChangedHandler = nil }
+        }
+        view?.window?.rootViewController?.setNeedsUpdateOfPrefersPointerLocked()
+    }
+    private func locked(dx: CGFloat, dy: CGFloat, bit: Int, down: Bool) {
+        guard let view, sceneLocked else { return }
+        let before = mouseButtons
+        if down { mouseButtons |= bit } else { mouseButtons &= ~bit }
+        let phase = bit == 0 || (before != 0 && mouseButtons != 0) ? "move" : down ? "down" : "up"
+        let p = CGPoint(x: view.bounds.midX, y: view.bounds.midY)
+        view.canvases?.input(view, ["t": "pointer", "phase": phase, "id": 1, "x": p.x, "y": p.y, "dx": dx, "dy": dy, "kind": "mouse", "buttons": mouseButtons])
+    }
     private static func hasFocus(_ view: UIView) -> Bool { view.isFirstResponder || view.subviews.contains(where: hasFocus) }
     func blur() {
+        unlock()
         touches.removeAll(); keys.removeAll()
         if let view {
             if let c=view.canvases, let e=c.entries[view.id] {c.cancelControls(e)}
             view.canvases?.input(view, ["t": "blur"])
         }
     }
-    func touches(_ values: Set<UITouch>, phase: String, source: NodeView) -> Bool {
+    func touches(_ values: Set<UITouch>, phase: String, source: NodeView, event: UIEvent? = nil) -> Bool {
         guard let view, phase != "down" || (!view.disabled && !view.inert) else { return false }
         var sent = false
         for touch in values where touch.view === source || source.isSurfaceControl {
@@ -50,7 +98,14 @@ final class CanvasInput {
                 if phase == "up" || phase == "cancel" { touches.removeValue(forKey: token) }
                 sent = ok || sent; continue
             }
-            view.canvases?.input(view, ["t": "pointer", "phase": phase, "id": id, "x": p.x, "y": p.y, "kind": "touch", "buttons": phase == "up" || phase == "cancel" ? 0 : 1], timestamp: touch.timestamp)
+            if phase == "down" { lock() }
+            if sceneLocked { continue } // the locked mouse speaks through GCMouse
+            let from = phase == "down" ? p : source.local(touch.previousLocation(in: nil))
+            // An iPad's mouse or trackpad (an indirect pointer) reports its buttons.
+            let mouse = touch.type == .indirectPointer, mask = event?.buttonMask ?? []
+            let buttons = phase == "up" || phase == "cancel" ? 0 : !mouse ? 1
+                : (mask.contains(.primary) ? 1 : 0) | (mask.contains(.secondary) ? 2 : 0) | (mask.contains(.button(3)) ? 4 : 0)
+            view.canvases?.input(view, ["t": "pointer", "phase": phase, "id": id, "x": p.x, "y": p.y, "dx": p.x - from.x, "dy": p.y - from.y, "kind": mouse ? "mouse" : "touch", "buttons": buttons], timestamp: touch.timestamp)
             if phase == "up" || phase == "cancel" { touches.removeValue(forKey: token) }
             sent = true
         }
@@ -126,7 +181,9 @@ extension Agent {
         let at = [Agent.r2(point.x), Agent.r2(point.y)]
         func send(_ phase: String) -> Bool {
             if node.isSurfaceControl { return node.control(phase, point: p) }
-            return session.canvases.input(node, ["t": "pointer", "phase": phase, "id": 1, "x": p.x, "y": p.y, "kind": "touch", "buttons": phase == "up" || phase == "cancel" ? 0 : 1])
+            let from = canvasPoint ?? p
+            canvasPoint = phase == "up" || phase == "cancel" ? nil : p
+            return session.canvases.input(node, ["t": "pointer", "phase": phase, "id": 1, "x": p.x, "y": p.y, "dx": p.x - from.x, "dy": p.y - from.y, "kind": "touch", "buttons": phase == "up" || phase == "cancel" ? 0 : 1])
         }
         if let wheel = request["wheel"] as? [Double], wheel.count == 2 {
             guard wheel.allSatisfy(\.isFinite) else { return ["error": "wheel deltas must be finite"] }
@@ -134,7 +191,7 @@ extension Agent {
             return ok ? ["tapped": node.id, "wheel": wheel, "at": at, "delivery": "recognized"] : ["error": "surface refused wheel"]
         }
         if request["hover"] as? Bool == true {
-            let ok = session.canvases.input(node, ["t": "pointer", "phase": "move", "id": 1, "kind": "mouse", "buttons": 0, "x": p.x, "y": p.y])
+            let ok = session.canvases.input(node, ["t": "pointer", "phase": "move", "id": 1, "kind": "mouse", "buttons": 0, "x": p.x, "y": p.y, "dx": 0, "dy": 0])
             return ok ? ["tapped": node.id, "hover": true, "at": at, "delivery": "recognized"] : ["error": "surface refused pointer"]
         }
         if phase == nil {

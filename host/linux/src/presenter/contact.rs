@@ -375,20 +375,42 @@ impl<D: DataSource> Presenter<D> {
         self.set_collection_interaction(Some(view));
         Ok(true)
     }
+    /// The canvas holding the contact, if one does.
+    pub(crate) fn contact_canvas(&self) -> Option<u32> {
+        self.contact.as_ref().and_then(|c| c.canvas)
+    }
+    /// The canvas a free pointer at a viewport point is over, where a press
+    /// there would be the canvas's own.
+    pub(crate) fn hover_canvas(&mut self, x: f32, y: f32) -> Option<u32> {
+        let hit = self.hit(x, y)?;
+        self.canvas_contact_target(hit)
+    }
     /// Recognize one dominant axis. Recognition has zero displacement at catch.
     pub fn pointer_move(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
+        let moved = self.pointer_moved(x, y, now_ms);
+        // The device's motion belongs to this move alone, sent or not.
+        self.clear_raw_motion();
+        moved
+    }
+    fn pointer_moved(&mut self, x: f32, y: f32, now_ms: f64) -> Result<bool, String> {
         self.retire_pointer();
         if let Some(error) = self.hover_at(Some((x, y)), now_ms) {
             return Err(error);
         }
         if self.contact.is_none() {
+            // A canvas under a free pointer sees it move, as the web's
+            // pointermove (mouse look, hover aims).
+            if let Some(canvas) = self.hover_canvas(x, y) {
+                self.canvas_pointer(canvas, "move", 0, x, y, now_ms);
+            }
             return Ok(false);
         }
         self.pointer_sample(x, y, now_ms)?;
         let mut contact = self.contact.take().unwrap();
         contact.last_ms = now_ms;
         if let Some(canvas) = contact.canvas {
-            let moved = (x, y) != contact.position;
+            // At the screen's edge the position stops; the device's motion does not.
+            let moved = (x, y) != contact.position || self.has_raw_motion();
             contact.position = (x, y);
             self.contact = Some(contact);
             return Ok(!moved || self.canvas_pointer(canvas, "move", 1, x, y, now_ms));

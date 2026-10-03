@@ -130,6 +130,7 @@ func agentReady() {
 let launchColor = UIColor(named: "ExactLaunch") ?? .white
 
 final class Controller: UIViewController {
+    override var prefersPointerLocked: Bool { ExactPointerLock.preferred }
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = launchColor

@@ -713,6 +713,8 @@ impl<G: Game> Sim<G> {
             }
             match (&mut self.queue[i].event, &e.event) {
                 (old, new) if old.same_motion(new) => {
+                    let mut e = e;
+                    e.event.add_motion(old);
                     self.queue.remove(i);
                     self.queue.insert(position - 1, e);
                     return;

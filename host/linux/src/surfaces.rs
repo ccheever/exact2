@@ -310,6 +310,12 @@ pub(crate) struct Surfaces {
     pub(crate) error: Option<String>,
     work: Vec<RequestOut>,
     outcomes: Vec<(u64, Outcome)>,
+    /// The canvas pointer's last event (canvas, viewport point), for its motion.
+    pointer: Option<(u32, f32, f32)>,
+    /// The device's motion for the next canvas pointer event, when it has one.
+    motion: Option<(f32, f32)>,
+    /// The secondary and middle buttons held (`PointerEvent.buttons` bits).
+    aux: u32,
 }
 impl Surfaces {
     pub(crate) fn enqueue(&mut self, request: RequestOut, admitted: &str) {
@@ -878,8 +884,28 @@ impl<D: DataSource> Presenter<D> {
         }
         Some(view)
     }
-    /// One mouse pointer event to canvas `view`, at a viewport point.
+    /// One mouse pointer event to canvas `view`, at a viewport point, with
+    /// the primary button's state. A held secondary or middle button joins
+    /// it, and a primary down or up under one is a move, as the web's
+    /// chorded buttons are.
     pub(crate) fn canvas_pointer(
+        &mut self,
+        view: u32,
+        phase: &str,
+        buttons: u32,
+        x: f32,
+        y: f32,
+        at: f64,
+    ) -> bool {
+        let aux = self.surfaces.aux;
+        let phase = if aux != 0 && matches!(phase, "down" | "up") {
+            "move"
+        } else {
+            phase
+        };
+        self.send_canvas_pointer(view, phase, buttons | aux, x, y, at)
+    }
+    fn send_canvas_pointer(
         &mut self,
         view: u32,
         phase: &str,
@@ -891,7 +917,49 @@ impl<D: DataSource> Presenter<D> {
         let Some((ox, oy, _, _)) = self.rect_of(view) else {
             return false;
         };
-        self.surfaces.input(view, json!({"t":"pointer","id":1,"phase":phase,"kind":"mouse","buttons":buttons,"x":x-ox,"y":y-oy,"at":at}))
+        // Without the device's own, a move's motion is its position's change;
+        // a down or up at a new point (the agent's, VNC's) is no motion, as the
+        // web's pointerdown carries none.
+        let (dx, dy) = match (self.surfaces.motion.take(), self.surfaces.pointer) {
+            (Some(motion), _) => motion,
+            (None, Some((last, lx, ly))) if last == view && phase == "move" => (x - lx, y - ly),
+            _ => (0., 0.),
+        };
+        self.surfaces.pointer = Some((view, x, y));
+        self.surfaces.input(view, json!({"t":"pointer","id":1,"phase":phase,"kind":"mouse","buttons":buttons,"x":x-ox,"y":y-oy,"dx":dx,"dy":dy,"at":at}))
+    }
+    /// The device's motion for the next canvas pointer event (evdev's
+    /// relative axes), so mouse look continues past the screen's edge.
+    pub fn raw_motion(&mut self, dx: f32, dy: f32) {
+        self.surfaces.motion = Some((dx, dy));
+    }
+    pub(crate) fn has_raw_motion(&self) -> bool {
+        self.surfaces.motion.is_some()
+    }
+    pub(crate) fn clear_raw_motion(&mut self) {
+        self.surfaces.motion = None;
+    }
+    /// The secondary or middle button at a viewport point: the canvas
+    /// holding the contact, else the one under the pointer, sees it as the
+    /// web does — the first button held is a down, the last released an up.
+    pub fn pointer_aux(&mut self, bit: u32, down: bool, x: f32, y: f32, at: f64) {
+        let before = self.surfaces.aux;
+        self.surfaces.aux = if down { before | bit } else { before & !bit };
+        let after = self.surfaces.aux;
+        if before == after {
+            return;
+        }
+        let held = self.contact_canvas();
+        let Some(view) = held.or_else(|| self.hover_canvas(x, y)) else {
+            return;
+        };
+        let primary = u32::from(held.is_some());
+        let phase = match (before | primary, after | primary) {
+            (0, _) => "down",
+            (_, 0) => "up",
+            _ => "move",
+        };
+        self.send_canvas_pointer(view, phase, after | primary, x, y, at);
     }
     pub(crate) fn surface_request(&mut self, view: u32, mut q: Value) -> Value {
         let rect = self.rect_of(view);

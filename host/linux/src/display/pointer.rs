@@ -26,6 +26,8 @@ pub(super) fn dispatch<D: DataSource>(
             pointer.0 = (pointer.0 + dx / scale).clamp(0., viewport.0 - 1.);
             pointer.1 = (pointer.1 + dy / scale).clamp(0., viewport.1 - 1.);
             p.set_pointer(Some(*pointer));
+            // A canvas sees the device's motion, unbounded by the screen edge.
+            p.raw_motion(dx / scale, dy / scale);
             p.pointer_move(pointer.0, pointer.1, now_ms)?;
         }
         InputEvent::Absolute(fx, fy) => {
@@ -44,6 +46,7 @@ pub(super) fn dispatch<D: DataSource>(
         InputEvent::Button(false) => {
             p.pointer_up(pointer.0, pointer.1, now_ms)?;
         }
+        InputEvent::Aux(bit, down) => p.pointer_aux(bit, down, pointer.0, pointer.1, now_ms),
         InputEvent::Cancel => p.pointer_cancel(now_ms)?,
         InputEvent::Wheel(dx, dy) => p.wheel_at(pointer.0, pointer.1, dx, dy),
         // The same targeted path as VNC and agent keys: text, Escape blur and a
