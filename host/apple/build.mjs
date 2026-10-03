@@ -1371,7 +1371,9 @@ function main(args) {
       platform: device ? 'ios' : 'ios-simulator', target, sdk, identity: signingIdentity,
       profile: signingProfile ? { name: signingProfile.name, team: signingProfile.team, expires: signingProfile.expires } : null,
       entitlements: readFileSync(ent, 'utf8'), gpu: hasGpu ? dylib : null, development: host ? null : development }));
-    if (ipa) for (const [loose, name] of [[webLoadName, 'ExactWeb'], [videoLoadName, 'ExactVideo']]) wrapFramework(resolve(assembled, 'Frameworks'), loose, name, app);
+    // App Store Connect refuses a standalone library (ITMS-90432): each
+    // dylib a store build loads goes in a framework, which the host finds first.
+    if (ipa) for (const [loose, name] of [[webLoadName, 'ExactWeb'], [videoLoadName, 'ExactVideo'], [modulesLoadName, 'ExactModules'], [svgLoadName, 'ExactSvg'], [canvasGpuLoadName, 'ExactCanvasGpu']]) wrapFramework(resolve(assembled, 'Frameworks'), loose, name, app);
     for (const f of readdirSync(resolve(assembled, 'Frameworks')).filter(f => f !== loadName && !moduleDylibs.some(m => m.load === f))) run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', resolve(assembled, 'Frameworks', f)], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', ...(device ? ['--entitlements', ent] : []), assembled], { stdio: 'ignore' });
   }
