@@ -151,6 +151,9 @@ component NativeFixture
   state query = ""
   action setQuery(text: string)
     query = text
+  state segment = "all"
+  action chooseSegment(name: string)
+    segment = name
   action setDraft(text: string)
     draft = text
   action selectTab(name: string)
@@ -182,6 +185,12 @@ component NativeFixture
                       image "symbol:sf/ellipsis.circle" width=20 height=20
                     // A search field in the header: the item's search controller.
                     input type="search" value=query input=setQuery placeholder="Search the fixture" testId="header-search" width=80
+                    // A text tablist in the header: the item's segmented title view.
+                    row role="tablist" testId="header-segments"
+                      button role="tab" aria-selected=(segment == "all") press=chooseSegment("all") testId="segment-all"
+                        text "All"
+                      button role="tab" aria-selected=(segment == "missed") press=chooseSegment("missed") testId="segment-missed"
+                        text "Missed"
                   text (e.name == "home" ? "Fixture" : e.name == "detail" ? "Detail" : e.name == "rows" ? "Rows" : e.name == "sheet" ? "Sheet" : "Second") aria-level=(e.name == "home" or e.name == "second" ? 1 : 2) testId=`title-${e.name}` flex=1 font-weight=700 font-size=20
                   button id="compose" press=compose aria-label="Compose" testId=`compose-${e.name}` padding=6 background-color="#e5e7eb"
                     image "symbol:compose" width=20 height=20
