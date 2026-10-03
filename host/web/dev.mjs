@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 // The resident dev loop: edit app.contract → the page shows it, no cargo
 // build in the loop. Usage: bun host/web/dev.mjs [--app caltrain] [--port 8765] [--lan] [--wasm]
+//   [--allow-host <name>]…
 // An app the JS target takes (LLP 1071) runs on it instead, rebuilt and
 // reloaded per edit (host/web-js/dev.mjs); --wasm keeps it on this loop.
 //
@@ -9,6 +10,9 @@
 // the compile errors on /__dev and the dev generations (LLP 1023 D8, amended
 // 2026-09-23). Either way the server answers only to the names it printed, and
 // the local iOS installer's token reaches only a page loaded over loopback.
+// `--allow-host <name>` (repeatable) adds a name it answers to — a tunnel's
+// public name (`tuft host`, cloudflared, ngrok) forwarding to loopback — for
+// every request, the /__dev event streams included; never the token.
 // The agent carrier is not here and never binds the LAN.
 //
 // One Rust process (the app's `dev` bin, exact_web::dev) watches the source
@@ -31,7 +35,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { createServer } from 'node:http';
 import { canonicalBytes, classifyArtifacts, cohortReceipt } from '../../scripts/deploy.mjs';
 import { filesystem } from '../../scripts/filesystem.mjs';
-import { developmentGate, installBrowserOrigins, LOCAL_IOS_INSTALL_ENDPOINT } from '../../scripts/install-page.mjs';
+import { allowHostArgs, developmentGate, installBrowserOrigins, LOCAL_IOS_INSTALL_ENDPOINT } from '../../scripts/install-page.mjs';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, unwatchFile, watch, watchFile } from 'node:fs';
 import { resolve } from 'node:path';
 import { rustPackage, rustOutput, rustInputs, rustCards } from '../../scripts/rust.mjs';
@@ -57,7 +61,8 @@ const servedAs = arg('--serve-as', null) == null ? null : Number(arg('--serve-as
 const host = lan && servedAs == null ? '0.0.0.0' : '127.0.0.1';
 // The addresses printed at startup are the only names requests may use.
 const origins = installBrowserOrigins({ host: lan ? '0.0.0.0' : '127.0.0.1', port: servedAs ?? port });
-const gate = developmentGate(origins, servedAs ?? port);
+const allowHosts = allowHostArgs(argv);
+const gate = developmentGate(origins, servedAs ?? port, allowHosts);
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const dist = webDist();
 const source = resolve(app.dir, 'app.contract');
@@ -66,7 +71,7 @@ const source = resolve(app.dir, 'app.contract');
 // A game (LLP 1071 §8: its runtime is on wasm), and `--wasm` (the loop a
 // native client opening the dev URL reads), run the resident wasm loop below.
 if (!argv.includes('--wasm') && servedAs == null && app.manifest.game === undefined) {
-  await (await import('../web-js/dev.mjs')).devJs({ app, dist, port, host, origins, gate, lan });
+  await (await import('../web-js/dev.mjs')).devJs({ app, dist, port, host, origins, gate, lan, allowHosts });
 }
 // Behind the JS loop (`--serve-as`) an app's resident loop is its producers
 // alone: nothing loads its page, so its builds are the web crate's bake
@@ -1084,6 +1089,7 @@ server.listen(port, host, () => {
   if (lan && urls.length === 1) console.log('no LAN interface found; serving loopback only in effect');
   console.log(urls.join('\n'));
   console.log(urls.map(url => `  Open in native: ${url}__dev/open`).join('\n'));
+  if (allowHosts.length) console.log(`  also answering to ${allowHosts.join(', ')} (--allow-host)`);
   console.log(`  (dev loop on ${source.replace(root + '/', '')} and the wasm's crates; ${lan ? 'LAN bind — any peer on this network can read the app, its compile errors and dev generations; macOS may ask to allow bun' : 'loopback only — --lan to serve a phone on this network'}; ctrl-c to stop)`);
 });
 process.on('SIGINT', stop);

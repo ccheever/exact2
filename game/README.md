@@ -41,6 +41,9 @@ app-runtime edits reload the page. The server also prints **Open in native**.
 Edits inside `Game::setup` take effect on a fresh game; in the starter, pause and
 choose **Restart** to apply them.
 To explore the existing sample instead, run `bun game/dev.mjs beacons`.
+`game/dev.mjs` passes the dev server's flags through (`--port`, `--lan`, and
+`--allow-host <name>`, repeatable, to serve the game through a tunnel such as
+`tuft host`; without it a request under any name but the printed ones gets 421).
 
 In another terminal, establish the new game's proof baseline:
 

@@ -264,20 +264,38 @@ export function installBrowserOrigins({host, port, interfaces = networkInterface
 }
 /** The development server's request gate. It answers only to the names it
  * printed at startup (`origins`, from installBrowserOrigins) and `localhost`:
- * a DNS-rebinding page reaches a loopback socket under its own name. A
- * request is local — it may see the installer's token — only from a loopback
- * peer naming a loopback host. */
-export function developmentGate(origins, port) {
+ * a DNS-rebinding page reaches a loopback socket under its own name. Each
+ * `allowHosts` name (`--allow-host`, a tunnel's public name) is admitted too:
+ * `name` at any port, `name:port` at that port. A request is local — it may
+ * see the installer's token — only from a loopback peer naming a loopback
+ * host, never through an allowed name. */
+export function developmentGate(origins, port, allowHosts = []) {
   const loopback = [`http://127.0.0.1:${port}`, `http://localhost:${port}`].map(origin => new URL(origin));
   const names = new Set([...origins.map(o => new URL(o.origin).host), ...loopback.map(u => u.host)]);
+  const allowed = allowHosts.map(allowHostName);
   const peers = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
   return {
     loopbackOrigins: loopback.map(u => u.origin),
+    allowHosts: allowed,
     check(req) {
       const host = String(req.headers.host ?? '').toLowerCase();
-      return { allowed: names.has(host), local: loopback.some(u => u.host === host) && peers.has(req.socket?.remoteAddress) };
+      const name = host.replace(/:\d+$/, '');
+      return { allowed: names.has(host) || allowed.some(a => a === host || a === name), local: loopback.some(u => u.host === host) && peers.has(req.socket?.remoteAddress) };
     },
   };
+}
+/** One `--allow-host` value, lowercased: a DNS name or IPv4 address, with an
+ * optional `:port`. Anything else (a URL, a wildcard, an empty name) throws. */
+export function allowHostName(value) {
+  const name = String(value ?? '').toLowerCase();
+  if (!/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*(?::\d{1,5})?$/.test(name)) throw new Error(`--allow-host takes a host name (example.trycloudflare.com, or name:port), not ${JSON.stringify(value ?? '')}`);
+  return name;
+}
+/** Every `--allow-host <name>` in argv, in order (the flag repeats). */
+export function allowHostArgs(argv) {
+  const names = [];
+  for (let i = 0; i < argv.length; i++) if (argv[i] === '--allow-host') names.push(allowHostName(argv[++i]));
+  return names;
 }
 
 /** The app URL a local iOS build opens: one of this server's printed

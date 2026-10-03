@@ -54,7 +54,7 @@ function build(app, dist) {
 }
 
 /** Build `app` on the JS target and serve it with reload, until the process ends. */
-export async function devJs({ app, dist, port, host, origins, gate, lan }) {
+export async function devJs({ app, dist, port, host, origins, gate, lan, allowHosts = [] }) {
   const budget = /\|\s*Dev restart[^|]*\|\s*([^|\n]+)/.exec(readFileSync(resolve(root, 'rules/RULES.md'), 'utf8'))?.[1].trim() ?? '?';
   const t0 = Date.now();
   // A first build that fails (a refusal or a compile error) serves its
@@ -183,7 +183,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
       const internal = probe.address().port;
       probe.close(() => {
         console.log(`native client: starting the resident loop's producers (loopback :${internal})`);
-        residentChild = spawn(process.execPath, [resolve(root, 'host/web/dev.mjs'), '--app', app.name, '--wasm', '--port', String(internal), '--serve-as', String(port), ...(lan ? ['--lan'] : [])],
+        residentChild = spawn(process.execPath, [resolve(root, 'host/web/dev.mjs'), '--app', app.name, '--wasm', '--port', String(internal), '--serve-as', String(port), ...(lan ? ['--lan'] : []), ...allowHosts.flatMap((name) => ['--allow-host', name])],
           { cwd: root, env: { ...process.env, EXACT_WEB_DIST: resolve(app.target, 'web-dist-resident') }, stdio: ['ignore', 'pipe', 'inherit'] });
         let buf = '';
         residentChild.stdout.on('data', (d) => {
@@ -213,6 +213,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
   const urls = origins.map((o) => `${o.origin}/`);
   console.log(urls.join('\n'));
   console.log(urls.map(url => `  Open in native: ${url}__dev/open`).join('\n'));
+  if (allowHosts.length) console.log(`  also answering to ${allowHosts.join(', ')} (--allow-host)`);
   console.log(`  (dev loop on the JS target: ${app.dir.replace(root + '/', '')} and host/web-js rebuild and reload the page; a native client's requests go to the resident loop's producers, started at the first; ${lan ? 'LAN bind — any peer on this network can read the app and its compile errors' : 'loopback only — --lan to serve a phone on this network'}; ctrl-c to stop)`);
   await new Promise(() => {});
 }

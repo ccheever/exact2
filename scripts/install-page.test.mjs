@@ -13,7 +13,7 @@ import { closeFilesystemReader, filesystemRead } from './filesystem.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createServer } from 'node:http';
-import { developmentGate, developmentInstallPage, installData, installPage, installProblems, writeInstallPages, installBrowserOrigins, installNetworkPage, localInstallURL } from './install-page.mjs';
+import { allowHostArgs, allowHostName, developmentGate, developmentInstallPage, installData, installPage, installProblems, writeInstallPages, installBrowserOrigins, installNetworkPage, localInstallURL } from './install-page.mjs';
 import { readManifest, rustPolicy, rebuildPolicy } from './app.mjs';
 import { compressionCache, developmentOpenPage, listPublicFiles, readStaticFile, serveStatic, staticWatchChanges, applyStaticTreeChange, warmCompression } from '../host/web/serve.mjs';
 import { request as httpRequest } from 'node:http';
@@ -319,6 +319,30 @@ test('a development server answers only to its printed names; its token and phon
   assert.equal(localInstallURL('simulator',lan,8879),'http://127.0.0.1:8879/');
   assert.equal(localInstallURL('device',lan,8879),'http://192.168.1.20:8879/');
   assert.throws(()=>localInstallURL('device',loopback,8879),/--lan/);
+});
+
+test('--allow-host admits a tunnel name to every request but never makes it local', () => {
+  const interfaces={lo0:[{address:'127.0.0.1',family:'IPv4',internal:true}]};
+  const request=(host,peer='127.0.0.1')=>({headers:{host},socket:{remoteAddress:peer}});
+  const loopback=installBrowserOrigins({host:'127.0.0.1',port:8879,interfaces});
+  // The default is unchanged: a tunnel forwarding to loopback is refused (421).
+  assert.equal(developmentGate(loopback,8879).check(request('abc.tuft.dev')).allowed,false);
+  const names=allowHostArgs(['--app','beacons','--allow-host','ABC.tuft.dev','--port','8879','--allow-host','pinned.example:8443']);
+  assert.deepEqual(names,['abc.tuft.dev','pinned.example:8443']);
+  const gate=developmentGate(loopback,8879,names);
+  // A tunnel's Host has no port (https), or the public one; the name admits any port.
+  assert.deepEqual(gate.check(request('abc.tuft.dev')),{allowed:true,local:false});
+  assert.deepEqual(gate.check(request('ABC.tuft.dev:443')),{allowed:true,local:false});
+  assert.deepEqual(gate.check(request('pinned.example:8443')),{allowed:true,local:false});
+  assert.equal(gate.check(request('pinned.example')).allowed,false,'name:port admits that port only');
+  assert.equal(gate.check(request('pinned.example:80')).allowed,false);
+  // DNS rebinding under any other name is still refused; loopback is still local.
+  assert.equal(gate.check(request('evil.abc.tuft.dev')).allowed,false);
+  assert.equal(gate.check(request('rebound.example:8879')).allowed,false);
+  assert.deepEqual(gate.check(request('127.0.0.1:8879')),{allowed:true,local:true});
+  for (const bad of [undefined,'','https://abc.tuft.dev','*.tuft.dev','abc.tuft.dev/','-abc.example','a b'])
+    assert.throws(()=>allowHostName(bad),/--allow-host takes a host name/);
+  assert.throws(()=>allowHostArgs(['--allow-host']),/--allow-host/);
 });
 
 test('the dev opening page offers only the admitted, token-bearing links, escaped', () => {
