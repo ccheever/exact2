@@ -553,13 +553,15 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { followEndIfOwed() }
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         followingEndAnimated = false
-        // Where it ended, unless at an edge (content that shrank under it
-        // clamps it short of its target, and that is its end too).
-        let o = scrollView.contentOffset, i = scrollView.adjustedContentInset
-        let edge = presenter?.collections.entries[id]?.snapshot.horizontal == true
-            ? o.x <= -i.left + 0.5 || o.x >= scrollView.contentSize.width + i.right - scrollView.bounds.width - 0.5
-            : o.y <= -i.top + 0.5 || o.y >= scrollView.contentSize.height + i.bottom - scrollView.bounds.height - 0.5
-        presenter?.collections.animationEnded(id, at: edge ? nil : o)
+        // Whether it ended at the running animation's target, clamped to
+        // the content as it is now (`CollectionHost.animationEnded`).
+        let atTarget = presenter?.collections.animationTargets[id].map { t -> Bool in
+            let o = scrollView.contentOffset, i = scrollView.adjustedContentInset
+            let x = min(max(t.x, -i.left), max(-i.left, scrollView.contentSize.width + i.right - scrollView.bounds.width))
+            let y = min(max(t.y, -i.top), max(-i.top, scrollView.contentSize.height + i.bottom - scrollView.bounds.height))
+            return abs(o.x - x) + abs(o.y - y) <= 1
+        }
+        presenter?.collections.animationEnded(id, atTarget: atTarget)
     }
     private func followEndIfOwed() {
         guard followsEndAfterInteraction, let sv = scroll else { return }

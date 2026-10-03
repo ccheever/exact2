@@ -166,7 +166,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     to = Math.max(0, Math.min(to, port[A.scrollSize] - port[A.client]));
     if (s.animating != null) { s.owed = to; return; }
     if (Math.abs(to - port[A.offset]) <= 0.5) { place(s, to, false); s.offset = port[A.offset]; return; }
-    s.animating = to; s.owed = null; s.travel = null;
+    s.animating = to; s.owed = null; s.travel = null; s.animationMoved = false;
     place(s, to, true);
   }
   // It landed (or the browser clamped it short): what was owed goes next.
@@ -189,7 +189,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     const A = AXES[s.axis], at = s.port[A.offset];
     if (at === s.offset) return false;
     if (s.animating != null) {
-      s.offset = at;
+      s.offset = at; s.animationMoved = true;
       if (Math.abs(at - s.animating) > 0.5) return false;
       if (s.owed != null && 'onscrollend' in s.port) return false;
       landed(s);
@@ -449,10 +449,12 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
           // the reader took over) reports where it rests.
           s.scrollEnded = () => {
             if (s.animating == null) return;
-            // Its own end: at its target, or clamped at an edge since (a
-            // `scrollend` for an earlier scroll lands nothing).
+            // Its own end: at its target clamped to the content as it is
+            // now, or anywhere once it has moved the port (a snap or a clamp
+            // stopped it short). A `scrollend` for an earlier scroll, before
+            // this animation moved, lands nothing.
             const A = AXES[s.axis], at = s.port[A.offset], max = s.port[A.scrollSize] - s.port[A.client];
-            if (Math.abs(at - s.animating) > 0.5 && at > 0.5 && at < max - 0.5) return;
+            if (Math.abs(at - Math.max(0, Math.min(s.animating, max))) > 0.5 && !s.animationMoved) return;
             s.offset = at; landed(s); enqueue(s, true);
           };
           port.addEventListener('scrollend', s.scrollEnded, { passive: true });

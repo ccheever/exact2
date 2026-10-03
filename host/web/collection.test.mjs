@@ -386,6 +386,25 @@ test('a mid-flight report after a flick carries no velocity', async () => {
   expect(result.flick).not.toBe(0);
   expect(result.midflight).toBe(0);
 });
+test('a scrollend before a smooth correction moves lands nothing; one after it moved and stopped short lands it', async () => {
+  const result=await evaluate(`(async () => {const f=fixture();
+    const frames=n=>new Promise(r=>{const step=k=>k?requestAnimationFrame(()=>step(k-1)):r();step(n);});
+    f.controller.commit([f.snapshot()]);f.flush();
+    const seq=f.reports.at(-1).sequence;
+    f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:800,smooth:true}})]);
+    f.port.dispatchEvent(new Event('scrollend'));f.flush();
+    const stale=f.reports.at(-1).top;
+    await frames(3);f.port.dispatchEvent(new Event('scroll'));
+    f.port.scrollTo({top:500,behavior:'instant'});f.port.dispatchEvent(new Event('scroll'));
+    f.port.dispatchEvent(new Event('scrollend'));f.flush();
+    const short=f.reports.at(-1).top;
+    f.controller.commit([f.snapshot('3',{correction:{scrollSequence:f.reports.at(-1).sequence,offset:900,smooth:true}})]);
+    for (let i=0;i<180&&f.port.scrollTop!==960;i++) await frames(1);
+    return {stale,short,landed:f.port.scrollTop};})()`);
+  expect(result.stale).toBe(800);
+  expect(result.short).toBe(440);
+  expect(result.landed).toBe(960);
+});
 test('collection read reuse: synchronous report replacement samples new nodes and epochs next pass', async () => {
   const result=await evaluate(`(() => {const f=fixture(),widths=[];let replaced=false;
     f.views.get(2).style.height='40.5px';f.onReport=()=>{widths.push(f.port.clientWidth);if(replaced)return;replaced=true;

@@ -99,13 +99,18 @@ final class SmoothCollectionIOSTests: XCTestCase {
         p.apply(wireBatch([collections(revision: 3, correction: ["scrollSequence": seq, "offset": 0])]))
         p.apply(wireBatch([collections(revision: 4, correction: ["scrollSequence": seq, "offset": 900, "smooth": true])]))
         XCTAssertTrue(p.collections.animating.contains(1))
-        scroll.contentOffset.y = 300
+        // At the top edge, before the new animation has moved the port.
         p.views[1]?.scrollViewDidEndScrollingAnimation(scroll)
         XCTAssertTrue(p.collections.animating.contains(1), "a stale end, away from the target")
         scroll.contentOffset.y = 900
         p.views[1]?.scrollViewDidEndScrollingAnimation(scroll)
         XCTAssertFalse(p.collections.animating.contains(1), "its own end")
         XCTAssertNil(p.collections.animationSerial[1], "nothing kept for a list that is not animating")
+        // One that moved and stopped short (a clamp) ends too.
+        p.apply(wireBatch([collections(revision: 5, correction: ["scrollSequence": seq, "offset": 1500, "smooth": true])]))
+        scroll.contentOffset.y = 1100
+        p.views[1]?.scrollViewDidEndScrollingAnimation(scroll)
+        XCTAssertFalse(p.collections.animating.contains(1), "stopped short after moving: its own end")
     }
 
     func testAnOrdinaryCorrectionIsSetAtOnce() throws {

@@ -249,6 +249,7 @@ final class CollectionHost {
         animationTargets[view] = target
         lastAnimation += 1
         animationSerial[view] = lastAnimation
+        animationMoved.remove(view)
         return lastAnimation
     }
     /// An animation stops: by a drag, an ordinary correction, or the list's
@@ -256,12 +257,17 @@ final class CollectionHost {
     func stopAnimation(_ view: UInt32) {
         animating.remove(view)
         animationTargets[view] = nil; owedTargets[view] = nil; animationSerial[view] = nil
+        animationMoved.remove(view)
     }
-    /// `at`: where the platform says it ended (UIKit's delegate). An end
-    /// away from the running animation's target is a stopped one's.
-    func animationEnded(_ view: UInt32, dragging: Bool = false, at: CGPoint? = nil) {
+    /// Animating lists whose port has moved since their animation began.
+    private(set) var animationMoved = Set<UInt32>()
+    /// `atTarget`: whether the platform's end is at the running animation's
+    /// target, clamped to the content as it is now (UIKit's delegate). An end
+    /// elsewhere before this animation moved the port is a stopped one's; one
+    /// after it moved is this one's, stopped short (a snap, a clamp).
+    func animationEnded(_ view: UInt32, dragging: Bool = false, atTarget: Bool? = nil) {
         guard animating.contains(view) else { return }
-        if let at, !dragging, let target = animationTargets[view], abs(at.x - target.x) + abs(at.y - target.y) > 1 { return }
+        if atTarget == false, !dragging, !animationMoved.contains(view) { return }
         if !dragging, owedTargets[view] != nil {
             // UIKit starts no new animation from inside the callback that
             // ends one: the owed target goes on the next turn, still headed
@@ -430,7 +436,7 @@ final class CollectionHost {
         guard let entry = entries[view], !correcting else { return }
         // The host's own animation, not the reader: reported as where it
         // is headed (`geometry`), and the sequence stays.
-        if user && animating.contains(view) { dirty.insert(view); schedule(); return }
+        if user && animating.contains(view) { animationMoved.insert(view); dirty.insert(view); schedule(); return }
         if user && batchDepth == 0 { entry.cursor.advance() }
         dirty.insert(view)
         guard batchDepth == 0 else { return }
