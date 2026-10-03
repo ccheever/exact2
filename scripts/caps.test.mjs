@@ -21,7 +21,8 @@ import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMa
 import { assertWebDistApp, jsonLines } from './agent.mjs';
 import { verifyBakeFiles, pendingBuildInputs } from './app.mjs';
 import { gitIgnored, newerThan } from './agent-launch.mjs';
-import { copyAppleStaticTrees, developmentLaunchEnvironment, deviceLaunchArgs } from '../host/apple/build.mjs';
+import { copyAppleStaticTrees } from '../host/apple/build.mjs';
+import { developmentLaunchEnvironment, deviceLaunchArgs } from '../host/apple/devices.mjs';
 import { classify, publishRoot, webRelease } from './deploy.mjs';
 import { DirectoryOrigin, webRootPath, webReleasePath, sha256 } from './origin.mjs';
 const CAPS = join(dirname(fileURLToPath(import.meta.url)), 'caps.mjs');

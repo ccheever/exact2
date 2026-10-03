@@ -41,7 +41,8 @@ import { tmpdir } from 'node:os';
 import { basename, resolve } from 'node:path';
 import { openTouches, realTap } from '../host/apple/touches.mjs';
 import { dragTap } from './agent-drag.mjs';
-import { appleArtifacts, assertAppleIdentity, bundleId, crashReports, developmentLaunchEnvironment, install, phone, phoneBridge, showSimulator, simulator } from '../host/apple/build.mjs';
+import { appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
+import { crashReports, developmentLaunchEnvironment, phone, phoneBridge, showSimulator, simulator } from '../host/apple/devices.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 import { bakeOutput, resolveApp, webDist as defaultWebDist } from './app.mjs';
 

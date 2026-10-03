@@ -1,0 +1,207 @@
+// Simulators, phones, signing identities and provisioning profiles: the
+// device side of host/apple/build.mjs, shared with scripts/agent.mjs and the
+// smokes, which launch the same bundles.
+import { spawnSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import { homedir, networkInterfaces, tmpdir } from 'node:os';
+import { createServer as createTCPServer } from 'node:net';
+import { resolve } from 'node:path';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
+
+const root = resolve(new URL('../..', import.meta.url).pathname);
+const read = (cmd, args, opts = {}) => spawnSync(cmd, args, { cwd: root, encoding: 'utf8', ...opts });
+
+/** Every available simulator: { udid, name, runtime, state }. */
+export function simulators() {
+  const r = read('xcrun', ['simctl', 'list', 'devices', 'available', '-j']);
+  if (r.status !== 0) throw new Error('xcrun simctl list: ' + r.stderr);
+  return Object.entries(JSON.parse(r.stdout).devices).flatMap(([runtime, list]) => list.map((d) => ({ udid: d.udid, name: d.name, runtime, state: d.state })));
+}
+
+/** The simulator to use — `pick` (a udid or a name; EXACT_SIM by default), else a booted iPhone, else the iPhone Pro on the newest iOS — booted and waited for. */
+export function simulator(pick = process.env.EXACT_SIM) {
+  const all = simulators();
+  const version = (d) => Number(/iOS-(\d+)-(\d+)/.exec(d.runtime)?.slice(1).join('.') ?? 0);
+  const iphones = all.filter((d) => /SimRuntime\.iOS/.test(d.runtime) && /^iPhone/.test(d.name)).sort((a, b) => version(b) - version(a) || a.name.localeCompare(b.name));
+  let dev = pick ? all.find((d) => d.udid === pick || d.name === pick) : null;
+  if (pick && !dev) throw new Error(`no simulator ${pick} (xcrun simctl list devices available)`);
+  dev ??= iphones.find((d) => d.state === 'Booted') ?? iphones.find((d) => /^iPhone \d+ Pro$/.test(d.name)) ?? iphones[0];
+  if (!dev) throw new Error('no iPhone simulator; add one in Xcode');
+  if (dev.state !== 'Booted') {
+    const b = read('xcrun', ['simctl', 'boot', dev.udid]);
+    if (b.status !== 0 && !/current state: Booted/.test(b.stderr)) throw new Error('simctl boot: ' + b.stderr);
+  }
+  const s = read('xcrun', ['simctl', 'bootstatus', dev.udid, '-b']);
+  if (s.status !== 0) throw new Error('simctl bootstatus: ' + s.stderr);
+  return dev;
+}
+
+/** Bring Simulator.app up showing `dev`, so a person watching sees what is
+ *  driven there; `background` (`open -g`) leaves keyboard focus where it was.
+ *  Xcode 27 has no Simulator.app: its Device Hub (com.apple.dt.Devices) shows
+ *  a simulator in a window of that device's own, opened and raised by the
+ *  URL Device Hub registers (`devices://device/open?id=<udid>`; launch
+ *  arguments never reach a Device Hub that is already running, and its main
+ *  window shows whichever device was last picked in its list). */
+export function showSimulator(dev, background = false) {
+  const g = background ? ['-g'] : [];
+  if (spawnSync('open', [...g, '-a', 'Simulator', '--args', '-CurrentDeviceUDID', dev.udid], { stdio: 'ignore' }).status !== 0) spawnSync('open', [...g, `devices://device/open?id=${dev.udid}`], { stdio: 'ignore' });
+}
+
+/** Crash reports macOS wrote since `since` (ms) for an executable named
+ *  `name` — a simulator app crashes as a Mac process, reported here. */
+export function crashReports(name, since) {
+  const dir = resolve(homedir(), 'Library/Logs/DiagnosticReports');
+  let names = [];
+  try { names = readdirSync(dir); } catch { return []; }
+  return names.filter((f) => f.startsWith(name + '-') && /\.(ips|crash)$/.test(f))
+    .map((f) => resolve(dir, f)).filter((f) => { try { return statSync(f).mtimeMs >= since; } catch { return false; } });
+}
+
+
+// ---------------------------------------------------------------- a phone: devicectl, a profile, an identity
+
+/** One launch, one phone connection; reject other peers before any agent request.
+ * The token crosses via the paired device's launch environment, not a public URL. */
+export async function phoneBridge() {
+  const interfaces = networkInterfaces();
+  const address = process.env.EXACT_AGENT_HOST ?? [...(interfaces.en0 ?? []), ...Object.values(interfaces).flat()]
+    .find((n) => n.family === 'IPv4' && !n.internal)?.address;
+  if (!address) throw new Error('phone agent needs a reachable Mac IPv4 address (EXACT_AGENT_HOST)');
+  const token = randomBytes(32).toString('hex');
+  const sockets = new Set();
+  let accept, fail;
+  const ready = new Promise((resolve, reject) => { accept = resolve; fail = reject; });
+  const server = createTCPServer((socket) => {
+    if (sockets.size >= 8) { socket.destroy(); return; }
+    sockets.add(socket);
+    socket.on('close', () => sockets.delete(socket));
+    socket.on('error', () => {});
+    socket.setTimeout(5000, () => socket.destroy());
+    let buf = '';
+    socket.setEncoding('utf8');
+    const hello = (chunk) => {
+      buf += chunk;
+      if (buf.length > 4096) { socket.destroy(); return; }
+      if (!buf.includes('\n')) return;
+      let announcement;
+      try { announcement = JSON.parse(buf); } catch { socket.destroy(); return; }
+      if (!announcement || announcement.token !== token || announcement.ready !== true) { socket.destroy(); return; }
+      delete announcement.token;
+      socket.pause();
+      socket.removeListener('data', hello);
+      socket.setTimeout(0);
+      server.close();
+      for (const other of sockets) if (other !== socket) other.destroy();
+      accept({ socket, announcement });
+    };
+    socket.on('data', hello);
+  });
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, address, resolve); });
+  server.on('error', fail);
+  return {
+    ready, fail,
+    env: { EXACT_AGENT_CONNECT: `${address}:${server.address().port}`, EXACT_AGENT_TOKEN: token },
+    close() { for (const socket of sockets) socket.destroy(); server.close(); },
+  };
+}
+
+
+/** Every phone this Mac knows (devicectl): { id, udid, name, model, os, reachable }. */
+export function phones() {
+  const out = resolve(mkdtempSync(resolve(tmpdir(), 'exact-devices-')), 'devices.json');
+  const r = read('xcrun', ['devicectl', 'list', 'devices', '--json-output', out]);
+  if (r.status !== 0) throw new Error('xcrun devicectl list devices: ' + r.stderr);
+  const list = JSON.parse(readFileSync(out, 'utf8')).result.devices.map((d) => ({
+    id: d.identifier, udid: d.hardwareProperties?.udid, name: d.deviceProperties?.name, model: d.hardwareProperties?.marketingName,
+    os: d.deviceProperties?.osVersionNumber, reachable: d.connectionProperties?.tunnelState !== 'unavailable', paired: d.connectionProperties?.pairingState === 'paired',
+  }));
+  rmSync(resolve(out, '..'), { recursive: true, force: true });
+  return list;
+}
+
+/** The phone to use: `pick` (a udid or a name; EXACT_PHONE by default), else a reachable phone, else the one phone this Mac knows — the bundle is built and signed for it either way; installing needs it connected (`reachable`). */
+export function phone(pick = process.env.EXACT_PHONE) {
+  const all = phones();
+  const dev = pick ? all.find((d) => d.udid === pick || d.id === pick || d.name === pick) : all.find((d) => d.reachable) ?? (all.length === 1 ? all[0] : null);
+  if (!dev) throw new Error(pick ? `no phone ${pick} (xcrun devicectl list devices)` : `no phone is known to this Mac (${all.length ? all.map((d) => `${d.name}, not connected`).join('; ') : 'xcrun devicectl list devices shows none'}): plug one in, unlock it, and trust this Mac`);
+  return dev;
+}
+
+/**
+ * A phone cannot read a plan or asset directory on this Mac. When the caller
+ * names the dev server with EXACT_DEV_PLAN, carry that URL into the launched
+ * process; the envelope supplies its own complete asset URLs.
+ */
+export function deviceLaunchArgs(device, id, environment = process.env) {
+  const args = ['devicectl', 'device', 'process', 'launch', '--terminate-existing', '--device', device];
+  const locator = environment.EXACT_DEV_PLAN;
+  if (locator) {
+    let url;
+    try { url = new URL(locator); }
+    catch { throw new Error(`--device cannot open EXACT_DEV_PLAN=${locator} on this Mac; name the dev server's http(s) URL`); }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error(`--device requires EXACT_DEV_PLAN to be an http(s) dev-server URL, not ${locator}`);
+    args.push('--environment-variables', JSON.stringify({ EXACT_DEV_PLAN: url.href }));
+  }
+  args.push(id);
+  return args;
+}
+
+/** The explicit app URL: the launch locator, and the one dev-server origin a
+ * development build admits opening links for (`developmentAdmission`).
+ * Validate it before invoking any build or signing tools. @ref LLP 1030.000 §7 */
+export function developmentLaunchEnvironment(args, environment = process.env) {
+  const index = args.indexOf('--url');
+  if (index < 0) return { ...environment };
+  if (args.lastIndexOf('--url') !== index) throw new Error('--url may be specified only once');
+  if (!['--run', '--bundle', '--ios', '--device'].some((flag) => args.includes(flag))) throw new Error('--url requires --run or a client bundle (--bundle, --ios, --device)');
+  let url;
+  try { url = new URL(args[index + 1]); } catch { /* diagnosed below */ }
+  if (!url || !['http:', 'https:'].includes(url.protocol) || !url.hostname) {
+    throw new Error('--url requires an absolute http(s) app URL');
+  }
+  return { ...environment, EXACT_DEV_PLAN: url.href };
+}
+
+/** A development profile on this Mac covering the phone and the bundle id (the team's wildcard or the id itself), unexpired; EXACT_PROFILE names one. */
+export function profile(udid, bundle) {
+  if (process.env.EXACT_PROFILE) return decodeProfile(process.env.EXACT_PROFILE);
+  const dirs = ['Library/Developer/Xcode/UserData/Provisioning Profiles', 'Library/MobileDevice/Provisioning Profiles'].map((d) => resolve(homedir(), d)).filter(existsSync);
+  const found = dirs.flatMap((d) => readdirSync(d).filter((f) => f.endsWith('.mobileprovision')).map((f) => decodeProfile(resolve(d, f))))
+    .filter((p) => p.dev && p.expires > new Date() && p.devices.includes(udid) && (p.appId === `${p.team}.*` || p.appId === `${p.team}.${bundle}`))
+    .sort((a, b) => b.expires - a.expires);
+  if (!found.length) throw new Error(`no development provisioning profile on this Mac covers ${bundle} on this phone (${udid}); run any app on it from Xcode once with team signing, or name one with EXACT_PROFILE`);
+  return found[0];
+}
+
+/** The fields of a `.mobileprovision` this script reads (it is a CMS-signed XML plist). */
+function decodeProfile(path) {
+  const xml = read('security', ['cms', '-D', '-i', path]).stdout ?? '';
+  const str = (key) => new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`).exec(xml)?.[1];
+  const team = /<key>TeamIdentifier<\/key>\s*<array>\s*<string>([^<]*)<\/string>/.exec(xml)?.[1];
+  const devices = [...(/<key>ProvisionedDevices<\/key>\s*<array>([\s\S]*?)<\/array>/.exec(xml)?.[1] ?? '').matchAll(/<string>([^<]*)<\/string>/g)].map((m) => m[1]);
+  const expires = /<key>ExpirationDate<\/key>\s*<date>([^<]*)<\/date>/.exec(xml)?.[1];
+  return { path, name: str('Name'), team, appId: str('application-identifier'), devices, dev: /<key>get-task-allow<\/key>\s*<true\/>/.test(xml), expires: new Date(expires ?? 0) };
+}
+
+/** The Apple Development identity (its SHA-1) for a team, from the keychain; EXACT_IDENTITY names one. */
+export function identity(team) {
+  if (process.env.EXACT_IDENTITY) return process.env.EXACT_IDENTITY;
+  const valid = [...(read('security', ['find-identity', '-v', '-p', 'codesigning']).stdout ?? '').matchAll(/\d+\) ([0-9A-F]{40}) "(Apple Development: [^"]+)"/g)].map((m) => ({ sha1: m[1], name: m[2] }));
+  const pems = (read('security', ['find-certificate', '-a', '-c', 'Apple Development', '-p']).stdout ?? '').split('-----END CERTIFICATE-----').filter((c) => c.includes('BEGIN CERTIFICATE'));
+  for (const pem of pems) {
+    const x = read('openssl', ['x509', '-noout', '-subject', '-fingerprint', '-sha1'], { input: pem + '-----END CERTIFICATE-----\n' }).stdout ?? '';
+    const sha1 = /Fingerprint=([0-9A-F:]+)/i.exec(x)?.[1].replace(/:/g, '');
+    const ou = /OU\s*=\s*([A-Z0-9]+)/.exec(x)?.[1];
+    const id = valid.find((v) => v.sha1 === sha1);
+    if (id && ou === team) return id.sha1;
+  }
+  throw new Error(`no valid "Apple Development" identity for team ${team} in the keychain (security find-identity -v -p codesigning); name one with EXACT_IDENTITY=<sha1>`);
+}
+
+/** The first valid "Apple Development" identity in the keychain (EXACT_IDENTITY names one), or null: the macOS binary is then ad-hoc signed. */
+export function macIdentity() {
+  if (process.env.EXACT_IDENTITY) return process.env.EXACT_IDENTITY;
+  const m = /\d+\) ([0-9A-F]{40}) "Apple Development: /.exec(read('security', ['find-identity', '-v', '-p', 'codesigning']).stdout ?? '');
+  return m ? m[1] : null;
+}

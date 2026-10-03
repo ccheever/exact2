@@ -12,7 +12,8 @@ import { createHash, randomBytes } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { iosTriple, phoneBridge } from './build.mjs';
+import { iosTriple } from './build.mjs';
+import { phoneBridge } from './devices.mjs';
 
 const ROOT = resolve(new URL('../..', import.meta.url).pathname);
 const RUNNER_ID = 'com.exact.touches.xctrunner';
