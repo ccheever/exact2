@@ -59,8 +59,11 @@ const IMAGE_DEF: u32 = 11;
 const IMAGE_FREE: u32 = 12;
 const STROKE: u32 = 13;
 const IMAGE_RRECT: u32 = 14;
-/// A row's recording: id, width and height (device pixels), then the count
-/// of words up to and including its `ROW_END`. Kept by the reader until freed.
+/// A row's recording: id, the id of the row it replaces (0 for none; the top
+/// bit set when the row shows in this frame, so the reader makes it before
+/// drawing), width and height (device pixels), then the count of words up to
+/// and including its `ROW_END`. Kept by the reader until freed; a row not in
+/// view may be made later, the row it replaces drawn meanwhile.
 const ROW_BEGIN: u32 = 15;
 const ROW_END: u32 = 16;
 /// Draw a kept row: id, x, y (device pixels).
@@ -75,6 +78,11 @@ const RING: u32 = 19;
 /// so the drawing can be moved without painting again.
 const GROUP_BEGIN: u32 = 20;
 const GROUP_END: u32 = 21;
+/// In a row: image node id's picture slot, drawn here (the reader's node for
+/// it, recorded from the last `SLOT_SET`).
+const SLOT: u32 = 23;
+/// A slot's drawing: id, word count, then its ops (row coordinates).
+const SLOT_SET: u32 = 24;
 /// Instead of a stream: the last one moved. A count, then per scroller its
 /// id and the move (device pixels) of its rows from where they were drawn.
 const SHIFT: u32 = 22;
@@ -117,6 +125,9 @@ pub struct Recorder {
     frames: u64,
     /// The scroller whose rows are being drawn, if any.
     group: Option<u32>,
+    /// Frames a picture goes undrawn before the reader's copy is freed
+    /// (`EXACT_IDLE_FRAMES`, else [`IDLE_FRAMES`]).
+    idle: u64,
     next_image: u32,
     /// The clips pushed and not popped, pending until a drawing needs them.
     clips: Vec<clip::Clip>,
@@ -126,9 +137,17 @@ pub struct Recorder {
     /// While a row records: the frame's clips and matrix, where the row's
     /// header is, its id and the id it was.
     row: Option<RowRecording>,
+    /// The last row recorded in this stream: its id and where its header is.
+    recorded: Option<(u32, usize)>,
     /// Each kept row's recording, so one recorded again the same is kept,
     /// and the pictures it draws (by allocation), drawn whenever it is.
     kept: HashMap<u32, (Vec<u32>, Vec<usize>)>,
+    /// While a picture slot records: the row's ops so far, its matrix, and
+    /// which clips were written when it began.
+    slot: Option<(u32, Vec<u32>, Option<[f32; 6]>, Vec<bool>)>,
+    /// Each slot's drawing as last sent, and those to send after this row.
+    slots: HashMap<u32, Vec<u32>>,
+    slot_sets: Vec<u32>,
 }
 
 struct RowRecording {
@@ -158,10 +177,18 @@ impl Recorder {
             next_image: 1,
             frames: 0,
             group: None,
+            idle: std::env::var("EXACT_IDLE_FRAMES")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(IDLE_FRAMES),
             clips: Vec::new(),
             origin: (0.0, 0.0),
             row: None,
+            recorded: None,
             kept: HashMap::new(),
+            slot: None,
+            slots: HashMap::new(),
+            slot_sets: Vec::new(),
         }
     }
 
@@ -281,6 +308,9 @@ impl Backend for Recorder {
         self.origin = (0.0, 0.0);
         self.row = None;
         self.group = None;
+        self.slot = None;
+        self.slot_sets.clear();
+        self.recorded = None;
         GROUPS.with(|g| g.borrow_mut().clear());
         self.frames += 1;
         // Pictures the presenter dropped since the last frame, and those not
@@ -291,7 +321,7 @@ impl Backend for Recorder {
         let dead: Vec<(usize, u32)> = self
             .images
             .iter()
-            .filter(|(_, (_, weak, used))| weak.strong_count() == 0 || frames - used > IDLE_FRAMES)
+            .filter(|(_, (_, weak, used))| weak.strong_count() == 0 || frames - used > self.idle)
             .map(|(k, (id, _, _))| (*k, *id))
             .collect();
         for (k, id) in dead {
@@ -497,7 +527,8 @@ impl Backend for Recorder {
             images: Vec::new(),
         });
         self.origin = (origin.0 - ROW_PAD, origin.1 - ROW_PAD);
-        self.ops.extend([ROW_BEGIN, id, 0, 0, 0]);
+        self.ops
+            .extend([ROW_BEGIN, id, previous.unwrap_or(0), 0, 0, 0]);
     }
 
     fn row_end(&mut self, bounds: Rect4) -> u32 {
@@ -515,23 +546,58 @@ impl Backend for Recorder {
         // The reader's node reaches from the origin to the far edge of what
         // the row covers.
         let s = self.scale;
-        self.ops[at + 2] = ((bounds.0 + bounds.2 + ROW_PAD).max(1.0) * s).to_bits();
-        self.ops[at + 3] = ((bounds.1 + bounds.3 + ROW_PAD).max(1.0) * s).to_bits();
+        self.ops[at + 3] = ((bounds.0 + bounds.2 + ROW_PAD).max(1.0) * s).to_bits();
+        self.ops[at + 4] = ((bounds.1 + bounds.3 + ROW_PAD).max(1.0) * s).to_bits();
         self.ops.push(ROW_END);
-        self.ops[at + 4] = (self.ops.len() - at - 5) as u32;
+        self.ops[at + 5] = (self.ops.len() - at - 6) as u32;
         self.clips = clips;
         self.matrix = matrix;
         self.origin = (0.0, 0.0);
         // Size and body: the same as the row's last recording, the reader's
         // node for it stands.
-        let body = &self.ops[at + 2..];
+        let body = &self.ops[at + 3..];
+        let sets = std::mem::take(&mut self.slot_sets);
         if let Some(old) = previous.filter(|p| self.kept.get(p).is_some_and(|k| k.0[..] == *body)) {
             self.ops.truncate(at);
+            self.ops.extend(sets);
+            self.kept.get_mut(&old).expect("kept").1 = images;
             return old;
         }
         let body = body.to_vec();
         self.kept.insert(id, (body, images));
+        self.recorded = Some((id, at));
+        self.ops.extend(sets);
         id
+    }
+
+    fn slot_begin(&mut self, id: ViewId) {
+        if self.row.is_none() || self.slot.is_some() {
+            return;
+        }
+        self.ops.extend([SLOT, id]);
+        let row = std::mem::take(&mut self.ops);
+        let emitted = self.clips.iter().map(|c| c.emitted()).collect();
+        self.slot = Some((id, row, self.matrix.take(), emitted));
+    }
+
+    fn slot_end(&mut self) {
+        let Some((id, row, matrix, emitted)) = self.slot.take() else {
+            return;
+        };
+        // Clips the picture wrote close inside its slot: outside, pending again.
+        for i in (0..self.clips.len()).rev() {
+            if self.clips[i].emitted() && !emitted.get(i).copied().unwrap_or(false) {
+                self.ops.push(RESTORE);
+                self.clips[i].reopen();
+            }
+        }
+        let drawing = std::mem::replace(&mut self.ops, row);
+        self.matrix = matrix;
+        if self.slots.get(&id) != Some(&drawing) {
+            self.slot_sets.extend([SLOT_SET, id, drawing.len() as u32]);
+            self.slot_sets.extend(&drawing);
+            self.slots.insert(id, drawing);
+        }
     }
 
     fn row_culled(&self, bounds: Rect4) -> bool {
@@ -555,6 +621,12 @@ impl Backend for Recorder {
     }
 
     fn row_draw(&mut self, id: u32, origin: (f32, f32), bounds: Rect4) {
+        // Just recorded and in view: the reader makes it before this frame.
+        if let Some((_, at)) = self.recorded.take().filter(|(r, _)| *r == id) {
+            if !self.culled(Some(bounds)) {
+                self.ops[at + 2] |= 1 << 31;
+            }
+        }
         // Its pictures are drawn too: the reader keeps them.
         if let Some((_, images)) = self.kept.get(&id) {
             for key in images {
@@ -634,6 +706,15 @@ pub struct CanvasHost<D: DataSource> {
     moved_at: f64,
     /// A touch began or ended: paint the next frame.
     force: bool,
+    /// A scroll came since the last collection pass: the frame drawing it
+    /// leaves the pass for [`CanvasHost::refine`], after the frame. Only once
+    /// the reader calls `refine` (`prefetching`).
+    scrolled: bool,
+    prefetching: bool,
+    /// The kernel epoch a collection pass left, when nothing else changed
+    /// since the paint: rows mounted or retired out of view, which the next
+    /// paint (at most [`MOVES`] frames on) shows; until then frames move.
+    quiet: Option<u64>,
     /// Frames that may move before one paints (`EXACT_MOVES`, else
     /// [`MOVES`]); 1000 or more also leaves the last move standing, to check
     /// a moved frame against a painted one.
@@ -648,7 +729,7 @@ struct Painted {
 
 /// At most this many frames move the last paint before one paints again:
 /// what it leaves stale (boxes, hits, which pictures show) stays this fresh.
-const MOVES: u32 = 3;
+const MOVES: u32 = 6;
 
 impl<D: DataSource + Default> CanvasHost<D> {
     /// Boot `D`'s app over a view of `size` pixels at `scale` pixels per
@@ -685,6 +766,9 @@ impl<D: DataSource + Default> CanvasHost<D> {
             moved: 0,
             moved_at: 0.0,
             force: false,
+            scrolled: false,
+            prefetching: false,
+            quiet: None,
             moves: std::env::var("EXACT_MOVES")
                 .ok()
                 .and_then(|v| v.parse().ok())
@@ -702,6 +786,14 @@ impl<D: DataSource + Default> CanvasHost<D> {
         let p = &mut self.p;
         let now = self.started.elapsed().as_secs_f64() * 1000.0;
         let _frame = Section::begin(c"exact frame");
+        p.hold_collections(self.scrolled);
+        let frame = self.frame_held(now);
+        self.p.hold_collections(false);
+        frame
+    }
+
+    fn frame_held(&mut self, now: f64) -> Option<Vec<u32>> {
+        let p = &mut self.p;
         if let Some(e) = p.pump(now) {
             eprintln!("exact: {e}");
         }
@@ -739,6 +831,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         });
         self.moved = 0;
         self.force = false;
+        self.quiet = None;
         FINISHED.with(|f| f.borrow_mut().take())
     }
 
@@ -762,6 +855,33 @@ impl<D: DataSource + Default> CanvasHost<D> {
 
     /// When only scrollers whose rows the last paint drew moved since it,
     /// and nothing else it showed changed: the move, instead of a paint.
+    /// The collection pass a scroll left for after its frame (rows mount and
+    /// retire there, not inside the next frame's scroll); from now on scrolls
+    /// leave it. Whether a frame is wanted after it.
+    pub fn refine(&mut self) -> bool {
+        let _s = Section::begin(c"exact refine");
+        self.scrolled = false;
+        self.prefetching = true;
+        let before = self.p.still();
+        let wanted = self.p.refine_deferred(true);
+        // Only the pass changed the kernel (rows out of view): no paint now.
+        let after = self.p.still();
+        let painted = self.painted.as_ref().map(|p| &p.still);
+        match (before, after, painted) {
+            (Some(b), Some(a), Some(p))
+                if (b == *p || self.quiet.is_some_and(|e| p.same_at(&b, e))) && b != a =>
+            {
+                let epoch = self.p.host().kernel().epoch();
+                if p.same_at(&a, epoch) {
+                    self.quiet = Some(epoch);
+                    return false;
+                }
+                wanted
+            }
+            _ => wanted,
+        }
+    }
+
     /// Whether a moved paint owes a paint: once moves pause (a frame
     /// without one), the paint brings boxes, hits and pictures up to date.
     pub fn owed(&self) -> bool {
@@ -786,7 +906,14 @@ impl<D: DataSource + Default> CanvasHost<D> {
                 .map(|(id, o)| (*id, o.0.to_bits(), o.1.to_bits()))
                 .collect::<Vec<_>>()
         };
-        if others(now) != others(&painted.scroll) || p.still().as_ref() != Some(&painted.still) {
+        let Some(still) = p.still() else {
+            return None;
+        };
+        let same = still == painted.still
+            || self
+                .quiet
+                .is_some_and(|epoch| painted.still.same_at(&still, epoch));
+        if others(now) != others(&painted.scroll) || !same {
             return None;
         }
         let s = self.scale;
@@ -822,7 +949,10 @@ impl<D: DataSource + Default> CanvasHost<D> {
     pub fn scroll(&mut self, dy: f32) {
         let (x, y) = (self.viewport.0 / 2.0, self.viewport.1 / 2.0);
         let _s = Section::begin(c"exact scroll");
+        self.scrolled = self.prefetching;
+        self.p.hold_collections(self.prefetching);
         self.p.wheel_at(x, y, 0.0, dy / self.scale);
+        self.p.hold_collections(false);
     }
 
     /// A touch (0 down, 1 up, 2 move, 3 cancel) at pixels.

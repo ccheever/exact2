@@ -312,9 +312,29 @@ impl Painter {
         self.rows.next += 1;
         let start = walk.boxes.len();
         let unsupported = std::mem::replace(&mut self.damage.unsupported, false);
-        self.backend.row_begin(self.rows.next, origin, previous);
+        // Without a transform, the row is walked in its own coordinates (its
+        // top-left at 0,0, from document positions alone): the same row records
+        // the same ops wherever it scrolled to, so one recorded again unchanged
+        // keeps its drawing. Its boxes move to the page after.
+        let local = ts == Transform::identity();
+        let (walk_offset, content) = if local {
+            ((node.frame.x, node.frame.y), (0.0, 0.0))
+        } else {
+            (offset, origin)
+        };
+        self.backend.row_begin(self.rows.next, content, previous);
         self.rows.recording = Some(Capture::default());
-        self.node(walk, id, ts, offset, None);
+        self.node(walk, id, ts, walk_offset, None);
+        if local {
+            for b in &mut walk.boxes[start..] {
+                b.rect.0 += origin.0;
+                b.rect.1 += origin.1;
+                b.clip = b.clip.map(|c| (c.0 + origin.0, c.1 + origin.1, c.2, c.3));
+                b.affine = b
+                    .affine
+                    .map(|(t, r)| (t.post_translate(origin.0, origin.1), r));
+            }
+        }
         let capture = self.rows.recording.take().expect("recording");
         let row_unsupported = std::mem::replace(&mut self.damage.unsupported, unsupported);
         self.damage.unsupported |= row_unsupported;

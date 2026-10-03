@@ -76,6 +76,17 @@ fn unclipped(b: Rect4, (r, radii): (Rect4, [(f32, f32); 4])) -> bool {
         })
 }
 
+impl Clip {
+    pub(super) fn emitted(&self) -> bool {
+        self.emitted
+    }
+
+    /// Written and closed again (inside a picture slot): pending as before.
+    pub(super) fn reopen(&mut self) {
+        self.emitted = false;
+    }
+}
+
 impl Recorder {
     pub(super) fn clip_push(&mut self, s: &Shape, ts: Transform) {
         let page = map(s.rect, ts).map(|r| {

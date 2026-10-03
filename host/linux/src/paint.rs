@@ -532,8 +532,9 @@ pub trait Backend {
     fn rows(&self) -> bool {
         false
     }
-    /// Record row `id`, whose top-left is `origin` (viewport points); the
-    /// row was `previous` until something in it changed.
+    /// Record row `id`, whose ops are relative to `origin` (viewport points;
+    /// zero when the row is walked in its own coordinates); the row was
+    /// `previous` until something in it changed.
     fn row_begin(&mut self, _id: u32, _origin: (f32, f32), _previous: Option<u32>) {}
     /// The row ends; `bounds` (relative to its origin) is what it covers.
     /// The row's id: `previous` when it recorded the same, else the new one.
@@ -553,6 +554,12 @@ pub trait Backend {
     fn group_begin(&mut self, _id: ViewId, _scroll: (f32, f32)) {}
     /// The scroller's rows end.
     fn group_end(&mut self) {}
+    /// Image node `id`'s picture (or none, not yet decoded) is drawn until
+    /// [`Backend::slot_end`]: a backend that keeps rows may keep it apart, so
+    /// a picture arriving changes the slot and not the row.
+    fn slot_begin(&mut self, _id: ViewId) {}
+    /// The picture's drawing ends.
+    fn slot_end(&mut self) {}
     /// The last frame's (encode + render, readback) milliseconds, on a
     /// backend that has them.
     fn last_frame_ms(&self) -> Option<(f64, f64)> {
@@ -1046,16 +1053,20 @@ impl Painter {
             NodeType::Image => {
                 self.row_image(node.id, walk.scene.images.get(&node.id));
                 if self.symbol(node, content, image_tint(s, &shown, self.dark), ts) {
-                } else if let Some(img) = walk.scene.images.get(&node.id) {
-                    if let Some(dst) = object_fit(img.natural(), s.object_fit, content) {
-                        self.backend.image(
-                            img,
-                            dst,
-                            &[Shape::rect(content), outer],
-                            ts,
-                            image_tint(s, &shown, self.dark),
-                        );
+                } else {
+                    self.backend.slot_begin(node.id);
+                    if let Some(img) = walk.scene.images.get(&node.id) {
+                        if let Some(dst) = object_fit(img.natural(), s.object_fit, content) {
+                            self.backend.image(
+                                img,
+                                dst,
+                                &[Shape::rect(content), outer],
+                                ts,
+                                image_tint(s, &shown, self.dark),
+                            );
+                        }
                     }
+                    self.backend.slot_end();
                 }
             }
             NodeType::Text => {

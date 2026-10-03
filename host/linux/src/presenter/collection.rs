@@ -23,6 +23,13 @@ pub(super) struct State {
     interaction: Option<ViewId>,
     authored_scroll: Option<bool>,
     scroll_events: VecDeque<(ViewId, NodeKey)>,
+    /// The host runs a scroll's collection pass itself, after the frame it
+    /// draws (as RecyclerView prefetches between frames): a scroll only
+    /// queues it.
+    pub(super) defer: bool,
+    /// While set (by such a host, for the frame a scroll draws), passes wait
+    /// for [`Presenter::refine_deferred`].
+    pub(super) hold: bool,
 }
 #[derive(Default)]
 struct Cursor {
@@ -649,6 +656,9 @@ impl<D: DataSource> Presenter<D> {
             after.or(self.refresh_transform_geometry())
         } else if authored {
             self.after_commit()
+        } else if self.collection.defer {
+            self.queue_collections();
+            None
         } else {
             self.queue_collections();
             self.refine_collections()
@@ -656,6 +666,24 @@ impl<D: DataSource> Presenter<D> {
         if let Some(error) = error {
             self.host.log(error);
         }
+    }
+
+    /// A host that defers scroll's collection passes: they run now (rows
+    /// mount and retire). Whether the presenter wants a frame after them.
+    pub(crate) fn refine_deferred(&mut self, defer: bool) -> bool {
+        self.collection.defer = defer;
+        self.collection.hold = false;
+        if self.collection.pending() {
+            if let Some(error) = self.refine_collections() {
+                self.host.log(error);
+            }
+        }
+        self.dirty
+    }
+
+    /// Hold collection passes (a frame a scroll draws) or let them run.
+    pub(crate) fn hold_collections(&mut self, hold: bool) {
+        self.collection.hold = hold;
     }
 
     /// The agent's `clock settle`: every queued report, nested lists'
@@ -671,6 +699,9 @@ impl<D: DataSource> Presenter<D> {
         error
     }
     pub(super) fn refine_collections(&mut self) -> Option<String> {
+        if self.collection.hold {
+            return None;
+        }
         let mut error = None;
         for _ in 0..PASSES {
             let Some(view) = self.collection.queue.pop_front() else {

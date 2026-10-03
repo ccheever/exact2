@@ -21,6 +21,17 @@ pub(crate) struct Still {
     controls: BTreeMap<ViewId, bool>,
 }
 
+impl Still {
+    /// The same but for the kernel's epoch, which is `epoch`.
+    pub(crate) fn same_at(&self, other: &Still, epoch: u64) -> bool {
+        other.epoch == epoch
+            && Still {
+                epoch,
+                ..self.clone()
+            } == *other
+    }
+}
+
 impl<D: DataSource> Presenter<D> {
     /// The paint's inputs other than scroll offsets; `None` while anything
     /// moves on its own (motion, a press, a collection's pending correction).
