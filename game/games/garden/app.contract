@@ -71,7 +71,7 @@ component Garden
     panel = panel == p ? "" : p
 
   action run(c: string)
-    postMessage("world", c)
+    postMessage(c, "world")
 
   action toggleSmooth
     smooth = not smooth
