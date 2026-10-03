@@ -387,8 +387,10 @@ if (devReload) writeFileSync(resolve(out, '.exact-dev-logic.json'), JSON.stringi
 // The web host's own picker and storage adapters beside the page, fetched on
 // first use (files.js; a source's `storage`, ts-data.js and rust-data.js): what host/web/build.mjs ships.
 if (files || moduleStorage || /^\s*(?:fs|sqlite)\./m.test(grants)) {
-  const seeds = [files && resolve(gen, 'files.js'), moduleStorage && resolve(gen, 'admission.js'), /^\s*(?:fs|sqlite)\./m.test(grants) && resolve(gen, 'ts-data.js')].filter(Boolean);
-  await copyLazyModules(seeds.flatMap(seed => literalModuleURLs(readFileSync(seed, 'utf8'))).map(specifier => specifier.replace(/^\.\//, '')));
+  const storageGrants = /^\s*(?:fs|sqlite)\./m.test(grants);
+  const seeds = [files && resolve(gen, 'files.js'), (moduleStorage || storageGrants) && resolve(gen, 'admission.js'), storageGrants && resolve(gen, 'ts-data.js')].filter(Boolean);
+  const roots = seeds.flatMap(seed => literalModuleURLs(readFileSync(seed, 'utf8'))).map(specifier => specifier.replace(/^\.\//, ''));
+  await copyLazyModules(roots);
 }
 // The plan beside the pages: a render server (either renderer) reads it.
 if (opt('--plan') && !existsSync(resolve(out, 'app.plan'))) cpSync(resolve(opt('--plan')), resolve(out, 'app.plan'));

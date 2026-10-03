@@ -3,7 +3,8 @@ import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } 
 import { tmpdir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { Cdp } from '../../scripts/agent.mjs';
 import { request } from './http-body.js';
 import { deferredFulfill, refusal } from './navigation.js';
 import { admitsNetwork, coversPath, createGrantSet, grantError, sameGrantDeclaration, scopedGrantSet } from './grant-admission.js';
@@ -83,6 +84,24 @@ test('wasm and JS request executors refuse outside origins and redirects, and ad
   } finally { origin.stop(true); destination.stop(true); grantedDestination.stop(true); }
 });
 
+test('a redirect rejected before the browser exposes a Response is the declared Network deviation', async () => {
+  const origin = Bun.serve({ port: 0, fetch() {
+    return new Response(null, { status: 307, headers: { location: 'http://127.0.0.1:1/unreachable' } });
+  } });
+  const set = normalized(`net.fetch ${origin.url.origin}`);
+  const runs = [
+    op => request(op, { grantSet: set, controllers: new Set() }),
+    createRequestExecutor('test.app', set, response => response.arrayBuffer()),
+  ];
+  try {
+    for (const run of runs) {
+      const result = await run({ method: 'GET', url: origin.url.href, headers: [] });
+      expect(result.failed ?? result.kind).toBe(1);
+      expect(result.message ?? text(result)).not.toContain("outside the app's grants");
+    }
+  } finally { origin.stop(true); }
+});
+
 test('the wasm early request is claimed and its ungranted final redirect is Refused', async () => {
   globalThis.exact ??= {};
   const { claim, fetchEarly } = await import(`./module-glue.js?early=${Date.now()}`);
@@ -124,6 +143,11 @@ test('malformed parents refuse unscoped work but preserve native child-scope sem
     for (const byte of encoder.encode(body)) { seal ^= BigInt(byte); seal = BigInt.asUintN(64, seal * 0x100000001b3n); }
     fabricated.seal = seal.toString(16).padStart(16, '0');
     expect([grantError(fabricated), admitsNetwork(fabricated, 'https://evil.com')]).toEqual(['the grant set was not validated', false]);
+    const substituted = { version: 1, entries: [[1, '# no I/O', ['fetch', 'https', 'evil.example', 443], null]], error: null };
+    const substitutedBody = JSON.stringify(substituted); seal = 0xcbf29ce484222325n;
+    for (const byte of encoder.encode(substitutedBody)) { seal ^= BigInt(byte); seal = BigInt.asUintN(64, seal * 0x100000001b3n); }
+    substituted.seal = seal.toString(16).padStart(16, '0');
+    expect([grantError(substituted), admitsNetwork(substituted, 'https://evil.example')]).toEqual(['the grant set was not validated', false]);
   } finally { origin.stop(true); }
 });
 
@@ -141,9 +165,18 @@ test('TypeScript fetch exposes FetchError kinds while a late host module keeps b
   const browserFetch = globalThis.fetch;
   const origin = Bun.serve({ port: 0, fetch() { return new Response('ok'); } });
   const set = normalized(`net.fetch ${origin.url.origin}`);
+  const locationDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'location');
+  const headersDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'Headers'), NativeHeaders = globalThis.Headers;
+  Object.defineProperty(globalThis, 'location', { configurable: true, value: { href: origin.url.href, origin: origin.url.origin } });
+  Object.defineProperty(globalThis, 'Headers', { configurable: true, writable: true, value: class extends NativeHeaders {
+    constructor(value) { if (value && Object.keys(value).some(name => name.includes(' '))) throw new TypeError('Invalid header name'); super(value); }
+  } });
   try {
     await expect(fetchWith(set, 'https://outside.test/')).rejects.toMatchObject({ name: 'FetchError', kind: 'Refused', message: "outside the app's grants (net.fetch)" });
     await expect(fetchWith(set, 'http://[')).rejects.toMatchObject({ name: 'FetchError', kind: 'Network' });
+    await expect(fetchWith(set, '/relative')).rejects.toMatchObject({ name: 'FetchError', kind: 'Network' });
+    await expect(fetchWith(set, origin.url, { headers: { 'Bad Name': 'x' } })).rejects.toMatchObject({ name: 'FetchError', kind: 'Network' });
+    await expect(fetchWith(set, '/assets/runtime.wasm', { headers: { 'Bad Name': 'x' } })).rejects.toMatchObject({ name: 'FetchError', kind: 'Network' });
     expect(await (await fetchWith(set, origin.url)).text()).toBe('ok');
     const scratch = mkdtempSync(resolve(tmpdir(), 'exact-late-host-')), module = resolve(scratch, 'late.mjs');
     writeFileSync(module, 'export default globalThis.fetch;\n');
@@ -153,7 +186,11 @@ test('TypeScript fetch exposes FetchError kinds while a late host module keeps b
     expect(lateHost.default).toBe(browserFetch);
     origin.stop(true);
     await expect(fetchWith(set, origin.url)).rejects.toMatchObject({ name: 'FetchError', kind: 'Network' });
-  } finally { origin.stop(true); }
+  } finally {
+    origin.stop(true);
+    if (locationDescriptor) Object.defineProperty(globalThis, 'location', locationDescriptor); else delete globalThis.location;
+    if (headersDescriptor) Object.defineProperty(globalThis, 'Headers', headersDescriptor); else delete globalThis.Headers;
+  }
 });
 
 test('a bodyless same-origin assets GET is host I/O on the JS target', async () => {
@@ -162,7 +199,8 @@ test('a bodyless same-origin assets GET is host I/O on the JS target', async () 
   Object.defineProperty(globalThis, 'location', { configurable: true, value: { href: origin.url.href, origin: origin.url.origin } });
   try {
     expect(await (await fetchWith(normalized(''), '/assets/runtime.wasm')).text()).toBe('/assets/runtime.wasm');
-    await expect(fetchWith(normalized(''), '/assets/runtime.wasm', { method: 'POST' })).rejects.toMatchObject({ kind: 'Refused' });
+    expect(await (await fetchWith(normalized(''), '/assets/runtime.wasm', null)).text()).toBe('/assets/runtime.wasm');
+    await expect(fetchWith(normalized(''), '/assets/runtime.wasm', { method: 'POST' })).rejects.toMatchObject({ kind: 'Network' });
   } finally {
     origin.stop(true);
     if (descriptor) Object.defineProperty(globalThis, 'location', descriptor); else delete globalThis.location;
@@ -197,10 +235,55 @@ test('filesystem admission is component-based and refuses traversal', () => {
   expect(coversPath(set, 'fs.write', 'app:/data/other')).toBe(false);
 });
 
+test('the production file command refuses a source outside the admitted fs.read prefix', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-files-admission-'));
+  writeFileSync(resolve(dir, 'files.js'), readFileSync(resolve(ROOT, 'host/web-js/files.js'), 'utf8')
+    .replace("from './rt.js'", "from './rt-stub.js'").replace("from './navigation.js'", "from './navigation-stub.js'"));
+  writeFileSync(resolve(dir, 'rt-stub.js'), `export const journal=[],clock={now:0,agent:true},inflight={n:0},Hosts={},OnHooks={},Views=new Map(),data={appId:'test.files'};export const nextTicket=()=>1,viewId=()=>1;\n`);
+  writeFileSync(resolve(dir, 'navigation-stub.js'), `export const reportPlace=()=> ['en','UTC','1'].join(String.fromCharCode(0));\n`);
+  writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'"));
+  for (const name of ['grant-admission.js', 'navigation.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+  const documentDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  Object.defineProperty(globalThis, 'document', { configurable: true, value: { getElementById: () => ({ localName: 'button', isConnected: true, getAttribute: () => null, dispatchEvent() {} }) } });
+  globalThis.exact = {};
+  try {
+    const admission = await import(pathToFileURL(resolve(dir, 'admission.js')).href);
+    admission.setAppGrantSet(normalized('fs.read app:/elsewhere'));
+    const runtime = await import(pathToFileURL(resolve(dir, 'rt-stub.js')).href);
+    await import(pathToFileURL(resolve(dir, 'files.js')).href);
+    runtime.Hosts.saveFile('export', 'app:/data/notes.json', 'notes.json');
+    expect(runtime.journal.at(-1)).toContain('outside the app\'s fs.read grants');
+  } finally {
+    if (documentDescriptor) Object.defineProperty(globalThis, 'document', documentDescriptor); else delete globalThis.document;
+    delete globalThis.exact;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('the web matcher consumes the Rust grammar corpus', () => {
   const cases = JSON.parse(readFileSync(new URL('./tests/fixtures/grants.json', import.meta.url)));
-  for (const item of cases) expect(!grantError(normalized(item.spec)), item.spec).toBe(item.ok);
+  for (const item of cases) {
+    const set = normalized(item.spec);
+    expect(!grantError(set), item.spec).toBe(item.ok);
+    for (const [url, admitted] of item.fetch ?? []) expect(admitsNetwork(set, url, 'fetch'), `${item.spec}: ${url}`).toBe(admitted);
+  }
   expect(grantError(normalized('net.fetch\fhttps://api.example'))).toBeNull();
+  expect(grantError(normalized('net.fetch\u2028https://api.example\n# paragraph\u2029separator'))).toBeNull();
+  const portZero = normalized('net.fetch http://example.test:0');
+  expect([grantError(portZero), admitsNetwork(portZero, 'http://example.test:0/x', 'fetch')]).toEqual([null, true]);
+});
+
+test('network grants are selected by the requested operation, not ws URL spelling', async () => {
+  const fetchSet = normalized('net.fetch wss://socket.example');
+  const socketSet = normalized('net.websocket wss://socket.example');
+  expect([admitsNetwork(fetchSet, 'wss://socket.example/path', 'fetch'), admitsNetwork(fetchSet, 'wss://socket.example/path', 'websocket')]).toEqual([true, false]);
+  expect([admitsNetwork(socketSet, 'wss://socket.example/path', 'fetch'), admitsNetwork(socketSet, 'wss://socket.example/path', 'websocket')]).toEqual([false, true]);
+  await expect(fetchWith(fetchSet, 'wss://socket.example/path')).rejects.toMatchObject({ kind: 'Network' });
+  await expect(fetchWith(socketSet, 'wss://socket.example/path')).rejects.toMatchObject({ kind: 'Refused', message: "outside the app's grants (net.fetch)" });
+  const plain = await request({ method: 'GET', url: 'wss://socket.example/path', headers: [] }, { grantSet: fetchSet, controllers: new Set() });
+  expect(plain.kind).toBe(1);
+  const refused = await request({ method: 'GET', url: 'wss://socket.example/path', headers: [] }, { grantSet: socketSet, controllers: new Set() });
+  expect([refused.kind, text(refused)]).toEqual([2, "outside the app's grants (net.fetch)"]);
 });
 
 test('parser-produced grant sets are deeply immutable and module declarations compare normalized forms', () => {
@@ -210,7 +293,12 @@ test('parser-produced grant sets are deeply immutable and module declarations co
   expect([Object.isFrozen(set), Object.isFrozen(set.entries), Object.isFrozen(set.entries[0]), Object.isFrozen(set.entries[0][2])]).toEqual([true, true, true, true]);
   expect(() => set.entries.push([3, 'net.fetch https://evil.example', ['fetch', 'https', 'evil.example', 443], null])).toThrow();
   expect(sameGrantDeclaration(set, '\n net.fetch https://api.example\n  secret.keep token  \n')).toBe(true);
+  expect(sameGrantDeclaration(set, '\u0085net.fetch https://api.example\n\u0085secret.keep token\u0085')).toBe(true);
+  expect(sameGrantDeclaration(set, '\ufeffnet.fetch https://api.example\nsecret.keep token')).toBe(false);
   expect(sameGrantDeclaration(set, 'net.fetch https://evil.example\nsecret.keep token')).toBe(false);
+  const wrongSeal = structuredClone(normalized('net.fetch https://api.example'));
+  wrongSeal.seal = '0000000000000000';
+  expect(grantError(wrongSeal)).toBe('the grant set was not validated');
 });
 
 test('a clean JS dist imports every lazy storage and document entry with its complete graph', async () => {
@@ -219,11 +307,49 @@ test('a clean JS dist imports every lazy storage and document entry with its com
   try {
     expect(built.status, built.stderr || built.stdout).toBe(0);
     globalThis.exact ??= {};
-    for (const name of ['grant-admission.js', 'storage-fs.js', 'storage-sqlite.js', 'picker-glue.js', 'documents-glue.js']) {
+    for (const name of ['grant-admission.js', 'storage-fs.js', 'storage-sqlite.js', 'storage-request.js', 'picker-glue.js', 'documents-glue.js']) {
       await import(`${pathToFileURL(resolve(dist, name)).href}?built=${Date.now()}-${name}`);
     }
     for (const name of ['navigation.js', 'storage-worker.js', 'sqlite3.mjs', 'sqlite3.wasm']) expect(existsSync(resolve(dist, name)), name).toBe(true);
   } finally { rmSync(dist, { recursive: true, force: true }); }
+}, 60_000);
+
+test('a built TypeScript source reaches fetch through the app grant binding', async () => {
+  if (!process.env.CHROME || !existsSync(process.env.CHROME)) return;
+  let destinationHits = 0;
+  const destination = Bun.serve({ port: 0, fetch() { destinationHits++; return new Response('raw browser fetch', { headers: { 'access-control-allow-origin': '*' } }); } });
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-fetch-build-')), dist = resolve(dir, 'dist'), profile = resolve(dir, 'chrome');
+  writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Grant probe', app: { id: 'test.grant-probe', name: 'Grant probe' }, host: { web: {} } }));
+  writeFileSync(resolve(dir, 'app.contract'), `shape Result\n  value: string\ncomponent Probe\n  resource result = probe() as shape Result\n  view\n    text result.value testId="result"\n`);
+  writeFileSync(resolve(dir, 'app.ts'), `export const appId='test.grant-probe',grants='';export async function answer(source){if(source!=='probe')return null;try{await fetch(${JSON.stringify(destination.url.href)});return {value:'raw browser fetch'};}catch(error){return {value:error.name+':'+error.kind};}}\n`);
+  const built = spawnSync(process.execPath, ['host/web-js/build.mjs', 'grant-probe', '--out', dist, '--render', 'none'], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: dir } });
+  let page, child, cdp, exited;
+  try {
+    expect(built.status, built.stderr || built.stdout).toBe(0);
+    page = Bun.serve({ port: 0, async fetch(request) {
+      const name = new URL(request.url).pathname === '/' ? 'index.html' : decodeURIComponent(new URL(request.url).pathname.slice(1));
+      const file = resolve(dist, name);
+      if (!file.startsWith(dist + '/') || !existsSync(file)) return new Response('not found', { status: 404 });
+      return new Response(Bun.file(file));
+    } });
+    child = spawn(process.env.CHROME, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+    cdp = new Cdp(child.stdio[3], child.stdio[4]);
+    exited = new Promise(resolveExit => child.on('exit', () => { cdp.fail('browser closed'); resolveExit(); }));
+    const { targetInfos } = await cdp.send('Target.getTargets');
+    const target = targetInfos.find(info => info.type === 'page') ?? await cdp.send('Target.createTarget', { url: 'about:blank' });
+    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
+    const call = (method, params = {}) => cdp.send(method, params, sessionId);
+    await call('Page.enable');
+    await call('Page.navigate', { url: page.url.href });
+    const result = await call('Runtime.evaluate', { expression: `(async()=>{for(let i=0;i<120;i++){await new Promise(r=>requestAnimationFrame(r));const value=document.querySelector('[data-testid="result"]')?.textContent;if(value)return value;}return document.body.innerText;})()`, returnByValue: true, awaitPromise: true });
+    expect(result.exceptionDetails).toBeUndefined();
+    expect(result.result.value).toBe('FetchError:Refused');
+    expect(destinationHits).toBe(0);
+  } finally {
+    if (child?.pid) { try { process.kill(-child.pid, 'SIGKILL'); } catch {} await exited; }
+    page?.stop(true); destination.stop(true);
+    rmSync(dir, { recursive: true, force: true });
+  }
 }, 60_000);
 
 test("glue.js's grants arm keeps auth lines from a malformed I/O declaration and freezes the set", async () => {
@@ -254,9 +380,9 @@ test("glue.js surface admission uses a valid raw child line even when another I/
   expect(admitted(grants, { mode: 'capture', name: 'world', scope: 'surface.read elsewhere' })).toBe(false);
 });
 
-test('rust-data decodes an ABI request before the production executor refuses its origin', async () => {
+test('rust-data decodes an ABI child scope before the production executor refuses its parent-granted origin', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-rust-data-'));
-  const grants = 'net.fetch https://api.example\nsecret.keep token', set = normalized(grants);
+  const grants = 'net.fetch https://api.example\nnet.fetch https://outside.example\nsecret.keep token', set = normalized(grants);
   for (const name of ['rust-data.js', 'admission.js']) {
     const source = readFileSync(resolve(ROOT, 'host/web-js', name), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'");
     writeFileSync(resolve(dir, name), source);
@@ -275,10 +401,10 @@ test('rust-data decodes an ABI request before the production executor refuses it
     exact_logic_output: () => out, exact_logic_output_len: () => output.length,
     exact_logic_call(_session, pointer) {
       const code = new Uint8Array(memory.buffer)[pointer + 4];
-      if (code === 0) response(w => { w.u8(0); w.string('test.rust'); w.string('  net.fetch https://api.example\n\n secret.keep token  '); });
+      if (code === 0) response(w => { w.u8(0); w.string('test.rust'); w.string('  net.fetch https://api.example\n net.fetch https://outside.example\n\n secret.keep token  '); });
       else if (code === 1 || code === 2) response(w => { w.u8(0); w.u8(0); w.u8(3); });
       else if (code === 3) response(w => {
-        w.u8(2); w.u8(0); w.u32(0); w.u8(1); w.u8(0); w.string(''); w.string('GET');
+        w.u8(2); w.u8(0); w.u32(0); w.u8(1); w.u8(1); w.string('net.fetch https://api.example'); w.string('GET');
         w.string('https://outside.example/private'); w.u32(0); w.u32(0);
       });
       else throw new Error(`unexpected logic call ${code}`);
@@ -292,7 +418,7 @@ test('rust-data decodes an ABI request before the production executor refuses it
     const data = { q: [] };
     await module.install(data, { probe: '' }, async () => new ArrayBuffer(0));
     const answer = data.answer('probe', [], { map: new Map(), set() {} });
-    expect(answer.req).toMatchObject({ method: 'GET', url: 'https://outside.example/private', scope: null });
+    expect(answer.req).toMatchObject({ method: 'GET', url: 'https://outside.example/private', scope: 'net.fetch https://api.example' });
     expect(await data.fetch(answer.req)).toEqual({ failed: 2, message: "outside the app's grants (net.fetch)" });
     expect(data.grantSet).toBeUndefined();
   } finally {

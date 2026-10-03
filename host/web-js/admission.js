@@ -9,25 +9,29 @@ export class FetchError extends Error {
   constructor(kind, message) { super(String(message)); this.name = 'FetchError'; this.kind = String(kind); }
 }
 
-const refusal = value => `outside the app's grants (${/^wss?:/i.test(value) ? 'net.websocket' : 'net.fetch'})`;
+const refusal = capability => `outside the app's grants (${capability})`;
 const assetPath = value => typeof value === 'string' && /^\/assets\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(value);
 const noHeaders = headers => headers == null || [...new Headers(headers)].length === 0;
 const hostAsset = (input, init) => assetPath(input) && String(init.method ?? 'GET').toUpperCase() === 'GET'
   && init.body == null && noHeaders(init.headers);
 
 export async function fetchWith(set, input, init = {}) {
-  let value;
-  try { value = typeof Request === 'function' && input instanceof Request ? input.url : new URL(String(input), globalThis.location?.href).href; }
+  let value, asset;
+  try {
+    init ??= {};
+    asset = hostAsset(input, init);
+    value = typeof Request === 'function' && input instanceof Request ? input.url
+      : asset ? new URL(String(input), globalThis.location?.href).href : new URL(String(input)).href;
+  }
   catch (error) { throw new FetchError('Network', error?.message ?? error); }
   const invalid = grantError(set);
   if (invalid) throw new FetchError('Refused', invalid);
-  const asset = hostAsset(input, init);
-  if (!asset && !admitsNetwork(set, value)) throw new FetchError('Refused', refusal(value));
+  if (!asset && !admitsNetwork(set, value, 'fetch')) throw new FetchError('Refused', refusal('net.fetch'));
   try {
-    const response = await browserFetch(asset ? value : input, { ...init, redirect: 'follow' });
+    const response = await browserFetch(typeof Request === 'function' && input instanceof Request ? input : value, { ...init, redirect: 'follow' });
     if (response.url && (asset
       ? new URL(response.url).origin !== globalThis.location?.origin
-      : !admitsNetwork(set, response.url))) throw new FetchError('Refused', refusal(response.url));
+      : !admitsNetwork(set, response.url, 'fetch'))) throw new FetchError('Refused', refusal('net.fetch'));
     return response;
   }
   catch (error) {

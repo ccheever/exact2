@@ -49,7 +49,7 @@ const earlyKey = (url, headers) => `GET ${url} ${JSON.stringify(headers ?? [])}`
 // The runner's normalized set is the only authority this early request reads.
 export function fetchEarly(request, grants) {
   try { new URL(request.url); } catch { return null; } // a relative (asset) URL is the host's own
-  if (grantError(grants) || request.method !== 'GET' || request.body || !admitsNetwork(grants, request.url)) return null;
+  if (grantError(grants) || request.method !== 'GET' || request.body || !admitsNetwork(grants, request.url, 'fetch')) return null;
   const key = earlyKey(request.url, request.headers), controller = new AbortController();
   const entry = { controller, response: fetch(request.url, { method: 'GET', headers: request.headers, redirect: 'follow', cache: 'default', signal: controller.signal }) };
   entry.response.catch(() => {});

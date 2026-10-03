@@ -145,9 +145,10 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   const native = url === 'exact-native:';
   const effective = scopedGrantSet(grantSet, op.scope), invalid = grantError(effective);
   const asset = method === 'GET' && !body && Object.keys(headers).length === 0 && /^\/assets\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(url);
+  const socket = op.stream && /^wss?:/i.test(url), capability = socket ? 'net.websocket' : 'net.fetch';
   if (invalid) return failed(2, invalid);
   if (!native && !asset) try { new URL(url); } catch (error) { return failed(1, error); }
-  if (!native && !asset && !admitsNetwork(effective, url)) return failed(2, `outside the app's grants (${/^wss?:/i.test(url) ? 'net.websocket' : 'net.fetch'})`);
+  if (!native && !asset && !admitsNetwork(effective, url, socket ? 'websocket' : 'fetch')) return failed(2, `outside the app's grants (${capability})`);
   if (op.nativeHttp === 'independent' && (!Number.isInteger(op.maxResponseBytes) || op.maxResponseBytes < 1 || op.maxResponseBytes > 64 * 1024 * 1024)) return failed(2, 'invalid independent HTTP response limit');
   if (native) {
     let response;
@@ -162,7 +163,7 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   }
   // A socket is a stream whose URL is `ws:` or `wss:` (its grant was
   // `net.websocket`, above); its method, headers and body are not sent.
-  if (op.stream && /^wss?:/i.test(url)) return readSocket(url, op.maxResponseBytes ?? 1024 * 1024, message, controller);
+  if (socket) return readSocket(url, op.maxResponseBytes ?? 1024 * 1024, message, controller);
   let decodedBody;
   try { if (body) decodedBody = Uint8Array.from(atob(body), c => c.charCodeAt(0)); }
   catch (error) { return failed(4, `invalid request body: ${error}`); }
@@ -174,7 +175,7 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
     const response = await (!asset && moduleLoader?.claim?.(url, init) || fetch(asset ? localAssetURL(url) : url, init));
     if (response.url && (asset
       ? new URL(response.url).origin !== location.origin
-      : !admitsNetwork(effective, response.url))) return failed(2, 'outside the app\'s grants (net.fetch)');
+      : !admitsNetwork(effective, response.url, 'fetch'))) return failed(2, 'outside the app\'s grants (net.fetch)');
     // A stream reads its body as events; anything else is its one answer.
     if (op.stream && response.ok && response.body && /^text\/event-stream\s*(;|$)/i.test(response.headers.get('content-type') ?? ''))
       return await readEvents(response, op.maxResponseBytes ?? 1024 * 1024, message, controller);

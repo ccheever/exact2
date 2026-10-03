@@ -770,12 +770,20 @@ const grantFNV = text => {
   }
   return hash.toString(16).padStart(16, '0');
 };
-const grantBody = set => JSON.stringify({ version: 1, entries: set.entries, error: set.error });
+// Rust's JSON writer and JavaScript's serializer use this one spelling for the
+// two ECMAScript line separators before the seal is calculated.
+const grantBody = set => JSON.stringify({ version: 1, entries: set.entries, error: set.error })
+  .replaceAll('\u2028', '\\u2028').replaceAll('\u2029', '\\u2029');
 const networkGrants = new Set(['fetch', 'fetch-subdomains', 'websocket']);
 const pathGrants = new Set(['fs-read', 'fs-write', 'sqlite-open']);
 const nameGrants = new Set(['env-read', 'secret-keep', 'storage-kv']);
 const validGrantName = name => typeof name === 'string' && name.length >= 1 && name.length <= 64
   && /^[a-z0-9._-]+$/.test(name) && !/^\.+$/.test(name);
+// Rust `str::trim`/`split_whitespace` use Unicode White_Space, which differs
+// from JavaScript's `\s` at U+0085 and U+FEFF.
+const rustSpace = '[\\u0009-\\u000d\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]';
+const rustTrim = value => String(value).replace(new RegExp(`^${rustSpace}+|${rustSpace}+$`, 'g'), '');
+const rustWords = value => rustTrim(value).split(new RegExp(`${rustSpace}+`)).filter(Boolean);
 const grantTupleValid = grant => {
   if (!Array.isArray(grant) || typeof grant[0] !== 'string') return false;
   if (networkGrants.has(grant[0])) {
@@ -784,7 +792,7 @@ const grantTupleValid = grant => {
     return grant.length === 4
     && /^[a-z][a-z0-9+.-]*$/.test(grant[1])
     && typeof grant[2] === 'string' && grant[2] === grant[2].toLowerCase() && grant[2].length > 0
-    && Number.isInteger(grant[3]) && grant[3] > 0 && grant[3] <= 65535
+    && Number.isInteger(grant[3]) && grant[3] >= 0 && grant[3] <= 65535
     && (grant[0] !== 'fetch-subdomains' || !address && !grant[2].endsWith('.') && grant[2].split('.').filter(Boolean).length >= 2);
   }
   if (pathGrants.has(grant[0])) return grant.length >= 2
@@ -794,15 +802,55 @@ const grantTupleValid = grant => {
   return grant[0] === 'env-read' || validGrantName(grant[1]);
 };
 
+const pathTuple = (kind, target) => {
+  const at = target.indexOf(':/');
+  const namespace = at < 0 ? target.startsWith('/') ? '' : null : target.slice(0, at) + ':';
+  if (namespace == null || !['', 'app:', 'doc:'].includes(namespace)) return null;
+  const rest = at < 0 ? target.slice(1) : target.slice(at + 2);
+  const parts = rest.split('/').filter(Boolean);
+  return parts.some(part => part === '.' || part === '..') ? null : [kind, namespace, ...parts];
+};
+const networkTuple = (kind, target) => {
+  const wildcard = kind === 'fetch-subdomains';
+  if (wildcard && !target.includes('://*.')) return null;
+  try {
+    const url = new URL(wildcard ? target.replace('://*.', '://') : target);
+    const port = Number(url.port || ({ 'http:': 80, 'https:': 443, 'ws:': 80, 'wss:': 443, 'ftp:': 21 })[url.protocol]);
+    if (!url.hostname || !Number.isInteger(port)) return null;
+    if (wildcard && (!['', '/'].includes(url.pathname) || url.search || url.hash)) return null;
+    return [kind, url.protocol.slice(0, -1).toLowerCase(), url.hostname.toLowerCase(), port];
+  } catch { return null; }
+};
+const sourceTuple = source => {
+  const words = rustWords(source);
+  if (words.length !== 2) return null;
+  const [capability, target] = words;
+  if (capability === 'net.fetch') return networkTuple(target.includes('://*.') ? 'fetch-subdomains' : 'fetch', target);
+  if (capability === 'net.websocket') return target.includes('*') ? null : networkTuple('websocket', target);
+  if (capability === 'fs.read') return pathTuple('fs-read', target);
+  if (capability === 'fs.write') return pathTuple('fs-write', target);
+  if (capability === 'sqlite.open') return pathTuple('sqlite-open', target);
+  if (capability === 'env.read') return ['env-read', target];
+  if (capability === 'secret.keep') return ['secret-keep', target];
+  if (capability === 'storage.kv') return ['storage-kv', target];
+  return null;
+};
+const exactOnly = source => source.startsWith('#') || source.startsWith('surface.read ')
+  || source.startsWith('surface.write ') || source.startsWith('device.') || source.startsWith('auth.');
+const entryMatchesSource = ([, source, grant, error]) => {
+  if (grant === null) return error !== null || exactOnly(source);
+  return error === null && JSON.stringify(sourceTuple(source)) === JSON.stringify(grant);
+};
+
 function validateGrantSet(set) {
   if (!set || set.version !== 1 || !Array.isArray(set.entries)
       || (set.error !== null && typeof set.error !== 'string') || !/^[0-9a-f]{16}$/.test(set.seal ?? '')) return false;
   let last = 0, hasError = false;
   for (const entry of set.entries) {
     if (!Array.isArray(entry) || entry.length !== 4 || !Number.isInteger(entry[0]) || entry[0] <= last
-        || typeof entry[1] !== 'string' || !entry[1] || entry[1].trim() !== entry[1]
+        || typeof entry[1] !== 'string' || !entry[1] || rustTrim(entry[1]) !== entry[1]
         || entry[2] !== null && !grantTupleValid(entry[2])
-        || entry[3] !== null && typeof entry[3] !== 'string') return false;
+        || entry[3] !== null && typeof entry[3] !== 'string' || !entryMatchesSource(entry)) return false;
     last = entry[0];
     hasError ||= entry[3] !== null;
   }
@@ -858,7 +906,7 @@ export function scopedGrantSet(parent, source) {
   const available = new Map(parent.entries.map(entry => [entry[1], entry]));
   const entries = [], errors = [];
   for (const [index, raw] of source.split('\n').entries()) {
-    const line = raw.trim();
+    const line = rustTrim(raw);
     if (!line) continue;
     const found = available.get(line);
     if (!found) return makeGrantSet([], 'source scope exceeds the app\'s admitted grants');
@@ -880,11 +928,11 @@ export function unionGrantSets(...sets) {
 }
 
 const grantPort = url => Number(url.port || ({ 'http:': 80, 'https:': 443, 'ws:': 80, 'wss:': 443, 'ftp:': 21 })[url.protocol]);
-export function admitsNetwork(set, value) {
+export function admitsNetwork(set, value, operation = 'fetch') {
   if (grantError(set)) return false;
   let target;
   try { target = new URL(value); } catch { return false; }
-  const kind = /^wss?:$/.test(target.protocol) ? 'websocket' : 'fetch';
+  const kind = operation === 'websocket' ? 'websocket' : 'fetch';
   const scheme = target.protocol.slice(0, -1).toLowerCase(), host = target.hostname.toLowerCase(), port = grantPort(target);
   return set.entries.some(([, , grant]) => grant && grant[1] === scheme && grant[3] === port && (
     grant[0] === kind && grant[2] === host

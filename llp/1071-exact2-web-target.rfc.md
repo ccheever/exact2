@@ -1731,9 +1731,14 @@ equal on the wasm page, the JS page and the Linux reference.
   Exact API fetches. It follows redirects, then refuses and discards a response
   whose final URL is outside the grants. Browser fetch cannot expose a manual
   redirect target, so an intermediate hop is necessarily contacted before
-  that final admission; web grants are parity, not a security boundary (the
-  app is page code and retains direct browser fetch). The other two are
-  fixed below.
+  that final admission. If the browser itself rejects a redirect hop before
+  producing any `Response` — for example CORS rejection or an unreachable
+  destination — the page cannot observe the destination and reports `Network`,
+  not native's per-hop `Refused`; this is the declared web deviation. Every
+  redirect that does produce a response retains outcome parity: an ungranted
+  final URL is `Refused` with `outside the app's grants (net.fetch)`. Web grants
+  are parity, not a security boundary (the app is page code and retains direct
+  browser fetch). The other two are fixed below.
 
 **Navigation roots without a router, and `prepend` under Bun** (2026-10-02):
 - *A navigation root in a plan with no `routes`.* The emitted module

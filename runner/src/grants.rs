@@ -134,6 +134,8 @@ fn quote(text: &str, out: &mut String) {
             '\t' => out.push_str("\\t"),
             '\u{8}' => out.push_str("\\b"),
             '\u{c}' => out.push_str("\\f"),
+            '\u{2028}' => out.push_str("\\u2028"),
+            '\u{2029}' => out.push_str("\\u2029"),
             c if c <= '\u{1f}' => {
                 use std::fmt::Write as _;
                 let _ = write!(out, "\\u{:04x}", c as u32);
@@ -263,8 +265,12 @@ mod tests {
 
     #[test]
     fn normalized_output_uses_javascript_json_control_escapes_before_sealing() {
-        let json = normalized_json("net.fetch\u{c}https://api.example\n# back\u{8}space");
+        let json = normalized_json(
+            "net.fetch\u{c}https://api.example\n# back\u{8}space\n# line\u{2028}separator\n# paragraph\u{2029}separator",
+        );
         assert!(json.contains("net.fetch\\fhttps://api.example"), "{json}");
         assert!(json.contains("# back\\bspace"), "{json}");
+        assert!(json.contains("# line\\u2028separator"), "{json}");
+        assert!(json.contains("# paragraph\\u2029separator"), "{json}");
     }
 }
