@@ -122,13 +122,17 @@ record path. See the [HUD example](../README.md#publications-and-events).
 messages save in order and stay outside the simulation hash. The journal is
 telemetry; reading it does not change the world.
 
-The other way, Contract's `postMessage("world", "buy carrot")` posts text into
+The other way, Contract's `postMessage("buy carrot", "world")` posts text into
 the surface of that name. Each message is input stamped at the call: the next
 tick reads it in `input.messages()`, in arrival order, never coalesced (two presses
 between ticks are two messages). A paused world holds them for its first tick
-after the pause. A message waiting for its tick saves with the input queue; one
-delivered is gone. Messages are at most 64 KiB; keep data in the world and post
-commands. `Sim::post(text)` does the same in tests.
+after the pause. Every host holds a post until a canvas of that surface is live (at
+most 64 per surface; past that a post is dropped and logged) and delivers it to
+the live one with the lowest view id. A message waiting for its tick saves with
+the input queue; one delivered is gone. Messages are at most 64 KiB; keep data in
+the world and post commands. A full input queue (1,024 events) refuses a new post
+with a journal line (one per overflow episode) and counts it in `state`'s `input.refusedPosts`; device events
+never displace a message. `Sim::post(text)` does the same in tests.
 
 ## Movement, animation and sound
 

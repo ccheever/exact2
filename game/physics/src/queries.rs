@@ -30,6 +30,8 @@ fn revisions(w: &World) -> [u64; COLUMNS] {
 pub(crate) struct Cached {
     world: exact_game::WorldId,
     presentation: u64,
+    // The world's mutation epoch when the scene was last checked under leases.
+    epoch: u64,
     revisions: [u64; COLUMNS],
     scene: Scene,
     #[cfg(test)]
@@ -53,18 +55,29 @@ pub fn queries(world: &World) -> Queries<'_> {
 }
 impl Queries<'_> {
     pub(crate) fn scene(&self) -> RefMut<'_, Scene> {
+        // Nothing in the world has been written or borrowed mutably since the last
+        // checked operation (every storage write and mutable lease advances the
+        // epoch), so neither the scene nor the absence of a writer can have changed.
+        let w = self.world;
+        let epoch = w.mutation_epoch();
+        let cache = self.physics.executor.1.borrow_mut();
+        if cache.as_ref().is_some_and(|c| {
+            c.epoch == epoch && c.presentation == w.presentation_generation() && c.world == w.id()
+        }) {
+            return RefMut::map(cache, |c| &mut c.as_mut().unwrap().scene);
+        }
+        drop(cache);
         // Even an unchanged revision cannot authorize reading a live mutable lease.
         // Hold every row of the relevant columns before consulting the derived cache;
-        // a query leases nothing until iterated.
+        // a query leases nothing until iterated. CapsuleController is read only for
+        // membership, which no row lease can change, so it takes none.
         // @ref llp/1046.003-game-engine-as-built.explainer.md#row-leases-2026-09-23
         let _leases = (
             self.world.pages::<Body>(),
             self.world.pages::<Collider>(),
             self.world.pages::<Transform>(),
             self.world.pages::<Parent>(),
-            self.world.pages::<CapsuleController>(),
         );
-        let w = self.world;
         let revisions = revisions(w);
         let mut cache = self.physics.executor.1.borrow_mut();
         let current = cache
@@ -76,6 +89,7 @@ impl Queries<'_> {
             *cache = Some(Cached {
                 world: w.id(),
                 presentation: w.presentation_generation(),
+                epoch,
                 revisions,
                 scene: Scene::new(w),
                 #[cfg(test)]
@@ -87,6 +101,7 @@ impl Queries<'_> {
                 c.scene.update(w, &c.revisions, &revisions);
                 c.revisions = revisions;
             }
+            c.epoch = epoch;
         }
         RefMut::map(cache, |c| &mut c.as_mut().unwrap().scene)
     }
@@ -150,34 +165,37 @@ impl Scene {
         self.churn > 1024 + 2 * self.rapier.bodies.len()
     }
     fn update(&mut self, world: &World, since: &[u64; COLUMNS], now: &[u64; COLUMNS]) {
-        let mut rows = BTreeMap::new();
-        let mut note = |e: Entity| {
-            rows.insert(e.index(), e);
-        };
+        // Only rows that hold or held a collider matter; a write to a collider-free
+        // mover (a rocket, the camera) is dropped here, before any sorting.
+        let slots = &self.slots;
+        let relevant = |e: &Entity| slots.contains_key(&e.index()) || world.has::<Collider>(*e);
+        let mut rows: Vec<Entity> = Vec::new();
         if since[0] != now[0] {
-            world.changed::<Body>(since[0]).for_each(&mut note);
+            rows.extend(world.changed::<Body>(since[0]).filter(relevant));
         }
         if since[1] != now[1] {
-            world.changed::<Collider>(since[1]).for_each(&mut note);
+            rows.extend(world.changed::<Collider>(since[1]).filter(relevant));
         }
         if since[2] != now[2] {
-            world.changed::<Transform>(since[2]).for_each(&mut note);
+            rows.extend(world.changed::<Transform>(since[2]).filter(relevant));
         }
         if since[3] != now[3] {
-            world.changed::<Parent>(since[3]).for_each(&mut note);
+            rows.extend(world.changed::<Parent>(since[3]).filter(relevant));
         }
         if since[4] != now[4] {
-            world
-                .changed::<CapsuleController>(since[4])
-                .for_each(&mut note);
+            rows.extend(
+                world
+                    .changed::<CapsuleController>(since[4])
+                    .filter(relevant),
+            );
         }
         // A child's world pose follows any ancestor's write.
         if since[2] != now[2] || since[3] != now[3] {
-            for i in &self.parented {
-                rows.entry(*i).or_insert(self.slots[i].entity);
-            }
+            rows.extend(self.parented.iter().map(|i| self.slots[i].entity));
         }
-        for e in rows.into_values() {
+        rows.sort_by_key(|e| e.index());
+        rows.dedup_by_key(|e| e.index());
+        for e in rows {
             self.refresh(world, e, true);
         }
         self.rapier.colliders.take_modified();

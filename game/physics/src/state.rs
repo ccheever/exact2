@@ -58,6 +58,8 @@ pub(crate) struct Live {
     // Static colliders verified equal to their entry's rebuild since last edited;
     // sync forgets every row it visits.
     pub elidable: BTreeSet<[u32; 2]>,
+    // Each entry's hash, kept until sync or writeback next touches the entry.
+    pub digests: BTreeMap<Entity, u64>,
 }
 impl Live {
     fn new(rapier: PhysicsWorld, entries: BTreeMap<Entity, Entry>) -> Self {
@@ -76,6 +78,7 @@ impl Live {
             removed: Vec::new(),
             synced: None,
             elidable: BTreeSet::new(),
+            digests: BTreeMap::new(),
             rapier,
             entries,
         }
@@ -98,6 +101,11 @@ pub(crate) struct Saved {
     pub live: Option<Live>,
     #[data(skip)]
     pub dirty: bool,
+    // The snapshot bytes' hash, and whether `entries` lags the live entries.
+    #[data(skip)]
+    bytes_hash: Option<u64>,
+    #[data(skip)]
+    entries_stale: bool,
 }
 impl Saved {
     pub fn live(&mut self) -> &mut Live {
@@ -122,11 +130,15 @@ impl Saved {
         // A hole over a missing or invalid entry fails the read by name; nothing
         // here may panic, since release builds abort.
         let mut refused = None;
+        // A filled hole is its entry's rebuild by construction: elidable without
+        // re-verifying, so a restore does not re-serialize every static collider.
+        let mut filled = BTreeSet::new();
         let fill = |h: ColliderHandle| {
             let rebuilt = owners
                 .get(&raw(h))
                 .ok_or("physics: a collider hole has no entry")
                 .and_then(|e| rebuild(e));
+            filled.insert(raw(h));
             rebuilt.map_err(|e| refused = Some(e)).ok()
         };
         let rapier = bincode::DefaultOptions::new()
@@ -137,7 +149,9 @@ impl Saved {
                 None => DataError::new(format!("physics: invalid snapshot: {e}")),
             })?;
         let entries = entries.into_iter().map(|(k, e)| (k, e.clone())).collect();
-        self.live = Some(Live::new(rapier, entries));
+        let mut live = Live::new(rapier, entries);
+        live.elidable = filled;
+        self.live = Some(live);
         Ok(())
     }
     fn refresh(&mut self) -> usize {
@@ -153,11 +167,49 @@ impl Saved {
                         &live.rapier.with_holes(|h, _| elidable.contains(&raw(h))),
                     )
                     .expect("physics: snapshot serialization");
-                self.entries = live.entries.values().cloned().collect();
+                self.bytes_hash = None;
+                self.entries_stale = true;
             }
             self.dirty = false;
         }
         self.bytes.len()
+    }
+    // A save (or a clone) needs the entries themselves; a hash needs only digests.
+    fn entries(&mut self) {
+        if std::mem::take(&mut self.entries_stale) {
+            if let Some(live) = &self.live {
+                self.entries = live.entries.values().cloned().collect();
+            }
+        }
+    }
+    // What a hash reads in place of the saved content: the snapshot bytes' hash and
+    // each entry's hash in entity order. Both are functions of the saved content
+    // alone, recomputed identically after a load; only touched entries are rehashed.
+    fn digest(&mut self) -> u64 {
+        let bytes = *self
+            .bytes_hash
+            .get_or_insert_with(|| exact_game::hash::of(&self.bytes));
+        let mut h = exact_game::hash::Hasher::default();
+        bytes.write(&mut h);
+        match &mut self.live {
+            Some(live) => {
+                (live.entries.len() as u64).write(&mut h);
+                for (e, entry) in &live.entries {
+                    let d = live
+                        .digests
+                        .entry(*e)
+                        .or_insert_with(|| exact_game::hash::of(entry));
+                    d.write(&mut h);
+                }
+            }
+            None => {
+                (self.entries.len() as u64).write(&mut h);
+                for entry in &self.entries {
+                    exact_game::hash::of(entry).write(&mut h);
+                }
+            }
+        }
+        h.finish()
     }
 }
 #[derive(Default)]
@@ -174,6 +226,7 @@ impl Clone for Executor {
     fn clone(&self) -> Self {
         let mut s = self.0.borrow_mut();
         s.refresh();
+        s.entries();
         let mut saved = Saved {
             bytes: s.bytes.clone(),
             entries: s.entries.clone(),
@@ -194,7 +247,12 @@ impl Data for Executor {
     fn write(&self, w: &mut dyn Writer) {
         let mut s = self.0.borrow_mut();
         s.refresh();
-        s.write(w);
+        if w.digests() {
+            s.digest().write(w);
+        } else {
+            s.entries();
+            s.write(w);
+        }
     }
     fn read(&mut self, r: &mut dyn Reader) -> Result<(), DataError> {
         let mut next = Saved::default();
@@ -273,6 +331,7 @@ mod tests {
         let physics = w.resource::<crate::Physics>();
         let mut good = physics.executor.0.borrow_mut();
         good.refresh();
+        good.entries();
         let (bytes, entries) = (good.bytes.clone(), good.entries.clone());
         let shape = |shape| Collider {
             shape,

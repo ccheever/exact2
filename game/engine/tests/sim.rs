@@ -1412,6 +1412,38 @@ fn posted_messages_reach_one_tick_each_in_order_and_are_saved_only_while_pending
     p.run(1000. / 60.);
     assert_eq!(log(&p).len(), 1);
     assert_eq!(log(&p)[0].1, "expand");
+    // A full input queue refuses new posts by name and never drops one queued.
+    let mut full = Sim::<Shop>::new(Options { paused: true }).unwrap();
+    full.run(0.);
+    for i in 0..1100 {
+        full.post(format!("m{i}"));
+    }
+    assert!(full
+        .agent(r#"{"op":"state"}"#)
+        .contains(r#""refusedPosts":76"#));
+    full.bind(&[Value::Bool(false)], None).unwrap();
+    full.run(1000. / 60.);
+    let got: Vec<_> = log(&full).into_iter().map(|(_, m)| m).collect();
+    assert_eq!(got, (0..1024).map(|i| format!("m{i}")).collect::<Vec<_>>());
+    let refusals = full
+        .world()
+        .journal()
+        .iter()
+        .filter(|e| e.line.contains("postMessage refused"))
+        .count();
+    assert_eq!(refusals, 1, "one journal line per overflow episode");
+    // The drained queue ends the episode: the next overflow journals again.
+    full.bind(&[Value::Bool(true)], None).unwrap();
+    for i in 0..1100 {
+        full.post(format!("n{i}"));
+    }
+    let refusals = full
+        .world()
+        .journal()
+        .iter()
+        .filter(|e| e.line.contains("postMessage refused"))
+        .count();
+    assert_eq!(refusals, 2, "two separate overflow episodes give two lines");
     // Oversized messages refuse by name and change nothing.
     let mut big = Sim::<Shop>::new(Options::default()).unwrap();
     big.run(0.);

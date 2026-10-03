@@ -24,6 +24,7 @@ mod geometry;
 mod lists;
 /// Router declaration checking and compile-time path expansion (LLP 1038 D2/D3).
 pub mod placeholder;
+mod posts;
 pub mod records;
 pub mod routes;
 mod selection;
@@ -1184,6 +1185,7 @@ fn check_with_sites(
         ..ComponentTypes::default()
     });
     let mut sink = Sink::default();
+    posts::check_targets(file, &mut sink);
     check_children(file, &mut types, &mut sink);
     let children = sink.errors.len();
     // The root is checked against its inlined view, so a handler's real call

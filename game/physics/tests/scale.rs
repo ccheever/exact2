@@ -57,8 +57,11 @@ fn rays_interleaved_with_unrelated_writes() {
                 w.get_mut::<Transform>(m).unwrap().position.x += 1e-4;
             }
         });
+        let cached = mean_us(20_000, || {
+            std::hint::black_box(physics::raycast(&w, Vec3::Y, -Vec3::Z, 40., u32::MAX));
+        });
         println!(
-            "SCALE rays rockets={rockets} interleaved_us={interleaved:.1} batched_us={batched:.1}"
+            "SCALE rays rockets={rockets} interleaved_us={interleaved:.1} batched_us={batched:.1} cached_ray_us={cached:.3}"
         );
     }
 }
@@ -137,5 +140,31 @@ fn forest_trunks_per_tick_and_save() {
             "SCALE forest trees={trees} tick_ms={tick:.3} save_bytes={save} physics_bytes_per_tree={}",
             (save - components) / trees
         );
+    }
+}
+
+// A full world hash at Forest scale: static trunks, one walking capsule. The
+// Physics resource is part of the hash, and each step changes it: its snapshot is
+// re-encoded and hashed again.
+#[test]
+#[ignore = "measurement"]
+fn hash_of_a_static_forest() {
+    for trees in [20_000, 100_000] {
+        let mut w = forest(trees);
+        for _ in 0..3 {
+            forest_tick(&mut w);
+        }
+        let (mut snapshot, mut hash) = (Vec::new(), Vec::new());
+        for _ in 0..5 {
+            forest_tick(&mut w);
+            let t = Instant::now();
+            w.resource::<exact_game_physics::Physics>()
+                .refresh_snapshot();
+            snapshot.push((t.elapsed().as_secs_f64() * 1e5).round() / 100.);
+            let t = Instant::now();
+            std::hint::black_box(w.hash());
+            hash.push((t.elapsed().as_secs_f64() * 1e5).round() / 100.);
+        }
+        println!("SCALE hash trees={trees} snapshot_ms={snapshot:?} then_hash_ms={hash:?}");
     }
 }

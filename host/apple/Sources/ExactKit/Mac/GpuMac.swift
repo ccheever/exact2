@@ -41,6 +41,8 @@ final class MetalView: NSView {
 final class Canvases {
     lazy var lifecycle = CanvasLifecycle(self)
     weak var session: ExactSession?
+    /// postMessage events waiting for a live canvas of their surface name.
+    var pendingPosts: [(name: String, text: String, at: Double)] = []
     final class Entry {
         let view: NodeView
         let name: String
@@ -227,6 +229,7 @@ final class Canvases {
         e.each = m.wantsChildrenEach(e.id) != 0
         e.through = e.each || m.wantsChildren(e.id) != 0
         e.wantsInput = m.wantsInput?(e.id) == 1 && m.input != nil
+        deliverPosts() // a post held for this surface, if the canvas is live already
         if e.wantsInput { e.view.canvasInput = CanvasInput(view: e.view) }
         if e.through { capture(m, e) }
     }

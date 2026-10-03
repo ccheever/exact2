@@ -1050,8 +1050,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if kind == "button" {
             isAccessibilityElement = true
             accessibilityTraits.insert(.button)
-            if props["accessibilitySelected"] == "true" { accessibilityTraits.insert(.selected) }
-            else { accessibilityTraits.remove(.selected) }
+            if props["accessibilitySelected"] == "true" { accessibilityTraits.insert(.selected) } else { accessibilityTraits.remove(.selected) }
             setAccessibilityToggle(pressedState)
             if #available(iOS 18, *) {
                 accessibilityExpandedStatus = props["accessibilityExpanded"].map { $0 == "true" ? .expanded : .collapsed } ?? .unsupported

@@ -3,14 +3,14 @@
     "300": "0x7bae8de8662184b9"
   },
   "saves": {
-    "continuation": "8433347c7d7d093150e4cc9baaf4bd2d62da0665db7e2ca91cc0d6b7948b5f13"
+    "continuation": "eb23ec6e4b7f1db3dd3277cc1fe3bdc56c6a4d42eb0e43e60c3fe9d961c4960b"
   },
   "hosts": [
-    "linux"
+    "linux",
+    "web"
   ],
-  "inputs": "08681e2bc18e6279310510ee62ea91a10a7046fb029433751ae717c95d030c2d",
+  "inputs": "a79df2732d07aeee90045ed3aea626f3741c89bf708089df132794dac4c7e1bf",
   "game": "particles-fixture",
-  "generated": "bun game/prove.mjs particles-fixture --repin --hosts linux",
-  "at": "e8abc4e5252f9332325f191f8e58571c9006478b",
-  "reason": "Engine fix lane: paged world hash and columnar saves (EXGAME v4); same simulation, new encodings."
+  "generated": "bun game/prove.mjs particles-fixture --repin --hosts 'linux,web'",
+  "at": "1e0457c44d6d361f0db6b0c4a8e11bd18ea080ab"
 }

@@ -110,6 +110,18 @@ impl Hierarchy {
         out.sort_by_key(|e| e.index());
         Some(out)
     }
+    /// Visit `root` and, after a propagate, its linked descendants.
+    pub(crate) fn subtree(&self, root: usize, visit: &mut dyn FnMut(usize)) {
+        let mut stack = vec![root as u32];
+        while let Some(i) = stack.pop() {
+            visit(i as usize);
+            let mut c = self.links.get(i as usize).map_or(NONE, |l| l.first);
+            while c != NONE {
+                stack.push(c);
+                c = self.links[c as usize].next;
+            }
+        }
+    }
     fn member(&self, index: usize) -> bool {
         self.nodes.get(index).is_some_and(|n| n.done == self.stamp)
     }
@@ -213,6 +225,11 @@ impl Hierarchy {
         self.members = 0;
         self.stale = 0;
         self.epoch += 1;
+        // A cycle-broken root is a root now: its global changed too.
+        for k in 0..self.broken.len() {
+            let i = self.broken[k].index() as usize;
+            self.mark_page(i);
+        }
         let poses = w.pages::<Transform>();
         for k in 0..self.entities.len() {
             let i = self.entities[k].index() as usize;
@@ -362,6 +379,7 @@ impl Hierarchy {
             return true;
         }
         self.next_mark();
+        self.epoch += 1;
         self.sources.clear();
         self.relinked.clear();
         let poses = w.pages::<Transform>();
@@ -372,6 +390,9 @@ impl Hierarchy {
                     let member = self.member(i);
                     let Some(target) = rows.row(i).map(|p| p.0) else {
                         if member {
+                            // Its global is its local pose now, whether or not
+                            // it parents anything.
+                            self.mark_page(i);
                             self.unlink(i);
                             self.set_stale(i, false);
                             self.nodes[i].done = 0;
@@ -468,9 +489,6 @@ impl Hierarchy {
                     }
                 }
             }
-        }
-        if !self.sources.is_empty() {
-            self.epoch += 1;
         }
         for k in 0..self.sources.len() {
             let s = self.sources[k] as usize;

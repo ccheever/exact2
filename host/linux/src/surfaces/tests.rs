@@ -519,3 +519,18 @@ fn an_oversized_record_is_reported_in_state_not_as_the_operations_error() {
     assert_eq!(state["resources"]["hud"]["score"], 5);
     assert_eq!(state["surfaceRefusals"], json!({}));
 }
+
+// postMessage parity (review S2): a post waits for its surface's canvas, at
+// most POST_BOUND per name, on every host.
+#[test]
+fn posts_wait_for_their_surface_up_to_the_bound() {
+    let mut s = Surfaces::default();
+    let event = || serde_json::json!({"t":"message","text":"buy","at":0.0});
+    for _ in 0..POST_BOUND {
+        assert!(s.post("world", event()));
+    }
+    assert!(!s.post("world", event()), "the 65th post is dropped");
+    assert!(s.post("other", event()), "the bound is per surface name");
+    s.deliver_posts();
+    assert_eq!(s.posts["world"].len(), POST_BOUND, "no canvas: still held");
+}

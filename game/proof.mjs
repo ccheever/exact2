@@ -5,6 +5,7 @@ import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { open as openSession, render } from '../scripts/agent.mjs';
+import { gameNonInput } from '../scripts/agent-launch.mjs';
 import { appleArtifacts } from '../host/apple/build.mjs';
 import { buildBake, resolveApp } from '../scripts/app.mjs';
 import { closeFilesystemReader } from '../scripts/filesystem.mjs';
@@ -303,8 +304,7 @@ export function facilityReport(replies) {
 export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`) {
   return /^(issues|\.claude)\//.test(file)
     || /(^|\/)(pins\.json|proof\.mjs|.*\.test\.mjs|.*\.md)$/.test(file)
-    || (file.startsWith(appPrefix) && /\.m?js$/.test(file)
-      && !['logic/', 'data/', 'gpu/', 'art/', 'assets/', 'deck/'].some(dir => file.startsWith(appPrefix + dir)))
+    || (file.startsWith(appPrefix) && gameNonInput(file.slice(appPrefix.length)))
     || (!/\.(rs|toml|lock|contract|ts|js|mjs|wgsl|json|swift|h|c|html|css|modulemap)$/.test(file)
       && !(file.startsWith('host/apple/') && !basename(file).includes('.'))
       && !['art/', 'assets/', 'deck/'].some(dir => file.startsWith(appPrefix + dir)))

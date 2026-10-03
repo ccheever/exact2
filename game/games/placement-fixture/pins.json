@@ -3,14 +3,14 @@
     "330": "0x7136b1be5a2f6a8d"
   },
   "saves": {
-    "continuation": "bede960460f0dbdbcdaddd2d91467a8fd9ababec3d90e571a1a6dac3c45790c4"
+    "continuation": "84506a97b1a8786dad5e7829c49ed43f835b176015fd044ae93a778ec81598c7"
   },
   "hosts": [
-    "linux"
+    "linux",
+    "web"
   ],
-  "inputs": "5b836847ab4df880ace712a391c3df2b375b30e38e2048e0fc00e360253365a2",
+  "inputs": "4a554a8404baa4eb24cbb511d2e9bac127f537e5afff2c1d6e9a1f2b3c2c1f12",
   "game": "placement-fixture",
-  "generated": "bun game/prove.mjs placement-fixture --repin --hosts linux",
-  "at": "e8abc4e5252f9332325f191f8e58571c9006478b",
-  "reason": "Engine fix lane: paged world hash and columnar saves (EXGAME v4); same simulation, new encodings."
+  "generated": "bun game/prove.mjs placement-fixture --repin --hosts 'linux,web'",
+  "at": "1e0457c44d6d361f0db6b0c4a8e11bd18ea080ab"
 }

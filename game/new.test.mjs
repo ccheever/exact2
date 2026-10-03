@@ -456,9 +456,11 @@ test('a root crate\'s new registry dependency resolves before the SDK lock is re
   const lock=(...blocks)=>`version = 4\n\n${blocks.join('\n')}`;
   // 15856ff7 gave kernel cssparser 0.37.0 and updated only the root Cargo.lock.
   const sdk=lock(block('itoa','1.0.15','aa'),block('exact-kernel','0.1.0'));
-  const root=lock(block('cssparser','0.37.0','bb'),block('itoa','1.0.9','cc'),block('caltrain-web','0.1.0'),block('exact-kernel','0.1.0'));
+  const root=lock(block('cssparser','0.37.0','bb'),block('itoa','1.0.9','cc'),block('itoa','2.0.1','ee'),block('caltrain-web','0.1.0'),block('exact-kernel','0.1.0'));
   const seeded=withRootPins(sdk,root), members=new Set(['x-logic']);
-  assert.deepEqual(Bun.TOML.parse(seeded).package.map(p=>`${p.name} ${p.version}`),['itoa 1.0.15','exact-kernel 0.1.0','cssparser 0.37.0'],'only registry packages new to the SDK are added');
+  // A new major of a package the SDK lock holds (itoa 2) is new to it; a compatible one is not.
+  assert.deepEqual(Bun.TOML.parse(seeded).package.map(p=>`${p.name} ${p.version}`),['itoa 1.0.15','exact-kernel 0.1.0','cssparser 0.37.0','itoa 2.0.1'],'only registry packages new to the SDK are added');
+  assert.deepEqual(outsideSdkLock(lock(block('itoa','2.0.1','ee')),seeded,members),[]);
   assert.deepEqual(outsideSdkLock(lock(block('cssparser','0.37.0','bb'),block('itoa','1.0.15','aa')),seeded,members),[]);
   assert.deepEqual(outsideSdkLock(lock(block('cssparser','0.37.1','dd')),seeded,members),[`cssparser 0.37.1 ${registry}`],'the root lock decides the version');
   assert.deepEqual(outsideSdkLock(lock(block('itoa','1.0.9','cc')),seeded,members),[`itoa 1.0.9 ${registry}`],'the SDK lock still decides its own packages');
@@ -507,6 +509,7 @@ test('game/dev.mjs takes the next free port unless --port names a busy one', asy
     assert.deepEqual(chosen.args,['--wasm','--port',String(chosen.port)]);
     await assert.rejects(devPort(['--port','8850']),/--port 8850: 127\.0\.0\.1:8850 is in use; choose another --port/);
     await assert.rejects(devPort(['--port','x']),/--port needs a port number/);
+    await assert.rejects(devPort(['--port=8850']),/--port 8850: 127\.0\.0\.1:8850 is in use/);
     assert.deepEqual(await devPort(['--port',String(chosen.port)]),{port:chosen.port,args:['--port',String(chosen.port)]});
   } finally {await new Promise(ok=>held.close(ok));}
 });
@@ -629,4 +632,12 @@ test('copies of the same game own distinct intermediate build directories', asyn
       assert.equal(config.build['build-dir'], resolve(app,'target'));
     }
   } finally {rmSync(root,{recursive:true,force:true});}
+});
+
+test('a game whose type would shadow an engine export or a template item is refused', async () => {
+  const {createGame,takenTypes}=await import('./new.mjs');
+  const taken=takenTypes();
+  for (const type of ['World','Camera','Transform','Beacon','Options']) assert.ok(taken.has(type),type);
+  for (const name of ['world','camera','beacon']) assert.throws(()=>createGame(resolve(tmpdir(),`zz-${process.pid}`,name)),/would collide/);
+  assert.ok(!taken.has('Garden'));
 });

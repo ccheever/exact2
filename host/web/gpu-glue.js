@@ -27,10 +27,14 @@ const pendingRecords = [];
 let drainingRecords = false;
 let planCarries = new Map();
 const surfaces = new Map(); // view id -> surface, input listeners and journal cursor
+// postMessage(text, name): held per surface name (at most exact.postBound, glue.js's
+// POST_BOUND = Linux POST_BOUND = Apple Canvases.postBound) until a canvas of
+// that name is live, then delivered in order to the live one with the lowest view.
 const posts = new Map(); // surface name -> posted message events awaiting its canvas
 function deliverPosts(name) {
-  const entry = publishers.get(name), queued = posts.get(name);
-  if (!entry?.id || entry.terminal || live(entry.view) !== entry || !queued?.length) return;
+  const queued = posts.get(name);
+  const entry = [...surfaces.values()].filter(e => e.name === name && e.id && !e.terminal && live(e.view) === e).sort((a, b) => a.view - b.view)[0];
+  if (!entry || !queued?.length) return;
   posts.delete(name);
   for (const json of queued) if (!gpu.gpu_input(entry.id, json)) console.error("exact gpu:", gpu.gpu_error());
   messages(entry); schedule();
@@ -724,7 +728,9 @@ const api = {
   // postMessage(id, text) from Contract: one input event, stamped at the call,
   // delivered in order; held until the canvas's surface exists.
   post(name, text, at) {
-    (posts.get(name) ?? posts.set(name, []).get(name)).push(JSON.stringify({ t: "message", text, at }));
+    const queued = posts.get(name) ?? posts.set(name, []).get(name);
+    if (queued.length >= (exact.postBound ?? 64)) { console.warn(`exact: postMessage: dropped: ${exact.postBound ?? 64} posts already wait for surface "${name}"`); return; }
+    queued.push(JSON.stringify({ t: "message", text, at }));
     deliverPosts(name);
   },
   wantsInput: (view) => live(view)?.wantsInput === true,
