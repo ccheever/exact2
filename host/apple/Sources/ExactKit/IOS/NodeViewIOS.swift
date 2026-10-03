@@ -288,7 +288,12 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     func showFocusRing(_ shown: Bool) {
         guard shown else { focusRing?.removeFromSuperlayer(); focusRing = nil; return }
         let ring = focusRing ?? CAShapeLayer()
+        #if os(tvOS)
+        // Across a room the ring stands clear of the content: outside the box, padded and rounded.
+        ring.path = UIBezierPath(roundedRect: bounds.insetBy(dx: -10, dy: -5), cornerRadius: 12).cgPath
+        #else
         ring.path = roundedPath(in: bounds.insetBy(dx: 1.5, dy: 1.5), inset: 1.5).cgPath
+        #endif
         ring.fillColor = nil
         #if os(tvOS)
         // tvOS tints white; the ring must read across a room.
