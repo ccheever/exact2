@@ -177,6 +177,7 @@ The dev compiler retains its last good plan on an error.
 | Shadows from a lamp | `SpotLight.shadows`, or add `PointShadows` to a `PointLight`; the renderer shadows the nearest few |
 | A moon | A second `DirectionalLight` (in entity order) is an unshadowed fill |
 | A first-person weapon | Add `ViewModel` to each part; it draws in front of the world and casts no shadow |
+| Contact shadows in creases | `w.insert_resource(AmbientOcclusion::default())` turns on SSAO (off by default) |
 | Lighting from a photographed sky | `w.insert_resource(EnvironmentMap::new("sky.tex"))` with the equirect in `Game::ASSETS` |
 
 `Character` saves velocity and configuration and reports displacement, grounded,
