@@ -20,7 +20,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   }
   const s = await open();
   const title = await s.tree();
-  check('Duel is initially focused and named', node(title, 'play')?.focused === true && node(title, 'play')?.accessibleName === 'Play');
+  check('Duel is initially focused and named', node(title, 'play')?.focused === true && node(title, 'play')?.props?.accessibilityLabel === 'Play');
   check('title offers duel, free-for-all and range', ['play', 'ffa', 'range'].every(id => !!node(title, id)) && title.nodes.some(n => n.props?.text === 'RIVALS'));
   check('world loads after a mode is chosen', !node(title, 'world'));
   await s.tap('range');
@@ -97,7 +97,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await duel.save(resolve(out, 'continued.world'));
   pinSave('continuation', resolve(out, 'continued.world'));
   await d.tap('pause');
-  check('Pause offers Restart', node(await d.tree(), 'restart')?.accessibleName === 'Restart');
+  check('Pause offers Restart', node(await d.tree(), 'restart')?.props?.accessibilityLabel === 'Restart');
   await d.tap('restart');
   const reset = await d.tree();
   check('Restart clears the score', text(reset, 'you-kills') === '0' && text(reset, 'rival-kills') === '0' && text(reset, 'hp') === '100');

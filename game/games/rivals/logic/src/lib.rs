@@ -233,6 +233,16 @@ pub fn setup(w: &mut World, args: &Options) {
         ),
     );
     viewmodel(w, camera);
+    // Models a fight first needs mid-round (a rocket) are referenced now, hidden:
+    // an asset first requested mid-game is still in flight at the next save.
+    w.spawn_named(
+        "preload",
+        (
+            Transform::at(0.0, -50.0, 0.0),
+            Mesh::asset("rocket.model"),
+            Visible(false),
+        ),
+    );
     w.insert_resource(Round {
         number: 1,
         ..Round::default()
