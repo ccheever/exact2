@@ -90,7 +90,9 @@ previous build (native arm64). They moved again with EXPHYS v3's holes, trajecto
 again unchanged. The current values (pile-600 0xd049aba543e7d682, minimal-120
 0xab0b2a772f504293) agree on native arm64 and in the `minimal` example's Wasm
 (`--profile web`) under headless Chrome and Bun, Off/Save/FreshGame alike
-(2026-10-03). x86-64 is not re-run: this Mac has no Rosetta.
+(2026-10-03). On x86-64 (`--target x86_64-apple-darwin` under Rosetta) the whole
+physics suite passes with the same pins, including the living controller's rest at
+tick 547 and its Off/Save/FreshGame agreement.
 
 Reproduce from `game/` with `EXACT_UPDATE_TRUST=development`:
 ```
