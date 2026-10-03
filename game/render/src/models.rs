@@ -657,8 +657,8 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         )
     }
     /// Feed poses for transparency and winding on completed ticks. A full pass
-    /// walks every model instance; otherwise only instances on changed Transform
-    /// pages, parented instances and those still interpolating are touched.
+    /// walks every model instance; otherwise only instances in blocks whose
+    /// local or propagated poses changed and those still interpolating.
     pub(crate) fn model_poses(
         &mut self,
         world: &exact_game::World,
@@ -670,23 +670,19 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             skinning.feed(&self.queue, world, entities, initial);
         }
         let models = &mut self.models;
-        let rebuilt = models.reconcile_pose_history(entities);
+        // The instance list changes only with the feed's batches, which pass
+        // `Moved::All`; an incremental step skips the O(instances) comparison.
+        let rebuilt = matches!(moved, Moved::All) && models.reconcile_pose_history(entities);
         let mut touched = std::mem::take(&mut models.touched);
         touched.clear();
         match moved {
-            Moved::Pages { pages, parented } if !initial && !rebuilt => {
+            Moved::Pages { pages } if !initial && !rebuilt => {
                 touched.append(&mut models.moving);
                 let history = &models.pose_history;
                 let at =
                     |index: usize| history.partition_point(|h| (h.entity.index() as usize) < index);
                 for &page in pages {
                     touched.extend(at(page * exact_game::PAGE)..at((page + 1) * exact_game::PAGE));
-                }
-                for e in parented {
-                    let i = at(e.index() as usize);
-                    if history.get(i).is_some_and(|h| h.entity == *e) {
-                        touched.push(i);
-                    }
                 }
                 touched.sort_unstable();
                 touched.dedup();
@@ -717,12 +713,10 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
 pub(crate) enum Moved<'a> {
     /// Every instance: structure, parents or assets changed.
     All,
-    /// Instances on these Transform pages, plus every parented instance
-    /// (an ancestor may have moved). Both lists are in index order.
-    Pages {
-        pages: &'a [usize],
-        parented: &'a [exact_game::Entity],
-    },
+    /// Instances on these pages (`PAGE` entity blocks), in index order, whose
+    /// local or propagated poses may have changed. The instance list is the
+    /// previous step's.
+    Pages { pages: &'a [usize] },
 }
 impl Models {
     /// Whether any instance's owner pose has a negative scale axis at either
@@ -1147,6 +1141,90 @@ mod retirement_regressions {
         sim.run(tick);
         feed.feed(sim.world(), &mut renderer).unwrap();
         assert_eq!(steps() - before, exact_game::PAGE + 1);
+    }
+
+    #[test]
+    fn static_parented_instances_cost_no_pose_steps_and_follow_a_moved_parent() {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
+        let mut renderer =
+            crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        let model: Model =
+            exact_game::bin::from_slice(include_bytes!("../../bake/tests/fixtures/crate.model"))
+                .unwrap();
+        renderer.prepare_model("crate.model", &model).unwrap();
+        struct Orchard;
+        impl exact_game::Game for Orchard {
+            type Args = ();
+            const ID: &'static str = "static-parented-poses";
+            fn setup(w: &mut exact_game::World, _: &()) {
+                for i in 0..2 * exact_game::PAGE {
+                    let plant = w.spawn((
+                        exact_game::Transform::at(i as f32, 0., 0.),
+                        exact_game::Mesh::asset("crate.model"),
+                    ));
+                    w.spawn((
+                        exact_game::Transform::at(0., 1., 0.),
+                        exact_game::Mesh::asset("crate.model"),
+                        exact_game::Parent(plant),
+                    ));
+                }
+                w.spawn_named("walker", exact_game::Transform::default());
+            }
+            fn tick(w: &mut exact_game::World, _: &exact_game::Input, _: &()) {
+                w.require_mut::<exact_game::Transform>("walker").position.z += 1.;
+            }
+        }
+        let steps = || POSE_STEPS.with(|n| n.get());
+        let mut sim = exact_game::Sim::<Orchard>::new(()).unwrap();
+        let mut feed = crate::Feed::default();
+        feed.feed(sim.world(), &mut renderer).unwrap();
+        let tick = 1000. / 60.;
+        for _ in 0..2 {
+            sim.run(tick);
+            feed.feed(sim.world(), &mut renderer).unwrap();
+        }
+        let before = steps();
+        sim.run(tick);
+        feed.feed(sim.world(), &mut renderer).unwrap();
+        assert_eq!(steps(), before, "a static hierarchy steps nothing");
+        // Move a plant in the second block: its fruit (a parented instance) follows.
+        let plant = sim
+            .world()
+            .query::<&exact_game::Transform>()
+            .without::<exact_game::Parent>()
+            .iter()
+            .nth(exact_game::PAGE + 3)
+            .unwrap()
+            .0;
+        let fruit = sim
+            .world()
+            .query::<&exact_game::Parent>()
+            .iter()
+            .find(|(_, p)| p.0 == plant)
+            .unwrap()
+            .0;
+        let fruit_at = renderer
+            .models
+            .pose_history
+            .iter()
+            .position(|h| h.entity.index() == fruit.index())
+            .unwrap();
+        sim.world_mut()
+            .get_mut::<exact_game::Transform>(plant)
+            .unwrap()
+            .position
+            .y = 5.;
+        sim.run(tick);
+        feed.feed(sim.world(), &mut renderer).unwrap();
+        let pair = renderer.models.poses[fruit_at];
+        assert_eq!((pair[0].position.y, pair[1].position.y), (1., 6.));
+        assert!(
+            steps() - before <= 2 * exact_game::PAGE,
+            "{}",
+            steps() - before
+        );
     }
 
     #[test]

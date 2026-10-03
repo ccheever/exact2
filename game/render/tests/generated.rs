@@ -171,6 +171,7 @@ struct Grove;
 struct GroveArgs {
     trees: u32,
     primitive: bool,
+    fruit: bool,
 }
 impl Game for Grove {
     const ID: &'static str = "generated-grove";
@@ -211,12 +212,21 @@ impl Game for Grove {
         let side = (args.trees as f32).sqrt().ceil() as u32;
         for i in 0..args.trees {
             let (x, z) = ((i % side) as f32 * 3., (i / side) as f32 * 3.);
-            if args.primitive {
+            let tree = if args.primitive {
                 // Two primitives per tree, as the forest's primitive variant.
                 w.spawn((Transform::at(x, 1., -z), Mesh::cylinder(0.2, 2.)));
-                w.spawn((Transform::at(x, 3., -z), Mesh::sphere(1.)));
+                w.spawn((Transform::at(x, 3., -z), Mesh::sphere(1.)))
             } else {
-                w.spawn((Transform::at(x, 0., -z), pine.clone()));
+                w.spawn((Transform::at(x, 0., -z), pine.clone()))
+            };
+            // One to three static children per plant, as the garden's fruit.
+            for k in 0..if args.fruit { 1 + i % 3 } else { 0 } {
+                let at = Transform::at(0.4 * k as f32 - 0.4, 1.5, 0.3);
+                if args.primitive {
+                    w.spawn((at, Mesh::sphere(0.15), Parent(tree)));
+                } else {
+                    w.spawn((at.with_scale(Vec3::splat(0.1)), pine.clone(), Parent(tree)));
+                }
             }
         }
         w.spawn((
@@ -240,7 +250,8 @@ impl Game for Grove {
 /// Frame CPU (feed + encode, GPU excluded) over static model instances while
 /// the camera walks, on the live clock (a seekable clock observes the world): `TREES=100000 cargo test --release -p exact-game-render
 /// --test generated grove_frame_cpu -- --ignored --nocapture`; `PRIMITIVE=1`
-/// draws each tree as two primitives instead.
+/// draws each tree as two primitives instead; `FRUIT=1` parents one to three
+/// static children to each tree, as the garden's fruit.
 #[test]
 #[ignore = "release CPU measurement over static generated instances; GPU host"]
 fn grove_frame_cpu() {
@@ -249,11 +260,16 @@ fn grove_frame_cpu() {
     };
     let trees: u32 = std::env::var("TREES").map_or(100_000, |n| n.parse().unwrap());
     let primitive = std::env::var("PRIMITIVE").is_ok();
+    let fruit = std::env::var("FRUIT").is_ok();
     let format = exact_gpu::wgpu::TextureFormat::Rgba8Unorm;
     let mut surface = WorldSurface::<Grove, ModelPresentation, true>::default();
     surface
         .bind(
-            &[Value::Number(f64::from(trees)), Value::Bool(primitive)],
+            &[
+                Value::Number(f64::from(trees)),
+                Value::Bool(primitive),
+                Value::Bool(fruit),
+            ],
             None,
         )
         .unwrap();
@@ -304,7 +320,7 @@ fn grove_frame_cpu() {
     }
     samples.sort_by(f64::total_cmp);
     eprintln!(
-        "GROVE trees={trees} primitive={primitive} frame CPU p50={:.3} ms p95={:.3} ms",
+        "GROVE trees={trees} primitive={primitive} fruit={fruit} frame CPU p50={:.3} ms p95={:.3} ms",
         samples[samples.len() / 2],
         samples[samples.len() * 95 / 100]
     );
