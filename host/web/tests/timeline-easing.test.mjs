@@ -16,6 +16,27 @@ import { chromium } from '../../../scripts/agent-launch.mjs';
 import { timelineEasing } from '../motion-glue.js';
 
 const WEB = resolve(new URL('..', import.meta.url).pathname);
+const WEB_JS = resolve(WEB, '../web-js');
+const GLUE = readFileSync(resolve(WEB, 'glue.js'), 'utf8');
+const operationSource = GLUE.slice(GLUE.indexOf('function apply(batch)'), GLUE.indexOf('function applyBatch(batch)', GLUE.indexOf('function apply(batch)')));
+const applySource = GLUE.slice(GLUE.indexOf('function applyBatch(batch)'), GLUE.indexOf('\nfunction send(', GLUE.indexOf('function applyBatch(batch)')));
+// The wasm host's real operation switch and commit tail, with the unrelated
+// host pieces inert. Keeping both functions in this one closure matters:
+// the `timelines` operation sets the flag that the commit tail consumes.
+const hostCommitBody = `
+  let timelinesMoved = false;
+  const exact = globalThis.exact ??= {}, retiredViews = new WeakSet(), followedScrolls = new Map(), pendingScrolls = new Map();
+  const root = document.getElementById('root'), listSelection = null, textflow = null, page = null, collectionOp = null;
+  const collections = {commit() {}}, arrange = {commit() {}, destroy() {}, binding() {}, state() {}}, presence = {hold: () => false, live: null};
+  const prepareContexts = () => {}, runFocusCommands = () => {}, inertAncestor = () => false, refreshSymbols = () => {};
+  const focusAutofocus = () => {}, positionContexts = () => {}, markScrollDocument = () => {}, syncLists = () => {};
+  const followScroll = () => {}, settleFollow = () => {}, settleValue = () => {}, letGo = () => {}, flowBatch = () => {};
+  const navigation = {project() {}, apply() {}}, log = () => {}, inputReady = false, agentMode = false, frameSampler = null;
+  const viewFor = (_, id) => views.get(id), applyProps = () => {}, attach = () => {}, listView = () => {};
+  ${operationSource}
+  ${applySource}
+  return applyBatch;
+`;
 const { executable: chrome, unavailable } = chromium();
 if (unavailable) console.warn(`SKIP: ${unavailable}`);
 const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavailable}`, ...args) : test;
@@ -81,6 +102,7 @@ check('in Chrome, followers match timeline progress and stop when a consumer res
 </style><div id="root"></div>
 <script type="module">
   import { motionController, timelineEasing } from './motion-glue.js';
+  import { engine as jsMotionEngine } from './js/motion.js';
   window.compare = (animation, p) => {
     const make = () => { const el = document.createElement('div'); el.style.animation = animation; el.style.animationPlayState = 'paused'; document.getElementById('root').append(el); return el; };
     const reference = make(), follower = make();
@@ -99,45 +121,91 @@ check('in Chrome, followers match timeline progress and stop when a consumer res
     reference.remove(); follower.remove();
     return { easing, worst };
   };
-  window.reconcileFollower = (change) => {
+  const sourceStyle = '--exact-drag-timeline:--drag x;translate:0 0;width:10px;height:10px';
+  const consumerStyle = 'opacity:.55;--exact-animation-timeline:--drag;--exact-animation-range:0 100;animation:fade 1s linear both;animation-play-state:paused';
+  const makeController = async target => {
     const root = document.getElementById('root');
     root.innerHTML = '<div id="scope"><div id="old"></div><div id="next"></div><div id="consumer"></div></div>';
     const scope = document.getElementById('scope'), old = document.getElementById('old');
     const next = document.getElementById('next'), consumer = document.getElementById('consumer');
-    scope.style.setProperty('--exact-timeline-scope', '--drag');
-    old.style.cssText = '--exact-drag-timeline:--drag x;translate:0 0';
-    next.style.translate = '80px 0';
-    consumer.style.cssText = 'opacity:.55;--exact-animation-timeline:--drag;--exact-animation-range:0 100;animation:fade 1s linear both;animation-play-state:paused';
+    scope.style.setProperty('--exact-timeline-scope', '--drag, --other');
+    old.style.cssText = sourceStyle;
+    next.style.cssText = 'translate:80px 0;width:10px;height:10px';
+    consumer.style.cssText = consumerStyle;
+    const views = new Map([[1, old], [2, next], [3, consumer], [4, scope]]);
     let frames = 0;
     const requestFrame = window.requestAnimationFrame;
     window.requestAnimationFrame = (...args) => { frames++; return requestFrame(...args); };
-    const motion = motionController({ views: new Map([[1, old]]), now: () => performance.now(), generation: () => 1,
-      request: () => ({}), applyBatch: () => {}, inert: () => false });
-    motion.followTimelines();
-    motion.animate({ id: 1, property: 'translate', values: [[0, 0], [100, 0]], delay: 0, duration: 100000 });
-    old.getAnimations()[0].currentTime = 50000;
-    consumer.getAnimations().find(a => a.animationName === undefined).currentTime = 50000;
-    const before = parseFloat(getComputedStyle(consumer).opacity);
-    if (change === 'other') {
-      old.style.removeProperty('--exact-drag-timeline');
-      next.style.setProperty('--exact-drag-timeline', '--drag x');
-    } else if (change === 'inactive') {
-      old.style.removeProperty('--exact-drag-timeline');
-    } else if (change === 'removed') {
-      consumer.style.cssText = 'opacity:.55';
+    let runtime;
+    if (target === 'js') {
+      const instantiate = WebAssembly.instantiate;
+      const memory = new WebAssembly.Memory({initial:1});
+      WebAssembly.instantiate = async () => ({instance:{exports:{memory,m_in:()=>0,m_out:()=>0,m_lower:()=>0}}});
+      globalThis.__files = () => new ArrayBuffer(0);
+      globalThis.exact ??= {}; globalThis.exact.After ??= {};
+      try {
+        runtime = await jsMotionEngine({clock:{agent:false,now:0},wall:()=>performance.now(),views,viewId:el=>Number(el.dataset.view),
+          hooks:{},say:()=>{},inflight:{n:0}});
+      } finally { WebAssembly.instantiate = instantiate; delete globalThis.__files; }
     }
-    motion.followTimelines();
-    const result = { before, after: parseFloat(getComputedStyle(consumer).opacity),
-      followers: consumer.getAnimations().filter(a => a.animationName === undefined).length, frames };
-    motion.reset();
-    window.requestAnimationFrame = requestFrame;
+    const motion = runtime?.api ?? motionController({ views, now: () => performance.now(), generation: () => 1,
+      request: facts => facts.op === 'begin' ? {token:'7',value:[50,0]} : facts.op === 'live' ? {accepted:true} : {},
+      applyBatch: () => {}, inert: () => false });
+    return {root,scope,old,next,consumer,views,motion,runtime,frames:()=>frames,restore:()=>{motion.reset();window.requestAnimationFrame=requestFrame;}};
+  };
+  const startFollower = f => {
+    f.motion.animate({ id: 1, property: 'translate', values: [[0, 0], [100, 80]], delay: 0, duration: 100000 });
+    const source = f.old.getAnimations().find(a => a.animationName === undefined);
+    const follower = f.consumer.getAnimations().find(a => a.animationName === undefined);
+    source.currentTime = 50000; follower.currentTime = 50000;
+  };
+  const followerCount = f => f.consumer.getAnimations().filter(a => a.animationName === undefined).length;
+  const stylesFor = (f, change) => {
+    if (change === 'other-source') return [[1, 'translate:50px 0;width:10px;height:10px'], [2, '--exact-drag-timeline:--drag x;translate:80px 0;width:10px;height:10px']];
+    if (change === 'renamed-axis') return [[1, '--exact-drag-timeline:--other y;translate:0 80px;width:10px;height:10px'], [3, consumerStyle.replaceAll('--drag', '--other')]];
+    if (change === 'axis') return [[1, '--exact-drag-timeline:--drag y;translate:0 80px;width:10px;height:10px']];
+    if (change === 'inactive') return [[1, 'translate:50px 0;width:10px;height:10px']];
+    if (change === 'removed') return [[1, 'translate:50px 0;width:10px;height:10px'], [3, 'opacity:.55'], [4, '']];
+    if (change === 'range') return [[3, consumerStyle.replace('0 100', '0 200')]];
+    return [];
+  };
+  window.reconcileFollower = async (target, change) => {
+    const f = await makeController(target); startFollower(f);
+    const before = parseFloat(getComputedStyle(f.consumer).opacity), styles = stylesFor(f, change);
+    if (target === 'wasm') {
+      const commit = new Function('motion', 'views', ${JSON.stringify(hostCommitBody)})(f.motion, f.views);
+      commit({ops:[...styles.map(([id,css])=>({op:'style',id,css})), {op:'timelines'}]});
+    } else {
+      for (const [id, css] of styles) f.views.get(id).style.cssText = css;
+      f.runtime.flush();
+    }
+    const result = { before, after: parseFloat(getComputedStyle(f.consumer).opacity), followers:followerCount(f), frames:f.frames() };
+    f.restore();
     return result;
+  };
+  window.cancelFollower = async operation => {
+    const f = await makeController('wasm'); startFollower(f);
+    let threw = null;
+    try {
+      if (operation === 'catch') f.motion.begin(1, 'translate');
+      else if (operation === 'spring') f.motion.animate({id:1,property:'translate',values:[[50,0],[0,0]],delay:0,duration:100000});
+      else if (operation === 'retire') f.motion.retire(1, 'translate');
+      else if (operation === 'destroy') f.motion.destroy(1);
+      else if (operation === 'finish') { f.consumer.getAnimations().find(a=>a.animationName===undefined).finish(); await new Promise(ok=>setTimeout(ok,0)); }
+      else f.motion.reset();
+    } catch (error) { threw = String(error); }
+    const result = {threw,followers:followerCount(f)};
+    f.restore(); return result;
   };
   window.ready = true;
 </script>`;
   const server = createServer((req, res) => {
     if (req.url === '/') { res.writeHead(200, { 'content-type': 'text/html' }); res.end(page); return; }
-    res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(resolve(WEB, 'motion-glue.js')));
+    const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+    const file = path === '/motion-glue.js' || path === '/js/motion-glue.js' ? resolve(WEB, 'motion-glue.js')
+      : path.startsWith('/js/') ? resolve(WEB_JS, path.slice(4)) : null;
+    if (!file) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'content-type': 'text/javascript' }); res.end(readFileSync(file));
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
   const profile = mkdtempSync(resolve(tmpdir(), 'exact-timeline-'));
@@ -169,17 +237,25 @@ check('in Chrome, followers match timeline progress and stop when a consumer res
       expect(worst, animation).toBeLessThan(1e-4);
     }
     expect((await compare('fade 1s linear', [0.5, -0.1, 0])).easing).toBe('null');
-    for (const [change, after, followers] of [
-      ['other', 0.36, 0],
+    for (const operation of ['catch', 'spring', 'retire', 'destroy', 'finish', 'reset']) {
+      const result = await evaluate(`cancelFollower(${JSON.stringify(operation)})`);
+      expect(result.threw, `${operation}: cancelling a live follower does not throw`).toBeNull();
+      expect(result.followers, `${operation}: the old follower is gone`).toBe(operation === 'spring' ? 1 : 0);
+    }
+    for (const target of ['wasm', 'js']) for (const [change, after, followers] of [
+      ['other-source', 0.36, 0],
+      ['renamed-axis', 0.68, 0],
+      ['axis', 0.68, 0],
       ['inactive', 0.55, 0],
       ['removed', 0.55, 0],
+      ['range', 0.8, 0],
       ['unchanged', 0.6, 1],
     ]) {
-      const result = await evaluate(`reconcileFollower(${JSON.stringify(change)})`);
-      expect(result.before, `${change}: the release follower is in flight`).toBeCloseTo(0.6, 3);
-      expect(result.after, `${change}: the current timeline wins immediately`).toBeCloseTo(after, 3);
-      expect(result.followers, `${change}: only a still-bound consumer keeps its follower`).toBe(followers);
-      expect(result.frames, `${change}: a spring release schedules no per-frame callbacks`).toBe(0);
+      const result = await evaluate(`reconcileFollower(${JSON.stringify(target)}, ${JSON.stringify(change)})`);
+      expect(result.before, `${target} ${change}: the release follower is in flight`).toBeCloseTo(0.6, 3);
+      expect(result.after, `${target} ${change}: the current timeline wins immediately`).toBeCloseTo(after, 3);
+      expect(result.followers, `${target} ${change}: only a still-bound consumer keeps its follower`).toBe(followers);
+      expect(result.frames, `${target} ${change}: a spring release schedules no per-frame callbacks`).toBe(0);
     }
   } finally {
     child.kill();

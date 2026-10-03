@@ -157,10 +157,14 @@ export function motionController({views,now,generation,request,applyBatch,inert,
     // inactive timeline or no timeline while the old source's release still
     // plays. Stop that follower before seeking the current resolution.
     for(const [id,record] of followers) {
-      record.animations=record.animations.filter(f=>{
-        const c=f.effect?.target,name=c?.style.getPropertyValue('--exact-animation-timeline').trim();
-        if(c?.isConnected&&name&&timelineSource(c,name)===record.source)return true;
-        f.cancel();return false;
+      const [sourceName,sourceAxis='y']=timelineName(record.source);
+      record.animations=record.animations.filter(({animation,consumer,basis,range})=>{
+        const name=consumer.style.getPropertyValue('--exact-animation-timeline').trim();
+        const currentRange=consumer.style.getPropertyValue('--exact-animation-range').trim().split(/\s+/).map(parseFloat);
+        if(consumer.isConnected&&sourceName===record.name&&sourceAxis===record.axis&&name===record.name
+          &&currentRange.length===2&&currentRange.every((v,i)=>v===range[i])
+          &&timelineSource(consumer,name)===record.source&&consumer.getAnimations().includes(basis))return true;
+        animation.cancel();return false;
       });
       if(!record.animations.length)followers.delete(id);
     }
@@ -211,6 +215,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   // (`cancelProperty`), and when they end the paused animations take over
   // where the source rests.
   const followers=new Map();
+  const cancelFollowers=record=>{for(const f of record.animations)f.animation.cancel();};
   // A source a CSS transition moves (an eased release, not a spring) is
   // sought in each frame while it runs: its easing is the browser's, not
   // frames this glue holds.
@@ -232,19 +237,19 @@ export function motionController({views,now,generation,request,applyBatch,inert,
         if(easing===null||animation.effect.composite!=='replace'||keyframes.some(k=>k.composite==='add'||k.composite==='accumulate')){seek=true;continue;}
         const f=c.animate(keyframes,{delay:op.delay,duration:op.duration,easing,fill:'both'});
         if(source.startTime!==null)f.startTime=source.startTime;
-        made.push(f);
+        made.push({animation:f,consumer:c,basis:animation,range:[a,b]});
       }
     }
     if(made.length) {
-      const record={source:el,animations:made};followers.set(id,record);
-      Promise.allSettled(made.map(f=>f.finished)).then(()=>{if(followers.get(id)!==record)return;followers.delete(id);followTimelines();for(const f of record.animations)f.cancel();});
+      const record={source:el,name,axis,animations:made};followers.set(id,record);
+      Promise.allSettled(made.map(f=>f.animation.finished)).then(()=>{if(followers.get(id)!==record)return;followers.delete(id);followTimelines();cancelFollowers(record);});
     }
     if(seek)kickTimelines();
   }
   function cancelProperty(id,property,el=views.get(id)) {
     const k=key(id,property); animations.get(k)?.cancel(); animations.delete(k);
     if(property==='translate'&&followers.has(id)) {
-      for(const f of followers.get(id))f.cancel();
+      cancelFollowers(followers.get(id));
       followers.delete(id);
       // A grab holds the source where it was caught: its consumers too.
       if(el)followTimelines();
@@ -433,7 +438,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
   }
   const api={
     // The agent's seek presents sources without a frame; follow at once.
-    followTimelines() { if(typeof document!=='undefined'&&document.querySelector(`${timelineSources},[style*="--exact-animation-timeline"]`))followTimelines(); },
+    followTimelines() { if(typeof document!=='undefined')followTimelines(); },
     presentReorder(view,token,value) {
       const h=held.get(key(view,'translate'));if(!local(h)||h.token!==token)return false;
       h.value=value;h.el.style.translate=css('translate',value);return true;
@@ -602,7 +607,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       for(const b of [...transformBindings.values()])detachTransform(b);
       geometryDirty.clear();if(geometryFrame!==null)cancelAnimationFrame(geometryFrame);geometryFrame=null;
       for(const animation of animations.values()) animation.cancel(); animations.clear();
-      for(const record of followers.values())for(const f of record.animations)f.cancel(); followers.clear();
+      for(const record of followers.values())cancelFollowers(record); followers.clear();
       const ids=[...authored.keys()]; held.clear();raised.clear(); for(const id of ids) restore(id); authored.clear();
     },
     // Pan and pinch on the photo pair (LLP 1057.001 §4): up to two pointers,
