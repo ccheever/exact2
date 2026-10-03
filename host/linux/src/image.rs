@@ -67,6 +67,11 @@ pub struct Images {
     /// node's font size, which only a commit changes): until the next
     /// commit a sync has nothing to do.
     pub(crate) only_symbols: bool,
+    /// Requests whose decode was running when their view stopped wanting
+    /// them. A decoder that cannot stop (Android's) would finish for
+    /// nothing; each finishes instead, is taken and released, and stays as
+    /// a cold entry for the next view that shows that picture.
+    finishing: Vec<RequestId>,
 }
 
 /// Accepted pixels and natural size, or explicit empty-source removal.
@@ -92,6 +97,7 @@ impl Images {
             deferred: 0,
             order: None,
             only_symbols: false,
+            finishing: Vec::new(),
         }
     }
     pub(crate) fn candidate(&self, assets: Assets) -> Self {
@@ -208,7 +214,7 @@ impl Images {
             }
             if !view.visible {
                 if let Some((request, _)) = view.request.take() {
-                    self.backend.cancel(request);
+                    release(&self.backend, &mut self.finishing, request);
                 }
                 view.lease = None;
                 self.bitmaps.remove(id);
@@ -254,15 +260,42 @@ impl Images {
     fn remove(&mut self, id: ViewId) {
         if let Some(view) = self.views.remove(&id) {
             if let Some((request, _)) = view.request {
-                self.backend.cancel(request);
+                if release(&self.backend, &mut self.finishing, request) {
+                    // Retiring the view would cancel the decode it finishes.
+                    self.bitmaps.remove(&id);
+                    return;
+                }
             }
             self.backend.session.retire_view(view.key);
         }
         self.bitmaps.remove(&id);
     }
+    /// Take each finished decode a view let go of and release it: its
+    /// pixels stay cached, cold.
+    fn finish(&mut self) {
+        let backend = &self.backend;
+        self.finishing
+            .retain(|&request| match backend.session.status(request) {
+                Some(RequestStatus::Decoding) => true,
+                Some(RequestStatus::Ready) => {
+                    drop(backend.session.take_ready(request));
+                    backend.cancel(request);
+                    false
+                }
+                None => {
+                    backend.forget(request);
+                    false
+                }
+                Some(_) => {
+                    backend.cancel(request);
+                    false
+                }
+            });
+    }
     /// Consume bounded completions and retry metadata/decode admission once.
     pub fn poll(&mut self) -> Vec<Report> {
         self.backend.drain_wake();
+        self.finish();
         let mut reports = Vec::new();
         for (id, view) in &mut self.views {
             if view.source.is_empty() || view.symbol_size.is_some() {
@@ -367,6 +400,8 @@ impl Images {
                 };
                 match self.backend.request(demand) {
                     Ok(request) => {
+                        // A view showing a picture still finishing adopts it.
+                        self.finishing.retain(|r| *r != request);
                         view.request = Some((request, decode.pixels));
                         view.requested_for = view.desired;
                         view.refusal = None;
@@ -388,36 +423,37 @@ impl Images {
     }
     /// Pending work, including capacity waits; this is not an animation request.
     pub fn pending(&self) -> bool {
-        self.views.values().any(|v| {
-            !v.source.is_empty()
-                && match v
-                    .source_id
-                    .as_ref()
-                    .and_then(|source| self.backend.prepared(source.id))
-                {
-                    Some(Prepared::Ready(_)) => {
-                        v.visible
-                            && self.decode_enabled
-                            && match v.request {
-                                Some((id, _)) => match self.backend.session.status(id) {
-                                    Some(
-                                        RequestStatus::Queued
-                                        | RequestStatus::WaitingBudget
-                                        | RequestStatus::Decoding,
-                                    ) => true,
-                                    Some(RequestStatus::Ready) => v.accepted != Some(id),
-                                    _ => false,
-                                },
-                                None => matches!(
-                                    v.refusal,
-                                    None | Some(Refusal::QueueFull | Refusal::Budget)
-                                ),
-                            }
+        !self.finishing.is_empty()
+            || self.views.values().any(|v| {
+                !v.source.is_empty()
+                    && match v
+                        .source_id
+                        .as_ref()
+                        .and_then(|source| self.backend.prepared(source.id))
+                    {
+                        Some(Prepared::Ready(_)) => {
+                            v.visible
+                                && self.decode_enabled
+                                && match v.request {
+                                    Some((id, _)) => match self.backend.session.status(id) {
+                                        Some(
+                                            RequestStatus::Queued
+                                            | RequestStatus::WaitingBudget
+                                            | RequestStatus::Decoding,
+                                        ) => true,
+                                        Some(RequestStatus::Ready) => v.accepted != Some(id),
+                                        _ => false,
+                                    },
+                                    None => matches!(
+                                        v.refusal,
+                                        None | Some(Refusal::QueueFull | Refusal::Budget)
+                                    ),
+                                }
+                        }
+                        Some(Prepared::Failed(_)) => false,
+                        _ => true,
                     }
-                    Some(Prepared::Failed(_)) => false,
-                    _ => true,
-                }
-        })
+            })
     }
     /// Wait only for metadata/integrity; decode capacity never rejects activation.
     pub(crate) fn prepare_metadata(
@@ -569,4 +605,16 @@ fn resize_changes_decode(
     let before = before.pixels.width.max(before.pixels.height);
     let after = after.pixels.width.max(after.pixels.height);
     u64::from(after) * 4 > u64::from(before) * 5 || u64::from(after) * 2 < u64::from(before)
+}
+
+/// Let a request go: cancelled, unless its decode is already running, when it
+/// finishes into the cache (see `Images::finishing`). Whether it finishes.
+fn release(backend: &Backend, finishing: &mut Vec<RequestId>, request: RequestId) -> bool {
+    if backend.session.status(request) == Some(RequestStatus::Decoding) {
+        finishing.push(request);
+        true
+    } else {
+        backend.cancel(request);
+        false
+    }
 }
