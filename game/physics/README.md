@@ -87,12 +87,12 @@ Both pins moved on 2026-10-03 when fixed solids stopped pairing: the snapshot lo
 those pairs and each collider's flags changed. Every body pose, velocity and event
 over 600 ticks of pile/stack/drop/bounce and 120 of minimal is byte-identical to the
 previous build (native arm64). They moved again with EXPHYS v3's holes, trajectories
-again unchanged. The current values (pile-600 0xd049aba543e7d682, minimal-120
-0xab0b2a772f504293) agree on native arm64 and in the `minimal` example's Wasm
-(`--profile web`) under headless Chrome and Bun, Off/Save/FreshGame alike
-(2026-10-03). On x86-64 (`--target x86_64-apple-darwin` under Rosetta) the whole
-physics suite passes with the same pins, including the living controller's rest at
-tick 547 and its Off/Save/FreshGame agreement.
+again unchanged, and once more when the world hash became a stream of per-page
+digests and saves became columnar (EXGAME v4). The current values (pile-600
+0x10ee6976a1a36bed, minimal-120 0x811553c310928bfa) agree on native arm64 and on
+x86-64 (`--target x86_64-apple-darwin` under Rosetta), Off/Save/FreshGame alike,
+and the living controller still rests at tick 547 with Off/Save/FreshGame
+agreement (2026-10-03).
 
 Reproduce from `game/` with `EXACT_UPDATE_TRUST=development`:
 ```
