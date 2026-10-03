@@ -163,21 +163,60 @@ export async function duoSmoke({ open, check: record }) {
   if (!check(sdkVersion >= 27.1, `duo: the duo-lab bundle was built with ${sdk || 'an unknown SDK'}; the fold needs the iOS 27.1 SDK — DEVELOPER_DIR=<Xcode 27.1> bun host/apple/build.mjs --ios duo-lab`)) return;
   await hinge(180);
 
-  // Whether this simulator shows a software keyboard at all: the Mac's preference, and
-  // a one-shot probe (the preference was 0 on a run where no keyboard rose, 2026-10-02).
-  // Absent, the keyboard legs are reported unsupported once, and every other check runs.
-  const pref = spawnSync('defaults', ['read', 'com.apple.iphonesimulator', 'ConnectHardwareKeyboard'], { encoding: 'utf8' }).stdout.trim() || 'unset';
+  // Whether this simulator shows a software keyboard at all. The simulator's state
+  // is what counts, and it moves under a run: a Device Hub window sets the device's
+  // own keyboard preference — `com.apple.keyboard.preferences`
+  // `AutomaticMinimizationEnabled = 1`, the software keyboard minimized behind the
+  // hardware keyboard a simulator always has, what "Connect Hardware Keyboard" set —
+  // and the key stays after the window closes, per device, so a session that raised
+  // the keyboard at 14:24 found none at 14:37 on 2026-10-02 (LLP 1078 §As built) —
+  // the "pushed route raises no keyboard" the queue carried. The key is causal
+  // (written, the keyboard goes; deleted, it is back) and read in well under a
+  // second with `simctl spawn <udid> defaults read`; backboardd's "Hardware keyboard
+  // attached" is not the state (every booted simulator gets it at once, and a fresh
+  // device raises its keyboard through it). At the start a fixture probe in its own
+  // session (no leg is open then; the iOS carrier terminates a running copy of the
+  // bundle) is read beside the key; absent with the key set, the keyboard checks are
+  // reported unsupported once, and absent with the key clear they run and fail, a
+  // host failure. Mid-run, the first keyboard that fails to rise reads the key
+  // again, never opens a session: set since the start, the keyboard checks are
+  // unsupported from there, named; clear, they fail. Every other check runs.
+  const minimized = () => {
+    const r = spawnSync('xcrun', ['simctl', 'spawn', udid, 'defaults', 'read', 'com.apple.keyboard.preferences', 'AutomaticMinimizationEnabled'], { encoding: 'utf8', timeout: 60000 });
+    const set = r.status === 0 && /^\s*1\s*$/.test(r.stdout ?? '');
+    const says = set ? 'the device has com.apple.keyboard.preferences AutomaticMinimizationEnabled = 1 (its software keyboard minimized behind the hardware keyboard a simulator always has — what "Connect Hardware Keyboard" set; a Device Hub window writes it and it stays)'
+      : r.status === 0 ? `the device has AutomaticMinimizationEnabled = ${(r.stdout ?? '').trim()}` : 'the device has no AutomaticMinimizationEnabled key';
+    return { set, says };
+  };
   let softKeyboard = false;
   if (plans.insets) {
     const s = await open({ host: 'ios', app: 'duo-lab', plan: plans.insets });
+    let up = false, seen = '';
     try {
       await settle(s); await s.type('note', 'hi');
       const l = await keyboard(s, true), st = await s.state();
-      softKeyboard = l.env['keyboard-inset-height'] > 0;
-      console.log(`duo keyboard: software keyboard ${softKeyboard ? 'rises' : 'absent'} (ConnectHardwareKeyboard=${pref}; keyboard-inset-height ${l.env['keyboard-inset-height']}, state.keyboard ${JSON.stringify(st.keyboard)})`);
-    } catch (e) { console.log(`duo keyboard: the probe failed — ${e.message}`); } finally { await s.close(); }
+      up = l.env['keyboard-inset-height'] > 0;
+      seen = `keyboard-inset-height ${l.env['keyboard-inset-height']}, state.keyboard ${JSON.stringify(st.keyboard)}`;
+    } catch (e) { seen = `the probe failed — ${e.message}`; } finally { await s.close(); }
+    const m = minimized();
+    console.log(`duo keyboard: software keyboard ${up ? 'rises' : 'absent'} at the start (${seen}); ${m.says}`);
+    if (up) softKeyboard = true;
+    else if (m.set) console.log(`duo keyboard: unsupported — the software keyboard is minimized on this simulator; clear it (xcrun simctl spawn ${udid} defaults delete com.apple.keyboard.preferences AutomaticMinimizationEnabled) or boot a fresh device; the keyboard checks are not run`);
+    else { softKeyboard = true; console.log('duo keyboard: no software keyboard rose and the device\'s keyboard preference is not minimized — treated as a host failure; the keyboard checks run'); }
   }
-  if (!softKeyboard) console.log(`duo keyboard: unsupported — no software keyboard on this simulator (ConnectHardwareKeyboard=${pref}); the keyboard checks are not run`);
+  /** A keyboard that should have risen: true to check it (and fail), false when the device's keyboard preference turned minimized since the run began. */
+  const rose = (kb, tag) => {
+    if (!softKeyboard) return false;
+    if (kb > 0) return true;
+    const m = minimized();
+    if (m.set) {
+      softKeyboard = false;
+      console.log(`duo keyboard: ${m.says} — during the run; from ${tag} the keyboard checks are unsupported`);
+      return false;
+    }
+    console.log(`duo keyboard: no software keyboard rose at ${tag} and the device's keyboard preference is not minimized (${m.says}) — a host failure`);
+    return true;
+  };
 
   // 1. The insets fixture: a cover root, the Duo's asymmetric insets, the
   // keyboard (resizes-visual) at each pose, and a fold while editing.
@@ -193,8 +232,10 @@ export async function duoSmoke({ open, check: record }) {
         check(st.slots.note === 'hi' && st.slots.focused === true, `${tag}: typing focused the field ${JSON.stringify(st.slots)}`);
         check(l2.viewport.h === l.viewport.h, `${tag}: the layout viewport does not change for a keyboard (${l2.viewport.h} vs ${l.viewport.h})`);
         const note = box(l2, 'note');
-        if (softKeyboard) check(kb > 100, `${tag}: the software keyboard rose: keyboard-inset-height ${kb}`);
-        if (softKeyboard) check(kb > 0 && note.y + note.h <= l2.viewport.h - kb + 0.01 && note.y < noteBefore.y, `${tag}: the field is revealed above the keyboard ${JSON.stringify(note)} kb ${kb} (was ${JSON.stringify(noteBefore)})`);
+        if (rose(kb, tag)) {
+          check(kb > 100, `${tag}: the software keyboard rose: keyboard-inset-height ${kb}`);
+          check(kb > 0 && note.y + note.h <= l2.viewport.h - kb + 0.01 && note.y < noteBefore.y, `${tag}: the field is revealed above the keyboard ${JSON.stringify(note)} kb ${kb} (was ${JSON.stringify(noteBefore)})`);
+        }
         await s.screenshot(resolve(out, `${tag}-keyboard.png`));
         // Fold while editing: focus and text survive the panel switch, the new panel is covered.
         const next = after(deg);
@@ -225,7 +266,7 @@ export async function duoSmoke({ open, check: record }) {
         await s.type('note', 'hi');
         let l2 = await keyboard(s, true);
         const kb = l2.env['keyboard-inset-height'], bar = box(l2, 'bar');
-        if (softKeyboard) {
+        if (rose(kb, tag)) {
           check(kb > 100, `${tag}: the software keyboard rose: keyboard-inset-height ${kb}`);
           check(near(l2.viewport.h, l.viewport.h - kb) && box(l2, 'root').h === l2.viewport.h, `${tag}: the layout viewport ends at the keyboard ${JSON.stringify(l2.viewport)} (was ${JSON.stringify(l.viewport)}, kb ${kb})`);
           check(l2.env['safe-area-inset-bottom'] === 0, `${tag}: the bottom inset is the keyboard's while it is up`);
@@ -337,7 +378,7 @@ export async function duoSmoke({ open, check: record }) {
         await s.type('note-title-input', 'fold');
         let l = await keyboard(s, true);
         const kb = l.env['keyboard-inset-height'], sheet = box(l, 'note-sheet');
-        if (softKeyboard) check(kb > 100, `${tag}: the keyboard rose under the sheet (${kb})`);
+        if (rose(kb, tag)) check(kb > 100, `${tag}: the keyboard rose under the sheet (${kb})`);
         await s.type('note-textarea', 'fold me');
         l = await keyboard(s, true);
         check(sheet && near(sheet.y + sheet.h, l.viewport.h), `${tag}: the sheet sits on the keyboard-shortened viewport ${JSON.stringify(sheet)} in ${JSON.stringify(l.viewport)}`);

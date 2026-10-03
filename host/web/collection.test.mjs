@@ -277,6 +277,18 @@ test('collection read reuse: eligible nested correction alone reads geometry, la
   expect(result.repeated).toEqual({top:200,reads:[1,1,0,0]});
   expect(result.newer).toEqual({top:260,reads:[1,1,0,0]});
 });
+test('an anchor correction (from) moves the port by its shift after a later user scroll, once', async () => {
+  const result=await evaluate(`(() => {const f=fixture();
+    f.controller.commit([f.snapshot()]);f.port.scrollTop=160;f.port.dispatchEvent(new Event('scroll'));f.flush();
+    const seq=f.reports.at(-1).sequence;
+    f.port.scrollTop=260;f.port.dispatchEvent(new Event('scroll'));
+    const c={scrollSequence:seq,offset:112,from:140};
+    f.controller.commit([f.snapshot('2',{correction:c})]);const shifted=f.port.scrollTop;
+    f.controller.commit([f.snapshot('3',{correction:c})]);const again=f.port.scrollTop;
+    f.controller.commit([f.snapshot('4',{correction:{...c,offset:102}})]);
+    return {shifted,again,grown:f.port.scrollTop};})()`);
+  expect(result).toEqual({shifted:232,again:232,grown:222});
+});
 test('collection read reuse: synchronous report replacement samples new nodes and epochs next pass', async () => {
   const result=await evaluate(`(() => {const f=fixture(),widths=[];let replaced=false;
     f.views.get(2).style.height='40.5px';f.onReport=()=>{widths.push(f.port.clientWidth);if(replaced)return;replaced=true;

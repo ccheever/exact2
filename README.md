@@ -224,7 +224,11 @@ bun host/web/dev.mjs            # Caltrain, at http://127.0.0.1:8765/
 The first run compiles the toolchain, which takes a few minutes. After that, open
 [`apps/caltrain/app.contract`](apps/caltrain/app.contract), change some text, and save.
 The page rebuilds and reloads in about a tenth of a second. Add `--lan` to open the
-same page from a phone on your network.
+same page from a phone on your network. The server answers only to the names it
+prints (a DNS-rebinding guard; any other `Host` gets 421); to share it through a
+tunnel such as `tuft host`, name the tunnel's host with `--allow-host <name>`
+(repeatable; `name:port` pins a port). An allowed name reaches the page and its
+reload stream, never the local installer's token.
 
 ### 3. Run it natively
 
@@ -580,7 +584,7 @@ else here was admitted because a real app needed it.
   replaced live in development. Every web build gets an install page, and
   `exact release` signs and notarizes a Mac app
   ([LLP 1030](llp/1030-delivery-unified.rfc.md)).
-- **Agents and tests.** The nine operations on every host, including a physical
+- **Agents and tests.** The ten operations on every host, including a physical
   iPhone; Contract tests; source maps; filmed screenshots.
 
 ### Not yet, or not at all

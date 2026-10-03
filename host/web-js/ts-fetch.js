@@ -1,16 +1,8 @@
-// App-module fetch binding, injected by the existing bundler, never installed
-// as a page-wide global. Host asset/module fetches keep their own authority.
-import { installGrants } from '../web/http-body.js';
-let authority = { error: 'the source has not installed its grants', permits: () => false };
-export function install(data, spec) { return authority = installGrants(data, 'typescript', spec); }
-export async function fetch(input, options = {}) {
-  const url = typeof Request === 'function' && input instanceof Request ? input.url : new URL(String(input), globalThis.location?.href).href;
-  const request = typeof Request === 'function' && input instanceof Request ? input : null, method = options.method ?? request?.method ?? 'GET';
-  const asset = method === 'GET' && !options.body && !request?.body && [...new Headers(options.headers ?? request?.headers)].length === 0
-    && /^\/assets\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(String(input));
-  if (authority.error || !asset && !authority.permits(url)) throw Object.assign(new Error(`refused by grant: ${url}${authority.error ? ': ' + authority.error : ''}`), { kind: 'Refused' });
-  return globalThis.fetch(input, { ...options, redirect: 'error' });
-}
+// App-module fetch binding, injected by the bundler, never installed as a
+// page-wide global. Host modules keep the browser function at every load time.
+import { fetchWith } from './admission.js';
+import { tsGrantSet } from './admission-data.js';
+export const fetch = (input, options) => fetchWith(tsGrantSet, input, options);
 
 // The usual browser global spellings share this app-local view. Computed
 // access, aliases and destructuring therefore get the same scoped fetch.

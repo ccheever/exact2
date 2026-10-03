@@ -16,8 +16,10 @@ import { createServer, request } from 'node:http';
 import { existsSync, readFileSync, renameSync, rmSync, statSync, watch, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { webRequestURL } from '../../scripts/origin.mjs';
-import { appManifestDigest, buildFileCards, buildTreeFile, sendStaticBody, webContentType } from '../web/serve.mjs';
+import { appManifestDigest, buildFileCards, buildTreeFile, saveTrace, sendStaticBody, webContentType } from '../web/serve.mjs';
 import { localInstaller } from '../web/local-install.mjs';
+
+const CHECKPOINT_BYTES = 16 * 1024 * 1024, CHECKPOINTS = 8;
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const skipped = /(^|\/)(target|dist(?:\.previous)?|node_modules|conformance)(\/|$)|(^|\/)\.|\.md$/;
@@ -54,7 +56,7 @@ function build(app, dist) {
 }
 
 /** Build `app` on the JS target and serve it with reload, until the process ends. */
-export async function devJs({ app, dist, port, host, origins, gate, lan }) {
+export async function devJs({ app, dist, port, host, origins, gate, lan, allowHosts = [] }) {
   const budget = /\|\s*Dev restart[^|]*\|\s*([^|\n]+)/.exec(readFileSync(resolve(root, 'rules/RULES.md'), 'utf8'))?.[1].trim() ?? '?';
   const t0 = Date.now();
   // A first build that fails (a refusal or a compile error) serves its
@@ -128,10 +130,18 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
     if (url.pathname === '/__dev/checkpoint' && req.method === 'POST') {
       const id = url.searchParams.get('id') ?? '', n = Number(url.searchParams.get('seq')), revision = url.searchParams.get('revision') ?? '', chunks = [];
       if (!/^\d+(?:-\d+){3}$/.test(id) || !Number.isSafeInteger(n)) { res.writeHead(400); res.end(); return; }
-      req.on('data', chunk => chunks.push(chunk));
+      // Bounded: a checkpoint is at most the hosts' 16 MiB surface carry, and the
+      // loop keeps the newest few (a page reloads one at a time).
+      let size = 0, over = false;
+      req.on('data', chunk => { size += chunk.length; if (size > CHECKPOINT_BYTES) over = true; else chunks.push(chunk); });
       req.on('end', () => {
-        try { const text = Buffer.concat(chunks).toString('utf8'); JSON.parse(text); checkpoints.set(id, { seq: n, revision, text }); res.writeHead(204); res.end(); }
-        catch { res.writeHead(400); res.end(); }
+        if (over) { res.writeHead(413); res.end(); return; }
+        try {
+          const text = Buffer.concat(chunks).toString('utf8'); JSON.parse(text);
+          checkpoints.delete(id); checkpoints.set(id, { seq: n, revision, text });
+          while (checkpoints.size > CHECKPOINTS) checkpoints.delete(checkpoints.keys().next().value);
+          res.writeHead(204); res.end();
+        } catch { res.writeHead(400); res.end(); }
       });
       return;
     }
@@ -144,6 +154,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
       }
       res.writeHead(204); res.end(); return;
     }
+    if (url.pathname === '/__exact/trace' && req.method === 'POST') return saveTrace(req, res, { app, dist, root });
     if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405); res.end(); return; }
     // A native client opening this URL (`build.mjs --url`, `/__dev/open`,
     // `exact run`) reads the envelope, the dev generations and their event
@@ -183,7 +194,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
       const internal = probe.address().port;
       probe.close(() => {
         console.log(`native client: starting the resident loop's producers (loopback :${internal})`);
-        residentChild = spawn(process.execPath, [resolve(root, 'host/web/dev.mjs'), '--app', app.name, '--wasm', '--port', String(internal), '--serve-as', String(port), ...(lan ? ['--lan'] : [])],
+        residentChild = spawn(process.execPath, [resolve(root, 'host/web/dev.mjs'), '--app', app.name, '--wasm', '--port', String(internal), '--serve-as', String(port), ...(lan ? ['--lan'] : []), ...allowHosts.flatMap((name) => ['--allow-host', name])],
           { cwd: root, env: { ...process.env, EXACT_WEB_DIST: resolve(app.target, 'web-dist-resident') }, stdio: ['ignore', 'pipe', 'inherit'] });
         let buf = '';
         residentChild.stdout.on('data', (d) => {
@@ -213,6 +224,7 @@ es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error)
   const urls = origins.map((o) => `${o.origin}/`);
   console.log(urls.join('\n'));
   console.log(urls.map(url => `  Open in native: ${url}__dev/open`).join('\n'));
+  if (allowHosts.length) console.log(`  also answering to ${allowHosts.join(', ')} (--allow-host)`);
   console.log(`  (dev loop on the JS target: ${app.dir.replace(root + '/', '')} and host/web-js rebuild and reload the page; a native client's requests go to the resident loop's producers, started at the first; ${lan ? 'LAN bind — any peer on this network can read the app and its compile errors' : 'loopback only — --lan to serve a phone on this network'}; ctrl-c to stop)`);
   await new Promise(() => {});
 }

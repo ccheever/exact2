@@ -50,7 +50,7 @@ export function applyCollectionFeedback(batch, applyBatch) {
 
 // `report(bytes, facts, fill)`: the wire bytes for the wasm runner, the
 // same facts as values for the JS target's (host/web-js/list.js).
-export function collectionController({ root, views, report, settled=()=>{},
+export function collectionController({ root, views, report, settled=()=>{}, agent = false,
   requestFrame = fn => requestAnimationFrame(fn), cancelFrame = id => cancelAnimationFrame(id), now = () => performance.now() }) {
   const states = new Map(), dirty = new Set(), waiting = new Set(), rowOwners = new WeakMap(), doc = root.ownerDocument;
   let settling = false, frame = null, delivering = false, interaction = null, reportsLeft = 4, notification=false, reported = 0;
@@ -215,10 +215,10 @@ export function collectionController({ root, views, report, settled=()=>{},
       // is assigned, so its rows exist before any frame shows it.
       if (jump != null) {
         g = { ...g, raw: g.raw + Math.max(0, Math.min(jump, s.port[A.scrollSize] - s.port[A.client])) - s.port[A.offset] };
-        s.sequence++;
+        s.sequence++; s.jumpedAt = s.sequence;
       }
       const dimensions = dimensionsOf(g);
-      if (s.dimensions !== null && dimensions !== s.dimensions) s.sequence++;
+      if (s.dimensions !== null && dimensions !== s.dimensions) { s.sequence++; s.jumpedAt = s.sequence; }
       s.dimensions = dimensions;
       const facts = { view: s.snapshot.view, revision: s.snapshot.revision, scroll_sequence: s.sequence,
         offset: Math.max(0, g.raw + (s.clamp?.at === s.port[A.offset] ? s.clamp.from - s.clamp.at : 0)), port_main: g.portMain, port_cross: g.portCross, cross: g.cross,
@@ -227,13 +227,16 @@ export function collectionController({ root, views, report, settled=()=>{},
         ...measurements.flatMap(r => [r.view, r.epoch, r.size])].join('|');
       for (const [el, value] of measuredSizes) if (s.observed.has(el)) s.observed.set(el, value);
       if (s.signature === signature && jump == null && !s.snapshot.pending) continue;
-      const v = jump == null && !settling ? velocity(s) : 0;
+      // Under the agent a frame fills as a settle does: what it builds may
+      // not depend on the wall clock (a frame's time slice, a velocity), or
+      // which rows a list has measured, and so where it stands, would vary.
+      const v = jump == null && !settling && !agent ? velocity(s) : 0;
       // While its outer list moves, an inner list builds only what it owes
       // (LLP 1070 F2); its pending reply continues the fill at rest.
       const outer = s.snapshot.parent == null ? null : states.get(s.snapshot.parent);
       // The agent's settle ends motion and builds all a report owes at once,
       // as the native pumps do.
-      const fill = { velocity: v, ancestorMoving: !settling && !!outer && velocity(outer) !== 0, limit: settling ? null : jump != null ? 2
+      const fill = { velocity: v, ancestorMoving: !settling && !agent && !!outer && velocity(outer) !== 0, limit: settling || agent ? null : jump != null ? 2
         : Math.max(1, fits(s, deadline - now()), rowsToCover(s, rects, g, v * interval * 2 / 1000)) };
       let bytes;
       try { bytes = collectionBytes(facts, fill); } catch { continue; }
@@ -417,6 +420,32 @@ export function collectionController({ root, views, report, settled=()=>{},
         if (snapshot.seeking && !s.seeking) s.input = false;
         s.seeking = snapshot.seeking === true;
         const correction = snapshot.correction;
+        // An anchor's correction (`from`) is relative: the rows before the
+        // anchor moved by `offset - from` in this commit, so the port moves
+        // with them before it paints, whatever was scrolled since the report
+        // (a fling's frames). Once: a later revision with the same anchor's
+        // correction owes only what it adds.
+        // Not one from before an authored jump or a resize (`jumpedAt`).
+        if (correction && Number.isFinite(correction.from) && s.corrected !== snapshot.revision
+            && BigInt(correction.scrollSequence) >= (s.jumpedAt ?? 0n)) {
+          const g = geometry(s), name = AXES[axis].offset;
+          // H4: a row list moving under the user's hand is not corrected
+          // (below); a vertical one moves with its rows, mid-fling too.
+          const moving = axis === 'x' && velocity(s) !== 0;
+          if (g && !moving && (s.dimensions === null || s.dimensions === dimensionsOf(g))) {
+            s.corrected = snapshot.revision;
+            const last = s.shifted;
+            const done = last && last.scrollSequence === correction.scrollSequence && last.from === correction.from ? last.offset : correction.from;
+            s.shifted = correction;
+            if (correction.offset !== done) {
+              const was = port[name];
+              port[name] += correction.offset - done;
+              s.offset = port[name]; // consume the programmatic scroll echo
+              // Not the reader's travel: its velocity reads on from here.
+              if (s.travel) s.travel.at += port[name] - was;
+            }
+          }
+        } else
         // A request's correction is authored: the browser's clamps and
         // scroll anchoring since the runner's last report don't void it.
         if (correction && s.corrected !== snapshot.revision

@@ -443,10 +443,12 @@ the accepted generation it describes. The driver can connect layout to the
 original declaration, component call sites, and winning style attribute.
 Production artifacts do not need a development source map.
 
-The driver has nine operations: `tree`, `screenshot`, `tap`, `type`, `state`,
-`layout`, `logs`, `clock`, and `prefer`. Variations are arguments, not new commands.
-Use `tree` to find targets, `state` for data and delivery, `layout` for geometry,
-and screenshots for rendered output. Logs name refused operations and data errors.
+The driver has ten operations: `tree`, `screenshot`, `tap`, `type`, `state`,
+`layout`, `logs`, `clock`, `prefer`, and `perf`. Variations are arguments, not new
+commands. Use `tree` to find targets, `state` for data and delivery, `layout` for
+geometry, `perf` for the work a drive cost (`perf <target> during "<op>" …`: per
+plan site, evaluations, unchanged results, instances created and retired), and
+screenshots for rendered output. Logs name refused operations and data errors.
 
 Authored tests are a smaller language over that API:
 

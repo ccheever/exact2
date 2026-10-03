@@ -71,6 +71,8 @@ public enum DevMenu {
         a.addAction(UIAlertAction(title: "Reload", style: .default) { _ in reload() })
         a.addAction(UIAlertAction(title: "Open Project…", style: .default) { _ in openProject() })
         a.addAction(UIAlertAction(title: "Copy Info", style: .default) { _ in UIPasteboard.general.string = text })
+        // LLP 1079 D5: the session's journal, frames and work, for the agent (`agent.mjs trace <file>`).
+        if session?.sampler != nil { a.addAction(UIAlertAction(title: "Save Trace", style: .default) { _ in saveTrace() }) }
         a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
         // An iPad refuses a bare action sheet: anchor it mid-screen, no arrow.
         if let pop = a.popoverPresentationController {
@@ -80,6 +82,20 @@ public enum DevMenu {
         }
         c.present(a, animated: true)
         sheet = a
+    }
+
+    /// Save Trace (LLP 1079 D5): where it went, or why not, as an alert.
+    static func saveTrace() {
+        guard let c = controller, let session else { return }
+        let message: String
+        switch session.saveTrace() {
+        case .success(let url): message = url.path
+        case .failure(let error): message = "Not saved: \(error)"
+        }
+        let a = UIAlertController(title: "Trace", message: message, preferredStyle: .alert)
+        a.addAction(UIAlertAction(title: "Copy Path", style: .default) { _ in UIPasteboard.general.string = message })
+        a.addAction(UIAlertAction(title: "OK", style: .cancel))
+        c.present(a, animated: true)
     }
 
     /// The typed URL — what a physical iPhone actually uses (LLP 1023

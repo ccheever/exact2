@@ -91,13 +91,14 @@ struct LiveTime {
     slew_left: Option<f64>,
     lookahead: f64,
 }
-/// Opt-in save reconstruction after every completed tick. Never enabled by default.
+/// Opt-in save reconstruction at the last tick of every advance and every 16th
+/// tick inside one. Never enabled by default.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Paranoid {
     /// Normal execution.
     #[default]
     Off,
-    /// Rebuild through the production restore path after every tick.
+    /// Rebuild through the production restore path at each sampled tick.
     Save,
     /// Also discard and decode immutable assets before reconstructing the world.
     FreshGame,
@@ -147,10 +148,13 @@ pub struct Sim<G: Game> {
     paused_clock: bool,
     // Last scheduled lookahead, in microseconds × HZ (one tick = 1_000_000).
     lookahead_us_hz: i128,
+    // The last tick's pointer motion, for presentation between ticks only.
+    last_motion: crate::Vec2,
     paranoid: Option<fn(&mut Self)>,
     game: PhantomData<G>,
 }
 const QUEUE_LIMIT: usize = 1024;
+const PARANOID_EVERY: u64 = 16;
 pub(crate) fn micros(ms: f64) -> i64 {
     (ms * 1000.0).round() as i64
 }
@@ -545,6 +549,7 @@ impl<G: Game> Sim<G> {
             period_ms: 0.0,
             paused_clock: false,
             lookahead_us_hz: 0,
+            last_motion: crate::Vec2::ZERO,
             paranoid: Self::reconstruction(Paranoid::environment()),
             game: PhantomData,
         })
@@ -671,7 +676,8 @@ impl<G: Game> Sim<G> {
             return;
         }
         self.invalidate();
-        if G::paused(&self.args) {
+        // A posted message waits for the next tick, paused or not.
+        if G::paused(&self.args) && !matches!(event, InputEvent::Message { .. }) {
             self.input.apply_paused(event);
             return;
         }
@@ -713,6 +719,8 @@ impl<G: Game> Sim<G> {
             }
             match (&mut self.queue[i].event, &e.event) {
                 (old, new) if old.same_motion(new) => {
+                    let mut e = e;
+                    e.event.add_motion(old);
                     self.queue.remove(i);
                     self.queue.insert(position - 1, e);
                     return;
@@ -737,7 +745,7 @@ impl<G: Game> Sim<G> {
                 _ => break,
             }
         }
-        let mut position = position;
+        let (mut position, mut e) = (position, e);
         if self.queue.len() == QUEUE_LIMIT {
             let drop = self
                 .queue
@@ -745,12 +753,22 @@ impl<G: Game> Sim<G> {
                 .position(|e| e.event.is_move())
                 .unwrap_or(0);
             let was_move = self.queue[drop].event.is_move();
-            if drop == 0 {
-                self.queue.pop_front();
-            } else {
-                self.queue.remove(drop);
-            }
+            let dropped = self.queue.remove(drop).expect("a queued event");
             position -= usize::from(drop < position);
+            // A dropped move's motion joins that pointer's next event, so a
+            // flood of moves loses positions, never the turn they add up to.
+            if let InputEvent::Pointer { id, .. } = dropped.event {
+                let same =
+                    |ev: &InputEvent| matches!(ev, InputEvent::Pointer { id: n, .. } if *n == id);
+                let (mut before, mut after) = (drop..position, position..self.queue.len());
+                if let Some(i) = before.find(|&i| same(&self.queue[i].event)) {
+                    self.queue[i].event.add_motion(&dropped.event);
+                } else if same(&e.event) {
+                    e.event.add_motion(&dropped.event);
+                } else if let Some(i) = after.find(|&i| same(&self.queue[i].event)) {
+                    self.queue[i].event.add_motion(&dropped.event);
+                }
+            }
             if !self.overflow_logged {
                 self.world.log(if was_move {
                     "input queue overflow: dropped oldest move"
@@ -763,14 +781,26 @@ impl<G: Game> Sim<G> {
         self.queue.insert(position, e);
     }
     fn flush_paused(&mut self, now: i64) {
+        let mut held = VecDeque::new();
         while self
             .queue
             .front()
             .is_some_and(|e| e.world_us.is_some() || e.host_us <= now)
         {
-            self.input
-                .apply_paused(self.queue.pop_front().unwrap().event);
+            let e = self.queue.pop_front().unwrap();
+            if let InputEvent::Message { .. } = e.event {
+                // Restamped at the pause's end, so it reaches the first tick after.
+                held.push_back(Queued {
+                    world_us: None,
+                    host_us: now,
+                    ..e
+                });
+            } else {
+                self.input.apply_paused(e.event);
+            }
         }
+        held.append(&mut self.queue);
+        self.queue = held;
         self.input.clear_edges();
     }
     /// Host display period in milliseconds; zero means not yet known. Applied
@@ -992,12 +1022,17 @@ impl<G: Game> Sim<G> {
             self.restored = false;
             self.restored_from = None;
             G::tick(&mut self.world, &self.input, &self.args);
+            self.last_motion = self.input.pointer().map_or(crate::Vec2::ZERO, |p| p.delta);
             crate::scene::follow(&self.world);
             self.world.reap_orphans();
             self.world.propagate();
             self.world.step_clock();
+            // Paranoid modes round-trip at every point an advance can be observed
+            // (its last tick) and every PARANOID_EVERY-th tick inside it.
             if let Some(rebuild) = self.paranoid {
-                rebuild(self);
+                if self.world.tick() == target || self.world.tick().is_multiple_of(PARANOID_EVERY) {
+                    rebuild(self);
+                }
             }
             if clock == Clock::Seekable {
                 let left = target - self.world.tick();
@@ -1005,8 +1040,7 @@ impl<G: Game> Sim<G> {
                     self.world.observe(&mut self.observations[0]);
                 }
                 if left == 0 {
-                    self.world
-                        .observe_with_hash(&mut self.observations[1], true);
+                    self.world.observe(&mut self.observations[1]);
                     self.world
                         .compare(&self.observations[0], &self.observations[1]);
                     self.last_epoch.set(self.world.mutation_epoch());
@@ -1034,6 +1068,7 @@ impl<G: Game> Sim<G> {
         let live_time = self.live_time;
         let period_ms = self.period_ms;
         let lookahead = self.lookahead_us_hz;
+        let last_motion = self.last_motion;
         let paused_clock = self.paused_clock;
         let rebase_queue = self.rebase_queue;
         let observations = std::mem::take(&mut self.observations);
@@ -1082,6 +1117,7 @@ impl<G: Game> Sim<G> {
         self.live_time = live_time;
         self.period_ms = period_ms;
         self.lookahead_us_hz = lookahead;
+        self.last_motion = last_motion;
         self.paused_clock = paused_clock;
         self.rebase_queue = rebase_queue;
         self.queue = queue;
@@ -1111,6 +1147,27 @@ impl<G: Game> Sim<G> {
         // Startup or restore can lack the required history. Period changes slew
         // the shared horizon and therefore stay within the retained tick pair.
         self.alpha_numerator().clamp(0, 1_000_000) as f32 / 1_000_000.0
+    }
+    /// Pointer motion received but not yet shown by the pose `alpha` draws:
+    /// the undrawn share of the last tick's and every queued event's, in
+    /// points. A camera's [`crate::MouseLook`] turns by it at presentation, so
+    /// a turn shows at the next frame whatever the tick and display rates.
+    /// Never read by a tick, saved or hashed.
+    pub fn unshown_motion(&self) -> crate::Vec2 {
+        if G::paused(&self.args) || self.world.tick() == 0 {
+            return crate::Vec2::ZERO;
+        }
+        let id = self.input.pointer().map(|p| p.id);
+        let queued = self
+            .queue
+            .iter()
+            .fold(crate::Vec2::ZERO, |sum, e| match &e.event {
+                InputEvent::Pointer { id: at, dx, dy, .. } if id.is_none_or(|id| id == *at) => {
+                    sum + crate::Vec2::new(*dx, *dy)
+                }
+                _ => sum,
+            });
+        self.last_motion * (1.0 - self.alpha()) + queued
     }
     /// Replacement generation for presentation caches; not saved or hashed.
     pub fn generation(&self) -> u64 {
@@ -1188,6 +1245,14 @@ impl<G: Game> Sim<G> {
         self.input(InputEvent::Key {
             code: code.into(),
             down,
+            at_ms: self.last_us.unwrap_or(0) as f64 / 1000.0,
+        });
+    }
+    /// Post a message into the world at the current clock, as Contract's
+    /// `postMessage(surface, text)` does; the next tick reads it in `Input::messages`.
+    pub fn post(&mut self, text: impl Into<String>) {
+        self.input(InputEvent::Message {
+            text: text.into(),
             at_ms: self.last_us.unwrap_or(0) as f64 / 1000.0,
         });
     }

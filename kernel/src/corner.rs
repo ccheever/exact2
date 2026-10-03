@@ -126,8 +126,10 @@ fn corner(word: &str) -> Result<Corner, &'static str> {
     let k = match arg {
         "infinity" => f32::INFINITY,
         "-infinity" => f32::NEG_INFINITY,
-        n => n
-            .parse::<f32>()
+        // Through exact-num, never `str::parse`: std's float reader (its
+        // tables) would ride every web core, since every style write can
+        // reach this check (QUEUE: core crates read numbers through it).
+        n => exact_num::parse_f32(n)
             .ok()
             .filter(|k| k.is_finite())
             .ok_or("superellipse() takes a number, infinity or -infinity")?,

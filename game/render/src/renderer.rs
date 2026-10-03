@@ -1,5 +1,6 @@
 mod culling;
 mod draw;
+mod local;
 mod passes;
 use crate::buffers::{bytes, Buffer, Targets};
 use crate::pipeline::Pipelines;
@@ -55,15 +56,27 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     culled_key: (wgpu::Buffer, u64),
     pub(crate) cull: crate::cull::Cull,
     pub(crate) environment: crate::ibl::EnvironmentLight,
+    pub(crate) lights: crate::lights::Lights,
+    pub(crate) local: Option<crate::local_shadows::LocalMaps>,
+    pub(crate) local_plan: crate::local_shadows::Plan,
+    pub(crate) local_culls: Vec<local::LocalCull>,
+    /// Group 1 of forward passes; rebuilt when a shadow texture is replaced.
+    shadow_sample: wgpu::BindGroup,
+    shadow_sample_stale: bool,
+    shadow_placeholder: wgpu::TextureView,
+    shadow_comparison: wgpu::Sampler,
     vertices: Buffer,
     indices: Buffer,
     pub(crate) meshes: Vec<Mesh>,
     pub(crate) mesh_uploads: u64,
     batches: Vec<Batch>,
+    /// A drawn batch is in the viewmodel layer this frame.
+    viewmodels: bool,
     targets: Targets,
     counts: Stats,
     shadows: Option<ShadowMaps>,
     bloom: Option<BloomTargets>,
+    ssao: Option<crate::ssao::Ssao>,
     texture_creations: u64,
     hook_binding: Option<crate::hooks::FrameBinding>,
     custom_bindings: Option<crate::hooks::MaterialBindings>,
@@ -110,7 +123,13 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             let start = at;
             let mirrored = self.slot_mirrored(self.slot_list[at as usize], frame);
             at += 1;
-            if frame.attachments.is_empty() && (!ASSETS || self.model_batches[index].is_none()) {
+            // A model batch shares its nodes' parity; only owners with a negative
+            // scale axis or an attachment can differ within it.
+            if frame.attachments.is_empty()
+                && (!ASSETS
+                    || self.model_batches[index].is_none()
+                    || !self.models.any_mirrored_owner())
+            {
                 at = end;
             } else {
                 while at < end && self.slot_mirrored(self.slot_list[at as usize], frame) == mirrored
@@ -160,6 +179,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             "game attachment matrices",
         );
         let environment = crate::ibl::EnvironmentLight::new(device, false);
+        let lights = crate::lights::Lights::new(device);
         let retained_binds = scene_binds(
             device,
             &pipelines.scene_layout,
@@ -169,6 +189,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             (&slots.raw, None),
             &attachment_matrices,
             &environment,
+            &lights,
         );
         let cull = crate::cull::Cull::new(device);
         let culled_key = (cull.compacted.raw.clone(), cull.window);
@@ -181,8 +202,35 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             (&cull.compacted.raw, Some(cull.window)),
             &attachment_matrices,
             &environment,
+            &lights,
         );
         let targets = Targets::new(device, (64, 64), &pipelines.tone_layout, &uniform);
+        let shadow_placeholder = crate::local_shadows::placeholder(device);
+        let shadow_comparison = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("game shadow comparison"),
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let shadow_sample = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("game shadow sample"),
+            layout: &pipelines.shadow_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&shadow_placeholder),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&shadow_comparison),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&shadow_placeholder),
+                },
+            ],
+        });
         Self {
             models: crate::models::Models::default(),
             quads: crate::quads::Quads::new::<ASSETS>(device, queue, &uniform),
@@ -203,14 +251,24 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             culled_key,
             cull,
             environment,
+            lights,
+            local: None,
+            local_plan: Default::default(),
+            local_culls: Vec::new(),
+            shadow_sample,
+            shadow_sample_stale: false,
+            shadow_placeholder,
+            shadow_comparison,
             vertices: Buffer::new(device, 1024, wgpu::BufferUsages::VERTEX, "game vertices"),
             indices: Buffer::new(device, 1024, wgpu::BufferUsages::INDEX, "game indices"),
             meshes: Vec::new(),
             mesh_uploads: 0,
             batches: Vec::new(),
+            viewmodels: false,
             targets,
             shadows: None,
             bloom: None,
+            ssao: None,
             texture_creations: 4,
             hook_binding: None,
             custom_bindings: None,
@@ -605,7 +663,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
     }
 
-    fn rebind(&mut self) {
+    pub(crate) fn rebind(&mut self) {
         self.scene_binds = scene_binds(
             &self.device,
             &self.pipelines.scene_layout,
@@ -615,8 +673,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             (&self.slots.raw, None),
             &self.attachment_matrices,
             &self.environment,
+            &self.lights,
         );
         self.rebind_culled();
+        self.rebind_locals();
     }
     fn rebind_culled(&mut self) {
         self.culled_key = (self.cull.compacted.raw.clone(), self.cull.window);
@@ -629,6 +689,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             (&self.cull.compacted.raw, Some(self.cull.window)),
             &self.attachment_matrices,
             &self.environment,
+            &self.lights,
         );
     }
 }
@@ -650,6 +711,7 @@ fn scene_binds(
     slots: (&wgpu::Buffer, Option<u64>),
     attachments: &Buffer,
     environment: &crate::ibl::EnvironmentLight,
+    lights: &crate::lights::Lights,
 ) -> [wgpu::BindGroup; 2] {
     std::array::from_fn(|current| {
         let slots = match slots.1 {
@@ -669,6 +731,7 @@ fn scene_binds(
             attachments.raw.as_entire_binding(),
             wgpu::BindingResource::TextureView(&environment.view),
             wgpu::BindingResource::Sampler(&environment.sampler),
+            lights.buffer.raw.as_entire_binding(),
         ];
         let entries = resources.map({
             let mut binding = 0;

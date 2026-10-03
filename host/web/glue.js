@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { deferredFulfill, refusal, guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, foldBits, foldEnv, onFold, preferFold, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter, valuedControl, settleValue, typeControl, viewBox, fold, grantOrigins } from "./navigation.js";
+import { grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter, valuedControl, settleValue, typeControl, viewBox, foldBits, foldEnv, onFold, preferFold, fold } from "./navigation.js";
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule; // the file picker (LLP 1069.002) and documents (LLP 1069.010), loaded on first use
 const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
@@ -13,7 +13,7 @@ function httpHelpers() {
 const root = document.getElementById("exact-root");
 const views = new Map(); // view id -> element
 // Springs, holds, drags and virtualized collections: after-paint pieces, fetched on first use (LLP 1047 D5).
-const pieces = afterPaintPieces(loadAfterPaint, { root, views, applyBatch, inert: inertAncestor, now: () => now(), generation: () => incarnation, ready: () => inputReady,
+const pieces = afterPaintPieces(loadAfterPaint, { root, views, applyBatch, agent: () => agentMode, inert: inertAncestor, now: () => now(), generation: () => incarnation, ready: () => inputReady,
   replayed() { motion.commit(); arrange.commit(); if (agentMode) { register(agentClock); seek(agentClock); } else motion.followTimelines(); },
   wasm(name, bytes) { if (!wasm) return null; new Uint8Array(memory.buffer, wasm.exact_in(bytes.length), bytes.length).set(bytes); return JSON.parse(readOut(wasm[name](bytes.length))); } });
 const { collections, motion, arrange } = pieces, retiredViews = new WeakSet(); // committed removals must not dispatch teardown events
@@ -164,6 +164,7 @@ let agentClock = agentMode ? 0 : null;
 const { register, seek: seekAnimations, settle: settleCandidate } = animationClock(() => agentClock, () => ask({ op: "settle" }).settle, () => { motion.followTimelines(); presence.live?.sync(); });
 const seek = to => { (imageHold ??= loadAfterPaint('./image-glue.js', 'holdImages').then(f => f({ root, now: () => agentClock }))).then(h => h.seek()); seekAnimations(to); };
 const now = () => agentClock ?? performance.now() - t0;
+let frameSampler = null; // a development page's frame sampler (frames.js, LLP 1079 D3)
 let timelinesMoved = false; // a batch's `timelines` op: its consumers are sought once it is applied
 let bootAttempt = 0;
 let devAssets = null;
@@ -451,7 +452,7 @@ function applyProps(el, set, clear) {
       el.authoredInert = value === "true"; el.inert = el.authoredInert;
     } else if (name === "autofocus") { el.exactAutofocus = value === "true"; if (!el.exactAutofocus) el.removeAttribute(name);
     } else if (name === "disabled" || name === "readonly" || (el instanceof HTMLVideoElement && ["autoplay","controls","loop","muted","playsinline","disablepictureinpicture","disableremoteplayback"].includes(name))) {
-      if (value === "true") el.setAttribute(name, ""); else el.removeAttribute(name);
+      if (value === "true") { el.setAttribute(name, ""); if (name === "disabled" && el === document.activeElement) el.blur(); } else el.removeAttribute(name); // a focused node that is disabled loses the focus now, not at the browser's next frame (HTML focus fixup)
     } else {
       const v = (name === "src" || name === "poster") && value.startsWith("app:/") ? globalThis.exact.pickedURL?.(value) ?? "" : (name === "src" || name === "href" || name === "poster") ? localAssetURL(value) : value, same = el.getAttribute(name) === v; // setting what is there reloads an adopted iframe or video
       if (el instanceof HTMLIFrameElement && name === "src" && !same) iframeLoading.set(el, true);
@@ -688,7 +689,7 @@ function apply(batch) {
         }
         break;
       }
-      case "grants": { grants = op.lines; unparsed = op.error ?? ""; if (unparsed) console.warn("exact:", unparsed); if (grants.some(l => /^\s*auth\.session /.test(l))) authHost ??= afterNativePaint().then(() => loadAfterPaint('./auth-glue.js', 'authHost')).then(h => authHost = h); break; } case "auth": { const inc = incarnation, env = { agent: agentMode, log, call: r => JSON.parse(readOut(wasm.exact_auth(writeIn(JSON.stringify(r))))), deliver: t => deferFulfill(inc, t, 9, 0, "", new Uint8Array()), active: t => holds(t, inc) }; if (authHost?.arm) authHost.arm(op, env); else if (agentMode && authHost) authHost.then(h => h.arm(op, env)); else { env.call({ op: "arm", ticket: op.ticket, origin: location.origin, popup: false }); env.deliver(op.ticket); } break; } // LLP 1069.006 D4: armed in the press's call stack; unloaded glue is 428
+      case "grants": { grantSet = createGrantSet(op.set); grants = rawGrantText(grantSet).split('\n').filter(Boolean); unparsed = grantError(grantSet) ?? ""; if (unparsed) console.warn("exact:", unparsed); if (grants.some(l => /^\s*auth\.session /.test(l))) authHost ??= afterNativePaint().then(() => loadAfterPaint('./auth-glue.js', 'authHost')).then(h => authHost = h); break; } case "auth": { const inc = incarnation, env = { agent: agentMode, log, call: r => JSON.parse(readOut(wasm.exact_auth(writeIn(JSON.stringify(r))))), deliver: t => deferFulfill(inc, t, 9, 0, "", new Uint8Array()), active: t => holds(t, inc) }; if (authHost?.arm) authHost.arm(op, env); else if (agentMode && authHost) authHost.then(h => h.arm(op, env)); else { env.call({ op: "arm", ticket: op.ticket, origin: location.origin, popup: false }); env.deliver(op.ticket); } break; } // LLP 1069.006 D4: armed in the press's call stack; unloaded glue is 428
       case "store": {
         // A secret the app kept or forgot (LLP 1018 D6): `localStorage`,
         // origin-scoped, is the web's secret store. Never in agent mode — a
@@ -706,13 +707,13 @@ function apply(batch) {
           await moduleReady; if(!inputReady)throw new Error('data executor is unavailable');
           if(requestIncarnation!==incarnation)throw new Error('storage source unloaded');
           if(!storageRequests){
-            const app=globalThis.exact.compat.inputs.app, scope=grants.join('\n');
-            const pending=loadAfterPaint('./storage-request.js','createStorageRequests').then(create=>create(app,scope)).catch(error=>{if(storageRequests===pending)storageRequests=null;throw error;});
+            const app=globalThis.exact.compat.inputs.app;
+            const pending=loadAfterPaint('./storage-request.js','createStorageRequests').then(create=>create(app,grantSet)).catch(error=>{if(storageRequests===pending)storageRequests=null;throw error;});
             storageRequests=pending;
           }
           const service=await storageRequests;
           if(requestIncarnation!==incarnation)throw new Error('storage source unloaded');
-          return service.run(op.payload,op.scope);
+          return service.run(op.payload,scopedGrantSet(grantSet,op.scope));
         }).then(bytes=>safelyFulfill(requestIncarnation,op.ticket,5,0,"",bytes))
           .catch(error=>safelyFulfill(requestIncarnation,op.ticket,3,0,"",encoder.encode(String(error))));
         track(p,op.ticket);break;
@@ -751,7 +752,7 @@ function apply(batch) {
         const requestIncarnation = incarnation, controller = new AbortController(), started = performance.now();
         let p, first, messages = 0; const opened = new Promise(r => { first = r; });
         const host = {
-          grants, granted, unparsed, loadPageNative, moduleLoader, localAssetURL, controllers, controller,
+          grantSet, loadPageNative, moduleLoader, localAssetURL, controllers, controller,
           active: () => requestIncarnation === incarnation,
           // A stream's message (LLP 1016.000): after its first, the stream is open, not in flight, so `clock settle`
           // stops waiting on it (D5) — what is counted ends there, so a wait already racing it wakes (LLP 1069.004).
@@ -773,6 +774,11 @@ function apply(batch) {
         // the web. `light`/`dark` are the property's own values.
         if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "light dark" : s; } else if (op.name === "haptic") navigator.vibrate?.(op.args?.[0] === "selection" ? 5 : 12); // LLP 1077 D14
         else if (op.name === "focus" || op.name === "selectText" || op.name === "blur") focusCommands.push({ name: op.name, args: op.args });
+        else if (op.name === "postMessage") { // the inverse of `message=`: text into the named surface, every one in order
+          const name = String(op.args?.[0] ?? ""), text = String(op.args?.[1] ?? ""), at = now();
+          if (globalThis.exact.gpu) globalThis.exact.gpu.post(name, text, at);
+          else (globalThis.exact.pendingPosts ??= []).push({ name, text, at, generation: incarnation });
+        }
         else if (op.name === "showPicker") { // LLP 1069.002 D2, D9: the element's own picker, inside the press's activation; under the agent, a hold
           const el = [...views.values()].find(el => el.id === op.args?.[0] && el.type === "file");
           if (agentMode) { const r = ask({ op: "showPicker", id: String(op.args?.[0] ?? "") }); if (r.error) console.warn("exact:", r.error); }
@@ -881,6 +887,7 @@ function apply(batch) {
 }
 function applyBatch(batch) {
   if (page?.hold(batch) || presence.hold(batch)) return { timers: batch.timers, batch }; textflow?.beforeBatch(batch);
+  const began = frameSampler ? performance.now() : 0; // what applying it cost, for the next frame's record (LLP 1079 D3)
   globalThis.exact.applyDepth = (globalThis.exact.applyDepth ?? 0) + 1; try {
   const timers = apply(batch); letGo();
   motion.commit(); arrange.commit();
@@ -894,7 +901,7 @@ function applyBatch(batch) {
   timelinesMoved = false;
   flowBatch(batch);
   return { timers, batch };
-  } finally { if (--globalThis.exact.applyDepth === 0) { globalThis.exact.gpu?.drainRecords(); globalThis.exact.gpu?.layout?.(); } }
+  } finally { const outer = --globalThis.exact.applyDepth === 0; if (outer) { globalThis.exact.gpu?.drainRecords(); globalThis.exact.gpu?.layout?.(); } frameSampler?.batch(batch.seq, outer ? performance.now() - began : 0); }
 }
 function send(len) {
   return applyBatch(JSON.parse(readOut(len))).timers;
@@ -935,9 +942,10 @@ function commitFonts(faces) {
   for (const face of faces) document.fonts.add(face);
   installedFonts = faces;
 }
-// LLP 1016: grants come from a whole-set parse; invalid sets arrive empty, with `unparsed` naming why.
+// LLP 1016: grants come from one whole-set parse; `unparsed` names why an
+// invalid full set admits nothing while retaining raw lines for child scopes.
 // The agent's settle waits on active fetches; replies return to the wasm.
-let grants = [], unparsed = "";
+let grants = [], grantSet = null, unparsed = "";
 let storageRequests = null;
 const inflight = new Set();
 const controllers = new Set(), forgettable = new Map();
@@ -951,24 +959,6 @@ const waiting = () => [...inflight].filter(p => p.ticket == null || holds(p.tick
 // After each commit: abort the reads whose tickets the runner let go of.
 function letGo() { for (const [controller, ticket] of forgettable) if (!holds(ticket)) { forgettable.delete(controller); controller.abort(); } }
 const HOST_WORK_BYTES=16*1024*1024, HOST_WORK_BASE64=4*Math.ceil(HOST_WORK_BYTES/3);
-// A `net.fetch` grant: an origin matched whole, or `scheme://*.domain` (every host strictly under one
-// domain of 2+ labels), as ibex2 matches natively (its patch 1, LLP 1054.000 R5). Copied in module-glue.js.
-function grantAdmits(granted, url) {
-  try {
-    const wild = granted.includes('://*.'), text = wild ? granted.replace('://*.', '://') : granted;
-    const target = new URL(url), grant = new URL(text), host = grant.hostname.toLowerCase(), targetHost = target.hostname.toLowerCase();
-    if (text.includes('*') || grant.protocol !== target.protocol || grant.port !== target.port) return false;
-    if (!wild) return host === targetHost;
-    return ['', '/'].includes(grant.pathname) && !text.includes('?') && !text.includes('#') && !(host.startsWith('[') || /^(?:https?|wss?|ftp):$/.test(grant.protocol) && /^[\d.]+$/.test(host))
-      && host.split('.').filter(Boolean).length >= 2 && !host.endsWith('.') && targetHost.length > host.length + 1 && targetHost.endsWith('.' + host);
-  } catch { return false; }
-}
-function granted(url, scope = null) {
-  return (scope == null ? grants : scope.split("\n")).map(g=>g.trim()).some((g) => {
-    const [kind, granted] = g.split(/\s+/, 2);
-    return kind === (/^wss?:/i.test(url) ? "net.websocket" : "net.fetch") && !!granted && grantAdmits(granted, url); // a socket's own grant (LLP 1069.004)
-  });
-}
 function surfaceGranted(op) {
   const admitted=grants.map(g=>g.trim()).filter(Boolean), scoped=(op.scope==null?admitted:op.scope.split("\n").map(g=>g.trim()).filter(Boolean));
   const need=`surface.${op.mode==="capture"?"read":"write"} ${op.name}`;
@@ -1077,7 +1067,11 @@ function tree(request) {
   for (const node of reply.nodes ?? []) {
     const el = views.get(node.id);
     node.focused = el === document.activeElement;
-    if (el?.matches("button, a, [role=button]")) node.accessibleName = el.getAttribute("aria-label") ?? el.textContent.trim();
+    // The accessible name as Chrome computes it (accname 1.2): a non-empty
+    // `aria-label` (an image's `alt`) names any element; a button or link is
+    // named by its content too. Every host reports the same rule.
+    const label = el?.getAttribute(el.localName === "img" ? "alt" : "aria-label");
+    if (label || el?.matches("button, a, [role=button], [role=link]")) node.accessibleName = label || el.textContent.trim();
     if (el?.exactNative) node.module = el.exactNative.status();
     if (!(el instanceof HTMLIFrameElement)) continue;
     node.url = el.getAttribute("src") ?? "";
@@ -1110,6 +1104,7 @@ function agentReply(request) {
       if (r.capability === "export" && r.node != null) return picker().then(m => m.answerSave(r, held.text)).then(out => tagged({ ...r, ...out })); // LLP 1069.010 D3: the bytes go back to the driver
       return r.capability === "pick" && r.node != null ? picker().then(m => m.answer(r.node, r.answered === "cancel" ? null : files ?? [])).then(() => tagged(r)) : tagged(r);
     }
+    if (request.op === "perf" && request.frames) return { virtual: true }; // the agent's clock presents no frame (LLP 1079 D4)
     switch (request.op) {
       case "state": {
         const st = ask(request);
@@ -1150,6 +1145,7 @@ function agentReply(request) {
           if (detail.error) return detail;
           reply.node = detail;
         }
+        if (request.agree) return tagged({ clock: reply.clock, viewport: reply.viewport, agreement: { unavailable: "not implemented: app drives run the JS target" } }); else if (request.native && reply.node) { delete reply.nodes; reply.node.native.subviews = { unavailable: "the DOM is the tree; layout <target> names the element" }; } // @ref LLP 1080.001 D1, D2
         return tagged(reply);
       }
       case "prefer": { // @ref LLP 1069.000 D6 — the page group; the driver sets media through CDP. @ref LLP 1078 D7 — the fold group: an empty one re-reads the browser (the driver's CDP override), a filled one is the substitute.
@@ -1232,7 +1228,7 @@ async function clock(request) {
   let world = {};
   const reply = (settled, requests) => ({ clock: agentClock, ...(settled === undefined ? {} : { settled }), ...world.reply, ...(settled === false && world.pending ? { reason: "world" } : settled === false && requests ? { reason: "requests" } : {}) });
   for (let rounds = 0; ; rounds++) {
-    if (settle && !(await waitForInflight(deadline))) return reply(false, true); const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad;
+    if (settle && !(await waitForInflight(deadline))) return reply(false, true); const pieceLoad = pieces.pending(); if (pieceLoad) await pieceLoad; if (settle) collections.settle(); // rows a list shows are built at this clock, before it moves (as the JS agent does): their animations start here
     if (gpuInPlay()) { const pending = await settleGpu(); if (pending.length) return gpuPendingReply(request, pending); }
     const to = settle ? Math.max(settleCandidate(), world.settleAt ?? agentClock) : request.to;
     if (!(to >= agentClock)) return { error: `the clock cannot go backwards (${agentClock} → ${to})` };
@@ -1322,6 +1318,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   }
   const batch = JSON.parse(readOut(len));
   if (batch.error) throw new Error(batch.error);
+  frameSampler?.reset(); // a new runner numbers its transactions afresh (LLP 1079 D3)
   if (module) { activeModule?.realm?.dispose(); activeModule = module; setInputReady(true); }
   navigation.reset(batch.ops.find(op => op.op === "router"));
   const oldAssets = devAssets;
@@ -1347,7 +1344,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   for (const el of views.values()) { el.exactMarkup?.destroy(); el.exactNative?.destroy(); } views.clear();
   messageFrames.clear(); messageViews.clear();
   if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}
-  grants = []; unparsed = "";
+  grants = []; grantSet = null; unparsed = "";
   for (const controller of controllers) controller.abort();
   controllers.clear(); forgettable.clear();
   inflight.clear();
@@ -1468,6 +1465,7 @@ async function main() {
   const activate = async () => {
     loadGpuIfNeeded(); if (wasm.exact_motion) pieces.preload(); if (globalThis.launchQueue) documentsGlue().catch(console.error); // motion links its export (LLP 1047 D3); an installed app's launch files (LLP 1069.010)
     if (!agentMode) loadAfterPaint('./timer-glue.js', 'createTimerScheduler').then(create => { timerFactory = create; startClock(); }).catch(console.error);
+    if (!agentMode && AGENT_ADMITTED) loadAfterPaint('./frames.js', 'createFrameSampler').then(create => { frameSampler = globalThis.exact.frames = create({ origin: () => t0, log, target: 'wasm', covers: ['input', 'scroll', 'batches', 'animations', 'canvas'], gather: () => loadStage('inspection').then(() => ({ journal: ask({ op: 'logs', since: 0 }), perf: ask({ op: 'perf' }) })) }); }).catch(console.error); // a development page's frames (LLP 1079 D3)
     // @ref LLP 1043.000 §3 D8 — one optional load, no activation wait or retry queue.
     loadAfterPaint('./input-glue.js', 'createInputHandlers').then(create => {
       inputHandlers = create({ root, views, retiredViews, agentMode, ready: () => inputReady, inertAncestor,

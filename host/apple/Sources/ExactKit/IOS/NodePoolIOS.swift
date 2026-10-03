@@ -253,7 +253,7 @@ final class NodePool {
         guard let shape = shape(root, &views, &leaves, &lists), list == nil || lists.isEmpty else { return false }
         let destroyed = destroyedIDs()
         guard views.allSatisfy({ $0.map { destroyed.contains($0.id) && recyclable($0) } ?? true }),
-              leaves.allSatisfy({ destroyed.contains($0.id) && idle($0) }) else { return false }
+              leaves.allSatisfy({ destroyed.contains($0.id) && idle($0) && unhooked($0) }) else { return false }
         // The cards an inner list shows park under it before the list itself
         // is reset; the rest of its content goes by its own destroy ops.
         var cards: [(NodeView, NodeView)] = []
@@ -322,8 +322,12 @@ final class NodePool {
             // 1075.003.000.000 §8); the checks above still refuse a view
             // with interactions or gestures left on it. Its props and the mark
             // stay until it is forgotten, after its own destroy op.
-            && (v.props["hook"] == nil || v.hookReusable)
+            && unhooked(v)
     }
+    /// Not a hooked node, or one whose hook undoes what it adds: a hooked
+    /// heavy leaf is destroyed as any is, but its row stays out of the pool
+    /// as the journal says (LLP 1075.003.000 §3.3).
+    private func unhooked(_ v: NodeView) -> Bool { v.props["hook"] == nil || v.hookReusable }
     /// Not placed, focused, editing or about to be: a leaf so held keeps
     /// its row out of the pool, destroyed as before.
     private func idle(_ v: NodeView) -> Bool {
@@ -416,6 +420,17 @@ final class NodePool {
         return claims.removeValue(forKey: id).map { rebound($0, id) }
     }
     private func rebound(_ view: NodeView, _ id: UInt32) -> NodeView { view.rebind(id); return view }
+
+    /// What `layout agree` checks (LLP 1080.001 D2): each parked tree's root,
+    /// which must stay hidden, and every view of every parked tree.
+    var inspection: (roots: [NodeView], members: Set<ObjectIdentifier>) {
+        var roots: [NodeView] = [], members = Set<ObjectIdentifier>()
+        for tree in parked.values.joined() {
+            if let root = tree.views.first ?? nil { roots.append(root) }
+            for case let view? in tree.views { members.insert(ObjectIdentifier(view)) }
+        }
+        return (roots, members)
+    }
 
     /// `state`'s pool section (LLP 1068 §6): what is parked, by shape
     /// count and in total, and the counters since launch.

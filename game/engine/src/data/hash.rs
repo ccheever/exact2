@@ -15,7 +15,6 @@ pub fn of<T: Data>(value: &T) -> u64 {
 #[derive(Clone, Default)]
 pub struct Hasher {
     stream: Stream,
-    observation: Option<Stream>,
 }
 
 #[derive(Clone)]
@@ -74,21 +73,10 @@ impl Stream {
 impl Hasher {
     fn raw(&mut self, bytes: &[u8]) {
         self.stream.bytes(bytes);
-        if let Some(observation) = &mut self.observation {
-            observation.bytes(bytes);
-        }
     }
     /// Finalize the canonical stream without changing it.
     pub fn finish(&self) -> u64 {
         self.stream.finish()
-    }
-    pub(crate) fn with_observation<T: Data>(&mut self, value: &T) -> u64 {
-        self.with_observation_by(|w| value.write(w))
-    }
-    pub(crate) fn with_observation_by(&mut self, write: impl FnOnce(&mut Self)) -> u64 {
-        self.observation = Some(Stream::default());
-        write(self);
-        self.observation.take().unwrap().finish()
     }
 }
 impl Writer for Hasher {

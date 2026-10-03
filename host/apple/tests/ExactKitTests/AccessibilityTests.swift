@@ -173,6 +173,38 @@ final class AccessibilityTests: XCTestCase {
         p.flushKeyViewLoop()
         XCTAssertNil(first.nextKeyView, "a fresh loop is not rebuilt")
     }
+    /// `aria-pressed` as Core-AAM maps it: a toggle button is AXCheckBox,
+    /// subrole AXToggle, value 0, 1 or 2 (mixed); without it, a button again.
+    func testAriaPressedMakesAToggleButton() {
+        let (_, w, button, _) = fixture()
+        button.applyProps(set: ["accessibilityRole": "button", "accessibilityPressed": "true"], clear: [])
+        XCTAssertEqual(button.accessibilityRole(), .checkBox)
+        XCTAssertEqual(button.accessibilitySubrole(), .toggle)
+        XCTAssertEqual(button.accessibilityValue() as? Int, 1)
+        button.applyProps(set: ["accessibilityPressed": "mixed"], clear: [])
+        XCTAssertEqual(button.accessibilityValue() as? Int, 2)
+        button.applyProps(set: ["accessibilityPressed": "false"], clear: [])
+        XCTAssertEqual(button.accessibilityValue() as? Int, 0)
+        button.applyProps(set: [:], clear: ["accessibilityPressed"])
+        XCTAssertEqual(button.accessibilityRole(), .button)
+        XCTAssertNil(button.accessibilitySubrole())
+        XCTAssertNil(button.accessibilityValue())
+        withExtendedLifetime(w) {}
+    }
+    /// The agent's name follows the web's accname: a non-empty label names
+    /// any node (a status text); an empty one names nothing, so a button
+    /// falls back to its content.
+    func testALabelNamesATextAndAnEmptyLabelNamesNothing() {
+        let (p, w, button, _) = fixture()
+        let purse = NodeView(id: 30, kind: "text", presenter: p)
+        purse.applyProps(set: ["text": "20¢", "accessibilityRole": "status", "accessibilityLabel": "20 sheckles"], clear: [])
+        XCTAssertEqual(purse.authoredLabel, "20 sheckles")
+        XCTAssertEqual(purse.accessibleName, "20 sheckles")
+        button.applyProps(set: ["text": "Play", "accessibilityLabel": ""], clear: [])
+        XCTAssertNil(button.authoredLabel)
+        XCTAssertEqual(button.accessibleName, "Play")
+        withExtendedLifetime(w) {}
+    }
     func testOffDoesNotTrackALiveRegion() {
         let (p, w, first, _) = fixture()
         first.props["accessibilityLive"] = "off"

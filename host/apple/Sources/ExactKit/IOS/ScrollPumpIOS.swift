@@ -108,6 +108,11 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         }
         travel[node.id] = t
     }
+    /// An anchor's correction moved the port (`CollectionHost.shift`): its
+    /// travel goes on from the moved offset.
+    func shifted(_ id: UInt32, by delta: CGFloat) {
+        travel[id]?.top += delta
+    }
     /// A scroller moved: sample a collection's travel and schedule its text.
     func scrolled(_ node: NodeView?) {
         guard let p = presenter, !p.applying, !inScroll else { return }

@@ -117,7 +117,7 @@ extension NodeView {
         // Outermost, a layout transition's offset; its size is the surface's
         // alone (`Surface.swift`, LLP 1063).
         let o = transformOriginPoint, d = CGPoint(x: o.x - bounds.midX, y: o.y - bounds.midY), s = scale * pressFactor
-        let outer = CGAffineTransform(translationX: layoutOffset.x, y: layoutOffset.y).concatenating(contextTransform)
+        let outer = CGAffineTransform(translationX: layoutOffset.x, y: layoutOffset.y - keyboardLift).concatenating(contextTransform)
         if let space = spaceTransform(origin: d, scale: s) {
             // A 3D rotation or a z translation (LLP 1077 D8): the layer's own
             // transform, the view's affine one left at identity.

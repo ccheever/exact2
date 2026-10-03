@@ -605,6 +605,18 @@
       "kind": "str"
     },
     {
+      "id": 223,
+      "name": "scrollStart",
+      "kind": "str",
+      "_comment": "@ref LLP 1010 §6.5: `scroll-start` on a virtualized list, `start` (the default) or `end` — where it opens."
+    },
+    {
+      "id": 224,
+      "name": "accessibilityPressed",
+      "kind": "str",
+      "_comment": "ARIA `aria-pressed` on a button: a toggle button's state, `true`, `false` or `mixed`; absent (or any other word), the button is no toggle. A bool expression is written as `true`/`false`."
+    },
+    {
       "id": 81,
       "name": "accessibilityPosInSet",
       "kind": "int"
@@ -1604,6 +1616,13 @@
         "smooth"
       ],
       "default": "auto"
+    },
+    "BackgroundAttachment": {
+      "values": [
+        "scroll",
+        "fixed"
+      ],
+      "default": "scroll"
     },
     "FieldSizing": {
       "values": [
@@ -3003,6 +3022,12 @@
       "field": "smart_invert",
       "codec": "enum:SmartInvert",
       "_comment": "@ref LLP 1077 D18: not CSS. Whether Smart Invert leaves the node's pixels alone: auto ignores images, video and canvases; ignore leaves any node's."
+    },
+    {
+      "bit": 171,
+      "field": "background_attachment",
+      "codec": "enum:BackgroundAttachment",
+      "_comment": "@ref LLP 1066 D7: CSS `background-attachment`. `fixed` sizes and places the gradient box on the viewport, not the node's padding box: one gradient across every node that has it, staying still as they scroll (a messenger's outgoing bubbles). `local` is not admitted."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

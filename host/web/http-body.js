@@ -133,18 +133,22 @@ export async function waitForInflight(waiting, deadline) {
   return true;
 }
 
+import { admitsNetwork, grantError, scopedGrantSet } from './grant-admission.js';
+
 // Network and page-module requests share admission and the byte ceiling.
 // Called after the enclosing batch, so even an immediate refusal cannot re-enter it.
-// `unparsed`: why the app's grants are none (they did not parse), named in each refusal as a native host names it.
-export async function request(op, { grants, granted, unparsed = '', loadPageNative, moduleLoader, localAssetURL, controllers, controller = new AbortController(), active = () => true, message = () => {} }) {
+export async function request(op, { grantSet, loadPageNative, moduleLoader, localAssetURL, controllers, controller = new AbortController(), active = () => true, message = () => {} }) {
   const encoder = new TextEncoder();
   const failed = (kind, message) => ({ kind, status: 0, headers: '', body: encoder.encode(String(message?.message ?? message)) });
   const { method, url, headers, body, cache } = op;
   if (!active()) return failed(4, 'request source unloaded');
   const native = url === 'exact-native:';
-  const scopeValid = op.scope == null || typeof op.scope === 'string' && op.scope.split('\n').map(s => s.trim()).filter(Boolean).every(s => grants.map(g => g.trim()).includes(s));
+  const effective = scopedGrantSet(grantSet, op.scope), invalid = grantError(effective);
   const asset = method === 'GET' && !body && Object.keys(headers).length === 0 && /^\/assets\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(url);
-  if (!scopeValid || !native && !asset && (!granted(url) || !granted(url, op.scope))) return failed(2, `refused by grant: ${url}${unparsed && `: ${unparsed}`}`);
+  const socket = op.stream && /^wss?:/i.test(url), capability = socket ? 'net.websocket' : 'net.fetch';
+  if (invalid) return failed(2, invalid);
+  if (!native && !asset) try { new URL(url); } catch (error) { return failed(1, error); }
+  if (!native && !asset && !admitsNetwork(effective, url, socket ? 'websocket' : 'fetch')) return failed(2, `outside the app's grants (${capability})`);
   if (op.nativeHttp === 'independent' && (!Number.isInteger(op.maxResponseBytes) || op.maxResponseBytes < 1 || op.maxResponseBytes > 64 * 1024 * 1024)) return failed(2, 'invalid independent HTTP response limit');
   if (native) {
     let response;
@@ -159,16 +163,19 @@ export async function request(op, { grants, granted, unparsed = '', loadPageNati
   }
   // A socket is a stream whose URL is `ws:` or `wss:` (its grant was
   // `net.websocket`, above); its method, headers and body are not sent.
-  if (op.stream && /^wss?:/i.test(url)) return readSocket(url, op.maxResponseBytes ?? 1024 * 1024, message, controller);
+  if (socket) return readSocket(url, op.maxResponseBytes ?? 1024 * 1024, message, controller);
   let decodedBody;
   try { if (body) decodedBody = Uint8Array.from(atob(body), c => c.charCodeAt(0)); }
   catch (error) { return failed(4, `invalid request body: ${error}`); }
   controllers.add(controller);
-  const init = { method, headers, redirect: 'error', cache: cache === 'reload' ? 'reload' : 'default', signal: controller.signal };
+  const init = { method, headers, redirect: 'follow', cache: cache === 'reload' ? 'reload' : 'default', signal: controller.signal };
   if (decodedBody) init.body = decodedBody;
   if (op.stream && !headers.some(([k]) => k.toLowerCase() === 'accept')) init.headers = [...headers, ['accept', 'text/event-stream']];
   try {
     const response = await (!asset && moduleLoader?.claim?.(url, init) || fetch(asset ? localAssetURL(url) : url, init));
+    if (response.url && (asset
+      ? new URL(response.url).origin !== location.origin
+      : !admitsNetwork(effective, response.url, 'fetch'))) return failed(2, 'outside the app\'s grants (net.fetch)');
     // A stream reads its body as events; anything else is its one answer.
     if (op.stream && response.ok && response.body && /^text\/event-stream\s*(;|$)/i.test(response.headers.get('content-type') ?? ''))
       return await readEvents(response, op.maxResponseBytes ?? 1024 * 1024, message, controller);
@@ -178,60 +185,3 @@ export async function request(op, { grants, granted, unparsed = '', loadPageNati
 }
 
 if (globalThis.exact) globalThis.exact.httpHelpers = { boundedHttpBody, waitForInflight, request };
-
-// Whole-set admission for the JS target, using the browser's URL parser as
-// exact-grants uses Rust's WHATWG URL parser. One malformed I/O line removes
-// every grant. Device/auth/surface lines belong to their own executors.
-export function parseGrants(spec) {
-  const trim = s => s.replace(/^\p{White_Space}+|\p{White_Space}+$/gu, '');
-  const lines = [], secrets = new Set(), network = [], errors = [];
-  for (const [index, raw] of String(spec).split('\n').entries()) {
-    const line = trim(raw);
-    if (!line || line.startsWith('#')) continue;
-    try {
-      if (/^(?:surface\.read |surface\.write |device\.|auth\.)/.test(line)) { lines.push(line); continue; }
-      const [kind, target, extra] = line.split(/\p{White_Space}+/u);
-      if (target == null) throw Error(`\`${kind}\` needs a target`);
-      if (kind === 'net.fetch' || kind === 'net.websocket') {
-        const wildcard = kind === 'net.fetch' && target.includes('://*.');
-        if (target.includes('*') && !wildcard) throw Error(`\`${target}\`: \`*\` is allowed only as \`net.fetch scheme://*.domain\``);
-        const parsed = new URL(wildcard ? target.replace('://*.', '://') : target);
-        const port = parsed.port || ({ 'http:': '80', 'https:': '443', 'ws:': '80', 'wss:': '443', 'ftp:': '21' })[parsed.protocol];
-        if (!parsed.hostname || port == null) throw Error(`bad origin \`${target}\`: a host and port are required`);
-        if (wildcard && (target.replace('://*.', '://').includes('*') || !['', '/'].includes(parsed.pathname) || target.includes('?') || target.includes('#')
-          || (parsed.hostname.startsWith('[') || /^(?:https?|wss?|ftp):$/.test(parsed.protocol) && /^[\d.]+$/.test(parsed.hostname)) || parsed.hostname.endsWith('.') || parsed.hostname.split('.').filter(Boolean).length < 2))
-          throw Error(`bad origin pattern \`${target}\``);
-        network.push({ kind, protocol: parsed.protocol, host: parsed.hostname.toLowerCase(), port: Number(port), wildcard });
-      } else if (['secret.keep', 'storage.kv'].includes(kind)) {
-        if (!/^[a-z0-9._-]{1,64}$/.test(target) || /^\.+$/.test(target)) throw Error(`\`${target}\` is not a ${kind === 'secret.keep' ? 'secret name' : 'kv scope'} ([a-z0-9._-]{1,64})`);
-        if (kind === 'secret.keep') secrets.add(target);
-      } else if (['fs.read', 'fs.write', 'sqlite.open'].includes(kind)) {
-        if (!/^(?:app:|doc:)?\//.test(target) || target.split('/').some(p => p === '.' || p === '..')) throw Error(`\`${target}\` must be an absolute, resolved path`);
-      } else if (kind !== 'env.read') throw Error(`unknown capability \`${kind}\``);
-      if (extra != null) throw Error(`unexpected \`${extra}\` after the target`);
-      lines.push(line);
-    } catch (error) { errors.push(`line ${index + 1}: ${error.message}`); }
-  }
-  const error = errors.length ? `the app's grants did not parse: ${errors.join('; ')}` : '';
-  if (error) { lines.length = 0; network.length = 0; secrets.clear(); }
-  return { lines, secrets, error, permits(url, kind = 'net.fetch') {
-    let u; try { u = new URL(url); } catch { return false; }
-    const port = Number(u.port || ({ 'http:': 80, 'https:': 443, 'ws:': 80, 'wss:': 443, 'ftp:': 21 })[u.protocol]);
-    return network.some(g => g.kind === kind && g.protocol === u.protocol && g.port === port
-      && (g.wildcard ? u.hostname.length > g.host.length + 1 && u.hostname.toLowerCase().endsWith('.' + g.host) : u.hostname.toLowerCase() === g.host));
-  } };
-}
-
-// Each language keeps its own authority; an invalid child's declaration also
-// invalidates the host's union, as Mixed::grants does on native hosts.
-export function installGrants(data, owner, spec) {
-  const set = parseGrants(spec);
-  (data.grantSets ??= new Map()).set(owner, { spec, set });
-  data.grants = [...data.grantSets.values()].map(v => v.spec).join('\n');
-  data.grantError = [...data.grantSets.values()].map(v => v.set.error).filter(Boolean).join('; ');
-  return { get error() { return data.grantError || set.error; },
-    secret: key => !data.grantError && !String(key).startsWith('exact.kept.') && set.secrets.has(String(key)),
-    permits: url => !data.grantError && set.permits(url),
-    lines: set.lines,
-  };
-}

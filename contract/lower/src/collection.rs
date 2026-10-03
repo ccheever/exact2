@@ -112,6 +112,11 @@ impl Lowerer<'_> {
                 return err("lower-attr-value", "`scroll-restoration` is `auto` (a nested list keeps where its reader left it) or `manual` (the app does)", restoration.span);
             }
         }
+        if let Some(start) = literal(attrs, "scroll-start") {
+            if !matches!(string(start), Some("start" | "end")) {
+                return err("lower-attr-value", "`scroll-start` is `start` (the default) or `end` (the list opens at its last row)", start.span);
+            }
+        }
         if let Some(reorder) = literal(attrs, "reorderdrop").filter(|_| row) {
             return err("lower-collection-reorder", "reordering is vertical; a virtualized row list refuses `reorderdrop` until a consumer needs it (LLP 1070 §4.7)", reorder.span);
         }

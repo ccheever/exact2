@@ -445,7 +445,7 @@ impl<D: DataSource> Host<D> {
         let delivery = compat.map_or_else(Default::default, |json| {
             exact_runner::Delivery::default().with_compat(json)
         });
-        let runner = Runner::boot_with_delivery_linked(
+        let mut runner = Runner::boot_with_delivery_linked(
             crate::link::runner_links(),
             plan,
             data,
@@ -457,6 +457,7 @@ impl<D: DataSource> Host<D> {
             launch,
         )
         .map_err(HostError::Runner)?;
+        runner.measure_unless_production(compat, false); // LLP 1079 D1: the browser lays out
         Host::open(links, runner, launch, Batch::new(), Default::default())
     }
 
@@ -658,8 +659,7 @@ impl<D: DataSource> Host<D> {
         Ok(self.finish(batch, None))
     }
 
-    /// The page's line for the runner's journal (LLP 1012 §3): a refused
-    /// intent and its reason.
+    /// The page's line for the runner's journal (LLP 1012 §3): a refused intent and its reason.
     pub fn log(&mut self, line: &str) {
         self.runner.log(line);
     }
@@ -1075,10 +1075,10 @@ impl<D: DataSource> Host<D> {
         self.finish(batch, error.as_deref())
     }
 
-    /// Close a batch with the runner's deadline, whether it wants each
-    /// animation frame (LLP 1073 D5), and its clock.
+    /// Close a batch: the runner's deadline, frames wanted (LLP 1073 D5), clock, `seq` (LLP 1079).
     pub(crate) fn finish(&self, batch: Batch, error: Option<&str>) -> String {
         let due = self.runner.timer_due_ms();
+        let batch = batch.seq(self.runner.seq_range());
         batch.finish(due, self.runner.wants_frames(), self.runner.now_ms(), error)
     }
 

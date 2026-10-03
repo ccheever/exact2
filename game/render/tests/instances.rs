@@ -298,3 +298,81 @@ fn models_and_materials_share_named_textures_defaults_and_samplers() {
     renderer.add_texture("shared.tex", &texture).unwrap();
     assert_eq!(renderer.asset_work(), work);
 }
+
+// A blended viewmodel part behind a wall: drawn in the viewmodel layer's depth
+// range, it shows through; unmarked, the wall hides it.
+fn blended_behind_wall(marked: bool) -> Option<[u8; 4]> {
+    let gpu = crate::test_device::device_or_skip(exact_gpu::fixture::device())?;
+    let model = Model {
+        meshes: vec![panel(0)],
+        materials: vec![material([1., 0., 0., 0.8], AlphaMode::Blend)],
+        nodes: vec![Node {
+            mesh: Some(0),
+            ..Default::default()
+        }],
+        bounds: [-0.8, -0.8, 0., 0.8, 0.8, 0.],
+        ..Default::default()
+    };
+    let mut sim = Sim::<Test>::new(()).unwrap();
+    sim.asset("panels.model", Some(&bin::to_vec(&model)))
+        .unwrap();
+    let w = sim.world_mut();
+    w.spawn((
+        Transform {
+            position: Vec3::new(0., 0., 1.),
+            scale: Vec3::new(4., 4., 0.1),
+            ..Default::default()
+        },
+        Mesh::cube(1.),
+        Material::rgb(0., 0., 1.),
+    ));
+    if marked {
+        let e = w.named("model").unwrap();
+        w.insert(e, ViewModel);
+    }
+    let mut renderer = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.prepare_model("panels.model", &model).unwrap();
+    let mut feed = Feed::default();
+    feed.feed(sim.world(), &mut renderer).unwrap();
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width: 64,
+            height: 64,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let eye = Vec3::new(0., 0., 5.);
+    let mut f = exact_game_render::FrameInput {
+        view: view::look_at_mat4(eye, Vec3::ZERO, Vec3::Y),
+        proj: directx::orthographic(-2., 2., -2., 2., 0.1, 20.),
+        camera_position: eye,
+        sun: None,
+        ..Default::default()
+    };
+    f.environment.fog = None;
+    f.environment.bloom = None;
+    renderer.draw(&texture.create_view(&Default::default()), (64, 64), &f);
+    Some(fixture::read(&gpu, &texture).unwrap().at(32, 32))
+}
+#[test]
+fn blended_viewmodel_parts_draw_in_front_of_walls() {
+    let Some(plain) = blended_behind_wall(false) else {
+        return;
+    };
+    let marked = blended_behind_wall(true).unwrap();
+    assert!(
+        plain[2] > plain[0],
+        "the wall hides an unmarked panel: {plain:?}"
+    );
+    assert!(
+        marked[0] > marked[2],
+        "the viewmodel panel shows: {marked:?}"
+    );
+}

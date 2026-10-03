@@ -124,7 +124,7 @@ export class Refusal extends Error {}
 /** A data or shape refusal (the runner's `RunnerError::Data` or `Shape`): one in a reply's commit lets its ticket go (`reply`). */
 class Failed extends Refusal {}
 let Writes = null, Commands = [], Out = [], Landed = [], Sends = [], Refresh = [], Poisoned = false, Refused = null;
-export const journal = [];
+export const journal = Object.assign([], { start: 0, push(...l) { const over = Array.prototype.push.apply(this, l) - 4096; if (over > 0) this.start += this.splice(0, over).length; return this.length; } }); // the runner's ring (JOURNAL_RING): `start` is the oldest line's index
 const say = line => journal.push(`t=${clock.now} ${line}`);
 /** A write inside an action: collected, applied at commit. */
 export function W(s, v) { Writes.push([s.n, v]); }
@@ -573,7 +573,7 @@ export function P(e, name, f) {
     else if (name === "paused") {
       if (v === "true") e.pause(); else e.play().catch(err => e.dispatchEvent(new CustomEvent("exact-error", { detail: err.message })));
     }
-    else if (BOOL.test(name)) { e.toggleAttribute(name, v === "true"); if (name === "checked") e.checked = e.$checked = v === "true"; if (name === "muted") e.muted = v === "true"; }
+    else if (BOOL.test(name)) { e.toggleAttribute(name, v === "true"); if (name === "disabled" && v === "true" && document.activeElement === e) e.blur(); /* HTML focus fixup, now (glue.js) */ if (name === "checked") e.checked = e.$checked = v === "true"; if (name === "muted") e.muted = v === "true"; }
     else if (v == null) { if (e.hasAttribute(name)) { e.removeAttribute(name); if (name.startsWith("data-exact-")) paintFacts(e); } }
     else if (e.getAttribute(name) !== v) { e.setAttribute(name, v); if (name.startsWith("data-exact-")) paintFacts(e); }
   });
@@ -662,19 +662,18 @@ export function c2(e, name, values, types, names) {
     queueMicrotask(() => Canvas2d.then(m => m?.args(c)));
   });
 }
-/** A native module's element (LLP 1024 D3): the real custom element, empty
- * until the web host's adapter (`native-glue.js`, in `native.js`) and the
- * app's module artifact load after first paint; the module renders into it,
- * and its events reach the handlers as `exact-native` events (`on`). */
-let Native = null;
+/** When native code may load (LLP 1024 D7): after the browser's first paint entry, or two frames and 250 ms where it records none (glue.js `afterNativePaint`). */
+let Painted = null, Native = null;
+export const painted = () => Painted ??= new Promise(r => { let o; const done = () => { o?.disconnect(); r(); }; try { o = new PerformanceObserver(() => requestAnimationFrame(done)); o.observe({ type: "paint", buffered: true }); } catch {} requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(done, 250))); });
+/** A native module's element (LLP 1024 D3): the real custom element, empty until the web host's adapter (`native.js`)
+ * and the app's module artifact load (`painted`); the module renders into it, its events reaching the handlers as `exact-native` events (`on`). */
 export function nm(e) {
   if (typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
   const id = viewId(e), st = e.exactNative = { id, name: e.localName, state: "loading", status() { return { name: this.name, state: this.state, ...(this.error ? { error: this.error } : {}) }; } };
   onEnd(() => { st.destroyed = true; Native?.then(h => h.destroy(e), () => {}); });
-  // In flight until the module is attached and its first events are in
-  // (`clock settle` waits for them).
+  // In flight until the module is attached and its first events are in (`clock settle` waits for them).
   inflight.n++;
-  (Native ??= new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))).then(() => import("./native.js")).then(m => m.viewHost(say)))
+  (Native ??= painted().then(() => import("./native.js")).then(m => m.viewHost(say)))
     .then(h => { h.attach(e); return h.loaded; }, err => { st.state = "unavailable"; st.error = String(err?.message ?? err); say(`native ${st.name} #${id}: unavailable: ${st.error}`); })
     .finally(() => setTimeout(() => inflight.n--));
 }
@@ -742,7 +741,7 @@ export function Sr(e, prop, unit, f) {
     }
   });
 }
-export { svgTransform } from "./svg-transform.js"; export { ds } from "./dataset.js"; export { hk } from "./hooks.js";
+export { svgTransform } from "./svg-transform.js"; export { ds } from "./dataset.js"; export { hk } from "./hooks.js"; export { pf } from "./perf.js";
 /** Loaded pieces' hooks: `style(e, prop, value)` takes a dynamic row's
  * write on a node the motion piece holds (motion.js). */
 export const Hooks = {};
@@ -768,7 +767,8 @@ function guestOrigin(e) {
 export function on(e, kind, f) {
   const l = (t, g) => e.addEventListener(t, g);
   if (OnHooks.file && e.localName === "input" && e.type === "file" && OnHooks.file(e, kind, f)) return;
-  if (e.exactNative) return l("exact-native", ev => { if (ev.detail.kind === kind) f(...(ev.detail.value == null ? [] : [ev.detail.value])); });
+  // A module view hears its module's events, and the page's own input as any element does (glue.js `attach`): a click is its press.
+  if (e.exactNative) { l("exact-native", ev => { if (ev.detail.kind === kind) f(...(ev.detail.value == null ? [] : [ev.detail.value])); }); if (kind === "message") return; }
   switch (kind) {
     // A link with a press is the app's navigation: the browser's is prevented.
     case "press": return l("click", ev => { const a = ev.target.closest?.("a[href]"); if (a && a !== e && e.contains(a)) return; ev.stopPropagation(); if (e.localName === "a" && !(ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button)) ev.preventDefault(); f(); });
@@ -1219,7 +1219,7 @@ export function mount(f) {
   let built = false;
   Adopt = !!(checkpoint().kept && root.firstElementChild);
   // Elapsed time continues from where a render's clock stopped.
-  start = performance.now() - clock.now;
+  start = clock.start = performance.now() - clock.now;
   const adopting = Adopt;
   // What the reader did before the runtime ran (the capture script), and
   // what each edited control showed then: the commit writes the state's

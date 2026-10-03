@@ -131,6 +131,10 @@ impl Display {
     fn pending(&self) -> bool {
         self.flips.pending()
     }
+    /// The vblank sequence of the last completed flip (LLP 1079 D3).
+    fn sequence(&self) -> Option<u32> {
+        self.flips.sequence
+    }
     fn fd(&self) -> i32 {
         self.card.0.as_raw_fd()
     }
@@ -358,6 +362,13 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
     p.set_pointer(Some(pointer));
     let mut last_tick = 0.0f64;
     let frame_ms = 1000.0 / f64::from(display.refresh().max(1));
+    // A development display samples its flips, and writes a trace on
+    // SIGUSR1 (LLP 1079 D3, D5); a production binary does neither.
+    let measured = !exact_runner::delivery::production(&p.compat);
+    let mut frames = crate::frames::Frames::new(display.refresh());
+    if measured {
+        trace_on_signal();
+    }
     let mut plan_seen = config.dev_plan.as_deref().and_then(mtime);
     // First pixel is the first frame presented (LLP 1026 D11); the update
     // check follows two seconds after it, off the boot path.
@@ -377,11 +388,21 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         wall()
     );
     loop {
+        if measured {
+            // A replaced host's flip and samples are the old runner's.
+            frames.host(p.hosts);
+            if p.dirty() {
+                frames.dirty(wall());
+            }
+        }
         if p.dirty() && !display.pending() {
             let Some(frame) = p.display_frame() else {
                 eprintln!("exact: display/presenter submission ownership mismatch");
                 return 1;
             };
+            if measured {
+                frames.submitted(wall(), p.host().runner().seq(), p.hosts);
+            }
             match display.submit(frame) {
                 Ok(Some(frame)) => presented(
                     &mut p,
@@ -439,13 +460,23 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         fds.push(display.fd());
         match poll(&fds, display.fd(), timeout) {
             Ok(true) => match display.ready() {
-                Ok(Some(frame)) => presented(
-                    &mut p,
-                    frame,
-                    vnc.as_ref(),
-                    &mut first_pixel,
-                    &mut check_due,
-                ),
+                Ok(Some(frame)) => {
+                    presented(
+                        &mut p,
+                        frame,
+                        vnc.as_ref(),
+                        &mut first_pixel,
+                        &mut check_due,
+                    );
+                    let paint = p.last_frame_ms().map(|(ms, _)| ms);
+                    if let Some(line) = display
+                        .sequence()
+                        .filter(|_| measured)
+                        .and_then(|s| frames.flipped(s, wall(), paint))
+                    {
+                        p.host_mut().log(line);
+                    }
+                }
                 Ok(None) => {}
                 Err(e) => {
                     eprintln!("exact: {e}");
@@ -456,6 +487,15 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
             Err(e) => {
                 eprintln!("exact: {e}");
                 return 1;
+            }
+        }
+        // Work this turn does (input, completions, timers, frame tasks) is
+        // wanted from when the loop woke, however long it takes.
+        let woke = measured.then(wall);
+        if measured && TRACE.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            match crate::frames::save_trace(&mut p, &frames, &crate::frames::app_name()) {
+                Ok(path) => println!("exact: trace saved to {}", path.display()),
+                Err(e) => eprintln!("exact: {e}"),
             }
         }
         if let Some(e) = p.pump(wall()) {
@@ -500,6 +540,9 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
         }
         p.poll_images();
         p.poll_development(D::default);
+        if let Some(woke) = woke.filter(|_| p.dirty()) {
+            frames.dirty(woke);
+        }
         if let Some(path) = &config.dev_plan {
             let m = mtime(path);
             if m.is_some() && m != plan_seen {
@@ -526,6 +569,19 @@ pub fn run<D: DataSource + Default>(config: &mut Config, started: Instant) -> i3
             }
         }
     }
+}
+
+static TRACE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+extern "C" fn on_usr1(_: libc::c_int) {
+    TRACE.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// `SIGUSR1` asks for a trace (LLP 1079 D5): the loop takes the request
+/// after its `poll`, which the signal interrupts (EINTR is a quiet turn).
+fn trace_on_signal() {
+    // SAFETY: the handler only stores to an atomic, which is async-signal-safe.
+    unsafe { libc::signal(libc::SIGUSR1, on_usr1 as *const () as libc::sighandler_t) };
 }
 
 /// Wait for any of the descriptors to be readable, or `timeout` ms (-1

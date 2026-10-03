@@ -339,15 +339,12 @@ component StationRow
     hot: bool
   view
     button press=press(station.id) hover=hover(station.id) aria-label=station.name testId=`station-${station.id}` width="100%"
-      when hot
-        row justify-content="space-between" align-items="center" padding-top=10 padding-bottom=10 border-bottom-style="solid" border-bottom-width=1 border-color="#e0e0e0" width="100%" background-color="#f2f2f2" testId=`station-hot-${station.id}`
-          column gap=2
-            text station.name font-size=15 font-weight=600
-            text `Zone ${station.zone}` font-size=12 color="#999999"
-          text distanceText(station.distance) font-size=12 color="#666666"
-      else
-        row justify-content="space-between" align-items="center" padding-top=10 padding-bottom=10 border-bottom-style="solid" border-bottom-width=1 border-color="#e0e0e0" width="100%"
-          column gap=2
-            text station.name font-size=15 font-weight=600
-            text `Zone ${station.zone}` font-size=12 color="#999999"
-          text distanceText(station.distance) font-size=12 color="#666666"
+      // One row whose highlight is bound, not two arms: a hover then sets
+      // two rows on one view instead of retiring five views and building
+      // five more (`perf stations-screen during "tap station-mv hover"`,
+      // LLP 1079 §8).
+      row justify-content="space-between" align-items="center" padding-top=10 padding-bottom=10 border-bottom-style="solid" border-bottom-width=1 border-color="#e0e0e0" width="100%" background-color=(hot ? "#f2f2f2" : "#00000000") testId=(hot ? `station-hot-${station.id}` : `row-${station.id}`)
+        column gap=2
+          text station.name font-size=15 font-weight=600
+          text `Zone ${station.zone}` font-size=12 color="#999999"
+        text distanceText(station.distance) font-size=12 color="#666666"

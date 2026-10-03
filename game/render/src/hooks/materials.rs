@@ -14,13 +14,23 @@ pub const MATERIAL_WGSL: &str = concat!(
     include_str!("../shaders/custom_instance.wgsl")
 );
 
+/// Appended after [`MATERIAL_WGSL`] in a forward module: `sun_shadow(world, normal)`
+/// (1 without sun shadows), `light_visibility`, `brdf` and `add_local_lights`, over
+/// the shadow maps and lights forward custom pipelines receive in groups 0 and 1.
+pub const MATERIAL_SHADOWS_WGSL: &str = concat!(
+    include_str!("../shaders/shadow_sample.wgsl"),
+    "\n",
+    include_str!("../shaders/lights.wgsl"),
+    "\n",
+    include_str!("../shaders/material_shadows.wgsl")
+);
+
 /// Borrowed model lookup and engine layouts. No simulation writes or submission.
 pub struct MaterialGpu<'a> {
     pub(crate) device: &'a wgpu::Device,
     pub(crate) models: &'a crate::models::Models,
     pub(crate) pipelines: &'a crate::pipeline::Pipelines,
     pub(crate) instance: &'a wgpu::BindGroupLayout,
-    pub(crate) empty: &'a wgpu::BindGroupLayout,
 }
 impl MaterialGpu<'_> {
     /// Resolve a loaded model's stable material handle.
@@ -29,7 +39,8 @@ impl MaterialGpu<'_> {
     }
     /// Build a double-sided opaque pipeline over engine vertices and unskinned
     /// instances. Shadow entry points use group 1 binding 0, a light-view matrix.
-    /// Forward entry points reserve group 1 empty. Group 2 is game resources;
+    /// Forward entry points receive the engine's shadow maps in group 1
+    /// ([`MATERIAL_SHADOWS_WGSL`] samples them). Group 2 is game resources;
     /// at most two vertex storage buffers remain under the default limit of eight.
     /// All geometry writes depth; transparent custom materials are not admitted.
     pub fn pipeline(
@@ -56,7 +67,7 @@ impl MaterialGpu<'_> {
                     Some(if shadow {
                         &self.pipelines.camera_layout
                     } else {
-                        self.empty
+                        &self.pipelines.shadow_layout
                     }),
                     Some(resources),
                     Some(self.instance),
@@ -120,8 +131,6 @@ pub struct CustomMaterial {
 
 pub(crate) struct MaterialBindings {
     pub layout: wgpu::BindGroupLayout,
-    pub empty: wgpu::BindGroupLayout,
-    pub empty_bind: wgpu::BindGroup,
     pub instances: Option<(wgpu::Buffer, wgpu::BindGroup)>,
 }
 impl MaterialBindings {
@@ -139,19 +148,8 @@ impl MaterialBindings {
                 count: None,
             }],
         });
-        let empty = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("custom forward empty"),
-            entries: &[],
-        });
-        let empty_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: None,
-            layout: &empty,
-            entries: &[],
-        });
         Self {
             layout,
-            empty,
-            empty_bind,
             instances: None,
         }
     }

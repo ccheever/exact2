@@ -39,6 +39,13 @@ final class Presenter {
     var reorder: ReorderHold?
     var reorderCalls: ReorderCalls?
     lazy var transformGeometry = TransformGeometryHost(self)
+    /// Nodes showing a `background-attachment: fixed` gradient (LLP 1066
+    /// D7): re-aimed at the viewport when anything scrolls or a batch lands.
+    let fixedGradients = NSHashTable<NodeView>.weakObjects()
+    func reaimFixedGradients() {
+        guard fixedGradients.count > 0 else { return }
+        for node in fixedGradients.allObjects where node.window != nil { node.reaimFixedGradient() }
+    }
     var videoVisibility: VideoVisibilityHost?
     lazy var collections = CollectionHost(self)
     lazy var pool = NodePool(self)
@@ -48,6 +55,7 @@ final class Presenter {
     /// The native menu arm (LLP 1021 D3).
     lazy var swipeActions = SwipeActionsHost(self)
     lazy var menus = MenuHost(presenter: self)
+    lazy var keyboardToolbars = KeyboardToolbars(self)
     lazy var segments = SegmentHost(self)
     lazy var controls = ControlHost(self)
     /// Nodes marked `hook="word"` (LLP 1075.003.000).
@@ -111,18 +119,11 @@ final class Presenter {
         return guide.height > container.safeAreaInsets.bottom + 1 ? guide.minY : nil
     }
 
-    /// Where the platform's pointer last hovered over the viewport, in its
-    /// content space — kept only under the agent (LLP 1035.003 §3): the
-    /// driver calibrates its desktop-to-device mapping by hovering the Mac's
-    /// pointer at known desktop points and reading where the app saw it,
-    /// which no window frame can tell it (a Simulator window carries a
-    /// bezel and a scale of its own).
-    private(set) var lastPointer: CGPoint?
-
     init() {
         viewport.addSubview(root)
         viewport.delegate = scrollPump
         collections.motion = { [unowned self] id in
+            if collections.animating.contains(id) { return nil }
             let velocity = scrollPump.velocity(id)
             return velocity == 0 ? nil : velocity
         }
@@ -132,17 +133,6 @@ final class Presenter {
         collections.rescued = { [unowned self] in paintVisibleText() }
         viewport.contentInsetAdjustmentBehavior = .never
         viewport.backgroundColor = .white
-        if ExactEnv.agentMode {
-            let hover = UIHoverGestureRecognizer(target: self, action: #selector(pointerMoved(_:)))
-            hover.delaysTouchesBegan = false
-            hover.delaysTouchesEnded = false
-            hover.cancelsTouchesInView = false
-            viewport.addGestureRecognizer(hover)
-        }
-    }
-
-    @objc func pointerMoved(_ gesture: UIHoverGestureRecognizer) {
-        lastPointer = gesture.location(in: viewport)
     }
 
     func observeKeyboard() {
@@ -220,6 +210,11 @@ final class Presenter {
         let change = {
             if self.interactiveWidget == "resizes-content" {
                 self.onKeyboardResize?()
+            } else if self.interactiveWidget == "overlays-content" {
+                let frame = parent.convert(self.viewport.frame, to: window)
+                let overlap = top.map { min(max(0, frame.maxY - max($0, frame.minY)), frame.height) } ?? 0
+                self.keyboardInset = overlap
+                self.keyboardToolbars.ride(overlap: overlap)
             } else {
                 let frame = parent.convert(self.viewport.frame, to: window)
                 let overlap = top.map { min(max(0, frame.maxY - max($0, frame.minY)), frame.height) } ?? 0
@@ -287,6 +282,8 @@ final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        // Every hooked node ends first, its view and platform object there.
+        elements.reset()
         canvasKey = nil
         session?.transformInputHold?.cancel()
         reorder?.abandon()
@@ -302,7 +299,6 @@ final class Presenter {
         leaves.reset()
         flats.reset()
         modals.reset()
-        elements.reset()
         navigation.reset()
         session?.canvases.reset()
         for id in Array(leaving.keys) { _ = endExit(id) }
@@ -634,9 +630,6 @@ final class Presenter {
         defer { Self.signposts.endInterval("apply", post) }
         collections.beginBatch(batch)
         if !applying { flats.begin(batch) }
-        // Hooked nodes this batch destroys end first, so a reusable hook has
-        // undone its additions before the pool looks at their rows.
-        elements.begin(batch)
         pool.begin(batch)
         swipeActions.prepare()
         prepareContexts(batch)
@@ -653,12 +646,17 @@ final class Presenter {
         svg.seek(clock: session?.clock)
         let outermost = !applying
         applying = true
+        // Hooked nodes this batch destroys end first, so a reusable hook has
+        // undone its additions before the pool looks at their rows; inside
+        // the batch, so what a hook clicks waits for it (`afterBatch`).
+        elements.begin(batch)
         var moved = false // create, frame or content ops: rows may have come or moved (`HeavyLeaves.batchApplied`)
         defer {
             collections.endBatch()
             pool.end()
             if outermost {
                 applying = false
+                reaimFixedGradients()
                 paintPresentedText()
                 if !boxFilters.isEmpty { boxFilters.render() }
                 videoVisibility?.changed()
@@ -871,6 +869,8 @@ final class Presenter {
     func placeChildren(_ parent: NodeView, _ ids: [UInt32]) {
         let want = ids.compactMap { views[$0] }
         let container = parent.container
+        // An open popover under the agent stays in the top layer.
+        menus.children(container, want)
         let wanted = Set(want.map(ObjectIdentifier.init))
         var current = container.subviews
         for case let child as NodeView in current where !wanted.contains(ObjectIdentifier(child)) && !pool.isParked(child) && !isLeaving(child) {
@@ -879,7 +879,7 @@ final class Presenter {
         // In order, below anything else in the container (a scroll
         // view's indicators): inserting a subview at an index moves
         // it when it is already there. One already there stays.
-        let contained = want.filter { !navigation.ownsContainment(of: $0, under: parent) }
+        let contained = want.filter { !navigation.ownsContainment(of: $0, under: parent) && !menus.lifted($0) }
         current = container.subviews
         for (i, child) in contained.enumerated() where !(i < current.count && current[i] === child) {
             container.insertSubview(child, at: i)

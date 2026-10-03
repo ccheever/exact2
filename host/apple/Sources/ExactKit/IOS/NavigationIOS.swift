@@ -21,6 +21,8 @@ final class RouteController: UIViewController {
     weak var collapseScroll: NodeView?
     /// The targets of the bar items projected from its header.
     var barPresses: [BarPress] = []
+    /// The header's search field as UIKit's search controller (§9.6).
+    var search: HeaderSearch?
     init(_ node: NodeView) {
         self.node = node
         super.init(nibName: nil, bundle: nil)
@@ -239,7 +241,11 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
 
     /// A hidden navigation bar needs its availability check here. The
     /// recognizer, competing scroll views and transition stay UIKit's.
+    /// UIKit gives both recognizers its own delegate when the controller's
+    /// view loads: a tab's stack, built before its tab controller shows it,
+    /// is loaded first, or the swipe never asks Exact.
     func watchPops(_ nav: UINavigationController) {
+        nav.loadViewIfNeeded()
         nav.interactivePopGestureRecognizer?.delegate = self
         if #available(iOS 26.0, *) { nav.interactiveContentPopGestureRecognizer?.delegate = self }
     }
@@ -521,6 +527,26 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     }
 
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let pan = gestureRecognizer as? UIPanGestureRecognizer, let view = pan.view else {
+            return popMayBegin(gestureRecognizer, from: nil, in: nil, velocity: .zero)
+        }
+        let location = pan.location(in: view), delta = pan.translation(in: view)
+        return popMayBegin(gestureRecognizer, from: CGPoint(x: location.x - delta.x, y: location.y - delta.y),
+                           in: view, velocity: pan.velocity(in: view))
+    }
+
+    /// Whether a pop recognizer's swipe, starting at `start` in `view` (a
+    /// pan's) with `velocity`, may pop: the showing stack's (a tab's, or a
+    /// sheet's over it), by its own depth, with an enabled back control in
+    /// its active route (D1), and not a pan a `swiperight` node or a canvas
+    /// owns, nor more vertical than horizontal.
+    func popMayBegin(_ gestureRecognizer: UIGestureRecognizer, from start: CGPoint?, in view: UIView?, velocity: CGPoint) -> Bool {
+        let owner = allNavigations.first { nav in
+            if nav.interactivePopGestureRecognizer === gestureRecognizer { return true }
+            if #available(iOS 26.0, *) { return nav.interactiveContentPopGestureRecognizer === gestureRecognizer }
+            return false
+        }
+        if let owner, owner !== navigation { return false }
         let depth = navigation?.viewControllers.count ?? 0
         let control = backControl
         guard NavigationRules.popMayBegin(depth: depth, changing: changing, modalActive: presenter.modals.inTransition,
@@ -531,20 +557,16 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             }
             return false
         }
-        if let pan = gestureRecognizer as? UIPanGestureRecognizer, let view = pan.view {
-            let location = pan.location(in: view), delta = pan.translation(in: view)
-            let start = CGPoint(x: location.x - delta.x, y: location.y - delta.y)
-            var overSwipeRight = false
-            var hit = view.hitTest(start, with: nil)
-            if CanvasInput.owns(hit) { return false }
-            while let current = hit {
-                if let node = current as? NodeView, node.handlers.contains("swiperight") { overSwipeRight = true; break }
-                if current === view { break }
-                hit = current.superview
-            }
-            return NavigationRules.panMayBegin(startX: start.x, overSwipeRight: overSwipeRight, velocity: pan.velocity(in: pan.view))
+        guard let start, let view else { return true }
+        var overSwipeRight = false
+        var hit = view.hitTest(start, with: nil)
+        if CanvasInput.owns(hit) { return false }
+        while let current = hit {
+            if let node = current as? NodeView, node.handlers.contains("swiperight") { overSwipeRight = true; break }
+            if current === view { break }
+            hit = current.superview
         }
-        return true
+        return NavigationRules.panMayBegin(startX: start.x, overSwipeRight: overSwipeRight, velocity: velocity)
     }
 
     func navigationController(_ navigationController: UINavigationController, willShow viewController: UIViewController, animated: Bool) {

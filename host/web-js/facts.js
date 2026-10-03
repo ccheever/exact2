@@ -65,17 +65,22 @@ export function delivery(readers) {
  * calls the wasm host's `exact_surface_record`); the host's bytes are
  * `name` alone (disposed) or `name\0json`. */
 export function surfaces(readers) {
-  const records = new Map();
+  const records = new Map(), refusals = new Map();
+  let why = null;
   (data.reserved ??= {}).exactSurface = (_, args, name) => {
     const [surface, shape] = readers[name];
     const text = records.get(surface);
     let json;
-    if (text != null) {
-      if (text.length > 65536) throw new Refusal(`${name}: record exceeds 64 KiB`);
-      try { json = JSON.parse(text); } catch (e) { throw new Refusal(`${name}: ${e.message}`); }
-      if (!json || typeof json !== "object" || Array.isArray(json)) throw new Refusal(`${name}: record: expected JSON object`);
-    }
-    return shaped(shape, json, "record", name);
+    try {
+      if (text != null) {
+        // surface_record.rs MAX_BYTES (UTF-8 bytes; a third of it in UTF-16 units cannot exceed it).
+        const bytes = text.length > MAX_RECORD / 3 ? new TextEncoder().encode(text).length : 0;
+        if (bytes > MAX_RECORD) throw new Refusal(`${name}: record is ${bytes} bytes, over the ${MAX_RECORD}-byte (16 MiB) limit`);
+        try { json = JSON.parse(text); } catch (e) { throw new Refusal(`${name}: ${e.message}`); }
+        if (!json || typeof json !== "object" || Array.isArray(json)) throw new Refusal(`${name}: record: expected JSON object`);
+      }
+      return shaped(shape, json, "record", name);
+    } catch (e) { why = String(e?.message ?? e); throw e; }
   };
   const x = globalThis.exact ??= {};
   x.surfaceRecord = (surface, json) => {
@@ -83,10 +88,15 @@ export function surfaces(readers) {
     if (was === (json ?? null)) return;
     const put = v => v == null ? records.delete(surface) : records.set(surface, v);
     put(json);
-    // A record a reader refuses leaves the last one standing.
-    if (!commit(() => { for (const r of Resources) if (r.source === "exactSurface" && readers[r.name]?.[0] === surface) R(r); }, `surface ${surface}`)) put(was);
+    // A record a reader refuses leaves the last one standing; `state.surfaceRefusals` says why.
+    why = null;
+    if (!commit(() => { for (const r of Resources) if (r.source === "exactSurface" && readers[r.name]?.[0] === surface) R(r); }, `surface ${surface}`)) {
+      put(was); refusals.set(surface, why ?? "refused");
+    } else refusals.delete(surface);
   };
+  x.surfaceRefusals = () => Object.fromEntries(refusals);
 }
+const MAX_RECORD = 16 << 20;
 // surface_record.rs `shaped`: absent fields are their type's zero, extra keys
 // are ignored, anything else of the wrong kind is refused by its path.
 function shaped(t, v, path, name) {

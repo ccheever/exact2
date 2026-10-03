@@ -256,16 +256,23 @@ fn hierarchy_and_fresh_tick() {
 
 #[test]
 fn save_entity_limit_is_checked_before_reserving_slots() {
+    // A columnar entity table: no index runs or names, one empty shape, and a row
+    // count past the limit, which must refuse before any slot is reserved.
+    let mut table = vec![0, 0, 1, 0];
+    let mut n = crate::data::MAX_LOAD_ENTITIES as u64 + 1;
+    while n >= 128 {
+        table.push(n as u8 | 128);
+        n >>= 7;
+    }
+    table.push(n as u8);
     let mut out = bin::Encoder::default();
     out.begin_struct();
     out.field("state");
     out.begin_struct();
     out.field("slots");
-    out.begin_seq(crate::data::MAX_LOAD_ENTITIES + 1);
+    out.bytes(crate::data::Bulk::U8(&table));
     let mut bytes = MAGIC.to_vec();
     bytes.extend(out.finish());
-    // Enough input to satisfy the codec's minimum byte count, without constructing entities.
-    bytes.resize(bytes.len() + crate::data::MAX_LOAD_ENTITIES + 1, 0);
     let mut w = World::new(60, 0);
     let before = w.save();
     let err = w.load(&bytes).unwrap_err().to_string();
@@ -313,6 +320,97 @@ fn singleton_load_claims_inline_allocation_before_factory() {
             assert!(MADE.load(Ordering::SeqCst));
             assert_eq!(source.save(), target.save());
             assert_eq!(source.hash(), target.hash());
+        }
+    }
+}
+
+// The paged hash must equal a from-scratch hash after every kind of write, and a
+// seek's observation must see every change a full read would.
+#[test]
+fn paged_hash_and_observation_follow_every_write_path() {
+    #[derive(Default, Clone, Data)]
+    struct Score(u32);
+    impl Resource for Score {
+        const NAME: &'static str = "Score";
+    }
+    #[derive(Default, Clone, Data)]
+    struct Tag(String);
+    impl Component for Tag {
+        const NAME: &'static str = "Tag";
+    }
+    let fresh_hash = |w: &World| {
+        let mut scratch = w.registered_scratch();
+        scratch.load(&w.save()).unwrap();
+        scratch.hash()
+    };
+    let mut w = World::new(60, 4);
+    w.insert_resource(Score(0));
+    let mut live = vec![];
+    for i in 0..1_500 {
+        live.push(w.spawn((Transform::at(i as f32, 0., 0.), Tag(format!("t{}", i % 3)))));
+    }
+    let mut seed = 0x9e37_79b9_7f4a_7c15u64;
+    let mut next = move |n: u64| {
+        seed ^= seed << 13;
+        seed ^= seed >> 7;
+        seed ^= seed << 17;
+        seed % n
+    };
+    let mut before = Observation::default();
+    let mut after = Observation::default();
+    for round in 0..400 {
+        w.observe(&mut before);
+        let pick = live[next(live.len() as u64) as usize];
+        let op = next(10);
+        match op {
+            0 => w.get_mut::<Transform>(pick).unwrap().position.y += 1.0,
+            1 => {
+                for (_, t) in w.query::<&mut Transform>().iter().take(3) {
+                    t.scale.x += 0.5;
+                }
+            }
+            2 => {
+                for mut tag in w.query::<&mut Tag>().into_iter().skip(700).take(2) {
+                    tag.0.push('!');
+                }
+            }
+            3 => {
+                w.despawn(pick);
+                live.retain(|e| *e != pick);
+                live.push(w.spawn(Tag("new".into())));
+            }
+            4 => {
+                w.insert(pick, crate::Ambient);
+            }
+            5 => {
+                w.remove::<Tag>(pick);
+            }
+            6 => w.resource_mut::<Score>().0 += 1,
+            7 => {
+                w.rng().next_u32();
+            }
+            8 => {
+                let _ = w.get_mut::<Tag>(pick);
+            }
+            _ => w.teleport(pick, Transform::at(-1., -2., -3.)),
+        }
+        w.propagate();
+        assert_eq!(w.hash(), fresh_hash(&w), "round {round} op {op}");
+        w.observe(&mut after);
+        w.compare(&before, &after);
+        let observed = !w.has::<crate::Ambient>(pick);
+        if op == 6 || op == 7 || (op == 0 && observed) {
+            assert!(
+                w.observation == ObservationState::Changing,
+                "round {round} op {op}"
+            );
+        }
+        if op == 8 {
+            assert!(
+                w.observation == ObservationState::Still,
+                "round {round}: {:?}",
+                w.changing
+            );
         }
     }
 }

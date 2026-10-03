@@ -192,6 +192,8 @@ impl<D: DataSource> Bridge<D> {
                 json.push(':');
                 exact_runner::agent::quote(value, &mut json);
             }
+            json.push_str(",\"grantSet\":");
+            json.push_str(&exact_runner::grants::normalized_json(data.grants()));
             json.push('}');
             self.emit(json)
         } else {

@@ -8,6 +8,8 @@ mod fill;
 mod ownership;
 #[path = "rekey_tests.rs"]
 mod rekey;
+#[path = "smooth_tests.rs"]
+mod smooth;
 
 fn code(b: &mut PlanBuilder, emit: impl FnOnce(&mut Asm)) -> exact_plan::Code {
     let mut a = Asm::new();
@@ -18,6 +20,9 @@ fn binding(kind: BindingKind, id: u16, expr: exact_plan::Code) -> BindingsRow {
     BindingsRow { kind, id, expr }
 }
 fn plan(n: usize, row_state: bool, follow: bool) -> Plan {
+    plan_with(n, row_state, follow, false)
+}
+fn plan_with(n: usize, row_state: bool, follow: bool, smooth: bool) -> Plan {
     let mut b = PlanBuilder::new(exact_kernel::SCHEMA_DIGEST, 1);
     let num = b.primitive(TypeKind::Number);
     let list = b.list(num);
@@ -34,12 +39,18 @@ fn plan(n: usize, row_state: bool, follow: bool) -> Plan {
     let enabled = b.constant(&Value::Bool(true));
     let follow = b.constant(&Value::Bool(follow));
     let height = b.constant(&Value::Number(320.0));
+    let behavior = b.constant(&Value::str(if smooth { "smooth" } else { "auto" }));
     let root = b.node(
         NodeType::List as u8,
         None,
         None,
         0,
         &[
+            binding(
+                BindingKind::Style,
+                exact_kernel::StyleId::ScrollBehavior as u16,
+                behavior,
+            ),
             binding(BindingKind::Prop, PropId::Virtualized as u16, enabled),
             binding(BindingKind::Prop, PropId::ScrollFollowEnd as u16, follow),
             binding(
@@ -307,6 +318,8 @@ fn variable_heights_stale_epochs_width_changes_and_noop_feedback() {
     let measured = h.snapshot();
     assert_eq!(measured.total_extent, 32_064.0);
     assert_eq!(measured.correction.unwrap().offset, 704.0);
+    // An anchor's correction is relative to the offset it was taken at.
+    assert_eq!(measured.correction.unwrap().from, Some(640.0));
     let mut noop = h.feedback(704.0);
     h.send(noop.clone()); // correction acknowledgement
     noop = h.feedback(704.0);
@@ -331,6 +344,23 @@ fn variable_heights_stale_epochs_width_changes_and_noop_feedback() {
     assert!(!h.send(old_epoch));
     assert_eq!(h.snapshot(), after_width);
 }
+/// Two insertions before the list with no report between: one correction,
+/// from where the first began, so a host that applied the first (relative,
+/// mid-fling) adds only what the second moved.
+#[test]
+fn an_unacknowledged_anchor_correction_grows_from_where_it_began() {
+    let mut h = Harness::new(100, false, false);
+    h.send(h.feedback(642.0));
+    let list = |n: i32| Value::list((-n..100).map(|i| Value::Number(f64::from(i))).collect());
+    h.slots[0] = list(1);
+    h.update().unwrap();
+    let first = h.snapshot().correction.unwrap();
+    assert_eq!((first.offset, first.from), (674.0, Some(642.0)));
+    h.slots[0] = list(2);
+    h.update().unwrap();
+    let second = h.snapshot().correction.unwrap();
+    assert_eq!((second.offset, second.from), (706.0, Some(642.0)));
+}
 #[test]
 fn prepend_reorder_delete_and_end_follow_preserve_the_right_anchor() {
     let mut h = Harness::new(100, false, false);
@@ -344,6 +374,7 @@ fn prepend_reorder_delete_and_end_follow_preserve_the_right_anchor() {
     h.update().unwrap();
     let after = h.snapshot();
     assert_eq!(after.correction.unwrap().offset, 674.0);
+    assert_eq!(after.correction.unwrap().from, Some(642.0));
     assert_eq!(
         after.rows.iter().find(|r| r.index == 21).unwrap().root,
         before.rows.iter().find(|r| r.index == 20).unwrap().root
@@ -561,6 +592,8 @@ fn snapshot_json_preserves_u64_metadata_as_decimal_strings() {
         correction: Some(AnchorCorrection {
             scroll_sequence: (1_u64 << 53) + 3,
             offset: 16.5,
+            from: None,
+            smooth: false,
         }),
         pending: true,
     };

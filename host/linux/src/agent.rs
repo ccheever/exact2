@@ -9,7 +9,7 @@
 //!
 //! @ref LLP 1015 §5; LLP 1012 §3–§4
 
-mod contact;
+pub(crate) mod contact;
 
 use crate::presenter::Presenter;
 use exact_runner::agent::{error, field_bool, field_num, field_str, num};
@@ -119,7 +119,15 @@ fn tagged<D: DataSource>(p: &Presenter<D>, line: &str, mut reply: String) -> Str
     reply
 }
 
-fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
+pub(crate) fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
+    // An agent's taps and contacts reach a canvas as a finger, as on the web
+    // and iOS, so a proof leaves the same world on every host.
+    p.agent_finger(true);
+    let reply = answer_line(p, line);
+    p.agent_finger(false);
+    reply
+}
+fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let id = || field_num(line, "id").map(|n| n as u32);
     let q: serde_json::Value = serde_json::from_str(line).unwrap_or_default();
     if let Some(view) = id() {
@@ -145,6 +153,9 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     }
     match field_str(line, "op").as_deref() {
         Some("tree") => accessibility_tree(p, line),
+        // The agent's clock presents no frame (LLP 1079 D4); the display
+        // loop's are sampled there (frames.rs). `perf <target>` is the runner's.
+        Some("perf") if field_bool(line, "frames") => r#"{"virtual":true}"#.to_string(),
         Some("state") => {
             p.boxes();
             // The runner's state, then the sections a painter cannot observe
@@ -188,6 +199,25 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 );
             }
             s
+        }
+        // LLP 1080.001: neither inspection form has platform views here.
+        Some("layout") if line.contains("\"agree\"") => format!(
+            "{{\"agreement\":{{\"unavailable\":\"no platform views\"}},{}",
+            &exact_runner::agent::tags(p.host.runner())[1..]
+        ),
+        Some("layout") if line.contains("\"native\"") => {
+            let mut reply: serde_json::Value =
+                match serde_json::from_str(&p.layout_json(id(), field_bool(line, "plan"))) {
+                    Ok(reply) => reply,
+                    Err(_) => return error("layout: unreadable"),
+                };
+            if let Some(o) = reply.as_object_mut() {
+                o.remove("nodes");
+            }
+            if let Some(native) = reply.pointer_mut("/node/native") {
+                native["subviews"] = serde_json::json!({ "unavailable": "no platform views" });
+            }
+            reply.to_string()
         }
         Some("layout") => p.layout_json(id(), field_bool(line, "plan")),
         Some("tap") => {
@@ -522,8 +552,13 @@ fn accessibility_tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String
                 });
             }
             if let Some(node) = p.host().kernel().node(id) {
-                if node.props.str(PropId::AccessibilityLabel).is_some()
-                    || node.props.str(PropId::Text).is_some()
+                // The web's rule (glue.js `tree`): a non-empty label names any
+                // node; a button or link is named by its content too.
+                let label = node
+                    .props
+                    .str(PropId::AccessibilityLabel)
+                    .filter(|l| !l.is_empty());
+                if label.is_some()
                     || matches!(
                         node.props.str(PropId::AccessibilityRole),
                         Some("button" | "link")
@@ -536,7 +571,7 @@ fn accessibility_tree<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String
                         == Some(exact_kernel::ControlKind::Button);
                     // A native button's name is its label, else its face's
                     // title as painted (LLP 1069.011.000 D1).
-                    row["accessibleName"] = match node.props.str(PropId::AccessibilityLabel) {
+                    row["accessibleName"] = match label {
                         Some(label) => label.to_owned(),
                         None if native => p
                             .host()

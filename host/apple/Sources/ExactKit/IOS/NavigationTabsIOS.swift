@@ -106,7 +106,9 @@ extension NavigationHost {
         }()
         mount(holder, in: parent, at: p.root)
         tabOwner = holder
-        adoptedTablist = ExactEnv.agentMode ? nil : tabs.tablist.id
+        // Kept under the agent too, where the authored tablist shows in the
+        // bar's place: a real touch refuses it (LLP 1080.000 D7).
+        adoptedTablist = tabs.tablist.id
         if owned == nil, presenter.session?.natives.hooksConnected == true, let container = tabController {
             presenter.session?.natives.tabsHook(container, event: 0)
             tabsHooked = true

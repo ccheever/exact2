@@ -322,11 +322,14 @@ impl Collection {
             .map_err(index_error)?;
         let offset = self.index.prefix(position).unwrap_or(0.0) + within;
         self.start_offset = offset;
+        self.at_end = false;
         self.restored = true;
         self.restored_at = self.index.shared_key(position).map(|k| (k.clone(), within));
         self.correction = Some(AnchorCorrection {
             scroll_sequence: 0,
             offset,
+            from: None,
+            smooth: false,
         });
         self.realize_window(u, frames, false, CollectionFill::default())?;
         advance(&mut self.revision)?;
