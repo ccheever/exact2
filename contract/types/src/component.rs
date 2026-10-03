@@ -518,7 +518,8 @@ fn refine_params_from_view(
                                     let declared = ct.actions[ai][last].clone();
                                     // An undeclared parameter takes what every
                                     // call agrees on, as from an argument.
-                                    let unified = if c.actions[ai].params[last].ty.is_some() {
+                                    let written = c.actions[ai].params[last].ty.is_some();
+                                    let unified = if written {
                                         declared.unify(&ty)
                                     } else {
                                         declared.join(&ty)
@@ -527,8 +528,10 @@ fn refine_params_from_view(
                                         return err(
                                             "type-handler-payload",
                                             format!(
-                                                "`{}=` supplies `{ty}` to parameter `{}`, declared `{declared}`",
-                                                a.name, c.actions[ai].params[last].name
+                                                "`{}=` supplies `{ty}` to parameter `{}`, {} `{declared}`",
+                                                a.name,
+                                                c.actions[ai].params[last].name,
+                                                if written { "declared" } else { "inferred as" }
                                             ),
                                             a.span,
                                         );

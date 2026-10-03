@@ -214,7 +214,20 @@ impl Cx<'_> {
         if whole {
             let s = summarize(e, self.indices, self.summaries);
             let mut shared: Vec<usize> = (0..s.reads.len())
+                // A literal or a name costs a load to repeat, as a local
+                // does, and stays what its use passed where a `match` over a
+                // choice reads it (LLP 1035.005.000 D4a).
                 .filter(|&d| s.reads[d] >= 2 && s.always[d] && !bound.contains(&d))
+                .filter(|&d| {
+                    !matches!(
+                        self.bodies[d],
+                        Expr::Str(..)
+                            | Expr::Number(..)
+                            | Expr::Bool(..)
+                            | Expr::None(_)
+                            | Expr::Ident(..)
+                    )
+                })
                 .collect();
             shared.sort_by_key(|&d| self.rank[d]);
             for d in shared {

@@ -80,7 +80,16 @@ impl Parser {
 
     /// `case "a" | "b"`: the start of one arm, refusing an `else`, an option's
     /// arm, and an arm past [`MAX_ARMS`].
-    fn arm_head(&mut self, seen: &mut Vec<String>, arms: usize) -> R<(Vec<(String, Span)>, Span)> {
+    fn arm_head(
+        &mut self,
+        seen: &mut Vec<String>,
+        arms: usize,
+        deep: Option<(&'static str, &'static str)>,
+    ) -> R<(Vec<(String, Span)>, Span)> {
+        // A view's or an action's arm nests `arms` deep, with or without a body.
+        if let Some((id, what)) = deep.filter(|_| self.view_depth + arms >= 256) {
+            return self.err(id, format!("{what} nest more than 256 deep, each arm of a `match` over a choice one level: name a branch's work in a `fn` or a component, or flatten its conditions"));
+        }
         if self.at_ident("else") {
             return self.err(
                 "syntax-match-else",
@@ -106,11 +115,15 @@ impl Parser {
     /// The indented arms of a `match` over a choice, each `case "a" | "b"`
     /// then what `body` reads. The `k`th arm's body is read `k` levels
     /// deeper in the view, where the tests nest it.
-    fn choice_arms<T>(&mut self, mut body: impl FnMut(&mut Self) -> R<T>) -> R<Vec<Arm<T>>> {
+    fn choice_arms<T>(
+        &mut self,
+        deep: (&'static str, &'static str),
+        mut body: impl FnMut(&mut Self) -> R<T>,
+    ) -> R<Vec<Arm<T>>> {
         let mut seen = Vec::new();
         let mut arms = 0;
         self.block(|p| {
-            let (literals, case) = p.arm_head(&mut seen, arms)?;
+            let (literals, case) = p.arm_head(&mut seen, arms, Some(deep))?;
             p.view_depth += arms;
             let read = body(p);
             p.view_depth -= arms;
@@ -139,7 +152,7 @@ impl Parser {
     /// A view's `match` over a choice, after its subject's line: nested
     /// `when`s.
     pub(super) fn choice_view(&mut self, subject: Expr, span: Span) -> R<Node> {
-        let arms = self.choice_arms(|p| {
+        let arms = self.choice_arms(("syntax-view-depth", "views"), |p| {
             p.newline()?;
             p.block(|q| q.node())
         })?;
@@ -164,7 +177,7 @@ impl Parser {
     /// An action's `match` over a choice, after its subject's line: nested
     /// `if`s.
     pub(super) fn choice_stmt(&mut self, subject: Expr, span: Span) -> R<Stmt> {
-        let arms = self.choice_arms(|p| {
+        let arms = self.choice_arms(("syntax-action-depth", "statements"), |p| {
             p.newline()?;
             p.block(|q| q.stmt())
         })?;
@@ -193,7 +206,7 @@ impl Parser {
         let mut arms = Vec::new();
         let mut below = below;
         loop {
-            let (literals, case) = self.arm_head(&mut seen, arms.len())?;
+            let (literals, case) = self.arm_head(&mut seen, arms.len(), None)?;
             self.expect_punct("=>")?;
             let value = self.expr()?;
             below = below.max(self.last);

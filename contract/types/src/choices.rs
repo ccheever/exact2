@@ -160,7 +160,8 @@ fn literal_type(e: &Expr) -> Option<Ty> {
 
 /// Whether the subject of a component's `match`, as its use substituted it,
 /// is always one of `all`: a literal among them, a narrower choice, or
-/// branches of those.
+/// branches of those (`?:`, an option's `match`). A subject still `?` is
+/// refused with the `?` in its message, so the check waits for it.
 fn fits(
     subject: &Expr,
     all: &[(String, Span)],
@@ -174,12 +175,38 @@ fn fits(
             infer(subject, scope, shapes)?;
             fits(a, all, scope, shapes)? && fits(b, all, scope, shapes)?
         }
+        Expr::Match {
+            subject: o,
+            var,
+            some,
+            none,
+            ..
+        } => {
+            infer(subject, scope, shapes)?;
+            let Ty::Option(item) = infer(o, scope, shapes)? else {
+                return Ok(false);
+            };
+            let mut inner = scope.clone();
+            inner.push(vec![(var.clone(), Ref::Local(0), *item)]);
+            fits(some, all, &inner, shapes)? && fits(none, all, scope, shapes)?
+        }
         _ => match infer(subject, scope, shapes)? {
             Ty::Choice(c) => c.iter().all(among),
-            Ty::Unknown => true,
+            Ty::Unknown => return Err(undecided(subject)),
             _ => false,
         },
     })
+}
+
+/// A subject whose type is still `?`: refused with the `?` in its message,
+/// so a derive's check waits for the writes that say it, and the strict
+/// pass reports one that never says it.
+fn undecided(subject: &Expr) -> TypeError {
+    TypeError {
+        id: "type-match-subject",
+        message: "`match` with `case \"…\"` arms needs a choice of strings, given `?`: nothing here says its type yet (a derive is typed before the actions that write a state `none` starts; match such a state in the view)".into(),
+        span: subject.span(),
+    }
 }
 
 /// What a refusal of `given` where `want` is wanted adds when the cause is a
@@ -257,7 +284,7 @@ pub(crate) fn case(
     let t = infer(subject, scope, shapes)?;
     let choice = match &t {
         Ty::Choice(choice) => choice,
-        Ty::Unknown => return Ok(Ty::Bool),
+        Ty::Unknown => return Err(undecided(subject)),
         _ => {
             return err(
                 "type-match-subject",

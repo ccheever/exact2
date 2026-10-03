@@ -294,3 +294,36 @@ fn nested_action_matches_are_refused_past_256_levels() {
     );
     assert_eq!(compiled(&src), "syntax-action-depth");
 }
+
+#[test]
+fn a_subject_fits_through_an_option_match_a_shared_derive_and_never_while_unknown() {
+    let child = "component Child\n  props\n    k: \"a\" | \"b\"\n  derive mode = k\n  derive line = match mode { case \"a\" => mode + \"!\", case \"b\" => mode + \"?\" }\n  view\n    text line\n";
+    for arg in [
+        "\"a\"",
+        "match o { case some(x) => \"a\", case none => \"b\" }",
+    ] {
+        let src =
+            format!("component App\n  state o = some(\"x\")\n  view\n    Child(k={arg})\n{child}");
+        assert_eq!(compiled(&src), "ok", "{arg}");
+    }
+    // A derive is typed before the action that writes `o`: its `match` on
+    // what `o` holds is not taken on trust while that is `?`.
+    let src = "fn third(): \"a\" | \"b\" | \"c\" = \"c\"\ncomponent App\n  state o = none\n  derive d = match o { case some(k) => match k { case \"a\" => \"A\", case \"b\" => \"B\" }, case none => \"none\" }\n  action go\n    o = some(third())\n  view\n    column\n      text d\n      button \"go\" press=go\n";
+    assert_eq!(compiled(src), "type-match-subject");
+    // Empty arms nest as deep as full ones.
+    let lits: Vec<String> = (0..63).map(|i| format!("\"k{i}\"")).collect();
+    let mut src = format!(
+        "fn k(): {} = \"k62\"\ncomponent App\n  state n = 0\n  action go\n",
+        lits.join(" | ")
+    );
+    let mut indent = 4;
+    for _ in 0..5 {
+        src += &format!("{}match k()\n", " ".repeat(indent));
+        for l in &lits {
+            src += &format!("{}case {l}\n", " ".repeat(indent + 2));
+        }
+        indent += 4;
+    }
+    src += "  view\n    text \"x\" press=go\n";
+    assert_eq!(compiled(&src), "syntax-action-depth");
+}
