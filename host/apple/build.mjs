@@ -884,6 +884,9 @@ function main(args) {
   const crate = app.crate('apple');
   const gpuCrate = app.crate('gpu');
   const hasGpu = app.hasGpu;
+  // The bake names each signed GPU module's digest and the host checks it at
+  // load: a re-signer's new bytes would be refused, so nothing can re-sign them.
+  if (unsigned && (hasGpu || gpuModules(app.manifest).length)) throw new Error(`--unsigned: ${app.name} has GPU modules, whose baked digests a re-signer would break; archive it signed (EXACT_IDENTITY and EXACT_PROFILE)`);
   let ph, prof;
   const sha1 = unsigned ? '-' : device ? (() => {
     ph = ipa ? null : phone(args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined);

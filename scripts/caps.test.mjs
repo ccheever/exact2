@@ -615,13 +615,14 @@ for (const [name, html, files, expectCode, expect] of [
 {
   // A screenshot saved into an app is not an input; an ignored file the bake captures still is.
   const dir=realpathSync(mkdtempSync(join(tmpdir(),'exact-ignored-inputs-')));
-  mkdirSync(join(dir,'shots'));
-  for(const [name,text] of [['.gitignore','/shots/\n/local.ts\n'],['app.contract','view'],['local.ts','key'],['shots/one.png','png'],['shots/notes.txt','notes']]) writeFileSync(join(dir,name),text);
-  const outside=newerThan(0,[dir],gitIgnored(dir)).map(p=>relative(dir,p)).sort();
+  for(const sub of ['shots','gen','shader-gen']) mkdirSync(join(dir,sub));
+  for(const [name,text] of [['.gitignore','/shots/\n/local.ts\n/gen/\n/shader-gen/\n'],['app.contract','view'],['local.ts','key'],['shots/one.png','png'],['shots/notes.txt','notes'],['gen/made.rs','fn f() {}'],['shader-gen/paint.wgsl','fn main() {}'],['shader-gen/table.bin','bytes']]) writeFileSync(join(dir,name),text);
+  const walk=()=>newerThan(0,[dir],gitIgnored(dir,[join(dir,'shader-gen')])).map(p=>relative(dir,p)).sort();
+  const outside=walk();
   spawnSync('git',['init','-q'],{cwd:dir});
-  const inside=newerThan(0,[dir],gitIgnored(dir)).map(p=>relative(dir,p)).sort();
-  result('the staleness walk skips gitignored files the bake does not capture',
-    JSON.stringify(inside)==='["app.contract","local.ts"]'&&outside.length===4,JSON.stringify({inside,outside}));
+  const inside=walk();
+  result('the staleness walk skips gitignored files no build reads',
+    JSON.stringify(inside)==='["app.contract","gen/made.rs","local.ts","shader-gen/paint.wgsl","shader-gen/table.bin"]'&&outside.length===7,JSON.stringify({inside,outside}));
   rmSync(dir,{recursive:true,force:true});
 }
 // A matching hand-written exact.json is not build identity. The agent must

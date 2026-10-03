@@ -540,3 +540,10 @@ installation URL and a local Apple development loop; the generic Go launcher,
 distributable IPA, EAS/AppDrop adapter and
 automatic provider provisioning remain behind proving this consumer. No new
 update service or production native carrier is introduced.
+
+**`--archive --unsigned`, 2026-10-02 (Charlie, waiver):** "Yeah sounds good. Do
+1-3" — item 2 of the Signal clone diary's fixes, an ad-hoc `.ipa` with no
+identity or profile for a consumer that re-signs it (AppDrop). Unblocks handing
+an app to AppDrop without a stub profile; refused for apps with GPU modules,
+whose baked digests a re-signer would break. No AppDrop adapter is added; the
+distributable IPA and EAS/AppDrop adapter above stay deferred otherwise.

@@ -315,9 +315,14 @@ final class SwipeActionsHost {
             return true
         }
         /// A visible title beside an action's image: UIKit draws it under the
-        /// glyph, as the authored button shows it. An image alone stays alone.
+        /// glyph, as the authored button shows it. An image alone stays alone,
+        /// and so does one whose text is authored hidden (the face reads text
+        /// whatever its style; a native button draws its title itself).
         private func shownTitle(_ target: NodeView) -> String? {
             guard let title = target.face?.title, !title.isEmpty else { return nil }
+            if target.isNativeButton { return title }
+            guard let text = target.container.subviews.compactMap({ $0 as? NodeView }).first(where: \.isParagraph),
+                  text.style["display"]?.string != "none", !text.isHidden, text.alpha > 0 else { return nil }
             return title
         }
         private func configuration(_ controls: [NodeView]) -> UISwipeActionsConfiguration? {
