@@ -28,7 +28,9 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
     return false;
   };
 
-  const runFor = async (g, ms) => { for (let left = ms; left > 0; left -= 10000) await g.run(Math.min(left, 10000)); };
+  // One agent advance is one browser evaluation with a 15 s answer window; under the
+  // Save mode every tick round-trips a ~6 MB save, so seek one second at a time.
+  const runFor = async (g, ms) => { for (let left = ms; left > 0; left -= 1000) await g.run(Math.min(left, 1000)); };
   if (process.argv.includes('--screenshot-only')) {
     // Pixels only: a day frame, then the same camp at night with the flashlight.
     check('screenshot uses web', host === 'web');
@@ -79,7 +81,6 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   if (host === 'web') await s.screenshot(resolve(out, 'day.png'));
 
   // Wait for dark at the fire.
-  // In ten-second steps: one agent advance is one browser evaluation with a timeout.
   const now = (await game.snapshot()).tick / 60;
   await runFor(game, (DAY - DAWN - now + 3) * 1000);
   check('night falls', await text('day') === 'Day 1 · Night', await text('day'));
