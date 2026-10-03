@@ -480,6 +480,21 @@ test('a new game names its Rust type after the game, everywhere the template doe
   } finally {rmSync(parent,{recursive:true,force:true});}
 });
 
+test('game/dev.mjs takes the next free port unless --port names a busy one', async () => {
+  const {devPort}=await import('./dev.mjs');
+  const {createServer}=await import('node:net');
+  const held=createServer();
+  await new Promise(ok=>held.listen(8850,'127.0.0.1',ok));
+  try {
+    const chosen=await devPort(['--wasm'],{start:8850});
+    assert.ok(chosen.port>8850 && chosen.port<8900);
+    assert.deepEqual(chosen.args,['--wasm','--port',String(chosen.port)]);
+    await assert.rejects(devPort(['--port','8850']),/--port 8850: 127\.0\.0\.1:8850 is in use; choose another --port/);
+    await assert.rejects(devPort(['--port','x']),/--port needs a port number/);
+    assert.deepEqual(await devPort(['--port',String(chosen.port)]),{port:chosen.port,args:['--port',String(chosen.port)]});
+  } finally {await new Promise(ok=>held.close(ok));}
+});
+
 test('E10 compact authored manifest survives two bakes byte for byte', async () => {
   const {gameDefaults,gameShells}=await import('./app/shells.mjs');
   const parent=realpathSync(mkdtempSync(resolve(tmpdir(),'e10-manifest-'))), app=resolve(parent,'my-game');

@@ -35,7 +35,9 @@ bun game/new.mjs ./my-game
 bun game/dev.mjs ./my-game
 ```
 
-Open the dev server's printed URL. Edit `my-game/logic/src/lib.rs` for gameplay or
+Open the dev server's printed URL. It serves on 8765, or on the next free port when
+another dev loop holds 8765 (it says so); `--port <n>` chooses one and fails at once,
+before building, if that port is in use. `--lan` serves a phone on this network. Edit `my-game/logic/src/lib.rs` for gameplay or
 `my-game/app.contract` for UI. Gameplay reloads carry the running world; shared
 app-runtime edits reload the page. The server also prints **Open in native**.
 Edits inside `Game::setup` take effect on a fresh game; in the starter, pause and
