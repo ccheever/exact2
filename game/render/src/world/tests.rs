@@ -1111,3 +1111,19 @@ fn mouse_look_turns_the_drawn_camera_and_its_children_about_the_eye() {
     assert!((up.y - exact_game::math::sin(0.5)).abs() < 1e-4);
     assert!(f.frame(&w, 1., 1.).attachments.is_empty());
 }
+
+#[test]
+fn a_parented_entity_that_gains_a_transform_later_draws_at_its_global_pose() {
+    let mut w = World::new(60, 0);
+    let parent = w.spawn((Transform::at(10., 0., 0.), Mesh::cube(1.0)));
+    let child = w.spawn((Mesh::cube(1.0), Parent(parent)));
+    w.propagate();
+    let mut f = Feed::default();
+    let mut r = Recording::default();
+    f.feed_to(&w, &mut r).unwrap();
+    // A later tick gives the child its local pose; Parent is unchanged.
+    w.insert(child, Transform::at(0., 2., 0.));
+    w.propagate();
+    f.feed_to(&w, &mut r).unwrap();
+    assert_eq!(r.position(child, false), Vec3::new(10., 2., 0.));
+}

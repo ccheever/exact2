@@ -426,7 +426,11 @@ impl Feed {
             self.current = 1 - self.current;
             // Parented global poses: every one when the hierarchy changed, else
             // only those in blocks whose poses changed since the last pass.
-            let rebuilt = initial || parent_changed || self.override_cursor.is_none();
+            // Membership too: a parented entity can gain its Transform later.
+            let rebuilt = initial
+                || parent_changed
+                || next.membership != old.membership
+                || self.override_cursor.is_none();
             if rebuilt {
                 self.overrides.clear();
                 for (e, _) in w.query::<(&Parent, &Transform)>().iter() {
