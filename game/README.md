@@ -173,6 +173,11 @@ The dev compiler retains its last good plan on an error.
 | Grid and fog | `Material::grid(color, spacing)` and the saved `Environment`/`Fog` resource |
 | Fade a glowing mesh | Attach `Glow(Tween)` to `Material::glow`; retarget once and let the renderer sample at frame time. |
 | Fade a point light | Attach `Lit(Spring)` and call `lit.to(w.tick_end(), intensity)`. |
+| A flashlight | `SpotLight { inner, outer, range, intensity, shadows, .. }` along the entity's −Z; intensity in candela, as `PointLight`'s |
+| Shadows from a lamp | `SpotLight.shadows`, or add `PointShadows` to a `PointLight`; the renderer shadows the nearest few |
+| A moon | A second `DirectionalLight` (in entity order) is an unshadowed fill |
+| A first-person weapon | Add `ViewModel` to each part; it draws in front of the world and casts no shadow |
+| Lighting from a photographed sky | `w.insert_resource(EnvironmentMap::new("sky.tex"))` with the equirect in `Game::ASSETS` |
 
 `Character` saves velocity and configuration and reports displacement, grounded,
 jumped and landed. `near`/`near_xz` use current global poses, inclusive radii and

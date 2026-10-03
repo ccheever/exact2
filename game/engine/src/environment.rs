@@ -38,6 +38,32 @@ impl Default for Environment {
         }
     }
 }
+/// An authored environment for image-based lighting: it replaces the procedural
+/// sky (`Environment`'s zenith, horizon and ground) as the source of ambient
+/// diffuse and specular light; the visible sky and background are unchanged.
+/// `texture` names an equirectangular `.tex` declared in `Game::ASSETS`, +Y the
+/// top row and −Z the centre column.
+#[derive(Clone, Debug, Default, PartialEq, Resource)]
+pub struct EnvironmentMap {
+    /// The equirectangular texture asset.
+    pub texture: String,
+    /// Linear radiance multiplier.
+    pub intensity: f32,
+    /// RGBM range: zero reads RGB as radiance; otherwise radiance is
+    /// `rgb × alpha × rgbm`, which carries HDR through an 8-bit texture.
+    pub rgbm: f32,
+}
+impl EnvironmentMap {
+    /// A plain (non-RGBM) map at unit intensity.
+    pub fn new(texture: impl Into<String>) -> Self {
+        Self {
+            texture: texture.into(),
+            intensity: 1.0,
+            rgbm: 0.0,
+        }
+    }
+}
+
 /// Exponential fog, thinning with world height.
 #[derive(Clone, Copy, Debug, PartialEq, Data)]
 pub struct Fog {

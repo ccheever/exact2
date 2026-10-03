@@ -165,8 +165,17 @@ the reflected direction and `roughness × 5` and scales it by Karis's analytic
 environment BRDF; diffuse is SH irradiance × base × (1 − metallic) × (1 − specular).
 `Environment.ambient` scales both, model occlusion multiplies both, and exposure and
 ACES apply once as before. Metals reflect the sky out of direct light; dielectrics
-reflect about 4% of it at normal incidence. An authored environment map would replace
-only the prefilter's `source()` and the SH projection's radiance function.
+reflect about 4% of it at normal incidence.
+
+An authored map replaces the sky as the source: the engine's `EnvironmentMap`
+resource (or `FrameInput::environment_map` for a direct renderer) names an
+equirectangular texture (+Y the top row, −Z the centre column) delivered as a `.tex`
+asset or added with `add_texture`, with a linear `intensity` and an optional RGBM
+`rgbm` range (radiance = rgb × alpha × range) that carries HDR through 8-bit, BC7 or
+ASTC payloads. The prefilter samples it at the level of detail matching each cube
+mip, and a compute pass projects its SH9 on the GPU into a buffer copied over the
+frame uniform's `irradiance` each frame. Both run once per map content, intensity or
+range change. The visible sky and `background` stay procedural.
 
 `Material::grid(color, spacing)` uses a derivative-antialiased world-space grid,
 projected onto any face in the existing forward shader. Positive saved spacing

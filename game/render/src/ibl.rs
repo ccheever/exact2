@@ -23,7 +23,17 @@ pub(crate) struct EnvironmentLight {
     faces: Vec<wgpu::TextureView>,
     pipeline: wgpu::RenderPipeline,
     uniform: wgpu::Buffer,
+    layout: wgpu::BindGroupLayout,
     bind: wgpu::BindGroup,
+    sh_pipeline: wgpu::ComputePipeline,
+    /// SH9 of an authored map, projected on the GPU; copied into the frame
+    /// uniform's `irradiance` while the map lights the scene.
+    pub sh: wgpu::Buffer,
+    sh_pending: bool,
+    placeholder: wgpu::TextureView,
+    map_sampler: wgpu::Sampler,
+    // The authored map lighting the scene: its content digest, intensity, RGBM.
+    map: Option<(u64, f32, f32)>,
     key: Option<[u32; 9]>,
     // The colours the cube was last prefiltered from, and prepares since the
     // sky last changed.
@@ -83,31 +93,79 @@ impl EnvironmentLight {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let both = wgpu::ShaderStages::FRAGMENT | wgpu::ShaderStages::COMPUTE;
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("game environment prefilter"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: true,
-                    min_binding_size: std::num::NonZeroU64::new(64),
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: both,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: true,
+                        min_binding_size: std::num::NonZeroU64::new(64),
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: both,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: both,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: wgpu::ShaderStages::COMPUTE,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: false },
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
+                },
+            ],
         });
-        let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("game environment prefilter"),
-            layout: &layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                    buffer: &uniform,
-                    offset: 0,
-                    size: std::num::NonZeroU64::new(64),
-                }),
-            }],
+        let sh = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("game environment map SH"),
+            size: 9 * 16,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_SRC,
+            mapped_at_creation: false,
         });
+        let placeholder = device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("game no environment map"),
+                size: wgpu::Extent3d {
+                    width: 1,
+                    height: 1,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            })
+            .create_view(&Default::default());
+        let map_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("game environment map"),
+            address_mode_u: wgpu::AddressMode::Repeat,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::MipmapFilterMode::Linear,
+            ..Default::default()
+        });
+        let bind = map_bind(device, &layout, &uniform, &placeholder, &map_sampler, &sh);
         let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("game environment prefilter"),
             source: wgpu::ShaderSource::Wgsl(crate::pipeline::ENVIRONMENT.into()),
@@ -142,13 +200,34 @@ impl EnvironmentLight {
             multiview_mask: None,
             cache: None,
         });
+        let sh_pipeline = device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+            label: Some("game environment map SH"),
+            layout: Some(
+                &device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                    label: Some("game environment map SH"),
+                    bind_group_layouts: &[Some(&layout)],
+                    immediate_size: 0,
+                }),
+            ),
+            module: &module,
+            entry_point: Some("sh"),
+            compilation_options: Default::default(),
+            cache: None,
+        });
         Self {
             view,
             sampler,
             faces,
             pipeline,
             uniform,
+            layout,
             bind,
+            sh_pipeline,
+            sh,
+            sh_pending: false,
+            placeholder,
+            map_sampler,
+            map: None,
             key: None,
             prefiltered: None,
             still: 0,
@@ -163,7 +242,45 @@ impl EnvironmentLight {
     /// prefiltered again only once a colour moves more than `DRIFT` from what it
     /// was filtered from, or once the sky has held still for `SETTLE` prepares,
     /// so a dusk that changes every tick costs a pass per few percent.
-    pub fn prepare(&mut self, queue: &wgpu::Queue, environment: &exact_game::Environment) {
+    /// An authored `map` replaces the sky as the source of both; it is
+    /// prefiltered and projected again only when its content or scale changes.
+    pub fn prepare(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        environment: &exact_game::Environment,
+        map: Option<MapSource<'_>>,
+    ) {
+        let key = map.as_ref().map(|m| (m.digest, m.intensity, m.rgbm));
+        if key != self.map {
+            self.map = key;
+            self.key = None;
+            self.prefiltered = None;
+            let view = map.as_ref().map_or(&self.placeholder, |m| m.view);
+            self.bind = map_bind(device, &self.layout, &self.uniform, view, &self.map_sampler, &self.sh);
+            if let Some(m) = &map {
+                let mut words = [0f32; (STRIDE as usize / 4) * (MIPS as usize) * 6];
+                for mip in 0..MIPS {
+                    for face in 0..6 {
+                        let at = (mip * 6 + face) as usize * STRIDE as usize / 4;
+                        words[at + 3] = m.intensity.max(1e-9);
+                        words[at + 7] = m.rgbm.max(0.);
+                        words[at + 12..at + 15].copy_from_slice(&[
+                            face as f32,
+                            mip as f32 / (MIPS - 1) as f32,
+                            (SIZE >> mip).max(1) as f32,
+                        ]);
+                    }
+                }
+                queue.write_buffer(&self.uniform, 0, bytes(&words));
+                self.pending = true;
+                self.sh_pending = true;
+                return;
+            }
+        }
+        if self.map.is_some() {
+            return;
+        }
         let colors = [environment.zenith, environment.horizon, environment.ground];
         let key: [u32; 9] = std::array::from_fn(|i| colors[i / 3][i % 3].to_bits());
         if self.key == Some(key) {
@@ -198,8 +315,20 @@ impl EnvironmentLight {
         self.pending = true;
     }
 
-    /// Render the pending prefilter: one small pass per face and mip.
+    /// Whether an authored map lights the scene; its SH is then `sh`.
+    pub fn mapped(&self) -> bool {
+        self.map.is_some()
+    }
+
+    /// Render the pending prefilter: one small pass per face and mip, and an
+    /// authored map's SH projection.
     pub fn encode(&mut self, encoder: &mut wgpu::CommandEncoder) {
+        if std::mem::take(&mut self.sh_pending) {
+            let mut pass = encoder.begin_compute_pass(&Default::default());
+            pass.set_pipeline(&self.sh_pipeline);
+            pass.set_bind_group(0, &self.bind, &[0]);
+            pass.dispatch_workgroups(1, 1, 1);
+        }
         if !std::mem::take(&mut self.pending) {
             return;
         }
@@ -226,6 +355,49 @@ impl EnvironmentLight {
         }
         self.updates += 1;
     }
+}
+
+/// An authored equirectangular environment: +Y the top row, −Z the centre column.
+pub(crate) struct MapSource<'a> {
+    pub view: &'a wgpu::TextureView,
+    pub digest: u64,
+    pub intensity: f32,
+    pub rgbm: f32,
+}
+fn map_bind(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    uniform: &wgpu::Buffer,
+    map: &wgpu::TextureView,
+    sampler: &wgpu::Sampler,
+    sh: &wgpu::Buffer,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("game environment prefilter"),
+        layout,
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                    buffer: uniform,
+                    offset: 0,
+                    size: std::num::NonZeroU64::new(64),
+                }),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: wgpu::BindingResource::TextureView(map),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: sh.as_entire_binding(),
+            },
+        ],
+    })
 }
 
 /// Relative colour change that re-prefilters the specular cube at once.
@@ -488,7 +660,7 @@ mod tests {
     }
     fn prefiltered(gpu: &exact_gpu::Gpu, directions: bool, e: &Environment) -> EnvironmentLight {
         let mut light = EnvironmentLight::new(&gpu.device, directions);
-        light.prepare(&gpu.queue, e);
+        light.prepare(&gpu.device, &gpu.queue, e, None);
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
         light.encode(&mut encoder);
         gpu.queue.submit([encoder.finish()]);
@@ -585,6 +757,99 @@ mod tests {
             red.at(32, 20)[0] > top[0] + 20,
             "a new sky is reflected at once"
         );
+        // An authored map, added as a texture, replaces the sky: uniformly green.
+        r.add_texture(
+            "sky.tex",
+            &exact_game::asset::TextureData {
+                width: 8,
+                height: 4,
+                mips: [32, 8, 2, 1]
+                    .map(|texels| [0, 200, 0, 255].repeat(texels))
+                    .to_vec(),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        frame.environment_map = Some(crate::EnvironmentMapInput {
+            texture: "sky.tex",
+            intensity: 1.,
+            rgbm: 0.,
+        });
+        let green = draw(&mut r, &frame);
+        green.save("ibl-authored-map");
+        let pixel = green.at(32, 32);
+        assert!(
+            pixel[1] > 60 && pixel[0] < pixel[1] / 4 && pixel[2] < pixel[1] / 4,
+            "the map lights the metal: {pixel:?}"
+        );
+    }
+
+    #[test]
+    fn an_authored_equirect_map_replaces_the_sky_for_specular_and_diffuse() {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
+        // 64 x 32 RGBM: a warm upper hemisphere at radiance 2, a dark blue lower one.
+        let (w, h) = (64u32, 32u32);
+        let texels: Vec<u8> = (0..w * h)
+            .flat_map(|i| if i / w < h / 2 { [255, 128, 0, 128] } else { [0, 0, 64, 32] })
+            .collect();
+        use wgpu::util::DeviceExt;
+        let texture = gpu.device.create_texture_with_data(
+            &gpu.queue,
+            &wgpu::TextureDescriptor {
+                label: None,
+                size: wgpu::Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8Unorm,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            },
+            Default::default(),
+            &texels,
+        );
+        let view = texture.create_view(&Default::default());
+        let mut light = EnvironmentLight::new(&gpu.device, false);
+        let source = || MapSource {
+            view: &view,
+            digest: 7,
+            intensity: 1.,
+            rgbm: 4.,
+        };
+        light.prepare(&gpu.device, &gpu.queue, &Environment::default(), Some(source()));
+        let mut encoder = gpu.device.create_command_encoder(&Default::default());
+        light.encode(&mut encoder);
+        gpu.queue.submit([encoder.finish()]);
+        assert!(light.mapped());
+        let up = sample(&gpu, &light, 0., &[Vec3::Y, -Vec3::Y]);
+        // rgb x alpha x range: (1, 0.5, 0) x 0.5 x 4 above; (0, 0, 0.25) x 0.125 x 4 below.
+        assert!(up[0].abs_diff_eq(Vec3::new(2., 1., 0.), 0.05), "{up:?}");
+        assert!(up[1].abs_diff_eq(Vec3::new(0., 0., 0.125), 0.02), "{up:?}");
+        let words = crate::skinning::tests::read(&gpu, &light.sh, 9 * 16);
+        let mut c = [0f32; 36];
+        for (i, v) in c.iter_mut().enumerate() {
+            *v = f32::from_ne_bytes(words[i * 4..i * 4 + 4].try_into().unwrap());
+        }
+        let (top, bottom) = (evaluate(&c, Vec3::Y), evaluate(&c, -Vec3::Y));
+        assert!(top.x > 1. && top.x > 4. * bottom.x && bottom.z > top.z, "{top} {bottom}");
+        // An unchanged map is not prefiltered again; the sky's colours are ignored.
+        let updates = light.updates;
+        let mut sky = Environment::default();
+        sky.zenith = [1., 0., 0.];
+        light.prepare(&gpu.device, &gpu.queue, &sky, Some(source()));
+        let mut encoder = gpu.device.create_command_encoder(&Default::default());
+        light.encode(&mut encoder);
+        gpu.queue.submit([encoder.finish()]);
+        assert_eq!(light.updates, updates);
+        // Removing it returns to the procedural sky.
+        light.prepare(&gpu.device, &gpu.queue, &sky, None);
+        assert!(!light.mapped());
     }
 
     #[test]
@@ -593,8 +858,8 @@ mod tests {
             return;
         };
         let mut light = EnvironmentLight::new(&gpu.device, false);
-        let mut step = |light: &mut EnvironmentLight, e: &Environment| {
-            light.prepare(&gpu.queue, e);
+        let step = |light: &mut EnvironmentLight, e: &Environment| {
+            light.prepare(&gpu.device, &gpu.queue, e, None);
             let mut encoder = gpu.device.create_command_encoder(&Default::default());
             light.encode(&mut encoder);
             gpu.queue.submit([encoder.finish()]);

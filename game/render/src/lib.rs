@@ -219,6 +219,17 @@ impl Default for Shadows {
 
 pub use exact_game::{Bloom, Environment, Fog};
 
+/// An equirectangular environment texture ([`FrameInput::environment_map`]).
+#[derive(Debug, Clone, Copy)]
+pub struct EnvironmentMapInput<'a> {
+    /// A texture added with `add_texture` (or delivered as a `.tex` asset).
+    pub texture: &'a str,
+    /// Linear radiance multiplier.
+    pub intensity: f32,
+    /// RGBM range, or zero for plain RGB.
+    pub rgbm: f32,
+}
+
 /// Local lights drawn per frame, nearest the camera first. Further eligible
 /// lights are counted in `FrameInput::lights_dropped`, never silently lost.
 pub const MAX_LIGHTS: usize = 256;
@@ -299,6 +310,9 @@ pub struct FrameInput<'a> {
     pub attachments: &'a [DisplayedAttachment],
     /// Hemisphere lighting and background.
     pub environment: Environment,
+    /// An authored environment map lighting the scene in place of the sky:
+    /// a texture added under this name, its intensity and RGBM range.
+    pub environment_map: Option<EnvironmentMapInput<'a>>,
     /// Optional pass timestamps. Requires TIMESTAMP_QUERY on the device.
     /// Reserve [`GPU_PASS_COUNT`] pairs in the query set. Resolve/read outside draw.
     pub timestamps: Option<&'a wgpu::QuerySet>,
@@ -324,6 +338,7 @@ impl Default for FrameInput<'_> {
             lights_dropped: 0,
             attachments: &[],
             environment: Environment::default(),
+            environment_map: None,
             timestamps: None,
         }
     }

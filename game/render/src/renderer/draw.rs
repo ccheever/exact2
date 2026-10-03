@@ -113,7 +113,17 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
         let (scene_copy, retained) = self.prepare_targets(size, needs);
         let cascades = self.prepare_effects(frame);
-        self.environment.prepare(&self.queue, &frame.environment);
+        let map = frame.environment_map.and_then(|m| {
+            let texture = self.models.textures.get(m.texture).filter(|t| t.active)?;
+            Some(crate::ibl::MapSource {
+                view: &texture.view,
+                digest: texture.digest,
+                intensity: m.intensity,
+                rgbm: m.rgbm,
+            })
+        });
+        self.environment
+            .prepare(&self.device, &self.queue, &frame.environment, map);
         if self
             .lights
             .prepare(&self.device, &self.queue, frame, size, &self.local_plan)
@@ -147,6 +157,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             draws: 0,
         };
         self.environment.encode(encoder);
+        if self.environment.mapped() {
+            // The GPU-projected SH replaces the uniform's CPU irradiance.
+            encoder.copy_buffer_to_buffer(&self.environment.sh, 0, &self.uniform, 144 * 4, 144);
+        }
         if ASSETS {
             if let Some(skin) = &self.models.skinning {
                 skin.encode(encoder, frame.timestamps);

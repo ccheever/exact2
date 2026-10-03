@@ -127,6 +127,7 @@ pub(super) struct Scene {
     selected: Vec<(f32, usize)>,
     dropped: usize,
     output: Vec<LightInput>,
+    map: Option<exact_game::EnvironmentMap>,
 }
 impl Scene {
     #[cfg(test)]
@@ -156,6 +157,7 @@ impl Scene {
         self.first_spot = 0;
         self.selected.clear();
         self.dropped = 0;
+        self.map = None;
     }
     pub fn feed(
         &mut self,
@@ -318,6 +320,11 @@ impl Scene {
             // Frames then fill the output without allocating.
             self.output.reserve(self.selected.len().min(MAX_LIGHTS));
         }
+        // Cloned only when it changes.
+        let map = w.try_resource::<exact_game::EnvironmentMap>();
+        if self.map.as_ref() != map.as_deref() {
+            self.map = map.as_deref().cloned();
+        }
         self.versions = Some(versions);
     }
     pub fn frame(
@@ -408,6 +415,11 @@ impl Scene {
             lights: &self.output,
             lights_dropped: self.dropped,
             environment: e,
+            environment_map: self.map.as_ref().map(|m| crate::EnvironmentMapInput {
+                texture: &m.texture,
+                intensity: m.intensity,
+                rgbm: m.rgbm,
+            }),
             timestamps: None,
             attachments: &self.attachments.output,
         }
