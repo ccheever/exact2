@@ -279,6 +279,16 @@ extension Canvases {
             return m.bind(e.id, bytes.bindMemory(to: UInt8.self).baseAddress, data.count)
         }
     }
+    /// `postMessage(name, text)`: one message event into the live canvas of that
+    /// surface name (lowest view first), stamped now like its other input.
+    func post(_ name: String, _ text: String) {
+        guard let e = entries.values.filter({ $0.name == name && live($0.view.id) === $0 })
+                .min(by: { $0.view.id < $1.view.id }), let m = e.module,
+              input(e, m, ["t": "message", "text": text]) else {
+            fputs("exact: postMessage: refused: no live surface named \"\(name)\"\n", stderr)
+            return
+        }
+    }
     func live(_ id: UInt32) -> Entry? {
         guard let e = entries[id], e.id != 0, e.view.window != nil,
               session?.presenter.views[id] === e.view else { return nil }

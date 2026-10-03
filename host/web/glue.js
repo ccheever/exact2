@@ -774,6 +774,11 @@ function apply(batch) {
         // the web. `light`/`dark` are the property's own values.
         if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "light dark" : s; } else if (op.name === "haptic") navigator.vibrate?.(op.args?.[0] === "selection" ? 5 : 12); // LLP 1077 D14
         else if (op.name === "focus" || op.name === "selectText" || op.name === "blur") focusCommands.push({ name: op.name, args: op.args });
+        else if (op.name === "postMessage") { // the inverse of `message=`: text into the named surface, every one in order
+          const name = String(op.args?.[0] ?? ""), text = String(op.args?.[1] ?? ""), at = now();
+          if (globalThis.exact.gpu) globalThis.exact.gpu.post(name, text, at);
+          else (globalThis.exact.pendingPosts ??= []).push({ name, text, at, generation: incarnation });
+        }
         else if (op.name === "showPicker") { // LLP 1069.002 D2, D9: the element's own picker, inside the press's activation; under the agent, a hold
           const el = [...views.values()].find(el => el.id === op.args?.[0] && el.type === "file");
           if (agentMode) { const r = ask({ op: "showPicker", id: String(op.args?.[0] ?? "") }); if (r.error) console.warn("exact:", r.error); }

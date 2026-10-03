@@ -581,14 +581,14 @@ fn old_save_containers_are_refused_by_name_atomically() {
     assert_eq!(s.save().unwrap(), saved);
     let saved = s.world().save();
     let mut old = saved.clone();
-    assert!(saved.starts_with(b"EXGAME\0\x03"));
-    old[7] = 2;
+    assert!(saved.starts_with(b"EXGAME\0\x04"));
+    old[7] = 3;
     assert!(s
         .world_mut()
         .load(&old)
         .unwrap_err()
         .to_string()
-        .contains("EXGAME v3"));
+        .contains("EXGAME v4"));
     assert_eq!(s.world().save(), saved);
 }
 
@@ -607,7 +607,7 @@ fn wrong_magic_reports_actual_bytes_and_expected_format() {
     let saved = s.save().unwrap();
     for bytes in [
         b"random!!".to_vec(),
-        b"EXGAME\0\x02".to_vec(),
+        b"EXGAME\0\x03".to_vec(),
         b"EXSIM\0\x04!".to_vec(),
         vec![0xff; 8],
         b"short".to_vec(),
@@ -620,7 +620,7 @@ fn wrong_magic_reports_actual_bytes_and_expected_format() {
         );
         let error = s.world_mut().load(&bytes).unwrap_err().to_string();
         assert!(
-            error.contains(&seen) && error.contains("EXGAME v3"),
+            error.contains(&seen) && error.contains("EXGAME v4"),
             "{error}"
         );
         assert_eq!(s.save().unwrap(), saved);
@@ -1084,7 +1084,7 @@ fn restore_runs_no_setup_and_failed_world_validation_is_atomic() {
     }
     // Invalid world headers must be rejected before setup has any side effects.
     let mut bad = saved.clone();
-    let world = bad.windows(8).position(|v| v == b"EXGAME\0\x03").unwrap();
+    let world = bad.windows(8).position(|v| v == b"EXGAME\0\x04").unwrap();
     bad[world] = b'!';
     assert!(s.restore(&bad).is_err());
     assert_eq!(SETUPS.with(|calls| calls.replace(0)), 0);
@@ -1195,7 +1195,7 @@ fn restore_registers_argument_dependent_types_before_setup() {
     SETUPS.with(|calls| calls.set(0));
     let before = target.save().unwrap();
     let mut bad = before.clone();
-    let world = bad.windows(8).position(|v| v == b"EXGAME\0\x03").unwrap();
+    let world = bad.windows(8).position(|v| v == b"EXGAME\0\x04").unwrap();
     bad[world + 8] = 0xff;
     assert!(target.restore(&bad).is_err());
     assert_eq!(SETUPS.with(|calls| calls.get()), 0);
@@ -1338,4 +1338,89 @@ fn saves_canonicalize_consumed_input_edges_and_preserve_pending_events() {
             assert_eq!(drive(mode, epoch), expected, "{mode:?}");
         }
     }
+}
+
+// Grow a Garden's HUD sent commands through a live argument: two presses between
+// ticks kept only the second, and saves needed an acknowledge-and-reset protocol.
+mod posted {
+    use exact_game::*;
+    #[derive(Args, Default)]
+    pub struct Options {
+        #[live]
+        pub paused: bool,
+    }
+    #[derive(Default, Resource)]
+    pub struct Log(pub Vec<(u64, String)>);
+    pub struct Shop;
+    impl Game for Shop {
+        const ID: &'static str = "posted";
+        type Args = Options;
+        fn setup(w: &mut World, _: &Options) {
+            w.insert_resource(Log::default());
+        }
+        fn paused(a: &Options) -> bool {
+            a.paused
+        }
+        fn tick(w: &mut World, input: &Input, _: &Options) {
+            for m in input.messages() {
+                let tick = w.tick();
+                w.resource_mut::<Log>().0.push((tick, m.clone()));
+            }
+        }
+    }
+}
+#[test]
+fn posted_messages_reach_one_tick_each_in_order_and_are_saved_only_while_pending() {
+    use posted::*;
+    let log = |s: &Sim<Shop>| s.world().resource::<Log>().0.clone();
+    let mut s = Sim::<Shop>::new(Options::default()).unwrap();
+    s.run(0.);
+    s.post("buy carrot");
+    s.post("buy carrot");
+    s.post("sell all");
+    let pending = s.save().unwrap();
+    s.run(1000. / 60.);
+    let delivered = vec![
+        (0, "buy carrot".to_string()),
+        (0, "buy carrot".to_string()),
+        (0, "sell all".to_string()),
+    ];
+    assert_eq!(log(&s), delivered);
+    s.run(1000.);
+    assert_eq!(log(&s), delivered, "delivered once");
+    // A pending message travels with a save; a delivered one does not.
+    let mut fresh = Sim::<Shop>::new(Options::default()).unwrap();
+    fresh.restore(&pending).unwrap();
+    fresh.run(1000. / 60.);
+    assert_eq!(log(&fresh), delivered);
+    let after = s.save().unwrap();
+    let mut again = Sim::<Shop>::new(Options::default()).unwrap();
+    again.restore(&after).unwrap();
+    again.run(1000.);
+    assert_eq!(log(&again), delivered);
+    assert_eq!(again.world().hash(), {
+        s.run(1000.);
+        s.world().hash()
+    });
+    // Paused worlds hold messages for the first tick after the pause.
+    let mut p = Sim::<Shop>::new(Options { paused: true }).unwrap();
+    p.run(0.);
+    p.post("expand");
+    p.run(500.);
+    assert!(log(&p).is_empty());
+    p.bind(&[Value::Bool(false)], None).unwrap();
+    p.run(1000. / 60.);
+    assert_eq!(log(&p).len(), 1);
+    assert_eq!(log(&p)[0].1, "expand");
+    // Oversized messages refuse by name and change nothing.
+    let mut big = Sim::<Shop>::new(Options::default()).unwrap();
+    big.run(0.);
+    big.post("x".repeat(70_000));
+    big.run(100.);
+    assert!(log(&big).is_empty());
+    assert!(big
+        .world()
+        .journal()
+        .iter()
+        .any(|e| e.line.contains("exceeds")));
 }

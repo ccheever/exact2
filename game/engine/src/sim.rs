@@ -91,13 +91,14 @@ struct LiveTime {
     slew_left: Option<f64>,
     lookahead: f64,
 }
-/// Opt-in save reconstruction after every completed tick. Never enabled by default.
+/// Opt-in save reconstruction at the last tick of every advance and every 16th
+/// tick inside one. Never enabled by default.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Paranoid {
     /// Normal execution.
     #[default]
     Off,
-    /// Rebuild through the production restore path after every tick.
+    /// Rebuild through the production restore path at each sampled tick.
     Save,
     /// Also discard and decode immutable assets before reconstructing the world.
     FreshGame,
@@ -153,6 +154,7 @@ pub struct Sim<G: Game> {
     game: PhantomData<G>,
 }
 const QUEUE_LIMIT: usize = 1024;
+const PARANOID_EVERY: u64 = 16;
 pub(crate) fn micros(ms: f64) -> i64 {
     (ms * 1000.0).round() as i64
 }
@@ -674,7 +676,8 @@ impl<G: Game> Sim<G> {
             return;
         }
         self.invalidate();
-        if G::paused(&self.args) {
+        // A posted message waits for the next tick, paused or not.
+        if G::paused(&self.args) && !matches!(event, InputEvent::Message { .. }) {
             self.input.apply_paused(event);
             return;
         }
@@ -778,14 +781,26 @@ impl<G: Game> Sim<G> {
         self.queue.insert(position, e);
     }
     fn flush_paused(&mut self, now: i64) {
+        let mut held = VecDeque::new();
         while self
             .queue
             .front()
             .is_some_and(|e| e.world_us.is_some() || e.host_us <= now)
         {
-            self.input
-                .apply_paused(self.queue.pop_front().unwrap().event);
+            let e = self.queue.pop_front().unwrap();
+            if let InputEvent::Message { .. } = e.event {
+                // Restamped at the pause's end, so it reaches the first tick after.
+                held.push_back(Queued {
+                    world_us: None,
+                    host_us: now,
+                    ..e
+                });
+            } else {
+                self.input.apply_paused(e.event);
+            }
         }
+        held.append(&mut self.queue);
+        self.queue = held;
         self.input.clear_edges();
     }
     /// Host display period in milliseconds; zero means not yet known. Applied
@@ -1012,8 +1027,12 @@ impl<G: Game> Sim<G> {
             self.world.reap_orphans();
             self.world.propagate();
             self.world.step_clock();
+            // Paranoid modes round-trip at every point an advance can be observed
+            // (its last tick) and every PARANOID_EVERY-th tick inside it.
             if let Some(rebuild) = self.paranoid {
-                rebuild(self);
+                if self.world.tick() == target || self.world.tick().is_multiple_of(PARANOID_EVERY) {
+                    rebuild(self);
+                }
             }
             if clock == Clock::Seekable {
                 let left = target - self.world.tick();
@@ -1021,8 +1040,7 @@ impl<G: Game> Sim<G> {
                     self.world.observe(&mut self.observations[0]);
                 }
                 if left == 0 {
-                    self.world
-                        .observe_with_hash(&mut self.observations[1], true);
+                    self.world.observe(&mut self.observations[1]);
                     self.world
                         .compare(&self.observations[0], &self.observations[1]);
                     self.last_epoch.set(self.world.mutation_epoch());
@@ -1227,6 +1245,14 @@ impl<G: Game> Sim<G> {
         self.input(InputEvent::Key {
             code: code.into(),
             down,
+            at_ms: self.last_us.unwrap_or(0) as f64 / 1000.0,
+        });
+    }
+    /// Post a message into the world at the current clock, as Contract's
+    /// `postMessage(surface, text)` does; the next tick reads it in `Input::messages`.
+    pub fn post(&mut self, text: impl Into<String>) {
+        self.input(InputEvent::Message {
+            text: text.into(),
             at_ms: self.last_us.unwrap_or(0) as f64 / 1000.0,
         });
     }

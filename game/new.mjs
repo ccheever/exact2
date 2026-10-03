@@ -19,11 +19,13 @@ export function createGame(destination, directory = import.meta.dir, options = {
   const quote = path => `'${path.replaceAll("'", "'\\''")}'`;
   const script = (file, from = process.cwd()) => quote(relative(from, resolve(directory, file)));
   const title = name.split('-').map(word => word[0].toUpperCase() + word.slice(1)).join(' ');
+  const type = title.replaceAll(' ', '');
   for (const file of readdirSync(destination, {recursive:true, withFileTypes:true})) {
     if (!file.isFile()) continue;
     const path = resolve(file.parentPath, file.name);
     writeFileSync(path, readFileSync(path, 'utf8').replaceAll('small-game', name)
       .replaceAll('small_game', name.replaceAll('-', '_'))
+      .replaceAll('SmallGame', type)
       .replaceAll('Small game', title)
       .replaceAll('bun /path/to/exact2/game/prove.mjs', `bun ${script('prove.mjs', destination)}`)
       .replaceAll('bun /path/to/exact2/game/app/shells.mjs', `bun ${script('app/shells.mjs', destination)}`));

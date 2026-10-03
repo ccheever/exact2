@@ -165,8 +165,8 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     const target = targetInfos.find((t) => t.type === 'page') ?? (await cdp.send('Target.createTarget', { url: 'about:blank' }));
     const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
     const heldKeys = new Map();
-    const call = async (method, params) => {
-      const reply = await cdp.send(method, params, sessionId);
+    const call = async (method, params, timeoutMs) => {
+      const reply = await cdp.send(method, params, sessionId, timeoutMs);
       if (method === 'Input.dispatchKeyEvent') {
         if (params.type === 'keyUp') heldKeys.delete(params.code);
         else if (params.type === 'keyDown' || params.type === 'rawKeyDown') heldKeys.set(params.code, params);
@@ -195,8 +195,8 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     ` });
     // The viewport exactly: Chrome will not make a window narrower than 500.
     await call('Emulation.setDeviceMetricsOverride', { width: size[0], height: size[1], deviceScaleFactor: 1, mobile: false });
-    const evaluate = async (expression) => {
-      const r = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
+    const evaluate = async (expression, timeoutMs) => {
+      const r = await call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }, timeoutMs);
       if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description ?? r.exceptionDetails.text);
       return r.result.value;
     };
@@ -243,7 +243,9 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
         await frame();
         return { resized: pair, viewport: await evaluate('[innerWidth, innerHeight]'), delivery: 'browser-viewport' };
       }
-      return JSON.parse(await evaluate(`exact.agentSettled(${JSON.stringify(req)}).then((r) => JSON.stringify(r))`));
+      // A settle runs up to the page's 20 s deadline twice (requests, then rounds).
+      const timeout = req.op === 'clock' && req.settle ? 60000 : undefined;
+      return JSON.parse(await evaluate(`exact.agentSettled(${JSON.stringify(req)}).then((r) => JSON.stringify(r))`, timeout));
     };
     return {
       host: 'web', browser: 'chrome', boot: Number(boot), hostLines, evaluate, call, launchFacts: facts,
@@ -708,14 +710,25 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
     throw e;
   }
 }
+const CLOCK_STEP_MS = 1000;
 // ---------------------------------------------------------------- the eight operations
 /** A convenience over state, screenshot and type; wire replies keep all tags. */
 export function worldView(session, name) {
   return {
-    async snapshot() {
-      const {tick, hash, entities, truncated} = await session.state(`${name}:*`);
-      return {tick, hash, entities, truncated};
+    /** The first page of entities (512), or every page with {all:true}, read at one tick and hash. */
+    async snapshot({all = false} = {}) {
+      const page = {limit:5000};
+      const first = all ? await session.state(`${name}:*`, undefined, false, false, page) : await session.state(`${name}:*`);
+      const {tick, hash} = first, entities = [...first.entities];
+      for (let r = first; all && r.truncated;) {
+        r = await session.state(`${name}:*`, undefined, false, false, {...page, from:r.next});
+        if (r.tick !== tick || r.hash !== hash) throw new Error('world changed while paging; capture on the agent clock with no concurrent drive');
+        entities.push(...r.entities);
+      }
+      return {tick, hash, entities, truncated: all ? false : first.truncated};
     },
+    /** Every resource's value, as `state world:* resources` reads them. */
+    async resources() { return (await session.state(`${name}:*`, undefined, false, false, {limit:1, resources:true})).resources; },
     state: entity => session.state(`${name}:${entity}`),
     save: path => session.screenshot(path, name, 'save'),
     run: ms => {
@@ -847,7 +860,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     },
     world(name) { return worldView(this, name); },
     /** Every slot, derive, and resource by name, as typed JSON. */
-    state: async (target, under, pose = false, busy = false) => s.op({ op: 'state', ...(busy ? { busy:true } : {}), ...(pose ? { pose: true } : {}), ...(target != null ? await s.target(target) : {}), ...(under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) }),
+    state: async (target, under, pose = false, busy = false, page = {}) => s.op({ op: 'state', ...page, ...(busy ? { busy:true } : {}), ...(pose ? { pose: true } : {}), ...(target != null ? await s.target(target) : {}), ...(under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) }),
     /** What happened since the last read: the runner's journal (`lines`, from index `from` up to `next`) and the host's own output (`host`). `dropped` counts lines the journal ring let go before this read caught up. */
     async logs() {
       const r = await s.op({ op: 'logs', since: s.logCursor });
@@ -1053,6 +1066,11 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       else if (typeof spec === 'string' && spec.startsWith('+')) req.to = s.now + Number(spec.slice(1));
       else req.to = Number(spec);
       if (!req.settle && !Number.isFinite(req.to)) throw new Error(`clock: not a time: ${spec}; use clock +100 or clock settle; state shows the current clock`);
+      // A long seek moves in CLOCK_STEP_MS steps, each its own operation: no host's answer
+      // window bounds one `clock`. Ticks, timers and the final observation are one seek's.
+      while (!req.settle && req.to - s.now > CLOCK_STEP_MS) {
+        s.now = (await s.op({ op: 'clock', to: s.now + CLOCK_STEP_MS })).clock;
+      }
       const r = await s.op(req);
       s.now = r.clock;
       if (req.settle && r.settled === false) r.diagnostic = r.reason === 'device' ? `clock settle stops at held device requests (${(r.tickets ?? []).map(t => '@' + t).join(' ')}); state shows them under pending; answer with tap @N <choice> or type @N <value>` : r.reason === 'requests' ? 'clock settle gave up on requests still in flight at its bound (20 s native); state shows them under pending, and logs a `request N` with no `fulfil N`' : `clock settle did not reach quiescence: ${JSON.stringify(r.world ?? r)}; state world:* busy shows moving values and busy reasons; state shows held input; logs shows reload/refusals`;
@@ -1307,7 +1325,7 @@ async function main(argv) {
       let r;
       switch (op) {
         case 'tree': r = await s.tree(args[0], args[1] === 'under' ? args[2] : undefined); break;
-        case 'state': r = await s.state(args[0], args[1] === 'under' ? args[2] : undefined, args[1] === 'pose', args[1] === 'busy'); break;
+        case 'state': r = await s.state(args[0], args[1] === 'under' ? args[2] : undefined, args[1] === 'pose', args[1] === 'busy', {...(args.includes('from') ? {from:Number(args[args.indexOf('from') + 1])} : {}), ...(args.includes('limit') ? {limit:Number(args[args.indexOf('limit') + 1])} : {}), ...(args.includes('resources') ? {resources:true} : {})}); break;
         case 'logs': r = await s.logs(); break;
         case 'layout': r = await s.layout(...layoutArgs(args)); break;
         case 'screenshot':

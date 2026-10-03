@@ -79,6 +79,15 @@ impl IntoScale for [f32; 3] {
     }
 }
 
+/// A world's pose history position, from `World::pose_cursor`. Physics, render
+/// and other derived caches skip blocks of entities whose poses did not change.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PoseCursor {
+    generation: u64,
+    transforms: u64,
+    hierarchy: u64,
+}
+
 /// Hierarchy edge. Descendants of a dead parent leave at the end of the tick.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Component)]
 pub struct Parent(pub Entity);
@@ -508,15 +517,22 @@ impl Default for Visible {
 
 impl World {
     /// Reap dead-parent children in entity order, repeating for orphaned chains.
-    /// Sim calls this once after Game::tick and before propagate.
+    /// Sim calls this once after Game::tick and before propagate. After the first
+    /// propagate it visits only despawned parents and the Parent pages written.
     pub fn reap_orphans(&mut self) {
         // Reaping and propagation use this entity scratch sequentially.
         let mut orphans = std::mem::take(&mut self.hierarchy.entities);
+        let mut from = 0;
         loop {
-            orphans.clear();
-            for (e, p) in self.query::<&Parent>().iter() {
-                if !self.contains(p.0) {
-                    orphans.push(e);
+            match self.hierarchy.orphans(self, from, &mut orphans) {
+                Some(next) => from = next,
+                None => {
+                    orphans.clear();
+                    for (e, p) in self.query::<&Parent>().iter() {
+                        if !self.contains(p.0) {
+                            orphans.push(e);
+                        }
+                    }
                 }
             }
             if orphans.is_empty() {
@@ -531,6 +547,7 @@ impl World {
     /// Resolve only parented entities, reusing indexed scratch and chain stamps.
     /// Stale parents act as roots; parents without Transform contribute identity.
     /// Runtime cycles lose the highest-index edge, with one journal line per cycle.
+    /// After the first call, only subtrees under changed rows are recomputed.
     pub fn propagate(&mut self) {
         self.resolve_hierarchy(false)
             .expect("runtime cycles are repaired");
@@ -550,10 +567,14 @@ impl World {
         self.resolve_hierarchy(true)
     }
     fn resolve_hierarchy(&mut self, reject: bool) -> Result<(), crate::DataError> {
-        if self.storage::<Parent>().is_none_or(|s| s.is_empty()) {
+        if !self.hierarchy.ready() && self.storage::<Parent>().is_none_or(|s| s.is_empty()) {
             return Ok(());
         }
         let mut h = std::mem::take(&mut self.hierarchy);
+        if !reject && h.ready() && h.update(self) {
+            self.hierarchy = h;
+            return Ok(());
+        }
         let result = h.resolve(self, reject);
         for &e in &h.broken {
             self.remove::<Parent>(e);
@@ -562,8 +583,36 @@ impl World {
                 e.index()
             ));
         }
+        if result.is_ok() {
+            h.rebuild(self);
+        }
         self.hierarchy = h;
         result
+    }
+    /// A cursor at the current poses, for `poses_changed_since`. Not saved or hashed.
+    pub fn pose_cursor(&self) -> PoseCursor {
+        PoseCursor {
+            generation: self.presentation_generation,
+            transforms: self.revision::<Transform>(),
+            hierarchy: self.hierarchy.epoch,
+        }
+    }
+    /// The first entity index of each block of `PAGE` slots in which a local
+    /// Transform row was written (or inserted or removed), or a propagated global
+    /// pose changed, since `since` was taken from this world. Conservative per
+    /// block: an unreported block has no changed pose, a reported one may have
+    /// none. A cursor from before a load or restore reports every block.
+    pub fn poses_changed_since(&self, since: PoseCursor) -> impl Iterator<Item = u32> + '_ {
+        let all = since.generation != self.presentation_generation;
+        let transforms = self.storage::<Transform>();
+        let epochs = &self.hierarchy.epochs;
+        let pages = transforms.map_or(0, |s| s.page_count()).max(epochs.len());
+        (0..pages)
+            .filter(move |&page| {
+                all || transforms.is_some_and(|s| s.page_generation(page) > since.transforms)
+                    || epochs.get(page).is_some_and(|&e| e > since.hierarchy)
+            })
+            .map(|page| (page * crate::PAGE) as u32)
     }
     /// World pose: a root reads its local Transform directly, without propagation.
     /// Parented poses reflect the last propagate call.
@@ -651,109 +700,13 @@ impl World {
     }
 }
 
-#[derive(Default)]
-pub(crate) struct Hierarchy {
-    nodes: Vec<Node>,
-    entities: Vec<Entity>,
-    path: Vec<Entity>,
-    broken: Vec<Entity>,
-    stamp: u32,
-}
-#[derive(Default)]
-struct Node {
-    entity: Entity,
-    parent: Option<Entity>,
-    present: u32,
-    visiting: u32,
-    done: u32,
-    global: Affine3A,
-}
-impl Hierarchy {
-    fn resolve(&mut self, w: &World, reject: bool) -> Result<(), crate::DataError> {
-        self.stamp = self.stamp.wrapping_add(1);
-        if self.stamp == 0 {
-            self.nodes.clear();
-            self.stamp = 1;
-        }
-        let stamp = self.stamp;
-        self.entities.clear();
-        self.broken.clear();
-        // Resolution runs under `&mut World`: one whole-column hold replaces a row
-        // lease per node. @ref llp/1046.003-game-engine-as-built.explainer.md#row-leases-2026-09-23
-        let poses = w.pages::<Transform>();
-        let local = |e: Entity| {
-            poses
-                .row(e.index() as usize)
-                .map_or(Affine3A::IDENTITY, |t| t.affine())
-        };
-        for (e, p) in w.query::<&Parent>().iter() {
-            let i = e.index() as usize;
-            if i >= self.nodes.len() {
-                self.nodes.resize_with(i + 1, Node::default);
-            }
-            let n = &mut self.nodes[i];
-            n.entity = e;
-            n.parent = w.contains(p.0).then_some(p.0);
-            n.present = stamp;
-            self.entities.push(e);
-        }
-        for i in 0..self.entities.len() {
-            let start = self.entities[i];
-            if self.nodes[start.index() as usize].done == stamp {
-                continue;
-            }
-            self.path.clear();
-            let mut e = start;
-            let mut base = loop {
-                let Some(n) = self
-                    .nodes
-                    .get_mut(e.index() as usize)
-                    .filter(|n| n.present == stamp)
-                else {
-                    break local(e);
-                };
-                if n.done == stamp {
-                    break n.global;
-                }
-                if n.visiting == stamp {
-                    let begin = self.path.iter().position(|&p| p == e).unwrap();
-                    let root = *self.path[begin..].iter().max_by_key(|e| e.index()).unwrap();
-                    if reject {
-                        return Err(crate::DataError::new(format!(
-                            "Parent cycle at #{}",
-                            root.index()
-                        )));
-                    }
-                    self.nodes[root.index() as usize].parent = None;
-                    self.broken.push(root);
-                    for e in self.path.drain(..) {
-                        self.nodes[e.index() as usize].visiting = 0;
-                    }
-                    e = start;
-                    continue;
-                }
-                n.visiting = stamp;
-                self.path.push(e);
-                if let Some(parent) = n.parent {
-                    e = parent;
-                } else {
-                    break Affine3A::IDENTITY;
-                }
-            };
-            while let Some(e) = self.path.pop() {
-                base *= local(e);
-                let n = &mut self.nodes[e.index() as usize];
-                n.global = base;
-                n.done = stamp;
-            }
-        }
-        Ok(())
-    }
-}
+mod hierarchy;
+pub(crate) use hierarchy::Hierarchy;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::PAGE;
     #[test]
     fn hierarchy_refreshes_removed_recycled_and_wrapped_entries() {
         let mut w = World::new(60, 0);
@@ -770,7 +723,7 @@ mod tests {
         w.propagate();
         assert_eq!(w.global(child).unwrap().translation.x, 7.);
 
-        w.hierarchy.stamp = u32::MAX;
+        w.hierarchy.force_full(u32::MAX);
         w.propagate();
         assert_eq!(w.global(child).unwrap().translation.x, 7.);
 
@@ -785,6 +738,119 @@ mod tests {
         w.remove::<Transform>(root);
         w.propagate();
         assert_eq!(w.global(replacement).unwrap().translation.x, 9.);
+    }
+    // Incremental propagation must equal a full resolve after every edit: the same
+    // cycle repairs, the same orphans reaped, bit-identical globals.
+    #[test]
+    fn incremental_propagation_matches_a_full_resolve_under_random_edits() {
+        let mut seed = 0x2545_f491_4f6c_dd1du64;
+        let mut next = move |n: u64| {
+            seed ^= seed << 13;
+            seed ^= seed >> 7;
+            seed ^= seed << 17;
+            seed % n
+        };
+        let (mut a, mut b) = (World::new(60, 1), World::new(60, 1));
+        let mut live: Vec<Entity> = vec![];
+        for round in 0..3_000 {
+            let ops = 1 + next(6);
+            for _ in 0..ops {
+                let pick = |live: &[Entity], r: u64| live[(r % live.len() as u64) as usize];
+                let r = next(1 << 30);
+                let op = if live.len() < 8 { 0 } else { next(9) };
+                let root = r % 3 == 0 || live.is_empty();
+                let born = live.len();
+                for (first, w) in [(true, &mut a), (false, &mut b)] {
+                    match op {
+                        0 => {
+                            let t = Transform::at((r % 7) as f32, (r % 5) as f32, 1.0);
+                            let e = if root {
+                                w.spawn(t)
+                            } else {
+                                w.spawn((t, Parent(pick(&live[..born], r))))
+                            };
+                            if first {
+                                live.push(e);
+                            }
+                        }
+                        1 if r % 4 == 0 => {
+                            w.despawn(pick(&live, r));
+                        }
+                        2 | 3 => {
+                            let (c, p) = (pick(&live, r), pick(&live, r / 7));
+                            w.insert(c, Parent(p));
+                        }
+                        4 => {
+                            w.remove::<Parent>(pick(&live, r));
+                        }
+                        5 | 6 => {
+                            if let Some(mut t) = w.get_mut::<Transform>(pick(&live, r)) {
+                                t.position.x += 1.0;
+                                t.rotation = Quat::from_rotation_y((r % 11) as f32 * 0.1);
+                            }
+                        }
+                        7 => {
+                            // A write that changes nothing marks the page only.
+                            let _ = w.get_mut::<Transform>(pick(&live, r));
+                        }
+                        8 if r % 5 == 0 => {
+                            w.remove::<Transform>(pick(&live, r));
+                        }
+                        _ => {}
+                    }
+                }
+                live.retain(|e| a.contains(*e));
+            }
+            for w in [&mut a, &mut b] {
+                if round % 7 != 0 {
+                    w.reap_orphans();
+                }
+            }
+            b.hierarchy.force_full(b.hierarchy.stamp);
+            a.propagate();
+            b.propagate();
+            live.retain(|e| a.contains(*e));
+            assert_eq!(a.hash(), b.hash(), "round {round}");
+            for e in a.entities() {
+                let (ga, gb) = (a.global(e), b.global(e));
+                assert_eq!(ga, gb, "round {round} #{}", e.index());
+                let scan: Vec<_> = a
+                    .query::<&Parent>()
+                    .iter()
+                    .filter(|(_, p)| p.0 == e)
+                    .map(|(c, _)| c)
+                    .collect();
+                assert_eq!(
+                    a.children(e),
+                    scan,
+                    "round {round} children of #{}",
+                    e.index()
+                );
+            }
+        }
+        assert!(a.hierarchy.ready());
+    }
+    #[test]
+    fn pose_cursor_reports_written_and_propagated_blocks_only() {
+        let mut w = World::new(60, 0);
+        let roots: Vec<_> = (0..2_000)
+            .map(|i| w.spawn(Transform::at(i as f32, 0., 0.)))
+            .collect();
+        // A child two pages away from its parent.
+        let child = w.spawn((Transform::at(0., 1., 0.), Parent(roots[3])));
+        w.propagate();
+        let cursor = w.pose_cursor();
+        w.propagate();
+        assert_eq!(w.poses_changed_since(cursor).count(), 0);
+        w.get_mut::<Transform>(roots[3]).unwrap().position.y = 5.;
+        w.propagate();
+        let pages: Vec<_> = w.poses_changed_since(cursor).collect();
+        assert_eq!(pages, [0, (child.index() as usize / PAGE * PAGE) as u32]);
+        assert_eq!(w.global(child).unwrap().translation.y, 6.);
+        let cursor = w.pose_cursor();
+        let bytes = w.save();
+        w.load(&bytes).unwrap();
+        assert_eq!(w.poses_changed_since(cursor).count(), 4);
     }
     #[test]
     fn parent_scratch_is_reused_and_flat_worlds_allocate_none() {

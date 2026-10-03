@@ -1,18 +1,18 @@
 {
   "ticks": {
-    "0": "0xb6e90714710c57ff",
-    "90": "0x164306fd0014d2eb"
+    "0": "0x678050877109b354",
+    "90": "0x56d7b1520ecf2871"
   },
   "saves": {
-    "continuation": "581d5b29e678c8d92382d57d92028f9158d87a69d7e10b5ee93bc960f650e58c"
+    "continuation": "a0db3082507b74afddb3692484fdd3cc7e337f0a1017d703781c8bf6b24ab732"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "d6d77289ec9b1990a7579e71e8eb739acf84306406641d5dd40120a4e95a380c",
+  "inputs": "70395ff3c2ba388adcc928e4b7b5613580511ecc5ec84b9dac9e862e1f61e460",
   "game": "beacons",
-  "generated": "bun game/prove.mjs beacons --repin --hosts linux,web",
-  "at": "126daba5b97ef4bbb9d8fc6f0dba8c660b103585",
-  "reason": "E11 bounded walking accounts for acceleration and braking; continuation timing changed, tick pins retained; inputs identify the producing source tree."
+  "generated": "bun game/prove.mjs beacons --repin --hosts 'linux,web'",
+  "at": "122f548c0811783e2862869ff89d4dd2f9f11c9c",
+  "reason": "Engine fix lane: the world hash is a stream over paged digests and saves are columnar (EXGAME v4); same simulation, new hash and save encodings."
 }

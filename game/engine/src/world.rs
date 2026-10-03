@@ -200,7 +200,8 @@ pub struct World {
     epoch: std::rc::Rc<std::cell::Cell<u64>>,
     observed_epoch: u64,
     hash_cache: std::cell::Cell<Option<(u64, u64)>>,
-    hash_prefix: RefCell<Option<(u64, hash::Hasher)>>,
+    // Paged digests behind hash and observation; never saved.
+    digests: RefCell<digest::Digests>,
     // Executor phase, never saved: audio authored in a tick starts at its end.
     pub(crate) in_tick: bool,
     pub(crate) followed: std::cell::Cell<bool>,
@@ -231,11 +232,7 @@ pub struct World {
     entities_revision: u64,
     pub(crate) presentation_generation: u64,
 }
-const SINGLETON: Entity = Entity {
-    index: 0,
-    generation: 0,
-};
-const MAGIC: &[u8; 8] = b"EXGAME\0\x03";
+const MAGIC: &[u8; 8] = b"EXGAME\0\x04";
 
 impl World {
     /// Start at tick zero. A zero tick rate is a programmer error.
@@ -244,12 +241,12 @@ impl World {
         let epoch = std::rc::Rc::new(std::cell::Cell::new(0));
         let mut rng = storage::Singleton::new("Rng", epoch.clone());
         rng.insert(Rng::new(seed));
-        Self {
+        let mut world = Self {
             assets: Default::default(),
             epoch,
             observed_epoch: 0,
             hash_cache: std::cell::Cell::new(None),
-            hash_prefix: RefCell::new(None),
+            digests: RefCell::default(),
             changing: Vec::new(),
             observation: ObservationState::Unknown,
             in_tick: false,
@@ -280,7 +277,27 @@ impl World {
             fresh: vec![],
             entities_revision: 0,
             presentation_generation: 0,
-        }
+        };
+        world.register_scene();
+        world
+    }
+    // The engine's own scene components restore in any process, however late a
+    // game first spawns one. Registration is not state; executor-linked
+    // components (animation, sockets, audio) still register where they install.
+    fn register_scene(&mut self) {
+        use crate::scene::*;
+        self.register::<Transform>()
+            .register::<Parent>()
+            .register::<Mesh>()
+            .register::<crate::Material>()
+            .register::<Camera>()
+            .register::<DirectionalLight>()
+            .register::<PointLight>()
+            .register::<Visible>()
+            .register::<Ambient>()
+            .register::<Follow>()
+            .register::<Glow>()
+            .register::<Lit>();
     }
     /// Identity of this world instance, excluded from saves and hashes.
     pub fn id(&self) -> WorldId {
@@ -351,6 +368,7 @@ impl World {
             self.alive_mask.push(0);
         }
         self.alive_mask[word] |= 1 << (index % 64);
+        self.digests.get_mut().touch(index);
         self.entities_revision = self.entities_revision.wrapping_add(1);
         self.fresh.push(e);
         self.index_name(index, true);
@@ -367,6 +385,7 @@ impl World {
         if let Some(detach) = self.detach {
             detach(self, e);
         }
+        self.hierarchy.despawning(e.index);
         self.mutated();
         let generation = self.state.slots[e.index as usize]
             .generation
@@ -382,6 +401,7 @@ impl World {
         slot.alive = false;
         slot.name = None;
         self.alive_mask[e.index as usize / 64] &= !(1 << (e.index % 64));
+        self.digests.get_mut().touch(e.index);
         self.state.free.0.insert(e.index);
         self.entities_revision = self.entities_revision.wrapping_add(1);
         self.log(format_args!("despawn #{}", e.index));
@@ -831,12 +851,16 @@ impl World {
     pub fn entities_revision(&self) -> u64 {
         self.entities_revision
     }
-    /// Scan for direct children in entity order, for tools;
-    /// a tick that needs children keeps them in a component.
+    /// Direct children in entity order. After a propagate with no Parent written
+    /// or entity despawned since, this reads the hierarchy's links (O(children));
+    /// otherwise it scans every Parent row.
     #[track_caller]
     pub fn children(&self, e: Entity) -> Vec<Entity> {
         if !self.contains(e) {
             return vec![];
+        }
+        if let Some(children) = self.hierarchy.children(self, e) {
+            return children;
         }
         self.query::<&Parent>()
             .iter()
@@ -1008,7 +1032,7 @@ impl World {
             .expect("world clock exhausted");
     }
 
-    fn write(&self, w: &mut dyn Writer, delivery: bool, at: At) {
+    fn write(&self, w: &mut dyn Writer, at: At) {
         self.check_reads(at);
         w.begin_struct();
         w.field("state");
@@ -1023,64 +1047,22 @@ impl World {
             w.begin_struct();
             for (name, s) in storages {
                 w.key(name);
-                s.write(w, &|index| {
-                    if kind == "resources" {
-                        SINGLETON
-                    } else {
-                        self.entity_at(index)
-                    }
-                });
+                s.write_save(w);
             }
             w.end_struct();
         }
-        if delivery {
-            self.assets.write_identity(w);
-        }
-        if delivery && !self.messages.borrow().is_empty() {
+        self.assets.write_identity(w);
+        if !self.messages.borrow().is_empty() {
             w.field("messages");
             self.messages.borrow().write(w);
         }
         w.end_struct();
     }
-    /// Hash simulation state in type-name order, excluding saved delivery queues.
-    #[track_caller]
-    pub fn hash(&self) -> u64 {
-        let at = Location::caller();
-        if let Some((epoch, hash)) = self.hash_cache.get() {
-            if epoch == self.mutation_epoch() {
-                return hash;
-            }
-        }
-        let prefix = self.hash_prefix.borrow();
-        let mut w = if let Some((epoch, prefix)) = &*prefix {
-            (*epoch == self.mutation_epoch()).then(|| prefix.clone())
-        } else {
-            None
-        };
-        let hash = if let Some(w) = &mut w {
-            self.check_reads(at);
-            w.field("resources");
-            w.begin_struct();
-            for (name, s) in &self.resources {
-                w.key(name);
-                s.write(w, &|_| SINGLETON);
-            }
-            w.end_struct();
-            w.end_struct();
-            w.finish()
-        } else {
-            let mut w = hash::Hasher::default();
-            self.write(&mut w, false, at);
-            w.finish()
-        };
-        self.hash_cache.set(Some((self.mutation_epoch(), hash)));
-        hash
-    }
     /// Write a versioned save; NaNs are canonicalized and caches are excluded.
     #[track_caller]
     pub fn save(&self) -> Vec<u8> {
         let mut w = bin::Encoder::prefixed(MAGIC);
-        self.write(&mut w, true, Location::caller());
+        self.write(&mut w, Location::caller());
         w.finish()
     }
     /// Atomically replace simulation state. Registered types survive the replacement;
@@ -1123,7 +1105,7 @@ impl World {
         }
         bytes.strip_prefix(MAGIC).ok_or_else(|| {
             DataError::new(format!(
-                "unsupported world save format (expected EXGAME v3; saw {:02x?})",
+                "unsupported world save format (expected EXGAME v4; saw {:02x?})",
                 &bytes[..bytes.len().min(8)]
             ))
         })
@@ -1131,16 +1113,6 @@ impl World {
     fn validate_state(&self) -> Result<(), DataError> {
         if self.hz() == 0 {
             return Err(DataError::new("hz must be positive"));
-        }
-        let free = self
-            .state
-            .slots
-            .iter()
-            .enumerate()
-            .filter(|(_, s)| !s.alive)
-            .map(|(i, _)| i as u32);
-        if !free.eq(self.state.free.0.iter().copied()) {
-            return Err(DataError::new("free list disagrees with entity table"));
         }
         if self
             .state
@@ -1219,14 +1191,9 @@ impl World {
                             ))
                         })?;
                         let mut s = make(key, self.epoch.clone());
-                        s.read(r, &|e| {
-                            if resource {
-                                e == SINGLETON
-                            } else {
-                                self.contains(e)
-                            }
-                        })
-                        .map_err(|e| e.at(&name))?;
+                        let slots = &self.state.slots;
+                        s.read_save(r, &|i| slots.get(i as usize).is_some_and(|s| s.alive))
+                            .map_err(|e| e.at(&name))?;
                         if resource && s.len() != 1 {
                             return Err(DataError::new("resource must contain one value").at(name));
                         }
@@ -1255,10 +1222,13 @@ impl World {
 mod tests;
 
 mod inspect;
-pub(crate) use inspect::{Observation, ObservationState};
+pub(crate) use inspect::ObservationState;
 
 mod save;
 use save::Free;
+
+mod digest;
+pub(crate) use digest::Observation;
 
 #[cfg(test)]
 mod nearest_xz_mut_tests {

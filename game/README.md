@@ -35,7 +35,9 @@ bun game/new.mjs ./my-game
 bun game/dev.mjs ./my-game
 ```
 
-Open the dev server's printed URL. Edit `my-game/logic/src/lib.rs` for gameplay or
+Open the dev server's printed URL. It serves on 8765, or on the next free port when
+another dev loop holds 8765 (it says so); `--port <n>` chooses one and fails at once,
+before building, if that port is in use. `--lan` serves a phone on this network. Edit `my-game/logic/src/lib.rs` for gameplay or
 `my-game/app.contract` for UI. Gameplay reloads carry the running world; shared
 app-runtime edits reload the page. The server also prints **Open in native**.
 Edits inside `Game::setup` take effect on a fresh game; in the starter, pause and
@@ -234,6 +236,12 @@ Only the first live canvas owns a given surface's public record.
 `w.emit("won")` separately queues a string for the canvas's `message=` handler.
 Undelivered events save in order but stay outside the simulation hash.
 
+Commands go the other way as messages: an action calls
+`postMessage("world", "buy carrot")` and the next tick reads every message posted
+since, in order, from `input.messages()`. Nothing is coalesced, nothing needs an
+acknowledgement, and a delivered message is not part of a later save. Use live
+arguments for settings, messages for things that happen once.
+
 ## Proof pins
 
 `pins.json` owns the game's expected tick hashes and continuation-save digests.
@@ -256,9 +264,12 @@ Every update records the matching source-input digest; a Git commit is recorded
 when one exists. A game without commits can repin under the same agreement checks.
 `CHROME` selects the headless browser.
 
-Paranoid runs check simulation and saves. Each tick uses the normal restore path,
-which resets presentation interpolation; use ordinary runs for appearance and
-motion comparisons.
+Paranoid runs check simulation and saves. Save and FreshGame modes rebuild the
+world through the normal restore path at the last tick of every advance (every
+point a proof observes) and every 16th tick inside one, which resets presentation
+interpolation; use ordinary runs for appearance and motion comparisons. The
+driver moves a long `clock +N` in one-second steps, each its own operation, so a
+seek's length is not bounded by a host's answer window (Chrome's 15 s).
 
 `PASS` means the complete saved baseline was checked. Partial/build-only runs and
 baseline collection report `UNVERIFIED`; failed assertions report `FAIL`. A
@@ -305,7 +316,7 @@ These JSON captures are **not `.world` binary saves** or a complete explanation 
 a hash. Opaque executor state stays opaque; inspection can omit or round internal
 values. A differing hash with equal inspected values is reported explicitly.
 Capture on the agent clock without concurrent drives. Mixed-tick/hash reads and
-truncated entity lists (currently over 512 entities) are refused. Capturing and
+incomplete entity lists are refused; `captureWorld` reads every page. Capturing and
 comparing state does not advance the clock or mutate the world.
 
 ## The agent's interface
@@ -320,7 +331,11 @@ EXACT_APP_DIR=./my-game EXACT_WEB_DIST=./my-game/dist bun scripts/agent.mjs web 
 ```
 
 For a `prove.mjs` web build, set `EXACT_WEB_DIST` to the printed artifact directory's
-`dist/`. `state world:*` reads up to 512 entities; `under world:player` narrows it.
+`dist/`. `state world:*` reads entities a page at a time (512 by default):
+`state world:* from 512 limit 2000` reads the next ones, and the reply carries
+`total` and `next`; `under world:player` narrows it. `state world:* resources` adds
+every resource's value. In a proof, `session.world('world').snapshot({all:true})`
+reads every page at one tick and `resources()` the resources.
 `clock settle` advances the owned clock and explains remaining work instead of sleeping.
 
 In a proof, `session.world('world')` supplies `hold`, `run`, `settle`, `get`,
@@ -422,7 +437,9 @@ that location when explicitly set. Without
 The SDK owns one lock, [`app/shells.lock`](app/shells.lock): the lock of the union of
 every generated shell's dependencies. A game's workspace starts from it and keeps its
 subset; each version must be the SDK lock's, so bakes, deploys and proofs still resolve
-`--locked --offline` and no local cache chooses a version. A game that adds a
+`--locked --offline` and no local cache chooses a version. A registry package the SDK
+lock lacks but exact2's root `Cargo.lock` pins (a core crate's new dependency) is
+admitted at the root lock's version and checksum until the SDK lock is refreshed. A game that adds a
 dependency writes `logic/Cargo.toml` (`package.workspace = "../.shells"`, SDK crates as
 `exact-game.workspace = true`) and captures its own `Cargo.lock` with
 `bun game/app/shells.mjs ./my-game --update-lock`; commit and review that lock. SDK

@@ -25,12 +25,19 @@ function need(stem, deferred = true) {
 }
 const each = (method, ...args) => { for (const host of hosts.values()) host[method]?.(...args); };
 const hostOf = view => hosts.get(views.get(view));
+const posts = [];
 
 const router = {
   register(stem, host) {
     hosts.set(stem, host);
     for (const [view, [name, values]] of queued.get(stem) ?? []) host.surface(view, name, values);
     queued.delete(stem);
+    for (const [name, text, at] of posts.splice(0)) router.post(name, text, at);
+  },
+  // postMessage(name, text): to the artifact owning the surface, in order, held until it loads.
+  post(name, text, at) {
+    const host = hosts.get(stemOf(name));
+    if (host) host.post(name, text, at); else posts.push([name, text, at]);
   },
   surface(view, name, values, deferred = true) {
     const stem = stemOf(name);
@@ -98,3 +105,5 @@ exact.gpu = router;
 // artifacts load now.
 for (const s of exact.pendingSurfaces ?? []) if (s.generation === exact.generation) router.surface(s.id, s.name, s.values, false);
 exact.pendingSurfaces = [];
+for (const p of exact.pendingPosts ?? []) if (p.generation === exact.generation) router.post(p.name, p.text, p.at);
+exact.pendingPosts = [];

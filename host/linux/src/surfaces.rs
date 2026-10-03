@@ -812,6 +812,17 @@ impl Surfaces {
         result
     }
 
+    /// `postMessage(name, text)`: one message event into the live canvas that
+    /// owns the surface name (the publisher), else its lowest view.
+    pub(crate) fn post(&mut self, name: &str, event: Value) -> bool {
+        let view = self
+            .canvases
+            .iter()
+            .filter(|(_, c)| c.name == name)
+            .min_by_key(|(view, c)| (!c.owner, **view))
+            .map(|(view, _)| *view);
+        view.is_some_and(|view| self.input(view, event))
+    }
     pub(crate) fn wants_input(&self, view: u32) -> bool {
         self.canvases.get(&view).is_some_and(|c| unsafe {
             self.abis[&c.artifact].symbol::<Read>(b"gpu_wants_input")(c.id) != 0

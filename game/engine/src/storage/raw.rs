@@ -2,7 +2,7 @@
 //! between descriptors. Presence bits own values; every access holds a row lease,
 //! or checks that no exclusive lease is live before reading every row.
 use super::{At, Conflict, Holds, Lease, Leases, Party, Storage, Via, EVERY, PAGE, WORDS};
-use crate::{Data, DataError, Entity, Now, Reader, Writer};
+use crate::{Data, DataError, Now, Reader, Writer};
 use std::{
     alloc::{alloc_zeroed, dealloc, handle_alloc_error, Layout},
     cell::Cell,
@@ -104,6 +104,7 @@ pub(crate) struct RawStorage {
     revision: Cell<u64>,
     membership: u64,
     epoch: Rc<Cell<u64>>,
+    instance: u64,
 }
 impl RawStorage {
     pub(super) fn new<C: Data>(name: &'static str, epoch: Rc<Cell<u64>>) -> Self {
@@ -122,7 +123,12 @@ impl RawStorage {
             revision: Cell::new(0),
             membership: 0,
             epoch,
+            instance: super::instance(),
         }
+    }
+    /// Process-unique identity of this storage, for caches keyed by page generation.
+    pub(crate) fn instance(&self) -> u64 {
+        self.instance
     }
     pub(crate) fn len(&self) -> usize {
         self.len
@@ -166,6 +172,19 @@ impl RawStorage {
     }
     pub(crate) fn membership(&self) -> u64 {
         self.membership
+    }
+    /// Pages with a row handed out mutably, inserted or removed after the
+    /// storage revision `since`, in ascending order.
+    pub(crate) fn changed_pages(&self, since: u64) -> impl Iterator<Item = usize> + '_ {
+        let generations = self.generations.iter().enumerate();
+        generations.filter_map(move |(page, g)| (g.get() > since).then_some(page))
+    }
+    /// The storage revision at which this page was last marked; 0 if never.
+    pub(crate) fn page_generation(&self, page: usize) -> u64 {
+        self.generations.get(page).map_or(0, Cell::get)
+    }
+    pub(crate) fn page_count(&self) -> usize {
+        self.generations.len()
     }
     pub(super) fn mark_page(&self, page: usize) {
         if let Some(generation) = self.generations.get(page) {
@@ -363,50 +382,22 @@ impl RawStorage {
         unsafe { (self.desc.write)(self.ptr(index), w) };
         true
     }
-    pub(super) fn snapshot(
-        &self,
-        skip: Option<&Storage<crate::Ambient>>,
-        out: &mut Vec<(usize, u64)>,
-        mut full: Option<&mut crate::hash::Hasher>,
-        entity: &dyn Fn(usize) -> Entity,
-    ) {
+    /// Hash each present row of one page, in index order.
+    pub(super) fn digest_page(&self, page: usize, each: &mut dyn FnMut(usize, u64)) {
         self.reading();
-        if let Some(w) = &mut full {
-            w.begin_seq(self.len);
-        }
-        for i in self.indices(None) {
-            let observe = !skip.is_some_and(|s| s.has(i));
-            if !observe && full.is_none() {
-                continue;
-            }
-            // SAFETY: presence proves initialization; no exclusive lease is live.
-            let value = self.ptr(i);
-            if let Some(w) = &mut full {
-                w.item();
-                w.begin_seq(2);
-                w.item();
-                entity(i).write(*w);
-                w.item();
-                if observe {
-                    out.push((
-                        i,
-                        w.with_observation_by(|w| unsafe { (self.desc.write)(value, w) }),
-                    ));
-                } else {
-                    unsafe { (self.desc.write)(value, *w) };
-                }
-                w.end_seq();
-            } else {
+        let words = (page * WORDS..(page + 1) * WORDS).filter(|&w| w < self.mask.len());
+        for word in words {
+            let mut bits = self.mask[word];
+            while bits != 0 {
+                let i = word * 64 + bits.trailing_zeros() as usize;
+                bits &= bits - 1;
                 let mut w = crate::hash::Hasher::default();
-                unsafe { (self.desc.write)(value, &mut w) };
-                out.push((i, w.finish()));
+                // SAFETY: presence proves initialization; no exclusive lease is live.
+                unsafe { (self.desc.write)(self.ptr(i), &mut w) };
+                each(i, w.finish());
             }
-        }
-        if let Some(w) = &mut full {
-            w.end_seq();
         }
     }
-
     pub(super) fn moving(&self, now: crate::Now, skip: Option<&Storage<crate::Ambient>>) -> bool {
         self.reading();
         self.indices(skip.map(|s| &s.raw)).any(|i| {
@@ -441,59 +432,45 @@ impl RawStorage {
         }
         Some(at)
     }
-    pub(super) fn write(&self, w: &mut dyn Writer, entity: &dyn Fn(usize) -> Entity) {
+    /// The columnar save payload: runs of present indices, then the rows'
+    /// shapes and scalar columns. Generations live in the entity table.
+    pub(super) fn write_save(&self, w: &mut dyn Writer) {
         self.reading();
-        w.begin_seq(self.len);
+        let mut columns = crate::data::columns::Columns::default();
         for index in self.indices(None) {
-            w.item();
-            w.begin_seq(2);
-            w.item();
-            entity(index).write(w);
-            w.item();
             // SAFETY: the bit proves initialization; no exclusive lease is live.
-            unsafe { (self.desc.write)(self.ptr(index), w) };
-            w.end_seq();
+            columns.row_at(index as u32, |w| unsafe {
+                (self.desc.write)(self.ptr(index), w)
+            });
         }
-        w.end_seq();
+        w.bytes(crate::data::Bulk::U8(&columns.finish()));
     }
-    pub(super) fn read(
+    pub(super) fn read_save(
         &mut self,
         r: &mut dyn Reader,
-        valid: &dyn Fn(Entity) -> bool,
+        alive: &dyn Fn(u32) -> bool,
     ) -> Result<(), DataError> {
-        r.begin_seq()?;
-        let mut last = None;
+        let bytes = r
+            .bytes(crate::data::BulkKind::U8)?
+            .ok_or_else(|| DataError::new("expected a columnar storage"))?
+            .to_vec();
+        let (indices, mut rows) =
+            crate::data::columns::Rows::decode(&bytes, crate::data::MAX_LOAD_ENTITIES, true, r)?;
         r.claim(self.desc.layout.size())?;
         let mut value = Value {
             bytes: Bytes::new(self.desc.layout),
             desc: self.desc,
             live: false,
         };
-        while r.item()? {
-            r.begin_seq()?;
-            let mut e = Entity::default();
-            if !r.item()? {
-                return Err(DataError::new("missing entity"));
-            }
-            e.read(r)?;
-            if !valid(e) {
-                return Err(DataError::new("stale or invalid entity").at(e.index()));
-            }
-            if !r.item()? {
-                return Err(DataError::new("missing component"));
+        for index in indices {
+            if !alive(index) {
+                return Err(DataError::new("stale or invalid entity").at(index));
             }
             // SAFETY: correctly aligned scratch, initialized only on success.
-            unsafe { (self.desc.read_new)(value.bytes.get(), r) }
-                .map_err(|err| err.at(e.index()))?;
+            rows.read(r, |r| unsafe { (self.desc.read_new)(value.bytes.get(), r) })
+                .map_err(|err| err.at(index))?;
             value.live = true;
-            if r.item()? {
-                return Err(DataError::new("extra component entry value"));
-            }
-            if last.is_some_and(|last| last >= e.index()) {
-                return Err(DataError::new("entities are not strictly ordered"));
-            }
-            last = Some(e.index());
-            let page = e.index() as usize / PAGE;
+            let page = index as usize / PAGE;
             if page >= self.pages.len() {
                 let pages = page + 1 - self.pages.len();
                 let counts = page + 1 - self.counts.len();
@@ -510,7 +487,7 @@ impl RawStorage {
             }
             value.live = false;
             // SAFETY: read_new initialized the matching descriptor's type.
-            unsafe { self.insert(e.index() as usize, value.bytes.get()) };
+            unsafe { self.insert(index as usize, value.bytes.get()) };
         }
         Ok(())
     }

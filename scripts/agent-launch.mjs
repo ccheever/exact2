@@ -192,7 +192,11 @@ export function webChanges(dist, app) {
   const since = statSync(marker).mtimeMs, js = JSON.parse(readFileSync(marker, 'utf8')).target === 'js';
   const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }] : ['host/web', 'runner', 'kernel', 'plan', 'motion', 'num', 'contract'];
   const ignored = gitIgnored(app.dir, shaderWatchRoots(app));
-  const appChanges = newerThan(since, [app.dir], path => /\/(apple|linux)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path));
+  // A game's proof, pins, documents and helper scripts are not build inputs;
+  // the proof's input digest exempts the same (game/proof.mjs proofInputExcluded).
+  const notInput = path => Boolean(app.manifest?.game) && (/(^|\/)(pins\.json|proof\.mjs|[^/]*\.test\.mjs|[^/]*\.md)$/.test(path)
+    || (/\.m?js$/.test(path) && !/^(logic|data|gpu|art|assets|deck)\//.test(relative(app.dir, path))));
+  const appChanges = newerThan(since, [app.dir], path => /\/(apple|linux)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path) || notInput(path));
   const shared = newerThan(since, roots.map(r => typeof r === 'string' ? resolve(ROOT, r) : { shallow: resolve(ROOT, r.shallow) }));
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }
