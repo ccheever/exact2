@@ -535,6 +535,12 @@ impl Input {
     pub fn messages(&self) -> &[String] {
         &self.messages
     }
+    /// The canvas size in points that pointer coordinates are relative to; zero
+    /// before the host reports one. With `Camera::matrix` it turns a pointer
+    /// position into a world ray.
+    pub fn viewport(&self) -> Vec2 {
+        self.viewport
+    }
     pub(crate) fn clear_edges(&mut self) {
         self.messages.clear();
         self.pressed.clear();
