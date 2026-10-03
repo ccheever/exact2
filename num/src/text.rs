@@ -358,8 +358,15 @@ fn places(d: &Decoded, f: &Format) -> Option<(u64, i32)> {
     let (mant, minus, plus, exp) = interval(d, f);
     let inclusive = d.mant & 1 == 0;
     let at = |k| stop(mant, minus, plus, exp, inclusive, k);
-    at(27)?;
-    let (mut lo, mut hi) = (1, 27);
+    // The numbers an app shows mostly stop within a few places: those are
+    // tried in order first, one test each instead of the search's six.
+    let (mut lo, mut hi) = match (1..=FEW).find(|&k| at(k).is_some()) {
+        Some(k) => (k, k),
+        None => {
+            at(27)?;
+            (FEW + 1, 27)
+        }
+    };
     while lo < hi {
         let mid = (lo + hi) / 2;
         if at(mid).is_some() {
@@ -371,6 +378,9 @@ fn places(d: &Decoded, f: &Format) -> Option<(u64, i32)> {
     let digits = u64::try_from(at(lo)?).ok().filter(|&c| c != 0)?;
     Some(trimmed(digits, lo as i32))
 }
+
+/// The places [`places`] tries one by one before its binary search.
+const FEW: u32 = 3;
 
 /// Dragon's stopping test at `k` decimal places, in `u128`: whether the
 /// truncation (`down`) or the decimal above it (`up`) lies in the interval,

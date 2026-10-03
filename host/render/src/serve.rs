@@ -15,7 +15,7 @@
 
 use crate::encode::{self, Accepts, Variants};
 use crate::files::{asset_shaped, named_build, percent_decode, static_file, AUTH_CALLBACK};
-use crate::{page, render_as, Ids, Rendered};
+use crate::{page, Ids, Rendered};
 use exact_plan::{Plan, RenderPolicy};
 use exact_runner::DataSource;
 use exact_web::document::{canonical_location, route_at, Site};
@@ -83,7 +83,9 @@ impl Stopper {
 
 struct Shared {
     serve: Serve,
-    plan: Plan,
+    /// One `Arc` for every render, so its runners share what they work out
+    /// from it.
+    plan: std::sync::Arc<Plan>,
     shell: String,
     csp: String,
     /// The header lines a page adds beside its CSP: its `Permissions-Policy`
@@ -193,7 +195,7 @@ impl Server {
             stop: Arc::new(AtomicBool::new(false)),
             shared: Shared {
                 serve,
-                plan,
+                plan: Arc::new(plan),
                 shell,
                 csp,
                 page_headers,
@@ -1217,14 +1219,16 @@ fn document<D: DataSource + 'static>(
         }
         // A JavaScript page drops the document's view ids (page::for_runtime).
         let ids = if shared.js { Ids::Any } else { Ids::Runtime };
-        render_as(
+        crate::render_shared(
             &shared.plan,
-            data,
+            &data,
             viewport,
             location,
             &site,
             serve.deadline,
             ids,
+            crate::Projection::Auto,
+            crate::render_time(),
         )
         .and_then(|rendered| {
             let html = match &flush {

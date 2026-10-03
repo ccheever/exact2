@@ -279,6 +279,7 @@ fn write<S: Source>(
         scroll_document: false,
         css: std::collections::HashMap::new(),
         style: writing.style,
+        restyled: std::collections::HashMap::default(),
         sink: writing.sink,
         sent: 0,
     };
@@ -437,9 +438,60 @@ struct Walk<'r, 'w, S: Source> {
     css: std::collections::HashMap<usize, String>,
     /// [`Writing::style`].
     style: Option<StyleRewrite<'w>>,
+    /// What [`Writing::style`] wrote for each inline style met so far
+    /// (`None`: it stays inline): a template's elements repeat a few.
+    restyled: std::collections::HashMap<String, Option<String>, Words>,
     /// [`Writing::sink`], and how much of `out` it has been handed.
     sink: Option<&'w mut dyn FnMut(&str)>,
     sent: usize,
+}
+
+/// A hash for [`Walk`]'s inline styles, a word at a time: a page's
+/// thousands of elements each look theirs up, and SipHash's byte rounds
+/// cost more than the rest of the lookup. Seeded once per process, so the
+/// styles a page's data makes can't be chosen to collide.
+#[derive(Clone, Copy)]
+struct Words(u64);
+
+impl Default for Words {
+    fn default() -> Self {
+        static SEED: std::sync::OnceLock<u64> = std::sync::OnceLock::new();
+        Words(*SEED.get_or_init(|| {
+            use std::hash::BuildHasher;
+            std::collections::hash_map::RandomState::new().hash_one(0u8) | 1
+        }))
+    }
+}
+
+impl std::hash::BuildHasher for Words {
+    type Hasher = WordHasher;
+    fn build_hasher(&self) -> WordHasher {
+        WordHasher(self.0)
+    }
+}
+
+struct WordHasher(u64);
+
+impl WordHasher {
+    fn mix(&mut self, word: u64) {
+        self.0 = (self.0.rotate_left(26) ^ word).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    }
+}
+
+impl std::hash::Hasher for WordHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        let mut words = bytes.chunks_exact(8);
+        for word in &mut words {
+            self.mix(u64::from_le_bytes(word.try_into().expect("eight bytes")));
+        }
+        let mut tail = [0u8; 8];
+        tail[..words.remainder().len()].copy_from_slice(words.remainder());
+        self.mix(u64::from_le_bytes(tail) ^ (bytes.len() as u64) << 56);
+    }
+
+    fn finish(&self) -> u64 {
+        (self.0 ^ self.0 >> 29).wrapping_mul(0xbf58_476d_1ce4_e5b9)
+    }
 }
 
 impl<S: Source> Walk<'_, '_, S> {
@@ -708,7 +760,17 @@ impl<S: Source> Walk<'_, '_, S> {
                         continue;
                     }
                     ("data-view", _) => continue,
-                    ("style", Some(css)) if !has_class && rewrite(css, &mut self.out) => continue,
+                    ("style", Some(css)) if !has_class => {
+                        if !self.restyled.contains_key(css) {
+                            let mut written = String::new();
+                            let kept = rewrite(css, &mut written).then_some(written);
+                            self.restyled.insert(css.clone(), kept);
+                        }
+                        if let Some(Some(written)) = self.restyled.get(css) {
+                            self.out.push_str(written);
+                            continue;
+                        }
+                    }
                     _ => {}
                 }
             }

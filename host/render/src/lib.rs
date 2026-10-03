@@ -265,6 +265,34 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
     projection: Projection,
     now_ms: f64,
 ) -> Result<Rendered, String> {
+    render_shared(
+        &Arc::new(plan.clone()),
+        data,
+        viewport,
+        location,
+        site,
+        deadline,
+        ids,
+        projection,
+        now_ms,
+    )
+}
+
+/// [`render_with_at`] of a plan the caller keeps in an `Arc` for every
+/// render (a server's): what its runners work out once per plan is shared
+/// by them (`exact_runner::instance::SiteIndex::of`).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn render_shared<D: DataSource + 'static, F: Fn() -> D>(
+    plan: &Arc<Plan>,
+    data: &F,
+    viewport: exact_runner::Viewport,
+    location: &str,
+    site: &Site,
+    deadline: Duration,
+    ids: Ids,
+    projection: Projection,
+    now_ms: f64,
+) -> Result<Rendered, String> {
     let direct = direct_for(plan, ids, projection)?;
     let page = settle_at(
         plan, data, viewport, location, deadline, direct, now_ms, None,
@@ -283,7 +311,7 @@ pub fn render_with_at<D: DataSource + 'static, F: Fn() -> D>(
             Err(why) if projection == Projection::Auto => {
                 println!("render {location}: with a kernel ({why})");
                 retire(page, data);
-                return render_with_at(
+                return render_shared(
                     plan,
                     data,
                     viewport,
@@ -349,6 +377,8 @@ pub(crate) struct Settling<D: DataSource> {
     pub(crate) runner: Runner<Anonymous<D>>,
     pub(crate) settled: Settled,
     pub(crate) checkpoint: String,
+    /// What the checkpoint holds, as [`read_checkpoint`] reads it back.
+    pub(crate) state: exact_runner::Checkpoint,
 }
 
 /// Boot a fresh runner at `location` with a fresh source (LLP 1048.000 D10)
@@ -368,7 +398,7 @@ pub(crate) type OnBoot<'a, D> = &'a mut dyn FnMut(&Runner<Anonymous<D>>);
 
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
-    plan: &Plan,
+    plan: &Arc<Plan>,
     data: &F,
     viewport: exact_runner::Viewport,
     location: &str,
@@ -444,13 +474,13 @@ pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
     if let Some(on_boot) = on_boot {
         on_boot(&runner);
     }
-    let settled = match (!booted_late)
-        .then(|| {
-            activate(&mut runner, until)
-                .and_then(|()| settle(&mut runner, &executor, until).map_err(|e| format!("{e:?}")))
-        })
-        .unwrap_or(Ok(Settled::Deadline))
-    {
+    let settled = if booted_late {
+        Ok(Settled::Deadline)
+    } else {
+        activate(&mut runner, until)
+            .and_then(|()| settle(&mut runner, &executor, until).map_err(|e| format!("{e:?}")))
+    };
+    let settled = match settled {
         Ok(settled) => settled,
         // The call running at the deadline was stopped and refused, so what
         // it answers shows its placeholder: the render ends at the deadline.
@@ -467,11 +497,13 @@ pub(crate) fn settle_at<D: DataSource + 'static, F: Fn() -> D>(
         let _ = executor.drain();
         EXECUTORS.with(|pool| pool.borrow_mut().push((grants, executor)));
     }
-    let checkpoint = checkpoint(&runner, location);
+    let state = runner.document_checkpoint(location);
+    let checkpoint = checkpoint(&state);
     Ok(Settling {
         runner,
         settled,
         checkpoint,
+        state,
     })
 }
 

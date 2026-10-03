@@ -15,9 +15,7 @@ use crate::page::{body_close_js, body_open_js, runtime_style_of, Js};
 use crate::{activation, direct_for, encoded, retire, settle_at, Ids, Projection, Rendered};
 use exact_plan::{ActivatePolicy, PaintPolicy, Plan};
 use exact_runner::DataSource;
-use exact_web::document::{
-    before_root, digest, project_tree, read_checkpoint, route_at, Document, Site, Writing,
-};
+use exact_web::document::{before_root, digest, project_tree, route_at, Document, Site, Writing};
 use std::time::Duration;
 
 /// Render `location` and write its page after the head a server flushed
@@ -30,7 +28,7 @@ use std::time::Duration;
 /// before it sent.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn render_js<D: DataSource + 'static, F: Fn() -> D>(
-    plan: &Plan,
+    plan: &std::sync::Arc<Plan>,
     data: &F,
     viewport: exact_runner::Viewport,
     location: &str,
@@ -55,7 +53,7 @@ pub(crate) fn render_js<D: DataSource + 'static, F: Fn() -> D>(
     // boot document: it settles as it boots.
     let paints_boot = route_at(plan, location).is_some_and(|r| r.paint == PaintPolicy::Boot);
     let mut boot: Option<Boot> = None;
-    let page = {
+    let mut page = {
         let mut on_boot = |runner: &exact_runner::Runner<crate::Anonymous<D>>| {
             if runner.pending().is_empty() {
                 return;
@@ -107,9 +105,8 @@ pub(crate) fn render_js<D: DataSource + 'static, F: Fn() -> D>(
             return Ok(None);
         }
     };
-    let state = read_checkpoint(&page.checkpoint).map_err(|e| format!("the checkpoint: {e}"))?;
     let handlers = tree.handlers(plan);
-    let activate = activation(plan, location, &state, &handlers);
+    let activate = activation(plan, location, &page.state, &handlers);
     // The head's fields, before any element: the tree's head, its first
     // root's viewport policies, and the `@keyframes` its elements name.
     let (keyframes, scroll) = before_root(&tree);
@@ -187,7 +184,8 @@ pub(crate) fn render_js<D: DataSource + 'static, F: Fn() -> D>(
         }
     };
     hand(rest.as_bytes());
-    let checkpoint = page.checkpoint.clone();
+    let checkpoint = std::mem::take(&mut page.checkpoint);
+    let state = std::mem::take(&mut page.state);
     let digest = digest(&encoded(plan), location, &checkpoint, &document.root);
     let close = body_close_js(shell, js, &digest, activate, &checkpoint);
     if boot.is_some() {

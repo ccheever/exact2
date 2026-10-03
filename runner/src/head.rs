@@ -57,7 +57,7 @@ const FIELDS: [PropId; 5] = [
 ];
 
 /// A node as the head's walk reads it: its type, props and children.
-pub(crate) type HeadNode<'a> = (NodeType, &'a PropList, Vec<ViewId>);
+pub(crate) type HeadNode<'a> = (NodeType, &'a PropList, std::borrow::Cow<'a, [ViewId]>);
 
 impl<D: DataSource> Runner<D> {
     /// The active head of the current tree: one walk from the roots, which
@@ -67,7 +67,7 @@ impl<D: DataSource> Runner<D> {
         head_of(self.roots(), |id| {
             kernel
                 .node(id)
-                .map(|n| (n.node_type, n.props, n.children()))
+                .map(|n| (n.node_type, n.props, n.children().into()))
         })
     }
 
@@ -79,7 +79,7 @@ impl<D: DataSource> Runner<D> {
         let node = |id: ViewId| {
             kernel
                 .node(id)
-                .map(|n| (n.node_type, n.props, n.children()))
+                .map(|n| (n.node_type, n.props, n.children().into()))
         };
         let mut child = id;
         let mut parent = kernel.node(id).and_then(|node| node.parent);

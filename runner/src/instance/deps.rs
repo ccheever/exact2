@@ -181,7 +181,7 @@ pub(crate) enum Input {
 
 impl Deps {
     /// Scan every body once and fold sites bottom-up over `children`.
-    pub(crate) fn new(plan: &Plan, children: &super::SiteIndex) -> Self {
+    pub(crate) fn new(plan: &Plan, children: &super::Sites) -> Self {
         let layout = Layout {
             slots: plan.slots.len(),
             derives: plan.derives.len(),

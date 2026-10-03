@@ -125,7 +125,7 @@ fn streamed<D: DataSource + 'static, F: Fn() -> D>(
     let mut sent = Vec::new();
     let mut send = |bytes: &[u8]| sent.extend_from_slice(bytes);
     let Some((_, body)) = crate::direct::render_js(
-        plan,
+        &std::sync::Arc::new(plan.clone()),
         data,
         viewport,
         location,

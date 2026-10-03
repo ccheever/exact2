@@ -107,7 +107,7 @@ impl DocTree {
     pub fn head(&self) -> crate::Head {
         crate::head::head_of(self.roots.clone(), |id| {
             self.node(id)
-                .map(|n| (n.node_type, &n.props, n.children.clone()))
+                .map(|n| (n.node_type, &n.props, n.children.as_slice().into()))
         })
     }
 
@@ -151,6 +151,7 @@ impl Tree {
             sites,
             doc: DocTree::default(),
             shared: vec![None; plan.nodes.len()],
+            recent: vec![Vec::new(); plan.nodes.len()],
         };
         build.doc.roots = roots_of(&self.children);
         build.children(&self.children, None, 0)?;
@@ -165,7 +166,14 @@ struct Build<'p> {
     /// Each plan node's rows when every style binding it has reads nothing:
     /// one allocation for all its instances.
     shared: Vec<Option<Rc<StyleProps>>>,
+    /// Each plan node's last few distinct rows when a binding makes them:
+    /// instances that came out alike share one, so a projection computes
+    /// its CSS once (a list's rows take a handful of styles between them).
+    recent: Vec<Vec<Rc<StyleProps>>>,
 }
+
+/// How many distinct rows [`Build::recent`] keeps per plan node.
+const RECENT: usize = 4;
 
 impl Build<'_> {
     fn children(
@@ -367,10 +375,20 @@ impl Build<'_> {
         patch
             .validate_domain()
             .map_err(|e| DocTreeError::Refused(format!("view {}: {e:?}", n.view)))?;
-        let style = Rc::new(patch);
         if constant {
+            let style = Rc::new(patch);
             self.shared[n.node.0 as usize] = Some(Rc::clone(&style));
+            return Ok((style, props));
         }
+        let recent = &mut self.recent[n.node.0 as usize];
+        if let Some(style) = recent.iter().find(|s| ***s == patch) {
+            return Ok((Rc::clone(style), props));
+        }
+        let style = Rc::new(patch);
+        if recent.len() == RECENT {
+            recent.remove(0);
+        }
+        recent.push(Rc::clone(&style));
         Ok((style, props))
     }
 }

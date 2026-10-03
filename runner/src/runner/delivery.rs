@@ -23,7 +23,7 @@ impl<D: DataSource> Runner<D> {
     /// with no compiled value — one that read the store at bake — answers
     /// from it now, so the first frame is a returning user's.
     pub fn boot_stored(
-        plan: Plan,
+        plan: impl Into<std::sync::Arc<Plan>>,
         data: D,
         kernel: Kernel,
         snapshot: Vec<(String, String)>,
@@ -32,7 +32,7 @@ impl<D: DataSource> Runner<D> {
     ) -> Result<Runner<D>, RunnerError> {
         Runner::boot_inner(
             RunnerLinks::ALL,
-            plan,
+            plan.into(),
             data,
             kernel,
             Seed::Fresh,
@@ -47,7 +47,7 @@ impl<D: DataSource> Runner<D> {
     /// Boot fresh state at a supplied clock, before evaluating initializers
     /// and resource arguments. Rendering never advances it or fires timers.
     pub fn boot_at(
-        plan: Plan,
+        plan: impl Into<std::sync::Arc<Plan>>,
         data: D,
         kernel: Kernel,
         viewport: crate::Viewport,
@@ -56,7 +56,7 @@ impl<D: DataSource> Runner<D> {
     ) -> Result<Runner<D>, RunnerError> {
         Self::boot_inner(
             RunnerLinks::ALL,
-            plan,
+            plan.into(),
             data,
             kernel,
             Seed::At(now_ms),
@@ -72,7 +72,7 @@ impl<D: DataSource> Runner<D> {
     /// A carried runner's store takes precedence over the fresh snapshot.
     #[allow(clippy::too_many_arguments)] // the host boot facts
     pub fn boot_with_delivery(
-        plan: Plan,
+        plan: impl Into<std::sync::Arc<Plan>>,
         data: D,
         kernel: Kernel,
         carried: Option<&Carried>,
@@ -99,7 +99,7 @@ impl<D: DataSource> Runner<D> {
     #[allow(clippy::too_many_arguments)] // the host boot facts
     pub fn boot_with_delivery_linked(
         links: RunnerLinks,
-        plan: Plan,
+        plan: impl Into<std::sync::Arc<Plan>>,
         data: D,
         kernel: Kernel,
         carried: Option<&Carried>,
@@ -111,7 +111,15 @@ impl<D: DataSource> Runner<D> {
         let snapshot = carried.map_or(snapshot, |value| value.store.clone());
         let seed = carried.map_or(Seed::Fresh, Seed::Carried);
         Self::boot_inner(
-            links, plan, data, kernel, seed, snapshot, delivery, viewport, launch,
+            links,
+            plan.into(),
+            data,
+            kernel,
+            seed,
+            snapshot,
+            delivery,
+            viewport,
+            launch,
         )
     }
 
