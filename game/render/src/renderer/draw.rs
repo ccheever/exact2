@@ -114,6 +114,12 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         let (scene_copy, retained) = self.prepare_targets(size, needs);
         let cascades = self.prepare_effects(frame);
         self.environment.prepare(&self.queue, &frame.environment);
+        if self
+            .lights
+            .prepare(&self.device, &self.queue, frame, size, &[])
+        {
+            self.rebind();
+        }
         self.queue.write_buffer(
             &self.uniform,
             0,
@@ -122,6 +128,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 cascades.as_ref(),
                 size,
                 &self.environment.irradiance,
+                self.lights.info,
             )),
         );
         self.quads

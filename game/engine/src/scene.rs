@@ -304,8 +304,8 @@ impl Mesh {
 #[derive(Clone, Debug, Default, Component)]
 pub struct Glow(pub crate::Tween);
 
-/// Saved point-light intensity multiplier, sampled by the renderer at frame time.
-/// Negative spring overshoot clamps to zero; the authored PointLight stays constant.
+/// Saved point- or spot-light intensity multiplier, sampled by the renderer at
+/// frame time. Negative spring overshoot clamps to zero; the authored light stays constant.
 #[derive(Clone, Debug, Default, Component)]
 pub struct Lit(pub crate::Spring);
 impl Lit {
@@ -385,7 +385,9 @@ impl Material {
     }
 }
 
-/// Parallel light rays along the entity's negative Z axis.
+/// Parallel light rays along the entity's negative Z axis. The renderer uses the
+/// first two in entity order: the first is the sun (shadowed when `shadows`), the
+/// second an unshadowed fill such as the moon.
 #[derive(Clone, Copy, Debug, PartialEq, Component)]
 pub struct DirectionalLight {
     /// Linear RGB light color.
@@ -422,6 +424,41 @@ impl Default for PointLight {
             color: [1.0; 3],
             intensity: 100.0,
             range: 10.0,
+        }
+    }
+}
+
+/// Marks a `PointLight` that casts shadows. The renderer shadows the nearest
+/// few marked lights each frame (a cube map each); others light unshadowed.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Component)]
+pub struct PointShadows;
+
+/// A cone of light along the entity's −Z, the way a camera looks: a flashlight
+/// or a street lamp. Intensity is candela on the axis, as `PointLight`'s.
+#[derive(Clone, Copy, Debug, PartialEq, Component)]
+pub struct SpotLight {
+    /// Linear RGB light color.
+    pub color: [f32; 3],
+    /// Luminous intensity on the axis in candela.
+    pub intensity: f32,
+    /// Maximum influence distance.
+    pub range: f32,
+    /// Half-angle in radians inside which the cone is at full intensity.
+    pub inner: f32,
+    /// Half-angle in radians at which the cone reaches zero; at most π/2.
+    pub outer: f32,
+    /// Cast shadows; the renderer shadows the nearest few spots each frame.
+    pub shadows: bool,
+}
+impl Default for SpotLight {
+    fn default() -> Self {
+        Self {
+            color: [1.0; 3],
+            intensity: 1000.0,
+            range: 20.0,
+            inner: 0.3,
+            outer: 0.45,
+            shadows: true,
         }
     }
 }

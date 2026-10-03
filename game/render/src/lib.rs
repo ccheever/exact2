@@ -20,6 +20,7 @@ mod cull_tests;
 mod frame;
 pub mod hooks;
 mod ibl;
+mod lights;
 mod model_pipeline;
 mod models;
 mod perf;
@@ -201,9 +202,13 @@ impl Default for Shadows {
 
 pub use exact_game::{Bloom, Environment, Fog};
 
-/// An inverse-square point light, smoothly extinguished at its range.
+/// Local lights drawn per frame, nearest the camera first. Further eligible
+/// lights are counted in `FrameInput::lights_dropped`, never silently lost.
+pub const MAX_LIGHTS: usize = 256;
+
+/// An inverse-square point or spot light, smoothly extinguished at its range.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct PointLightInput {
+pub struct LightInput {
     /// World-space position.
     pub position: Vec3,
     /// Linear RGB tint.
@@ -213,6 +218,13 @@ pub struct PointLightInput {
     pub intensity: f32,
     /// Positive cutoff distance in world units.
     pub range: f32,
+    /// Unit direction a spot light points (its −Z); ignored without a cone.
+    pub direction: Vec3,
+    /// A spot light's cosines of its inner and outer half-angles: full intensity
+    /// inside the inner, smoothly zero at the outer. None is a point light.
+    pub cone: Option<[f32; 2]>,
+    /// Wants a shadow map; the renderer shadows the first few such lights.
+    pub shadows: bool,
 }
 
 /// Retained emissive tween and material for one entity; only presentation samples it.
@@ -260,8 +272,12 @@ pub struct FrameInput<'a> {
     pub alpha: f32,
     /// Optional directional light.
     pub sun: Option<Sun>,
-    /// Point lights; only the first sixteen are used.
-    pub points: &'a [PointLightInput],
+    /// A second, never shadowed directional light: the moon, or a fill.
+    pub fill: Option<Sun>,
+    /// Point and spot lights, nearest first; at most [`MAX_LIGHTS`] are used.
+    pub lights: &'a [LightInput],
+    /// Eligible lights left out beyond [`MAX_LIGHTS`].
+    pub lights_dropped: usize,
     /// Displayed socket attachments, evaluated from the interpolated local chain.
     pub attachments: &'a [DisplayedAttachment],
     /// Hemisphere lighting and background.
@@ -286,7 +302,9 @@ impl Default for FrameInput<'_> {
             camera_position: Vec3::ZERO,
             alpha: 1.0,
             sun: Some(Sun::default()),
-            points: &[],
+            fill: None,
+            lights: &[],
+            lights_dropped: 0,
             attachments: &[],
             environment: Environment::default(),
             timestamps: None,

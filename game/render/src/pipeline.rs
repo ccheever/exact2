@@ -14,13 +14,14 @@ const SHADOW_SAMPLE: &str = piece!("shadow_sample");
 const NO_SHADOW_SAMPLE: &str = piece!("no_shadow_sample");
 const IBL: &str = piece!("ibl");
 const FORWARD: &str = piece!("forward");
+const LIGHTS: &str = piece!("lights");
 const MODEL: &str = piece!("model");
 /// The environment prefilter, a standalone module (ibl.rs).
 pub(crate) const ENVIRONMENT: &str = piece!("environment");
 
 fn primitive_sources() -> [String; 5] {
     [
-        [FRAME, TRANSFORM, SHADOW_SAMPLE, IBL, FORWARD].concat(),
+        [FRAME, TRANSFORM, SHADOW_SAMPLE, IBL, LIGHTS, FORWARD].concat(),
         [FRAME, TRANSFORM, piece!("shadow")].concat(),
         [FRAME, piece!("sky")].concat(),
         [FRAME, piece!("tonemap")].concat(),
@@ -49,7 +50,7 @@ pub(crate) fn model_source(shadow: bool) -> String {
     } else {
         (SHADOW_SAMPLE, "")
     };
-    [FRAME, TRANSFORM, sample, IBL, FORWARD, MODEL, tail].concat()
+    [FRAME, TRANSFORM, sample, IBL, LIGHTS, FORWARD, MODEL, tail].concat()
 }
 
 /// Pipelines every renderer creates at construction: eight forward, two shadow,
@@ -147,6 +148,8 @@ impl Pipelines {
                     count: None,
                 },
                 sampler(7, wgpu::SamplerBindingType::Filtering),
+                // Clustered local lights (lights.wgsl).
+                storage(8, wgpu::ShaderStages::FRAGMENT),
             ],
         );
         let tone_layout = layout(

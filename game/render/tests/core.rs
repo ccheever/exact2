@@ -2,7 +2,7 @@
 #[path = "fixture/device.rs"]
 mod test_device;
 
-use exact_game_render::{shapes, Batch, Environment, FrameInput, PointLightInput, Renderer, Sun};
+use exact_game_render::{shapes, Batch, Environment, FrameInput, LightInput, Renderer, Sun};
 use exact_gpu::{fixture, wgpu, Gpu};
 use glam::camera::rh::{proj::directx, view};
 use glam::{Quat, Vec3};
@@ -80,13 +80,14 @@ fn lit_scene_and_output_transfer() {
     };
     let texture = target(&gpu, (600, 400), format);
     let unlit_point = render(&gpu, &mut renderer, &texture, &frame);
-    let points = [PointLightInput {
+    let points = [LightInput {
         position: Vec3::new(1.6, 1.2, 1.4),
         color: Vec3::new(0.02, 0.1, 1.0),
         intensity: 12.0,
         range: 3.5,
+        ..Default::default()
     }];
-    frame.points = &points;
+    frame.lights = &points;
     let pixels = render(&gpu, &mut renderer, &texture, &frame);
     pixels.save("lit-scene");
     let sky = pixels.at(5, 5);

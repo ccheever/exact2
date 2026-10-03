@@ -63,16 +63,10 @@ fn shade(input: Varying, visibility: f32) -> vec4<f32> {
         let l = normalize(-frame.sun_direction_illuminance.xyz);
         color += brdf(n, v, l, base, metallic, roughness) * frame.sun_color_count.xyz * frame.sun_direction_illuminance.w * visibility;
     }
-    for (var j = 0u; j < u32(frame.sun_color_count.w); j++) {
-        let light = frame.points[j];
-        let delta = light.position_range.xyz - input.world;
-        let distance2 = max(dot(delta, delta), 0.0001);
-        let range = max(light.position_range.w, 0.0001);
-        let ratio2 = distance2 / (range * range);
-        let window = max(1.0 - ratio2 * ratio2, 0.0);
-        let radiance = light.color_intensity.xyz * light.color_intensity.w * window * window / distance2;
-        color += brdf(n, v, delta * inverseSqrt(distance2), base, metallic, roughness) * radiance;
+    if frame.fill_direction_illuminance.w > 0.0 {
+        color += fill_light(n, v, base, metallic, roughness);
     }
+    add_local_lights(&color, input.clip.xy, input.world, n, v, base, metallic, roughness, false);
     if FOG {
         color = height_fog(color, input.world);
     }

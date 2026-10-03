@@ -380,9 +380,10 @@ fn camera_slerps_and_nearest_lights_interpolate_without_frame_scans() {
     // Every pose advanced +X by one; even the one camera and selected lights blend.
     let input = f.frame(sim.world(), 0.25, 2.);
     assert_eq!(input.camera_position.x, 0.25);
-    assert_eq!(input.points.len(), 16);
-    assert_eq!(input.points[0].position.x, 1.25);
-    assert_eq!(input.points[15].position.x, 16.25);
+    assert_eq!(input.lights.len(), 20);
+    assert_eq!(input.lights[19].position.x, 20.25);
+    assert_eq!(input.lights[0].position.x, 1.25);
+    assert_eq!(input.lights[15].position.x, 16.25);
     assert!(input.sun.unwrap().shadows.is_some());
     assert!(input.environment.bloom.is_some());
     assert_eq!(
@@ -398,7 +399,7 @@ fn camera_slerps_and_nearest_lights_interpolate_without_frame_scans() {
         .teleport(lights[19], Transform::at(0.9, 0., 0.));
     f.feed_to(sim.world(), &mut r).unwrap();
     assert_eq!(
-        f.frame(sim.world(), 0.5, 2.).points[0].position,
+        f.frame(sim.world(), 0.5, 2.).lights[0].position,
         Vec3::new(0.9, 0., 0.)
     );
 }
@@ -531,7 +532,7 @@ fn ancestor_teleports_and_parent_edits_snap_mesh_camera_and_lights() {
     assert_eq!(r.position(mesh, false).x, 22.);
     let frame = f.frame(sim.world(), 0.5, 1.);
     assert_eq!(frame.camera_position.x, 21.);
-    assert_eq!(frame.points[0].position.x, 21.);
+    assert_eq!(frame.lights[0].position.x, 21.);
     // Clear freshness, then remove/reinsert Parent with no fresh entity involved.
     sim.advance_with(34., Clock::Seekable, |w, _| f.feed_to(w, &mut r).unwrap());
     sim.world_mut().remove::<Parent>(middle);

@@ -55,6 +55,7 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     culled_key: (wgpu::Buffer, u64),
     pub(crate) cull: crate::cull::Cull,
     pub(crate) environment: crate::ibl::EnvironmentLight,
+    pub(crate) lights: crate::lights::Lights,
     vertices: Buffer,
     indices: Buffer,
     pub(crate) meshes: Vec<Mesh>,
@@ -166,6 +167,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             "game attachment matrices",
         );
         let environment = crate::ibl::EnvironmentLight::new(device, false);
+        let lights = crate::lights::Lights::new(device);
         let retained_binds = scene_binds(
             device,
             &pipelines.scene_layout,
@@ -175,6 +177,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             (&slots.raw, None),
             &attachment_matrices,
             &environment,
+            &lights,
         );
         let cull = crate::cull::Cull::new(device);
         let culled_key = (cull.compacted.raw.clone(), cull.window);
@@ -187,6 +190,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             (&cull.compacted.raw, Some(cull.window)),
             &attachment_matrices,
             &environment,
+            &lights,
         );
         let targets = Targets::new(device, (64, 64), &pipelines.tone_layout, &uniform);
         Self {
@@ -209,6 +213,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             culled_key,
             cull,
             environment,
+            lights,
             vertices: Buffer::new(device, 1024, wgpu::BufferUsages::VERTEX, "game vertices"),
             indices: Buffer::new(device, 1024, wgpu::BufferUsages::INDEX, "game indices"),
             meshes: Vec::new(),
@@ -611,7 +616,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
     }
 
-    fn rebind(&mut self) {
+    pub(crate) fn rebind(&mut self) {
         self.scene_binds = scene_binds(
             &self.device,
             &self.pipelines.scene_layout,
@@ -621,6 +626,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             (&self.slots.raw, None),
             &self.attachment_matrices,
             &self.environment,
+            &self.lights,
         );
         self.rebind_culled();
     }
@@ -635,6 +641,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             (&self.cull.compacted.raw, Some(self.cull.window)),
             &self.attachment_matrices,
             &self.environment,
+            &self.lights,
         );
     }
 }
@@ -656,6 +663,7 @@ fn scene_binds(
     slots: (&wgpu::Buffer, Option<u64>),
     attachments: &Buffer,
     environment: &crate::ibl::EnvironmentLight,
+    lights: &crate::lights::Lights,
 ) -> [wgpu::BindGroup; 2] {
     std::array::from_fn(|current| {
         let slots = match slots.1 {
@@ -675,6 +683,7 @@ fn scene_binds(
             attachments.raw.as_entire_binding(),
             wgpu::BindingResource::TextureView(&environment.view),
             wgpu::BindingResource::Sampler(&environment.sampler),
+            lights.buffer.raw.as_entire_binding(),
         ];
         let entries = resources.map({
             let mut binding = 0;

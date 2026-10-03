@@ -58,7 +58,9 @@ pub(super) fn frame() -> FrameInput<'static> {
         camera_position: Vec3::new(0.0, 0.0, 10.0),
         alpha: 1.0,
         sun: None,
-        points: &[],
+        fill: None,
+        lights: &[],
+        lights_dropped: 0,
         environment: Environment {
             background: None,
             zenith: [0.0; 3],
