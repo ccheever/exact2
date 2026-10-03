@@ -946,7 +946,7 @@ test('tree forwards its target and preserves host annotations and runner errors'
   const f = fixture(), requests = [];
   vm.runInContext(declaration('tree'), f);
   const iframe = new f.HTMLIFrameElement();
-  iframe.getAttribute = () => '/guest'; iframe.matches = () => false;
+  iframe.getAttribute = name => name === 'src' ? '/guest' : null; iframe.matches = () => false;
   f.views.set(7, iframe); f.iframeLoading = new Map([[iframe,false]]);
   f.guestOutline = () => [{tag:'button',depth:0,text:'guest'}];
   f.ask = request => {
