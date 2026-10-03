@@ -85,7 +85,8 @@ fn move_capsule(world: &mut World, e: Entity, desired_velocity: Vec3) -> Capsule
     let region = reach(pose.position)
         .merged(&reach(carried))
         .merged(&reach(carried + velocity * world.dt()))
-        .loosened(c.step + c.height * 0.25 + c.radius + 0.1);
+        // A deflected slide stays within the move's length of the swept box.
+        .loosened(c.step + c.height * 0.25 + c.radius + 0.1 + (velocity * world.dt()).length());
     let mut near: Vec<_> = scene
         .bvh
         .intersect_aabb(&region)
