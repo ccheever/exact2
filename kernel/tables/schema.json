@@ -611,6 +611,12 @@
       "_comment": "@ref LLP 1010 §6.5: `scroll-start` on a virtualized list, `start` (the default) or `end` — where it opens."
     },
     {
+      "id": 224,
+      "name": "target",
+      "kind": "str",
+      "_comment": "HTML's `target` on a link: the browsing context it opens in (`_blank` a new one). A native host opens a link in the system's browser whatever it says."
+    },
+    {
       "id": 81,
       "name": "accessibilityPosInSet",
       "kind": "int"

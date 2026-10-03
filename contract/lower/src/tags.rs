@@ -709,6 +709,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // @ref LLP 1077 D12 — what a discrete symbol effect plays on.
         "symbolEffectValue" => AttrTarget::Prop(p("symbolEffectValue")),
         "href" => AttrTarget::Prop(p("href")),
+        "target" => AttrTarget::Prop(p("target")),
         "disabled" => AttrTarget::Prop(p("disabled")),
         "inert" => AttrTarget::Prop(p("inert")),
         "readonly" => AttrTarget::InvertedBoolProp(p("editable")),
@@ -1076,77 +1077,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
     })
 }
 
-/// The name an old spelling became — the short nicknames and the DOM's
-/// camelCase that the table accepted before LLP 1017 §8.1 — so the refusal of
-/// `size=13` says `font-size`. Nothing here is accepted; it is only named.
-pub fn renamed(old: &str) -> Option<&'static str> {
-    Some(match old {
-        "size" | "fontSize" => "font-size",
-        "weight" | "fontWeight" => "font-weight",
-        "fontStyle" => "font-style",
-        "fontFamily" => "font-family",
-        "background" | "backgroundColor" => "background-color",
-        "letterSpacing" => "letter-spacing",
-        "lineHeight" => "line-height",
-        "textAlign" => "text-align",
-        "rowGap" => "row-gap",
-        "columnGap" => "column-gap",
-        "paddingTop" => "padding-top",
-        "paddingRight" => "padding-right",
-        "paddingBottom" => "padding-bottom",
-        "paddingLeft" => "padding-left",
-        "marginTop" => "margin-top",
-        "marginRight" => "margin-right",
-        "marginBottom" => "margin-bottom",
-        "marginLeft" => "margin-left",
-        "radius" | "borderRadius" => "border-radius",
-        "borderWidth" => "border-width",
-        "borderTopWidth" => "border-top-width",
-        "borderRightWidth" => "border-right-width",
-        "borderBottomWidth" => "border-bottom-width",
-        "borderLeftWidth" => "border-left-width",
-        "borderColor" => "border-color",
-        "borderTopColor" => "border-top-color",
-        "borderRightColor" => "border-right-color",
-        "borderBottomColor" => "border-bottom-color",
-        "borderLeftColor" => "border-left-color",
-        "minWidth" => "min-width",
-        "minHeight" => "min-height",
-        "maxWidth" => "max-width",
-        "maxHeight" => "max-height",
-        "flexShrink" => "flex-shrink",
-        "flexBasis" => "flex-basis",
-        "wrap" | "flexWrap" => "flex-wrap",
-        "flexDirection" => "flex-direction",
-        "flexGrow" => "flex-grow",
-        "aspectRatio" => "aspect-ratio",
-        "dragTimeline" => "drag-timeline",
-        "animationTimeline" => "animation-timeline",
-        "animationRange" => "animation-range",
-        "timelineScope" => "timeline-scope",
-        "transformOrigin" => "transform-origin",
-        "align" | "alignItems" => "align-items",
-        "alignSelf" => "align-self",
-        "boxSizing" => "box-sizing",
-        "fit" | "objectFit" => "object-fit",
-        "justify" | "justifyContent" => "justify-content",
-        "overflowX" => "overflow-x",
-        "overflowY" => "overflow-y",
-        "zIndex" => "z-index",
-        "accessibilityOrientation" => "aria-orientation",
-        "label" | "accessibilityLabel" => "aria-label",
-        "hint" | "accessibilityHint" => "aria-description",
-        "headingLevel" => "aria-level",
-        "inputMode" | "keyboardType" => "inputmode",
-        "viewportFit" | "safeArea" | "safeAreaView" => "viewport-fit",
-        "interactiveWidget" | "keyboardAvoidingView" | "keyboardAvoiding" => "interactive-widget",
-        "secureTextEntry" => "type",
-        "onClick" | "onPress" => "press",
-        "onChange" | "onChangeText" | "onInput" => "input",
-        "className" | "class" | "style" => return None,
-        _ => return None,
-    })
-}
+pub use crate::renamed::renamed;
 
 // A list's row-size estimate is the virtualized list's host policy (LLP 1010
 // §6.5); the fixed-height windowed list it once also named is deleted (LLP
