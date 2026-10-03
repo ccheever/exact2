@@ -1,10 +1,10 @@
 # LLP 1079: Speed hygiene in the agent's hands — `perf`, the tenth operation
 
 **Type:** RFC
-**Status:** Draft r2. Charlie asked for this document on 2026-10-02 ("yes write up an LLP"). He waived the nine-operation limit for this op the same day: *"it's probably worth a waiver to a 10th op I think"* (§7).
+**Status:** Accepted with rulings (Charlie, 2026-10-03: "sure" to §Rulings Q1–Q4); r2. Charlie asked for this document on 2026-10-02 ("yes write up an LLP"). He waived the nine-operation limit for this op the same day: *"it's probably worth a waiver to a 10th op I think"* (§7).
 Astra reviewed r1 (`llp/reviews/1079-speed-hygiene-in-the-agents-hands.astra.md`, NOT READY, 13 findings). r2 folds all thirteen; the dispositions are in §9.
 **Systems:**
-- Runner: per-site work totals that survive node lifetimes; a per-node changed-receipt tally; a commit sequence number; the runner's half of `perf`.
+- Runner: per-site work totals that survive node lifetimes; a per-node changed-receipt tally (authored and inherited); a commit sequence number; the runner's half of `perf`.
 - Kernel: nothing new. `CommitReceipt` and the equality skips are read as they are.
 - Hosts:
   - the `moved` tally from the layout receipts they already consume;
@@ -53,7 +53,8 @@ This RFC adds one operation, `perf`, under Charlie's waiver. It has two forms:
    **plan site**. For each site it gives:
    - the instances created and retired, totalled across node lifetimes, so
      churn is visible after the nodes are gone;
-   - how often those nodes were in a commit's changed set;
+   - how often those nodes were in a commit's changed set, split into their own
+     changes and changes inherited from above;
    - how often their bindings were evaluated;
    - on Apple and Linux, how often their frames moved.
 
@@ -129,11 +130,12 @@ survive node retirement until the incarnation ends:
 | `retired` | instances retired at this site | the same place, on retirement |
 | `evaluated` | binding expressions evaluated for instances of this site | the `bindings_evaluated` increments (`instance.rs:785,792`), attributed to the site being visited |
 | `unchanged` | evaluations whose result equalled the last one, so no op was emitted | the equality skip right after (`instance.rs:795-798`) |
-| `changed` | kernel transactions in which a node of this site is in the receipt's `touched` set | the receipt. Each transaction counts a node at most once (`touched` is deduplicated, `txn.rs:862`). The reorder clean-up transaction (`runner.rs:1292-1295`) is a second transaction and counts as one |
+| `authored` | kernel transactions in which a node of this site is in the receipt's `touched` set because an op in that transaction set its own prop, style or children | the receipt and the op that touched it. Each transaction counts a node at most once (`touched` is deduplicated, `txn.rs:862`); a node touched both ways counts here. The reorder clean-up transaction (`runner.rs:1292-1295`) is a second transaction and counts as one |
+| `inherited` | kernel transactions in which a node of this site is in `touched` only because an inherited value changed above it | the kernel's inherited path (`txn.rs:1138-1141`), which already knows it is that path. `authored + inherited` is the receipt membership r1 called `changed` |
 | `moved` | layout passes in which a node of this site is in `LayoutReceipt.changed` | **the host**, where layout is consumed: Apple `host/apple/src/layout.rs:58`, Linux `host/linux/src/height.rs:129`. This includes layouts with no runner commit (resize, projection, region). Absent, never zero, on the web: the kernel does not lay out there (LLP 1007 §9) |
 
-**What `changed` is not.** `changed` counts membership in a changed-node
-receipt. It does not count binding evaluations: those are `evaluated`.
+**What `authored` and `inherited` are not.** Together they count membership
+in a changed-node receipt. It does not count binding evaluations: those are `evaluated`.
 - The kernel already skips a set that leaves a prop, style or children equal
   (`txn.rs:595`, `:669`, `:716`).
 - The runner already skips an evaluation whose result equals the last one
@@ -141,20 +143,21 @@ receipt. It does not count binding evaluations: those are `evaluated`.
 - A node can be in `touched` because an inherited value changed above it,
   with no binding of its own going stale (`txn.rs:1138-1141`).
 
-v1 does not separate inherited touches from authored ones (Q3). The
+The split is ruled (Q3): "Row changed 732 times" must say whether the rows'
+own bindings did it or one parent style dragged every descendant along. The
 **hygiene number** is `unchanged / evaluated`: work the runner did that
 produced nothing. It is read from branches that already exist. No new
 comparison is added.
 
 **On the JS target** each counter is defined in the same unit:
-- `changed` is one per node per commit. A per-element stamp holding the commit
+- `authored` is one per node per commit. A per-element stamp holding the commit
   sequence makes a second write in the same commit a no-op for the count.
   The `P`, `S` and `css` helpers receive the element (`rt.js:718` is one
   update doing a remove and a set; it counts once).
 - `created` and `retired` count where `rt.js` builds and drops a site's
   nodes. Adopting server-rendered DOM (LLP 1048.001) counts as `adopted`, not
   `created`.
-- `moved` is absent.
+- `inherited` and `moved` are absent: the browser cascades and lays out.
 
 **Live-node detail** for the target subtree is the same counters per node,
 reset when the node's slot is destroyed. It is opt-in in the reply (D2). The
@@ -163,9 +166,9 @@ site totals are the default view.
 **Cost and gating.**
 - **Production trust: collection off.** The host knows the trust it was baked
   with (`Session.swift:59`; the web's `AGENT_ADMITTED`). It tells the runner
-  once at boot, through the existing reserved-source path (an
-  `exactViewport`-style field set before the first commit) or an ABI flag.
-  The implementation picks one; Q2 asks which. When off, every counter path is
+  once at boot through a private ABI flag (ruled, Q2), never through a field
+  the app can read: an app has no business branching on whether it is
+  measured. When off, every counter path is
   one predictable branch. This is not a cargo feature, so the ban on optional
   capability in core crates is untouched.
 - **Development and agent builds: on.** The memory is a fixed table per plan
@@ -196,7 +199,7 @@ The body:
 ```
 { "seq": 412, "incarnation": 1, "plan": "<digest>",
   "sites": [ { "site": 58, "instances": 12, "created": 12, "retired": 0,
-               "evaluated": 5904, "unchanged": 5172, "changed": 732, "moved": 0 }, … ],
+               "evaluated": 5904, "unchanged": 5172, "authored": 732, "inherited": 0, "moved": 0 }, … ],
   "walked": 37, "truncated": false }
 ```
 
@@ -224,10 +227,10 @@ The body:
 ```
 $ bun scripts/agent.mjs web "perf feed during \"tap start-ticker\" \"clock +1000\""
 feed (List, app.contract:41) — seq 12..73, clock 0..1000, one incarnation
-  component     site                instances  created  retired  evaluated  unchanged  changed
-  Row           app.contract:58     12         0        0        5904       5172       732
-  Row › Price   app.contract:63     12         0        0        732        0          732
-  Header        app.contract:44     1          0        0        3          2          1
+  component     site                instances  created  retired  evaluated  unchanged  authored  inherited
+  Row           app.contract:58     12         0        0        5904       5172       732       0
+  Row › Price   app.contract:63     12         0        0        732        0          732       0
+  Header        app.contract:44     1          0        0        3          2          1         0
 ```
 
 The numbers are illustrative, not measured. The finding is the first row:
@@ -408,7 +411,7 @@ A hygiene fix is shown by **work counts**:
 
 1. `perf <target> during …` drives fixed steps under the agent's clock.
 2. Apply the fix and drive the same steps.
-3. Compare `evaluated`, `unchanged`, `changed`, `created` and `retired` per
+3. Compare `evaluated`, `unchanged`, `authored`, `inherited`, `created` and `retired` per
    site.
 
 The counts repeat **when the inputs are controlled**: the same steps, the
@@ -471,21 +474,24 @@ Times are observations. Each is printed with its proxy ("p95 interval 16.9
 
 Stages 2–4 depend only on stage 1.
 
-## Open questions (for Charlie)
+## Rulings (Charlie, 2026-10-03)
 
-- **Q1 — The name.** `perf` (DEFERRED's word) or `work`? Frames are not work,
-  so `perf` is recommended.
-- **Q2 — The trust switch.** Should the host tell the runner "collect" through
-  an `exactViewport`-style reserved field, which is visible to the app, or
-  through a private ABI flag? Recommendation: the ABI flag, because an app has
-  no business branching on it.
-- **Q3 — Inherited touches.** Should `changed` split into `authored` and
-  `inherited`? The inherited path already knows which it is
-  (`txn.rs:1138-1141`). It costs one more counter; recommended only if stage
-  1's first findings are muddied by inheritance.
-- **Q4 — Export keys and paths.** ⌥⇧T on the web, ⌥⌘T on macOS; the temporary
-  directory on Apple; `target/` for the web. Or should export join the
-  existing **Copy Info** item?
+Charlie leaned `perf` on Q1 and asked for a recommendation on Q2–Q4; he
+accepted the four recommendations below ("sure").
+
+- **Q1 — The name: `perf`.** It covers frames as well as work, and it is
+  DEFERRED's own word for this.
+- **Q2 — The trust switch: a private ABI flag.** The host tells the runner at
+  boot. It is never a reserved field the app can read: an app has no business
+  branching on whether it is measured (D1).
+- **Q3 — Split `changed` into `authored` and `inherited`.** One counter more,
+  on a path the kernel already distinguishes (`txn.rs:1138-1141`). Without
+  it, a parent style flipping reads the same as every row being wasteful
+  (D1).
+- **Q4 — Export: a separate Save Trace item, not Copy Info.** One copies text
+  and the other writes a file. The keys and paths are as D5 has them: the dev
+  menu's Save Trace on iOS, ⌥⌘T in macOS's Develop menu, ⌥⇧T on the web
+  through `dev.mjs`, `SIGUSR1` on Linux.
 
 ## §9 Review dispositions (Astra, r1)
 
@@ -496,7 +502,7 @@ Stages 2–4 depend only on stage 1.
 | 3 | retirement erased churn | D1: per-site `created`/`retired` across lifetimes, counted where the runner realizes, including within-batch churn |
 | 4 | `since E` and `mark` | D2: removed; two reads tagged `seq` + `incarnation`, the driver subtracts |
 | 5 | no frame-to-commit join | D3/D4: `seq` in the trailer and every record; join by range with unjournaled commits counted; JS journal bounded |
-| 6 | kernel already compares; touches ≠ evaluations | D1: `changed` defined as receipt membership; `evaluated`/`unchanged` from existing branches; inherited touches noted (Q3) |
+| 6 | kernel already compares; touches ≠ evaluations | D1: `changed` defined as receipt membership; `evaluated`/`unchanged` from existing branches; inherited touches split (ruled, Q3) |
 | 7 | JS units differ | D1: one per node per commit via stamps; `adopted` separate |
 | 8 | runner does not consume layout receipts | D1: `moved` counted by the host at its layout consumers, including layouts without commits; reorder clean-up defined |
 | 9 | no identity in `tree`, unbounded work | D2: its own op, site-grouped, one pass, walk and site bounds, `truncated` |
