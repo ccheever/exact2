@@ -50,7 +50,7 @@ Apple: `uint32_t exact_segments(ExactRuntime rt, uint32_t posture, uint32_t cols
 
 ### D5 — Apple feeds it from UIKit 27.1
 
-In `ExactViewIOS.fit`, on iOS 27.1 or later, after the viewport frame is known: the view's active `division` reserved regions (`reservedRegions(kind: .division)`) are intersected with the viewport's frame; each one splits the viewport along its axis into the rects on either side of the region's full frame (the band plus its margins, so the segments exclude it); `cols × rows` follows from the vertical and horizontal dividers; coordinates are the viewport's (the region's frame converted into `presenter.viewport`'s space). Posture is `folded` while any division is active, `continuous` otherwise. The view adds one `UIHingeInteraction` whose handler calls `setNeedsLayout`, because a hinge moving from flat to a book angle changes the regions' `isActive` without changing any bounds, and nothing else would relayout. `exact_segments` is sent when posture, counts or rects change, next to the `insets` send. Below iOS 27.1, and on macOS (AppKit has no fold API): `continuous`, 1 × 1, sent once at boot so the facts are never stale from the bake.
+In `ExactViewIOS.fit`, on iOS 27.1 or later, after the viewport frame is known: the view's active `division` reserved regions (`reservedRegions(kind: .division)`) are intersected with the viewport's frame; each one splits the viewport along its axis into the rects on either side of the region's full frame (the band plus its margins, so the segments exclude it); `cols × rows` follows from the vertical and horizontal dividers; coordinates are the viewport's (the region's frame converted into `presenter.viewport`'s space). Posture is `folded` while the hinge is partially open (the `UIHingeInteraction`'s status, the Device Posture API's own definition) or any division is active, `continuous` otherwise; the segments come from the regions alone (amended 2026-10-02, §As built "The deaf session"). The view adds one `UIHingeInteraction` whose handler calls `setNeedsLayout`, because a hinge moving from flat to a book angle changes the regions' `isActive` without changing any bounds, and nothing else would relayout; a layout whose regions disagree with the hinge's status re-reads them on the following frames, a bounded number of times. `exact_segments` is sent when posture, counts or rects change, next to the `insets` send. Below iOS 27.1, and on macOS (AppKit has no fold API): `continuous`, 1 × 1, sent once at boot so the facts are never stale from the bake.
 
 Occlusion regions (the camera, the status strip) stay what they already are, the safe-area insets; nothing reads them.
 
@@ -436,7 +436,7 @@ in the cover viewport (the two-session host's 331-pt panes see
 A session that launched flat sometimes never hears the hinge move (every pose of one
 whole run stayed `continuous` while a fresh launch at 130°, and the next session, saw
 the fold within 1.5 s) — `UIHingeInteraction`'s delivery, D5's side; the smoke now says
-which it saw. An `input` in the pushed note route is UIKit's first responder
+which it saw. (Found and fixed on `lane/duo-kinks` the same day: "The deaf session" below.) An `input` in the pushed note route is UIKit's first responder
 (`native.firstResponder true`, `RouteController`) but its keyboard never shows and the
 inset stays 0, while the same input in the non-pushed `insets` and `keyboard-bar` plans
 raises it; twice the app stopped answering `clock` for 120 s at the closed pose after
@@ -457,3 +457,88 @@ the Mac's `ConnectHardwareKeyboard` preference being on, and one session stopped
 answering `clock` for 120 s. Under the driver's `type`, a `textarea` takes text and
 focus but raises no keyboard on either simulator (an `input` does), which is why the
 sheet carries a title input beside its textarea.
+
+**The deaf session (2026-10-02, lane/duo-kinks).** Reproduced once in `smoke duo --only
+lab` after a run of healthy launch-then-fold cycles: from then on every duo-lab session,
+including a fresh launch at 130°, reported `continuous` with no segments at every pose,
+and a second hinge move recovered nothing, until the simulator was shut down and booted
+again. Journal lines in the view showed the mechanism: `UIHingeInteraction` kept
+delivering (`fullyOpen` at 180°, a run of `partiallyOpen` updates as the hinge moved,
+each one relaying out the view), while `reservedRegions(kind: .division)` on the view
+returned an empty array — no region, active or inactive — at every pose; it was not the
+interaction's first delivery (hypothesis a), nor a coalesced `setNeedsLayout` (b), nor
+the agent's `prefer` wait (d). The regions are a per-scene state the simulator's shell
+stops reporting; the trigger did not reproduce on demand in 24 attempts (the smoke's
+devicectl hinge-angle sessions, display captures and orientation reads; its keyboard
+probe; the closed pose; `simctl terminate`; a launch replacing a running copy; a session
+cut off mid-fold; two full lab legs). Healthy, the same lines showed the regions trailing
+the hinge: at the handler's time the division still read inactive, and only the layout
+later in the same turn saw it active (hypothesis c, by one turn). Built: the posture
+follows the hinge — `folded` while its status is `partiallyOpen` (the Device Posture
+API's definition), with or without an active region — and the segments follow the
+regions; a layout whose regions disagree with the hinge re-reads them every 100 ms, at
+most five times per hinge change, so a scene without regions keeps the hinge's posture
+in one segment and stops asking (`Segments.split(viewport:dividers:hingeBent:)`,
+`ExactView.fit`, `SegmentsTests`). Counts, each a fresh `agent.mjs ios` session launched
+flat and folded to 130°: before, on a healthy simulator 0 of 19 first moves missed, in
+the deaf state 21 of 21 missed (the smoke's lab leg missed `fold-book` and `fold-half`,
+a second move recovering neither); after, 0 of 23 missed (ten plain, ten timing the
+rects, three folding 3 s after launch) and the smoke's lab leg passed every pose; the
+deaf state could not be re-entered to count it, and there the fix yields `folded` 1 × 1
+rather than `continuous`. On the Duo simulator the posture now leads the rects by about
+135 ms (the hinge says `partiallyOpen` early in the fold motion, the division activates
+a beat later), two sends instead of one; the smoke reads both after the pose settles.
+
+**The pushed route's keyboard, found (2026-10-02, lane/duo-kinks2).** Not the host's.
+The simulator's software keyboard was minimized: the device's own
+`com.apple.keyboard.preferences` `AutomaticMinimizationEnabled = 1` — the software
+keyboard minimized behind the hardware keyboard a simulator always has (the Mac's,
+through CoreDevice), what Simulator.app's "Connect Hardware Keyboard" used to set —
+which is why UIKit raised no keyboard for a first responder (`native.firstResponder
+true`, `keyboard.visible false`, inset 0 is exactly that state's signature). The key is
+causal and sticky per device: on a fresh `iPhone Duo` (iOS 27.1, booted headless) the
+`insets` fixture raises 264; `simctl spawn <udid> defaults write
+com.apple.keyboard.preferences AutomaticMinimizationEnabled -bool true` and it raises
+nothing (`visible false`, guide 635); `defaults delete` and it is 264 again. It is
+written by the Device Hub (Xcode 27 ships no Simulator.app): each device's
+`com.apple.keyboard.preferences.plist` was written at the instants backboardd logs
+"Hardware keyboard attached" (transport CoreDevice) on *every* booted simulator at once
+— 21:17:45, 21:57:54, 23:13:57 — and the iPhone 17e, which raised its keyboard at 21:35,
+had the key and raised nothing after its plist's 21:57:54 write; the attach line itself is
+not the state (a fresh device raised its keyboard through one). The Duo (B82DBA04) and
+E083487E (the one the running hub holds a window for) carry the key; the run that "passed
+every `input` keyboard check and failed only the pushed route" (captures 14:21–14:43)
+ran its `insets` and `keyboard-bar` legs 14:21–14:25 and its duo-lab combos leg from
+14:37:14, across the 14:36:23 attach instant: one run, two states, and the smoke's
+one-shot probe had measured the first. The 19:04–19:08 run lost all 28 keyboard checks
+the same way. The Mac-wide `ConnectHardwareKeyboard` preference the smoke printed (`0`
+throughout) is not the simulator's state. On a fresh Duo the same bundles raise the
+keyboard in the pushed route at every pose — `bun scripts/smoke.mjs duo --only lab`: ok
+in 796.7 s, no failures — and so does 82a3a6766's own build (keyboard 264, the sheet's
+bottom at the keyboard-shortened viewport, 405 of 669; dismiss restores 669), so no
+commit since changed it; two phone-class simulators without the key (iPhone 17 Pro on
+26.5, iPhone 17e on 27.0 before its write) raise it too (335 and 328). Under the driver's
+`type` a `textarea` raises the keyboard as well (responder `TextArea`, `visible true`) —
+the "textarea takes no keyboard" above was the same minimized state. The smoke now reads
+the key beside its start-of-run fixture probe and again at the first keyboard that fails
+to rise mid-run — never a second session, since the iOS carrier terminates the running
+copy of the bundle, the leg's own: set, the keyboard checks are unsupported from there
+and the line names the key and the `defaults delete` that clears it; clear, the checks
+run and fail as the host's. The two 120 s `clock` silences at the closed pose are
+unreproduced: both fell in minimized windows (the 14:40:15 → 14:42:54 gap in the
+straddling run; the later one in a run with no keyboard anywhere), none in a run with
+the software keyboard (gaps of 39–41 s, and five pushed-route cycles through closed →
+open → closed with the keyboard up on the fresh Duo: worst operation 11.1 s, the hinge
+move itself); reproduce with the key written on the device, and `sample` the process
+during the silence. The real phone (iPhone 13 Pro Max) could not be driven: the agent
+carrier is an outbound TCP connection to the Mac, which iOS holds behind the "Duo Lab
+would like to find and connect to devices on your local network" prompt (`connect: No
+route to host` until someone taps Allow).
+
+**On the phone (2026-10-03, Charlie's iPhone 13 Pro Max, Duo Lab from origin/main
+cbf7824e5; the local-network prompt accepted by hand).** The pushed `note` route under
+the agent: the keyboard rises to 346 pt, the viewport goes 428×926 → 428×580 under
+`resizes-content`, the sheet (y 180, height 400) ends exactly at the keyboard's top, both
+fields take text, dismiss restores 926 with the sheet at 526; five push → type → dismiss →
+back cycles in 16 s, the keyboard 346 each time, no silence. A non-foldable reports
+`continuous`, 1 × 1, no segments.

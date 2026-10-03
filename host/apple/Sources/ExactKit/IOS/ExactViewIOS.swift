@@ -17,6 +17,13 @@ public final class ExactView: UIView {
     private var lastSize = CGSize.zero
     private var lastInsets = UIEdgeInsets.zero
     private var lastFold = ViewportFold.flat
+    /// The hinge's last status from `UIHingeInteraction` (1 closed, 2
+    /// partially open, 3 fully open; nil before it reports or without a
+    /// hinge), and how many layouts have re-read the division regions since
+    /// it last changed while they disagreed with it (LLP 1078 D5).
+    private var hingeStatus: Int?
+    private var regionRereads = 0
+    private static let regionRereadLimit = 5
     private var lastDisplayScale: CGFloat = 0
     private var keyboardProbe: UIView?
     private var keyboardObserver: NSObjectProtocol?
@@ -48,11 +55,14 @@ public final class ExactView: UIView {
         registerForTraitChanges([UITraitUserInterfaceStyle.self, UITraitDisplayScale.self]) { (view: ExactView, _: UITraitCollection) in view.reportScheme(); view.setNeedsLayout() }
         // A hinge moving from flat to a book angle changes the division
         // regions' `isActive` without changing any bounds; nothing else would
-        // lay out again (LLP 1078 D5).
+        // lay out again (LLP 1078 D5). The status is kept: the posture
+        // follows it, and a layout whose regions disagree with it re-reads
+        // them on the following frames (`fit`).
         ReservedRegions.observeHinge(on: self) { [weak self] status in
             guard let self else { return }
             session.presenter.hingeReported = true
             if status != nil { session.presenter.hasFold = true }
+            if status != hingeStatus { hingeStatus = status; regionRereads = 0 }
             setNeedsLayout()
         }
     }
@@ -218,9 +228,21 @@ public final class ExactView: UIView {
         guard size.width > 0, size.height > 0 else { return }
         // The fold (LLP 1078 D5): the container's active division regions,
         // converted into the viewport's space, split it into segments; the
-        // posture is folded while any is active. Below 27.1 there are none.
-        let fold = Self.fold(of: container, viewport: frame, size: size)
+        // posture is folded while any is active or the hinge says it is
+        // partially open. Below 27.1 there are none.
+        let bent = hingeStatus == 2
+        let fold = Self.fold(of: container, viewport: frame, size: size, hingeBent: bent)
         if fold.hasFold { presenter.hasFold = true }
+        // The regions can trail the hinge's update by a frame (the handler
+        // runs before UIKit flips `isActive`), so a reading that disagrees
+        // with the hinge is taken again on the next frames, a bounded number
+        // of times per hinge change: a scene whose regions are never
+        // reported (seen on the 27.1 simulator) keeps the hinge's posture and
+        // stops asking.
+        if ReservedRegions.available, hingeStatus != nil, bent != (fold.activeDivisions > 0), regionRereads < Self.regionRereadLimit {
+            regionRereads += 1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in self?.setNeedsLayout() }
+        }
         if !session.booted {
             lastSize = size
             lastInsets = insets
@@ -248,15 +270,17 @@ public final class ExactView: UIView {
 
     /// The segments the container's division regions make of the viewport
     /// framed at `frame` in the container's coordinates (`size` is the
-    /// viewport's own, which an agent's window override may scale), and
-    /// whether the device reported a fold at all.
-    static func fold(of container: UIView, viewport frame: CGRect, size: CGSize) -> (fold: ViewportFold, hasFold: Bool) {
-        guard let divisions = ReservedRegions.divisions(of: container) else { return (.flat, false) }
+    /// viewport's own, which an agent's window override may scale), with
+    /// the posture `folded` while the hinge is bent even without an active
+    /// region; whether the device reported a fold at all (a region, active
+    /// or not); and how many regions are active.
+    static func fold(of container: UIView, viewport frame: CGRect, size: CGSize, hingeBent: Bool = false) -> (fold: ViewportFold, hasFold: Bool, activeDivisions: Int) {
+        guard let divisions = ReservedRegions.divisions(of: container) else { return (.flat, false, 0) }
         let scale = CGPoint(x: size.width / frame.width, y: size.height / frame.height)
         let active = divisions.filter(\.active).map { d in
             CGRect(x: (d.frame.minX - frame.minX) * scale.x, y: (d.frame.minY - frame.minY) * scale.y, width: d.frame.width * scale.x, height: d.frame.height * scale.y)
         }
-        return (Segments.split(viewport: size, dividers: active), !divisions.isEmpty)
+        return (Segments.split(viewport: size, dividers: active, hingeBent: hingeBent), !divisions.isEmpty, active.count)
     }
 
     /// After a restart from a new plan (the dev loop): the new runner knows
