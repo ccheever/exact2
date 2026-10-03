@@ -8,7 +8,7 @@
 import * as source from '__APP_TS__';
 import { install as grantSource } from './ts-fetch.js';
 import { sourceTypes } from './names.js';
-import { checkpoint, clock, commit, journal, R, Resources } from './rt.js';
+import { checkpoint, clock, commit, journal, painted, R, Resources } from './rt.js';
 __AUTH_IMPORT__
 // Values cross by the plan's types (`named` into the module's objects,
 // `arrays` back into the runtime's arrays), with each type's converters made
@@ -118,10 +118,10 @@ export function install(data, mixed = false, modules = null) {
   data.appId = source.appId;
   const authority = grantSource(data, String(source.grants ?? ''));
   const storage = storageOf(authority.lines.join('\n'), authority);
-  // `modules` loads native.js (an app with a module artifact). Connected
-  // after first paint, whether or not anything asks `later`.
-  load = modules;
-  if (modules && typeof requestAnimationFrame === 'function') requestAnimationFrame(() => requestAnimationFrame(() => pageModule().catch(e => journal.push(`t=${clock.now} native: ${e.message}`))));
+  // `modules` loads native.js (an app with a module artifact), after first
+  // paint (rt.js `painted`), whether or not anything asks `later`.
+  load = modules && (() => painted().then(modules));
+  if (modules && typeof requestAnimationFrame === 'function') pageModule().catch(e => journal.push(`t=${clock.now} native: ${e.message}`));
   let keys = null, asking = '';
   const kept = () => keys ??= import('./storage-environment.js').then(({ keyStore, storageKey }) =>
     keyStore(typeof location === 'object' && source.appId ? storageKey(source.appId, location.href) : null, globalThis.indexedDB));

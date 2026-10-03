@@ -662,19 +662,18 @@ export function c2(e, name, values, types, names) {
     queueMicrotask(() => Canvas2d.then(m => m?.args(c)));
   });
 }
-/** A native module's element (LLP 1024 D3): the real custom element, empty
- * until the web host's adapter (`native-glue.js`, in `native.js`) and the
- * app's module artifact load after first paint; the module renders into it,
- * and its events reach the handlers as `exact-native` events (`on`). */
-let Native = null;
+/** When native code may load (LLP 1024 D7): after the browser's first paint entry, or two frames and 250 ms where it records none (glue.js `afterNativePaint`). */
+let Painted = null, Native = null;
+export const painted = () => Painted ??= new Promise(r => { let o; const done = () => { o?.disconnect(); r(); }; try { o = new PerformanceObserver(() => requestAnimationFrame(done)); o.observe({ type: "paint", buffered: true }); } catch {} requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(done, 250))); });
+/** A native module's element (LLP 1024 D3): the real custom element, empty until the web host's adapter (`native.js`)
+ * and the app's module artifact load (`painted`); the module renders into it, its events reaching the handlers as `exact-native` events (`on`). */
 export function nm(e) {
   if (typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
   const id = viewId(e), st = e.exactNative = { id, name: e.localName, state: "loading", status() { return { name: this.name, state: this.state, ...(this.error ? { error: this.error } : {}) }; } };
   onEnd(() => { st.destroyed = true; Native?.then(h => h.destroy(e), () => {}); });
-  // In flight until the module is attached and its first events are in
-  // (`clock settle` waits for them).
+  // In flight until the module is attached and its first events are in (`clock settle` waits for them).
   inflight.n++;
-  (Native ??= new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))).then(() => import("./native.js")).then(m => m.viewHost(say)))
+  (Native ??= painted().then(() => import("./native.js")).then(m => m.viewHost(say)))
     .then(h => { h.attach(e); return h.loaded; }, err => { st.state = "unavailable"; st.error = String(err?.message ?? err); say(`native ${st.name} #${id}: unavailable: ${st.error}`); })
     .finally(() => setTimeout(() => inflight.n--));
 }
@@ -768,7 +767,8 @@ function guestOrigin(e) {
 export function on(e, kind, f) {
   const l = (t, g) => e.addEventListener(t, g);
   if (OnHooks.file && e.localName === "input" && e.type === "file" && OnHooks.file(e, kind, f)) return;
-  if (e.exactNative) return l("exact-native", ev => { if (ev.detail.kind === kind) f(...(ev.detail.value == null ? [] : [ev.detail.value])); });
+  // A module view hears its module's events, and the page's own input as any element does (glue.js `attach`): a click is its press.
+  if (e.exactNative) { l("exact-native", ev => { if (ev.detail.kind === kind) f(...(ev.detail.value == null ? [] : [ev.detail.value])); }); if (kind === "message") return; }
   switch (kind) {
     // A link with a press is the app's navigation: the browser's is prevented.
     case "press": return l("click", ev => { const a = ev.target.closest?.("a[href]"); if (a && a !== e && e.contains(a)) return; ev.stopPropagation(); if (e.localName === "a" && !(ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.button)) ev.preventDefault(); f(); });

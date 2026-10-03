@@ -7,7 +7,7 @@ import { R, eq, pieces, pageHistory, Head } from './rt.js';
 import { environment, navigation, guestOutline, guestTap, guestType, viewBox, foldEnv, preferFold } from './navigation.js';
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
-const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['placeholder', 'placeholder'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hook', 'hook']];
+const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['placeholder', 'placeholder'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hook', 'hook'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];
 const TYPES = { TEMPLATE: 'Head', BUTTON: 'Pressable', INPUT: 'TextInput', TEXTAREA: 'TextInput', VIDEO: 'Video', IMG: 'Image', IFRAME: 'WebView', A: 'Pressable' };
 export function install(exact) {
   const views = exact.views, id = exact.viewId;
@@ -43,6 +43,9 @@ export function install(exact) {
     // As glue.js's `tree` adds them: a pressable's accessible name, and an
     // iframe's url, load state and same-origin guest outline (LLP 1020 D4).
     if (el.matches('button, a, [role=button]')) n.accessibleName = el.getAttribute('aria-label') ?? el.textContent.trim();
+    // A module view's status (LLP 1024 D8.3): what native-glue.js keeps on
+    // the element, as glue.js's `tree` reports it.
+    if (el.exactNative) n.module = el.exactNative.status();
     if (el instanceof HTMLIFrameElement) {
       n.url = el.getAttribute('src') ?? '';
       n.loading = loaded.get(el) !== el.getAttribute('src');

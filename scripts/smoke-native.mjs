@@ -60,9 +60,14 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
     check(module(t, 'absent')?.state === 'error' && /no factory for exact-absent/.test(module(t, 'absent')?.error ?? ''), `${host} native: exact-absent reports its missing factory: ${JSON.stringify(module(t, 'absent'))}`);
     check(/exact-absent #\d+: error: the module artifact has no factory/.test(lines), `${host} native: the missing factory is logged`);
     // After first pixel, never before: the browser's paint entry, or, when
-    // headless Chrome records none, the glue's first-frame stamp (a lower bound).
+    // headless Chrome records none, the glue's first-frame stamp (a lower
+    // bound). On the JS target the adapter is the native.js chunk that holds
+    // native-glue.js, and where Chrome records no entry the runtime's gate is
+    // two frames and 250 ms after its first commit (`bootMs`, rt.js `painted`).
     if (host === 'web') {
-      const order = await s.carrier.evaluate(`(() => { const glueEnd = performance.getEntriesByType('resource').find((e) => e.name.endsWith('/glue.js'))?.responseEnd ?? 0; const paint = performance.getEntriesByType('paint')[0]?.startTime ?? (glueEnd + Number(document.getElementById('exact-root').dataset.frameCallbackMs ?? NaN)); const glue = performance.getEntriesByType('resource').find((e) => e.name.endsWith('/native-glue.js'))?.startTime; const table = performance.getEntriesByType('resource').find((e) => e.name.endsWith('/modules/index.js'))?.startTime; return { paint, glue, table }; })()`);
+      const order = await s.carrier.evaluate(jsTargetBuild(webDist)
+        ? `(() => { const at = (re) => performance.getEntriesByType('resource').find((e) => re.test(e.name))?.startTime; const entry = performance.getEntriesByType('paint')[0]?.startTime; return { paint: entry ?? Number(document.getElementById('exact-root').dataset.bootMs) + 250, entry: entry != null, glue: at(/\\/native-[\\w-]+\\.js$/), table: at(/\\/modules\\/index\\.js$/) }; })()`
+        : `(() => { const glueEnd = performance.getEntriesByType('resource').find((e) => e.name.endsWith('/glue.js'))?.responseEnd ?? 0; const paint = performance.getEntriesByType('paint')[0]?.startTime ?? (glueEnd + Number(document.getElementById('exact-root').dataset.frameCallbackMs ?? NaN)); const glue = performance.getEntriesByType('resource').find((e) => e.name.endsWith('/native-glue.js'))?.startTime; const table = performance.getEntriesByType('resource').find((e) => e.name.endsWith('/modules/index.js'))?.startTime; return { paint, glue, table }; })()`);
       check(Number.isFinite(order.paint) && order.glue > order.paint && order.table > order.glue, `${host} native: the adapter and the module load after first paint: ${JSON.stringify(order)}`);
     } else {
       const m = /native loading .*libexact_modules\.dylib (-?[\d.]+) ms after first pixel/.exec(lines);
@@ -389,13 +394,22 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
       await s.tap('popover-close'); await settle(s);
       check((await s.state()).navigation.popover == null && byTestId(await s.tree(), 'native-popover').open === false, 'macos popover: the hide-only button closes the form');
     }
-    // A plan reload reuses the defined elements (web).
+    // Each roster tag is defined once a page (web): by now instances have
+    // come and gone (the remount above). On the wasm target a plan reload
+    // swaps the plan into the page and reuses the definitions; on the JS
+    // target the plan is the page (an edit rebuilds and reloads it, LLP 1071),
+    // so its reload is the page's, whose modules attach again.
     if (host === 'web') {
+      const roster = await s.carrier.evaluate('exact.nativeArtifact.then((m) => Object.keys(m.roster).length)');
       const defined = await s.carrier.evaluate('exact.nativeDefines?.count');
-      await s.carrier.evaluate(`fetch('./app.plan').then((r) => r.arrayBuffer()).then((b) => exact.reload(new Uint8Array(b)))`);
+      if (jsTargetBuild(webDist)) {
+        await s.carrier.evaluate('location.reload()').catch(() => {});
+        for (let i = 0; i < 200 && !(await s.carrier.evaluate("document.readyState === 'complete' && document.getElementById('exact-root')?.dataset.bootMs != null && !!globalThis.exact?.agentSettled").catch(() => false)); i++) await sleep(25);
+        await s.carrier.evaluate('exact.ready');
+      } else await s.carrier.evaluate(`fetch('./app.plan').then((r) => r.arrayBuffer()).then((b) => exact.reload(new Uint8Array(b)))`);
       t = await until(s, 'the reloaded plan attaches again', (t) => module(t, 'box')?.state === 'ready');
       const after = await s.carrier.evaluate('exact.nativeDefines?.count');
-      check(defined === 2 && after === 2, `${host} native: a plan reload does not re-define the elements: ${defined} → ${after}`);
+      check(roster > 0 && defined === roster && after === roster, `${host} native: a plan reload does not re-define the elements: ${defined} → ${after} of ${roster} roster tags`);
     }
   } catch (error) {
     check(false, `${host} native: the fixture drive stopped: ${error.stack ?? error.message}`);

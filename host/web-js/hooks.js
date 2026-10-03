@@ -9,16 +9,15 @@
 // `element` is the node's own element and `data` its `dataset`, the web's own
 // (so the host's words, `data-testid` and the rest, are there too). On the web
 // a hooked node gives up nothing but the call. The page module loads after
-// first paint, as a module view's does (native.js), and a node mounted before
+// first paint, as a module view's does (rt.js `painted`), and a node mounted before
 // then is told once it has. rt.js re-exports `hk`: only a plan that marks a
 // node bundles this.
-import { onEnd, journal, clock, viewId, inflight } from "./rt.js";
+import { onEnd, journal, clock, viewId, inflight, painted } from "./rt.js";
 
 let Page = null;
 const said = new Set(), warned = new Set();
 const say = line => journal.push(`t=${clock.now} hook ${line}`);
-const page = () => Page ??= new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
-  .then(() => import("./native.js")).then(m => m.pageTable());
+const page = () => Page ??= painted().then(() => import("./native.js")).then(m => m.pageTable());
 
 /** The page module's `element` hook for `e`, and its end. */
 export function hk(e) {
