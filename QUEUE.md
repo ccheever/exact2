@@ -771,7 +771,6 @@ acceptance. Their evidence stays here; functional navigation/editing fixes conti
 - Interview iPad-wide iOS (LLP 1038): drive the rail on a real wide simulator viewport; the iPhone agent ignores `--size` and reports 402 × 874 for both requested sizes.
 - Interview backend list arguments (LLP 1038): let `/state` accept question/person/post ID lists and return every stacked record; the pre-replica path currently sends only each list’s first ID.
 
-- Messages macOS agent menus (2026-09-14, LLP 1038 slice 2b): `MenuHost.sync` leaves all popover subtrees painted under `EXACT_AGENT=1`; a conversation tap hits the topmost confirmation's Cancel text and dispatches no press. Reproduced with both the original and routes-based Messages Contract; the generic smoke is green. Make the existing agent menu projection driveable before claiming the full Messages interaction matrix on macOS. Evidence: `/tmp/lane-router/s2b/messages-macos-baseline.json`, `messages-macos-fixed2.json`, `messages-macos-hit.json`.
 # Graceful-overload consumers (2026-09-16)
 
 LLP 1041 starts `messages-stress` and `completion-storm` as opt-in synthetic

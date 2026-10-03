@@ -386,6 +386,7 @@ final class Presenter {
     func scrolled() {
         AnimatedRasters.shared.poke()
         guard !applying, !inScrollCallback else { return }
+        menus.layout()
         inScrollCallback = true
         defer { inScrollCallback = false }
         let post = Self.signposts.beginInterval("scrolled")
@@ -549,6 +550,7 @@ final class Presenter {
         autofocusProcessed.removeAll()
         resetting = true
         defer { resetting = false }
+        menus.reset()
         dialogs.reset()
         toolbar.reset()
         navigation.reset()
@@ -702,12 +704,13 @@ final class Presenter {
     var hoveredInline: UInt32?
 
     func press(_ id: UInt32, fromNativeMenu: Bool = false) {
-        guard let node = textHost(id), !node.inert, !node.disabled else { return }
+        guard let node = textHost(id), !node.inert, !node.disabled,
+              fromNativeMenu || (segments.shown(node) ?? !node.isHiddenOrHasHiddenAncestor) || toolbar.contains(node) else { return }
         let command = dialogs.command(node, fromNativeMenu: fromNativeMenu)
-        if command == nil || node.handlers.contains("press") { onPress?(id) }
+        let popover = menus.command(node, fromNativeMenu: fromNativeMenu)
+        if (command == nil && popover == nil) || node.handlers.contains("press") { onPress?(id) }
         command?()
-        // An invoker's press also drops its menu (LLP 1021 D3).
-        menus.pressed(id)
+        popover?()
     }
     func change(_ id: UInt32, _ value: String) { onChange?(id, value) }
     /// A text field typed into since it took the focus: its `change` fires
@@ -901,13 +904,14 @@ final class Presenter {
                 let want = op.ids.compactMap { views[UInt32($0)] }
                 let container = parent.container
                 dialogs.children(container, want)
+                menus.children(container, want)
                 let wanted = Set(want.map { ObjectIdentifier($0) })
                 for child in container.subviews where child is NodeView && !wanted.contains(ObjectIdentifier(child)) && !isLeaving(child) {
                     if let node = child as? NodeView { reparented.insert(node.id) }
                     child.removeFromSuperview()
                 }
-                for (i, child) in want.enumerated() {
-                    if dialogs.owns(child) { continue }
+                let mounted = want.filter { !dialogs.owns($0) && !menus.owns($0) }
+                for (i, child) in mounted.enumerated() {
                     if child.superview !== container {
                         reparented.insert(child.id)
                         child.prepareToMount()
@@ -921,7 +925,7 @@ final class Presenter {
                     let siblings = container.subviews
                     if !collections.owns(id), i >= siblings.count || siblings[i] !== child {
                         child.removeFromSuperview()
-                        container.addSubview(child, positioned: .above, relativeTo: i > 0 ? want[i - 1] : nil)
+                        container.addSubview(child, positioned: .above, relativeTo: i > 0 ? mounted[i - 1] : nil)
                     }
                 }
                 if collections.owns(id) { collections.orderChildren(want, in: container) }
@@ -939,16 +943,17 @@ final class Presenter {
                 release(id, forget: true)?.removeFromSuperview()
             case .roots:
                 dialogs.children(root, op.ids.compactMap { views[UInt32($0)] })
+                menus.children(root, op.ids.compactMap { views[UInt32($0)] })
                 root.subviews.forEach { $0.removeFromSuperview() }
                 for r in op.ids.compactMap({ views[UInt32($0)] }) {
-                    if dialogs.owns(r) { continue }
+                    if dialogs.owns(r) || menus.owns(r) { continue }
                     r.prepareToMount()
                     root.addSubview(r)
                 }
             case .frame:
                 guard let v = views[id] else { continue }
                 let frame = NSRect(x: op.x, y: op.y, width: op.w, height: op.h)
-                if !dialogs.frame(v, frame) { v.frame = frame }
+                if !dialogs.frame(v, frame) && !menus.frame(v, frame) { v.frame = frame }
                 v.arrangeShift = .zero
                 v.textRasterGeometryChanged()
                 v.scroll?.frame = v.bounds
@@ -1000,8 +1005,8 @@ final class Presenter {
         pendingScrolls.removeAll()
         segments.sync()
         controls.sync()
-        menus.sync()
         dialogs.sync()
+        menus.sync()
         glassGroups.reconcile()
         positionContexts()
         toolbar.sync()
@@ -1100,6 +1105,7 @@ final class Presenter {
             if v.inert || v.isHidden { return }
             if Self.tabbable(v) { listed.append(v) } else if v.isParagraph { starts.append((v, listed.count)) }
             for child in v.container.subviews.compactMap({ $0 as? NodeView }) { walk(child) }
+            for popover in menus.following(v) { walk(popover) }
         }
         if let dialog = dialogs.active { walk(dialog) }
         else { for r in root.subviews.compactMap({ $0 as? NodeView }) { walk(r) } }

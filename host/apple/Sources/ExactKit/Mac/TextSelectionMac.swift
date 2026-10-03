@@ -65,6 +65,7 @@ final class TextSelection {
         }
         walk(presenter.root)
         for dialog in presenter.dialogs.presented { walk(dialog) }
+        for popover in presenter.menus.presented { walk(popover) }
         ordered = result
         indices = Dictionary(uniqueKeysWithValues: result.enumerated().map { ($0.element.id, $0.offset) })
         return result
