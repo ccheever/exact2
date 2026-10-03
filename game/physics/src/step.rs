@@ -289,6 +289,7 @@ pub(crate) fn sync(world: &World, live: &mut Live, pending: &Pending) -> bool {
                 co.set_friction(c.friction);
                 co.set_restitution(c.bounce);
                 co.set_sensor(c.sensor);
+                co.set_active_collision_types(built.active_collision_types());
                 co.set_collision_groups(built.collision_groups());
                 if let Some(b) = b.filter(|b| b.mass > 0.0) {
                     co.set_mass(b.mass);

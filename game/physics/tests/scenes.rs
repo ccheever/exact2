@@ -486,3 +486,58 @@ fn rebuilt_static_colliders_continue_like_the_original() {
         assert!(run(Some(at)) == expected, "restored at tick {at} diverged");
     }
 }
+
+// A static collider switched between solid and sensor in place gains and loses its
+// fixed-fixed pairing: sensor touches the static ground, solid drops the pair.
+#[test]
+fn switching_a_static_collider_to_sensor_and_back_updates_its_pairing() {
+    let mut w = World::new(60, 0);
+    physics::register(&mut w);
+    ground(&mut w);
+    let wall = box_at(
+        &mut w,
+        "wall",
+        Vec3::new(0.0, 0.2, 0.0),
+        Vec3::splat(0.5),
+        false,
+    );
+    let snapshot = |w: &World| w.resource::<Physics>().refresh_snapshot();
+    physics::step(&mut w);
+    assert!(physics::events(&w).is_empty());
+    let solid = snapshot(&w);
+    w.get_mut::<Collider>(wall).unwrap().sensor = true;
+    physics::step(&mut w);
+    assert_eq!(
+        physics::events(&w).len(),
+        1,
+        "a static sensor must touch the ground"
+    );
+    assert!(physics::events(&w)[0].began);
+    w.get_mut::<Collider>(wall).unwrap().sensor = false;
+    physics::step(&mut w);
+    assert_eq!(
+        physics::events(&w).len(),
+        1,
+        "back to solid must end the touch"
+    );
+    assert!(!physics::events(&w)[0].began);
+    physics::step(&mut w);
+    assert!(physics::events(&w).is_empty());
+    // The pair is gone; only the re-inserted broad-phase leaf may differ. Repeated
+    // switching must not accumulate state.
+    let back = snapshot(&w);
+    for _ in 0..10 {
+        for sensor in [true, false] {
+            w.get_mut::<Collider>(wall).unwrap().sensor = sensor;
+            physics::step(&mut w);
+            let events = physics::events(&w);
+            assert!(
+                events.len() == 1 && events[0].began == sensor,
+                "{:?}",
+                &*events
+            );
+        }
+    }
+    physics::step(&mut w);
+    assert!(back < solid + 128 && snapshot(&w) == back, "{solid} {back}");
+}

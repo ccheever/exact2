@@ -191,6 +191,11 @@ impl Collider {
 
     /// Sets the collision types enabled for this collider.
     pub fn set_active_collision_types(&mut self, active_collision_types: ActiveCollisionTypes) {
+        // Exact2: a pair-filter input, like the collision groups: the broad phase
+        // re-inserts the leaf so pairs it suppressed before are re-discovered.
+        if self.flags.active_collision_types != active_collision_types {
+            self.changes.insert(ColliderChanges::GROUPS);
+        }
         self.flags.active_collision_types = active_collision_types;
     }
 
