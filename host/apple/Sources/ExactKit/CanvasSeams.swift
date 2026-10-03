@@ -281,6 +281,7 @@ extension Canvases {
     }
     /// Posts held per surface name until one of its canvases is live; past it a
     /// post is dropped and logged. The same bound and rule on every host.
+    /// The same bound as web glue.js POST_BOUND and Linux surfaces.rs POST_BOUND.
     static let postBound = 64
     /// `postMessage(text, name)`: one message event for the live canvas of that
     /// surface name with the lowest view id, stamped now, held until one is live.
