@@ -14,12 +14,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.local_plan.of(frame.lights);
         let views = self.local_plan.views.len() as u32;
         if views == 0 {
-            if self.local.take().is_some() {
-                self.shadow_sample_stale = true;
-            }
             return;
         }
-        if self.local.as_ref().is_none_or(|l| l.count != views) {
+        // Grow only: a flashlight toggled off and on keeps its layers.
+        if self.local.as_ref().is_none_or(|l| l.count < views) {
             self.texture_creations += 1;
             self.local = Some(crate::local_shadows::LocalMaps::new(
                 &self.device,
@@ -178,7 +176,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             return 0;
         };
         let mut draws = 0;
-        for layer in 0..maps.count as usize {
+        for layer in 0..self.local_plan.views.len() {
             let local = &self.local_culls[layer / 4];
             let view = (layer % 4) as u32;
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {

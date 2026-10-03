@@ -132,8 +132,10 @@ saved types.
   layer (a perspective view of its cone, up to 170°), a `PointLight` with the
   `PointShadows` marker six (a cube's faces, picked per pixel by the major axis
   from the light). Lights are served nearest first while the frame has layers
-  left, at most eight (`local_shadows::MAX_VIEWS`): a shadowed point light and two
-  spots, or eight spots; the rest light unshadowed. Each layer's casters are culled
+  left, at most eight (`local_shadows::MAX_VIEWS`). One shadowed point light takes
+  six of the eight, leaving two spots; eight spots fit otherwise; the rest light
+  unshadowed. The layer array grows to the most layers a frame has used (4 MiB
+  each, at most 32 MiB) and is kept, so toggling a light reallocates nothing. Each layer's casters are culled
   on the GPU (four views per cull pass) and drawn depth-only with the sun's caster
   pipelines. Receivers offset 1.5 texels along the normal (less towards the light)
   and take 3×3 PCF. Forward passes always bind group 1 (cascades, the comparison
@@ -285,7 +287,8 @@ hands). Its opaque batches draw in the nearest `VIEWMODEL_DEPTH` (5%) of the dep
 range and the world in the rest, so the layer is in front of every wall it reaches
 into; it casts no shadows and still receives them. Mark each part: the marker is
 per entity, not inherited. Without a drawn viewmodel the world keeps the whole 0–1
-range. Blended viewmodel parts keep the layer's range in the translucent pass. While a viewmodel draws, raw depth is split: the layer fills [0, 0.05) and the
+range. Blended viewmodel parts keep the layer's range in the translucent pass.
+While a viewmodel draws, raw depth is split: the layer fills [0, 0.05) and the
 world [0.05, 1]. The depths hooks receive (`SceneCopy.depth`, `PostInputs.depth`)
 are resolved to linear view depth with the split undone, so they are correct for
 both layers; SSAO skips viewmodel pixels and never samples them as occluders.

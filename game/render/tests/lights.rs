@@ -275,3 +275,55 @@ fn a_shadowed_point_light_casts_through_each_cube_face() {
         );
     }
 }
+
+#[test]
+fn toggling_a_shadowed_flashlight_reuses_its_shadow_layers() {
+    use exact_game_render::{shapes, Batch, FrameInput, LightInput, Renderer};
+    let Some(gpu) = gpu() else { return };
+    let format = exact_gpu::wgpu::TextureFormat::Rgba8Unorm;
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, format);
+    let (v, i) = shapes::cube();
+    let cube = r.add_mesh(&v, &i);
+    r.write_transforms_both(0, &[0., 0., 0., 0., 0., 0., 1., 1., 1., 1.])
+        .unwrap();
+    r.write_materials(0, &[0.5, 0.5, 0.5, 1., 0., 1., 0., 0., 0., 1., 1., 1.])
+        .unwrap();
+    r.set_batches(&[Batch::new(cube, 0..1)], &[0]).unwrap();
+    let texture = gpu
+        .device
+        .create_texture(&exact_gpu::wgpu::TextureDescriptor {
+            label: None,
+            size: exact_gpu::wgpu::Extent3d {
+                width: 32,
+                height: 32,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: exact_gpu::wgpu::TextureDimension::D2,
+            format,
+            usage: exact_gpu::wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+    let view = texture.create_view(&Default::default());
+    let mut creations = Vec::new();
+    for intensity in [3., 0., 3., 0., 3.] {
+        let lights = [LightInput {
+            position: Vec3::new(0., 3., 0.),
+            color: Vec3::ONE,
+            intensity,
+            range: 10.,
+            direction: -Vec3::Y,
+            cone: Some([0.9, 0.8]),
+            shadows: true,
+        }];
+        let frame = FrameInput {
+            view: glam::camera::rh::view::look_at_mat4(Vec3::new(0., 2., 4.), Vec3::ZERO, Vec3::Y),
+            lights: &lights,
+            sun: None,
+            ..Default::default()
+        };
+        creations.push(r.draw(&view, (32, 32), &frame).texture_creations);
+    }
+    assert!(creations.windows(2).all(|w| w[0] == w[1]), "{creations:?}");
+}
