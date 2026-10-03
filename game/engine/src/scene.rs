@@ -428,10 +428,11 @@ impl Default for PointLight {
     }
 }
 
-/// Marks a `PointLight` that casts shadows. The renderer shadows the nearest
-/// few marked lights each frame (a cube map each); others light unshadowed.
+/// Marks a `PointLight` or `SpotLight` that casts shadows; lights are
+/// unshadowed without it. The renderer shadows the nearest few marked lights
+/// each frame (a spot takes one shadow view, a point light six of eight).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Component)]
-pub struct PointShadows;
+pub struct LightShadows;
 
 /// A cone of light along the entity's −Z, the way a camera looks: a flashlight
 /// or a street lamp. Intensity is candela on the axis, as `PointLight`'s.
@@ -447,8 +448,6 @@ pub struct SpotLight {
     pub inner: f32,
     /// Half-angle in radians at which the cone reaches zero; at most π/2.
     pub outer: f32,
-    /// Cast shadows; the renderer shadows the nearest few spots each frame.
-    pub shadows: bool,
 }
 impl Default for SpotLight {
     fn default() -> Self {
@@ -458,7 +457,6 @@ impl Default for SpotLight {
             range: 20.0,
             inner: 0.3,
             outer: 0.45,
-            shadows: true,
         }
     }
 }

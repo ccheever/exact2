@@ -64,7 +64,6 @@ impl Game for Lights {
                         range: 12.,
                         inner: 0.2,
                         outer: 0.3,
-                        shadows: false,
                         ..Default::default()
                     },
                 ));
@@ -93,17 +92,19 @@ impl Game for Lights {
                 }
             }
             SPOT_SHADOW | SPOT_UNSHADOWED => {
-                w.spawn((
+                let spot = w.spawn((
                     down(0., 4., 0.),
                     SpotLight {
                         intensity: 20_000.,
                         range: 12.,
                         inner: 0.2,
                         outer: 0.3,
-                        shadows: args.kind == SPOT_SHADOW,
                         ..Default::default()
                     },
                 ));
+                if args.kind == SPOT_SHADOW {
+                    w.insert(spot, LightShadows);
+                }
                 // Halfway down: its shadow on the floor is twice its width.
                 w.spawn((
                     Transform {
@@ -125,7 +126,7 @@ impl Game for Lights {
                     },
                 ));
                 if args.kind == POINT_SHADOW {
-                    w.insert(lamp, PointShadows);
+                    w.insert(lamp, LightShadows);
                 }
                 // Walls on +X and +Z: two cube faces' maps.
                 for (x, z, size) in [

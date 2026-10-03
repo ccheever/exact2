@@ -128,9 +128,9 @@ saved types.
   cast; back faces are culled. Supported direct sun fades over N·L 0.01→0.005;
   at/below 0.005 no singular plane slope is evaluated, including beyond shadow reach.
   Shadow-disabled lighting is unfaded. Ambient, emission and the fill light are unaffected.
-- Local light shadows: a `SpotLight` with `shadows` takes one 1024² Depth32Float
-  layer (a perspective view of its cone, up to 170°), a `PointLight` with the
-  `PointShadows` marker six (a cube's faces, picked per pixel by the major axis
+- Local light shadows are opt-in: add the `LightShadows` marker to a `SpotLight` or
+  `PointLight`. A spot takes one 1024² Depth32Float layer (a perspective view of
+  its cone, up to 170°), a point light six (a cube's faces, picked per pixel by the major axis
   from the light). Lights are served nearest first while the frame has layers
   left, at most eight (`local_shadows::MAX_VIEWS`). One shadowed point light takes
   six of the eight, leaving two spots; eight spots fit otherwise; the rest light

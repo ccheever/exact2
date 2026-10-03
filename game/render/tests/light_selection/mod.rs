@@ -299,7 +299,8 @@ fn lights_beyond_the_cap_are_counted_and_spots_join_points_by_distance() {
     // The nearest light is the spot, its inner cone clamped inside its outer.
     let [inner, outer] = frame.lights[0].cone.unwrap();
     assert!(inner > outer && (outer - 0.4f32.cos()).abs() < 1e-6);
-    assert!(frame.lights[0].shadows);
+    // Shadows are opt-in for both kinds (LightShadows).
+    assert!(!frame.lights[0].shadows);
     assert!(frame.lights[1].cone.is_none() && !frame.lights[1].shadows);
     assert_eq!(scene.lights_for_test()[0], spot);
 }

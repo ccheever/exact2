@@ -1,6 +1,6 @@
 use crate::{FrameInput, LightInput, Shadows, Sun, MAX_LIGHTS};
 use exact_game::{
-    Camera, DirectionalLight, Entity, Parent, PointLight, PointShadows, SpotLight, Transform, World,
+    Camera, DirectionalLight, Entity, LightShadows, Parent, PointLight, SpotLight, Transform, World,
 };
 use glam::{Mat4, Vec3};
 
@@ -93,7 +93,7 @@ impl Emitter {
             shadows,
         }
     }
-    fn spot(light: &SpotLight) -> Self {
+    fn spot(light: &SpotLight, shadows: bool) -> Self {
         let outer = light.outer.clamp(0., std::f32::consts::FRAC_PI_2);
         let outer_cos = exact_game::math::cos(outer);
         // The shader's smoothstep needs a nonempty edge.
@@ -103,7 +103,7 @@ impl Emitter {
             intensity: light.intensity,
             range: light.range,
             cone: Some([inner_cos, outer_cos]),
-            shadows: light.shadows,
+            shadows,
         }
     }
 }
@@ -172,7 +172,7 @@ impl Scene {
             w.revision::<PointLight>(),
             w.revision::<exact_game::Lit>(),
             w.revision::<SpotLight>(),
-            w.revision::<PointShadows>(),
+            w.revision::<LightShadows>(),
         ];
         let old = self.versions;
         if old.is_none_or(|v| v[0] != versions[0]) || structure {
@@ -239,7 +239,7 @@ impl Scene {
             let mut fresh = Vec::new();
             let mut at = 0;
             for (e, light) in w.query::<&PointLight>().iter() {
-                let emitter = Emitter::point(light, w.has::<PointShadows>(e));
+                let emitter = Emitter::point(light, w.has::<LightShadows>(e));
                 let lit = w.get::<exact_game::Lit>(e).as_deref().cloned();
                 if at < points && self.lights[at].history.entity == e {
                     (self.lights[at].light, self.lights[at].lit) = (emitter, lit);
@@ -257,7 +257,7 @@ impl Scene {
             }
             let mut at = points;
             for (e, light) in w.query::<&SpotLight>().iter() {
-                let emitter = Emitter::spot(light);
+                let emitter = Emitter::spot(light, w.has::<LightShadows>(e));
                 let lit = w.get::<exact_game::Lit>(e).as_deref().cloned();
                 if at < kept && self.lights[at].history.entity == e {
                     (self.lights[at].light, self.lights[at].lit) = (emitter, lit);
