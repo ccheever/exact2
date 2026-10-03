@@ -53,6 +53,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, statSyn
 import { basename, dirname, extname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { open } from '../../scripts/agent.mjs';
+import { chromium } from '../../scripts/agent-launch.mjs';
 import { probePlaywrightBrowser } from '../../scripts/agent-playwright.mjs';
 import { resolveApp } from '../../scripts/app.mjs';
 import { decodePng, encodePng } from '../../scripts/png.mjs';
@@ -67,14 +68,24 @@ const maxSteps = Number(opt('--steps', 10));
 const crossBrowser = opt('--browser', null);
 if (crossBrowser != null && !['firefox', 'webkit'].includes(crossBrowser)) throw new Error(`--browser: firefox or webkit, not ${crossBrowser}`);
 const known = crossBrowser ? JSON.parse(readFileSync(resolve(here, 'conformance', `known-${crossBrowser}.json`), 'utf8')) : [];
-const knownByKey = new Map(known.map(entry => [`${entry.app}\0${entry.step}\0${entry.field}`, entry]));
+// An entry names one difference exactly, or a class of them: `*` in app, step or
+// field matches any run of characters, and `pattern` (a regular expression)
+// must then match the difference's text — an engine convention such as
+// WebKit not focusing a clicked button is one rule, not an entry per step.
+const glob = s => new RegExp(`^${s.split('*').map(p => p.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
+const exact = known.filter(entry => ![entry.app, entry.step, entry.field].some(s => s.includes('*')) && !entry.pattern);
+const knownByKey = new Map(exact.map(entry => [`${entry.app}\0${entry.step}\0${entry.field}`, entry]));
+const knownClasses = known.filter(entry => !exact.includes(entry)).map(entry => ({ entry, app: glob(entry.app), step: glob(entry.step), field: glob(entry.field), pattern: entry.pattern ? new RegExp(entry.pattern) : null }));
+const knownFor = (app, step, field, what) => knownByKey.get(`${app}\0${step}\0${field}`)
+  ?? knownClasses.find(c => c.app.test(app) && c.step.test(step) && c.field.test(field) && (!c.pattern || c.pattern.test(what)))?.entry;
 if (known.some(entry => !entry.app || !entry.step || !entry.field || !entry.reason)) throw new Error(`known-${crossBrowser}.json: every entry needs app, step, field, and reason`);
-if (knownByKey.size !== known.length) throw new Error(`known-${crossBrowser}.json: duplicate app + step + field`);
+if (knownByKey.size !== exact.length) throw new Error(`known-${crossBrowser}.json: duplicate app + step + field`);
 const only = opt('--only', null);
 const named = argv.includes('--urls') ? [] : argv.filter((a, i) => !a.startsWith('--') && !['--wasm-root', '--out', '--steps', '--label', '--browser', '--only'].includes(argv[i - 1]));
 mkdirSync(out, { recursive: true });
 mkdirSync(wasmRoot, { recursive: true }); // --build renames each app's dist into it
-process.env.CHROME ??= '/Users/admin/.cache/chrome-for-testing/chrome/mac_arm-154.0.8037.57/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing';
+// The Chrome oracle: CHROME, else the platform's own Chromium (agent-launch.mjs).
+process.env.CHROME ??= chromium().executable;
 
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.wasm': 'application/wasm', '.json': 'application/json', '.png': 'image/png', '.mp4': 'video/mp4', '.css': 'text/css', '.svg': 'image/svg+xml' };
 function serve(dir) {
@@ -186,7 +197,7 @@ function linuxView(state) {
 // ---------------------------------------------------------------- one target
 async function target(t, report) {
   const fail = (step, what, field = null) => {
-    const entry = field == null ? null : knownByKey.get(`${t.name}\0${step}\0${field}`);
+    const entry = field == null ? null : knownFor(t.name, step, field, what);
     if (entry) {
       const key = `${t.name}\0${step}\0${field}`;
       if (!report.known.some(x => x.key === key)) {
