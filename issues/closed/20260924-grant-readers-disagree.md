@@ -1,7 +1,7 @@
 # The web and the runner still read grants a native host refuses
 
 **Status:** Closed
-**Resolution:** Fixed whole-set grant admission across native, runner, bake, wasm and JS; shared URL corpus, real browser denial tests and importless logic-module proof pass.
+**Resolution:** One Rust parse now emits the typed, complete grant set both web targets consume; Exact API requests, stores and files follow native admission and diagnostics.
 **Systems:** Web host, runner store, bake, grants
 **Severity:** P3
 **Author:** Claude (Opus 5.5) for Charlie Cheever
@@ -19,30 +19,26 @@ With the bake refusing, an app built by the scripts can no longer reach them wit
 
 Done when a Rust-only app whose grants do not parse fails its bake naming the line, as a TypeScript app's now does, and the web and runner readers take their grants from one parse of the whole set (or refuse the set as native hosts do) rather than line by line.
 
-## Verification (2026-10-02)
+## Verification (2026-10-03)
 
-Native bindings, the runner store and both Rust/TypeScript bake paths now use
-`exact-grants`; malformed I/O declarations discard the whole set and name the
-line. The JS target enforces the same corpus with browser URL normalization,
-source-scoped secrets and fetch, including global aliases and computed access.
-Wasm normalizes URLs through its browser executor instead of carrying ICU.
-Importless Rust modules use a local store mirror; the host filters snapshots
-and validates the complete returned write set before applying any write.
+`exact-grants` remains the grammar. The runner serializes its typed result for
+the bake and wasm batch, including every raw nonblank line so comments and
+`auth.*`, `surface.*` and `device.*` survive native-style child scoping. The
+page only validates and matches that typed form; a merely plausible object is
+deny-all. A malformed unscoped set is deny-all with the native line diagnostic,
+while a valid child selected from that raw parent follows `storage::scope`.
 
-- Shared native corpus: 18 unit tests plus the cross-runtime corpus; runner
-  179 and logic ABI 11 unit tests; native data host 13 tests. Bake and targeted
-  wasm-host grant regressions pass. Browser request suite: 8 tests, 219 assertions.
-- Real Chrome fixture: six allowed fetch forms reach the server; a malformed
-  grant set refuses secrets and all six forms before I/O (zero server hits).
-  Building the malformed source fails with its line number.
-- RealWorld rebuilt and driven on JS and wasm. A separately built Rust ABI
-  fixture with dynamic grants, scoped store writes and reads has no imports
-  and successfully returns its granted value; Caltrain's logic module also
-  has no imports.
-- Targeted clippy, formatting, staged source caps and boot graph checks pass.
-  Whole-suite legacy projection/transform test failures and the existing
-  10k-row theme performance issue are separate from this fix.
-- Measured RealWorld JS entry: 24,943 to 27,845 bytes brotli-11; wasm core:
-  306,204 to 310,135 bytes (+3,931), below its 304 KiB ceiling.
-- Caltrain’s final JS build rendered both pages and launched; station search
-  accepted `Palo` and reported `query=Palo`, `searchFocused=true`.
+Both web request paths now apply the same child set and `redirect: 'error'`.
+The JS target reports `FetchError` with string `FailureKind`, gives Rust an
+absent scope as that Rust executor's own set, and applies the same admission to
+portable storage, file operations and secrets. The TypeScript store returns
+`null` for absent values, reserves `exact.kept.*`, and counts key reads.
+
+The source fetch binding is lexical: it never replaces the page's browser
+fetch, so host modules loaded after first paint retain host authority. Tests
+run the Rust normalizer followed by the production wasm request, early-fetch,
+JS ABI request, TypeScript fetch/store and filesystem paths. Real Chrome drives
+also exercised Weatherlight, auth-fixture (including DPoP key storage),
+Caltrain, RealWorld, Fieldnotes SQLite and Messages without a grant refusal.
+The Linux builder's Chrome exposes no WebGPU adapter, so Weatherlight reached
+its Canvas and loaded host code but could not prove a hardware GPU start.

@@ -3,6 +3,7 @@
 // guest builtin is patched. Loaded only after the page's first pixel.
 import { createStorage } from './storage.js';
 import { agentSeed, agentStream, keyStore, storageKey } from './storage-environment.js';
+import { admitsNetwork, grantError, scopedGrantSet } from './grant-admission.js';
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const hex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 const realms = new Map();
@@ -45,23 +46,10 @@ async function read(url, limit) {
 // the report was delivered is aborted a task later.
 const early = new Map(); // `GET url headers` -> [{ response, controller }]
 const earlyKey = (url, headers) => `GET ${url} ${JSON.stringify(headers ?? [])}`;
-// glue.js's `grantAdmits`, the one grant rule (an origin, or `scheme://*.domain`).
-function grantAdmits(granted, url) {
-  try {
-    const wild = granted.includes('://*.'), text = wild ? granted.replace('://*.', '://') : granted;
-    const target = new URL(url), grant = new URL(text), host = grant.hostname.toLowerCase(), targetHost = target.hostname.toLowerCase();
-    if (text.includes('*') || grant.protocol !== target.protocol || grant.port !== target.port) return false;
-    if (!wild) return host === targetHost;
-    return ['', '/'].includes(grant.pathname) && !text.includes('?') && !text.includes('#') && !(host.startsWith('[') || /^(?:https?|wss?|ftp):$/.test(grant.protocol) && /^[\d.]+$/.test(host))
-      && host.split('.').filter(Boolean).length >= 2 && !host.endsWith('.') && targetHost.length > host.length + 1 && targetHost.endsWith('.' + host);
-  } catch { return false; }
-}
-// `unparsed`: the app's grants did not parse (the runner's one parse, in the binary's logic info), so they
-// admit nothing here either, whatever this module's own lines say.
-function fetchEarly(request, grants, unparsed) {
+// The runner's normalized set is the only authority this early request reads.
+export function fetchEarly(request, grants) {
   try { new URL(request.url); } catch { return null; } // a relative (asset) URL is the host's own
-  const admits = line => { const [kind, url] = line.trim().split(/\s+/, 2); return kind === 'net.fetch' && !!url && grantAdmits(url, request.url); };
-  if (unparsed || request.method !== 'GET' || request.body || !grants.split('\n').some(admits)) return null;
+  if (grantError(grants) || request.method !== 'GET' || request.body || !admitsNetwork(grants, request.url)) return null;
   const key = earlyKey(request.url, request.headers), controller = new AbortController();
   const entry = { controller, response: fetch(request.url, { method: 'GET', headers: request.headers, redirect: 'error', cache: 'default', signal: controller.signal }) };
   entry.response.catch(() => {});
@@ -98,7 +86,9 @@ export async function prepare(payload, admitted, id = nextId++) {
   if (meta.version !== 1 || (meta.abi !== 1 && meta.abi !== 2) || meta.appId !== admitted.appId || typeof meta.grants !== 'string' || meta.grants.split('\n').map(s=>s.trim()).filter(Boolean).some(s=>!ceiling.has(s))
       || meta.web?.file !== 'app.js' || meta.web.bytes !== payload.script.length || meta.web.sha256 !== await hash(payload.script)
       || !/^[0-9a-f]{64}$/.test(meta.module?.sha256)) throw new Error('module integrity, ABI, identity, or grants mismatch');
-  admitted = {...admitted,grants:meta.grants};
+  const childGrantSet = scopedGrantSet(admitted.grantSet, meta.grants);
+  if (grantError(childGrantSet)) throw new Error('module integrity, ABI, identity, or grants mismatch');
+  admitted = {...admitted,grants:meta.grants,grantSet:childGrantSet};
   prelude ??= read(new URL('./module-prelude.js', import.meta.url), 256 * 1024).then(bytes => decoder.decode(bytes)).catch(error => { prelude = null; throw error; });
   const before = await prelude;
   if (admitted.placement === 'worker') return prepareWorker(payload, admitted, id, before, meta);
@@ -121,7 +111,7 @@ export async function prepare(payload, admitted, id = nextId++) {
   }
     if (op === 1) {
       // A stream is the page's to open (LLP 1016.000), never fetched early.
-      const request = JSON.parse(value), drop = request.stream ? null : fetchEarly(request, admitted.grants, admitted.unparsed);
+      const request = JSON.parse(value), drop = request.stream ? null : fetchEarly(request, admitted.grantSet);
       context.requests.set(Number(name), request); if (drop) context.early.set(Number(name), drop); return;
     }
     if (op === 2) { context.reads.push(name); return context.store.get(name); }

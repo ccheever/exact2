@@ -6,8 +6,8 @@ let fileFactory, sqliteFactory;
 export function createStorage(win, admitted, scope, key = storageKey(admitted.appId, location.href)) {
   // Once storage has been used, a replacement reserves its owner before the
   // old realm is disposed, retaining the shared SQLite worker across reloads.
-  let fs = key && fileFactory?.(key, admitted.grants);
-  let sqlite = key && sqliteFactory?.(key, admitted.grants);
+  let fs = key && fileFactory?.(key, admitted.grantSet);
+  let sqlite = key && sqliteFactory?.(key, admitted.grantSet);
   let fsLoading, sqliteLoading;
   const queues = new Map(), waiters = new Map(), retired = new WeakSet();
   let disposed = false;
@@ -20,12 +20,12 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
   const fileSystem = () => fs ? Promise.resolve(fs) : fsLoading ??= import('./storage-fs.js').then(({ createFileSystem }) => {
     fileFactory = createFileSystem;
     if (disposed) throw unavailable();
-    return fs = createFileSystem(key, admitted.grants);
+    return fs = createFileSystem(key, admitted.grantSet);
   });
   const databaseSystem = () => sqlite ? Promise.resolve(sqlite) : sqliteLoading ??= import('./storage-sqlite.js').then(({ createSqlite }) => {
     sqliteFactory = createSqlite;
     if (disposed) throw unavailable();
-    return sqlite = createSqlite(key, admitted.grants);
+    return sqlite = createSqlite(key, admitted.grantSet);
   });
   // A completion waits in its answer's queue until the answer's checkpoint.
   const completion = owner => (complete, cleanup = () => {}) => {

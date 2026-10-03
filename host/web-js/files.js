@@ -12,6 +12,7 @@
 // commands.
 import { journal, clock, nextTicket, inflight, Hosts, OnHooks, viewId, Views, data } from './rt.js';
 import { reportPlace } from './navigation.js';
+import { coversPath } from './admission.js';
 
 const say = line => journal.push(`t=${clock.now} ${line}`);
 const x = () => (globalThis.exact ??= {});
@@ -129,11 +130,6 @@ Hosts.showPicker = id => {
 };
 
 // ---------------------------------------------------------------- saveFile (save_file.rs)
-function covered(grants, capability, path) {
-  const parts = p => { const i = p.indexOf(':/'); return i < 0 ? ['', ...p.split('/').filter(Boolean)] : [p.slice(0, i), ...p.slice(i + 2).split('/').filter(Boolean)]; };
-  const target = parts(path);
-  return grants.split('\n').some(line => { const [cap, prefix] = line.trim().split(/\s+/); return cap === capability && prefix && parts(prefix).every((c, i) => target[i] === c); });
-}
 Hosts.saveFile = (...args) => {
   const refuse = (why, el) => { say(`saveFile: refused: ${why}`); if (el) el.dispatchEvent(new Event('cancel')); };
   if (args.length !== 3 || args.some(a => typeof a !== 'string')) return refuse('saveFile takes (id, from, suggestedName), three strings');
@@ -141,7 +137,7 @@ Hosts.saveFile = (...args) => {
   if (!found) return refuse(`no element with id "${id}"`);
   const rest = from.startsWith('app:/') ? from.slice(5).split('/') : [];
   if (rest.length < 2 || rest.some(p => !p || p === '.' || p === '..' || p.includes('\0'))) return refuse(`${from} is not an app:/ file`, found.el);
-  if (!covered(data.grants ?? '', 'fs.read', from)) return refuse(`${from} is outside the app's fs.read grants`, found.el);
+  if (!coversPath(data.grantSet, 'fs.read', from)) return refuse(`${from} is outside the app's fs.read grants`, found.el);
   if (!suggestedName || suggestedName.length > 255 || suggestedName === '.' || suggestedName === '..' || /[/\\\x00-\x1f\x7f]/.test(suggestedName)) return refuse('suggestedName is not a file name', found.el);
   const r = { present: true, view: found.view, from, suggestedName };
   if (clock.agent) {

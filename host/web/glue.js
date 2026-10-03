@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { grantOrigins, deferredFulfill, refusal, guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter, valuedControl, settleValue, typeControl, viewBox } from "./navigation.js";
+import { grantOrigins, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter, valuedControl, settleValue, typeControl, viewBox } from "./navigation.js";
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule; // the file picker (LLP 1069.002) and documents (LLP 1069.010), loaded on first use
 const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
@@ -688,7 +688,7 @@ function apply(batch) {
         }
         break;
       }
-      case "grants": { grants = op.lines; unparsed = op.error ?? ""; if (unparsed) console.warn("exact:", unparsed); if (grants.some(l => /^\s*auth\.session /.test(l))) authHost ??= afterNativePaint().then(() => loadAfterPaint('./auth-glue.js', 'authHost')).then(h => authHost = h); break; } case "auth": { const inc = incarnation, env = { agent: agentMode, log, call: r => JSON.parse(readOut(wasm.exact_auth(writeIn(JSON.stringify(r))))), deliver: t => deferFulfill(inc, t, 9, 0, "", new Uint8Array()), active: t => holds(t, inc) }; if (authHost?.arm) authHost.arm(op, env); else if (agentMode && authHost) authHost.then(h => h.arm(op, env)); else { env.call({ op: "arm", ticket: op.ticket, origin: location.origin, popup: false }); env.deliver(op.ticket); } break; } // LLP 1069.006 D4: armed in the press's call stack; unloaded glue is 428
+      case "grants": { grantSet = op.set; grants = rawGrantText(grantSet).split('\n').filter(Boolean); unparsed = grantError(grantSet) ?? ""; if (unparsed) console.warn("exact:", unparsed); if (!unparsed && grants.some(l => /^\s*auth\.session /.test(l))) authHost ??= afterNativePaint().then(() => loadAfterPaint('./auth-glue.js', 'authHost')).then(h => authHost = h); break; } case "auth": { const inc = incarnation, env = { agent: agentMode, log, call: r => JSON.parse(readOut(wasm.exact_auth(writeIn(JSON.stringify(r))))), deliver: t => deferFulfill(inc, t, 9, 0, "", new Uint8Array()), active: t => holds(t, inc) }; if (authHost?.arm) authHost.arm(op, env); else if (agentMode && authHost) authHost.then(h => h.arm(op, env)); else { env.call({ op: "arm", ticket: op.ticket, origin: location.origin, popup: false }); env.deliver(op.ticket); } break; } // LLP 1069.006 D4: armed in the press's call stack; unloaded glue is 428
       case "store": {
         // A secret the app kept or forgot (LLP 1018 D6): `localStorage`,
         // origin-scoped, is the web's secret store. Never in agent mode — a
@@ -706,13 +706,13 @@ function apply(batch) {
           await moduleReady; if(!inputReady)throw new Error('data executor is unavailable');
           if(requestIncarnation!==incarnation)throw new Error('storage source unloaded');
           if(!storageRequests){
-            const app=globalThis.exact.compat.inputs.app, scope=grants.join('\n');
-            const pending=loadAfterPaint('./storage-request.js','createStorageRequests').then(create=>create(app,scope)).catch(error=>{if(storageRequests===pending)storageRequests=null;throw error;});
+            const app=globalThis.exact.compat.inputs.app;
+            const pending=loadAfterPaint('./storage-request.js','createStorageRequests').then(create=>create(app,grantSet)).catch(error=>{if(storageRequests===pending)storageRequests=null;throw error;});
             storageRequests=pending;
           }
           const service=await storageRequests;
           if(requestIncarnation!==incarnation)throw new Error('storage source unloaded');
-          return service.run(op.payload,op.scope);
+          return service.run(op.payload,scopedGrantSet(grantSet,op.scope));
         }).then(bytes=>safelyFulfill(requestIncarnation,op.ticket,5,0,"",bytes))
           .catch(error=>safelyFulfill(requestIncarnation,op.ticket,3,0,"",encoder.encode(String(error))));
         track(p,op.ticket);break;
@@ -751,7 +751,7 @@ function apply(batch) {
         const requestIncarnation = incarnation, controller = new AbortController(), started = performance.now();
         let p, first, messages = 0; const opened = new Promise(r => { first = r; });
         const host = {
-          grants, granted, unparsed, loadPageNative, moduleLoader, localAssetURL, controllers, controller,
+          grantSet, loadPageNative, moduleLoader, localAssetURL, controllers, controller,
           active: () => requestIncarnation === incarnation,
           // A stream's message (LLP 1016.000): after its first, the stream is open, not in flight, so `clock settle`
           // stops waiting on it (D5) — what is counted ends there, so a wait already racing it wakes (LLP 1069.004).
@@ -935,9 +935,10 @@ function commitFonts(faces) {
   for (const face of faces) document.fonts.add(face);
   installedFonts = faces;
 }
-// LLP 1016: grants come from a whole-set parse; invalid sets arrive empty, with `unparsed` naming why.
+// LLP 1016: grants come from one whole-set parse; `unparsed` names why an
+// invalid full set admits nothing while retaining raw lines for child scopes.
 // The agent's settle waits on active fetches; replies return to the wasm.
-let grants = [], unparsed = "";
+let grants = [], grantSet = null, unparsed = "";
 let storageRequests = null;
 const inflight = new Set();
 const controllers = new Set(), forgettable = new Map();
@@ -951,25 +952,8 @@ const waiting = () => [...inflight].filter(p => p.ticket == null || holds(p.tick
 // After each commit: abort the reads whose tickets the runner let go of.
 function letGo() { for (const [controller, ticket] of forgettable) if (!holds(ticket)) { forgettable.delete(controller); controller.abort(); } }
 const HOST_WORK_BYTES=16*1024*1024, HOST_WORK_BASE64=4*Math.ceil(HOST_WORK_BYTES/3);
-// A `net.fetch` grant: an origin matched whole, or `scheme://*.domain` (every host strictly under one
-// domain of 2+ labels), as ibex2 matches natively (its patch 1, LLP 1054.000 R5). Copied in module-glue.js.
-function grantAdmits(granted, url) {
-  try {
-    const wild = granted.includes('://*.'), text = wild ? granted.replace('://*.', '://') : granted;
-    const target = new URL(url), grant = new URL(text), host = grant.hostname.toLowerCase(), targetHost = target.hostname.toLowerCase();
-    if (text.includes('*') || grant.protocol !== target.protocol || grant.port !== target.port) return false;
-    if (!wild) return host === targetHost;
-    return ['', '/'].includes(grant.pathname) && !text.includes('?') && !text.includes('#') && !(host.startsWith('[') || /^(?:https?|wss?|ftp):$/.test(grant.protocol) && /^[\d.]+$/.test(host))
-      && host.split('.').filter(Boolean).length >= 2 && !host.endsWith('.') && targetHost.length > host.length + 1 && targetHost.endsWith('.' + host);
-  } catch { return false; }
-}
-function granted(url, scope = null) {
-  return (scope == null ? grants : scope.split("\n")).map(g=>g.trim()).some((g) => {
-    const [kind, granted] = g.split(/\s+/, 2);
-    return kind === (/^wss?:/i.test(url) ? "net.websocket" : "net.fetch") && !!granted && grantAdmits(granted, url); // a socket's own grant (LLP 1069.004)
-  });
-}
 function surfaceGranted(op) {
+  if(grantError(grantSet))return false;
   const admitted=grants.map(g=>g.trim()).filter(Boolean), scoped=(op.scope==null?admitted:op.scope.split("\n").map(g=>g.trim()).filter(Boolean));
   const need=`surface.${op.mode==="capture"?"read":"write"} ${op.name}`;
   return scoped.every(g=>admitted.includes(g))&&scoped.includes(need);
@@ -1347,7 +1331,7 @@ async function bootNow(bytes, assets = devAssets, current = () => true, module =
   for (const el of views.values()) { el.exactMarkup?.destroy(); el.exactNative?.destroy(); } views.clear();
   messageFrames.clear(); messageViews.clear();
   if(storageRequests){storageRequests.then(s=>s.dispose()).catch(()=>{});storageRequests=null;}
-  grants = []; unparsed = "";
+  grants = []; grantSet = null; unparsed = "";
   for (const controller of controllers) controller.abort();
   controllers.clear(); forgettable.clear();
   inflight.clear();

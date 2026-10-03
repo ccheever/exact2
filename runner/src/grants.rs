@@ -69,3 +69,193 @@ pub(crate) fn own(line: &str) -> bool {
         || crate::device::is_device_line(line)
         || line.starts_with("auth.")
 }
+
+/// One declaration in the browser-facing form. `source` retains every
+/// nonblank line because native child scopes compare exact trimmed lines
+/// before parsing their I/O portion. Exact-owned lines and comments have no
+/// I/O grant. An error omits its line prefix so a child reports its own line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct NormalizedLine {
+    number: usize,
+    source: String,
+    grant: Option<exact_grants::Grant>,
+    error: Option<String>,
+}
+
+fn normalized(spec: &str) -> (Vec<NormalizedLine>, Option<String>) {
+    let mut lines = Vec::new();
+    let mut errors = Vec::new();
+    for (index, raw) in spec.lines().enumerate() {
+        let source = raw.trim();
+        if source.is_empty() {
+            continue;
+        }
+        let number = index + 1;
+        if source.starts_with('#') || own(source) {
+            lines.push(NormalizedLine {
+                number,
+                source: source.into(),
+                grant: None,
+                error: None,
+            });
+            continue;
+        }
+        match exact_grants::GrantSet::parse(source) {
+            Ok(set) => lines.push(NormalizedLine {
+                number,
+                source: source.into(),
+                grant: set.iter().next().cloned(),
+                error: None,
+            }),
+            Err(error) => {
+                let reason = error.strip_prefix("line 1: ").unwrap_or(&error).to_string();
+                errors.push(format!("line {number}: {reason}"));
+                lines.push(NormalizedLine {
+                    number,
+                    source: source.into(),
+                    grant: None,
+                    error: Some(reason),
+                });
+            }
+        }
+    }
+    let error = (!errors.is_empty()).then(|| refusal(&errors));
+    (lines, error)
+}
+
+fn quote(text: &str, out: &mut String) {
+    out.push('"');
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if c <= '\u{1f}' => {
+                use std::fmt::Write as _;
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+}
+
+fn grant_json(grant: &exact_grants::Grant, out: &mut String) {
+    use exact_grants::Grant;
+    match grant {
+        Grant::Fetch(origin) | Grant::FetchSubdomains(origin) | Grant::WebSocket(origin) => {
+            let kind = match grant {
+                Grant::Fetch(_) => "fetch",
+                Grant::FetchSubdomains(_) => "fetch-subdomains",
+                _ => "websocket",
+            };
+            out.push('[');
+            quote(kind, out);
+            out.push(',');
+            quote(&origin.scheme, out);
+            out.push(',');
+            quote(&origin.host, out);
+            out.push(',');
+            out.push_str(&origin.port.to_string());
+            out.push(']');
+        }
+        Grant::FsRead(prefix) | Grant::FsWrite(prefix) | Grant::SqliteOpen(prefix) => {
+            let kind = match grant {
+                Grant::FsRead(_) => "fs-read",
+                Grant::FsWrite(_) => "fs-write",
+                _ => "sqlite-open",
+            };
+            out.push('[');
+            quote(kind, out);
+            for component in prefix.components() {
+                out.push(',');
+                quote(component, out);
+            }
+            out.push(']');
+        }
+        Grant::EnvRead(name) | Grant::SecretKeep(name) | Grant::StorageKv(name) => {
+            let kind = match grant {
+                Grant::EnvRead(_) => "env-read",
+                Grant::SecretKeep(_) => "secret-keep",
+                _ => "storage-kv",
+            };
+            out.push('[');
+            quote(kind, out);
+            out.push(',');
+            quote(name, out);
+            out.push(']');
+        }
+    }
+}
+
+fn seal(text: &str) -> String {
+    // An integrity marker, not a sandbox boundary: app code is the page. It
+    // distinguishes Rust parser output from a merely plausible object.
+    let mut hash = 0xcbf29ce484222325_u64;
+    for byte in text.bytes() {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
+}
+
+/// A sealed, typed grant set for browser matchers. This is the only producer
+/// of runtime grant objects on either web target.
+pub fn normalized_json(spec: &str) -> String {
+    let (lines, error) = normalized(spec);
+    let mut body = String::from("{\"version\":1,\"entries\":[");
+    for (index, line) in lines.iter().enumerate() {
+        if index > 0 {
+            body.push(',');
+        }
+        body.push('[');
+        body.push_str(&line.number.to_string());
+        body.push(',');
+        quote(&line.source, &mut body);
+        body.push(',');
+        match &line.grant {
+            Some(grant) => grant_json(grant, &mut body),
+            None => body.push_str("null"),
+        }
+        body.push(',');
+        match &line.error {
+            Some(error) => quote(error, &mut body),
+            None => body.push_str("null"),
+        }
+        body.push(']');
+    }
+    body.push_str("],\"error\":");
+    match error {
+        Some(error) => quote(&error, &mut body),
+        None => body.push_str("null"),
+    }
+    body.push('}');
+    let marker = seal(&body);
+    body.pop();
+    body.push_str(",\"seal\":");
+    quote(&marker, &mut body);
+    body.push('}');
+    body
+}
+
+#[cfg(test)]
+mod tests {
+    use super::normalized_json;
+
+    #[test]
+    fn normalized_output_keeps_exact_lines_comments_and_bad_parent_sources() {
+        let json = normalized_json(
+            "# app\nauth.session https://login.test\nnet.fetch https://API.example\nsecret.keep camelCase",
+        );
+        assert!(json.contains("# app"), "{json}");
+        assert!(json.contains("auth.session https://login.test"), "{json}");
+        assert!(
+            json.contains("[\"fetch\",\"https\",\"api.example\",443]"),
+            "{json}"
+        );
+        assert!(json.contains("line 4: `camelCase`"), "{json}");
+        assert!(json.contains("\"seal\":\""), "{json}");
+    }
+}

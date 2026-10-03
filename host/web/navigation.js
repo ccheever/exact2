@@ -757,3 +757,126 @@ export function grantOrigins(memory) {
     } catch { return -1; }
   } };
 }
+
+// Match only the sealed, typed output of exact-runner's Rust grant parser.
+// App code is the page, so this is parity admission rather than a sandbox.
+const INVALID_GRANTS = 'the grant set was not validated';
+const brandedGrantSets = new WeakSet();
+
+const grantFNV = text => {
+  let hash = 0xcbf29ce484222325n;
+  for (const byte of new TextEncoder().encode(text)) {
+    hash ^= BigInt(byte);
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+  }
+  return hash.toString(16).padStart(16, '0');
+};
+const grantBody = set => JSON.stringify({ version: 1, entries: set.entries, error: set.error });
+const networkGrants = new Set(['fetch', 'fetch-subdomains', 'websocket']);
+const pathGrants = new Set(['fs-read', 'fs-write', 'sqlite-open']);
+const nameGrants = new Set(['env-read', 'secret-keep', 'storage-kv']);
+const grantTupleValid = grant => {
+  if (!Array.isArray(grant) || typeof grant[0] !== 'string') return false;
+  if (networkGrants.has(grant[0])) return grant.length === 4
+    && /^[a-z][a-z0-9+.-]*$/.test(grant[1])
+    && typeof grant[2] === 'string' && grant[2] === grant[2].toLowerCase() && grant[2].length > 0
+    && Number.isInteger(grant[3]) && grant[3] > 0 && grant[3] <= 65535
+    && (grant[0] !== 'fetch-subdomains' || !grant[2].startsWith('[') && !grant[2].endsWith('.') && grant[2].split('.').filter(Boolean).length >= 2);
+  if (pathGrants.has(grant[0])) return grant.length >= 2
+    && ['', 'app:', 'doc:'].includes(grant[1])
+    && grant.slice(2).every(component => typeof component === 'string' && component && component !== '.' && component !== '..' && !component.includes('/'));
+  return nameGrants.has(grant[0]) && grant.length === 2 && typeof grant[1] === 'string';
+};
+
+function validateGrantSet(set) {
+  if (brandedGrantSets.has(set)) return true;
+  if (!set || set.version !== 1 || !Array.isArray(set.entries)
+      || (set.error !== null && typeof set.error !== 'string') || !/^[0-9a-f]{16}$/.test(set.seal ?? '')) return false;
+  let last = 0, hasError = false;
+  for (const entry of set.entries) {
+    if (!Array.isArray(entry) || entry.length !== 4 || !Number.isInteger(entry[0]) || entry[0] <= last
+        || typeof entry[1] !== 'string' || !entry[1] || entry[1].trim() !== entry[1]
+        || entry[2] !== null && !grantTupleValid(entry[2])
+        || entry[3] !== null && typeof entry[3] !== 'string') return false;
+    last = entry[0];
+    hasError ||= entry[3] !== null;
+  }
+  if (hasError !== (set.error !== null) || grantFNV(grantBody(set)) !== set.seal) return false;
+  brandedGrantSets.add(set);
+  return true;
+}
+
+function makeGrantSet(entries, error) {
+  const set = { version: 1, entries, error, seal: '' };
+  set.seal = grantFNV(grantBody(set));
+  brandedGrantSets.add(set);
+  return set;
+}
+
+export function grantError(set) {
+  return validateGrantSet(set) ? set.error : INVALID_GRANTS;
+}
+
+export const rawGrantText = set => validateGrantSet(set) ? set.entries.map(entry => entry[1]).join('\n') : '';
+export const hasGrant = (set, kind) => validateGrantSet(set) && !set.error && set.entries.some(entry => entry[2]?.[0] === kind);
+
+export function scopedGrantSet(parent, source) {
+  if (source == null) return parent;
+  if (!validateGrantSet(parent) || typeof source !== 'string') return makeGrantSet([], 'source scope exceeds the app\'s admitted grants');
+  const available = new Map(parent.entries.map(entry => [entry[1], entry]));
+  const entries = [], errors = [];
+  for (const [index, raw] of source.split('\n').entries()) {
+    const line = raw.trim();
+    if (!line) continue;
+    const found = available.get(line);
+    if (!found) return makeGrantSet([], 'source scope exceeds the app\'s admitted grants');
+    entries.push([index + 1, line, found[2], found[3]]);
+    if (found[3]) errors.push(`line ${index + 1}: ${found[3]}`);
+  }
+  return makeGrantSet(entries, errors.length ? `the app's grants did not parse: ${errors.join('; ')}` : null);
+}
+
+export function unionGrantSets(...sets) {
+  if (sets.some(set => !validateGrantSet(set))) return makeGrantSet([], INVALID_GRANTS);
+  const entries = [], seen = new Set();
+  for (const set of sets) for (const entry of set.entries) if (!seen.has(entry[1])) {
+    seen.add(entry[1]);
+    entries.push([entries.length + 1, entry[1], entry[2], entry[3]]);
+  }
+  const error = sets.map(set => set.error).find(Boolean) ?? null;
+  return makeGrantSet(entries, error);
+}
+
+const grantPort = url => Number(url.port || ({ 'http:': 80, 'https:': 443, 'ws:': 80, 'wss:': 443, 'ftp:': 21 })[url.protocol]);
+export function admitsNetwork(set, value) {
+  if (grantError(set)) return false;
+  let target;
+  try { target = new URL(value); } catch { return false; }
+  const kind = /^wss?:$/.test(target.protocol) ? 'websocket' : 'fetch';
+  const scheme = target.protocol.slice(0, -1).toLowerCase(), host = target.hostname.toLowerCase(), port = grantPort(target);
+  return set.entries.some(([, , grant]) => grant && grant[1] === scheme && grant[3] === port && (
+    grant[0] === kind && grant[2] === host
+    || kind === 'fetch' && grant[0] === 'fetch-subdomains' && host.length > grant[2].length + 1 && host.endsWith('.' + grant[2])
+  ));
+}
+
+export function admitsSecret(set, name) {
+  return !String(name).startsWith('exact.kept.') && !grantError(set)
+    && set.entries.some(([, , grant]) => grant?.[0] === 'secret-keep' && grant[1] === String(name));
+}
+
+function grantPathParts(path) {
+  if (typeof path !== 'string') return null;
+  const at = path.indexOf(':/');
+  const namespace = at < 0 ? path.startsWith('/') ? '' : null : path.slice(0, at) + ':';
+  if (namespace == null || !['', 'app:', 'doc:'].includes(namespace)) return null;
+  const rest = at < 0 ? path.slice(1) : path.slice(at + 2);
+  const parts = rest.split('/').filter(Boolean);
+  return parts.some(part => part === '.' || part === '..' || part.includes('\0')) ? null : [namespace, ...parts];
+}
+
+export function coversPath(set, capability, path) {
+  if (grantError(set)) return false;
+  const target = grantPathParts(path), kind = ({ 'fs.read': 'fs-read', 'fs.write': 'fs-write', 'sqlite.open': 'sqlite-open' })[capability];
+  return !!target && set.entries.some(([, , grant]) => grant?.[0] === kind && grant.slice(1).every((part, index) => target[index] === part));
+}
