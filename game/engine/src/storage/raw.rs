@@ -430,7 +430,12 @@ impl RawStorage {
             desc: self.desc,
             live: false,
         };
+        let mut last = None;
         for index in indices {
+            if last.is_some_and(|last| last >= index) {
+                return Err(DataError::new("entities are not strictly ordered").at(index));
+            }
+            last = Some(index);
             if !alive(index) {
                 return Err(DataError::new("stale or invalid entity").at(index));
             }

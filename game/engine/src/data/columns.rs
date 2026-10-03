@@ -525,9 +525,13 @@ impl<'a> Rows<'a> {
         let mut indices = Vec::new();
         let mut end = 0u64;
         for _ in 0..c.count(bytes.len())? {
-            let start = end + c.var()?;
+            // Runs ascend: each starts at or after the previous one's end.
+            let start = c.var()?.checked_add(end);
             let len = c.var()?;
-            end = start.saturating_add(len);
+            let Some(start) = start.filter(|s| s.checked_add(len).is_some()) else {
+                return Err(c.err("index run overflows"));
+            };
+            end = start + len;
             if len == 0 || end > limit as u64 {
                 return Err(c.err("index run exceeds the entity limit"));
             }
@@ -1049,6 +1053,21 @@ mod tests {
             .err()
             .expect("refused");
         assert!(error.to_string().contains("budget"), "{error}");
+    }
+    // Review S1: a gap that wraps would have produced descending indices.
+    #[test]
+    fn index_runs_cannot_wrap_or_descend() {
+        let mut bytes = vec![2];
+        var(&mut bytes, 5);
+        var(&mut bytes, 1);
+        var(&mut bytes, u64::MAX - 2);
+        var(&mut bytes, 1);
+        bytes.extend([0, 1, 0, 2, 0]);
+        let mut outer = bin::Decoder::new(&[]);
+        let error = Rows::decode(&bytes, 1 << 20, true, &mut outer)
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("overflows"), "{error}");
     }
     #[test]
     fn truncated_or_corrupt_payloads_refuse() {
