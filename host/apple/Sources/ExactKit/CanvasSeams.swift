@@ -300,6 +300,8 @@ extension Canvases {
         for p in queued {
             guard let e = entries.values.filter({ $0.name == p.name && live($0.view.id) === $0 })
                     .min(by: { $0.view.id < $1.view.id }), let m = e.module else { held.append(p); continue }
+            // The surface's own input path, as web and Linux deliver: an inert or
+            // disabled canvas (behind a modal) still receives its app's posts.
             if !input(e, m, ["t": "message", "text": p.text, "at": p.at]) {
                 fputs("exact: postMessage: surface \"\(p.name)\" refused a message\n", stderr)
             }
@@ -409,6 +411,9 @@ extension Canvases {
     static let noAssetChanges = Data(#"{"requests":[],"retired":[]}"#.utf8)
 
     func messages(_ e: Entry) {
+        // Held posts go out whenever a canvas is serviced, including when the
+        // world has nothing to say (the early returns below).
+        defer { deliverPosts() }
         if live(e.view.id) === e, let m = e.module, let take = m.assets, let deliver = m.asset {
             var delivered = false
             for _ in 0..<16 {
@@ -464,7 +469,6 @@ extension Canvases {
             if text == "exact:audio" { lifecycle.requestAudio(userInitiated: false); continue }
             if e.view.handlers.contains("message") { session?.presenter.message(e.view.id, text) }
         }
-        deliverPosts()
     }
 
     /// Real events and recognized driver events enter here, in the same clock domain.
