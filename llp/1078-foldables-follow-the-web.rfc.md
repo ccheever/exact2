@@ -534,3 +534,11 @@ during the silence. The real phone (iPhone 13 Pro Max) could not be driven: the 
 carrier is an outbound TCP connection to the Mac, which iOS holds behind the "Duo Lab
 would like to find and connect to devices on your local network" prompt (`connect: No
 route to host` until someone taps Allow).
+
+**On the phone (2026-10-03, Charlie's iPhone 13 Pro Max, Duo Lab from origin/main
+cbf7824e5; the local-network prompt accepted by hand).** The pushed `note` route under
+the agent: the keyboard rises to 346 pt, the viewport goes 428×926 → 428×580 under
+`resizes-content`, the sheet (y 180, height 400) ends exactly at the keyboard's top, both
+fields take text, dismiss restores 926 with the sheet at 526; five push → type → dismiss →
+back cycles in 16 s, the keyboard 346 each time, no silence. A non-foldable reports
+`continuous`, 1 × 1, no segments.
