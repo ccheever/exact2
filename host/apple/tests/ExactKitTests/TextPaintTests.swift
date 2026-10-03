@@ -97,6 +97,56 @@ final class TextPaintTests: XCTestCase {
         XCTAssertTrue(row.hasSchemeColor)
     }
 
+    /// LLP 1077 D3/D7 per inline run: a run's own computed `text-shadow`
+    /// and `-webkit-text-stroke` cross on its row (`none` and a zero width
+    /// as no row and 0), `currentcolor` is the run's own colour, and a
+    /// shadow only some runs have is theirs, drawn around their glyphs.
+    func testEachRunCarriesItsOwnShadowAndStroke() throws {
+        func row(_ id: UInt32, _ text: String, _ style: NodeStyle) throws -> InlineText {
+            try BatchFields(["id": .number(Double(id)), "parent": 1, "props": .object(["text": .string(text)]), "paint": true,
+                             "style": .object(style)]).inline()
+        }
+        let red: BatchValue = [229, 57, 53, 255]
+        let plain = try row(2, "Pl ", ["text_color": [33, 33, 33, 255], "text_stroke_width": 0, "text_stroke_color": "currentcolor"])
+        let glow = try row(3, "Glow", ["text_color": [[33, 33, 33, 255], [238, 238, 238, 255]],
+                                       "text_shadow": ["o": [0, 0], "b": 6, "c": red],
+                                       "text_stroke_width": 2, "text_stroke_color": "currentcolor"])
+        XCTAssertNil(plain.run(dark: false).shadow)
+        XCTAssertNil(plain.run(dark: false).stroke, "a zero width is no stroke")
+        XCTAssertEqual(glow.run(dark: false).shadow, [0, 0, 6, 229, 57, 53, 255])
+        XCTAssertEqual(glow.run(dark: false).stroke, [2, 33, 33, 33, 255], "currentcolor is the run's colour")
+        XCTAssertEqual(glow.run(dark: true).stroke, [2, 238, 238, 238, 255], "in its appearance")
+
+        var spec = Spec(runs: [plain.run(dark: false), glow.run(dark: false)], align: 0, lineClamp: 0, color: [33, 33, 33, 255])
+        spec.gatherShadows()
+        XCTAssertNil(spec.shadow, "the runs differ: each keeps its own")
+        let attributed = engine.attributed(spec)
+        XCTAssertNil(attributed.attribute(.exactShadow, at: 0, effectiveRange: nil))
+        XCTAssertNotNil(attributed.attribute(.exactShadow, at: 4, effectiveRange: nil))
+        XCTAssertNil(attributed.attribute(.strokeWidth, at: 0, effectiveRange: nil))
+        XCTAssertEqual(try XCTUnwrap(attributed.attribute(.strokeWidth, at: 4, effectiveRange: nil) as? Double), -2 / 16 * 100, accuracy: 1e-9)
+        XCTAssertNotEqual(TextPaint(spec), TextPaint(Spec(runs: [plain.run(dark: false), plain.run(dark: false)], align: 0, lineClamp: 0, color: [33, 33, 33, 255])))
+
+        // Painted: the glow reaches past "Glow" only, not around "Pl ".
+        let p = engine.paragraph(spec, width: 300)
+        let shot = paint(p, spec, size: CGSize(width: 120, height: 60))
+        func reddish(_ x: Int, _ y: Int) -> Bool {
+            let i = (y * shot.width + x) * 4
+            return shot.bytes[i + 3] > 0 && shot.bytes[i] > shot.bytes[i + 1] + 40
+        }
+        let split = Int(CTLineGetOffsetForStringIndex(p.lines[0], 3, nil).rounded())
+        let rows = 0..<shot.height
+        XCTAssertTrue((split..<shot.width).contains { x in rows.contains { reddish(x, $0) } }, "Glow casts its shadow")
+        XCTAssertFalse((0..<max(0, split - 10)).contains { x in rows.contains { reddish(x, $0) } }, "Pl casts none")
+
+        // Runs that agree keep the paragraph's one shadow and no attribute.
+        var same = spec
+        same.runs[0].shadow = same.runs[1].shadow
+        same.gatherShadows()
+        XCTAssertEqual(same.shadow, [0, 0, 6, 229, 57, 53, 255])
+        XCTAssertNil(engine.attributed(same).attribute(.exactShadow, at: 4, effectiveRange: nil))
+    }
+
     /// A `line-clamp` paragraph rasters from its published geometry (LLP
     /// 1072 §8.1): a worker shapes the lines, the last one again from the
     /// range it broke at, ending in "…". The same pixels as layout's lines.

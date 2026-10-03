@@ -82,8 +82,10 @@ struct TextRasterJob {
         for (line, position) in zip(lines, positions) {
             let ink = CTLineGetBoundsWithOptions(line, .useGlyphPathBounds)
             if !ink.isNull, !ink.isEmpty {
-                painted = painted.union(CGRect(x: position.x + ink.minX, y: position.y - ink.maxY,
-                                               width: ink.width, height: ink.height).insetBy(dx: -1 / scale, dy: -1 / scale))
+                let glyphs = CGRect(x: position.x + ink.minX, y: position.y - ink.maxY, width: ink.width, height: ink.height)
+                painted = painted.union(glyphs.insetBy(dx: -1 / scale, dy: -1 / scale))
+                // Runs' own shadows are in these pixels (LLP 1077 D3).
+                painted = painted.union(TextRunShadow.reach(line, ink: glyphs))
             }
             if crop {
                 // The line box too: decorations paint in it, outside the glyphs.
@@ -159,7 +161,7 @@ struct TextRasterJob {
         ctx.scaleBy(x: scale, y: -scale)
         ctx.translateBy(x: -frame.minX, y: -frame.minY)
         ctx.setShouldSmoothFonts(true)
-        for (line, position) in zip(lines, positions) { TextLinePaint.draw(line, at: position, in: ctx) }
+        for (line, position) in zip(lines, positions) { TextLinePaint.draw(line, at: position, in: ctx, scale: scale) }
         ctx.flush()
     }
 }
