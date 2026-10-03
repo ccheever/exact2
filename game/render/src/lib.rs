@@ -20,6 +20,8 @@ mod cull_tests;
 mod frame;
 pub mod hooks;
 mod ibl;
+mod lights;
+mod local_shadows;
 mod model_pipeline;
 mod models;
 mod perf;
@@ -32,6 +34,7 @@ mod renderer;
 mod shadows;
 pub mod shapes;
 mod skinning;
+mod ssao;
 mod surface;
 mod timing;
 mod trace;
@@ -46,7 +49,7 @@ pub use hooks::{
 };
 pub use models::ModelPresentation;
 pub use surface::{Presentation, WorldSurface};
-pub use world::scene::DisplayedAttachment;
+pub use world::scene::{DisplayedAttachment, PHOTOMETRIC_SCALE};
 pub use world::Feed;
 
 use exact_gpu::wgpu;
@@ -142,7 +145,14 @@ pub struct Batch {
     pub slots: Range<u32>,
     /// Whether this draw participates in sun shadow passes; true in [`Batch::new`].
     pub casts_shadows: bool,
+    /// Drawn in the viewmodel layer: the nearest [`VIEWMODEL_DEPTH`] of the depth
+    /// range, in front of the whole world; false in [`Batch::new`].
+    pub viewmodel: bool,
 }
+
+/// The depth range the viewmodel layer takes while any viewmodel draws; the
+/// world draws behind it in the rest. Without a viewmodel the world takes 0–1.
+pub const VIEWMODEL_DEPTH: f32 = 0.05;
 
 impl Batch {
     /// A retained draw that casts shadows by default.
@@ -151,6 +161,15 @@ impl Batch {
             mesh,
             slots,
             casts_shadows: true,
+            viewmodel: false,
+        }
+    }
+    /// This draw in the viewmodel layer, casting no shadows.
+    pub fn viewmodel(self) -> Self {
+        Self {
+            casts_shadows: false,
+            viewmodel: true,
+            ..self
         }
     }
 }
@@ -162,7 +181,7 @@ pub struct Sun {
     pub direction: Vec3,
     /// Linear RGB tint.
     pub color: Vec3,
-    /// Incident illuminance multiplier.
+    /// Incident radiance: `Feed` supplies lux times [`PHOTOMETRIC_SCALE`].
     pub illuminance: f32,
     /// None skips all shadow work and releases the shadow textures.
     pub shadows: Option<Shadows>,
@@ -201,17 +220,40 @@ impl Default for Shadows {
 
 pub use exact_game::{Bloom, Environment, Fog};
 
-/// An inverse-square point light, smoothly extinguished at its range.
+/// An equirectangular environment texture ([`FrameInput::environment_map`]).
+#[derive(Debug, Clone, Copy)]
+pub struct EnvironmentMapInput<'a> {
+    /// A texture added with `add_texture` (or delivered as a `.tex` asset).
+    pub texture: &'a str,
+    /// Linear radiance multiplier.
+    pub intensity: f32,
+    /// RGBM range, or zero for plain RGB.
+    pub rgbm: f32,
+}
+
+/// Local lights drawn per frame, nearest the camera first. Further eligible
+/// lights are counted in `FrameInput::lights_dropped`, never silently lost.
+pub const MAX_LIGHTS: usize = 256;
+
+/// An inverse-square point or spot light, smoothly extinguished at its range.
 #[derive(Debug, Clone, Copy, Default)]
-pub struct PointLightInput {
+pub struct LightInput {
     /// World-space position.
     pub position: Vec3,
     /// Linear RGB tint.
     pub color: Vec3,
-    /// Radiant intensity multiplier.
+    /// Renderer radiance at 1 m: `Feed` supplies `PointLight.intensity` (candela)
+    /// times [`PHOTOMETRIC_SCALE`], the sun's lux scale.
     pub intensity: f32,
     /// Positive cutoff distance in world units.
     pub range: f32,
+    /// Unit direction a spot light points (its −Z); ignored without a cone.
+    pub direction: Vec3,
+    /// A spot light's cosines of its inner and outer half-angles: full intensity
+    /// inside the inner, smoothly zero at the outer. None is a point light.
+    pub cone: Option<[f32; 2]>,
+    /// Wants a shadow map; the renderer shadows the first few such lights.
+    pub shadows: bool,
 }
 
 /// Retained emissive tween and material for one entity; only presentation samples it.
@@ -259,12 +301,21 @@ pub struct FrameInput<'a> {
     pub alpha: f32,
     /// Optional directional light.
     pub sun: Option<Sun>,
-    /// Point lights; only the first sixteen are used.
-    pub points: &'a [PointLightInput],
+    /// A second, never shadowed directional light: the moon, or a fill.
+    pub fill: Option<Sun>,
+    /// Point and spot lights, nearest first; at most [`MAX_LIGHTS`] are used.
+    pub lights: &'a [LightInput],
+    /// Eligible lights left out beyond [`MAX_LIGHTS`].
+    pub lights_dropped: usize,
     /// Displayed socket attachments, evaluated from the interpolated local chain.
     pub attachments: &'a [DisplayedAttachment],
     /// Hemisphere lighting and background.
     pub environment: Environment,
+    /// An authored environment map lighting the scene in place of the sky:
+    /// a texture added under this name, its intensity and RGBM range.
+    pub environment_map: Option<EnvironmentMapInput<'a>>,
+    /// Screen-space ambient occlusion; None (the default) draws none.
+    pub ambient_occlusion: Option<exact_game::AmbientOcclusion>,
     /// Optional pass timestamps. Requires TIMESTAMP_QUERY on the device.
     /// Reserve [`GPU_PASS_COUNT`] pairs in the query set. Resolve/read outside draw.
     pub timestamps: Option<&'a wgpu::QuerySet>,
@@ -285,9 +336,13 @@ impl Default for FrameInput<'_> {
             camera_position: Vec3::ZERO,
             alpha: 1.0,
             sun: Some(Sun::default()),
-            points: &[],
+            fill: None,
+            lights: &[],
+            lights_dropped: 0,
             attachments: &[],
             environment: Environment::default(),
+            environment_map: None,
+            ambient_occlusion: None,
             timestamps: None,
         }
     }

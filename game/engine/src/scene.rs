@@ -304,8 +304,8 @@ impl Mesh {
 #[derive(Clone, Debug, Default, Component)]
 pub struct Glow(pub crate::Tween);
 
-/// Saved point-light intensity multiplier, sampled by the renderer at frame time.
-/// Negative spring overshoot clamps to zero; the authored PointLight stays constant.
+/// Saved point- or spot-light intensity multiplier, sampled by the renderer at
+/// frame time. Negative spring overshoot clamps to zero; the authored light stays constant.
 #[derive(Clone, Debug, Default, Component)]
 pub struct Lit(pub crate::Spring);
 impl Lit {
@@ -385,7 +385,9 @@ impl Material {
     }
 }
 
-/// Parallel light rays along the entity's negative Z axis.
+/// Parallel light rays along the entity's negative Z axis. The renderer uses the
+/// first two in entity order: the first is the sun (shadowed when `shadows`), the
+/// second an unshadowed fill such as the moon.
 #[derive(Clone, Copy, Debug, PartialEq, Component)]
 pub struct DirectionalLight {
     /// Linear RGB light color.
@@ -410,7 +412,8 @@ impl Default for DirectionalLight {
 pub struct PointLight {
     /// Linear RGB light color.
     pub color: [f32; 3],
-    /// Luminous intensity in candela.
+    /// Luminous intensity in candela: `d` metres away it delivers
+    /// `intensity / d²` lux, on the same scale as `DirectionalLight::illuminance`.
     pub intensity: f32,
     /// Maximum influence distance.
     pub range: f32,
@@ -424,6 +427,45 @@ impl Default for PointLight {
         }
     }
 }
+
+/// Marks a `PointLight` or `SpotLight` that casts shadows; lights are
+/// unshadowed without it. The renderer shadows the nearest few marked lights
+/// each frame (a spot takes one shadow view, a point light six of eight).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Component)]
+pub struct LightShadows;
+
+/// A cone of light along the entity's −Z, the way a camera looks: a flashlight
+/// or a street lamp. Intensity is candela on the axis, as `PointLight`'s.
+#[derive(Clone, Copy, Debug, PartialEq, Component)]
+pub struct SpotLight {
+    /// Linear RGB light color.
+    pub color: [f32; 3],
+    /// Luminous intensity on the axis in candela.
+    pub intensity: f32,
+    /// Maximum influence distance.
+    pub range: f32,
+    /// Half-angle in radians inside which the cone is at full intensity.
+    pub inner: f32,
+    /// Half-angle in radians at which the cone reaches zero; at most π/2.
+    pub outer: f32,
+}
+impl Default for SpotLight {
+    fn default() -> Self {
+        Self {
+            color: [1.0; 3],
+            intensity: 1000.0,
+            range: 20.0,
+            inner: 0.3,
+            outer: 0.45,
+        }
+    }
+}
+
+/// Draws this entity in the camera's viewmodel layer: a first-person weapon or
+/// hands. The renderer gives the layer the nearest slice of depth, so it is
+/// never hidden inside walls, and it casts no shadows. Mark each part.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Component)]
+pub struct ViewModel;
 
 /// Explicit visibility; absent visibility is interpreted as visible.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Component)]

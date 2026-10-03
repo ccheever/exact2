@@ -380,9 +380,10 @@ fn camera_slerps_and_nearest_lights_interpolate_without_frame_scans() {
     // Every pose advanced +X by one; even the one camera and selected lights blend.
     let input = f.frame(sim.world(), 0.25, 2.);
     assert_eq!(input.camera_position.x, 0.25);
-    assert_eq!(input.points.len(), 16);
-    assert_eq!(input.points[0].position.x, 1.25);
-    assert_eq!(input.points[15].position.x, 16.25);
+    assert_eq!(input.lights.len(), 20);
+    assert_eq!(input.lights[19].position.x, 20.25);
+    assert_eq!(input.lights[0].position.x, 1.25);
+    assert_eq!(input.lights[15].position.x, 16.25);
     assert!(input.sun.unwrap().shadows.is_some());
     assert!(input.environment.bloom.is_some());
     assert_eq!(
@@ -398,7 +399,7 @@ fn camera_slerps_and_nearest_lights_interpolate_without_frame_scans() {
         .teleport(lights[19], Transform::at(0.9, 0., 0.));
     f.feed_to(sim.world(), &mut r).unwrap();
     assert_eq!(
-        f.frame(sim.world(), 0.5, 2.).points[0].position,
+        f.frame(sim.world(), 0.5, 2.).lights[0].position,
         Vec3::new(0.9, 0., 0.)
     );
 }
@@ -531,7 +532,7 @@ fn ancestor_teleports_and_parent_edits_snap_mesh_camera_and_lights() {
     assert_eq!(r.position(mesh, false).x, 22.);
     let frame = f.frame(sim.world(), 0.5, 1.);
     assert_eq!(frame.camera_position.x, 21.);
-    assert_eq!(frame.points[0].position.x, 21.);
+    assert_eq!(frame.lights[0].position.x, 21.);
     // Clear freshness, then remove/reinsert Parent with no fresh entity involved.
     sim.advance_with(34., Clock::Seekable, |w, _| f.feed_to(w, &mut r).unwrap());
     sim.world_mut().remove::<Parent>(middle);
@@ -1019,4 +1020,50 @@ fn model_glow_scales_baked_emission_without_a_material_component() {
         .iter()
         .any(|c| matches!(c, Call::Material(..))));
     assert!(feed.frame(&w, 1., 1.).glows.is_empty());
+}
+
+#[test]
+fn a_slot_reoccupied_between_feeds_takes_its_current_pose_as_history() {
+    struct Recycle;
+    impl Game for Recycle {
+        type Args = ();
+        const ID: &'static str = "feed-recycle";
+        fn setup(w: &mut World, _: &()) {
+            w.spawn_named("old", (Transform::at(5., 0., 0.), Mesh::cube(1.0)));
+            w.spawn((Transform::default(), Mesh::cube(1.0)));
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            match w.tick() {
+                3 => {
+                    let old = w.named("old").unwrap();
+                    w.despawn(old);
+                }
+                4 => {
+                    w.spawn_named("new", (Transform::at(-7., 0., 0.), Mesh::cube(1.0)));
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut sim = Sim::<Recycle>::new(()).unwrap();
+    let mut f = Feed::default();
+    let mut r = Recording::default();
+    f.feed_to(sim.world(), &mut r).unwrap();
+    for _ in 0..3 {
+        sim.run(1000. / 60.);
+        f.feed_to(sim.world(), &mut r).unwrap();
+    }
+    // Ticks 3-5 run without a feed: the old occupant leaves, the new one
+    // arrives and stops being fresh before the presentation sees it.
+    sim.run(3000. / 60.);
+    let new = sim.world().named("new").unwrap();
+    assert_eq!(new.index(), 0, "the slot is recycled");
+    assert!(!sim.world().is_fresh(new));
+    f.feed_to(sim.world(), &mut r).unwrap();
+    assert_eq!(r.position(new, false).x, -7.);
+    assert_eq!(
+        r.position(new, true).x,
+        -7.,
+        "no frame interpolates from the old occupant"
+    );
 }

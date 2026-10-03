@@ -88,6 +88,7 @@ pub fn carry_length(len: usize) -> Option<u32> {
 /// Create the device and the module. Returns 0 on success, 1 on failure
 /// (see [`error`]).
 pub fn load(registry: &'static Registry) -> u32 {
+    crate::report_panics();
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::PRIMARY,
         ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -144,6 +145,7 @@ pub fn recover() -> String {
 
 /// Load surface ownership only; no adapter is requested.
 pub fn load_headless(registry: &'static Registry) {
+    crate::report_panics();
     let mut module = Module::new(registry);
     module.set_seekable(true);
     MODULE.with(|m| *m.borrow_mut() = Some(module));

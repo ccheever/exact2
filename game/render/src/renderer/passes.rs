@@ -12,6 +12,22 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             None
         }
     }
+    /// The world's depth range, or the viewmodel layer's: while any viewmodel
+    /// draws, it takes the nearest `VIEWMODEL_DEPTH` and the world the rest.
+    /// Where the viewmodel layer's depth ends this frame: zero without one.
+    pub(super) fn depth_split(&self) -> f32 {
+        if self.viewmodels {
+            crate::VIEWMODEL_DEPTH
+        } else {
+            0.
+        }
+    }
+    fn scene_viewport(&self, pass: &mut wgpu::RenderPass<'_>, size: (u32, u32), viewmodel: bool) {
+        let split = self.depth_split();
+        let (near, far) = if viewmodel { (0., split) } else { (split, 1.) };
+        pass.set_viewport(0.0, 0.0, size.0 as f32, size.1 as f32, near, far);
+        pass.set_scissor_rect(0, 0, size.0, size.1);
+    }
     fn draw_group(&self, pass: &mut wgpu::RenderPass<'_>, view: u32, group: usize) {
         if self.cull.direct {
             let mesh = &self.meshes[self.batches[self.cull.groups[group].batch].mesh.0];
@@ -55,7 +71,6 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            pass.set_bind_group(1, &shadows.cameras[i], &[]);
             pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
             pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
             let view = 1 + i as u32;
@@ -63,35 +78,43 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 if group.flags & (1 << view) == 0 {
                     continue;
                 }
-                if let Some(material) = self.model_material(group.batch) {
-                    if let Some(custom) = custom.iter().find(|c| c.material == material) {
-                        let binds = self.custom_bindings.as_ref().unwrap();
-                        pass.set_pipeline(&custom.shadow);
-                        pass.set_bind_group(1, &shadows.cameras[i], &[]);
-                        pass.set_bind_group(2, &custom.resources, &[]);
-                        pass.set_bind_group(3, &binds.instances.as_ref().unwrap().1, &[]);
-                    } else {
-                        let material = &self.models.materials[material.0];
-                        pass.set_pipeline(
-                            self.pipelines.models.as_ref().unwrap().shadow[usize::from(
-                                material.double_sided,
-                            ) + 2 * usize::from(
-                                group.mirrored,
-                            )]
-                            .as_ref()
-                            .unwrap(),
-                        );
-                        pass.set_bind_group(2, material.bind.as_ref().unwrap(), &[]);
-                        pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
-                    }
-                } else {
-                    pass.set_pipeline(&self.pipelines.shadow[usize::from(group.mirrored)]);
-                }
+                self.set_depth_pipeline(&mut pass, group, &shadows.cameras[i], custom);
                 self.draw_group(&mut pass, view, index);
                 draws += 1;
             }
         }
         draws
+    }
+
+    /// A depth-only caster pipeline and its groups 1-3 for one draw group.
+    pub(super) fn set_depth_pipeline(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        group: &crate::cull::Group,
+        camera: &wgpu::BindGroup,
+        custom: &[CustomMaterial],
+    ) {
+        if let Some(material) = self.model_material(group.batch) {
+            if let Some(custom) = custom.iter().find(|c| c.material == material) {
+                let binds = self.custom_bindings.as_ref().unwrap();
+                pass.set_pipeline(&custom.shadow);
+                pass.set_bind_group(2, &custom.resources, &[]);
+                pass.set_bind_group(3, &binds.instances.as_ref().unwrap().1, &[]);
+            } else {
+                let material = &self.models.materials[material.0];
+                pass.set_pipeline(
+                    self.pipelines.models.as_ref().unwrap().shadow
+                        [usize::from(material.double_sided) + 2 * usize::from(group.mirrored)]
+                    .as_ref()
+                    .unwrap(),
+                );
+                pass.set_bind_group(2, material.bind.as_ref().unwrap(), &[]);
+                pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
+            }
+        } else {
+            pass.set_pipeline(&self.pipelines.shadow[usize::from(group.mirrored)]);
+        }
+        pass.set_bind_group(1, camera, &[]);
     }
 
     /// Opaque groups and quads, the hook's opaque stage, sky and background; with
@@ -150,7 +173,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        viewport(&mut pass, state.size);
+        self.scene_viewport(&mut pass, state.size, false);
+        let mut layer = false;
         let variant = state.variant;
         pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
         pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
@@ -159,7 +183,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 if let Some(custom) = hooks.materials().iter().find(|c| c.material == material) {
                     let binds = self.custom_bindings.as_ref().unwrap();
                     pass.set_pipeline(&custom.forward);
-                    pass.set_bind_group(1, &binds.empty_bind, &[]);
+                    pass.set_bind_group(1, &self.shadow_sample, &[]);
                     pass.set_bind_group(2, &custom.resources, &[]);
                     pass.set_bind_group(3, &binds.instances.as_ref().unwrap().1, &[]);
                 } else {
@@ -171,13 +195,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                         .as_ref()
                         .unwrap(),
                     );
-                    pass.set_bind_group(
-                        1,
-                        self.shadows
-                            .as_ref()
-                            .map_or_else(|| self.models.no_shadow.as_ref().unwrap(), |s| &s.sample),
-                        &[],
-                    );
+                    pass.set_bind_group(1, &self.shadow_sample, &[]);
                     pass.set_bind_group(2, material.bind.as_ref().unwrap(), &[]);
                     pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
                 }
@@ -185,14 +203,20 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 pass.set_pipeline(
                     &self.pipelines.forward[variant + 4 * usize::from(group.mirrored)],
                 );
-                if let Some(shadows) = &self.shadows {
-                    pass.set_bind_group(1, &shadows.sample, &[]);
-                }
+                pass.set_bind_group(1, &self.shadow_sample, &[]);
             }
             if group.range.start != self.batches[group.batch].slots.start {
                 state.draws += 1;
             }
+            let viewmodel = self.batches[group.batch].viewmodel;
+            if viewmodel != layer {
+                self.scene_viewport(&mut pass, state.size, viewmodel);
+                layer = viewmodel;
+            }
             self.draw_group(&mut pass, 0, index);
+        }
+        if layer {
+            self.scene_viewport(&mut pass, state.size, false);
         }
         for draw in self.quads.draws.iter().filter(|d| self.quads.opaque(d)) {
             self.quads
@@ -207,7 +231,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 .map_err(|e| hook_error("opaque", e))?;
             timing::pass_stamp(&self.device, &mut pass, frame.timestamps, 18, true);
             state.times[2] = start.map(|s| s.elapsed());
-            viewport(&mut pass, state.size);
+            self.scene_viewport(&mut pass, state.size, false);
         }
         if frame::has_sky(frame) {
             pass.set_pipeline(&self.pipelines.sky);
@@ -241,7 +265,14 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     ) -> Result<(), RenderError> {
         let time = view.time;
         let targets = self.hook_targets.as_ref().unwrap();
-        targets.resolve_depth(encoder, &self.queue, frame, state.size, true);
+        targets.resolve_depth(
+            encoder,
+            &self.queue,
+            frame,
+            state.size,
+            true,
+            self.depth_split(),
+        );
         state.draws += 1;
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("game surface + translucent"),
@@ -270,7 +301,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        viewport(&mut pass, state.size);
+        self.scene_viewport(&mut pass, state.size, false);
         let start = (!time.seekable).then(crate::perf::Stamp::now);
         hooks
             .surface(&mut pass, &targets.scene().unwrap(), view)
@@ -292,7 +323,14 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     ) -> Result<(), RenderError> {
         let time = view.time;
         if let Some(targets) = &self.hook_targets {
-            targets.resolve_depth(encoder, &self.queue, frame, state.size, false);
+            targets.resolve_depth(
+                encoder,
+                &self.queue,
+                frame,
+                state.size,
+                false,
+                self.depth_split(),
+            );
             if state.needs.contains(crate::Needs::FINAL_DEPTH) {
                 state.draws += 1;
             }
@@ -356,10 +394,18 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         variant: usize,
         size: (u32, u32),
     ) -> u32 {
-        viewport(pass, size);
+        self.scene_viewport(pass, size, false);
+        let mut layer = false;
         pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
         let mut draws = 0;
         for draw in self.quads.draws.iter().filter(|d| !self.quads.opaque(d)) {
+            // Blended viewmodel parts keep the viewmodel layer's depth range.
+            let viewmodel = matches!(draw.kind, crate::quads::Kind::Model(index, _)
+                if self.batches[index].viewmodel);
+            if viewmodel != layer {
+                self.scene_viewport(pass, size, viewmodel);
+                layer = viewmodel;
+            }
             if let crate::quads::Kind::Model(index, slot) = draw.kind {
                 assert!(ASSETS, "model in primitive executor");
                 let batch = &self.batches[index];
@@ -375,13 +421,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                     .unwrap(),
                 );
                 pass.set_bind_group(0, &self.scene_binds[self.current], &[0]);
-                pass.set_bind_group(
-                    1,
-                    self.shadows
-                        .as_ref()
-                        .map_or_else(|| self.models.no_shadow.as_ref().unwrap(), |s| &s.sample),
-                    &[],
-                );
+                pass.set_bind_group(1, &self.shadow_sample, &[]);
                 pass.set_bind_group(2, material.bind.as_ref().unwrap(), &[]);
                 pass.set_bind_group(3, self.models.bind.as_ref().unwrap(), &[]);
                 pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
@@ -391,6 +431,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 self.quads.draw::<ASSETS>(pass, draw, &self.models.textures);
             }
             draws += 1;
+        }
+        if layer {
+            self.scene_viewport(pass, size, false);
         }
         draws
     }

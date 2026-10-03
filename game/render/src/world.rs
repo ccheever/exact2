@@ -1,6 +1,6 @@
 //! Tick uploads and retained scene selection. Frames never walk entity storage.
 use crate::{shapes, Batch, MeshId, RenderError, Vertex};
-use exact_game::{Material, Mesh, Parent, Transform, Visible, World, PAGE};
+use exact_game::{Material, Mesh, Parent, Transform, ViewModel, Visible, World, PAGE};
 use std::collections::BTreeMap;
 
 pub(crate) mod assets;
@@ -30,7 +30,14 @@ pub(crate) trait Writes {
     fn instances(&mut self, _: &[crate::DrawInstance]) -> Result<(), RenderError> {
         Ok(())
     }
-    fn model_poses(&mut self, _: &World, _: &[exact_game::Entity], _: bool) {}
+    fn model_poses(
+        &mut self,
+        _: &World,
+        _: &[exact_game::Entity],
+        _: bool,
+        _: crate::models::Moved<'_>,
+    ) {
+    }
     fn quads(&mut self, _: &World, _: bool, _: bool, _: bool) -> Result<(), RenderError> {
         Ok(())
     }
@@ -86,9 +93,15 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
             Ok(())
         }
     }
-    fn model_poses(&mut self, w: &World, entities: &[exact_game::Entity], initial: bool) {
+    fn model_poses(
+        &mut self,
+        w: &World,
+        entities: &[exact_game::Entity],
+        initial: bool,
+        moved: crate::models::Moved<'_>,
+    ) {
         if ASSETS {
-            self.model_poses(w, entities, initial);
+            self.model_poses(w, entities, initial, moved);
         }
     }
     fn quads(
@@ -191,6 +204,7 @@ fn dimensions(mesh: &Mesh) -> [f32; 3] {
 }
 struct Group {
     mesh: MeshId,
+    viewmodel: bool,
     slots: Vec<u32>,
 }
 
@@ -203,6 +217,7 @@ struct Versions {
     glow: u64,
     mesh: u64,
     visible: u64,
+    viewmodel: u64,
     live: u64,
     membership: u64,
 }
@@ -216,6 +231,7 @@ impl Versions {
             glow: w.revision::<exact_game::Glow>(),
             mesh: w.revision::<Mesh>(),
             visible: w.revision::<Visible>(),
+            viewmodel: w.revision::<ViewModel>(),
             live: w.entities_revision(),
             membership: w.membership::<Transform>(),
         }
@@ -234,7 +250,7 @@ pub struct Feed {
     tick: u64,
     history_pending: bool,
     groups: Vec<Group>,
-    shapes: BTreeMap<Shape, usize>,
+    shapes: BTreeMap<(Shape, bool), usize>,
     batches: Vec<Batch>,
     slots: Vec<u32>,
     page_scratch: Box<[f32; PAGE * 12]>,
@@ -246,6 +262,11 @@ pub struct Feed {
     generation: u64,
     parents: Vec<exact_game::Entity>,
     overrides: Vec<(exact_game::Entity, [f32; 10])>,
+    // Each slot's occupant generation + 1 at the last history swap (0: none).
+    occupants: Vec<u32>,
+    // Transform page generations as model poses last saw them.
+    model_pages: Vec<u64>,
+    changed_pages: Vec<usize>,
     scene: Scene,
     glows: Vec<crate::GlowInput>,
 }
@@ -269,6 +290,9 @@ impl Default for Feed {
             generation: 0,
             parents: Vec::new(),
             overrides: Vec::new(),
+            occupants: Vec::new(),
+            model_pages: Vec::new(),
+            changed_pages: Vec::new(),
             scene: Scene::default(),
             glows: Vec::new(),
         }
@@ -297,6 +321,8 @@ impl Feed {
         }
         self.materials.reset();
         self.parents.clear();
+        self.occupants.clear();
+        self.model_pages.clear();
         self.assets.records.clear();
         self.assets.entities.clear();
     }
@@ -358,6 +384,7 @@ impl Feed {
             || next.assets != old.assets
             || next.mesh != old.mesh
             || next.visible != old.visible
+            || next.viewmodel != old.viewmodel
             || next.live != old.live
             || next.membership != old.membership;
         // Validate live slots before any history swap. A last partial page is clipped
@@ -433,6 +460,29 @@ impl Feed {
             if !self.scratch.is_empty() {
                 r.transforms(run, &self.scratch, initial)?;
             }
+            // A slot whose occupant changed since the last swap has no history of
+            // its own: an entity spawned in an earlier tick of a multi-tick
+            // advance is no longer fresh, and its slot's history holds the
+            // previous occupant (or nothing). It starts from its current pose.
+            if initial || next.live != old.live {
+                for e in w.entities() {
+                    let slot = e.index() as usize;
+                    if self.occupants.len() <= slot {
+                        self.occupants.resize(slot + 1, 0);
+                    }
+                    let occupant = e.generation().wrapping_add(1);
+                    if std::mem::replace(&mut self.occupants[slot], occupant) == occupant
+                        || initial
+                        || w.is_fresh(e)
+                    {
+                        continue;
+                    }
+                    if let Some(t) = scene::pose(w, e) {
+                        r.previous(e.index(), &floats(t))?;
+                        self.transforms[1 - self.current].invalidate(slot / PAGE);
+                    }
+                }
+            }
             if !initial {
                 for &e in w.fresh() {
                     if let Some(t) = scene::pose(w, e) {
@@ -481,11 +531,13 @@ impl Feed {
                 if w.get::<Visible>(e).is_some_and(|v| !v.0) {
                     continue;
                 }
-                let group = *self.shapes.entry(shape).or_insert_with(|| {
+                let viewmodel = w.has::<ViewModel>(e);
+                let group = *self.shapes.entry((shape, viewmodel)).or_insert_with(|| {
                     let (v, i) = shape.geometry();
                     let index = self.groups.len();
                     self.groups.push(Group {
                         mesh: r.mesh(&v, &i),
+                        viewmodel,
                         slots: Vec::new(),
                     });
                     index
@@ -500,8 +552,11 @@ impl Feed {
                 }
                 let start = self.slots.len() as u32;
                 self.slots.extend_from_slice(&group.slots);
-                self.batches
-                    .push(Batch::new(group.mesh, start..self.slots.len() as u32));
+                let mut batch = Batch::new(group.mesh, start..self.slots.len() as u32);
+                if group.viewmodel {
+                    batch = batch.viewmodel();
+                }
+                self.batches.push(batch);
             }
         }
         if material {
@@ -593,7 +648,29 @@ impl Feed {
             r.batches(&self.batches, &self.slots)?;
         }
         if !self.assets.records.is_empty() && (moved || batches || self.tick != w.tick()) {
-            r.model_poses(w, &self.assets.entities, initial || parent_changed);
+            // Static instances cost nothing: only pages written since the last
+            // pose step (and parented instances) are revisited.
+            self.changed_pages.clear();
+            for page in w.pages::<Transform>().iter() {
+                let index = page.first as usize / PAGE;
+                if self.model_pages.len() <= index {
+                    self.model_pages.resize(index + 1, u64::MAX);
+                }
+                if std::mem::replace(&mut self.model_pages[index], page.generation)
+                    != page.generation
+                {
+                    self.changed_pages.push(index);
+                }
+            }
+            let moved = if initial || parent_changed || batches {
+                crate::models::Moved::All
+            } else {
+                crate::models::Moved::Pages {
+                    pages: &self.changed_pages,
+                    parented: &self.parents,
+                }
+            };
+            r.model_poses(w, &self.assets.entities, initial || parent_changed, moved);
         }
         r.quads(w, initial, self.tick != w.tick(), parent_changed)?;
         r.attachments(

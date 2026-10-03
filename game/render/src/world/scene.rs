@@ -1,6 +1,13 @@
-use crate::{FrameInput, PointLightInput, Shadows, Sun};
-use exact_game::{Camera, DirectionalLight, Entity, Parent, PointLight, Transform, World};
+use crate::{FrameInput, LightInput, Shadows, Sun, MAX_LIGHTS};
+use exact_game::{
+    Camera, DirectionalLight, Entity, LightShadows, Parent, PointLight, SpotLight, Transform, World,
+};
 use glam::{Mat4, Vec3};
+
+/// Photometric units to renderer radiance, one scale for both: 10,000 lux of sun
+/// and a 10,000 cd light seen from 1 m (10,000 lux there) map to the default key
+/// radiance of 3. Exposure applies after.
+pub const PHOTOMETRIC_SCALE: f32 = 0.0003;
 
 pub(crate) fn pose(w: &World, e: Entity) -> Option<Transform> {
     let (scale, rotation, position) = w.global(e)?.to_scale_rotation_translation();
@@ -66,28 +73,70 @@ impl History {
         interpolate([self.prev, self.curr], alpha)
     }
 }
+// A point light is a spot whose cone is the whole sphere.
+#[derive(Clone, Copy)]
+struct Emitter {
+    color: [f32; 3],
+    intensity: f32,
+    range: f32,
+    // Cosines of the inner and outer half-angles; a point light has none.
+    cone: Option<[f32; 2]>,
+    shadows: bool,
+}
+impl Emitter {
+    fn point(light: &PointLight, shadows: bool) -> Self {
+        Self {
+            color: light.color,
+            intensity: light.intensity,
+            range: light.range,
+            cone: None,
+            shadows,
+        }
+    }
+    #[allow(clippy::manual_clamp)] // clamp would keep NaN
+    fn spot(light: &SpotLight, shadows: bool) -> Self {
+        // `max` maps NaN to zero, which `clamp` would keep.
+        let outer = light.outer.max(0.).min(std::f32::consts::FRAC_PI_2);
+        let outer_cos = exact_game::math::cos(outer);
+        // The shader's smoothstep needs a nonempty edge.
+        let inner_cos = exact_game::math::cos(light.inner.max(0.).min(outer)).max(outer_cos + 1e-4);
+        Self {
+            color: light.color,
+            intensity: light.intensity,
+            range: light.range,
+            cone: Some([inner_cos, outer_cos]),
+            shadows,
+        }
+    }
+}
 struct Light {
     history: History,
-    light: PointLight,
+    light: Emitter,
     lit: Option<exact_game::Lit>,
 }
 #[derive(Default)]
 pub(super) struct Scene {
-    versions: Option<[u64; 4]>,
+    versions: Option<[u64; 6]>,
     pub(super) attachments: Attachments,
     camera: Option<(History, Camera)>,
     sun: Option<(History, DirectionalLight)>,
+    fill: Option<(History, DirectionalLight)>,
+    // Point lights, then spot lights, each in entity order.
     lights: Vec<Light>,
-    selected: [usize; 16],
-    count: usize,
-    output: [PointLightInput; 16],
+    first_spot: usize,
+    // Eligible lights by (distance, list order); the first MAX_LIGHTS are drawn.
+    selected: Vec<(f32, usize)>,
+    dropped: usize,
+    output: Vec<LightInput>,
+    map: Option<exact_game::EnvironmentMap>,
 }
 impl Scene {
     #[cfg(test)]
     pub(super) fn lights_for_test(&self) -> Vec<Entity> {
-        self.selected[..self.count]
+        self.selected
             .iter()
-            .map(|&i| self.lights[i].history.entity)
+            .take(MAX_LIGHTS)
+            .map(|&(_, i)| self.lights[i].history.entity)
             .collect()
     }
     pub fn trace_camera(&self, alpha: f32) -> [f64; 3] {
@@ -104,8 +153,12 @@ impl Scene {
         self.attachments.reset();
         self.camera = None;
         self.sun = None;
+        self.fill = None;
         self.lights.clear();
-        self.count = 0;
+        self.first_spot = 0;
+        self.selected.clear();
+        self.dropped = 0;
+        self.map = None;
     }
     pub fn feed(
         &mut self,
@@ -120,6 +173,8 @@ impl Scene {
             w.revision::<DirectionalLight>(),
             w.revision::<PointLight>(),
             w.revision::<exact_game::Lit>(),
+            w.revision::<SpotLight>(),
+            w.revision::<LightShadows>(),
         ];
         let old = self.versions;
         if old.is_none_or(|v| v[0] != versions[0]) || structure {
@@ -140,53 +195,106 @@ impl Scene {
             history.update(w, next_tick, parent_changed);
         }
         if old.is_none_or(|v| v[1] != versions[1]) || structure {
-            self.sun = w.query::<&DirectionalLight>().iter().find_map(|(e, s)| {
-                pose(w, e).map(|t| {
-                    (
-                        self.sun
-                            .filter(|(h, _)| h.entity == e)
-                            .map_or(History::new(e, t), |(h, _)| h),
-                        *s,
-                    )
-                })
-            });
+            // The first two posed directional lights: the sun, then a fill.
+            let (sun, fill) = (self.sun, self.fill);
+            let keep = |e: Entity, t: Transform| {
+                [sun, fill]
+                    .into_iter()
+                    .flatten()
+                    .find(|(h, _)| h.entity == e)
+                    .map_or(History::new(e, t), |(h, _)| h)
+            };
+            let mut query = w.query::<&DirectionalLight>();
+            let mut posed = query
+                .iter()
+                .filter_map(|(e, s)| pose(w, e).map(|t| (keep(e, t), *s)));
+            self.sun = posed.next();
+            self.fill = posed.next();
         }
-        if let Some((history, _)) = &mut self.sun {
+        for (history, _) in [&mut self.sun, &mut self.fill].into_iter().flatten() {
             history.update(w, next_tick, parent_changed);
         }
         if old.is_none_or(|v| v[2..] != versions[2..]) || structure {
-            // Compact departures once; keep histories in entity order and append
-            // arrivals. Value-only edits reuse the buffer without sorting.
+            // Compact departures once; keep each kind's histories in entity order
+            // and append arrivals. Value-only edits reuse the buffer without sorting.
+            let mut kept = 0;
+            let mut spots = 0;
+            let spot_at = self.first_spot;
+            let mut index = 0;
             self.lights.retain(|l| {
-                w.has::<PointLight>(l.history.entity) && w.global(l.history.entity).is_some()
+                let spot = index >= spot_at;
+                index += 1;
+                let e = l.history.entity;
+                let live = w.global(e).is_some()
+                    && if spot {
+                        w.has::<SpotLight>(e)
+                    } else {
+                        w.has::<PointLight>(e)
+                    };
+                if live {
+                    kept += 1;
+                    spots += usize::from(spot);
+                }
+                live
             });
-            let retained = self.lights.len();
+            let points = kept - spots;
+            let mut fresh = Vec::new();
             let mut at = 0;
             for (e, light) in w.query::<&PointLight>().iter() {
-                if at < retained && self.lights[at].history.entity == e {
-                    self.lights[at].light = *light;
-                    self.lights[at].lit = w.get::<exact_game::Lit>(e).as_deref().cloned();
+                let emitter = Emitter::point(light, w.has::<LightShadows>(e));
+                let lit = w.get::<exact_game::Lit>(e).as_deref().cloned();
+                if at < points && self.lights[at].history.entity == e {
+                    (self.lights[at].light, self.lights[at].lit) = (emitter, lit);
                     at += 1;
                 } else if let Some(t) = pose(w, e) {
-                    self.lights.push(Light {
-                        history: History::new(e, t),
-                        light: *light,
-                        lit: w.get::<exact_game::Lit>(e).as_deref().cloned(),
-                    });
+                    fresh.push((
+                        false,
+                        Light {
+                            history: History::new(e, t),
+                            light: emitter,
+                            lit,
+                        },
+                    ));
                 }
             }
-            if self.lights.len() != retained {
-                self.lights
-                    .sort_unstable_by_key(|l| l.history.entity.index());
+            let mut at = points;
+            for (e, light) in w.query::<&SpotLight>().iter() {
+                let emitter = Emitter::spot(light, w.has::<LightShadows>(e));
+                let lit = w.get::<exact_game::Lit>(e).as_deref().cloned();
+                if at < kept && self.lights[at].history.entity == e {
+                    (self.lights[at].light, self.lights[at].lit) = (emitter, lit);
+                    at += 1;
+                } else if let Some(t) = pose(w, e) {
+                    fresh.push((
+                        true,
+                        Light {
+                            history: History::new(e, t),
+                            light: emitter,
+                            lit,
+                        },
+                    ));
+                }
+            }
+            self.first_spot = points;
+            if !fresh.is_empty() {
+                let mut all: Vec<_> = self
+                    .lights
+                    .drain(..)
+                    .enumerate()
+                    .map(|(i, l)| (i >= points, l))
+                    .chain(fresh)
+                    .collect();
+                all.sort_by_key(|(spot, l)| (*spot, l.history.entity.index()));
+                self.first_spot = all.iter().filter(|(spot, _)| !spot).count();
+                self.lights.extend(all.into_iter().map(|(_, l)| l));
             }
         }
         if next_tick || moved || structure || old != Some(versions) {
-            self.count = 0;
+            self.selected.clear();
             self.attachments.frame(1.);
             let camera = self.camera.map_or(Vec3::ZERO, |(h, _)| {
                 displayed(&self.attachments.output, h.entity, h.curr).position
             });
-            let mut distances = [f32::INFINITY; 16];
             for (i, light) in self.lights.iter_mut().enumerate() {
                 light.history.update(w, next_tick, parent_changed);
                 // Eligibility is evaluated at the same tick endpoint as distance.
@@ -209,17 +317,20 @@ impl Scene {
                 )
                 .position
                 .distance_squared(camera);
-                // Selection depends only on current state; entity order breaks ties.
-                let score = distance;
-                let at = distances.partition_point(|d| *d <= score);
-                if at < 16 {
-                    distances.copy_within(at..15, at + 1);
-                    self.selected.copy_within(at..15, at + 1);
-                    distances[at] = score;
-                    self.selected[at] = i;
-                    self.count = (self.count + 1).min(16);
-                }
+                // Selection depends only on current state; list order (points, then
+                // spots, each in entity order) breaks ties.
+                self.selected.push((distance, i));
             }
+            self.selected
+                .sort_unstable_by(|a, b| a.0.total_cmp(&b.0).then(a.1.cmp(&b.1)));
+            self.dropped = self.selected.len().saturating_sub(MAX_LIGHTS);
+            // Frames then fill the output without allocating.
+            self.output.reserve(self.selected.len().min(MAX_LIGHTS));
+        }
+        // Cloned only when it changes.
+        let map = w.try_resource::<exact_game::EnvironmentMap>();
+        if self.map.as_ref() != map.as_deref() {
+            self.map = map.as_deref().cloned();
         }
         self.versions = Some(versions);
     }
@@ -252,34 +363,39 @@ impl Scene {
         } else {
             (w.tick() as f64 - 1. + alpha as f64) / w.hz() as f64
         };
-        // Only the selected sixteen histories are touched per frame.
-        for i in 0..self.count {
-            let l = &self.lights[self.selected[i]];
-            let point = PointLightInput {
-                position: displayed(
-                    &self.attachments.output,
-                    l.history.entity,
-                    l.history.at(alpha),
-                )
-                .position,
+        // Only the selected histories are touched per frame.
+        self.output.clear();
+        for &(_, i) in self.selected.iter().take(MAX_LIGHTS) {
+            let l = &self.lights[i];
+            let pose = displayed(
+                &self.attachments.output,
+                l.history.entity,
+                l.history.at(alpha),
+            );
+            self.output.push(LightInput {
+                position: pose.position,
                 color: l.light.color.into(),
-                intensity: l.light.intensity
+                intensity: PHOTOMETRIC_SCALE
+                    * l.light.intensity
                     * l.lit
                         .as_ref()
                         .map_or(1., |lit| lit.0.value_at(seconds, w.hz()).max(0.)),
                 range: l.light.range,
-            };
-            self.output[i] = point;
+                direction: (pose.rotation * -Vec3::Z).normalize_or(-Vec3::Z),
+                cone: l.light.cone,
+                shadows: l.light.shadows,
+            });
         }
-        let sun = self.sun.map(|(h, s)| Sun {
+        let directional = |(h, s): (History, DirectionalLight), shadows: bool| Sun {
             direction: (displayed(&self.attachments.output, h.entity, h.at(alpha)).rotation
                 * -Vec3::Z)
                 .normalize_or(-Vec3::Y),
             color: s.color.into(),
-            // 10,000 lux maps to the renderer's default key radiance of 3.
-            illuminance: s.illuminance * 0.0003,
-            shadows: s.shadows.then(Shadows::default),
-        });
+            illuminance: s.illuminance * PHOTOMETRIC_SCALE,
+            shadows: (shadows && s.shadows).then(Shadows::default),
+        };
+        let sun = self.sun.map(|s| directional(s, true));
+        let fill = self.fill.map(|s| directional(s, false));
         let e = w
             .try_resource::<exact_game::Environment>()
             .as_deref()
@@ -302,8 +418,19 @@ impl Scene {
             camera_position: camera_pose.position,
             alpha,
             sun,
-            points: &self.output[..self.count],
+            fill,
+            lights: &self.output,
+            lights_dropped: self.dropped,
             environment: e,
+            environment_map: self.map.as_ref().map(|m| crate::EnvironmentMapInput {
+                texture: &m.texture,
+                intensity: m.intensity,
+                rgbm: m.rgbm,
+            }),
+            ambient_occlusion: w
+                .try_resource::<exact_game::AmbientOcclusion>()
+                .as_deref()
+                .copied(),
             timestamps: None,
             attachments: &self.attachments.output,
         }

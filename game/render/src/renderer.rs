@@ -1,5 +1,6 @@
 mod culling;
 mod draw;
+mod local;
 mod passes;
 use crate::buffers::{bytes, Buffer, Targets};
 use crate::pipeline::Pipelines;
@@ -55,15 +56,27 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     culled_key: (wgpu::Buffer, u64),
     pub(crate) cull: crate::cull::Cull,
     pub(crate) environment: crate::ibl::EnvironmentLight,
+    pub(crate) lights: crate::lights::Lights,
+    pub(crate) local: Option<crate::local_shadows::LocalMaps>,
+    pub(crate) local_plan: crate::local_shadows::Plan,
+    pub(crate) local_culls: Vec<local::LocalCull>,
+    /// Group 1 of forward passes; rebuilt when a shadow texture is replaced.
+    shadow_sample: wgpu::BindGroup,
+    shadow_sample_stale: bool,
+    shadow_placeholder: wgpu::TextureView,
+    shadow_comparison: wgpu::Sampler,
     vertices: Buffer,
     indices: Buffer,
     pub(crate) meshes: Vec<Mesh>,
     pub(crate) mesh_uploads: u64,
     batches: Vec<Batch>,
+    /// A drawn batch is in the viewmodel layer this frame.
+    viewmodels: bool,
     targets: Targets,
     counts: Stats,
     shadows: Option<ShadowMaps>,
     bloom: Option<BloomTargets>,
+    ssao: Option<crate::ssao::Ssao>,
     texture_creations: u64,
     hook_binding: Option<crate::hooks::FrameBinding>,
     custom_bindings: Option<crate::hooks::MaterialBindings>,
@@ -110,7 +123,13 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             let start = at;
             let mirrored = self.slot_mirrored(self.slot_list[at as usize], frame);
             at += 1;
-            if frame.attachments.is_empty() && (!ASSETS || self.model_batches[index].is_none()) {
+            // A model batch shares its nodes' parity; only owners with a negative
+            // scale axis or an attachment can differ within it.
+            if frame.attachments.is_empty()
+                && (!ASSETS
+                    || self.model_batches[index].is_none()
+                    || !self.models.any_mirrored_owner())
+            {
                 at = end;
             } else {
                 while at < end && self.slot_mirrored(self.slot_list[at as usize], frame) == mirrored
@@ -160,6 +179,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             "game attachment matrices",
         );
         let environment = crate::ibl::EnvironmentLight::new(device, false);
+        let lights = crate::lights::Lights::new(device);
         let retained_binds = scene_binds(
             device,
             &pipelines.scene_layout,
@@ -169,6 +189,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             (&slots.raw, None),
             &attachment_matrices,
             &environment,
+            &lights,
         );
         let cull = crate::cull::Cull::new(device);
         let culled_key = (cull.compacted.raw.clone(), cull.window);
@@ -181,8 +202,35 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             (&cull.compacted.raw, Some(cull.window)),
             &attachment_matrices,
             &environment,
+            &lights,
         );
         let targets = Targets::new(device, (64, 64), &pipelines.tone_layout, &uniform);
+        let shadow_placeholder = crate::local_shadows::placeholder(device);
+        let shadow_comparison = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("game shadow comparison"),
+            compare: Some(wgpu::CompareFunction::LessEqual),
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let shadow_sample = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("game shadow sample"),
+            layout: &pipelines.shadow_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&shadow_placeholder),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&shadow_comparison),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(&shadow_placeholder),
+                },
+            ],
+        });
         Self {
             models: crate::models::Models::default(),
             quads: crate::quads::Quads::new::<ASSETS>(device, queue, &uniform),
@@ -203,14 +251,24 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             culled_key,
             cull,
             environment,
+            lights,
+            local: None,
+            local_plan: Default::default(),
+            local_culls: Vec::new(),
+            shadow_sample,
+            shadow_sample_stale: false,
+            shadow_placeholder,
+            shadow_comparison,
             vertices: Buffer::new(device, 1024, wgpu::BufferUsages::VERTEX, "game vertices"),
             indices: Buffer::new(device, 1024, wgpu::BufferUsages::INDEX, "game indices"),
             meshes: Vec::new(),
             mesh_uploads: 0,
             batches: Vec::new(),
+            viewmodels: false,
             targets,
             shadows: None,
             bloom: None,
+            ssao: None,
             texture_creations: 4,
             hook_binding: None,
             custom_bindings: None,
@@ -245,6 +303,17 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         self.check_capacity("transforms", end)?;
         self.ensure_slots(end);
         self.transforms[self.current].write(&self.queue, u64::from(first_slot) * 40, bytes(values));
+        // Slots past the history's high-water mark have never had a previous
+        // pose: an entity spawned in an earlier tick of a multi-tick advance
+        // is no longer `fresh` when the presentation feeds. It starts with its
+        // current pose as history, as a fresh one does.
+        let history = &mut self.transforms[1 - self.current];
+        let known = history.live / 40;
+        if end > known {
+            let from = known.max(u64::from(first_slot));
+            let skip = (from - u64::from(first_slot)) as usize * 10;
+            history.write(&self.queue, from * 40, bytes(&values[skip..]));
+        }
         Ok(())
     }
 
@@ -594,7 +663,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
     }
 
-    fn rebind(&mut self) {
+    pub(crate) fn rebind(&mut self) {
         self.scene_binds = scene_binds(
             &self.device,
             &self.pipelines.scene_layout,
@@ -604,8 +673,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             (&self.slots.raw, None),
             &self.attachment_matrices,
             &self.environment,
+            &self.lights,
         );
         self.rebind_culled();
+        self.rebind_locals();
     }
     fn rebind_culled(&mut self) {
         self.culled_key = (self.cull.compacted.raw.clone(), self.cull.window);
@@ -618,6 +689,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             (&self.cull.compacted.raw, Some(self.cull.window)),
             &self.attachment_matrices,
             &self.environment,
+            &self.lights,
         );
     }
 }
@@ -639,6 +711,7 @@ fn scene_binds(
     slots: (&wgpu::Buffer, Option<u64>),
     attachments: &Buffer,
     environment: &crate::ibl::EnvironmentLight,
+    lights: &crate::lights::Lights,
 ) -> [wgpu::BindGroup; 2] {
     std::array::from_fn(|current| {
         let slots = match slots.1 {
@@ -658,6 +731,7 @@ fn scene_binds(
             attachments.raw.as_entire_binding(),
             wgpu::BindingResource::TextureView(&environment.view),
             wgpu::BindingResource::Sampler(&environment.sampler),
+            lights.buffer.raw.as_entire_binding(),
         ];
         let entries = resources.map({
             let mut binding = 0;
@@ -685,6 +759,31 @@ pub(crate) fn viewport(pass: &mut wgpu::RenderPass<'_>, size: (u32, u32)) {
 #[cfg(test)]
 mod packing_tests {
     use super::*;
+    /// A slot first written after a history swap (an entity spawned in an
+    /// earlier tick of a multi-tick advance, so never `fresh` when the
+    /// presentation feeds) has no history yet; it draws without interpolation
+    /// instead of refusing the batch.
+    #[test]
+    fn slots_first_written_after_a_swap_take_their_current_pose_as_history() {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
+        let mut r = RendererWithAssets::<false>::new(
+            &gpu.device,
+            &gpu.queue,
+            wgpu::TextureFormat::Rgba8Unorm,
+        );
+        let (vertices, indices) = crate::shapes::plane();
+        let mesh = r.add_mesh(&vertices, &indices);
+        let pose = [0., 0., 0., 0., 0., 0., 1., 1., 1., 1.];
+        r.write_transforms_both(0, &pose).unwrap();
+        r.write_materials(0, &[1.; 12 * 3000]).unwrap();
+        r.begin_tick();
+        r.write_transforms(0, &pose.repeat(3000)).unwrap();
+        r.set_batches(&[Batch::new(mesh, 0..3000)], &(0..3000).collect::<Vec<_>>())
+            .unwrap();
+        assert!(r.transforms.iter().all(|b| b.live == 3000 * 40));
+    }
     #[test]
     fn primitive_batches_skip_model_allocations_and_keep_attachment_winding() {
         let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {

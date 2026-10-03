@@ -174,6 +174,7 @@ impl<G: Game, P: Presentation, const ASSETS: bool, H: crate::Hooks> WorldSurface
             self.gpu_timing = None;
         }
         let mut input = feed.frame_pixels(sim.world(), sim.alpha(), (frame.width, frame.height));
+        self.perf.lights(input.lights.len(), input.lights_dropped);
         let cascades = input
             .sun
             .filter(|s| s.illuminance != 0.)

@@ -1,12 +1,13 @@
 //! Public, independently authored render-hook proof; no consumer game or ocean code.
 //! @ref llp/1046.006.000-render-hooks.rfc.md#5-order-of-work
+use exact_game::Args;
 use exact_game::{Environment, Game, Input, World};
 use exact_game_render::{
     FrameView, HookGpu, Hooks, Needs, PostInputs, RenderError, RenderWorld, SceneCopy, WorldSurface,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use exact_gpu::fixture;
-use exact_gpu::{wgpu, Frame, Surface};
+use exact_gpu::{wgpu, Frame, Surface, Value};
 
 pub struct TestGame;
 impl Game for TestGame {
@@ -503,10 +504,14 @@ fn rejected_pipeline_update_keeps_last_valid_set() {
 }
 
 struct MaterialGame;
+#[derive(Default, Args)]
+struct MaterialArgs {
+    caster: bool,
+}
 impl Game for MaterialGame {
-    type Args = ();
+    type Args = MaterialArgs;
     const ID: &'static str = "custom-material-public-proof";
-    fn setup(w: &mut World, _: &()) {
+    fn setup(w: &mut World, args: &MaterialArgs) {
         use exact_game::*;
         let mesh = w
             .generated(
@@ -523,6 +528,14 @@ impl Game for MaterialGame {
             .unwrap();
         w.spawn((Transform::default(), mesh));
         w.spawn((Transform::at(0., 0., 5.), Camera::default()));
+        if args.caster {
+            // Between the sun and the panel's upper right, out of the camera's way.
+            w.spawn((
+                Transform::at(1.2, 1.8, 2.4),
+                Mesh::cube(0.5),
+                Material::rgb(1., 1., 1.),
+            ));
+        }
         w.spawn((
             Transform::at(2., 3., 4.).looking_at(Vec3::ZERO, Vec3::Y),
             DirectionalLight::default(),
@@ -534,16 +547,17 @@ impl Game for MaterialGame {
             ..Default::default()
         });
     }
-    fn tick(_: &mut World, _: &Input, _: &()) {}
-    fn paused(_: &()) -> bool {
+    fn tick(_: &mut World, _: &Input, _: &MaterialArgs) {}
+    fn paused(_: &MaterialArgs) -> bool {
         true
     }
 }
+// SHADOWS: the forward shader outputs the engine's sun visibility as green.
 #[derive(Default)]
-struct MaterialHooks {
+struct MaterialHooks<const SHADOWS: bool = false> {
     materials: Vec<exact_game_render::hooks::CustomMaterial>,
 }
-impl Hooks for MaterialHooks {
+impl<const SHADOWS: bool> Hooks for MaterialHooks<SHADOWS> {
     fn prepare(
         &mut self,
         gpu: &HookGpu<'_>,
@@ -563,6 +577,22 @@ impl Hooks for MaterialHooks {
         }
         @fragment fn fragment()->@location(0) vec4f {return vec4f(0.0,2.0,0.0,1.0);}
         "#;
+        let shadowed = r#"
+        @vertex fn vertex(@location(0) p:vec3f,@location(1) n:vec3f,@builtin(instance_index) i:u32)->Varying {
+            return instance_transform(p,n,i,vec4f(1.0));
+        }
+        @fragment fn fragment(v:Varying)->@location(0) vec4f {
+            return vec4f(0.0,2.0*sun_shadow(v.world,normalize(v.normal)),0.0,1.0);
+        }
+        "#;
+        let forward = if SHADOWS {
+            format!(
+                "{}\n{shadowed}",
+                exact_game_render::hooks::MATERIAL_SHADOWS_WGSL
+            )
+        } else {
+            forward.to_owned()
+        };
         let shadow = r#"
         @group(1) @binding(0) var<uniform> light:mat4x4f;
         @vertex fn shadow(@location(0) p:vec3f,@location(1) n:vec3f,@builtin(instance_index) i:u32)->@builtin(position) vec4f {
@@ -589,7 +619,7 @@ impl Hooks for MaterialHooks {
             .push(exact_game_render::hooks::CustomMaterial {
                 material,
                 forward: gpu_materials.pipeline(
-                    &shader(forward),
+                    &shader(&forward),
                     &layout,
                     "vertex",
                     Some("fragment"),
@@ -623,7 +653,7 @@ fn custom_material_uses_engine_instances_and_paired_shadow() {
         MaterialHooks,
     >::default();
     surface.device_ready(exact_gpu::wgpu::Features::empty());
-    surface.bind(&[], None).unwrap();
+    surface.bind(&[Value::Bool(false)], None).unwrap();
     let hash = surface.sim().unwrap().world().hash();
     let save = surface.sim().unwrap().world().save();
     let (image, _) = fixture::render(&gpu, &mut surface, &frame()).unwrap();
@@ -632,4 +662,40 @@ fn custom_material_uses_engine_instances_and_paired_shadow() {
     assert!(center[1] > 150 && center[0] < 20, "{center:?}");
     assert_eq!(surface.sim().unwrap().world().hash(), hash);
     assert_eq!(surface.sim().unwrap().world().save(), save);
+}
+
+#[test]
+fn custom_material_forward_shaders_sample_the_engine_shadow_maps() {
+    let Some(gpu) = fixture::device_or_skip(fixture::device()) else {
+        return;
+    };
+    let render = |caster: bool| {
+        let mut surface = WorldSurface::<
+            MaterialGame,
+            exact_game_render::ModelPresentation,
+            true,
+            MaterialHooks<true>,
+        >::default();
+        surface.device_ready(exact_gpu::wgpu::Features::empty());
+        surface.bind(&[Value::Bool(caster)], None).unwrap();
+        let (image, _) = fixture::render(&gpu, &mut surface, &frame()).unwrap();
+        assert!(surface.error().is_none(), "{:?}", surface.error());
+        image.save(if caster {
+            "custom-shadowed"
+        } else {
+            "custom-unshadowed"
+        });
+        image
+    };
+    let (open, shadowed) = (render(false), render(true));
+    let lit = |image: &fixture::Pixels| {
+        (16..48)
+            .flat_map(|y| (16..48).map(move |x| (x, y)))
+            .filter(|&(x, y)| image.at(x, y)[1] > 100)
+            .count()
+    };
+    let (open, shadowed) = (lit(&open), lit(&shadowed));
+    eprintln!("lit panel pixels without and with the caster: {open} {shadowed}");
+    assert!(open > 200, "{open}");
+    assert!(shadowed + 40 < open, "{open} {shadowed}");
 }
