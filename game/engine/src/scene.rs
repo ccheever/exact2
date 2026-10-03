@@ -123,6 +123,36 @@ impl Default for Camera {
     }
 }
 
+/// Presentation-only mouse look for a yaw–pitch camera. Between ticks the drawn
+/// camera, and everything parented under it, turns by the pointer motion the
+/// simulation has received but not yet shown ([`crate::Sim::unshown_motion`])
+/// at the game's own rates, so a turn shows at the next frame whatever the tick
+/// and display rates. Put it on the camera only while each tick turns the
+/// camera by that tick's `pointer().delta` at these rates; ticks never read it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Component)]
+pub struct MouseLook {
+    /// Radians of yaw, about world +Y, per point of horizontal motion.
+    pub yaw_per_point: f32,
+    /// Radians of pitch, about the camera's right axis, per point of vertical motion.
+    pub pitch_per_point: f32,
+    /// The game's pitch limit in radians: the drawn camera never pitches past it.
+    pub pitch_limit: f32,
+}
+impl MouseLook {
+    /// The world-space turn about the eye for `motion` points, given the drawn
+    /// camera's rotation: yaw about +Y, then pitch about its right axis, the
+    /// pitch held inside the limit.
+    pub fn turn(self, rotation: crate::Quat, motion: crate::Vec2) -> crate::Quat {
+        let forward = rotation * -Vec3::Z;
+        let pitch = crate::math::asin(forward.y.clamp(-1., 1.));
+        let limit = self.pitch_limit.abs();
+        let to = crate::math::clamp(pitch + motion.y * self.pitch_per_point, -limit, limit);
+        let right = (rotation * Vec3::X).normalize_or(Vec3::X);
+        crate::Quat::from_rotation_y(motion.x * self.yaw_per_point)
+            * crate::Quat::from_axis_angle(right, to - pitch)
+    }
+}
+
 impl Camera {
     /// Orthographic vertical extent in world units, looking along negative Z.
     pub fn orthographic(height: f32) -> Self {
