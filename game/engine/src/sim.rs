@@ -138,6 +138,8 @@ pub struct Sim<G: Game> {
     overflow_logged: bool,
     // Posts a full input queue refused; reported in agent state, never saved.
     pub(crate) refused_posts: u64,
+    // Whether this overflow episode's refused post is journaled; never saved.
+    posts_logged: bool,
     rebase_queue: bool,
     pub(crate) restored: bool,
     pub(crate) last_us: Option<i64>,
@@ -542,6 +544,7 @@ impl<G: Game> Sim<G> {
             queue,
             overflow_logged: false,
             refused_posts: 0,
+            posts_logged: false,
             rebase_queue: false,
             restored: false,
             last_us: None,
@@ -632,6 +635,7 @@ impl<G: Game> Sim<G> {
             self.input = Input::new(G::actions());
             self.input.viewport = viewport;
             self.overflow_logged = false;
+            self.posts_logged = false;
             self.restored = false;
             self.world
                 .log(format_args!("world restarted: {}", changes.join(", ")));
@@ -749,6 +753,11 @@ impl<G: Game> Sim<G> {
             }
         }
         let (mut position, mut e) = (position, e);
+        if self.queue.len() < QUEUE_LIMIT {
+            // Below the limit an overflow episode is over: the next one journals again.
+            self.overflow_logged = false;
+            self.posts_logged = false;
+        }
         if self.queue.len() == QUEUE_LIMIT {
             // A posted message is never dropped silently: a full queue refuses
             // the new post, by name, and a device event never displaces one.
@@ -761,11 +770,20 @@ impl<G: Game> Sim<G> {
                 .flatten();
             let Some(drop) = drop else {
                 self.refused_posts += u64::from(message(&e));
-                self.world.log(if message(&e) {
-                    "postMessage refused: the input queue holds 1024 events; post less often"
+                // Once per overflow episode for each kind; state counts each post.
+                let logged = if message(&e) {
+                    &mut self.posts_logged
                 } else {
-                    "input queue overflow: every queued event is a posted message; dropped the new event"
-                });
+                    &mut self.overflow_logged
+                };
+                if !*logged {
+                    *logged = true;
+                    self.world.log(if message(&e) {
+                        "postMessage refused: the input queue holds 1024 events; post less often (state input.refusedPosts counts them)"
+                    } else {
+                        "input queue overflow: every queued event is a posted message; dropped the new event"
+                    });
+                }
                 return;
             };
             let was_move = self.queue[drop].event.is_move();
@@ -1091,6 +1109,7 @@ impl<G: Game> Sim<G> {
         let last_motion = self.last_motion;
         let paused_clock = self.paused_clock;
         let rebase_queue = self.rebase_queue;
+        let posts_logged = self.posts_logged;
         let observations = std::mem::take(&mut self.observations);
         // Resetting sprite names must still discover removal of the last texture.
         let assets_current = self.asset_mesh_revision == self.world.revision::<crate::Mesh>()
@@ -1140,6 +1159,7 @@ impl<G: Game> Sim<G> {
         self.last_motion = last_motion;
         self.paused_clock = paused_clock;
         self.rebase_queue = rebase_queue;
+        self.posts_logged = posts_logged;
         self.queue = queue;
         self.observations = observations;
         if assets_current {

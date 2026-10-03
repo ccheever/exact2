@@ -229,6 +229,7 @@ final class Canvases {
         e.each = m.wantsChildrenEach(e.id) != 0
         e.through = e.each || m.wantsChildren(e.id) != 0
         e.wantsInput = m.wantsInput?(e.id) == 1 && m.input != nil
+        deliverPosts() // a post held for this surface, if the canvas is live already
         if e.wantsInput { e.view.canvasInput = CanvasInput(view: e.view) }
         if e.through { capture(m, e) }
     }

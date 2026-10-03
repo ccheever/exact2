@@ -86,6 +86,8 @@ pub struct PoseCursor {
     generation: u64,
     transforms: u64,
     hierarchy: u64,
+    // What a socket follower's pose depends on (World::rig_key).
+    rig: [u64; 7],
 }
 
 /// Hierarchy edge. Descendants of a dead parent leave at the end of the tick.
@@ -595,7 +597,39 @@ impl World {
             generation: self.presentation_generation,
             transforms: self.revision::<Transform>(),
             hierarchy: self.hierarchy.epoch,
+            rig: self.rig_key(),
         }
+    }
+    /// Everything a socket follower's global can follow: time, the rig's Transform
+    /// and Pose, the followers themselves, meshes and delivered models (an asset
+    /// hot-reload), and entity names (a FollowTarget::Name resolving elsewhere).
+    pub(crate) fn rig_key(&self) -> [u64; 7] {
+        [
+            self.tick(),
+            self.revision::<Transform>(),
+            self.revision::<crate::Pose>(),
+            self.revision::<crate::SocketFollow>(),
+            self.revision::<Mesh>(),
+            self.model_revision(),
+            self.entities_revision(),
+        ]
+    }
+    /// Blocks of every socket follower and its descendants: their globals follow
+    /// an animated rig's Pose and Transform, which writes none of their rows.
+    /// Empty without attachments; costs the followers' subtrees, not the world.
+    pub(crate) fn socket_pages(&self) -> std::collections::BTreeSet<usize> {
+        let mut pages = std::collections::BTreeSet::new();
+        if self.attachments.is_none() {
+            return pages;
+        }
+        if let Some(followers) = self.storage::<crate::SocketFollow>() {
+            for i in followers.indices(None) {
+                self.hierarchy.subtree(i, &mut |j| {
+                    pages.insert(j / crate::PAGE);
+                });
+            }
+        }
+        pages
     }
     /// The first entity index of each block of `PAGE` slots in which a local
     /// Transform row was written (or inserted or removed), or a propagated global
@@ -606,11 +640,22 @@ impl World {
         let all = since.generation != self.presentation_generation;
         let transforms = self.storage::<Transform>();
         let epochs = &self.hierarchy.epochs;
-        let pages = transforms.map_or(0, |s| s.page_count()).max(epochs.len());
+        // A follower's subtree moves with its rig: report it whenever anything
+        // its pose follows moved since the cursor, paused or not.
+        let sockets = if self.rig_key() != since.rig {
+            self.socket_pages()
+        } else {
+            Default::default()
+        };
+        let pages = transforms
+            .map_or(0, |s| s.page_count())
+            .max(epochs.len())
+            .max(sockets.last().map_or(0, |p| p + 1));
         (0..pages)
             .filter(move |&page| {
                 all || transforms.is_some_and(|s| s.page_generation(page) > since.transforms)
                     || epochs.get(page).is_some_and(|&e| e > since.hierarchy)
+                    || sockets.contains(&page)
             })
             .map(|page| (page * crate::PAGE) as u32)
     }

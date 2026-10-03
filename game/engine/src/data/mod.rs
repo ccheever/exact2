@@ -266,6 +266,13 @@ pub trait Writer {
     fn option(&mut self, some: bool);
     /// End an option.
     fn end_option(&mut self);
+    /// Whether this sink is a hash, which accepts a value's own digest in place of
+    /// its content. A value that keeps a digest of everything it would write (a
+    /// deterministic function of that content, recomputed identically after a
+    /// load) may write that number instead. Saves, JSON and inspection say no.
+    fn digests(&self) -> bool {
+        false
+    }
 }
 
 /// An object-safe cursor. End markers are consumed by `item` and `field`.

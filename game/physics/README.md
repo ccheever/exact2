@@ -64,6 +64,11 @@ The hole format is `PhysicsWorld::with_holes`/`FillHoles` in the vendored Rapier
 the free list.
 `Data::write(&self)` refreshes dirty bytes for save, hash and JSON; `refresh_snapshot`
 measures the same operation. Stepping does not serialize. JSON summarizes the opaque bytes by length/hash.
+A hash (`Writer::digests`) reads a digest instead of the content: the snapshot
+bytes' hash and each entry's hash in entity order, an entry rehashed only after
+sync or writeback touches it. Both are functions of the saved content, recomputed
+identically after a load. At 100k static trees a hash after a step costs about
+10 ms of snapshot encoding plus 12 ms, against 11 + 39 ms reading every entry.
 Malformed or obsolete Rapier payloads fail during `World::load`, before replacement.
 
 Continuation tests preserve the complete authoritative snapshot; `Executor::clone`
@@ -88,11 +93,12 @@ those pairs and each collider's flags changed. Every body pose, velocity and eve
 over 600 ticks of pile/stack/drop/bounce and 120 of minimal is byte-identical to the
 previous build (native arm64). They moved again with EXPHYS v3's holes, trajectories
 again unchanged, and once more when the world hash became a stream of per-page
-digests and saves became columnar (EXGAME v4). The current values (pile-600
-0x10ee6976a1a36bed, minimal-120 0x811553c310928bfa) agree on native arm64 and on
-x86-64 (`--target x86_64-apple-darwin` under Rosetta), Off/Save/FreshGame alike,
-and the living controller still rests at tick 547 with Off/Save/FreshGame
-agreement (2026-10-03).
+digests and saves became columnar (EXGAME v4), and again when a hash began reading
+the executor's digest. The current values (pile-600 0x61d3a2b48c505773,
+minimal-120 0x406386e479211958) agree on native arm64, on x86-64
+(`--target x86_64-apple-darwin` under Rosetta) and in the web-profile `minimal`
+Wasm under Bun, Off/Save/FreshGame alike, and the living controller still rests at
+tick 547 with Off/Save/FreshGame agreement (2026-10-03).
 
 Reproduce from `game/` with `EXACT_UPDATE_TRUST=development`:
 ```
