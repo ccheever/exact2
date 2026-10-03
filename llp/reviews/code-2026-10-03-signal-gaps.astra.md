@@ -33,3 +33,42 @@
 8. **Should-fix — The new parser deliberately accepts invalid CSS.** [env.rs:480](/tmp/rv-gaps1/kernel/src/style/env.rs:480) accepts `calc(2.5px+env(...))`, and [tests.rs:37](/tmp/rv-gaps1/kernel/src/style/tests.rs:37) enshrines that acceptance. CSS requires whitespace on both sides of binary `+` and `-`. [CSS Values](https://drafts.csswg.org/css-values-4/#calc-syntax). Preserve valid commuted addition while rejecting missing operator whitespace and whitespace between the number and `px`; replace the positive malformed example with rejection tests.
 
 Verdict: DO NOT LAND
+
+## Round 2, 2026-10-03
+
+- **Method:** `codex exec` as round 1, `-C` a detached worktree at `16da1d643`; brief sha256 `2844e246243d0a1021adb03ea1860c8dd555ac22a5bdc0c1f4a3ab355048c80e` (the fixes `abe4e18e9..16da1d643` against round 1's findings and dispositions). Blind to grok's round 2.
+- **Verdict:** LAND WITH FIXES.
+- **Disposition:** all three fixed in `150042a84`:
+  1. *The predecessor's scrollend clears its successor.* Fixed. A successor starts only from the predecessor's `scrollend` (from the arriving scroll where the browser has no `scrollend`). A `scrollend` neither at the target nor at an edge lands nothing. The retarget test now reports during the second leg and asserts its destination, velocity 0 and an unmoved sequence.
+  2. *The authored-jump test missed the path.* Fixed. A fixture option `own` makes the list its own scrollport, so `jump` goes through `jumpTo` and `stopAnimation`. The test asserts it reaches 400 and stays there, and the report is the port's.
+  3. *Serials kept forever.* Fixed. One host-wide counter, with an entry only while an animation runs. `stopAnimation`, retirement in `beginBatch` and `reset` drop it, and the iOS test asserts nothing is kept after the end.
+
+---
+
+1. **Must-fix — The first animation’s `scrollend` clears its replacement.** [collection-glue.js:190](/tmp/rv-gaps2/host/web/collection-glue.js:190) calls `landed()`, which immediately starts `s.owed`. The subsequent `scrollend` calls `landed()` again at [line 447](/tmp/rv-gaps2/host/web/collection-glue.js:447), clearing the replacement’s state while its browser animation continues. This final-`scroll`/`scrollend` ordering follows [CSSOM View’s event queue](https://drafts.csswg.org/cssom-view/#scrolling-events).
+
+   An in-memory controller reproduction targeting 860, then 960, reports content offset **900 → 800**, followed by **1,250 px/s** and two sequence increments without input. This reintroduces request cancellation and lost end-follow. Start the owed animation only after consuming the original completion event, and test reports throughout the second animation.
+
+2. **Should-fix — The authored-jump regression test never exercises the fix.** [collection.test.mjs:347](/tmp/rv-gaps2/host/web/collection.test.mjs:347) calls `jump(1,400)`, but [the fixture](/tmp/rv-gaps2/host/web/collection.test.mjs:51) puts view 1 inside a separate scrollport. Consequently, [collection-glue.js:536](/tmp/rv-gaps2/host/web/collection-glue.js:536) takes the plain-assignment fallback and never calls `jumpTo()` or `stopAnimation()`. The assertion also never requires reaching 400; natural animation completion can satisfy it. Use a fixture where the collection owns its scrollport, and assert that it reaches—and remains at—400.
+
+3. **Should-fix — Animation serials retain every animated collection indefinitely.** [Collection.swift:249](/tmp/rv-gaps2/host/apple/Sources/ExactKit/Collection.swift:249) inserts into `animationSerial`, but completion, collection retirement, and [reset](/tmp/rv-gaps2/host/apple/Sources/ExactKit/Collection.swift:311) never remove entries. [View IDs are never reused within a runner](/tmp/rv-gaps2/runner/src/instance.rs:210), so repeatedly mounting, animating and retiring collections grows this dictionary without bound. Use a host-wide increasing serial with a map containing only active animations; remove entries on completion, cancellation, retirement and reset.
+
+Round-1 dispositions:
+
+- **Astra #1 — resolved:** absolute destinations now use physical geometry.
+- **Astra #2 — not resolved:** the direct sampling guards work, but finding 1 exposes replacement-animation ticks as travel.
+- **Astra #3 — resolved:** `jumpTo()` cancels animation state and zero-distance requests finish synchronously; its regression test needs finding 2’s correction.
+- **Astra #4 — resolved:** ordinary corrections cancel before the equal-position return on both Apple hosts.
+- **Astra #5 — not resolved:** distant smooth jumps still cross unbuilt spacers. The separate physical/destination reporting requirement makes deferral reasonable for this scoped work; [§11](/tmp/rv-gaps2/llp/1070.000-scroll-into-view.rfc.md:107) and [QUEUE](/tmp/rv-gaps2/QUEUE.md:18) now acknowledge it explicitly.
+- **Astra #6 — resolved:** `bun scripts/caps.mjs` passes.
+- **Astra #7 — resolved:** AppKit completion and the deferred continuation check animation serials.
+- **Astra #8 — resolved:** `leading_length` enforces the reported whitespace requirements.
+- **Grok #1 — resolved:** the incorrect coordinate conversion is fixed.
+- **Grok #2 — not resolved:** an old `scrollend` still ends the replacement; finding 1.
+- **Grok #3 — resolved:** input explicitly stops the browser animation.
+- **Grok #4 — resolved:** macOS fits the document before handling an animated shift, including zero delta.
+- **Grok #5 — resolved:** AppKit completion checks serial identity.
+
+Validation: caps passed; controller reproductions ran entirely in memory. No files modified, native builds or browser-suite runs.
+
+Verdict: LAND WITH FIXES
