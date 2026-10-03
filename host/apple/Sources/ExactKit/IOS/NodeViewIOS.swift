@@ -693,7 +693,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             if outsideX && (style["overflow_x"]?.string ?? "visible") != "visible" { return nil }
             if outsideY && (style["overflow_y"]?.string ?? "visible") != "visible" { return nil }
             for child in subviews.reversed() {
-                if child === (glassSlot ?? materialView), Materials.glass(materialKind), let contentView = materialView?.contentView {
+                if child === (glassSlot ?? materialView), Materials.glass(materialKind) || blurHostsChildren, let contentView = materialView?.contentView {
                     // The effect's UIKit bounds check must not hide authored
                     // children in CSS visible overflow. They remain descendants
                     // of the effect, so its recognizers still see their touches.
@@ -930,6 +930,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             materialInteractive = interactive
         }
         applyMaterialRadius()
+        rehomeMaterialChildren()
     }
     func applyMaterialRadius() {
         guard let materialView else { return }
@@ -1080,6 +1081,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         applyBoxMask()
         applyFilter()
         updateMaterial()
+        syncVibrancy()
         syncScroll()
         applyAffordances()
         styleTextArea()

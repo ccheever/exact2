@@ -997,7 +997,8 @@ fn paint_json(paint: Option<&ShapePaint>, s: &mut String) {
         return server_json(server, paint.opacity, s);
     }
     let a = |alpha: u8| ((alpha as f32) * paint.opacity).round() as u8;
-    match paint.color {
+    match paint.color.pair() {
+        ColorValue::System(_) => {} // `pair` never returns one
         ColorValue::Fixed(c) => {
             let _ = write!(s, "[{},{},{},{}]", c.r(), c.g(), c.b(), a(c.a()));
         }

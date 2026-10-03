@@ -1163,9 +1163,7 @@ fn canvas_node_style(kernel: &exact_kernel::Kernel, view: ViewId) -> (Option<Rgb
     let Some(node) = kernel.node(view) else {
         return (None, false);
     };
-    let c = match node.text_color() {
-        exact_kernel::ColorValue::Fixed(c) | exact_kernel::ColorValue::LightDark(c, _) => c.0,
-    };
+    let c = node.text_color().resolve(false).0;
     let [r, g, b, a] = c.to_be_bytes();
     let rtl = node
         .computed_style(exact_kernel::StyleMask::INHERITED)

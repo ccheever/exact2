@@ -256,7 +256,9 @@ extension NodeView {
         // the next frame's changes, rather than alone.
         let ink = textRasterLayer ?? InkLayer()
         // Above the box's border (`applyBoxLayer`), under everything else.
-        if ink.superlayer == nil { textRasterLayer = ink; insertBoxSublayer(ink) }
+        // Inside a vibrancy view when it draws in a system colour over a
+        // blur (`VibrancyIOS.swift`).
+        if ink.superlayer == nil { textRasterLayer = ink; if syncVibrancy() == nil { insertBoxSublayer(ink) } }
         ink.frame = result.frame
         ink.contentsScale = key.scale
         NumeralRoll.roll(ink, node: self)

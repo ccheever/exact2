@@ -287,7 +287,16 @@ Rows 154 `text_shadow` (inherited), 155 `mask_image`, 156 `corner_shape`, each C
 
 **Owed after §5:**
 
-- **D13 vibrancy itself.** A label is vibrant only inside a material's effect view, and the node tree does not nest a material's children there; only glass groups do. The colours land; the vibrancy effect does not yet.
+- **D13 vibrancy itself.** *Built 2026-10-03.* A system colour keeps its identity: the kernel's `ColorValue::System(index)` crosses the wire as tag 2 and paints as its pair. Apple's style JSON names the rows holding one (`system_colors`).
+  - **macOS.** A material's children are already inside its `NSVisualEffectView`. A view in a system colour answers `allowsVibrancy`.
+  - **iOS.** A blur material whose box clips on both axes hosts its children in the effect view's content view, which clips them as the box did. Inside it, a paragraph in a system colour draws its ink, and a plain system fill its shape, in a vibrancy effect view of UIKit's matching style (`IOS/VibrancyIOS.swift`).
+  - **Seen** on `scripts/fixtures/vibrancy.contract`:
+    - iOS, light and dark: the clipping card's labels and fill blend with the backdrop; the other card's labels draw flat.
+    - macOS: the label pixels differ from the plain build's, darker under AppKit's blending.
+  - **Owed:**
+    - an iOS material whose children may overflow
+    - drawn text (the non-raster path)
+    - vibrancy inside glass
 - **D15 per-digit roll.** The raster is one picture, so the whole line rolls.
 - **Felt and pointed on a device.** Haptics (D14), the scroll edge (D16) and the pointer (D17) are not observable in the simulator's screenshots.
 - **Web stand-ins** for the symbol effects.

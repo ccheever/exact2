@@ -211,6 +211,12 @@ impl<'a> Reader<'a> {
         match self.u8()? {
             0 => Ok(ColorValue::Fixed(self.color()?)),
             1 => Ok(ColorValue::LightDark(self.color()?, self.color()?)),
+            2 => match self.u8()? {
+                i if (i as usize) < crate::style::symbols::SYSTEM_COLORS.len() => {
+                    Ok(ColorValue::System(i))
+                }
+                _ => Err(DecodeError::BadColorValue(2)),
+            },
             other => Err(DecodeError::BadColorValue(other)),
         }
     }
@@ -524,6 +530,10 @@ impl Writer {
                 self.u8(1);
                 self.color(light);
                 self.color(night);
+            }
+            ColorValue::System(i) => {
+                self.u8(2);
+                self.u8(i);
             }
         }
     }

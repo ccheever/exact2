@@ -209,7 +209,7 @@ final class GlassSlot: UIVisualEffectView {}
 extension NodeView {
     /// What `container` names without a group: the scroll, the canvas
     /// overlay, a glass's content view, the clip box, or the node.
-    var baseContainer: UIView { scroll ?? overlay ?? (Materials.glass(materialKind) ? materialView?.contentView : nil) ?? clipBox ?? self }
+    var baseContainer: UIView { scroll ?? overlay ?? (Materials.glass(materialKind) || blurHostsChildren ? materialView?.contentView : nil) ?? clipBox ?? self }
 
     /// The group view's place and spacing, or its absence (D2, D6).
     func syncGlassGroup() {

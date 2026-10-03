@@ -637,6 +637,11 @@ pub enum ColorValue {
     /// CSS `light-dark(a, b)`: the first under a light scheme, the second
     /// under a dark one.
     LightDark(Color, Color),
+    /// One of UIKit's label, fill and separator colours by WebKit's name
+    /// (`symbols::SYSTEM_COLORS`, by index): the table's pair wherever a
+    /// colour paints, and the name an Apple host draws vibrantly inside a
+    /// material (LLP 1077 D13).
+    System(u8),
 }
 
 impl Default for ColorValue {
@@ -649,7 +654,7 @@ impl ColorValue {
     /// The colour under an appearance. A host that paints calls this; the web
     /// host does not, because it hands the pair to the browser.
     pub const fn resolve(self, dark: bool) -> Color {
-        match self {
+        match self.pair() {
             ColorValue::Fixed(c) => c,
             ColorValue::LightDark(light, night) => {
                 if dark {
@@ -658,13 +663,31 @@ impl ColorValue {
                     light
                 }
             }
+            // `pair` never returns one.
+            ColorValue::System(_) => Color(0),
+        }
+    }
+
+    /// A system colour as the pair it paints; any other value as it is.
+    pub const fn pair(self) -> ColorValue {
+        match self {
+            ColorValue::System(i) => symbols::system_pair(i),
+            other => other,
+        }
+    }
+
+    /// The system colour's WebKit name, when this is one.
+    pub fn system_name(self) -> Option<&'static str> {
+        match self {
+            ColorValue::System(i) => symbols::SYSTEM_COLORS.get(i as usize).map(|s| s.0),
+            _ => None,
         }
     }
 
     /// Whether this is a pair — what a host asks before deciding whether an
     /// appearance change is anything to it.
     pub const fn is_scheme_aware(self) -> bool {
-        matches!(self, ColorValue::LightDark(..))
+        matches!(self, ColorValue::LightDark(..) | ColorValue::System(_))
     }
 
     /// `light-dark(<color>, <color>)`, CSS's own spelling, or one of UIKit's

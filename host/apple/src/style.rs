@@ -95,6 +95,8 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
     out.push('{');
     let mut skipped = Vec::new();
     let mut first = true;
+    // Colour rows that name a system colour (LLP 1077 D13), by row.
+    let mut systems: Vec<(&str, &str)> = Vec::new();
     for id in style.mask.iter() {
         let name = id.name();
         // LLP 1043.000 M3: the presenter will use resolved shapes.
@@ -151,6 +153,12 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
                 out.push(',');
                 push_rgba(&mut out, [d.r(), d.g(), d.b(), d.a()]);
                 out.push(']');
+                true
+            }
+            // Its pair, as any colour; `system_colors` names it.
+            RowValue::ColorValue(c @ ColorValue::System(_)) => {
+                push_color_value(&mut out, c);
+                systems.extend(c.system_name().map(|s| (name, s)));
                 true
             }
             RowValue::ClipPath(p) => {
@@ -374,6 +382,19 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
             out.truncate(mark);
         }
     }
+    if !systems.is_empty() {
+        if !first {
+            out.push(',');
+        }
+        out.push_str("\"system_colors\":{");
+        for (i, (row, system)) in systems.iter().enumerate() {
+            if i > 0 {
+                out.push(',');
+            }
+            let _ = write!(out, "\"{row}\":\"{system}\"");
+        }
+        out.push('}');
+    }
     out.push('}');
     (out, skipped)
 }
@@ -402,7 +423,7 @@ fn push_dimension(out: &mut String, d: Dimension) {
 /// A colour row's value as the presenters read it: four channels, or a
 /// `light-dark()` pair of them (LLP 1034 D1).
 fn push_color_value(out: &mut String, c: ColorValue) {
-    match c {
+    match c.pair() {
         ColorValue::Fixed(c) => push_rgba(out, [c.r(), c.g(), c.b(), c.a()]),
         ColorValue::LightDark(l, d) => {
             out.push('[');
@@ -411,6 +432,7 @@ fn push_color_value(out: &mut String, c: ColorValue) {
             push_rgba(out, [d.r(), d.g(), d.b(), d.a()]);
             out.push(']');
         }
+        ColorValue::System(_) => {} // `pair` never returns one
     }
 }
 

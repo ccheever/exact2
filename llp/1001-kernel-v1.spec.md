@@ -375,8 +375,14 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   `scroll-edge-effect`, `hover-effect` and `smart-invert`. Each draws on the
   platform that has it; the web writes no declaration for them and draws a
   symbol monochrome. The `-apple-system-*` label, fill and separator colours
-  are WebKit's names, resolved on every host as `light-dark()` pairs of
-  UIKit's values.
+  are WebKit's names. The kernel keeps them as themselves (`ColorValue::System`),
+  and each paints as a `light-dark()` pair of UIKit's values. Inside a blur
+  material, Apple draws them vibrantly, blended with what the material blurs:
+  - On macOS, any view in that colour inside the material.
+  - On iOS, only in a material whose box clips its children on both axes, which then hosts them in its effect view.
+    In that material, a paragraph's text and a plain fill (no border, gradient,
+    image, corner shape or `background-clip`) are vibrant.
+  - Everything else, and glass, draws the pair.
 - **Raster `tint-color`** ([LLP 1011 §3](1011-image-v1.spec.md)) is a template
   image operation without a CSS property of that name. On the web the tint is
   a `mask-image` on the `<img>` itself, so it also masks the element's own

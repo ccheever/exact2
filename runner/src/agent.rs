@@ -606,6 +606,10 @@ fn row_json(v: RowValue<'_>, out: &mut String) {
         RowValue::ColorValue(ColorValue::LightDark(l, d)) => {
             quote(&format!("light-dark({}, {})", hex(l), hex(d)), out)
         }
+        // A system colour by its name (LLP 1077 D13).
+        RowValue::ColorValue(c @ ColorValue::System(_)) => {
+            quote(c.system_name().unwrap_or("#000"), out)
+        }
         RowValue::Enum(name) => quote(name, out),
         RowValue::Vec2(v) => {
             let _ = write!(out, "[{},{}]", num(v.x as f64), num(v.y as f64));
