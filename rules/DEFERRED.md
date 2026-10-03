@@ -224,6 +224,12 @@ API stability": this surface (LLP 1075.003 §3.9) is named, and a break is one
 commit that changes the fixture and says what to change. Still refused: a
 deprecation window, native property names in Contract, and a JavaScript UI
 tier.
+**Expanded (Charlie, 2026-10-03: tab badges, "I think", kept minimal):** a
+tab's child that is a filled box holding one text is its tab bar item's badge
+(LLP 1075.003 §9.9), the box the web paints. The Signal Clone's unread-chats
+count on Chats is the consumer. Unblocks a native tab badge with no module.
+Take: none offered; waived by Charlie's approval. No badge attribute and no
+badge on a bare tablist's bar.
 
 ## Surfaces
 

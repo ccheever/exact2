@@ -301,6 +301,10 @@ component NativeFixture
         button role="tab" aria-controls="panel-second" aria-selected=(nav.tab == "second") press=selectTab("second") testId="tab-second" flex=1 display="flex" flex-direction="column" align-items="center" justify-content="center" gap=2
           image (nav.tab == "second" ? "symbol:person-fill" : "symbol:person") width=22 height=22
           text "Second" font-size=11
+          // A filled box holding a text: the bar item's badge (LLP 1075.003 §9.9).
+          when count > 0
+            column testId="badge-second" position="absolute" top=4 right=24 min-width=16 height=16 padding-left=4 padding-right=4 border-radius=8 background-color="#ef4444" align-items="center" justify-content="center"
+              text toString(count) font-size=10 color="#ffffff"
 
 component HookedRows
   props

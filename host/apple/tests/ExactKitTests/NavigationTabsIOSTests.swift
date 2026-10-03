@@ -90,7 +90,10 @@ final class NavigationTabsIOSTests: XCTestCase {
         until("Second selected by the router") { tabs.selectedIndex == 1 }
         XCTAssertEqual(home.viewControllers.count, 2, "Home's stack is kept")
         // A change made while Home is hidden shows when it is selected.
+        XCTAssertNil(second.tabBarItem.badgeValue, "no badge box, no badge")
         try tapNode(session, "bump-second")
+        // The count's filled box on the Second tab is its item's badge (§9.9).
+        until("the badge follows the authored box") { second.tabBarItem.badgeValue == "1" }
         // A draft and a scroll in Second.
         let draft = try node(session, "draft")
         _ = Agent(session: session).type(["id": Int(draft.id), "text": "kept"])

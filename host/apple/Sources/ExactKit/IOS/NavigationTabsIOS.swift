@@ -37,8 +37,11 @@ final class TabDelegateProxy: NSObject, UITabBarControllerDelegate {
 /// its label (a text-only tab is a title-only item).
 private struct TabFace: Equatable {
     let base: String?, title: String, disabled: Bool
+    /// A filled box holding a text among the tab's children: the item's
+    /// badge (LLP 1075.003 §9.9), as the web paints it on the tab.
+    let badge: String?
     init(_ tab: NodeView) {
-        var symbol: String?, label = tab.props["accessibilityLabel"] ?? ""
+        var symbol: String?, label = tab.props["accessibilityLabel"] ?? "", badge: String?
         if tab.isNativeButton, let face = tab.face {
             // A native button's children are its face (LLP 1069.011.000 D1).
             symbol = face.symbol
@@ -47,7 +50,12 @@ private struct TabFace: Equatable {
         for case let child as NodeView in tab.container.subviews {
             if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty { symbol = name }
             else if child.isParagraph, !child.accessibleText.isEmpty { label = child.accessibleText }
+            else if child.style["background_color"] != nil, !child.isHidden {
+                let texts = child.container.subviews.compactMap { $0 as? NodeView }.filter { $0.isParagraph }
+                if texts.count == 1, !texts[0].accessibleText.isEmpty { badge = texts[0].accessibleText }
+            }
         }
+        self.badge = badge
         base = symbol.map { $0.hasSuffix(".fill") ? String($0.dropLast(5)) : $0 }
         title = label
         disabled = tab.disabled
@@ -215,7 +223,7 @@ extension NavigationHost {
     /// and a handle to it stay good.
     private func syncItems(_ tabs: NavigationTabs, navs: [UINavigationController]) {
         let faces = tabs.tabs.map(TabFace.init)
-        let signature = faces.map { "\($0.base ?? "")|\($0.title)|\($0.disabled)" }
+        let signature = faces.map { "\($0.base ?? "")|\($0.title)|\($0.disabled)|\($0.badge ?? "")" }
         for (index, (nav, face)) in zip(navs, faces).enumerated() where !tabItems.indices.contains(index) || tabItems[index] != signature[index] {
             let item: UITabBarItem = nav.tabBarItem
             let image = face.base.flatMap { UIImage(systemName: $0) }
@@ -224,6 +232,10 @@ extension NavigationHost {
             item.selectedImage = face.base.flatMap { UIImage(systemName: $0 + ".fill") } ?? image
             item.accessibilityIdentifier = face.base ?? face.title
             item.isEnabled = !face.disabled
+            // An authored badge, or one it just lost; a badge a hook set on
+            // a tab that never authored one is left alone.
+            let had = tabItems.indices.contains(index) && !tabItems[index].hasSuffix("|")
+            if face.badge != nil || had { item.badgeValue = face.badge }
         }
         tabItems = signature
     }
