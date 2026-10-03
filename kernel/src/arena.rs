@@ -489,6 +489,38 @@ impl NodeArena {
         out
     }
 
+    /// [`Self::computed_style`] for what a paragraph and its runs read
+    /// ([`crate::text::TextStyle::from_style`],
+    /// [`crate::text::Paragraph::from_style`], `text-transform`): those rows
+    /// resolve as there, the rest stay initial. Measuring text asks this per
+    /// run; a whole copy of the node's style would clone its lists (shadows,
+    /// transforms, animations) for nothing.
+    pub(crate) fn computed_text_style(&self, slot: u32) -> StyleProps {
+        let mut rows = StyleMask::EMPTY;
+        for id in [
+            StyleId::FontSize,
+            StyleId::FontWeight,
+            StyleId::FontStyle,
+            StyleId::FontFamily,
+            StyleId::LineHeight,
+            StyleId::LetterSpacing,
+            StyleId::FontVariantNumeric,
+            StyleId::Direction,
+            StyleId::TextAlign,
+            StyleId::LineClamp,
+            StyleId::TextOverflow,
+            StyleId::OverflowWrap,
+            StyleId::WhiteSpace,
+            StyleId::TextTransform,
+        ] {
+            rows.set(id);
+        }
+        let mut out = StyleProps::default();
+        out.copy_rows(&self.styles[slot as usize], rows);
+        self.copy_inherited(slot, rows, |from, mask| out.copy_rows(from, mask));
+        out
+    }
+
     /// Values used only to compare inherited rows across a topology change.
     /// No unrelated style payloads are copied into these transient snapshots.
     pub(crate) fn computed_inherited(&self, slot: u32) -> InheritedStyle {
@@ -535,8 +567,7 @@ impl NodeArena {
     /// (the UA sheet's `pre` and `pre-wrap`), so a collapsing row preserves here.
     /// @ref LLP 1053 §0 G5
     pub fn paragraph(&self, slot: u32) -> crate::text::Paragraph {
-        let mut paragraph =
-            crate::text::Paragraph::from_style(&self.computed_style(slot, StyleMask::INHERITED));
+        let mut paragraph = crate::text::Paragraph::from_style(&self.computed_text_style(slot));
         paragraph.markup = self.markup(slot);
         if self.node_types[slot as usize] == NodeType::TextInput
             && !paragraph.white_space.model().preserves()
@@ -564,7 +595,7 @@ impl NodeArena {
         boundary: &mut crate::text::case::WordBoundary,
     ) {
         let s = slot as usize;
-        let computed = self.computed_style(slot, StyleMask::INHERITED);
+        let computed = self.computed_text_style(slot);
         let style = TextStyle::from_style(&computed);
         match self.node_types[s] {
             NodeType::TextInput => {
