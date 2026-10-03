@@ -43,5 +43,44 @@ final class AccessibilityTreeMacTests: XCTestCase {
         let order = elements(ax).compactMap { $0["testId"] as? String }
         XCTAssertEqual(order.firstIndex(of: "named").map { $0 < (order.firstIndex(of: "bare") ?? 0) }, true)
     }
+
+    /// A control's accessibility is its cell's: the walk reads cells, joins
+    /// them to the control's view, and omits a secure field's value.
+    func testCellsAreWalkedAndASecureValueIsOmitted() throws {
+        let p = try fixture()
+        let field = NSSecureTextField(frame: NSRect(x: 0, y: 100, width: 100, height: 24))
+        field.stringValue = "hunter2"
+        let check = NSButton(checkboxWithTitle: "Checked", target: nil, action: nil)
+        check.frame = NSRect(x: 0, y: 140, width: 100, height: 20)
+        check.state = .on
+        p.views[1]?.addSubview(field)
+        p.views[1]?.addSubview(check)
+        let all = elements(p.axElements(roots: [p.viewport]))
+        let secure = try XCTUnwrap(all.first { ($0["states"] as? [String: Any])?["protected"] as? Bool == true }, "\(all.map { $0["native"] ?? "" })")
+        XCTAssertNil(secure["value"])
+        XCTAssertEqual(secure["id"] as? UInt32, 1)
+        let box = try XCTUnwrap(all.first { $0["role"] as? String == "checkbox" }, "\(all.map { $0["native"] ?? "" })")
+        XCTAssertEqual((box["states"] as? [String: Any])?["checked"] as? Bool, true)
+    }
+
+    /// An attached sheet is the modal: the driver judges everything else against it.
+    func testASheetRootIsReportedAsTheModal() throws {
+        let p = try fixture()
+        let sheet = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        let done = NSButton(title: "Done", target: nil, action: nil)
+        sheet.addSubview(done)
+        let ax = p.axElements(roots: [p.viewport, sheet], modalRoot: sheet)
+        let modal = try XCTUnwrap(ax["modal"] as? [String: Any])
+        XCTAssertEqual([modal["present"] as? Bool, modal["by"] as? String == "sheet"], [true, true])
+        let index = try XCTUnwrap(modal["element"] as? Int)
+        XCTAssertTrue(elements(ax).contains { $0["parent"] as? Int == index && $0["name"] as? String == "Done" })
+        XCTAssertTrue(elements(ax).contains { $0["testId"] as? String == "named" }, "the window behind stays exposed, for the driver's outside-modal")
+    }
+
+    func testATargetScopesTheReply() throws {
+        let p = try fixture()
+        let ax = p.axElements(roots: [p.viewport], scope: try XCTUnwrap(p.views[2]))
+        XCTAssertEqual(elements(ax).compactMap { $0["testId"] as? String }, ["named"])
+    }
 }
 #endif

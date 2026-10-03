@@ -43,25 +43,29 @@ export function axIntent(tree) {
   return { parent, facts };
 }
 
-/** Chrome's computed tree, the oracle (D2, D4): one stamp, the AX tree, one
- * DOM snapshot, the stamp again; retried twice when the document moved. */
-export async function webAx(carrier, opts = {}) {
-  if (carrier.browser !== 'chrome' || !carrier.call) return { ax: { unavailable: true, reason: `the Accessibility domain is CDP's; the ${carrier.browser} carrier has none` } };
+/** Chrome's computed tree, the oracle (D2, D4): one stamp, the plain tree
+ * (the views' intent), the AX tree, one DOM snapshot, the stamp again — all
+ * inside one document nonce, retried twice when the document moved. */
+export async function webAx(carrier, opts = {}, readPlain = async () => null) {
+  if (carrier.browser !== 'chrome' || !carrier.call) return { reply: { ax: { unavailable: true, reason: `the Accessibility domain is CDP's; the ${carrier.browser} carrier has none` } }, plain: null };
   const limit = axLimit(opts.limit);
   if (!carrier.axEnabled) { await carrier.call('Accessibility.enable'); carrier.axEnabled = (await carrier.evaluate("navigator.userAgent.match(/Chrome\\/[\\d.]+/)?.[0] ?? 'Chrome'")).replace('/', ' '); }
   let last;
   for (let attempt = 0; attempt < 3; attempt++) {
     const before = await carrier.ask({ op: 'axStamp' });
-    if (before.error) return before;
-    const [{ nodes }, snapshot] = [await carrier.call('Accessibility.getFullAXTree'), await carrier.call('DOMSnapshot.captureSnapshot', { computedStyles: [], includeDOMRects: true })];
+    if (before.error) return { reply: before, plain: null };
+    const plain = await readPlain();
+    const { nodes } = await carrier.call('Accessibility.getFullAXTree');
+    const snapshot = await carrier.call('DOMSnapshot.captureSnapshot', { computedStyles: [], includeDOMRects: true });
     const after = await carrier.ask({ op: 'axStamp' });
-    last = { reply: collectWeb(nodes, snapshot, limit), before };
-    if (['epoch', 'incarnation', 'nonce'].every(k => before[k] === after[k])) break;
+    last = { reply: collectWeb(nodes, snapshot, limit), before, plain };
+    const same = ['epoch', 'incarnation', 'nonce'].every(k => before[k] === after[k]) && (!plain || (plain.epoch === before.epoch && plain.incarnation === before.incarnation));
+    if (same) break;
     last.spanned = true;
   }
-  const { reply, before, spanned } = last;
+  const { reply, before, spanned, plain } = last;
   reply.ax.platform = carrier.axEnabled;
-  return { epoch: before.epoch, incarnation: before.incarnation, clock: before.clock, ...(spanned ? { spanned: true } : {}), ...reply };
+  return { reply: { epoch: before.epoch, incarnation: before.incarnation, clock: before.clock, ...(spanned ? { spanned: true } : {}), ...reply }, plain };
 }
 
 function collectWeb(nodes, snapshot, limit) {
@@ -79,7 +83,7 @@ function collectWeb(nodes, snapshot, limit) {
   const byId = new Map(nodes.map(n => [n.nodeId, n]));
   const root = nodes.find(n => n.parentId == null) ?? nodes[0];
   const elements = [];
-  let visited = 0, more = 0, modal = { present: false };
+  let visited = 0, more = 0, cutoff = 0, modal = { present: false };
   const prop = (n, name) => n.properties?.find(p => p.name === name)?.value?.value;
   // Depth-first through childIds; an ignored node's children take its place.
   const walk = (n, parent, depth) => {
@@ -124,51 +128,71 @@ function collectWeb(nodes, snapshot, limit) {
       elements.push(e);
       me = i;
     }
-    if (depth >= DEPTH * 4) return;
+    if (depth >= DEPTH * 4) { if (n.childIds?.length) cutoff++; return; }
     for (const c of n.childIds ?? []) { const child = byId.get(c); if (child) walk(child, me, depth + 1); }
   };
   if (root) walk(root, null, 0);
   const excluded = snapshot.documents.length > 1 ? snapshot.documents.slice(1).map(d => ({ frame: str(d.documentURL), reason: 'frame-scoped AX tree; the carrier attaches one page target' })) : [];
   const ax = { source: 'chrome-cdp', platform: '', order: 'tree',
-    coverage: { roots: ['document'], complete: more === 0, visited, ...(excluded.length ? { excluded } : {}) },
+    coverage: { roots: ['document'], complete: more === 0 && cutoff === 0, visited, ...(excluded.length ? { excluded } : {}) },
     modal, elements };
-  if (more || truncated.fields) ax.truncated = { elements: more, fields: truncated.fields };
+  // A depth cutoff leaves descendants unread and uncounted: the remainder is unknown.
+  if (more || cutoff || truncated.fields) ax.truncated = { elements: cutoff ? 'unknown' : more, fields: truncated.fields };
   return { ax };
 }
 const round = x => Math.round(x * 100) / 100;
 
 /** The joined views' intent and the findings (D7, D8), added to any host's
- * reply; with a target, only its subtree's elements and the chain above. */
+ * reply. Findings are computed over everything collected (so a target inside
+ * a modal is judged against the whole modal); a target then keeps its
+ * subtree's elements and the chain above; the reply then fits its bytes. */
 export function axFinish(reply, tree, target) {
   const ax = reply.ax;
   if (!ax || ax.unavailable) return reply;
   const { parent, facts } = axIntent(tree);
   const ancestorsOf = id => { const out = []; for (let p = parent.get(id); p != null && out.length < DEPTH; p = parent.get(p)) out.push(p); return out; };
+  for (const e of ax.elements) if (e.id != null && e.testId == null && facts.get(e.id)?.testId != null) e.testId = facts.get(e.id).testId;
+  const intentFor = elements => {
+    const intent = {};
+    for (const e of elements) {
+      if (e.id == null) continue;
+      for (const id of [e.id, ...ancestorsOf(e.id)]) if (!(id in intent)) { const f = facts.get(id); if (f) intent[id] = { ...f, ...(parent.has(id) ? { parent: parent.get(id) } : {}) }; }
+    }
+    return intent;
+  };
+  ax.intent = intentFor(ax.elements);
+  const all = axFindings(reply);
   if (target != null) {
     const hit = tree.nodes.find(n => n.id === target || n.props?.testId === target);
     if (!hit) throw new Error(`tree --ax: no view matches ${target}`);
     const inside = new Set([hit.id]);
     for (const n of tree.nodes) if (ancestorsOf(n.id).includes(hit.id)) inside.add(n.id);
-    const all = ax.elements, keep = all.filter(e => e.id != null && inside.has(e.id));
-    const first = keep[0], chain = [];
-    for (let p = first?.parent; p != null; p = all[p].parent) chain.unshift({ id: all[p].id, role: all[p].role, name: all[p].name });
+    const every = ax.elements, keep = every.filter(e => e.id != null && inside.has(e.id));
+    const chain = [];
+    for (let p = keep[0]?.parent; p != null; p = every[p].parent) chain.unshift({ id: every[p].id, role: every[p].role, name: every[p].name });
     ax.elements = keep;
     ax.ancestors = chain;
     ax.target = hit.id;
   }
-  const intent = {};
-  for (const e of ax.elements) {
-    if (e.id == null) continue;
-    for (const id of [e.id, ...ancestorsOf(e.id)]) if (!(id in intent)) { const f = facts.get(id); if (f) intent[id] = { ...f, ...(parent.has(id) ? { parent: parent.get(id) } : {}) }; }
-    if (e.testId == null && facts.get(e.id)?.testId != null) e.testId = facts.get(e.id).testId;
+  // Rebuilt from the elements kept, so intent and findings never outrun them.
+  const settle = () => {
+    const kept = new Set(ax.elements.map(e => e.i));
+    ax.intent = intentFor(ax.elements);
+    ax.findings = all.filter(f => kept.has(f.i));
+  };
+  settle();
+  // The serialized UTF-8 budget (D7): drop elements from the end until it fits.
+  let dropped = 0;
+  while (ax.elements.length && Buffer.byteLength(JSON.stringify(reply)) > BYTES) {
+    const over = Buffer.byteLength(JSON.stringify(reply)) - BYTES;
+    const n = Math.max(1, Math.min(ax.elements.length, Math.ceil(over / 200)));
+    ax.elements = ax.elements.slice(0, ax.elements.length - n);
+    dropped += n;
+    settle();
   }
-  ax.intent = intent;
-  ax.findings = axFindings(reply);
-  const size = JSON.stringify(reply).length;
-  if (size > BYTES) {
-    const keep = Math.max(1, Math.floor(ax.elements.length * BYTES / size));
-    (ax.truncated ??= { elements: 0, fields: 0 }).elements = typeof ax.truncated.elements === 'number' ? ax.truncated.elements + ax.elements.length - keep : 'unknown';
-    ax.elements = ax.elements.slice(0, keep);
+  if (dropped) {
+    ax.truncated ??= { elements: 0, fields: 0 };
+    ax.truncated.elements = typeof ax.truncated.elements === 'number' ? ax.truncated.elements + dropped : 'unknown';
     ax.coverage.complete = false;
   }
   return reply;
@@ -200,7 +224,7 @@ export function axFindings(reply) {
     if (h && flagged.get(e.parent) !== h.id) out.push({ kind: 'exposed-hidden', i: e.i, id: e.id, testId: e.testId, detail: `${e.role} "${e.name}" under #${h.id} (${h.why})`, under: h.id });
     // UIKit's rule is the host's to apply (it knows the modal view's siblings); elsewhere, outside the modal element.
     const leaks = ax.source === 'uikit' ? e.outsideModal === true : ax.modal?.present && ax.modal.element != null && e.via !== 'none' && !inside(e, ax.modal.element);
-    if (leaks) out.push({ kind: 'outside-modal', i: e.i, id: e.id, testId: e.testId, detail: `${e.role} "${e.name}"`, basis: ax.source === 'uikit' ? 'documented-rule' : 'platform' });
+    if (leaks) out.push({ kind: 'outside-modal', i: e.i, id: e.id, testId: e.testId, detail: `${e.role} "${e.name}"`, basis: ax.source === 'uikit' ? 'documented-rule' : ax.source === 'appkit' ? 'sheet' : 'platform' });
   }
   return out;
 }
@@ -220,7 +244,12 @@ export function axRole(e, source) {
   if (source === 'appkit') return { AXButton: 'button', AXLink: 'link', AXHeading: 'heading', AXTextField: 'textbox', AXTextArea: 'textbox', AXCheckBox: 'checkbox' }[raw] ?? e.role;
   return e.role;
 }
+// The states each source can observe, and the roles a state applies to (D6).
+// `disabled` is reported only when true on every source, so absence is its false;
+// `checked` and `level` are always reported where they apply, so absence is missing.
 const CAN = { 'chrome-cdp': ['checked', 'level', 'disabled'], uikit: ['checked', 'disabled'], appkit: ['checked', 'level', 'disabled'] };
+const APPLIES = { checked: r => r === 'checkbox', level: r => r === 'heading', disabled: () => true };
+const ABSENT_IS_FALSE = new Set(['disabled']);
 const checkedOf = (e, source) => source === 'uikit' && (e.value === 'checked' || e.value === 'unchecked') ? e.value === 'checked' : e.states?.checked;
 
 /** Parity against the web by unique testId (D6): role, name, and the states
@@ -246,9 +275,13 @@ export function axParity(web, other, testIds) {
     if (rx !== ry) findings.push({ kind: 'parity', testId: t, detail: `role ${rx} (web) vs ${ry} (${sb})` });
     const nx = (x.name ?? '').trim().replace(/\s+/g, ' '), ny = (y.name ?? '').trim().replace(/\s+/g, ' ');
     if (nx !== ny) findings.push({ kind: 'parity', testId: t, detail: `name ${JSON.stringify(nx)} (web) vs ${JSON.stringify(ny)} (${sb})` });
+    // A state both can observe and that applies to the role: missing on either side is a finding before any comparison.
     for (const s of CAN[sa].filter(s => CAN[sb].includes(s))) {
-      const vx = s === 'checked' ? checkedOf(x, sa) : x.states?.[s], vy = s === 'checked' ? checkedOf(y, sb) : y.states?.[s];
-      if ((vx ?? false) !== (vy ?? false) && !(s === 'level' && (vx == null || vy == null))) findings.push({ kind: 'parity', testId: t, detail: `${s} ${vx} (web) vs ${vy} (${sb})${vy == null || vx == null ? ' (missing)' : ''}` });
+      if (!APPLIES[s](rx) || !APPLIES[s](ry)) continue;
+      let vx = s === 'checked' ? checkedOf(x, sa) : x.states?.[s], vy = s === 'checked' ? checkedOf(y, sb) : y.states?.[s];
+      if (ABSENT_IS_FALSE.has(s)) { vx ??= false; vy ??= false; }
+      if (vx == null || vy == null) findings.push({ kind: 'parity', testId: t, detail: `${s} missing on ${vx == null ? 'web' : sb} (${vx ?? '—'} vs ${vy ?? '—'})` });
+      else if (vx !== vy) findings.push({ kind: 'parity', testId: t, detail: `${s} ${vx} (web) vs ${vy} (${sb})` });
     }
   }
   return { findings, unjoined };
@@ -292,20 +325,27 @@ export function renderAx(r) {
 }
 
 
-/** `tree(target, {ax: true})` (D1): the host's or the browser's tree, then
- * the intent and findings from a plain `tree` read at the same epoch. */
+/** `tree(target, {ax: true})` (D1): the host's or the browser's tree, with
+ * the intent and findings from a plain `tree` read in the same bracket. The
+ * driver reads the whole session and scopes the target itself, so findings
+ * see the whole tree (a native host scopes `target` on the wire on its own). */
 export async function axTree(s, target, { limit, excluded, shallow } = {}) {
   if (shallow) throw new Error('tree --ax: shallow is refused with ax');
   axLimit(limit);
+  if (excluded != null && typeof excluded !== 'boolean') throw new Error('tree --ax: excluded is a boolean');
+  const t = target == null ? null : typeof target === 'number' || /^\d+$/.test(String(target)) ? Number(target) : target;
+  if (s.carrier.host === 'web') {
+    const { reply, plain } = await webAx(s.carrier, { limit }, () => s.op({ op: 'tree' }));
+    if (reply.error) throw new Error(`tree: ${reply.error}`);
+    return plain ? axFinish(reply, plain, t) : reply;
+  }
   for (let attempt = 0; ; attempt++) {
     const plain = await s.op({ op: 'tree' });
-    const reply = s.carrier.host === 'web' ? await webAx(s.carrier, { limit })
-      : await s.op({ op: 'tree', ax: true, ...(limit != null ? { limit } : {}), ...(excluded ? { excluded: true } : {}) });
-    if (reply.error) throw new Error(`tree: ${reply.error}`);
-    const same = reply.epoch === plain.epoch && reply.incarnation === plain.incarnation;
+    const reply = await s.op({ op: 'tree', ax: true, ...(limit != null ? { limit } : {}), ...(excluded ? { excluded: true } : {}) });
+    const after = await s.op({ op: 'tree', target: plain.roots?.[0] ?? 1, shallow: true }).catch(() => plain);
+    const same = [reply, after].every(r => r.epoch === plain.epoch && r.incarnation === plain.incarnation);
     if (!same && attempt < 2) continue;
     if (!same) reply.spanned = true;
-    const t = target == null ? null : typeof target === 'number' || /^\d+$/.test(String(target)) ? Number(target) : target;
     return axFinish(reply, plain, t);
   }
 }

@@ -85,10 +85,10 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         XCTAssertEqual((ax["coverage"] as? [String: Any])?["limits"] as? [String], ["alpha", "reading-order"])
     }
 
-    func testAModalViewHidesItsSiblingsOnlyAndALeakIsMarked() throws {
+    func testAModalViewHidesItsSiblingsAndALeakIsMarked() throws {
         let p = try fixture()
-        // The box is modal: its siblings (the two buttons) are hidden by
-        // UIKit's rule; a button beside the viewport's parent leaks.
+        // The box is modal: UIKit's rule hides its siblings (the two buttons),
+        // so they are not exposed; an element beside the viewport leaks.
         let box = try XCTUnwrap(p.views[4])
         box.accessibilityViewIsModal = true
         // A plain element: a UIButton is one only with UIKit's accessibility runtime loaded.
@@ -102,11 +102,55 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         let modal = try XCTUnwrap(ax["modal"] as? [String: Any])
         XCTAssertEqual(modal["present"] as? Bool, true)
         XCTAssertEqual(modal["id"] as? UInt32, 4)
-        XCTAssertEqual(element(ax, "named")?["outsideModal"] as? Bool, false, "a sibling: hidden by UIKit's rule")
+        XCTAssertNil(element(ax, "named"), "a sibling of the modal view is hidden by UIKit's rule")
+        XCTAssertNil(element(ax, "bare"))
+        let listed = p.axElements(roots: [p.viewport, outside], excluded: true)
+        XCTAssertEqual(element(listed, "named")?["excluded"] as? [String], ["modalSibling"])
         let leak = try XCTUnwrap(elements(ax).first { $0["name"] as? String == "Outside" })
         XCTAssertEqual(leak["outsideModal"] as? Bool, true)
         XCTAssertEqual(leak["via"] as? String, "none")
-        XCTAssertNil(element(ax, "inside")?["outsideModal"], "inside the modal view")
+        XCTAssertEqual(element(ax, "inside")?["outsideModal"] as? Bool, false, "inside the modal view")
+        // A modal view UIKit owns is reported, and its sibling rule is not guessed.
+        box.accessibilityViewIsModal = false
+        let dimming = UIView()
+        dimming.accessibilityViewIsModal = true
+        p.viewport.addSubview(dimming)
+        let kit = p.axElements(roots: [p.viewport])
+        XCTAssertNotNil(element(kit, "named"))
+        XCTAssertEqual((kit["coverage"] as? [String: Any])?["complete"] as? Bool, false)
+    }
+
+    func testATargetScopesTheReplyAndTheWireRefusesWhatD1Refuses() throws {
+        let p = try fixture()
+        let box = try XCTUnwrap(p.views[4])
+        let ax = p.axElements(roots: [p.viewport], scope: box)
+        XCTAssertEqual(elements(ax).compactMap { $0["testId"] as? String }, ["inside"])
+        XCTAssertNotNil(ax["ancestors"])
+        let session = ExactApp.shared.makeSession(label: "ax-wire")
+        defer { session.destroy() }
+        let agent = Agent(session: session)
+        XCTAssertNotNil(agent.accessibilityElementsTree(["op": "tree", "ax": true, "shallow": true])["error"])
+        XCTAssertNotNil(agent.accessibilityElementsTree(["op": "tree", "ax": true, "limit": "5"])["error"])
+        XCTAssertNotNil(agent.accessibilityElementsTree(["op": "tree", "ax": true, "limit": 2.5])["error"])
+        XCTAssertNotNil(agent.accessibilityElementsTree(["op": "tree", "ax": true, "limit": 0])["error"])
+        XCTAssertNotNil(agent.accessibilityElementsTree(["op": "tree", "ax": true, "target": "no-such-view"])["error"])
+    }
+
+    func testAWalkStopsEnumeratingAtItsBudget() throws {
+        let p = try fixture()
+        final class Many: UIView {
+            var asked = 0
+            override func accessibilityElementCount() -> Int { 100_000 }
+            override func accessibilityElement(at index: Int) -> Any? {
+                asked += 1
+                let e = UIAccessibilityElement(accessibilityContainer: self); e.isAccessibilityElement = true; e.accessibilityLabel = "\(index)"; return e
+            }
+        }
+        let many = Many()
+        p.views[1]?.addSubview(many)
+        let ax = p.axElements(roots: [p.viewport], limit: 1)
+        XCTAssertLessThan(many.asked, 200, "enumeration is bounded by the visit budget, not the reported count")
+        XCTAssertEqual((ax["truncated"] as? [String: Any])?["elements"] as? String, "unknown")
     }
 
     func testAnOwnedElementJoinsItsDeclaredViewAndASecureValueIsOmitted() throws {

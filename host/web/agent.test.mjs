@@ -995,7 +995,7 @@ test("a drive's storage is only a scratch store it names, apart from the app's o
 });
 
 // @ref LLP 1080.002 D7–D9 — the findings, parity and transcript over hand-written replies.
-import { axFindings, axParity, axClean, axFinish, renderAx } from '../../scripts/agent-ax.mjs';
+import { axFindings, axParity, axClean, axFinish, renderAx, webAx } from '../../scripts/agent-ax.mjs';
 const axReply = (elements, extra = {}) => ({ epoch: 3, incarnation: 1, clock: 0, ax: { source: 'chrome-cdp', platform: 'Chrome 1', order: 'tree',
   coverage: { roots: ['document'], complete: true, visited: elements.length }, modal: { present: false }, elements, ...extra } });
 const el = (i, role, name, more = {}) => ({ i, parent: null, id: i + 10, via: 'self', role, name, states: {}, interactive: ['button', 'link', 'textbox', 'checkbox'].includes(role), native: { role }, ...more });
@@ -1072,4 +1072,60 @@ test('tree --ax renders each element with its join and frame, then its findings'
   expect(text).toContain('! unnamed button #10 [play]');
   expect(text).toContain('! exposed while hidden: button "Hidden" under #11 (inert) #12 [inside]');
   expect(renderAx({ ax: { unavailable: true, reason: 'no AT-SPI tree (LLP 1015 §7)' } })).toBe('ax       unavailable: no AT-SPI tree (LLP 1015 §7)');
+});
+
+// Astra's review of a6d847f1 (llp/reviews/code-2026-10-03-1080.002-ax-tree.astra.md): 2, 5, 8, 11, 12.
+const fakeChrome = ({ nodes, stamps, plain }) => {
+  const order = [];
+  const snapshot = { strings: ['data-agent-view', '1'], documents: [{ nodes: { backendNodeId: [100], attributes: [[0, 1]], parentIndex: [-1], nodeType: [1], nodeName: [0] }, layout: { nodeIndex: [], bounds: [] } }] };
+  return { order, carrier: { browser: 'chrome', axEnabled: 'Chrome 1', async call(m) { order.push(m); return m === 'Accessibility.getFullAXTree' ? { nodes } : snapshot; },
+    async evaluate() { return 'Chrome/1'; }, async ask() { order.push('stamp'); return stamps.shift(); } },
+    readPlain: async () => { order.push('plain'); return plain.shift(); } };
+};
+const button = { nodeId: 'b', ignored: false, role: { value: 'button' }, name: { value: 'Go' }, backendDOMNodeId: 100, childIds: [] };
+
+test('tree --ax (web): the plain tree is read inside the document bracket, and a reload between retries the whole read', async () => {
+  const stamp = (nonce, epoch = 1) => ({ nonce, epoch, incarnation: 1, clock: 0 });
+  const f = fakeChrome({ nodes: [{ nodeId: 'r', role: { value: 'RootWebArea' }, childIds: ['b'] }, button],
+    stamps: [stamp(1), stamp(2), stamp(2), stamp(2)], plain: [{ epoch: 1, incarnation: 1, nodes: [] }, { epoch: 1, incarnation: 1, nodes: [{ id: 1, props: { testId: 'new' }, children: [] }] }] });
+  const { reply, plain } = await webAx(f.carrier, {}, f.readPlain);
+  expect(f.order.slice(0, 5)).toEqual(['stamp', 'plain', 'Accessibility.getFullAXTree', 'DOMSnapshot.captureSnapshot', 'stamp']);
+  expect(reply.spanned).toBeUndefined();
+  expect(plain.nodes[0].props.testId).toBe('new'); // the second document's intent, never the first's
+});
+
+test('tree --ax (web): a depth cutoff is incomplete coverage with an unknown remainder, never clean', async () => {
+  const chain = Array.from({ length: 300 }, (_, k) => ({ nodeId: `g${k}`, ignored: true, role: { value: 'generic' }, childIds: [k < 299 ? `g${k + 1}` : 'b'] }));
+  const f = fakeChrome({ nodes: [{ nodeId: 'r', role: { value: 'RootWebArea' }, childIds: ['g0'] }, ...chain, button], stamps: [{ nonce: 1, epoch: 1, incarnation: 1 }, { nonce: 1, epoch: 1, incarnation: 1 }], plain: [null] });
+  const { reply } = await webAx(f.carrier, {}, f.readPlain);
+  expect(reply.ax.elements).toEqual([]);
+  expect(reply.ax.coverage.complete).toBe(false);
+  expect(reply.ax.truncated.elements).toBe('unknown');
+  expect(axClean(reply)).toBe(false);
+});
+
+test('tree --ax: a target inside a modal is judged against the whole modal, not reported outside it', () => {
+  const dialog = el(3, 'dialog', 'Sheet'), ok = el(4, 'button', 'Ok');
+  dialog.i = 0; ok.i = 1; ok.parent = 0;
+  const r = axFinish(axReply([dialog, ok], { modal: { present: true, element: 0, id: 13, by: 'dialog:modal' } }), axPlain, 'ok');
+  expect(r.ax.elements.map(e => e.testId)).toEqual(['ok']);
+  expect(r.ax.findings).toEqual([]);
+});
+
+test('tree --ax: the reply fits 256 KB of UTF-8, and its intent and findings cover only the elements it keeps', () => {
+  const many = Array.from({ length: 2000 }, (_, i) => ({ ...el(0, 'button', ''), i, id: 10, description: 'é'.repeat(200) }));
+  const r = axFinish(axReply(many), axPlain, null);
+  expect(Buffer.byteLength(JSON.stringify(r))).toBeLessThanOrEqual(256 * 1024);
+  expect(r.ax.elements.length).toBeLessThan(2000);
+  expect(r.ax.findings.length).toBe(r.ax.elements.length);
+  expect(r.ax.truncated.elements).toBe(2000 - r.ax.elements.length);
+  expect(r.ax.coverage.complete).toBe(false);
+});
+
+test('tree --ax: parity reports a state one side can observe and does not, before comparing values', () => {
+  const web = axReply([el(0, 'heading', 'Section', { testId: 'h', states: { level: 2 } }), el(1, 'checkbox', 'C', { testId: 'c', states: { checked: false } })]);
+  const mac = axReply([el(0, 'heading', 'Section', { testId: 'h', states: {}, native: { role: 'AXHeading' } }), el(1, 'checkbox', 'C', { testId: 'c', states: {}, native: { role: 'AXCheckBox' } })], { source: 'appkit' });
+  expect(axParity(web, mac).findings.map(f => f.detail)).toEqual(['level missing on appkit (2 vs —)', 'checked missing on appkit (false vs —)']);
+  // disabled is reported only when true: its absence on both sides agrees.
+  expect(axParity(web, axReply([el(0, 'heading', 'Section', { testId: 'h', states: { level: 2 } }), el(1, 'checkbox', 'C', { testId: 'c', states: { checked: false } })])).findings).toEqual([]);
 });
