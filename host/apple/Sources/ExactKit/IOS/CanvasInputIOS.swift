@@ -6,7 +6,7 @@ import UIKit
 /// after a press on it): an app's view controller answers `prefersPointerLocked`
 /// with this, as ExactIOS's does.
 public enum ExactPointerLock {
-    public static var preferred: Bool { CanvasInput.wantsPointerLock }
+    public static var preferred: Bool { CanvasInput.lockOwner != nil }
 }
 
 final class CanvasInput {
@@ -38,7 +38,8 @@ final class CanvasInput {
     /// app's controller answers `prefersPointerLocked` from this, and while the
     /// scene is locked a connected mouse's raw motion and its three buttons
     /// (GameController's `GCMouse`) reach the canvas as the web's locked pointer.
-    nonisolated(unsafe) static private(set) var wantsPointerLock = false
+    /// One canvas owns the request at a time.
+    nonisolated(unsafe) static private(set) weak var lockOwner: CanvasInput?
     private var locking = false, mouseButtons = 0
     private var lockable: Bool {
         guard let data = view?.props["dataset"]?.data(using: .utf8),
@@ -48,7 +49,8 @@ final class CanvasInput {
     private var sceneLocked: Bool { view?.window?.windowScene?.pointerLockState?.isLocked == true }
     private func lock() {
         guard !locking, lockable, let input = GCMouse.current?.mouseInput else { return }
-        locking = true; CanvasInput.wantsPointerLock = true
+        CanvasInput.lockOwner?.unlock()
+        locking = true; CanvasInput.lockOwner = self
         view?.window?.rootViewController?.setNeedsUpdateOfPrefersPointerLocked()
         input.mouseMovedHandler = { [weak self] _, dx, dy in self?.locked(dx: CGFloat(dx), dy: CGFloat(-dy), bit: 0, down: false) }
         for (bit, button) in [(1, input.leftButton), (2, input.rightButton), (4, input.middleButton)] {
@@ -57,7 +59,8 @@ final class CanvasInput {
     }
     func unlock() {
         guard locking else { return }
-        locking = false; CanvasInput.wantsPointerLock = false; mouseButtons = 0
+        locking = false; mouseButtons = 0
+        if CanvasInput.lockOwner === self { CanvasInput.lockOwner = nil }
         if let input = GCMouse.current?.mouseInput {
             input.mouseMovedHandler = nil
             for button in [input.leftButton, input.rightButton, input.middleButton] { button?.pressedChangedHandler = nil }
@@ -127,6 +130,7 @@ final class CanvasInput {
         for press in presses {
             guard let key = press.key else { continue }
             let code = KeyCodes.hid(key.keyCode.rawValue)
+            if down && code == "Escape" { unlock() } // the web's way out of a lock
             if (source.isSurfaceControl || !down) && ["Space", "Enter", "NumpadEnter"].contains(code) {
                 if down && keys.contains(code) { handled = true; continue }
                 if down { keys.insert(code) } else { keys.remove(code) }
