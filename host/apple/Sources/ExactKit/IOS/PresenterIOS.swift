@@ -48,6 +48,7 @@ final class Presenter {
     /// The native menu arm (LLP 1021 D3).
     lazy var swipeActions = SwipeActionsHost(self)
     lazy var menus = MenuHost(presenter: self)
+    lazy var keyboardToolbars = KeyboardToolbars(self)
     lazy var segments = SegmentHost(self)
     lazy var controls = ControlHost(self)
     /// Nodes marked `hook="word"` (LLP 1075.003.000).
@@ -220,6 +221,11 @@ final class Presenter {
         let change = {
             if self.interactiveWidget == "resizes-content" {
                 self.onKeyboardResize?()
+            } else if self.interactiveWidget == "overlays-content" {
+                let frame = parent.convert(self.viewport.frame, to: window)
+                let overlap = top.map { min(max(0, frame.maxY - max($0, frame.minY)), frame.height) } ?? 0
+                self.keyboardInset = overlap
+                self.keyboardToolbars.ride(overlap: overlap)
             } else {
                 let frame = parent.convert(self.viewport.frame, to: window)
                 let overlap = top.map { min(max(0, frame.maxY - max($0, frame.minY)), frame.height) } ?? 0
