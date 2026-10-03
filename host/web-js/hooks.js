@@ -19,41 +19,64 @@ const said = new Set(), warned = new Set();
 const say = line => journal.push(`t=${clock.now} hook ${line}`);
 const page = () => Page ??= new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))
   .then(() => import("./native.js")).then(m => m.pageTable());
+// `state.hooks` (the agent), as Apple's: per word, its live nodes, and its
+// calls by moment. A row's calls after the first of each moment are counted,
+// not journaled, so a fling does not flood the journal.
+const stats = {};
+const counted = word => stats[word] ??= { live: 0, reusable: 0, lost: [], calls: {} };
 
 /** The page module's `element` hook for `e`, and its end. */
 export function hk(e) {
   if (typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
+  if (globalThis.exact) globalThis.exact.hookStats ??= stats;
   const word = e.getAttribute("data-hook"), id = viewId(e);
   const h = {
     hook: word, element: e, data: e.dataset, isNew: true, isLive: true,
     click() { if (h.isLive) e.click(); }, focus() { if (h.isLive) e.focus(); }, blur() { if (h.isLive) e.blur(); },
   };
-  let module = null;
+  let module = null, inRow = false;
   const call = (name, moment) => {
     if (typeof module?.[name] !== "function") return;
-    say(`element ${word} #${id}: ${moment}`);
+    const n = counted(word).calls[moment] = (counted(word).calls[moment] ?? 0) + 1;
+    if (!inRow || n === 1) say(`element ${word} #${id}: ${moment}`);
     try { module[name](h); } catch (error) { say(`element ${word} #${id}: ${name} threw ${error?.message ?? error}`); }
   };
   inflight.n++;
   page().then(m => {
     if (!h.isLive) return;
     module = m;
+    counted(word).live++;
     if (!said.has(word)) { said.add(word); say(`element ${word}: nothing beyond the call on this host (LLP 1075.003.000)`); }
     const row = e.closest("[data-listitemkey]");
+    inRow = !!row;
     if (row && !warned.has(word)) {
       warned.add(word);
       let list = row.parentElement;
       while (list && !list.$list) list = list.parentElement;
       say(`element ${word} is in a row of list ${list?.dataset.testid ?? "#" + (list ? viewId(list) : "?")}: each row's mount calls its hook on the main thread`);
     }
+    // A change of its words (dataset.js) is heard after the effect that made
+    // it, once however many words changed: what the hook does in answer (a
+    // click) is then an ordinary update, not one inside the running effect.
+    // Installed before `built`, so what `built` itself causes is heard too.
+    let due = false;
+    e.$hk = () => {
+      if (due) return;
+      due = true;
+      queueMicrotask(() => { due = false; if (h.isLive) { h.isNew = false; call("element", "changed"); } });
+    };
     call("element", "built");
-    e.$hk = () => { if (h.isLive) { h.isNew = false; call("element", "changed"); } };
   }, error => say(`element ${word} #${id}: no page module: ${error?.message ?? error}`))
     .finally(() => setTimeout(() => inflight.n--));
   onEnd(() => {
     delete e.$hk;
-    if (module && h.isLive) call("elementEnded", "ended");
+    const told = module && h.isLive;
+    // As on Apple: the handle is no longer live in `elementEnded` (its
+    // `click()` does nothing), and keeps no element after it, since a list
+    // may give the element to another row.
     h.isLive = false;
+    if (told) { counted(word).live--; call("elementEnded", "ended"); }
+    h.element = null;
   });
 }
 
@@ -86,6 +109,10 @@ export function containers() {
           call("tabs", `tabs: built`, list);
         }
         for (const element of nav.querySelectorAll("[navigationKey]")) {
+          // A route is its nearest root's; a nested root is not a route; one
+          // leaving (its exit animation playing) has ended.
+          if (element.hasAttribute("navigationBack") || element.parentElement?.closest("[navigationBack]") !== nav
+            || element.closest("[data-exiting]")) continue;
           live.add(element);
           if (routes.has(element)) continue;
           const r = { key: element.getAttribute("navigationKey"), data: element.dataset, element, navigation: nav, isNew: true, isLive: true };

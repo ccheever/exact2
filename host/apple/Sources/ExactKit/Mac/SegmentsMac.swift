@@ -16,6 +16,9 @@ private final class ExactSegmentedControl: NSSegmentedControl {
 final class SegmentHost {
     unowned let presenter: Presenter
     private var controls: [UInt32: ExactSegmentedControl] = [:]
+    /// The segmented control a tablist or radio group projects to, if any:
+    /// a hooked node's platform object (LLP 1075.003.000 §3.2).
+    func control(of id: UInt32) -> NSSegmentedControl? { controls[id] }
     private var hidden: [UInt32: Bool] = [:]
     private var members: [UInt32: [UInt32]] = [:]
     /// The last projection decision journaled per tablist, so each is said once.

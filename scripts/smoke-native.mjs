@@ -136,6 +136,7 @@ export async function nativeSmoke({ host, open, check: record, webDist, shots })
       const bar = (await s.state()).window?.toolbar;
       check(bar?.installed && bar.displayMode === 1 && bar.appItems?.includes('fixture.hooked') && bar.items?.at(-1) === 'fixture.hooked',
         `${host} native: the toolbar hook sets the display mode and adds an item after Exact's: ${JSON.stringify(bar)}`);
+      check(bar?.appEnabled?.every(Boolean), `${host} native: the app's own toolbar item is enabled (its target validates it): ${JSON.stringify(bar?.appEnabled)}`);
       await s.tap('toolbar-compose'); await settle(s);
       check((await s.state()).slots.composed === 2, `${host} native: Exact's toolbar item still presses its command`);
     }

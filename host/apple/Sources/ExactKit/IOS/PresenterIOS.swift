@@ -287,6 +287,8 @@ final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        // Every hooked node ends first, its view and platform object there.
+        elements.reset()
         canvasKey = nil
         session?.transformInputHold?.cancel()
         reorder?.abandon()
@@ -302,7 +304,6 @@ final class Presenter {
         leaves.reset()
         flats.reset()
         modals.reset()
-        elements.reset()
         navigation.reset()
         session?.canvases.reset()
         for id in Array(leaving.keys) { _ = endExit(id) }
@@ -634,9 +635,6 @@ final class Presenter {
         defer { Self.signposts.endInterval("apply", post) }
         collections.beginBatch(batch)
         if !applying { flats.begin(batch) }
-        // Hooked nodes this batch destroys end first, so a reusable hook has
-        // undone its additions before the pool looks at their rows.
-        elements.begin(batch)
         pool.begin(batch)
         swipeActions.prepare()
         prepareContexts(batch)
@@ -653,6 +651,10 @@ final class Presenter {
         svg.seek(clock: session?.clock)
         let outermost = !applying
         applying = true
+        // Hooked nodes this batch destroys end first, so a reusable hook has
+        // undone its additions before the pool looks at their rows; inside
+        // the batch, so what a hook clicks waits for it (`afterBatch`).
+        elements.begin(batch)
         var moved = false // create, frame or content ops: rows may have come or moved (`HeavyLeaves.batchApplied`)
         defer {
             collections.endBatch()

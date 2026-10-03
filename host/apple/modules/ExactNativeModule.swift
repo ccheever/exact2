@@ -402,21 +402,25 @@ public final class ExactElement {
     /// A hooked node's view. Its frame, transform, alpha, hidden state, the
     /// paint Exact draws and Exact's own subviews are Exact's; add
     /// interactions, gestures, subviews and sublayers of your own (§3.6).
+    /// Nil once `elementEnded` has returned: the view may be another row's.
     public internal(set) weak var view: ExactNativeView?
     /// The platform object of a hooked node's kind, or nil: a text field or
-    /// text view, a control, a web view, a scroll view. What an authored row
-    /// or attribute writes on it is Exact's; the rest is yours.
+    /// text view, a control (a segmented control too), a web view, a scroll
+    /// view. What an authored row or attribute writes on it is Exact's; the
+    /// rest is yours. A video, frame or native view in a list row may be made
+    /// after `built` (iOS): the hook hears `changed` once it is there.
     public internal(set) weak var platform: AnyObject?
     /// Whether this call is the node's first.
     public internal(set) var isNew = true
-    /// Set in `element` when `elementEnded` undoes everything this hook adds
-    /// to `view` (its interactions, gestures, subviews, sublayers, and any
-    /// property it changed): a list row holding the node may then be reused
-    /// for another row (iOS), as UIKit reuses a cell after `prepareForReuse`,
-    /// and the next node there is a new element with `isNew`. A row whose
-    /// view still has interactions or gesture recognizers is never reused,
-    /// so one left behind costs the reuse, not another row. Read after each
-    /// call; on other hosts it changes nothing (LLP 1075.003.000.000 §8).
+    /// Set in `element` (or in `elementEnded` itself) when `elementEnded`
+    /// undoes everything this hook adds to `view` (its interactions,
+    /// gestures, subviews, sublayers, and any property it changed): a list
+    /// row holding the node may then be reused for another row (iOS), as
+    /// UIKit reuses a cell after `prepareForReuse`, and the next node there
+    /// is a new element with `isNew`. A row whose view still has
+    /// interactions or gesture recognizers is never reused, so one left
+    /// behind costs the reuse, not another row. Read after each call; on
+    /// other hosts it changes nothing (LLP 1075.003.000.000 §8).
     public var reusable = false
     var ended = false
     /// False once the element's route or node has ended: it then does nothing.
@@ -873,7 +877,12 @@ private let moduleElement: @convention(c) (UnsafeMutableRawPointer?, UInt32, Uns
         guard let element = hooks.elements.removeValue(forKey: node) else { return 0 }
         element.ended = true
         m.elementEnded(element)
-        return 0
+        // The view goes to the node pool or away: a handle the app kept no
+        // longer reaches it, or the row that takes it next. `reusable` may
+        // be said here too, beside the undoing it promises.
+        element.view = nil
+        element.platform = nil
+        return element.reusable ? 1 : 0
     }
     let element: ExactElement
     if let known = hooks.elements[node] {

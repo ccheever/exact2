@@ -74,6 +74,14 @@ final class ElementHooks {
         }
     }
 
+    /// A held heavy leaf (iOS: a video, iframe or native view in a list) is
+    /// made after its hook heard `built`: the hook hears `changed`, its
+    /// platform object there now.
+    func realized(_ node: NodeView) {
+        guard let entry = nodes[node.id], entry.node === node, entry.told else { return }
+        call(.changed, entry)
+    }
+
     /// Before a batch's ops: every hooked node it destroys ends now, its view
     /// still in its row. A row's root is destroyed before its children, and
     /// the node pool decides at the root whether the row parks, so a
@@ -105,6 +113,7 @@ final class ElementHooks {
     /// carries the answer to the node pool, LLP 1075.003.000.000 §8).
     @discardableResult
     private func call(_ event: RouteHookEvent, _ entry: Entry) -> Bool {
+        let id = entry.node.id
         let word = entry.node.props["hook"] ?? ""
         calls[word, default: [:]][event.name, default: 0] += 1
         // In a list's row, the first of each moment is journaled; `state`
@@ -112,7 +121,12 @@ final class ElementHooks {
         let quiet = entry.inList && (calls[word]?[event.name] ?? 0) > 1
         let reusable = presenter.session?.natives.elementHook(entry.node, event: event.rawValue, platform: Self.platform(of: entry.node, presenter), quiet: quiet) ?? false
         #if os(iOS)
-        if event != .ended { entry.node.hookReusable = reusable }
+        // The answer is the view's while it is still this node's: a click
+        // inside the hook (after the batch) can have replaced the node and
+        // given its view to another. At `ended` it is the last word.
+        if event == .ended || (nodes[id]?.node === entry.node && presenter.views[id] === entry.node) {
+            entry.node.hookReusable = reusable
+        }
         #endif
         return reusable
     }
@@ -195,9 +209,9 @@ final class ElementHooks {
     /// a control (a switch, slider, date picker…), a web view, a scroll view.
     static func platform(of node: NodeView, _ presenter: Presenter) -> AnyObject? {
         #if os(iOS)
-        node.field ?? node.textArea ?? presenter.controls.controls[node.id] ?? node.web ?? node.scroll
+        node.field ?? node.textArea ?? presenter.controls.controls[node.id] ?? presenter.segments.control(of: node.id) ?? node.web ?? node.scroll
         #else
-        node.field ?? node.textArea ?? presenter.controls.controls[node.id] ?? node.scroll
+        node.field ?? node.textArea ?? presenter.controls.controls[node.id] ?? presenter.segments.control(of: node.id) ?? node.scroll
         #endif
     }
 

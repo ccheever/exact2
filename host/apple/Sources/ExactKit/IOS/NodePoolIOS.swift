@@ -253,7 +253,7 @@ final class NodePool {
         guard let shape = shape(root, &views, &leaves, &lists), list == nil || lists.isEmpty else { return false }
         let destroyed = destroyedIDs()
         guard views.allSatisfy({ $0.map { destroyed.contains($0.id) && recyclable($0) } ?? true }),
-              leaves.allSatisfy({ destroyed.contains($0.id) && idle($0) }) else { return false }
+              leaves.allSatisfy({ destroyed.contains($0.id) && idle($0) && unhooked($0) }) else { return false }
         // The cards an inner list shows park under it before the list itself
         // is reset; the rest of its content goes by its own destroy ops.
         var cards: [(NodeView, NodeView)] = []
@@ -322,8 +322,12 @@ final class NodePool {
             // 1075.003.000.000 §8); the checks above still refuse a view
             // with interactions or gestures left on it. Its props and the mark
             // stay until it is forgotten, after its own destroy op.
-            && (v.props["hook"] == nil || v.hookReusable)
+            && unhooked(v)
     }
+    /// Not a hooked node, or one whose hook undoes what it adds: a hooked
+    /// heavy leaf is destroyed as any is, but its row stays out of the pool
+    /// as the journal says (LLP 1075.003.000 §3.3).
+    private func unhooked(_ v: NodeView) -> Bool { v.props["hook"] == nil || v.hookReusable }
     /// Not placed, focused, editing or about to be: a leaf so held keeps
     /// its row out of the pool, destroyed as before.
     private func idle(_ v: NodeView) -> Bool {
