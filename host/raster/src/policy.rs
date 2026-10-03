@@ -686,6 +686,10 @@ impl RasterSession {
             self.trim();
         }
     }
+    /// Work arrived outside the gate (a source to read): wake a worker.
+    pub fn wake(&self) {
+        self.owner.gate.inner.wake.notify();
+    }
     /// Memory pressure: drop unpinned cold owners, retaining displayed dedup.
     /// Surviving backing owners always retain their independent byte charge.
     pub fn trim(&self) {

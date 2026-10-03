@@ -93,6 +93,7 @@ impl Backend {
         assets: &Arc<Assets>,
     ) -> Result<Arc<SourceOwner>, Refusal> {
         let mut state = self.state.lock().unwrap();
+        let mut queued = false;
         state.sources.retain(|_, source| source.strong_count() > 0);
         // Keep upgraded owners until AFTER releasing the index lock: their
         // asset descriptor may have an arbitrary final destructor.
@@ -125,12 +126,17 @@ impl Backend {
             });
             state.next_source = next;
             state.sources.insert(source.id, Arc::downgrade(&source));
+            queued = true;
             Ok(source)
         } else {
             Err(Refusal::Overflow)
         };
         drop(state);
         drop(owners);
+        // A header to read: a worker reads it now, not at its backstop timeout.
+        if queued {
+            self.session.wake();
+        }
         result
     }
     fn owners(&self) -> Vec<Arc<SourceOwner>> {
@@ -399,7 +405,9 @@ impl Workers {
         }
         drop(backends);
         before_wait();
-        if let Some(permit) = self.gate.wait_decode(Duration::from_millis(20)) {
+        // Requests, cancels and freed budget all wake a worker; the timeout is
+        // only a backstop, so it is long enough not to be a poll.
+        if let Some(permit) = self.gate.wait_decode(Duration::from_millis(200)) {
             *metadata_turn = true;
             self.complete(permit);
         }
