@@ -336,7 +336,7 @@ literals to an arm as `case "a" | "b"`, every literal named and no `else`, in
 a view, an action and an expression. The parser reads it as nested `when`s,
 `if`s or `?:`s on `Expr::Case` tests, so nothing after the checker knows it
 was a `match`. Refusals: `syntax-choice-literal`, `syntax-choice-duplicate`,
-`syntax-match-else`, `type-choice-unknown` (a literal outside the choice, in
+`syntax-match-else`, `syntax-match-arms` (more than 64), `type-choice-unknown` (a literal outside the choice, in
 a `case`, beside `==`, or where the choice is wanted), `type-match-missing`,
 and `type-match-subject` for a subject that is not a choice. The plan holds a
 choice as a `string` type row whose fields name its literals; `Value::conforms`
@@ -657,7 +657,7 @@ runner and the JavaScript target. Every other root's plan is byte-identical
 (117 roots, 2026-10-02).
 
 `choices.contract` (LLP 1035.005.000 D4a) runs on the runner in
-`contract/cli/tests/it/choices.rs`, with eleven reject fixtures;
+`contract/cli/tests/it/choices.rs`, with fourteen reject fixtures;
 `host/web-js/conformance/choices.contract` drives it on both executors.
 Markdown, Markdown Stress, LLP, Exact Live and Carousel dispatch on a choice
 (2026-10-03).

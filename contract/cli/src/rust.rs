@@ -227,7 +227,17 @@ fn choice_enum(plan: &Plan, i: u32, name: &str, out: &mut String) -> Result<(), 
         .iter()
         .map(|f| plan.str(plan.field(f).name))
         .collect();
-    let variants: Vec<String> = literals.iter().map(|l| pascal(l)).collect();
+    // A literal of punctuation only, or `self`, names no Rust variant of its
+    // own: it is `V` and its position, or `VSelf`.
+    let variants: Vec<String> = literals
+        .iter()
+        .enumerate()
+        .map(|(k, l)| match pascal(l) {
+            v if v.is_empty() => format!("V{k}"),
+            v if v == "Self" => "VSelf".into(),
+            v => v,
+        })
+        .collect();
     for (k, v) in variants.iter().enumerate() {
         if variants[..k].contains(v) {
             return Err(format!(

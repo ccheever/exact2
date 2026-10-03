@@ -184,13 +184,18 @@ pub(super) fn subst_expr<T: SubstitutionValue>(e: &Expr, s: &mut Subst<'_, T>) -
             subject,
             literals,
             all,
+            checked,
             span,
-        } => Expr::Case {
-            subject: Box::new(subst_expr(subject, s)),
-            literals: literals.clone(),
-            all: all.clone(),
-            span: *span,
-        },
+        } => {
+            let replaced = subst_expr(subject, s);
+            Expr::Case {
+                checked: *checked || replaced != **subject,
+                subject: Box::new(replaced),
+                literals: literals.clone(),
+                all: all.clone(),
+                span: *span,
+            }
+        }
         Expr::Binary(op, a, b, span) => Expr::Binary(
             *op,
             Box::new(subst_expr(a, s)),

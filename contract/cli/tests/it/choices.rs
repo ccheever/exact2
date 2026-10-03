@@ -149,3 +149,88 @@ fn the_generated_types_spell_a_choice_as_their_own_closed_type() {
     assert!(rust.contains("pub kind: BlockKind,"), "{rust}");
     assert!(rust.contains("\"rule\" => Self::Rule,"), "{rust}");
 }
+
+/// Each source's compile: `"ok"`, or the id it is refused with.
+fn compiled(src: &str) -> String {
+    contract::compile(src).map_or_else(|e| e.id.to_string(), |_| "ok".into())
+}
+
+#[test]
+fn a_branch_a_choice_does_not_accept_is_refused_in_either_order() {
+    for body in ["c ? \"a\" : 123", "c ? 123 : \"a\"", "c ? \"a\" : \"z\""] {
+        let src = format!(
+            "fn bad(c: bool): \"a\" | \"b\" = {body}\ncomponent App\n  view\n    text \"x\"\n"
+        );
+        let want = if body.contains('z') {
+            "type-choice-unknown"
+        } else {
+            "type-fn-return"
+        };
+        assert_eq!(compiled(&src), want, "{body}");
+    }
+    // Literals reach a choice through `some`, `?:` and an option's `match`.
+    for f in [
+        "fn f(c: bool): option<\"a\" | \"b\"> = c ? some(\"a\") : none",
+        "fn f(o: option<string>): \"a\" | \"b\" = match o { case some(x) => \"a\", case none => \"b\" }",
+    ] {
+        let src = format!("{f}\ncomponent App\n  view\n    text \"x\"\n");
+        assert_eq!(compiled(&src), "ok", "{f}");
+    }
+}
+
+#[test]
+fn a_components_match_holds_to_its_declared_choice_whatever_its_use_passes() {
+    let child = "component Child\n  props\n    kind: \"a\" | \"b\"\n  state n = 0\n  derive d = kind\n  view\n    column\n      text d\n      match d\n        case \"a\"\n          text \"A\"\n        case \"b\"\n          text \"B\"\n";
+    // A field of a narrower choice, a `?:` of a field and a literal, a literal.
+    for arg in ["s.k", "flag ? s.w : \"a\"", "\"b\""] {
+        let src = format!("shape S\n  k: \"a\"\n  w: \"a\" | \"b\"\ncomponent App\n  state flag = true\n  resource s = s() as shape S\n  view\n    column\n      Child(kind={arg})\n{child}");
+        assert_eq!(compiled(&src), "ok", "{arg}");
+    }
+    // An authored literal subject is not a choice: no arm would be checked.
+    let src = "component App\n  view\n    text match \"c\" { case \"a\" => \"A\", case \"b\" => \"B\" }\n";
+    assert_eq!(compiled(src), "type-match-subject");
+}
+
+#[test]
+fn inferred_parameters_sources_and_providers_agree_on_a_string() {
+    // An untyped parameter called with a choice and a string is a string,
+    // in either order; so is a source's argument.
+    for (x, y) in [("firstKind()", "\"b\""), ("\"b\"", "firstKind()")] {
+        let src = format!("fn firstKind(): \"a\" = \"a\"\ncomponent App\n  state s = \"\"\n  resource r = echo({x}) as shape string\n  resource q = echo({y}) as shape string\n  action pick(k)\n    s = k\n  view\n    column\n      button \"x\" press=pick({x})\n      button \"y\" press=pick({y})\n");
+        assert_eq!(compiled(&src), "ok", "{x}, {y}");
+    }
+    // A provided literal fills a choice inject, and not a narrower one.
+    for (provided, ok) in [("\"a\"", true), ("\"z\"", false)] {
+        let src = format!("component App\n  provide\n    kind = {provided}\n  view\n    column\n      Child()\ncomponent Child\n  inject\n    kind: \"a\" | \"b\"\n  view\n    text kind\n");
+        assert_eq!(compiled(&src) == "ok", ok, "{provided}");
+    }
+}
+
+#[test]
+fn a_keyframe_constant_folds_a_match_and_a_wide_arm_stays_shallow() {
+    let src = "fn alpha(k: \"a\" | \"b\"): number = match k { case \"a\" => 0, case \"b\" => 1 }\nkeyframes fade\n  from opacity=alpha(\"a\")\n  to opacity=1\ncomponent App\n  view\n    text \"x\" animation-name=\"fade\" animation-duration=\"1s\"\n";
+    assert_eq!(compiled(src), "ok");
+    // 600 literals: 63 arms of one and a first arm of the rest, in a view and
+    // an action. The wide arm's test pairs its comparisons off.
+    let lits: Vec<String> = (0..600).map(|i| format!("\"k{i}\"")).collect();
+    let wide = lits[63..].join(" | ");
+    let mut src = format!("shape S\n  k: {}\ncomponent App\n  resource s = s() as shape S\n  state n = 0\n  action go\n    match s.k\n      case {wide}\n        n = 1\n", lits.join(" | "));
+    for l in &lits[..63] {
+        src += &format!("      case {l}\n        n = 2\n");
+    }
+    src += &format!("  view\n    column\n      text \"x\" press=go\n      match s.k\n        case {wide}\n          text \"rest\"\n");
+    for l in &lits[..63] {
+        src += &format!("        case {l}\n          text {l}\n");
+    }
+    assert_eq!(compiled(&src), "ok");
+}
+
+#[test]
+fn every_literal_names_a_rust_variant() {
+    let src = "shape S\n  k: \"---\" | \"ok\" | \"self\"\ncomponent App\n  resource s = s() as shape S\n  view\n    text s.k\n";
+    let rust = contract::rust(&contract::compile(src).unwrap()).unwrap();
+    assert!(
+        rust.contains("pub enum SK {\n    #[default] V0,\n    Ok,\n    VSelf,\n}"),
+        "{rust}"
+    );
+}

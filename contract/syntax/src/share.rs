@@ -305,11 +305,13 @@ fn map_children(e: Expr, f: &mut dyn FnMut(Expr) -> Expr) -> Expr {
             subject,
             literals,
             all,
+            checked,
             span,
         } => Expr::Case {
             subject: b(subject),
             literals,
             all,
+            checked,
             span,
         },
         Expr::Binary(op, x, y, s) => {

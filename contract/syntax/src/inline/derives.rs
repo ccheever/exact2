@@ -483,11 +483,13 @@ fn map_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> Expr {
             subject,
             literals,
             all,
+            checked,
             span,
         } => Expr::Case {
             subject: Box::new(f(subject)),
             literals: literals.clone(),
             all: all.clone(),
+            checked: *checked,
             span: *span,
         },
         Expr::Member(x, field, s) => Expr::Member(Box::new(f(x)), field.clone(), *s),

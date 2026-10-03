@@ -523,7 +523,8 @@ pub(crate) fn record_source(
     }
     let mut unified = Vec::with_capacity(params.len());
     for (i, (a, b)) in have_params.iter().zip(&params).enumerate() {
-        match a.unify(b) {
+        // Arguments agree as branches do: a choice beside a string is a string.
+        match a.join(b) {
             Some(u) => unified.push(u),
             None => {
                 return err(
@@ -967,10 +968,11 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
         }
         Expr::Case {
             subject,
-            literals,
             all,
+            checked,
             span,
-        } => choices::case(subject, literals, all.as_deref(), *span, scope, shapes)?,
+            ..
+        } => choices::case(subject, all.as_deref(), *checked, *span, scope, shapes)?,
         Expr::Let {
             name, value, body, ..
         } => {

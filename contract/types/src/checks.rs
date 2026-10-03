@@ -540,7 +540,7 @@ pub(super) fn check_injects(
     for b in provides {
         provided.push((
             b.name.clone(),
-            infer(&b.expr, scope, &types.shapes)?,
+            crate::choices::provided(&b.expr, scope, &types.shapes)?,
             b.span,
         ));
     }
@@ -613,7 +613,7 @@ fn check_inject_nodes(
                 });
                 let outer = provides.len();
                 for b in &target_c.provides {
-                    let got = infer(&b.expr, &target_scope, &types.shapes)?;
+                    let got = crate::choices::provided(&b.expr, &target_scope, &types.shapes)?;
                     provides.push((b.name.clone(), got, b.span));
                 }
                 let checked = check_inject_nodes(

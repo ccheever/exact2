@@ -923,8 +923,13 @@ pub enum Expr {
         subject: Box<Expr>,
         /// This arm's literals.
         literals: Vec<String>,
-        /// On a `match`'s first test, every arm's literals in order.
-        all: Option<Vec<String>>,
+        /// On a `match`'s first test, every arm's literals in order, each
+        /// with where it is written.
+        all: Option<Vec<(String, Span)>>,
+        /// Set where expansion substituted into the subject: the test is a
+        /// component's or a `fn`'s, already checked against its declared
+        /// choice, and what replaced the subject was checked at the use.
+        checked: bool,
         /// The `match`.
         span: Span,
     },

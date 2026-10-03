@@ -264,7 +264,7 @@ one is written: a shape's field, a prop or inject, a `fn`'s parameter or result,
 an action's parameter, inside `option<…>` and `list<…>`. Its values are strings:
 on the wire, in the VM, and as TypeScript's union of the literals. A literal is
 letters, digits, `-`, `_`, `.`, `/` and `:`, each once; the literals' order does
-not matter. A choice is read wherever a string is (a template, `+`, `==`, a
+not matter. A `match` over a choice takes at most 64 arms. A choice is read wherever a string is (a template, `+`, `==`, a
 string argument, a text). A string stands where a choice is wanted only as one
 of its literals written there (`kind="rule"`, `cond ? "a" : "b"`, `some("a")`),
 or as a value of the choice or of a choice of some of its literals; any other

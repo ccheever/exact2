@@ -158,7 +158,13 @@ fn constant(
             Some(Value::Number(-n))
         }
         (Ty::String, Expr::Str(s, _)) => Some(Value::str(s)),
-        (Ty::Choice(literals), Expr::Str(s, _)) if literals.contains(s) => Some(Value::str(s)),
+        (Ty::Choice(literals), Expr::Str(s, at)) => {
+            if literals.contains(s) {
+                return Some(Value::str(s));
+            }
+            errors.push(crate::choices::unknown(s, literals, *at));
+            None
+        }
         (Ty::String, Expr::Template(parts, _))
             if parts.iter().all(|p| matches!(p, TemplatePart::Text(_))) =>
         {

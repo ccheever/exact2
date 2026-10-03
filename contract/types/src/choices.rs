@@ -6,7 +6,7 @@
 //! `match` over a choice names every literal in its arms, and a literal it
 //! or a comparison names that is not the choice's is refused.
 
-use super::{arms, err, infer, Scope, Shapes, Ty, TypeError};
+use super::{arms, err, infer, Ref, Scope, Shapes, Ty, TypeError};
 use contract_syntax::{Expr, Span};
 
 /// `"a" | "b"`, as a message spells a choice.
@@ -68,10 +68,19 @@ impl Ty {
 
 /// `e`'s type where `want` is wanted. A string literal where a choice is
 /// wanted is that choice when it is one of its literals, and refused by
-/// name when it is not; a `?:` of such literals, and `some` of one, the
-/// same. Anything else is inferred as it stands, for the caller to hold to
-/// `want` with [`Ty::accepts`].
+/// name when it is not; so through `some(…)`, both arms of a `?:` and both
+/// arms of an option's `match`. Anything else is inferred as it stands, for
+/// the caller to hold to `want` with [`Ty::accepts`]; where an arm is not
+/// accepted, that arm's type is the answer, so the caller's refusal names it.
 pub(crate) fn given(want: &Ty, e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
+    if !want.has_choice() {
+        return infer(e, scope, shapes);
+    }
+    let both = |a: Ty, b: Ty| match (want.accepts(&a), want.accepts(&b)) {
+        (true, true) => want.clone(),
+        (false, _) => a,
+        (true, false) => b,
+    };
     match (want, e) {
         (Ty::Choice(literals), Expr::Str(s, span)) => {
             if literals.contains(s) {
@@ -80,29 +89,63 @@ pub(crate) fn given(want: &Ty, e: &Expr, scope: &Scope, shapes: &Shapes) -> Resu
                 Err(unknown(s, literals, *span))
             }
         }
-        (Ty::Choice(_), Expr::Ternary(_, x, y, _)) => {
-            let (a, b) = arms(e, scope, shapes, infer)?;
-            let a = if a.is_text() {
-                given(want, x, scope, shapes)?
-            } else {
-                a
-            };
-            let b = if b.is_text() {
-                given(want, y, scope, shapes)?
-            } else {
-                b
-            };
-            Ok(if want.accepts(&a) && want.accepts(&b) {
-                want.clone()
-            } else {
-                a.join(&b).unwrap_or(a)
-            })
-        }
-        (Ty::Option(inner), Expr::Some(x, _)) if inner.has_choice() => {
+        (Ty::Option(inner), Expr::Some(x, _)) => {
             Ok(Ty::Option(Box::new(given(inner, x, scope, shapes)?)))
+        }
+        (_, Expr::Ternary(_, x, y, _)) => {
+            // The condition, and each arm as it types on its own.
+            arms(e, scope, shapes, infer)?;
+            Ok(both(
+                given(want, x, scope, shapes)?,
+                given(want, y, scope, shapes)?,
+            ))
+        }
+        (
+            _,
+            Expr::Match {
+                subject,
+                var,
+                some,
+                none,
+                ..
+            },
+        ) => {
+            arms(e, scope, shapes, infer)?;
+            let Ty::Option(item) = infer(subject, scope, shapes)? else {
+                return infer(e, scope, shapes);
+            };
+            let mut inner = scope.clone();
+            inner.push(vec![(var.clone(), Ref::Local(0), *item)]);
+            Ok(both(
+                given(want, some, &inner, shapes)?,
+                given(want, none, scope, shapes)?,
+            ))
         }
         _ => infer(e, scope, shapes),
     }
+}
+
+/// A provided value's type, before the injects it fills are known: a
+/// string literal, or a `?:` of them, is the choice of those literals, which
+/// a `string` inject and any choice holding them accept.
+pub(crate) fn provided(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
+    fn literals(e: &Expr, out: &mut Vec<String>) -> bool {
+        match e {
+            Expr::Str(s, _) => {
+                out.push(s.clone());
+                true
+            }
+            Expr::Ternary(_, a, b, _) => literals(a, out) && literals(b, out),
+            _ => false,
+        }
+    }
+    let t = infer(e, scope, shapes)?;
+    let mut found = Vec::new();
+    Ok(if t == Ty::String && literals(e, &mut found) {
+        Ty::choice(&found)
+    } else {
+        t
+    })
 }
 
 /// What a refusal of `given` where `want` is wanted adds when the cause is a
@@ -124,7 +167,7 @@ pub(crate) fn hint(want: &Ty, given: &Ty) -> &'static str {
 
 /// `"x"` named where `literals` are the choice: refused, with the one it
 /// most plausibly misspells.
-fn unknown(s: &str, literals: &[String], span: Span) -> TypeError {
+pub(crate) fn unknown(s: &str, literals: &[String], span: Span) -> TypeError {
     let hint = contract_syntax::suggestion(s, literals.iter().map(String::as_str))
         .map(|guess| format!("; did you mean `\"{guess}\"`?"))
         .unwrap_or_else(|| {
@@ -148,35 +191,27 @@ pub(crate) fn compared(t: &Ty, other: &Expr) -> Result<(), TypeError> {
     }
 }
 
-/// Whether `e` is a string literal whatever it evaluates to: what a use
-/// passes to a choice prop, substituted into the component's `match`. The
-/// use was held to the prop's choice, and the component's own check held
-/// its `match` to it.
-fn literal(e: &Expr) -> bool {
-    match e {
-        Expr::Str(..) => true,
-        Expr::Ternary(_, a, b, _) => literal(a) && literal(b),
-        Expr::Match { some, none, .. } => literal(some) && literal(none),
-        _ => false,
-    }
-}
-
 /// One arm's test in a `match` over a choice: the subject is a choice, the
 /// arm's literals are its literals, and the first test, carrying every
 /// arm's, names each of its literals.
 pub(crate) fn case(
     subject: &Expr,
-    literals: &[String],
-    all: Option<&[String]>,
+    all: Option<&[(String, Span)]>,
+    checked: bool,
     span: Span,
     scope: &Scope,
     shapes: &Shapes,
 ) -> Result<Ty, TypeError> {
+    // A component's or a `fn`'s test, with what its use passed substituted
+    // in: checked in its own declaration against the declared choice, and
+    // the use's value against that choice where it was passed.
+    if checked {
+        return Ok(Ty::Bool);
+    }
     let t = infer(subject, scope, shapes)?;
     let choice = match &t {
         Ty::Choice(choice) => choice,
         Ty::Unknown => return Ok(Ty::Bool),
-        Ty::String if literal(subject) => return Ok(Ty::Bool),
         _ => {
             return err(
                 "type-match-subject",
@@ -187,33 +222,35 @@ pub(crate) fn case(
             )
         }
     };
-    for l in literals.iter().chain(all.into_iter().flatten()) {
+    // The first test names every arm's literals; the others are among them.
+    let Some(all) = all else {
+        return Ok(Ty::Bool);
+    };
+    for (l, at) in all {
         if !choice.contains(l) {
-            return Err(unknown(l, choice, span));
+            return Err(unknown(l, choice, *at));
         }
     }
-    if let Some(all) = all {
-        let missing: Vec<String> = choice
+    let missing: Vec<String> = choice
+        .iter()
+        .filter(|l| !all.iter().any(|(a, _)| a == *l))
+        .cloned()
+        .collect();
+    if !missing.is_empty() {
+        let cases = missing
             .iter()
-            .filter(|l| !all.contains(l))
-            .cloned()
-            .collect();
-        if !missing.is_empty() {
-            let cases = missing
-                .iter()
-                .map(|l| format!("`case \"{l}\"`"))
-                .collect::<Vec<_>>()
-                .join(", ");
-            return err(
-                "type-match-missing",
-                format!(
-                    "this `match` on `{t}` has no arm for `{}`: add {cases}, or name it in another arm's `case … | \"{}\"`",
-                    spell(&missing),
-                    missing[0]
-                ),
-                span,
-            );
-        }
+            .map(|l| format!("`case \"{l}\"`"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        return err(
+            "type-match-missing",
+            format!(
+                "this `match` on `{t}` has no arm for `{}`: add {cases}, or name it in another arm's `case … | \"{}\"`",
+                spell(&missing),
+                missing[0]
+            ),
+            span,
+        );
     }
     Ok(Ty::Bool)
 }

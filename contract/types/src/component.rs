@@ -456,8 +456,17 @@ fn refine_params_from_view(
                             for (i, arg) in args.iter().enumerate() {
                                 if i < ct.actions[ai].len() {
                                     let want = &ct.actions[ai][i];
-                                    let t = crate::choices::given(want, arg, scope, shapes)?;
-                                    if let Some(u) = want.unify(&t) {
+                                    // A declared parameter keeps its type; an
+                                    // undeclared one takes what every call
+                                    // agrees on (a choice and a string: string).
+                                    let u = if c.actions[ai].params[i].ty.is_some() {
+                                        want.unify(&crate::choices::given(
+                                            want, arg, scope, shapes,
+                                        )?)
+                                    } else {
+                                        want.join(&infer(arg, scope, shapes)?)
+                                    };
+                                    if let Some(u) = u {
                                         ct.actions[ai][i] = u;
                                     }
                                 }

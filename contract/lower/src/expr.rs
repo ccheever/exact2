@@ -430,14 +430,27 @@ pub(crate) fn compile(
             span,
             ..
         } => {
-            let test = literals
+            let mut tests: Vec<Expr> = literals
                 .iter()
                 .map(|lit| {
                     let lit = Box::new(Expr::Str(lit.clone(), *span));
                     Expr::Binary(BinOp::Eq, subject.clone(), lit, *span)
                 })
-                .reduce(|a, b| Expr::Binary(BinOp::Or, Box::new(a), Box::new(b), *span))
-                .expect("an arm names a literal");
+                .collect();
+            // Paired off level by level, so an arm of many literals nests
+            // as deep as their logarithm, not their count.
+            while tests.len() > 1 {
+                let mut pairs = Vec::with_capacity(tests.len().div_ceil(2));
+                let mut rest = tests.into_iter();
+                while let Some(a) = rest.next() {
+                    pairs.push(match rest.next() {
+                        Some(b) => Expr::Binary(BinOp::Or, Box::new(a), Box::new(b), *span),
+                        None => a,
+                    });
+                }
+                tests = pairs;
+            }
+            let test = tests.pop().expect("an arm names a literal");
             compile(l, asm, &test, scope, locals)?
         }
         Expr::Match {

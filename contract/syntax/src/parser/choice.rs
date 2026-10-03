@@ -7,8 +7,12 @@
 
 use super::*;
 
-/// One arm: its literals, its `case`, its body.
-type Arm<T> = (Vec<String>, Span, T);
+/// One arm: its literals where each is written, its `case`, its body.
+type Arm<T> = (Vec<(String, Span)>, Span, T);
+
+/// At most this many arms in one `match` over a choice: each arm's test
+/// nests the arms after it, and every later pass walks that nesting.
+const MAX_ARMS: usize = 64;
 
 /// Whether `s` is spelled as a choice literal: letters, digits, `-`, `_`,
 /// `.`, `/` and `:`. A value's type code on the web carries the literals,
@@ -23,13 +27,15 @@ impl Parser {
     /// `"a" | "b" | …` as a type, at its first literal.
     pub(super) fn choice_type(&mut self) -> R<TypeExpr> {
         let span = self.peek().span;
-        let mut literals = Vec::new();
-        self.literals(&mut literals, "type")?;
-        Ok(TypeExpr::Choice(literals, span))
+        let literals = self.literals(&mut Vec::new(), "type")?;
+        Ok(TypeExpr::Choice(
+            literals.into_iter().map(|(l, _)| l).collect(),
+            span,
+        ))
     }
 
     /// `"a" { | "b" }`, each literal spelled as one and new to `seen`.
-    fn literals(&mut self, seen: &mut Vec<String>, what: &str) -> R<Vec<String>> {
+    fn literals(&mut self, seen: &mut Vec<String>, what: &str) -> R<Vec<(String, Span)>> {
         let mut out = Vec::new();
         loop {
             let t = self.peek().clone();
@@ -57,7 +63,7 @@ impl Parser {
             }
             self.next();
             seen.push(s.clone());
-            out.push(s);
+            out.push((s, t.span));
             if !self.eat_punct("|") {
                 return Ok(out);
             }
@@ -72,26 +78,44 @@ impl Parser {
             && matches!(at(2), TokenKind::Str(_))
     }
 
+    /// `case "a" | "b"`: the start of one arm, refusing an `else`, an option's
+    /// arm, and an arm past [`MAX_ARMS`].
+    fn arm_head(&mut self, seen: &mut Vec<String>, arms: usize) -> R<(Vec<(String, Span)>, Span)> {
+        if self.at_ident("else") {
+            return self.err(
+                "syntax-match-else",
+                "a `match` over a choice has no `else`: give every literal a `case`, several to one arm as `case \"a\" | \"b\"`",
+            );
+        }
+        if arms == MAX_ARMS {
+            return self.err(
+                "syntax-match-arms",
+                format!("a `match` over a choice takes at most {MAX_ARMS} arms, as each nests the arms after it: name several literals in one arm, `case \"a\" | \"b\"`"),
+            );
+        }
+        let case = self.expect_word("case")?;
+        if self.at_ident("some") || self.at_ident("none") {
+            return self.err(
+                "contract-match-arms",
+                "a `match` takes `case some(x)` and `case none` over an option, or `case \"…\"` over a choice, not both",
+            );
+        }
+        Ok((self.literals(seen, "`match`")?, case))
+    }
+
     /// The indented arms of a `match` over a choice, each `case "a" | "b"`
-    /// then what `body` reads.
+    /// then what `body` reads. The `k`th arm's body is read `k` levels
+    /// deeper in the view, where the tests nest it.
     fn choice_arms<T>(&mut self, mut body: impl FnMut(&mut Self) -> R<T>) -> R<Vec<Arm<T>>> {
         let mut seen = Vec::new();
+        let mut arms = 0;
         self.block(|p| {
-            if p.at_ident("else") {
-                return p.err(
-                    "syntax-match-else",
-                    "a `match` over a choice has no `else`: give every literal a `case`, several to one arm as `case \"a\" | \"b\"`",
-                );
-            }
-            let case = p.expect_word("case")?;
-            if p.at_ident("some") || p.at_ident("none") {
-                return p.err(
-                    "contract-match-arms",
-                    "a `match` takes `case some(x)` and `case none` over an option, or `case \"…\"` over a choice, not both",
-                );
-            }
-            let literals = p.literals(&mut seen, "`match`")?;
-            Ok((literals, case, body(p)?))
+            let (literals, case) = p.arm_head(&mut seen, arms)?;
+            p.view_depth += arms;
+            let read = body(p);
+            p.view_depth -= arms;
+            arms += 1;
+            Ok((literals, case, read?))
         })
     }
 
@@ -99,13 +123,14 @@ impl Parser {
     /// literal. The last arm's is never evaluated except when it is the
     /// only one.
     fn tests<T>(subject: &Expr, arms: &[Arm<T>], span: Span) -> Vec<Expr> {
-        let all: Vec<String> = arms.iter().flat_map(|a| a.0.iter().cloned()).collect();
+        let all: Vec<(String, Span)> = arms.iter().flat_map(|a| a.0.iter().cloned()).collect();
         arms.iter()
             .enumerate()
             .map(|(i, (literals, case, _))| Expr::Case {
                 subject: Box::new(subject.clone()),
-                literals: literals.clone(),
+                literals: literals.iter().map(|(l, _)| l.clone()).collect(),
                 all: (i == 0).then(|| all.clone()),
+                checked: false,
                 span: if i == 0 { span } else { *case },
             })
             .collect()
@@ -168,14 +193,7 @@ impl Parser {
         let mut arms = Vec::new();
         let mut below = below;
         loop {
-            if self.at_ident("else") {
-                return self.err(
-                    "syntax-match-else",
-                    "a `match` over a choice has no `else`: give every literal a `case`, several to one arm as `case \"a\" | \"b\"`",
-                );
-            }
-            let case = self.expect_word("case")?;
-            let literals = self.literals(&mut seen, "`match`")?;
+            let (literals, case) = self.arm_head(&mut seen, arms.len())?;
             self.expect_punct("=>")?;
             let value = self.expr()?;
             below = below.max(self.last);
