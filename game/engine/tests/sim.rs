@@ -367,6 +367,30 @@ fn explicit_events_are_saved_in_order_and_publication_is_separate() {
     );
 }
 
+/// An overflowing queue drops its oldest move, but that move's motion joins the
+/// pointer's next event: 1,100 one-point moves in 1,100 ticks still turn 1,100.
+/// Before: 1,024 (the 76 dropped moves' motion was lost).
+#[test]
+fn overflow_drops_a_moves_position_but_keeps_its_motion() {
+    let mut s = sim();
+    for i in 0..1100 {
+        s.input(InputEvent::Pointer {
+            id: 1,
+            phase: PointerPhase::Move,
+            x: i as f32,
+            y: 0.0,
+            dx: 1.0,
+            dy: 0.0,
+            buttons: 0,
+            at_ms: 20.0 * (i + 1) as f64,
+        });
+    }
+    s.advance(30_000.0, Clock::Seekable);
+    assert_eq!(
+        s.world().resource::<Counts>().pointer,
+        Vec2::new(1100.0, 0.0)
+    );
+}
 #[test]
 fn overflow_warning_is_saved_behavior() {
     let mut a = sim();

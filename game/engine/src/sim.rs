@@ -742,7 +742,7 @@ impl<G: Game> Sim<G> {
                 _ => break,
             }
         }
-        let mut position = position;
+        let (mut position, mut e) = (position, e);
         if self.queue.len() == QUEUE_LIMIT {
             let drop = self
                 .queue
@@ -750,12 +750,22 @@ impl<G: Game> Sim<G> {
                 .position(|e| e.event.is_move())
                 .unwrap_or(0);
             let was_move = self.queue[drop].event.is_move();
-            if drop == 0 {
-                self.queue.pop_front();
-            } else {
-                self.queue.remove(drop);
-            }
+            let dropped = self.queue.remove(drop).expect("a queued event");
             position -= usize::from(drop < position);
+            // A dropped move's motion joins that pointer's next event, so a
+            // flood of moves loses positions, never the turn they add up to.
+            if let InputEvent::Pointer { id, .. } = dropped.event {
+                let same =
+                    |ev: &InputEvent| matches!(ev, InputEvent::Pointer { id: n, .. } if *n == id);
+                let (mut before, mut after) = (drop..position, position..self.queue.len());
+                if let Some(i) = before.find(|&i| same(&self.queue[i].event)) {
+                    self.queue[i].event.add_motion(&dropped.event);
+                } else if same(&e.event) {
+                    e.event.add_motion(&dropped.event);
+                } else if let Some(i) = after.find(|&i| same(&self.queue[i].event)) {
+                    self.queue[i].event.add_motion(&dropped.event);
+                }
+            }
             if !self.overflow_logged {
                 self.world.log(if was_move {
                     "input queue overflow: dropped oldest move"
