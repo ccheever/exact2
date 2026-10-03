@@ -571,13 +571,13 @@ fn old_save_containers_are_refused_by_name_atomically() {
     let mut s = sim();
     let saved = s.save().unwrap();
     let mut old = saved.clone();
-    assert!(saved.starts_with(b"EXSIM\0\x05"));
+    assert!(saved.starts_with(b"EXSIM\0\x06"));
     old[6] = 4;
     assert!(s
         .restore(&old)
         .unwrap_err()
         .to_string()
-        .contains("EXSIM v5"));
+        .contains("EXSIM v6"));
     assert_eq!(s.save().unwrap(), saved);
     let saved = s.world().save();
     let mut old = saved.clone();
@@ -592,6 +592,15 @@ fn old_save_containers_are_refused_by_name_atomically() {
     assert_eq!(s.world().save(), saved);
 }
 
+/// A v5 save (before pointer motion and mouse buttons) is refused by name.
+#[test]
+fn a_v5_save_is_refused_by_name() {
+    let mut s = sim();
+    let mut old = s.save().unwrap();
+    old[6] = 5;
+    let error = s.restore(&old).unwrap_err().to_string();
+    assert!(error.contains("EXSIM v5 save predates v6"), "{error}");
+}
 #[test]
 fn wrong_magic_reports_actual_bytes_and_expected_format() {
     let mut s = sim();
@@ -606,7 +615,7 @@ fn wrong_magic_reports_actual_bytes_and_expected_format() {
         let seen = format!("{:02x?}", &bytes[..bytes.len().min(8)]);
         let error = s.restore(&bytes).unwrap_err().to_string();
         assert!(
-            error.contains(&seen) && error.contains("EXSIM v5"),
+            error.contains(&seen) && error.contains("EXSIM v6"),
             "{error}"
         );
         let error = s.world_mut().load(&bytes).unwrap_err().to_string();

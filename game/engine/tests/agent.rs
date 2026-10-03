@@ -148,7 +148,7 @@ fn restore_format_refusal_is_not_double_wrapped() {
     let error = s.restore(b"old-format").unwrap_err().to_string();
     assert_eq!(error.matches("restore refused").count(), 1, "{error}");
     assert!(
-        error.contains("expected EXSIM v5") && error.contains("no cross-version migration"),
+        error.contains("expected EXSIM v6") && error.contains("no cross-version migration"),
         "{error}"
     );
     assert!(!error.contains("named additions"), "{error}");
