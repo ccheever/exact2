@@ -312,7 +312,12 @@ pub fn grow(w: &mut World, trees: u32, primitives: bool, colliders: bool) {
             ));
             trunk
         } else {
-            w.spawn((pose, Mesh::asset(KINDS[grove.kind[c] as usize].0), tree))
+            w.spawn((
+                pose,
+                Mesh::asset(KINDS[grove.kind[c] as usize].0),
+                tree,
+                Visible(true),
+            ))
         };
         if colliders {
             w.insert(
@@ -388,7 +393,9 @@ fn ground_color(x: f32, y: f32, z: f32) -> [f32; 4] {
 }
 
 /// Wind: the standing trees within `reach` of a point lean and recover on slow,
-/// position-shifted waves. Trees outside it keep their last lean.
+/// position-shifted waves. Trees outside it keep their last lean. Trees standing
+/// between the camera (behind and above the player, toward +Z) and the player are
+/// hidden so the player is never lost behind a crown; nothing fades, it is a cut.
 pub fn sway(w: &World, around: Vec3, reach: f32) {
     let g = w.resource::<Grove>();
     let t = w.tick_end().seconds() as f32;
@@ -407,6 +414,12 @@ pub fn sway(w: &World, around: Vec3, reach: f32) {
             let gust = 0.6 + 0.4 * math::sin(t * 0.37 + x * 0.02);
             let lean = 0.022 * gust * math::sin(t * 1.3 + x * 0.11 + z * 0.07);
             let side = 0.012 * gust * math::sin(t * 0.9 + z * 0.13 + 1.7);
+            let (dx, dz) = (x - around.x, z - around.z);
+            let between = dz > -1.5 && dz < 9.0 && dx.abs() < 2.2 + dz * 0.15;
+            // Read first: even an unwritten mutable borrow tells the renderer to rebatch.
+            if w.get::<Visible>(g.trunk[c]).is_some_and(|v| v.0 == between) {
+                w.get_mut::<Visible>(g.trunk[c]).unwrap().0 = !between;
+            }
             if let Some(mut pose) = w.get_mut::<Transform>(g.trunk[c]) {
                 pose.rotation = Quat::from_rotation_x(lean)
                     * Quat::from_rotation_z(side)
