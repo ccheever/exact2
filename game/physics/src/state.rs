@@ -4,11 +4,18 @@ use exact_game::{
     data::{DataError, Reader, Writer},
     Data, Entity, Transform,
 };
-use rapier3d::{pipeline::PhysicsWorld, prelude::*};
-use std::{cell::RefCell, collections::BTreeMap};
+use rapier3d::{
+    pipeline::{FillHoles, PhysicsWorld},
+    prelude::*,
+};
+use std::{
+    cell::RefCell,
+    collections::{BTreeMap, BTreeSet},
+};
 
 // Bump when Rapier, its serde representation, or bincode options change.
-const SNAPSHOT: &[u8] = b"EXPHYS\0\x02";
+// v3 writes each static collider that its entry rebuilds bit-exactly as a hole.
+const SNAPSHOT: &[u8] = b"EXPHYS\0\x03";
 
 #[derive(Clone, Debug, Default, Data)]
 pub(crate) struct Entry {
@@ -29,10 +36,50 @@ impl Entry {
             .map(|h| ColliderHandle::from_raw_parts(h[0], h[1]))
     }
 }
+// The world and write revisions the last sync observed; derived, never saved.
+#[derive(Clone)]
+pub(crate) struct Synced {
+    pub world: exact_game::WorldId,
+    pub presentation: u64,
+    pub revisions: [u64; 4],
+}
 pub(crate) struct Live {
     pub rapier: PhysicsWorld,
     pub entries: BTreeMap<Entity, Entry>,
     pub reverse: BTreeMap<[u32; 2], Entity>,
+    // Derived from entries: entities holding a Rapier body, entities that were
+    // parented at the last sync, and each index's entry.
+    pub bodies: BTreeSet<Entity>,
+    pub parented: BTreeSet<Entity>,
+    pub slots: BTreeMap<u32, Entity>,
+    // Collider handles removed this step, unmapped once its events are named.
+    pub removed: Vec<[u32; 2]>,
+    pub synced: Option<Synced>,
+    // Static colliders verified equal to their entry's rebuild since last edited;
+    // sync forgets every row it visits.
+    pub elidable: BTreeSet<[u32; 2]>,
+}
+impl Live {
+    fn new(rapier: PhysicsWorld, entries: BTreeMap<Entity, Entry>) -> Self {
+        Self {
+            reverse: entries
+                .values()
+                .filter_map(|e| e.collider_handle.map(|h| (h, e.entity)))
+                .collect(),
+            bodies: entries
+                .values()
+                .filter(|e| e.body_handle.is_some())
+                .map(|e| e.entity)
+                .collect(),
+            parented: BTreeSet::new(),
+            slots: entries.keys().map(|e| (e.index(), *e)).collect(),
+            removed: Vec::new(),
+            synced: None,
+            elidable: BTreeSet::new(),
+            rapier,
+            entries,
+        }
+    }
 }
 impl Default for Live {
     fn default() -> Self {
@@ -40,11 +87,7 @@ impl Default for Live {
         rapier
             .integration_parameters
             .normalized_allowed_linear_error = 0.0001;
-        Self {
-            rapier,
-            entries: BTreeMap::new(),
-            reverse: BTreeMap::new(),
-        }
+        Self::new(rapier, BTreeMap::new())
     }
 }
 #[derive(Default, Data)]
@@ -66,37 +109,49 @@ impl Saved {
         }
         let payload = self.bytes.strip_prefix(SNAPSHOT).ok_or_else(|| {
             DataError::new(format!(
-                "physics: expected EXPHYS v2 (v1/unversioned snapshots incomplete; start a new world); saw {:02x?}",
+                "physics: expected EXPHYS v3 (v1/v2 snapshots predate static-collider rebuilds; start a new world); saw {:02x?}",
                 &self.bytes[..self.bytes.len().min(8)]
             ))
         })?;
+        let entries: BTreeMap<_, _> = self.entries.iter().map(|e| (e.entity, e)).collect();
+        let owners: BTreeMap<_, _> = self
+            .entries
+            .iter()
+            .filter_map(|e| Some((e.collider_handle?, e)))
+            .collect();
+        // A hole over a missing or invalid entry fails the read by name; nothing
+        // here may panic, since release builds abort.
+        let mut refused = None;
+        let fill = |h: ColliderHandle| {
+            let rebuilt = owners
+                .get(&raw(h))
+                .ok_or("physics: a collider hole has no entry")
+                .and_then(|e| rebuild(e));
+            rebuilt.map_err(|e| refused = Some(e)).ok()
+        };
         let rapier = bincode::DefaultOptions::new()
             .with_limit(payload.len() as u64)
-            .deserialize(payload)
-            .map_err(|e| DataError::new(format!("physics: invalid snapshot: {e}")))?;
-        self.live = Some(Live {
-            rapier,
-            entries: self
-                .entries
-                .iter()
-                .cloned()
-                .map(|e| (e.entity, e))
-                .collect(),
-            reverse: self
-                .entries
-                .iter()
-                .filter_map(|e| e.collider_handle.map(|h| (h, e.entity)))
-                .collect(),
-        });
+            .deserialize_seed(FillHoles(fill), payload)
+            .map_err(|e| match refused {
+                Some(why) => DataError::new(format!("physics: invalid snapshot: {why}")),
+                None => DataError::new(format!("physics: invalid snapshot: {e}")),
+            })?;
+        let entries = entries.into_iter().map(|(k, e)| (k, e.clone())).collect();
+        self.live = Some(Live::new(rapier, entries));
         Ok(())
     }
     fn refresh(&mut self) -> usize {
         if self.dirty {
-            if let Some(live) = &self.live {
+            if let Some(live) = &mut self.live {
+                verify(live);
                 self.bytes.clear();
                 self.bytes.extend_from_slice(SNAPSHOT);
+                let elidable = &live.elidable;
                 bincode::DefaultOptions::new()
-                    .serialize_into(&mut self.bytes, &live.rapier)
+                    .serialize_into(
+                        &mut self.bytes,
+                        &live.rapier.with_holes(|h, _| elidable.contains(&raw(h))),
+                    )
                     .expect("physics: snapshot serialization");
                 self.entries = live.entries.values().cloned().collect();
             }
@@ -150,6 +205,37 @@ impl Data for Executor {
         Ok(())
     }
 }
+// A static collider exactly as sync builds it, settled as after a step. Only a
+// collider without a Body is rebuilt; its entry is the component it was built from.
+fn rebuild(e: &Entry) -> Result<rapier3d::prelude::Collider, &'static str> {
+    let c = e
+        .collider
+        .as_ref()
+        .filter(|_| e.body.is_none())
+        .ok_or("physics: a collider hole's entry is not a static collider")?;
+    Ok(crate::step::try_collider(c, e.pose, None)?
+        .position(crate::math::try_pose(e.pose)?)
+        .build()
+        .settled())
+}
+// Mark each static collider whose rebuild is byte-identical to the live one, so
+// the snapshot carries its entry (its components) but not Rapier's copy.
+fn verify(live: &mut Live) {
+    let bytes = |c: &rapier3d::prelude::Collider| bincode::DefaultOptions::new().serialize(c);
+    for (h, e) in &live.reverse {
+        if live.elidable.contains(h) {
+            continue;
+        }
+        let entry = &live.entries[e];
+        let co = &live.rapier.colliders[ColliderHandle::from_raw_parts(h[0], h[1])];
+        let same = |fresh: rapier3d::prelude::Collider| {
+            bytes(co).is_ok_and(|live| bytes(&fresh).is_ok_and(|fresh| fresh == live))
+        };
+        if rebuild(entry).is_ok_and(same) {
+            live.elidable.insert(*h);
+        }
+    }
+}
 pub(crate) fn raw(handle: ColliderHandle) -> [u32; 2] {
     let (i, g) = handle.into_raw_parts();
     [i, g]
@@ -168,10 +254,103 @@ mod tests {
         };
         let error = saved.decode().unwrap_err().to_string();
         assert!(
-            error.contains("EXPHYS v2") && error.contains("snapshots incomplete"),
+            error.contains("EXPHYS v3") && error.contains("start a new world"),
             "{error}"
         );
         assert!(error.contains(&format!("{:02x?}", saved.bytes)), "{error}");
+    }
+
+    // A save is input: a hole over an entry that cannot be rebuilt is refused by
+    // name during the read (release builds abort on panic, so nothing may panic).
+    #[test]
+    fn holes_over_invalid_entries_are_refused_by_name() {
+        use crate::{Collider, Shape};
+        use exact_game::{Quat, Vec3, World};
+        let mut w = World::new(60, 0);
+        crate::register(&mut w);
+        w.spawn((Transform::default(), Collider::default()));
+        crate::step(&mut w);
+        let physics = w.resource::<crate::Physics>();
+        let mut good = physics.executor.0.borrow_mut();
+        good.refresh();
+        let (bytes, entries) = (good.bytes.clone(), good.entries.clone());
+        let shape = |shape| Collider {
+            shape,
+            ..Collider::default()
+        };
+        let cases: Vec<(Option<Collider>, Transform, &str)> = vec![
+            (
+                Some(Collider {
+                    bounce: 2.0,
+                    ..Collider::default()
+                }),
+                Transform::default(),
+                "invalid material",
+            ),
+            (
+                Some(Collider::default()),
+                Transform {
+                    rotation: Quat::from_xyzw(0.0, 0.0, 0.0, 2.0),
+                    ..Transform::default()
+                },
+                "invalid pose",
+            ),
+            (
+                Some(shape(Shape::Capsule {
+                    radius: 1.0,
+                    height: 1.0,
+                })),
+                Transform::default(),
+                "twice its radius",
+            ),
+            (
+                Some(shape(Shape::Heightfield {
+                    rows: 3,
+                    cols: 3,
+                    heights: vec![0.0; 4],
+                    scale: Vec3::ONE,
+                })),
+                Transform::default(),
+                "invalid heightfield",
+            ),
+            (
+                Some(shape(Shape::Mesh {
+                    vertices: vec![Vec3::ZERO; 3],
+                    indices: vec![[0, 1, 7]],
+                })),
+                Transform::default(),
+                "invalid mesh",
+            ),
+            (
+                Some(shape(Shape::Box {
+                    half: Vec3::splat(1e30),
+                })),
+                Transform {
+                    scale: Vec3::splat(1e30),
+                    ..Transform::default()
+                },
+                "overflows",
+            ),
+            (None, Transform::default(), "not a static collider"),
+        ];
+        for (collider, pose, why) in cases {
+            let mut entries = entries.clone();
+            entries[0].collider = collider;
+            entries[0].pose = pose;
+            let mut saved = Saved {
+                bytes: bytes.clone(),
+                entries,
+                ..Saved::default()
+            };
+            let error = saved.decode().unwrap_err().to_string();
+            assert!(error.contains(why), "{why}: {error}");
+        }
+        let mut saved = Saved {
+            bytes,
+            entries,
+            ..Saved::default()
+        };
+        saved.decode().unwrap();
     }
 
     #[test]
@@ -180,6 +359,7 @@ mod tests {
             b"old rapier snapshot".to_vec(),
             b"EXPHYS\0\x01broken".to_vec(),
             b"EXPHYS\0\x02broken".to_vec(),
+            b"EXPHYS\0\x03broken".to_vec(),
         ] {
             let saved = Saved {
                 bytes,

@@ -179,6 +179,7 @@ impl Physics {
 }
 
 /// A game-controlled upright capsule. The game owns vertical velocity and gravity.
+/// Other controllers block its movement unless their layer is outside its mask.
 #[derive(Clone, Debug, Component)]
 pub struct CapsuleController {
     /// Capsule radius, default 0.3 m.

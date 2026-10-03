@@ -806,6 +806,17 @@ impl World {
     pub fn revision<C: Component>(&self) -> u64 {
         self.storage::<C>().map_or(0, |s| s.revision())
     }
+    /// Slots whose C row was handed out mutably, inserted or removed after `since`,
+    /// a value of `revision::<C>()` read earlier in this presentation generation,
+    /// in index order. Conservative: a mutable borrow counts as a write. Each item is
+    /// the slot's current incarnation, which may be dead after a despawn; callers
+    /// keyed by entity look the index up in their own records. Not saved or hashed.
+    pub fn changed<C: Component>(&self, since: u64) -> impl Iterator<Item = Entity> + '_ {
+        self.storage::<C>()
+            .into_iter()
+            .flat_map(move |s| s.changed(since))
+            .map(|i| self.entity_at(i as usize))
+    }
     /// Component membership generation; changing an existing value leaves it alone.
     pub fn membership<C: Component>(&self) -> u64 {
         self.storage::<C>().map_or(0, |s| s.membership())

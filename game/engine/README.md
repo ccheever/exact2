@@ -25,6 +25,12 @@ and randomness; `Sim` owns input. The renderer interpolates completed ticks.
   that needs a child list can keep it in a component. Saved parent cycles refuse
   to load; a runtime cycle drops its highest-index edge and journals the repair.
 
+Derived caches can follow writes without rescanning: `revision::<C>()` names a
+column's write generation, and `changed::<C>(since)` lists the entities whose `C`
+row was borrowed mutably, inserted or removed after it (a despawned slot reports
+its index). Neither is saved or hashed; compare only within one
+`presentation_generation`.
+
 `w.dt()` is one fixed step. `w.tick_end()` names the endpoint currently being
 written; use it when retargeting motion. `w.now()` names the completed boundary.
 `local_position` and `global_position` are explicit on both `World` and `Sim`.
