@@ -72,3 +72,28 @@ Round-1 dispositions:
 Validation: caps passed; controller reproductions ran entirely in memory. No files modified, native builds or browser-suite runs.
 
 Verdict: LAND WITH FIXES
+
+## Round 3 (the last), 2026-10-03
+
+- **Method:** `codex exec` as before, `-C` a detached worktree at `ff87e269e`; brief sha256 `ce513171bce9af2cf88d856ac0c17fa7f5926d9d6841a1e16e00fa7241534cd8` (the round-2 fixes, `150042a84`). Blind to grok's round 3.
+- **Verdict:** LAND WITH FIXES.
+- **Disposition:** both fixed in `795d12cf2`. No fourth round, by the three-round rule (rules/RULES.md, "Fix loops get 3 rounds"):
+  1. *An edge accepts a stale end.* Fixed. On the web and on iOS an end lands the animation only at its target, clamped to the content as it is now, or once this animation has moved the port (`animationMoved`). An edge alone proves nothing. Tests: a `scrollend` dispatched at the top edge before the animation moved changes nothing, and the same on iOS through `scrollViewDidEndScrollingAnimation`.
+  2. *A snapped end stuck the state.* Fixed by the same rule. An animation that moved and stopped short (a snap point, a clamp) is landed by its `scrollend`, and a later correction animates again. Test: "a scrollend before a smooth correction moves lands nothing; one after it moved and stopped short lands it". §11 no longer says every interior off-target end is stale.
+
+---
+
+1. **Should-fix — An edge position still lets stale completions end a replacement.** [collection-glue.js:455](/tmp/rv-gaps3/host/web/collection-glue.js:455), [NodeViewIOS.swift:559](/tmp/rv-gaps3/host/apple/Sources/ExactKit/IOS/NodeViewIOS.swift:559). Stop an animation with an instant correction to 0, start another toward 900, then deliver the predecessor’s end before the replacement moves. Both guards accept it because the port is at an edge. The web reproduction reports **900 → 0**, then advances the sequence twice and publishes **1,250 px/s** from animation ticks. The iOS test misses this by moving to 300 before delivering the callback. Only accept a clamped completion when the position matches the **current target clamped to current bounds**, rather than either edge; test replacement startup at both edges.
+
+2. **Should-fix — Scroll snapping can leave web animation state stuck indefinitely.** [collection-glue.js:455](/tmp/rv-gaps3/host/web/collection-glue.js:455). With `scroll-snap-type: x mandatory`, a smooth correction requesting 650 can legitimately finish at an interior snap point such as 600: [CSS snapping applies to programmatic scrolls](https://drafts.csswg.org/css-scroll-snap-1/#scroll-snap-model). The new guard rejects that completion. In the controller reproduction, a subsequent correction to 1000 updates the reported destination but issues no new scroll; the port remains at 600 because `animate()` only records an owed target. Track predecessor completion separately from destination equality, accept the active animation’s snapped endpoint, and add a snap regression. Update §11’s claim that every interior off-target completion is stale.
+
+Astra round-2 #1 — resolved: an already-owed successor waits for the predecessor’s `scrollend`.  
+Astra round-2 #2 — resolved: the authored-jump test uses the collection’s own scrollport and checks arrival and persistence.  
+Astra round-2 #3 — resolved: serial entries are removed on completion, cancellation, retirement, and reset.  
+Grok round-2 #1 — resolved: the normal two-leg handoff preserves destination and sequence.  
+Grok round-2 #2 — resolved: animation startup clears travel and in-flight velocity reports zero.  
+Grok round-2 #3 — not resolved: the edge exception still accepts a stopped animation’s callback; finding 1.
+
+Validation: caps passed; controller reproductions ran in memory. Browser/native suites were not run. No files modified.
+
+Verdict: LAND WITH FIXES

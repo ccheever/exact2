@@ -88,3 +88,39 @@ Round 1, the other review:
 8. Resolved. `leading_length` requires whitespace on both sides of `+` and rejects a space before `px`. The old acceptance is three refusals in `kernel/src/style/tests.rs:46`.
 Verdict: LAND WITH FIXES
 
+
+## Round 3 (the last), 2026-10-03
+
+- **Method:** grok as before, `--cwd` a detached worktree at `ff87e269e`; the shared round-3 brief (sha256 `ce513171bce9af2cf88d856ac0c17fa7f5926d9d6841a1e16e00fa7241534cd8`). Blind to astra's round 3. The first five sentences are progress narration, and the run compacted its own context once ("Auto-compacting conversation") before answering.
+- **Verdict:** LAND WITH FIXES.
+- **Disposition:** both fixed in `795d12cf2`, which is astra round 3's fix. No fourth round (rules/RULES.md, three rounds):
+  1. *An edge scrollend lands a running correction.* Fixed: target-clamped-to-content or moved, never an edge.
+  2. *UIKit's edge exception.* Fixed. The callback reports whether it is at the clamped target, and `animationEnded` otherwise requires `animationMoved`. The suggested serial check is not possible: UIKit's callback carries no identity, and it is delivered inside the call that stops an animation, before any replacement moves, which the moved rule covers. The test now delivers the stale end at the top edge, the case named here.
+
+---
+
+I'll review the round-2 fixes only: check each finding from both families against the code, then look for bugs those fixes introduce. No files will be changed.The request is a last-round read-only check of the round-2 fixes, so I’ll read both prior reviews and the fix commit before judging whether each finding holds.Round-2 findings are in both review notes. Next I’ll read the fix commit and the scroll paths those notes claim to close.The fix diff is in. I’ll read the landing paths and tests next, looking for a failure the new `scrollend` and serial rules can actually hit.I'll re-check the round-2 landing paths and the edge rules before writing the verdict, so the citations match the current tree.The edge rules are in the current tree. I'll run the line-cap check, then write the verdict.1. **Must-fix** — A `scrollend` while the port is on an edge lands the smooth correction that is still running. `host/web/collection-glue.js:450-456`.
+
+The reader flings and comes to rest at `scrollTop` 0 or at the maximum. The last `scroll` enqueues a frame; that frame's report is synchronous, and the runner commits a smooth correction to a target still inside the range (the retarget test's 800). `animate` clamps and stores that target (`collection-glue.js:166-170`) and calls `scrollTo({behavior:'smooth'})` while the offset is still the edge. The gesture's `scrollend` is already queued and runs before the smooth scroll moves. The handler treats every edge as this animation's end (`at > 0.5 && at < max - 0.5` fails), so `landed` clears `s.animating` and starts `s.owed` if one is set. The frames that follow take the user path: `s.scrolled` samples velocity and `scrollChanged` advances `s.sequence`, which drops the held follow. `animate` already stored a target inside `[0, max]`, so a real clamp is only a later shrink that puts `s.animating` outside that range. The retarget test (`host/web/collection.test.mjs:319`) uses mid-list targets (860, then 960) and never rests on an edge. `llp/1070.000-scroll-into-view.rfc.md:156-157` states this rule.
+
+Fix: land a `scrollend` when `abs(at - s.animating) <= 0.5`, or when `s.animating` is outside `[0, max]` and `at` is the nearest edge. A port sitting on an edge is not identity for a target that is still in range.
+
+2. **Should-fix** — UIKit's end callback skips the distance check whenever the offset is on an edge, so a late end stops the animation that replaced it. `host/apple/Sources/ExactKit/IOS/NodeViewIOS.swift:554-562`, `host/apple/Sources/ExactKit/Collection.swift:262-264`.
+
+The list rests at the top. A smooth correction runs, an ordinary correction returns it to offset 0 (`IOS/CollectionIOS.swift:175-178`: `stopAnimation`, then `setContentOffset(_:animated: false)`), then another smooth correction to 900 calls `beginAnimation` before the offset leaves 0. A `scrollViewDidEndScrollingAnimation` that arrives while `contentOffset` is still that edge — the delivery `testAStoppedAnimationsEndLeavesTheNextOneRunning` is written to simulate — sets `edge` and passes `at: nil`. `animationEnded` only compares to `animationTargets` inside `if let at`, so the nil skips it and `stopAnimation` clears the replacement while UIKit keeps scrolling. The test writes `contentOffset.y = 300` before the callback (`SmoothCollectionIOSTests.swift:102-104`), which is not the edge the ordinary correction to 0 leaves the list on. The iOS callback still does not read `animationSerial`. `llp/1070.000-scroll-into-view.rfc.md:161-163` states the edge exception.
+
+Fix: pass the offset on every end. In `animationEnded`, accept an edge as a clamp only when the stored target is outside the current content range and the offset is on that edge. Ignore the callback unless `animationSerial` is still the value `beginAnimation` returned for this run.
+
+Round 2, this review:
+1. Resolved. With `onscrollend` on the port, the arriving scroll no longer starts the successor (`collection-glue.js:194`); that `scrollend` starts it. The retarget test covers the mid-list double-land. The edge false positive is finding 1.
+2. Resolved. `velocity()` is 0 while `s.animating != null` (`collection-glue.js:70`) and `animate` clears `s.travel` (`:169`). The flick test expects a mid-flight report of 0 (`collection.test.mjs:376-387`).
+3. Not resolved: `stopAnimation` drops the serial, and an end more than 1 pt from the target is ignored, but an edge passes `at: nil` (`NodeViewIOS.swift:562`), so `animationEnded` (`Collection.swift:264`) still stops the current animation. The new test only drives `y = 300`.
+
+Round 2, the other review:
+1. Resolved. Same landing path as finding 1 above; the edge false positive is new.
+2. Resolved. The jump test uses `own: true`, and the list reaches 400 and stays there, reported as 390 (`collection.test.mjs:361-374`). `jump` calls `jumpTo` when the list is its own port (`collection-glue.js:543-545`).
+3. Resolved. The serial map holds only a running animation; `stopAnimation`, retirement via `animating.subtracting(live)` (`Collection.swift:343`), and `reset` drop it. The iOS test asserts `animationSerial[1] == nil` after a real end.
+
+`bun scripts/caps.mjs` exits 0.
+
+Verdict: LAND WITH FIXES
