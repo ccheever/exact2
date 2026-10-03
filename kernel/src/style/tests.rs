@@ -1,4 +1,5 @@
 use super::*;
+use taffy::prelude::{line, span};
 
 #[test]
 fn percent_converts_exactly_once() {
@@ -242,15 +243,12 @@ fn color_channels() {
 fn grid_tracks_lower_to_engine_tracks() {
     let mut p = StyleProps::default();
     p.display = Display::Grid;
-    p.grid_template_columns = GridTracks(vec![
+    p.grid_template_columns = GridTracks::from_tracks(vec![
         GridTrack::Fr(1.0),
         GridTrack::Points(40.0),
         GridTrack::Auto,
     ]);
-    p.grid_row = GridPlacement {
-        start: GridLine::Line(1),
-        end: GridLine::Span(2),
-    };
+    p.grid_row = GridPlacement::from_lines(GridLine::Line(1), GridLine::Span(2));
     let s = p.to_taffy(NodeType::View, &Env::default());
     assert_eq!(s.grid_template_columns.len(), 3);
     assert_eq!(s.grid_row.start, line(1));

@@ -83,6 +83,30 @@ pub fn contains_absolute(name: &str, value: &contract_syntax::Expr) -> bool {
     }
 }
 
+/// A Contract button has one cross-host inner layout: the flex column fixed
+/// by [`tag`]. Chrome gives a block/inline `<button>` an anonymous box that
+/// centres its contents, which the kernel cannot represent as that display.
+pub(crate) fn validate_button_display(
+    name: &str,
+    attrs: &[contract_syntax::Attr],
+) -> Result<(), crate::LowerError> {
+    use contract_syntax::Expr;
+    if name != "button" {
+        return Ok(());
+    }
+    let Some(display) = attrs.iter().rev().find(|a| a.name == "display") else {
+        return Ok(());
+    };
+    if matches!(&display.value, Expr::Str(v, _) if v == "block" || v.starts_with("inline")) {
+        return crate::err(
+            "lower-attr-value",
+            "a `button` is a flex column on every host; remove `display`, or use `display=\"flex\"`",
+            display.span,
+        );
+    }
+    Ok(())
+}
+
 /// An element's attributes with `position: relative` added, when it is the
 /// containing block of its absolutely positioned descendants on every host
 /// and names no position: it has a [`contains_absolute`] attribute, scrolls
@@ -988,6 +1012,11 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // @ref LLP 1057.003 D4 — CSS `timeline-scope`.
         "timeline-scope" => styles(&[StyleId::TimelineScope]),
         "display" => styles(&[StyleId::Display]),
+        "grid-auto-flow" => styles(&[StyleId::GridAutoFlow]),
+        "grid-template-columns" => styles(&[StyleId::GridTemplateColumns]),
+        "grid-template-rows" => styles(&[StyleId::GridTemplateRows]),
+        "grid-column" => styles(&[StyleId::GridColumn]),
+        "grid-row" => styles(&[StyleId::GridRow]),
         "align-items" => styles(&[StyleId::AlignItems]),
         "align-content" => styles(&[StyleId::AlignContent]),
         "align-self" => styles(&[StyleId::AlignSelf]),

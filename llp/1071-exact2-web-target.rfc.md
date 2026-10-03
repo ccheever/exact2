@@ -715,7 +715,7 @@ from (a) today.
 | ~~Text around shapes (`wrap-flow`, LLP 1043.000)~~ landed 2026-09-29 (below) | — | — |
 | Events: ~~pan, panrelease, swiperight, select, cancel, the height, transform and reorder drags~~ (landed 2026-09-29, below); ~~a file input and `showPicker`~~ (landed 2026-09-29, "Files and storage") | — | — |
 | (b)'s documents: canonical, og, robots, status, sitemap | 2–3 days | build-time only |
-| State carried across a dev reload (landed 2026-10-02: slots, §7 "Dev reload"), the rest of the agent (`stages`, plan swap); delivery needs no client on the web: `exactDelivery` answers what the build baked and there is no update store for `deliveryCheck`/`deliveryActivate` to act on (below, "Delivery on the web") | 1–2 weeks | agent-only / <1 KB |
+| ~~State carried across a dev reload~~ (landed 2026-10-02, below), the rest of the agent (`stages`, plan swap); delivery needs no client on the web: `exactDelivery` answers what the build baked and there is no update store for `deliveryCheck`/`deliveryActivate` to act on (below, "Delivery on the web") | 1–2 weeks | agent-only / <1 KB |
 
 ### The tools (2026-09-29)
 
@@ -728,7 +728,7 @@ content-named.
 
 | Tool | Target | How |
 |---|---|---|
-| Dev loop (`host/web/dev.mjs`) | JS (a refusal shows in the page) | `host/web-js/dev.mjs`: an edit under the app, `host/web-js` or the base stylesheet rebuilds (`host/web-js/build.mjs --render none` into a stage renamed over dist; what did not change is not rebuilt) and every page reloads; a failed build's errors show in the page, which keeps the last good build. Edit → first frame 104 ms p50 for the video player (was ~2.2 s), 307 ms for Caltrain, whose first frame waits for its Rust module (below, "Build and toolchain gaps"), against the resident wasm loop's ~20 ms and the 100 ms budget row; no slot values carried. `--wasm`, or a refusal, runs the resident loop |
+| Dev loop (`host/web/dev.mjs`) | JS (a refusal shows in the page) | `host/web-js/dev.mjs`: an edit under the app, `host/web-js` or the base stylesheet rebuilds (`host/web-js/build.mjs --render none` into a stage renamed over dist; what did not change is not rebuilt) and every page reloads; a failed build's errors show in the page, which keeps the last good build. The old page checkpoints the wasm restart's carried set and the new development build consumes it once: compatible root slots, route stacks, settled non-host answers when the emitted data modules have the same digest, clock and focus; no request in flight. Edit → first frame 104 ms p50 for the video player (was ~2.2 s), 273 ms for Caltrain (was 307 ms), whose first frame waits for its Rust module (below, "Build and toolchain gaps"), against the resident wasm loop's ~20 ms and the 100 ms budget row. `--wasm`, or a refusal, runs the resident loop |
 | Delivery (`scripts/deploy.mjs`) | the web root JS when it takes the app | the production wasm bake stays the streams' bundle and receipts; its baked plan compiled to JS (`--production`) is the web root (below, "Delivery on the web") |
 | Agent, web host (`scripts/agent.mjs web`) | what dist holds | a JS dist is served as a tree; the tree reply carries `roots`, the journal a `boot:` line |
 | Smoke (`smoke.mjs web`), the app drive and its tests | the default build | the staged-core check is the wasm's only |
@@ -1233,22 +1233,36 @@ process; the dev build renders no pages (`--render none`: a render entry's
 crate bakes the plan, so it rebuilt on every Contract edit) and makes no
 server bundle; the loop runs the JS build directly, with a 5 ms debounce.
 Measured (metrics' dev row, five edits, p50): video player 104 ms (p95
-182; was ~2.2 s), a rebuild ~40 ms of it; Caltrain 307 ms (p95 363), a
-rebuild 60–150 ms and a first frame that waits for its Rust module, as an
+182; was ~2.2 s), a rebuild ~40 ms of it; Caltrain 273 ms (p95 308; the
+previous carry revision was 271/294 and the pre-carry loop 307/363), a
+rebuild 60–150 ms and a first frame that waits for its Rust
+module, as an
 unbaked plan's resources without a compiled value must. The budget row is
 100 ms; the rest is the reload itself.
 
-*State carry* (2026-10-02): a dev reload keeps the slots, as the wasm
-loop's restart does (`Runner::carry`). The dev build (`build.mjs --dev`,
-which only `dev.mjs` passes) has the page write its top-level slots to
-`sessionStorage` just before the loop's reload; the new page, after its
-first commit, writes back each one whose name it still has and whose value
-fits the new plan's type, in one commit, so a carried value never refuses
-the boot. The router's slot is untyped and not carried: the reloaded page
-reads its route from the address, as any reload does. Resources are asked
-again (the wasm loop carries matching answers; here they are re-fetched).
-Checked on Caltrain: `material` and `deck` set by taps survive a Contract
-edit's reload.
+State carry landed 2026-10-02. Immediately before the server-requested
+reload, the page posts one checkpoint to the dev server; the navigation
+names its random handle and the next development document consumes it once
+before its app starts. The handoff has no Web Storage quota. It carries
+the same set as the wasm restart: root slots by authored name and complete
+type, a route stack only while the new route table still describes every
+entry, settled resources by name/source/type and their settled arguments
+only while the emitted TypeScript and Rust logic module digests are unchanged,
+and the clock. The five host-owned sources (`exactDelivery`, `exactViewport`,
+`exactTime`, `exactPage`, `exactSurface`) are always read from the new page.
+Requests in flight, row-owned slots and scroll offsets are not carried. Focus
+follows its logical tree position and node type through virtualized row
+wrappers, suppressing boot autofocus as the wasm host does.
+The hooks, checkpoint metadata and node type attributes are emitted only by
+the dev loop's `build.mjs --dev`; ordinary and production artifacts are
+unchanged (`cf95954a` before/current, raw and brotli-11 respectively:
+RealWorld `app.js` 101625/24172 B both, all JS 128019/33497 B both; Caltrain
+`app.js` 64896/15936 B both, all JS 254604/61618 B both). The browser tests
+drive RealWorld (no GPU surface) across a route, a 6 MiB compatible slot,
+changed-type and removed slots, a settled answer, an imported-helper logic
+edit, a refreshed page fact and focus inside a virtualized row. The automated
+Caltrain drive on the no-adapter fallback keeps its station screen, `Palo`
+query and focused search field while showing an edited label.
 
 **Arrange, the reorder drag; `frame` and `measure`** (landed 2026-09-29,
 measured; brotli):

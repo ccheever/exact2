@@ -6,15 +6,14 @@
 //! Percentages are authored as points (0–100) on the wire and in storage and
 //! are converted to Taffy's fraction exactly once, here.
 
-use taffy::prelude::{auto, fr, length, line, max_content, min_content, percent, span};
-use taffy::style::TrackSizingFunction;
+use taffy::prelude::{auto, length, percent};
 
 use crate::arena::NodeArena;
 use crate::error::StyleValueError;
 use crate::generated::{
     AlignContent, AlignItems, AlignSelf, BorderStyle, BoxSizing, Direction, Display, FlexDirection,
-    FlexWrap, GridAutoFlow, JustifyContent, NodeType, Overflow, PositionType, StyleId, StyleMask,
-    StyleProps,
+    FlexWrap, GridAutoFlow, JustifyContent, JustifyItems, NodeType, Overflow, PositionType,
+    StyleId, StyleMask, StyleProps,
 };
 
 mod backdrop;
@@ -22,6 +21,12 @@ pub use backdrop::link as link_backdrop_filter;
 pub(crate) mod effects;
 pub use crate::gradient::link as link_gradients;
 pub use effects::link as link_effects;
+mod grid;
+pub use grid::link as link_grid;
+pub use grid::{
+    GridFitContent, GridLine, GridPlacement, GridRepeat, GridRepeatCount, GridTrack,
+    GridTrackComponent, GridTrackMax, GridTrackMin, GridTracks,
+};
 pub mod relative;
 mod shadow;
 pub mod space;
@@ -29,8 +34,8 @@ pub(crate) mod stroke;
 pub mod symbols;
 pub use shadow::{BoxShadow, BoxShadows, GlyphShadow, TextShadow};
 
-/// Largest grid track list the closed grammar carries.
-pub const MAX_GRID_TRACKS: usize = 32;
+/// Largest explicit grid Taffy lays out on one axis.
+pub const MAX_GRID_TRACKS: usize = 10_000;
 
 /// An edge of the viewport: which safe-area inset an `env()` length names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -940,7 +945,7 @@ pub enum RowValue<'a> {
     /// Grid tracks.
     Tracks(&'a GridTracks),
     /// A grid placement.
-    Placement(GridPlacement),
+    Placement(&'a GridPlacement),
     /// The `transition` row.
     Transitions(&'a Transitions),
     /// The `animation` row (LLP 1055 D5).
@@ -998,94 +1003,6 @@ pub struct Vec2 {
     pub y: f32,
 }
 
-/// One grid track under the closed portable grammar.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum GridTrack {
-    /// A flexible fraction of the free space.
-    Fr(f32),
-    /// Layout points.
-    Points(f32),
-    /// Percent of the grid container, authored as 0–100.
-    Percent(f32),
-    /// Auto-sized.
-    Auto,
-    /// Min-content.
-    MinContent,
-    /// Max-content.
-    MaxContent,
-}
-
-/// A grid template: an ordered track list.
-#[derive(Debug, Clone, PartialEq, Default)]
-pub struct GridTracks(pub Vec<GridTrack>);
-
-impl GridTracks {
-    /// Whether every track size is a finite number.
-    pub fn is_finite(&self) -> bool {
-        self.0.iter().all(|t| match *t {
-            GridTrack::Fr(v) | GridTrack::Points(v) | GridTrack::Percent(v) => v.is_finite(),
-            GridTrack::Auto | GridTrack::MinContent | GridTrack::MaxContent => true,
-        })
-    }
-
-    /// `count` equal `1fr` tracks.
-    pub fn equal(count: usize) -> Self {
-        GridTracks(vec![GridTrack::Fr(1.0); count.min(MAX_GRID_TRACKS)])
-    }
-}
-
-/// One edge of a grid placement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum GridLine {
-    /// Auto-placed.
-    #[default]
-    Auto,
-    /// A 1-based line index (negative counts from the end).
-    Line(i16),
-    /// Span this many tracks.
-    Span(u16),
-}
-
-impl GridLine {
-    pub(crate) fn is_valid(self) -> bool {
-        !matches!(self, GridLine::Span(0))
-    }
-}
-
-/// An item's placement on one grid axis.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub struct GridPlacement {
-    /// Start edge.
-    pub start: GridLine,
-    /// End edge.
-    pub end: GridLine,
-}
-
-impl GridPlacement {
-    pub(crate) fn is_valid(self) -> bool {
-        self.start.is_valid() && self.end.is_valid()
-    }
-}
-
-fn track(t: GridTrack) -> TrackSizingFunction {
-    match t {
-        GridTrack::Fr(v) => fr(v),
-        GridTrack::Points(v) => length(v),
-        GridTrack::Percent(v) => percent(v / 100.0),
-        GridTrack::Auto => auto(),
-        GridTrack::MinContent => min_content(),
-        GridTrack::MaxContent => max_content(),
-    }
-}
-
-fn grid_line(l: GridLine) -> taffy::style::GridPlacement {
-    match l {
-        GridLine::Auto => taffy::style::GridPlacement::Auto,
-        GridLine::Line(i) => line(i),
-        GridLine::Span(n) => span(n),
-    }
-}
-
 fn flex_direction(v: FlexDirection) -> taffy::style::FlexDirection {
     match v {
         FlexDirection::Row => taffy::style::FlexDirection::Row,
@@ -1141,6 +1058,45 @@ fn align_items(v: AlignItems) -> Option<taffy::style::AlignItems> {
     })
 }
 
+fn justify_items(v: JustifyItems, direction: Direction) -> Option<taffy::style::AlignItems> {
+    use taffy::style::AlignItems as T;
+    Some(match v {
+        JustifyItems::Normal => return None,
+        JustifyItems::Stretch => T::STRETCH,
+        JustifyItems::Baseline => T::BASELINE,
+        JustifyItems::Center | JustifyItems::UnsafeCenter => T::CENTER,
+        JustifyItems::Start | JustifyItems::UnsafeStart => T::START,
+        JustifyItems::End | JustifyItems::UnsafeEnd => T::END,
+        JustifyItems::SelfStart | JustifyItems::UnsafeSelfStart => T::SELF_START,
+        JustifyItems::SelfEnd | JustifyItems::UnsafeSelfEnd => T::SELF_END,
+        JustifyItems::FlexStart | JustifyItems::UnsafeFlexStart => T::FLEX_START,
+        JustifyItems::FlexEnd | JustifyItems::UnsafeFlexEnd => T::FLEX_END,
+        JustifyItems::Left | JustifyItems::UnsafeLeft => match direction {
+            Direction::Ltr => T::START,
+            Direction::Rtl => T::END,
+        },
+        JustifyItems::Right | JustifyItems::UnsafeRight => match direction {
+            Direction::Ltr => T::END,
+            Direction::Rtl => T::START,
+        },
+        JustifyItems::SafeCenter => T::SAFE_CENTER,
+        JustifyItems::SafeStart => T::SAFE_START,
+        JustifyItems::SafeEnd => T::SAFE_END,
+        JustifyItems::SafeSelfStart => T::SAFE_SELF_START,
+        JustifyItems::SafeSelfEnd => T::SAFE_SELF_END,
+        JustifyItems::SafeFlexStart => T::SAFE_FLEX_START,
+        JustifyItems::SafeFlexEnd => T::SAFE_FLEX_END,
+        JustifyItems::SafeLeft => match direction {
+            Direction::Ltr => T::SAFE_START,
+            Direction::Rtl => T::SAFE_END,
+        },
+        JustifyItems::SafeRight => match direction {
+            Direction::Ltr => T::SAFE_END,
+            Direction::Rtl => T::SAFE_START,
+        },
+    })
+}
+
 fn align_self(v: AlignSelf) -> Option<taffy::style::AlignSelf> {
     match v {
         AlignSelf::Auto => None,
@@ -1183,9 +1139,33 @@ fn grid_auto_flow(v: GridAutoFlow) -> taffy::style::GridAutoFlow {
     match v {
         GridAutoFlow::Row => taffy::style::GridAutoFlow::Row,
         GridAutoFlow::Column => taffy::style::GridAutoFlow::Column,
-        GridAutoFlow::RowDense => taffy::style::GridAutoFlow::RowDense,
+        GridAutoFlow::Dense | GridAutoFlow::RowDense => taffy::style::GridAutoFlow::RowDense,
         GridAutoFlow::ColumnDense => taffy::style::GridAutoFlow::ColumnDense,
     }
+}
+
+pub(crate) fn set_grid_dynamic(
+    style: &mut StyleProps,
+    id: StyleId,
+    value: &StyleValue,
+) -> Result<(), StyleValueError> {
+    grid::set_dynamic(style, id, value)
+}
+
+pub(crate) fn decode_grid_rows(
+    style: &mut StyleProps,
+    mask: StyleMask,
+    reader: &mut crate::wire::codec::Reader<'_>,
+) -> Result<(), crate::error::DecodeError> {
+    grid::decode(style, mask, reader)
+}
+
+pub(crate) fn encode_grid_rows(
+    style: &StyleProps,
+    mask: StyleMask,
+    writer: &mut crate::wire::codec::Writer,
+) {
+    grid::encode(style, mask, writer);
 }
 
 impl StyleProps {
@@ -1255,14 +1235,14 @@ impl StyleProps {
             Direction::Rtl => taffy::style::Direction::Rtl,
         };
         s.item_is_replaced = node_type.is_replaced();
-        // A text field in a block container keeps its own width, 20
-        // characters or its content's (`field-sizing`), where a `<div>`
-        // stretches: an `<input>` or `<textarea>` at `display: block`. Flex
-        // and grid still stretch it, and insets still size it, as Chrome
-        // does. Taffy's block layout skips stretch for tables and replaced
-        // elements; a replaced element would also stop the insets, so the
-        // field takes the table's exemption (a leaf: nothing else follows).
-        s.item_is_table = node_type == NodeType::TextInput;
+        // A form control in a block container keeps its preferred width,
+        // where a `<div>` stretches: an `<input>`, `<textarea>` or `<select>`
+        // at `display: block`. Flex columns and grids still stretch it, and
+        // absolute insets still size it, as Chrome does. Taffy's block layout
+        // skips stretch for tables and replaced elements; a replaced element
+        // would also stop the insets, so these measured leaves take the
+        // table's exemption (nothing else follows from that marker).
+        s.item_is_table = matches!(node_type, NodeType::TextInput | NodeType::Control);
         s.box_sizing = match self.box_sizing {
             BoxSizing::ContentBox => taffy::style::BoxSizing::ContentBox,
             BoxSizing::BorderBox => taffy::style::BoxSizing::BorderBox,
@@ -1344,33 +1324,19 @@ impl StyleProps {
         s.align_items = align_items(self.align_items);
         s.align_self = align_self(self.align_self);
         s.align_content = align_content(self.align_content);
-        s.justify_items = align_items(self.justify_items);
+        s.justify_items = justify_items(self.justify_items, self.direction);
         s.gap = taffy::geometry::Size {
             width: length(self.column_gap),
             height: length(self.row_gap),
         };
 
         s.grid_auto_flow = grid_auto_flow(self.grid_auto_flow);
-        s.grid_template_columns = self
-            .grid_template_columns
-            .0
-            .iter()
-            .map(|t| track(*t).into())
-            .collect();
-        s.grid_template_rows = self
-            .grid_template_rows
-            .0
-            .iter()
-            .map(|t| track(*t).into())
-            .collect();
-        s.grid_column = taffy::geometry::Line {
-            start: grid_line(self.grid_column.start),
-            end: grid_line(self.grid_column.end),
-        };
-        s.grid_row = taffy::geometry::Line {
-            start: grid_line(self.grid_row.start),
-            end: grid_line(self.grid_row.end),
-        };
+        s.grid_template_columns = self.grid_template_columns.taffy_components();
+        s.grid_template_column_names = self.grid_template_columns.line_names();
+        s.grid_template_rows = self.grid_template_rows.taffy_components();
+        s.grid_template_row_names = self.grid_template_rows.line_names();
+        s.grid_column = self.grid_column.taffy();
+        s.grid_row = self.grid_row.taffy();
         s
     }
 }
@@ -1390,10 +1356,46 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     let mut s = arena
         .style(slot)
         .to_taffy(arena.node_type(slot), arena.env());
-    s.direction = match arena.computed_style(slot, StyleMask::INHERITED).direction {
+    // Exact resets a `<button>` to an authored flex container, but HTML's
+    // form-control block sizing still makes its automatic inline size
+    // shrink-to-fit. The element remains a button when an author gives it
+    // another ARIA role; only a Pressable with href projects as an `<a>`.
+    if arena.node_type(slot) == NodeType::Pressable
+        && arena.props(slot).str(crate::PropId::Href).is_none()
+    {
+        s.item_is_table = true;
+    }
+    // The page reset makes a checkbox border-box for both `appearance:auto`
+    // and `none`. With native appearance Chrome additionally ignores its
+    // padding; with `none` the authored padding remains in that border box.
+    // A select's native UA default is border-box unless the author overrides
+    // it. Other controls keep the reset's content-box semantics.
+    match crate::ControlKind::of(arena.node_type(slot), arena.props(slot)) {
+        Some(crate::ControlKind::Checkbox | crate::ControlKind::Switch) => {
+            s.box_sizing = taffy::style::BoxSizing::BorderBox;
+            if arena.style(slot).appearance == crate::Appearance::Auto {
+                s.padding = taffy::geometry::Rect {
+                    top: length(0.0),
+                    right: length(0.0),
+                    bottom: length(0.0),
+                    left: length(0.0),
+                };
+            }
+        }
+        Some(crate::ControlKind::Select)
+            if arena.style(slot).appearance == crate::Appearance::Auto
+                && !arena.style(slot).mask.has(StyleId::BoxSizing) =>
+        {
+            s.box_sizing = taffy::style::BoxSizing::BorderBox;
+        }
+        _ => {}
+    }
+    let direction = arena.computed_style(slot, StyleMask::INHERITED).direction;
+    s.direction = match direction {
         Direction::Ltr => taffy::style::Direction::Ltr,
         Direction::Rtl => taffy::style::Direction::Rtl,
     };
+    s.justify_items = justify_items(arena.style(slot).justify_items, direction);
     // A root with `width: auto` fills what it is offered, as a `<div>` fills
     // the body: CSS's block rule, which Taffy does not apply to a root.
     // Height stays auto — as tall as its content, the page a viewport scrolls.

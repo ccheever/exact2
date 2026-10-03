@@ -676,6 +676,7 @@ impl<'a> Lowerer<'a> {
                     }
                     None => attrs.as_slice(),
                 };
+                tags::validate_button_display(tag, expanded)?;
                 tags::check_exclusion(&t, expanded, self.parent_positioned)?;
                 let composed = self.compose_animation(expanded)?;
                 let expanded = composed.as_deref().unwrap_or(expanded);
@@ -699,6 +700,8 @@ impl<'a> Lowerer<'a> {
                 };
                 // @ref LLP 1069.001 D1 — `input`'s `type` is a literal: a text
                 // type is a text field, `checkbox` a form control.
+                let canonical_type = controls::canonical_type_attrs(tag, expanded);
+                let expanded = canonical_type.as_deref().unwrap_or(expanded);
                 let control = controls::control(tag, expanded)?;
                 let t = control.map_or(t.clone(), |kind| controls::tag(kind, t.clone()));
                 if control == Some("button") {

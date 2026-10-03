@@ -1,6 +1,6 @@
 // @ref LLP 1043.000 §3 D7/D8 — flow settlement must not change LLP 1012's API.
 import { test, expect } from 'bun:test';
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -8,7 +8,7 @@ import { join, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 import vm from 'node:vm';
 import { render, sourceMapReader, identifyInspectedNode } from '../../scripts/agent.mjs';
-import { retainDevGeneration, readDevGeneration, readDevGenerationAsync } from './serve.mjs';
+import { retainDevGeneration, readDevGeneration, readDevGenerationAsync, serveBuildTree } from './serve.mjs';
 import { focusController, placeReporter, timeReporter, pageReporter, viewBox, grantOrigins } from './navigation.js';
 import { storageKey } from './storage-environment.js';
 import { open } from '../../scripts/agent.mjs';
@@ -247,6 +247,7 @@ function fixture(agentMode = true) {
     document: { activeElement: null, body: {}, querySelector: () => null },
     innerWidth: 300, innerHeight: 200, devicePixelRatio: 1, scrollX: 0, scrollY: 0,
     INHERITED_CSS: {}, getComputedStyle: () => ({}), inertAncestor: () => false,
+    viewBox: element => element.getBoundingClientRect(),
     navigation: { observation: () => ({ location: '/' }), reset() {} },
     presence: { live: null },
     ask: req => req.op === 'state' ? state : req.op === 'logs' ? logs : req.op === 'node' ? { id: req.id, type: 'Text' }
@@ -277,7 +278,7 @@ function fixture(agentMode = true) {
     loadStage: () => Promise.resolve(), stageLoaded: () => true, // every stage linked (LLP 1047.000 §9)
     preferences: () => '{}', localAssetURL: source => source,
   });
-  vm.runInContext(`const viewBox = ${viewBox};\n` + source.match(/^let gpuLoading = .*$/m)[0] + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
+  vm.runInContext(`const viewBox = ${viewBox};\n` + source.match(/^let gpuLoading = .*$/m)[0] + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
   context.reportPlace = placeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   context.reportTime = timeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   return context;
@@ -323,6 +324,20 @@ test('ordinary reads and inputs are synchronous; the awaited entry returns the s
   await pending;
   f.wasm = null;
   expect(f.exact.agent({ op: 'state' })).toEqual({ error: 'not booted' });
+});
+
+test('GPU pending prevents the awaited operation from reading live state', async () => {
+  const f = fixture();
+  let reads = 0;
+  f.ask = request => { reads++; return request.op === 'tags' ? {epoch:2,incarnation:1,clock:0} : f.state; };
+  f.exact.gpu = { settled: async () => [{name:'GPU recovery world'}] };
+  const reply = await f.exact.agentSettled({op:'state'});
+  expect(reply.error).toContain('GPU is not settled');
+  expect(reply.pending).toEqual(['GPU recovery world']);
+  expect(reads).toBe(0);
+  const clock = await f.exact.agentSettled({op:'clock',settle:true});
+  expect(clock).toEqual({clock:0,settled:false,reason:'gpu',pending:['GPU recovery world']});
+  expect(reads).toBe(0);
 });
 
 test('only calls before the inspection stage arrives wait for it; later ones are synchronous again', async () => {
@@ -469,8 +484,9 @@ test('a timer whose request never lands cannot hold the clock: past the deadline
 
 test('launch setup supplies fixed defaults and carries CLI overrides to every host', () => {
   expect(launchFacts({})).toEqual({seed:1, locale:'en-US', timeZone:'UTC', epoch:Date.UTC(2026, 0, 1)});
-  const {flags, rest} = parseFlags(['web', '--seed', '9007199254740991', '--locale', 'fr-ca', '--time-zone', 'America/Toronto', '--epoch', '2026-09-21T14:13:20Z', 'tree']);
+  const {flags, rest} = parseFlags(['web', '--browser', 'firefox', '--seed', '9007199254740991', '--locale', 'fr-ca', '--time-zone', 'America/Toronto', '--epoch', '2026-09-21T14:13:20Z', 'tree']);
   expect(rest).toEqual(['web', 'tree']);
+  expect(flags.browser).toBe('firefox');
   const facts = launchFacts(flags);
   expect(facts).toEqual({seed:9007199254740991, locale:'fr-CA', timeZone:'America/Toronto', epoch:1790000000000});
   expect(launchFacts({epoch:'1790000000000'}).epoch).toBe(1790000000000);
@@ -491,6 +507,90 @@ test('launch setup supplies fixed defaults and carries CLI overrides to every ho
   expect(() => launchFacts({locale:'en_US'})).toThrow();
   expect(() => launchFacts({timeZone:'Not/AZone'})).toThrow();
 });
+
+test('programmatic web opens stay on Chrome and Firefox drives a small Exact plan', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-firefox-agent-')), contract = join(dir, 'app.contract'), plan = join(dir, 'app.plan'), dist = join(dir, 'dist'), png = join(dir, 'page.png');
+  writeFileSync(contract, `component BrowserFixture
+  state presses = 0
+  state words = ""
+  action pressed
+    presses = presses + 1
+  action changed(value: string)
+    words = value
+  view
+    column testId="root" gap=8 padding=8
+      button testId="press" press=pressed
+        text "Press"
+      input testId="field" value=words input=changed
+      column testId="touch" touch-action="none" width=160 height=80 background-color="#cccccc"
+      scroll testId="scroll" width=160 height=60
+        column height=600
+          text "Long"
+`);
+  const compile = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', contract, '-o', plan], { encoding:'utf8' });
+  expect(compile.status, compile.stderr).toBe(0);
+  const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd:new URL('../../', import.meta.url).pathname, encoding:'utf8' });
+  expect(build.status, build.stderr).toBe(0);
+  const server = createServer((request, response) => serveBuildTree(dist, request, response));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const url = `http://127.0.0.1:${server.address().port}/`;
+  let session, browserProcess, chrome;
+  const selected = process.env.EXACT_WEB_BROWSER;
+  try {
+    process.env.EXACT_WEB_BROWSER = 'firefox';
+    chrome = await open({ host:'web', url });
+    expect(chrome.carrier.browser).toBe('chrome');
+    await chrome.close(); chrome = null;
+    const { firefox } = await import('playwright-core');
+    if (!existsSync(firefox.executablePath())) {
+      console.log('skip: Firefox is not installed; bunx playwright@1.63.0 install firefox webkit');
+      return;
+    }
+    session = await open({ host:'web', browser:'firefox', url, onProcess: child => { browserProcess = child; } });
+    expect(session.carrier.browser).toBe('firefox');
+    expect(browserProcess?.pid).toBeGreaterThan(0);
+    expect((await session.tree()).nodes.some(node => node.props.testId === 'press')).toBe(true);
+    expect((await session.layout()).nodes.some(node => node.testId === 'scroll')).toBe(true);
+    expect((await session.state()).slots.presses).toBe(0);
+    expect(Array.isArray((await session.logs()).lines)).toBe(true);
+    await session.tap('press');
+    await session.type('field', 'hi');
+    await session.type('field', {key:'a'});
+    await session.type('press', {key:'Enter',phase:'down'});
+    await session.type('press', {key:'Enter',phase:'up'});
+    await expect(session.type('press', {key:'a'})).rejects.toThrow('key: unsupported code a');
+    const beforeRefusals = JSON.stringify((await session.state()).slots);
+    await expect(session.tap('touch', {down:true})).rejects.toThrow('firefox down unsupported:');
+    await expect(session.pointer('move', {dx:20,dy:10,ms:32})).rejects.toThrow('firefox move unsupported:');
+    await expect(session.pointer('up')).rejects.toThrow('firefox up unsupported:');
+    await expect(session.tap('touch', {pinch:1.2})).rejects.toThrow('firefox pinch unsupported:');
+    expect(JSON.stringify((await session.state()).slots)).toBe(beforeRefusals);
+    await session.tap('scroll', {wheel:[0,120]});
+    const state = (await session.state()).slots;
+    expect(state.presses).toBeGreaterThan(0);
+    expect(state.words).toBe('hia');
+    expect((await session.layout()).nodes.find(node => node.testId === 'scroll').sy).toBeGreaterThan(0);
+    expect((await session.clock('+25')).clock).toBe(25);
+    expect((await session.prefer({'prefers-color-scheme':'dark'})).media['prefers-color-scheme']).toBe('dark');
+    const media = await session.prefer({'prefers-reduced-motion':'reduce'});
+    expect(media.media['prefers-color-scheme']).toBe('dark');
+    expect(media.media['prefers-reduced-motion']).toBe('reduce');
+    await expect(session.prefer({'prefers-contrast':'less'})).rejects.toThrow('firefox prefer cannot emulate prefers-contrast less through Playwright');
+    await expect(session.prefer({'prefers-contrast':'custom'})).rejects.toThrow('firefox prefer cannot emulate prefers-contrast custom through Playwright');
+    const button = (await session.layout()).nodes.find(node => node.testId === 'press');
+    await session.carrier.evaluate(`(() => { const e=document.createElement('div'); e.id='cover'; Object.assign(e.style,{position:'fixed',zIndex:'9999',left:'${button.x}px',top:'${button.y}px',width:'${button.w}px',height:'${button.h}px'}); document.body.append(e); })()`);
+    await expect(session.tap('press')).rejects.toThrow('covers its middle');
+    await session.carrier.evaluate(`document.getElementById('cover').remove()`);
+    expect((await session.screenshot(png)).w).toBeGreaterThan(0);
+    expect(statSync(png).size).toBeGreaterThan(0);
+  } finally {
+    if (selected === undefined) delete process.env.EXACT_WEB_BROWSER; else process.env.EXACT_WEB_BROWSER = selected;
+    await chrome?.close?.();
+    await session?.close?.();
+    await new Promise(resolve => server.close(resolve));
+    rmSync(dir, {recursive:true,force:true});
+  }
+}, 120_000);
 
 test('page facts: the platform off the agent, the drive\'s values under it (LLP 1069.000 D2, D6)', () => {
   const listened = [];

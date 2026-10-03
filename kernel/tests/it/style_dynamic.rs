@@ -2,7 +2,7 @@
 //! untyped value into a row, refused typed, nothing changed on refusal.
 
 use exact_kernel::{
-    Color, ColorValue, Dimension, StyleId, StyleProps, StyleValue, StyleValueError,
+    Color, ColorValue, Dimension, RowValue, StyleId, StyleProps, StyleValue, StyleValueError,
 };
 
 #[test]
@@ -271,8 +271,8 @@ fn refusals_are_typed_and_change_nothing() {
         ),
         (
             StyleId::GridTemplateColumns,
-            StyleValue::Number(1.0),
-            StyleValueError::Unsupported {
+            StyleValue::Text("repeat(auto-fit, 1fr)".into()),
+            StyleValueError::BadGridTracks {
                 style: StyleId::GridTemplateColumns,
             },
         ),
@@ -281,6 +281,89 @@ fn refusals_are_typed_and_change_nothing() {
         assert_eq!(s.set_dynamic(id, &value), Err(expected));
     }
     assert_eq!(s, before, "a refused write changes nothing");
+}
+
+#[test]
+fn grid_css_values_reach_set_dynamic_in_every_style_value_shape() {
+    let mut style = StyleProps::default();
+    for (id, value, want) in [
+        (StyleId::GridTemplateColumns, StyleValue::Auto, "auto"),
+        (StyleId::GridTemplateRows, StyleValue::Percent(25.0), "25%"),
+        (
+            StyleId::GridTemplateColumns,
+            StyleValue::Text("100PX".into()),
+            "100px",
+        ),
+        (
+            StyleId::GridTemplateColumns,
+            StyleValue::Text("repeat(auto-fit, minmax(80px, 1fr))".into()),
+            "repeat(auto-fit, minmax(80px, 1fr))",
+        ),
+        (
+            StyleId::GridTemplateRows,
+            StyleValue::Text("fit-content(40px)".into()),
+            "fit-content(40px)",
+        ),
+        (StyleId::GridColumn, StyleValue::Number(2.0), "2"),
+        (StyleId::GridRow, StyleValue::Auto, "auto"),
+        (
+            StyleId::GridColumn,
+            StyleValue::Text("auto / span 2".into()),
+            "auto / span 2",
+        ),
+    ] {
+        style
+            .set_dynamic(id, &value)
+            .unwrap_or_else(|e| panic!("{id:?}: {e:?}"));
+        let got = match style.get(id) {
+            RowValue::Tracks(value) => value.css().to_string(),
+            RowValue::Placement(value) => value.css(),
+            value => panic!("{id:?}: unexpected {value:?}"),
+        };
+        assert_eq!(got, want, "{id:?}");
+    }
+
+    let before = style.grid_template_columns.clone();
+    assert_eq!(
+        style.set_dynamic(
+            StyleId::GridTemplateColumns,
+            &StyleValue::Text("repeat(2, repeat(2, 40px))".into()),
+        ),
+        Err(StyleValueError::BadGridTracks {
+            style: StyleId::GridTemplateColumns,
+        })
+    );
+    assert_eq!(style.grid_template_columns, before);
+
+    style
+        .set_dynamic(
+            StyleId::GridAutoFlow,
+            &StyleValue::Text("r\\6f w/**/dense".into()),
+        )
+        .unwrap();
+    assert_eq!(
+        style.get(StyleId::GridAutoFlow),
+        RowValue::Enum("row dense")
+    );
+    style
+        .set_dynamic(
+            StyleId::JustifyItems,
+            &StyleValue::Text("safe c\\65 nter".into()),
+        )
+        .unwrap();
+    assert_eq!(
+        style.get(StyleId::JustifyItems),
+        RowValue::Enum("safe center")
+    );
+    assert_eq!(
+        style.set_dynamic(
+            StyleId::JustifyItems,
+            &StyleValue::Text("left legacy".into()),
+        ),
+        Err(StyleValueError::UnknownEnumValue {
+            style: StyleId::JustifyItems,
+        })
+    );
 }
 
 #[test]
@@ -564,6 +647,8 @@ fn every_row_writes_its_own_field_and_no_other() {
         StyleValue::Text("url(#m)".into()),
         StyleValue::Text("--t".into()),
         StyleValue::Text("0px 300px".into()),
+        StyleValue::Text("1fr".into()),
+        StyleValue::Text("2 / span 2".into()),
         StyleValue::Text("squircle".into()),
         StyleValue::Text("1px 2px #000".into()),
         StyleValue::Text("y 30deg".into()),
@@ -593,15 +678,9 @@ fn every_row_writes_its_own_field_and_no_other() {
             assert_eq!(s.get(other), base.get(other), "{id:?} wrote {other:?}");
         }
     }
-    // Grid rows have no dynamic form; every other row was written.
-    assert_eq!(
-        unwritten,
-        [
-            StyleId::GridTemplateColumns,
-            StyleId::GridTemplateRows,
-            StyleId::GridColumn,
-            StyleId::GridRow
-        ]
+    assert!(
+        unwritten.is_empty(),
+        "rows without a dynamic value: {unwritten:?}"
     );
 }
 

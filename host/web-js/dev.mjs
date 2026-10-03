@@ -5,8 +5,9 @@
 // --render none`, into a stage renamed over dist/, so a request sees the old
 // build or the new one; what did not change is not rebuilt: module.mjs
 // `fresh`) and every open page reloads: the plan is compiled ahead of time,
-// so a new plan is a new program. Slot values are not carried across the
-// reload (LLP 1071 §7, "dev reload and state carry"). A build that fails
+// so a new plan is a new program. The old page checkpoints the wasm loop's
+// carried set to this server immediately before that reload; the next
+// document consumes it once. A build that fails
 // shows its errors in the page and the page keeps the last good build.
 // `host/web/dev.mjs --wasm` is the resident wasm loop (a plan restarts in
 // place in ~20 ms, state carried).
@@ -39,14 +40,15 @@ function build(app, dist) {
     child.stderr.on('data', (d) => { log += d; });
     child.on('exit', (code) => {
       building = null;
-      if (code !== 0) { rmSync(stage, { recursive: true, force: true }); return done(log.split('\n').filter((l) => l.trim() && !/^\s*(Compiling|Finished|Running|warning)/.test(l)).slice(-12).join('\n') || `build exited ${code}`); }
+      if (code !== 0) { rmSync(stage, { recursive: true, force: true }); return done({ error: log.split('\n').filter((l) => l.trim() && !/^\s*(Compiling|Finished|Running|warning)/.test(l)).slice(-12).join('\n') || `build exited ${code}` }); }
+      const logic = readFileSync(resolve(stage, '.exact-dev-logic.json'), 'utf8').trim();
       writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
         manifestSha256: appManifestDigest(app), files: buildFileCards(stage) }) + '\n');
       rmSync(`${dist}.previous`, { recursive: true, force: true });
       if (existsSync(dist)) renameSync(dist, `${dist}.previous`);
       renameSync(stage, dist);
       rmSync(`${dist}.previous`, { recursive: true, force: true });
-      done(null);
+      done({ error: null, logic });
     });
   });
 }
@@ -57,7 +59,7 @@ export async function devJs({ app, dist, port, host, origins, gate, lan }) {
   const t0 = Date.now();
   // A first build that fails (a refusal or a compile error) serves its
   // errors in the page and builds again at the next edit.
-  let error = await build(app, dist);
+  let built = await build(app, dist), error = built.error, logicRevision = built.logic ?? '';
   if (error) console.log(`JS target: ${app.name} does not build; its errors show in the page\n${error}`);
   else console.log(`JS target: ${app.name} built in ${Date.now() - t0} ms`);
   console.log('plan ready');
@@ -68,12 +70,13 @@ export async function devJs({ app, dist, port, host, origins, gate, lan }) {
   const rebuild = async () => {
     if (building) { again = true; return; }
     const at = saved, t = since = Date.now();
-    error = await build(app, dist);
+    built = await build(app, dist); error = built.error;
     if (error) { console.log(`build failed in ${Date.now() - t} ms; the page keeps the last good build\n${error}`); push({ error }); }
     else {
+      logicRevision = built.logic;
       pending.set(++seq, at);
       console.log(`edit → plan ready ${Date.now() - at} ms (rebuilt in ${Date.now() - t} ms) · ${clients.size} page${clients.size === 1 ? '' : 's'} reloading`);
-      push({ reload: seq });
+      push({ reload: seq, revision: logicRevision });
     }
     if (again) { again = false; rebuild(); }
   };
@@ -93,10 +96,17 @@ export async function devJs({ app, dist, port, host, origins, gate, lan }) {
   for (const f of ['navigation.js', 'index.html']) watchers.push(watch(resolve(root, 'host/web', f), changed(resolve(root, 'host/web'))));
   // The page's side: reload on a new build, the errors of a failed one in an
   // overlay, and a beacon when the reloaded page's runtime is up.
-  const client = (n) => `<script>(()=>{const seq=${n},es=new EventSource('/__dev/page');let o;
+  const client = (n, revision) => `<script>(()=>{const seq=${n},logicRevision=${JSON.stringify(revision)},es=new EventSource('/__dev/page');let o,reloading=false;
 const show=t=>{if(!t){o?.remove();o=null;return}o??=document.body.appendChild(Object.assign(document.createElement('pre'),{style:'position:fixed;left:0;right:0;bottom:0;margin:0;padding:12px;background:#300;color:#fdd;font:12px/1.4 ui-monospace,monospace;white-space:pre-wrap;z-index:2147483647',onclick:()=>show()}));o.textContent=t+'\\n(click to dismiss)'};
-es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error);if(m.reload>seq){sessionStorage.exactDevReload=m.reload;globalThis.exactDevCarry?.();location.reload()}};
-const r=sessionStorage.exactDevReload;if(r){delete sessionStorage.exactDevReload;const t=setInterval(()=>{const b=document.getElementById('exact-root')?.dataset.bootMs;if(b!=null){clearInterval(t);fetch('/__dev/reloaded?seq='+r+'&boot='+b+'&at='+Date.now(),{method:'POST'})}},2)}})()</script>`;
+const encode=v=>typeof v==='number'&&(!Number.isFinite(v)||Object.is(v,-0))?{$exactNumber:Object.is(v,-0)?'-0':String(v)}:Array.isArray(v)?v.map(encode):v;
+const children=e=>[...(e?.children??[])].filter(x=>x.hasAttribute('data-carry-type')||x.hasAttribute('data-listitemkey'));
+const reserved=new Set(['exactDelivery','exactViewport','exactTime','exactPage','exactSurface']);
+const capture=logic=>{const x=globalThis.exact,active=document.activeElement?.closest?.('[data-carry-type]');let focus=null;if(active){const path=[];for(let el=active,p;el&&el.id!=='exact-root';el=p){p=el.parentElement;path.unshift(children(p).indexOf(el))}if(!path.includes(-1))focus={path,type:active.getAttribute('data-carry-type')}}return{time:x.clock.now,slots:x.state[0].map(s=>[s.n.devName,s.n.devType,encode(s())]),answers:logic?[]:x.resources.filter(r=>!reserved.has(r.source)&&!r.ticket&&!r.waiting&&r.settled!==undefined).map(r=>[r.name,r.source,encode(r.settled),encode(r.value),r.devType,!!r.store]),carryAnswers:!logic,focus}};
+const restored=document.querySelector('script[type="application/vnd.exact.dev-checkpoint"]'),q=new URLSearchParams(location.search),devKeys=new Set(['agent','seed','locale','timeZone','epoch','storage']),admission=q.has('agent')?[...q].filter(([k])=>devKeys.has(k)):null;
+if(restored){const restoredSeq=Number(restored.dataset.seq);console.info('exact dev reload: restored',restoredSeq);const t=setInterval(()=>{const b=document.getElementById('exact-root')?.dataset.bootMs;if(b!=null){clearInterval(t);Promise.resolve(globalThis.exact?.ready).then(()=>{console.info('exact dev reload: runtime up',restoredSeq);fetch('/__dev/reloaded?seq='+restoredSeq+'&boot='+b+'&at='+Date.now(),{method:'POST'})})}},2)}
+const ready=()=>globalThis.exact?Promise.resolve(globalThis.exact.ready):new Promise(ok=>{const t=setInterval(()=>{if(globalThis.exact){clearInterval(t);Promise.resolve(globalThis.exact.ready).then(ok)}},2)});
+es.onmessage=e=>{const m=JSON.parse(e.data);if(m.error!==undefined)show(m.error);if(m.reload>seq&&!reloading){reloading=true;if(!globalThis.exact){location.reload();return}ready().then(async()=>{const checkpoint=capture(m.revision!==logicRevision),id=crypto.getRandomValues(new Uint32Array(4)).join('-');console.info('exact dev reload: checkpoint',m.reload);const saved=await fetch('/__dev/checkpoint?id='+id+'&seq='+m.reload+'&revision='+encodeURIComponent(m.revision??''),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(checkpoint)});if(!saved.ok)throw new Error('checkpoint handoff answered '+saved.status);const next=new URL(location.href);next.searchParams.set('__exactDev',id);if(admission)for(const [k,v]of admission)if(!next.searchParams.has(k))next.searchParams.set(k,v);location.replace(next.href)}).catch(e=>{reloading=false;console.error('exact dev reload: current page retained; checkpoint handoff failed',e)})}}})()</script>`;
+  const checkpoints = new Map();
   // The install pages (LLP 1030.003 D6a) and, from a loopback page on a Mac,
   // the local iOS build (D6b): this server's, since only it sees the real
   // peer (a forwarded request's is loopback).
@@ -109,10 +119,20 @@ const r=sessionStorage.exactDevReload;if(r){delete sessionStorage.exactDevReload
     if (await installer.handle(req, res, url, access)) return;
     if (url.pathname === '/__dev/page') {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-store', connection: 'keep-alive' });
-      res.write(`data: ${JSON.stringify(error ? { error, reload: seq } : { reload: seq })}\n\n`);
+      res.write(`data: ${JSON.stringify(error ? { error, reload: seq, revision: logicRevision } : { reload: seq, revision: logicRevision })}\n\n`);
       clients.add(res);
       console.log(`page connected (${clients.size})`);
       req.on('close', () => clients.delete(res));
+      return;
+    }
+    if (url.pathname === '/__dev/checkpoint' && req.method === 'POST') {
+      const id = url.searchParams.get('id') ?? '', n = Number(url.searchParams.get('seq')), revision = url.searchParams.get('revision') ?? '', chunks = [];
+      if (!/^\d+(?:-\d+){3}$/.test(id) || !Number.isSafeInteger(n)) { res.writeHead(400); res.end(); return; }
+      req.on('data', chunk => chunks.push(chunk));
+      req.on('end', () => {
+        try { const text = Buffer.concat(chunks).toString('utf8'); JSON.parse(text); checkpoints.set(id, { seq: n, revision, text }); res.writeHead(204); res.end(); }
+        catch { res.writeHead(400); res.end(); }
+      });
       return;
     }
     if (url.pathname === '/__dev/reloaded') {
@@ -133,10 +153,23 @@ const r=sessionStorage.exactDevReload;if(r){delete sessionStorage.exactDevReload
       || (url.pathname === '/' && (req.headers.accept ?? '').includes('application/vnd.exact.envelope+json'))) { forward(req, res); return; }
     const found = buildTreeFile(dist, url.pathname);
     // No build yet (the first failed): a blank page that shows the errors and reloads when one lands.
-    if (!found && error && !url.pathname.slice(1).includes('.')) { res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); res.end(`<!doctype html><meta charset="utf-8"><body>${client(seq)}`); return; }
+    if (!found && error && !url.pathname.slice(1).includes('.')) { res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' }); res.end(`<!doctype html><meta charset="utf-8"><body>${client(seq, logicRevision)}`); return; }
     if (!found) { res.writeHead(404, { 'cache-control': 'no-store' }); res.end(); return; }
     let body = installer.page(found.route, readFileSync(found.path), access);
-    if (found.route.endsWith('.html')) body = body.toString() + client(seq);
+    if (found.route.endsWith('.html')) {
+      body = body.toString();
+      const id = url.searchParams.get('__exactDev'), carried = id && checkpoints.get(id);
+      if (carried) {
+        checkpoints.delete(id);
+        if (carried.revision !== String(logicRevision ?? '')) {
+          const c = JSON.parse(carried.text);
+          if (c.carryAnswers || c.answers?.length) { c.carryAnswers = false; c.answers = []; carried.text = JSON.stringify(c); }
+        }
+        const checkpoint = `<script type="application/vnd.exact.dev-checkpoint" data-seq="${carried.seq}">${carried.text.replaceAll('<', '\\u003c')}</script><script>const u=new URL(location.href);u.searchParams.delete('__exactDev');history.replaceState(history.state,'',u.pathname+(u.search?'?'+u.searchParams:'')+u.hash)</script>`;
+        body = body.replace('<script type="module"', checkpoint + '<script type="module"');
+      }
+      body += client(seq, logicRevision);
+    }
     sendStaticBody(req, res, body, { 'content-type': webContentType(found.route), 'cache-control': 'no-store' });
   });
   // The resident loop's producers (host/web/dev.mjs `--serve-as`: the

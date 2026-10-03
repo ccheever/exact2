@@ -57,8 +57,10 @@ detached entry claimed the publisher name before the live entry arrived.
 
 `surface()` now ignores disconnected targets and retires a named publisher
 whose canvas or view registration is stale before admitting its replacement.
-Two genuinely live canvases still produce the duplicate diagnostic. A late
-destroy of the retired view cannot clear the replacement's publication.
+The liveness decision never uses the GPU object id, which is still zero while
+the module loads. Two genuinely live canvases still produce the duplicate
+diagnostic. A late destroy of the retired view cannot clear the replacement's
+publication.
 
 The same delayed-load Caltrain drive now reports zero console errors and one
 live sky. The existing surface-record suite passes all 66 tests, including

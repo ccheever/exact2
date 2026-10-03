@@ -3,8 +3,7 @@ import { conforms, eq } from "./shape.js";
 import { paintList, paintFacts, paintFlush } from "./paint.js";
 export { conforms, eq }; export { paintOwn } from "./paint.js";
 import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head };
-// the JS target's runtime: fine-grained signals over the DOM, for a
-// plan compiled ahead of time by `exact-web-js`. Everything here is imported
+// The JS target's runtime: fine-grained DOM signals for a plan compiled ahead by `exact-web-js`. Everything here is imported
 // by name, so an app's bundle carries only what its generated module uses.
 //
 // Semantics kept from the runner (LLP 1005 §6):
@@ -17,7 +16,6 @@ import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; ex
 //   compiled ones; a source not ready keeps the value and asks again when it
 //   is; a later answer lands in its own commit, if its ticket is current;
 // - timers fire on a clock the host moves (`advance`), each at its own time.
-
 // ---------------------------------------------------------------- signals
 let Listener = null, Owner = null, Queue = [], Flushing = false, Rev = 0;
 const CLEAN = 0, CHECK = 1, DIRTY = 2;
@@ -451,8 +449,7 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
   m.r = r;
   return m;
 }
-/** A mutation (LLP 1016): its slot (`option<T>`), the resources it
- * declares it refreshes, and one ticket per send, the newest winning. */
+/** A mutation (LLP 1016): its slot, resources, and newest-winning ticket. */
 export const Mutations = [];
 export function mut(name, slot, refreshes, type) {
   const pend = sig(false);
@@ -467,7 +464,6 @@ export function mut(name, slot, refreshes, type) {
     m.checked = p.v;
     m.ticket = null; W(pend, false);
     slot.n.landing = 1; W(slot, p.v); Landed.push(m);
-    // At the reply, the declared refreshes are forced (LLP 1054.000.000 D1).
     for (const r of refreshes) R(r.r);
     queueMicrotask(() => { slot.n.landing = 0; });
   }, "it ends unsent", () => { m.ticket = null; write(pend.n, false); });
@@ -483,16 +479,13 @@ export function mut(name, slot, refreshes, type) {
         const t = { id: ++Ticket, source, args, req: a.req, promise: a.promise };
         m.ticket = t; undo.push([pend.n, pend.n.v]); write(pend.n, true); send(t, land(t));
       } else throw new Refusal(`${name}: its source is not ready`);
-      // At the send, the declared refreshes re-read (D1).
       for (const r of refreshes) r.r.reread_(undo);
     },
   });
   m.p = () => pend();
   return m;
 }
-/** `send m = source(args)` inside an action: asked at commit, after its writes. */
 export function M(m, source, args) { Sends.push([m, source, args]); }
-
 // ---------------------------------------------------------------- the DOM
 const SVG = "http://www.w3.org/2000/svg";
 /** An element under `p`: its static class, attributes and text. */
@@ -522,17 +515,15 @@ export function cv(e) {
   s.style.cssText = "position:absolute;inset:0;width:100%;height:100%;display:block;z-index:-1";
   if (Adopt) e.insertBefore(s, at(e)); else e.append(s);
 }
-// ---------------------------------------------------------------- adoption (LLP 1048.000 D6)
 // A page rendered ahead (by the Rust render host or by this runtime under
 // Bun) is adopted, not rebuilt: construction walks the document with a
 // cursor per parent, takes each element whose tag matches, gives it the
 // class it would have had and drops the renderer's view ids, and inserts
 // the region anchors a fresh build would have made. A
-// mismatch abandons adoption and builds afresh.
+// mismatch abandons adoption and builds afresh (LLP 1048.000 D6).
 let Adopt = false;
 class Mismatch extends Refusal {}
-// The next node of the document to adopt under `p`; what adoption inserts
-// goes before it and never moves it.
+// The next node to adopt under `p`; insertions go before it and never move it.
 const at = p => (p.$n === undefined ? (p.$n = p.firstChild) : p.$n);
 function adopt(p, tag, cls, attrs) {
   let e = at(p);
@@ -687,15 +678,27 @@ export function nm(e) {
     .then(h => { h.attach(e); return h.loaded; }, err => { st.state = "unavailable"; st.error = String(err?.message ?? err); say(`native ${st.name} #${id}: unavailable: ${st.error}`); })
     .finally(() => setTimeout(() => inflight.n--));
 }
-/** A dynamic style row: a number takes the unit css.rs gives the row. */
 export function S(e, prop, unit, f) { let rendered = Adopt; effect(() => { css(e, prop, unit, f(), rendered); rendered = false; }); }
 let Scratch = null;
 const Normal = new Map(), same = v => v.replace(/\btransparent\b/g, "rgba(0, 0, 0, 0)");
-/** `t` as the browser serializes it on `prop`, once per value. */
 function normal(prop, t) {
   const k = prop + "\0" + t;
   let v = Normal.get(k);
-  if (v === undefined) { (Scratch ??= document.createElement("i").style).setProperty(prop, t); Normal.set(k, v = same(Scratch.getPropertyValue(prop))); if (Normal.size > 4096) Normal.clear(); }
+  if (v === undefined) { const s = Scratch ??= document.createElement("i").style; s.removeProperty(prop); s.setProperty(prop, t); Normal.set(k, v = same(s.getPropertyValue(prop))); if (Normal.size > 4096) Normal.clear(); }
+  return v;
+}
+function withoutLines(s) { let o = "", bracket = 0; for (let i = 0; i < s.length; i++) { if (s[i] === "\\") { if (!bracket) o += s[i]; if (++i < s.length && !bracket) o += s[i]; } else if (s[i] === "[") bracket++; else if (s[i] === "]" && bracket) bracket--; else if (!bracket) o += s[i]; } return o; }
+function trackCount(s) { let count = 0; for (let i = 0; i < s.length;) { while (/\s/.test(s[i])) i++; if (i >= s.length) break; if (s[i] === "[") { for (i++; i < s.length && s[i] !== "]"; i += s[i] === "\\" ? 2 : 1); i++; continue; } const start = i; let depth = 0; for (; i < s.length; i++) { if (s[i] === "(") depth++; else if (s[i] === ")") depth--; else if (!depth && /\s/.test(s[i])) break; } const part = s.slice(start, i); if (/^repeat\(/i.test(part)) { const comma = part.indexOf(","), n = part.slice(7, comma).trim(); count += (/^\d+$/.test(n) ? Number(n) : 1) * trackCount(part.slice(comma + 1, -1)); } else count++; } return count; }
+export function gridValue(kind, value) {
+  if (value == null) return value;
+  const prop = kind === "tracks" ? "grid-template-columns" : kind === "placement" ? "grid-column" : kind === "flow" ? "grid-auto-flow" : "justify-items", v = normal(prop, String(value));
+  const refuse = why => { say(`unset ${prop}: ${JSON.stringify(value)} (${why})`); return null; };
+  if (!v) return refuse("the browser rejected it");
+  const lower = v.toLowerCase(), wide = /^(?:inherit|initial|unset|revert|revert-layer)$/;
+  if (wide.test(lower)) return refuse("CSS-wide values have no kernel cascade");
+  if (kind === "tracks") { const sizes = withoutLines(lower); if (/^subgrid(?:\s|\[|$)/.test(lower) || /\b(?:calc|min|max|clamp|var|env)\s*\(/.test(sizes)) return refuse("Taffy has no value for it"); for (const m of sizes.matchAll(/(?:^|[^\w.-])(?:\d*\.)?\d+([a-z]+)\b/g)) if (!/^(?:px|fr)$/.test(m[1])) return refuse("Taffy has no value for its unit"); if (trackCount(lower) > 10000) return refuse("Taffy supports at most 10000 explicit tracks"); }
+  if (kind === "placement" && lower.split(/[ \/]+/).some(x => /^-?\d+$/.test(x) && Math.abs(Number(x)) > 10000)) return refuse("Taffy supports grid indexes and spans through 10000");
+  if (kind === "justify" && /^(?:last baseline|legacy(?: (?:left|right|center))?|(?:left|right|center) legacy)$/.test(lower)) return refuse("Taffy has no such alignment mode");
   return v;
 }
 function css(e, prop, unit, v, rendered) {
@@ -713,8 +716,6 @@ function css(e, prop, unit, v, rendered) {
     if (t == null ? !now : same(now) === normal(prop, t)) return;
   }
   if (t == null) return e.style.removeProperty(prop);
-  // A value the row refuses is invalid at computed-value time: unset,
-  // never the earlier declaration (LLP 1005 §6).
   e.style.removeProperty(prop);
   e.style.setProperty(prop, t);
   if (!e.style.getPropertyValue(prop)) say(`unset ${prop}: ${JSON.stringify(v)} is not a value it takes`);
@@ -1293,7 +1294,6 @@ export function x_formatTime(ms, off) {
   const w = Math.trunc(ms) + off * 60000, m = Math.floor((((w % 864e5) + 864e5) % 864e5) / 6e4), h = m / 60 | 0;
   return `${h % 12 || 12}:${String(m % 60).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
 }
-
 // ---------------------------------------------------------------- localized strings (LLP 1060)
 // The plan's tables, base first: [name, rtl, {key: text}]. The locale slot
 // starts at the base, and after boot holds the table the viewer's locale
@@ -1335,7 +1335,6 @@ export function language(slot) {
   if (typeof document !== "object" || !document.documentElement) return;
   effect(() => { const t = table(slot()) ?? Texts[0]; document.documentElement.lang = t[0]; document.documentElement.dir = t[1] ? "rtl" : "ltr"; });
 }
-
 // ---------------------------------------------------------------- the router (LLP 1038; route/src)
 // A Router is [tab, tabs, next]; a Tab [name, stack]; an Entry
 // [id, name, url, tab, params], params positional in the table's
@@ -1407,6 +1406,8 @@ function mint(r, d) { const id = r[2]; r[2] = id + 1; return entry(id, d); }
 const sel = r => r[1].findIndex(t => t[0] === r[0] && t[1].length);
 const copy = r => [r[0], r[1].map(t => [t[0], t[1].slice()]), r[2]];
 export const launch = location => x_open(["", [], 0], location);
+/** A reload's router carry: keep only a stack the new table still describes; otherwise launch its old top. */
+export function carryRouter(old, location) { const tabs = roots().map(i => Routes[i].name), stacks = old?.[1], valid = Array.isArray(stacks) && stacks.length === tabs.length && stacks.every((t, i) => t?.[0] === tabs[i] && Array.isArray(t[1]) && t[1].every(e => { const m = matchRoute(e?.[2] ?? ""); return m && Routes[m[0]].name === e[1]; })); if (!valid) return launch(stacks?.find(t => t?.[0] === old?.[0])?.[1]?.at(-1)?.[2] ?? location); const out = copy(old); for (const t of out[1]) for (const e of t[1]) e[4] = matchRoute(e[2])[1]; return out; }
 export function x_open(r, location) {
   const c = chain(location);
   if (!c.length) return refuse(r, `no route matches ${canonical(location)}`);
@@ -1495,5 +1496,4 @@ export function router(slot, history) {
   });
 }
 export const navigateTo = f => { Navigate = f; };
-/** The route a location matches: its row index (renderers pick a policy by it). */
 export const routeAt = location => matchRoute(canonical(location))?.[0] ?? -1;

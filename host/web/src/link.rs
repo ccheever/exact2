@@ -73,6 +73,9 @@ pub struct Linked {
     pub animations: Option<AnimationsLink>,
     /// `background-image`'s gradient grammar (LLP 1066): linked at [`link`].
     pub gradients: Option<fn()>,
+    /// CSS grid's grammar, validation and serialization: linked at [`link`]
+    /// when any grid row is bound.
+    pub grid: Option<fn()>,
     /// `frame` and `measure` (LLP 1051.000 D4): the page's answers, through
     /// one import `geometry-glue.js` answers.
     pub geometry: exact_runner::GeometryLink,
@@ -134,6 +137,7 @@ impl Linked {
         effects: None,
         animations: None,
         gradients: None,
+        grid: None,
         geometry: None,
         dataset: None,
         tabs: None,
@@ -193,6 +197,9 @@ impl Linked {
         if self.gradients.is_some() {
             uses = uses.with(Capability::Gradients);
         }
+        if self.grid.is_some() {
+            uses = uses.with(Capability::Grid);
+        }
         if self.geometry.is_some() {
             uses = uses.with(Capability::Geometry);
         }
@@ -233,6 +240,9 @@ pub fn link(linked: Linked) {
         (a.grammars)();
     }
     if let Some(link) = linked.gradients {
+        link();
+    }
+    if let Some(link) = linked.grid {
         link();
     }
     LINKED.with(|cell| cell.set(linked));
@@ -319,6 +329,15 @@ mod tests {
         let refused = Host::boot(&count, (), Default::default(), "/").map(|_| ());
         assert!(
             matches!(&refused, Err(HostError::Unlinked(names)) if names == "format"),
+            "{refused:?}"
+        );
+        let grid =
+            contract::compile("component A\n  view\n    box grid-template-columns=\"1fr 1fr\"\n")
+                .unwrap()
+                .encode();
+        let refused = Host::boot(&grid, (), Default::default(), "/").map(|_| ());
+        assert!(
+            matches!(&refused, Err(HostError::Unlinked(names)) if names == "grid"),
             "{refused:?}"
         );
         let time = contract::compile("component A\n  view\n    text formatTime(0, 0, \"short\")\n")

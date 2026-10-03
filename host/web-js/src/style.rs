@@ -551,6 +551,22 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             with("timeline-scope", NONE),
             with("--exact-timeline-scope", NONE),
         ],
+        StyleId::GridTemplateColumns | StyleId::GridTemplateRows => vec![with(
+            &css_property(row),
+            "v=>gridValue(\"tracks\",v)",
+        )],
+        StyleId::GridColumn | StyleId::GridRow => vec![with(
+            &css_property(row),
+            "v=>gridValue(\"placement\",v)",
+        )],
+        StyleId::GridAutoFlow => vec![with(
+            "grid-auto-flow",
+            "v=>gridValue(\"flow\",v)",
+        )],
+        StyleId::JustifyItems => vec![with(
+            "justify-items",
+            "v=>gridValue(\"justify\",v)",
+        )],
         // A spring is lowered by the engine (motion.js): the declaration
         // is the rest, as css.rs `transition_css` leaves springs out.
         StyleId::Transition => vec![with(
@@ -596,6 +612,11 @@ pub fn style_row(id: u16) -> Result<(String, String), String> {
     // multiple of the font size, unitless; a length is written with its unit;
     // `aspect-ratio` too (kernel `Ratio::css`): a number is `n / 1`.
     if row == StyleId::LineHeight || row == StyleId::AspectRatio {
+        return Ok((css_property(row), String::new()));
+    }
+    // These codecs parse CSS text in the kernel. `style_writes` lets Chrome
+    // parse the same authored text after excluding Taffy's declared gaps.
+    if matches!(row.codec(), StyleCodec::Tracks | StyleCodec::Placement) {
         return Ok((css_property(row), String::new()));
     }
     // css.rs `declared`: each of these is its value's own CSS text, in the

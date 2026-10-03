@@ -1,10 +1,10 @@
 # RealWorld against the hosted API: tags, an article (Markdown), history, a failed sign-in.
 tap open-how-to-learn-javascript-efficiently
 back 1
-wheel 1 1400
+wheel brand 1400
 tap tag-javascript
 tap tab-global
-wheel 1 -4000
+wheel tag-javascript -4000
 tap brand
 tap nav-login
 type email nobody@example.invalid

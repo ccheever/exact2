@@ -3,7 +3,7 @@
 - **Upstream:** `taffy` 0.14.0, crates.io package supplied offline at
   `~/Library/Caches/exact2-textflow/taffy-0.14.0/` (M8, 2026-09-18).
   Its `.cargo_vcs_info.json` pins commit `77f385683c1d698c91a23a259f87fdddf26925fb`.
-- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19 and 20 below remain. `[patch.crates-io]`
+- **Why vendored:** patches 3, 4, 5, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20 and 21 below remain. `[patch.crates-io]`
   selects this copy; the kernel declares `taffy = "0.14"`.
 - **Owner:** Charlie Cheever (kernel/layout).
 - **Features:** std, taffy_tree, flexbox, grid, block_layout, content_size, calc.
@@ -772,6 +772,27 @@ Patch 12 also resolves percentages against the ratio height while allowing the
 content minimum to enlarge the used height, and measures the automatic inline
 minimum for height-derived widths (block, flex, grid, absolute boxes and roots).
 
+## Patch 21: table-marked containers shrink to fit in block flow — to upstream
+
+**Implementer:** Codex, 2026-10-02, for the form-control block-sizing QUEUE item.
+
+Upstream avoids assigning a stretched known width to a table item, which is
+enough for a measured leaf but not for a container: a flex container still
+uses the definite available width. For an auto-width table-marked item, block
+layout now measures its min-content and max-content widths and clamps the
+available width between them before laying it out. Ordinary blocks, flex/grid
+items, absolutely positioned boxes and replaced elements are unchanged.
+
+The root path likewise withholds its normal automatic-width stretch from a
+table-marked root. This matches Chrome's 13 px checkbox for
+`#exact-root > input` in a 400 px wrapper rather than treating the projected
+element as an ordinary block root.
+
+The kernel uses this existing internal marker for HTML form controls. It lets
+Exact's reset `<button>` keep its authored flex-column contents while retaining
+HTML's shrink-to-fit block width; text fields and leaf controls follow the same
+path. `kernel/tests/it/browser_controls.rs` holds the Chrome 154 matrix across
+block, flex row, flex column, grid and absolute placement.
 
 ## Patch 25: available space excludes the child's margins
 

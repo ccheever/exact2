@@ -1217,10 +1217,32 @@ fn perform_final_layout_on_in_flow_children(
                 }
             };
 
-            // Tables and replaced elements are not stretch-sized: they resolve their own
-            // size (for replaced elements an auto width resolves to the intrinsic size
-            // <https://www.w3.org/TR/CSS22/visudet.html#block-replaced-width>)
-            let known_dimensions = if item.is_table || item.is_replaced {
+            // Tables are shrink-to-fit rather than stretch-sized. Exact also
+            // uses this marker for form controls (including a button whose
+            // inner display is flex): clamp its preferred width between its
+            // min-content width and the available block width.
+            let known_dimensions = if item.is_table && item.size.width.is_none() {
+                let mut measure = |width| {
+                    tree.measure_child_size(
+                        item.node_id,
+                        Size::NONE,
+                        Size { width: None, height: parent_size.height },
+                        Size { width, height: AvailableSpace::MaxContent },
+                        SizingMode::InherentSize,
+                        crate::AbsoluteAxis::Horizontal,
+                        Line::TRUE,
+                    )
+                };
+                let min_content = measure(AvailableSpace::MinContent);
+                let max_content = measure(AvailableSpace::MaxContent);
+                let width = stretch_width
+                    .max(min_content)
+                    .min(max_content)
+                    .maybe_clamp(item.min_size.width, item.max_size.width);
+                Size { width: Some(width), height: item.size.height }
+            // Replaced elements are not stretch-sized: an auto width resolves
+            // to the intrinsic size.
+            } else if item.is_table || item.is_replaced {
                 Size::NONE
             } else {
                 // Items with a sizing keyword width (min-content, max-content, fit-content,

@@ -181,8 +181,16 @@ export function install(exact) {
     const stale = time ? exact.resources.filter(r => r.source === 'exactTime' && !eq(r.value, time('exactTime', [], r.name))) : [];
     if (stale.length) exact.commit(() => { for (const r of stale) R(r); }, 'time');
   };
+  const settleGpu = async () => await exact.gpu?.settled?.() ?? [];
+  const gpuPendingReply = (req, pending) => {
+    const names = pending.map(item => item.name ?? 'GPU work');
+    return req.op === 'clock' ? { ...tags(), settled: false, reason: 'gpu', pending: names }
+      : { error: `GPU is not settled: ${names.join(', ')}`, pending: names };
+  };
   exact.agentSettled = async (req) => {
     await pieces();
+    const beforeGpu = await settleGpu();
+    if (beforeGpu.length) return gpuPendingReply(req, beforeGpu);
     seek();
     // `tap @t <choice>` / `type @t <value>` answer a held request (D4).
     if ((req.op === 'tap' || req.op === 'type') && req.ticket != null) return (await exact.files?.answer(req)) ?? (exact.auth ? exact.auth.answer(req) : { error: `not pending: @${req.ticket}` });
@@ -265,6 +273,8 @@ export function install(exact) {
             await new Promise(r => requestAnimationFrame(() => r()));
           }
           retime();
+          const gpuPending = await settleGpu();
+          if (gpuPending.length) return gpuPendingReply(req, gpuPending);
           const waiting = holds();
           if (waiting.length) return { clock: exact.clock.now, settled: false, reason: 'device', tickets: waiting.map(h => h.ticket) };
           return { clock: exact.clock.now, settled: !exact.inflight.n };
@@ -287,6 +297,8 @@ export function install(exact) {
         }
         retime(); seek();
         await new Promise(r => requestAnimationFrame(() => r()));
+        const gpuPending = await settleGpu();
+        if (gpuPending.length) return gpuPendingReply(req, gpuPending);
         return { clock: exact.clock.now };
       }
       case 'tags': return tags();

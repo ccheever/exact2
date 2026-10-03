@@ -4,7 +4,9 @@
 // — against a running app on either host, from one script, with the clock in
 // the driver's hands: nothing moves between two calls unless a call moved it.
 //
-// Usage:  bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--plan <file>] [--world <file>] [--url <page>] [--session <label>] [--open <document> …] [--json] <op> [<op> …]
+// Usage:  bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--browser chrome|firefox|webkit] [--plan <file>] [--world <file>] [--url <page>] [--session <label>] [--open <document> …] [--json] <op> [<op> …]
+//   Web defaults to Chrome; EXACT_WEB_BROWSER selects the same option. Install
+//   the other engines with: bunx playwright@1.63.0 install firefox webkit
 //   tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save
 //   tap <target> [wheel <dx> <dy> [gesture] | into <key> [block <v>] [inline <v>] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name>
 //   tap @N <choice> | type @N <value>   (a held device request, by ticket: LLP 1069.007 D4)
@@ -13,7 +15,7 @@
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, parseFlags, launchFacts, launchEnvironment, refuseStale, warnStale, unchecked, depInfoChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
+import { Cdp, chromium, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
 import { sourceMapReaders, identifyInspectedNode, render } from './agent-inspect.mjs';
 export { sourceMapReader, identifyInspectedNode, render } from './agent-inspect.mjs';
@@ -77,9 +79,13 @@ export async function assertWebDistApp(dist, app) {
   if (!await builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run EXACT_APP_DIR=${shellQuote(app.dir)} EXACT_WEB_DIST=${shellQuote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}`);
 }
 
-async function openWeb({ plan, world, size = VIEWPORT, url: pageURL, app, webDist, onProcess, reuse, storage, facts }) {
+async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: pageURL, app, webDist, onProcess, reuse, storage, facts }) {
+  if (browser !== 'chrome') {
+    const { openPlaywrightWeb } = await import('./agent-playwright.mjs');
+    return openPlaywrightWeb({ browser, plan, world, size, url: pageURL, app, webDist, onProcess, reuse, storage, facts });
+  }
   if (reuse) {
-    if (JSON.stringify(reuse.launchFacts) === JSON.stringify(facts)) {
+    if (reuse.browser === 'chrome' && JSON.stringify(reuse.launchFacts) === JSON.stringify(facts)) {
       try { await reuse.reset(); return reuse; }
       catch (error) { await reuse.close(); throw error; }
     }
@@ -91,8 +97,7 @@ async function openWeb({ plan, world, size = VIEWPORT, url: pageURL, app, webDis
     await assertWebDistApp(dist, selected);
     const js = jsTargetBuild(dist), env = process.env.EXACT_APP_DIR || webDist || process.env.EXACT_WEB_DIST ? `EXACT_APP_DIR=${selected.dir} EXACT_WEB_DIST=${dist} ` : '';
     const command = `${env}bun host/web/build.mjs ${selected.crate('web')}${js ? '' : ' --wasm'}`, changed = webChanges(dist, selected);
-    refuseStale('web', resolve(dist, '.exact-build.json'), changed.app, command);
-    warnStale('web', resolve(dist, '.exact-build.json'), changed.shared, `if they matter, run ${command}`);
+    refuseStale('web', resolve(dist, '.exact-build.json'), changed.all, command);
   }
   // A JS-target build (LLP 1071) is served as its tree. It compiles one plan
   // ahead of time, so `--plan` is a JS build of that plan (host/web-js/build.mjs
@@ -116,7 +121,7 @@ async function openWeb({ plan, world, size = VIEWPORT, url: pageURL, app, webDis
   });
   await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
   const port = server.address().port;
-  const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  const chrome = chromium().executable;
   const profile = mkdtempSync(resolve(tmpdir(), 'exact-agent-'));
   let child;
   try {
@@ -241,7 +246,7 @@ async function openWeb({ plan, world, size = VIEWPORT, url: pageURL, app, webDis
       return JSON.parse(await evaluate(`exact.agentSettled(${JSON.stringify(req)}).then((r) => JSON.stringify(r))`));
     };
     return {
-      host: 'web', boot: Number(boot), hostLines, evaluate, launchFacts: facts,
+      host: 'web', browser: 'chrome', boot: Number(boot), hostLines, evaluate, launchFacts: facts,
       async gpuMs() {
         const ms = await evaluate("document.getElementById('exact-root')?.dataset.gpuMs ?? null");
         return ms == null ? null : Number(ms);
@@ -325,7 +330,10 @@ async function openWeb({ plan, world, size = VIEWPORT, url: pageURL, app, webDis
           if (kind === 'down') {
             if (contact) throw new Error('a contact is already down; use `tap up` first');
             const px = opts.x ?? x, py = opts.y ?? y;
-            const t = Date.now() / 1000;
+            // CDP wants epoch seconds; performance.timeOrigin plus the
+            // runner's clock makes the DOM event's timeStamp that clock,
+            // independent of how long the carrier took between operations.
+            const t = (await evaluate('performance.timeOrigin') + (await ask({ op: 'tags' })).clock) / 1000;
             await call('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: px, y: py }], timestamp: t });
             contact = { x: px, y: py, t };
             await frame();
@@ -394,6 +402,8 @@ async function openWeb({ plan, world, size = VIEWPORT, url: pageURL, app, webDis
         return { at: [x, y] };
       },
       async screenshot(path) {
+        const tags = await ask({ op: 'tags' });
+        if (tags.error) throw new Error(tags.error);
         await frame();
         // Images in the viewport finish loading first, up to 3 s: a picture
         // of grey placeholders is not the page (LLP 1054.000 R9). `clock
@@ -408,7 +418,7 @@ async function openWeb({ plan, world, size = VIEWPORT, url: pageURL, app, webDis
         await frame();
         const { data } = await call('Page.captureScreenshot', { format: 'png' });
         writeFileSync(path, Buffer.from(data, 'base64'));
-        return { screenshot: path, w: size[0], h: size[1], ...(pending ? { imagesPending: pending } : {}) };
+        return { ...tags, screenshot: path, w: size[0], h: size[1], ...(pending ? { imagesPending: pending } : {}) };
       },
       close,
     };
@@ -839,9 +849,7 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
     throw e;
   }
 }
-
 // ---------------------------------------------------------------- the eight operations
-
 /** A convenience over state, screenshot and type; wire replies keep all tags. */
 export function worldView(session, name) {
   return {
@@ -903,13 +911,16 @@ export async function tapRefusal(session, target, error) {
 /** Open a session on `host` ('web' | 'macos' | 'ios' | 'linux'); `url` opens
  * the same app address on each host; `plan` boots a local compiled contract;
  * `env` adds to a native host's environment. @ref LLP 1030.000 §7 */
-export async function open({onProcess,  host = 'web', plan, world, size, env, app, session, documents, url, webDist, reuse, device = false, phone: pick, timing = 'agent', storage, seed, locale, timeZone, epoch } = {}) {
+export async function open({onProcess, host = 'web', browser, plan, world, size, env, app, session, documents, url, webDist, reuse, device = false, phone: pick, timing = 'agent', storage, seed, locale, timeZone, epoch } = {}) {
+  browser ??= 'chrome';
+  if (!['chrome', 'firefox', 'webkit'].includes(browser)) throw new Error(`browser: chrome, firefox or webkit, not ${browser}`);
   const facts = launchFacts({seed, locale, timeZone, epoch, env});
   env = {...env, ...launchEnvironment(facts)};
   if (world && !['web','mac','macos','ios','linux'].includes(host)) throw new Error(`world restore unavailable on this host yet: ${host}`);
   if (world && statSync(world).size > WORLD_LIMIT) throw new Error('world carrier exceeds 256 MiB limit; inspect `state world:*` and reduce saved entities before `screenshot checkpoint.world world save`');
   if (world && host !== 'web' && !device) env = {...env, EXACT_WORLD:resolve(world)};
   if (device && host !== 'ios') throw new Error('--device is supported for the standalone ios client');
+  if (host !== 'web' && browser !== 'chrome') throw new Error(`--browser is only supported by the web carrier, not ${host}`);
   // `timing: 'platform'` (LLP 1035.003 D5, opt-in): the carrier stays and the driver still owns the runner's clock,
   // but UIKit's own transitions, sheet presentations and keyboard animations run at their natural timing — the
   // ordinary app with a socket, for observing an interactive gesture's native motion. The frozen clock is the
@@ -935,7 +946,7 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
     : host === 'host-ios' ? await openIOS({ plan, app, env, session, hostFixture: true, onProcess })
     : host === 'linux' ? await openStdio({ host: 'linux', plan, size: size ?? VIEWPORT, env, app, onProcess })
     : host === 'ios' ? await openIOS({ plan, env, app, size, onProcess })
-    : await openWeb({ plan, world, size, url, app, webDist, onProcess, reuse, storage, facts });
+    : await openWeb({ browser, plan, world, size, url, app, webDist, onProcess, reuse, storage, facts });
   const mapLocator = plan ?? (url && /^https?:\/\//i.test(url) ? url : env?.EXACT_DEV_PLAN ?? process.env.EXACT_DEV_PLAN)
     ?? (carrier.host === 'web' ? resolve(webDist ?? resolve(ROOT, 'host/web/dist'), 'app.plan') : null);
   // Without a plan of the drive's own, a native host runs its bake's: the maps a development bake left (LLP 1012.001.000 D6).
@@ -1096,6 +1107,7 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
      */
     async pointer(phase, opts = {}) {
       if (!['move', 'hold', 'up', 'cancel'].includes(phase)) throw new Error(`pointer: not a phase: ${phase} (move, hold, up, cancel)`);
+      if (carrier.phasedTouch === false) return carrier.input(null, phase, opts);
       if (!s.contact && ['up','cancel'].includes(phase)) {
         const state = await s.state();
         const contacts = (state.world ?? []).flatMap(w => (w.input?.controlContacts ?? []).filter(c=>c.id<4294967292).map(c=>({...c,canvas:w.canvas})));
@@ -1254,9 +1266,7 @@ export async function open({onProcess,  host = 'web', plan, world, size, env, ap
   if (timing === 'platform' && carrier.host !== 'web') { const { clock } = await s.op({ op: 'tags' }); if (Number.isFinite(clock)) s.now = clock; }
   return s;
 }
-
 // ---------------------------------------------------------------- the CLI
-
 /** Browser-owned key release carries device identity, never a canvas lookup. */
 export async function browserKey({id, opts, evaluate, ask, call, frame}) {
   if (opts.phase != null && !['down', 'up'].includes(opts.phase)) throw new Error(`key: not a phase: ${opts.phase}`);
@@ -1346,7 +1356,7 @@ export function typeArguments(args) {
  * operations use. One session per file; a failed expect names the test, the
  * line, and what was seen. Returns `{ passed, failed, results }`.
  */
-export async function runTests({ host, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch } = {}) {
+export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch } = {}) {
   const root = resolve(new URL('..', import.meta.url).pathname);
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
   const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
@@ -1356,7 +1366,7 @@ export async function runTests({ host, file, plan, app, size, env, webDist, devi
   // Every test starts from the first frame: a session of its own.
   for (const t of tests) {
     const failures = [];
-    const s = await open({ host, plan, size, env, app, webDist, device, phone, url, seed, locale, timeZone, epoch });
+    const s = await open({ host, browser, plan, size, env, app, webDist, device, phone, url, seed, locale, timeZone, epoch });
     try {
       for (const st of t.steps) {
         const at = `${t.name}: line ${st.line}`;
@@ -1408,8 +1418,9 @@ export async function runTests({ host, file, plan, app, size, env, webDist, devi
 async function main(argv) {
   const { flags, rest } = parseFlags(argv);
   const [host, ...ops] = rest;
+  const browser = flags.browser ?? (host === 'web' ? process.env.EXACT_WEB_BROWSER : undefined);
   if (host && flags.test) {
-    const r = await runTests({ host, file: flags.test, plan: flags.plan, app: flags.app, size: flags.size, device: flags.device, phone: flags.phone, url: flags.url, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch });
+    const r = await runTests({ host, browser, file: flags.test, plan: flags.plan, app: flags.app, size: flags.size, device: flags.device, phone: flags.phone, url: flags.url, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch });
     for (const t of r.results) {
       console.log(`test "${t.name}": ${t.failures.length ? 'FAIL' : 'ok'}`);
       for (const f of t.failures) console.error('  ' + f);
@@ -1418,10 +1429,10 @@ async function main(argv) {
     return r.failed ? 1 : 0;
   }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--json] <op> [<op> …]\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name> [for <ms>] | tap @N <choice> | type @N <value> | clock <ms|+ms|settle> | prefer <media feature or page fact> <value> […]\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--browser chrome|firefox|webkit] [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--json] <op> [<op> …]\n  web defaults to chrome; EXACT_WEB_BROWSER selects the same option. Install the other engines outside the repo: bunx playwright@1.63.0 install firefox webkit\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name> [for <ms>] | tap @N <choice> | type @N <value> | clock <ms|+ms|settle> | prefer <media feature or page fact> <value> […]\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
-  const s = await open({ host, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch });
+  const s = await open({ host, browser, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch });
   let at = 0;
   try {
     for (const [k, line] of ops.entries()) {

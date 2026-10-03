@@ -238,15 +238,11 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                 "font-variant-numeric:{};",
                 exact_kernel::FontVariantNumeric::css(style.font_variant_numeric)
             ),
-            (StyleId::GridTemplateColumns, _)
-            | (StyleId::GridTemplateRows, _)
-            | (StyleId::GridColumn, _)
-            | (StyleId::GridRow, _)
-            | (StyleId::GridAutoFlow, _)
-            | (StyleId::JustifyItems, _) => skipped.push(Skipped {
-                row: id,
-                reason: "grid rows are not lowered in v1",
-            }),
+            (StyleId::GridAutoFlow, RowValue::Enum(flow)) => {
+                out.push_str("grid-auto-flow:");
+                out.push_str(flow);
+                out.push(';');
+            }
             // @ref LLP 1069.011 D8 — the accent also as an inherited custom
             // property a native button's look reads; `auto` is the browser's.
             (StyleId::AccentColor, _) if lowered(id, &value) => {
@@ -435,8 +431,6 @@ fn lowered(id: StyleId, value: &RowValue<'_>) -> bool {
         }
         RowValue::Number(_) if id == StyleId::TranslateZ => false,
         RowValue::Color2(_)
-        | RowValue::Tracks(_)
-        | RowValue::Placement(_)
         | RowValue::Transitions(_)
         | RowValue::Animations(_)
         | RowValue::DragTimeline(_)
@@ -536,6 +530,8 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::BoxShadow(s) => out.push_str(&s.css()),
         RowValue::CornerShape(c) => out.push_str(&c.css()),
         RowValue::RotateAxis(_) | RowValue::SymbolPalette(_) => {}
+        RowValue::Tracks(tracks) => out.push_str(&tracks.css()),
+        RowValue::Placement(placement) => out.push_str(&placement.css()),
         RowValue::Vec2(v) => {
             num_into(out, v.x);
             out.push_str("px ");
@@ -574,11 +570,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
                 out.push_str("px");
             }
         },
-        RowValue::Color2(_)
-        | RowValue::Tracks(_)
-        | RowValue::Placement(_)
-        | RowValue::Transitions(_)
-        | RowValue::Animations(_) => {}
+        RowValue::Color2(_) | RowValue::Transitions(_) | RowValue::Animations(_) => {}
     }
 }
 
@@ -1025,6 +1017,41 @@ mod declaration_tests {
             ),
         ] {
             assert_eq!(css(&rows, &[]), want);
+        }
+    }
+
+    #[test]
+    fn every_grid_row_has_css_and_none_is_skipped() {
+        let t = |s: &str| StyleValue::Text(s.into());
+        for (row, value, want) in [
+            (
+                StyleId::GridTemplateColumns,
+                t("repeat(2, minmax(80px, 1fr)) 25%"),
+                "grid-template-columns:repeat(2, minmax(80px, 1fr)) 25%;",
+            ),
+            (
+                StyleId::GridTemplateRows,
+                t("40px auto min-content max-content"),
+                "grid-template-rows:40px auto min-content max-content;",
+            ),
+            (
+                StyleId::GridColumn,
+                t("-3 / span 2"),
+                "grid-column:-3 / span 2;",
+            ),
+            (StyleId::GridRow, t("2 / -1"), "grid-row:2 / -1;"),
+            (
+                StyleId::GridAutoFlow,
+                t("row dense"),
+                "grid-auto-flow:row dense;",
+            ),
+            (StyleId::JustifyItems, t("center"), "justify-items:center;"),
+        ] {
+            let mut style = StyleProps::default();
+            style.set_dynamic(row, &value).unwrap();
+            let (text, skipped) = css_text(&style, &[]);
+            assert_eq!(text, want, "{row:?}");
+            assert!(skipped.is_empty(), "{row:?}: {skipped:?}");
         }
     }
 

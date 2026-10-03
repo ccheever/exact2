@@ -5,23 +5,54 @@
 // source, a surface's pixel size, focus — is left out of both sides.
 import { test, expect } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp, assertWebDistApp, browserDiagnosticNoise } from '../../../scripts/agent.mjs';
+import { chromium, refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
 import { resolveApp } from '../../../scripts/app.mjs';
-import { serveStatic } from '../serve.mjs';
+import { jsTargetBuild, serveStatic } from '../serve.mjs';
 
 const ROOT = resolve(new URL('../../..', import.meta.url).pathname);
 const dist = resolve(process.env.EXACT_WEB_DIST ?? resolve(ROOT, 'host/web/dist'));
-let unavailable;
-try { await assertWebDistApp(dist, resolveApp('caltrain')); } catch (error) {
-  if (!error.message.startsWith('web dist is not a complete build')) throw error;
-  unavailable = error.message;
-  console.warn(`SKIP: ${unavailable}`);
+const app = resolveApp('caltrain');
+const { executable: chrome, unavailable: browserUnavailable } = chromium();
+function weatherlightPrerequisite() {
+  if (process.env.EXACT_GLUE_FAST === '1') return 'the async glue step does not build apps; the web-build-test step runs this test';
+  if (browserUnavailable) return browserUnavailable;
+  if (process.env.EXACT_JS_ENGINE === 'stub') return 'the Weatherlight document test needs the Hermes executor, not EXACT_JS_ENGINE=stub';
+  if (!['linux', 'darwin'].includes(process.platform)) return `the Weatherlight wasm build is not provisioned on ${process.platform}`;
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+  const engine = process.platform === 'linux' ? resolve(ROOT, '../ibex/linux-vanilla')
+    : resolve(process.env.EXACT_HERMES_DIR ?? resolve(ROOT, '../ibex/ios/Frameworks-vanilla'));
+  const headers = process.platform === 'linux' ? resolve(process.env.HERMES_INCLUDE_DIR ?? resolve(engine, 'hermes-headers')) : resolve(engine, 'hermes-headers');
+  const libraries = process.platform === 'linux' ? resolve(process.env.HERMES_LIB_DIR ?? resolve(engine, 'lib')) : resolve(engine, 'macos-static');
+  const hermesc = resolve(process.env.EXACT_HERMESC ?? resolve(ROOT, `../ibex/tools/hermes-vanilla/hermesc-${process.platform === 'linux' ? 'linux' : 'macos'}-${arch}`));
+  const needed = [headers, ...['libhermesvmlean_a.a', 'libjsi.a', 'libboost_context.a'].map(name => resolve(libraries, name)),
+    hermesc, resolve(process.env.EXACT_TSC ?? resolve(ROOT, 'node_modules/.bin/tsc')),
+    resolve(process.env.EXACT_ROLLDOWN ?? resolve(ROOT, 'node_modules/.bin/rolldown'))];
+  const missing = needed.filter(path => !existsSync(path));
+  return missing.length ? `the Weatherlight wasm build needs its complete Hermes and TypeScript toolchain; missing ${missing.join(', ')}` : null;
 }
+const weatherlightUnavailable = weatherlightPrerequisite();
+let unavailable = browserUnavailable;
+try {
+  if (!unavailable) {
+    await assertWebDistApp(dist, app);
+    if (jsTargetBuild(dist)) throw new Error(`web dist is a JS-target build; document adoption needs app.wasm; run bun host/web/build.mjs ${app.crate('web')} --wasm`);
+    refuseStale('web', resolve(dist, '.exact-build.json'), webChanges(dist, app).all,
+      `bun host/web/build.mjs ${app.crate('web')} --wasm`);
+  }
+} catch (error) {
+  if (!error.message.startsWith('web dist is not a complete build') && !error.message.startsWith('web dist is a JS-target build') && !error.message.startsWith('web build is stale')) throw error;
+  unavailable = error.message;
+}
+if (unavailable) console.warn(`SKIP: ${unavailable}`);
+if (weatherlightUnavailable && weatherlightUnavailable !== unavailable) console.warn(`SKIP: ${weatherlightUnavailable}`);
 const check = unavailable ? test.skip : test;
+const browserCheck = browserUnavailable ? test.skip : test;
+const weatherlightCheck = weatherlightUnavailable ? test.skip : test;
 const [width, height] = [390, 844]; // the page viewport documents render at
 
 /** The rendered page: the shell with the renderer's head, the document in
@@ -125,7 +156,6 @@ async function withDocument(location, drive, { wasmAfter = null, glueAfter = nul
     url = `http://127.0.0.1:${server.address().port}${location}`;
   }
   const profile = mkdtempSync(resolve(tmpdir(), 'exact-document-'));
-  const chrome = process.env.CHROME ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
   const child = spawn(chrome, ['--headless=new', '--remote-debugging-pipe', `--window-size=${width},${height}`, '--hide-scrollbars',
     `--user-data-dir=${profile}`, '--no-sandbox', '--disable-extensions', '--disable-background-networking',
     '--disable-component-update', '--no-first-run', '--no-default-browser-check', 'about:blank'],
@@ -353,7 +383,7 @@ check(`the render server's page is the document, and the runtime adopts it${unav
 // document renders at build and per request with no network. The runtime
 // adopts it, and the module's realm runs under the server's CSP: its two
 // inline scripts are admitted by hash, nothing else is.
-test('a TypeScript app\'s served document is adopted, with its module running under the CSP', async () => {
+weatherlightCheck(`a TypeScript app's served document is adopted, with its module running under the CSP${weatherlightUnavailable ? ` — ${weatherlightUnavailable}` : ''}`, async () => {
   const out = mkdtempSync(resolve(tmpdir(), 'exact-weatherlight-'));
   try {
     const build = spawnSync('bun', ['host/web/build.mjs', 'weatherlight', '--wasm'], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 << 20,
@@ -392,7 +422,7 @@ test('a TypeScript app\'s served document is adopted, with its module running un
 
 // The small entry can be exercised without a compiled application. Its runtime
 // consumer here records semantic dispatches, including the first edit and IME.
-test('interaction documents stay readable, then replay edits and actions once', async () => {
+browserCheck(`interaction documents stay readable, then replay edits and actions once${browserUnavailable ? ` — ${browserUnavailable}` : ''}`, async () => {
   const html = `<!doctype html><meta charset="utf-8"><div id="exact-root">
     <div data-view="1" data-exact-on="navigate">
       <p id="reading">Public content</p><a href="#reading" id="link">Read more</a>

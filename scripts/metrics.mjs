@@ -47,7 +47,7 @@ if (process.argv.includes('--inspection')) {
   const option = name => process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : undefined;
   const host = option('--inspection'), app = option('--app');
   if (!['web', 'macos', 'ios', 'linux', 'host', 'host-ios'].includes(host)) throw Error('--inspection requires a host');
-  const s = await open({host, app, url: option('--url'), plan: option('--plan'), session: option('--session')});
+  const s = await open({host, browser: 'chrome', app, url: option('--url'), plan: option('--plan'), session: option('--session')});
   try {
     const tree = await s.tree(), target = option('--target');
     const id = target ? (await s.find(target)).id : tree.nodes[0]?.id;

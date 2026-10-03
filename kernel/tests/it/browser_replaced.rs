@@ -598,7 +598,8 @@ fn replaced_elements_do_not_stretch_in_a_grid_area_or_between_insets() {
             };
             let mut root = props(&[vec![(Width, n(400.0))], rows(root)].concat());
             if tracks {
-                root.grid_template_columns = GridTracks(vec![GridTrack::Points(200.0); 2]);
+                root.grid_template_columns =
+                    GridTracks::from_tracks(vec![GridTrack::Points(200.0); 2]);
                 root.mask.set(GridTemplateColumns);
             }
             let nodes = vec![(2, 1, rows(item))];
