@@ -74,12 +74,13 @@ final class ElementHooks {
         }
     }
 
-    /// A held heavy leaf (iOS: a video, iframe or native view in a list) is
-    /// made after its hook heard `built`: the hook hears `changed`, its
-    /// platform object there now.
+    /// A held heavy leaf (a video, frame or native view in a list) is made
+    /// after its hook heard `built`: the hook hears `changed`, its platform
+    /// object there now.
     func realized(_ node: NodeView) {
-        guard let entry = nodes[node.id], entry.node === node, entry.told else { return }
-        call(.changed, entry)
+        guard let entry = nodes[node.id], entry.node === node, entry.told, let word = node.props["hook"] else { return }
+        let reusable = call(.changed, entry)
+        say(word, node: node, inList: entry.inList, reusable: reusable)
     }
 
     /// Before a batch's ops: every hooked node it destroys ends now, its view

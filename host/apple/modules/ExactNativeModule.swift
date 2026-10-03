@@ -408,7 +408,7 @@ public final class ExactElement {
     /// text view, a control (a segmented control too), a web view, a scroll
     /// view. What an authored row or attribute writes on it is Exact's; the
     /// rest is yours. A video, frame or native view in a list row may be made
-    /// after `built` (iOS): the hook hears `changed` once it is there.
+    /// after `built`: the hook hears `changed` once it is there.
     public internal(set) weak var platform: AnyObject?
     /// Whether this call is the node's first.
     public internal(set) var isNew = true
