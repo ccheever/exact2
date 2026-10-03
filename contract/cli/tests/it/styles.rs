@@ -202,6 +202,7 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
             StyleId::BackgroundAttachment,
             "local",
         ),
+        ("cursor", StyleId::Cursor, "hand"),
         ("touch-action", StyleId::TouchAction, "swipe"),
     ] {
         for named_style in [false, true] {

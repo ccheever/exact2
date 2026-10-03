@@ -983,6 +983,8 @@ mod tests {
             (StyleId::OverflowWrap, text("anywhere")),
             (StyleId::InterpolateSize, text("allow-keywords")),
             (StyleId::TextTransform, text("uppercase")),
+            (StyleId::TextUnderlineOffset, number(3.0)),
+            (StyleId::Cursor, text("pointer")),
             (StyleId::TextShadow, text("1px 2px 3px #000")),
             (StyleId::TextStrokeWidth, number(2.0)),
             (StyleId::TextStrokeColor, text("#ff0000")),
