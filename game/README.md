@@ -221,7 +221,7 @@ Only the first live canvas owns a given surface's public record.
 Undelivered events save in order but stay outside the simulation hash.
 
 Commands go the other way as messages: an action calls
-`postMessage("world", "buy carrot")` and the next tick reads every message posted
+`postMessage("buy carrot", "world")` and the next tick reads every message posted
 since, in order, from `input.messages()`. Nothing is coalesced, nothing needs an
 acknowledgement, and a delivered message is not part of a later save. Use live
 arguments for settings, messages for things that happen once.

@@ -1210,7 +1210,7 @@ impl<G: Game> Sim<G> {
         });
     }
     /// Post a message into the world at the current clock, as Contract's
-    /// `postMessage(surface, text)` does; the next tick reads it in `Input::messages`.
+    /// `postMessage(text, surface)` does; the next tick reads it in `Input::messages`.
     pub fn post(&mut self, text: impl Into<String>) {
         self.input(InputEvent::Message {
             text: text.into(),

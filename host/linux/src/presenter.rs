@@ -480,7 +480,7 @@ impl<D: DataSource> Presenter<D> {
                 // canvas, stamped now and delivered in order with its input.
                 "postMessage" => {
                     let arg = |i: usize| c.args.get(i).and_then(exact_plan::Value::as_str);
-                    let (name, text) = (arg(0).unwrap_or_default(), arg(1).unwrap_or_default());
+                    let (text, name) = (arg(0).unwrap_or_default(), arg(1).unwrap_or_default());
                     let event = serde_json::json!({"t":"message","text":text,"at":self.host.now()});
                     if !self.surfaces.post(name, event) {
                         eprintln!("exact: postMessage: refused: no live surface named \"{name}\"");

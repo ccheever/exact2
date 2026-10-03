@@ -116,7 +116,7 @@ record path. See the [HUD example](../README.md#publications-and-events).
 messages save in order and stay outside the simulation hash. The journal is
 telemetry; reading it does not change the world.
 
-The other way, Contract's `postMessage("world", "buy carrot")` posts text into
+The other way, Contract's `postMessage("buy carrot", "world")` posts text into
 the surface of that name. Each message is input stamped at the call: the next
 tick reads it in `input.messages()`, in arrival order, never coalesced (two presses
 between ticks are two messages). A paused world holds them for its first tick

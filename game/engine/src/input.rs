@@ -210,7 +210,7 @@ pub enum InputEvent {
         /// Host clock milliseconds.
         at_ms: f64,
     },
-    /// Text the app posted into the world (Contract's `postMessage(surface, text)`).
+    /// Text the app posted into the world (Contract's `postMessage(text, surface)`).
     /// Each message reaches exactly one tick, in arrival order, never coalesced.
     Message {
         /// The posted text, at most 64 KiB.
