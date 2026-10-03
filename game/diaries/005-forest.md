@@ -531,7 +531,8 @@ time against headless Chrome's real Metal timestamps.
 9. **A template regression found on the way**: after LLP 1080.002 plain `tree`
    carries no `accessibleName`, but the starter's proof (`game/new/proof.mjs`)
    still checks it, so every newly scaffolded game's proof fails on main. This
-   game's proof now reads `props.accessibilityLabel`.
+   game's proof read `props.accessibilityLabel` until origin/main's proof rewrite
+   (names through `tree --ax`, Linux exempt) was merged; it uses `axNames` now.
 10. **The game's lock had to be re-captured** (+233 lines) once `art/` existed:
     the bake's glTF/image crates join the game's Cargo graph.
 
@@ -540,3 +541,7 @@ tick 4500 `0x1297ea42b0978dee` → `0xc3832b82d85a125c`, night save `b87f97ba…
 `59392d3f…`; Linux and web agreed in Off/Save/FreshGame and the Linux release run,
 10 min 6 s), then `bun game/prove.mjs forest --hosts linux,web --compare-saves`:
 **PROOF PASS** (Linux 3.2 s, web 61.2 s, hashes equal, saves identical).
+
+After merging origin/main (31a1b9cb1, the `tree --ax` proof rewrite): pins
+unchanged, `--hosts linux,web --compare-saves` **PROOF PASS** (Linux 7.5 s, web
+69.1 s).
