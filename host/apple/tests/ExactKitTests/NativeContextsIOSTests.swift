@@ -39,24 +39,34 @@ final class NativeContextsIOSTests: XCTestCase {
 
     func testANativeSwipeActionIsDrawnFromItsFace() throws {
         let p = presenter(
-            view(1, ["swipeContent": "body", "swipeTrailing": "delete mute pin"], style: ["overflow_x": "scroll", "overflow_y": "hidden"])
-                + view(2, w: 450, h: 80) + view(3, ["id": "body"], h: 80)
+            view(1, ["swipeContent": "body", "swipeTrailing": "delete mute pin flag"], style: ["overflow_x": "scroll", "overflow_y": "hidden"])
+                + view(2, w: 490, h: 80) + view(3, ["id": "body"], h: 80)
                 + native(4, ["id": "delete", "destructive": "true"], style: ["accent_color": [0, 255, 0, 255]], x: 300, w: 50, h: 50)
                 + native(5, ["id": "mute", "accessibilityLabel": "Hide alerts"], style: ["accent_color": [88, 86, 214, 255]], x: 360, w: 50, h: 50)
                 + [["op": "create", "id": 6, "kind": "button", "handlers": ["press"], "props": ["id": "pin", "accessibilityLabel": "Pin"], "style": ["text_color": [0, 0, 0, 255]]],
-                   ["op": "frame", "id": 6, "x": 410.0, "y": 0.0, "w": 40.0, "h": 50.0]]
-                + [["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [3, 4, 5, 6]], ["op": "roots", "ids": [1]],
-                   ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 80.0], ["op": "content", "id": 1, "x": 0.0, "y": 0.0, "w": 450.0, "h": 80.0]],
-            faces: [4: face("Delete", symbol: "trash"), 5: face(nil, symbol: "bell", label: "Hide alerts"), 6: face(nil, symbol: "pin", label: "Pin")])
+                   ["op": "frame", "id": 6, "x": 410.0, "y": 0.0, "w": 40.0, "h": 50.0],
+                   ["op": "create", "id": 9, "kind": "button", "handlers": ["press"], "props": ["id": "flag", "accessibilityLabel": "Flag"], "style": ["text_color": [0, 0, 0, 255]]],
+                   ["op": "frame", "id": 9, "x": 450.0, "y": 0.0, "w": 40.0, "h": 50.0]]
+                // Each custom action's text child: Pin's shown, Flag's authored hidden.
+                + [["op": "create", "id": 7, "kind": "text", "props": [:], "handlers": [], "style": [:]],
+                   ["op": "create", "id": 10, "kind": "text", "props": [:], "handlers": [], "style": ["display": "none"]],
+                   ["op": "children", "id": 6, "ids": [7]], ["op": "children", "id": 9, "ids": [10]]]
+                + [["op": "children", "id": 1, "ids": [2]], ["op": "children", "id": 2, "ids": [3, 4, 5, 6, 9]], ["op": "roots", "ids": [1]],
+                   ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 80.0], ["op": "content", "id": 1, "x": 0.0, "y": 0.0, "w": 490.0, "h": 80.0]],
+            faces: [4: face("Delete", symbol: "trash"), 5: face(nil, symbol: "bell", label: "Hide alerts"), 6: face("Pin", symbol: "pin", label: "Pin"), 9: face("Flag", symbol: "flag", label: "Flag")])
         let owner = try XCTUnwrap(p.views[1])
         p.swipeActions.touch(owner)
         let table = try XCTUnwrap(owner.subviews.compactMap { $0 as? UITableView }.first)
         XCTAssertTrue(table.touchesShouldCancel(in: NativeButtonIOS(configuration: .bordered())), "a pan takes a native body button's touch")
         let configuration = try XCTUnwrap(table.delegate?.tableView?(table, trailingSwipeActionsConfigurationForRowAt: IndexPath(row: 0, section: 0)))
-        XCTAssertEqual(configuration.actions.count, 3)
-        let delete = configuration.actions[0], mute = configuration.actions[1], pin = configuration.actions[2]
+        XCTAssertEqual(configuration.actions.count, 4)
+        let delete = configuration.actions[0], mute = configuration.actions[1], pin = configuration.actions[2], flag = configuration.actions[3]
         XCTAssertEqual(delete.style, .destructive)
         XCTAssertNotNil(delete.image, "its symbol")
+        XCTAssertEqual(delete.title, "Delete", "and its visible title under it")
+        XCTAssertNil(mute.title, "a symbol alone shows no title")
+        XCTAssertEqual(pin.title, "Pin", "a custom action's too")
+        XCTAssertNil(flag.title, "but not a title authored hidden")
         let red = UIContextualAction(style: .destructive, title: nil) { _, _, _ in }.backgroundColor
         XCTAssertEqual(delete.backgroundColor, red, "UIKit's red: a destructive action's accent sets nothing")
         XCTAssertEqual(pin.image?.isSymbolImage, true, "a custom action's symbol is a system image, not a snapshot")

@@ -8,6 +8,7 @@
 //   bun host/apple/build.mjs --ios [crate] [--run] [--sim <udid|name>]        iOS, on a simulator
 //   bun host/apple/build.mjs --device [crate] [--run] [--phone <udid|name>]   iOS, on a phone
 //   bun host/apple/build.mjs --device [crate] --archive <out.ipa>            iOS, an .ipa to distribute
+//   bun host/apple/build.mjs --device [crate] --archive <out.ipa> --unsigned an .ipa a service re-signs
 // Add --url <http(s) app URL> to connect any of these clients to the same
 // address as the browser (LLP 1030.000 §7): with --run it is the launch
 // locator, and a development client (--bundle, --ios, --device) registers
@@ -27,7 +28,9 @@
 // required: an ad hoc or App Store profile and its distribution identity,
 // as a build service such as EAS supplies them), takes get-task-allow from
 // that profile, and writes the signed bundle as an .ipa instead of
-// installing it. The simulator helpers are exported
+// installing it. With --unsigned it needs neither: the bundle is ad-hoc
+// signed with no profile and no team, for a consumer that re-signs it with
+// its own (AppDrop, a store's resigner). The simulator helpers are exported
 // for scripts/agent.mjs, which launches the same bundle.
 // These developer builds explicitly allow unsigned updates. Set
 // EXACT_UPDATE_TRUST=production for a signed-update-only artifact.
@@ -869,8 +872,9 @@ function main(args) {
   const device = args.includes('--device');
   const ios = device || args.includes('--ios');
   const ipa = args.includes('--archive') ? resolve(process.cwd(), args[args.indexOf('--archive') + 1] ?? '') : null;
-  if (ipa && (!device || !process.env.EXACT_IDENTITY || !process.env.EXACT_PROFILE || args.includes('--run') || args.includes('--host'))) {
-    console.error('--archive needs --device and EXACT_IDENTITY and EXACT_PROFILE, and takes neither --run nor --host');
+  const unsigned = args.includes('--unsigned');
+  if ((unsigned && !ipa) || ipa && (!device || (!unsigned && (!process.env.EXACT_IDENTITY || !process.env.EXACT_PROFILE)) || args.includes('--run') || args.includes('--host'))) {
+    console.error('--archive needs --device and EXACT_IDENTITY and EXACT_PROFILE (or --unsigned, which needs --archive), and takes neither --run nor --host');
     process.exitCode = 1; return;
   }
   const app = resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive'].includes(args[i - 1])));
@@ -880,8 +884,10 @@ function main(args) {
   const crate = app.crate('apple');
   const gpuCrate = app.crate('gpu');
   const hasGpu = app.hasGpu;
+  // The bake names each GPU module's digest, checked at load: a re-signer's bytes would be refused.
+  if (unsigned && (hasGpu || gpuModules(app.manifest).length)) throw new Error(`--unsigned: ${app.name} has GPU modules, whose baked digests a re-signer would break; archive it signed (EXACT_IDENTITY and EXACT_PROFILE)`);
   let ph, prof;
-  const sha1 = device ? (() => {
+  const sha1 = unsigned ? '-' : device ? (() => {
     ph = ipa ? null : phone(args.includes('--phone') ? args[args.indexOf('--phone') + 1] : undefined);
     prof = profile(ph?.udid, app.id);
     return identity(prof.team);
@@ -1353,13 +1359,12 @@ function main(args) {
   }
   for (const [assembled, host] of bundles) {
     const id = host ? `${app.id}.host` : app.id;
-    const signingProfile = device ? (host ? profile(ph.udid, id) : prof) : null;
-    const signingIdentity = device ? identity(signingProfile.team) : sha1;
+    const signingProfile = device && !unsigned ? (host ? profile(ph.udid, id) : prof) : null;
+    const signingIdentity = signingProfile ? identity(signingProfile.team) : sha1;
     const ent = resolve(binDir, host ? 'host-entitlements.plist' : 'entitlements.plist');
-    if (device) {
-      copyFileSync(signingProfile.path, resolve(assembled, 'embedded.mobileprovision'));
-    }
-    writeFileSync(ent, entitlements({ ...app, id }, signingProfile?.team, signingProfile?.dev ?? true, bakedCompat.reach));
+    if (signingProfile) copyFileSync(signingProfile.path, resolve(assembled, 'embedded.mobileprovision'));
+    // Unsigned, the re-signer's profile decides; ask for no debugger, as a distribution profile grants none.
+    writeFileSync(ent, entitlements({ ...app, id }, signingProfile?.team, signingProfile?.dev ?? !unsigned, bakedCompat.reach));
     verifyBakeFiles(bakedCompat, bakedPlan, listAssets(assembled, true));
     assertAppleIdentity(app, resolve(assembled, host ? 'ExactHostIOS' : 'ExactIOS'), bakedCompat.id);
     writeFileSync(resolve(assembled, 'receipt.json'), receipt(app, { compatibilityId: bakedCompat.id, build: buildReceipt, composition,
@@ -1379,7 +1384,7 @@ function main(args) {
     mkdirSync(dirname(ipa), { recursive: true });
     rmSync(ipa, { force: true });
     run('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', resolve(payload, 'Payload'), ipa]);
-    console.log(`host/apple: ${ipa} (signed by ${prof.name}, cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s)`);
+    console.log(`host/apple: ${ipa} (${prof ? `signed by ${prof.name}` : 'ad-hoc signed, for re-signing'}, cargo ${((t1 - t0) / 1000).toFixed(1)} s, swift ${((t2 - t1) / 1000).toFixed(1)} s)`);
     return;
   }
   const dev = device ? ph : simulator(args.includes('--sim') ? args[args.indexOf('--sim') + 1] : undefined);
