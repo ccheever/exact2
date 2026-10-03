@@ -164,9 +164,9 @@ extension NodeView {
         layer?.setAffineTransform(t.concatenating(CGAffineTransform(translationX: layoutOffset.x, y: layoutOffset.y)))
     }
     /// Whether a window point is inside the box as it stands unpressed.
-    /// AppKit's conversion ignores the layer's transform, so a flat box's
-    /// point is already unpressed; a box in space is reached through its
-    /// pressed plane (`descend`), so its point is scaled back out as iOS's is.
+    /// `local` reaches a transformed box through its plane, the press
+    /// included (`descend`), so the point is scaled back out as iOS's is —
+    /// once. An untransformed box has no press in it to undo.
     func pressInside(_ windowPoint: NSPoint) -> Bool {
         let p = local(windowPoint), f = plane == nil ? 1 : pressFactor, o = transformOriginPoint
         return bounds.contains(CGPoint(x: o.x + (p.x - o.x) * f, y: o.y + (p.y - o.y) * f))

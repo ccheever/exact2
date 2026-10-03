@@ -37,17 +37,21 @@ extension NodeView {
     /// `NodeView.map` takes it) from its bounds to its superview's
     /// coordinates: its layer's transform about its anchor point, then the
     /// holder's `sublayerTransform` (the parent's perspective) about the
-    /// holder's anchor, each read from the layer as drawn. Nil for a box not
-    /// in space, which the platform hit-tests itself.
+    /// holder's anchor, each read from the layer as drawn. Nil where the
+    /// platform's own geometry is already where the box is drawn: on iOS a
+    /// box not in space (UIKit converts through a 2D transform); on macOS an
+    /// untransformed box, and a child a canvas's surface places itself.
     var plane: [Double]? {
         #if os(iOS)
-        let own: CALayer? = layer
+        let own: CALayer? = standsInSpace ? layer : nil
         #else
-        let own = layer
+        // AppKit sees no layer transform at all: translate, rotate, scale, a
+        // press, a layout transition's offset, and the 3D rows alike.
+        let own = placement == nil && !placementHidden && !CATransform3DIsIdentity(layer?.transform ?? CATransform3DIdentity) ? layer : nil
         #endif
         // The superview's layer holds the perspective (`applyPerspective`);
         // AppKit attaches it as the superlayer only once the window draws.
-        guard standsInSpace, let own, let holder = superview?.layer else { return nil }
+        guard let own, let holder = superview?.layer else { return nil }
         func anchor(_ l: CALayer) -> CATransform3D {
             let b = l.bounds
             return CATransform3DMakeTranslation(b.minX + b.width * l.anchorPoint.x, b.minY + b.height * l.anchorPoint.y, 0)
@@ -133,20 +137,21 @@ extension NodeView {
 
 #if os(macOS)
 // AppKit's geometry knows nothing of a layer's transform: its hit test and
-// its conversions place every box at its frame. A box in space is drawn
-// elsewhere, so these carry a point through each such box's plane, as the
-// web's hit test does (LLP 1077 D8; Linux maps through the same plane).
+// its conversions place every box at its frame. A transformed box — moved,
+// turned, scaled, or in space — is drawn elsewhere, so these carry a point
+// through each such box's plane, as the web's hit test does (LLP 1077 D8;
+// Linux maps through the same plane).
 extension NodeView {
     /// A hit-test point (in the superview's coordinates, AppKit's
     /// convention) moved to where AppKit's flat geometry finds what is drawn
-    /// under it, when this box stands in space; nil when it takes no hit there.
+    /// under it, when this box is transformed; nil when it takes no hit there.
     func spaceHit(_ point: NSPoint) -> NSPoint? {
         guard let h = plane, let sup = superview else { return point }
         return unproject(point, plane: h).map { convert($0, to: sup) }
     }
 
     /// `p` in `top`'s coordinates (the window's when nil) in this node's:
-    /// AppKit's conversion, through the plane of each box in space on the way.
+    /// AppKit's conversion, through the plane of each transformed box on the way.
     func descend(_ p: NSPoint, from top: NSView? = nil) -> NSPoint {
         var turned: [NodeView] = []
         var v: NSView? = self
@@ -175,8 +180,8 @@ extension NodeView {
         return v === top ? p : top.convert(p, from: v)
     }
 
-    /// Whether this node or one above it stands in space.
-    var inSpace: Bool {
+    /// Whether this node or one above it is drawn off its frame.
+    var drawnOffFrame: Bool {
         var v: NSView? = self
         while let n = v { if (n as? NodeView)?.plane != nil { return true }; v = n.superview }
         return false
