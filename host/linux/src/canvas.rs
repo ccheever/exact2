@@ -144,11 +144,15 @@ pub struct Recorder {
     kept: HashMap<u32, (Vec<u32>, Vec<usize>)>,
     /// While a picture slot records: the row's ops so far, its matrix, and
     /// which clips were written when it began.
-    slot: Option<(u32, Vec<u32>, Option<[f32; 6]>, Vec<bool>)>,
+    slot: Option<SlotRecording>,
     /// Each slot's drawing as last sent, and those to send after this row.
     slots: HashMap<u32, Vec<u32>>,
     slot_sets: Vec<u32>,
 }
+
+/// A picture slot recording: its id, the row's ops so far, the row's matrix,
+/// and which clips were written when it began.
+type SlotRecording = (u32, Vec<u32>, Option<[f32; 6]>, Vec<bool>);
 
 struct RowRecording {
     clips: Vec<clip::Clip>,
@@ -906,9 +910,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
                 .map(|(id, o)| (*id, o.0.to_bits(), o.1.to_bits()))
                 .collect::<Vec<_>>()
         };
-        let Some(still) = p.still() else {
-            return None;
-        };
+        let still = p.still()?;
         let same = still == painted.still
             || self
                 .quiet
