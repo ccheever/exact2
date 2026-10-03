@@ -14,6 +14,8 @@ thread_local! { static MODEL_HASHES: std::cell::Cell<usize> = const { std::cell:
 pub(crate) fn model_hash_count() -> usize {
     MODEL_HASHES.with(|n| n.get())
 }
+#[cfg(test)]
+thread_local! { static POSE_STEPS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) }; }
 pub(crate) fn model_digest(model: &Model) -> u64 {
     #[cfg(test)]
     MODEL_HASHES.with(|n| n.set(n.get() + 1));
@@ -43,6 +45,8 @@ pub(crate) use textures::Texture;
 struct PoseHistory {
     entity: exact_game::Entity,
     saved: Option<(u64, u64, [exact_game::Transform; 2])>,
+    /// A negative owner scale axis at either endpoint (counted in `mirrored`).
+    mirrored: bool,
 }
 #[derive(Default)]
 pub(crate) struct Models {
@@ -63,6 +67,10 @@ pub(crate) struct Models {
     pub poses: Vec<[exact_game::Transform; 2]>,
     pub pose_indices: Vec<usize>,
     pose_history: Vec<PoseHistory>,
+    /// Histories still interpolating, which the next tick must collapse.
+    moving: Vec<usize>,
+    touched: Vec<usize>,
+    mirrored: usize,
     bind_buffers: Option<(wgpu::BindGroupLayout, [wgpu::Buffer; 3])>,
     words: Vec<u32>,
     normals: Vec<([u32; 16], [u32; 16])>,
@@ -85,7 +93,8 @@ impl Models {
                 .write(queue, 0, bytes(&self.words));
         }
     }
-    fn reconcile_pose_history(&mut self, entities: &[exact_game::Entity]) {
+    // Whether the instance list changed; histories follow their entities.
+    fn reconcile_pose_history(&mut self, entities: &[exact_game::Entity]) -> bool {
         if self.pose_history.len() == entities.len()
             && self
                 .pose_history
@@ -93,7 +102,7 @@ impl Models {
                 .zip(entities)
                 .all(|(history, entity)| history.entity == *entity)
         {
-            return;
+            return false;
         }
         let mut old = std::mem::take(&mut self.pose_history)
             .into_iter()
@@ -106,8 +115,9 @@ impl Models {
             {
                 old.next();
             }
-            let saved = if old.peek().is_some_and(|history| history.entity == entity) {
-                old.next().unwrap().saved
+            let (saved, mirrored) = if old.peek().is_some_and(|history| history.entity == entity) {
+                let history = old.next().unwrap();
+                (history.saved, history.mirrored)
             } else {
                 if old
                     .peek()
@@ -115,11 +125,17 @@ impl Models {
                 {
                     old.next();
                 }
-                None
+                (None, false)
             };
-            merged.push(PoseHistory { entity, saved });
+            merged.push(PoseHistory {
+                entity,
+                saved,
+                mirrored,
+            });
         }
         self.pose_history = merged;
+        self.mirrored = self.pose_history.iter().filter(|h| h.mirrored).count();
+        true
     }
     fn prepare(&mut self, device: &wgpu::Device, family: &crate::pipeline::ModelPipelines) {
         if self.instances.is_some() {
@@ -646,48 +662,122 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             records,
         )
     }
-    /// Feed poses for transparency and winding on completed ticks. O(model instances).
+    /// Feed poses for transparency and winding on completed ticks. A full pass
+    /// walks every model instance; otherwise only instances on changed Transform
+    /// pages, parented instances and those still interpolating are touched.
     pub(crate) fn model_poses(
         &mut self,
         world: &exact_game::World,
         entities: &[exact_game::Entity],
         initial: bool,
+        moved: Moved<'_>,
     ) {
         if let Some(skinning) = &mut self.models.skinning {
             skinning.feed(&self.queue, world, entities, initial);
         }
-        self.models.reconcile_pose_history(entities);
-        let loaded = &self.models.loaded;
-        for (active, history) in self
-            .models
-            .poses
-            .iter_mut()
-            .zip(&mut self.models.pose_history)
-        {
-            let entity = history.entity;
-            let digest = world
-                .get::<exact_game::Mesh>(entity)
-                .and_then(|m| match &*m {
-                    exact_game::Mesh::Asset(name) => loaded.get(name).map(|m| m.digest),
-                    _ => None,
-                })
-                .unwrap_or(0);
-            if let Some(pose) = crate::world::scene::pose(world, entity) {
-                let saved = history
-                    .saved
-                    .get_or_insert((digest, world.tick(), [pose; 2]));
-                if initial || saved.0 != digest || crate::world::scene::snap(world, entity, false) {
-                    saved.2 = [pose; 2];
-                } else {
-                    if saved.1 != world.tick() {
-                        saved.2[0] = saved.2[1];
-                    }
-                    saved.2[1] = pose;
+        let models = &mut self.models;
+        let rebuilt = models.reconcile_pose_history(entities);
+        let mut touched = std::mem::take(&mut models.touched);
+        touched.clear();
+        match moved {
+            Moved::Pages { pages, parented } if !initial && !rebuilt => {
+                touched.append(&mut models.moving);
+                let history = &models.pose_history;
+                let at = |index: usize| history.partition_point(|h| (h.entity.index() as usize) < index);
+                for &page in pages {
+                    touched.extend(at(page * exact_game::PAGE)..at((page + 1) * exact_game::PAGE));
                 }
-                saved.0 = digest;
-                saved.1 = world.tick();
-                *active = saved.2;
+                for e in parented {
+                    let i = at(e.index() as usize);
+                    if history.get(i).is_some_and(|h| h.entity == *e) {
+                        touched.push(i);
+                    }
+                }
+                touched.sort_unstable();
+                touched.dedup();
+                for &i in &touched {
+                    models.update_pose(world, i, None);
+                }
             }
+            _ => {
+                models.moving.clear();
+                for i in 0..models.pose_history.len() {
+                    let digest = world
+                        .get::<exact_game::Mesh>(models.pose_history[i].entity)
+                        .and_then(|m| match &*m {
+                            exact_game::Mesh::Asset(name) => models.loaded.get(name).map(|m| m.digest),
+                            _ => None,
+                        })
+                        .unwrap_or(0);
+                    models.update_pose(world, i, Some((digest, initial)));
+                }
+            }
+        }
+        models.touched = touched;
+    }
+}
+/// Which model instances a completed tick may have moved.
+pub(crate) enum Moved<'a> {
+    /// Every instance: structure, parents or assets changed.
+    All,
+    /// Instances on these Transform pages, plus every parented instance
+    /// (an ancestor may have moved). Both lists are in index order.
+    Pages {
+        pages: &'a [usize],
+        parented: &'a [exact_game::Entity],
+    },
+}
+impl Models {
+    /// Whether any instance's owner pose has a negative scale axis at either
+    /// endpoint, so its winding can differ from its batch's.
+    pub(crate) fn any_mirrored_owner(&self) -> bool {
+        self.mirrored != 0
+    }
+    // One instance's history step. A full pass supplies its asset digest and
+    // whether the feed is initial; an incremental one keeps the saved digest.
+    fn update_pose(&mut self, world: &exact_game::World, i: usize, full: Option<(u64, bool)>) {
+        #[cfg(test)]
+        POSE_STEPS.with(|n| n.set(n.get() + 1));
+        let history = &mut self.pose_history[i];
+        let Some(pose) = crate::world::scene::pose(world, history.entity) else {
+            return;
+        };
+        let digest = full.map_or_else(|| history.saved.map_or(0, |s| s.0), |(d, _)| d);
+        let saved = history
+            .saved
+            .get_or_insert((digest, world.tick(), [pose; 2]));
+        // Conservative: any negative axis at either endpoint may flip parity
+        // somewhere between them.
+        let mirrored = |pair: &[exact_game::Transform; 2]| {
+            pair.iter().any(|t| t.scale.cmplt(glam::Vec3::ZERO).any())
+        };
+        if full.is_some_and(|(_, initial)| initial)
+            || saved.0 != digest
+            || crate::world::scene::snap(world, history.entity, false)
+        {
+            saved.2 = [pose; 2];
+        } else {
+            if saved.1 != world.tick() {
+                saved.2[0] = saved.2[1];
+            }
+            saved.2[1] = pose;
+        }
+        saved.0 = digest;
+        saved.1 = world.tick();
+        let now = mirrored(&saved.2);
+        if saved.2[0] != saved.2[1] {
+            self.moving.push(i);
+        }
+        if history.mirrored != now {
+            history.mirrored = now;
+            if now {
+                self.mirrored += 1;
+            } else {
+                self.mirrored -= 1;
+            }
+        }
+        if let Some(active) = self.poses.get_mut(i) {
+            *active = saved.2;
         }
     }
 }
@@ -991,6 +1081,78 @@ mod retirement_regressions {
     }
 
     #[test]
+    fn static_instances_cost_no_pose_steps_and_moved_ones_still_interpolate() {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
+        let mut renderer =
+            crate::Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        let model: Model =
+            exact_game::bin::from_slice(include_bytes!("../../bake/tests/fixtures/crate.model"))
+                .unwrap();
+        renderer.prepare_model("crate.model", &model).unwrap();
+        struct Grove;
+        impl exact_game::Game for Grove {
+            type Args = ();
+            const ID: &'static str = "static-model-poses";
+            fn setup(w: &mut exact_game::World, _: &()) {
+                for i in 0..3 * exact_game::PAGE {
+                    w.spawn((
+                        exact_game::Transform::at(i as f32, 0., 0.),
+                        exact_game::Mesh::asset("crate.model"),
+                    ));
+                }
+                w.spawn_named("walker", exact_game::Transform::default());
+            }
+            fn tick(w: &mut exact_game::World, _: &exact_game::Input, _: &()) {
+                w.require_mut::<exact_game::Transform>("walker").position.z += 1.;
+            }
+        }
+        let steps = || POSE_STEPS.with(|n| n.get());
+        let mut sim = exact_game::Sim::<Grove>::new(()).unwrap();
+        let mut feed = crate::Feed::default();
+        feed.feed(sim.world(), &mut renderer).unwrap();
+        let tick = 1000. / 60.;
+        for _ in 0..2 {
+            sim.run(tick);
+            feed.feed(sim.world(), &mut renderer).unwrap();
+        }
+        // The walker shares no page with any instance: a tick steps none.
+        let before = steps();
+        sim.run(tick);
+        feed.feed(sim.world(), &mut renderer).unwrap();
+        assert_eq!(steps(), before);
+        let poses = |r: &crate::Renderer| r.models.poses[exact_game::PAGE + 7];
+        let start = poses(&renderer)[1];
+        let moved = sim
+            .world()
+            .query::<&exact_game::Transform>()
+            .iter()
+            .nth(exact_game::PAGE + 7)
+            .unwrap()
+            .0;
+        sim.world_mut()
+            .get_mut::<exact_game::Transform>(moved)
+            .unwrap()
+            .position
+            .y = 5.;
+        sim.run(tick);
+        feed.feed(sim.world(), &mut renderer).unwrap();
+        // Only the written page steps, and the moved instance interpolates.
+        assert_eq!(steps() - before, exact_game::PAGE);
+        assert_eq!(poses(&renderer)[0], start);
+        assert_eq!(poses(&renderer)[1].position.y, 5.);
+        sim.run(tick);
+        feed.feed(sim.world(), &mut renderer).unwrap();
+        // The next tick collapses the moved history without revisiting the page.
+        assert_eq!(steps() - before, exact_game::PAGE + 1);
+        assert_eq!(poses(&renderer)[0], poses(&renderer)[1]);
+        sim.run(tick);
+        feed.feed(sim.world(), &mut renderer).unwrap();
+        assert_eq!(steps() - before, exact_game::PAGE + 1);
+    }
+
+    #[test]
     fn direct_pose_shrink_and_regrow_restores_retained_history() {
         let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
             return;
@@ -1038,7 +1200,7 @@ mod retirement_regressions {
             renderer.models.poses,
             vec![[exact_game::Transform::default(); 2]]
         );
-        renderer.model_poses(sim.world(), &[hero], false);
+        renderer.model_poses(sim.world(), &[hero], false, Moved::All);
         assert_eq!(renderer.models.poses, expected);
     }
 
@@ -1076,7 +1238,7 @@ mod retirement_regressions {
         renderer
             .set_draw_instances(std::slice::from_ref(&record))
             .unwrap();
-        renderer.model_poses(&world, &[missing], false);
+        renderer.model_poses(&world, &[missing], false, Moved::All);
         assert_eq!(
             renderer.models.poses[0],
             [exact_game::Transform::default(); 2]
@@ -1087,7 +1249,7 @@ mod retirement_regressions {
         let missing = world.resolve("model").unwrap();
         assert!(!world.is_fresh(missing));
         let propagated = crate::world::scene::pose(&world, missing).unwrap();
-        renderer.model_poses(&world, &[missing], false);
+        renderer.model_poses(&world, &[missing], false, Moved::All);
         assert_eq!(renderer.models.poses[0], [propagated; 2]);
 
         assert!(world.despawn(missing));
@@ -1110,7 +1272,7 @@ mod retirement_regressions {
             .set_draw_instances(std::slice::from_ref(&record))
             .unwrap();
         assert_eq!(renderer.models.poses[0], [propagated; 2]);
-        renderer.model_poses(&world, &[replacement], false);
+        renderer.model_poses(&world, &[replacement], false, Moved::All);
         assert_eq!(renderer.models.poses[0], [replacement_pose; 2]);
     }
 

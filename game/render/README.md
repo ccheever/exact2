@@ -181,6 +181,11 @@ module links neither model decoding nor the model shader family. Bind constructs
 the first asset preparation or render constructs Renderer. Feed setup and only the last two completed ticks
 of a seek. Frames interpolate on the GPU and visit retained camera/light/batch
 records, without per-instance CPU work on the primitive retained path.
+Model instances keep a CPU pose history only for translucent ordering and winding;
+a completed tick steps the instances on Transform pages written since the last
+step, parented instances and those still interpolating, so static instances cost
+nothing per tick or frame. A model batch stays one draw group per view unless an
+instance has a negative scale axis or an attachment.
 
 Feed checks storage write generations against each target history and reads only
 changed pages. It patches parented global poses into retained scratch, coalesces

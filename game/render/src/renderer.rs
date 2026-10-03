@@ -110,7 +110,13 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             let start = at;
             let mirrored = self.slot_mirrored(self.slot_list[at as usize], frame);
             at += 1;
-            if frame.attachments.is_empty() && (!ASSETS || self.model_batches[index].is_none()) {
+            // A model batch shares its nodes' parity; only owners with a negative
+            // scale axis or an attachment can differ within it.
+            if frame.attachments.is_empty()
+                && (!ASSETS
+                    || self.model_batches[index].is_none()
+                    || !self.models.any_mirrored_owner())
+            {
                 at = end;
             } else {
                 while at < end && self.slot_mirrored(self.slot_list[at as usize], frame) == mirrored

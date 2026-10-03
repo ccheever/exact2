@@ -30,7 +30,14 @@ pub(crate) trait Writes {
     fn instances(&mut self, _: &[crate::DrawInstance]) -> Result<(), RenderError> {
         Ok(())
     }
-    fn model_poses(&mut self, _: &World, _: &[exact_game::Entity], _: bool) {}
+    fn model_poses(
+        &mut self,
+        _: &World,
+        _: &[exact_game::Entity],
+        _: bool,
+        _: crate::models::Moved<'_>,
+    ) {
+    }
     fn quads(&mut self, _: &World, _: bool, _: bool, _: bool) -> Result<(), RenderError> {
         Ok(())
     }
@@ -86,9 +93,15 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
             Ok(())
         }
     }
-    fn model_poses(&mut self, w: &World, entities: &[exact_game::Entity], initial: bool) {
+    fn model_poses(
+        &mut self,
+        w: &World,
+        entities: &[exact_game::Entity],
+        initial: bool,
+        moved: crate::models::Moved<'_>,
+    ) {
         if ASSETS {
-            self.model_poses(w, entities, initial);
+            self.model_poses(w, entities, initial, moved);
         }
     }
     fn quads(
@@ -246,6 +259,9 @@ pub struct Feed {
     generation: u64,
     parents: Vec<exact_game::Entity>,
     overrides: Vec<(exact_game::Entity, [f32; 10])>,
+    // Transform page generations as model poses last saw them.
+    model_pages: Vec<u64>,
+    changed_pages: Vec<usize>,
     scene: Scene,
     glows: Vec<crate::GlowInput>,
 }
@@ -269,6 +285,8 @@ impl Default for Feed {
             generation: 0,
             parents: Vec::new(),
             overrides: Vec::new(),
+            model_pages: Vec::new(),
+            changed_pages: Vec::new(),
             scene: Scene::default(),
             glows: Vec::new(),
         }
@@ -297,6 +315,7 @@ impl Feed {
         }
         self.materials.reset();
         self.parents.clear();
+        self.model_pages.clear();
         self.assets.records.clear();
         self.assets.entities.clear();
     }
@@ -593,7 +612,29 @@ impl Feed {
             r.batches(&self.batches, &self.slots)?;
         }
         if !self.assets.records.is_empty() && (moved || batches || self.tick != w.tick()) {
-            r.model_poses(w, &self.assets.entities, initial || parent_changed);
+            // Static instances cost nothing: only pages written since the last
+            // pose step (and parented instances) are revisited.
+            self.changed_pages.clear();
+            for page in w.pages::<Transform>().iter() {
+                let index = page.first as usize / PAGE;
+                if self.model_pages.len() <= index {
+                    self.model_pages.resize(index + 1, u64::MAX);
+                }
+                if std::mem::replace(&mut self.model_pages[index], page.generation)
+                    != page.generation
+                {
+                    self.changed_pages.push(index);
+                }
+            }
+            let moved = if initial || parent_changed || batches {
+                crate::models::Moved::All
+            } else {
+                crate::models::Moved::Pages {
+                    pages: &self.changed_pages,
+                    parented: &self.parents,
+                }
+            };
+            r.model_poses(w, &self.assets.entities, initial || parent_changed, moved);
         }
         r.quads(w, initial, self.tick != w.tick(), parent_changed)?;
         r.attachments(
