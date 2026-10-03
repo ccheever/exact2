@@ -22,7 +22,8 @@
  *   bun scripts/metrics.mjs --long     also the macOS host: an initial build, a touch-one-line
  *                                       rebuild, and the app's boot phases (minutes, not seconds);
  *                                       and the web bytes of RealWorld, the video player and
- *                                       Caltrain, code by capability (LLP 1047 D9)
+ *                                       Caltrain: the app.js each ships (gated) and the wasm
+ *                                       core's code by capability (LLP 1047 D9; reported)
  *
  * Budgets are read from rules/RULES.md so they cannot drift from the prose.
  */
@@ -803,7 +804,20 @@ if (long) {
 // property-name table, the render host's detached kernel); each ceiling is that
 // size plus ~12 KiB. Link-by-use stays the rule, and a lane still says what it
 // added.
+// Reported, not gated, since 2026-10-02 (Charlie: the gate should measure what
+// ships): the wasm core is what games, conformance and the fixtures build, not
+// what a web app downloads. Over a reference number prints "over", which no
+// lane files; the gate is JS_TARGET_KIB below.
 const WEB_CORE_KIB = { realworld: 304, 'video-player': 249, caltrain: 310 };
+
+// The web's gate since 2026-10-02: KiB of brotli-11 app.js, the runtime and the
+// app as one ES module, which is what each app's web build ships (LLP 1071).
+// Over one is a VIOLATION the async lane files against the commit. Each is the
+// size that day (d09bfd087: Caltrain 17,159 B, RealWorld 28,721 B, the video
+// player 7,226 B) plus ~2 KiB. Raise one only on purpose, with the reason here;
+// lower it when a cut lands. Pieces loaded on demand (the GPU glue, Canvas 2D,
+// the markup editor) are not in it.
+const JS_TARGET_KIB = { realworld: 30, 'video-player': 9, caltrain: 19 };
 
 // 8. Long: web bytes by capability (LLP 1047 D9), for the three apps the
 // size work tracks. Each app's app.wasm as shipped (raw, gzip, brotli-11),
@@ -890,6 +904,16 @@ if (long) {
           if (staged.length) measured.stages = Object.fromEntries(staged.map((name) => [name.split('.')[0], br(readFileSync(resolve(dist, 'stages', name)))]));
         }
       }
+      // What the app ships: its JS target build's app.js (LLP 1071), the gated number.
+      {
+        const dist = resolve(ROOT, 'target/metrics-bytes', `${name}-js`);
+        const b = spawnSync(process.execPath, [resolve(ROOT, 'host/web/build.mjs'), target.crate('web')], { cwd: ROOT, env: { ...process.env, EXACT_APP_DIR: target.dir, EXACT_WEB_DIST: dist }, stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
+        if (b.status !== 0 || !existsSync(resolve(dist, 'app.js'))) measured.js = { failed: b.status !== 0 ? failure(b) : 'no app.js: not a JS target build' };
+        else {
+          const js = readFileSync(resolve(dist, 'app.js'));
+          measured.js = { raw: js.length, gzip: gzipSync(js, { level: 9 }).length, brotli: brotliCompressSync(js, { params: { [constants.BROTLI_PARAM_QUALITY]: 11, [constants.BROTLI_PARAM_SIZE_HINT]: js.length } }).length };
+        }
+      }
       out.web_bytes[name] = measured;
     }
   });
@@ -966,9 +990,11 @@ if (long) {
   // LLP 1047 D9: each app's wasm, and its code by capability (KiB of code).
   for (const [name, m] of Object.entries(out.web_bytes ?? {})) {
     const parts = m.code ? Object.entries(m.code).filter(([, b]) => b >= 1024).sort((a, b) => b[1] - a[1]).map(([k, b]) => `${k} ${kib(b)}`).join(' · ') : 'names unavailable';
+    const shipped = m.js, limit = JS_TARGET_KIB[name];
+    if (shipped) rows.push([`web app.js: ${name}`, shipped.failed ? 'FAILED' : kib(shipped.raw), shipped.failed ?? `${(shipped.brotli / 1024).toFixed(1)} KiB brotli-11${limit === undefined ? '' : `; budget ${limit} KiB, ${shipped.brotli <= limit * 1024 ? 'within' : 'VIOLATION'}`}, ${(shipped.gzip / 1024).toFixed(1)} KiB gzip`]);
     const ceiling = WEB_CORE_KIB[name];
-    const graded = ceiling === undefined ? '' : `; budget ${ceiling} KiB, ${m.brotli <= ceiling * 1024 ? 'within' : 'VIOLATION'}`;
-    rows.push([`web bytes: ${name}`, m.failed ? 'FAILED' : kib(m.raw), m.failed ?? `${kib(m.brotli)} brotli-11${graded}, ${kib(m.gzip)} gzip; ${parts}`]);
+    const noted = ceiling === undefined ? '' : `; reference ${ceiling} KiB, ${m.brotli <= ceiling * 1024 ? 'within' : 'over'} (not gated)`;
+    rows.push([`wasm core: ${name}`, m.failed ? 'FAILED' : kib(m.raw), m.failed ?? `${kib(m.brotli)} brotli-11${noted}, ${kib(m.gzip)} gzip; ${parts}`]);
   }
 }
 console.log(`web artifact sha256 ${out.web_artifact_id}; hardware ${out.identity.cpu}; commit ${out.identity.commit}`);
