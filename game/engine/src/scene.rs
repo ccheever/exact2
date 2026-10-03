@@ -463,6 +463,12 @@ impl Default for SpotLight {
     }
 }
 
+/// Draws this entity in the camera's viewmodel layer: a first-person weapon or
+/// hands. The renderer gives the layer the nearest slice of depth, so it is
+/// never hidden inside walls, and it casts no shadows. Mark each part.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Component)]
+pub struct ViewModel;
+
 /// Explicit visibility; absent visibility is interpreted as visible.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Component)]
 pub struct Visible(pub bool);

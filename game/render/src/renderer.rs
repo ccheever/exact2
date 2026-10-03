@@ -70,6 +70,8 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     pub(crate) meshes: Vec<Mesh>,
     pub(crate) mesh_uploads: u64,
     batches: Vec<Batch>,
+    /// A drawn batch is in the viewmodel layer this frame.
+    viewmodels: bool,
     targets: Targets,
     counts: Stats,
     shadows: Option<ShadowMaps>,
@@ -261,6 +263,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             meshes: Vec::new(),
             mesh_uploads: 0,
             batches: Vec::new(),
+            viewmodels: false,
             targets,
             shadows: None,
             bloom: None,

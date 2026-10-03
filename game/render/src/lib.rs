@@ -144,7 +144,14 @@ pub struct Batch {
     pub slots: Range<u32>,
     /// Whether this draw participates in sun shadow passes; true in [`Batch::new`].
     pub casts_shadows: bool,
+    /// Drawn in the viewmodel layer: the nearest [`VIEWMODEL_DEPTH`] of the depth
+    /// range, in front of the whole world; false in [`Batch::new`].
+    pub viewmodel: bool,
 }
+
+/// The depth range the viewmodel layer takes while any viewmodel draws; the
+/// world draws behind it in the rest. Without a viewmodel the world takes 0–1.
+pub const VIEWMODEL_DEPTH: f32 = 0.05;
 
 impl Batch {
     /// A retained draw that casts shadows by default.
@@ -153,6 +160,15 @@ impl Batch {
             mesh,
             slots,
             casts_shadows: true,
+            viewmodel: false,
+        }
+    }
+    /// This draw in the viewmodel layer, casting no shadows.
+    pub fn viewmodel(self) -> Self {
+        Self {
+            casts_shadows: false,
+            viewmodel: true,
+            ..self
         }
     }
 }

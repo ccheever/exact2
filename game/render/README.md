@@ -264,6 +264,14 @@ delivery failure, not a wgpu error. `state.world.gpu` reports `textureFamily` an
 `textures: {bytes, <format>: count}` for the active delivered textures (device bytes
 are the delivered level bytes).
 
+`ViewModel` marks an entity for the camera's viewmodel layer (a first-person weapon,
+hands). Its opaque batches draw in the nearest `VIEWMODEL_DEPTH` (5%) of the depth
+range and the world in the rest, so the layer is in front of every wall it reaches
+into; it casts no shadows and still receives them. Mark each part: the marker is
+per entity, not inherited. Without a drawn viewmodel the world keeps the whole 0–1
+range. A translucent viewmodel material draws in the world's range. Hook stages
+that read depth see the remapped range while a viewmodel draws.
+
 Opaque batches stay retained. Only transparent draws are sorted each displayed
 frame, back-to-front in camera depth, using retained tick poses and local centers.
 They keep depth testing, disable depth writes, and do not cast shadows. A model's

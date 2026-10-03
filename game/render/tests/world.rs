@@ -529,3 +529,57 @@ fn saved_spring_light_changes_reflected_geometry_on_gpu() {
         render(&gpu, &mut s, 0., "spring-light-restored").data
     );
 }
+
+#[derive(Default, exact_game::Args)]
+struct ViewmodelArgs {
+    marked: bool,
+}
+struct Viewmodel;
+impl Game for Viewmodel {
+    const ID: &'static str = "viewmodel-layer";
+    type Args = ViewmodelArgs;
+    fn setup(w: &mut World, args: &ViewmodelArgs) {
+        w.insert_resource(exact_game::Environment {
+            bloom: None,
+            fog: None,
+            background: Some([0.; 3]),
+            ..Default::default()
+        });
+        let camera = w.spawn((Transform::at(0., 1.6, 0.), Camera::default()));
+        // A wall 0.3 m ahead; the weapon reaches 0.45 m past it.
+        w.spawn((
+            Transform {
+                position: Vec3::new(0., 1.6, -0.35),
+                scale: Vec3::new(4., 4., 0.1),
+                ..Default::default()
+            },
+            Mesh::cube(1.),
+            Material::rgb(0.5, 0.5, 0.5),
+        ));
+        let weapon = w.spawn((
+            Transform::at(0.1, -0.1, -0.5),
+            Mesh::cube(0.2),
+            Material::rgb(1., 0., 0.),
+            exact_game::Parent(camera),
+        ));
+        if args.marked {
+            w.insert(weapon, exact_game::ViewModel);
+        }
+    }
+    fn tick(_: &mut World, _: &Input, _: &ViewmodelArgs) {}
+}
+#[test]
+fn a_viewmodel_draws_in_front_of_the_wall_it_reaches_into() {
+    let Some(gpu) = gpu() else { return };
+    let red = |marked: bool| {
+        let mut s = WorldSurface::<Viewmodel>::default();
+        s.bind(&[Value::Bool(marked)], None).unwrap();
+        let name = if marked { "viewmodel-marked" } else { "viewmodel-plain" };
+        let image = render(&gpu, &mut s, 0., name);
+        image.count(|p| u16::from(p[0]) > 2 * u16::from(p[1]).max(20))
+    };
+    let (plain, marked) = (red(false), red(true));
+    eprintln!("red weapon pixels without and with ViewModel: {plain} {marked}");
+    assert_eq!(plain, 0, "the wall hides an ordinary child");
+    assert!(marked > 1000, "{marked}");
+}

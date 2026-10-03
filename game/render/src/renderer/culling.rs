@@ -55,6 +55,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         let casters = ((1u32 << cascades) - 1) << 1;
         let mut groups = std::mem::take(&mut self.cull.groups);
         groups.clear();
+        self.viewmodels = false;
         for (index, batch) in self.batches.iter().enumerate() {
             if batch.slots.is_empty() {
                 continue;
@@ -79,6 +80,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 } else {
                     0
                 };
+            self.viewmodels |= batch.viewmodel;
             for (range, mirrored) in self.winding_ranges(index, frame) {
                 groups.push(Group {
                     batch: index,

@@ -32,6 +32,7 @@ fn timing_200k() {
             &[Batch {
                 mesh: cube,
                 casts_shadows: true,
+                viewmodel: false,
                 slots: 0..N as u32,
             }],
             &(0..N as u32).collect::<Vec<_>>(),

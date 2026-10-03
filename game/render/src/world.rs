@@ -1,6 +1,6 @@
 //! Tick uploads and retained scene selection. Frames never walk entity storage.
 use crate::{shapes, Batch, MeshId, RenderError, Vertex};
-use exact_game::{Material, Mesh, Parent, Transform, Visible, World, PAGE};
+use exact_game::{Material, Mesh, Parent, Transform, ViewModel, Visible, World, PAGE};
 use std::collections::BTreeMap;
 
 pub(crate) mod assets;
@@ -204,6 +204,7 @@ fn dimensions(mesh: &Mesh) -> [f32; 3] {
 }
 struct Group {
     mesh: MeshId,
+    viewmodel: bool,
     slots: Vec<u32>,
 }
 
@@ -216,6 +217,7 @@ struct Versions {
     glow: u64,
     mesh: u64,
     visible: u64,
+    viewmodel: u64,
     live: u64,
     membership: u64,
 }
@@ -229,6 +231,7 @@ impl Versions {
             glow: w.revision::<exact_game::Glow>(),
             mesh: w.revision::<Mesh>(),
             visible: w.revision::<Visible>(),
+            viewmodel: w.revision::<ViewModel>(),
             live: w.entities_revision(),
             membership: w.membership::<Transform>(),
         }
@@ -247,7 +250,7 @@ pub struct Feed {
     tick: u64,
     history_pending: bool,
     groups: Vec<Group>,
-    shapes: BTreeMap<Shape, usize>,
+    shapes: BTreeMap<(Shape, bool), usize>,
     batches: Vec<Batch>,
     slots: Vec<u32>,
     page_scratch: Box<[f32; PAGE * 12]>,
@@ -377,6 +380,7 @@ impl Feed {
             || next.assets != old.assets
             || next.mesh != old.mesh
             || next.visible != old.visible
+            || next.viewmodel != old.viewmodel
             || next.live != old.live
             || next.membership != old.membership;
         // Validate live slots before any history swap. A last partial page is clipped
@@ -500,11 +504,13 @@ impl Feed {
                 if w.get::<Visible>(e).is_some_and(|v| !v.0) {
                     continue;
                 }
-                let group = *self.shapes.entry(shape).or_insert_with(|| {
+                let viewmodel = w.has::<ViewModel>(e);
+                let group = *self.shapes.entry((shape, viewmodel)).or_insert_with(|| {
                     let (v, i) = shape.geometry();
                     let index = self.groups.len();
                     self.groups.push(Group {
                         mesh: r.mesh(&v, &i),
+                        viewmodel,
                         slots: Vec::new(),
                     });
                     index
@@ -519,8 +525,11 @@ impl Feed {
                 }
                 let start = self.slots.len() as u32;
                 self.slots.extend_from_slice(&group.slots);
-                self.batches
-                    .push(Batch::new(group.mesh, start..self.slots.len() as u32));
+                let mut batch = Batch::new(group.mesh, start..self.slots.len() as u32);
+                if group.viewmodel {
+                    batch = batch.viewmodel();
+                }
+                self.batches.push(batch);
             }
         }
         if material {

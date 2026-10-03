@@ -34,6 +34,7 @@ fn lit_scene_and_output_transfer() {
         batches.push(Batch {
             mesh,
             casts_shadows: true,
+            viewmodel: false,
             slots: slot as u32..slot as u32 + 1,
         });
     }
@@ -171,6 +172,7 @@ fn interpolation_teleport_untouched_and_growth() {
             &[Batch {
                 mesh: cube,
                 casts_shadows: true,
+                viewmodel: false,
                 slots: 1..2,
             }],
             &[7, 7],
@@ -282,11 +284,13 @@ fn interpolation_teleport_untouched_and_growth() {
                 Batch {
                     mesh: cube,
                     casts_shadows: true,
+                    viewmodel: false,
                     slots: 0..1,
                 },
                 Batch {
                     mesh: sphere,
                     casts_shadows: true,
+                    viewmodel: false,
                     slots: 99..100,
                 },
             ],
@@ -344,6 +348,7 @@ fn nonuniform_scale_matches_baked_normal_matrix() {
             &[Batch {
                 mesh: source,
                 casts_shadows: true,
+                viewmodel: false,
                 slots: 0..1,
             }],
             &[0],
@@ -376,6 +381,7 @@ fn nonuniform_scale_matches_baked_normal_matrix() {
             &[Batch {
                 mesh: reference,
                 casts_shadows: true,
+                viewmodel: false,
                 slots: 0..1,
             }],
             &[0],
@@ -422,6 +428,7 @@ fn affine_attachment_pixels_match_transformed_vertices_and_detach_cleanly() {
             &[Batch {
                 mesh,
                 casts_shadows: true,
+                viewmodel: false,
                 slots: 0..1,
             }],
             &[0],
@@ -481,6 +488,7 @@ fn affine_attachment_pixels_match_transformed_vertices_and_detach_cleanly() {
             &[Batch {
                 mesh: expected,
                 casts_shadows: true,
+                viewmodel: false,
                 slots: 0..1,
             }],
             &[0],

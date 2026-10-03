@@ -12,6 +12,14 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             None
         }
     }
+    /// The world's depth range, or the viewmodel layer's: while any viewmodel
+    /// draws, it takes the nearest `VIEWMODEL_DEPTH` and the world the rest.
+    fn scene_viewport(&self, pass: &mut wgpu::RenderPass<'_>, size: (u32, u32), viewmodel: bool) {
+        let split = if self.viewmodels { crate::VIEWMODEL_DEPTH } else { 0. };
+        let (near, far) = if viewmodel { (0., split) } else { (split, 1.) };
+        pass.set_viewport(0.0, 0.0, size.0 as f32, size.1 as f32, near, far);
+        pass.set_scissor_rect(0, 0, size.0, size.1);
+    }
     fn draw_group(&self, pass: &mut wgpu::RenderPass<'_>, view: u32, group: usize) {
         if self.cull.direct {
             let mesh = &self.meshes[self.batches[self.cull.groups[group].batch].mesh.0];
@@ -157,7 +165,8 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        viewport(&mut pass, state.size);
+        self.scene_viewport(&mut pass, state.size, false);
+        let mut layer = false;
         let variant = state.variant;
         pass.set_vertex_buffer(0, self.vertices.raw.slice(..));
         pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
@@ -191,7 +200,15 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             if group.range.start != self.batches[group.batch].slots.start {
                 state.draws += 1;
             }
+            let viewmodel = self.batches[group.batch].viewmodel;
+            if viewmodel != layer {
+                self.scene_viewport(&mut pass, state.size, viewmodel);
+                layer = viewmodel;
+            }
             self.draw_group(&mut pass, 0, index);
+        }
+        if layer {
+            self.scene_viewport(&mut pass, state.size, false);
         }
         for draw in self.quads.draws.iter().filter(|d| self.quads.opaque(d)) {
             self.quads
@@ -206,7 +223,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 .map_err(|e| hook_error("opaque", e))?;
             timing::pass_stamp(&self.device, &mut pass, frame.timestamps, 18, true);
             state.times[2] = start.map(|s| s.elapsed());
-            viewport(&mut pass, state.size);
+            self.scene_viewport(&mut pass, state.size, false);
         }
         if frame::has_sky(frame) {
             pass.set_pipeline(&self.pipelines.sky);
@@ -269,7 +286,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        viewport(&mut pass, state.size);
+        self.scene_viewport(&mut pass, state.size, false);
         let start = (!time.seekable).then(crate::perf::Stamp::now);
         hooks
             .surface(&mut pass, &targets.scene().unwrap(), view)
@@ -355,7 +372,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         variant: usize,
         size: (u32, u32),
     ) -> u32 {
-        viewport(pass, size);
+        self.scene_viewport(pass, size, false);
         pass.set_index_buffer(self.indices.raw.slice(..), wgpu::IndexFormat::Uint32);
         let mut draws = 0;
         for draw in self.quads.draws.iter().filter(|d| !self.quads.opaque(d)) {
