@@ -215,7 +215,11 @@ together. Nested records, lists, options and scalars retain their names and JSON
 Contract validates kinds against the shape: missing fields default, extra fields
 are ignored. Enum variants are not Contract values. Rust field names are not
 checked against the Contract shape at bake time. A rebuild or restore publishes
-again; no app data module is needed.
+again; no app data module is needed. The whole record may be up to 16 MiB of JSON
+(a whole inventory fits); a field change re-encodes only that field. A record over
+the limit, or one the shape refuses, leaves the last accepted one standing and is
+named, with its size and the limit, in the app's log and the agent's
+`state.surfaceRefusals`.
 Only the first live canvas owns a given surface's public record.
 
 `w.emit("won")` separately queues a string for the canvas's `message=` handler.

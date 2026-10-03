@@ -827,7 +827,18 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
     s.push_str(&runner.kept_positions_json());
     s.push_str(",\"canvas\":");
     runner.canvas_state(&mut s);
-    s.push('}');
+    // Each surface whose latest record was refused, and why: its readers
+    // keep the last record accepted (`set_surface_record`).
+    s.push_str(",\"surfaceRefusals\":{");
+    for (i, (name, why)) in runner.surface_refusals().iter().enumerate() {
+        if i > 0 {
+            s.push(',');
+        }
+        quote(name, &mut s);
+        s.push(':');
+        quote(why, &mut s);
+    }
+    s.push_str("}}");
     s
 }
 

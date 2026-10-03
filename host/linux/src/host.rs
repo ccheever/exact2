@@ -377,7 +377,13 @@ impl<D: DataSource> Host<D> {
                 None,
             ),
             Ok(None) => None,
-            Err(e) => Some(format!("surface {name}: {e:?}")),
+            // A refused record is the surface's, not the operation's that
+            // carried it: the runner logs it and `state.surfaceRefusals` names
+            // it, and the last accepted record stands (the agent keeps going).
+            Err(e) => {
+                eprintln!("exact: surface {name} refused: {e:?}");
+                None
+            }
         }
     }
 
