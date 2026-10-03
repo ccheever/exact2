@@ -187,7 +187,7 @@ extension Agent {
         // The list pool and the leaves it holds mid-fling (LLP 1068 §6, §5.1).
         var pool = presenter.pool.observation.merging(presenter.leaves.observation) { a, _ in a }.merging(presenter.flats.observation) { a, _ in a }
         pool["native"] = session.natives.observation
-        return ["focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window, "pool": pool]
+        return ["focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window, "pool": pool, "hooks": presenter.elements.observation]
     }
 
     /// A view's box in the viewport: the viewport's content space less its
@@ -200,13 +200,10 @@ extension Agent {
         let vp = presenter.viewport
         let o = vp.contentOffset
         // Under a child a canvas's surface has placed (LLP 1014 D5): the box
-        // where it is seen, through the placement, not the kernel's.
-        if let n = v as? NodeView, let placed = n.placedAncestor, let h = placed.placement, let overlay = placed.superview, let canvas = overlay.superview as? NodeView {
-            let corners = [CGPoint(x: bounds.minX, y: bounds.minY), CGPoint(x: bounds.maxX, y: bounds.minY), CGPoint(x: bounds.maxX, y: bounds.maxY), CGPoint(x: bounds.minX, y: bounds.maxY)]
-                .map { NodeView.map(h, placed.convert($0, from: v)) }
-            let xs = corners.map { $0.x }, ys = corners.map { $0.y }
-            let inCanvas = CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
-            let r = canvas.convert(inCanvas, to: vp)
+        // where it is seen, through the placement, not the kernel's frame,
+        // each corner carried out on its own (`drawnRect`).
+        if let n = v as? NodeView, n.placedAncestor?.placement != nil {
+            let r = n.drawnRect(bounds, in: vp)
             return CGRect(x: r.origin.x - o.x, y: r.origin.y - o.y, width: r.width, height: r.height)
         }
         let r = v.convert(bounds, to: vp)
@@ -230,7 +227,7 @@ extension Agent {
             if v.scrollDormant { n["sx"] = 0.0; n["sy"] = 0.0 }
             if let sv = v.scroll {
                 n["sx"] = Agent.r2(sv.contentOffset.x)
-                n["sy"] = Agent.r2(sv.contentOffset.y)
+                n["sy"] = Agent.r2(sv.contentOffset.y + v.scrollTopInset(sv))
                 // How far past its own ends it sits: a stretched bounce is a
                 // state a driver cannot read from the offset alone.
                 let past = { (value: CGFloat, start: CGFloat, end: CGFloat) -> CGFloat in
@@ -250,7 +247,7 @@ extension Agent {
         // given, and the keyboard's inset on the viewport, by the web's
         // `env()` names.
         let i = presenter.insets
-        let env: [String: Any] = ["safe-area-inset-top": Agent.r2(i.top), "safe-area-inset-right": Agent.r2(i.right), "safe-area-inset-bottom": Agent.r2(i.bottom), "safe-area-inset-left": Agent.r2(i.left), "keyboard-inset-height": Agent.r2(presenter.keyboardInset)]
+        let env: [String: Any] = ["safe-area-inset-top": Agent.r2(i.top), "safe-area-inset-right": Agent.r2(i.right), "safe-area-inset-bottom": Agent.r2(i.bottom), "safe-area-inset-left": Agent.r2(i.left), "keyboard-inset-height": Agent.r2(presenter.keyboardInset)].merging(presenter.fold.env) { a, _ in a }
         var reply: [String: Any] = ["clock": session.now(), "viewport": ["w": Agent.r2(vp.bounds.width), "h": Agent.r2(vp.bounds.height)], "env": env, "nodes": nodes]
         // The device's screen and where the viewport sits on it (LLP 1035.002
         // D4's `screen` space): what a desktop pointer into the Simulator

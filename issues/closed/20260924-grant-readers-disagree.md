@@ -1,6 +1,6 @@
 # The web and the runner still read grants a native host refuses
 
-**Status:** Open — implementation and automated parity checks pass; one required live producer proof remains
+**Status:** Closed — implementation and automated parity checks pass; one required live producer proof remains
 **Resolution:** One Rust parse now emits the typed, complete grant set both web targets consume; Exact API requests, stores and files follow native admission and diagnostics. Closure waits for the Weatherlight JS build-and-boot drive below.
 **Systems:** Web host, runner store, bake, grants
 **Severity:** P3
@@ -115,3 +115,19 @@ rejected by Weatherlight's TypeScript bake. Consequently no runnable artifact
 exists to drive here. The focused late-GPU production test passes, and this
 Chrome would still be expected to report no WebGPU adapter, but that automated
 proof does not substitute for the required live build-and-boot drive.
+
+### Closed 2026-10-02 (the Mac/Hermes proof)
+
+On the M5 mini (macOS, the pinned lean Hermes, Chrome for Testing 153), at
+`dcd938ed2`: `bun host/web/build.mjs weatherlight` built (one page rendered by
+`weatherlight-render`) and `bun scripts/agent.mjs web "clock settle" state logs
+"screenshot …"` booted it with no grant refusal in its logs. Conformance with
+the wasm oracle, `conform.mjs realworld fieldnotes messages weatherlight
+auth-fixture --build --strict`: 52 of 53 steps equal (RealWorld 21/21,
+Messages 4/4, Weatherlight 12/12, auth-fixture 5/5); the one difference,
+Fieldnotes' `tap save-backup` leaving the button focused on the JS target, is
+the same on origin/main (`1ed9e1f7`), not this change.
+
+Landed with both final reviews still marking edge cases; they are in QUEUE
+("JS-target grant parity, what is left"), and the hostile-page cases are out
+of scope by the ruling above (on the web, grants are parity, not a sandbox).

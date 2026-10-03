@@ -182,9 +182,15 @@ extension NodeView {
             box.layer.cornerCurve = curve
         }
         if layer.cornerCurve != curve { layer.cornerCurve = curve }
-        let bg = onLayer && !away ? fill : nil
+        // A vibrant fill is its vibrancy view's (`VibrancyIOS.swift`).
+        let bg = onLayer && !away && (vibrancyView == nil || isParagraph) ? fill : nil
         if layer.backgroundColor != bg { layer.backgroundColor = bg }
         if layer.cornerRadius != cornerRadius { layer.cornerRadius = cornerRadius }
+        if let v = vibrancyView, !isParagraph {
+            v.layer.cornerRadius = cornerRadius
+            v.layer.maskedCorners = corners
+            v.clipsToBounds = cornerRadius > 0
+        }
         if cornerRadius > 0, layer.maskedCorners != corners { layer.maskedCorners = corners }
         let ownWidth = own && border != nil ? width : 0
         if layer.borderWidth != ownWidth { layer.borderWidth = ownWidth }

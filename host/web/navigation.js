@@ -2,12 +2,31 @@
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let last = null;
 let refused = new WeakMap();
+// The tabpanels each root last hid or showed: one it stops naming shows again.
+let managed = new WeakMap();
 let written = [], gone = new Set(), cursor = 0, first = null, originIndex = null;
 let echo = null, pop = null, draining = false;
 const queue = [];
 const waiters = new Set();
 let root, navigate, log;
-const routesOf = nav => nav ? [...nav.children].filter(r => r.hasAttribute("navigationKey")) : [];
+const routesIn = node => [...node.children].filter(r => r.hasAttribute("navigationKey"));
+// @ref LLP 1075.003 §3.7 — a navigation root's tabs: the tabpanels its own
+// tablist's tabs name with aria-controls, in tab order (a tablist inside a
+// route is that route's). Each tab's stack is its panel's route rows, kept
+// mounted; without tabs the stack is the root's own rows.
+const panelsOf = nav => {
+  if (!nav) return [];
+  for (const list of nav.querySelectorAll('[role="tablist"]')) {
+    if (list.parentElement?.closest("[navigationKey]") !== nav) continue;
+    const panels = [...list.children].filter(tab => tab.getAttribute("role") === "tab" && tab.hasAttribute("aria-controls"))
+      .map(tab => nav.querySelector(`#${CSS.escape(tab.getAttribute("aria-controls"))}`))
+      .filter(panel => panel?.getAttribute("role") === "tabpanel" && panel.parentElement?.closest("[navigationKey]") === nav);
+    if (panels.length) return panels;
+  }
+  return [];
+};
+const stacksOf = nav => { const panels = panelsOf(nav); return panels.length ? panels.map(routesIn) : [nav ? routesIn(nav) : []]; };
+const routesOf = nav => stacksOf(nav).find(routes => routes.some(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"))) ?? [];
 const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
 const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;
 const stamp = (index, op) => ({ exact: index, id: op.top, url: op.url });
@@ -164,10 +183,15 @@ export const navigation = {
   },
   project(root, log) {
     for (const nav of root.querySelectorAll("[navigationBack]")) {
-      const routes = [...nav.children].filter(route => route.hasAttribute("navigationKey"));
-      const selected = routes.findIndex(route => route.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
-      if (selected < 0) {
-        const key = nav.getAttribute("navigationKey");
+      const key = nav.getAttribute("navigationKey");
+      const panels = panelsOf(nav);
+      for (const panel of managed.get(nav) ?? []) {
+        if (!panels.includes(panel)) { panel.style.visibility = ""; panel.inert = !!panel.authoredInert; }
+      }
+      managed.set(nav, panels);
+      const stacks = panels.length ? panels.map(routesIn) : [routesIn(nav)];
+      const at = stacks.findIndex(routes => routes.some(route => route.getAttribute("navigationKey") === key));
+      if (at < 0) {
         if (refused.get(nav) !== key) {
           refused.set(nav, key);
           log(`navigationKey "${key}" matches no route; the stack is unchanged`);
@@ -175,18 +199,31 @@ export const navigation = {
         continue;
       }
       refused.delete(nav);
-      const modal = routes[selected]?.getAttribute("navigationPresentation") === "modal";
-      for (const [index, route] of routes.entries()) {
-        const active = index === selected;
-        if (!active && route.contains(document.activeElement)) document.activeElement.blur();
-        route.style.visibility = active || (modal && index === selected - 1) ? "" : "hidden";
-        route.inert = !active || !!route.authoredInert;
+      // Every tab but the selected one stays mounted, hidden and inert.
+      for (const [index, panel] of panels.entries()) {
+        const active = index === at;
+        if (!active && panel.contains(document.activeElement)) document.activeElement.blur();
+        panel.style.visibility = active ? "" : "hidden";
+        panel.inert = !active || !!panel.authoredInert;
+      }
+      for (const [stack, routes] of stacks.entries()) {
+        // The selected stack shows the route the root names; another keeps its top laid out.
+        const selected = stack === at ? routes.findIndex(route => route.getAttribute("navigationKey") === key) : routes.length - 1;
+        const modal = routes[selected]?.getAttribute("navigationPresentation") === "modal";
+        for (const [index, route] of routes.entries()) {
+          const active = index === selected;
+          if (!active && route.contains(document.activeElement)) document.activeElement.blur();
+          route.style.visibility = active || (modal && index === selected - 1) ? "" : "hidden";
+          route.inert = !active || !!route.authoredInert;
+        }
       }
     }
+    // The page module's container hooks, when it has them (LLP 1075.003.000 §3.7).
+    globalThis.exact?.onProject?.(root);
   },
   observation(root) {
     const nav = root.querySelector("[navigationBack]");
-    const routes = nav ? [...nav.children].filter((r) => r.hasAttribute("navigationKey")) : [];
+    const routes = routesOf(nav);
     const key = nav?.getAttribute("navigationKey") ?? null;
     const index = routes.findIndex((r) => r.getAttribute("navigationKey") === key);
     const selected = index >= 0 ? routes[index] : null;
@@ -529,7 +566,70 @@ export function environment() {
     "safe-area-inset-bottom": r2(parseFloat(cs.paddingBottom) || 0),
     "safe-area-inset-left": r2(parseFloat(cs.paddingLeft) || 0),
     "keyboard-inset-height": r2(Math.max(0, innerHeight - (visualViewport?.height ?? innerHeight))),
+    ...foldEnv(),
   };
+}
+
+// @ref LLP 1078 D6, D7 — the fold as the browser reports it: the Device
+// Posture API's `navigator.devicePosture.type` and the viewport segments
+// `window.viewport.segments` (two or more means a divider splits the
+// viewport; the columns are the distinct lefts, the rows the distinct tops).
+// Where the browser lacks the APIs: `continuous`, 1 × 1, which is also what
+// Chromium reports on a flat display. Under the agent, `prefer posture` and
+// `prefer segments` go through CDP's display-feature and posture overrides
+// (the driver), so the browser's own readings change; where CDP offers
+// none, the driver's substitute lands here (`preferFold`) and stands in for
+// them — the facts and `layout.env`, not CSS's own `env()` resolution. The
+// substitute lives on `globalThis.exact`: the JS target's agent reads its own
+// copy of this module (`agent-navigation.js`), and both copies must agree.
+const foldSubstitute = () => globalThis.exact?.foldSubstitute ?? null;
+const r2 = (x) => Math.round(x * 100) / 100;
+function readFold() {
+  const posture = globalThis.navigator?.devicePosture?.type === "folded" ? "folded" : "continuous";
+  const segments = globalThis.viewport?.segments;
+  const rects = Array.isArray(segments) && segments.length >= 2 ? segments.map((s) => [s.x, s.y, s.width, s.height]) : [];
+  const cols = rects.length ? new Set(rects.map((r) => r[0])).size : 1, rows = rects.length ? new Set(rects.map((r) => r[1])).size : 1;
+  return { posture, cols, rows, rects };
+}
+export const fold = () => foldSubstitute() ?? readFold();
+/** `layout.env`'s four names (LLP 1012 §1). */
+export function foldEnv() {
+  const f = fold();
+  return { "device-posture": f.posture, "horizontal-viewport-segments": f.cols, "vertical-viewport-segments": f.rows, "viewport-segments": f.rects.map((r) => r.map(r2)) };
+}
+/** The fold as `exact_resize`'s facts word carries it beside the preference bits (LLP 1078 D6): bit 8 `folded`, bits 9–16 the columns, 17–24 the rows. */
+export function foldBits() { const f = fold(); return (f.posture === "folded" ? 256 : 0) | ((f.cols & 255) << 9) | ((f.rows & 255) << 17); }
+export function onFold(changed) {
+  globalThis.navigator?.devicePosture?.addEventListener?.("change", changed);
+  addEventListener("resize", changed);
+}
+/** The grid a host without a fold makes for `prefer segments <cols>x<rows> [gap <points>]`: the viewport split evenly, the gap centred on each divider; refused by name. */
+export function evenSegments(width, height, cols, rows, gap = 0) {
+  if (!(cols >= 1 && rows >= 1)) throw new Error(`segments ${cols}x${rows}: each count is at least 1`);
+  if (!(Number.isFinite(gap) && gap >= 0)) throw new Error(`segments: gap ${gap} is not a non-negative length`);
+  if (cols * rows === 1) return [];
+  const span = (total, n) => { const bands = (n - 1) * gap; if (bands >= total) throw new Error(`segments ${cols}x${rows} gap ${gap}: the gap is wider than the viewport (${width} × ${height})`); return (total - bands) / n; };
+  const w = span(width, cols), h = span(height, rows), out = [];
+  for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) out.push([x * (w + gap), y * (h + gap), w, h]);
+  return out;
+}
+/** The agent's substitute (`prefer`'s `fold` group): `posture`, `cols`, `rows`, `gap`; `null` drops it and the browser's own readings return. */
+export function preferFold(request) {
+  if (request == null) { (globalThis.exact ??= {}).foldSubstitute = null; return foldEnv(); }
+  const next = { ...fold() };
+  let gap = 0, grid = false;
+  for (const [name, raw] of Object.entries(request)) {
+    const n = Number(raw);
+    switch (name) {
+      case "posture": if (raw !== "folded" && raw !== "continuous") throw new Error(`prefer: posture: ${raw} is folded or continuous`); next.posture = raw; break;
+      case "cols": case "rows": if (!(Number.isInteger(n) && n >= 1)) throw new Error(`prefer: segments: ${raw} ${name === "cols" ? "columns" : "rows"} is not a count`); next[name] = n; grid = true; break;
+      case "gap": if (!(Number.isFinite(n) && n >= 0)) throw new Error(`prefer: segments: gap ${raw} is not a length`); gap = n; grid = true; break;
+      default: throw new Error(`prefer: ${name} is not a fold fact this host sets`);
+    }
+  }
+  if (grid) { try { next.rects = evenSegments(innerWidth, innerHeight, next.cols, next.rows, gap); } catch (e) { throw new Error(`prefer: ${e.message}`); } }
+  (globalThis.exact ??= {}).foldSubstitute = next;
+  return foldEnv();
 }
 
 // @ref LLP 1061 D4, LLP 1069.000 D1 — the user's display preferences as the

@@ -146,6 +146,7 @@ impl<D: DataSource> Host<D> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
         // Native hosts link every row's grammar (LLP 1053.000 §2).
         exact_kernel::style::link_backdrop_filter();
+        exact_kernel::style::link_segments();
         exact_kernel::timeline::link();
         let kernel = Kernel::new(measurer);
         let mut runner = Runner::boot_with_delivery(
@@ -936,6 +937,47 @@ impl<D: DataSource> Host<D> {
             ),
             Ok(None) => None,
             Err(e) => Some(format!("time: {e:?}")),
+        }
+    }
+
+    /// The device's posture and the viewport segments (LLP 1078 D4), set
+    /// only by the agent here: the kernel's grid and `exactViewport`'s
+    /// three fields together — a relayout when a style reads the segments,
+    /// one commit when a resource reads the fields.
+    pub fn set_segments(
+        &mut self,
+        posture: exact_runner::Posture,
+        cols: u32,
+        rows: u32,
+        rects: Vec<exact_kernel::Rect>,
+    ) -> Option<String> {
+        let (Ok(c), Ok(r)) = (u8::try_from(cols), u8::try_from(rows)) else {
+            return Some(format!("segments: {cols}x{rows} is past the kernel's grid"));
+        };
+        let restyled = match self.runner.kernel_mut().set_segments(c, r, rects) {
+            Ok(changed) => changed,
+            Err(e) => return Some(format!("segments: {e:?}")),
+        };
+        let fold = exact_runner::Fold {
+            posture,
+            cols,
+            rows,
+        };
+        match self.runner.set_fold(fold) {
+            Ok(Some(receipt)) => self.commit(
+                &[Timed {
+                    at_ms: self.now_ms,
+                    receipt,
+                }],
+                None,
+            ),
+            Ok(None) if restyled => {
+                let error = self.layout().err();
+                self.observe_layout();
+                error
+            }
+            Ok(None) => None,
+            Err(e) => Some(format!("segments: {e:?}")),
         }
     }
 

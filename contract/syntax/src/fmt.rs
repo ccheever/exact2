@@ -375,7 +375,10 @@ impl<'a> Layout<'a> {
                 || (b == "." && !matches!(previous.kind, TokenKind::Number(_)))
                 || (b == "("
                     && matches!(previous.kind, TokenKind::Ident(_))
-                    && !matches!(a, "when" | "if" | "match" | "not" | "and" | "or" | "in"))
+                    && !matches!(
+                        a,
+                        "when" | "if" | "match" | "not" | "and" | "or" | "in" | "with"
+                    ))
                 || b == ":";
             if !tight {
                 out.push(' ');

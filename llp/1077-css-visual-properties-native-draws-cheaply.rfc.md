@@ -287,7 +287,19 @@ Rows 154 `text_shadow` (inherited), 155 `mask_image`, 156 `corner_shape`, each C
 
 **Owed after §5:**
 
-- **D13 vibrancy itself.** A label is vibrant only inside a material's effect view, and the node tree does not nest a material's children there; only glass groups do. The colours land; the vibrancy effect does not yet.
+- **D13 vibrancy itself.** *Built 2026-10-03.* A system colour keeps its identity: the kernel's `ColorValue::System(index)` crosses the wire as tag 2 and paints as its pair. Apple's style JSON names the rows holding one (`system_colors`).
+  - **macOS.** A material's children are already inside its `NSVisualEffectView`. A view in a system colour answers `allowsVibrancy`.
+  - **iOS.** A blur material whose box clips on both axes hosts its children in the effect view's content view, which clips them as the box did. Inside it, a paragraph in a system colour draws its ink, and a plain system fill its shape, in a vibrancy effect view of UIKit's matching style (`IOS/VibrancyIOS.swift`).
+  - **Seen** on `scripts/fixtures/vibrancy.contract`:
+    - iOS, light and dark: the clipping card's labels and fill blend with the backdrop; the other card's labels draw flat.
+    - macOS: the label pixels differ from the plain build's, darker under AppKit's blending.
+  - **Review (2026-10-03).** A change of container, of the material's hosting or of a box's parent re-decides vibrancy, a fill leaving it repaints its own background, and removing `perspective` clears the node's own children's holder.
+  - **iOS paragraph limits.** A paragraph is vibrant only when its whole ink is that one system colour: no run in another colour, and no background, shadow or stroke with it. Otherwise it draws the pair, and a system-coloured run in an ordinary paragraph is not vibrant either.
+  - **Owed:**
+    - an iOS material whose children may overflow
+    - drawn text (the non-raster path)
+    - vibrancy inside glass
+    - per-run vibrancy (one effect per run's colour)
 - **D15 per-digit roll.** The raster is one picture, so the whole line rolls.
 - **Felt and pointed on a device.** Haptics (D14), the scroll edge (D16) and the pointer (D17) are not observable in the simulator's screenshots.
 - **Web stand-ins** for the symbol effects.
@@ -305,11 +317,15 @@ Two independent audits of the six commits. Fixed in round 1:
 
 Owed from the review (not fixed):
 
-- **Per-run inline styles.** A `span`'s own `text-shadow` or stroke draws with its paragraph's, not its own.
 - **Apple text shadow under transparent text.** Core Text casts no shadow from a clear fill. Chrome does draw it.
-- **3D on Apple: hit-testing and back faces.** A turned box is hit-tested in its flat frame. A hidden back face still takes touches.
 - **`paint-order: stroke`** is not a row. The stroke always draws over the fill, as Chrome's default does.
 - **A material's children under a mask** (declared in LLP 1001).
+
+Per-run paint, built 2026-10-03. Each inline run's own `text-shadow` and `-webkit-text-stroke` draw as CSS paints each inline box. A run's value overrides its paragraph's: `none`, a width of 0, or a colour of its own with the inherited width.
+- **Apple.** Stroke is per-run Core Text attributes. When runs agree on the shadow, the paragraph keeps its one shadow and its fast path. When they differ, each run's shadow is drawn under its own glyphs, and the raster grows to hold them (`TextRunPaint.swift`). The raster's limit past the box grows with them, up to 512 points per side (`TextRasterJob.maxShadowReach`); a shadow past that is cut, so a huge value cannot size an absurd bitmap. A tall iOS paragraph's band, clipped 32 points past the box, widens by the same reach and pays for it in height (`TextRasterJob.band`); macOS rasters no bands, and draws a paragraph too tall to raster in `draw(_:)`. The text paint cache key now includes shadow and stroke.
+- **Linux.** When runs agree, the paragraph paints in one pass: shadow, fill, stroke. When they differ, each stretch of adjacent runs that look alike paints in run order: its shadow, its fill, then its stroke, with the other runs transparent (`paint/text_shadow.rs`). So a later run's shadow lands over an earlier run's glyphs, and an earlier run's stroke never covers a later run's fill. The `background-clip: text` fill then paints first, under every run's shadow.
+- **Seen.** `scripts/fixtures/span-paint.contract` matches Chrome's pictures, light and dark, on iOS, macOS (window and capture) and both Linux painters.
+- **Owed.** Markdown region text (`RegionRaster`) has no text shadow, as before.
 
 Round 2 audited the round-1 fixes and the merge with main's percentage-radius clip (18a4b4cb4). Fixed:
 
@@ -324,6 +340,10 @@ Round 2 audited the round-1 fixes and the merge with main's percentage-radius cl
   - A bound colour's system names resolve after any map the row has (`accent-color`), in any case.
   - A string zero perspective (`0px`) is `none`.
   - A vendor-prefixed attribute may have spaces before its `=`.
+
+### 3D hits on Apple (2026-10-02)
+
+Built from the review's owed list. A box in space now takes taps where it is drawn, and a hidden back face takes none, on iOS and macOS. UIKit already converts a point through a layer's 3D transform and its parent's `sublayerTransform`, so iOS keeps its own hit test and only refuses a box whose hidden back face is toward the viewer. AppKit places every view at its frame, whatever its layer's transform, so on macOS the host carries the point through the plane of every transformed box: the layer's transform about its anchor, then the parent's perspective, read from the layers as drawn (`SpaceTransform.swift`). This covers 2D transforms too (translate, rotate, scale, a press, a layout transition's offset), which macOS also used to hit-test at the frame; a child a canvas's surface places keeps its placement. The same map serves the hit test, `local` (inline runs, SVG targets, the press's inside test, which undoes the press scale once) and the agent's box. XCTests on both platforms check a turned box, a box moved along z and a hidden back face; on macOS also a translated box, a rotated one and a pressed one; on iOS, that this plane matches UIKit's own conversion. `scripts/fixtures/space-hits.contract` drives taps on boxes moved in z and in 2D, turned in 3D and in 2D, and a hidden card over another.
 
 ## 7. Open questions for Charlie
 

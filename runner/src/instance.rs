@@ -356,8 +356,14 @@ pub struct Update<'a> {
     /// The fields of the innermost frame's value that changed, when bit 0
     /// of `dirty_frames` is set ([`crate::compare::changed_fields`]).
     dirty_fields: u64,
-    /// Whether the scopes walked so far enclose every written row.
+    /// Whether the scopes walked so far enclose every written row, or lie
+    /// inside one.
     on_path: bool,
+    /// Whether a row the scopes walked so far entered was itself written.
+    /// Every scope nested in it — the rows of an `each` in a child component
+    /// the row instantiated — reads that row's slots through its frames
+    /// ([`vm::Frame::row_of`]), so none of them leaves the path.
+    in_written: bool,
     /// Journal lines for what the data got wrong and the tree absorbed: an
     /// invalid style or prop value, a repeated key. Written with the commit.
     pub notes: Vec<String>,
@@ -387,6 +393,7 @@ impl<'a> Update<'a> {
             dirty_frames: 0,
             dirty_fields: 0,
             on_path: true,
+            in_written: false,
             notes: Vec::new(),
             discard: false,
             text_styled: false,
@@ -434,18 +441,33 @@ impl<'a> Update<'a> {
 
     /// Enter a row or arm scope whose frame value changed in the fields
     /// `dirty` names (none: unchanged).
-    fn enter(&mut self, dirty: u64, row: Option<&RowSlots>) -> (u64, u64, bool) {
-        let saved = (self.dirty_frames, self.dirty_fields, self.on_path);
+    fn enter(&mut self, dirty: u64, row: Option<&RowSlots>) -> (u64, u64, bool, bool) {
+        let saved = (
+            self.dirty_frames,
+            self.dirty_fields,
+            self.on_path,
+            self.in_written,
+        );
         self.dirty_frames = deps::into_scope(self.dirty_frames, dirty != 0);
         self.dirty_fields = dirty;
-        if let Some(row) = row {
-            self.on_path &= self.rows.path.contains(&RowWrites::id(row));
+        // A row off every written row's scope chain reads none of their
+        // slots, unless it is nested in a written row: it reads that row's
+        // slots as an enclosing frame's.
+        if let Some(row) = row.filter(|_| !self.in_written) {
+            let id = RowWrites::id(row);
+            self.on_path &= self.rows.path.contains(&id);
+            self.in_written = self.on_path && self.rows.writes.iter().any(|(w, _)| *w == id);
         }
         saved
     }
 
-    fn leave(&mut self, saved: (u64, u64, bool)) {
-        (self.dirty_frames, self.dirty_fields, self.on_path) = saved;
+    fn leave(&mut self, saved: (u64, u64, bool, bool)) {
+        (
+            self.dirty_frames,
+            self.dirty_fields,
+            self.on_path,
+            self.in_written,
+        ) = saved;
     }
 }
 

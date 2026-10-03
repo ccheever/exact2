@@ -63,13 +63,14 @@ public final class ExactView: NSView {
     }
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        if session.presenter.dialogs.key(event) { return true }
+        if session.presenter.menus.key(event) || session.presenter.dialogs.key(event) { return true }
         if ownsShortcutFocus(), session.presenter.shortcuts.perform(event) { return true }
         return super.performKeyEquivalent(with: event)
     }
 
     deinit {
         if let shortcutMonitor { NSEvent.removeMonitor(shortcutMonitor) }
+        session.presenter.menus.reset()
         session.presenter.dialogs.reset()
         session.presenter.toolbar.detach()
     }
@@ -95,6 +96,7 @@ public final class ExactView: NSView {
     private func fit() {
         if session.presenter.deferGeometry({ [weak self] in self?.fit() }) { return }
         session.presenter.dialogs.layout()
+        session.presenter.menus.layout()
         let size = session.presenter.viewportSize
         guard size.width > 0, size.height > 0 else { return }
         let scale = window?.backingScaleFactor ?? 1
@@ -126,7 +128,7 @@ public final class ExactView: NSView {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window == nil { session.presenter.dialogs.reset() }
+        if window == nil { session.presenter.menus.reset(); session.presenter.dialogs.reset() }
         session.rasters.setPaused(window == nil)
         session.canvases.lifecycle.refresh()
         if session.presenter.toolbar.window !== window { session.presenter.toolbar.detach() }
@@ -135,9 +137,13 @@ public final class ExactView: NSView {
         if window != nil {
             // Text editors can consume control chords before the responder chain.
             // Route declared commands first, scoped to this session's focused view.
-            shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
+            shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp]) { [weak self] event in
                 guard let self, event.window === self.window else { return event }
-                if self.session.presenter.dialogs.key(event) { return nil }
+                if event.type != .keyDown && event.type != .keyUp {
+                    self.session.presenter.menus.pointer(event)
+                    return event
+                }
+                if self.session.presenter.menus.key(event) || self.session.presenter.dialogs.key(event) { return nil }
                 if event.type == .keyDown { self.session.presenter.flushKeyViewLoop() }
                 guard self.ownsShortcutFocus() else { return event }
                 let code=KeyCodes.mac[Int(event.keyCode)] ?? "Unidentified"
@@ -165,10 +171,13 @@ public final class ExactView: NSView {
     }
 
     /// After a restart from a new plan: the new runner knows nothing of the
-    /// insets — hand them over again, and fit the root.
+    /// insets — hand them over again, and fit the root. AppKit has no fold
+    /// (LLP 1078 D5): `continuous`, one segment, told once at every boot so
+    /// the facts are never the bake's — or what an agent preferred.
     func rebooted() {
         let i = session.presenter.insets
         if i.top != 0 || i.left != 0 || i.bottom != 0 || i.right != 0 { session.insets(top: i.top, right: i.right, bottom: i.bottom, left: i.left) }
+        session.segments(session.presenter.fold)
         viewDidChangeEffectiveAppearance()
         needsLayout = true
     }

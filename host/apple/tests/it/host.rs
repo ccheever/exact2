@@ -70,7 +70,7 @@ extern "C" fn record_font_runs(_ctx: *mut c_void, request: *const CRequest) -> C
     }
 }
 
-fn boot() -> (Host<caltrain_data::Caltrain>, String) {
+pub(crate) fn boot() -> (Host<caltrain_data::Caltrain>, String) {
     let plan = caltrain::build().unwrap();
     Host::boot(
         &plan.encode(),
@@ -82,14 +82,14 @@ fn boot() -> (Host<caltrain_data::Caltrain>, String) {
     .unwrap()
 }
 
-fn view<D: DataSource>(host: &Host<D>, test_id: &str) -> u32 {
+pub(crate) fn view<D: DataSource>(host: &Host<D>, test_id: &str) -> u32 {
     let k = host.runner().kernel();
     let key = k.find_by_test_id(test_id)[0];
     k.node_by_key(key).unwrap().id
 }
 
 /// The last `frame` op for `id`: (x, y, w, h).
-fn frame_of(batch: &str, id: u32) -> (f32, f32, f32, f32) {
+pub(crate) fn frame_of(batch: &str, id: u32) -> (f32, f32, f32, f32) {
     let marker = format!("\"op\":\"frame\",\"id\":{id},");
     let at = batch
         .rfind(&marker)
@@ -116,7 +116,7 @@ fn content_of(batch: &str, id: u32) -> (f32, f32) {
     (field("w"), field("h"))
 }
 
-fn count(batch: &str, op: &str) -> usize {
+pub(crate) fn count(batch: &str, op: &str) -> usize {
     batch.matches(&format!("\"op\":\"{op}\"")).count()
 }
 
@@ -294,7 +294,7 @@ fn an_iframe_batch_and_its_events_match_the_web_arm() {
     );
 }
 
-struct NoData;
+pub(crate) struct NoData;
 impl DataSource for NoData {
     fn query(&mut self, s: &str, _: &[Value]) -> Result<Value, DataError> {
         Err(DataError::UnknownSource(s.into()))

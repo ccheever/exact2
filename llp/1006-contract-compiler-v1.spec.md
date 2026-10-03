@@ -120,7 +120,11 @@ remain `contract-fn-shadows-roster`.
 
 **Resources.** `resource name = source(args) as shape T`: `source` names the
 app's data source, `args` are expressions over state, `T` is the declared
-shape (LLP 1004 D4). **Files.** `use Name from "./file.contract"` brings a
+shape (LLP 1004 D4). An optional `with context, …` before `as shape` appends
+one or more request context expressions; the source and ordinary requests use
+every argument. Only persisted kept-answer admission compares the call's
+arguments alone (LLP 1027.005). The call may be empty; `else` stays after the
+shape. **Files.** `use Name from "./file.contract"` brings a
 component, shape, style, or function from another Contract file, resolved by
 `contract::compile_path` (LLP 1017 P8, 2026-08-30: the used file's
 declarations are merged in after this file's own; a cycle, a missing file, an

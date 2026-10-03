@@ -683,6 +683,20 @@ public final class ExactSession {
         presenter.selectOptions = { [unowned self] id in runtime.selectOptions(id) }
         presenter.buttonFace = { [unowned self] id in runtime.buttonFace(id) }
         presenter.onIntrinsic = { [unowned self] sizes in whenIdle { [unowned self] in apply(runtime.intrinsics(sizes)) } }
+        #if os(iOS)
+        // @ref LLP 1075.003 §3.5, Q3 (c) — what a bar covers reaches layout
+        // as an intrinsic size does; the hooks replay once the module connects.
+        presenter.onCovers = { [unowned self] covers in whenIdle { [unowned self] in apply(runtime.covers(covers)) } }
+        natives.onHooksConnected = { [weak self] in
+            self?.presenter.navigation.replayHooks()
+            self?.presenter.elements.replay()
+        }
+        #else
+        natives.onHooksConnected = { [weak self] in
+            self?.presenter.elements.replay()
+            self?.presenter.toolbar.hookToolbar()
+        }
+        #endif
         presenter.onHover = { [unowned self] id, over in apply(runtime.hover(id, over: over, now: now())) }
         presenter.onFocus = { [unowned self] id in apply(runtime.focus(id, now: now())) }
         presenter.onBlur = { [unowned self] id in apply(runtime.blur(id, now: now())) }
@@ -1117,6 +1131,16 @@ public final class ExactSession {
     }
     public func resize(_ size: CGSize) { guard booted, state != .destroyed else { return }; apply(runtime.resize(width: size.width, height: size.height)) }
     public func insets(top: CGFloat, right: CGFloat, bottom: CGFloat, left: CGFloat) { guard booted, state != .destroyed else { return }; apply(runtime.insets(top: top, right: right, bottom: bottom, left: left)) }
+    /// The device's posture and the viewport segments a fold makes (LLP 1078 D4, D5): the view's reading,
+    /// kept for the agent's `layout.env` and told to the kernel and the runner in one batch.
+    /// Returns the batch's error, when the runtime refused the grid; the fold is kept only when it took it.
+    @discardableResult func segments(_ fold: ViewportFold) -> String? {
+        guard booted, state != .destroyed else { return nil }
+        let batch = runtime.segments(fold)
+        if batch.error == nil { presenter.fold = fold }
+        apply(batch)
+        return batch.error
+    }
     /// The view's appearance, for paint motion's `light-dark()` (LLP 1062).
     public func scheme(dark: Bool) { guard booted, state != .destroyed else { return }; schemeDark = dark; apply(runtime.scheme(dark: dark)) }
     /// The appearance last reported for the session, and each node view

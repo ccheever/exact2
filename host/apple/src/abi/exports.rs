@@ -444,6 +444,12 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.insets(top, right, bottom, left), |n| n)
         }
 
+        /// The posture and the viewport segments (LLP 1078 D4); returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_segments(rt: u32, posture: u32, cols: u32, rows: u32, count: u32) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.segments(posture, cols, rows, count), |n| n)
+        }
+
         /// The presenter's appearance: nonzero is dark (LLP 1062); returns the batch's length.
         #[no_mangle]
         pub extern "C" fn exact_scheme(rt: u32, dark: u32) -> u32 {
@@ -468,6 +474,13 @@ macro_rules! host {
         #[no_mangle]
         pub extern "C" fn exact_intrinsics(rt: u32, len: usize) -> u32 {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.intrinsics(len), |n| n)
+        }
+
+        /// What native containers cover of boxes, from the input buffer, one
+        /// layout (LLP 1075.003 §3.5); returns the batch's length.
+        #[no_mangle]
+        pub extern "C" fn exact_host_covers(rt: u32, len: usize) -> u32 {
+            $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.covers(len), |n| n)
         }
 
         /// Common LE collection feedback from the input buffer; returns batch length.

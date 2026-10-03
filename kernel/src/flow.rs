@@ -17,7 +17,7 @@
 
 use crate::arena::NodeArena;
 use crate::id::{Frame, IdMap};
-use crate::{AlignContent, Dimension, Display, NodeKey, NodeType, PositionType, WrapFlow};
+use crate::{AlignContent, Dimension, Display, Env, NodeKey, NodeType, PositionType, WrapFlow};
 use exact_textflow::{meets, FlowShape};
 use std::collections::HashMap;
 
@@ -75,9 +75,11 @@ pub(crate) fn is_exclusion(arena: &NodeArena, slot: u32) -> bool {
     s.position_type == PositionType::Absolute && s.wrap_flow == WrapFlow::Both
 }
 
-// A length that resolves without the containing block's height.
-fn own_length(d: Dimension) -> bool {
-    matches!(d, Dimension::Points(_) | Dimension::Env(..))
+// A length that resolves without the containing block's height: points, or
+// an `env()` length the environment defines (an undefined segment takes the
+// row's initial value, `auto`, as `StyleProps::env_resolved` does).
+fn own_length(d: Dimension, env: &Env) -> bool {
+    matches!(d.resolve(env), Dimension::Points(_))
 }
 
 // Taffy places an absolute child after the context's in-flow content, against
@@ -85,9 +87,11 @@ fn own_length(d: Dimension) -> bool {
 // independent of what the flowed text makes that size.
 fn placed(arena: &NodeArena, exclusion: u32) -> bool {
     let s = arena.style(exclusion);
-    let bounded = |d: Dimension| matches!(d, Dimension::Auto) || own_length(d);
-    own_length(s.top)
-        && (own_length(s.height) || (s.height == Dimension::Auto && s.bottom == Dimension::Auto))
+    let env = arena.env();
+    let bounded = |d: Dimension| matches!(d, Dimension::Auto) || own_length(d, env);
+    own_length(s.top, env)
+        && (own_length(s.height, env)
+            || (s.height == Dimension::Auto && s.bottom == Dimension::Auto))
         && bounded(s.min_height)
         && bounded(s.max_height)
 }
@@ -101,7 +105,7 @@ fn orders(arena: &NodeArena, slot: u32) -> bool {
 
 fn in_flow(arena: &NodeArena, slot: u32) -> bool {
     let s = arena.style(slot);
-    let offset = |d: Dimension| d == Dimension::Auto || own_length(d);
+    let offset = |d: Dimension| d == Dimension::Auto || own_length(d, arena.env());
     // A static box's insets do nothing; a relative one's must not depend on the context's height.
     s.position_type == PositionType::Static
         || (s.position_type == PositionType::Relative && offset(s.top) && offset(s.bottom))

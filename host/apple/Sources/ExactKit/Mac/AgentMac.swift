@@ -120,9 +120,11 @@ extension Agent {
         }
         // @ref LLP 1038 D11 — last op, never inferred from route props.
         navigation["url"] = session.routerOp?["url"] ?? NSNull()
+        navigation["popover"] = presenter.menus.observation ?? NSNull()
         // The window's title as AppKit shows it (LLP 1048.003 D1).
-        let window: [String: Any] = ["title": presenter.root.window?.title ?? NSNull()]
-        return ["focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window, "dialog": presenter.dialogs.observation ?? NSNull()]
+        let window: [String: Any] = ["title": presenter.root.window?.title ?? NSNull(), "toolbar": presenter.toolbar.summary]
+        return ["focus": focus, "keyboard": keyboard, "navigation": navigation, "window": window,
+                "dialog": presenter.dialogs.observation ?? NSNull(), "hooks": presenter.elements.observation]
     }
 
     /// A view's box in the viewport: the clip view's space, less its scroll
@@ -133,14 +135,12 @@ extension Agent {
         let bounds = region ?? v.bounds
         if (v as? NodeView)?.placedAncestor?.placementHidden == true { return .zero }
         let clip = presenter.viewport.contentView
-        // Under a child a canvas's surface has placed (LLP 1014 D5): the box
-        // where it is seen, through the placement, not the kernel's.
-        if let n = v as? NodeView, let placed = n.placedAncestor, let h = placed.placement, let overlay = placed.superview, let canvas = overlay.superview as? NodeView {
-            let corners = [NSPoint(x: bounds.minX, y: bounds.minY), NSPoint(x: bounds.maxX, y: bounds.minY), NSPoint(x: bounds.maxX, y: bounds.maxY), NSPoint(x: bounds.minX, y: bounds.maxY)]
-                .map { NodeView.map(h, placed.convert($0, from: v)) }
-            let xs = corners.map { $0.x }, ys = corners.map { $0.y }
-            let inCanvas = NSRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
-            let r = canvas.convert(inCanvas, to: clip)
+        // Where it is seen (`drawnRect`): through the placement of a child a
+        // canvas's surface placed (LLP 1014 D5), not the kernel's frame, and
+        // through every transformed box on the way (LLP 1077 D8), as
+        // `getBoundingClientRect` reports a transformed box.
+        if let n = v as? NodeView, n.placedAncestor?.placement != nil || n.drawnOffFrame {
+            let r = n.drawnRect(bounds, in: clip)
             return NSRect(x: r.origin.x - clip.bounds.origin.x, y: r.origin.y - clip.bounds.origin.y, width: r.width, height: r.height)
         }
         let r = v.convert(bounds.applying(v.layer?.affineTransform() ?? .identity), to: clip)
@@ -200,7 +200,7 @@ extension Agent {
         // The page's environment (LLP 1012 §1): under `viewport-fit=cover`
         // the titlebar is the top inset; a software keyboard is never here.
         let i = presenter.insets
-        let env: [String: Any] = ["safe-area-inset-top": Agent.r2(i.top), "safe-area-inset-right": Agent.r2(i.right), "safe-area-inset-bottom": Agent.r2(i.bottom), "safe-area-inset-left": Agent.r2(i.left), "keyboard-inset-height": 0]
+        let env: [String: Any] = ["safe-area-inset-top": Agent.r2(i.top), "safe-area-inset-right": Agent.r2(i.right), "safe-area-inset-bottom": Agent.r2(i.bottom), "safe-area-inset-left": Agent.r2(i.left), "keyboard-inset-height": 0].merging(presenter.fold.env) { a, _ in a }
         // The page scrolls too, and it is the one whose overscroll drags the
         // app's own chrome (LLP 1033 D4).
         let (px, py) = Agent.overscroll(of: presenter.viewport)
@@ -330,6 +330,7 @@ extension Agent {
         let send = { [self] (type: NSEvent.EventType, p: CGPoint) in
             let t = contactClock
             if let e = NSEvent.mouseEvent(with: type, location: toWindow(p), modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1) {
+                presenter.menus.pointer(e)
                 win.sendEvent(e)
             }
         }
@@ -537,11 +538,13 @@ extension Agent {
             // NSTextView and AVKit controls may track synchronously inside mouseDown.
             // Put this click's release in the queue before entering that loop.
             NSApp.postEvent(up, atStart: true)
+            presenter.menus.pointer(down)
             win.sendEvent(down)
             // The queue's wrapper identifies the release, but its window location
             // is re-derived from the window server's and lands elsewhere by the
             // window's screen offset: a pointer tap pressed down and released
             // outside its button. Send this click's own release.
+            presenter.menus.pointer(up)
             if release.takeQueued(from: NSApp) != nil {
                 win.sendEvent(up)
             }
@@ -654,16 +657,23 @@ extension Agent {
                 }
             }()
             let t = ProcessInfo.processInfo.systemUptime
-            guard let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code),
-                  let up = NSEvent.keyEvent(with: .keyUp, location: .zero, modifierFlags: modifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: chars, charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code)
+            // Both character fields preserve Shift. AppKit interprets a
+            // Shift-Tab as BackTab (U+0019), not a forward Tab with flags.
+            let characters = code == 48 && modifiers.contains(.shift) ? "\u{19}" : chars
+            guard let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code),
+                  let up = NSEvent.keyEvent(with: .keyUp, location: .zero, modifierFlags: modifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)
             else { return ["error": "no key event"] }
             // This driver sends directly to NSWindow, bypassing NSApplication's
             // local monitor. Use the same session command router first.
             presenter.flushKeyViewLoop()
-            if phase != "up", presenter.dialogs.key(down) || presenter.shortcuts.perform(down) {
+            if phase != "up", presenter.menus.key(down) || presenter.dialogs.key(down) || presenter.shortcuts.perform(down) {
+                if phase != "down" { _ = presenter.menus.key(up) }
                 if phase == "down", let release = req["releaseKey"] as? String {
                     // A host command consumed the down; its up belongs to no module instance.
-                    keyReleases[release] = { ["phase": "up", "delivery": "recognized"] }
+                    keyReleases[release] = { [weak presenter] in
+                        _ = presenter?.menus.key(up)
+                        return ["phase": "up", "delivery": "recognized"]
+                    }
                 }
                 return ["typed": Int(v.id), "key": chord, "value": v.textArea?.string ?? v.field?.stringValue ?? ""]
             }

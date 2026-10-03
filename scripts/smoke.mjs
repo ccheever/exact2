@@ -54,9 +54,8 @@ const transcript = () => {
 };
 const pinned = resolve(ROOT, 'scripts/fixtures/transcript.txt');
 if (argv.includes('--record')) { writeFileSync(pinned, transcript()); console.log(`recorded ${pinned.replace(ROOT + '/', '')}`); process.exit(0); }
-
-const host = argv[0] === 'macos' || argv[0] === 'mac' ? 'macos' : argv[0] === 'web' ? 'web' : argv[0] === 'ios' ? 'ios' : argv[0] === 'linux' ? 'linux' : argv[0] === 'host' ? 'host' : argv[0] === 'host-ios' ? 'host-ios' : argv[0] === 'deploy' ? 'deploy' : argv[0] === 'svg' ? 'svg' : argv[0] === 'canvas' ? 'canvas' : argv[0] === 'motion' ? 'motion' : null;
-if (!host) { console.error('usage: bun scripts/smoke.mjs <web|macos|ios|linux|host|host-ios|deploy|svg|canvas|motion> [--app <name>] [--shot <png>] [--hosts linux,macos,ios] | --record'); process.exit(2); }
+const host = argv[0] === 'macos' || argv[0] === 'mac' ? 'macos' : argv[0] === 'web' ? 'web' : argv[0] === 'ios' ? 'ios' : argv[0] === 'linux' ? 'linux' : argv[0] === 'host' ? 'host' : argv[0] === 'host-ios' ? 'host-ios' : argv[0] === 'deploy' ? 'deploy' : argv[0] === 'svg' ? 'svg' : argv[0] === 'canvas' ? 'canvas' : argv[0] === 'motion' ? 'motion' : argv[0] === 'duo' ? 'duo' : null;
+if (!host) { console.error('usage: bun scripts/smoke.mjs <web|macos|ios|linux|host|host-ios|deploy|svg|canvas|motion|duo> [--app <name>] [--shot <png>] [--hosts linux,macos,ios] | --record'); process.exit(2); }
 
 // The two Apple presenters share one Canvases: children captured through the
 // surface, placements (LLP 1014 D2, D5) — what the canvas steps below assert.
@@ -71,6 +70,7 @@ const check = (ok, what) => { if (!ok) failures.push(what); return ok; };
 const t0 = Date.now();
 const byTestId = (t, id) => t.nodes.find((n) => n.props.testId === id);
 const box = (l, id) => l.nodes.find((n) => n.testId === id);
+if (host === 'duo') { const { duoSmoke } = await import('./smoke-duo.mjs'); const r = await duoSmoke({ open: (o) => openAgent({ device, phone, ...o }), check }); console.log(`duo smoke: ${r === 'unsupported' ? 'unsupported' : failures.length ? `${failures.length} failure(s)` : 'ok'} in ${((Date.now() - t0) / 1000).toFixed(1)} s`); for (const f of failures) console.error('  ' + f); process.exit(failures.length ? 1 : 0); }
 
 // A source-checkout invariant for destructive-looking smokes: names,
 // contents, modes, sizes, and mtimes are identical before and after, even
@@ -1174,7 +1174,7 @@ if (deckFixture) {
       let l = await f.layout();
       const env = l.env ?? {};
       const names = ['safe-area-inset-top', 'safe-area-inset-right', 'safe-area-inset-bottom', 'safe-area-inset-left', 'keyboard-inset-height'];
-      check(names.every((k) => typeof env[k] === 'number'), `layout.env is ${JSON.stringify(l.env)}`);
+      check(names.every((k) => typeof env[k] === 'number'), `layout.env is ${JSON.stringify(l.env)}`); check(['continuous', 'folded'].includes(env['device-posture']) && Number.isInteger(env['horizontal-viewport-segments']) && Number.isInteger(env['vertical-viewport-segments']) && Array.isArray(env['viewport-segments']), `layout.env reports the fold by its four names (LLP 1078 D7): ${JSON.stringify(l.env)}`);
       const [top, right, bottom, left] = names.map((k) => env[k] ?? 0);
       const viewport0 = l.viewport;
       const rootBox = box(l, 'root'), content = box(l, 'content');

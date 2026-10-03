@@ -350,6 +350,7 @@ impl Hints {
             width: self.width.unwrap_or(width),
             height: self.height.unwrap_or(height),
             preferences: page.preferences,
+            fold: page.fold,
         };
         let p = &mut viewport.preferences;
         p.dark = self.dark.unwrap_or(p.dark);

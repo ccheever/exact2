@@ -9,6 +9,7 @@ struct InlineText {
     private let lightRun: Run
     private let darkColor: [Double]?
     private let darkBackground: [Double]?
+    private let paint: RunPaintRows
     let hasSchemeColor: Bool
     let handlers: Set<String>
     let paints: Bool
@@ -23,7 +24,8 @@ struct InlineText {
         lightRun = value
         darkColor = style.darkColor
         darkBackground = style.darkBackground
-        hasSchemeColor = style.paired
+        paint = style.paint
+        hasSchemeColor = style.paired || style.paint.paired
         self.handlers = handlers; self.paints = paints
     }
 
@@ -31,6 +33,7 @@ struct InlineText {
     func run(dark: Bool) -> Run {
         var value = lightRun
         if dark { value.color = darkColor; value.background = darkBackground }
+        (value.shadow, value.stroke) = paint.resolve(dark: dark, color: value.color ?? [0, 0, 0, 255])
         return value
     }
 
@@ -41,12 +44,14 @@ struct InlineText {
         if let ratio = style["line_height"]?.number { height = CGFloat(Float(ratio) * size) }
         else if let px = style["line_height"]?.string, px.hasSuffix("px"), let value = Float(px.dropLast(2)) { height = CGFloat(value) }
         else { height = nil }
-        return Run(text: text, size: CGFloat(size), weight: Int(number("font_weight", 400)),
-                   family: Int(number("font_family")), italic: style["font_style"]?.string == "italic",
-                   lineHeight: height, letterSpacing: CGFloat(Float(number("letter_spacing"))),
-                   numeric: Int(number("font_variant_numeric")),
-                   color: style["text_color"]?.channels(dark: dark),
-                   decoration: style["text_decoration_line"]?.string ?? "", href: href)
+        var run = Run(text: text, size: CGFloat(size), weight: Int(number("font_weight", 400)),
+                      family: Int(number("font_family")), italic: style["font_style"]?.string == "italic",
+                      lineHeight: height, letterSpacing: CGFloat(Float(number("letter_spacing"))),
+                      numeric: Int(number("font_variant_numeric")),
+                      color: style["text_color"]?.channels(dark: dark),
+                      decoration: style["text_decoration_line"]?.string ?? "", href: href)
+        (run.shadow, run.stroke) = RunPaintRows(style).resolve(dark: dark, color: run.color ?? [0, 0, 0, 255])
+        return run
     }
 }
 
@@ -55,6 +60,8 @@ struct InlineStyle {
     var run = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
     var darkColor: [Double]?
     var darkBackground: [Double]?
+    /// `text-shadow` and `-webkit-text-stroke`, computed for the run (LLP 1077).
+    var paint = RunPaintRows()
     var paired = false
 }
 

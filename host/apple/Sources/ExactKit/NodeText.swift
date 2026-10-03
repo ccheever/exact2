@@ -94,6 +94,9 @@ extension NodeView {
             // Markdown source: the archive expands it into runs, the same
             // expansion the measurer used (LLP 1045 D3).
             runs = MarkupRuns.expand(source, base: textRun(""), color: channels("text_color", dark: night))
+            // `currentcolor` in a shadow or stroke is each piece's own colour.
+            let rows = RunPaintRows(style), own = channels("text_color", dark: night) ?? [0, 0, 0, 255]
+            for i in runs.indices { (runs[i].shadow, runs[i].stroke) = rows.resolve(dark: night, color: runs[i].color ?? own) }
         } else if let value = props["text"] {
             runs.append(InlineText.run(value, style: style, href: props["href"] ?? "", dark: night))
         } else {
@@ -119,8 +122,8 @@ extension NodeView {
                         overflowWrap: style["overflow_wrap"]?.string == "anywhere" ? 2 : style["overflow_wrap"]?.string == "break-word" ? 1 : 0, direction: rtl ? 1 : 0, whiteSpace: whiteSpace, strut: textRun(""))
         spec.ellipsis = lineClamp == 0 && clips && style["text_overflow"]?.string == "ellipsis"
         spec.source = source
-        spec.shadow = textShadow(dark: night, text: spec.color)
-        spec.stroke = textStroke(dark: night)
+        // One shadow over the paragraph when its runs agree (LLP 1077 D3).
+        spec.gatherShadows()
         cachedTextSpec = spec
         return spec
     }
@@ -128,28 +131,4 @@ extension NodeView {
     /// A shaped-text offset in the node's source text, and back (LLP 1053 G5).
     func sourceOffset(_ shaped: Int) -> Int { paragraphSpec().source.source(shaped) }
     func shapedOffset(_ source: Int) -> Int { paragraphSpec().source.collapsed(source) }
-}
-
-extension NodeView {
-    /// CSS `text-shadow` resolved for an appearance (LLP 1077 D3): offset,
-    /// blur, then the colour, `currentcolor` being the text's own.
-    func textShadow(dark: Bool, text: [Double]) -> [Double]? {
-        guard case .object(let o)? = style["text_shadow"], let offset = o["o"]?.numbers, offset.count == 2 else { return nil }
-        var color = text
-        if let c = o["c"] {
-            if let fixed = c.numbers, fixed.count == 4 { color = fixed }
-            else if let pair = c.array, pair.count == 2, let chosen = pair[dark ? 1 : 0].numbers, chosen.count == 4 { color = chosen }
-        }
-        return offset + [max(0, o["b"]?.number ?? 0)] + color
-    }
-}
-
-extension NodeView {
-    /// `-webkit-text-stroke` for an appearance (LLP 1077 D7): the width, and
-    /// the colour unless it is `currentcolor`.
-    func textStroke(dark: Bool) -> [Double]? {
-        let width = number("text_stroke_width")
-        guard width > 0 else { return nil }
-        return [width] + (channels("text_stroke_color", dark: dark) ?? [])
-    }
 }

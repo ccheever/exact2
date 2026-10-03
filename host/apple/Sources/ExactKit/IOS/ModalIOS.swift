@@ -22,18 +22,22 @@ private final class ModalController: UIViewController, UIGestureRecognizerDelega
               detentValue != value || sheet.detents.isEmpty else { return }
         detentValue = value
         let configure = {
-            if let value, let height = Double(value), height.isFinite, height > 0 {
-                // Authored points exclude the bottom safe area, which UIKit adds.
-                // One resting height leaves overscroll and dismissal with UIKit.
-                let identifier = UISheetPresentationController.Detent.Identifier("authored")
-                sheet.detents = [.custom(identifier: identifier) { context in
-                    min(CGFloat(height), context.maximumDetentValue)
-                }]
-                sheet.selectedDetentIdentifier = identifier
-            } else {
-                sheet.detents = [.large()]
+            // Authored points exclude the bottom safe area, which UIKit adds.
+            // One resting height leaves overscroll and dismissal with UIKit;
+            // several (`"300 large"`, LLP 1075.003 from James's review) make
+            // the sheet resizable among them, from the first, with its grabber.
+            let detents = (value ?? "").split(separator: " ").enumerated().compactMap { index, word -> UISheetPresentationController.Detent? in
+                switch word {
+                case "large": return .large()
+                case "medium": return .medium()
+                default:
+                    guard let height = Double(word), height.isFinite, height > 0 else { return nil }
+                    return .custom(identifier: .init("authored-\(index)")) { context in min(CGFloat(height), context.maximumDetentValue) }
+                }
             }
-            sheet.prefersGrabberVisible = false
+            sheet.detents = detents.isEmpty ? [.large()] : detents
+            sheet.selectedDetentIdentifier = sheet.detents.first?.identifier
+            sheet.prefersGrabberVisible = detents.count > 1
             sheet.prefersScrollingExpandsWhenScrolledToEdge = false
         }
         if viewIfLoaded?.window != nil { sheet.animateChanges(configure) }

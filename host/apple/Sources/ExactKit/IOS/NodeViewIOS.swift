@@ -545,6 +545,20 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         canvases?.scheduleCapture()
     }
 
+    /// The end the reader was following moved during their interaction:
+    /// settle there when it ends, as a browser's scroll anchoring does.
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { followEndIfOwed() }
+    }
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { followEndIfOwed() }
+    private func followEndIfOwed() {
+        guard followsEndAfterInteraction, let sv = scroll else { return }
+        followsEndAfterInteraction = false
+        let maximum = max(-sv.adjustedContentInset.top, sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)
+        if sv.contentOffset.y >= maximum - 80 { sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: maximum), animated: true) }
+        anchoredScrollTop = maximum
+    }
+
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         presenter?.collections.userIntent(id)
         retainedScrollTop = nil
@@ -574,7 +588,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         lastScrollEvent = point
         dispatchingScrollEvent = true
         defer { dispatchingScrollEvent = false }
-        presenter?.scroll(id, Double(point.x), Double(point.y))
+        presenter?.scroll(id, Double(point.x), Double(point.y + (scroll.map(scrollTopInset) ?? 0)))
     }
     private func queueScrollEvent() {
         guard handlers.contains("scroll"), !scrollEventQueued else { return }
@@ -650,10 +664,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
               let overlay = placed.superview, let canvas = overlay.superview as? NodeView else {
             return convert(windowPoint, from: nil)
         }
-        let inCanvas = canvas.convert(windowPoint, from: nil)
-        let inChild = NodeView.map(inv, inCanvas)
-        // The child's own points; then down to this node by the untransformed
-        // hierarchy.
+        // The canvas reached the same way (a placement above it included),
+        // then the child's own points, then down to this node.
+        let inChild = NodeView.map(inv, canvas.local(windowPoint))
         return convert(inChild, from: placed)
     }
 
@@ -671,7 +684,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// without them, and then the canvas itself is the hit. (`point` is in
     /// this view's own coordinates — UIKit's convention, not AppKit's.)
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        if placedAncestor?.placementHidden == true { return nil }
+        // UIKit's conversion already carries a box in space through its
+        // plane (LLP 1077 D8); a hidden back face is the host's to refuse.
+        if placedAncestor?.placementHidden == true || hidesBack() { return nil }
         if let clipPath, !clipPath.contains(point, using: clipRule) { return nil }
         if props["swipeIndicator"] == "true" { return nil }
         if isSurfaceControl, !inert, !isHidden, isUserInteractionEnabled, bounds.contains(point) { return self }
@@ -693,11 +708,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             if outsideX && (style["overflow_x"]?.string ?? "visible") != "visible" { return nil }
             if outsideY && (style["overflow_y"]?.string ?? "visible") != "visible" { return nil }
             for child in subviews.reversed() {
-                if child === (glassSlot ?? materialView), Materials.glass(materialKind), let contentView = materialView?.contentView {
+                if child === (glassSlot ?? materialView), Materials.glass(materialKind) || blurHostsChildren, let contentView = materialView?.contentView {
                     // The effect's UIKit bounds check must not hide authored
                     // children in CSS visible overflow. They remain descendants
                     // of the effect, so its recognizers still see their touches.
-                    for content in contentView.subviews.reversed() where content is NodeView {
+                    for content in contentView.subviews.reversed() where content is NodeView || content is GlassGroupView {
                         if let hit = content.hitTest(convert(point, to: content), with: event) { return hit }
                     }
                 }
@@ -730,11 +745,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     override var accessibilityFrame: CGRect {
         get {
             if placedAncestor?.placementHidden == true { return .zero }
-            guard let placed = placedAncestor, let h = placed.placement, let overlay = placed.superview, let canvas = overlay.superview as? NodeView else { return super.accessibilityFrame }
-            let corners = [CGPoint(x: 0, y: 0), CGPoint(x: bounds.width, y: 0), CGPoint(x: bounds.width, y: bounds.height), CGPoint(x: 0, y: bounds.height)].map { NodeView.map(h, placed.convert($0, from: self)) }
-            let xs = corners.map { $0.x }, ys = corners.map { $0.y }
-            let inCanvas = CGRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
-            return UIAccessibility.convertToScreenCoordinates(inCanvas, in: canvas)
+            guard placedAncestor?.placement != nil, let window else { return super.accessibilityFrame }
+            return UIAccessibility.convertToScreenCoordinates(drawnRect(bounds, in: window), in: window)
         }
         set { super.accessibilityFrame = newValue }
     }
@@ -862,6 +874,18 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         let y = prior.end ? maximum : min(maximum, max(minimum, top))
         let inactive = window == nil || presenter?.navigation.isInactiveRoute(containing: self) == true
         retainedScrollTop = !prior.end && top > maximum && (inactive || retainedScrollTop != nil) ? top : nil
+        // While the reader's finger is down or the fling is running, an
+        // absolute write would cut the pan, the deceleration or the rubber
+        // band (a batch every 250 ms yanked a bottom overscroll back to the
+        // end, mid-drag). Follow the end once the interaction is over, and
+        // keep a surviving row in place by moving the offset by its shift
+        // only, without clamping, as UIKit's own contentOffsetAdjustment does.
+        if sv.isTracking || sv.isDecelerating {
+            if prior.end { followsEndAfterInteraction = true }
+            else if top != prior.top { sv.contentOffset.y += top - prior.top }
+            anchoredScrollTop = sv.contentOffset.y
+            return
+        }
         if sv.contentOffset.y != y { sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: y), animated: false) }
         // UIKit quantizes the assigned offset. Compare its actual stored value
         // next time so that rounding cannot masquerade as a reader's scroll.
@@ -885,7 +909,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             if sv.contentOffset != target { sv.setContentOffset(target, animated: false) }
         }
         guard pendingScrollTop != nil || pendingScrollLeft != nil else { return }
-        let y = pendingScrollTop.map { CGFloat($0) == sv.contentOffset.y ? sv.contentOffset.y : min(max(CGFloat($0), -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height)) } ?? sv.contentOffset.y
+        // A collapsing title's scroller (LLP 1075.003 Stage 3): CSS counts
+        // from the bar's bottom, and its end is where the title rests
+        // collapsed (UIKit moves the offset by what the title gives up).
+        let inset = scrollTopInset(sv), slack = scrollOrigin > 0 ? max(0, i.top - scrollCollapsed) : 0
+        let y = pendingScrollTop.map { CGFloat($0) - inset == sv.contentOffset.y ? sv.contentOffset.y : min(max(CGFloat($0) - inset, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height - slack)) } ?? sv.contentOffset.y
         let x = pendingScrollLeft.map { CGFloat($0) == sv.contentOffset.x ? sv.contentOffset.x : min(max(CGFloat($0), -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width)) } ?? sv.contentOffset.x
         let target = CGPoint(x: x, y: y)
         // `scroll-behavior: smooth` (CSS) animates a prop write, never a
@@ -903,7 +931,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         }
     }
     func updateMaterial() {
-        defer { syncGlassSlot(); syncGlassGroup() }
+        defer { syncGlassSlot(); syncGlassGroup(); settleVibrancy() }
         let kind = materialRequest
         let supported = kind != nil
         let interactive = Materials.glass(kind) && handlers.contains("press") && !disabled
@@ -924,12 +952,13 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             for (index, child) in children.enumerated() { container.insertSubview(child, at: index) }
             presenter?.flats.containerChanged(id)
         }
-        guard let materialView else { return }
+        guard let materialView else { rehomeMaterialChildren(); return }
         if materialView.effect == nil || materialInteractive != interactive || backdropStale {
             materialView.effect = backdropEffect() ?? materialEffect(kind ?? "ultra-thin", interactive: interactive)
             materialInteractive = interactive
         }
         applyMaterialRadius()
+        rehomeMaterialChildren()
     }
     func applyMaterialRadius() {
         guard let materialView else { return }
@@ -1061,6 +1090,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // view styled before it was mounted did not have.
         if superview != nil, layer.zPosition != usedZIndex { layer.zPosition = usedZIndex }
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
+        // A box styled before it joined its parent learns its material now.
+        if superview != nil { syncVibrancy() }
     }
 
     func updateKeyboardDismissal() {
@@ -1080,6 +1111,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         applyBoxMask()
         applyFilter()
         updateMaterial()
+        syncVibrancy()
         syncScroll()
         applyAffordances()
         styleTextArea()
@@ -1113,6 +1145,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
                 addSubview(sv)
             }
             scroll = sv
+            scrollWritten = nil
             updateRefresh()
         }
         if !scrolls, let sv = scroll {
@@ -1123,14 +1156,20 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             }
             scroll = nil
         }
-        scroll?.decelerationRate = (style["scroll_snap_type"]?.string) == "x mandatory" ? .fast : .normal
         scroll?.scrollsX = ox == "scroll"
         scroll?.scrollsY = oy == "scroll"
         // UIKit's default indicator is already thin. CSS permits `thin`
         // to match `auto` on such platforms; `none` only hides the track.
+        // Indicators and deceleration are the app's once a hook sets them
+        // (LLP 1075.003 §3.5): written when what the style says changes.
+        let snap = style["scroll_snap_type"]?.string == "x mandatory"
         let indicators = (style["scrollbar_width"]?.string ?? "auto") != "none"
-        scroll?.showsHorizontalScrollIndicator = ox == "scroll" && indicators
-        scroll?.showsVerticalScrollIndicator = oy == "scroll" && indicators
+        if let sv = scroll, scrollWritten != "\(snap)|\(ox)|\(oy)|\(indicators)" {
+            scrollWritten = "\(snap)|\(ox)|\(oy)|\(indicators)"
+            sv.decelerationRate = snap ? .fast : .normal
+            sv.showsHorizontalScrollIndicator = ox == "scroll" && indicators
+            sv.showsVerticalScrollIndicator = oy == "scroll" && indicators
+        }
         updateKeyboardDismissal()
         fitScroll()
         // A waiting scroll clips as its scroll view would.
@@ -1138,7 +1177,10 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // A paragraph paints its own text, which a box would not clip.
         syncClipBox(clips && kind != "text" && shadowColor != nil && scroll == nil && overlay == nil && materialKind != "glass")
         clipsToBounds = clips && clipBox == nil
+        // A scroll's children, back out, go where a material holds them.
+        if materialView != nil, scroll == nil { rehomeMaterialChildren() }
         syncGlassGroup()
+        settleVibrancy()
     }
 
     /// A native swipe row's scroll container (`swipeContent`, LLP 1008 §9)

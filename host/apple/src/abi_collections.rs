@@ -1,7 +1,42 @@
-//! Collection geometry and logical text at the native ABI.
+//! Collection geometry, logical text and host covers at the native ABI.
 use super::*;
 
 impl<D: DataSource> Bridge<D> {
+    /// What native containers cover of boxes (LLP 1075.003 §3.5), from the
+    /// input buffer's first `len` bytes: LE records of (u32 view, u32 kind —
+    /// 0 clears, 1 edges, 2 whole — and f32 top, right, bottom, left), one
+    /// layout.
+    pub fn covers(&mut self, len: usize) -> u32 {
+        let bytes = self.input.get(..len).unwrap_or(&[]);
+        let out = if bytes.len() % 24 != 0 {
+            "{\"ops\":[],\"timers\":false,\"motion\":false,\"error\":\"covers: truncated record\"}"
+                .to_string()
+        } else {
+            let covers: Vec<_> = bytes
+                .chunks_exact(24)
+                .map(|r| {
+                    let word = |i: usize| [r[i], r[i + 1], r[i + 2], r[i + 3]];
+                    let edge = |i: usize| f32::from_le_bytes(word(i));
+                    let cover = match u32::from_le_bytes(word(4)) {
+                        1 => Some(exact_kernel::HostCover::Edges([
+                            edge(8),
+                            edge(12),
+                            edge(16),
+                            edge(20),
+                        ])),
+                        2 => Some(exact_kernel::HostCover::Whole),
+                        _ => None,
+                    };
+                    (u32::from_le_bytes(word(0)), cover)
+                })
+                .collect();
+            self.host
+                .as_mut()
+                .map_or_else(not_booted, |h| h.set_covers(&covers))
+        };
+        self.emit(out)
+    }
+
     /// Copy one current immutable region request; stale IDs return an error object.
     pub fn region_request(&mut self, id: u64, known_source: u64) -> u32 {
         let answer = self

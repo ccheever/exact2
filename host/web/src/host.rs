@@ -45,7 +45,6 @@ pub mod layers;
 mod reorder_drag;
 #[path = "transform_drag.rs"]
 mod transform_drag;
-
 /// A reply as the ABI carries it, as the runner's `Outcome`. Kind 8 is one
 /// message of a stream: `event`, `id` and `coalesced` as header lines, the
 /// data as the body (LLP 1016.000).
@@ -734,8 +733,8 @@ impl<D: DataSource> Host<D> {
         self.batch_for(&receipts, error.as_deref())
     }
 
-    /// The size and the display preferences, in one batch.
-    /// @ref LLP 1039 D2; LLP 1061 D4
+    /// The size, the display preferences and the fold, in one batch.
+    /// @ref LLP 1039 D2; LLP 1061 D4; LLP 1078 D6
     pub fn resize(&mut self, viewport: exact_runner::Viewport, now_ms: f64) -> String {
         let a = self.runner.advance_timed(now_ms);
         self.now_ms = a.now_ms.max(self.now_ms);
@@ -744,6 +743,7 @@ impl<D: DataSource> Host<D> {
         let answers = [
             self.runner.set_viewport(viewport.width, viewport.height),
             self.runner.set_preferences(viewport.preferences),
+            self.runner.set_fold(viewport.fold), // the fold rides the same report (LLP 1078 D6)
         ];
         for answer in answers {
             match answer {

@@ -97,6 +97,113 @@ final class TextPaintTests: XCTestCase {
         XCTAssertTrue(row.hasSchemeColor)
     }
 
+    /// LLP 1077 D3/D7 per inline run: a run's own computed `text-shadow`
+    /// and `-webkit-text-stroke` cross on its row (`none` and a zero width
+    /// as no row and 0), `currentcolor` is the run's own colour, and a
+    /// shadow only some runs have is theirs, drawn around their glyphs.
+    func testEachRunCarriesItsOwnShadowAndStroke() throws {
+        func row(_ id: UInt32, _ text: String, _ style: NodeStyle) throws -> InlineText {
+            try BatchFields(["id": .number(Double(id)), "parent": 1, "props": .object(["text": .string(text)]), "paint": true,
+                             "style": .object(style)]).inline()
+        }
+        let red: BatchValue = [229, 57, 53, 255]
+        let plain = try row(2, "Pl ", ["text_color": [33, 33, 33, 255], "text_stroke_width": 0, "text_stroke_color": "currentcolor"])
+        let glow = try row(3, "Glow", ["text_color": [[33, 33, 33, 255], [238, 238, 238, 255]],
+                                       "text_shadow": ["o": [0, 0], "b": 6, "c": red],
+                                       "text_stroke_width": 2, "text_stroke_color": "currentcolor"])
+        XCTAssertNil(plain.run(dark: false).shadow)
+        XCTAssertNil(plain.run(dark: false).stroke, "a zero width is no stroke")
+        XCTAssertEqual(glow.run(dark: false).shadow, [0, 0, 6, 229, 57, 53, 255])
+        XCTAssertEqual(glow.run(dark: false).stroke, [2, 33, 33, 33, 255], "currentcolor is the run's colour")
+        XCTAssertEqual(glow.run(dark: true).stroke, [2, 238, 238, 238, 255], "in its appearance")
+
+        var spec = Spec(runs: [plain.run(dark: false), glow.run(dark: false)], align: 0, lineClamp: 0, color: [33, 33, 33, 255])
+        spec.gatherShadows()
+        XCTAssertNil(spec.shadow, "the runs differ: each keeps its own")
+        let attributed = engine.attributed(spec)
+        XCTAssertNil(attributed.attribute(.exactShadow, at: 0, effectiveRange: nil))
+        XCTAssertNotNil(attributed.attribute(.exactShadow, at: 4, effectiveRange: nil))
+        XCTAssertNil(attributed.attribute(.strokeWidth, at: 0, effectiveRange: nil))
+        XCTAssertEqual(try XCTUnwrap(attributed.attribute(.strokeWidth, at: 4, effectiveRange: nil) as? Double), -2 / 16 * 100, accuracy: 1e-9)
+        XCTAssertNotEqual(TextPaint(spec), TextPaint(Spec(runs: [plain.run(dark: false), plain.run(dark: false)], align: 0, lineClamp: 0, color: [33, 33, 33, 255])))
+
+        // Painted: the glow reaches past "Glow" only, not around "Pl ".
+        let p = engine.paragraph(spec, width: 300)
+        let shot = paint(p, spec, size: CGSize(width: 120, height: 60))
+        func reddish(_ x: Int, _ y: Int) -> Bool {
+            let i = (y * shot.width + x) * 4
+            return shot.bytes[i + 3] > 0 && shot.bytes[i] > shot.bytes[i + 1] + 40
+        }
+        let split = Int(CTLineGetOffsetForStringIndex(p.lines[0], 3, nil).rounded())
+        let rows = 0..<shot.height
+        XCTAssertTrue((split..<shot.width).contains { x in rows.contains { reddish(x, $0) } }, "Glow casts its shadow")
+        XCTAssertFalse((0..<max(0, split - 10)).contains { x in rows.contains { reddish(x, $0) } }, "Pl casts none")
+
+        // Runs that agree keep the paragraph's one shadow and no attribute.
+        var same = spec
+        same.runs[0].shadow = same.runs[1].shadow
+        same.gatherShadows()
+        XCTAssertEqual(same.shadow, [0, 0, 6, 229, 57, 53, 255])
+        XCTAssertNil(engine.attributed(same).attribute(.exactShadow, at: 4, effectiveRange: nil))
+    }
+
+    /// A run's own shadow past the raster's 256-point ink allowance stays in
+    /// its pixels, as the layer shadow a uniform paragraph casts would, up
+    /// to `maxShadowReach`; a huge one is cut there (LLP 1077 D3).
+    func testARunShadowFarPastTheBoxStaysInTheRasterUpToItsCap() throws {
+        func frame(_ dx: Double) throws -> CGRect {
+            var far = run("Cd", weight: 800)
+            far.shadow = [dx, 0, 0, 255, 0, 0, 255]
+            var spec = Spec(runs: [run("Ab ", weight: 800), far], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+            spec.gatherShadows()
+            XCTAssertNil(spec.shadow, "mixed runs: the raster carries the shadow")
+            let p = engine.paragraph(spec, width: 200)
+            let box = CGRect(x: 0, y: 0, width: 200, height: 60)
+            let job = TextRasterJob(source: engine.attributed(spec), ranges: p.lines.map { CTLineGetStringRange($0) },
+                                    baselines: p.baselines, flush: 0, box: box, size: box.size, scale: 2)
+            return try XCTUnwrap(job.render()).frame
+        }
+        let cd = CGFloat(CTLineGetOffsetForStringIndex(engine.paragraph(
+            Spec(runs: [run("Ab ", weight: 800), run("Cd", weight: 800)], align: 0, lineClamp: 0, color: [0, 0, 0, 255]),
+            width: 200).lines[0], 3, nil))
+        XCTAssertGreaterThan(try frame(400).maxX, cd + 400, "the shadow of Cd, 400 points on, is in the pixels")
+        let cap = 200 + TextRasterJob.maxShadowReach
+        XCTAssertEqual(try frame(Double(cap - cd - 5)).maxX, cap, accuracy: 1, "a shadow across the cap is cut there")
+        XCTAssertLessThan(try frame(5000).maxX, cap, "one wholly past it adds nothing")
+    }
+
+    /// A tall paragraph rasters in bands clipped 32 points past its box; a
+    /// run's own shadow cast far sideways widens the band, under the cap,
+    /// and the band's height pays for the width (LLP 1077 D3).
+    func testABandAdmitsARunShadowCastSidewaysPastItsClip() throws {
+        var far = run("Cd", weight: 800)
+        far.shadow = [400, 0, 0, 255, 0, 0, 255]
+        var spec = Spec(runs: [run("Ab ", weight: 800), far], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        spec.gatherShadows()
+        let plain = Spec(runs: [run("Ab ", weight: 800), run("Cd", weight: 800)], align: 0, lineClamp: 0, color: [0, 0, 0, 255])
+        let port = CGRect(x: 0, y: 0, width: 100, height: 800)
+        let budget: CGFloat = 16 * 1024 * 1024
+        let before = TextRasterJob.band(plain, width: 100, port: port, scale: 3, maximumBytes: budget)
+        XCTAssertEqual(before.minX, -32, "no run shadow: the band as it was")
+        XCTAssertEqual(before.width, 164)
+        let band = TextRasterJob.band(spec, width: 100, port: port, scale: 3, maximumBytes: budget)
+        XCTAssertEqual(band.minX, -32, accuracy: 0.01, "a shadow cast right reaches no further left")
+        XCTAssertGreaterThan(band.maxX, 100 + 400)
+        XCTAssertLessThan(band.height, before.height, "a wider band is shorter for the same bytes")
+
+        let p = engine.paragraph(spec, width: 100)
+        let box = CGRect(x: 0, y: 0, width: 100, height: 5000)
+        let job = TextRasterJob(source: engine.attributed(spec), ranges: p.lines.map { CTLineGetStringRange($0) },
+                                baselines: p.baselines, flush: 0, box: box, size: box.size, scale: 3, clip: band, crop: true)
+        let cd = CGFloat(CTLineGetOffsetForStringIndex(engine.paragraph(plain, width: 100).lines[0], 3, nil))
+        XCTAssertGreaterThan(try XCTUnwrap(job.render()).frame.maxX, cd + 400, "the shadow is in the band's pixels")
+
+        far.shadow = [5000, 0, 40, 255, 0, 0, 255]
+        spec.runs[1] = far
+        let capped = TextRasterJob.band(spec, width: 100, port: port, scale: 3, maximumBytes: budget)
+        XCTAssertEqual(capped.maxX, 100 + 32 + TextRasterJob.maxShadowReach, accuracy: 0.01, "under the cap")
+    }
+
     /// A `line-clamp` paragraph rasters from its published geometry (LLP
     /// 1072 §8.1): a worker shapes the lines, the last one again from the
     /// range it broke at, ending in "…". The same pixels as layout's lines.

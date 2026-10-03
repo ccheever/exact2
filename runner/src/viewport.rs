@@ -1,7 +1,7 @@
 //! Layout viewport facts in CSS pixels (points on Apple), and the user's
 //! display preferences — what CSS's `@media` answers an app about the
 //! screen it is on.
-//! @ref LLP 1039 D1–D4; LLP 1061 D4; LLP 1069.000 D1
+//! @ref LLP 1039 D1–D4; LLP 1061 D4; LLP 1069.000 D1; LLP 1078 D2
 
 use exact_plan::Value;
 
@@ -15,6 +15,9 @@ pub const FIELDS: &[&str] = &[
     "prefersReducedTransparency",
     "prefersContrast",
     "prefersColorScheme",
+    "devicePosture",
+    "horizontalViewportSegments",
+    "verticalViewportSegments",
 ];
 
 /// The host's layout viewport, before the first settlement.
@@ -27,6 +30,130 @@ pub struct Viewport {
     /// The user's display preferences; a host that cannot read them says
     /// `no-preference`, as a browser does.
     pub preferences: Preferences,
+    /// The device's posture and the segments a fold makes of the viewport
+    /// (LLP 1078 D2); a host without a fold says `continuous`, 1 × 1.
+    pub fold: Fold,
+}
+
+/// The Device Posture API's postures: `folded` while the device forms an
+/// angle short of flat (a hinge partially open), `continuous` otherwise —
+/// flat, closed on one panel, or a device with no fold (LLP 1078 D1).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Posture {
+    /// `continuous`.
+    #[default]
+    Continuous,
+    /// `folded`.
+    Folded,
+}
+
+impl Posture {
+    /// CSS's keyword.
+    pub fn keyword(self) -> &'static str {
+        match self {
+            Posture::Continuous => "continuous",
+            Posture::Folded => "folded",
+        }
+    }
+
+    /// The posture by CSS keyword.
+    pub fn from_keyword(keyword: &str) -> Option<Posture> {
+        match keyword {
+            "continuous" => Some(Posture::Continuous),
+            "folded" => Some(Posture::Folded),
+            _ => None,
+        }
+    }
+
+    /// The hosts' wire form: 0 continuous, anything else folded.
+    pub fn from_bits(bits: u32) -> Posture {
+        if bits == 0 {
+            Posture::Continuous
+        } else {
+            Posture::Folded
+        }
+    }
+}
+
+/// `device-posture` and the viewport segment counts (Media Queries 5's
+/// `horizontal-viewport-segments` and `vertical-viewport-segments`), as
+/// `exactViewport()` answers them (LLP 1078 D1, D2). The segments' rects are
+/// the kernel's (`Kernel::set_segments`), not the app's: an app reads them
+/// as `env()` lengths.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Fold {
+    /// `devicePosture`.
+    pub posture: Posture,
+    /// `horizontalViewportSegments`: columns of segments, at least 1.
+    pub cols: u32,
+    /// `verticalViewportSegments`: rows of segments, at least 1.
+    pub rows: u32,
+}
+
+impl Default for Fold {
+    /// No fold: `continuous`, one segment — the bake's answer and every
+    /// flat host's.
+    fn default() -> Self {
+        Fold::FLAT
+    }
+}
+
+impl Fold {
+    /// `continuous`, 1 × 1.
+    pub const FLAT: Fold = Fold {
+        posture: Posture::Continuous,
+        cols: 1,
+        rows: 1,
+    };
+
+    /// Refuse a grid with no column or no row.
+    pub fn validate(self) -> Result<(), crate::RunnerError> {
+        if self.cols >= 1 && self.rows >= 1 {
+            Ok(())
+        } else {
+            Err(crate::RunnerError::InvalidViewport)
+        }
+    }
+}
+
+/// The segments a host without a fold makes for the agent's `prefer
+/// segments <cols>x<rows> [gap <points>]` (LLP 1078 D7): the viewport split
+/// evenly, the gap centred on each divider, as `[x, y, w, h]` row-major —
+/// none for 1 × 1. Refused by name: a zero count, a negative or non-finite
+/// gap, a gap wider than the viewport (the dividers leave no room).
+pub fn even_segments(
+    width: f64,
+    height: f64,
+    cols: u32,
+    rows: u32,
+    gap: f64,
+) -> Result<Vec<[f64; 4]>, String> {
+    if cols == 0 || rows == 0 {
+        return Err(format!("segments {cols}x{rows}: each count is at least 1"));
+    }
+    if !gap.is_finite() || gap < 0.0 {
+        return Err(format!("segments: gap {gap} is not a non-negative length"));
+    }
+    if cols * rows == 1 {
+        return Ok(Vec::new());
+    }
+    let span = |total: f64, n: u32| -> Result<f64, String> {
+        let bands = f64::from(n - 1) * gap;
+        if bands >= total {
+            return Err(format!(
+                "segments {cols}x{rows} gap {gap}: the gap is wider than the viewport ({width} × {height})"
+            ));
+        }
+        Ok((total - bands) / f64::from(n))
+    };
+    let (w, h) = (span(width, cols)?, span(height, rows)?);
+    let mut out = Vec::with_capacity((cols * rows) as usize);
+    for y in 0..rows {
+        for x in 0..cols {
+            out.push([f64::from(x) * (w + gap), f64::from(y) * (h + gap), w, h]);
+        }
+    }
+    Ok(out)
 }
 
 /// CSS's user-preference media features (Media Queries 5 §11) a host reads
@@ -140,6 +267,7 @@ impl Viewport {
             width,
             height,
             preferences: Preferences::default(),
+            fold: Fold::default(),
         }
     }
 
@@ -167,6 +295,9 @@ impl Viewport {
             }
             "prefersContrast" => Some(Value::str(self.preferences.contrast.keyword())),
             "prefersColorScheme" => Some(Value::str(self.preferences.color_scheme())),
+            "devicePosture" => Some(Value::str(self.fold.posture.keyword())),
+            "horizontalViewportSegments" => Some(Value::Number(f64::from(self.fold.cols))),
+            "verticalViewportSegments" => Some(Value::Number(f64::from(self.fold.rows))),
             _ => None,
         }
     }
@@ -174,7 +305,84 @@ impl Viewport {
 
 #[cfg(test)]
 mod tests {
-    use super::{Contrast, Preferences};
+    use super::{even_segments, Contrast, Fold, Posture, Preferences, Viewport, FIELDS};
+
+    #[test]
+    fn even_segments_split_the_viewport_with_the_gap_centred() {
+        assert!(even_segments(951.0, 669.0, 1, 1, 40.0).unwrap().is_empty());
+        assert_eq!(
+            even_segments(951.0, 669.0, 2, 1, 40.0).unwrap(),
+            vec![[0.0, 0.0, 455.5, 669.0], [495.5, 0.0, 455.5, 669.0]]
+        );
+        assert_eq!(
+            even_segments(100.0, 100.0, 2, 2, 0.0).unwrap(),
+            vec![
+                [0.0, 0.0, 50.0, 50.0],
+                [50.0, 0.0, 50.0, 50.0],
+                [0.0, 50.0, 50.0, 50.0],
+                [50.0, 50.0, 50.0, 50.0]
+            ]
+        );
+        assert!(even_segments(100.0, 100.0, 0, 1, 0.0).is_err());
+        assert!(even_segments(100.0, 100.0, 1, 0, 0.0).is_err());
+        assert!(even_segments(100.0, 100.0, 2, 1, 100.0).is_err());
+        assert!(even_segments(100.0, 100.0, 2, 1, -1.0).is_err());
+        assert!(even_segments(100.0, 100.0, 2, 1, f64::NAN).is_err());
+    }
+
+    /// LLP 1078 D2: the three fold fields fill by name; the bake answers
+    /// `continuous`, 1, 1.
+    #[test]
+    fn fold_fields_fill_by_name_and_default_flat() {
+        use exact_plan::Value;
+        let v = Viewport::default();
+        assert_eq!(v.fold, Fold::FLAT);
+        assert_eq!(v.field("devicePosture"), Some(Value::str("continuous")));
+        assert_eq!(
+            v.field("horizontalViewportSegments"),
+            Some(Value::Number(1.0))
+        );
+        assert_eq!(
+            v.field("verticalViewportSegments"),
+            Some(Value::Number(1.0))
+        );
+        let folded = Viewport {
+            fold: Fold {
+                posture: Posture::Folded,
+                cols: 2,
+                rows: 1,
+            },
+            ..v
+        };
+        assert_eq!(folded.field("devicePosture"), Some(Value::str("folded")));
+        assert_eq!(
+            folded.field("horizontalViewportSegments"),
+            Some(Value::Number(2.0))
+        );
+        for name in [
+            "devicePosture",
+            "horizontalViewportSegments",
+            "verticalViewportSegments",
+        ] {
+            assert!(FIELDS.contains(&name));
+        }
+        assert_eq!(Posture::from_keyword("folded"), Some(Posture::Folded));
+        assert_eq!(Posture::from_keyword("open"), None);
+        assert_eq!(Posture::from_bits(0), Posture::Continuous);
+        assert_eq!(Posture::from_bits(1).keyword(), "folded");
+        assert!(Fold {
+            cols: 0,
+            ..Fold::FLAT
+        }
+        .validate()
+        .is_err());
+        assert!(Fold {
+            rows: 0,
+            ..Fold::FLAT
+        }
+        .validate()
+        .is_err());
+    }
 
     #[test]
     fn bits_round_trip() {

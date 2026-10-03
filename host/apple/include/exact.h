@@ -425,6 +425,13 @@ uint32_t exact_list_text(ExactRuntime rt, uint32_t view, uint32_t first_len,
  * safe area itself. A change re-sends the style of every node that reads
  * them and lays out again. */
 uint32_t exact_insets(ExactRuntime rt, float top, float right, float bottom, float left);
+/* @ref LLP 1078 D4: the device's posture (0 continuous, 1 folded) and the
+ * viewport segments a fold makes — cols × rows rects, row-major, each
+ * x y w h as four little-endian floats in the input buffer (count rects;
+ * none for 1 × 1). Sets the kernel's env(viewport-segment-*) grid and
+ * exactViewport's three fields in one batch, as exact_resize sets the
+ * viewport and preferences together. */
+uint32_t exact_segments(ExactRuntime rt, uint32_t posture, uint32_t cols, uint32_t rows, uint32_t count);
 /* The presenter's appearance (nonzero: dark), which a light-dark() colour
  * under paint motion resolves by; a change transitions it (LLP 1062). */
 uint32_t exact_scheme(ExactRuntime rt, uint32_t dark);
@@ -442,6 +449,11 @@ uint32_t exact_intrinsic(ExactRuntime rt, uint32_t view, float width, float heig
 /* exact_intrinsic for several views under one layout: the input buffer's
  * first len bytes are LE records of (uint32 view, float width, float height). */
 uint32_t exact_intrinsics(ExactRuntime rt, size_t len);
+/* What native containers cover of boxes (LLP 1075.003 §3.5) under one
+ * layout: LE records of (uint32 view, uint32 kind — 0 clears, 1 edges,
+ * 2 whole — float top, right, bottom, left). Edges add to the box's
+ * padding; a whole box is laid out as display: none. */
+uint32_t exact_host_covers(ExactRuntime rt, size_t len);
 /* A select's options (LLP 1069.001 D5), JSON in the output buffer, not a
  * batch: {"options":[{"value","label","disabled"}],"chosen":index|null}. */
 uint32_t exact_select_options(ExactRuntime rt, uint32_t view);

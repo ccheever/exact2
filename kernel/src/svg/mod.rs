@@ -239,6 +239,7 @@ impl Paint {
             Paint::Color(ColorValue::LightDark(a, b)) => {
                 format!("light-dark({}, {})", hex(*a), hex(*b))
             }
+            Paint::Color(c @ ColorValue::System(_)) => Paint::Color(c.pair()).css(),
             Paint::Url(id, fallback) => {
                 let tail = match fallback {
                     PaintFallback::Default => String::new(),

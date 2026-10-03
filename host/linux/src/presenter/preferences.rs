@@ -81,6 +81,25 @@ impl<D: DataSource> Presenter<D> {
         self.after_commit()
     }
 
+    /// `devicePosture` and the viewport segments (LLP 1078 D7): what the
+    /// agent's `prefer posture` and `prefer segments` set on this host,
+    /// which has no fold of its own; kept for `layout.env`.
+    pub fn set_segments(
+        &mut self,
+        posture: exact_runner::Posture,
+        cols: u32,
+        rows: u32,
+        rects: Vec<exact_kernel::Rect>,
+    ) -> Option<String> {
+        let error = self.host.set_segments(posture, cols, rows, rects.clone());
+        if error.is_some() {
+            return error;
+        }
+        self.segments = rects;
+        self.dirty = true;
+        self.after_commit()
+    }
+
     /// The system's appearance, which `setScheme("system")` follows.
     pub fn set_system_scheme(&mut self, dark: bool) {
         self.scheme.1 = dark;

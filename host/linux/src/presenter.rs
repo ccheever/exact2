@@ -116,6 +116,9 @@ pub struct Presenter<D: DataSource> {
     /// The app's `setScheme` (`None`: follow the system) and the system's
     /// appearance, which only an agent sets here (LLP 1061 D5).
     pub(crate) scheme: (Option<bool>, bool),
+    /// The viewport segments the agent set (LLP 1078 D7), for `layout.env`;
+    /// the posture and counts are the runner's.
+    pub(crate) segments: Vec<exact_kernel::Rect>,
     /// A failed painter's blank fallback cannot bless an update generation.
     last_frame_succeeded: bool,
     pub(crate) display: display_frame::State,
@@ -399,6 +402,7 @@ impl<D: DataSource> Presenter<D> {
             boxes: Vec::new(),
             dirty: true,
             scheme: (None, false),
+            segments: Vec::new(),
             surfaces: Default::default(),
             module: None,
             painted: false,
@@ -920,14 +924,33 @@ impl<D: DataSource> Presenter<D> {
         let mut boxes: Vec<PaintedBox> = self.boxes().to_vec();
         boxes.sort_by_key(|b| b.id);
         let mut s = String::new();
-        // LLP 1012 §1: this host has no safe area or software keyboard.
+        // LLP 1012 §1: this host has no safe area or software keyboard; its
+        // fold is whatever the agent preferred (LLP 1078 D7).
+        let fold = self.host.runner().viewport().fold;
         let _ = write!(
             s,
-            "{{\"clock\":{},\"viewport\":{{\"w\":{},\"h\":{}}},\"env\":{{\"safe-area-inset-top\":0,\"safe-area-inset-right\":0,\"safe-area-inset-bottom\":0,\"safe-area-inset-left\":0,\"keyboard-inset-height\":0}},\"nodes\":[",
+            "{{\"clock\":{},\"viewport\":{{\"w\":{},\"h\":{}}},\"env\":{{\"safe-area-inset-top\":0,\"safe-area-inset-right\":0,\"safe-area-inset-bottom\":0,\"safe-area-inset-left\":0,\"keyboard-inset-height\":0,\"device-posture\":\"{}\",\"horizontal-viewport-segments\":{},\"vertical-viewport-segments\":{},\"viewport-segments\":[",
             num(clock),
             num(r2(vw)),
-            num(r2(vh))
+            num(r2(vh)),
+            fold.posture.keyword(),
+            fold.cols,
+            fold.rows
         );
+        for (i, r) in self.segments.iter().enumerate() {
+            if i > 0 {
+                s.push(',');
+            }
+            let _ = write!(
+                s,
+                "[{},{},{},{}]",
+                num(r2(r.x)),
+                num(r2(r.y)),
+                num(r2(r.width)),
+                num(r2(r.height))
+            );
+        }
+        s.push_str("]},\"nodes\":[");
         for (i, b) in boxes.iter().enumerate() {
             if i > 0 {
                 s.push(',');

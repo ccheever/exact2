@@ -1037,6 +1037,7 @@ impl<D: DataSource> Runner<D> {
                     value: crate::held::Held::new(value),
                     store_revision: self.store.revision(),
                     placeholder: false,
+                    kept_seed: false,
                 });
             }
             Target::Mutation(m) => {

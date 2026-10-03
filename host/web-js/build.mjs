@@ -83,6 +83,10 @@ const devLogic = [];
 // Native modules (LLP 1024): the app's module artifact, `modules/web/` beside
 // the page as `modules/`, with the web host's adapter (native.js).
 const pageModules = existsSync(resolve(appDir, 'modules/web/index.js'));
+// The page module's container hooks (LLP 1075.003.000 §3.7): their glue loads
+// only for a page module that exports one.
+const page = pageModules ? await import(resolve(appDir, 'modules/web/index.js')) : {};
+const containerHooks = ['navigation', 'route', 'routeEnded', 'tabs'].some(n => typeof page[n] === 'function');
 // The surfaces the app's GPU module draws (its crate's surface table); any
 // other surface is drawn by a data source on Canvas 2D, which the backend
 // refuses by name.
@@ -173,8 +177,9 @@ writeFileSync(resolve(gen, 'main.js'), [
     "inflight.n++;",
     `if (wait || ${mixed}) load().then(start); else { start(); requestAnimationFrame(() => setTimeout(load)); }`,
   ] : ['start();']),
+  ...(containerHooks ? ["requestAnimationFrame(() => requestAnimationFrame(() => import('./hooks.js').then(m => m.containers())));"] : []),
 ].join('\n'));
-for (const f of ['agent.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js', 'motion.js', 'transform.js', 'svg-transform.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['agent.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js', 'motion.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'hooks.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js']) cpSync(resolve(here, f), resolve(gen, f));
 // The web host's own pieces, loaded after first paint (motion.js, a pan, `select`, text flow, rt.js `pr`, native.js, rt.js `geo`).
 for (const f of ['motion-glue.js', 'input-glue.js', 'markup-editor.js', 'textflow-glue.js', 'timer-glue.js', 'presence-glue.js', 'native-glue.js', 'geometry-glue.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
 // Virtualized lists' browser half, the web host's own, loaded after first paint.

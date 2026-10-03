@@ -124,6 +124,7 @@ fn named(e: &StyleValueError, v: &exact_kernel::StyleValue) -> Option<&'static s
 pub(crate) fn describe(e: &StyleValueError) -> String {
     match e {
         StyleValueError::WrongKind { expected, .. } => format!("expected {expected}"),
+        StyleValueError::BadEnv { refusal, .. } => refusal.reason().into(),
         StyleValueError::UnknownEnumValue { style } => format!(
             "expected one of {}",
             style.enum_names().iter().map(|name| format!("{name:?}")).collect::<Vec<_>>().join(", ")
@@ -442,6 +443,7 @@ pub(crate) fn check_style_value(
         }
         // The compiler checks every row's grammar (LLP 1053.000 §2).
         exact_kernel::style::link_backdrop_filter();
+        exact_kernel::style::link_segments();
         exact_kernel::timeline::link();
         let literal = match value {
             expr if numeric_literal(expr).is_some() => {

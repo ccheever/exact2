@@ -65,6 +65,30 @@ fn line(source: &str, text: &str) -> usize {
     source.lines().position(|l| l.contains(text)).unwrap() + 1
 }
 
+#[test]
+fn resource_context_references_resolve_at_their_original_source_ranges() {
+    let source = r#"component App
+  state car = "train"
+  state minute = 0
+  derive sample = minute + 1
+  resource status = status(car) with max(sample, minute) as shape string
+  action tick
+    minute = minute + 1
+  action choose(value: string)
+    car = value
+  view
+    text status
+"#;
+    let f = Fixture::new("resource-context");
+    let graph = f.query(source);
+    for (name, kind) in [("car", "state"), ("sample", "derive"), ("minute", "state")] {
+        let refs = at_line(&graph, name, line(source, "resource status"));
+        assert_eq!(refs.len(), 1, "{name}: {graph}");
+        assert_eq!(target(&graph, refs[0])["kind"], kind);
+        assert_eq!(spelling(refs[0]), name);
+    }
+}
+
 const SOURCE: &str = r##"shape Item
   id: string
   label: string

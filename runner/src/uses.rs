@@ -75,11 +75,21 @@ pub enum Capability {
     /// geometry. Native hosts answer from the kernel; the web links a
     /// synchronous import the page answers.
     Geometry,
+    /// `env(viewport-segment-*)` lengths (LLP 1078 D3): the segment grammar,
+    /// resolution and wire decode, for a plan whose strings name a segment.
+    /// The fold's `exactViewport` fields are the core's.
+    Segments,
+    /// `data-*` words (LLP 1075.003 §3.3): a plan that binds `dataset`. The
+    /// web writes each word as its own attribute.
+    Dataset,
+    /// A navigation root's tabs (LLP 1075.003 §3.7): a plan that binds
+    /// `aria-controls`. The web's document shows each tab's stack.
+    Tabs,
 }
 
 impl Capability {
     /// Every capability, in bit order.
-    pub const ALL: [Capability; 19] = [
+    pub const ALL: [Capability; 22] = [
         Capability::Markdown,
         Capability::Motion,
         Capability::Collections,
@@ -99,6 +109,9 @@ impl Capability {
         Capability::Gradients,
         Capability::Grid,
         Capability::Geometry,
+        Capability::Segments,
+        Capability::Dataset,
+        Capability::Tabs,
     ];
 
     /// The name an entry, a refusal and a report use.
@@ -123,6 +136,9 @@ impl Capability {
             Capability::Gradients => "gradients",
             Capability::Grid => "grid",
             Capability::Geometry => "geometry",
+            Capability::Segments => "segments",
+            Capability::Dataset => "dataset",
+            Capability::Tabs => "tabs",
         }
     }
 
@@ -187,6 +203,12 @@ pub fn uses(plan: &Plan) -> Uses {
     if plan.router.is_some() {
         uses = uses.with(Capability::Router);
     }
+    // A segment length is a value, not a row: any string of the plan's
+    // naming one (a literal, a template's piece) can reach a dimension row,
+    // so the set is never smaller than what a run can reach.
+    if plan.strings.iter().any(|s| names_segment(s)) {
+        uses = uses.with(Capability::Segments);
+    }
     if !plan.surfaces.is_empty()
         || plan
             .resources
@@ -213,6 +235,8 @@ pub fn uses(plan: &Plan) -> Uses {
                     uses = uses.with(Capability::Collections);
                 }
                 Some(PropId::BackgroundMaterial) => uses = uses.with(Capability::Materials),
+                Some(PropId::Dataset) => uses = uses.with(Capability::Dataset),
+                Some(PropId::AccessibilityControls) => uses = uses.with(Capability::Tabs),
                 Some(PropId::Type) if can_be(binding, &|v| v == "file") => {
                     uses = uses.with(Capability::Picker);
                 }
@@ -415,4 +439,12 @@ fn constant_str<'a>(plan: &'a Plan, code: &[u8]) -> Option<&'a str> {
         }
         _ => None,
     }
+}
+
+/// Whether a string names a viewport segment variable (`viewport-segment-`
+/// anywhere in it): a byte scan, so the core carries no string searcher
+/// for it.
+fn names_segment(s: &str) -> bool {
+    const NAME: &[u8] = b"viewport-segment-";
+    s.as_bytes().windows(NAME.len()).any(|w| w == NAME)
 }

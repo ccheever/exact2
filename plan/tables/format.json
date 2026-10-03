@@ -160,6 +160,11 @@
           "codec": "range:args"
         },
         {
+          "name": "context",
+          "codec": "u16",
+          "_comment": "@ref LLP 1027.005 D6: trailing request-context argument count; 0 without `with`. Only persisted kept-answer admission compares the identifying prefix. All live requests, compiled values, carry and document checkpoints compare every argument. Must not exceed args.len."
+        },
+        {
           "name": "ty",
           "codec": "idx:types"
         },
@@ -1137,5 +1142,5 @@
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",
-  "_resources": "`reader` (formatVersion 4, LLP 1027 D4 as ruled 2026-09-03): the bake found this resource consulting the store. Its `initial` is then the empty-store answer \u2014 the fresh install's first frame, never a developer's session (the bake's store is empty by construction, LLP 1018 D4) \u2014 and the runner treats it as a placeholder: a kept answer from the device's store beats it, and a data source that is not ready at boot (a TypeScript module before its host loads it) is asked again at `data_ready`. LLP 1038 D5: initial_args is a canonical Value::List of evaluated bake arguments, empty bytes only without a compiled value; initial is reused only for equal arguments."
+  "_resources": "`reader` (formatVersion 4, LLP 1027 D4 as ruled 2026-09-03): the bake found this resource consulting the store. Its `initial` is then the empty-store answer \u2014 the fresh install's first frame, never a developer's session (the bake's store is empty by construction, LLP 1018 D4) \u2014 and the runner treats it as a placeholder: a kept answer from the device's store beats it, and a data source that is not ready at boot (a TypeScript module before its host loads it) is asked again at `data_ready`. LLP 1038 D5: initial_args is a canonical Value::List of evaluated bake arguments, empty bytes only without a compiled value; initial is reused only for equal arguments. LLP 1027.005 D6: context is the trailing request-context count (0 without `with`), bounded by args.len. The persisted kept entry stores only the identifying prefix; only its admission while the source is unready compares that prefix. Every live request, compiled value, carry and document checkpoint still compares the full arguments."
 }

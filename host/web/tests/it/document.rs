@@ -391,6 +391,65 @@ component App
     );
 }
 
+// @ref LLP 1075.003 §3.3, §3.7 — with tabs, each tab's panel holds its own
+// stack: the unselected panel is hidden and inert, its stack keeps its top
+// route; an app's data-* words are attributes of their own. Both are linked
+// by use, and a host without them refuses the plan by name.
+#[test]
+fn tabs_show_their_own_stacks_and_data_words_are_attributes() {
+    let src = r#"
+routes nav
+  tab home "/"
+    post "/post/:post"
+  tab second "/second"
+component App
+  action back
+    nav = back(nav)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" width="100%" height="100%"
+      each t in nav.tabs key=t.name
+        column role="tabpanel" id=`panel-${t.name}` testId=`panel-${t.name}`
+          each e in t.stack key=e.id
+            column navigationKey=`${e.id}` data-screen=e.name testId=`route-${e.name}`
+              text e.name
+      row role="tablist"
+        button role="tab" aria-controls="panel-home" testId="tab-home"
+          text "Home"
+        button role="tab" aria-controls="panel-second" testId="tab-second"
+          text "Second"
+"#;
+    let doc = host(src, Says(""), "/post/5").document().unwrap().root;
+    let tag = |test_id: &str| {
+        let at = doc.find(&format!("data-testid=\"{test_id}\"")).unwrap();
+        let start = doc[..at].rfind('<').unwrap();
+        doc[start..at + doc[at..].find('>').unwrap() + 1].to_owned()
+    };
+    let hidden = |t: &str| t.contains(" inert ") && t.contains("visibility:hidden;");
+    let shown = |t: &str| !t.contains("inert") && !t.contains("visibility");
+    let second = tag("panel-second");
+    assert!(hidden(&second), "{second}");
+    let home = tag("panel-home");
+    assert!(shown(&home), "{home}");
+    let root = tag("route-home");
+    assert!(hidden(&root), "{root}");
+    let post = tag("route-post");
+    assert!(shown(&post), "{post}");
+    assert!(post.contains("data-screen=\"post\""), "{post}");
+    // The other tab's stack shows its top route inside its hidden panel.
+    let other = tag("route-second");
+    assert!(shown(&other), "{other}");
+
+    let plan = contract::bake(contract::compile(src).unwrap(), Says("")).unwrap();
+    exact_web::link(exact_web::Linked::CORE);
+    let refused = Host::boot(&plan.encode(), Says(""), Default::default(), "/").map(|_| ());
+    exact_web::link(exact_web_capabilities::ALL);
+    let refused = format!("{:?}", refused.unwrap_err());
+    assert!(
+        refused.contains("dataset") && refused.contains("tabs"),
+        "{refused}"
+    );
+}
+
 #[test]
 fn a_head_is_the_pages_head_never_an_element() {
     let src = r#"

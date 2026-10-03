@@ -153,13 +153,13 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         while let view = ancestor {
             if let node = view as? NodeView, node.routeInert || node.props["inert"] == "true" { return true }
             if let node = view as? NodeView, presenter?.dialogs.owns(node) == true { break }
-            ancestor = view.superview
+            ancestor = presenter?.menus.parent(of: view) ?? view.superview
         }
         return false
     }
     /// `aria-hidden` on this node or an ancestor: off the accessibility tree.
     var accessibilityHiddenByProp: Bool {
-        sequence(first: self as NSView, next: { $0.superview }).contains { ($0 as? NodeView)?.props["accessibilityElementsHidden"] == "true" }
+        sequence(first: self as NSView, next: { self.presenter?.menus.parent(of: $0) ?? $0.superview }).contains { ($0 as? NodeView)?.props["accessibilityElementsHidden"] == "true" }
     }
     var disabled: Bool { props["disabled"] == "true" }
     /// The pointer's tracking, for a `hover` handler (LLP 1005 §3).
@@ -180,7 +180,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return props["semanticTag"] == "dialog" || isParagraph || tabbable
     }
     /// A native button's command is its own too (a confirmation's close row, LLP 1069.011.000 D9).
-    var pressable: Bool { handlers.contains("press") || (isButton && props["commandfor"] != nil) }
+    var pressable: Bool { handlers.contains("press") || (isButton && (props["commandfor"] != nil || props["popovertarget"] != nil)) }
     var tabbable: Bool {
         kind == "button" || isNativeButton || canvases?.wantsInput(id) == true || pressable || !handlers.isDisjoint(with: ["focus", "blur", "key"])
     }
@@ -213,7 +213,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard !inert else { return }
         if inputCanvas?.canvasInput?.key(event, down: true, source: self) == true { return }
         guard !disabled else { return }
-        if presenter?.dialogs.key(event) == true { return }
+        if presenter?.menus.key(event) == true || presenter?.dialogs.key(event) == true { return }
         if isParagraph, window?.firstResponder === self, event.modifierFlags.contains(.command) {
             switch event.charactersIgnoringModifiers?.lowercased() {
             case "a": presenter?.selection.selectAll(); return
@@ -688,19 +688,17 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return inv.map { $0 / det }
     }
 
-    /// A window point in this node's own coordinates — through the surface's
-    /// placement when this node is under a placed child (LLP 1014 D5), else
-    /// AppKit's own conversion.
+    /// A window point in this node's own coordinates: AppKit's conversion,
+    /// through each transformed box on the way (LLP 1077 D8), and through the
+    /// surface's placement when this node is under a placed child (LLP 1014
+    /// D5) — the canvas reached first the same way, then the child's points.
     func local(_ windowPoint: NSPoint) -> NSPoint {
         guard let placed = placedAncestor, let h = placed.placement, let inv = NodeView.invert(h),
               let overlay = placed.superview, let canvas = overlay.superview as? NodeView else {
-            return convert(windowPoint, from: nil)
+            return descend(windowPoint)
         }
-        let inCanvas = canvas.convert(windowPoint, from: nil)
-        let inChild = NodeView.map(inv, inCanvas)
-        // The child's own points; then down to this node by the untransformed
-        // hierarchy.
-        return convert(inChild, from: placed)
+        let inChild = NodeView.map(inv, canvas.local(windowPoint))
+        return descend(inChild, from: placed)
     }
 
     /// The placement changed: accessibility sees the new box.
@@ -716,7 +714,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// (children the surface left in place) is tested in AppKit's order
     /// without them, and then the canvas itself is the hit.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !inert, !isHiddenOrHasHiddenAncestor, placedAncestor?.placementHidden != true else { return nil }
+        guard !inert, !isHiddenOrHasHiddenAncestor, placedAncestor?.placementHidden != true, let point = spaceHit(point) else { return nil }
         if let clipPath, !clipPath.contains(convert(point, from: superview), using: clipRule) { return nil }
         if isSurfaceControl, bounds.contains(convert(point, from: superview)) { return self }
         func ordinary() -> NSView? {
@@ -750,11 +748,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// agent's `layout` reports.
     override func accessibilityFrame() -> NSRect {
         if placedAncestor?.placementHidden == true { return .zero }
-        guard let placed = placedAncestor, let h = placed.placement, let overlay = placed.superview, let canvas = overlay.superview as? NodeView, let win = window else { return super.accessibilityFrame() }
-        let corners = [NSPoint(x: 0, y: 0), NSPoint(x: bounds.width, y: 0), NSPoint(x: bounds.width, y: bounds.height), NSPoint(x: 0, y: bounds.height)].map { NodeView.map(h, placed.convert($0, from: self)) }
-        let xs = corners.map { $0.x }, ys = corners.map { $0.y }
-        let inCanvas = NSRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
-        return win.convertToScreen(canvas.convert(inCanvas, to: nil))
+        guard placedAncestor?.placement != nil, let win = window else { return super.accessibilityFrame() }
+        return win.convertToScreen(drawnRect(bounds))
     }
 
     /// Whether this view draws in the dark appearance. The **owning view's**

@@ -153,8 +153,11 @@ impl<'a> Reader<'a> {
 
     /// Read a dimension: kind byte (0 auto, 1 points, 2 percent, 3–6 an
     /// `env()` length at the top/right/bottom/left safe-area inset, 7 a
-    /// `calc()` of a percent and points) then `f32` (the points added to an
-    /// inset); a `calc()` carries its percent first and a second `f32`.
+    /// `calc()` of a percent and points, 8–13 a viewport segment's
+    /// width/height/top/left/bottom/right) then `f32` (the points added to
+    /// an inset or a segment length); a `calc()` carries its percent first
+    /// and a second `f32`; a segment length carries its two index bytes,
+    /// `x` then `y`, after the `f32` (LLP 1078 D3).
     pub fn dimension(
         &mut self,
         style: StyleId,
@@ -173,6 +176,12 @@ impl<'a> Reader<'a> {
             2 => Dimension::Percent(value),
             3..=6 => Dimension::Env(Edge::from_index(kind - 3).expect("3..=6 is an edge"), value),
             7 => Dimension::Calc(value, self.f32()?),
+            // Linked by use (LLP 1078 D3): unknown to an artifact whose plan names no segment.
+            8..=13 => {
+                let (x, y) = (self.u8()?, self.u8()?);
+                crate::style::env::decode(kind, value, x, y)
+                    .ok_or(DecodeError::UnknownDimensionKind(kind))?
+            }
             other => return Err(DecodeError::UnknownDimensionKind(other)),
         };
         if kind != 0 && !dim.is_finite() {
@@ -202,6 +211,12 @@ impl<'a> Reader<'a> {
         match self.u8()? {
             0 => Ok(ColorValue::Fixed(self.color()?)),
             1 => Ok(ColorValue::LightDark(self.color()?, self.color()?)),
+            2 => match self.u8()? {
+                i if (i as usize) < crate::style::symbols::SYSTEM_COLORS.len() => {
+                    Ok(ColorValue::System(i))
+                }
+                _ => Err(DecodeError::BadColorValue(2)),
+            },
             other => Err(DecodeError::BadColorValue(other)),
         }
     }
@@ -475,6 +490,12 @@ impl Writer {
                 self.u8(3 + edge as u8);
                 self.f32(v);
             }
+            Dimension::Segment(var, x, y, v) => {
+                self.u8(8 + var as u8);
+                self.f32(v);
+                self.u8(x);
+                self.u8(y);
+            }
             Dimension::Percent(v) => {
                 self.u8(2);
                 self.f32(v);
@@ -509,6 +530,10 @@ impl Writer {
                 self.u8(1);
                 self.color(light);
                 self.color(night);
+            }
+            ColorValue::System(i) => {
+                self.u8(2);
+                self.u8(i);
             }
         }
     }
@@ -621,7 +646,7 @@ mod tests {
         // build.rs hashes the production codec sources beside the canonical
         // schema. The literal makes an accidental removal of that coupling a
         // test failure whenever the byte snapshot above is intentionally moved.
-        assert_eq!(SCHEMA_DIGEST, 0x7eed_13a4_a86c_5fef);
+        assert_eq!(SCHEMA_DIGEST, 0x63d7_c206_0a4a_dceb);
     }
 
     #[test]
@@ -677,10 +702,10 @@ mod tests {
                 Ok(Dimension::Env(*edge, i as f32 * 1.5))
             );
         }
-        let mut r = Reader::new(&[8u8, 0, 0, 0, 0]);
+        let mut r = Reader::new(&[14u8, 0, 0, 0, 0]);
         assert_eq!(
             r.dimension(StyleId::Width, true),
-            Err(DecodeError::UnknownDimensionKind(8))
+            Err(DecodeError::UnknownDimensionKind(14))
         );
     }
 

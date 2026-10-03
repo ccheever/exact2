@@ -49,6 +49,47 @@ component Row
 "#;
 
 #[test]
+fn resource_context_appends_expressions_after_the_call_arguments() {
+    let src = r#"component App
+  resource plain = source(car, minute) as shape Status
+  resource single = source(car) with minute as shape Status
+  resource empty = source() with minute as shape Status
+  resource several = source(car, account) with max(minute, 1), (ready ? 2 : 3), some(clock) as shape Status else preview("cached")
+  view
+    text "ready"
+"#;
+    let file = parse(src).unwrap();
+    let resources = &file.components[0].resources;
+    assert_eq!(resources[0].identity, None);
+    assert_eq!(resources[0].args.len(), 2);
+    assert_eq!(resources[1].identity, Some(1));
+    assert_eq!(resources[1].args.len(), 2);
+    assert_eq!(resources[2].identity, Some(0));
+    assert_eq!(resources[2].args.len(), 1);
+    let r = &resources[3];
+    assert_eq!(r.identity, Some(2));
+    assert_eq!(r.args.len(), 5);
+    assert!(matches!(&r.args[0], Expr::Ident(name, _) if name == "car"));
+    assert!(matches!(&r.args[1], Expr::Ident(name, _) if name == "account"));
+    assert!(matches!(&r.args[2], Expr::Call(name, args, _) if name == "max" && args.len() == 2));
+    assert!(matches!(&r.args[3], Expr::Ternary(..)));
+    assert!(matches!(&r.args[4], Expr::Some(..)));
+    let placeholder = r.placeholder.as_ref().unwrap();
+    assert_eq!(placeholder.source, "preview");
+    assert_eq!(placeholder.args.len(), 1);
+}
+
+#[test]
+fn resource_context_requires_an_expression_after_with_and_each_comma() {
+    for context in ["", ", minute", "minute,", "minute,, clock"] {
+        let src = format!(
+            "component App\n  resource value = source() with {context} as shape number\n  view\n    text value\n"
+        );
+        assert!(parse(&src).is_err(), "accepted {context:?}");
+    }
+}
+
+#[test]
 fn the_app_slice_parses_to_the_expected_tree() {
     let file = parse(APP).unwrap();
     assert_eq!(file.shapes.len(), 1);

@@ -263,15 +263,24 @@ fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
 /// names, grouped as LLP 1069.007 D2 groups them — `media`, the display
 /// preferences `exactViewport()` answers (the scheme is also the system
 /// appearance `setScheme("system")` follows); `page`, what `exactPage()`
-/// answers and the root font size. A fact not named stays as it is;
-/// nothing applies unless all are known.
+/// answers and the root font size; `fold` (LLP 1078 D7), the posture and
+/// the segment grid this host, having no fold, makes by splitting its
+/// viewport evenly with the gap centred on each divider. A fact not named
+/// stays as it is; nothing applies unless all are known.
 fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     let request: serde_json::Value = serde_json::from_str(line).unwrap_or_default();
     let empty = serde_json::Map::new();
     let group = |name: &str| request.get(name).and_then(|m| m.as_object());
-    let (media, page_facts) = (group("media"), group("page"));
-    if media.is_none() && page_facts.is_none() {
-        return error("prefer needs media or page: {\"prefers-reduced-motion\": \"reduce\", …}");
+    let (media, page_facts, fold) = (group("media"), group("page"), group("fold"));
+    if media.is_none() && page_facts.is_none() && fold.is_none() {
+        return error(
+            "prefer needs media, page or fold: {\"prefers-reduced-motion\": \"reduce\", …}",
+        );
+    }
+    if let Some(fold) = fold {
+        if let Some(e) = prefer_fold(p, fold) {
+            return e;
+        }
     }
     let (media, page_facts) = (media.unwrap_or(&empty), page_facts.unwrap_or(&empty));
     let mut preferences = p.host().runner().viewport().preferences;
@@ -341,6 +350,7 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         p.host().runner().page(),
     );
     let keyword = |on: bool| if on { "reduce" } else { "no-preference" };
+    let fold = p.host().runner().viewport().fold;
     serde_json::json!({"media": {
         "prefers-reduced-motion": keyword(preferences.reduced_motion),
         "prefers-reduced-transparency": keyword(preferences.reduced_transparency),
@@ -351,8 +361,78 @@ fn prefer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         "online": page.on_line,
         "can-share": page.can_share,
         "root-font-size": p.host().runner().root_font_size(),
+    }, "fold": {
+        "device-posture": fold.posture.keyword(),
+        "horizontal-viewport-segments": fold.cols,
+        "vertical-viewport-segments": fold.rows,
+        "viewport-segments": p.segments.iter().map(|r| [r.x, r.y, r.width, r.height]).collect::<Vec<_>>(),
     }})
     .to_string()
+}
+
+/// The `fold` group: `posture` (`folded` | `continuous`), `cols` and `rows`
+/// (each at least 1), `gap` (points, 0 by default); the rects are the even
+/// split of the viewport. Each refusal names its fact (LLP 1078 D10).
+fn prefer_fold<D: DataSource>(
+    p: &mut Presenter<D>,
+    fold: &serde_json::Map<String, serde_json::Value>,
+) -> Option<String> {
+    let current = p.host().runner().viewport().fold;
+    let (mut posture, mut cols, mut rows, mut gap) =
+        (current.posture, current.cols, current.rows, 0.0);
+    for (name, value) in fold {
+        let count = || value.as_u64().and_then(|n| u32::try_from(n).ok());
+        match name.as_str() {
+            "posture" => match value.as_str().and_then(exact_runner::Posture::from_keyword) {
+                Some(p) => posture = p,
+                None => {
+                    return Some(error(&format!(
+                        "prefer: posture: {value} is folded or continuous"
+                    )))
+                }
+            },
+            "cols" => match count() {
+                Some(n) => cols = n,
+                None => {
+                    return Some(error(&format!(
+                        "prefer: segments: {value} columns is not a count"
+                    )))
+                }
+            },
+            "rows" => match count() {
+                Some(n) => rows = n,
+                None => {
+                    return Some(error(&format!(
+                        "prefer: segments: {value} rows is not a count"
+                    )))
+                }
+            },
+            "gap" => match value.as_f64() {
+                Some(g) => gap = g,
+                None => {
+                    return Some(error(&format!(
+                        "prefer: segments: gap {value} is not a length"
+                    )))
+                }
+            },
+            _ => {
+                return Some(error(&format!(
+                    "prefer: {name} is not a fold fact this host sets"
+                )))
+            }
+        }
+    }
+    let (w, h) = p.viewport();
+    let rects =
+        match exact_runner::viewport::even_segments(f64::from(w), f64::from(h), cols, rows, gap) {
+            Ok(rects) => rects
+                .into_iter()
+                .map(|[x, y, w, h]| exact_kernel::Rect::new(x as f32, y as f32, w as f32, h as f32))
+                .collect(),
+            Err(e) => return Some(error(&format!("prefer: {e}"))),
+        };
+    p.set_segments(posture, cols, rows, rects)
+        .map(|e| error(&e))
 }
 
 /// Actual presenter resize and CPU/GPU frame construction before replying.

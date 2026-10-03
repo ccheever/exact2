@@ -62,16 +62,17 @@ pub use error::{
 };
 pub use generated::*;
 pub use id::{AxisOffer, Frame, NodeFlags, NodeKey, Offer, ViewId};
-pub use kernel::{Kernel, NodeRef, PresentedHeight};
+pub use kernel::{HostCover, Kernel, NodeRef, PresentedHeight};
 pub use layout::LayoutReceipt;
 pub use motion::{motion_node, MotionSync};
 pub use node::NodeFacts;
 pub use props::{PropList, PropValue};
 pub use sorted::{SortedMap, SortedSet};
 pub use style::{
-    uses_env, BoxShadow, Color, ColorValue, Dimension, Edge, Env, GridFitContent, GridLine,
-    GridPlacement, GridRepeat, GridRepeatCount, GridTrack, GridTrackComponent, GridTrackMax,
-    GridTrackMin, GridTracks, LineHeight, RowValue, StyleValue, Transitions, Vec2,
+    link_segments, uses_env, BoxShadow, Color, ColorValue, Dimension, Edge, Env, EnvRefusal,
+    GridFitContent, GridLine, GridPlacement, GridRepeat, GridRepeatCount, GridTrack,
+    GridTrackComponent, GridTrackMax, GridTrackMin, GridTracks, LineHeight, Rect, RowValue,
+    SegmentVar, StyleValue, Transitions, Vec2,
 };
 pub use text::case::link as link_text_transform;
 pub use text::{
