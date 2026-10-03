@@ -634,9 +634,27 @@ pub fn restyle_presented(last: &str, env: &Env, shown: &Shown) -> String {
     let over = entries(&over);
     let key = |e: &str| e.split_once("\":").map(|(k, _)| k.to_owned());
     let taken: Vec<_> = over.iter().map(|e| key(e)).collect();
+    // A colour the motion now paints is no longer the system colour it was
+    // (LLP 1077 D13): its row leaves `system_colors`, the others stay.
     let kept = entries(if last.is_empty() { "{}" } else { last })
         .into_iter()
-        .filter(|e| !taken.contains(&key(e)));
+        .filter(|e| !taken.contains(&key(e)))
+        .filter_map(|e| {
+            match e
+                .strip_prefix("\"system_colors\":{")
+                .and_then(|r| r.strip_suffix('}'))
+            {
+                Some(rows) => {
+                    let rows: Vec<_> = rows
+                        .split(',')
+                        .filter(|r| !taken.contains(&key(r)))
+                        .collect();
+                    (!rows.is_empty()).then(|| format!("\"system_colors\":{{{}}}", rows.join(",")))
+                }
+                None => Some(e.to_string()),
+            }
+        });
+    let over = over.into_iter().map(str::to_string);
     format!("{{{}}}", kept.chain(over).collect::<Vec<_>>().join(","))
 }
 
@@ -988,5 +1006,34 @@ mod flow_tests {
             r#"{"background_image":{"radial":[1,0,0,10,25,0],"stops":[0,0,0,0,255,1,255,255,255,255]}}"#
         );
         assert_eq!(json("none"), "{}");
+    }
+
+    #[test]
+    fn a_moving_colour_leaves_system_colours_and_the_rest_stay() {
+        // LLP 1077 D13: the row the motion paints is no longer a system
+        // colour; an untouched one keeps its name.
+        let last = r#"{"text_color":[[0,0,0,255],[255,255,255,255]],"background_color":[[120,120,128,51],[120,120,128,92]],"system_colors":{"text_color":"-apple-system-label","background_color":"-apple-system-fill"}}"#;
+        let mut shown = Shown::default();
+        shown.set(
+            Property::BackgroundColor,
+            Some(exact_motion::Value::rgba8(255, 0, 0, 128)),
+        );
+        let json: serde_json::Value =
+            serde_json::from_str(&restyle_presented(last, &Env::default(), &shown)).unwrap();
+        assert_eq!(
+            json["system_colors"],
+            serde_json::json!({"text_color": "-apple-system-label"})
+        );
+        assert_eq!(
+            json["background_color"],
+            serde_json::json!([255, 0, 0, 128])
+        );
+        shown.set(
+            Property::Color,
+            Some(exact_motion::Value::rgba8(0, 0, 255, 255)),
+        );
+        let json: serde_json::Value =
+            serde_json::from_str(&restyle_presented(last, &Env::default(), &shown)).unwrap();
+        assert!(json.get("system_colors").is_none(), "{json}");
     }
 }

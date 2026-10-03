@@ -699,7 +699,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
                     // The effect's UIKit bounds check must not hide authored
                     // children in CSS visible overflow. They remain descendants
                     // of the effect, so its recognizers still see their touches.
-                    for content in contentView.subviews.reversed() where content is NodeView {
+                    for content in contentView.subviews.reversed() where content is NodeView || content is GlassGroupView {
                         if let hit = content.hitTest(convert(point, to: content), with: event) { return hit }
                     }
                 }
@@ -926,7 +926,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             for (index, child) in children.enumerated() { container.insertSubview(child, at: index) }
             presenter?.flats.containerChanged(id)
         }
-        guard let materialView else { return }
+        guard let materialView else { rehomeMaterialChildren(); return }
         if materialView.effect == nil || materialInteractive != interactive || backdropStale {
             materialView.effect = backdropEffect() ?? materialEffect(kind ?? "ultra-thin", interactive: interactive)
             materialInteractive = interactive
@@ -1142,6 +1142,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // A paragraph paints its own text, which a box would not clip.
         syncClipBox(clips && kind != "text" && shadowColor != nil && scroll == nil && overlay == nil && materialKind != "glass")
         clipsToBounds = clips && clipBox == nil
+        // A scroll's children, back out, go where a material holds them.
+        if materialView != nil, scroll == nil { rehomeMaterialChildren() }
         syncGlassGroup()
     }
 
