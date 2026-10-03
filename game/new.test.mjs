@@ -467,13 +467,26 @@ test('an empty Cargo cache permits adapter generation and refuses offline resolu
 });
 
 
+test('a new game names its Rust type after the game, everywhere the template does', async () => {
+  const {gameDefaults}=await import('./app/shells.mjs');
+  const parent=realpathSync(mkdtempSync(resolve(tmpdir(),'game-new-type-'))), app=resolve(parent,'my-2d-game');
+  try {
+    createGame(app);
+    assert.equal(gameDefaults(app).game.type,'My2dGame');
+    const files=readdirSync(app,{recursive:true}).filter(file=>statSync(resolve(app,file)).isFile());
+    for(const file of files) assert.doesNotMatch(readFileSync(resolve(app,file),'utf8'),/SmallGame|small[-_]game|Small game/,file);
+    assert.match(readFileSync(resolve(app,'logic/tests/sim.rs'),'utf8'),/use my_2d_game_logic::\{Beacon, Options, My2dGame\};/);
+    assert.match(readFileSync(resolve(app,'app.contract'),'utf8'),/^component My2dGame$/m);
+  } finally {rmSync(parent,{recursive:true,force:true});}
+});
+
 test('E10 compact authored manifest survives two bakes byte for byte', async () => {
   const {gameDefaults,gameShells}=await import('./app/shells.mjs');
   const parent=realpathSync(mkdtempSync(resolve(tmpdir(),'e10-manifest-'))), app=resolve(parent,'my-game');
   try {
     createGame(app);
     const path=resolve(app,'app.json');
-    const authored=JSON.stringify({app:{name:'My Game',id:'org.example.my-game'},game:{crate:'my-game-logic',type:'SmallGame'},host:{macos:{window:{width:960}}}},null,2)+'\n';
+    const authored=JSON.stringify({app:{name:'My Game',id:'org.example.my-game'},game:{crate:'my-game-logic',type:'MyGame'},host:{macos:{window:{width:960}}}},null,2)+'\n';
     writeFileSync(path,authored);
     for(let i=0;i<2;i++) {
       const manifest=gameDefaults(app);
