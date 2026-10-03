@@ -77,6 +77,27 @@ enum TouchLog {
 }
 
 extension Agent {
+    /// Why a real touch on `v` would not test what a person's app does, or
+    /// nil: under the agent the host substitutes some presentations, and
+    /// their taps run through activation (LLP 1080.000 D7, stage 3).
+    func substituted(_ v: NodeView) -> String? {
+        if presenter.menus.ownsConfirmationNode(v) { return "is a confirmation's action (UIKit's alert)" }
+        if presenter.swipeActions.ownsAction(v.id) { return "is a native swipe action" }
+        if presenter.menus.agentPainted(v) { return "goes through the agent's painted popovers" }
+        let nav = presenter.navigation
+        if nav.tabController != nil, let list = nav.adoptedTablist.flatMap({ presenter.views[$0] }), v === list || v.isDescendant(of: list) {
+            return "is in the authored tablist the agent shows in place of UIKit's tab bar"
+        }
+        for controller in nav.allNavigations where nav.stacks[ObjectIdentifier(controller)]?.showsBar == true {
+            for case let route as RouteController in controller.viewControllers {
+                if let header = HeaderShape(route: route.node, back: nil)?.header, v === header || v.isDescendant(of: header) {
+                    return "is in the authored header the agent shows in place of UIKit's navigation bar"
+                }
+            }
+        }
+        return nil
+    }
+
     /// The scene's interface orientation, by UIKit's name for it.
     static func orientation(_ scene: UIWindowScene?) -> String {
         switch scene?.effectiveGeometry.interfaceOrientation {
@@ -105,12 +126,13 @@ extension Agent {
         guard UIApplication.shared.applicationState == .active, scene?.activationState == .foregroundActive, win.isKeyWindow else {
             return ["error": "tap #\(v.id): the app is not the foreground, key window"]
         }
-        if presenter.menus.ownsConfirmationNode(v) || presenter.swipeActions.ownsAction(v.id) {
-            return ["error": "unsupported: tap #\(v.id) is a native item; native presentation lands at LLP 1080.000 stage 3"]
-        }
-        let b = box(v), vp = presenter.viewport
-        let offset = req["aim"] as? [String: Any]
-        let local = CGPoint(x: offset?["x"] as? Double ?? Double(b.midX), y: offset?["y"] as? Double ?? Double(b.midY))
+        if let why = substituted(v) { return ["error": "unsupported: tap #\(v.id) \(why); native presentation under a real touch lands at LLP 1080.000 stage 3"] }
+        // The point: the request's, else the middle of the target — of a
+        // visible shaped fragment for an inline id, as `tap` aims.
+        var at = req
+        if let offset = req["aim"] as? [String: Any] { at["x"] = offset["x"]; at["y"] = offset["y"] }
+        guard let local = tapPoint(at, node: v) else { return ["error": "tap #\(req["id"] ?? v.id): no visible text fragment; scroll it into view first"] }
+        let vp = presenter.viewport
         let p = vp.convert(CGPoint(x: local.x + vp.contentOffset.x, y: local.y + vp.contentOffset.y), to: nil)
         let seen = win.hitTest(p, with: nil)
         if !CGRect(origin: .zero, size: vp.bounds.size).contains(local) || seen == nil {

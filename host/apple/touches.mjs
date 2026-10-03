@@ -8,7 +8,7 @@
 //
 // Simulator only so far; a phone is LLP 1080.000 stage 4.
 import { spawn, spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -71,33 +71,73 @@ function plist(object) {
   return `<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0">${value(object)}</plist>\n`;
 }
 
-/** The lock that makes one session the device's only toucher (D2); a dead holder's lock is taken over. */
+/** `promise`, or `onTimeout()`'s value after `ms`; the timer is cleared either way. */
+async function within(promise, ms, onTimeout) {
+  let timer;
+  try { return await Promise.race([promise, new Promise((r) => { timer = setTimeout(() => r(onTimeout()), ms); })]); }
+  finally { clearTimeout(timer); }
+}
+
+const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+
+/**
+ * The lock that makes one session the device's only toucher (D2). Taken
+ * atomically (an exclusive create) with a token naming this session; any
+ * live holder refuses, this process included, so two sessions in one
+ * process cannot share a device either. A dead holder's lock is taken over
+ * under an exclusive takeover file, re-read before it is removed. Released
+ * only while it still holds this session's token.
+ */
 function lock(udid) {
   const path = resolve(tmpdir(), `exact-touches-${udid}.lock`);
-  if (existsSync(path)) {
-    const holder = Number(readFileSync(path, 'utf8'));
-    let alive = false;
-    try { process.kill(holder, 0); alive = holder !== process.pid; } catch {}
-    if (alive) throw new Error(`the device's touches are held by PID ${holder}`);
+  const token = `${process.pid}:${randomBytes(8).toString('hex')}`;
+  const create = () => { try { writeFileSync(path, token, { flag: 'wx' }); return true; } catch (e) { if (e.code === 'EEXIST') return false; throw e; } };
+  const holder = () => { try { return readFileSync(path, 'utf8'); } catch { return null; } };
+  if (!create()) {
+    const seen = holder();
+    const pid = Number(seen?.split(':')[0]);
+    if (seen != null && alive(pid)) throw new Error(`the device's touches are held by PID ${pid}${pid === process.pid ? ' (another session in this process)' : ''}`);
+    const takeover = path + '.takeover';
+    try { writeFileSync(takeover, token, { flag: 'wx' }); } catch (e) {
+      if (e.code === 'EEXIST') throw new Error(`another process is taking over the device's touch lock; if none is, remove ${takeover}`);
+      throw e;
+    }
+    try {
+      if (holder() === seen) rmSync(path, { force: true });
+      if (!create()) throw new Error(`the device's touches were taken by PID ${Number(holder()?.split(':')[0])} during takeover`);
+    } finally { rmSync(takeover, { force: true }); }
   }
-  writeFileSync(path, String(process.pid));
-  return () => { try { if (Number(readFileSync(path, 'utf8')) === process.pid) rmSync(path); } catch {} };
+  return () => { if (holder() === token) rmSync(path, { force: true }); };
 }
+
+/** Each runner request's bound: a tap includes XCTest's idle wait. */
+const RUNNER_MS = 15000;
 
 /**
  * Start the runner for `appId` on simulator `udid` and wait for its hello
  * (30 s). Returns `{ ask(req), close(), pid, started }`: `ask` sends one line
- * and resolves with its reply. `onProcess` gets the xcodebuild child, whose
- * PID is the one this module may kill.
+ * and resolves with its reply, or with an error at `RUNNER_MS`, which also
+ * ends the runner (a stalled runner never hangs a drive). `onProcess` gets
+ * the xcodebuild child, whose PID is the one this module may kill.
  */
 export async function openTouches({ udid, appId, appPath, onProcess }) {
   const release = lock(udid);
-  let child = null, bridge = null;
+  let child = null, bridge = null, exited = null, run = null;
+  // Ends the runner: hang up, wait for xcodebuild (3 s), then kill only its PID; the lock goes last.
+  const teardown = async (socket) => {
+    try { socket?.destroy(); } catch {}
+    if (child && child.exitCode == null && child.signalCode == null) {
+      if ((await within(exited, 3000, () => 'timeout')) === 'timeout') { try { child.kill('SIGTERM'); } catch {} await within(exited, 3000, () => null); }
+    }
+    bridge?.close();
+    if (run) rmSync(run, { force: true });
+    release();
+  };
   try {
     const started = Date.now();
     const { dir, app } = touchRunner(udid);
     bridge = await phoneBridge();
-    const run = resolve(dir, `run-${process.pid}.xctestrun`);
+    run = resolve(dir, `run-${process.pid}-${randomBytes(4).toString('hex')}.xctestrun`);
     writeFileSync(run, plist({
       ExactTouches: {
         // A simulator refuses `UseDestinationArtifacts` (device only), so
@@ -112,33 +152,38 @@ export async function openTouches({ udid, appId, appPath, onProcess }) {
     child = spawn('xcodebuild', ['test-without-building', '-xctestrun', run, '-destination', `id=${udid}`, '-only-testing:ExactTouches/ExactTouches/testDrive'], { stdio: ['ignore', 'pipe', 'pipe'] });
     onProcess?.(child);
     for (const s of [child.stdout, child.stderr]) s.on('data', (d) => { for (const l of String(d).split('\n')) if (l.trim()) { log.push(l); if (log.length > 200) log.shift(); } });
-    const exited = new Promise((r) => child.on('exit', (code) => r(code)));
-    const timeout = new Promise((r) => setTimeout(() => r('timeout'), 30000));
-    const first = await Promise.race([bridge.ready.then((x) => ({ x })), exited.then((code) => ({ code })), timeout]);
+    exited = new Promise((r) => child.on('exit', (code) => r(code)));
+    const first = await within(Promise.race([bridge.ready.then((x) => ({ x })), exited.then((code) => ({ code }))]), 30000, () => 'timeout');
     if (!first?.x) throw new Error(`the touch runner did not start (${first === 'timeout' ? 'no hello in 30 s' : `xcodebuild exited ${first.code}`}):\n${log.slice(-20).join('\n')}`);
     const { socket } = first.x;
     socket.resume();
     socket.setEncoding('utf8');
     const waiting = [];
-    let buf = '';
+    let buf = '', broken = null;
+    const fail = (why) => { broken ??= why; for (const w of waiting.splice(0)) w({ error: why }); };
     socket.on('data', (chunk) => {
       buf += chunk;
       for (let i; (i = buf.indexOf('\n')) >= 0;) { const line = buf.slice(0, i); buf = buf.slice(i + 1); waiting.shift()?.(JSON.parse(line)); }
     });
-    socket.on('close', () => { for (const w of waiting.splice(0)) w({ error: 'the touch runner hung up:\n' + log.slice(-10).join('\n') }); });
-    const ask = (req) => new Promise((r) => { if (socket.destroyed) return r({ error: 'the touch runner is gone' }); waiting.push(r); socket.write(JSON.stringify(req) + '\n'); });
+    socket.on('close', () => fail('the touch runner hung up:\n' + log.slice(-10).join('\n')));
+    let closing = null;
+    const ask = async (req, ms = RUNNER_MS) => {
+      if (broken || socket.destroyed) return { error: broken ?? 'the touch runner is gone' };
+      const reply = new Promise((r) => { waiting.push(r); socket.write(JSON.stringify(req) + '\n'); });
+      return within(reply, ms, () => {
+        // A late reply could answer the next request: the transport is spent.
+        const why = `the touch runner did not answer ${req.op} within ${ms / 1000} s; it was stopped`;
+        fail(why);
+        closing ??= teardown(socket);
+        return { error: why };
+      });
+    };
     return {
       ask, pid: child.pid, started: Date.now() - started, log,
-      async close() {
-        try { socket.end(); } catch {}
-        const code = await Promise.race([exited, new Promise((r) => setTimeout(() => r('timeout'), 3000))]);
-        if (code === 'timeout') { try { child.kill('SIGTERM'); } catch {} }
-        bridge.close(); rmSync(run, { force: true }); release();
-      },
+      async close() { closing ??= teardown(socket); await closing; },
     };
   } catch (error) {
-    if (child && child.exitCode == null) { try { child.kill('SIGTERM'); } catch {} }
-    bridge?.close(); release();
+    await teardown(null);
     throw error;
   }
 }
@@ -167,17 +212,24 @@ export async function realTap({ ask, touches, id, at }) {
   const a = aim.aim;
   const injected = await touches.ask({ op: 'tap', point: a.point });
   if (injected.error) throw new Error(`tap #${id}: the touch runner: ${injected.error}`);
+  // The barrier: every entry after the aim's seq, paged by the last one read
+  // (a reply holds 32), each read bounded by what is left of the second.
   const deadline = Date.now() + 1000;
-  let seen = [];
+  const seen = [];
+  let cursor = a.seq;
   for (;;) {
-    const log = await ask({ op: 'tap', log: a.seq });
-    if (log.lost) throw new Error(`tap #${id}: the dispatch log dropped entries past seq ${a.seq}`);
-    seen = log.log;
-    const touches_ = [...new Set(seen.map((e) => e.touch))];
-    const ended = touches_.filter((t) => seen.some((e) => e.touch === t && e.phase === 'began') && seen.some((e) => e.touch === t && e.phase === 'ended'));
-    if (touches_.length > 1) throw new Error(`tap #${id}: ambiguous: ${touches_.length} touches after seq ${a.seq}: ${JSON.stringify(seen.slice(0, 8))}`);
-    if (ended.length === 1) {
-      const began = seen.find((e) => e.phase === 'began'), end = seen.find((e) => e.phase === 'ended');
+    const left = deadline - Date.now();
+    const page = await within(ask({ op: 'tap', log: cursor }), Math.max(left, 1), () => null);
+    if (!page) throw new Error(`tap #${id}: the dispatch log did not answer within 1 s of the touch`);
+    if (page.error) throw new Error(`tap #${id}: the dispatch log: ${page.error}`);
+    if (page.lost) throw new Error(`tap #${id}: the dispatch log dropped entries past seq ${cursor}`);
+    seen.push(...page.log);
+    if (page.log.length) cursor = page.log[page.log.length - 1].seq;
+    if (page.truncated) continue; // more already logged: read it before judging
+    const ids = [...new Set(seen.map((e) => e.touch))];
+    if (ids.length > 1) throw new Error(`tap #${id}: ambiguous: ${ids.length} touches after seq ${a.seq}: ${JSON.stringify(seen.slice(0, 8))}`);
+    const began = seen.find((e) => e.phase === 'began'), end = seen.find((e) => e.phase === 'ended');
+    if (began && end) {
       if (began.session !== a.session || began.generation !== a.generation) throw new Error(`tap #${id}: the touch landed in session ${began.session} (generation ${began.generation}), not ${a.session}`);
       if (began.node !== a.hit) throw new Error(`tap #${id}: the touch landed on ${began.node == null ? began.view : `node #${began.node}`}, not on node #${a.hit} the aim hit-tested`);
       return {
@@ -187,7 +239,7 @@ export async function realTap({ ask, touches, id, at }) {
         injected: injected.injected, aim: a.point, orientation: a.orientation,
       };
     }
-    if (Date.now() > deadline) throw new Error(`tap #${id}: no touch reached the app's window within 1 s; the runner finished at ${injected.injected?.end} (log: ${JSON.stringify(seen)})`);
+    if (Date.now() >= deadline) throw new Error(`tap #${id}: no touch reached the app's window within 1 s; the runner finished at ${injected.injected?.end} (log: ${JSON.stringify(seen)})`);
     await new Promise((r) => setTimeout(r, 16));
   }
 }

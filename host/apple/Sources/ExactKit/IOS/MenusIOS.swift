@@ -320,6 +320,16 @@ final class MenuHost {
             if let field = Self.autofocus(in: pop) { presenter.focusNode(field) }
         }
     }
+    /// Whether a tap on `node` goes through the agent's painted popovers —
+    /// one is open (the tap dismisses it first), or `node` is a painted
+    /// popover, is in one, or opens or closes one — which only `agentTap`
+    /// drives: a real touch bypasses it (LLP 1080.000 D7, stage 3).
+    func agentPainted(_ node: NodeView) -> Bool {
+        guard ExactEnv.agentMode, let presenter else { return false }
+        if !agentOpen.isEmpty { return true }
+        let painted = (presenter.carrying("popover") + presenter.carrying("tag:dialog").filter { $0.props["popover"] == nil }).filter { !isConfirmation($0) }
+        return painted.contains { pop in node === pop || node.isDescendant(of: pop) || (pop.props["id"] != nil && target(of: node) == pop.props["id"]) }
+    }
     private static func autofocus(in view: UIView) -> NodeView? {
         for sub in view.subviews {
             if let node = sub as? NodeView, let value = node.props["autofocus"], value != "false" { return node }
