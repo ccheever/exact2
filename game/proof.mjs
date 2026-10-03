@@ -12,7 +12,7 @@ import { closeFilesystemReader } from '../scripts/filesystem.mjs';
 // Offline diagnostics over existing state reads (LLP 1012; LLP 1046.001 D2/D5).
 // These are inspection captures, not EXSIM saves or a second simulation codec.
 export async function captureWorld(session, name = 'world') {
-  const snapshot = await session.world(name).snapshot();
+  const snapshot = await session.world(name).snapshot({all:true});
   const {world} = await session.op({op:'state', ...await session.target(name), world:true});
   if (!world || snapshot.tick !== world.tick || snapshot.hash !== world.hash)
     throw new Error('world changed during capture; capture on the agent clock with no concurrent drive');

@@ -291,7 +291,7 @@ These JSON captures are **not `.world` binary saves** or a complete explanation 
 a hash. Opaque executor state stays opaque; inspection can omit or round internal
 values. A differing hash with equal inspected values is reported explicitly.
 Capture on the agent clock without concurrent drives. Mixed-tick/hash reads and
-truncated entity lists (currently over 512 entities) are refused. Capturing and
+incomplete entity lists are refused; `captureWorld` reads every page. Capturing and
 comparing state does not advance the clock or mutate the world.
 
 ## The agent's interface
@@ -306,7 +306,11 @@ EXACT_APP_DIR=./my-game EXACT_WEB_DIST=./my-game/dist bun scripts/agent.mjs web 
 ```
 
 For a `prove.mjs` web build, set `EXACT_WEB_DIST` to the printed artifact directory's
-`dist/`. `state world:*` reads up to 512 entities; `under world:player` narrows it.
+`dist/`. `state world:*` reads entities a page at a time (512 by default):
+`state world:* from 512 limit 2000` reads the next ones, and the reply carries
+`total` and `next`; `under world:player` narrows it. `state world:* resources` adds
+every resource's value. In a proof, `session.world('world').snapshot({all:true})`
+reads every page at one tick and `resources()` the resources.
 `clock settle` advances the owned clock and explains remaining work instead of sleeping.
 
 In a proof, `session.world('world')` supplies `hold`, `run`, `settle`, `get`,

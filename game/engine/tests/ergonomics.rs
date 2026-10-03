@@ -182,7 +182,11 @@ fn wildcard_state_is_complete_bounded_and_narrowable() {
     }
     let reply = s.agent(r#"{"op":"state","entity":"*"}"#);
     assert_eq!(reply.matches("\"components\":").count(), 512);
-    assert!(reply.contains(r#""truncated":true"#));
+    assert!(reply.contains(r#""truncated":true"#) && reply.contains(r#""next":512"#));
+    let reply = s.agent(r#"{"op":"state","entity":"*","from":512,"resources":true}"#);
+    let total = s.world().len();
+    assert_eq!(reply.matches("\"components\":").count(), total - 512);
+    assert!(reply.contains(r#""truncated":false"#) && reply.contains(r#""resources":{"#));
 }
 
 #[test]

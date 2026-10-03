@@ -843,10 +843,20 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
 /** A convenience over state, screenshot and type; wire replies keep all tags. */
 export function worldView(session, name) {
   return {
-    async snapshot() {
-      const {tick, hash, entities, truncated} = await session.state(`${name}:*`);
-      return {tick, hash, entities, truncated};
+    /** The first page of entities (512), or every page with {all:true}, read at one tick and hash. */
+    async snapshot({all = false} = {}) {
+      const page = all ? {limit:5000} : {};
+      const first = await session.state(`${name}:*`, undefined, false, false, page);
+      const {tick, hash} = first, entities = [...first.entities];
+      for (let r = first; all && r.truncated;) {
+        r = await session.state(`${name}:*`, undefined, false, false, {...page, from:r.next});
+        if (r.tick !== tick || r.hash !== hash) throw new Error('world changed while paging; capture on the agent clock with no concurrent drive');
+        entities.push(...r.entities);
+      }
+      return {tick, hash, entities, truncated: all ? false : first.truncated};
     },
+    /** Every resource's value, as `state world:* resources` reads them. */
+    async resources() { return (await session.state(`${name}:*`, undefined, false, false, {limit:1, resources:true})).resources; },
     state: entity => session.state(`${name}:${entity}`),
     save: path => session.screenshot(path, name, 'save'),
     run: ms => {
@@ -975,7 +985,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     },
     world(name) { return worldView(this, name); },
     /** Every slot, derive, and resource by name, as typed JSON. */
-    state: async (target, under, pose = false, busy = false) => s.op({ op: 'state', ...(busy ? { busy:true } : {}), ...(pose ? { pose: true } : {}), ...(target != null ? await s.target(target) : {}), ...(under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) }),
+    state: async (target, under, pose = false, busy = false, page = {}) => s.op({ op: 'state', ...page, ...(busy ? { busy:true } : {}), ...(pose ? { pose: true } : {}), ...(target != null ? await s.target(target) : {}), ...(under != null ? { under: String(under).replace(/^[^:]+:/, '') } : {}) }),
     /** What happened since the last read: the runner's journal (`lines`, from index `from` up to `next`) and the host's own output (`host`). `dropped` counts lines the journal ring let go before this read caught up. */
     async logs() {
       const r = await s.op({ op: 'logs', since: s.logCursor });
@@ -1424,7 +1434,7 @@ async function main(argv) {
       let r;
       switch (op) {
         case 'tree': r = await s.tree(args[0], args[1] === 'under' ? args[2] : undefined); break;
-        case 'state': r = await s.state(args[0], args[1] === 'under' ? args[2] : undefined, args[1] === 'pose', args[1] === 'busy'); break;
+        case 'state': r = await s.state(args[0], args[1] === 'under' ? args[2] : undefined, args[1] === 'pose', args[1] === 'busy', {...(args.includes('from') ? {from:Number(args[args.indexOf('from') + 1])} : {}), ...(args.includes('limit') ? {limit:Number(args[args.indexOf('limit') + 1])} : {}), ...(args.includes('resources') ? {resources:true} : {})}); break;
         case 'logs': r = await s.logs(); break;
         case 'layout': r = await s.layout(args[0], args[1] === 'at' ? [Number(args[2]), Number(args[3])] : undefined); break;
         case 'screenshot':
