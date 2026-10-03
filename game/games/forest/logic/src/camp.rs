@@ -189,6 +189,35 @@ pub fn build(w: &mut World) {
     }
 }
 
+/// Torches on poles along a spiral out from the fire, each a point light.
+pub fn torches(w: &mut World, count: u32) {
+    for k in 0..count {
+        let a = k as f32 * 2.4;
+        let r = 7.0 + k as f32 * 0.9;
+        let (s, c) = math::sin_cos(a);
+        let (x, z) = w.resource::<crate::forest::Grove>().resolve(c * r, s * r, 0.6);
+        let y = crate::forest::height(x, z);
+        w.spawn((
+            Transform::at(x, y + 1.0, z),
+            Mesh::cylinder(0.08, 2.0),
+            Material::rgb(0.2, 0.13, 0.07),
+        ));
+        w.spawn((
+            Transform::at(x, y + 2.1, z),
+            Mesh::sphere(0.14),
+            Material {
+                color: [1.0, 0.6, 0.2, 1.0],
+                ..Material::glow([5.0, 2.0, 0.4])
+            },
+            PointLight {
+                color: [1.0, 0.6, 0.25],
+                intensity: 2000.0 * CANDELA * 25.0,
+                range: 8.0,
+            },
+        ));
+    }
+}
+
 /// Advance the clock, burn fuel and present the sky and the fire.
 /// Returns true on the tick a night is survived.
 pub fn step(w: &mut World, player: Vec3) -> bool {

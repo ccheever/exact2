@@ -46,7 +46,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   const title = await s.tree();
   check('Play is initially focused and named', node(title, 'play')?.focused === true && node(title, 'play')?.accessibleName === 'Play');
   check('the title offers forest sizes', ['trees-1k', 'trees-5k', 'trees-20k', 'trees-100k'].every(id => node(title, id)));
-  check('2k trees and Rapier are the default', node(title, 'choice')?.props?.text === '2000 trees · 8 wolves · Rapier collision · generated trees', node(title, 'choice')?.props?.text);
+  check('2k trees and Rapier are the default', node(title, 'choice')?.props?.text === '2000 trees · 8 wolves · Rapier collision · generated trees · 0 torches', node(title, 'choice')?.props?.text);
   await s.tap('play');
   pin(0, await game.snapshot());
   check('day one begins', await text('day') === 'Day 1 · Day', await text('day'));

@@ -18,6 +18,8 @@ pub struct Options {
     pub trees: u32,
     pub wolves: u32,
     pub children: u32,
+    /// Extra point lights on poles in a spiral out from camp: the renderer keeps 16.
+    pub torches: u32,
     /// Trunk and crown as two primitive entities instead of one generated pine.
     pub primitives: bool,
     /// Collide in game code against the tree grid instead of Rapier colliders.
@@ -34,6 +36,7 @@ impl Default for Options {
             trees: 2000,
             wolves: 8,
             children: 2,
+            torches: 0,
             primitives: false,
             lite: false,
             paused: false,
@@ -87,6 +90,7 @@ impl Game for Forest {
         physics::register(w);
         forest::grow(w, args.trees, args.primitives, !args.lite);
         camp::build(w);
+        camp::torches(w, args.torches);
         let half = w.resource::<Grove>().half;
         player::spawn(w, !args.lite, args.children);
         creatures::spawn_deer(w, half);
