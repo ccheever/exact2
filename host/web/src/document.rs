@@ -280,6 +280,7 @@ fn write<S: Source>(
         css: std::collections::HashMap::new(),
         style: writing.style,
         restyled: std::collections::HashMap::default(),
+        styles: std::collections::HashMap::new(),
         sink: writing.sink,
         sent: 0,
     };
@@ -441,10 +442,30 @@ struct Walk<'r, 'w, S: Source> {
     /// What [`Writing::style`] wrote for each inline style met so far
     /// (`None`: it stays inline): a template's elements repeat a few.
     restyled: std::collections::HashMap<String, Option<String>, Words>,
+    /// An element's inline style by what alone makes it ([`StyleKey`]): the
+    /// nodes of a repeated template share one, and its text is built once.
+    styles: std::collections::HashMap<StyleKey, String>,
     /// [`Writing::sink`], and how much of `out` it has been handed.
     sink: Option<&'w mut dyn FnMut(&str)>,
     sent: usize,
 }
+
+/// What an element's inline style is made of, for a node that is neither a
+/// root nor a canvas (whose styles read more of the node): its shared rows'
+/// address, its tag, and how it sits among its neighbours.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct StyleKey {
+    rows: usize,
+    tag: (usize, usize),
+    inline_run: bool,
+    folded: bool,
+    holds: bool,
+    isolated: bool,
+}
+
+/// An attribute as [`Walk::open`] writes it: a name, and a value unless it
+/// is a boolean one; borrowed from the element's props where it can be.
+type Attr<'a> = (Cow<'a, str>, Option<Cow<'a, str>>);
 
 /// A hash for [`Walk`]'s inline styles, a word at a time: a page's
 /// thousands of elements each look theirs up, and SipHash's byte rounds
@@ -535,16 +556,7 @@ impl<S: Source> Walk<'_, '_, S> {
         self.scroll_document |= props
             .get("data-scrolldocument")
             .is_some_and(|v| v == "true");
-        let text = match css_style_of(&resolve, &node) {
-            Cow::Borrowed(style) => {
-                let fonts = &self.fonts;
-                self.css
-                    .entry(style as *const exact_kernel::StyleProps as usize)
-                    .or_insert_with(|| css::css_text(style, fonts).0)
-                    .clone()
-            }
-            Cow::Owned(style) => css::css_text(&style, &self.fonts).0,
-        };
+        let rows = css_style_of(&resolve, &node);
         animations(node.style, &mut self.keyframes);
         let children = src.children(id);
         let paint = layers::paint_of(&node, parent);
@@ -557,55 +569,90 @@ impl<S: Source> Walk<'_, '_, S> {
                     .is_some_and(|k| !k.is_empty());
                 folds(&c, &node, above.as_ref(), true, handled)
             });
-        let css = blocks(contents(host_css_of(&node, text, tag), folded), holds);
-        let mut style = layers::with_isolation(css, isolated);
+        let key = match &rows {
+            Cow::Borrowed(style)
+                if !node.is_root && node.node_type != exact_kernel::NodeType::Canvas =>
+            {
+                Some(StyleKey {
+                    rows: *style as *const exact_kernel::StyleProps as usize,
+                    tag: (tag.as_ptr() as usize, tag.len()),
+                    inline_run: node.is_inline_run(),
+                    folded,
+                    holds,
+                    isolated,
+                })
+            }
+            _ => None,
+        };
+        let mut style = match key.and_then(|key| self.styles.get(&key)) {
+            Some(style) => style.clone(),
+            None => {
+                let text = match &rows {
+                    Cow::Borrowed(style) => {
+                        let fonts = &self.fonts;
+                        self.css
+                            .entry(*style as *const exact_kernel::StyleProps as usize)
+                            .or_insert_with(|| css::css_text(style, fonts).0)
+                            .clone()
+                    }
+                    Cow::Owned(style) => css::css_text(style, &self.fonts).0,
+                };
+                let css = blocks(contents(host_css_of(&node, text, tag), folded), holds);
+                let style = layers::with_isolation(css, isolated);
+                if let Some(key) = key {
+                    self.styles.insert(key, style.clone());
+                }
+                style
+            }
+        };
         let kept = self.computed.is_some().then(|| style.clone());
         // `glue.js` create: a canvas is a `div` holding the surface element.
         let element = if tag == "canvas" { "div" } else { tag };
         self.route_children(&node, &children);
-        let chosen = (element == "select").then(|| props.get("value").cloned());
-        let mut attrs: Vec<(String, Option<String>)> = Vec::new();
+        let chosen = (element == "select").then(|| props.get("value").map(|v| v.to_string()));
+        let mut attrs: Vec<Attr<'_>> = Vec::new();
         let mut content: Option<String> = None;
         let mut markup: Option<String> = None;
         for (name, value) in &props {
-            match name.as_str() {
+            let (name, value): (&str, &str) = (name, value);
+            match name {
                 // Browser-owned state the glue keeps in JavaScript.
                 "scrollFollowEnd" | "scrollTop" | "scrollLeft" | "autofocus" => {}
                 // A sized, transparent source supplies the natural box before
                 // JavaScript. The live renderer adds the portable role's mask.
                 "src" if element == "img" && value.starts_with("symbol:") => {
                     attrs.push((
-                        name.clone(),
-                        Some(format!("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='{font}' height='{font}'/%3E")),
+                        name.into(),
+                        Some(Cow::Owned(format!("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='{font}' height='{font}'/%3E"))),
                     ));
                 }
                 // `el.textContent = value` while it has no element children:
                 // a canvas already holds its surface.
                 "text" => {
                     if tag != "canvas" && !value.is_empty() {
-                        content = Some(value.clone());
+                        content = Some(value.to_owned());
                     }
                 }
-                "markupPieces" => markup = Some(value.clone()),
+                "markupPieces" => markup = Some(value.to_owned()),
                 "data-action" => {
-                    attrs.push((name.clone(), Some(value.clone())));
+                    attrs.push((name.into(), Some(value.into())));
                     style.push_str("touch-action:none;");
                 }
                 // `writeValue`: an input's value and a button's (a reflected
                 // attribute) are the element's; a textarea's is its text.
                 "value" => match element {
                     "input" | "button" | "option" => {
-                        if element == "option" && self.select.as_ref() == Some(value) {
+                        if element == "option" && self.select.as_deref() == Some(value) {
                             attrs.push(("selected".into(), None));
                         }
-                        attrs.push((name.clone(), Some(value.clone())));
+                        attrs.push((name.into(), Some(value.into())));
                     }
-                    "textarea" => content = Some(value.clone()),
+                    "textarea" => content = Some(value.to_owned()),
                     _ => {}
                 },
                 "checked" | "inert" | "disabled" | "readonly" => {
                     if value == "true" {
-                        attrs.push((name.clone(), None));
+                        attrs.push((name.into(), None));
                     }
                 }
                 "autoplay"
@@ -618,19 +665,23 @@ impl<S: Source> Walk<'_, '_, S> {
                     if element == "video" =>
                 {
                     if value == "true" {
-                        attrs.push((name.clone(), None));
+                        attrs.push((name.into(), None));
                     }
                 }
                 // `navigates` + `navigableURL`: a refused link loses its
                 // href; a refused frame shows about:blank.
                 "href" if !navigable(value) => {}
                 "src" if element == "iframe" && !navigable(value) => {
-                    attrs.push((name.clone(), Some("about:blank".into())));
+                    attrs.push((name.into(), Some("about:blank".into())));
                 }
-                _ => attrs.push((name.clone(), Some(value.clone()))),
+                _ => attrs.push((name.into(), Some(value.into()))),
             }
         }
         if let (Some(computed), Some(css)) = (self.computed.as_mut(), kept) {
+            let props = props
+                .iter()
+                .map(|(name, value)| (name.to_string(), value.to_string()))
+                .collect();
             computed.push((id, tag.into(), props, css));
         }
         // `navigation.project`: routes other than the selected one (and the
@@ -646,11 +697,14 @@ impl<S: Source> Walk<'_, '_, S> {
         }
         // `attach`: the view id, and a tab stop for an element that hears
         // focus, blur or keys and is not one already.
-        attrs.push(("data-view".into(), Some(id.to_string())));
+        // The runtime's form keeps no id ([`Walk::open`]).
+        if self.style.is_none() || element == "a" {
+            attrs.push(("data-view".into(), Some(Cow::Owned(id.to_string()))));
+        }
         if let Some(kinds) = self.handlers.get(&id).filter(|kinds| !kinds.is_empty()) {
             attrs.push((
                 "data-exact-on".into(),
-                Some({
+                Some(Cow::Owned({
                     let mut names = String::new();
                     for (i, kind) in kinds.iter().enumerate() {
                         if i > 0 {
@@ -659,7 +713,7 @@ impl<S: Source> Walk<'_, '_, S> {
                         names.push_str(kind.name());
                     }
                     names
-                }),
+                })),
             ));
         }
         let hears = self.handlers.get(&id).is_some_and(|kinds| {
@@ -671,7 +725,7 @@ impl<S: Source> Walk<'_, '_, S> {
             attrs.push(("tabindex".into(), Some("0".into())));
         }
         if !style.is_empty() {
-            attrs.push(("style".into(), Some(style)));
+            attrs.push(("style".into(), Some(Cow::Owned(style))));
         }
         self.open(id, element, &attrs)?;
         if matches!(element, "img" | "input") {
@@ -684,7 +738,7 @@ impl<S: Source> Walk<'_, '_, S> {
                     id,
                     "canvas",
                     &[
-                        ("data-surface".into(), Some(String::new())),
+                        ("data-surface".into(), Some("".into())),
                         ("style".into(), Some(SURFACE_STYLE.into())),
                     ],
                 )?;
@@ -739,12 +793,7 @@ impl<S: Source> Walk<'_, '_, S> {
         }
     }
 
-    fn open(
-        &mut self,
-        id: ViewId,
-        element: &str,
-        attrs: &[(String, Option<String>)],
-    ) -> Result<(), DocumentError> {
+    fn open(&mut self, id: ViewId, element: &str, attrs: &[Attr<'_>]) -> Result<(), DocumentError> {
         self.out.push('<');
         self.out.push_str(element);
         let runtime = self.style;
@@ -754,19 +803,22 @@ impl<S: Source> Walk<'_, '_, S> {
             // empty `data-view`, no other element one; a style goes as the
             // shell's classes carry it.
             if let Some(rewrite) = runtime {
-                match (name.as_str(), value) {
+                match (name.as_ref(), value) {
                     ("data-view", _) if element == "a" => {
                         self.out.push_str(" data-view");
                         continue;
                     }
                     ("data-view", _) => continue,
                     ("style", Some(css)) if !has_class => {
-                        if !self.restyled.contains_key(css) {
-                            let mut written = String::new();
-                            let kept = rewrite(css, &mut written).then_some(written);
-                            self.restyled.insert(css.clone(), kept);
-                        }
-                        if let Some(Some(written)) = self.restyled.get(css) {
+                        let written = match self.restyled.get(css.as_ref()) {
+                            Some(written) => written,
+                            None => {
+                                let mut written = String::new();
+                                let kept = rewrite(css, &mut written).then_some(written);
+                                self.restyled.entry(css.to_string()).or_insert(kept)
+                            }
+                        };
+                        if let Some(written) = written {
                             self.out.push_str(written);
                             continue;
                         }
@@ -858,12 +910,12 @@ impl<S: Source> Walk<'_, '_, S> {
                 style.push_str("opacity:0.62;");
             }
             let element = if link { "a" } else { "span" };
-            let mut attrs = Vec::new();
+            let mut attrs: Vec<Attr<'_>> = Vec::new();
             if !style.is_empty() {
-                attrs.push(("style".to_owned(), Some(style)));
+                attrs.push(("style".into(), Some(Cow::Owned(style))));
             }
             if link {
-                attrs.push(("href".to_owned(), Some(piece.href.clone())));
+                attrs.push(("href".into(), Some(piece.href.as_str().into())));
             }
             self.open(id, element, &attrs)?;
             for (n, line) in piece.text.split('\n').enumerate() {
