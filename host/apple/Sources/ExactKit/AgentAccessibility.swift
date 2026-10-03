@@ -57,8 +57,9 @@ extension Agent {
             limits.append(["root": "toolbar", "reason": "the window toolbar this session projected is not walked; its commands' authored views are hidden"])
         }
         #endif
-        return tagged(["ax": presenter.axElements(roots: axRoots(view), limit: limit, excluded: req["excluded"] as? Bool == true, scope: scope, modalRoot: modalRoot,
-                                                  limits: limits, foreign: { ($0 as? ExactView).map { $0.session !== session } ?? false })])
+        let ax = presenter.axElements(roots: axRoots(view), limit: limit, excluded: req["excluded"] as? Bool == true, scope: scope, modalRoot: modalRoot,
+                                      limits: limits, foreign: { ($0 as? ExactView).map { $0.session !== session } ?? false })
+        return Presenter.axBounded(tagged(["ax": ax]))
     }
 
     /// The session's own surfaces (D3): its view, a presentation holding its
@@ -92,8 +93,35 @@ extension Presenter {
         var limits: [[String: Any]] = []
         var remaining: Int { budget - visited }
     }
-    /// The reply's own budget (D7): elements stop once their JSON passes it.
+    /// The elements' own budget (D7), under the reply's 256 KB.
     static let axBytes = 240 * 1024
+    static let axReplyBytes = 256 * 1024
+    /// The whole serialized reply within 256 KB at the boundary: elements go
+    /// from the end, then the coverage lists and ancestors, each counted.
+    static func axBounded(_ reply: [String: Any]) -> [String: Any] {
+        var reply = reply
+        func size() -> Int { (try? JSONSerialization.data(withJSONObject: reply).count) ?? Int.max }
+        guard var ax = reply["ax"] as? [String: Any], size() > axReplyBytes else { return reply }
+        var truncated = ax["truncated"] as? [String: Any] ?? ["elements": 0, "fields": 0]
+        var coverage = ax["coverage"] as? [String: Any] ?? [:]
+        coverage["complete"] = false
+        var elements = ax["elements"] as? [[String: Any]] ?? []
+        let before = truncated["elements"]
+        let original = elements.count
+        func store() {
+            let dropped = original - elements.count
+            // A count stays a count; an unknown remainder stays unknown.
+            if dropped > 0 { truncated["elements"] = (before as? Int).map { $0 + dropped as Any } ?? before ?? dropped }
+            ax["elements"] = elements; ax["truncated"] = truncated; ax["coverage"] = coverage; reply["ax"] = ax
+        }
+        store()
+        while !elements.isEmpty, size() > axReplyBytes { elements.removeLast(max(1, elements.count / 8)); store() }
+        for key in ["excluded", "limits", "roots"] where size() > axReplyBytes {
+            if let list = coverage[key] as? [Any] { truncated[key] = list.count; coverage[key] = [Any](); store() }
+        }
+        if size() > axReplyBytes, ax["ancestors"] != nil { truncated["ancestors"] = (ax["ancestors"] as? [Any])?.count ?? 0; ax["ancestors"] = [Any](); store() }
+        return size() > axReplyBytes ? ["error": "tree --ax: the reply cannot be bounded to \(axReplyBytes) bytes"] : reply
+    }
 
     /// The elements under `roots`, the platform's facts each (D2, D7);
     /// `foreign` names another session's surface, where the walk stops;
@@ -133,7 +161,14 @@ extension Presenter {
             }
             elements = kept.map { w.elements[$0] }
         }
-        var ax: [String: Any] = ["source": source, "platform": platform, "order": order, "coverage": coverage, "modal": w.modal, "elements": elements]
+        // The states this runtime can observe (D6): UIKit's expanded status needs iOS 18.
+        var observes = ["checked", "disabled"]
+        #if os(iOS)
+        if #available(iOS 18, *) { observes.append("expanded") }
+        #else
+        observes += ["level", "expanded"]
+        #endif
+        var ax: [String: Any] = ["source": source, "platform": platform, "order": order, "coverage": coverage, "modal": w.modal, "elements": elements, "observes": observes]
         if scope != nil { ax["ancestors"] = ancestors }
         if w.stopped || w.more > 0 || w.fields > 0 {
             ax["truncated"] = ["elements": w.stopped ? "unknown" as Any : w.more as Any, "fields": w.fields]
@@ -295,7 +330,6 @@ extension Presenter {
     /// One element (D3, D5, D7): the platform's facts, cut to their bounds.
     private func emit(_ obj: AnyObject, role forced: String?, parent: Int?, exclusion: [String], into w: inout AxWalk) -> Int? {
         if w.elements.count >= w.limit { w.more += 1; return nil }
-        if w.bytes > Self.axBytes { w.stopped = true; return nil }
         var fields = 0
         func cut(_ s: String?) -> String? {
             guard let s else { return nil }
@@ -381,8 +415,12 @@ extension Presenter {
         if !exclusion.isEmpty { e["excluded"] = exclusion }
         e["states"] = states
         e["native"] = native
-        if let t = axTestId(id), via != "ancestor" { e["testId"] = t }
-        w.bytes += (try? JSONSerialization.data(withJSONObject: e).count) ?? 0
+        if let t = axTestId(id), via != "ancestor" { e["testId"] = cut(t) }
+        // Budgeted before it is appended: a candidate that would carry the
+        // elements past the budget is not sent, and the walk stops there.
+        let size = (try? JSONSerialization.data(withJSONObject: e).count) ?? 0
+        if w.bytes + size > Self.axBytes { w.stopped = true; return nil }
+        w.bytes += size
         w.fields += fields
         w.elements.append(e)
         w.objects.append(obj)

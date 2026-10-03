@@ -995,7 +995,7 @@ test("a drive's storage is only a scratch store it names, apart from the app's o
 });
 
 // @ref LLP 1080.002 D7–D9 — the findings, parity and transcript over hand-written replies.
-import { axFindings, axParity, axClean, axFinish, renderAx, webAx } from '../../scripts/agent-ax.mjs';
+import { axFindings, axParity, axClean, axFinish, renderAx, webAx, axTree } from '../../scripts/agent-ax.mjs';
 const axReply = (elements, extra = {}) => ({ epoch: 3, incarnation: 1, clock: 0, ax: { source: 'chrome-cdp', platform: 'Chrome 1', order: 'tree',
   coverage: { roots: ['document'], complete: true, visited: elements.length }, modal: { present: false }, elements, ...extra } });
 const el = (i, role, name, more = {}) => ({ i, parent: null, id: i + 10, via: 'self', role, name, states: {}, interactive: ['button', 'link', 'textbox', 'checkbox'].includes(role), native: { role }, ...more });
@@ -1037,7 +1037,7 @@ test('tree --ax: outside-modal fires for an element outside the open modal, by t
 test('tree --ax: a targeted read keeps its subtree, the chain above it, and its ancestors\' intent', () => {
   const box = el(1, 'group', 'Box'), inside = el(2, 'button', 'Hidden', { parent: 0 });
   box.i = 0; inside.i = 1;
-  const r = axFinish(axReply([el(0, 'button', 'Play'), box, inside].map((e, i) => ({ ...e, i, parent: e === inside ? 1 : null }))), axPlain, 'inside');
+  const r = axFinish(axReply([el(0, 'button', 'Play'), box, inside].map((e, i) => ({ ...e, i, parent: e === inside ? 1 : null }))), axPlain, 12);
   expect(r.ax.elements.map(e => e.testId)).toEqual(['inside']);
   expect(r.ax.ancestors).toEqual([{ id: 11, role: 'group', name: 'Box' }]);
   expect(r.ax.intent[11].inert).toBe(true);
@@ -1107,7 +1107,7 @@ test('tree --ax (web): a depth cutoff is incomplete coverage with an unknown rem
 test('tree --ax: a target inside a modal is judged against the whole modal, not reported outside it', () => {
   const dialog = el(3, 'dialog', 'Sheet'), ok = el(4, 'button', 'Ok');
   dialog.i = 0; ok.i = 1; ok.parent = 0;
-  const r = axFinish(axReply([dialog, ok], { modal: { present: true, element: 0, id: 13, by: 'dialog:modal' } }), axPlain, 'ok');
+  const r = axFinish(axReply([dialog, ok], { modal: { present: true, element: 0, id: 13, by: 'dialog:modal' } }), axPlain, 14);
   expect(r.ax.elements.map(e => e.testId)).toEqual(['ok']);
   expect(r.ax.findings).toEqual([]);
 });
@@ -1162,4 +1162,36 @@ test('tree --ax: sixty long guest-frame URLs still leave a reply within 256 KB, 
   const h = axFinish(huge, { nodes: [] }, null);
   expect(Buffer.byteLength(JSON.stringify(h))).toBeLessThanOrEqual(256 * 1024);
   expect(h.ax.truncated.excluded).toBe(60);
+});
+
+// Astra's round 3 (llp/reviews/code-2026-10-03-1080.002-ax-tree-r3.astra.md): 1, 2 and 4.
+test('tree --ax: the host resolves the target (the active route\'s view first), and the reply is scoped by that id', async () => {
+  const plain = { epoch: 1, incarnation: 1, roots: [1], nodes: [
+    { id: 1, parent: null, props: {}, children: [2, 3] }, { id: 2, parent: 1, props: { testId: 'dup' }, inactive: true, children: [] }, { id: 3, parent: 1, props: { testId: 'dup' }, children: [] }] };
+  const native = { epoch: 1, incarnation: 1, ax: { source: 'uikit', order: 'containment', coverage: { roots: [], complete: true, visited: 3 }, modal: { present: false },
+    elements: [{ ...el(0, 'button', 'Covered'), id: 2 }, { ...el(1, 'button', 'Showing'), i: 1, id: 3 }] } };
+  const asked = [];
+  const s = { carrier: { host: 'ios' }, async op(req) { asked.push(req); if (req.ax) return structuredClone(native); if (req.target === 'dup') return { ...plain, roots: [3] }; return req.target != null ? plain : structuredClone(plain); } };
+  const r = await axTree(s, 'dup');
+  expect(r.ax.elements.map(e => e.name)).toEqual(['Showing']);
+  expect(r.ax.target).toBe(3);
+  expect(asked.findIndex(q => q.target === 'dup')).toBeLessThan(asked.findIndex(q => q.ax)); // resolved inside the bracket, before the read
+});
+
+test('tree --ax: a 70-deep inert ancestor still hides, and targeting it keeps its deepest descendant', () => {
+  const nodes = Array.from({ length: 71 }, (_, k) => ({ id: k + 1, parent: k ? k : null, props: k === 0 ? { inert: true } : k === 70 ? { testId: 'deep' } : {}, children: k < 70 ? [k + 2] : [] }));
+  const reply = axReply([{ ...el(0, 'button', 'Deep'), id: 71 }]);
+  const r = axFinish(reply, { nodes }, null);
+  expect(r.ax.findings.map(f => [f.kind, f.under])).toEqual([['exposed-hidden', 1]]);
+  expect(axClean(r)).toBe(true); // complete, and the finding is reported
+  const t = axFinish(axReply([{ ...el(0, 'button', 'Deep'), id: 71 }]), { nodes }, 1);
+  expect(t.ax.elements.map(e => e.testId)).toEqual(['deep']);
+});
+
+test('tree --ax: parity skips a state the runtime cannot observe (UIKit expanded before iOS 18)', () => {
+  const web = axReply([el(0, 'button', 'Toggle', { testId: 'toggle', states: { expanded: true } })]);
+  const ios17 = axReply([el(0, 'button', 'Toggle', { testId: 'toggle', native: { role: ['button'] } })], { source: 'uikit', observes: ['checked', 'disabled'] });
+  expect(axParity(web, ios17).findings).toEqual([]);
+  const ios18 = axReply([el(0, 'button', 'Toggle', { testId: 'toggle', native: { role: ['button'] } })], { source: 'uikit', observes: ['checked', 'disabled', 'expanded'] });
+  expect(axParity(web, ios18).findings.map(f => f.detail)).toEqual(['expanded missing on uikit (true vs —)']);
 });

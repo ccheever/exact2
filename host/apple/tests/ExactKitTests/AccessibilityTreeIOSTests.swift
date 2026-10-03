@@ -202,5 +202,25 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         XCTAssertEqual((small["coverage"] as? [String: Any])?["complete"] as? Bool, false)
         XCTAssertNotNil(small["truncated"])
     }
+
+    /// The native boundary (round 3): a 300 KB testId is cut before the
+    /// element is budgeted, and a whole reply over 256 KB is cut, counted.
+    func testTheNativeReplyIsBoundedAtTheBoundary() throws {
+        let p = try fixture()
+        p.views[2]?.props["testId"] = String(repeating: "t", count: 300_000)
+        let ax = p.axElements(roots: [p.viewport])
+        let named = try XCTUnwrap(elements(ax).first { $0["id"] as? UInt32 == 2 })
+        XCTAssertLessThanOrEqual((named["testId"] as? String)?.count ?? 0, 200)
+        let big: [[String: Any]] = (0..<3000).map { ["i": $0, "name": String(repeating: "é", count: 200)] }
+        let bounded = Presenter.axBounded(["epoch": 1, "ax": ["elements": big, "coverage": ["complete": true], "truncated": ["elements": 0, "fields": 0]]])
+        let data = try JSONSerialization.data(withJSONObject: bounded)
+        XCTAssertLessThanOrEqual(data.count, 256 * 1024)
+        let out = try XCTUnwrap(bounded["ax"] as? [String: Any])
+        let kept = (out["elements"] as? [Any])?.count ?? 0
+        XCTAssertEqual((out["truncated"] as? [String: Any])?["elements"] as? Int, 3000 - kept)
+        XCTAssertEqual((out["coverage"] as? [String: Any])?["complete"] as? Bool, false)
+        if #available(iOS 18, *) { XCTAssertTrue((ax["observes"] as? [String])?.contains("expanded") == true) }
+        else { XCTAssertFalse((ax["observes"] as? [String])?.contains("expanded") == true) }
+    }
 }
 #endif

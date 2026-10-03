@@ -153,7 +153,8 @@ export function axFinish(reply, tree, target) {
   const ax = reply.ax;
   if (!ax || ax.unavailable) return reply;
   const { parent, facts } = axIntent(tree);
-  const ancestorsOf = id => { const out = []; for (let p = parent.get(id); p != null && out.length < DEPTH; p = parent.get(p)) out.push(p); return out; };
+  // The whole logical chain, however deep (a cycle, which a tree cannot have, ends it).
+  const ancestorsOf = id => { const out = [], seen = new Set([id]); for (let p = parent.get(id); p != null && !seen.has(p); p = parent.get(p)) { seen.add(p); out.push(p); } return out; };
   for (const e of ax.elements) if (e.id != null && e.testId == null && facts.get(e.id)?.testId != null) e.testId = facts.get(e.id).testId;
   const intentFor = elements => {
     const intent = {};
@@ -166,10 +167,14 @@ export function axFinish(reply, tree, target) {
   ax.intent = intentFor(ax.elements);
   const all = axFindings(reply);
   if (target != null) {
-    const hit = tree.nodes.find(n => n.id === target || n.props?.testId === target);
+    // `target` is the id the host resolved (its own selection: the active
+    // route's view first); the subtree is every descendant, however deep.
+    const hit = tree.nodes.find(n => n.id === target);
     if (!hit) throw new Error(`tree --ax: no view matches ${target}`);
+    const kids = new Map(tree.nodes.map(n => [n.id, n.children ?? []]));
+    for (const [id, p] of parent) if (!kids.get(p)?.includes(id)) kids.set(p, [...(kids.get(p) ?? []), id]);
     const inside = new Set([hit.id]);
-    for (const n of tree.nodes) if (ancestorsOf(n.id).includes(hit.id)) inside.add(n.id);
+    for (const queue = [hit.id]; queue.length;) for (const c of kids.get(queue.pop()) ?? []) if (!inside.has(c)) { inside.add(c); queue.push(c); }
     const every = ax.elements, keep = every.filter(e => e.id != null && inside.has(e.id));
     const chain = [];
     for (let p = keep[0]?.parent; p != null; p = every[p].parent) chain.unshift({ id: every[p].id, role: every[p].role, name: every[p].name });
@@ -220,7 +225,8 @@ export function axFindings(reply) {
   const intent = ax.intent ?? {};
   const hiddenBy = e => {
     if (e.id == null) return null;
-    for (let id = e.id, guard = 0; id != null && guard < DEPTH; guard++) {
+    for (let id = e.id, seen = new Set(); id != null && !seen.has(id);) {
+      seen.add(id);
       const f = intent[id];
       if (f?.inert || f?.ariaHidden) return { id, why: f.inert ? 'inert' : 'aria-hidden' };
       id = intent[id]?.parent ?? null;
@@ -295,7 +301,9 @@ export function axParity(web, other, testIds) {
     const nx = (x.name ?? '').trim().replace(/\s+/g, ' '), ny = (y.name ?? '').trim().replace(/\s+/g, ' ');
     if (nx !== ny) findings.push({ kind: 'parity', testId: t, detail: `name ${JSON.stringify(nx)} (web) vs ${JSON.stringify(ny)} (${sb})` });
     // A state both can observe and that applies to the role: missing on either side is a finding before any comparison.
-    for (const s of CAN[sa].filter(s => CAN[sb].includes(s))) {
+    // A reply that names what this runtime can observe (UIKit's expanded needs iOS 18) narrows the table.
+    const can = (r, src) => CAN[src].filter(s => !Array.isArray(r.ax.observes) || r.ax.observes.includes(s));
+    for (const s of can(web, sa).filter(s => can(other, sb).includes(s))) {
       if (!APPLIES[s](rx) || !APPLIES[s](ry)) continue;
       let vx = s === 'checked' ? checkedOf(x, sa) : x.states?.[s], vy = s === 'checked' ? checkedOf(y, sb) : y.states?.[s];
       if (ABSENT_IS_FALSE.has(s)) { vx ??= false; vy ??= false; }
@@ -356,19 +364,25 @@ export async function axTree(s, target, { limit, excluded, shallow } = {}) {
   if (shallow) throw new Error('tree --ax: shallow is refused with ax');
   axLimit(limit);
   if (excluded != null && typeof excluded !== 'boolean') throw new Error('tree --ax: excluded is a boolean');
-  const t = target == null ? null : typeof target === 'number' || /^\d+$/.test(String(target)) ? Number(target) : target;
+  const wanted = target == null ? null : typeof target === 'number' || /^\d+$/.test(String(target)) ? Number(target) : target;
+  // The host resolves the target as it does for every operation (the runner
+  // prefers the active route's view), inside the bracket; the reply is then
+  // scoped by the id it resolved.
+  const resolve = async () => wanted == null ? null : (await s.op({ op: 'tree', target: wanted, shallow: true })).roots?.[0] ?? null;
   if (s.carrier.host === 'web') {
-    const { reply, plain } = await webAx(s.carrier, { limit }, () => s.op({ op: 'tree' }));
+    let resolved = null;
+    const { reply, plain } = await webAx(s.carrier, { limit }, async () => { const p = await s.op({ op: 'tree' }); resolved = await resolve(); return p; });
     if (reply.error) throw new Error(`tree: ${reply.error}`);
-    return plain ? axFinish(reply, plain, t) : reply;
+    return plain ? axFinish(reply, plain, resolved) : reply;
   }
   for (let attempt = 0; ; attempt++) {
     const plain = await s.op({ op: 'tree' });
+    const resolved = await resolve();
     const reply = await s.op({ op: 'tree', ax: true, ...(limit != null ? { limit } : {}), ...(excluded ? { excluded: true } : {}) });
     const after = await s.op({ op: 'tree', target: plain.roots?.[0] ?? 1, shallow: true }).catch(() => plain);
     const same = [reply, after].every(r => r.epoch === plain.epoch && r.incarnation === plain.incarnation);
     if (!same && attempt < 2) continue;
     if (!same) reply.spanned = true;
-    return axFinish(reply, plain, t);
+    return axFinish(reply, plain, resolved);
   }
 }
