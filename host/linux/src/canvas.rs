@@ -97,8 +97,10 @@ const ROW_PAD: f32 = 48.0;
 static SLOTS: std::sync::LazyLock<bool> =
     std::sync::LazyLock::new(|| !std::env::var("EXACT_SLOTS").is_ok_and(|v| v == "0"));
 
-/// Frames a picture goes undrawn before the reader's copy is freed.
-const IDLE_FRAMES: u64 = 60;
+/// Paints a picture goes undrawn before the reader's copy (heap pixels and
+/// the texture HWUI makes from them) is freed; drawn again, it is sent again
+/// from the decoded picture, a copy rather than a decode.
+const IDLE_FRAMES: u64 = 10;
 
 #[path = "canvas/clip.rs"]
 mod clip;
@@ -751,6 +753,11 @@ impl<D: DataSource + Default> CanvasHost<D> {
     ) -> Result<CanvasHost<D>, String> {
         let started = std::time::Instant::now();
         std::env::set_var("EXACT_PAINTER", "canvas");
+        // Four viewports of decoded pictures, not Apple's eight: the reader
+        // holds its own copy of each one in use, so a larger cache costs twice.
+        if std::env::var_os("EXACT_IMAGE_VIEWPORTS").is_none() {
+            std::env::set_var("EXACT_IMAGE_VIEWPORTS", "4");
+        }
         std::env::set_var("EXACT_SCALE", scale.to_string());
         let viewport = (size.0 as f32 / scale, size.1 as f32 / scale);
         let mut config = crate::app::Config::from_env(plan, compat);
