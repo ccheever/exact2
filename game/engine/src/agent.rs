@@ -89,7 +89,9 @@ impl Request {
 const PAGE: usize = 512;
 const MAX_PAGE: usize = 100_000;
 fn page(q: &Request, start: usize, end: usize) -> (usize, usize) {
-    let from = start.saturating_add(q.from.min(usize::MAX as u64) as usize).min(end);
+    let from = start
+        .saturating_add(q.from.min(usize::MAX as u64) as usize)
+        .min(end);
     let limit = q.limit.map_or(PAGE, |n| n as usize);
     (from, from.saturating_add(limit).min(end))
 }
