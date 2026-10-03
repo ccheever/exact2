@@ -279,15 +279,32 @@ extension Canvases {
             return m.bind(e.id, bytes.bindMemory(to: UInt8.self).baseAddress, data.count)
         }
     }
-    /// `postMessage(name, text)`: one message event into the live canvas of that
-    /// surface name (lowest view first), stamped now like its other input.
+    /// Posts held per surface name until one of its canvases is live; past it a
+    /// post is dropped and logged. The same bound and rule on every host.
+    static let postBound = 64
+    /// `postMessage(text, name)`: one message event for the live canvas of that
+    /// surface name with the lowest view id, stamped now, held until one is live.
     func post(_ name: String, _ text: String) {
-        guard let e = entries.values.filter({ $0.name == name && live($0.view.id) === $0 })
-                .min(by: { $0.view.id < $1.view.id }), let m = e.module,
-              input(e, m, ["t": "message", "text": text]) else {
-            fputs("exact: postMessage: refused: no live surface named \"\(name)\"\n", stderr)
+        guard pendingPosts.filter({ $0.name == name }).count < Canvases.postBound else {
+            fputs("exact: postMessage: dropped: \(Canvases.postBound) posts already wait for surface \"\(name)\"\n", stderr)
             return
         }
+        pendingPosts.append((name, text, session?.clock ?? session?.now() ?? 0))
+        deliverPosts()
+    }
+    func deliverPosts() {
+        guard !pendingPosts.isEmpty else { return }
+        let queued = pendingPosts
+        pendingPosts = []
+        var held: [(name: String, text: String, at: Double)] = []
+        for p in queued {
+            guard let e = entries.values.filter({ $0.name == p.name && live($0.view.id) === $0 })
+                    .min(by: { $0.view.id < $1.view.id }), let m = e.module else { held.append(p); continue }
+            if !input(e, m, ["t": "message", "text": p.text, "at": p.at]) {
+                fputs("exact: postMessage: surface \"\(p.name)\" refused a message\n", stderr)
+            }
+        }
+        pendingPosts = held + pendingPosts
     }
     func live(_ id: UInt32) -> Entry? {
         guard let e = entries[id], e.id != 0, e.view.window != nil,
@@ -447,6 +464,7 @@ extension Canvases {
             if text == "exact:audio" { lifecycle.requestAudio(userInitiated: false); continue }
             if e.view.handlers.contains("message") { session?.presenter.message(e.view.id, text) }
         }
+        deliverPosts()
     }
 
     /// Real events and recognized driver events enter here, in the same clock domain.
@@ -467,7 +485,8 @@ extension Canvases {
             lifecycle.gesture()
         }
         var value = event
-        value["at"] = s.clock ?? timestamp.map { ($0 - ExactEnv.t0) * 1000 } ?? s.now()
+        // A held post keeps the stamp of its call.
+        if value["at"] == nil { value["at"] = s.clock ?? timestamp.map { ($0 - ExactEnv.t0) * 1000 } ?? s.now() }
         guard let data = try? JSONSerialization.data(withJSONObject: value) else { return false }
         let result = data.withUnsafeBytes { send(e.id, $0.bindMemory(to: UInt8.self).baseAddress, data.count) }
         if result != 0 { fputs("exact gpu: \(m.error())\n", stderr) }

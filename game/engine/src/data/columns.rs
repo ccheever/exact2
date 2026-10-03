@@ -525,9 +525,13 @@ impl<'a> Rows<'a> {
         let mut indices = Vec::new();
         let mut end = 0u64;
         for _ in 0..c.count(bytes.len())? {
-            let start = end + c.var()?;
+            // Runs ascend: each starts at or after the previous one's end.
+            let start = c.var()?.checked_add(end);
             let len = c.var()?;
-            end = start.saturating_add(len);
+            let Some(start) = start.filter(|s| s.checked_add(len).is_some()) else {
+                return Err(c.err("index run overflows"));
+            };
+            end = start + len;
             if len == 0 || end > limit as u64 {
                 return Err(c.err("index run exceeds the entity limit"));
             }
@@ -554,7 +558,9 @@ impl<'a> Rows<'a> {
         let row_shapes = if shapes.len() > 1 {
             c.column(UNSIGNED, rows, r)?
         } else {
-            vec![0; if shapes.is_empty() { 0 } else { rows }]
+            let n = if shapes.is_empty() { 0 } else { rows };
+            r.claim(n.saturating_mul(8))?;
+            vec![0; n]
         };
         if rows != 0 && shapes.is_empty() {
             return Err(c.err("rows without a shape"));
@@ -587,7 +593,11 @@ impl<'a> Rows<'a> {
                     let ids = c.column(UNSIGNED, n, r)?;
                     let mut nums = Vec::with_capacity(kinds.len());
                     for column in &table {
-                        let mut out = Vec::with_capacity(n);
+                        // Each expanded column holds n values: account it first.
+                        r.claim(n.saturating_mul(8))?;
+                        let mut out = Vec::new();
+                        out.try_reserve_exact(n)
+                            .map_err(super::limits::allocation)?;
                         for &id in &ids {
                             out.push(
                                 *column
@@ -1018,6 +1028,46 @@ mod tests {
                 added: Vec3::ZERO
             }
         );
+    }
+    // A sub-megabyte payload naming one shape of 10,000 scalars repeated over 4M
+    // rows from a one-row dictionary must refuse under the load budget, not
+    // expand 10,000 columns of 4M values.
+    #[test]
+    fn a_dictionary_group_cannot_expand_past_the_load_budget() {
+        let (kinds, rows) = (10_000u64, 1u64 << 22);
+        let mut bytes = vec![0, 0, 1];
+        var(&mut bytes, kinds);
+        bytes.extend(std::iter::repeat_n(UNSIGNED, kinds as usize));
+        var(&mut bytes, rows);
+        bytes.push(1);
+        var(&mut bytes, 1);
+        for _ in 0..kinds {
+            bytes.extend([0, 3, 0]); // runs mode, one repeated run of one value 0
+        }
+        bytes.push(0);
+        var(&mut bytes, rows << 1 | 1);
+        bytes.push(0);
+        assert!(bytes.len() < 1 << 20);
+        let mut outer = bin::Decoder::new(&[]);
+        let error = Rows::decode(&bytes, rows as usize, false, &mut outer)
+            .err()
+            .expect("refused");
+        assert!(error.to_string().contains("budget"), "{error}");
+    }
+    // Review S1: a gap that wraps would have produced descending indices.
+    #[test]
+    fn index_runs_cannot_wrap_or_descend() {
+        let mut bytes = vec![2];
+        var(&mut bytes, 5);
+        var(&mut bytes, 1);
+        var(&mut bytes, u64::MAX - 2);
+        var(&mut bytes, 1);
+        bytes.extend([0, 1, 0, 2, 0]);
+        let mut outer = bin::Decoder::new(&[]);
+        let error = Rows::decode(&bytes, 1 << 20, true, &mut outer)
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("overflows"), "{error}");
     }
     #[test]
     fn truncated_or_corrupt_payloads_refuse() {

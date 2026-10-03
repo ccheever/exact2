@@ -718,7 +718,7 @@ pub(super) const HOST_COMMANDS: &[&str] = &[
     "showSaveFilePicker",
     // @ref LLP 1070.000 — a virtualized list's row brought into view, by key.
     "scrollIntoView",
-    // The inverse of a canvas's `message=`: `postMessage("world", text)` queues
+    // The inverse of a canvas's `message=`: `postMessage(text, "world")` queues
     // text into the surface of that name, delivered in order, never coalesced.
     "postMessage",
 ];
@@ -959,26 +959,28 @@ pub(super) fn check_command(
         return into_view_args(args, scope, shapes, span);
     }
     if name == "postMessage" {
-        const USAGE: &str = "`postMessage(\"world\", text)`";
-        let [canvas, text] = args else {
+        // The web's argument order, `postMessage(message, target)`: the target
+        // is a surface's literal name, checked against the app's canvases.
+        const USAGE: &str = "`postMessage(text, \"world\")`";
+        let [text, surface] = args else {
             return err(
                 "type-post-message",
-                format!("{USAGE}: a surface's literal name, then the text"),
+                format!("{USAGE}: the message, then a surface's literal name"),
                 span,
             );
         };
-        if !matches!(canvas, Expr::Str(..)) {
-            return err(
-                "type-post-message",
-                format!("the surface is named literally, as in `surface=world()`: {USAGE}"),
-                canvas.span(),
-            );
-        }
         if !matches!(infer(text, scope, shapes)?, Ty::String) {
             return err(
                 "type-post-message",
                 format!("the message is a string: {USAGE}"),
                 text.span(),
+            );
+        }
+        if !matches!(surface, Expr::Str(..)) {
+            return err(
+                "type-post-message",
+                format!("the surface is named literally, as in `surface=world()`: {USAGE}"),
+                surface.span(),
             );
         }
         return Ok(());

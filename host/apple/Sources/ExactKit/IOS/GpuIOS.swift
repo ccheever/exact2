@@ -115,6 +115,8 @@ enum MetalLayerPool {
 final class Canvases {
     lazy var lifecycle = CanvasLifecycle(self)
     weak var session: ExactSession?
+    /// postMessage events waiting for a live canvas of their surface name.
+    var pendingPosts: [(name: String, text: String, at: Double)] = []
     final class Entry {
         let view: NodeView
         let name: String

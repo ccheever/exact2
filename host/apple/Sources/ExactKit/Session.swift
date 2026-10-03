@@ -972,7 +972,7 @@ public final class ExactSession {
                 }
                 if name == "postMessage" {
                     // The inverse of `message=`: text into the named surface, in order.
-                    let surface = args.first as? String ?? "", text = args.count > 1 ? args[1] as? String ?? "" : ""
+                    let text = args.first as? String ?? "", surface = args.count > 1 ? args[1] as? String ?? "" : ""
                     app.deliver { [weak self] in self?.canvases.post(surface, text) }
                     continue
                 }

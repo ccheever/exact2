@@ -422,6 +422,9 @@ pub fn step(world: &mut World) {
         live.rapier.step();
         drop(saved);
         drop(physics);
+        // The world hash keys a resource's digest by its revision, which only a
+        // mutable borrow advances; the executor changed behind a shared one. Every
+        // path through a step must end with resource_mut::<Physics>().
         world.resource_mut::<Physics>().events.clear();
         return;
     }

@@ -238,9 +238,13 @@ const sdkLockFile = source => [resolve(source, 'app/shells.lock'), resolve(gameR
 // seed a game's resolution and are admitted by version and checksum, so a new
 // game resolves offline before anyone refreshes the SDK lock.
 export function withRootPins(sdk, root = existsSync(resolve(gameRoot, '../Cargo.lock')) ? readFileSync(resolve(gameRoot, '../Cargo.lock'), 'utf8') : '') {
-  const names = new Set((Bun.TOML.parse(sdk).package ?? []).map(pkg => pkg.name));
+  // By name and semver series (Cargo's compatibility: 1.x, 0.37.x, 0.0.3): a root's
+  // new major of a package the SDK lock holds is a pin too; a compatible one is not.
+  const series = version => { const [major, minor, patch] = String(version).split('.'); return major !== '0' ? major : minor !== '0' ? `0.${minor}` : `0.0.${patch}`; };
+  const held = new Set((Bun.TOML.parse(sdk).package ?? []).map(pkg => `${pkg.name} ${series(pkg.version)}`));
+  const id = block => `${/^name = "([^"]+)"/m.exec(block)?.[1]} ${series(/^version = "([^"]+)"/m.exec(block)?.[1])}`;
   const pins = root.split(/\n(?=\[\[package\]\]\n)/).slice(1).map(block => block.trimEnd())
-    .filter(block => /^source = "registry\+/m.test(block) && !names.has(/^name = "([^"]+)"/m.exec(block)?.[1]));
+    .filter(block => /^source = "registry\+/m.test(block) && !held.has(id(block)));
   return pins.length ? `${sdk.trimEnd()}\n\n${pins.join('\n\n')}\n` : sdk;
 }
 const cargoMetadata = (cwd, flags, env) => spawnSync('cargo', ['metadata', ...flags, '--format-version', '1'], {cwd, env, encoding:'utf8', maxBuffer:64 * 1024 * 1024});
