@@ -1,4 +1,4 @@
-use crate::{math, step, Body, Collider, Hit, Shape};
+use crate::{math, step, Body, CapsuleController, Collider, Hit, Shape};
 use exact_game::{Entity, Parent, Ref, Transform, Vec3, World};
 use rapier3d::parry::{
     partitioning::BvhNode,
@@ -17,13 +17,14 @@ use std::cell::RefMut;
 use std::collections::{BTreeMap, BTreeSet};
 
 // Write revisions of every column the scene derives from, in this order.
-const COLUMNS: usize = 4;
+const COLUMNS: usize = 5;
 fn revisions(w: &World) -> [u64; COLUMNS] {
     [
         w.revision::<Body>(),
         w.revision::<Collider>(),
         w.revision::<Transform>(),
         w.revision::<Parent>(),
+        w.revision::<CapsuleController>(),
     ]
 }
 pub(crate) struct Cached {
@@ -61,6 +62,7 @@ impl Queries<'_> {
             self.world.pages::<Collider>(),
             self.world.pages::<Transform>(),
             self.world.pages::<Parent>(),
+            self.world.pages::<CapsuleController>(),
         );
         let w = self.world;
         let revisions = revisions(w);
@@ -98,6 +100,7 @@ struct Slot {
     pose: Transform,
     shape: Collider,
     kind: Option<Body>,
+    character: bool,
 }
 
 // A live component view: reads see same-tick edits without altering saved solver
@@ -163,6 +166,11 @@ impl Scene {
         if since[3] != now[3] {
             world.changed::<Parent>(since[3]).for_each(&mut note);
         }
+        if since[4] != now[4] {
+            world
+                .changed::<CapsuleController>(since[4])
+                .for_each(&mut note);
+        }
         // A child's world pose follows any ancestor's write.
         if since[2] != now[2] || since[3] != now[3] {
             for i in &self.parented {
@@ -199,8 +207,13 @@ impl Scene {
         };
         let b = world.get::<Body>(e);
         let t = math::world_pose(world, e);
+        let character = world.has::<CapsuleController>(e);
         if self.slots.get(&index).is_some_and(|old| {
-            old.entity == e && old.pose == t && old.shape == *c && old.kind.as_ref() == b.as_deref()
+            old.entity == e
+                && old.pose == t
+                && old.shape == *c
+                && old.kind.as_ref() == b.as_deref()
+                && old.character == character
         }) {
             return;
         }
@@ -251,8 +264,11 @@ impl Scene {
                 }
             }
         }
+        // Controllers move with sensors in the solver, but are solid to each other:
+        // another character's controller filter excludes sensors.
         let collider = self.rapier.insert_collider(
             step::collider(&c, t, b.as_deref())
+                .sensor(c.sensor && !character)
                 .position(if b.is_some() {
                     Pose::IDENTITY
                 } else {
@@ -277,6 +293,7 @@ impl Scene {
                 pose: t,
                 shape: c.clone(),
                 kind: b.map(|b| b.clone()),
+                character,
             },
         );
     }

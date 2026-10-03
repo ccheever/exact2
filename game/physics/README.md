@@ -40,7 +40,9 @@ the actual `displacement` and `grounded` state.
   80 kg default push budget. A default 1 m³ crate is 1,000 kg and cannot be pushed
   by that controller; author `Body { mass: 10., ..Default::default() }` for a light crate.
   Movement and push share the layer-mask/sensor/self filter;
-  the character's rigid collider is a sensor.
+  the character's rigid collider is a sensor, but other controllers are solid to its
+  movement: characters block, slide around and push out of each other in call
+  order. A character on a layer outside the mover's mask passes through.
 
 EXPHYS v2 persists `BroadPhaseBvh::deferred_optimize_pending`. V1 omitted state
 that changes the next physics step; it cannot be migrated and is refused by name
