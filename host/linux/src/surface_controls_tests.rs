@@ -826,3 +826,38 @@ fn canvas_pointer_carries_motion_hover_and_the_other_buttons() {
     assert_eq!(phase(&p), ("up".into(), 0, 0., 0.), "the last button up");
     done(p, path);
 }
+
+/// A lost pointer (Escape, a dropped evdev report) holds no button, and a
+/// secondary press on the canvas is released to it wherever the pointer is
+/// (pointer capture). Before: a stale secondary bit turned the next primary
+/// down into a move and the cancel went out with buttons 2.
+#[test]
+fn a_lost_pointer_holds_no_button_and_the_canvas_hears_its_release() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    let (ox, oy, _, _) = p.rect_of(raw).unwrap();
+    let last = |p: &Presenter<NoData>| {
+        let (_, count, e) = last_input(p);
+        (
+            count,
+            e["phase"].as_str().unwrap().to_string(),
+            e["buttons"].as_u64().unwrap(),
+        )
+    };
+    p.pointer_aux(2, true, ox + 20., oy + 60., 1.);
+    assert!(p.pointer_down(ox + 20., oy + 60., 2.).unwrap());
+    p.pointer_lost(3.).unwrap();
+    let (_, phase, buttons) = last(&p);
+    assert_eq!((phase.as_str(), buttons), ("cancel", 0));
+    assert!(p.pointer_down(ox + 20., oy + 60., 4.).unwrap());
+    let (_, phase, buttons) = last(&p);
+    assert_eq!((phase.as_str(), buttons), ("down", 1), "no stale secondary");
+    p.pointer_up(ox + 20., oy + 60., 5.).unwrap();
+    // Lost with only the secondary held: a cancel, nothing held after.
+    p.pointer_aux(4, true, ox + 20., oy + 60., 9.);
+    p.pointer_lost(10.).unwrap();
+    assert_eq!(last(&p).1, "cancel");
+    p.pointer_aux(4, true, ox + 20., oy + 60., 11.);
+    assert_eq!(last(&p).1, "down", "the middle button begins again");
+    done(p, path);
+}

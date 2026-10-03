@@ -133,7 +133,7 @@ fn perform<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> Result<Strin
             "up" => {
                 p.pointer_up(x, y, from)?;
             }
-            "cancel" => p.pointer_cancel(from)?,
+            "cancel" => p.pointer_lost(from)?,
             _ => unreachable!(),
         }
     }

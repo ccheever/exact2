@@ -701,6 +701,12 @@ impl<D: DataSource> Presenter<D> {
             HeldKind::Swipe { .. } => self.end_swipe(held, end, now_ms),
         }
     }
+    /// The device's pointer is gone or abandoned (Escape, a lost device, a
+    /// dropped report, a refused mapping): its contact and every button.
+    pub fn pointer_lost(&mut self, now_ms: f64) -> Result<(), String> {
+        self.cancel_aux(self.contact_canvas(), now_ms);
+        self.pointer_cancel(now_ms)
+    }
     /// Escape, wheel takeover, disconnection, or invalidated binding: no
     /// release event, except a pan that began, which releases at rest.
     pub fn pointer_cancel(&mut self, now_ms: f64) -> Result<(), String> {
@@ -711,7 +717,7 @@ impl<D: DataSource> Presenter<D> {
         let contact = self.contact.take().unwrap();
         if let Some(canvas) = contact.canvas {
             let (x, y) = contact.position;
-            self.canvas_pointer(canvas, "cancel", 0, x, y, now_ms);
+            self.cancel_canvas(canvas, x, y, now_ms);
         }
         if let Some((key, _)) = contact.press {
             self.host.press_feedback(key, false, now_ms);

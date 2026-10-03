@@ -316,6 +316,9 @@ pub(crate) struct Surfaces {
     motion: Option<(f32, f32)>,
     /// The secondary and middle buttons held (`PointerEvent.buttons` bits).
     aux: u32,
+    /// The canvas their first press went to: it hears their release wherever
+    /// the pointer is, as the web's pointer capture.
+    aux_canvas: Option<u32>,
 }
 impl Surfaces {
     pub(crate) fn enqueue(&mut self, request: RequestOut, admitted: &str) {
@@ -950,7 +953,9 @@ impl<D: DataSource> Presenter<D> {
             return;
         }
         let held = self.contact_canvas();
-        let Some(view) = held.or_else(|| self.hover_canvas(x, y)) else {
+        let target = held.or_else(|| self.hover_canvas(x, y));
+        self.surfaces.aux_canvas = target.filter(|_| after != 0);
+        let Some(view) = target else {
             return;
         };
         let primary = u32::from(held.is_some());
@@ -960,6 +965,21 @@ impl<D: DataSource> Presenter<D> {
             _ => "move",
         };
         self.send_canvas_pointer(view, phase, after | primary, x, y, at);
+    }
+    /// A cancelled pointer (Escape, a lost device, a dropped report) holds no
+    /// button: the canvas that heard the secondary or middle press hears a
+    /// `cancel` unless `except` (the contact's canvas, cancelled by its caller).
+    pub(crate) fn cancel_aux(&mut self, except: Option<u32>, at: f64) {
+        let captured = self.surfaces.aux_canvas.take();
+        self.surfaces.aux = 0;
+        if let Some(view) = captured.filter(|v| Some(*v) != except) {
+            let (x, y) = self.surfaces.pointer.map_or((0., 0.), |(_, x, y)| (x, y));
+            self.send_canvas_pointer(view, "cancel", 0, x, y, at);
+        }
+    }
+    /// The contact's canvas hears its `cancel` with no button held.
+    pub(crate) fn cancel_canvas(&mut self, view: u32, x: f32, y: f32, at: f64) {
+        self.send_canvas_pointer(view, "cancel", 0, x, y, at);
     }
     pub(crate) fn surface_request(&mut self, view: u32, mut q: Value) -> Value {
         let rect = self.rect_of(view);
