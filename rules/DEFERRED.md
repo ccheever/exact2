@@ -158,7 +158,8 @@ captioned figures — no camera, no generic file input. **Widened (Charlie,
 `file_handlers`, plus export and import copies to and from `app:/`. Unblocks
 the Markdown reader's remaining surfaces and Fieldnotes' backups. Take: none
 named (Charlie: "idk what to trade it for, maybe relax the limit slightly").
-Still no picker for any file, and no camera. Linux editing is v2
+Still no picker for any file, and no `capture` on the picker (the camera is a
+native module, §Components, 2026-10-02). Linux editing is v2
 (Charlie, 2026-09-21): web, iOS and macOS first; Linux reads.
 
 **Expanded (Charlie, 2026-09-21):** ship the full game engine from Black's
@@ -303,7 +304,14 @@ reading. Nothing that isn't HTML is added by it.
   view transitions moved behind the deck lane. LLP 1020 §6. What stays no from
   exact1's webview: `top` topology, navigation policy, the controller ops, `allow`,
   author-facing `srcdoc` — each with its return trigger in LLP 1020 §5.)
-- No camera anything.
+- ~~No camera anything.~~ Moved 2026-10-02 (Charlie: "I don't know why camera is so
+  aggressively deferred. Can we change that and record the change? It's time to work
+  on it"; take waived, none offered): a camera is an app native module in LLP
+  1067.000's shape — one object per session holding a preview view and its calls
+  (start, stop, capture, flip), gated by the `device.camera` grant (LLP 1069.008), with
+  an agent substitute before the OS (LLP 1069.007). Unblocks taking a photo in an
+  app, on the web, iOS and macOS first. Not a built-in tag. Video recording and
+  barcode or document scanning stay out until a consumer asks.
 - ~~No gradient style rows. A gradient with anything on it is a canvas surface with
   children (LLP 1014 §5 — the take for widening `canvas`; the three rows return when a
   host earns them).~~ Moved 2026-09-26 (Seth Webster, for grnl; LLP 1066): one CSS
