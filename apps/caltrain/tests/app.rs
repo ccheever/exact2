@@ -54,9 +54,10 @@ fn the_app_compiles_deterministically_and_bakes_its_first_frame() {
     // iframe fixture, @ref LLP 1020 M1); and `nav`, the routes table's
     // location (LLP 1038 D2), there for `render=build` (LLP 1048.003 D5).
     assert_eq!(a.slots.len(), 16);
-    // Seven data-crate resources, and `delivery` — the runner's own
-    // `exactDelivery` (LLP 1030 D7), read by the update banner.
-    assert_eq!(a.resources.len(), 8);
+    // Seven data-crate resources, `delivery` — the runner's own
+    // `exactDelivery` (LLP 1030 D7), read by the update banner — and
+    // `viewport`, whose `pointer` says a TV.
+    assert_eq!(a.resources.len(), 9);
     // …and `activateUpdate`, the banner's `deliveryActivate`.
     assert_eq!(a.actions.len(), 18);
     assert_eq!(a.timers.len(), 1);

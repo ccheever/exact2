@@ -46,6 +46,10 @@ shape DeliveryState
   seq: number
   staged: bool
 
+// CSS's `pointer` (Media Queries 4): a TV remote points at nothing.
+shape Viewport
+  pointer: string
+
 component Caltrain
   state nowMs = 1787915400000
   state screen = "home"
@@ -76,6 +80,8 @@ component Caltrain
   resource allStations = stations(location) as shape list<Station>
   resource matches = search(query, location) as shape list<Station>
   resource delivery = exactDelivery() as shape DeliveryState
+  resource viewport = exactViewport() as shape Viewport
+  derive tv = viewport.pointer == "none"
 
   action tick
     nowMs = nowMs + 1000
@@ -154,8 +160,8 @@ component Caltrain
       else
         // The sky or the plain page around the same content, written once:
         // `Sky` declares a slot and the content is what is indented under it.
-        Sky(on=skyOn, material=material, selectedId=selectedId)
-          Content(station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, hoverId=hoverId, hoverOn=hoverOn, searchFocused=searchFocused, lastKey=lastKey, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, delivery=delivery, openStations=openStations, openDeck=openDeck, setScheme=setScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome, hoverStation=hoverStation, focusSearch=focusSearch, blurSearch=blurSearch, searchKey=searchKey, activateUpdate=activateUpdate)
+        Sky(on=skyOn, material=material, selectedId=selectedId, dim=tv)
+          Content(tv=tv, station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, hoverId=hoverId, hoverOn=hoverOn, searchFocused=searchFocused, lastKey=lastKey, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, delivery=delivery, openStations=openStations, openDeck=openDeck, setScheme=setScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome, hoverStation=hoverStation, focusSearch=focusSearch, blurSearch=blurSearch, searchKey=searchKey, activateUpdate=activateUpdate)
       // @ref LLP 1048.003 D1 — a link preview's summary; the title stays the app's.
       head description="The next Caltrain departures, north and south, from the station nearest you."
 
@@ -164,14 +170,16 @@ component Sky
     on: bool
     material: string
     selectedId: string
+    dim: bool
   slot
   view
     // The sky is optional (the "Sky off" button): the same content inside
     // the aurora canvas — captured through its surface, the shader every
     // frame — or in a plain scroll, to see what each costs on a phone.
+    // Dimmed on a TV, where the full aurora is too bright across a room.
     when on
       canvas surface=glass(material, selectedId) width="100%" height="100%" testId="sky"
-        scroll width="100%" height="100%"
+        scroll width="100%" height="100%" background-color=(dim ? "#05081a99" : "#05081a00")
           children
     else
       scroll width="100%" height="100%"
@@ -181,6 +189,7 @@ component Content
   inject
     accent: string
   props
+    tv: bool
     station: Station
     selectedId: string
     screen: string
@@ -237,10 +246,12 @@ component Content
             button press=openDeck aria-label="Open web deck" testId="open-deck" padding=8 border-radius=8 background-color="#eeeeee"
               text "Web deck" font-size=12 font-weight=600
             row gap=6
-              button press=setScheme("light") aria-label="Light" testId="scheme-light"
-                text "Light" font-size=12
-              button press=setScheme("dark") aria-label="Dark" testId="scheme-dark"
-                text "Dark" font-size=12
+              // A TV has no light and dark scheme for the app to choose.
+              when not tv
+                button press=setScheme("light") aria-label="Light" testId="scheme-light"
+                  text "Light" font-size=12
+                button press=setScheme("dark") aria-label="Dark" testId="scheme-dark"
+                  text "Dark" font-size=12
               button press=toggleSky aria-label="Toggle the sky" testId="sky-toggle"
                 when sky
                   text "Sky off" font-size=12
@@ -289,8 +300,8 @@ component Content
                       text "min" font-size=13 color="#666666"
                     text `${formatTime(d.at, 0, "short")} · Train ${d.train} · ${d.service} to ${d.headsign}` font-size=13 color="#444444"
           else
-            DirectionCard(title="Northbound", board=northBoard, nowMs=nowMs, testId="board-north")
-          DirectionCard(title="Southbound", board=southBoard, nowMs=nowMs, testId="board-south")
+            DirectionCard(title="Northbound", board=northBoard, nowMs=nowMs, focusDeparture=focusDeparture, testId="board-north")
+          DirectionCard(title="Southbound", board=southBoard, nowMs=nowMs, focusDeparture=focusDeparture, testId="board-south")
       else
         section role="region" aria-label="Stations" gap=12 testId="stations-screen" background-color="#ffffffd9" border-radius=16 padding=14 box-sizing="border-box"
           input value=query input=setQuery focus=focusSearch blur=blurSearch key=searchKey placeholder="Search stations" aria-label="Search stations" testId="station-search" padding=12 border-radius=10 border-style="solid" border-width=1 border-color="#cccccc"
@@ -319,6 +330,7 @@ component DirectionCard
     title: string
     board: list<Departure>
     nowMs: number
+    focusDeparture: action
     testId: string
   view
     column border-radius=16 padding=16 gap=10 background-color="#ffffffd9" testId=testId
@@ -327,7 +339,8 @@ component DirectionCard
         text "No more trains today" font-size=14 color="#666666"
       else
         each d in board key=d.id
-          row gap=8 align-items="flex-end" testId=`dep-${d.id}`
+          // Focusable, so Tab and a TV remote can reach each departure.
+          row gap=8 align-items="flex-end" focus=focusDeparture(d.id) aria-label=`Train ${d.train}` testId=`dep-${d.id}`
             text countdownText(d.at, nowMs) font-size=28 font-weight=700 testId=`countdown-${d.id}`
             text `min · ${formatTime(d.at, 0, "short")} · Train ${d.train} · ${d.service} to ${d.headsign}` font-size=13 color="#666666"
 
