@@ -6,6 +6,8 @@ struct Ao {
     projection: mat4x4f,
     // pixels wide, high; radius in metres; intensity
     viewport: vec4f,
+    // .x: the viewmodel layer's depth split (zero without one)
+    split: vec4f,
 }
 @group(0) @binding(0) var<uniform> u: Ao;
 @group(0) @binding(1) var depth: texture_depth_multisampled_2d;
@@ -15,20 +17,27 @@ struct Ao {
     let p = vec2f(f32((i << 1u) & 2u), f32(i & 2u));
     return vec4f(p * 2.0 - 1.0, 0.0, 1.0);
 }
-// The view-space position at a pixel; w is zero where nothing was drawn.
+// The view-space position at a pixel; w is zero where nothing was drawn and
+// where the viewmodel layer drew (it neither receives nor casts occlusion).
+// World depth fills [split, 1] of the depth range while a viewmodel draws.
 fn view_at(p: vec2i) -> vec4f {
     let size = vec2i(u.viewport.xy);
     let q = clamp(p, vec2i(0), size - 1);
+    if any(q != p) { return vec4f(0.0); }
     let z = textureLoad(depth, q, 0);
+    let split = u.split.x;
     let ndc = (vec2f(q) + 0.5) / u.viewport.xy * vec2f(2.0, -2.0) + vec2f(-1.0, 1.0);
-    let v = u.inverse_projection * vec4f(ndc, z, 1.0);
-    return vec4f(v.xyz / v.w, select(1.0, 0.0, z >= 1.0));
+    let v = u.inverse_projection * vec4f(ndc, (z - split) / (1.0 - split), 1.0);
+    return vec4f(v.xyz / v.w, select(1.0, 0.0, z >= 1.0 || z < split));
 }
-// The shorter of the two one-pixel differences, so silhouettes keep their plane.
+// The shorter of the two one-pixel differences, so silhouettes keep their plane;
+// a neighbour off screen, in the sky or in the viewmodel layer does not count.
 fn tangent(c: vec3f, a: vec4f, b: vec4f) -> vec3f {
     let da = a.xyz - c;
     let db = c - b.xyz;
-    return select(db, da, dot(da, da) < dot(db, db));
+    let a_ok = a.w > 0.0 && dot(da, da) > 0.0;
+    let b_ok = b.w > 0.0 && dot(db, db) > 0.0;
+    return select(db, da, a_ok && (!b_ok || dot(da, da) < dot(db, db)));
 }
 @fragment fn ao(@builtin(position) pixel: vec4f) -> @location(0) vec4f {
     let p = vec2i(pixel.xy);
@@ -36,7 +45,9 @@ fn tangent(c: vec3f, a: vec4f, b: vec4f) -> vec3f {
     if centre.w == 0.0 { return vec4f(1.0); }
     let dx = tangent(centre.xyz, view_at(p + vec2i(1, 0)), view_at(p - vec2i(1, 0)));
     let dy = tangent(centre.xyz, view_at(p + vec2i(0, 1)), view_at(p - vec2i(0, 1)));
-    var n = normalize(cross(dx, dy));
+    let crossed = cross(dx, dy);
+    if dot(crossed, crossed) < 1e-20 { return vec4f(1.0); }
+    var n = normalize(crossed);
     if dot(n, centre.xyz) > 0.0 { n = -n; }
     let up = select(vec3f(1.0, 0.0, 0.0), vec3f(0.0, 1.0, 0.0), abs(n.x) > 0.9);
     let t = normalize(cross(up, n));

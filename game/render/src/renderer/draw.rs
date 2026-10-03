@@ -196,6 +196,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 settings,
                 &self.targets.resolved,
                 size,
+                self.depth_split(),
             );
             state.draws += 2;
         } else {

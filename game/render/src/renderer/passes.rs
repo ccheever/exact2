@@ -14,12 +14,16 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     }
     /// The world's depth range, or the viewmodel layer's: while any viewmodel
     /// draws, it takes the nearest `VIEWMODEL_DEPTH` and the world the rest.
-    fn scene_viewport(&self, pass: &mut wgpu::RenderPass<'_>, size: (u32, u32), viewmodel: bool) {
-        let split = if self.viewmodels {
+    /// Where the viewmodel layer's depth ends this frame: zero without one.
+    pub(super) fn depth_split(&self) -> f32 {
+        if self.viewmodels {
             crate::VIEWMODEL_DEPTH
         } else {
             0.
-        };
+        }
+    }
+    fn scene_viewport(&self, pass: &mut wgpu::RenderPass<'_>, size: (u32, u32), viewmodel: bool) {
+        let split = self.depth_split();
         let (near, far) = if viewmodel { (0., split) } else { (split, 1.) };
         pass.set_viewport(0.0, 0.0, size.0 as f32, size.1 as f32, near, far);
         pass.set_scissor_rect(0, 0, size.0, size.1);
@@ -261,7 +265,14 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     ) -> Result<(), RenderError> {
         let time = view.time;
         let targets = self.hook_targets.as_ref().unwrap();
-        targets.resolve_depth(encoder, &self.queue, frame, state.size, true);
+        targets.resolve_depth(
+            encoder,
+            &self.queue,
+            frame,
+            state.size,
+            true,
+            self.depth_split(),
+        );
         state.draws += 1;
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("game surface + translucent"),
@@ -312,7 +323,14 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
     ) -> Result<(), RenderError> {
         let time = view.time;
         if let Some(targets) = &self.hook_targets {
-            targets.resolve_depth(encoder, &self.queue, frame, state.size, false);
+            targets.resolve_depth(
+                encoder,
+                &self.queue,
+                frame,
+                state.size,
+                false,
+                self.depth_split(),
+            );
             if state.needs.contains(crate::Needs::FINAL_DEPTH) {
                 state.draws += 1;
             }

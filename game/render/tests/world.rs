@@ -591,6 +591,7 @@ fn a_viewmodel_draws_in_front_of_the_wall_it_reaches_into() {
 #[derive(Default, exact_game::Args)]
 struct OcclusionArgs {
     on: bool,
+    weapon: bool,
 }
 struct Occlusion;
 impl Game for Occlusion {
@@ -619,6 +620,17 @@ impl Game for Occlusion {
             Mesh::cube(1.),
             Material::rgb(0.7, 0.7, 0.7),
         ));
+        if args.weapon {
+            // Lower right, over open floor, in the viewmodel layer.
+            let camera = w.query::<&Camera>().iter().next().unwrap().0;
+            w.spawn((
+                Transform::at(0.25, -0.18, -0.6),
+                Mesh::cube(0.12),
+                Material::rgb(0.9, 0.1, 0.1),
+                exact_game::Parent(camera),
+                exact_game::ViewModel,
+            ));
+        }
     }
     fn tick(_: &mut World, _: &Input, _: &OcclusionArgs) {}
 }
@@ -648,4 +660,42 @@ fn ambient_occlusion_darkens_contacts_and_is_off_by_default() {
     eprintln!("occlusion: largest contact darkening {darkest}, far floor change {far}");
     assert!(darkest > 30, "{darkest}");
     assert!(far <= 3, "{far}");
+}
+
+#[test]
+fn ambient_occlusion_skips_the_viewmodel_layer_and_leaves_no_halo() {
+    let Some(gpu) = gpu() else { return };
+    let image = |on: bool| {
+        let mut s = WorldSurface::<Occlusion>::default();
+        s.bind(&[Value::Bool(on), Value::Bool(true)], None).unwrap();
+        let name = if on {
+            "occlusion-weapon-on"
+        } else {
+            "occlusion-weapon-off"
+        };
+        render(&gpu, &mut s, 0., name)
+    };
+    let (off, on) = (image(false), image(true));
+    let lum = |p: [u8; 4]| i64::from(p[0]) + i64::from(p[1]) + i64::from(p[2]);
+    let weapon = |p: [u8; 4]| u16::from(p[0]) > 2 * u16::from(p[1]).max(20);
+    let (mut weapon_change, mut halo) = (0, 0);
+    let mut weapon_pixels = 0;
+    // The lower right quarter holds the weapon over open floor.
+    for y in 200..360 {
+        for x in 400..640 {
+            let change = (lum(off.at(x, y)) - lum(on.at(x, y))).abs();
+            if weapon(off.at(x, y)) {
+                weapon_pixels += 1;
+                weapon_change = weapon_change.max(change);
+            } else {
+                halo = halo.max(change);
+            }
+        }
+    }
+    eprintln!(
+        "viewmodel: {weapon_pixels} weapon pixels, change {weapon_change}; floor change {halo}"
+    );
+    assert!(weapon_pixels > 500, "{weapon_pixels}");
+    assert_eq!(weapon_change, 0);
+    assert!(halo <= 6, "a dark ring around the weapon: {halo}");
 }

@@ -23,7 +23,7 @@ impl Ssao {
         });
         let uniform = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("game SSAO"),
-            size: 144,
+            size: 160,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -155,8 +155,9 @@ impl Ssao {
         settings: exact_game::AmbientOcclusion,
         color: &wgpu::TextureView,
         size: (u32, u32),
+        split: f32,
     ) {
-        let mut words = [0f32; 36];
+        let mut words = [0f32; 40];
         words[..16].copy_from_slice(&frame.proj.inverse().to_cols_array());
         words[16..32].copy_from_slice(&frame.proj.to_cols_array());
         words[32..36].copy_from_slice(&[
@@ -165,6 +166,7 @@ impl Ssao {
             settings.radius.max(1e-3),
             settings.intensity.max(0.),
         ]);
+        words[36] = split;
         queue.write_buffer(&self.uniform, 0, bytes(&words));
         for (view, pipeline, bind, load) in [
             (
