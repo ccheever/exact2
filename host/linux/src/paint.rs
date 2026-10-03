@@ -41,6 +41,7 @@ mod region;
 mod shadow;
 mod space;
 mod svg;
+mod symbol;
 mod text_clip;
 mod text_shadow;
 mod text_stroke;
@@ -1009,7 +1010,8 @@ impl Painter {
                 }
             }
             NodeType::Image => {
-                if let Some(img) = walk.scene.images.get(&node.id) {
+                if self.symbol(node, content, image_tint(s, &shown, self.dark), ts) {
+                } else if let Some(img) = walk.scene.images.get(&node.id) {
                     if let Some(dst) = object_fit(img.natural(), s.object_fit, content) {
                         self.backend.image(
                             img,

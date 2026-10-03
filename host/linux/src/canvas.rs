@@ -25,6 +25,7 @@
 //! - `10 FONT key index weight len utf8-path(padded to 4)` — once per face
 //! - `11 IMAGE_DEF id w h` — fetch its pixels with [`CanvasHost::image`]
 //! - `12 IMAGE_FREE id`
+//! - `13 STROKE color width cap join n (tag coords…)×n` — caps/joins as SVG (0 butt/miter, 1 round, 2 square/bevel)
 //!
 //! Geometry is in device pixels; colours are ARGB.
 //!
@@ -53,6 +54,7 @@ const GLYPHS: u32 = 9;
 const FONT: u32 = 10;
 const IMAGE_DEF: u32 = 11;
 const IMAGE_FREE: u32 = 12;
+const STROKE: u32 = 13;
 
 thread_local! {
     /// The last finished recording and the pictures it introduced.
@@ -298,6 +300,34 @@ impl Backend for Recorder {
                 self.f(*x);
                 self.f(*y);
             }
+        }
+    }
+
+    fn svg_path(&mut self, s: &crate::paint::SvgPaint<'_>, ts: Transform) {
+        // Solid inks only (symbols, plain SVG shapes); a gradient or pattern
+        // draws nothing here (a gap of this backend).
+        let ops: Vec<PathOp> = s
+            .path
+            .0
+            .iter()
+            .map(|seg| match *seg {
+                exact_kernel::svg::Seg::Move(x, y) => PathOp::Move(x, y),
+                exact_kernel::svg::Seg::Line(x, y) => PathOp::Line(x, y),
+                exact_kernel::svg::Seg::Cubic(a, b, c, d, x, y) => PathOp::Cubic(a, b, c, d, x, y),
+                exact_kernel::svg::Seg::Close => PathOp::Close,
+            })
+            .collect();
+        self.transform(ts);
+        if let Some(crate::paint::Ink::Solid(c)) = &s.fill {
+            self.ops
+                .extend([PATH, Self::color(*c), u32::from(s.even_odd)]);
+            self.path(&ops);
+        }
+        if let Some(crate::paint::Ink::Solid(c)) = &s.stroke {
+            self.ops.extend([STROKE, Self::color(*c)]);
+            self.f(s.width);
+            self.ops.extend([u32::from(s.cap), u32::from(s.join)]);
+            self.path(&ops);
         }
     }
 
