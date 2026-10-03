@@ -163,9 +163,7 @@ let agentClock = agentMode ? 0 : null;
 // A seek moves drag timelines' sources too (LLP 1057.003 D2): their consumers follow in it.
 const { register, seek: seekAnimations, settle: settleCandidate } = animationClock(() => agentClock, () => ask({ op: "settle" }).settle, () => { motion.followTimelines(); presence.live?.sync(); });
 const seek = to => { (imageHold ??= loadAfterPaint('./image-glue.js', 'holdImages').then(f => f({ root, now: () => agentClock }))).then(h => h.seek()); seekAnimations(to); };
-// Posts held per surface name before its canvas is live; gpu-glue.js reads it as
-// exact.postBound. The same bound: Linux surfaces.rs POST_BOUND, Apple Canvases.postBound.
-const POST_BOUND = 64;
+const POST_BOUND = 64; // posts held per surface before its canvas is live; gpu-glue.js's exact.postBound, Linux POST_BOUND, Apple Canvases.postBound
 const now = () => agentClock ?? performance.now() - t0;
 let frameSampler = null; // a development page's frame sampler (frames.js, LLP 1079 D3)
 let timelinesMoved = false; // a batch's `timelines` op: its consumers are sought once it is applied
