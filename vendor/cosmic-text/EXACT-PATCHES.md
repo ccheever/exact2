@@ -54,3 +54,11 @@ first-strong heuristic is `unicode-bidi: plaintext`. With the level given,
 passes `Some(true)` for every line of an `rtl` paragraph and `None` otherwise
 (`host/linux/src/text/shaping.rs`; LLP 1001 §1 declares the `ltr` case); the
 regression is in `host/linux/src/text/sharing_tests.rs`.
+
+## Android fallback list
+
+`src/font/fallback/android.rs`: Android's system families as the platform
+fallback (Roboto, Noto Color Emoji, Noto Sans Symbols, then a Noto family per
+script, Arabic as Noto Naskh Arabic), where upstream gives Android none and a
+missing glyph searched every installed font file. On a Nothing A069P the
+first layout of a list with one emoji spent most of its time opening fonts.

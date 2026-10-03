@@ -10,8 +10,12 @@ use unicode_script::Script;
 
 use crate::{BuildHasher, Font, FontMatchKey, FontSystem, HashMap, ShapeBuffer};
 
-#[cfg(not(any(all(unix, not(target_os = "android")), target_os = "windows")))]
+#[cfg(not(any(unix, target_os = "windows")))]
 #[path = "other.rs"]
+mod platform;
+
+#[cfg(target_os = "android")]
+#[path = "android.rs"]
 mod platform;
 
 #[cfg(target_os = "macos")]

@@ -700,6 +700,30 @@ impl<D: DataSource> Presenter<D> {
         self.focus
     }
 
+    /// The safe-area insets (points) the window's edges reserve — what
+    /// `env(safe-area-inset-*)` lengths resolve to — then lay out if a node
+    /// uses one. A host drawing under a status bar reports it here.
+    pub fn set_safe_area(
+        &mut self,
+        top: f32,
+        right: f32,
+        bottom: f32,
+        left: f32,
+    ) -> Option<String> {
+        match self
+            .host
+            .set_safe_area(exact_kernel::Env::new(top, right, bottom, left))
+        {
+            Ok(true) => {
+                self.dirty = true;
+                self.queue_collections();
+                None
+            }
+            Ok(false) => None,
+            Err(e) => Some(e),
+        }
+    }
+
     /// Paint again at the next frame (a host whose surface came back).
     pub fn repaint(&mut self) {
         self.dirty = true;

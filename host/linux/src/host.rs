@@ -929,6 +929,16 @@ impl<D: DataSource> Host<D> {
         }
     }
 
+    /// The safe-area insets `env(safe-area-inset-*)` resolves to; laid out
+    /// again when a node uses one. Whether anything changed.
+    pub fn set_safe_area(&mut self, env: exact_kernel::Env) -> Result<bool, String> {
+        match self.runner.kernel_mut().set_env(env) {
+            Ok(true) => self.layout().map(|_| true).map_err(|e| e.to_string()),
+            Ok(false) => Ok(false),
+            Err(e) => Err(format!("safe area: {e:?}")),
+        }
+    }
+
     /// Several pictures' sizes, then one layout (a list row's symbols arrive
     /// together; a layout each made one mount lay out once per icon).
     pub fn set_intrinsics(&mut self, sizes: &[(ViewId, Option<(f32, f32)>)]) -> Option<String> {

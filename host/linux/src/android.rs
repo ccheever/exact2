@@ -151,6 +151,9 @@ pub struct Launch {
     pub size: (u32, u32),
     /// Device pixels per point (CSS px = dp).
     pub scale: f32,
+    /// The window's safe-area insets (top, right, bottom, left), pixels:
+    /// a surface under the status bar reports it so `env()` reserves it.
+    pub insets: [f32; 4],
 }
 
 struct Window(*mut c_void);
@@ -169,6 +172,7 @@ pub fn start<D: DataSource + Default + 'static>(launch: Launch) -> Handle {
     let (ff, fr) = (first_frame.clone(), frames.clone());
     let window = Window(launch.window);
     let (plan, compat, size, scale) = (launch.plan, launch.compat, launch.size, launch.scale);
+    let insets = launch.insets;
     let thread = std::thread::Builder::new()
         .name("exact-render".into())
         .spawn(move || {
@@ -184,7 +188,9 @@ pub fn start<D: DataSource + Default + 'static>(launch: Launch) -> Handle {
                     break;
                 }
             }
-            run::<D>(plan, compat, window.0, size, scale, rx, wake, ff, fr);
+            run::<D>(
+                plan, compat, window.0, size, scale, insets, rx, wake, ff, fr,
+            );
             // SAFETY: the painter (and its surface) dropped inside `run`.
             if !window.0.is_null() {
                 unsafe { ANativeWindow_release(window.0) };
@@ -244,6 +250,7 @@ fn run<D: DataSource + Default>(
     window: *mut c_void,
     (pw, ph): (u32, u32),
     scale: f32,
+    insets: [f32; 4],
     rx: Receiver<Command>,
     wake: c_int,
     first_frame: Arc<AtomicBool>,
@@ -274,6 +281,12 @@ fn run<D: DataSource + Default>(
     };
     if let Some(e) = error {
         log(&format!("exact: {e}"));
+    }
+    if insets.iter().any(|i| *i != 0.0) {
+        let [t, r, b, l] = insets.map(|i| i / scale);
+        if let Some(e) = p.set_safe_area(t, r, b, l) {
+            log(&format!("exact: {e}"));
+        }
     }
     log(&format!(
         "exact: {pw}x{ph} px, scale {scale}, viewport {:.1}x{:.1}, painter {} {:?}, boot {:.1} ms (fonts {:.1} ms)",
@@ -315,6 +328,7 @@ fn run<D: DataSource + Default>(
     let mut last_tick = 0.0f64;
     let mut first_pixel = false;
     let frame_ms = 1000.0 / 120.0;
+    let mut images_woke = true;
     loop {
         let mut drain = [0u8; 8];
         // SAFETY: a non-blocking read of the eventfd's counter.
@@ -380,7 +394,12 @@ fn run<D: DataSource + Default>(
         if vsync.arrived.get() && trace(c"exact needs frame", || p.needs_animation_frame()) {
             trace(c"exact tick", || p.tick(now));
         }
-        trace(c"exact poll images", || p.poll_images());
+        // Decodes that finished since: only when the image fd woke the loop
+        // (a frame's picture sync polls them too); every iteration polled
+        // every picture's state twice a frame.
+        if images_woke {
+            trace(c"exact poll images", || p.poll_images());
+        }
         let mut painted = false;
         if p.dirty() && vsync.arrived.get() {
             vsync.arrived.set(false);
@@ -448,7 +467,7 @@ fn run<D: DataSource + Default>(
             timeout
         };
         // SAFETY: polls this thread's looper; fds were added above.
-        unsafe {
+        let ident = unsafe {
             ALooper_pollOnce(
                 timeout,
                 std::ptr::null_mut(),
@@ -456,6 +475,7 @@ fn run<D: DataSource + Default>(
                 std::ptr::null_mut(),
             )
         };
+        images_woke = ident == 3;
     }
     // Let a posted vsync callback run before `vsync` is dropped.
     if vsync.requested.get() {

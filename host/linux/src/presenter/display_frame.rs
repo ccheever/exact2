@@ -200,15 +200,19 @@ impl<D: DataSource> Presenter<D> {
                 if let Some(n) = kernel.node(b.id) {
                     witness.keys.insert(b.id, n.key);
                     witness.parents.insert(b.id, n.parent);
-                    witness.scroll.insert(
-                        b.id,
-                        self.brush.scroll_bounds(
-                            kernel,
-                            self.host.content_region(),
-                            &n,
-                            limits.get(&b.id).copied(),
-                        ),
-                    );
+                    // Only a box that clips or scrolls has bounds to keep;
+                    // one that does neither reads as neither when absent.
+                    if b.scroll.is_some() {
+                        witness.scroll.insert(
+                            b.id,
+                            self.brush.scroll_bounds(
+                                kernel,
+                                self.host.content_region(),
+                                &n,
+                                limits.get(&b.id).copied(),
+                            ),
+                        );
+                    }
                 }
             }
         }
