@@ -148,6 +148,9 @@ component NativeFixture
   action scrollTo(y: number)
     top = y
   state draft = ""
+  state query = ""
+  action setQuery(text: string)
+    query = text
   action setDraft(text: string)
     draft = text
   action selectTab(name: string)
@@ -177,6 +180,8 @@ component NativeFixture
                     // A popover's invoker is a bar item opening a UIMenu.
                     button popovertarget="bar-menu" aria-label="More" testId="menu-item" padding=6 background-color="#e5e7eb"
                       image "symbol:sf/ellipsis.circle" width=20 height=20
+                    // A search field in the header: the item's search controller.
+                    input type="search" value=query input=setQuery placeholder="Search the fixture" testId="header-search" width=80
                   text (e.name == "home" ? "Fixture" : e.name == "detail" ? "Detail" : e.name == "rows" ? "Rows" : e.name == "sheet" ? "Sheet" : "Second") aria-level=(e.name == "home" or e.name == "second" ? 1 : 2) testId=`title-${e.name}` flex=1 font-weight=700 font-size=20
                   button id="compose" press=compose aria-label="Compose" testId=`compose-${e.name}` padding=6 background-color="#e5e7eb"
                     image "symbol:compose" width=20 height=20

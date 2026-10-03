@@ -21,6 +21,8 @@ final class RouteController: UIViewController {
     weak var collapseScroll: NodeView?
     /// The targets of the bar items projected from its header.
     var barPresses: [BarPress] = []
+    /// The header's search field as UIKit's search controller (§9.6).
+    var search: HeaderSearch?
     init(_ node: NodeView) {
         self.node = node
         super.init(nibName: nil, bundle: nil)

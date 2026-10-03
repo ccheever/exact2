@@ -133,6 +133,19 @@ final class NavigationBarIOSTests: XCTestCase {
         XCTAssertEqual(row.title, "Bump from the bar")
     }
 
+    /// LLP 1075.003 §9.6: a header's `input type="search"` is the item's
+    /// search controller; what the reader types is the field's `input`.
+    func testAHeaderSearchFieldIsTheItemsSearchControllerAndTypingIsItsInput() throws {
+        let session = try fixture("bar-search", module: false)
+        let nav = try XCTUnwrap(session.presenter.navigation.primaryNavigation)
+        let top = try XCTUnwrap(nav.topViewController)
+        let search = try XCTUnwrap(top.navigationItem.searchController, "the header's search field")
+        XCTAssertEqual(search.searchBar.placeholder, "Search the fixture")
+        search.searchBar.text = "abc"
+        search.searchResultsUpdater?.updateSearchResults(for: search)
+        until("the field's input ran with the text") { state(session, "query") as? String == "abc" }
+    }
+
     func testAPushedRouteShowsBackAsTheAuthoredControlAndAPopPressesItOnce() throws {
         let session = try fixture("bar-push", module: false)
         let agent = Agent(session: session)

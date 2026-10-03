@@ -60,6 +60,9 @@ struct HeaderShape: Equatable {
     let title: String
     let level: Int
     let leading: [Item], trailing: [Item]
+    /// The header's `input type="search"`, if it has one: the item's
+    /// search controller (LLP 1075.003 §9.6).
+    let search: NodeView?
 
     /// `back` names the stack's Back control, left to UIKit's back button
     /// when there is one (`backIsUIKits`): the root of a presented stack
@@ -67,11 +70,13 @@ struct HeaderShape: Equatable {
     init?(route: NodeView, back: String?, backIsUIKits: Bool = true) {
         guard let header = route.container.subviews.lazy.compactMap({ $0 as? NodeView }).first,
               header.props["semanticTag"] == "header" else { return nil }
-        var headings: [NodeView] = [], before: [Item] = [], after: [Item] = []
+        var headings: [NodeView] = [], before: [Item] = [], after: [Item] = [], search: NodeView?
         func walk(_ node: NodeView) {
             for case let child as NodeView in node.container.subviews {
                 if child.isParagraph, child.props["accessibilityHeadingLevel"] != nil {
                     headings.append(child)
+                } else if child.kind == "input", child.props["type"] == "search" {
+                    search = search ?? child
                 } else if child.handlers.contains("press") || (child.isButton && child.props["popovertarget"] != nil && child.props["popovertargetaction"] != "hide") {
                     guard !backIsUIKits || back == nil || child.props["id"] != back else { continue }
                     if headings.isEmpty { before.append(Item(child)) } else { after.append(Item(child)) }
@@ -87,10 +92,11 @@ struct HeaderShape: Equatable {
         level = Int(headings[0].props["accessibilityHeadingLevel"] ?? "") ?? 2
         leading = before
         trailing = after
+        self.search = search
     }
 
     static func == (a: HeaderShape, b: HeaderShape) -> Bool {
-        a.header === b.header && a.title == b.title && a.level == b.level && a.leading == b.leading && a.trailing == b.trailing
+        a.header === b.header && a.title == b.title && a.level == b.level && a.leading == b.leading && a.trailing == b.trailing && a.search === b.search
     }
 }
 
@@ -172,6 +178,39 @@ final class NavigationDelegateProxy: NSObject, UINavigationControllerDelegate {
 
     override func forwardingTarget(for selector: Selector!) -> Any? {
         app?.responds(to: selector) == true ? app : nil
+    }
+}
+
+/// A header's search field as UIKit's search controller (LLP 1075.003
+/// §9.6): text, focus and blur go to the authored field's handlers.
+final class HeaderSearch: NSObject, UISearchResultsUpdating, UISearchBarDelegate, UISearchControllerDelegate {
+    let controller = UISearchController(searchResultsController: nil)
+    weak var host: NavigationHost?
+    weak var field: NodeView?
+    private var last: String?
+    init(host: NavigationHost) {
+        self.host = host
+        super.init()
+        controller.searchResultsUpdater = self
+        controller.searchBar.delegate = self
+        controller.delegate = self
+        controller.obscuresBackgroundDuringPresentation = false
+        controller.hidesNavigationBarDuringPresentation = true
+    }
+    func updateSearchResults(for search: UISearchController) {
+        let text = search.searchBar.text ?? ""
+        guard text != last, let field, let presenter = host?.presenter, presenter.views[field.id] === field else { return }
+        last = text
+        presenter.typed(field.id, text, input: field.handlers.contains("input"))
+    }
+    func searchBarTextDidBeginEditing(_ bar: UISearchBar) {
+        guard let field, field.handlers.contains("focus") else { return }
+        host?.presenter.focus(field.id)
+    }
+    func searchBarTextDidEndEditing(_ bar: UISearchBar) {
+        guard let field else { return }
+        host?.presenter.commitEdit(field.id, bar.text ?? "", change: field.handlers.contains("change"))
+        if field.handlers.contains("blur") { host?.presenter.blur(field.id) }
     }
 }
 
@@ -272,6 +311,7 @@ extension NavigationHost {
                 project(shape, into: c, canGoBack: canGoBack, shows: shows)
             }
             collapse(c, shape: shape, scroll: scroll)
+            if shows { searchField(shape?.search, in: c) }
             guard c.projected != signature || !c.hooked else { continue }
             c.projected = signature
             guard presenter.session?.natives.hooksConnected == true else { continue }
@@ -302,6 +342,32 @@ extension NavigationHost {
             header.isHidden = true
             c.lifted = header
         }
+    }
+
+    /// A header's search field is the item's `UISearchController` (§9.6):
+    /// its placeholder and value are the field's; what the reader types is
+    /// the field's `input` (and `focus`, `blur`), as typing in it would be.
+    private func searchField(_ field: NodeView?, in c: RouteController) {
+        guard let field else {
+            if c.search != nil { c.navigationItem.searchController = nil; c.search = nil }
+            return
+        }
+        let search = c.search ?? HeaderSearch(host: self)
+        if c.search !== search {
+            c.search = search
+            c.navigationItem.searchController = search.controller
+            c.navigationItem.hidesSearchBarWhenScrolling = false
+            if #available(iOS 16.0, *) { c.navigationItem.preferredSearchBarPlacement = .stacked }
+            c.definesPresentationContext = true
+        }
+        search.field = field
+        let bar = search.controller.searchBar
+        let placeholder = field.props["placeholder"] ?? ""
+        if bar.placeholder != placeholder { bar.placeholder = placeholder }
+        // The Contract's value wins unless the reader is typing it.
+        let value = field.props["value"] ?? ""
+        if !bar.isFirstResponder, bar.text != value { bar.text = value }
+        bar.accessibilityIdentifier = field.props["testId"]
     }
 
     /// UIKit's back button stands for each route's authored Back control,
