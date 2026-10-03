@@ -182,16 +182,30 @@ impl World {
     }
     pub(crate) fn restore_publications(&mut self, values: BTreeMap<String, crate::values::Stored>) {
         *self.published.borrow_mut() = values;
+        self.published_text.borrow_mut().clear();
     }
+    /// The whole record. Exact (`rounded == false`, what the host receives),
+    /// each value's text is kept from its last change, so a change to one
+    /// field re-encodes only that field.
     pub(crate) fn published_json(&self, rounded: bool) -> String {
+        let published = self.published.borrow();
+        let mut text = self.published_text.borrow_mut();
         let mut out = String::from("{");
-        for (i, (key, value)) in self.published.borrow().iter().enumerate() {
+        for (i, (key, value)) in published.iter().enumerate() {
             if i != 0 {
                 out.push(',');
             }
             crate::json::quote_into(&mut out, key);
             out.push(':');
-            value.append_json(&mut out, rounded);
+            if rounded {
+                value.append_json(&mut out, true);
+            } else {
+                out.push_str(text.entry(key.clone()).or_insert_with(|| {
+                    let mut one = String::new();
+                    value.append_json(&mut one, false);
+                    one
+                }));
+            }
         }
         out.push('}');
         out

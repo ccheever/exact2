@@ -178,6 +178,9 @@ pub struct Event {
     pub line: String,
 }
 
+/// The most of one published value a journal line holds.
+const PUBLISH_LINE_BYTES: usize = 4096;
+
 /// Retained, opaque identity for derived caches. Moves keep it; new worlds differ.
 /// Holding a token prevents its identity from being recycled after the world drops.
 #[derive(Clone, Debug)]
@@ -219,6 +222,8 @@ pub struct World {
     journal_next: std::cell::Cell<u64>,
     pub(crate) published_pending: std::cell::Cell<bool>,
     published: RefCell<BTreeMap<String, crate::values::Stored>>,
+    /// Each published value's exact JSON, encoded once per change (`take_published`).
+    published_text: RefCell<BTreeMap<String, String>>,
     derived_publications: BTreeSet<String>,
     pub(crate) messages: RefCell<Vec<String>>,
     pub(crate) hierarchy: crate::scene::Hierarchy,
@@ -268,6 +273,7 @@ impl World {
             journal_next: std::cell::Cell::new(0),
             published_pending: std::cell::Cell::new(false),
             published: RefCell::new(BTreeMap::new()),
+            published_text: RefCell::new(BTreeMap::new()),
             derived_publications: BTreeSet::new(),
             messages: RefCell::new(Vec::new()),
             hierarchy: crate::scene::Hierarchy::default(),
@@ -950,10 +956,16 @@ impl World {
             return;
         }
         let value = value.into_stored();
-        self.log(format_args!(
-            "publish {key}: {}",
-            crate::json::to_string(&value).unwrap_or_else(|e| e.to_string())
-        ));
+        let mut line = crate::json::to_string(&value).unwrap_or_else(|e| e.to_string());
+        // A large value (a whole inventory) journals its head and its size:
+        // 4,096 lines of a 16 MiB record would hold 64 GiB.
+        if line.len() > PUBLISH_LINE_BYTES {
+            let bytes = line.len();
+            line.truncate(line.floor_char_boundary(PUBLISH_LINE_BYTES));
+            line.push_str(&format!("… ({bytes} bytes)"));
+        }
+        self.log(format_args!("publish {key}: {line}"));
+        self.published_text.borrow_mut().remove(key);
         if let Some(stored) = stored {
             *stored = value;
         } else {
