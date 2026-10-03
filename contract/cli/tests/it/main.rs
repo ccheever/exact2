@@ -18,6 +18,7 @@ mod collection_nest;
 mod compose;
 mod controls;
 mod corpus;
+mod dataset;
 mod delivery;
 mod diagnostics;
 mod document;

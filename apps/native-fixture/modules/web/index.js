@@ -6,7 +6,7 @@
 // back after `destroy` (the host must drop it). Neither box takes pointer
 // events of its own, so an agent tap lands on the element — the node.
 export const abi = 1;
-export const roster = { 'exact-fixture': { snapshot: true }, 'exact-plain': { snapshot: false } };
+export const roster = { 'exact-fixture': { snapshot: true }, 'exact-plain': { snapshot: false }, 'exact-screen': { snapshot: false } };
 
 const size = (h, props) => {
   if (h.tag === 'exact-plain') {
@@ -27,6 +27,8 @@ export function create(tag, element, json, event) {
   const h = { tag, box, event, emit: props.emit ?? '0' };
   size(h, props);
   box.style.backgroundColor = props.tint ?? 'gray';
+  // The web's form of a native screen (LLP 1075.003 §3.6): its own element.
+  if (tag === 'exact-screen') { box.textContent = 'A native screen'; box.style.cssText += ';display:grid;place-items:center;background:#f2f2f7'; }
   if (tag === 'exact-fixture') { event(8, echo(props)); event(7); }
   return h;
 }
@@ -53,3 +55,23 @@ export function snapshot() {}
 export function destroy(h) {
   if (h.tag === 'exact-fixture') setTimeout(() => h.event(8, 'late'), 50);
 }
+
+// The hooks on the web (LLP 1075.003.000): the badge takes a context menu of
+// its own, an interaction Exact leaves to the app; each row's dot hook does
+// nothing; every call is counted where the smoke reads it.
+const calls = (globalThis.exactFixtureHooks ??= {});
+const count = (e, moment) => { const key = `${e.hook}:${moment}`; calls[key] = (calls[key] ?? 0) + 1; };
+
+export function element(e) {
+  count(e, e.isNew ? 'built' : 'changed');
+  if (e.hook === 'badge' && e.isNew) e.element.addEventListener('contextmenu', (event) => event.preventDefault());
+}
+
+export function elementEnded(e) { count(e, 'ended'); }
+
+// The container hooks on the web: each counted, as the element hooks are.
+const tally = (key) => { calls[key] = (calls[key] ?? 0) + 1; };
+export function navigation() { tally('navigation:built'); }
+export function route() { tally('route:built'); }
+export function routeEnded() { tally('route:ended'); }
+export function tabs() { tally('tabs:built'); }

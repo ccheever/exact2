@@ -56,10 +56,12 @@ pub(crate) fn tag(name: &str) -> Option<Tag> {
 
 /// Whether an attribute on a module tag is a leftover: a module prop, not a
 /// row of the table. A renamed spelling (`fontSize`) is still refused with
-/// its CSS name, and `class` is the style mechanism.
+/// its CSS name, `class` is the style mechanism, and a `data-` word is the
+/// element's dataset, as a custom element's is (LLP 1075.003 §3.3).
 pub(crate) fn leftover(tag: &str, a: &Attr) -> bool {
     is_module_tag(tag)
         && a.name != "class"
+        && crate::dataset::word(&a.name).is_none()
         && (tags::attr(&a.name).is_none() || crate::svg::svg_only_prop(&a.name))
         && tags::renamed(&a.name).is_none()
 }

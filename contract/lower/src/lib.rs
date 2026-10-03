@@ -22,6 +22,7 @@
 mod class;
 mod collection;
 pub mod controls;
+pub mod dataset;
 pub mod expr;
 mod fonts;
 mod keyframes;
@@ -36,6 +37,7 @@ mod svg;
 pub mod tags;
 mod values;
 
+pub use dataset::{data_words, hook_words};
 pub use lint::lint;
 use lint::{unknown_attr, unknown_tag};
 pub use native::{is_module_tag, module_tags};
@@ -868,7 +870,10 @@ impl<'a> Lowerer<'a> {
                     self.errors.extend(native::refused(tag, a));
                 }
                 for (index, a) in expanded.iter().enumerate() {
-                    if native::leftover(tag, a) || refused.contains(&a.name.as_str()) {
+                    if native::leftover(tag, a)
+                        || refused.contains(&a.name.as_str())
+                        || dataset::word(&a.name).is_some()
+                    {
                         continue;
                     }
                     if let Err(e) = self.attr(
@@ -937,6 +942,7 @@ impl<'a> Lowerer<'a> {
                         origins.resize(bindings.len(), Origin::Own);
                     }
                 }
+                self.data_row(tag, expanded, scope, locals, &mut bindings, &mut origins);
                 // Two bindings for one row — a style's and the node's own, a
                 // tag's fixed row and an attribute — the last one wins.
                 if bindings.len() > 1 {

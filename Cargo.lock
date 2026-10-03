@@ -1390,6 +1390,7 @@ dependencies = [
  "caltrain",
  "caltrain-data",
  "contract",
+ "contract-lower",
  "exact-bake",
  "exact-kernel",
  "exact-motion",

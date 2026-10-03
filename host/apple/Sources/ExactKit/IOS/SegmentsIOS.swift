@@ -69,6 +69,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
     private var sizes: [UInt32: CGSize] = [:]
     private var hidden: [UInt32: Bool] = [:]
     private var members: [UInt32: [UInt32]] = [:]
+    /// Tablists a tab container's bar has taken the place of, hidden here.
+    private var adoptedLists = Set<UInt32>()
     /// The last projection decision journaled per tablist, so each is said once.
     private var decisions: [UInt32: String] = [:]
 
@@ -221,8 +223,8 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
         }()
         if bar.superview !== owner { owner.addSubview(bar) }
         if bar.frame != owner.bounds { bar.frame = owner.bounds }
-        bar.isUserInteractionEnabled = available(owner)
-        bar.accessibilityLabel = owner.props["accessibilityLabel"]
+        assign(bar, \.isUserInteractionEnabled, available(owner))
+        assign(bar, \.accessibilityLabel, owner.props["accessibilityLabel"])
         let current = bar.items ?? []
         if current.count != faces.count || zip(current, faces).contains(where: { $0.title != $1.title || $0.accessibilityIdentifier != $1.symbol }) {
             bar.setItems(faces.enumerated().map { index, face in
@@ -232,7 +234,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             }, animated: false)
         }
         for ((item, tab), face) in zip(zip(bar.items ?? [], tabs), faces) {
-            item.isEnabled = !tab.disabled
+            assign(item, \.isEnabled, !tab.disabled)
             // Its name is the tab's, as the hidden tab's was (astra's code review).
             if item.accessibilityLabel != face.label { item.accessibilityLabel = face.label }
         }
@@ -256,9 +258,17 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
 
     func sync() {
         // @ref LLP 1039 D6 — only explicit vertical tablists opt out; ignore invalid ARIA values.
+        // A tablist whose place a tab container's bar takes is the container's
+        // (LLP 1075.003 §3.7): it is hidden, and projects nothing of its own.
         let owners = presenter.carrying("role:tablist").filter {
             $0.props["accessibilityRole"] == "tablist" &&
-                $0.props["accessibilityOrientation"] != "vertical"
+                $0.props["accessibilityOrientation"] != "vertical" && !presenter.navigation.adopts(tablist: $0)
+        }
+        for list in presenter.carrying("role:tablist") {
+            let adopted = presenter.navigation.adopts(tablist: list)
+            guard adopted != adoptedLists.contains(list.id) else { continue }
+            if adopted { adoptedLists.insert(list.id) } else { adoptedLists.remove(list.id) }
+            list.isHidden = adopted
         }
         let live = Set(owners.map(\.id))
         for id in Array(controls.keys) + Array(bars.keys) where !live.contains(id) { restore(owner: id) }
@@ -299,7 +309,7 @@ final class SegmentHost: NSObject, UIGestureRecognizerDelegate, UITabBarDelegate
             if control.superview !== owner { owner.addSubview(control) }
             let frame = owner.contentBox()
             if control.frame != frame { control.frame = frame }
-            control.isEnabled = available(owner)
+            assign(control, \.isEnabled, available(owner))
             control.accessibilityLabel = owner.props["accessibilityLabel"]
             if control.numberOfSegments != tabs.count {
                 control.removeAllSegments()

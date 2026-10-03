@@ -1,7 +1,7 @@
 //! Refusals that need no types: an element's tag, its attributes' names,
 //! and its literal style values against their rows.
 
-use crate::{native, svg, tags, values, LowerError, MAX_REFUSALS};
+use crate::{dataset, native, svg, tags, values, LowerError, MAX_REFUSALS};
 use contract_syntax::{Attr, File, Node, Span};
 use contract_types::Ty;
 use exact_kernel::StyleId;
@@ -69,6 +69,10 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                         {
                             if let Some(e) = native::refused(tag, a) {
                                 errors.push(e);
+                                continue;
+                            }
+                            if dataset::word(&a.name).is_some() {
+                                errors.extend(dataset::refused(a));
                                 continue;
                             }
                             let checked = match tags::attr(&a.name) {

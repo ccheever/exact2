@@ -10,6 +10,7 @@ mod browser_ratio;
 mod browser_replaced;
 mod canvas;
 mod content_region;
+mod cover;
 mod env;
 mod export;
 mod flow;

@@ -1,11 +1,11 @@
-# The native-module fixture's data source (LLP 1024 D8): none; the fixture is
-# literal Contract over the module seam.
+# The native-module fixture's data source (LLP 1024 D8): the hooked list's
+# rows (LLP 1075.003.000); the rest is literal Contract over the module seam.
 [package]
 name = "native-fixture-data"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "The native-module fixture's data source: answers nothing"
+description = "The native-module fixture's data source: the hooked list's rows"
 publish = false
 
 [lib]

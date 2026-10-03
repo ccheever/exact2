@@ -60,7 +60,13 @@ final class FlatLeaves {
     /// Whether a created node can be a flat leaf: its paint was read
     /// (`FlatPaint`, on the owner) and nothing else about it needs a view.
     static func eligible(_ op: BatchOp) -> Bool {
-        op.kind == "view" && op.handlers.isEmpty && op.props.isEmpty && (op.flat ?? FlatPaint(op.style)) != nil
+        op.kind == "view" && op.handlers.isEmpty && onlyData(op) && (op.flat ?? FlatPaint(op.style)) != nil
+    }
+
+    /// Whether an op's props are at most `data-*` words, which never make a
+    /// view (LLP 1075.003 §3.3): on iOS a hook reads them only from a route.
+    static func onlyData(_ op: BatchOp) -> Bool {
+        op.props.keys.allSatisfy { $0 == "dataset" } && op.clear.allSatisfy { $0 == "dataset" }
     }
 
     /// The nodes this batch creates flat: eligible, and placed by the batch

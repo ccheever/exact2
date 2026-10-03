@@ -1,10 +1,29 @@
-// The native-module fixture (LLP 1024 D8): the seam and nothing else. Three
-// module tags from the roster in app.json — `exact-fixture` (a coloured box
-// that takes the snapshot bit, fires every event on request, and rejects a
-// `reject` prop), `exact-plain` (a box the ordinary capture paints) and
-// `exact-absent` (in the roster, never in the artifact: its node reports the
-// missing factory). `bun scripts/smoke.mjs <web|macos> --app native-fixture`
-// drives it through the eight operations.
+// The native-module fixture (LLP 1024 D8, LLP 1075.003 §3.9): the seam and
+// nothing else. Three module tags from the roster in app.json —
+// `exact-fixture` (a coloured box that takes the snapshot bit, fires every
+// event on request, and rejects a `reject` prop), `exact-plain` (a box the
+// ordinary capture paints) and `exact-absent` (in the roster, never in the
+// artifact: its node reports the missing factory) — and the hooks: two
+// routes, a header-shaped one whose heading iOS lifts into its navigation
+// bar and one pushed over it, `data-*` words the module's hooks read, and
+// the scroll view the route names. `bun scripts/smoke.mjs <web|macos|ios>
+// --app native-fixture` drives it through the eight operations.
+
+routes nav
+  tab home "/"
+    detail "/detail"
+    rows "/rows"
+    sheet "/sheet"
+  tab second "/second"
+
+// The hooked list's rows (LLP 1075.003.000), from the fixture's data source,
+// asked for when the Rows route is pushed: a session without that source
+// (the UIKit tests' host) never asks.
+shape Row
+  n: number
+
+shape Rows
+  items: list<Row>
 
 component NativeFixture
   state popoverValue = ""
@@ -107,61 +126,167 @@ component NativeFixture
       received = m
     else
       events = events + "message:" + m + ";"
+  state composed = 0
+  state violate = false
+  state transition = false
+  action compose
+    composed = composed + 1
+  mutation rows as shape Rows
+  derive rowItems = match rows { case some(r) => r.items, case none => [] }
+  action showRows
+    nav = push(nav, "/rows")
+    send rows = rows()
+  action detail
+    nav = push(nav, "/detail")
+  action back
+    nav = back(nav)
+  action breakOwnership
+    violate = not violate
+  action customTransition
+    transition = not transition
+  state top = 0
+  action scrollTo(y: number)
+    top = y
+  state draft = ""
+  action setDraft(text: string)
+    draft = text
+  action selectTab(name: string)
+    nav = select(nav, name)
+  action openSheet
+    nav = push(nav, "/sheet")
   view
-    column testId="fixture" width="100%" height="100%" gap=8 padding=12 background-color="#ffffff" color="#111111" font-family="system-ui"
-      row gap=6 flex-wrap="wrap"
-        button "Popover form" testId="open-native-popover" popovertarget="native-popover"
-        button press=bump testId="bump" padding=6 background-color="#e5e7eb"
-          text "Bump"
-        button press=fire testId="fire" padding=6 background-color="#e5e7eb"
-          text "Fire"
-        button press=toggle testId="toggle" padding=6 background-color="#e5e7eb"
-          text (shown ? "Unmount" : "Mount")
-        button press=reject testId="reject" padding=6 background-color="#e5e7eb"
-          text "Reject"
-        button press=mode testId="mode" padding=6 background-color="#e5e7eb"
-          text "Mode"
-      row gap=6
-        button press=grow testId="grow" padding=6
-          text "Grow content"
-        button press=sizing testId="sizing" padding=6
-          text "Toggle intrinsic size"
-      text ("count " + toString(count) + " · loads " + toString(loads)) testId="counts"
-      when shown
-        exact-fixture id="box" testId="box" width=120 height=80 tint="#2266ee" note="quote \" slash \\ tab\t<&>" count=count emit=emit mode=(moded ? some("wide") : none) reject=rejecting load=onLoad press=onPress change=onChange hover=onHover focus=onFocus blur=onBlur key=onKey submit=onSubmit message=onMessage
-      exact-plain id="plain" testId="plain" align-self="flex-start" padding=4 border-width=2 border-style="solid" border-color="#111111" tint="#11aa44" expanded=expanded natural=natural
-      exact-absent testId="absent" width=120 height=40 background-color="#f3f4f6"
-      row gap=4 flex-wrap="wrap"
-        button testId="focus-input" press=focusInput
-          text "Focus input"
-        button testId="blur-input" press=blurInput
-          text "Blur input"
-        button testId="blur-plain" press=blurPlain
-          text "Blur plain"
-        button testId="block-input" press=blockInput
-          text "Disable input"
-        button testId="hide-input" press=hideInput
-          text "Hide input"
-        button testId="inert-input" press=inertInput
-          text "Inert input"
-        button testId="disable-on-blur" press=armDisabled blur=restrictInput
-          text "Disable on blur"
-        button testId="inert-on-blur" press=armInert blur=restrictInput
-          text "Inert on blur"
-        button testId="blur-wrapper" press=blurWrapper retainFocus=true
-          text "Blur wrapper"
-      when shown
-        column inert=inputInert display=(inputHidden ? "none" : "block")
-          button "Before input" testId="before-input"
-          exact-plain id="native-input" testId="native-input" customInput=true width=240 height=48 disabled=blocked change=inputChange focus=inputFocus blur=inputBlur key=inputKey
-          button "Input command" testId="input-command" press=inputCommand aria-keyshortcuts="Meta+Shift+Enter Meta+Plus c"
-      button "Open native dialog" testId="open-native-dialog" commandfor="native-dialog" command="show-modal"
-      dialog id="native-dialog" width=320 padding=16 closedby="any"
-        column gap=8
-          exact-plain id="dialog-input" testId="dialog-input" customInput=true natural=false width=280 height=48 change=dialogChange
-          button "Dialog command" testId="dialog-command" press=dialogCommand aria-keyshortcuts="Meta+Shift+Enter"
-          button "Close" testId="dialog-close" commandfor="native-dialog" command="close"
-      column id="native-popover" testId="native-popover" popover="auto" position="absolute" width=320 padding=16 gap=8 background-color="#ffffff" border-width=1 border-style="solid" border-color="#9ca3af"
-        input testId="popover-search" placeholder="Search" value=popoverSearch input=searchChange autofocus=true width=280 height=32
-        exact-plain id="popover-input" testId="popover-input" customInput=true natural=false width=280 height=48 change=popoverChange
-        button "Close popover" testId="popover-close" popovertarget="native-popover" popovertargetaction="hide"
+    main navigationKey=`${top(nav).id}` navigationBack="back" testId="navigation" width="100%" height="100%" display="flex" flex-direction="column" background-color="#ffffff" color="#111111" font-family="system-ui"
+      column testId="panels" flex=1 min-height=0 position="relative"
+        each t in nav.tabs key=t.name
+          column role="tabpanel" id=`panel-${t.name}` testId=`panel-${t.name}` position="absolute" top=0 right=0 bottom=0 left=0
+            each e in t.stack key=e.id
+              column navigationKey=`${e.id}` navigationPresentation=(e.name == "sheet" ? "modal" : "") navigationDetent=(e.name == "sheet" ? "300 large" : "") navigationScroll=(e.name == "second" ? "list-second" : "list-detail") data-screen=e.name data-menu="compose" data-violate=violate data-transition=transition testId=`route-${e.name}` position="absolute" top=0 right=0 bottom=0 left=0 display="flex" flex-direction="column" background-color="#ffffff"
+                header testId=`header-${e.name}` display="flex" flex-direction="row" align-items="center" gap=8 padding=12 flex-shrink=0 border-bottom-width=1 border-bottom-style="solid" border-color="#e5e7eb"
+                  when e.name == "detail" or e.name == "rows"
+                    button id="back" press=back testId="back" aria-label="Back" padding=6 background-color="#e5e7eb"
+                      image "symbol:back" width=20 height=20
+                  when e.name == "sheet"
+                    button id="back" press=back testId="close-sheet" aria-label="Close" padding=6 background-color="#e5e7eb"
+                      image "symbol:close" width=20 height=20
+                  text (e.name == "home" ? "Fixture" : e.name == "detail" ? "Detail" : e.name == "rows" ? "Rows" : e.name == "sheet" ? "Sheet" : "Second") aria-level=(e.name == "home" or e.name == "second" ? 1 : 2) testId=`title-${e.name}` flex=1 font-weight=700 font-size=20
+                  button id="compose" press=compose aria-label="Compose" testId=`compose-${e.name}` padding=6 background-color="#e5e7eb"
+                    image "symbol:compose" width=20 height=20
+                when e.name == "home"
+                  column testId="fixture" gap=8 padding=12
+                    row gap=6 flex-wrap="wrap"
+                      button press=detail testId="detail" padding=6 background-color="#e5e7eb"
+                        text "Detail"
+                      button press=showRows testId="rows" padding=6 background-color="#e5e7eb"
+                        text "Rows"
+                      button press=customTransition testId="transition" padding=6 background-color="#e5e7eb"
+                        text "Transition"
+                      button press=openSheet testId="sheet" padding=6 background-color="#e5e7eb"
+                        text "Sheet"
+                      column hook="badge" data-tone=(composed > 0 ? "busy" : "info") testId="hooked-badge" width=20 height=20 border-radius=10 background-color="#f59e0b"
+                    text ("composed " + toString(composed)) testId="composed"
+                    row role="toolbar" toolbarPlacement="window" aria-label="Window" testId="window-toolbar" gap=6
+                      button press=compose aria-label="Compose" testId="toolbar-compose" padding=6 background-color="#e5e7eb"
+                        image "symbol:compose" width=20 height=20
+                    row gap=6 flex-wrap="wrap"
+                      button "Popover form" testId="open-native-popover" popovertarget="native-popover"
+                      button press=bump testId="bump" padding=6 background-color="#e5e7eb"
+                        text "Bump"
+                      button press=fire testId="fire" padding=6 background-color="#e5e7eb"
+                        text "Fire"
+                      button press=toggle testId="toggle" padding=6 background-color="#e5e7eb"
+                        text (shown ? "Unmount" : "Mount")
+                      button press=reject testId="reject" padding=6 background-color="#e5e7eb"
+                        text "Reject"
+                      button press=mode testId="mode" padding=6 background-color="#e5e7eb"
+                        text "Mode"
+                    row gap=6
+                      button press=grow testId="grow" padding=6
+                        text "Grow content"
+                      button press=sizing testId="sizing" padding=6
+                        text "Toggle intrinsic size"
+                    text ("count " + toString(count) + " · loads " + toString(loads)) testId="counts"
+                    when shown
+                      exact-fixture id="box" testId="box" width=120 height=80 tint="#2266ee" note="quote \" slash \\ tab\t<&>" count=count emit=emit mode=(moded ? some("wide") : none) reject=rejecting load=onLoad press=onPress change=onChange hover=onHover focus=onFocus blur=onBlur key=onKey submit=onSubmit message=onMessage
+                    exact-plain id="plain" testId="plain" align-self="flex-start" padding=4 border-width=2 border-style="solid" border-color="#111111" tint="#11aa44" expanded=expanded natural=natural
+                    exact-absent testId="absent" width=120 height=40 background-color="#f3f4f6"
+                    row gap=4 flex-wrap="wrap"
+                      button testId="focus-input" press=focusInput
+                        text "Focus input"
+                      button testId="blur-input" press=blurInput
+                        text "Blur input"
+                      button testId="blur-plain" press=blurPlain
+                        text "Blur plain"
+                      button testId="block-input" press=blockInput
+                        text "Disable input"
+                      button testId="hide-input" press=hideInput
+                        text "Hide input"
+                      button testId="inert-input" press=inertInput
+                        text "Inert input"
+                      button testId="disable-on-blur" press=armDisabled blur=restrictInput
+                        text "Disable on blur"
+                      button testId="inert-on-blur" press=armInert blur=restrictInput
+                        text "Inert on blur"
+                      button testId="blur-wrapper" press=blurWrapper retainFocus=true
+                        text "Blur wrapper"
+                    when shown
+                      column inert=inputInert display=(inputHidden ? "none" : "block")
+                        button "Before input" testId="before-input"
+                        exact-plain id="native-input" testId="native-input" customInput=true width=240 height=48 disabled=blocked change=inputChange focus=inputFocus blur=inputBlur key=inputKey
+                        button "Input command" testId="input-command" press=inputCommand aria-keyshortcuts="Meta+Shift+Enter Meta+Plus c"
+                    button "Open native dialog" testId="open-native-dialog" commandfor="native-dialog" command="show-modal"
+                    dialog id="native-dialog" width=320 padding=16 closedby="any"
+                      column gap=8
+                        exact-plain id="dialog-input" testId="dialog-input" customInput=true natural=false width=280 height=48 change=dialogChange
+                        button "Dialog command" testId="dialog-command" press=dialogCommand aria-keyshortcuts="Meta+Shift+Enter"
+                        button "Close" testId="dialog-close" commandfor="native-dialog" command="close"
+                    column id="native-popover" testId="native-popover" popover="auto" position="absolute" width=320 padding=16 gap=8 background-color="#ffffff" border-width=1 border-style="solid" border-color="#9ca3af"
+                      input testId="popover-search" placeholder="Search" value=popoverSearch input=searchChange autofocus=true width=280 height=32
+                      exact-plain id="popover-input" testId="popover-input" customInput=true natural=false width=280 height=48 change=popoverChange
+                      button "Close popover" testId="popover-close" popovertarget="native-popover" popovertargetaction="hide"
+                when e.name == "rows"
+                  HookedRows(items=rowItems)
+                when e.name == "detail"
+                  row gap=6 padding=12 flex-shrink=0
+                    button press=breakOwnership testId="violate" padding=6 background-color="#e5e7eb"
+                      text "Violate"
+                    button press=scrollTo(80) testId="scroll-80" padding=6 background-color="#e5e7eb"
+                      text "Scroll 80"
+                    button press=scrollTo(0) testId="scroll-0" padding=6 background-color="#e5e7eb"
+                      text "Scroll 0"
+                when e.name == "detail"
+                  scroll id="list-detail" hook="detail-list" data-violate=violate testId="list-detail" flex=1 min-height=0 scrollTop=top
+                    column padding=12 gap=8
+                      text ("composed " + toString(composed)) testId="composed-detail"
+                      column testId="tall" height=1600 background-color="#f3f4f6"
+                when e.name == "second"
+                  scroll id="list-second" testId="list-second" flex=1 min-height=0
+                    column padding=12 gap=8
+                      input value=draft input=setDraft testId="draft" aria-label="Draft" placeholder="A draft" padding=6 border-width=1 border-style="solid" border-color="#d1d5db"
+                      button press=bump testId="bump-second" padding=6 background-color="#e5e7eb"
+                        text "Bump"
+                      exact-screen testId="screen" width="100%" height=96
+                      text "Second" testId="second-top"
+                      column testId="tall-second" height=1600 background-color="#eef2ff"
+      row role="tablist" aria-label="Tabs" testId="tabs" flex-shrink=0 height=56 border-top-width=1 border-top-style="solid" border-color="#e5e7eb" align-items="stretch"
+        button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=selectTab("home") testId="tab-home" flex=1 display="flex" flex-direction="column" align-items="center" justify-content="center" gap=2
+          image (nav.tab == "home" ? "symbol:home-fill" : "symbol:home") width=22 height=22
+          text "Home" font-size=11
+        button role="tab" aria-controls="panel-second" aria-selected=(nav.tab == "second") press=selectTab("second") testId="tab-second" flex=1 display="flex" flex-direction="column" align-items="center" justify-content="center" gap=2
+          image (nav.tab == "second" ? "symbol:person-fill" : "symbol:person") width=22 height=22
+          text "Second" font-size=11
+
+component HookedRows
+  props
+    items: list<Row>
+  state reuse = false
+  action toggleReuse
+    reuse = not reuse
+  view
+    column flex=1 min-height=0
+      button press=toggleReuse testId="reuse" padding=6 margin=12 background-color="#e5e7eb"
+        text (reuse ? "Rows reused" : "Rows not reused")
+      list virtualized=true width="100%" flex=1 min-height=0 overflow-x="hidden" estimated-item-height=40 testId="hooked-list"
+        each r in items key=r.n
+          row height=40 align-items="center" gap=8 padding-left=12 testId=`row-${r.n}`
+            column hook="dot" data-reuse=(reuse ? "true" : "false") width=12 height=12 border-radius=6 background-color="#6366f1"
+            text ("Row " + toString(r.n))

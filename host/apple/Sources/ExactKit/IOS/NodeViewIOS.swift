@@ -574,7 +574,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         lastScrollEvent = point
         dispatchingScrollEvent = true
         defer { dispatchingScrollEvent = false }
-        presenter?.scroll(id, Double(point.x), Double(point.y))
+        presenter?.scroll(id, Double(point.x), Double(point.y + (scroll.map(scrollTopInset) ?? 0)))
     }
     private func queueScrollEvent() {
         guard handlers.contains("scroll"), !scrollEventQueued else { return }
@@ -883,7 +883,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             if sv.contentOffset != target { sv.setContentOffset(target, animated: false) }
         }
         guard pendingScrollTop != nil || pendingScrollLeft != nil else { return }
-        let y = pendingScrollTop.map { CGFloat($0) == sv.contentOffset.y ? sv.contentOffset.y : min(max(CGFloat($0), -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height)) } ?? sv.contentOffset.y
+        // A collapsing title's scroller (LLP 1075.003 Stage 3): CSS counts
+        // from the bar's bottom, and its end is where the title rests
+        // collapsed (UIKit moves the offset by what the title gives up).
+        let inset = scrollTopInset(sv), slack = scrollOrigin > 0 ? max(0, i.top - scrollCollapsed) : 0
+        let y = pendingScrollTop.map { CGFloat($0) - inset == sv.contentOffset.y ? sv.contentOffset.y : min(max(CGFloat($0) - inset, -i.top), max(-i.top, sv.contentSize.height + i.bottom - sv.bounds.height - slack)) } ?? sv.contentOffset.y
         let x = pendingScrollLeft.map { CGFloat($0) == sv.contentOffset.x ? sv.contentOffset.x : min(max(CGFloat($0), -i.left), max(-i.left, sv.contentSize.width + i.right - sv.bounds.width)) } ?? sv.contentOffset.x
         let target = CGPoint(x: x, y: y)
         // `scroll-behavior: smooth` (CSS) animates a prop write, never a
@@ -1115,6 +1119,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
                 addSubview(sv)
             }
             scroll = sv
+            scrollWritten = nil
             updateRefresh()
         }
         if !scrolls, let sv = scroll {
@@ -1125,14 +1130,20 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             }
             scroll = nil
         }
-        scroll?.decelerationRate = (style["scroll_snap_type"]?.string) == "x mandatory" ? .fast : .normal
         scroll?.scrollsX = ox == "scroll"
         scroll?.scrollsY = oy == "scroll"
         // UIKit's default indicator is already thin. CSS permits `thin`
         // to match `auto` on such platforms; `none` only hides the track.
+        // Indicators and deceleration are the app's once a hook sets them
+        // (LLP 1075.003 §3.5): written when what the style says changes.
+        let snap = style["scroll_snap_type"]?.string == "x mandatory"
         let indicators = (style["scrollbar_width"]?.string ?? "auto") != "none"
-        scroll?.showsHorizontalScrollIndicator = ox == "scroll" && indicators
-        scroll?.showsVerticalScrollIndicator = oy == "scroll" && indicators
+        if let sv = scroll, scrollWritten != "\(snap)|\(ox)|\(oy)|\(indicators)" {
+            scrollWritten = "\(snap)|\(ox)|\(oy)|\(indicators)"
+            sv.decelerationRate = snap ? .fast : .normal
+            sv.showsHorizontalScrollIndicator = ox == "scroll" && indicators
+            sv.showsVerticalScrollIndicator = oy == "scroll" && indicators
+        }
         updateKeyboardDismissal()
         fitScroll()
         // A waiting scroll clips as its scroll view would.

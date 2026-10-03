@@ -79,6 +79,8 @@ final class Presenter {
     let canvas2d = Canvas2DHost()
     lazy var segments = SegmentHost(self)
     lazy var controls = ControlHost(self)
+    /// Nodes marked `hook="word"` (LLP 1075.003.000).
+    lazy var elements = ElementHooks(self)
     lazy var shortcuts = ShortcutHost(presenter: self)
     lazy var toolbar = WindowToolbarHost(self)
     /// The head's title goes to the window the app attached, through the
@@ -533,6 +535,7 @@ final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        elements.reset()
         viewport.invalidateDocumentFit()
         session?.regions.reset()
         session?.rasters.reset()
@@ -754,6 +757,10 @@ final class Presenter {
         return true
     }
     private var waiting: [(UInt32, () -> Void)] = []
+    private var afterBatchWork: [() -> Void] = []
+    /// Work for after the batch being applied, or now: a hook's act on an
+    /// element never lands inside a batch (LLP 1075.003 §3.4).
+    func afterBatch(_ work: @escaping () -> Void) { if applying { afterBatchWork.append(work) } else { work() } }
     private func send(_ id: UInt32, _ f: @escaping () -> Void) {
         guard !resetting, textHost(id) != nil else { return }
         if applying { waiting.append((id, f)) } else { f() }
@@ -827,6 +834,9 @@ final class Presenter {
                 waiting = []
                 geometry?()
                 for (id, f) in q where textHost(id) != nil { f() }
+                let later = afterBatchWork
+                afterBatchWork = []
+                later.forEach { $0() }
                 batchApplied()
                 if !boxFilters.isEmpty { boxFilters.render() }
                 leaves.batchApplied(moved: moved)
@@ -870,12 +880,14 @@ final class Presenter {
                 v.applyStyle(op.style)
                 v.applyProps(set: op.props, clear: [])
                 views[id] = v
+                elements.created(v)
                 if v.kind == "list" { listViews[id] = v }
                 if v.kind == "video" { leaves.created(v) }
             case .paragraph:
                 applyParagraph(id, op.runs)
             case .props:
                 views[id]?.applyProps(set: op.props, clear: op.clear)
+                elements.propsChanged(id)
             case .flow:
                 views[id]?.applyFlow(op.payload["shapes"] as? [[String: Any]] ?? [])
             case .style:
@@ -926,6 +938,7 @@ final class Presenter {
                 onCommand?(op.payload["name"] as? String ?? "", op.payload["args"] as? [Any] ?? [], (op.payload["source"] as? NSNumber)?.uint32Value)
             case .exit: beginExit(id)
             case .destroy:
+                elements.destroyed(id)
                 if endExit(id) { continue }
                 release(id, forget: true)?.removeFromSuperview()
             case .roots:

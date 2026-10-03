@@ -31,6 +31,8 @@ exact-bake = { path = "../../bake" }
 
 [dev-dependencies]
 caltrain = { path = "../../apps/caltrain" }
+# The data-* words Contract reserves for this host's own attributes.
+contract-lower = { path = "../../contract/lower" }
 # The capabilities above this crate, for tests of plans that use them.
 exact-web-capabilities = { path = "../web-capabilities" }
 contract = { path = "../../contract/cli" }

@@ -19,9 +19,9 @@ extension ControlHost {
 
     func configureDate(_ picker: UIDatePicker, _ owner: NodeView, accent: UIColor?) {
         let kind = kinds[owner.id] ?? "date"
-        picker.tintColor = accent
-        picker.minimumDate = owner.props["min"].flatMap { DateValue.parse(kind, $0) }
-        picker.maximumDate = owner.props["max"].flatMap { DateValue.parse(kind, $0) }
+        assign(picker, \.tintColor, accent)
+        assign(picker, \.minimumDate, owner.props["min"].flatMap { DateValue.parse(kind, $0) })
+        assign(picker, \.maximumDate, owner.props["max"].flatMap { DateValue.parse(kind, $0) })
         if let value = owner.props["value"].flatMap({ DateValue.parse(kind, $0) }), picker.date != value {
             picker.setDate(value, animated: false)
         }

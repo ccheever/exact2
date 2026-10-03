@@ -123,17 +123,17 @@ final class ControlHost: NSObject {
                 configureNative(b, owner, accent: accent)
             } else if let s = control as? UISwitch {
                 if let on, s.isOn != on { s.setOn(on, animated: s.window != nil) }
-                s.onTintColor = accent
+                assign(s, \.onTintColor, accent)
             } else if let c = control as? ExactCheckbox {
                 if let on { c.isOn = on }
-                c.accent = accent
+                assign(c, \.accent, accent)
             } else {
                 configureValue(control, owner, accent: accent)
             }
             if !(control is NativeButtonIOS) {
-                control.isEnabled = !owner.disabled
-                control.accessibilityLabel = owner.props["accessibilityLabel"]
-                control.accessibilityIdentifier = owner.props["testId"]
+                assign(control, \.isEnabled, !owner.disabled)
+                assign(control, \.accessibilityLabel, owner.props["accessibilityLabel"])
+                assign(control, \.accessibilityIdentifier, owner.props["testId"])
             }
             let natural = naturalSize(control, owner)
             let box = owner.contentBox()
@@ -146,8 +146,8 @@ final class ControlHost: NSObject {
                 if control.frame != frame { control.frame = frame }
             } else {
                 let width = control is UISlider ? box.width : natural.width
-                control.frame = CGRect(x: box.midX - width / 2, y: box.midY - natural.height / 2,
-                                       width: width, height: natural.height)
+                assign(control, \.frame, CGRect(x: box.midX - width / 2, y: box.midY - natural.height / 2,
+                                                width: width, height: natural.height))
             }
             if reported[owner.id] != natural {
                 reported[owner.id] = natural
@@ -208,5 +208,13 @@ final class ControlHost: NSObject {
         menus.removeAll()
         lastRange.removeAll()
     }
+}
+
+/// Exact writes what it owns on a UIKit object only when the value changes
+/// (LLP 1075.003 §3.5, from James's review): a control set again to what it
+/// already shows can restart its own animation — a Liquid Glass switch's
+/// thumb wobbled when every batch re-set its colour, frame and state.
+@inline(__always) func assign<O: AnyObject, V: Equatable>(_ object: O, _ key: ReferenceWritableKeyPath<O, V>, _ value: V) {
+    if object[keyPath: key] != value { object[keyPath: key] = value }
 }
 #endif
