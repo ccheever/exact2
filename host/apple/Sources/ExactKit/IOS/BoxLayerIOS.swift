@@ -106,10 +106,14 @@ extension NodeView {
     /// everything else the layer holds — over the layer's background, under
     /// its border and children — with the box's one radius, which is all a
     /// box `draw(_:)` does not paint can have. A view that paints through
-    /// `draw(_:)` paints the gradient there instead, in the same place.
+    /// `draw(_:)` paints the gradient there instead, in the same place —
+    /// unless it is `background-attachment: fixed` (`gradientLayered`).
     func applyGradientLayer() {
-        guard !drawsPaint, surface == nil, let gradient = Gradient(style["background_image"]), !gradient.isConic else {
-            boxGradient?.removeFromSuperlayer(); boxGradient = nil; return
+        let fixed = gradientLayered
+        guard !drawsPaint || fixed, surface == nil, let gradient = Gradient(style["background_image"]), !gradient.isConic else {
+            boxGradient?.removeFromSuperlayer(); boxGradient = nil
+            presenter?.fixedGradients.remove(self)
+            return
         }
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
@@ -117,11 +121,48 @@ extension NodeView {
         boxGradient = g
         if layer.sublayers?.first !== g { layer.insertSublayer(g, at: 0) }
         if g.frame != layer.bounds { g.frame = layer.bounds }
-        if g.cornerRadius != layer.cornerRadius { g.cornerRadius = layer.cornerRadius }
-        if g.maskedCorners != layer.maskedCorners { g.maskedCorners = layer.maskedCorners }
-        if g.cornerCurve != layer.cornerCurve { g.cornerCurve = layer.cornerCurve }
-        if g.masksToBounds != (layer.cornerRadius > 0) { g.masksToBounds = layer.cornerRadius > 0 }
+        if drawsPaint {
+            // Over the drawn box: its outline, whatever its corners.
+            let outline = (g.mask as? CAShapeLayer) ?? CAShapeLayer()
+            let path = roundedPath(in: bounds).cgPath
+            if outline.path != path { outline.path = path }
+            if g.mask !== outline { g.mask = outline }
+            if g.cornerRadius != 0 { g.cornerRadius = 0 }
+            if g.masksToBounds { g.masksToBounds = false }
+        } else {
+            if g.mask != nil { g.mask = nil }
+            if g.cornerRadius != layer.cornerRadius { g.cornerRadius = layer.cornerRadius }
+            if g.maskedCorners != layer.maskedCorners { g.maskedCorners = layer.maskedCorners }
+            if g.cornerCurve != layer.cornerCurve { g.cornerCurve = layer.cornerCurve }
+            if g.masksToBounds != (layer.cornerRadius > 0) { g.masksToBounds = layer.cornerRadius > 0 }
+        }
         gradient.apply(g, bounds: layer.bounds, box: gradientBox, dark: drawsDark)
+        if fixed { presenter?.fixedGradients.add(self) } else { presenter?.fixedGradients.remove(self) }
+    }
+
+    /// `background-attachment: fixed` (LLP 1066 D7) on iOS is always the
+    /// gradient layer: anything above the node scrolling re-aims it
+    /// (`reaimFixedGradient`), a few points set on a layer, where a drawn
+    /// gradient would repaint the box every frame. Over a box `draw(_:)`
+    /// paints (corners of different radii: a chat bubble) the layer is
+    /// masked to the outline, over the drawn fill — and over a drawn
+    /// border, which is owed. Several layers, a conic one, or another
+    /// `background-clip` draw as before, unfixed.
+    var gradientLayered: Bool { gradientFixed && !gradientDraws && backgroundClip == "border-box" }
+
+    /// The viewport in this view's coordinates: the gradient box of a
+    /// fixed gradient.
+    var fixedGradientPort: CGRect? {
+        guard let port = presenter?.viewport, window != nil else { return nil }
+        return port.convert(port.bounds, to: self)
+    }
+
+    /// The fixed gradient aimed again at where the viewport now is.
+    func reaimFixedGradient() {
+        guard let g = boxGradient, let gradient = Gradient(style["background_image"]) else { return }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        gradient.apply(g, bounds: layer.bounds, box: gradientBox, dark: drawsDark)
+        CATransaction.commit()
     }
 
     /// The box onto the layer, or `boxDrawn` when `draw(_:)` must paint it.

@@ -197,6 +197,11 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
         ),
         ("scrollbar-width", StyleId::ScrollbarWidth, "wide"),
         ("scroll-behavior", StyleId::ScrollBehavior, "instant"),
+        (
+            "background-attachment",
+            StyleId::BackgroundAttachment,
+            "local",
+        ),
         ("touch-action", StyleId::TouchAction, "swipe"),
     ] {
         for named_style in [false, true] {

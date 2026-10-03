@@ -39,6 +39,13 @@ final class Presenter {
     var reorder: ReorderHold?
     var reorderCalls: ReorderCalls?
     lazy var transformGeometry = TransformGeometryHost(self)
+    /// Nodes showing a `background-attachment: fixed` gradient (LLP 1066
+    /// D7): re-aimed at the viewport when anything scrolls or a batch lands.
+    let fixedGradients = NSHashTable<NodeView>.weakObjects()
+    func reaimFixedGradients() {
+        guard fixedGradients.count > 0 else { return }
+        for node in fixedGradients.allObjects where node.window != nil { node.reaimFixedGradient() }
+    }
     var videoVisibility: VideoVisibilityHost?
     lazy var collections = CollectionHost(self)
     lazy var pool = NodePool(self)
@@ -649,6 +656,7 @@ final class Presenter {
             pool.end()
             if outermost {
                 applying = false
+                reaimFixedGradients()
                 paintPresentedText()
                 if !boxFilters.isEmpty { boxFilters.render() }
                 videoVisibility?.changed()

@@ -903,6 +903,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "background-color" => styles(&[StyleId::BackgroundColor]),
         // @ref LLP 1066 — `none` or one linear/radial gradient.
         "background-image" => styles(&[StyleId::BackgroundImage]),
+        // @ref LLP 1066 D7 — `fixed`: the gradient box is the viewport.
+        "background-attachment" => styles(&[StyleId::BackgroundAttachment]),
         // @ref LLP 1077 D1–D3
         "mask-image" => styles(&[StyleId::MaskImage]),
         "text-shadow" => styles(&[StyleId::TextShadow]),

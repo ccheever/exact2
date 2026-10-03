@@ -577,6 +577,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         presenter?.collections.changed(id, user: true)
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
+        presenter?.reaimFixedGradients()
         presenter?.scrollPump.scrolled(self)
         repaintThrough()
         // User scrolling is already a coherent position. Deliver before the
