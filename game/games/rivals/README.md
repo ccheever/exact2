@@ -22,7 +22,7 @@ two seconds at the spawn farthest from living enemies.
 | Look | mouse (a click captures it; Esc releases), or the arrow keys |
 | Move · sprint · jump · slide | WASD · Shift · Space · C (while running) |
 | Fire · aim · reload | left button or F · right button (down sights) · R |
-| Weapons | 1 assault rifle · 2 rocket launcher · 3 knife (or the wheel) |
+| Weapons · inspect | 1 assault rifle · 2 rocket launcher · 3 knife (or the wheel) · T |
 
 The rifle is hitscan: 20 a hit, ×1.8 to the head (the capsule's top 0.4 m),
 with bloom from sustained fire and movement and a view kick per shot. Rockets
@@ -39,6 +39,14 @@ cover to reload or when hurt, switch to the knife up close and to rockets at
 mid range, and hop when the capsule stalls on an edge. A brain produces the same
 `Intent` the player's input does, so bots move under the player's rules.
 
+## Art
+
+Everything you see is generated in code: `bun game/games/rivals/art-src/gen.mjs`
+writes `art/` (glTF models with embedded procedural textures, and the RGBM skies),
+which the game bake turns into assets. The arena model and the colliders both come
+from `arena.json`. **Arena: dusk/night** on the title switches the lighting.
+See the diary's "Art pass" for costs and limits.
+
 ## Files
 
 | file | what |
@@ -51,6 +59,8 @@ mid range, and hop when the capsule stalls on an edge. A brain produces the same
 | `logic/src/arena.rs` | the greybox arena, spawns and cover points |
 | `logic/tests/sim.rs` | range, duel, replay determinism, mid-fight save |
 | `logic/tests/limits.rs` | engine limits, measured (`--release -- --ignored` for timings) |
+| `logic/tests/frame.rs` | offscreen frame time on this GPU (`--release --test frame -- --ignored`) |
+| `art-src/` | the generator: textures, glTF writer, models |
 | `proof.mjs` | the real-host proof |
 
 `rivals_logic::rates::{Rivals30, Rivals60, Rivals240}` are the same game at other
