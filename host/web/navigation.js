@@ -761,7 +761,6 @@ export function grantOrigins(memory) {
 // Match only the sealed, typed output of exact-runner's Rust grant parser.
 // App code is the page, so this is parity admission rather than a sandbox.
 const INVALID_GRANTS = 'the grant set was not validated';
-const brandedGrantSets = new WeakSet();
 
 const grantFNV = text => {
   let hash = 0xcbf29ce484222325n;
@@ -775,21 +774,27 @@ const grantBody = set => JSON.stringify({ version: 1, entries: set.entries, erro
 const networkGrants = new Set(['fetch', 'fetch-subdomains', 'websocket']);
 const pathGrants = new Set(['fs-read', 'fs-write', 'sqlite-open']);
 const nameGrants = new Set(['env-read', 'secret-keep', 'storage-kv']);
+const validGrantName = name => typeof name === 'string' && name.length >= 1 && name.length <= 64
+  && /^[a-z0-9._-]+$/.test(name) && !/^\.+$/.test(name);
 const grantTupleValid = grant => {
   if (!Array.isArray(grant) || typeof grant[0] !== 'string') return false;
-  if (networkGrants.has(grant[0])) return grant.length === 4
+  if (networkGrants.has(grant[0])) {
+    const address = grant[2]?.startsWith('[')
+      || /^(?:https?|wss?|ftp)$/.test(grant[1]) && /^[\d.]+$/.test(grant[2]);
+    return grant.length === 4
     && /^[a-z][a-z0-9+.-]*$/.test(grant[1])
     && typeof grant[2] === 'string' && grant[2] === grant[2].toLowerCase() && grant[2].length > 0
     && Number.isInteger(grant[3]) && grant[3] > 0 && grant[3] <= 65535
-    && (grant[0] !== 'fetch-subdomains' || !grant[2].startsWith('[') && !grant[2].endsWith('.') && grant[2].split('.').filter(Boolean).length >= 2);
+    && (grant[0] !== 'fetch-subdomains' || !address && !grant[2].endsWith('.') && grant[2].split('.').filter(Boolean).length >= 2);
+  }
   if (pathGrants.has(grant[0])) return grant.length >= 2
     && ['', 'app:', 'doc:'].includes(grant[1])
     && grant.slice(2).every(component => typeof component === 'string' && component && component !== '.' && component !== '..' && !component.includes('/'));
-  return nameGrants.has(grant[0]) && grant.length === 2 && typeof grant[1] === 'string';
+  if (!nameGrants.has(grant[0]) || grant.length !== 2 || typeof grant[1] !== 'string') return false;
+  return grant[0] === 'env-read' || validGrantName(grant[1]);
 };
 
 function validateGrantSet(set) {
-  if (brandedGrantSets.has(set)) return true;
   if (!set || set.version !== 1 || !Array.isArray(set.entries)
       || (set.error !== null && typeof set.error !== 'string') || !/^[0-9a-f]{16}$/.test(set.seal ?? '')) return false;
   let last = 0, hasError = false;
@@ -801,16 +806,30 @@ function validateGrantSet(set) {
     last = entry[0];
     hasError ||= entry[3] !== null;
   }
-  if (hasError !== (set.error !== null) || grantFNV(grantBody(set)) !== set.seal) return false;
-  brandedGrantSets.add(set);
-  return true;
+  return (!hasError || set.error !== null) && grantFNV(grantBody(set)) === set.seal;
+}
+
+const freezeGrantSet = set => {
+  for (const entry of set.entries) {
+    if (entry[2]) Object.freeze(entry[2]);
+    Object.freeze(entry);
+  }
+  Object.freeze(set.entries);
+  return Object.freeze(set);
+};
+
+// The Rust parser is the only producer. Admission validates an incoming JSON
+// value in full before making its authority immutable; a prior validation is
+// never a reason to trust a mutable or branded object.
+export function createGrantSet(value) {
+  if (!validateGrantSet(value)) return freezeGrantSet(makeGrantSet([], INVALID_GRANTS));
+  return freezeGrantSet(value);
 }
 
 function makeGrantSet(entries, error) {
   const set = { version: 1, entries, error, seal: '' };
   set.seal = grantFNV(grantBody(set));
-  brandedGrantSets.add(set);
-  return set;
+  return freezeGrantSet(set);
 }
 
 export function grantError(set) {
@@ -819,6 +838,19 @@ export function grantError(set) {
 
 export const rawGrantText = set => validateGrantSet(set) ? set.entries.map(entry => entry[1]).join('\n') : '';
 export const hasGrant = (set, kind) => validateGrantSet(set) && !set.error && set.entries.some(entry => entry[2]?.[0] === kind);
+
+const normalizedDeclaration = set => validateGrantSet(set)
+  ? set.entries.map(([, source, grant, error]) => JSON.stringify([source, grant, error])) : [];
+
+// Module metadata carries the author's spelling while the bake carries the
+// Rust parser's normalized set. Blank lines and indentation have no bearing
+// on activation; the normalized declarations do.
+export function sameGrantDeclaration(set, source) {
+  if (typeof source !== 'string' || !validateGrantSet(set)) return false;
+  const child = scopedGrantSet(set, source);
+  const parentLines = normalizedDeclaration(set), childLines = normalizedDeclaration(child);
+  return parentLines.length === childLines.length && parentLines.every((line, index) => line === childLines[index]);
+}
 
 export function scopedGrantSet(parent, source) {
   if (source == null) return parent;

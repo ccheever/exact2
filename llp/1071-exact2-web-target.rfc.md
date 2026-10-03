@@ -1726,7 +1726,13 @@ equal on the wasm page, the JS page and the Linux reference.
 - *Found beside them* (QUEUE, since closed): the JS target checked no
   `net.fetch` grant (a request outside the grants went out where the wasm
   host refused it); it has since 001e43d03, the whole-set grant admission
-  (`issues/closed/20260924-grant-readers-disagree.md`). The other two are
+  (`issues/20260924-grant-readers-disagree.md`). The page consumes the Rust
+  parser's deeply frozen normalized form and applies native outcome parity to
+  Exact API fetches. It follows redirects, then refuses and discards a response
+  whose final URL is outside the grants. Browser fetch cannot expose a manual
+  redirect target, so an intermediate hop is necessarily contacted before
+  that final admission; web grants are parity, not a security boundary (the
+  app is page code and retains direct browser fetch). The other two are
   fixed below.
 
 **Navigation roots without a router, and `prepend` under Bun** (2026-10-02):

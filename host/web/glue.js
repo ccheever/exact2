@@ -2,7 +2,7 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { grantOrigins, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter, valuedControl, settleValue, typeControl, viewBox } from "./navigation.js";
+import { grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter, valuedControl, settleValue, typeControl, viewBox } from "./navigation.js";
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule; // the file picker (LLP 1069.002) and documents (LLP 1069.010), loaded on first use
 const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
@@ -688,7 +688,7 @@ function apply(batch) {
         }
         break;
       }
-      case "grants": { grantSet = op.set; grants = rawGrantText(grantSet).split('\n').filter(Boolean); unparsed = grantError(grantSet) ?? ""; if (unparsed) console.warn("exact:", unparsed); if (!unparsed && grants.some(l => /^\s*auth\.session /.test(l))) authHost ??= afterNativePaint().then(() => loadAfterPaint('./auth-glue.js', 'authHost')).then(h => authHost = h); break; } case "auth": { const inc = incarnation, env = { agent: agentMode, log, call: r => JSON.parse(readOut(wasm.exact_auth(writeIn(JSON.stringify(r))))), deliver: t => deferFulfill(inc, t, 9, 0, "", new Uint8Array()), active: t => holds(t, inc) }; if (authHost?.arm) authHost.arm(op, env); else if (agentMode && authHost) authHost.then(h => h.arm(op, env)); else { env.call({ op: "arm", ticket: op.ticket, origin: location.origin, popup: false }); env.deliver(op.ticket); } break; } // LLP 1069.006 D4: armed in the press's call stack; unloaded glue is 428
+      case "grants": { grantSet = createGrantSet(op.set); grants = rawGrantText(grantSet).split('\n').filter(Boolean); unparsed = grantError(grantSet) ?? ""; if (unparsed) console.warn("exact:", unparsed); if (grants.some(l => /^\s*auth\.session /.test(l))) authHost ??= afterNativePaint().then(() => loadAfterPaint('./auth-glue.js', 'authHost')).then(h => authHost = h); break; } case "auth": { const inc = incarnation, env = { agent: agentMode, log, call: r => JSON.parse(readOut(wasm.exact_auth(writeIn(JSON.stringify(r))))), deliver: t => deferFulfill(inc, t, 9, 0, "", new Uint8Array()), active: t => holds(t, inc) }; if (authHost?.arm) authHost.arm(op, env); else if (agentMode && authHost) authHost.then(h => h.arm(op, env)); else { env.call({ op: "arm", ticket: op.ticket, origin: location.origin, popup: false }); env.deliver(op.ticket); } break; } // LLP 1069.006 D4: armed in the press's call stack; unloaded glue is 428
       case "store": {
         // A secret the app kept or forgot (LLP 1018 D6): `localStorage`,
         // origin-scoped, is the web's secret store. Never in agent mode — a
@@ -953,7 +953,6 @@ const waiting = () => [...inflight].filter(p => p.ticket == null || holds(p.tick
 function letGo() { for (const [controller, ticket] of forgettable) if (!holds(ticket)) { forgettable.delete(controller); controller.abort(); } }
 const HOST_WORK_BYTES=16*1024*1024, HOST_WORK_BASE64=4*Math.ceil(HOST_WORK_BYTES/3);
 function surfaceGranted(op) {
-  if(grantError(grantSet))return false;
   const admitted=grants.map(g=>g.trim()).filter(Boolean), scoped=(op.scope==null?admitted:op.scope.split("\n").map(g=>g.trim()).filter(Boolean));
   const need=`surface.${op.mode==="capture"?"read":"write"} ${op.name}`;
   return scoped.every(g=>admitted.includes(g))&&scoped.includes(need);

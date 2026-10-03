@@ -12,7 +12,7 @@
 // commands.
 import { journal, clock, nextTicket, inflight, Hosts, OnHooks, viewId, Views, data } from './rt.js';
 import { reportPlace } from './navigation.js';
-import { coversPath } from './admission.js';
+import { appGrantSet, coversPath } from './admission.js';
 
 const say = line => journal.push(`t=${clock.now} ${line}`);
 const x = () => (globalThis.exact ??= {});
@@ -21,7 +21,7 @@ const x = () => (globalThis.exact ??= {});
 // payload)` in the runner's host event kinds — 26 a file input's picked
 // files, 1 `change` with a string, 27 HTML's `cancel`.
 let Glue = null, picked = 0;
-const glue = () => Glue ??= import(new URL('picker-glue.js', document.baseURI).href).then(() => x().picker({
+const glue = () => Glue ??= import(new URL('./picker-glue.js', import.meta.url).href).then(() => x().picker({
   appId: data.appId, log: say,
   pickedPath: async name => `app:/tmp/picked/${reportPlace().split('\0')[2]}-${++picked}.${extension(name)}`,
   dispatch(view, kind, payload) {
@@ -137,7 +137,7 @@ Hosts.saveFile = (...args) => {
   if (!found) return refuse(`no element with id "${id}"`);
   const rest = from.startsWith('app:/') ? from.slice(5).split('/') : [];
   if (rest.length < 2 || rest.some(p => !p || p === '.' || p === '..' || p.includes('\0'))) return refuse(`${from} is not an app:/ file`, found.el);
-  if (!coversPath(data.grantSet, 'fs.read', from)) return refuse(`${from} is outside the app's fs.read grants`, found.el);
+  if (!coversPath(appGrantSet(), 'fs.read', from)) return refuse(`${from} is outside the app's fs.read grants`, found.el);
   if (!suggestedName || suggestedName.length > 255 || suggestedName === '.' || suggestedName === '..' || /[/\\\x00-\x1f\x7f]/.test(suggestedName)) return refuse('suggestedName is not a file name', found.el);
   const r = { present: true, view: found.view, from, suggestedName };
   if (clock.agent) {
@@ -168,7 +168,7 @@ Hosts.share = (title, text, url) => {
 // What the person chooses becomes a `doc:/<n>/<name>` path the app reaches
 // through `storage.fs` (the glue's handles; storage-request.js routes it).
 let Docs = null;
-const docs = () => Docs ??= import(new URL('documents-glue.js', document.baseURI).href).then(() => x().documents.install({
+const docs = () => Docs ??= import(new URL('./documents-glue.js', import.meta.url).href).then(() => x().documents.install({
   log: say, openFile: () => false,
   dispatch(view, kind, payload) {
     const el = Views.get(view);

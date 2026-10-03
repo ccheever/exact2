@@ -6,7 +6,7 @@
 // IndexedDB under a handle the store holds; its code is fetched on first
 // use); `openAuthSession` is auth.js.
 import * as source from '__APP_TS__';
-import { createSecretFacade, hasGrant, rawGrantText } from './admission.js';
+import { createSecretFacade, hasGrant, setAppGrantSet } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
 import { sourceTypes } from './names.js';
 import { checkpoint, clock, commit, journal, R, Resources } from './rt.js';
@@ -103,9 +103,8 @@ function storageOf(grants) {
     if (k == null) throw Object.assign(new Error(agentStorageRefusal), { kind: 'Unavailable' });
     return k;
   });
-  const url = name => new URL(name, document.baseURI).href;
-  const files = () => fs ??= key().then(k => import(url('storage-fs.js')).then(m => m.createFileSystem(k, grants)));
-  const databases = () => sqlite ??= key().then(k => import(url('storage-sqlite.js')).then(m => m.createSqlite(k, grants)));
+  const files = () => fs ??= key().then(k => import(new URL('./storage-fs.js', import.meta.url).href).then(m => m.createFileSystem(k, grants)));
+  const databases = () => sqlite ??= key().then(k => import(new URL('./storage-sqlite.js', import.meta.url).href).then(m => m.createSqlite(k, grants)));
   const methods = ['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath'];
   return Object.freeze({
     fs: Object.freeze({ directories: Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' }),
@@ -116,8 +115,7 @@ function storageOf(grants) {
 }
 export function install(data, mixed = false, modules = null) {
   data.appId = source.appId;
-  data.grantSet = tsGrantSet;
-  data.grants = rawGrantText(tsGrantSet);
+  data.grants = setAppGrantSet(tsGrantSet);
   const storage = storageOf(tsGrantSet);
   // `modules` loads native.js (an app with a module artifact). Connected
   // after first paint, whether or not anything asks `later`.

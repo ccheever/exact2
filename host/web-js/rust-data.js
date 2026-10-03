@@ -1,4 +1,4 @@
-import { admitsSecret, createRequestExecutor, fetchHostAsset, rawGrantText, unionGrantSets } from './admission.js';
+import { admitsSecret, createRequestExecutor, fetchHostAsset, sameGrantDeclaration, setAppGrantSet } from './admission.js';
 import { rustGrantSet, tsGrantSet } from './admission-data.js';
 import { boundedHttpBody } from './http-body.js';
 // A Rust data module on the JS runtime (LLP 1029.000's seam, ABI 3,
@@ -105,7 +105,7 @@ export async function install(data, sources, load = p => fetchHostAsset(p).then(
   };
   const op = (code, fill) => { const w = writer(); w.u32(ABI); w.u8(code); fill?.(w); return call(w.done()); };
   let r = op(0); r.u8(); const meta = [r.str(), r.str()];
-  if (meta[1].trim() !== rawGrantText(rustGrantSet).trim()) throw new Error('Rust module grants differ from the admitted build');
+  if (!sameGrantDeclaration(rustGrantSet, meta[1])) throw new Error('Rust module grants differ from the admitted build');
   r = op(1, w => w.bytes(new Uint8Array(plan))); r.u8(); result(r);
   r = op(2); r.u8(); result(r);
   // One call (`call_request`): source, arguments by type, the store's
@@ -141,7 +141,6 @@ export async function install(data, sources, load = p => fetchHostAsset(p).then(
   // What a loaded capability needs of the module (canvas2d.js's draws).
   data.logic = { exports: e, session, writer, reader, encode, ABI };
   data.appId ??= meta[0];
-  data.grantSet = unionGrantSets(tsGrantSet, rustGrantSet);
-  data.grants = rawGrantText(data.grantSet);
+  data.grants = setAppGrantSet(tsGrantSet, rustGrantSet);
   for (const f of data.q.splice(0)) f();
 }

@@ -3,7 +3,7 @@
 // guest builtin is patched. Loaded only after the page's first pixel.
 import { createStorage } from './storage.js';
 import { agentSeed, agentStream, keyStore, storageKey } from './storage-environment.js';
-import { admitsNetwork, grantError, scopedGrantSet } from './grant-admission.js';
+import { admitsNetwork, grantError, sameGrantDeclaration, scopedGrantSet } from './grant-admission.js';
 const decoder = new TextDecoder('utf-8', { fatal: true });
 const hex = bytes => Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('');
 const realms = new Map();
@@ -51,7 +51,7 @@ export function fetchEarly(request, grants) {
   try { new URL(request.url); } catch { return null; } // a relative (asset) URL is the host's own
   if (grantError(grants) || request.method !== 'GET' || request.body || !admitsNetwork(grants, request.url)) return null;
   const key = earlyKey(request.url, request.headers), controller = new AbortController();
-  const entry = { controller, response: fetch(request.url, { method: 'GET', headers: request.headers, redirect: 'error', cache: 'default', signal: controller.signal }) };
+  const entry = { controller, response: fetch(request.url, { method: 'GET', headers: request.headers, redirect: 'follow', cache: 'default', signal: controller.signal }) };
   entry.response.catch(() => {});
   early.set(key, [...(early.get(key) ?? []), entry]);
   return () => {
@@ -62,7 +62,7 @@ export function fetchEarly(request, grants) {
   };
 }
 export function claim(url, init) {
-  if (init.method !== 'GET' || init.body || init.redirect !== 'error' || init.cache !== 'default') return null;
+  if (init.method !== 'GET' || init.body || init.redirect !== 'follow' || init.cache !== 'default') return null;
   const key = earlyKey(url, init.headers), list = early.get(key), entry = list?.shift();
   if (!entry) return null;
   if (!list.length) early.delete(key);
@@ -145,7 +145,7 @@ export async function prepare(payload, admitted, id = nextId++) {
         win.__exact_install_storage();
       }
     }
-    if ((win.exact?.abi !== 1 && win.exact?.abi !== 2) || win.exact.appId !== admitted.appId || win.exact.grants?.trim() !== admitted.grants.trim() || typeof win.exact.answer !== 'function') throw new Error('module exports mismatch the admitted client');
+    if ((win.exact?.abi !== 1 && win.exact?.abi !== 2) || win.exact.appId !== admitted.appId || !sameGrantDeclaration(childGrantSet, win.exact.grants) || typeof win.exact.answer !== 'function') throw new Error('module exports mismatch the admitted client');
     const pending = new Map(), streams = new Map();
     // The runner's target first: two targets asking one source with equal
     // arguments are two calls (LLP 1027 D1a).
@@ -208,7 +208,7 @@ export async function prepare(payload, admitted, id = nextId++) {
       }});
       return {continuation:token};
     };
-    const realm = { frame, meta, id, placement: 'main',
+    const realm = { frame, meta, grantSet: childGrantSet, id, placement: 'main',
       // Canvas 2D (LLP 1056 D1): a draw awaits nothing, so it runs now.
       // Text is measured and images answered on the page (LLP 1056 D8, D9).
       draw: request => { const h = globalThis.exact?.canvas2dHost; return JSON.parse(win.__exact_draw(request, h?.measure, h?.image)); },
@@ -279,7 +279,7 @@ async function prepareWorker(payload, admitted, id, before, meta) {
   worker.postMessage({ op: 'init', token: 0, prelude: before, script: decoder.decode(payload.script), admitted,
     storage: storageKey(admitted.appId, location.href), pageDigest: !!globalThis.exact.moduleDigest, seed: agentSeed(location.href) });
   try { await ready; } catch (error) { worker.terminate(); throw error; }
-  const realm = { frame: null, meta, id, placement: 'worker',
+  const realm = { frame: null, meta, grantSet: admitted.grantSet, id, placement: 'worker',
     forget(inFlight) {
       forgetTurns(id, new Set(inFlight.map(workerKey)), workerKey);
       worker.postMessage({ op: 'forget', inFlight });
@@ -313,7 +313,7 @@ function forgetTurns(id, keep, keyOf) {
 export function call(request) {
   const realm = realms.get(request.id);
   if (!realm) return { error: 'browser module not loaded' };
-  if (request.op === 'activate') return realm.meta.appId === request.appId && realm.meta.grants.trim() === request.grants.trim() && realm.meta.module.sha256 === request.revision && realm.placement === (request.placement ?? 'main')
+  if (request.op === 'activate') return realm.meta.appId === request.appId && sameGrantDeclaration(realm.grantSet, request.grants) && realm.meta.module.sha256 === request.revision && realm.placement === (request.placement ?? 'main')
     ? { ok: true } : { error: `browser module admission mismatch: the page's module is ${realm.meta.module.sha256.slice(0, 12)} (${realm.meta.appId}, ${realm.placement}); the wasm admits ${String(request.revision).slice(0, 12)} (${request.appId}, ${request.placement ?? 'main'}) — rebuild the wasm (r + Enter in the dev loop)` };
   if (request.op === 'dispatch') {
     const turn = turns.get(request.token);

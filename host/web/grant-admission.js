@@ -4,9 +4,11 @@ export {
   admitsNetwork,
   admitsSecret,
   coversPath,
+  createGrantSet,
   grantError,
   hasGrant,
   rawGrantText,
+  sameGrantDeclaration,
   scopedGrantSet,
   unionGrantSets,
 } from './navigation.js';

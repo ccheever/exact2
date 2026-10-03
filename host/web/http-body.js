@@ -146,6 +146,7 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   const effective = scopedGrantSet(grantSet, op.scope), invalid = grantError(effective);
   const asset = method === 'GET' && !body && Object.keys(headers).length === 0 && /^\/assets\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(url);
   if (invalid) return failed(2, invalid);
+  if (!native && !asset) try { new URL(url); } catch (error) { return failed(1, error); }
   if (!native && !asset && !admitsNetwork(effective, url)) return failed(2, `outside the app's grants (${/^wss?:/i.test(url) ? 'net.websocket' : 'net.fetch'})`);
   if (op.nativeHttp === 'independent' && (!Number.isInteger(op.maxResponseBytes) || op.maxResponseBytes < 1 || op.maxResponseBytes > 64 * 1024 * 1024)) return failed(2, 'invalid independent HTTP response limit');
   if (native) {
@@ -166,11 +167,14 @@ export async function request(op, { grantSet, loadPageNative, moduleLoader, loca
   try { if (body) decodedBody = Uint8Array.from(atob(body), c => c.charCodeAt(0)); }
   catch (error) { return failed(4, `invalid request body: ${error}`); }
   controllers.add(controller);
-  const init = { method, headers, redirect: 'error', cache: cache === 'reload' ? 'reload' : 'default', signal: controller.signal };
+  const init = { method, headers, redirect: 'follow', cache: cache === 'reload' ? 'reload' : 'default', signal: controller.signal };
   if (decodedBody) init.body = decodedBody;
   if (op.stream && !headers.some(([k]) => k.toLowerCase() === 'accept')) init.headers = [...headers, ['accept', 'text/event-stream']];
   try {
     const response = await (!asset && moduleLoader?.claim?.(url, init) || fetch(asset ? localAssetURL(url) : url, init));
+    if (response.url && (asset
+      ? new URL(response.url).origin !== location.origin
+      : !admitsNetwork(effective, response.url))) return failed(2, 'outside the app\'s grants (net.fetch)');
     // A stream reads its body as events; anything else is its one answer.
     if (op.stream && response.ok && response.body && /^text\/event-stream\s*(;|$)/i.test(response.headers.get('content-type') ?? ''))
       return await readEvents(response, op.maxResponseBytes ?? 1024 * 1024, message, controller);

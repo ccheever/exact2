@@ -1,5 +1,5 @@
-import { admitsNetwork, admitsSecret, coversPath, grantError, hasGrant, rawGrantText, scopedGrantSet, unionGrantSets } from '../web/grant-admission.js';
-export { admitsNetwork, admitsSecret, coversPath, grantError, hasGrant, rawGrantText, scopedGrantSet, unionGrantSets } from '../web/grant-admission.js';
+import { admitsNetwork, admitsSecret, coversPath, createGrantSet, grantError, hasGrant, rawGrantText, scopedGrantSet, unionGrantSets } from '../web/grant-admission.js';
+export { admitsNetwork, admitsSecret, coversPath, createGrantSet, grantError, hasGrant, rawGrantText, sameGrantDeclaration, scopedGrantSet, unionGrantSets } from '../web/grant-admission.js';
 
 // Captured while the entry graph loads. App source injection never replaces
 // the page global, so separately loaded host modules retain browser authority.
@@ -9,13 +9,31 @@ export class FetchError extends Error {
   constructor(kind, message) { super(String(message)); this.name = 'FetchError'; this.kind = String(kind); }
 }
 
+const refusal = value => `outside the app's grants (${/^wss?:/i.test(value) ? 'net.websocket' : 'net.fetch'})`;
+const assetPath = value => typeof value === 'string' && /^\/assets\/(?:[A-Za-z0-9_-]+\/)*[A-Za-z0-9_-]+\.[A-Za-z0-9]+$/.test(value);
+const noHeaders = headers => headers == null || [...new Headers(headers)].length === 0;
+const hostAsset = (input, init) => assetPath(input) && String(init.method ?? 'GET').toUpperCase() === 'GET'
+  && init.body == null && noHeaders(init.headers);
+
 export async function fetchWith(set, input, init = {}) {
-  const value = typeof Request === 'function' && input instanceof Request ? input.url : new URL(String(input), globalThis.location?.href).href;
+  let value;
+  try { value = typeof Request === 'function' && input instanceof Request ? input.url : new URL(String(input), globalThis.location?.href).href; }
+  catch (error) { throw new FetchError('Network', error?.message ?? error); }
   const invalid = grantError(set);
   if (invalid) throw new FetchError('Refused', invalid);
-  if (!admitsNetwork(set, value)) throw new FetchError('Refused', `outside the app's grants (${/^wss?:/i.test(value) ? 'net.websocket' : 'net.fetch'})`);
-  try { return await browserFetch(input, { ...init, redirect: 'error' }); }
-  catch (error) { throw new FetchError('Network', error?.message ?? error); }
+  const asset = hostAsset(input, init);
+  if (!asset && !admitsNetwork(set, value)) throw new FetchError('Refused', refusal(value));
+  try {
+    const response = await browserFetch(asset ? value : input, { ...init, redirect: 'follow' });
+    if (response.url && (asset
+      ? new URL(response.url).origin !== globalThis.location?.origin
+      : !admitsNetwork(set, response.url))) throw new FetchError('Refused', refusal(response.url));
+    return response;
+  }
+  catch (error) {
+    if (error instanceof FetchError) throw error;
+    throw new FetchError('Network', error?.message ?? error);
+  }
 }
 
 export function fetchHostAsset(input, init = {}) {
@@ -31,7 +49,7 @@ export function createRequestExecutor(appId, sourceSet, readBody = response => r
     const why = grantError(admitted);
     if (why) return { failed: 2, message: why };
     if (req.storage != null) {
-      storage ??= import(new URL('storage-request.js', document.baseURI).href).then(m => m.createStorageRequests(appId, sourceSet));
+      storage ??= import(new URL('./storage-request.js', import.meta.url).href).then(m => m.createStorageRequests(appId, sourceSet));
       return { storage: await (await storage).run(req.storage, admitted) };
     }
     try {
@@ -43,6 +61,13 @@ export function createRequestExecutor(appId, sourceSet, readBody = response => r
   };
 }
 
+let appSet = null;
+export function setAppGrantSet(...sets) {
+  appSet = sets.length === 1 ? createGrantSet(sets[0]) : unionGrantSets(...sets);
+  return rawGrantText(appSet);
+}
+export const appGrantSet = () => appSet;
+
 export function createSecretFacade(store, admitted, keys) {
   const refused = name => {
     const parse = grantError(admitted);
@@ -53,7 +78,11 @@ export function createSecretFacade(store, admitted, keys) {
   };
   const seen = {
     read: false,
-    get(name) { seen.read = true; return admitsSecret(admitted, name) ? store.get(name) ?? null : null; },
+    get(name) {
+      if (String(name).startsWith('exact.kept.')) return null;
+      seen.read = true;
+      return admitsSecret(admitted, name) ? store.get(name) ?? null : null;
+    },
     set(name, value) { allowed(name); store.set(name, String(value)); },
     forget(name) { allowed(name); store.set(name, null); },
     keepKey(name, pair) { allowed(name); const handle = 'exact.key:' + crypto.randomUUID(); store.set(name, handle); return keys().then(service => service.put(handle, pair)); },
