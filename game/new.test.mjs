@@ -449,6 +449,22 @@ test('the SDK lock decides every version; a game that adds packages captures its
   sdkLock();
 }, 120000);
 
+test('a root crate\'s new registry dependency resolves before the SDK lock is refreshed', async () => {
+  const {outsideSdkLock,withRootPins}=await import('./app/shells.mjs');
+  const registry='registry+https://github.com/rust-lang/crates.io-index';
+  const block=(name,version,checksum)=>`[[package]]\nname = "${name}"\nversion = "${version}"\n${checksum?`source = "${registry}"\nchecksum = "${checksum}"\n`:''}`;
+  const lock=(...blocks)=>`version = 4\n\n${blocks.join('\n')}`;
+  // 15856ff7 gave kernel cssparser 0.37.0 and updated only the root Cargo.lock.
+  const sdk=lock(block('itoa','1.0.15','aa'),block('exact-kernel','0.1.0'));
+  const root=lock(block('cssparser','0.37.0','bb'),block('itoa','1.0.9','cc'),block('caltrain-web','0.1.0'),block('exact-kernel','0.1.0'));
+  const seeded=withRootPins(sdk,root), members=new Set(['x-logic']);
+  assert.deepEqual(Bun.TOML.parse(seeded).package.map(p=>`${p.name} ${p.version}`),['itoa 1.0.15','exact-kernel 0.1.0','cssparser 0.37.0'],'only registry packages new to the SDK are added');
+  assert.deepEqual(outsideSdkLock(lock(block('cssparser','0.37.0','bb'),block('itoa','1.0.15','aa')),seeded,members),[]);
+  assert.deepEqual(outsideSdkLock(lock(block('cssparser','0.37.1','dd')),seeded,members),[`cssparser 0.37.1 ${registry}`],'the root lock decides the version');
+  assert.deepEqual(outsideSdkLock(lock(block('itoa','1.0.9','cc')),seeded,members),[`itoa 1.0.9 ${registry}`],'the SDK lock still decides its own packages');
+  assert.equal(withRootPins(sdk,''),sdk);
+});
+
 
 test('an empty Cargo cache permits adapter generation and refuses offline resolution',async()=>{
   const {prepareGame,gameDefaults}=await import('./app/shells.mjs');

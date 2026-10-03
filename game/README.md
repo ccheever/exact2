@@ -408,7 +408,9 @@ that location when explicitly set. Without
 The SDK owns one lock, [`app/shells.lock`](app/shells.lock): the lock of the union of
 every generated shell's dependencies. A game's workspace starts from it and keeps its
 subset; each version must be the SDK lock's, so bakes, deploys and proofs still resolve
-`--locked --offline` and no local cache chooses a version. A game that adds a
+`--locked --offline` and no local cache chooses a version. A registry package the SDK
+lock lacks but exact2's root `Cargo.lock` pins (a core crate's new dependency) is
+admitted at the root lock's version and checksum until the SDK lock is refreshed. A game that adds a
 dependency writes `logic/Cargo.toml` (`package.workspace = "../.shells"`, SDK crates as
 `exact-game.workspace = true`) and captures its own `Cargo.lock` with
 `bun game/app/shells.mjs ./my-game --update-lock`; commit and review that lock. SDK
