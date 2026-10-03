@@ -88,6 +88,26 @@ final class SmoothCollectionIOSTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(p.collections.geometry(1)).offset, at, accuracy: 0.5)
     }
 
+    /// UIKit's end of an animation that was stopped and replaced ends
+    /// nothing: it is away from the running animation's target.
+    func testAStoppedAnimationsEndLeavesTheNextOneRunning() throws {
+        let p = presenter()
+        list(p, correction: NSNull())
+        let scroll = try XCTUnwrap(p.views[1]?.scroll)
+        let seq = String(try XCTUnwrap(p.collections.entries[1]?.cursor.sequence))
+        p.apply(wireBatch([collections(revision: 2, correction: ["scrollSequence": seq, "offset": 1700, "smooth": true])]))
+        p.apply(wireBatch([collections(revision: 3, correction: ["scrollSequence": seq, "offset": 0])]))
+        p.apply(wireBatch([collections(revision: 4, correction: ["scrollSequence": seq, "offset": 900, "smooth": true])]))
+        XCTAssertTrue(p.collections.animating.contains(1))
+        scroll.contentOffset.y = 300
+        p.views[1]?.scrollViewDidEndScrollingAnimation(scroll)
+        XCTAssertTrue(p.collections.animating.contains(1), "a stale end, away from the target")
+        scroll.contentOffset.y = 900
+        p.views[1]?.scrollViewDidEndScrollingAnimation(scroll)
+        XCTAssertFalse(p.collections.animating.contains(1), "its own end")
+        XCTAssertNil(p.collections.animationSerial[1], "nothing kept for a list that is not animating")
+    }
+
     func testAnOrdinaryCorrectionIsSetAtOnce() throws {
         let p = presenter()
         list(p, correction: NSNull())

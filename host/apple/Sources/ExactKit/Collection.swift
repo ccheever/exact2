@@ -238,19 +238,30 @@ final class CollectionHost {
     /// while it ran).
     var animationTargets: [UInt32: CGPoint] = [:]
     var owedTargets: [UInt32: CGPoint] = [:]
-    /// Each animation's number: a callback for one that has since been
-    /// replaced (stopped, then another begun) is not this one's.
+    /// The running animation's number, for each animating list only: a
+    /// callback for one that has since been stopped, or replaced, is not
+    /// this one's.
     private(set) var animationSerial: [UInt32: Int] = [:]
+    private var lastAnimation = 0
     @discardableResult
     func beginAnimation(_ view: UInt32, to target: CGPoint) -> Int {
         animating.insert(view)
         animationTargets[view] = target
-        let serial = (animationSerial[view] ?? 0) + 1
-        animationSerial[view] = serial
-        return serial
+        lastAnimation += 1
+        animationSerial[view] = lastAnimation
+        return lastAnimation
     }
-    func animationEnded(_ view: UInt32, dragging: Bool = false) {
+    /// An animation stops: by a drag, an ordinary correction, or the list's
+    /// retirement. What it owed goes with it.
+    func stopAnimation(_ view: UInt32) {
+        animating.remove(view)
+        animationTargets[view] = nil; owedTargets[view] = nil; animationSerial[view] = nil
+    }
+    /// `at`: where the platform says it ended (UIKit's delegate). An end
+    /// away from the running animation's target is a stopped one's.
+    func animationEnded(_ view: UInt32, dragging: Bool = false, at: CGPoint? = nil) {
         guard animating.contains(view) else { return }
+        if let at, !dragging, let target = animationTargets[view], abs(at.x - target.x) + abs(at.y - target.y) > 1 { return }
         if !dragging, owedTargets[view] != nil {
             // UIKit starts no new animation from inside the callback that
             // ends one: the owed target goes on the next turn, still headed
@@ -258,16 +269,14 @@ final class CollectionHost {
             let serial = animationSerial[view]
             DispatchQueue.main.async { [weak self] in
                 guard let self, self.animationSerial[view] == serial, self.animating.remove(view) != nil else { return }
-                self.animationTargets[view] = nil
+                self.animationTargets[view] = nil; self.animationSerial[view] = nil
                 self.landAnimation(view)
                 self.dirty.insert(view)
                 self.schedule()
             }
             return
         }
-        animating.remove(view)
-        animationTargets[view] = nil
-        owedTargets[view] = nil
+        stopAnimation(view)
         dirty.insert(view)
         schedule()
     }
@@ -313,6 +322,7 @@ final class CollectionHost {
         generation += 1; queued = false; batchDepth = 0; correcting = false
         stopTracking?(); stopTracking = nil
         entries.removeAll(); dirty.removeAll(); interaction = nil; contactEvent = nil
+        for view in animating { stopAnimation(view) }
         fillPending.removeAll(); sliceLimits.removeAll()
         building = nil; retireOwed.removeAll(); fillLimits.removeAll(); fillSent.removeAll()
         budget = CollectionTurnBudget(); rescuing.removeAll()
@@ -330,6 +340,7 @@ final class CollectionHost {
             let live = Set(snapshots.map(\.view))
             guard live.count == snapshots.count else { continue }
             entries = entries.filter { live.contains($0.key) }
+            for view in animating.subtracting(live) { stopAnimation(view) }
             retireOwed = retireOwed.filter { live.contains($0.key) }
             dirty.formIntersection(live)
             fillPending.formIntersection(live)

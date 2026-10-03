@@ -366,10 +366,10 @@ extension CollectionHost {
             animate(id, scroll, to: target)
             return
         }
-        if animating.remove(id) != nil {
+        if animating.contains(id) {
             // An ordinary correction stops it, even where it already is: a
             // zero-length animation replaces the running one.
-            animationTargets[id] = nil; owedTargets[id] = nil
+            stopAnimation(id)
             NSAnimationContext.runAnimationGroup({ c in c.duration = 0; clip.animator().setBoundsOrigin(target) })
             scroll.reflectScrolledClipView(clip)
             return

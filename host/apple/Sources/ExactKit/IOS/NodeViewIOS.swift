@@ -553,7 +553,13 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { followEndIfOwed() }
     func scrollViewDidEndScrollingAnimation(_ scrollView: UIScrollView) {
         followingEndAnimated = false
-        presenter?.collections.animationEnded(id)
+        // Where it ended, unless at an edge (content that shrank under it
+        // clamps it short of its target, and that is its end too).
+        let o = scrollView.contentOffset, i = scrollView.adjustedContentInset
+        let edge = presenter?.collections.entries[id]?.snapshot.horizontal == true
+            ? o.x <= -i.left + 0.5 || o.x >= scrollView.contentSize.width + i.right - scrollView.bounds.width - 0.5
+            : o.y <= -i.top + 0.5 || o.y >= scrollView.contentSize.height + i.bottom - scrollView.bounds.height - 0.5
+        presenter?.collections.animationEnded(id, at: edge ? nil : o)
     }
     private func followEndIfOwed() {
         guard followsEndAfterInteraction, let sv = scroll else { return }

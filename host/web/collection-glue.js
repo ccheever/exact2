@@ -66,7 +66,8 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
   // A `scrollIntoView` under way (LLP 1070.000 §2.5): the port's moves are
   // its own and the browser's clamps, never travel, until the reader's input.
   const authored = s => s.seeking && !s.input;
-  const velocity = s => !authored(s) && s.travel && now() - s.travel.time < 150 ? s.travel.velocity : 0;
+  // Nor while a smooth correction animates (LLP 1070.000 §11).
+  const velocity = s => !authored(s) && s.animating == null && s.travel && now() - s.travel.time < 150 ? s.travel.velocity : 0;
   function sample(s) {
     const A = AXES[s.axis], time = now(), at = s.port[A.offset], t = s.travel;
     if (s.clampAt === at) { s.travel = { at, time, velocity: 0 }; return; }
@@ -165,10 +166,13 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     to = Math.max(0, Math.min(to, port[A.scrollSize] - port[A.client]));
     if (s.animating != null) { s.owed = to; return; }
     if (Math.abs(to - port[A.offset]) <= 0.5) { place(s, to, false); s.offset = port[A.offset]; return; }
-    s.animating = to; s.owed = null;
+    s.animating = to; s.owed = null; s.travel = null;
     place(s, to, true);
   }
   // It landed (or the browser clamped it short): what was owed goes next.
+  // A successor starts only from the predecessor's `scrollend`, after the
+  // browser has queued it, so that event never lands the successor; where
+  // the browser has no `scrollend`, from the arriving scroll.
   function landed(s) {
     const owed = s.owed;
     s.animating = s.owed = null; s.travel = null;
@@ -187,6 +191,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
     if (s.animating != null) {
       s.offset = at;
       if (Math.abs(at - s.animating) > 0.5) return false;
+      if (s.owed != null && 'onscrollend' in s.port) return false;
       landed(s);
       return true;
     }
@@ -444,7 +449,11 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
           // the reader took over) reports where it rests.
           s.scrollEnded = () => {
             if (s.animating == null) return;
-            s.offset = s.port[AXES[s.axis].offset]; landed(s); enqueue(s, true);
+            // Its own end: at its target, or clamped at an edge since (a
+            // `scrollend` for an earlier scroll lands nothing).
+            const A = AXES[s.axis], at = s.port[A.offset], max = s.port[A.scrollSize] - s.port[A.client];
+            if (Math.abs(at - s.animating) > 0.5 && at > 0.5 && at < max - 0.5) return;
+            s.offset = at; landed(s); enqueue(s, true);
           };
           port.addEventListener('scrollend', s.scrollEnded, { passive: true });
           states.set(snapshot.view, s);

@@ -134,9 +134,8 @@ extension CollectionHost {
         let animate = gap > 24 && !ExactEnv.agentFreezes
         if animate {
             beginAnimation(id, to: target)
-        } else if animating.remove(id) != nil {
-            // An ordinary correction stops it where it is.
-            animationTargets[id] = nil; owedTargets[id] = nil
+        } else if animating.contains(id) {
+            stopAnimation(id)
         }
         scroll.setContentOffset(target, animated: animate)
     }
@@ -173,9 +172,9 @@ extension CollectionHost {
             owedTargets[id] = target
             return
         }
-        if !animate, animating.remove(id) != nil {
+        if !animate, animating.contains(id) {
             // An ordinary correction stops it, even where it already is.
-            animationTargets[id] = nil; owedTargets[id] = nil
+            stopAnimation(id)
             scroll.setContentOffset(target, animated: false)
             return
         }
