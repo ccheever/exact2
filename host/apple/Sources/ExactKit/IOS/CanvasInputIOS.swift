@@ -64,8 +64,18 @@ final class CanvasInput {
         }
         view?.window?.rootViewController?.setNeedsUpdateOfPrefersPointerLocked()
     }
+    /// The press that asked for the lock went out as a touch whose up the
+    /// locked scene never delivers: end every live touch before GCMouse speaks.
+    private func cancelTouches() {
+        guard let view else { return }
+        for (_, id) in touches.sorted(by: { $0.value < $1.value }) {
+            view.canvases?.input(view, ["t": "pointer", "phase": "cancel", "id": id, "x": 0, "y": 0, "dx": 0, "dy": 0, "kind": "mouse", "buttons": 0])
+        }
+        touches.removeAll()
+    }
     private func locked(dx: CGFloat, dy: CGFloat, bit: Int, down: Bool) {
         guard let view, sceneLocked else { return }
+        cancelTouches()
         let before = mouseButtons
         if down { mouseButtons |= bit } else { mouseButtons &= ~bit }
         let phase = bit == 0 || (before != 0 && mouseButtons != 0) ? "move" : down ? "down" : "up"
@@ -99,7 +109,7 @@ final class CanvasInput {
                 sent = ok || sent; continue
             }
             if phase == "down" { lock() }
-            if sceneLocked { continue } // the locked mouse speaks through GCMouse
+            if sceneLocked { cancelTouches(); continue } // the locked mouse speaks through GCMouse
             let from = phase == "down" ? p : source.local(touch.previousLocation(in: nil))
             // An iPad's mouse or trackpad (an indirect pointer) reports its buttons.
             let mouse = touch.type == .indirectPointer, mask = event?.buttonMask ?? []
