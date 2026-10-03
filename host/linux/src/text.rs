@@ -423,8 +423,10 @@ pub struct GlyphRun {
 }
 
 /// Frames a shaped word stays cached unused (cosmic-text's shape-run cache,
-/// as Minikin keeps its word layouts): two seconds at 120 Hz.
+/// as Minikin keeps its word layouts): two seconds at 120 Hz. The cache is
+/// trimmed every `SHAPED_WORD_TRIM` frames (a trim walks all of it).
 const SHAPED_WORD_FRAMES: u64 = 240;
+const SHAPED_WORD_TRIM: u64 = 16;
 
 /// The engine: fonts, the paragraph cache, the glyph cache, the counters.
 pub struct TextEngine {
@@ -432,6 +434,8 @@ pub struct TextEngine {
     paragraphs: cache::Cache,
     /// Canonical shaped-source builds, independent of width layout.
     pub shape_calls: usize,
+    /// Text frames finished, for the shaped-word cache's trim.
+    frames: u64,
     layout_calls: usize,
     #[cfg(test)]
     before_layout: Option<Box<dyn FnMut()>>,
@@ -557,6 +561,7 @@ impl TextEngine {
             catalog: Rc::new(RefCell::new(catalog)),
             paragraphs: cache::Cache::default(),
             shape_calls: 0,
+            frames: 0,
             layout_calls: 0,
             measures: 0,
             hits: 0,
@@ -651,12 +656,19 @@ impl TextEngine {
     pub(crate) fn finish_text_frame(&mut self) {
         self.paragraphs.finish_handoff();
         self.trim_paragraphs();
+        self.trim_shaped_words();
+    }
+
+    fn trim_shaped_words(&mut self) {
         // Shaped words unused for SHAPED_WORD_FRAMES frames are let go.
-        self.catalog
-            .borrow_mut()
-            .fonts
-            .shape_run_cache
-            .trim(SHAPED_WORD_FRAMES);
+        self.frames += 1;
+        if self.frames % SHAPED_WORD_TRIM == 0 {
+            self.catalog
+                .borrow_mut()
+                .fonts
+                .shape_run_cache
+                .trim(SHAPED_WORD_FRAMES / SHAPED_WORD_TRIM);
+        }
     }
 
     pub(crate) fn retiring_accepted<'a>(
