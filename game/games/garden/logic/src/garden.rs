@@ -149,7 +149,7 @@ pub struct Plant {
     pub fruits: Vec<Option<Entity>>,
 }
 
-/// A fruit on a plant (a child entity). Unripe until `ripe_at`.
+/// A fruit on a plant. Unripe until `ripe_at`.
 #[derive(Default, Component)]
 pub struct Fruit {
     pub kind: u8,
@@ -171,8 +171,15 @@ pub struct Census {
     pub mutated: u32,
 }
 
+/// Tiles run +x and −z from the origin, so the garden lies in front of
+/// the following camera.
 pub fn tile_center(tile: [u16; 2]) -> Vec3 {
-    Vec3::new(tile[0] as f32 * TILE, 0.0, tile[1] as f32 * TILE)
+    Vec3::new(tile[0] as f32 * TILE, 0.0, -(tile[1] as f32) * TILE)
+}
+
+/// A material from an sRGB-ish authored colour (materials are linear).
+pub fn paint(c: [f32; 3]) -> Material {
+    Material::rgb(c[0] * c[0], c[1] * c[1], c[2] * c[2])
 }
 
 fn plant_scale(stage: u8) -> f32 {
@@ -192,7 +199,7 @@ pub fn plant(w: &mut World, kind: u8, tile: [u16; 2], at: u64) -> Entity {
     let e = w.spawn((
         plant_pose(kind, tile, plant_scale(0)),
         Mesh::cylinder(0.35, c.height),
-        Material::rgb(c.leaf[0], c.leaf[1], c.leaf[2]),
+        paint(c.leaf),
         Plant {
             kind,
             tile,
@@ -219,14 +226,20 @@ fn fruit_offset(kind: u8, slot: u8) -> Vec3 {
 
 /// Spawns an unripe fruit in a plant's slot and schedules its ripening. A
 /// single-harvest crop's fruit ripens as it appears.
+///
+/// Fruit is placed in world space, not parented to its plant: a mature plant
+/// never moves, and every `Parent` costs a reap and a propagate on every
+/// tick, changed or not (diary: limits).
 pub fn bear(w: &mut World, plant: Entity, kind: u8, slot: u8, at: u64) -> Entity {
     let c = crop(kind);
     let ripe_at = at + c.fruit_s as u64 * 1000;
+    let base = w.require::<Plant>(plant).tile;
+    let mut pose = Transform::at(0.0, c.height / 2.0, 0.0).with_scale(0.4);
+    pose.position += tile_center(base) + fruit_offset(kind, slot);
     let e = w.spawn((
-        Transform::at(0.0, 0.0, 0.0).with_scale(0.4),
+        pose,
         Mesh::sphere(c.fruit_size),
-        Material::rgb(0.55, 0.75, 0.35),
-        Parent(plant),
+        paint([0.55, 0.75, 0.35]),
         Fruit {
             kind,
             plant: Some(plant),
@@ -238,7 +251,6 @@ pub fn bear(w: &mut World, plant: Entity, kind: u8, slot: u8, at: u64) -> Entity
             muts: 0,
         },
     ));
-    w.require_mut::<Transform>(e).position = fruit_offset(kind, slot);
     w.require_mut::<Plant>(plant).fruits[slot as usize] = Some(e);
     w.resource_mut::<Census>().fruit += 1;
     if ripe_at <= at {
@@ -301,13 +313,9 @@ fn ripen(w: &mut World, e: Entity) {
     w.require_mut::<Transform>(e).scale = Vec3::splat(size);
     let color = crops::fruit_color(kind, muts);
     *w.require_mut::<Material>(e) = if muts & (crops::GOLD | crops::RAINBOW | crops::SHOCKED) != 0 {
-        Material::rgb(color[0], color[1], color[2]).emissive(
-            color[0] * 0.6,
-            color[1] * 0.6,
-            color[2] * 0.6,
-        )
+        paint(color).emissive(color[0] * 0.5, color[1] * 0.5, color[2] * 0.5)
     } else {
-        Material::rgb(color[0], color[1], color[2])
+        paint(color)
     };
     let mut census = w.resource_mut::<Census>();
     census.ripe += 1;
@@ -464,6 +472,12 @@ pub fn pick(w: &mut World, fruit: Entity, at: u64) -> Option<Item> {
 }
 
 pub fn remove_plant(w: &mut World, plant: Entity) {
+    for (fruit, ripe, _) in fruits_of(w, plant) {
+        w.despawn(fruit);
+        let mut census = w.resource_mut::<Census>();
+        census.fruit -= 1;
+        census.ripe -= ripe as u32;
+    }
     let tile = w.get::<Plant>(plant).map(|p| p.tile);
     if let Some(tile) = tile {
         crate::farm::clear_tile(w, tile);

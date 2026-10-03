@@ -70,7 +70,7 @@ pub fn clear_tile(w: &World, tile: [u16; 2]) {
 /// The tile under a world position, if inside the garden.
 pub fn tile_at(w: &World, p: Vec3) -> Option<[u16; 2]> {
     let size = w.resource::<Farm>().size as f32;
-    let (x, z) = ((p.x / TILE).round(), (p.z / TILE).round());
+    let (x, z) = ((p.x / TILE).round(), (-p.z / TILE).round());
     (x >= 0.0 && z >= 0.0 && x < size && z < size).then_some([x as u16, z as u16])
 }
 
@@ -199,8 +199,8 @@ pub fn lay_ground(w: &World) {
     let span = size * TILE;
     let mid = (size - 1.0) * TILE / 2.0;
     *w.require_mut::<Mesh>("ground") = Mesh::plane(span + 2.0, span + 2.0);
-    w.require_mut::<Transform>("ground").position = Vec3::new(mid, 0.0, mid);
-    w.require_mut::<Character>("player").bounds = Some([-TILE, span]);
+    w.require_mut::<Transform>("ground").position = Vec3::new(mid, 0.0, -mid);
+    w.require_mut::<Character>("player").bounds = Some([-span, span]);
     let mut follow = w.require_mut::<Follow>("camera");
     *follow = if overview {
         let r = span.max(12.0);

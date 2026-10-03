@@ -90,7 +90,7 @@ impl Game for Garden {
             (
                 Transform::default(),
                 Mesh::plane(1.0, 1.0),
-                Material::grid([0.42, 0.3, 0.18], garden::TILE),
+                Material::grid([0.2, 0.11, 0.05], garden::TILE),
             ),
         );
         let player = w.spawn_named(
@@ -98,7 +98,7 @@ impl Game for Garden {
             (
                 Transform::at(0.0, 0.9, 0.0),
                 Mesh::capsule(0.4, 1.8),
-                Material::rgb(0.95, 0.75, 0.3),
+                garden::paint([0.95, 0.75, 0.3]),
                 Character::new().ground(0.9),
             ),
         );
