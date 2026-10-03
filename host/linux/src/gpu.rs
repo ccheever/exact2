@@ -25,7 +25,7 @@ use crate::paint::GradientPaint;
 use exact_kernel::gradient::Geometry;
 use images::ImageCache;
 #[cfg(target_os = "android")]
-pub use present::set_window;
+pub use present::{current_window, set_window};
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
 use std::sync::Arc;

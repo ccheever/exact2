@@ -42,6 +42,12 @@ pub fn set_window(window: *mut c_void, width: u32, height: u32) {
     WINDOW.set(NonNull::new(window).map(|w| (w, width, height)));
 }
 
+/// The window named on this thread, for a custom painter that presents
+/// itself (`presenter::set_custom_painter`).
+pub fn current_window() -> Option<(*mut c_void, u32, u32)> {
+    WINDOW.get().map(|(w, width, height)| (w.as_ptr(), width, height))
+}
+
 struct Job {
     scene: vello::Scene,
     /// Images no longer drawn, unregistered once this job has rendered.

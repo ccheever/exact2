@@ -199,7 +199,7 @@ extern "C" fn on_vsync(_frame_time_nanos: i64, data: *mut c_void) {
 }
 
 /// Run `f` inside an atrace section (Perfetto shows it on this thread).
-pub(crate) fn trace<T>(name: &core::ffi::CStr, f: impl FnOnce() -> T) -> T {
+pub fn trace<T>(name: &core::ffi::CStr, f: impl FnOnce() -> T) -> T {
     // SAFETY: a NUL-terminated name; begin and end pair on this thread.
     unsafe { ATrace_beginSection(name.as_ptr()) };
     let r = f();

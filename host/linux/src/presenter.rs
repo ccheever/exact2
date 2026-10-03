@@ -170,6 +170,19 @@ pub enum PainterChoice {
     /// Recorded for Android's Canvas (`canvas.rs`).
     #[cfg(target_os = "android")]
     Canvas,
+    /// The painter an app registered with [`set_custom_painter`]
+    /// (`EXACT_PAINTER=custom`): an experiment's backend kept out of this crate.
+    Custom,
+}
+
+/// Makes a backend on the thread that will paint with it.
+pub type PainterFactory = fn() -> Result<Box<dyn Backend>, String>;
+static CUSTOM: std::sync::OnceLock<(&'static str, PainterFactory)> = std::sync::OnceLock::new();
+
+/// Register the backend `EXACT_PAINTER=custom` boots with, named for reports
+/// (LLP 1076's renderer comparison builds one outside the host).
+pub fn set_custom_painter(name: &'static str, make: PainterFactory) {
+    let _ = CUSTOM.set((name, make));
 }
 impl PainterChoice {
     /// `EXACT_PAINTER`: `gpu`, `cpu`, or unset (auto).
@@ -177,6 +190,7 @@ impl PainterChoice {
         match std::env::var("EXACT_PAINTER").as_deref() {
             Ok("gpu") => PainterChoice::Gpu,
             Ok("cpu") => PainterChoice::Cpu,
+            Ok("custom") => PainterChoice::Custom,
             #[cfg(target_os = "android")]
             Ok("canvas") => PainterChoice::Canvas,
             _ => PainterChoice::Auto,
@@ -213,6 +227,16 @@ fn open_backend(choice: PainterChoice) -> Result<(Box<dyn Backend>, PainterInfo)
     let cpu = || (Box::new(Raster::new()) as Box<dyn Backend>, cpu_info());
     match choice {
         PainterChoice::Cpu => Ok(cpu()),
+        PainterChoice::Custom => {
+            let (name, make) = CUSTOM.get().ok_or("EXACT_PAINTER=custom: no painter registered")?;
+            Ok((
+                make()?,
+                PainterInfo {
+                    name,
+                    ..cpu_info()
+                },
+            ))
+        }
         #[cfg(target_os = "android")]
         PainterChoice::Canvas => Ok((
             Box::new(crate::canvas::Recorder::new()) as Box<dyn Backend>,
