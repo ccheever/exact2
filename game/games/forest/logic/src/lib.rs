@@ -105,6 +105,7 @@ impl Game for Forest {
     }
     fn tick(w: &mut World, input: &Input, args: &Options) {
         let colliders = !args.lite;
+        let was_dead = w.require::<Player>("player").dead;
         let at = w.require::<Transform>("player").position;
         let act = player::action(w, at);
         let ready = w.require::<Player>("player").cooldown <= 0.0;
@@ -146,7 +147,7 @@ impl Game for Forest {
                 }
             }
         }
-        if w.require::<Player>("player").dead && !scene.dead {
+        if w.require::<Player>("player").dead && !was_dead {
             w.emit("died");
         }
         let rescued = player::children(w, at, scene.safe);

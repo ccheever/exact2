@@ -64,7 +64,15 @@ async function scene(spec) {
         await client.call('Input.dispatchMouseEvent', {type, x: box[0], y: box[1], button: 'left', clickCount: 1});
       await sleep(150);
     };
-    for (const id of spec.split(',')) await click(id === 'lite' || id === 'primitives' ? id : id);
+    // A press before the page takes input is lost: repeat until the title's summary changes.
+    const choice = () => client.eval(`document.querySelector('[data-testid="choice"]')?.textContent ?? ''`);
+    while (!(await choice().catch(() => '')) && Date.now() < deadline) await sleep(100);
+    for (const id of spec.split(',')) {
+      const before = await choice();
+      // A default choice (trees-2k, wolves-8) changes nothing; three presses then move on.
+      for (let i = 0; i < 3 && (await choice()) === before; i++) { await click(id); await sleep(400); }
+    }
+    const chosen = await choice();
     const pressed = Date.now();
     await click('play');
     let s;
@@ -75,15 +83,17 @@ async function scene(spec) {
     }
     const ready = Date.now() - pressed;
     if (!s?.world?.perf) throw new Error(`world never drew: ${JSON.stringify(s)?.slice(0, 400)}`);
-    const key = async (type) => client.call('Input.dispatchKeyEvent', {type, key: 'w', code: 'KeyW', windowsVirtualKeyCode: 87});
+    const key = async (type) => client.call('Input.dispatchKeyEvent', {type, key: 'w', code: 'KeyW', windowsVirtualKeyCode: 87}).catch(() => null);
     await key('keyDown'); await sleep(2000); await key('keyUp');
     await sleep(500);
-    await client.eval(`(${state})(true)`);
+    await client.eval(`(${state})(true)`).catch(() => null);
     await sleep(seconds * 1000);
-    s = await client.eval(`(${state})()`);
+    // A frame that takes longer than CDP's 30 s answer window is itself the result.
+    for (let i = 0; i < 4; i++) { s = await client.eval(`(${state})()`).catch(error => ({error})); if (!s.error) break; }
+    if (s.error) throw s.error;
     const memory = await client.eval(`(async()=>{try{return (await performance.measureUserAgentSpecificMemory()).bytes}catch(e){return performance.memory?.usedJSHeapSize??null}})()`);
     const p = s.world.perf, ms = r => r && {mean: +r.mean?.toFixed(3), p50: percentile(r, 'p50'), p95: percentile(r, 'p95'), max: +r.max?.toFixed(2)};
-    return {scene: spec, entities: s.world.entities, ready_ms: ready, frames: p.frameMs.count,
+    return {scene: spec, chosen, entities: s.world.entities, ready_ms: ready, frames: p.frameMs.count,
       fps: +(p.frameMs.count / seconds).toFixed(1), frame_ms: ms(p.frameMs), tick_ms: ms(p.tickMs), feed_ms: ms(p.feedMs),
       encode_ms: ms(p.encodeMs), ticks_per_frame: ms(p.ticksPerFrame), draws: p.draws, instances: p.instances, triangles: p.triangles,
       culled: p.culled ?? null, gpu_ms: s.world.gpuMs ?? null, memory_bytes: memory, headless, load1: +loadavg()[0].toFixed(1)};

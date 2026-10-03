@@ -241,3 +241,41 @@ fn a_mid_night_save_restores_and_continues_identically() {
         assert_eq!(a.save().unwrap(), b.save().unwrap());
     }
 }
+
+#[test]
+fn starving_alone_in_the_dark_ends_the_run() {
+    let mut sim = game(500, true);
+    sim.run(100.0);
+    {
+        let w = sim.world_mut();
+        let mut p = w.require_mut::<Player>("player");
+        p.hunger = 0.0;
+        p.health = 3.0;
+    }
+    sim.run(2000.0);
+    let p = player(&sim);
+    assert!(p.dead && p.health == 0.0);
+    let hud = sim.world().published("dead").unwrap();
+    assert!(matches!(hud, exact_game::Value::Bool(true)), "{hud:?}");
+    assert!(sim.take_messages().iter().any(|m| m == "died"));
+    // The dead do not walk.
+    let before = sim.local_position("player").unwrap();
+    sim.hold("KeyD", 500.0);
+    assert_eq!(sim.local_position("player").unwrap(), before);
+}
+
+#[test]
+fn wolves_hunt_a_player_outside_the_light_and_bite() {
+    let mut sim = game(800, true);
+    sim.run(100.0);
+    let wolf = sim
+        .world()
+        .query::<(&Transform, &Wolf)>()
+        .iter()
+        .map(|(_, (t, _))| t.position)
+        .next()
+        .unwrap();
+    place(&mut sim, "player", wolf + Vec3::new(6.0, 0.5, 0.0));
+    sim.run(3000.0);
+    assert!(player(&sim).health < 100.0, "no wolf bit");
+}
