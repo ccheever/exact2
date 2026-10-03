@@ -509,6 +509,7 @@ impl Images {
             "subscribers":s.subscribers,"coldEntries":s.cold_entries,"sourceEntries":self.backend.sources(),
             "liveDiagnostics":self.loaded.len(),"deferred":self.deferred,
             "budgetWaits":waiting,"refusalReasons":reasons,
+            "evicted":s.evicted,"cancelled":s.cancelled,"dedupHits":s.dedup_hits,
             "refused":self.views.values().filter(|v| v.refusal.is_some()).count()})
     }
 }

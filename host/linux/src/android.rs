@@ -329,6 +329,10 @@ fn run<D: DataSource + Default>(
     let mut first_pixel = false;
     let frame_ms = 1000.0 / 120.0;
     let mut images_woke = true;
+    // `EXACT_IMAGE_LOG=<frames>`: the picture cache's counters every so many frames.
+    let image_log = std::env::var("EXACT_IMAGE_LOG")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok());
     loop {
         let mut drain = [0u8; 8];
         // SAFETY: a non-blocking read of the eventfd's counter.
@@ -407,7 +411,13 @@ fn run<D: DataSource + Default>(
             let frame = trace(c"exact frame", || p.display_frame());
             if let Some(frame) = frame {
                 trace(c"exact complete", || p.display_complete(&frame));
-                frames.fetch_add(1, Ordering::Relaxed);
+                let n = frames.fetch_add(1, Ordering::Relaxed) + 1;
+                if image_log.is_some_and(|every| every > 0 && n % every == 0) {
+                    log(&format!(
+                        "exact: frame {n} images {}",
+                        p.images().diagnostics()
+                    ));
+                }
                 if !first_pixel {
                     first_pixel = true;
                     first_frame.store(true, Ordering::Release);
