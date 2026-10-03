@@ -231,7 +231,6 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 models: &self.models,
                 pipelines: &self.pipelines,
                 instance: &binds.layout,
-                empty: &binds.empty,
             })
         } else {
             None

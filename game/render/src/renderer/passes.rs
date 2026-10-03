@@ -166,7 +166,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 if let Some(custom) = hooks.materials().iter().find(|c| c.material == material) {
                     let binds = self.custom_bindings.as_ref().unwrap();
                     pass.set_pipeline(&custom.forward);
-                    pass.set_bind_group(1, &binds.empty_bind, &[]);
+                    pass.set_bind_group(1, &self.shadow_sample, &[]);
                     pass.set_bind_group(2, &custom.resources, &[]);
                     pass.set_bind_group(3, &binds.instances.as_ref().unwrap().1, &[]);
                 } else {

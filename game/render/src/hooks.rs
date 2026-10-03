@@ -10,7 +10,7 @@ pub(crate) mod metrics;
 mod pipelines;
 mod targets;
 pub(crate) use materials::MaterialBindings;
-pub use materials::{CustomMaterial, MaterialGpu, MATERIAL_WGSL};
+pub use materials::{CustomMaterial, MaterialGpu, MATERIAL_SHADOWS_WGSL, MATERIAL_WGSL};
 pub use pipelines::Pipelines;
 pub(crate) use targets::{FrameBinding, HookTargets};
 

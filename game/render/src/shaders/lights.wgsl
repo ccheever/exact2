@@ -1,6 +1,28 @@
 // Clustered point and spot lights (lights.rs): records of 16 words, then a
 // 16 x 9 x 24 grid of (first index word, count), then the clusters' light lists.
 @group(0) @binding(8) var<storage, read> light_words: array<u32>;
+const PI: f32 = 3.141592653589793;
+fn brdf(n: vec3<f32>, v: vec3<f32>, l: vec3<f32>, base: vec3<f32>, metallic: f32,
+        roughness: f32) -> vec3<f32> {
+    let nl = max(dot(n, l), 0.0);
+    let nv = max(dot(n, v), 0.0001);
+    let sum = v + l;
+    let h = sum * inverseSqrt(max(dot(sum, sum), 0.000001));
+    let nh = max(dot(n, h), 0.0);
+    let vh = max(dot(v, h), 0.0);
+    let a = roughness * roughness;
+    let a2 = a * a;
+    let d0 = nh * nh * (a2 - 1.0) + 1.0;
+    let distribution = a2 / (PI * d0 * d0);
+    // Height-correlated Smith-GGX visibility, including 1/(4 NoL NoV).
+    let gv = nl * sqrt(nv * nv * (1.0 - a2) + a2);
+    let gl = nv * sqrt(nl * nl * (1.0 - a2) + a2);
+    let visibility = 0.5 / max(gv + gl, 0.00001);
+    let f0 = mix(vec3(0.04), base, metallic);
+    let fresnel = f0 + (vec3(1.0) - f0) * pow(1.0 - vh, 5.0);
+    let diffuse = (vec3(1.0) - fresnel) * (1.0 - metallic) * base / PI;
+    return (diffuse + distribution * visibility * fresnel) * nl;
+}
 fn light_f(at: u32) -> f32 { return bitcast<f32>(light_words[at]); }
 fn light_v(at: u32) -> vec3<f32> { return vec3(light_f(at), light_f(at + 1u), light_f(at + 2u)); }
 // The fragment's cluster: its screen tile and exponential view-depth slice.

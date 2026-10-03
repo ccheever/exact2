@@ -54,11 +54,14 @@ refractors are outside this first composition contract.
 `CustomMaterial` replaces a loaded opaque, unskinned model material. The engine
 owns geometry/draws and a compact per-instance `data` word; the game supplies paired
 forward/shadow pipelines and group 2 resources. `MATERIAL_WGSL` supplies the frame,
-transforms and instance accessor. Group 1 is empty in forward and the light camera
-in shadow; group 3 is engine instances. Two vertex storage bindings remain under
-the default limit of eight. Custom forward shaders do not yet receive engine
-shadow maps; use conservative `ModelBounds` for GPU deformation. Batches with a
-custom material are never culled, because the game's vertex shader may move them.
+transforms and instance accessor. Group 1 holds the engine's shadow maps in forward
+and the light camera in shadow; group 3 is engine instances. Two vertex storage
+bindings remain under the default limit of eight. A forward module that appends
+`MATERIAL_SHADOWS_WGSL` gets `sun_shadow(world, normal)` (1 without sun shadows),
+`light_visibility`, `brdf` and `add_local_lights` over those maps and the scene's
+light buffer; it binds nothing more. Use conservative `ModelBounds` for GPU
+deformation. Batches with a custom material are never culled, because the game's
+vertex shader may move them.
 
 `app.json` declares `gpu.shaderRoots` and optional `gpu.shaderPreludes` (shader stem
 → ordered source paths), all relative to the manifest. The bake merges and reflects
