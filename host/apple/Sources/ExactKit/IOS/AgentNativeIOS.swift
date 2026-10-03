@@ -14,13 +14,13 @@ import UIKit
 extension Agent {
     // MARK: D1 — `layout <target> native`
 
-    func nativeSubviews(_ id: UInt32, depth: Int, limit: Int) -> [String: Any] {
-        let runner = runnerNode(id)
+    func nativeSubviews(_ id: UInt32, depth: Int, limit: Int, plan: Bool) -> [String: Any] {
+        let runner = runnerNode(id, plan: plan)
         if let e = runner["error"] { return ["error": e] }
         var reply: [String: Any]
         var root: UIView?, rootKind = "view", flatOnly: UInt32?
         if presenter.textHost(id) != nil {
-            reply = layout(["id": Int(id)])
+            reply = layout(["id": Int(id), "plan": plan])
             if reply["error"] != nil { return reply }
             reply["nodes"] = nil
             root = presenter.textHost(id)
@@ -161,10 +161,14 @@ extension Presenter {
             for (layer, leaves) in flats.inspectionLayers(under: n.id) {
                 if let only = flatOnly, !leaves.contains(only) { continue }
                 guard entries.count < limit else { cut("limit"); return }
-                let local = (layer as? CAShapeLayer)?.path?.boundingBoxOfPath ?? layer.frame
+                // A run of zero-sized leaves has an empty path, whose box is
+                // null (infinite origins): reported as empty, never encoded.
+                let local = (layer as? CAShapeLayer).map { $0.path?.boundingBoxOfPath ?? .null } ?? layer.frame
+                let path: [String: Any] = local.isNull || local.isInfinite || ![local.minX, local.minY, local.width, local.height].allSatisfy(\.isFinite)
+                    ? ["x": 0, "y": 0, "w": 0, "h": 0, "empty": true] : AgreementReport.rect(box(n.container, local))
                 var e: [String: Any] = ["kind": "layer", "depth": d, "class": String(describing: Swift.type(of: layer)),
                                         "role": leaves.count > 1 ? "flat-run" : "flat-leaf", "leaves": leaves.prefix(16).map(Int.init),
-                                        "leafCount": leaves.count, "path": AgreementReport.rect(box(n.container, local)),
+                                        "leafCount": leaves.count, "path": path,
                                         "attached": layer.superlayer != nil, "hidden": layer.isHidden, "opacity": Agent.r2(CGFloat(layer.opacity))]
                 if !CATransform3DIsIdentity(layer.transform) { e["transform"] = "3d" }
                 entries.append(e)
@@ -193,7 +197,10 @@ extension Presenter {
             let entered = n != nil || inspectionJudges(v, owner: nextOwner)
             if !entered, !v.subviews.isEmpty { e["opaque"] = "platform"; e["children"] = v.subviews.count }
             entries.append(e)
-            if let n { layers(of: n, at: d + 1) }
+            // A node's flat layers are one level down, under the same bound as its views.
+            if let n {
+                if d + 1 > depth { if !flats.inspectionLayers(under: n.id).isEmpty { cut("depth") } } else { layers(of: n, at: d + 1) }
+            }
             guard entered else { return }
             if d + 1 > depth { if !v.subviews.isEmpty { cut("depth") }; return }
             for sub in v.subviews { visit(sub, d + 1, parent: v, owner: nextOwner) }
@@ -221,6 +228,15 @@ extension Presenter {
                 if report.views > AgreementReport.walkCap { report.incomplete("walk-cap"); break walk }
                 if judged { report.judged += 1 } else { report.opaque += 1 }
                 if let n = sub as? NodeView {
+                    // In the presenter's map is not alive: the kernel must
+                    // still have the node (a complete `frames`), or the view
+                    // is a retired one the map forgot to drop.
+                    if views[n.id] === n, kernel.complete, kernel.frames[n.id] == nil {
+                        var fields: [String: Any] = ["class": "NodeView", "retired": Int(n.id), "inMap": true, "frame": AgreementReport.rect(box(n))]
+                        if let o = owner { fields["under"] = Int(o.id) }
+                        report.add("stray", fields)
+                        continue
+                    }
                     if views[n.id] === n {
                         seen[n.id] = n
                         if n.window != nil {

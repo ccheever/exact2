@@ -9,13 +9,13 @@
 import AppKit
 
 extension Agent {
-    func nativeSubviews(_ id: UInt32, depth: Int, limit: Int) -> [String: Any] {
-        let runner = runnerNode(id)
+    func nativeSubviews(_ id: UInt32, depth: Int, limit: Int, plan: Bool) -> [String: Any] {
+        let runner = runnerNode(id, plan: plan)
         if let e = runner["error"] { return ["error": e] }
         var reply: [String: Any]
         var root: NSView?, rootKind = "view"
         if presenter.textHost(id) != nil {
-            reply = layout(["id": Int(id)])
+            reply = layout(["id": Int(id), "plan": plan])
             if reply["error"] != nil { return reply }
             reply["nodes"] = nil
             root = presenter.textHost(id)
@@ -167,6 +167,15 @@ extension Presenter {
                 if report.views > AgreementReport.walkCap { report.incomplete("walk-cap"); break walk }
                 if judged { report.judged += 1 } else { report.opaque += 1 }
                 if let n = sub as? NodeView {
+                    // In the presenter's map is not alive: the kernel must
+                    // still have the node (a complete `frames`), or the view
+                    // is a retired one the map forgot to drop.
+                    if views[n.id] === n, kernel.complete, kernel.frames[n.id] == nil {
+                        var fields: [String: Any] = ["class": "NodeView", "retired": Int(n.id), "inMap": true, "frame": AgreementReport.rect(box(n))]
+                        if let o = owner { fields["under"] = Int(o.id) }
+                        report.add("stray", fields)
+                        continue
+                    }
                     if views[n.id] === n {
                         seen[n.id] = n
                         report.hiddenCompared += 1

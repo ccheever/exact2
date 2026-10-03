@@ -113,14 +113,23 @@ export function layoutArgs(args) {
   return [args[0]];
 }
 
-/** The tree's testIds beside the ids `layout agree` names (D6). */
+/** The tree's testIds beside the ids `layout agree` names (D6), only when
+ * both replies carry the same epoch and incarnation; otherwise the ids stay
+ * bare and `labels` names the two snapshots. Answers whether it joined. */
 export function joinAgreement(reply, tree) {
+  const a = reply.agreement;
+  if (!a || a.unavailable) return true;
+  if (reply.epoch !== tree?.epoch || reply.incarnation !== tree?.incarnation) {
+    a.labels = { joined: false, agreement: { epoch: reply.epoch, incarnation: reply.incarnation }, tree: { epoch: tree?.epoch, incarnation: tree?.incarnation } };
+    return false;
+  }
+  delete a.labels;
   const testId = new Map((tree?.nodes ?? []).filter((n) => n.props?.testId != null).map((n) => [n.id, n.props.testId]));
   for (const d of reply.agreement?.disagreements ?? []) {
     if (testId.has(d.id)) d.testId = testId.get(d.id);
     if (testId.has(d.under)) d.underTestId = testId.get(d.under);
   }
-  return reply;
+  return true;
 }
 
 export function identifyInspectedNode(reply, target) {
@@ -372,7 +381,7 @@ function renderSubviews(s) {
   for (const e of s.entries ?? []) {
     const pad = '    ' + '  '.repeat(e.depth);
     if (e.kind === 'layer') {
-      out.push(`${pad}layer ${e.class} ${e.role} ${e.leaves.map((id) => `#${id}`).join(' ')}${e.leafCount > e.leaves.length ? ` (+${e.leafCount - e.leaves.length})` : ''} path ${box(e.path)}${e.attached ? '' : ' [detached]'}${e.hidden ? ' [hidden]' : ''}`);
+      out.push(`${pad}layer ${e.class} ${e.role} ${e.leaves.map((id) => `#${id}`).join(' ')}${e.leafCount > e.leaves.length ? ` (+${e.leafCount - e.leaves.length})` : ''} path ${box(e.path)}${e.path?.empty ? ' (empty)' : ''}${e.attached ? '' : ' [detached]'}${e.hidden ? ' [hidden]' : ''}`);
       continue;
     }
     const who = e.node != null ? `#${e.node}` : `${e.role}${e.owner != null ? ` of #${e.owner}` : ''}`;
@@ -398,7 +407,7 @@ function renderAgreement(a) {
   const total = Object.values(a.counts ?? {}).reduce((x, y) => x + y, 0);
   const c = a.coverage ?? {};
   const sum = (o) => Object.values(o ?? {}).reduce((x, y) => x + y, 0);
-  const out = [`agreement ${a.complete ? 'complete' : `INCOMPLETE (${a.incomplete.join(', ')})`} · ${total} disagreements · ±${a.tolerance?.px} px · roots ${(a.roots?.walked ?? []).join(', ')}${a.roots?.excluded?.length ? ` · excluded ${a.roots.excluded.join(', ')}` : ''}`,
+  const out = [`agreement ${a.complete ? 'complete' : `INCOMPLETE (${a.incomplete.join(', ')})`} · ${total} disagreements · ±${a.tolerance?.px} px · roots ${(a.roots?.walked ?? []).join(', ')}${a.roots?.excluded?.length ? ` · excluded ${a.roots.excluded.join(', ')}` : ''}${a.labels?.joined === false ? ` · testIds not joined (agreement at epoch ${a.labels.agreement.epoch}/${a.labels.agreement.incarnation}, tree at ${a.labels.tree.epoch}/${a.labels.tree.incarnation})` : ''}`,
     `  coverage stray ${c.stray?.judged} judged, ${c.stray?.opaque} opaque · frame ${c.frame?.compared} compared, ${c.frame?.sizeOnly} size-only, ${sum(c.frame?.skipped)} skipped · hidden ${c.hidden?.compared} compared, ${sum(c.hidden?.claimed)} claimed · parked roots ${c.kept?.parkedRoots} · leaving ${c.kept?.leaving}`];
   const tag = (id, t) => (id != null ? `#${id}${t != null ? ` [${t}]` : ''}` : '');
   for (const d of a.disagreements ?? []) {

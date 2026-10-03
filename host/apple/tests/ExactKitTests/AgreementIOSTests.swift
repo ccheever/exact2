@@ -128,6 +128,63 @@ final class AgreementIOSTests: XCTestCase {
         XCTAssertEqual(r.counts["leaving-interactive"], 1)
     }
 
+    func testAViewTheMapKeepsAfterTheKernelRetiredItIsAStray() {
+        let p = fixture()
+        // The kernel retired the row; the presenter still maps and mounts it.
+        let r = agree(p, kernel(row: false))
+        XCTAssertEqual(r.counts["stray"], 1, "\(r.found)")
+        XCTAssertEqual(r.found.first?["retired"] as? Int, 10)
+        XCTAssertEqual(r.found.first?["inMap"] as? Bool, true)
+        XCTAssertTrue(r.incomplete.isEmpty, "a complete walk that disagrees, not an incomplete one")
+    }
+
+    /// Flat leaves (LLP 1068 §6.1) under a box: two alike bars of `size`.
+    private func flats(size: Double) -> Presenter {
+        let p = Presenter()
+        window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
+        p.viewport.frame = window.bounds
+        window.addSubview(p.viewport)
+        window.makeKeyAndVisible()
+        func bar(_ id: Int, x: Double) -> [[String: Any]] {
+            [["op": "create", "id": id, "kind": "view",
+              "style": ["width": size, "height": size, "background_color": [0, 122, 255, 255], "text_color": [0, 0, 0, 255]]],
+             ["op": "frame", "id": id, "x": x, "y": 0.0, "w": size, "h": size]]
+        }
+        p.apply(wireBatch([["op": "create", "id": 1, "kind": "view"], ["op": "create", "id": 5, "kind": "view"]]
+            + bar(6, x: 0) + bar(7, x: size)
+            + [["op": "children", "id": 5, "ids": [6, 7]], ["op": "children", "id": 1, "ids": [5]], ["op": "roots", "ids": [1]],
+               ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 100.0, "h": 40.0],
+               ["op": "frame", "id": 5, "x": 0.0, "y": 0.0, "w": 100.0, "h": 20.0]]))
+        return p
+    }
+    private func dump(_ p: Presenter, depth: Int) throws -> [String: Any] {
+        try p.inspectionDump(XCTUnwrap(p.views[1]), kind: "view", depth: depth, limit: 200, flatOnly: nil) { v, r in v.convert(r ?? v.bounds, to: p.viewport) }
+    }
+
+    func testARunOfZeroSizedLeavesHasAnEmptyPathThatEncodes() throws {
+        let p = flats(size: 0)
+        XCTAssertEqual(p.flats.observation["flatLeaves"] as? Int, 2)
+        let out = try dump(p, depth: 3)
+        XCTAssertTrue(JSONSerialization.isValidJSONObject(out), "\(out)")
+        let entries = try XCTUnwrap(out["entries"] as? [[String: Any]])
+        let run = try XCTUnwrap(entries.first { $0["kind"] as? String == "layer" })
+        XCTAssertEqual(run["leaves"] as? [Int], [6, 7])
+        XCTAssertEqual((run["path"] as? [String: Any])?["empty"] as? Bool, true)
+    }
+
+    func testAFlatLayerPastTheDepthIsCutLikeAView() throws {
+        let p = flats(size: 3)
+        let shallow = try dump(p, depth: 1)
+        let cut = try XCTUnwrap(shallow["entries"] as? [[String: Any]])
+        XCTAssertEqual(cut.map { $0["depth"] as? Int }, [0, 1], "no layer below the bound: \(cut)")
+        XCTAssertEqual(shallow["truncated"] as? [String], ["depth"])
+        XCTAssertEqual(shallow["complete"] as? Bool, false)
+        let deep = try dump(p, depth: 2)
+        let all = try XCTUnwrap(deep["entries"] as? [[String: Any]])
+        XCTAssertEqual(all.filter { $0["kind"] as? String == "layer" }.map { $0["depth"] as? Int }, [2])
+        XCTAssertEqual(deep["complete"] as? Bool, true)
+    }
+
     func testFramesCutAtTheirCapMakeTheWalkIncomplete() {
         let p = fixture()
         let r = agree(p, kernel(complete: false))

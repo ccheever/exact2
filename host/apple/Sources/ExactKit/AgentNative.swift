@@ -132,7 +132,7 @@ extension Agent {
             let depth = spec["depth"] == nil ? 3 : Agent.integer(spec["depth"]), limit = spec["limit"] == nil ? 200 : Agent.integer(spec["limit"])
             guard let depth, (1...12).contains(depth) else { return ["error": "layout native: depth must be an integer in 1...12"] }
             guard let limit, (1...2000).contains(limit) else { return ["error": "layout native: limit must be an integer in 1...2000"] }
-            return nativeSubviews(UInt32(id), depth: depth, limit: limit)
+            return nativeSubviews(UInt32(id), depth: depth, limit: limit, plan: req["plan"] as? Bool == true)
         }
         if let agree = req["agree"] {
             guard let flag = agree as? NSNumber, CFGetTypeID(flag) == CFBooleanGetTypeID(), flag.boolValue else { return ["error": "layout agree: `agree` must be true"] }
@@ -169,8 +169,8 @@ extension Agent {
 
     /// The runner's half of `layout <id>`, or its refusal: liveness first,
     /// so only a retired id is ever called stale (D1).
-    func runnerNode(_ id: UInt32) -> [String: Any] {
-        guard let d = session.agent("{\"op\":\"node\",\"id\":\(id)}").data(using: .utf8),
+    func runnerNode(_ id: UInt32, plan: Bool = false) -> [String: Any] {
+        guard let d = session.agent("{\"op\":\"node\",\"id\":\(id),\"plan\":\(plan)}").data(using: .utf8),
               let node = (try? JSONSerialization.jsonObject(with: d)) as? [String: Any] else { return ["error": "node #\(id): unreadable"] }
         return node
     }

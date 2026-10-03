@@ -88,9 +88,10 @@ pub fn tags<D: DataSource>(runner: &Runner<D>) -> String {
 /// The kernel's half of `layout agree` (LLP 1080.001 D2), a private
 /// message: `{"op":"frames","limit":N}` answers every live node in preorder
 /// as `[id, parent|null, x, y, w, h, bits]` — the parent-relative frame a
-/// host is sent — with bit 1 for the node's own `display: none`, 2 for any
+/// host is sent — with bit 1 for the node's own `display: none`, 2 for an
 /// own transform row (`translate`, `translate_z`, `rotate`, `rotate_axis`,
-/// `scale`, `transform`), 4 for a frame the host owns rather than the
+/// `scale`, `transform`) whose value is not the initial one (`scale: 1`,
+/// `translate: 0`, `transform: none` move nothing), 4 for a frame the host owns rather than the
 /// kernel (`host_owned`: a native content region's), 8 for an inline run,
 /// which has no box of its own. Past `limit` (default and most 20,000)
 /// nodes the list stops with `complete: false`.
@@ -110,6 +111,7 @@ pub fn frames<D: DataSource>(
             )
         })
         .collect();
+    let initial = exact_kernel::StyleProps::default();
     let kernel = runner.kernel();
     let mut s = String::new();
     let _ = write!(
@@ -143,7 +145,10 @@ pub fn frames<D: DataSource>(
         if matches!(node.style.get(StyleId::Display), RowValue::Enum("none")) {
             bits |= 1;
         }
-        if transform_rows.iter().any(|r| node.style.mask.has(*r)) {
+        if transform_rows
+            .iter()
+            .any(|r| node.style.mask.has(*r) && node.style.get(*r) != initial.get(*r))
+        {
             bits |= 2;
         }
         if host_owned(id) {
