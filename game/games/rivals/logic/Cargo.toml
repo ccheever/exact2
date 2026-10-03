@@ -9,3 +9,6 @@ workspace = "../.shells"
 [dependencies]
 exact-game.workspace = true
 exact-game-physics.workspace = true
+
+[dev-dependencies]
+exact-game-render.workspace = true

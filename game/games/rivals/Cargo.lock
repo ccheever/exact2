@@ -2399,6 +2399,7 @@ version = "0.1.0"
 dependencies = [
  "exact-game",
  "exact-game-physics",
+ "exact-game-render",
 ]
 
 [[package]]
