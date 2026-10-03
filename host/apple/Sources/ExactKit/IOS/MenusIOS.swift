@@ -55,10 +55,10 @@ final class MenuHost {
         let route: String?
         let alert: UIAlertController
         var finishing = false
-        init(host: MenuHost, source: NodeView, popover: NodeView, action: NodeView, message: String) {
+        init(host: MenuHost, source: NodeView, popover: NodeView, action: NodeView, title: String?, message: String, style: UIAlertController.Style) {
             self.host = host; self.source = source; self.popover = popover; self.action = action
             route = host.presenter?.navigation.routeKey(containing: source)
-            alert = UIAlertController(title: nil, message: message, preferredStyle: .actionSheet)
+            alert = UIAlertController(title: title, message: message, preferredStyle: style)
         }
         func adaptivePresentationStyle(for controller: UIPresentationController) -> UIModalPresentationStyle { .none }
         func popoverPresentationControllerDidDismissPopover(_ controller: UIPopoverPresentationController) {
@@ -409,8 +409,13 @@ final class MenuHost {
         while responder != nil && !(responder is UIViewController) { responder = responder?.next }
         guard let controller = responder as? UIViewController, controller.presentedViewController == nil,
               !controller.isBeingDismissed, !controller.isBeingPresented else { return false }
-        let owner = Confirmation(host: self, source: source, popover: pop, action: action,
-                                 message: children.filter { $0.kind == "text" }.map(title(of:)).joined(separator: "\n"))
+        // An alertdialog is the platform's alert, centered and titled by its
+        // label; any other confirmation is an action sheet off its invoker.
+        let alerting = pop.props["accessibilityRole"] == "alertdialog"
+        let heading = alerting ? pop.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 } : nil
+        let texts = children.filter { $0.kind == "text" }.map(title(of:)).filter { $0 != heading }
+        let owner = Confirmation(host: self, source: source, popover: pop, action: action, title: heading,
+                                 message: texts.joined(separator: "\n"), style: alerting ? .alert : .actionSheet)
         // A native action's tint is its accent (LLP 1069.011.000 D5).
         owner.alert.view.tintColor = action.isNativeButton
             ? action.channels("accent_color").map { TextEngine.color($0) } ?? .systemBlue
@@ -422,15 +427,18 @@ final class MenuHost {
         owner.alert.addAction(UIAlertAction(title: title(of: cancel), style: .cancel) { [weak self, weak owner] _ in
             if let owner { self?.finish(owner, confirmed: false) }
         })
-        guard let presentation = owner.alert.popoverPresentationController else { return false }
-        presentation.sourceView = source
-        // A labelled row anchors at its text; an icon control uses its box.
-        let labels = source.container.subviews.compactMap { $0 as? NodeView }.filter { $0.kind == "text" }
-        let labelBox = labels.reduce(CGRect.null) { $0.union($1.convert($1.bounds, to: source)) }
-        presentation.sourceRect = labelBox.isNull ? source.bounds : CGRect(x: labelBox.minX, y: 0, width: labelBox.width, height: source.bounds.height)
-        presentation.permittedArrowDirections = []
-        presentation.canOverlapSourceViewRect = true
-        presentation.delegate = owner
+        if let presentation = owner.alert.popoverPresentationController {
+            presentation.sourceView = source
+            // A labelled row anchors at its text; an icon control uses its box.
+            let labels = source.container.subviews.compactMap { $0 as? NodeView }.filter { $0.kind == "text" }
+            let labelBox = labels.reduce(CGRect.null) { $0.union($1.convert($1.bounds, to: source)) }
+            presentation.sourceRect = labelBox.isNull ? source.bounds : CGRect(x: labelBox.minX, y: 0, width: labelBox.width, height: source.bounds.height)
+            presentation.permittedArrowDirections = []
+            presentation.canOverlapSourceViewRect = true
+            presentation.delegate = owner
+        } else if !alerting {
+            return false
+        }
         confirmation = owner
         controller.present(owner.alert, animated: !ExactEnv.agentFreezes)
         return true
