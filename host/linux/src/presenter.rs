@@ -59,7 +59,7 @@ mod height_drag_tests;
 mod images;
 mod preferences;
 mod retained_action;
-#[cfg(any(target_os = "linux", target_os = "android", test))]
+#[cfg(target_os = "android")]
 pub(crate) mod still;
 mod swipe;
 mod transform;

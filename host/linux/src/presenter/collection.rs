@@ -670,6 +670,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// A host that defers scroll's collection passes: they run now (rows
     /// mount and retire). Whether the presenter wants a frame after them.
+    #[cfg(target_os = "android")]
     pub(crate) fn refine_deferred(&mut self, defer: bool) -> bool {
         self.collection.defer = defer;
         self.collection.hold = false;
@@ -682,6 +683,7 @@ impl<D: DataSource> Presenter<D> {
     }
 
     /// Hold collection passes (a frame a scroll draws) or let them run.
+    #[cfg(target_os = "android")]
     pub(crate) fn hold_collections(&mut self, hold: bool) {
         self.collection.hold = hold;
     }

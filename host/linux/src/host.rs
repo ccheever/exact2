@@ -502,6 +502,7 @@ impl<D: DataSource> Host<D> {
     }
 
     /// Whether any node shows press feedback now.
+    #[cfg(target_os = "android")]
     pub(crate) fn pressing(&self) -> bool {
         !self.presses.is_empty()
     }
