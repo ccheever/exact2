@@ -60,6 +60,9 @@ pub struct Images {
     pub loaded: Vec<(String, (u32, u32))>,
     decode_enabled: bool,
     deferred: usize,
+    /// The image nodes in preorder, as of a kernel epoch: the walk
+    /// [`Images::sync_visible`] needs, redone only after a commit.
+    pub(crate) order: Option<(u64, Vec<ViewId>)>,
 }
 
 /// Accepted pixels and natural size, or explicit empty-source removal.
@@ -83,11 +86,36 @@ impl Images {
             loaded: Vec::new(),
             decode_enabled: true,
             deferred: 0,
+            order: None,
         }
     }
     pub(crate) fn candidate(&self, assets: Assets) -> Self {
         Self::make(assets, self.backend.clone())
     }
+    /// Size the decoded-image budget to the screen, as the Apple host does
+    /// (`RasterLoader.viewportBudget`): eight viewport-sized RGBA bitmaps,
+    /// 32–192 MiB, so the pictures a scroll leaves stay cached for its return
+    /// instead of decoding again (on a 3x phone the 32 MiB floor held about
+    /// one screen of the heavy list's photos).
+    pub fn fit(&self, viewport: (f32, f32), scale: f32) {
+        let pixels = f64::from(viewport.0 * scale) * f64::from(viewport.1 * scale);
+        let floor = exact_raster::SESSION_BYTES as f64;
+        // EXACT_IMAGE_VIEWPORTS: how many viewports of pictures to keep
+        // decoded (8, Apple's RasterLoader rule, unless a host says).
+        let viewports = std::env::var("EXACT_IMAGE_VIEWPORTS")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .filter(|v| *v > 0.0)
+            .unwrap_or(8.0);
+        let cap = (192.0f64 * 1024.0 * 1024.0).max(pixels * 4.0 * viewports);
+        let budget = if pixels.is_finite() && pixels > 0.0 {
+            (pixels * 4.0 * viewports).clamp(floor, cap)
+        } else {
+            floor
+        };
+        self.backend.session.set_budget(budget as u64);
+    }
+
     /// The shared session ledger, including allocations retained by old owners.
     pub fn stats(&self) -> Stats {
         self.backend.session.stats()

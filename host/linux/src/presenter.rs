@@ -59,6 +59,8 @@ mod height_drag_tests;
 mod images;
 mod preferences;
 mod retained_action;
+#[cfg(any(target_os = "linux", target_os = "android", test))]
+pub(crate) mod still;
 mod swipe;
 mod transform;
 mod transform_geometry;
@@ -228,14 +230,10 @@ fn open_backend(choice: PainterChoice) -> Result<(Box<dyn Backend>, PainterInfo)
     match choice {
         PainterChoice::Cpu => Ok(cpu()),
         PainterChoice::Custom => {
-            let (name, make) = CUSTOM.get().ok_or("EXACT_PAINTER=custom: no painter registered")?;
-            Ok((
-                make()?,
-                PainterInfo {
-                    name,
-                    ..cpu_info()
-                },
-            ))
+            let (name, make) = CUSTOM
+                .get()
+                .ok_or("EXACT_PAINTER=custom: no painter registered")?;
+            Ok((make()?, PainterInfo { name, ..cpu_info() }))
         }
         #[cfg(target_os = "android")]
         PainterChoice::Canvas => Ok((
@@ -383,6 +381,7 @@ impl<D: DataSource> Presenter<D> {
             region,
         )?;
         let mut images = Images::with_assets(assets.clone());
+        images.fit(viewport, scale);
         if assets.is_selected() {
             if let Some(error) = error {
                 return Err(HostError::Layout(error));
@@ -718,6 +717,7 @@ impl<D: DataSource> Presenter<D> {
         }
         let geometry_changed = self.viewport != (width, height);
         self.viewport = (width, height);
+        self.images.fit(self.viewport, self.brush.scale);
         if geometry_changed {
             self.collection.advance_all();
         }
@@ -1162,16 +1162,19 @@ impl<D: DataSource> Presenter<D> {
             self.host.log(error);
         }
         let mut at = self.hit(x, y);
-        let collection_limits = self.collection_scroll_limits();
+        // Only a node the display has no bounds for needs the collections'.
+        let mut collection_limits = None;
         let kernel = self.host.kernel();
         while let Some(id) = at {
             let Some(node) = kernel.node(id) else { break };
             let bounds = self.display.bounds(kernel, id).unwrap_or_else(|| {
+                let limits =
+                    collection_limits.get_or_insert_with(|| self.collection_scroll_limits());
                 self.brush.scroll_bounds(
                     kernel,
                     self.host.content_region(),
                     &node,
-                    collection_limits.get(&id).copied(),
+                    limits.get(&id).copied(),
                 )
             });
             let (ox, oy) = bounds.axes;

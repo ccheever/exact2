@@ -135,6 +135,7 @@ impl<D: DataSource> Host<D> {
             // @ref LLP 1043.000 §3 D4/D7 — flow-only changes damage the paragraph.
             self.runner.report_flow_skipped(&receipt.flow_skipped);
             self.flow_damage.layout(&receipt);
+            self.row_dirty.layout(&receipt);
             changed |= !receipt.changed.is_empty() || !receipt.flow_changed.is_empty();
         }
         self.height_projection = projection;

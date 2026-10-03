@@ -34,9 +34,30 @@ impl<D: DataSource> Presenter<D> {
     }
 
     pub(super) fn sync_images(&mut self) -> Option<String> {
-        let live = self.host.preorder();
+        let epoch = self.host.kernel().epoch();
+        if self.images.order.as_ref().is_none_or(|(e, _)| *e != epoch) {
+            let kernel = self.host.kernel();
+            let order = self
+                .host
+                .preorder()
+                .into_iter()
+                .filter(|id| {
+                    kernel
+                        .node(*id)
+                        .is_some_and(|n| n.node_type == NodeType::Image)
+                })
+                .collect();
+            self.images.order = Some((epoch, order));
+        }
+        let live = self
+            .images
+            .order
+            .as_ref()
+            .map(|(_, o)| o.clone())
+            .unwrap_or_default();
         let host = &self.host;
-        let boxes = &self.boxes;
+        let boxes: std::collections::HashMap<ViewId, &crate::paint::PaintedBox> =
+            self.boxes.iter().rev().map(|b| (b.id, b)).collect();
         let viewport = self.viewport;
         let reports = self
             .images
@@ -44,7 +65,7 @@ impl<D: DataSource> Presenter<D> {
                 if host.route_visibility(id).0 {
                     return false;
                 }
-                let Some(b) = boxes.iter().find(|b| b.id == id) else {
+                let Some(b) = boxes.get(&id) else {
                     return true;
                 };
                 let (mut x, mut y, mut w, mut h) = b.rect;

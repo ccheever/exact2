@@ -445,8 +445,8 @@ impl Cache {
         self.entry(key).intrinsic[usize::from(minimum)]
     }
     pub fn set_intrinsic(&mut self, key: (u64, u64), minimum: bool, metrics: TextMetrics) {
+        // A few numbers: nothing a trim would weigh changes, so none runs.
         self.entry(key).intrinsic[usize::from(minimum)] = Some(metrics);
-        self.trim(Some(key.1));
     }
     pub fn residency(&self) -> Residency {
         let mut result = Residency {

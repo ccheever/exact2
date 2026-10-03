@@ -38,6 +38,7 @@ mod inline;
 mod placed;
 mod presented;
 mod region;
+pub mod rows;
 mod shadow;
 mod space;
 mod svg;
@@ -527,6 +528,31 @@ pub trait Backend {
     fn pointer(&mut self, x: f32, y: f32);
     /// The frame's pixels.
     fn finish(&mut self) -> Result<Pixmap, String>;
+    /// Whether this backend keeps rows' recordings ([`rows`]).
+    fn rows(&self) -> bool {
+        false
+    }
+    /// Record row `id`, whose top-left is `origin` (viewport points); the
+    /// row was `previous` until something in it changed.
+    fn row_begin(&mut self, _id: u32, _origin: (f32, f32), _previous: Option<u32>) {}
+    /// The row ends; `bounds` (relative to its origin) is what it covers.
+    /// The row's id: `previous` when it recorded the same, else the new one.
+    fn row_end(&mut self, _bounds: Rect4) -> u32 {
+        0
+    }
+    /// Whether drawing within `bounds` would be clipped away entirely.
+    fn row_culled(&self, _bounds: Rect4) -> bool {
+        false
+    }
+    /// Draw kept row `id` with its top-left at `origin`, covering `bounds`.
+    fn row_draw(&mut self, _id: u32, _origin: (f32, f32), _bounds: Rect4) {}
+    /// Kept row `id` is not drawn again.
+    fn row_free(&mut self, _id: u32) {}
+    /// The rows of scroller `id`, painted at its `scroll` offset, follow
+    /// until [`Backend::group_end`].
+    fn group_begin(&mut self, _id: ViewId, _scroll: (f32, f32)) {}
+    /// The scroller's rows end.
+    fn group_end(&mut self) {}
     /// The last frame's (encode + render, readback) milliseconds, on a
     /// backend that has them.
     fn last_frame_ms(&self) -> Option<(f64, f64)> {
@@ -593,6 +619,7 @@ pub struct Painter {
     /// The node a 3D island paints flat, its own transform being the warp's
     /// (LLP 1077 D8).
     pub(crate) flatten: Option<ViewId>,
+    rows: rows::Rows,
 }
 
 // O(painted owners) references and numeric publication metadata, not copied
@@ -670,6 +697,7 @@ impl Painter {
             viewport: (0., 0.),
             cpu_ms: None,
             flatten: None,
+            rows: Default::default(),
         }
     }
 
@@ -831,9 +859,11 @@ impl Painter {
             skip,
             replay,
         };
+        self.rows_begin(&walk);
         for root in scene.roots {
             self.node(&mut walk, *root, Transform::identity(), scene.page, None);
         }
+        self.rows_end();
         if let Some(menu) = &scene.menu {
             self.menu(menu);
         }
@@ -881,6 +911,7 @@ impl Painter {
         clip_rect: Option<Rect4>,
     ) {
         if self.placed(walk, id, ts, offset, clip_rect) {
+            self.row_refuse();
             return;
         }
         if let Some(replay) = walk.replay.filter(|r| {
@@ -909,8 +940,10 @@ impl Painter {
         let f = node.frame;
         let (x, y, w, h) = paint_rect(f, offset);
         let p = (walk.scene.presented)(id);
+        self.row_node(node.key, f, &p);
         // @ref LLP 1077 D8 — turned or moved in space: painted apart, warped.
         if self.spatial(walk, &node, &p, (x, y, w, h), ts, offset, clip_rect) {
+            self.row_refuse();
             self.damage.unsupported = true;
             return;
         }
@@ -1004,12 +1037,14 @@ impl Painter {
         match node.node_type {
             // @ref LLP 1056 D7 — a 2D canvas's kept bitmap fills its content box.
             NodeType::Canvas => {
+                self.row_refuse();
                 if let Some(c) = self.canvases.get(&node.id) {
                     let clips = [Shape::rect(content), outer];
                     self.backend.canvas(&c.pixels, content, &clips, ts);
                 }
             }
             NodeType::Image => {
+                self.row_image(node.id, walk.scene.images.get(&node.id));
                 if self.symbol(node, content, image_tint(s, &shown, self.dark), ts) {
                 } else if let Some(img) = walk.scene.images.get(&node.id) {
                     if let Some(dst) = object_fit(img.natural(), s.object_fit, content) {
@@ -1059,6 +1094,7 @@ impl Painter {
                     text_palette(walk.scene.kernel, node, self.dark, &mut palette);
                     presented_text_colors(walk, node, &mut palette);
                     walk.text.insert(node.key, paragraph.clone());
+                    self.row_text(node.key, &paragraph);
                     // CSS `text-overflow: ellipsis` in a clipping box: an
                     // over-wide line ends in "…" (LLP 1053 G5; paint only).
                     let shown = (s.text_overflow == exact_kernel::TextOverflow::Ellipsis
@@ -1100,6 +1136,7 @@ impl Painter {
                 }
             }
             NodeType::TextInput => {
+                self.row_refuse();
                 let value = node.props.str(PropId::Value).unwrap_or("");
                 let placeholder = value.is_empty();
                 // A password is masked, one bullet a character, as the web and
@@ -1255,8 +1292,25 @@ impl Painter {
                 _ => std::cmp::Ordering::Equal,
             },
         );
+        let rows = self.has_rows(node);
+        if rows {
+            let scroll = walk
+                .scene
+                .scroll
+                .get(&node.id)
+                .copied()
+                .unwrap_or((0.0, 0.0));
+            self.backend.group_begin(node.id, scroll);
+        }
         for child in children {
-            self.node(walk, child, ts, child_offset, child_rect);
+            if rows {
+                self.row(walk, child, ts, child_offset, child_rect);
+            } else {
+                self.node(walk, child, ts, child_offset, child_rect);
+            }
+        }
+        if rows {
+            self.backend.group_end();
         }
         if let Some(child) = lift {
             self.node(walk, child, ts, child_offset, child_rect);

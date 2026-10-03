@@ -26,6 +26,8 @@
 //! - `11 IMAGE_DEF id w h` — fetch its pixels with [`CanvasHost::image`]
 //! - `12 IMAGE_FREE id`
 //! - `13 STROKE color width cap join n (tag coords…)×n` — caps/joins as SVG (0 butt/miter, 1 round, 2 square/bevel)
+//! - `14 IMAGE_RRECT id dst(x y w h) region(x y w h) radii×8` — the picture mapped to `dst`, drawn
+//!   only over `region` with those corner radii (a clip-free rounded image; `clip.rs`)
 //!
 //! Geometry is in device pixels; colours are ARGB.
 //!
@@ -36,6 +38,7 @@ use crate::paint::border::{BorderFill, PathOp};
 use crate::paint::{Backend, GradientPaint, Rect4, Shape};
 use crate::presenter::Presenter;
 use crate::text::{Paragraph, RunPaint, TextEngine};
+use exact_kernel::ViewId;
 use exact_runner::DataSource;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -55,10 +58,44 @@ const FONT: u32 = 10;
 const IMAGE_DEF: u32 = 11;
 const IMAGE_FREE: u32 = 12;
 const STROKE: u32 = 13;
+const IMAGE_RRECT: u32 = 14;
+/// A row's recording: id, width and height (device pixels), then the count
+/// of words up to and including its `ROW_END`. Kept by the reader until freed.
+const ROW_BEGIN: u32 = 15;
+const ROW_END: u32 = 16;
+/// Draw a kept row: id, x, y (device pixels).
+const ROW_DRAW: u32 = 17;
+/// A kept row no longer drawn: freed once the next stream arrives.
+const ROW_FREE: u32 = 18;
+/// A filled ring: color, outer x y w h and radii, inner x y w h and radii.
+/// An even-odd path HWUI would rasterize into a mask every frame.
+const RING: u32 = 19;
+
+/// A scroller's rows follow: its view id. They are all drawn, culled or not,
+/// so the drawing can be moved without painting again.
+const GROUP_BEGIN: u32 = 20;
+const GROUP_END: u32 = 21;
+/// Instead of a stream: the last one moved. A count, then per scroller its
+/// id and the move (device pixels) of its rows from where they were drawn.
+const SHIFT: u32 = 22;
+
+/// Room (points) left of and above a row's origin in its recording, so what
+/// paints a little outside the row (a shadow) stays inside the reader's node,
+/// which clips to its bounds: that is what lets the reader skip a row that
+/// is out of view.
+const ROW_PAD: f32 = 48.0;
+
+/// Frames a picture goes undrawn before the reader's copy is freed.
+const IDLE_FRAMES: u64 = 60;
+
+#[path = "canvas/clip.rs"]
+mod clip;
 
 thread_local! {
     /// The last finished recording and the pictures it introduced.
     static FINISHED: RefCell<Option<Vec<u32>>> = const { RefCell::new(None) };
+    /// The last finished recording's scrollers and the offsets drawn at.
+    static GROUPS: RefCell<Vec<(u32, (f32, f32))>> = const { RefCell::new(Vec::new()) };
     /// Pictures the reader has not fetched yet, by id.
     static PENDING: RefCell<std::collections::BTreeMap<u32, Arc<Bitmap>>> =
         const { RefCell::new(std::collections::BTreeMap::new()) };
@@ -73,9 +110,34 @@ pub struct Recorder {
     /// Faces announced to the reader, by (file, index, weight).
     fonts: HashMap<(Arc<str>, u32, u16), u32>,
     /// Pictures announced to the reader, by allocation, with a weak handle
-    /// so a dropped picture is freed on the reader too.
-    images: HashMap<usize, (u32, Weak<Bitmap>)>,
+    /// so a dropped picture is freed on the reader too, and the frame each
+    /// was last drawn in.
+    images: HashMap<usize, (u32, Weak<Bitmap>, u64)>,
+    /// Frames begun: when a picture was last drawn.
+    frames: u64,
+    /// The scroller whose rows are being drawn, if any.
+    group: Option<u32>,
     next_image: u32,
+    /// The clips pushed and not popped, pending until a drawing needs them.
+    clips: Vec<clip::Clip>,
+    /// The recording row's origin (viewport points): what its ops are
+    /// relative to. Zero outside a row.
+    origin: (f32, f32),
+    /// While a row records: the frame's clips and matrix, where the row's
+    /// header is, its id and the id it was.
+    row: Option<RowRecording>,
+    /// Each kept row's recording, so one recorded again the same is kept,
+    /// and the pictures it draws (by allocation), drawn whenever it is.
+    kept: HashMap<u32, (Vec<u32>, Vec<usize>)>,
+}
+
+struct RowRecording {
+    clips: Vec<clip::Clip>,
+    matrix: Option<[f32; 6]>,
+    at: usize,
+    id: u32,
+    previous: Option<u32>,
+    images: Vec<usize>,
 }
 
 impl Default for Recorder {
@@ -94,6 +156,12 @@ impl Recorder {
             fonts: HashMap::new(),
             images: HashMap::new(),
             next_image: 1,
+            frames: 0,
+            group: None,
+            clips: Vec::new(),
+            origin: (0.0, 0.0),
+            row: None,
+            kept: HashMap::new(),
         }
     }
 
@@ -113,8 +181,8 @@ impl Recorder {
             ts.ky * s,
             ts.kx * s,
             ts.sy * s,
-            ts.tx * s,
-            ts.ty * s,
+            (ts.tx - self.origin.0) * s,
+            (ts.ty - self.origin.1) * s,
         ];
         if self.matrix != Some(m) {
             self.matrix = Some(m);
@@ -180,14 +248,19 @@ impl Recorder {
 
     fn image_id(&mut self, image: &Arc<Bitmap>) -> u32 {
         let key = Arc::as_ptr(image) as usize;
-        if let Some((id, weak)) = self.images.get(&key) {
+        let now = self.frames;
+        if let Some(row) = &mut self.row {
+            row.images.push(key);
+        }
+        if let Some((id, weak, used)) = self.images.get_mut(&key) {
             if weak.upgrade().is_some_and(|live| Arc::ptr_eq(&live, image)) {
+                *used = now;
                 return *id;
             }
         }
         let id = self.next_image;
         self.next_image += 1;
-        self.images.insert(key, (id, Arc::downgrade(image)));
+        self.images.insert(key, (id, Arc::downgrade(image), now));
         self.ops
             .extend([IMAGE_DEF, id, image.width(), image.height()]);
         PENDING.with(|p| p.borrow_mut().insert(id, image.clone()));
@@ -204,12 +277,22 @@ impl Backend for Recorder {
         self.scale = scale;
         self.ops.clear();
         self.matrix = None;
-        // Pictures the presenter dropped since the last frame.
+        self.clips.clear();
+        self.origin = (0.0, 0.0);
+        self.row = None;
+        self.group = None;
+        GROUPS.with(|g| g.borrow_mut().clear());
+        self.frames += 1;
+        // Pictures the presenter dropped since the last frame, and those not
+        // drawn for a while: the reader's copy (heap and texture) goes; the
+        // decoded picture, if the presenter still caches it, is sent again
+        // when it draws again. Kept rows hold their own reference.
+        let frames = self.frames;
         let dead: Vec<(usize, u32)> = self
             .images
             .iter()
-            .filter(|(_, (_, weak))| weak.strong_count() == 0)
-            .map(|(k, (id, _))| (*k, *id))
+            .filter(|(_, (_, weak, used))| weak.strong_count() == 0 || frames - used > IDLE_FRAMES)
+            .map(|(k, (id, _, _))| (*k, *id))
             .collect();
         for (k, id) in dead {
             self.images.remove(&k);
@@ -222,6 +305,11 @@ impl Backend for Recorder {
         if s.rect.2 <= 0.0 || s.rect.3 <= 0.0 || color[3] == 0 {
             return;
         }
+        let bounds = clip::map(s.rect, ts);
+        if self.culled(bounds) {
+            return;
+        }
+        self.need(bounds);
         self.transform(ts);
         self.ops.extend([RRECT, Self::color(color)]);
         self.rect_radii(s);
@@ -235,7 +323,30 @@ impl Backend for Recorder {
     }
 
     fn fill_border(&mut self, part: &BorderFill, ts: Transform) {
+        let bounds = path_bounds(&part.region).and_then(|b| clip::map(b, ts));
+        if self.culled(bounds) {
+            return;
+        }
+        self.need(bounds);
         self.transform(ts);
+        if let (Some(((o, or), (i, ir))), None) = (&part.ring, &part.clip) {
+            self.ops.extend([RING, Self::color(part.color)]);
+            for v in [o.0, o.1, o.2, o.3] {
+                self.f(v);
+            }
+            for (x, y) in or {
+                self.f(*x);
+                self.f(*y);
+            }
+            for v in [i.0, i.1, i.2, i.3] {
+                self.f(v);
+            }
+            for (x, y) in ir {
+                self.f(*x);
+                self.f(*y);
+            }
+            return;
+        }
         if let Some(clip) = &part.clip {
             self.ops.extend([CLIP_PATH, 0]);
             self.path(clip);
@@ -259,6 +370,10 @@ impl Backend for Recorder {
             return;
         }
         let id = self.image_id(image);
+        if self.image_rrect(id, dst, clips, ts) {
+            return;
+        }
+        self.need(None);
         self.transform(ts);
         for c in clips {
             self.ops.push(CLIP_RRECT);
@@ -281,6 +396,18 @@ impl Backend for Recorder {
         origin: (f32, f32),
         ts: Transform,
     ) {
+        // Glyphs can overhang their box a little (italics, accents).
+        let bounds = (
+            origin.0 - 2.0,
+            origin.1 - 2.0,
+            paragraph.width + 4.0,
+            paragraph.height + 4.0,
+        );
+        let bounds = clip::map(bounds, ts);
+        if self.culled(bounds) {
+            return;
+        }
+        self.need(bounds);
         self.transform(ts.pre_translate(origin.0, origin.1));
         for run in text.glyph_runs(paragraph, palette) {
             if run.paint.color[3] == 0 {
@@ -317,6 +444,10 @@ impl Backend for Recorder {
                 exact_kernel::svg::Seg::Close => PathOp::Close,
             })
             .collect();
+        let grow = if s.stroke.is_some() { s.width } else { 0.0 };
+        self.need(path_bounds(&ops).and_then(|(x, y, w, h)| {
+            clip::map((x - grow, y - grow, w + 2.0 * grow, h + 2.0 * grow), ts)
+        }));
         self.transform(ts);
         if let Some(crate::paint::Ink::Solid(c)) = &s.fill {
             self.ops
@@ -332,16 +463,16 @@ impl Backend for Recorder {
     }
 
     fn push_clip(&mut self, s: &Shape, ts: Transform) {
-        self.transform(ts);
-        self.ops.push(CLIP_RRECT);
-        self.rect_radii(s);
+        self.clip_push(s, ts);
     }
 
     fn pop_clip(&mut self) {
-        self.ops.push(RESTORE);
+        self.clip_pop();
     }
 
     fn push_opacity(&mut self, alpha: f32) {
+        // A layer's bounds are unknown here: every pending clip applies to it.
+        self.need(None);
         self.ops.push(LAYER);
         self.f(alpha);
     }
@@ -352,11 +483,140 @@ impl Backend for Recorder {
 
     fn pointer(&mut self, _x: f32, _y: f32) {}
 
+    fn rows(&self) -> bool {
+        true
+    }
+
+    fn row_begin(&mut self, id: u32, origin: (f32, f32), previous: Option<u32>) {
+        self.row = Some(RowRecording {
+            clips: std::mem::take(&mut self.clips),
+            matrix: self.matrix.take(),
+            at: self.ops.len(),
+            id,
+            previous,
+            images: Vec::new(),
+        });
+        self.origin = (origin.0 - ROW_PAD, origin.1 - ROW_PAD);
+        self.ops.extend([ROW_BEGIN, id, 0, 0, 0]);
+    }
+
+    fn row_end(&mut self, bounds: Rect4) -> u32 {
+        let Some(RowRecording {
+            clips,
+            matrix,
+            at,
+            id,
+            previous,
+            images,
+        }) = self.row.take()
+        else {
+            return 0;
+        };
+        // The reader's node reaches from the origin to the far edge of what
+        // the row covers.
+        let s = self.scale;
+        self.ops[at + 2] = ((bounds.0 + bounds.2 + ROW_PAD).max(1.0) * s).to_bits();
+        self.ops[at + 3] = ((bounds.1 + bounds.3 + ROW_PAD).max(1.0) * s).to_bits();
+        self.ops.push(ROW_END);
+        self.ops[at + 4] = (self.ops.len() - at - 5) as u32;
+        self.clips = clips;
+        self.matrix = matrix;
+        self.origin = (0.0, 0.0);
+        // Size and body: the same as the row's last recording, the reader's
+        // node for it stands.
+        let body = &self.ops[at + 2..];
+        if let Some(old) = previous.filter(|p| self.kept.get(p).is_some_and(|k| k.0[..] == *body)) {
+            self.ops.truncate(at);
+            return old;
+        }
+        let body = body.to_vec();
+        self.kept.insert(id, (body, images));
+        id
+    }
+
+    fn row_culled(&self, bounds: Rect4) -> bool {
+        self.group.is_none() && self.culled(Some(bounds))
+    }
+
+    fn group_begin(&mut self, id: ViewId, scroll: (f32, f32)) {
+        // The clips around the rows stay where they are when the rows move:
+        // written before the group, never inside it.
+        if !self.clips.is_empty() {
+            self.materialize(self.clips.len() - 1);
+        }
+        self.group = Some(id);
+        self.ops.extend([GROUP_BEGIN, id]);
+        GROUPS.with(|g| g.borrow_mut().push((id, scroll)));
+    }
+
+    fn group_end(&mut self) {
+        self.group = None;
+        self.ops.push(GROUP_END);
+    }
+
+    fn row_draw(&mut self, id: u32, origin: (f32, f32), bounds: Rect4) {
+        // Its pictures are drawn too: the reader keeps them.
+        if let Some((_, images)) = self.kept.get(&id) {
+            for key in images {
+                if let Some(image) = self.images.get_mut(key) {
+                    image.2 = self.frames;
+                }
+            }
+        }
+        self.need(Some(bounds));
+        let s = self.scale;
+        self.ops.extend([ROW_DRAW, id]);
+        self.f((origin.0 - ROW_PAD) * s);
+        self.f((origin.1 - ROW_PAD) * s);
+    }
+
+    fn row_free(&mut self, id: u32) {
+        self.kept.remove(&id);
+        self.ops.extend([ROW_FREE, id]);
+    }
+
     fn finish(&mut self) -> Result<Pixmap, String> {
         let ops = std::mem::take(&mut self.ops);
         FINISHED.with(|f| *f.borrow_mut() = Some(ops));
         Pixmap::new(1, 1).ok_or_else(|| "placeholder".to_string())
     }
+}
+
+/// An atrace section for the rest of a scope.
+struct Section;
+impl Section {
+    fn begin(name: &'static core::ffi::CStr) -> Section {
+        crate::android::section_begin(name);
+        Section
+    }
+}
+impl Drop for Section {
+    fn drop(&mut self) {
+        crate::android::section_end();
+    }
+}
+
+/// The bounds of a path's points (control points included).
+fn path_bounds(ops: &[PathOp]) -> Option<Rect4> {
+    let mut b: Option<(f32, f32, f32, f32)> = None;
+    let mut add = |x: f32, y: f32| {
+        b = Some(match b {
+            None => (x, y, x, y),
+            Some((a, c, d, e)) => (a.min(x), c.min(y), d.max(x), e.max(y)),
+        })
+    };
+    for op in ops {
+        match *op {
+            PathOp::Move(x, y) | PathOp::Line(x, y) => add(x, y),
+            PathOp::Cubic(a, c, d, e, f, g) => {
+                add(a, c);
+                add(d, e);
+                add(f, g);
+            }
+            PathOp::Close => {}
+        }
+    }
+    b.map(|(x0, y0, x1, y1)| (x0, y0, x1 - x0, y1 - y0))
 }
 
 /// The presenter on the Android main thread, painting through [`Recorder`].
@@ -365,7 +625,30 @@ pub struct CanvasHost<D: DataSource> {
     started: std::time::Instant,
     scale: f32,
     viewport: (f32, f32),
+    /// The last paint: what it showed besides scroll offsets, the offsets,
+    /// and its scrollers with the offsets their rows were drawn at.
+    painted: Option<Painted>,
+    /// Frames since the last paint that moved it instead, and when the
+    /// last of them was (ms).
+    moved: u32,
+    moved_at: f64,
+    /// A touch began or ended: paint the next frame.
+    force: bool,
+    /// Frames that may move before one paints (`EXACT_MOVES`, else
+    /// [`MOVES`]); 1000 or more also leaves the last move standing, to check
+    /// a moved frame against a painted one.
+    moves: u32,
 }
+
+struct Painted {
+    still: crate::presenter::still::Still,
+    scroll: std::collections::BTreeMap<ViewId, (f32, f32)>,
+    groups: Vec<(u32, (f32, f32))>,
+}
+
+/// At most this many frames move the last paint before one paints again:
+/// what it leaves stale (boxes, hits, which pictures show) stays this fresh.
+const MOVES: u32 = 3;
 
 impl<D: DataSource + Default> CanvasHost<D> {
     /// Boot `D`'s app over a view of `size` pixels at `scale` pixels per
@@ -398,6 +681,14 @@ impl<D: DataSource + Default> CanvasHost<D> {
             started,
             scale,
             viewport,
+            painted: None,
+            moved: 0,
+            moved_at: 0.0,
+            force: false,
+            moves: std::env::var("EXACT_MOVES")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(MOVES),
         })
     }
 
@@ -410,6 +701,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
     pub fn frame(&mut self) -> Option<Vec<u32>> {
         let p = &mut self.p;
         let now = self.started.elapsed().as_secs_f64() * 1000.0;
+        let _frame = Section::begin(c"exact frame");
         if let Some(e) = p.pump(now) {
             eprintln!("exact: {e}");
         }
@@ -428,14 +720,25 @@ impl<D: DataSource + Default> CanvasHost<D> {
             p.tick(now);
         }
         p.poll_images();
-        if !p.dirty() {
+        if let Some(shift) = self.shift(now) {
+            return Some(shift);
+        }
+        if !self.p.dirty() && !self.owed_at(now) {
             return None;
         }
-        let frame = p.display_frame()?;
+        let p = &mut self.p;
+        let frame = crate::android::trace(c"exact paint", || p.display_frame())?;
         p.display_complete(&frame);
         if p.module_pending() {
             p.first_pixel();
         }
+        self.painted = p.still().map(|still| Painted {
+            still,
+            scroll: p.scroll_offsets().clone(),
+            groups: GROUPS.with(|g| g.borrow().clone()),
+        });
+        self.moved = 0;
+        self.force = false;
         FINISHED.with(|f| f.borrow_mut().take())
     }
 
@@ -453,7 +756,53 @@ impl<D: DataSource + Default> CanvasHost<D> {
 
     /// Whether another frame is wanted at the next vsync.
     pub fn animating(&self) -> bool {
+        // A moved paint owes a paint: the frame after scrolling stops.
         self.p.dirty() || self.p.needs_animation_frame() || self.p.host().wants_frames()
+    }
+
+    /// When only scrollers whose rows the last paint drew moved since it,
+    /// and nothing else it showed changed: the move, instead of a paint.
+    /// Whether a moved paint owes a paint: once moves pause (a frame
+    /// without one), the paint brings boxes, hits and pictures up to date.
+    pub fn owed(&self) -> bool {
+        self.moved > 0 && self.moves < 1000
+    }
+
+    fn owed_at(&self, now: f64) -> bool {
+        self.owed() && now - self.moved_at >= 12.0
+    }
+
+    fn shift(&mut self, at: f64) -> Option<Vec<u32>> {
+        let p = &self.p;
+        if !p.dirty() || self.force || self.moved >= self.moves {
+            return None;
+        }
+        let painted = self.painted.as_ref()?;
+        let now = p.scroll_offsets();
+        let grouped = |id: &ViewId| painted.groups.iter().any(|(g, _)| g == id);
+        let others = |m: &std::collections::BTreeMap<ViewId, (f32, f32)>| {
+            m.iter()
+                .filter(|(id, _)| !grouped(id))
+                .map(|(id, o)| (*id, o.0.to_bits(), o.1.to_bits()))
+                .collect::<Vec<_>>()
+        };
+        if others(now) != others(&painted.scroll) || p.still().as_ref() != Some(&painted.still) {
+            return None;
+        }
+        let s = self.scale;
+        let mut ops = vec![SHIFT, painted.groups.len() as u32];
+        for (id, at) in &painted.groups {
+            let to = now.get(id).copied().unwrap_or((0.0, 0.0));
+            ops.extend([
+                *id,
+                ((at.0 - to.0) * s).to_bits(),
+                ((at.1 - to.1) * s).to_bits(),
+            ]);
+        }
+        self.p.moved_without_paint();
+        self.moved += 1;
+        self.moved_at = at;
+        Some(ops)
     }
 
     /// Milliseconds until the next timer, if any.
@@ -472,11 +821,13 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// Scroll what is under the viewport's center by `dy` pixels.
     pub fn scroll(&mut self, dy: f32) {
         let (x, y) = (self.viewport.0 / 2.0, self.viewport.1 / 2.0);
+        let _s = Section::begin(c"exact scroll");
         self.p.wheel_at(x, y, 0.0, dy / self.scale);
     }
 
     /// A touch (0 down, 1 up, 2 move, 3 cancel) at pixels.
     pub fn touch(&mut self, action: i32, x: f32, y: f32) {
+        self.force |= action != 2;
         let now = self.now();
         let (x, y) = (x / self.scale, y / self.scale);
         let r = match action {
