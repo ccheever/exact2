@@ -238,14 +238,26 @@ final class CollectionHost {
     /// while it ran).
     var animationTargets: [UInt32: CGPoint] = [:]
     var owedTargets: [UInt32: CGPoint] = [:]
+    /// Each animation's number: a callback for one that has since been
+    /// replaced (stopped, then another begun) is not this one's.
+    private(set) var animationSerial: [UInt32: Int] = [:]
+    @discardableResult
+    func beginAnimation(_ view: UInt32, to target: CGPoint) -> Int {
+        animating.insert(view)
+        animationTargets[view] = target
+        let serial = (animationSerial[view] ?? 0) + 1
+        animationSerial[view] = serial
+        return serial
+    }
     func animationEnded(_ view: UInt32, dragging: Bool = false) {
         guard animating.contains(view) else { return }
         if !dragging, owedTargets[view] != nil {
             // UIKit starts no new animation from inside the callback that
             // ends one: the owed target goes on the next turn, still headed
             // there in the meantime.
+            let serial = animationSerial[view]
             DispatchQueue.main.async { [weak self] in
-                guard let self, self.animating.remove(view) != nil else { return }
+                guard let self, self.animationSerial[view] == serial, self.animating.remove(view) != nil else { return }
                 self.animationTargets[view] = nil
                 self.landAnimation(view)
                 self.dirty.insert(view)

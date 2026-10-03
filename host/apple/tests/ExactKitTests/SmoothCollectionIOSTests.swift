@@ -73,6 +73,21 @@ final class SmoothCollectionIOSTests: XCTestCase {
         XCTAssertEqual(scroll.contentOffset.y, 900, accuracy: 0.5)
     }
 
+    /// An ordinary correction stops a running animation, even to where the
+    /// list already is, and the list reports where it is again.
+    func testAnOrdinaryCorrectionStopsASmoothOne() throws {
+        let p = presenter()
+        list(p, correction: NSNull())
+        let scroll = try XCTUnwrap(p.views[1]?.scroll)
+        let seq = String(try XCTUnwrap(p.collections.entries[1]?.cursor.sequence))
+        p.apply(wireBatch([collections(revision: 2, correction: ["scrollSequence": seq, "offset": 1700, "smooth": true])]))
+        XCTAssertTrue(p.collections.animating.contains(1))
+        let at = Double(scroll.contentOffset.y)
+        p.apply(wireBatch([collections(revision: 3, correction: ["scrollSequence": seq, "offset": at])]))
+        XCTAssertFalse(p.collections.animating.contains(1))
+        XCTAssertEqual(try XCTUnwrap(p.collections.geometry(1)).offset, at, accuracy: 0.5)
+    }
+
     func testAnOrdinaryCorrectionIsSetAtOnce() throws {
         let p = presenter()
         list(p, correction: NSNull())

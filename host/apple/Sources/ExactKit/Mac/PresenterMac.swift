@@ -117,6 +117,8 @@ final class Presenter {
         // LLP 1050.000 stage 1: a collection reports its travel and builds
         // ahead in the pump's slices.
         collections.motion = { [unowned self] id in
+            // A smooth correction's animation is not the reader's travel.
+            if collections.animating.contains(id) { return nil }
             let velocity = listVelocity(id)
             return velocity == 0 ? nil : velocity
         }
@@ -336,6 +338,9 @@ final class Presenter {
         let now = CACurrentMediaTime()
         for (id, list) in listViews where only == nil || only == id {
             guard let scroll = list.scroll else { continue }
+            // Animating to a smooth correction: no travel, and none read
+            // across the animation once it lands.
+            if collections.animating.contains(id) { listTravel[id] = nil; continue }
             let port = scroll.contentView.bounds
             // Along the list's own axis (LLP 1070 H3): a row list travels on x.
             let horizontal = collections.entries[id]?.snapshot.horizontal == true
@@ -363,8 +368,7 @@ final class Presenter {
     /// first, so the rescue or the slice that follows leads the right way.
     func collectionScrolled(_ id: UInt32) {
         // A correction's move is not the reader's travel (LLP 1070.000 §2.5).
-        // Nor is a smooth correction's animation (`CollectionHost.animating`).
-        if collections.owns(id), !collections.correcting, !collections.animating.contains(id) { sampleListTravel(only: id) }
+        if collections.owns(id), !collections.correcting { sampleListTravel(only: id) }
         collections.changed(id, user: true)
     }
 

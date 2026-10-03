@@ -133,7 +133,7 @@ extension CollectionHost {
         guard gap > 0.5 else { return }
         let animate = gap > 24 && !ExactEnv.agentFreezes
         if animate {
-            animating.insert(id); animationTargets[id] = target
+            beginAnimation(id, to: target)
         } else if animating.remove(id) != nil {
             // An ordinary correction stops it where it is.
             animationTargets[id] = nil; owedTargets[id] = nil
@@ -160,11 +160,10 @@ extension CollectionHost {
             target = CGPoint(x: scroll.contentOffset.x,
                 y: min(maximum, max(-insets.top, CGFloat(top) + content.minY - insets.top)))
         }
-        guard scroll.contentOffset != target else { return }
         // A smooth correction is UIKit's scroll animation (LLP 1070.000
         // §6.2): the window is already built at the destination; rows in
-        // between are not, as a fling's are owed. Under the agent's frozen
-        // clock it lands at once.
+        // between are not (§11 declares it). Under the agent's frozen clock
+        // it lands at once.
         let animate = smooth && !ExactEnv.agentFreezes && node.window != nil
         if animate, animating.contains(id) {
             // Already on its way: a new animated set would restart UIKit's
@@ -174,7 +173,14 @@ extension CollectionHost {
             owedTargets[id] = target
             return
         }
-        if animate { animating.insert(id); animationTargets[id] = target }
+        if !animate, animating.remove(id) != nil {
+            // An ordinary correction stops it, even where it already is.
+            animationTargets[id] = nil; owedTargets[id] = nil
+            scroll.setContentOffset(target, animated: false)
+            return
+        }
+        guard scroll.contentOffset != target else { return }
+        if animate { beginAnimation(id, to: target) }
         scroll.setContentOffset(target, animated: animate)
     }
     /// A row's frame in the scroll view, as a range along the list's axis.

@@ -285,8 +285,11 @@ extension CollectionHost {
         let clip = scroll.contentView, horizontal = entries[id]?.snapshot.horizontal ?? false
         let content = node.contentBox()
         if animating.contains(id), delta.isFinite, let headed = owedTargets[id] ?? animationTargets[id] {
-            // The rows moved under a running animation: where it lands moves
-            // with them, and the animation goes on.
+            // The rows moved under a running animation: the document takes
+            // the new extent, where it lands moves with them, and the
+            // animation goes on.
+            fit(node, scroll, extent: extent, horizontal: horizontal)
+            guard delta != 0 else { return }
             owedTargets[id] = horizontal ? NSPoint(x: headed.x + CGFloat(delta), y: headed.y) : NSPoint(x: headed.x, y: headed.y + CGFloat(delta))
             return
         }
@@ -309,24 +312,22 @@ extension CollectionHost {
     /// AppKit's own scroll animation, the clip view's animator; its end is
     /// the animation's (`animationEnded`).
     private func animate(_ id: UInt32, _ scroll: NSScrollView, to target: NSPoint) {
-        animating.insert(id)
-        animationTargets[id] = target
+        let serial = beginAnimation(id, to: target)
         let clip = scroll.contentView
         NSAnimationContext.runAnimationGroup({ _ in clip.animator().setBoundsOrigin(target) }, completionHandler: { [weak self, weak scroll] in
             if let scroll { scroll.reflectScrolledClipView(scroll.contentView) }
-            // A later animation or an ordinary correction took over.
-            guard let self, self.animationTargets[id] == target else { return }
+            // A later animation or an ordinary correction took over (AppKit
+            // runs a stopped group's completion too).
+            guard let self, self.animationSerial[id] == serial, self.animating.contains(id) else { return }
             self.animationEnded(id)
         })
     }
-    func correct(_ id: UInt32, top: Double, extent: Double, smooth: Bool = false) {
-        guard let node = presenter?.views[id], let scroll = node.scroll,
-              let document = scroll.documentView else { return }
-        let content = node.contentBox()
-        let clip = scroll.contentView
-        let horizontal = entries[id]?.snapshot.horizontal ?? false
-        // Preserve the measured kernel extent when it already contains more
-        // than the provisional index (a newly measured row can be larger).
+    /// The document the list's extent needs. Preserve the measured kernel
+    /// extent when it already contains more than the provisional index (a
+    /// newly measured row can be larger).
+    private func fit(_ node: NodeView, _ scroll: NSScrollView, extent: Double, horizontal: Bool) {
+        guard let document = scroll.documentView else { return }
+        let content = node.contentBox(), clip = scroll.contentView
         let size: NSSize
         if horizontal {
             let right = node.bounds.width - content.maxX
@@ -338,6 +339,14 @@ extension CollectionHost {
             size = NSSize(width: document.frame.width, height: max(height, node.content.height))
         }
         if document.frame.size != size { document.setFrameSize(size) }
+    }
+    func correct(_ id: UInt32, top: Double, extent: Double, smooth: Bool = false) {
+        guard let node = presenter?.views[id], let scroll = node.scroll,
+              let document = scroll.documentView else { return }
+        let content = node.contentBox()
+        let clip = scroll.contentView
+        let horizontal = entries[id]?.snapshot.horizontal ?? false
+        fit(node, scroll, extent: extent, horizontal: horizontal)
         // The anchor stays put, except under a knob held at the end (`KnobDrag`).
         let holdsEnd = KnobDrag.of(scroll)?.holdsEnd == true
         let target: NSPoint
@@ -348,23 +357,25 @@ extension CollectionHost {
             let maximum = max(0, document.frame.height - clip.bounds.height)
             target = NSPoint(x: clip.bounds.minX, y: holdsEnd ? maximum : min(maximum, max(0, CGFloat(top) + content.minY)))
         }
-        guard clip.bounds.origin != target else { return }
         // A smooth correction is AppKit's scroll animation (LLP 1070.000
         // §6.2), as UIKit's is on iOS; one already running goes on and
         // takes this target when it lands.
         if smooth && !ExactEnv.agentFreezes && !holdsEnd && node.window != nil {
             if animating.contains(id) { owedTargets[id] = target; return }
+            guard clip.bounds.origin != target else { return }
             animate(id, scroll, to: target)
             return
         }
         if animating.remove(id) != nil {
-            // An ordinary correction stops it where it is: a zero-length
-            // animation replaces the running one.
+            // An ordinary correction stops it, even where it already is: a
+            // zero-length animation replaces the running one.
             animationTargets[id] = nil; owedTargets[id] = nil
             NSAnimationContext.runAnimationGroup({ c in c.duration = 0; clip.animator().setBoundsOrigin(target) })
-        } else {
-            clip.scroll(to: target)
+            scroll.reflectScrolledClipView(clip)
+            return
         }
+        guard clip.bounds.origin != target else { return }
+        clip.scroll(to: target)
         scroll.reflectScrolledClipView(clip)
     }
     func focusedView() -> UInt32? {

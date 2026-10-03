@@ -54,7 +54,7 @@ function setup() {
     let serial = 0;
     const controller = createController({ root, views, report(bytes) {
       const d = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-      const read = { view: d.getUint32(4, true), revision: String(d.getBigUint64(8, true)), sequence: String(d.getBigUint64(16, true)), top: d.getFloat64(24, true), width: d.getFloat64(40, true), height: d.getFloat64(32, true), rowWidth: d.getFloat64(48, true), focus: d.getUint32(56, true), interaction: d.getUint32(60, true), rows: [] };
+      const read = { view: d.getUint32(4, true), revision: String(d.getBigUint64(8, true)), sequence: String(d.getBigUint64(16, true)), top: d.getFloat64(24, true), width: d.getFloat64(40, true), height: d.getFloat64(32, true), rowWidth: d.getFloat64(48, true), focus: d.getUint32(56, true), interaction: d.getUint32(60, true), velocity: d.getFloat64(64, true), rows: [] };
       for (let n = 0; n < d.getUint32(80, true); n++) read.rows.push({ view: d.getUint32(84 + n * 20, true), epoch: String(d.getBigUint64(88 + n * 20, true)), size: d.getFloat64(96 + n * 20, true) });
       wires.push(Array.from(bytes)); reports.push(read); return globalThis.f.onReport?.(read);
     }, requestFrame(fn) { frames.set(++serial, fn); return serial; }, cancelFrame(id) { frames.delete(id); }, ...options });
@@ -312,6 +312,49 @@ test('a smooth correction animates and reports where it is headed until it lands
   expect(result.headed).toBe(800);
   expect(result.sequence).toBe(true);
   expect(result.landed).toBe(860); // the list starts 60 px into its port
+});
+test('a smooth correction that arrives mid-flight is held, reported, and taken where it lands', async () => {
+  const result=await evaluate(`(async () => {const f=fixture();
+    const frames=n=>new Promise(r=>{const step=k=>k?requestAnimationFrame(()=>step(k-1)):r();step(n);});
+    const ended=()=>new Promise(r=>{const t=setTimeout(r,3000);f.port.addEventListener('scrollend',()=>{clearTimeout(t);r();},{once:true});});
+    f.controller.commit([f.snapshot()]);f.flush();
+    const seq=f.reports.at(-1).sequence;
+    f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:800,smooth:true}})]);
+    await frames(3);f.port.dispatchEvent(new Event('scroll'));f.flush();
+    const mid=f.port.scrollTop;
+    f.controller.commit([f.snapshot('3',{correction:{scrollSequence:seq,offset:900,smooth:true}})]);
+    f.port.dispatchEvent(new Event('scroll'));f.flush();
+    const report=f.reports.at(-1);
+    await ended();f.port.dispatchEvent(new Event('scroll'));
+    await ended();f.port.dispatchEvent(new Event('scroll'));f.flush();
+    return {mid,headed:report.top,velocity:report.velocity,landed:f.port.scrollTop,sequence:f.reports.at(-1).sequence===seq};})()`);
+  expect(result.mid).toBeLessThan(860);
+  expect(result.headed).toBe(900);
+  expect(result.velocity).toBe(0);
+  expect(result.landed).toBe(960);
+  expect(result.sequence).toBe(true);
+});
+test('an ordinary correction, an authored jump or a zero-length request ends a smooth one', async () => {
+  const result=await evaluate(`(async () => {const f=fixture();
+    const frames=n=>new Promise(r=>{const step=k=>k?requestAnimationFrame(()=>step(k-1)):r();step(n);});
+    f.controller.commit([f.snapshot()]);f.flush();
+    let seq=f.reports.at(-1).sequence;
+    f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:800,smooth:true}})]);
+    await frames(2);
+    f.controller.commit([f.snapshot('3',{correction:{scrollSequence:seq,offset:300}})]);
+    const instant=f.port.scrollTop;await frames(4);const stayed=f.port.scrollTop;
+    f.controller.commit([f.snapshot('4',{correction:{scrollSequence:seq,offset:800,smooth:true}})]);
+    await frames(2);f.controller.jump(1,400);await frames(4);
+    f.port.dispatchEvent(new Event('scroll'));f.flush();
+    const jumped=f.port.scrollTop,reportAfterJump=f.reports.at(-1).top;
+    seq=f.reports.at(-1).sequence;
+    f.controller.commit([f.snapshot('5',{correction:{scrollSequence:seq,offset:reportAfterJump,smooth:true}})]);
+    f.port.scrollTo({top:100,behavior:'instant'});f.port.dispatchEvent(new Event('scroll'));f.flush();
+    return {instant,stayed,jumped,reportAfterJump,afterZero:f.reports.at(-1).top};})()`);
+  expect(result.instant).toBe(360);
+  expect(result.stayed).toBe(360);
+  expect(result.reportAfterJump).toBe(result.jumped - 60);
+  expect(result.afterZero).toBe(40); // the reader's scroll, reported where it is
 });
 test('collection read reuse: synchronous report replacement samples new nodes and epochs next pass', async () => {
   const result=await evaluate(`(() => {const f=fixture(),widths=[];let replaced=false;

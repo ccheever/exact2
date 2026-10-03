@@ -471,22 +471,29 @@ pub fn parse(text: &str) -> Result<Option<Dimension>, EnvRefusal> {
 }
 
 /// `<n>px + env(…)`, a calc body whose length comes first: the same
-/// dimension as `env(…) + <n>px`. `Ok(None)` for anything else.
+/// dimension as `env(…) + <n>px`. By CSS's grammar: whitespace on both
+/// sides of the `+`, none between the number and `px`. `Ok(None)` for
+/// anything else.
 fn leading_length(body: &str) -> Result<Option<Dimension>, EnvRefusal> {
     let Some(at) = body.find("env(") else {
         return Ok(None);
     };
-    let (number, env) = body.split_at(at);
-    let Some(number) = number.trim_end().strip_suffix('+') else {
+    let (head, env) = body.split_at(at);
+    let Some(head) = head
+        .strip_suffix(|c: char| c.is_ascii_whitespace())
+        .map(str::trim_end)
+        .and_then(|h| h.strip_suffix('+'))
+        .and_then(|h| h.strip_suffix(|c: char| c.is_ascii_whitespace()))
+    else {
         return Ok(None);
     };
-    let Some(number) = number.trim().strip_suffix("px") else {
+    let Some(number) = head.trim_end().strip_suffix("px") else {
         return Ok(None);
     };
-    let Ok(plus) = exact_num::parse_f32(number.trim()) else {
+    let Ok(plus) = exact_num::parse_f32(number) else {
         return Ok(None);
     };
-    if !plus.is_finite() || !env.ends_with(')') || env.find(')') != Some(env.len() - 1) {
+    if !plus.is_finite() || env.find(')') != Some(env.len() - 1) {
         return Ok(None);
     }
     Ok(Some(match term(env)? {

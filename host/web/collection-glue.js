@@ -155,16 +155,39 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
   function place(s, at, smooth) {
     s.port.scrollTo({ [AXES[s.axis].offset === 'scrollTop' ? 'top' : 'left']: at, behavior: smooth ? 'smooth' : 'instant' });
   }
+  // A smooth correction (LLP 1070.000 §6.2) is the browser's smooth scroll
+  // to `s.animating`. While it runs the sequence stays, nothing is sampled
+  // as travel, and reports say where it is headed (`s.owed ?? s.animating`).
+  // A target that arrives meanwhile is held in `s.owed` and taken when it
+  // lands, as UIKit's is: a new smooth scrollTo would restart the ease.
+  function animate(s, to) {
+    const A = AXES[s.axis], port = s.port;
+    to = Math.max(0, Math.min(to, port[A.scrollSize] - port[A.client]));
+    if (s.animating != null) { s.owed = to; return; }
+    if (Math.abs(to - port[A.offset]) <= 0.5) { place(s, to, false); s.offset = port[A.offset]; return; }
+    s.animating = to; s.owed = null;
+    place(s, to, true);
+  }
+  // It landed (or the browser clamped it short): what was owed goes next.
+  function landed(s) {
+    const owed = s.owed;
+    s.animating = s.owed = null; s.travel = null;
+    if (owed != null) animate(s, owed);
+  }
+  // The reader, an authored offset or an ordinary correction takes over: the
+  // browser's animation stops where it is.
+  function stopAnimation(s) {
+    if (s.animating == null) return;
+    s.animating = s.owed = null; s.travel = null;
+    place(s, s.port[AXES[s.axis].offset], false);
+  }
   function scrollChanged(s) {
     const A = AXES[s.axis], at = s.port[A.offset];
     if (at === s.offset) return false;
-    // A smooth correction's animation (LLP 1070.000 §6.2) is not the
-    // reader's travel: the sequence stays, and reports say where it is
-    // headed (`facts`), until it lands or the reader takes over.
     if (s.animating != null) {
       s.offset = at;
       if (Math.abs(at - s.animating) > 0.5) return false;
-      s.animating = null;
+      landed(s);
       return true;
     }
     // The browser clamping the port to an extent a row laid out smaller than
@@ -236,7 +259,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
       if (s.dimensions !== null && dimensions !== s.dimensions) { s.sequence++; s.jumpedAt = s.sequence; }
       s.dimensions = dimensions;
       const facts = { view: s.snapshot.view, revision: s.snapshot.revision, scroll_sequence: s.sequence,
-        offset: Math.max(0, g.raw + (s.animating != null ? s.animating - s.port[A.offset] : s.clamp?.at === s.port[A.offset] ? s.clamp.from - s.clamp.at : 0)), port_main: g.portMain, port_cross: g.portCross, cross: g.cross,
+        offset: Math.max(0, g.raw + (s.animating != null ? (s.owed ?? s.animating) - s.port[A.offset] : s.clamp?.at === s.port[A.offset] ? s.clamp.from - s.clamp.at : 0)), port_main: g.portMain, port_cross: g.portCross, cross: g.cross,
         focus_view: pins[0], interaction_view: pins[1], measurements };
       const signature = [facts.offset, facts.scroll_sequence, dimensions, ...pins,
         ...measurements.flatMap(r => [r.view, r.epoch, r.size])].join('|');
@@ -285,6 +308,7 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
   }
   function jumpTo(s, at) {
     if (!states.has(s.snapshot.view)) return;
+    stopAnimation(s);
     if (delivering) { jumps.push([s, at]); return; }
     s.jump = at; enqueue(s, true); flush(true, s);
     // Not reportable (hidden, partial): move now; its rows follow a frame later.
@@ -391,8 +415,9 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
           s = { el, port, axis, snapshot, rows: [], valid: false, observed: new Map(), budget: 2, travel: null, perRow: null, lastRows: 1, jump: null,
             sequence: BigInt(snapshot.scrollSequence), offset: port[AXES[axis].offset],
             dimensions: null, signature: null, lastFacts: null, corrected: null, anchor: el.style.overflowAnchor };
-          s.scrolled = () => { const changed = scrollChanged(s); sample(s); if (changed) enqueue(s, true); };
-          s.touched = () => { s.input = true; s.animating = null; };
+          // A smooth correction's ticks are never sampled as travel.
+          s.scrolled = () => { const animated = s.animating != null, changed = scrollChanged(s); if (!animated) sample(s); if (changed) enqueue(s, true); };
+          s.touched = () => { s.input = true; stopAnimation(s); };
           for (const name of INPUT) port.addEventListener(name, s.touched, { passive: true });
           s.observer = new ResizeObserver(entries => {
             let changed = false, resizedPort = false, pending = false;
@@ -417,7 +442,10 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
           port.addEventListener('scroll', s.scrolled, { passive: true });
           // A smooth correction that ended short of its target (clamped, or
           // the reader took over) reports where it rests.
-          s.scrollEnded = () => { if (s.animating == null) return; s.animating = null; s.offset = NaN; s.scrolled(); };
+          s.scrollEnded = () => {
+            if (s.animating == null) return;
+            s.offset = s.port[AXES[s.axis].offset]; landed(s); enqueue(s, true);
+          };
           port.addEventListener('scrollend', s.scrollEnded, { passive: true });
           states.set(snapshot.view, s);
         }
@@ -459,9 +487,8 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
             s.shifted = correction;
             if (correction.offset !== done && s.animating != null) {
               // Under a smooth correction's animation the rows moved: where
-              // it lands moves with them.
-              s.animating += correction.offset - done;
-              place(s, s.animating, true);
+              // it lands moves with them, and the animation goes on.
+              s.owed = (s.owed ?? s.animating) + correction.offset - done;
             } else if (correction.offset !== done) {
               const was = port[name];
               place(s, was + correction.offset - done, false);
@@ -484,13 +511,10 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
           if (g && !moving && (s.dimensions === null || s.dimensions === dimensionsOf(g))) {
             s.corrected = snapshot.revision;
             // Relative conversion also handles a list below siblings in its port.
-            const to = port[name] + correction.offset - (s.animating != null ? g.raw + s.animating - port[name] : g.raw);
-            if (correction.smooth === true && !agent) {
-              // The browser's smooth scroll (LLP 1070.000 §6.2).
-              s.animating = Math.max(0, Math.min(to, port[AXES[axis].scrollSize] - port[AXES[axis].client]));
-              place(s, s.animating, true);
-            } else {
-              s.animating = null;
+            const to = port[name] + correction.offset - g.raw;
+            if (correction.smooth === true && !agent) animate(s, to);
+            else {
+              stopAnimation(s);
               place(s, to, false);
               s.offset = port[name]; // consume the programmatic scroll echo
             }

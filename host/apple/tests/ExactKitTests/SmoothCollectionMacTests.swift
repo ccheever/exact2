@@ -50,6 +50,28 @@ final class SmoothCollectionMacTests: XCTestCase {
         XCTAssertEqual(clip.bounds.minY, 300, accuracy: 0.5)
     }
 
+    /// An ordinary correction to where the list already is still stops a
+    /// running animation; a stale continuation for a stopped animation does
+    /// not end the one begun after it.
+    func testAStoppedAnimationsCallbacksDoNotEndTheNextOne() throws {
+        let p = fixture()
+        defer { p.collections.reset() }
+        let clip = try XCTUnwrap(p.views[1]?.scroll?.contentView)
+        let at = clip.bounds.minY
+        p.apply(batch(collections(revision: 2, sequence: 0, correction: ["scrollSequence": sequence(p), "offset": 1200, "smooth": true])))
+        p.apply(batch(collections(revision: 3, sequence: 0, correction: ["scrollSequence": sequence(p), "offset": 1500, "smooth": true])))
+        // The first animation ends with a target owed: its continuation is
+        // queued for the next turn.
+        p.collections.animationEnded(1)
+        p.apply(batch(collections(revision: 4, sequence: 0, correction: ["scrollSequence": sequence(p), "offset": Double(at)])))
+        XCTAssertFalse(p.collections.animating.contains(1), "stopped, though already there")
+        p.apply(batch(collections(revision: 5, sequence: 0, correction: ["scrollSequence": sequence(p), "offset": 900, "smooth": true])))
+        XCTAssertTrue(p.collections.animating.contains(1))
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        XCTAssertTrue(p.collections.animating.contains(1) || clip.bounds.minY == 900, "the stale continuation left the new animation alone")
+        XCTAssertNil(p.collections.owedTargets[1])
+    }
+
     func testAnOrdinaryCorrectionIsSetAtOnce() throws {
         let p = fixture()
         defer { p.collections.reset() }

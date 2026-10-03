@@ -34,7 +34,7 @@ fn env_lengths_parse_by_the_css_grammar_and_resolve_against_the_environment() {
         Some(Dimension::Env(Edge::Bottom, 300.0))
     );
     assert_eq!(
-        Dimension::parse_env("calc( 2.5px+env(safe-area-inset-left) )"),
+        Dimension::parse_env("calc( 2.5px  +\tenv(safe-area-inset-left) )"),
         Some(Dimension::Env(Edge::Left, 2.5))
     );
     for bad in [
@@ -43,6 +43,9 @@ fn env_lengths_parse_by_the_css_grammar_and_resolve_against_the_environment() {
         "calc(env(safe-area-inset-top) + 12)",
         "calc(env(safe-area-inset-top) * 2)",
         "calc(12px - env(safe-area-inset-top))",
+        "calc(12px+env(safe-area-inset-top))",
+        "calc(12px +env(safe-area-inset-top))",
+        "calc(12 px + env(safe-area-inset-top))",
         "calc(12px + env(safe-area-inset-top) + 1px)",
         "calc(12 + env(safe-area-inset-top))",
         "env(safe-area-inset-top, 0px)",
