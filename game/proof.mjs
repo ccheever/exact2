@@ -298,9 +298,13 @@ export function facilityReport(replies) {
 /// Whether a repository file is outside a game's deterministic build inputs:
 /// other games, the bench and its probes, the twins, diaries, LLPs, apps, build
 /// outputs. Source extensions, app assets, and Apple module inputs are admitted.
+/// A game's own scripts (bench.mjs, a proxy, a probe) are tools, not bake inputs:
+/// no bake reads a .mjs/.js outside its logic, data, gpu and asset folders.
 export function proofInputExcluded(file, name, appPrefix = `game/games/${name}/`) {
   return /^(issues|\.claude)\//.test(file)
     || /(^|\/)(pins\.json|proof\.mjs|.*\.test\.mjs|.*\.md)$/.test(file)
+    || (file.startsWith(appPrefix) && /\.m?js$/.test(file)
+      && !['logic/', 'data/', 'gpu/', 'art/', 'assets/', 'deck/'].some(dir => file.startsWith(appPrefix + dir)))
     || (!/\.(rs|toml|lock|contract|ts|js|mjs|wgsl|json|swift|h|c|html|css|modulemap)$/.test(file)
       && !(file.startsWith('host/apple/') && !basename(file).includes('.'))
       && !['art/', 'assets/', 'deck/'].some(dir => file.startsWith(appPrefix + dir)))
