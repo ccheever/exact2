@@ -1,0 +1,9 @@
+{
+  "game": "garden",
+  "ticks": {},
+  "saves": {},
+  "hosts": [],
+  "generated": "bun game/prove.mjs garden",
+  "at": "unverified",
+  "help": "First baseline: bun game/prove.mjs garden; changed golden: add --repin. Empty pins fail ordinary proofs."
+}
