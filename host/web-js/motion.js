@@ -172,7 +172,7 @@ export async function engine({ clock, wall, views, viewId, hooks, say, inflight 
     observe,
     // After each commit's tree: lower what it changed, then retire what no
     // longer qualifies (glue.js `applyBatch`'s tail).
-    flush() { reconcileHeights(); applyBatch(ops([...T.reconcile(), ...lower()])); api.commit(); A.reconcile(); },
+    flush() { reconcileHeights(); applyBatch(ops([...T.reconcile(), ...lower()])); api.commit(); api.followTimelines(); A.reconcile(); },
     reorderHandle(el) { A.handle(el); A.reconcile(); },
     transformDrag(el, target, clip) { T.attach(el, target, clip); T.reconcile(); },
     height(id, v) { heights.set(id, v); observeHeight(id, v); },

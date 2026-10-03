@@ -74,13 +74,13 @@ test('an endless animation holds its start; a fill that leaves it out of effect 
   expect(worst(none, [0.5, 0.1, 0.9], (t) => t / 1000)).toBeLessThan(1e-9); // never leaves it
 });
 
-check('in Chrome, the copy with the easing is the paused animation at the timeline\'s progress', async () => {
+check('in Chrome, followers match timeline progress and stop when a consumer resolves elsewhere', async () => {
   const page = `<style>
 @keyframes fade { from { opacity: 1 } to { opacity: 0.2 } }
 @keyframes pulse { 0% { opacity: 0.1 } 40% { opacity: 0.9; animation-timing-function: ease-in } 100% { opacity: 0.3 } }
 </style><div id="root"></div>
 <script type="module">
-  import { timelineEasing } from './motion-glue.js';
+  import { motionController, timelineEasing } from './motion-glue.js';
   window.compare = (animation, p) => {
     const make = () => { const el = document.createElement('div'); el.style.animation = animation; el.style.animationPlayState = 'paused'; document.getElementById('root').append(el); return el; };
     const reference = make(), follower = make();
@@ -98,6 +98,40 @@ check('in Chrome, the copy with the easing is the paused animation at the timeli
     }
     reference.remove(); follower.remove();
     return { easing, worst };
+  };
+  window.reconcileFollower = (change) => {
+    const root = document.getElementById('root');
+    root.innerHTML = '<div id="scope"><div id="old"></div><div id="next"></div><div id="consumer"></div></div>';
+    const scope = document.getElementById('scope'), old = document.getElementById('old');
+    const next = document.getElementById('next'), consumer = document.getElementById('consumer');
+    scope.style.setProperty('--exact-timeline-scope', '--drag');
+    old.style.cssText = '--exact-drag-timeline:--drag x;translate:0 0';
+    next.style.translate = '80px 0';
+    consumer.style.cssText = 'opacity:.55;--exact-animation-timeline:--drag;--exact-animation-range:0 100;animation:fade 1s linear both;animation-play-state:paused';
+    let frames = 0;
+    const requestFrame = window.requestAnimationFrame;
+    window.requestAnimationFrame = (...args) => { frames++; return requestFrame(...args); };
+    const motion = motionController({ views: new Map([[1, old]]), now: () => performance.now(), generation: () => 1,
+      request: () => ({}), applyBatch: () => {}, inert: () => false });
+    motion.followTimelines();
+    motion.animate({ id: 1, property: 'translate', values: [[0, 0], [100, 0]], delay: 0, duration: 100000 });
+    old.getAnimations()[0].currentTime = 50000;
+    consumer.getAnimations().find(a => a.animationName === undefined).currentTime = 50000;
+    const before = parseFloat(getComputedStyle(consumer).opacity);
+    if (change === 'other') {
+      old.style.removeProperty('--exact-drag-timeline');
+      next.style.setProperty('--exact-drag-timeline', '--drag x');
+    } else if (change === 'inactive') {
+      old.style.removeProperty('--exact-drag-timeline');
+    } else if (change === 'removed') {
+      consumer.style.cssText = 'opacity:.55';
+    }
+    motion.followTimelines();
+    const result = { before, after: parseFloat(getComputedStyle(consumer).opacity),
+      followers: consumer.getAnimations().filter(a => a.animationName === undefined).length, frames };
+    motion.reset();
+    window.requestAnimationFrame = requestFrame;
+    return result;
   };
   window.ready = true;
 </script>`;
@@ -135,6 +169,18 @@ check('in Chrome, the copy with the easing is the paused animation at the timeli
       expect(worst, animation).toBeLessThan(1e-4);
     }
     expect((await compare('fade 1s linear', [0.5, -0.1, 0])).easing).toBe('null');
+    for (const [change, after, followers] of [
+      ['other', 0.36, 0],
+      ['inactive', 0.55, 0],
+      ['removed', 0.55, 0],
+      ['unchanged', 0.6, 1],
+    ]) {
+      const result = await evaluate(`reconcileFollower(${JSON.stringify(change)})`);
+      expect(result.before, `${change}: the release follower is in flight`).toBeCloseTo(0.6, 3);
+      expect(result.after, `${change}: the current timeline wins immediately`).toBeCloseTo(after, 3);
+      expect(result.followers, `${change}: only a still-bound consumer keeps its follower`).toBe(followers);
+      expect(result.frames, `${change}: a spring release schedules no per-frame callbacks`).toBe(0);
+    }
   } finally {
     child.kill();
     server.close();

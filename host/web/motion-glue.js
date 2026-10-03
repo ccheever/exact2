@@ -153,6 +153,17 @@ export function motionController({views,now,generation,request,applyBatch,inert,
     timelineFrame=requestAnimationFrame(()=>{timelineFrame=0;if(followTimelines())kickTimelines();});};
   // Seek every bound consumer; whether a source is still moving on its own.
   function followTimelines() {
+    // A commit may make a consumer resolve its name to another source, an
+    // inactive timeline or no timeline while the old source's release still
+    // plays. Stop that follower before seeking the current resolution.
+    for(const [id,record] of followers) {
+      record.animations=record.animations.filter(f=>{
+        const c=f.effect?.target,name=c?.style.getPropertyValue('--exact-animation-timeline').trim();
+        if(c?.isConnected&&name&&timelineSource(c,name)===record.source)return true;
+        f.cancel();return false;
+      });
+      if(!record.animations.length)followers.delete(id);
+    }
     const sources=new Map();let moving=false;
     for(const el of document.querySelectorAll(timelineSources)) {
       const [name,axis='y']=el.style.getPropertyValue('--exact-drag-timeline').trim().split(/\s+/);
@@ -225,8 +236,8 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       }
     }
     if(made.length) {
-      followers.set(id,made);
-      made[0].finished.then(()=>{if(followers.get(id)!==made)return;followers.delete(id);followTimelines();for(const f of made)f.cancel();},()=>{});
+      const record={source:el,animations:made};followers.set(id,record);
+      Promise.allSettled(made.map(f=>f.finished)).then(()=>{if(followers.get(id)!==record)return;followers.delete(id);followTimelines();for(const f of record.animations)f.cancel();});
     }
     if(seek)kickTimelines();
   }
@@ -591,7 +602,7 @@ export function motionController({views,now,generation,request,applyBatch,inert,
       for(const b of [...transformBindings.values()])detachTransform(b);
       geometryDirty.clear();if(geometryFrame!==null)cancelAnimationFrame(geometryFrame);geometryFrame=null;
       for(const animation of animations.values()) animation.cancel(); animations.clear();
-      for(const made of followers.values())for(const f of made)f.cancel(); followers.clear();
+      for(const record of followers.values())for(const f of record.animations)f.cancel(); followers.clear();
       const ids=[...authored.keys()]; held.clear();raised.clear(); for(const id of ids) restore(id); authored.clear();
     },
     // Pan and pinch on the photo pair (LLP 1057.001 §4): up to two pointers,
