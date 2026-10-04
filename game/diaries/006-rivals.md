@@ -1131,3 +1131,53 @@ hosts. Both five-kill Mayhem captures were inspected; the round remains
 live with its 25-kill target. Artifacts: `artifacts/audit-{web,macos}/`.
 No gameplay or Jev-policy changes; timings include builds and concurrent
 verification.
+
+## Readable nameplates in a crowded fight (2026-10-04)
+
+The five-kill Mayhem captures from the shared audit sweep show names and
+health bars overlapping: bot-14 and bot-11 merge into an unreadable plate.
+The crowded fight needs a bounded display policy. Plates now occupy an
+explicit 128 × 48 CSS-pixel box with a six-pixel gap between neighbors.
+When boxes compete, the drill's requested target wins, then the opponent
+nearest the crosshair, with fighter slot breaking ties. A suppressed plate
+returns as fighters separate or the player turns. A four-pixel screen inset
+keeps a whole plate visible. Head anchors, line-of-sight checks and the
+Jev pointer motor are unchanged; the display never shifts an aim point to
+make room. No extra saved resource or engine API is needed.
+
+A hostless regression reproduces overlapping bot-1/bot-21 plates at 3.6 s
+in Mayhem, then passes with every retained anchor still equal to the
+projected head. The 640 × 360 case prioritizes the requested drill target
+over the central dummy, and turning reveals the newly aimed-at opponent.
+My initial small-screen assertion incorrectly expected one plate: the
+two outer lanes have enough space for both; correcting it retains both.
+All 29 enabled Rivals tests pass (four ignored measurements), as do strict
+game Clippy and formatting. Logs: `/tmp/exact2-nameplates-*.log`.
+
+The first full web/macOS attempts fail only my added geometry check: I
+read coordinates from `tree`, which exposes properties, instead of `layout`.
+Those runs still agree on all ten world observations, every pin and all
+fourteen saves, and both descendant audits pass. Their world observations
+and tick pins equal the pre-change `audit-macos` baseline. The corrected
+check uses the existing `layout` operation to verify actual plate boxes on
+the hosts. Failed artifacts remain in `artifacts/plates-{web,macos}/`;
+the corrected runs use `artifacts/plates-fixed-{web,macos}/`.
+
+Both corrected proofs finish with zero failures and successful descendant
+audits: web 63.4 s, macOS 54.3 s. Inputs, all pins, ten worlds and fourteen
+saves agree. Both five-kill screenshots were inspected; the previously
+overlapping plates are separate. Only the Mayhem and Mayhem-round save pins
+change, because saved HUD contacts contain the reduced label set. Combat
+world observations and the other save pins remain unchanged.
+
+The ordinary three-correction pointer check lands all three headshots on
+each host (web/macOS 11.0/3.8 s). One unchanged Jev Mayhem run per host then
+wins: web **25–14 in 75 decisions**, native **25–8 in 70**. Game times are
+33.425/32.375 s, deaths nine/seven, shots 79/68, headshots 75/66. Both final
+captures were inspected, both audits pass, and neither controller nor goals
+were tuned after the outcomes. These exploratory text-driven decisions use
+the existing authored aim assist; they do not establish a human-aim result
+or improved success rate. Artifacts: `artifacts/plates-motor-check-{web,macos}/`
+and `artifacts/plates-mayhem-{web,macos}/`. Wall times for the Jev runs are
+54.7/79.6 s including builds; gateway latency does not advance game time.
+This gameplay feedback batch is closed; strict save acceptance follows.

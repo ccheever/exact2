@@ -193,6 +193,53 @@ fn opponent_labels_hide_dead_offscreen_and_occluded_heads() {
 }
 
 #[test]
+fn crowded_nameplates_stay_readable_without_moving_their_aim_points() {
+    use exact_game::{Transform, Vec2, Vec3};
+    let mut sim = game(Options {
+        bots: 24,
+        ..Options::default()
+    });
+    sim.run(3600.0);
+    let size = Vec2::new(1280.0, 720.0);
+    let contacts = rivals_logic::contacts(sim.world(), size, None);
+    assert!(
+        contacts.len() >= 3,
+        "crowding must not hide the whole fight"
+    );
+    for (i, c) in contacts.iter().enumerate() {
+        let head = sim.world().require::<Transform>(&c.label).position + Vec3::Y * 0.66;
+        let anchor = sim.world().project(head, size).unwrap();
+        assert_eq!((c.x, c.y), (anchor.x.round(), anchor.y.round()));
+        assert!(c.x >= 68.0 && c.x <= size.x - 68.0 && c.y >= 70.0);
+        for other in &contacts[i + 1..] {
+            assert!(
+                (c.x - other.x).abs() >= 134.0 || (c.y - other.y).abs() >= 54.0,
+                "overlapping plates: {} and {}",
+                c.label,
+                other.label
+            );
+        }
+    }
+    let mut drill = range();
+    drill.run(500.0);
+    // Short screens pack the three lanes together. The requested target wins
+    // that space even if another head is nearer to the crosshair.
+    let small = Vec2::new(640.0, 360.0);
+    let target = rivals_logic::contacts(drill.world(), small, Some(4));
+    assert_eq!(target.iter().map(|c| c.id).collect::<Vec<_>>(), [2, 4]);
+    let aimed = rivals_logic::contacts(drill.world(), small, None);
+    assert_eq!(aimed.len(), 1);
+    assert_eq!(aimed[0].id, 3);
+    drill.hold("ArrowRight", 100.0);
+    let turned = rivals_logic::contacts(drill.world(), small, None);
+    assert!(
+        turned.iter().any(|c| c.id == 4),
+        "turning reveals the newly aimed-at fighter"
+    );
+    assert!(!turned.iter().any(|c| c.id == 3));
+}
+
+#[test]
 fn incoming_hit_keeps_its_origin_turns_with_the_player_and_expires_after_restore() {
     use exact_game::{Transform, Vec2, Vec3};
     use rivals_logic::weapons::{damage, Weapon};

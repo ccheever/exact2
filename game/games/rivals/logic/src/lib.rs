@@ -523,7 +523,8 @@ pub fn contacts(w: &World, viewport: Vec2, target: Option<u32>) -> Vec<Contact> 
         return Vec::new();
     }
     let eye = w.require::<Transform>("player").position + Vec3::Y * me.eye;
-    w.query::<(&Fighter, &Transform)>()
+    let mut candidates: Vec<Contact> = w
+        .query::<(&Fighter, &Transform)>()
         .iter()
         .filter(|(_, (f, _))| f.bot && f.alive)
         .filter_map(|(e, (f, t))| {
@@ -541,7 +542,32 @@ pub fn contacts(w: &World, viewport: Vec2, target: Option<u32>) -> Vec<Contact> 
                 target: target == Some(f.slot),
             })
         })
-        .collect()
+        .collect();
+    // The Contract's plates are 128 × 48, centred above the head with an
+    // 18 px gap. Keep the anchor on that head: moving labels would also move
+    // the visible point an agent or player uses to aim. Prefer the drill's
+    // target, then the head nearest the crosshair, with slot as a stable tie.
+    let distance = |c: &Contact| (Vec2::new(c.x, c.y) - viewport * 0.5).length_squared();
+    candidates.sort_by(|a, b| {
+        b.target
+            .cmp(&a.target)
+            .then_with(|| distance(a).total_cmp(&distance(b)))
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    let mut shown: Vec<Contact> = Vec::new();
+    for c in candidates {
+        if c.x < 68.0 || c.x > viewport.x - 68.0 || c.y < 70.0 {
+            continue;
+        }
+        if shown
+            .iter()
+            .all(|other| (c.x - other.x).abs() >= 134.0 || (c.y - other.y).abs() >= 54.0)
+        {
+            shown.push(c);
+        }
+    }
+    shown.sort_by_key(|c| c.id);
+    shown
 }
 
 pub fn publish(w: &World, args: &Options, viewport: Vec2) {

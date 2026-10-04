@@ -26,6 +26,10 @@ the next one: each correct elimination earns 100 points times your combo (up to
 ×5), plus 50 for a headshot. Hitting another dummy breaks the combo. Dummies return
 to their own lanes after two seconds. **Try again** starts a fresh drill. Visible
 opponents show their name and health; cover hides their labels.
+Crowded labels favor the drill's requested target, then the opponent nearest
+the crosshair. Others reappear as you turn or the fighters separate. Each
+label stays directly above its fighter's head, with space between labels and
+inside the screen edges.
 
 A compass reports the direction you face. After taking damage, a red arrow and
 `Hit from …` label point toward that shot or explosion for two seconds. Turning

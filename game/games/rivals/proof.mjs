@@ -8,6 +8,14 @@ import { proof, axNames, decide } from "../../proof.mjs";
 
 const node = (tree, id) => tree.nodes.find(n => n.props?.testId === id);
 const text = (tree, id) => node(tree, id)?.props?.text;
+async function checkNameplates(s, check, label) {
+  const {nodes} = await s.layout(), canvas = nodes.find(n => n.testId === 'world');
+  const plates = nodes.filter(n => /^plate-\d+$/.test(n.testId ?? ''));
+  check(`${label}: visible nameplates fit their boxes and do not overlap`, plates.length > 0 && plates.every((p, i) =>
+    p.w === 128 && p.h === 48 && p.x >= canvas.x + 4 && p.x + p.w <= canvas.x + canvas.w - 4 && p.y >= canvas.y + 4 &&
+    plates.slice(i + 1).every(q => p.x + p.w + 6 <= q.x || q.x + q.w + 6 <= p.x || p.y + p.h + 6 <= q.y || q.y + q.h + 6 <= p.y)),
+    plates.map(({testId, x, y, w, h}) => ({id:testId, x, y, w, h})));
+}
 if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave, say}) => {
   if (process.argv.includes('--playtest')) return process.argv.includes('--motor-check')
     ? motorCheck({open, out, check}) : playtest({open, out, say});
@@ -32,6 +40,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   pin(0, await game.snapshot());
   check('initial HUD: full health, a full rifle', text(await s.tree(), 'hp') === '100' && text(await s.tree(), 'ammo') === '30 / 30');
   await game.run(400);
+  await checkNameplates(s, check, 'Range');
   // The dummies' heads are at eye height: level aim is a headshot.
   await game.tap('KeyF');
   await game.run(50);
@@ -167,6 +176,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   })));
   await mayhem.key_down('KeyF');
   await mayhem.run(2600);
+  await checkNameplates(crowd, check, 'Mayhem');
   check('Mayhem is an active fight', (await mayhem.snapshot()).entities.filter(e => e.components?.Fighter).some(e => e.components.Fighter.deaths > 0));
   if (host !== 'linux') await crowd.screenshot(resolve(out, 'mayhem.png'));
   await mayhem.save(resolve(out, 'mayhem.world'));
