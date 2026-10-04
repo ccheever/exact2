@@ -16,12 +16,13 @@ pub(super) struct Header {
     interlaced: bool,
 }
 
-/// `color` for a JPEG (not a PNG colour type); its pixels come from
-/// `jpeg_decode`.
+/// `color` for a JPEG, GIF or WebP (not a PNG colour type); its pixels come
+/// from `jpeg_decode`, the platform's decoder.
 const JPEG: u8 = 0xFF;
 
 impl Header {
-    /// A JPEG's header: decoded as 8-bit RGBA by the platform.
+    /// A JPEG's, GIF's or WebP's header: decoded as 8-bit RGBA by the platform
+    /// (a GIF's or WebP's first frame).
     pub(super) fn jpeg(metadata: Metadata) -> Header {
         Header {
             metadata,
@@ -51,6 +52,9 @@ pub(super) fn inspect(
         .map_err(|_| Refusal::DecodeFailed)?;
     if super::jpeg_decode::is_jpeg(&head) {
         return super::jpeg_decode::inspect(input, encoded_bytes);
+    }
+    if let Some(header) = super::jpeg_decode::inspect_animated(&head, encoded_bytes)? {
+        return Ok(header);
     }
     if &head[..8] != b"\x89PNG\r\n\x1a\n"
         || head[8..12] != 13u32.to_be_bytes()

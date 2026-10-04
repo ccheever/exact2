@@ -28,6 +28,10 @@
 //! - `13 STROKE color width cap join n (tag coords…)×n` — caps/joins as SVG (0 butt/miter, 1 round, 2 square/bevel)
 //! - `14 IMAGE_RRECT id dst(x y w h) region(x y w h) radii×8` — the picture mapped to `dst`, drawn
 //!   only over `region` with those corner radii (a clip-free rounded image; `clip.rs`)
+//! - `26 ANIMATED id len utf8-path(padded to 4)` — after `IMAGE_DEF`: the picture is a GIF's or
+//!   WebP's first frame; a reader may draw that file's animated drawable in its place
+//! - `25 DASH phase n d×n` — the next STROKE is dashed: `n` (even) on/off lengths and the
+//!   offset into them, in the stroke's own units (SVG `stroke-dasharray`, `stroke-dashoffset`)
 //!
 //! Geometry is in device pixels; colours are ARGB.
 //!
@@ -42,7 +46,7 @@ use exact_kernel::ViewId;
 use exact_runner::DataSource;
 use std::cell::RefCell;
 use std::collections::HashMap;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use tiny_skia::{Pixmap, Transform};
 
 const MATRIX: u32 = 1;
@@ -59,6 +63,10 @@ const IMAGE_DEF: u32 = 11;
 const IMAGE_FREE: u32 = 12;
 const STROKE: u32 = 13;
 const IMAGE_RRECT: u32 = 14;
+/// The next STROKE's dash: phase, count, lengths.
+const DASH: u32 = 25;
+/// A picture's animated file: id, length, path.
+const ANIMATED: u32 = 26;
 /// A row's recording: id, the id of the row it replaces (0 for none; the top
 /// bit set when the row shows in this frame, so the reader makes it before
 /// drawing), width and height (device pixels), then the count of words up to
@@ -104,6 +112,10 @@ const IDLE_FRAMES: u64 = 10;
 
 #[path = "canvas/clip.rs"]
 mod clip;
+#[path = "canvas/picture.rs"]
+mod picture;
+pub use picture::Picture;
+use picture::WeakPicture;
 
 thread_local! {
     /// The last finished recording and the pictures it introduced.
@@ -111,7 +123,7 @@ thread_local! {
     /// The last finished recording's scrollers and the offsets drawn at.
     static GROUPS: RefCell<Vec<(u32, (f32, f32))>> = const { RefCell::new(Vec::new()) };
     /// Pictures the reader has not fetched yet, by id.
-    static PENDING: RefCell<std::collections::BTreeMap<u32, Arc<Bitmap>>> =
+    static PENDING: RefCell<std::collections::BTreeMap<u32, Picture>> =
         const { RefCell::new(std::collections::BTreeMap::new()) };
 }
 
@@ -123,10 +135,12 @@ pub struct Recorder {
     matrix: Option<[f32; 6]>,
     /// Faces announced to the reader, by (file, index, weight).
     fonts: HashMap<(Arc<str>, u32, u16), u32>,
+    /// Files standing in for faces loaded from bytes, by blob id.
+    face_files: HashMap<u64, Option<Arc<str>>>,
     /// Pictures announced to the reader, by allocation, with a weak handle
     /// so a dropped picture is freed on the reader too, and the frame each
     /// was last drawn in.
-    images: HashMap<usize, (u32, Weak<Bitmap>, u64)>,
+    images: HashMap<usize, (u32, WeakPicture, u64)>,
     /// Frames begun: when a picture was last drawn.
     frames: u64,
     /// The scroller whose rows are being drawn, if any.
@@ -183,6 +197,7 @@ impl Recorder {
             ops: Vec::new(),
             matrix: None,
             fonts: HashMap::new(),
+            face_files: HashMap::new(),
             images: HashMap::new(),
             next_image: 1,
             frames: 0,
@@ -265,6 +280,28 @@ impl Recorder {
         }
     }
 
+    /// A face loaded from bytes (a declared `font`) has no file for Android's
+    /// `Font`: its bytes are written once to `$HOME/.exact-fonts/`, named by
+    /// their hash, and that file stands in.
+    fn face_file(&mut self, font: &cosmic_text::PenikoFont) -> Option<(Arc<str>, u32)> {
+        let blob = font.data.id();
+        if let Some(path) = self.face_files.get(&blob) {
+            return path.clone().map(|p| (p, font.index));
+        }
+        let bytes = font.data.data();
+        let hash = bytes.iter().fold(0xcbf2_9ce4_8422_2325_u64, |h, b| {
+            (h ^ u64::from(*b)).wrapping_mul(0x0100_0000_01b3)
+        });
+        let dir = std::path::Path::new(&std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()))
+            .join(".exact-fonts");
+        let path = dir.join(format!("{hash:016x}.ttf"));
+        let ok = path.exists()
+            || (std::fs::create_dir_all(&dir).is_ok() && std::fs::write(&path, bytes).is_ok());
+        let path: Option<Arc<str>> = ok.then(|| Arc::from(path.to_string_lossy().as_ref()));
+        self.face_files.insert(blob, path.clone());
+        path.map(|p| (p, font.index))
+    }
+
     fn font(&mut self, file: &(Arc<str>, u32), weight: u16) -> u32 {
         let key = (file.0.clone(), file.1, weight);
         if let Some(k) = self.fonts.get(&key) {
@@ -272,34 +309,67 @@ impl Recorder {
         }
         let k = self.fonts.len() as u32 + 1;
         self.fonts.insert(key, k);
-        let bytes = file.0.as_bytes();
-        self.ops
-            .extend([FONT, k, file.1, u32::from(weight), bytes.len() as u32]);
+        self.ops.extend([FONT, k, file.1, u32::from(weight)]);
+        self.string(&file.0);
+        k
+    }
+
+    /// Length, then UTF-8 bytes padded to whole words.
+    fn string(&mut self, s: &str) {
+        let bytes = s.as_bytes();
+        self.ops.push(bytes.len() as u32);
         for chunk in bytes.chunks(4) {
             let mut w = [0u8; 4];
             w[..chunk.len()].copy_from_slice(chunk);
             self.ops.push(u32::from_le_bytes(w));
         }
-        k
     }
 
-    fn image_id(&mut self, image: &Arc<Bitmap>) -> u32 {
-        let key = Arc::as_ptr(image) as usize;
+    /// A picture mapped onto `dst` under `clips`.
+    fn picture(&mut self, picture: &Picture, dst: Rect4, clips: &[Shape], ts: Transform) {
+        let id = self.image_id(picture);
+        if self.image_rrect(id, dst, clips, ts) {
+            return;
+        }
+        self.need(None);
+        self.transform(ts);
+        for c in clips {
+            self.ops.push(CLIP_RRECT);
+            self.rect_radii(c);
+        }
+        self.ops.extend([IMAGE, id]);
+        for v in [dst.0, dst.1, dst.2, dst.3] {
+            self.f(v);
+        }
+        for _ in clips {
+            self.ops.push(RESTORE);
+        }
+    }
+
+    fn image_id(&mut self, image: &Picture) -> u32 {
+        let key = image.key();
         let now = self.frames;
         if let Some(row) = &mut self.row {
             row.images.push(key);
         }
         if let Some((id, weak, used)) = self.images.get_mut(&key) {
-            if weak.upgrade().is_some_and(|live| Arc::ptr_eq(&live, image)) {
+            if weak.is(image) {
                 *used = now;
                 return *id;
             }
         }
         let id = self.next_image;
         self.next_image += 1;
-        self.images.insert(key, (id, Arc::downgrade(image), now));
+        self.images.insert(key, (id, image.downgrade(), now));
         self.ops
             .extend([IMAGE_DEF, id, image.width(), image.height()]);
+        if let Picture::Bitmap(b) = image {
+            if let Some(file) = b.animation_file() {
+                let path = file.to_string_lossy();
+                self.ops.extend([ANIMATED, id]);
+                self.string(&path);
+            }
+        }
         PENDING.with(|p| p.borrow_mut().insert(id, image.clone()));
         id
     }
@@ -331,7 +401,7 @@ impl Backend for Recorder {
         let dead: Vec<(usize, u32)> = self
             .images
             .iter()
-            .filter(|(_, (_, weak, used))| weak.strong_count() == 0 || frames - used > self.idle)
+            .filter(|(_, (_, weak, used))| !weak.alive() || frames - used > self.idle)
             .map(|(k, (id, _, _))| (*k, *id))
             .collect();
         for (k, id) in dead {
@@ -409,23 +479,16 @@ impl Backend for Recorder {
         if dst.2 <= 0.0 || dst.3 <= 0.0 {
             return;
         }
-        let id = self.image_id(image);
-        if self.image_rrect(id, dst, clips, ts) {
+        self.picture(&Picture::Bitmap(image.clone()), dst, clips, ts);
+    }
+
+    fn canvas(&mut self, pixels: &Arc<Pixmap>, dst: Rect4, clips: &[Shape], ts: Transform) {
+        // A canvas is drawn by the presenter into pixels (Canvas 2D in Rust);
+        // the reader shows them as a picture, sent again when they change.
+        if dst.2 <= 0.0 || dst.3 <= 0.0 || pixels.width() == 0 || pixels.height() == 0 {
             return;
         }
-        self.need(None);
-        self.transform(ts);
-        for c in clips {
-            self.ops.push(CLIP_RRECT);
-            self.rect_radii(c);
-        }
-        self.ops.extend([IMAGE, id]);
-        for v in [dst.0, dst.1, dst.2, dst.3] {
-            self.f(v);
-        }
-        for _ in clips {
-            self.ops.push(RESTORE);
-        }
+        self.picture(&Picture::Canvas(pixels.clone()), dst, clips, ts);
     }
 
     fn text(
@@ -453,10 +516,10 @@ impl Backend for Recorder {
             if run.paint.color[3] == 0 {
                 continue;
             }
-            let Some(file) = run.file.as_ref() else {
+            let Some(file) = run.file.clone().or_else(|| self.face_file(&run.font)) else {
                 continue;
             };
-            let font = self.font(file, run.weight);
+            let font = self.font(&file, run.weight);
             self.ops.extend([GLYPHS, font]);
             self.f(run.size);
             self.ops.push(Self::color(run.paint.color));
@@ -495,6 +558,14 @@ impl Backend for Recorder {
             self.path(&ops);
         }
         if let Some(crate::paint::Ink::Solid(c)) = &s.stroke {
+            if !s.dash.is_empty() {
+                self.ops.push(DASH);
+                self.f(s.phase);
+                self.ops.push(s.dash.len() as u32);
+                for d in &s.dash {
+                    self.f(*d);
+                }
+            }
             self.ops.extend([STROKE, Self::color(*c)]);
             self.f(s.width);
             self.ops.extend([u32::from(s.cap), u32::from(s.join)]);
@@ -1020,7 +1091,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
     }
 
     /// A picture announced by `IMAGE_DEF`, once (premultiplied RGBA rows).
-    pub fn image(id: u32) -> Option<Arc<Bitmap>> {
+    pub fn image(id: u32) -> Option<Picture> {
         PENDING.with(|p| p.borrow_mut().remove(&id))
     }
 }

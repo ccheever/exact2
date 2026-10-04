@@ -28,6 +28,20 @@ pub(super) struct SourceOwner {
     assets: Weak<Assets>,
     prepared: Mutex<Prepared>,
 }
+impl SourceOwner {
+    /// The file it reads, when it is one (not an update's bytes).
+    pub(super) fn file(&self) -> Option<std::path::PathBuf> {
+        match self.assets.upgrade()?.image_input(&self.name)? {
+            ImageInput::Path(path) => Some(path),
+            ImageInput::Bytes(_) => None,
+        }
+    }
+
+    /// The asset name it was asked for.
+    pub(super) fn name(&self) -> &str {
+        &self.name
+    }
+}
 struct State {
     sources: BTreeMap<u64, Weak<SourceOwner>>,
     next_source: u64,
