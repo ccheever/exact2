@@ -388,11 +388,21 @@ a refusal lands. A Rust module's storage request in such a drive is answered
 with the same message, never refused outright (trivia F7).
 
 An answer's storage and `fetch` steps run whether or not it awaits them: a save
-started and not awaited (queued behind the module's own promise chain, say)
-lands on every host. In the browser the answer is given at once and the save
-finishes behind it; on Hermes the answer is given once the steps it started
-have landed (kanban F22). A storage or `fetch` call made when no answer is in
-flight is refused and logged, never silently dropped. An answer the runner
+started and not awaited, or queued behind the module's own promise chain so
+that it begins in the microtask checkpoint after a value given at once, lands
+on every host (kanban F22, drums R10). In the browser the answer is given at
+once and the save finishes behind it; on Hermes the answer is given once the
+steps it started have landed. So a native answer that saves is a reply on real
+time, as a `fetch`'s is: under the driver it lands at the next `clock` step,
+not with the input (`tap` then `expect` reads the state before it; on the web
+build an answer given at once is there already), and on a device it lands a few
+milliseconds after the input. An answer the runner asks while another's
+storage steps are in flight waits for them, so an editor that saves on every
+edit can trail by one write (drums R11): answer edits from memory and save
+from a `task` (`every(500, autosave)` sending a `persist` mutation when the
+document changed), or put `clock settle` after the edit in a native test. A
+storage or `fetch` call made when no answer is in flight is refused and
+logged, never silently dropped. An answer the runner
 lets go between storage steps (a refresh it discards before a mutation lands, a
 read whose arguments changed or that a `refresh` replaced) still runs the steps it began, and the chain
 behind them, to their end before the next answer starts; only its answer is

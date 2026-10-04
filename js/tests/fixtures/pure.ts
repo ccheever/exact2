@@ -154,9 +154,12 @@ function transfer(mode:string):unknown {
 }
 // Exercise the actual native envelope parser, including replies the ordinary
 // serializer cannot emit. Restore stringify before it visits capture paths.
+// An async mode replaces the call's envelope; a sync one the reply its settle
+// gives after the checkpoint (a value given at once is a call too).
 function wire(text:string,mode:string):unknown {
   const stringify=JSON.stringify;
   JSON.stringify=((value:unknown,replacer:never,space:never)=>{
+    if(!mode.startsWith('async')&&(value as {tag?:number}|null)?.tag===3) return stringify(value,replacer,space);
     JSON.stringify=stringify;
     stringify(value,replacer,space);
     return text;

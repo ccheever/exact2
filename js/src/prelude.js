@@ -795,8 +795,8 @@
       "fetch, or share the resolved value rather than the promise. Storage is different: an answer queued behind another's " +
       "storage turn waits for it"));
   }
-  // The executor: `__exact_call(source, argsJson)` → tag 0/2 at once, or
-  // tag 3 with a call id — then it drains microtasks and asks
+  // The executor: `__exact_call(source, argsJson)` → tag 3 with a call id
+  // (a value given at once too: see its end) — then it drains microtasks and asks
   // `__exact_settle(id)`, which is tag 0/2, or tag 1 with the ticket of the
   // fetch the answer is waiting on (0: its storage; 0 and `waiting`: another
   // answer's work). `__exact_fulfill(ticket, outcomeJson)` resolves that
@@ -842,8 +842,6 @@
       result = global.exact.answer(source, JSON.parse(argsJson), store, storage, native);
     }
     catch (e) {
-      currentCall = null;
-      if (!owes(call)) { call.replied = true; return fail(e); }
       calls.set(call.id, call);
       call.status = "failed"; call.error = e;
       return JSON.stringify({ tag: 3, call: call.id });
@@ -853,16 +851,16 @@
       result.then(function (v) { call.status = "done"; call.value = v; }, function (e) { call.status = "failed"; call.error = e; });
       return JSON.stringify({ tag: 3, call: call.id });
     }
-    currentCall = null;
-    // A value given at once while a write it started is still in flight
-    // waits for the write, as a promised one does (`settle`).
-    if (owes(call)) {
-      calls.set(call.id, call);
-      call.status = "done"; call.value = result;
-      return JSON.stringify({ tag: 3, call: call.id });
-    }
-    call.replied = true;
-    return ok(result);
+    // A value given at once is replied after the microtask checkpoint that
+    // follows the call, as a browser runs one after each task, and work the
+    // answer queued there is its own and lands first: a save chained behind
+    // a resolved promise was never run on macOS, with nothing in the logs
+    // (drums R10), because a reply given here left it queued with no answer
+    // in flight to run it. (The reply is serialized at `settle`, as a
+    // promised value is: the engine keeps one call's large strings.)
+    calls.set(call.id, call);
+    call.status = "done"; call.value = result;
+    return JSON.stringify({ tag: 3, call: call.id });
   };
   // Canvas 2D (LLP 1056 D1): the module's draw seam, when it exports `draw`.
   // Text is measured and image handles are answered where the draw runs
