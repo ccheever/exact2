@@ -38,9 +38,12 @@ The plan:
 - **Fidelity is graded in three layers.** Hidden scripted checks come first, then a
   judge agent that drives the built app against the spec on each platform, then a
   parity diff across platforms.
-- **Experience is graded by an agent** reading the diary *and* the transcript, against
-  an anchored rubric. Two model families grade, and the bench reports where they
-  disagree.
+- **Experience is graded by a panel of agents** reading the diary *and* the
+  transcript, against an anchored rubric. Claude, Astra and Grok each grade blind.
+  The bench reports the median, the disagreement, and whether any family favours its
+  own builds.
+- **Builders vary too.** Opus, Sonnet, GPT, Grok and Gemini all author, because docs
+  that only work for one model are bad docs.
 - **The loop** runs a batch, clusters the findings across trials, and ranks them by
   minutes and tokens lost × frequency. It fixes the top ones in exact2 through the
   usual lanes and re-runs the affected tasks paired against the baseline. A fix lands
@@ -145,8 +148,15 @@ What each task carries:
    then run the graders (§5, §6) in fresh contexts. Graders never share a context with
    the builder.
 
-The default builder is Claude Code with Opus 5.5. The matrix varies the harness and
-model from there.
+Builders vary as a first-class axis. The nightly matrix includes at least:
+
+- Claude Code with Opus 5.5 (the baseline cell), and with Sonnet 5
+- Codex with `gpt-6-astra`
+- Grok CLI with Grok 4.7
+- one more family when its harness runs headless (Gemini CLI)
+
+The weekly batch adds Fable 5.1, Haiku 4.5 and reasoning-effort variants. A cheap
+model that can finish a task is the strongest test of the docs.
 
 Trials in a batch run in parallel on any fleet machine that is free. A machine runs one iOS trial at a
 time, since simulators and Xcode builds fight. Machines are probed for load before
@@ -174,7 +184,8 @@ dispatch, as `skills/orchestrate` already does.
     "by_cause": { "docs": 0, "exact2_source": 0, "build_output": 0, "own_code": 0, "diary": 0 }
   },
   "fidelity": { "score": 0, "by_platform": { "web": 0, "ios": 0 }, "requirements": [], "bugs": [] },
-  "experience": { "overall": 0, "sub": {}, "graders": ["claude-opus-5-5", "gpt-6-astra"], "spread": 0 },
+  "experience": { "overall": 0, "overall_other_family": 0, "sub": {},
+                  "by_grader": { "claude-opus-5-5": {}, "gpt-6-astra": {}, "grok-4.7": {} }, "spread": 0 },
   "findings": [ { "id": "", "category": "", "minutes_lost": 0, "tokens_lost": 0, "evidence": "" } ]
 }
 ```
@@ -327,14 +338,27 @@ It outputs the scores, the evidence, and a list of **findings**. Each finding is
 `{category, title, minutes_lost, tokens_lost, evidence, suggested fix}`, and findings
 are the loop's raw material.
 
-Two graders score each trial blind: Astra (`gpt-6-astra`, xhigh, via `codex exec`)
-and Grok 4.7 (xhigh). Neither is a Claude model, so trials built by Opus aren't graded
-by their own family. The bench reports the mean and the spread. If the spread
-is above 15 on the overall score, the trial is flagged for a human to read. A
+A **panel** of graders scores each trial blind:
+
+- Claude (Opus 5.5)
+- Astra (`gpt-6-astra`, xhigh, via `codex exec`)
+- Grok 4.7 (xhigh)
+- Gemini, when available
+
+Each grader is a separate context, and none sees another's scores. The headline is
+the panel median. Beside it, the record keeps every grader's score and an
+**other-family median**, which leaves out the grader from the builder's family. If a
+family rates its own builds higher than the others do, the gap between the two
+medians shows it, and the report tracks that gap per grader. The fidelity judge
+(§5.2) rotates through the same families from trial to trial, so no builder is
+always judged by its own family. The bench reports the mean and the spread. If the spread
+across the panel is above 15 on the overall score, the trial is flagged, and the
+triage agent reads it before trusting its findings. A
 **calibration set** of 6 to 10 past diaries is re-graded whenever a grader prompt or
 model changes. The set is signal, bluesky, dice-tray and beacons r1–r5. Charlie has no
 time to hand-score them, so their reference scores are the two graders' reconciled
-consensus: each sees the other's evidence once, then the result is frozen. That
+consensus across the panel: each grader sees the others' evidence once, then the
+result is frozen. That
 anchors *stability*, not *truth*. A human spot-check can replace it later. A grader change that moves the calibration
 scores is a grader change, and must not be mistaken for exact2 getting better or worse.
 
@@ -425,8 +449,8 @@ batch. The starter is the one a person would use, with no bench-specific scaffol
 
 ### 9.2 What stays the same, and what can't
 
-- **Same:** the brief, SPEC.md, checks, judge, rubric and graders, and the builder's
-  harness and model.
+- **Same:** the brief, SPEC.md, checks, judge, rubric and grader panel. The same
+  builder pairs are used, one per family, at the monthly cadence.
 - **The diary:** comparator builders get a framework-neutral copy of the bench-detail
   diary. It has the same sections; its Checkpoints use generic step names (install,
   new project, dev loop, editing, each platform build, verifying, deploy). exact2
@@ -446,8 +470,8 @@ batch. The starter is the one a person would use, with no bench-specific scaffol
 ### 9.3 Cadence
 
 Comparators run **monthly**, and on demand when Charlie asks. They use one main
-harness/model pair, the visible tasks only, and N=3. A full sweep is roughly 20 stacks
-× 6 tasks × 3, around 360 trials. It is paid for from the 15% held back, and runs over
+harness/model pair per sweep, rotating family each month, the visible tasks only, and
+N=3. A full sweep is roughly 20 stacks × 6 tasks × 3, around 360 trials. It is paid for from the 15% held back, and runs over
 a weekend if the cost of one day exceeds the cap. Results go in the same report as a
 separate page, with exact2's median from the same month beside them.
 
@@ -489,7 +513,9 @@ the hosts exist, and Windows.
 1. **"Hosts"** was an agent's word. This document says *harness* and *machine*.
 2. **The diary's bench detail in exact2** (§6.2): yes.
 3. **Budget and machines**: $2000 a day, on any machines that are free.
-4. **Calibration**: no hand-scoring for now. Use the graders' frozen consensus (§6.3).
+4. **Calibration**: no hand-scoring for now. Use the panel's frozen consensus (§6.3).
 5. **Fix autonomy**: yes. Fixes that are well reviewed (Astra xhigh, Grok 4.7 xhigh)
    go to origin/main. Opus 5.5 authors.
 6. **Comparators**: added as §9.
+7. **Models**: author with a variety of models, and grade with a variety, Claude
+   included (§4.1, §6.3).
