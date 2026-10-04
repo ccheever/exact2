@@ -353,7 +353,7 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                         p.hold_modifier(code, true);
                     }
                 }
-                let Some((code, logical)) = driver_key(&key) else {
+                let Some((code, logical)) = driver_key(key) else {
                     return error(&format!("key: unsupported key {key}"));
                 };
                 let phase = field_str(line, "phase");
