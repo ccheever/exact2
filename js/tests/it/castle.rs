@@ -633,6 +633,70 @@ fn two_targets_asking_one_source_with_equal_arguments_each_settle_with_their_own
     assert_eq!(r.data().in_flight(), 0);
 }
 
+/// Two resources whose answers share one fetch (hn-reader F7).
+const SHARED: &str = r#"
+shape Session
+  ok: bool
+  username: string
+  error: string
+
+component App
+  state story = ""
+  resource detail = item(story) as shape Session
+  resource comments = thread(story) as shape Session
+  action open
+    story = "8863"
+  view
+    column
+      button press=open testId="open"
+        text "Open"
+      text detail.error testId="detail"
+      text comments.error testId="comments"
+"#;
+
+/// An answer that awaits a promise another answer's fetch settles waits for
+/// it, as in a browser, rather than refusing the press that asked
+/// (LLP 1027.003.000 §13, the module-wide rule; hn-reader F7).
+#[test]
+fn an_answer_awaiting_another_answers_fetch_waits_for_it_and_both_settle() {
+    use exact_runner::{Dispatch, Work};
+    let plan = contract::compile(SHARED).expect("the fixture's Contract compiles");
+    let baked = contract::bake(plan, Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap()).unwrap();
+    let mut r = Runner::boot(
+        baked,
+        Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.dispatch(view_of(&r, "open"), Event::Press).unwrap();
+    let asked = r.take_requests();
+    assert_eq!(asked.len(), 2, "the fetch, and the answer that waits on it");
+    let (fetch, waiting): (Vec<_>, Vec<_>) =
+        asked.iter().partition(|a| a.request.continuation.is_none());
+    assert_eq!(fetch[0].request.url, "https://api.castle.xyz/item/8863");
+    let token = waiting[0].request.continuation.unwrap();
+    assert!(
+        matches!(r.dispatch_work(token), Dispatch::Held),
+        "it waits while the fetch it shares is in flight"
+    );
+    assert!(r.release_work().is_empty(), "nothing has landed yet");
+    r.fulfill(fetch[0].ticket, response(200, "the story"))
+        .unwrap();
+    let released = r.release_work();
+    assert_eq!(released.len(), 1, "the delivery wakes the waiting answer");
+    let (woken, Dispatch::Run(Work::Now(work))) = released.into_iter().next().unwrap() else {
+        panic!("a waiting answer is asked again at once");
+    };
+    assert_eq!(woken, token);
+    r.fulfill(waiting[0].ticket, work()).unwrap();
+    assert_eq!(text_of(&r, "detail").as_deref(), Some("the story"));
+    assert_eq!(text_of(&r, "comments").as_deref(), Some("the story"));
+    assert!(!r.has_pending());
+    assert_eq!(r.data().in_flight(), 0);
+}
+
 // --- the kept answer (LLP 1027 D4, as ruled 2026-09-03) --------------------
 
 #[test]

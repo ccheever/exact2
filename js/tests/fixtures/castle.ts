@@ -96,6 +96,15 @@ async function refusedLater(): Promise<Session> {
   throw new Error("after the fetch");
 }
 
+// One fetch two answers share, as a page's code memoizes one (hn-reader
+// F7): the second answer awaits the first's request, not one of its own.
+const items = new Map<string, Promise<string>>();
+function item(id: string): Session | Promise<Session> {
+  if (!id) return idle;
+  if (!items.has(id)) items.set(id, fetch(`https://api.castle.xyz/item/${id}`).then(r => r.text()));
+  return items.get(id)!.then(error => ({ ok: true, username: id, error }));
+}
+
 async function parallel(): Promise<Session> {
   const [a, b] = await Promise.all([fetch("https://api.castle.xyz/a"), fetch("https://api.castle.xyz/b")]);
   return {ok:true,username:"parallel",error:Array.from(new Uint8Array(await a.arrayBuffer())).join(",") + "/" + await b.text()};
@@ -111,6 +120,7 @@ function answer(source: string, args: unknown[], store: Store): unknown {
     case "refused": return refused();
     case "refusedLater": return refusedLater();
     case "parallel": return parallel();
+    case "item": case "thread": return item(text(args, 0));
     // An answer that keeps coming (LLP 1016.000): each event, and the end.
     case "events": return fetch("https://api.castle.xyz/events?since=" + args[0], {
       exactStream: (e: { type: string; data: string; lastEventId: string; coalesced: number; message?: string }) =>
