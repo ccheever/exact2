@@ -1,0 +1,28 @@
+[package]
+name = "calendar-ios"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+build = "build.rs"
+
+[lib]
+name = "calendar_ios"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-data-host = { path = "../../../data/host" }
+exact-logic = { path = "../../../logic" }
+exact-apple = { path = "../../../host/apple" }
+calendar-data = { path = "../data" }
+
+[dev-dependencies]
+exact-kernel = { path = "../../../kernel" }
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }
+serde_json = "1.0"
+
+[build-dependencies]
+contract = { path = "../../../contract/cli" }
+exact-bake = { path = "../../../bake" }
+calendar-data = { path = "../data" }
