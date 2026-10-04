@@ -442,6 +442,7 @@
       if (global.console) global.console.error(refused.message);
       return Promise.reject(refused);
     }
+    if (call.letGo) return Promise.reject(new FetchError({ kind: "Aborted", message: "the answer was let go before this fetch" }));
     var method = init && init.method ? String(init.method).toUpperCase() : "GET";
     var headers = new Headers(init && init.headers).entries();
     var body = init && init.body != null ? String(init.body) : "";
@@ -773,13 +774,28 @@
   };
   // The runner let this call's request go (LLP 1016 D5): drop the call and
   // the fetches it waits on, so nothing keeps them alive.
+  // One let go between storage steps answers "storage": its steps are
+  // running and the chain behind them goes on, so the executor delivers them
+  // until `__exact_let_go` says none is left, and its answer is never given
+  // (ledger F12). A fetch it makes then is refused: no one wants its reply.
   global.__exact_forget = function (id) {
     var call = calls.get(Number(id));
     if (!call) return "";
+    for (var i = 0; i < call.tickets.length; i++) pending.delete(call.tickets[i]);
+    if (call.storage > 0 && !call.lost) { call.letGo = true; return "storage"; }
     call.replied = true;
     calls.delete(call.id);
-    for (var i = 0; i < call.tickets.length; i++) pending.delete(call.tickets[i]);
     return "";
+  };
+  global.__exact_let_go = function (failed, message) {
+    var owed = false;
+    calls.forEach(function (c) {
+      if (!c.letGo) return;
+      if (failed) c.lost = true;
+      if (c.storage > 0 && !c.lost) owed = true;
+      else { c.replied = true; calls.delete(c.id); }
+    });
+    return owed ? "storage" : "";
   };
   // One message of the stream answer `id` began, or its end: the mapper's
   // value, now — a stream's answer never awaits (LLP 1016.000 D1). The end

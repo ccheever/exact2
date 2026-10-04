@@ -791,3 +791,154 @@ component App
     assert_eq!(text(other.resource("status").unwrap().clone()), "empty");
     assert!(!other.data().is_loaded());
 }
+
+/// Ledger's pattern on a native host (ledger F12): every answer queued on one
+/// promise chain, a mutation that `refreshes` a storage-backed listing (asked
+/// when sent and again when it lands), a save that refuses bad input before
+/// touching storage, and filter changes that replace a listing between its
+/// storage steps. Driven as the Apple bridge drives it: let-go work still
+/// runs and its reply is dropped; held work runs when released.
+#[test]
+fn queued_answers_survive_refreshes_refusals_and_replaced_turns() {
+    let root = Root::new();
+    let plan = contract::compile(
+        r#"
+shape Result
+  text: string
+component App
+  state q = "a"
+  mutation saved as shape Result refreshes listing
+  resource listing = work("count", q) as shape Result else work("placeholder", "")
+  action save(op: string, value: string)
+    send saved = work(op, value)
+  action search(v: string)
+    q = v
+  view
+    column
+      text listing.text testId="listing"
+      match saved
+        case some(r)
+          text r.text testId="saved"
+        case none
+          text "none" testId="saved"
+"#,
+    )
+    .unwrap();
+    let mut m = Module::new(HBC.to_vec(), APP, GRANTS);
+    m.set_budget_ms(f64::INFINITY);
+    m.configure_storage(
+        root.0.join("data"),
+        root.0.join("cache"),
+        root.0.join("tmp"),
+    )
+    .unwrap();
+    m.bind(&plan);
+    m.activate().unwrap();
+    let mut runner =
+        Runner::boot(plan, m, Kernel::with_monospace(), Default::default(), "/").unwrap();
+    let mut held = std::collections::HashMap::new();
+    let mut work: std::collections::VecDeque<(u64, exact_runner::Work)> = Default::default();
+    // What the bridge does after every commit: dispatch what was asked,
+    // then run what a source released.
+    fn emit(
+        runner: &mut Runner<Module>,
+        held: &mut std::collections::HashMap<u64, u64>,
+        work: &mut std::collections::VecDeque<(u64, exact_runner::Work)>,
+    ) {
+        for request in runner.take_requests() {
+            let token = request.request.continuation.expect("storage continuation");
+            match runner.dispatch_work(token) {
+                exact_runner::Dispatch::Run(w) => work.push_back((request.ticket, w)),
+                exact_runner::Dispatch::Held => {
+                    held.insert(token, request.ticket);
+                }
+                _ => panic!("native storage work runs or is held"),
+            }
+        }
+        for (token, dispatch) in runner.release_work() {
+            let exact_runner::Dispatch::Run(w) = dispatch else {
+                panic!("released work runs")
+            };
+            if let Some(ticket) = held.remove(&token) {
+                work.push_back((ticket, w));
+            }
+        }
+    }
+    // One completion, or every one when `all`.
+    let step = |runner: &mut Runner<Module>,
+                held: &mut std::collections::HashMap<u64, u64>,
+                work: &mut std::collections::VecDeque<(u64, exact_runner::Work)>|
+     -> bool {
+        let Some((ticket, w)) = work.pop_front() else {
+            return false;
+        };
+        let exact_runner::Work::Now(w) = w else {
+            panic!("native work runs now")
+        };
+        let outcome = std::thread::spawn(w).join().unwrap();
+        runner.fulfill(ticket, outcome).unwrap();
+        emit(runner, held, work);
+        true
+    };
+    let settle =
+        |runner: &mut Runner<Module>,
+         held: &mut std::collections::HashMap<u64, u64>,
+         work: &mut std::collections::VecDeque<(u64, exact_runner::Work)>| {
+            emit(runner, held, work);
+            for _ in 0..400 {
+                if !step(runner, held, work) {
+                    break;
+                }
+            }
+        };
+    let read = |runner: &Runner<Module>, id: &str| {
+        let key = runner.kernel().find_by_test_id(id)[0];
+        runner
+            .kernel()
+            .node_by_key(key)
+            .unwrap()
+            .props
+            .str(PropId::Text)
+            .unwrap_or_default()
+            .to_owned()
+    };
+    settle(&mut runner, &mut held, &mut work);
+    assert_eq!(read(&runner, "listing"), "a:0");
+
+    // A refused save, then a good one.
+    runner
+        .act("save", vec![Value::str("invalid"), Value::str("")])
+        .unwrap();
+    settle(&mut runner, &mut held, &mut work);
+    assert_eq!(read(&runner, "saved"), "invalid");
+    runner
+        .act("save", vec![Value::str("serial"), Value::str("x")])
+        .unwrap();
+    settle(&mut runner, &mut held, &mut work);
+    assert_eq!(read(&runner, "saved"), "x:1");
+    assert_eq!(read(&runner, "listing"), "a:1");
+
+    // A filter changed twice before anything lands, and once more while the
+    // listing it replaced is between storage steps.
+    runner.act("search", vec![Value::str("b")]).unwrap();
+    emit(&mut runner, &mut held, &mut work);
+    runner.act("search", vec![Value::str("c")]).unwrap();
+    settle(&mut runner, &mut held, &mut work);
+    assert_eq!(read(&runner, "listing"), "c:1");
+    runner.act("search", vec![Value::str("d")]).unwrap();
+    emit(&mut runner, &mut held, &mut work);
+    step(&mut runner, &mut held, &mut work);
+    runner.act("search", vec![Value::str("")]).unwrap();
+    runner
+        .act("save", vec![Value::str("serial"), Value::str("y")])
+        .unwrap();
+    settle(&mut runner, &mut held, &mut work);
+    assert_eq!(read(&runner, "saved"), "y:2");
+    assert_eq!(read(&runner, "listing"), ":2");
+    assert!(!runner.has_pending(), "everything settled");
+    let refusals: Vec<&str> = runner
+        .journal()
+        .filter(|l| l.contains("pending on nothing") || l.contains("failed"))
+        .collect();
+    assert!(refusals.is_empty(), "{refusals:#?}");
+}

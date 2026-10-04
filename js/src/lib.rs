@@ -828,12 +828,46 @@ impl Module {
     }
 
     /// Parked calls let go in the prelude too, with the fetches they wait on.
+    /// One let go between storage steps cannot be stopped: the steps it began
+    /// are running, and the app's promise chain (a serialized database, say)
+    /// goes on behind them. A browser runs that turn to its end, and so does
+    /// this, now, its answer discarded: otherwise the next answer chained
+    /// behind it waits on steps nobody delivers and is refused as pending on
+    /// nothing (ledger F12: a pre-mutation refresh the runner discarded).
     fn forget_calls(&mut self, calls: Vec<u64>) {
-        if let Some(engine) = self.engine.as_mut() {
-            for call in calls {
-                let _ = engine.call("__exact_forget", [&call.to_string(), "", ""]);
+        let Some(engine) = self.engine.as_mut() else {
+            return;
+        };
+        let mut owed = false;
+        for call in calls {
+            owed |= engine
+                .call("__exact_forget", [&call.to_string(), "", ""])
+                .is_ok_and(|r| r == "storage");
+        }
+        if owed {
+            self.finish_let_go();
+        }
+    }
+
+    /// Deliver the storage steps of calls let go mid-turn until none is left.
+    fn finish_let_go(&mut self) {
+        let (Some(session), Some(engine)) = (self.storage.as_ref(), self.engine.as_mut()) else {
+            return;
+        };
+        while engine
+            .call("__exact_let_go", ["", "", ""])
+            .is_ok_and(|r| r == "storage")
+        {
+            if let Outcome::Failed { message, .. } = session.continuation()() {
+                let _ = engine.call("__exact_let_go", ["failed", &message, ""]);
+                break;
+            }
+            if engine.deliver_storage_one().is_err() || engine.drain().is_err() {
+                break;
             }
         }
+        // What landed may settle an answer waiting on another's work.
+        self.progress += 1;
     }
 
     /// Begin an answer: marshal, call, drain, settle.

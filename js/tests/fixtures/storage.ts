@@ -40,6 +40,21 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     } catch(error:any) { return {text:error.message}; }
   }
   if (op === "placeholder") return {text: ""};
+  // Ledger's shape (ledger F12): every answer queued on one chain, a listing
+  // that reads, and a save that refuses bad input before touching storage.
+  if (op === "count" || op === "invalid") {
+    const run = tail.then(async () => {
+      if (op === "invalid") return {text: "invalid"};
+      const db = await storage.sqlite.open("app:/data/notes.db");
+      try {
+        await db.execute("CREATE TABLE IF NOT EXISTS notes (body TEXT UNIQUE)");
+        const rows = await db.query("SELECT count(*) FROM notes");
+        return {text: value + ":" + String(rows.rows[0][0])};
+      } finally { await db.close(); }
+    });
+    tail = run.catch(() => {});
+    return run;
+  }
   if (op === "serial") {
     const run = tail.then(async () => {
       const db = await storage.sqlite.open("app:/data/notes.db");

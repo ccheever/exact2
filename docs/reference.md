@@ -326,7 +326,12 @@ started and not awaited (queued behind the module's own promise chain, say)
 lands on every host. In the browser the answer is given at once and the save
 finishes behind it; on Hermes the answer is given once the steps it started
 have landed (kanban F22). A storage or `fetch` call made when no answer is in
-flight is refused and logged, never silently dropped.
+flight is refused and logged, never silently dropped. An answer the runner
+lets go between storage steps (a refresh it discards before a mutation lands, a
+listing whose arguments changed) still runs the steps it began, and the chain
+behind them, to their end before the next answer starts; only its answer is
+dropped, so serializing storage through one promise chain composes with
+`refreshes` and fast-changing arguments (ledger F12).
 
 This first browser implementation targets modest app stores: filesystem
 operations read the app's file records, and each SQLite mutation atomically
