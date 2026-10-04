@@ -55,7 +55,7 @@ final class TextRasterizer {
         let source = paragraph?.shape?.attributed ?? engine.attributed(key.spec)
         return TextRasterJob(source: source.copy() as! NSAttributedString,
                    ranges: geometry.ranges, baselines: geometry.baselines,
-                   flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0,
+                   flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0, justifies: key.spec.align == 3,
                    box: key.box, size: key.size, scale: key.scale, ellipsis: key.spec.ellipsis, clamped: geometry.clamped)
     }
 
@@ -74,7 +74,7 @@ final class TextRasterizer {
         guard firstPixels || active < Self.maxConcurrent else { return false }
         guard let job = prepare(node, key: key) else { node.dropTextRaster(); return true }
         if firstPixels {
-            let lines = node.text?.rasterLines(key.spec, ranges: job.ranges).1
+            let lines = node.text?.rasterLines(key.spec, ranges: job.ranges, width: key.box.width).1
             let image = Self.render(job, firstPixels: true, lines: lines)
             node.showTextRaster(image?.surface, for: key, frame: image?.frame)
             return true

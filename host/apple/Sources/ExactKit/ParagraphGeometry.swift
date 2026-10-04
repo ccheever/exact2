@@ -2,6 +2,49 @@
 import Foundation
 import CoreText
 
+extension TextEngine {
+    /// A broken line as CSS finishes it, for every Apple path that makes one
+    /// from a range (layout, rasters, regions). A line that ends at a soft
+    /// hyphen (U+00AD) shows a hyphen there, as the browser does; CoreText
+    /// breaks there but keeps the character invisible. With `justify` (CSS
+    /// `text-align: justify` at that width) every line but the paragraph's
+    /// last and one ending in a forced break fills the width
+    /// (`text-align-last: auto`). Indices stay the source's, so hit testing,
+    /// selection and later layouts read the same ranges. The reader diary
+    /// found both missing only on Apple.
+    static func finishedLine(_ line: CTLine, source: NSAttributedString, range: CFRange, justify width: Double?) -> CTLine {
+        let line = inkedSoftHyphen(line, source: source, range: range)
+        return width.map { justified(line, source: source, range: range, width: $0) } ?? line
+    }
+
+    static func inkedSoftHyphen(_ line: CTLine, source: NSAttributedString, range: CFRange) -> CTLine {
+        let end = range.location + range.length
+        guard range.length > 0, end <= source.length,
+              (source.string as NSString).character(at: end - 1) == 0xAD else { return line }
+        // The prefix keeps every UTF-16 index where it was; only the chosen
+        // SHY becomes ink (the exclusion path's rule, TextFlow).
+        let visible = NSMutableAttributedString(attributedString: source.attributedSubstring(from: NSRange(location: 0, length: end)))
+        visible.replaceCharacters(in: NSRange(location: end - 1, length: 1), with: "-")
+        return CTTypesetterCreateLine(CTTypesetterCreateWithAttributedString(visible), range)
+    }
+
+    static func justified(_ line: CTLine, source: NSAttributedString, range: CFRange, width: Double) -> CTLine {
+        let end = range.location + range.length
+        let text = source.string as NSString
+        guard width.isFinite, range.length > 0, end < source.length,
+              ![0x0A, 0x0D, 0x2028, 0x2029].contains(text.character(at: end - 1)) else { return line }
+        // A line with no justification opportunity (a word separator, or
+        // ideographs) stays at the start, as Chrome's does: CoreText would
+        // otherwise spread a lone word's letters.
+        let trimmed = text.substring(with: NSRange(location: range.location, length: range.length))
+            .trimmingCharacters(in: .whitespaces)
+        guard trimmed.unicodeScalars.contains(where: {
+            $0.properties.generalCategory == .spaceSeparator || $0.properties.isIdeographic
+        }) else { return line }
+        return CTLineCreateJustifiedLine(line, 1.0, width) ?? line
+    }
+}
+
 extension Paragraph {
     func origin(_ index: Int, align: Int, width: CGFloat) -> CGFloat {
         if origins.indices.contains(index) { return origins[index] }

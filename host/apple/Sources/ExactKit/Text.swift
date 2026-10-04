@@ -598,8 +598,11 @@ final class TextEngine {
                 let descriptor: CTFontDescriptor?
                 if let generic { descriptor = CTFontCopyFontDescriptor(font(size: 16, weight: 400, family: generic, italic: false) as CTFont) }
                 else {
-                    let request = CTFontDescriptorCreateWithAttributes([kCTFontFamilyNameAttribute: name] as CFDictionary)
-                    descriptor = CTFontDescriptorCreateMatchingFontDescriptor(request, NSSet(object: kCTFontFamilyNameAttribute) as CFSet)
+                    // An installed family is its real faces, matched as declared
+                    // ones are: traits on a family descriptor never chose the
+                    // italic or bold file (the reader diary's Georgia).
+                    staged[stack, default: []] += Self.installedFaces(name)
+                    continue
                 }
                 if let descriptor { staged[stack, default: []].append(RegisteredFace(family: name, generic: generic, weight: 0, italic: false, descriptor: descriptor)) }
                 continue
@@ -634,6 +637,33 @@ final class TextEngine {
     private func fontURL(_ source: String) -> URL? {
         guard URL(string: source)?.scheme == nil, !source.hasPrefix("/") else { return nil }
         return resolve(source)
+    }
+
+    /// The faces of an installed family at CSS's normal stretch, its default
+    /// face first so it wins a tie (Iowan Old Style's Roman over Titling).
+    /// Weight is the face's OS/2 `usWeightClass`, the number CSS matches.
+    private static func installedFaces(_ name: String) -> [RegisteredFace] {
+        let request = CTFontDescriptorCreateWithAttributes([kCTFontFamilyNameAttribute: name] as CFDictionary)
+        let mandatory = NSSet(object: kCTFontFamilyNameAttribute) as CFSet
+        guard let first = CTFontDescriptorCreateMatchingFontDescriptor(request, mandatory) else { return [] }
+        let all = [first] + (CTFontDescriptorCreateMatchingFontDescriptors(request, mandatory) as? [CTFontDescriptor] ?? [])
+        var seen = Set<String>(), faces: [(RegisteredFace, Bool)] = []
+        for descriptor in all {
+            let font = CTFontCreateWithFontDescriptor(descriptor, 16, nil)
+            guard seen.insert(CTFontCopyPostScriptName(font) as String).inserted else { continue }
+            let traits = CTFontCopyTraits(font) as NSDictionary
+            var weight = 400
+            if let os2 = CTFontCopyTable(font, CTFontTableTag(kCTFontTableOS2), []) as Data?, os2.count >= 6 {
+                weight = Int(os2[os2.startIndex + 4]) << 8 | Int(os2[os2.startIndex + 5])
+            } else if let trait = traits[kCTFontWeightTrait] as? Double {
+                weight = Int((400 + trait * 500).rounded())
+            }
+            let normalWidth = abs(traits[kCTFontWidthTrait] as? Double ?? 0) < 0.01
+            faces.append((RegisteredFace(family: name, generic: nil, weight: min(max(weight, 1), 1000),
+                                         italic: CTFontGetSymbolicTraits(font).contains(.traitItalic), descriptor: descriptor), normalWidth))
+        }
+        let normal = faces.filter(\.1)
+        return (normal.isEmpty ? faces : normal).map(\.0)
     }
 
     private static func matched(_ faces: [RegisteredFace], weight: Int, italic: Bool) -> RegisteredFace {
@@ -683,8 +713,7 @@ final class TextEngine {
             let face = TextEngine.matched(faces, weight: weight, italic: italic)
             func candidate(_ face: RegisteredFace) -> PlatformFont {
                 if let generic = face.generic { return font(size: size, weight: weight, family: generic, italic: italic) }
-                let descriptor = face.weight == 0 ? CTFontDescriptorCreateCopyWithAttributes(face.descriptor, [kCTFontTraitsAttribute: [kCTFontWeightTrait: Double(weight - 400) / 500, kCTFontSlantTrait: italic ? 0.2 : 0.0]] as CFDictionary) : face.descriptor
-                return CTFontCreateWithFontDescriptor(descriptor, size, nil) as PlatformFont
+                return CTFontCreateWithFontDescriptor(face.descriptor, size, nil) as PlatformFont
             }
             let base = candidate(face)
             var seen = Set<String>(), cascade: [CTFontDescriptor] = []
@@ -831,10 +860,13 @@ final class TextEngine {
 
     /// Urgent raster work stays on the text engine's owning thread and uses
     /// the existing bounded residency policy for its exact painted typesetter.
-    func rasterLines(_ spec: Spec, ranges: [CFRange]) -> (NSAttributedString, [CTLine]) {
+    func rasterLines(_ spec: Spec, ranges: [CFRange], width: CGFloat = .infinity) -> (NSAttributedString, [CTLine]) {
         let identity = residency.identity(spec)
         let source = shape(TextShapeKey(identity: identity, paint: TextPaint(spec)), identity: identity)
-        return (source.attributed, ranges.map { CTTypesetterCreateLine(source.typesetter, $0) })
+        let width = spec.align == 3 ? Double(width) : nil
+        return (source.attributed, ranges.map {
+            TextEngine.finishedLine(CTTypesetterCreateLine(source.typesetter, $0), source: source.attributed, range: $0, justify: width)
+        })
     }
 
     /// The line geometry the kernel's measurement of `spec` at `width`
@@ -1020,15 +1052,22 @@ final class TextEngine {
             var line: CTLine
             // Ordinary CTLines depend on this immutable shape and their exact
             // source range. Width-dependent ellipses never enter this path.
-            if let oldLine, CTLineGetStringRange(oldLine).location == start, CTLineGetStringRange(oldLine).length == count {
+            // A justified one also depends on the width, so it is made again.
+            if spec.align != 3, let oldLine, CTLineGetStringRange(oldLine).location == start, CTLineGetStringRange(oldLine).length == count {
                 line = oldLine
-            } else { line = CTTypesetterCreateLine(typesetter, range) }
+            } else { line = TextEngine.inkedSoftHyphen(CTTypesetterCreateLine(typesetter, range), source: shape.attributed, range: range) }
+            var clamps = false
             if spec.lineClamp > 0 && lines.count + 1 == spec.lineClamp && start + count < length {
                 line = ellipsizedLine(spec, range: NSRange(location: start, length: count), width: limit) ?? line
                 clampedRange = range
+                clamps = true
             }
             var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
+            // The natural width: justification fills the box, never sizes it.
             let w = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+            if spec.align == 3, !clamps, width.isFinite {
+                line = TextEngine.justified(line, source: shape.attributed, range: range, width: limit)
+            }
             // CSS inline boxes share a baseline. Include the paragraph strut
             // and only the runs on this line, preserving each font's half-leading.
             var above = minimum.0, below = minimum.1

@@ -34,6 +34,8 @@ struct TextRasterJob {
     let ranges: [CFRange]
     let baselines: [CGFloat]
     let flush: CGFloat
+    /// CSS `text-align: justify`, at the box's width (`TextEngine.justified`).
+    var justifies = false
     let box: CGRect
     let size: CGSize
     let scale: CGFloat
@@ -74,7 +76,10 @@ struct TextRasterJob {
             lines = reused
         } else {
             let typesetter = CTTypesetterCreateWithAttributedString(source)
-            lines = ranges.map { CTTypesetterCreateLine(typesetter, $0) }
+            let justify = justifies ? Double(box.width) : nil
+            lines = ranges.map {
+                TextEngine.finishedLine(CTTypesetterCreateLine(typesetter, $0), source: source, range: $0, justify: justify)
+            }
             if let clamped, !lines.isEmpty {
                 let range = NSRange(location: clamped.location, length: clamped.length)
                 lines[lines.count - 1] = TextEngine.clampedLine(source, range: range, width: Double(box.width)) ?? lines[lines.count - 1]

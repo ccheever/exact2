@@ -1,6 +1,7 @@
 #if os(macOS)
 import XCTest
 import AppKit
+import CExact
 @testable import ExactKit
 
 /// Chrome on the same Mac (TextParityCases.swift). Not pinned: Chrome
@@ -33,6 +34,80 @@ final class TextParityMacTests: XCTestCase {
     }
 
     func testIntrinsicWidthsAreChromes() { assertChromeWidths() }
+
+    /// The reader diary's book typography, against Chrome 154 on this Mac at
+    /// scale 1 (`font: 16px/24px system-ui`, Range client rects): justified
+    /// lines end at the box's edge but the last; a line broken at a soft
+    /// hyphen shows one; an installed family's italic and bold are its faces.
+    func testJustifiedLinesFillTheBoxButTheLastAsChromes() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let text = "Justified: It was the best of times, it was the worst of times, it was the age of wisdom, it was the age of foolishness, it was the epoch of belief."
+        let run = Run(text: text, size: 16, weight: 400, family: 0, italic: false, lineHeight: 24, letterSpacing: 0)
+        let p = engine.paragraph(Spec(runs: [run], align: 3, lineClamp: 0, color: [0, 0, 0, 255], strut: run), width: 300)
+        let source = text as NSString
+        let chrome: [(String, CGFloat)] = [("Justified: It was the best of times, it was", 300), ("the worst of times, it was the age of", 300),
+                                           ("wisdom, it was the age of foolishness, it", 300), ("was the epoch of belief.", 171.984375)]
+        XCTAssertEqual(p.lines.count, chrome.count)
+        for (line, (words, right)) in zip(p.lines, chrome) {
+            let r = CTLineGetStringRange(line)
+            XCTAssertEqual(source.substring(with: NSRange(location: r.location, length: r.length)).trimmingCharacters(in: .whitespaces), words)
+            let end = r.location + (words as NSString).length
+            XCTAssertEqual(CTLineGetOffsetForStringIndex(line, end, nil), right, accuracy: 1.0 / 64 + 1e-6, words)
+        }
+        XCTAssertEqual(p.height, 96)
+        XCTAssertEqual(p.origin(0, align: 3, width: 300), 0)
+    }
+
+    func testALineBrokenAtASoftHyphenShowsOneAsChromes() {
+        let engine = TextEngine(resolve: { _ in nil })
+        let text = "Soft hyphens: an extra\u{AD}ordinarily long word, and an incom\u{AD}prehensibly long one."
+        let run = Run(text: text, size: 16, weight: 400, family: 0, italic: false, lineHeight: 24, letterSpacing: 0)
+        let p = engine.paragraph(Spec(runs: [run], align: 0, lineClamp: 0, color: [0, 0, 0, 255], strut: run), width: 150)
+        let source = text as NSString
+        let lines = p.lines.map { line -> String in
+            let r = CTLineGetStringRange(line)
+            return source.substring(with: NSRange(location: r.location, length: r.length))
+        }
+        XCTAssertEqual(lines, ["Soft hyphens: an ", "extra\u{AD}ordinarily long ", "word, and an incom\u{AD}", "prehensibly long ", "one."])
+        // Chrome: the chosen SHY's client rect is at 141.61; its hyphen follows it.
+        let hyphenated = p.lines[2], shy = CTLineGetStringRange(hyphenated).location + 18
+        XCTAssertEqual(CTLineGetOffsetForStringIndex(hyphenated, shy, nil), 141.609375, accuracy: 1.0 / 64 + 1e-6)
+        let font = CTFontCreateUIFontForLanguage(.system, 16, nil)!
+        let dash = CTLineGetTypographicBounds(CTLineCreateWithAttributedString(NSAttributedString(
+            string: "-", attributes: [.font: font])), nil, nil, nil)
+        XCTAssertEqual(CTLineGetTypographicBounds(hyphenated, nil, nil, nil), 141.609375 + dash, accuracy: 0.05)
+        // An unchosen SHY stays invisible and adds nothing.
+        XCTAssertEqual(CTLineGetTypographicBounds(p.lines[1], nil, nil, nil) - CTLineGetTrailingWhitespaceWidth(p.lines[1]), 138.828125, accuracy: 1.0 / 64 + 1e-6)
+    }
+
+    func testAnInstalledFamilysItalicAndBoldAreItsOwnFacesAsChromes() throws {
+        let installed = CTFontDescriptorCreateMatchingFontDescriptors(
+            CTFontDescriptorCreateWithAttributes([kCTFontFamilyNameAttribute: "Georgia"] as CFDictionary),
+            NSSet(object: kCTFontFamilyNameAttribute) as CFSet) as? [CTFontDescriptor] ?? []
+        guard installed.count >= 4 else { throw XCTSkip("Georgia's four faces are not installed") }
+        let engine = TextEngine(resolve: { _ in nil })
+        let family = Array("Georgia".utf8)
+        family.withUnsafeBufferPointer { f in
+            var face = ExactFontFace()
+            face.family = f.baseAddress; face.family_len = f.count
+            face.source = nil; face.source_len = 0; face.stack = 8; face.weight = 0; face.italic = 0
+            withUnsafePointer(to: &face) { row in
+                var catalog = ExactFontCatalog(); catalog.faces = row; catalog.count = 1
+                withUnsafePointer(to: &catalog) { engine.install($0) }
+            }
+        }
+        // `font: <style> <weight> 20px Georgia` nowrap span widths in Chrome.
+        for (text, weight, italic, width, name) in [("Georgia italic", 400, true, 122.65625, "Georgia-Italic"),
+                                                    ("Georgia bold", 700, false, 132.0625, "Georgia-Bold"),
+                                                    ("Georgia italic", 400, false, 117.609375, "Georgia"),
+                                                    ("Georgia bold", 600, true, 0, "Georgia-BoldItalic")] {
+            XCTAssertEqual(CTFontCopyPostScriptName(engine.font(size: 20, weight: weight, family: 8, italic: italic) as CTFont) as String, name)
+            guard width > 0 else { continue }
+            let run = Run(text: text, size: 20, weight: weight, family: 8, italic: italic, lineHeight: nil, letterSpacing: 0)
+            let p = engine.paragraph(Spec(runs: [run], align: 0, lineClamp: 0, color: [0, 0, 0, 255], strut: run), width: .infinity)
+            XCTAssertEqual(p.width, width, accuracy: 1.0 / 64 + 1e-6, text)
+        }
+    }
 
     /// Min-content is the widest word, each rounded up to the layout unit.
     func testIntrinsicWordScalarsKeepFontMetricsAndExactUnicodeSource() {

@@ -791,8 +791,10 @@ where needed; iOS/tvOS/Linux ignore the hint (LLP 1001). URLs are refused.
 
 `font-family` accepts literal CSS fallback lists and choices of them, including
 `"Inter, system-ui, sans-serif"` and quoted names. A family declared with
-`font` uses its bundled faces; other names are local installed families. Web
-and Apple retain the ordered glyph fallback cascade. Linux selects the first
+`font` uses its bundled faces; other names are local installed families,
+whose own italic and bold faces `font-style` and `font-weight` select by CSS's
+matching (a family without the face draws its nearest one, never a synthesized
+slant or smear: LLP 1019 §5). Web and Apple retain the ordered glyph fallback cascade. Linux selects the first
 installed family, then uses cosmic-text's platform glyph fallback; it logs
 this declared limitation for a multi-member stack (LLP 1001).
 
