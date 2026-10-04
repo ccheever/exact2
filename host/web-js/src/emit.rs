@@ -948,6 +948,7 @@ impl Em<'_> {
             let press = self.uses.rt("pressFeedback");
             let _ = write!(self.out, "{press}();");
         }
+        self.clocks_in(&presence);
         if element == "a" {
             attrs.push(("data-view".into(), String::new()));
         }

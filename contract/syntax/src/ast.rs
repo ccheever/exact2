@@ -39,6 +39,9 @@ pub struct File {
     /// `keyframes` declarations, in order (LLP 1055 D5): CSS `@keyframes`,
     /// global by name as in CSS.
     pub keyframes: Vec<KeyframesDecl>,
+    /// `timeline` declarations, in order (LLP 1055.002 D1): clock timelines
+    /// that `animation-timeline=Name` puts animations on.
+    pub timelines: Vec<TimelineDecl>,
     /// `fn` declarations, in order (LLP 1017 P5).
     pub fns: Vec<FnDecl>,
     /// `test` declarations, in order (LLP 1017 P7) — normally in a file of
@@ -289,6 +292,16 @@ pub struct KeyframesDecl {
     pub name: String,
     /// The keyframes, in source order.
     pub frames: Vec<KeyframeDecl>,
+    /// Where.
+    pub span: Span,
+}
+
+/// `timeline Name`: a clock timeline (LLP 1055.002 D1). Every animation on
+/// it starts in step with the others.
+#[derive(Debug, Clone, PartialEq)]
+pub struct TimelineDecl {
+    /// The name `animation-timeline` refers to.
+    pub name: String,
     /// Where.
     pub span: Span,
 }

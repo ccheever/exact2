@@ -20,7 +20,8 @@ use std::path::Path;
 pub fn lean(src: &str, name: &str) -> Result<String, CompileError> {
     // The plan backend first: what it refuses is not a program.
     crate::compile(src)?;
-    let file = contract_syntax::parse(src)?;
+    let mut file = contract_syntax::parse(src)?;
+    contract_syntax::resolve_clock_timelines(&mut file)?;
     emit_file(&file, name)
 }
 

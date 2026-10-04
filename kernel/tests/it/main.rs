@@ -11,6 +11,7 @@ mod browser_ratio;
 mod browser_replaced;
 mod browser_sticky;
 mod canvas;
+mod clock_sync;
 mod content_region;
 mod cover;
 mod env;
