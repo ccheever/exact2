@@ -1,7 +1,7 @@
 import { expect, test } from 'bun:test';
 import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, resolve } from 'node:path';
+import { dirname, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawn, spawnSync } from 'node:child_process';
 import { Cdp } from '../../scripts/agent.mjs';
@@ -356,10 +356,10 @@ test('a built TypeScript source reaches fetch through the app grant binding', as
   if (!process.env.CHROME || !existsSync(process.env.CHROME)) return;
   let destinationHits = 0;
   const destination = Bun.serve({ port: 0, fetch() { destinationHits++; return new Response('raw browser fetch', { headers: { 'access-control-allow-origin': '*' } }); } });
-  const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-fetch-build-')), dist = resolve(dir, 'dist'), profile = resolve(dir, 'chrome');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact ts fetch # ')), dist = resolve(dir, 'dist'), profile = resolve(dir, 'chrome');
   writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Grant probe', app: { id: 'test.grant-probe', name: 'Grant probe' }, host: { web: {} } }));
   writeFileSync(resolve(dir, 'app.contract'), `shape Result\n  value: string\ncomponent Probe\n  resource result = probe() as shape Result\n  view\n    text result.value testId="result"\n`);
-  writeFileSync(resolve(dir, 'app.ts'), `export const appId='test.grant-probe',grants='';export async function answer(source){if(source!=='probe')return null;try{await fetch(${JSON.stringify(destination.url.href)});return {value:'raw browser fetch'};}catch(error){return {value:error.name+':'+error.kind};}}\n`);
+  writeFileSync(resolve(dir, 'app.ts'), `import type { Answer, Sources } from './app.contract.d.ts';\nexport const appId='test.grant-probe',grants='';\nconst sources: Sources = { probe: async () => {try{await fetch(${JSON.stringify(destination.url.href)});return {value:'raw browser fetch'};}catch(error:any){return {value:error.name+':'+error.kind};}} };\nexport const answer: Answer = (source, args, store, storage, native) => sources[source](args as never, store, storage, native) as never;\n`);
   const built = spawnSync(process.execPath, ['host/web-js/build.mjs', 'grant-probe', '--out', dist, '--render', 'none'], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: dir } });
   let page, child, cdp, exited;
   try {
@@ -367,7 +367,7 @@ test('a built TypeScript source reaches fetch through the app grant binding', as
     page = Bun.serve({ port: 0, async fetch(request) {
       const name = new URL(request.url).pathname === '/' ? 'index.html' : decodeURIComponent(new URL(request.url).pathname.slice(1));
       const file = resolve(dist, name);
-      if (!file.startsWith(dist + '/') || !existsSync(file)) return new Response('not found', { status: 404 });
+      if (!file.startsWith(dist + sep) || !existsSync(file)) return new Response('not found', { status: 404 });
       return new Response(Bun.file(file));
     } });
     child = spawn(process.env.CHROME, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
@@ -384,7 +384,7 @@ test('a built TypeScript source reaches fetch through the app grant binding', as
     expect(result.result.value).toBe('FetchError:Refused');
     expect(destinationHits).toBe(0);
   } finally {
-    if (child?.pid) { try { process.kill(-child.pid, 'SIGKILL'); } catch {} await exited; }
+    if (child?.pid) { try { if (process.platform === 'win32') child.kill(); else process.kill(-child.pid, 'SIGKILL'); } catch {} await exited; }
     page?.stop(true); destination.stop(true);
     rmSync(dir, { recursive: true, force: true });
   }
@@ -407,7 +407,7 @@ test('an app:/data image shows from the page\'s store, after a reload too', asyn
     page = Bun.serve({ port: 0, async fetch(request) {
       const name = new URL(request.url).pathname === '/' ? 'index.html' : decodeURIComponent(new URL(request.url).pathname.slice(1));
       const file = resolve(dist, name);
-      if (!file.startsWith(dist + '/') || !existsSync(file)) return new Response('not found', { status: 404 });
+      if (!file.startsWith(dist + sep) || !existsSync(file)) return new Response('not found', { status: 404 });
       return new Response(Bun.file(file));
     } });
     child = spawn(process.env.CHROME, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
@@ -425,7 +425,7 @@ test('an app:/data image shows from the page\'s store, after a reload too', asyn
     await call('Page.reload');
     expect(await shown()).toEqual(['found', 'blob:', 'blob:', 1]);
   } finally {
-    if (child?.pid) { try { process.kill(-child.pid, 'SIGKILL'); } catch {} await exited; }
+    if (child?.pid) { try { if (process.platform === 'win32') child.kill(); else process.kill(-child.pid, 'SIGKILL'); } catch {} await exited; }
     page?.stop(true);
     rmSync(dir, { recursive: true, force: true });
   }
