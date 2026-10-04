@@ -807,3 +807,31 @@ fn streamed_assets_load_after_setup_without_reaching_the_simulation() {
         "{state}"
     );
 }
+
+#[test]
+fn streamed_declarations_refuse_sounds_and_names_setup_also_waits_for() {
+    struct Sound;
+    impl Game for Sound {
+        const ID: &'static str = "streamed-sound";
+        const STREAMED: &'static [&'static str] = &["boom.sound"];
+        type Args = ();
+        fn setup(_: &mut World, _: &()) {}
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    let error = Sim::<Sound>::new(()).err().unwrap().to_string();
+    assert!(
+        error.contains("`boom.sound`: sounds are not streamed"),
+        "{error}"
+    );
+    struct Both;
+    impl Game for Both {
+        const ID: &'static str = "streamed-twice";
+        const ASSETS: &'static [&'static str] = &["tree.model"];
+        const STREAMED: &'static [&'static str] = &["tree.model"];
+        type Args = ();
+        fn setup(_: &mut World, _: &()) {}
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    let error = Sim::<Both>::new(()).err().unwrap().to_string();
+    assert!(error.contains("`tree.model` is in both"), "{error}");
+}

@@ -495,7 +495,8 @@ Put everything else the game shows in `Game::STREAMED`: those are fetched from t
 start, after `ASSETS`, but Play does not wait for them; each draws as it lands and
 stays resident. Simulation cannot read a streamed asset (`w.model` is None), so
 load order never reaches the hash; a save refuses only while a shown one is in
-flight. A model a tick animates or reads belongs in `ASSETS`.
+flight. A model a tick animates or reads belongs in `ASSETS`. Streamed names are
+models and textures (sounds are not streamed yet), and never also in `ASSETS`.
 Models and sprites need the asset-capable module; sounds and untextured emitters do
 not. See [the audio executor](audio/README.md) and
 [the audio fixture](games/audio-fixture/logic/src/lib.rs) for sampled sounds.
