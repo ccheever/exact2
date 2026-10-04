@@ -63,14 +63,12 @@ struct Chain {
 }
 
 /// A skeleton under construction. Bones are added parents first.
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct Rig {
-    /// Bones in order, parents first.
-    pub bones: Vec<Bone>,
+    bones: Vec<Bone>,
     chains: Vec<Chain>,
     spine: Vec<usize>,
-    /// Rings around each capsule; at least six.
-    pub sides: u32,
+    sides: u32,
 }
 
 /// Gait parameters. A clip authored at `speed` covers `stride` metres per cycle
@@ -120,13 +118,30 @@ impl Gait {
     }
 }
 
+impl Default for Rig {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Rig {
     /// An empty skeleton; add a root bone first.
     pub fn new() -> Self {
         Self {
+            bones: Vec::new(),
+            chains: Vec::new(),
+            spine: Vec::new(),
             sides: 10,
-            ..Self::default()
         }
+    }
+    /// The bones in order, parents first; each is checked when added.
+    pub fn bones(&self) -> &[Bone] {
+        &self.bones
+    }
+    /// Facets around each capsule, clamped to 6..=64 (default 10).
+    pub fn sides(&mut self, sides: u32) -> &mut Self {
+        self.sides = sides.clamp(6, 64);
+        self
     }
     fn index(&self, name: &str) -> usize {
         self.bones
@@ -434,7 +449,7 @@ impl Rig {
 
     fn mesh(&self) -> MeshData {
         let mut m = MeshData::default();
-        let sides = self.sides.max(6);
+        let sides = self.sides;
         // Rings: a hemisphere at the head, the tube, a hemisphere at the tail.
         const CAP: u32 = 4;
         const BODY: u32 = 4;

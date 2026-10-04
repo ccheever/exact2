@@ -102,6 +102,28 @@ fn rigs_validate_with_normalized_smooth_weights_and_named_sockets() {
 }
 
 #[test]
+fn rig_fields_are_reached_through_checked_builders() {
+    let mut r = Rig::humanoid(1.8);
+    let facets = |r: &Rig| r.model([]).meshes[0].positions.len();
+    let ten = facets(&r);
+    assert_eq!(facets(r.sides(0)), ten / 10 * 6, "clamped up to six");
+    assert_eq!(
+        facets(r.sides(u32::MAX)),
+        ten / 10 * 64,
+        "clamped down to 64"
+    );
+    assert_eq!(
+        facets(
+            &Rig::default()
+                .bone("b", None, Vec3::ZERO, Vec3::Y, [0.1, 0.1], [1.; 4])
+                .clone()
+        ),
+        13 * 10 * 3
+    );
+    assert_eq!(r.bones()[0].name, "root");
+}
+
+#[test]
 fn locomotion_sorts_gaits_and_refuses_bad_speeds() {
     let state = rig::locomotion("move", "idle", [(4., "run"), (1.4, "walk")]);
     let Play::Blend(blend) = &state.play else {
