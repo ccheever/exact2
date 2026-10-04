@@ -1,4 +1,4 @@
-import { renderMarkup, reportPlace } from "./navigation.js";
+import { renderMarkup, reportPlace } from "./navigation.js"; export { launchLocation } from "./navigation.js";
 import { conforms, eq } from "./shape.js"; import { pointer } from "./pointer.js";
 import { paintList, paintFacts, paintFlush } from "./paint.js";
 export { conforms, eq }; export { paintOwn } from "./paint.js";
