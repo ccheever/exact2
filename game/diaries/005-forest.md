@@ -1087,3 +1087,52 @@ and reach the first dawn alive within 96 choices. It sees only the visible
 HUD and enabled controls. Its compass motor is unchanged; after building,
 waiting advances ten seconds, as the earlier survival mode does after
 rescue. The earlier two-night survival feedback batch stays closed.
+
+Feature commit `c2f967ebd` is followed by periodic merge `dc943ed53` through
+main `39018dfa4`. This main delta fixes captured TypeScript module identity
+and qualifies Unix-only compiler fixtures; no game engine or host runtime
+code changes. All five root checks pass in 55.429 s: build 2.759, tests
+46.511 (2,374 passed in 81 binaries, nine ignored), Clippy 3.991,
+formatting 2.068, caps 0.084 and boot 0.015 s. The timing returns under
+60 s without removing coverage; QUEUE retains the earlier launch-overhead
+question. Logs: `/tmp/exact2-windbreak-root-*.log`.
+
+The complete web/macOS candidates have zero failures in 144.7/181.9 s,
+including builds. Both agree on source inputs, all pins, eleven world
+observations and eighteen save files. Their worlds and saves also match
+the Linux candidate from before the main merge. All descendant audits
+pass with no recorded children left. The unbuilt web recipe card and both
+hosts' built-camp captures were inspected: recipe counts, disabled state,
+the permanent-benefit label and the screen behind the fire are legible.
+Artifacts: `artifacts/windbreak-{linux,web,macos}/`.
+
+Jev builds the upgrade on decision 20 on web and 28 on macOS, using the
+same public controls as the deterministic drive. Both runs reach the
+96-decision cap before dawn: web ends with health 100, hunger 78, fire 85%
+and one child following; native ends with health 100, hunger 80, fire 100%
+and one child rescued. Neither chooses `wait` even once. The day has only
+advanced 49.2/46.3 seconds; repeated switches between Camp and Children
+consume decisions without advancing time. Both show fire and food ready,
+while the general preparation hint still asks for rescue supplies.
+
+This is evidence that the recipe and separate build action are discoverable,
+not that the entire build-and-survive goal succeeded. The visible rescue
+hint may compete with the assigned shelter goal, but two stochastic runs
+do not isolate that cause or establish a success rate. This bounded batch
+is closed without changing the controller or repeating it until it wins.
+QUEUE records the unfinished shelter behavior. Both final screenshots were
+inspected and both descendant audits pass. Artifacts:
+`artifacts/jev-windbreak-{web,macos}/`; wall times 45.4/61.2 s, request
+latency medians 326/294 ms and p95 572/528 ms. Web uses 82,513 input and
+6,872 output tokens; native uses 83,299 input and 7,075 output tokens.
+
+Strict acceptance succeeds in `artifacts/prove/run-Ij3FWb/`: Linux and
+web in normal, paranoid and fresh-game modes, plus release Linux. All
+seven agree with the independent macOS candidate on source inputs, every
+pin, eleven world observations and eighteen save files. Every descendant
+audit passes with no recorded process remaining. The collector accepts
+the new `windbreak` save pin and the changed resource bytes at
+`dc943ed53`; it also restores the ordinary web build. A normal Linux run
+against the accepted pins then passes in 3.883 s with clean process exit
+(`artifacts/windbreak-accepted-linux/`). No engine change was needed to
+make this upgrade save and restore identically on these hosts.
