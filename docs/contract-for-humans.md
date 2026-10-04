@@ -771,9 +771,10 @@ bun exact.mjs test web                    # each test starts with an empty store
 bun exact.mjs agent web --storage demo "type title Dune" "tap add" "clock settle" tree
 ```
 
-On the web, every agent drive starts a new browser profile, so a scratch store
-lasts one drive. To see the list survive a restart, add a book in the dev loop
-(`bun exact.mjs web`) and reload the page, or run the app on macOS.
+A scratch store is kept between drives on every host, so a second drive with the
+same `--storage demo` opens the list the first one saved: on the web, Chrome's
+profile for that name, served at one origin (Firefox and WebKit drives start
+fresh). A test's `reload` restarts the app on its store within one drive.
 
 **Rust instead.** A data module can be a Rust crate rather than `app.ts`:
 `bun exact.mjs contract rust app.contract -o shapes.rs` generates the shapes as

@@ -18,7 +18,7 @@
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, chromium, removeBrowserProfile, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
+import { Cdp, chromium, removeBrowserProfile, webStore, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
 import { sourceMapReaders, identifyInspectedNode, render, perfOp, readTrace, renderTrace, layoutArgs } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
@@ -93,7 +93,7 @@ export async function assertWebDistApp(dist, app) {
   if (!await builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, ".exact-build.json")}; run ${ownWebBuild(app, dist) ?? `EXACT_APP_DIR=${shellQuote(app.dir)} EXACT_WEB_DIST=${shellQuote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}`}`);
 }
 
-async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: pageURL, app, webDist, onProcess, reuse, storage, facts }) {
+async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: pageURL, app, webDist, onProcess, reuse, storage, fresh = false, facts }) {
   if (browser !== 'chrome') {
     const { openPlaywrightWeb } = await import('./agent-playwright.mjs');
     return openPlaywrightWeb({ browser, plan, world, size, url: pageURL, app, webDist, onProcess, reuse, storage, facts });
@@ -133,10 +133,15 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     if (js) return serveBuildTree(served, req, res);
     serveStatic(dist, req, res);
   });
-  await new Promise((ok) => server.listen(0, '127.0.0.1', ok));
+  // A named store's profile and origin are kept between drives, as a native scratch store is; `fresh` empties it first (a test's).
+  const kept = storage === undefined ? null : webStore(selected.id, storage);
+  if (kept && fresh) await removeBrowserProfile(kept.profile);
+  await new Promise((ok, fail) => { server.once('error', fail); server.listen(kept && !pageURL ? kept.port : 0, '127.0.0.1', ok); }).catch((e) => {
+    throw e.code === 'EADDRINUSE' ? new Error(`--storage ${storage}: its page's port ${kept.port} is in use: another drive of this store is open, and a store is one drive's at a time`) : e;
+  });
   const port = server.address().port;
   const chrome = chromium().executable;
-  const profile = mkdtempSync(resolve(tmpdir(), 'exact-agent-'));
+  const profile = kept ? (mkdirSync(kept.profile, { recursive: true }), kept.profile) : mkdtempSync(resolve(tmpdir(), 'exact-agent-'));
   let child;
   try {
     child = spawn(chrome, [
@@ -156,7 +161,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     if (!child.pid) await new Promise((ok, fail) => { child.once('spawn', ok); child.once('error', fail); });
   } catch (error) {
     server.close();
-    rmSync(profile, {recursive:true, force:true});
+    if (!kept) rmSync(profile, {recursive:true, force:true});
     throw new Error(`web carrier unavailable: ${chrome}: ${error.code}; set CHROME to an installed browser`);
   }
   onProcess?.(child);
@@ -188,7 +193,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     server.close();
     if (child.exitCode === null && child.signalCode === null)
       throw new Error(`Chrome ${child.pid} did not exit; owned profile retained at ${profile}`);
-    await removeBrowserProfile(profile);
+    if (!kept) await removeBrowserProfile(profile);
     if (planBuild) rmSync(planBuild, { recursive: true, force: true });
   };
   try {
@@ -899,7 +904,9 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
   if (timing === 'platform') env = { ...(env ?? {}), EXACT_AGENT_TIMING: 'platform' };
   // `touch: 'platform'` (LLP 1080.000, opt-in): a plain `tap` on an iOS simulator is a real touch from the XCTest runner, `delivery: platform`.
   if (!['agent', 'platform'].includes(touch) || (touch === 'platform' && (device || !['ios', 'host-ios'].includes(host)))) throw new Error(`touch: platform is an iOS simulator's (LLP 1080.000), not ${device ? 'a phone' : host}'s`);
-  // A drive has no app storage unless it names a scratch store apart from the app's real files (`--storage <name>`): a tree under the cache base on native, kept between drives; on the web, the drive's own fresh browser profile.
+  // A drive has no app storage unless it names a scratch store apart from the app's real files (`--storage <name>`), kept
+  // between drives: a tree under the cache base on native; on the web, Chrome's profile for it and its page's origin
+  // (agent-launch.mjs `webStore`; Firefox and WebKit open a fresh one each drive). EXACT_AGENT_STORAGE_FRESH empties it.
   if (storage !== undefined && (!/^[A-Za-z0-9._-]+$/.test(storage) || ['.', '..'].includes(storage))) throw new Error("--storage: one name of letters, digits, '.', '-' or '_'");
   if (storage !== undefined && host !== 'web') env = { ...(env ?? {}), EXACT_AGENT_STORAGE: storage };
   if (url !== undefined && ['macos', 'mac', 'ios', 'linux', 'windows', 'host', 'host-ios'].includes(host)) {
@@ -919,7 +926,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     : host === 'linux' ? await openStdio({ host: 'linux', plan, size: size ?? VIEWPORT, env, app, onProcess })
     : host === 'windows' ? await openStdio({ host: 'windows', plan, size: size ?? VIEWPORT, env, app, onProcess })
     : host === 'ios' ? await openIOS({ plan, env, app, size, touch, onProcess })
-    : await openWeb({ browser, plan, world, size, url, app, webDist, onProcess, reuse, storage, facts });
+    : await openWeb({ browser, plan, world, size, url, app, webDist, onProcess, reuse, storage, fresh: env?.EXACT_AGENT_STORAGE_FRESH === '1', facts });
   const mapLocator = plan ?? (url && /^https?:\/\//i.test(url) ? url : env?.EXACT_DEV_PLAN ?? process.env.EXACT_DEV_PLAN)
     // The dist the carrier serves — an app outside the repo's own (shop F2), never Caltrain's by default.
     ?? (carrier.host === 'web' ? resolve(webDist ?? defaultWebDist(), 'app.plan') : null);

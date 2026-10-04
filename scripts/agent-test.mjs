@@ -7,7 +7,7 @@ import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { open } from './agent.mjs';
-import { launchFacts } from './agent-launch.mjs';
+import { launchFacts, webStore } from './agent-launch.mjs';
 import { resolveApp } from './app.mjs';
 
 /** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a control's value (a select's options
@@ -45,8 +45,8 @@ const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed
  * Run a `test "…"` file against a host. Each test is a session of its own
  * from the first frame, opened with its launch lines — `size`, `epoch`,
  * `time-zone`, `locale`, `seed`, the test's own or the file's (the compiler
- * puts them first), else the drive's flags — with app storage of its own: on the web its fresh profile; on a native host
- * a scratch store `<storage>.r<pid>-<tag>.t<n>` of this run's, emptied at
+ * puts them first), else the drive's flags — with app storage of its own: a scratch store
+ * `<storage>.r<pid>-<tag>.t<n>` of this run's (Chrome's profile for it on the web), emptied at
  * launch and removed after the test (with any a killed run left), so an app
  * that keeps its data in storage loads and no test, concurrent run or
  * earlier run sees another's writes. The app's data lands before the first step (and after a `reload`), unless
@@ -62,14 +62,15 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   const results = [];
   // Where the host keeps its stores, as it will see its environment (a drive's env overrides the driver's).
   const launched = { ...process.env, ...(env ?? {}) };
-  const base = host === 'web' || device ? null : storeBase(resolveApp(app).id, host, launched, launched.HOME || homedir());
+  const id = resolveApp(app).id, chrome = host === 'web' && (browser ?? launched.EXACT_WEB_BROWSER ?? 'chrome') === 'chrome';
+  const base = device ? null : chrome ? webStore(id, storage, launched, launched.HOME || homedir()).base : host === 'web' ? null : storeBase(id, host, launched, launched.HOME || homedir());
   // A run's own names where the driver can remove them; a simulator's (one drive at a time: a launch ends the
   // last) reuse one store a test, emptied at launch, so they cannot pile up in its app container.
   const tag = base ? `.r${process.pid}-${Math.random().toString(36).slice(2, 8)}` : '';
   sweepTestStores(base, storage);
   for (const [n, t] of tests.entries()) {
     const failures = [];
-    const store = host === 'web' ? storage : `${storage}${tag}.t${n}`, fresh = host === 'web' ? env : { ...(env ?? {}), EXACT_AGENT_STORAGE_FRESH: '1' };
+    const store = base || host !== 'web' ? `${storage}${tag}.t${n}` : storage, fresh = { ...(env ?? {}), EXACT_AGENT_STORAGE_FRESH: '1' };
     // A test's launch lines lead its steps and override the drive's flags (habits F7).
     const facts = { size, seed, locale, timeZone, epoch };
     const lines = [];
