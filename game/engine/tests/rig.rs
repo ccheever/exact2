@@ -124,6 +124,39 @@ fn rig_fields_are_reached_through_checked_builders() {
 }
 
 #[test]
+fn gaits_and_limbs_refuse_non_finite_values() {
+    let r = Rig::humanoid(1.8);
+    let base = Gait::walk(1.4);
+    let bad = [
+        Gait {
+            speed: f32::INFINITY,
+            ..base
+        },
+        Gait {
+            stride: f32::NAN,
+            ..base
+        },
+        Gait {
+            lean: f32::NAN,
+            ..base
+        },
+        Gait { duty: 1., ..base },
+        Gait { speed: -1., ..base },
+    ];
+    for gait in bad {
+        assert!(
+            std::panic::catch_unwind(|| r.walk("w", gait)).is_err(),
+            "{gait:?}"
+        );
+    }
+    let mut r = Rig::humanoid(1.8);
+    let limb = std::panic::catch_unwind(move || {
+        r.limb(rig::Limb::Leg, &["thigh_l", "shin_l"], f32::NAN);
+    });
+    assert!(limb.is_err());
+}
+
+#[test]
 fn locomotion_sorts_gaits_and_refuses_bad_speeds() {
     let state = rig::locomotion("move", "idle", [(4., "run"), (1.4, "walk")]);
     let Play::Blend(blend) = &state.play else {

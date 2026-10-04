@@ -184,6 +184,7 @@ impl Rig {
     /// (a fraction of the cycle); an arm is furthest forward at `phase`.
     pub fn limb(&mut self, limb: Limb, bones: &[&str], phase: f32) -> &mut Self {
         assert!(bones.len() >= 2, "rig: a limb needs at least two bones");
+        assert!(phase.is_finite(), "rig: limb phase must be finite");
         let bones = bones.iter().map(|b| self.index(b)).collect();
         self.chains.push(Chain { limb, bones, phase });
         self
@@ -568,9 +569,21 @@ impl Rig {
     /// cycle, which keeps it still on the ground while the body moves at
     /// `gait.speed`; it then eases forward with its knee lifted.
     pub fn walk(&self, name: &str, gait: Gait) -> Clip {
+        let finite = [
+            gait.speed,
+            gait.stride,
+            gait.duty,
+            gait.lift,
+            gait.arms,
+            gait.lean,
+        ];
         assert!(
-            gait.speed > 0. && gait.stride > 0. && gait.lift.is_finite() && gait.arms.is_finite(),
-            "rig: invalid gait"
+            finite.iter().all(|v| v.is_finite())
+                && gait.speed > 0.
+                && gait.stride > 0.
+                && gait.duty > 0.
+                && gait.duty < 1.,
+            "rig: gait `{name}` needs finite values, positive speed and stride, duty in (0, 1)"
         );
         let period = gait.period();
         let times = Self::samples(period, 24);
