@@ -1,15 +1,15 @@
 # LLP 1085: What the app diaries ask of Contract
 
 **Type:** RFC
-**Status:** Draft r3, 2026-10-04. Nothing here is built. Reviews so far, both by one family (Astra, `gpt-6-astra`, max; Grok was unavailable): r1 NOT READY (7 MATERIAL, 6 MINOR); r2 NOT READY (10 of r1's findings resolved, 3 partly, 4 new MATERIAL, 3 new MINOR). This is round 2 of the three-round fix-loop limit (`rules/RULES.md`), so r3 descopes rather than grinds: the lists decision moves to a follow-up (§9). §8 lists each revision.
+**Status:** Accepted (stages 1–3 as descoped), r4, 2026-10-04. Accepted by the orchestrator for Charlie under the three-round rule (`rules/RULES.md`, "Fix loops get 3 rounds") after Astra's r3; D6 deferred. Nothing here is built. All three review rounds were one family (Astra, `gpt-6-astra`, max; Grok was unavailable): r1 NOT READY (7 MATERIAL, 6 MINOR); r2 NOT READY (4 new MATERIAL, 3 new MINOR); r3 NOT READY on one MATERIAL (D6's convergence) and three MINORs. The reviewer stated that only D6 blocked stage 1. r4 is a final edit with no further review: D6 moves to §9 with the requirement a follow-up must meet, and r3's MINORs are folded in. §8 lists each revision.
 **Systems:** Contract compiler (`contract/{syntax,types,analyze,lower}`, `contract/cli/src/lean.rs`), Plan (`plan/tables/format.json` `stdlib`), Runner (`vm.rs`, `stdlib.rs`, `uses.rs`), JS target (`host/web-js`), web host (`host/web`), Apple hosts (`host/apple`), Linux host, Lean semantics and difftest (`semantics/`), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
-**Revised:** 2026-10-04 (r2, r3)
+**Revised:** 2026-10-04 (r2, r3, r4)
 **Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stage 1 on 2026-10-04, stages 2 and 3 on 2026-10-05 (§5)
 **Base:** `gaps/papercuts`, which carries `host/web-js/format.js`, `x_at`/`x_formatDate`/`x_formatNumber` and the `x_` export test (`host/web-js/src/code.rs:595`)
 **Amends:** LLP 1006 §2 (the language); LLP 1024 D1 (which known attributes bind to a module tag's box)
-**Related:** LLP 1016 D5 (a send forgets the in-flight reply); LLP 1017 P5 and §8; LLP 1017.003; LLP 1035.005.000 D7b; LLP 1047 D2/D6 (linked by use); LLP 1054.000.005 (`trim`); LLP 1071 (the JS target); diaries `~/projects/x2apps/<app>/DIARY.md`; reviews `llp/reviews/1085-r1.astra.md`, `llp/reviews/1085-r2.astra.md`. Web: ECMA-262 `IsLessThan`, `String.prototype.{slice,replaceAll,toLowerCase,toWellFormed}`, `GetSubstitution`, `StringPad`; HTML `tabindex` (focusable areas, sequential focus navigation).
+**Related:** LLP 1016 D5 (a send forgets the in-flight reply); LLP 1017 P5 and §8; LLP 1017.003; LLP 1035.005.000 D7b; LLP 1047 D2/D6 (linked by use); LLP 1054.000.005 (`trim`); LLP 1071 (the JS target); diaries `~/projects/x2apps/<app>/DIARY.md`; reviews `llp/reviews/1085-r1.astra.md`, `llp/reviews/1085-r2.astra.md`, `llp/reviews/1085-r3.astra.md`. Web: ECMA-262 `IsLessThan`, `String.prototype.{slice,replaceAll,toLowerCase,toWellFormed}`, `GetSubstitution`, `StringPad`; HTML `tabindex` (focusable areas, sequential focus navigation).
 
 ## Summary
 
@@ -21,8 +21,10 @@ to smaller problems: reserved words where a parameter goes, a type error
 that printed `?`, a send whose reply vanished, a focus attribute that binds
 nothing, and diagnostics that named the fix obliquely. Four apps also
 redesigned around the lack of list construction. Admitting that is decided
-in principle but deferred to a follow-up (§9), because the JS target cannot
-yet bound it the way the runner does.
+in principle but deferred to a follow-up (§9.1), because the JS target cannot
+yet bound it the way the runner does. The type-inference repair for shop F3
+(D6) is also deferred (§9.2), because the repair proposed here cannot be
+shown to terminate.
 
 | | Decision | Diaries | Stage |
 |---|---|---|---|
@@ -30,11 +32,11 @@ yet bound it the way the runner does.
 | D2 | `slice`, `replaceAll`, `toLowerCase` on strings, bounded by `MAX_STRING`; numeric parsing deferred | calc, hn-reader F2, calendar F1, flashcards/chat search | 3 |
 | D4 | A state initializer's scope, stated by its refusal | kanban F5 | 1 |
 | D5 | 16 words reserved at binder positions only; the rest contextual | kanban F13, shop F6, hn-reader F1, ledger F3, calendar F16 | 1 |
-| D6 | One fixed point for state, parameter and derive types before strict checks; no `?` in a final message | shop F3, reviews | 1 |
+| (D6) | Inference order for state, parameter and derive types; no `?` in a final message: deferred, with the requirement a follow-up must meet | shop F3, reviews | §9.2 |
 | D7 | Diagnostics that name the fix; module-tag allow-list | pomodoro F1, paint F7, ledger F3, hn-reader F2 | 1 |
 | D7.3 | HTML `tabindex`, focusable on every host | calendar F2, paint F7 | 2 |
 | D8 | Two sends to one mutation on one path are refused | flashcards F4 | 1 |
-| (D3) | List construction: deferred to "The JS target's evaluation budget" | pomodoro F3, kanban, hn-reader F2 | §9 |
+| (D3) | List construction: deferred to "The JS target's evaluation budget" | pomodoro F3, kanban, hn-reader F2 | §9.1 |
 
 Snake F2, where a source named `advance` bricked the app, is not a naming
 problem. It was a web build bug, fixed in `gaps/papercuts` `67d6b873`, and
@@ -105,19 +107,32 @@ needs two numbers or two strings, given …").
   no list steps and build no list, record or option, so they need no
   evaluation budget, only a string-size bound. `MAX_STRING` (`vm.rs:22`)
   counts UTF-8 bytes of the well-formed result.
-  - Each function is one call whose output is built **segment by segment with
-    a running UTF-8 byte count**. It traps `StringTooLong` once the count
-    passes `MAX_STRING + 2`; the slack covers a surrogate pair split across
-    two segments. The completed, normalized result is then checked exactly.
-  - No result over the bound is allocated, so a `replaceAll` whose
+  - Each function is one call whose output is built **segment by segment and
+    counted as the concatenated output**, not segment by segment. The counter
+    is a small UTF-16 → UTF-8 encoder that carries a pending high surrogate
+    across segment boundaries:
+    - a low surrogate that completes it adds the pair's 4 bytes;
+    - anything else first settles the pending half as U+FFFD's 3 bytes;
+    - the end of the output settles a pending half the same way.
+
+    Every split pair is reconciled, however many there are, so the count is
+    exactly the UTF-8 length of the normalized result. The call traps
+    `StringTooLong` the moment that count exceeds `MAX_STRING`, with no slack.
+    (Bun: `"😀😀".replaceAll("", "")` is 8 bytes; its four units encoded one
+    by one would count 12.)
+  - No result over the bound is allocated (the one exception is the JS
+    target's `toLowerCase`, below), so a `replaceAll` whose
     `` $` ``/`$'` substitutions grow quadratically traps early.
   - `slice` never grows its input. `toLowerCase` can grow it (`"İ"` → two
     code units).
-  - On the JS target, `x_replaceAll` and `x_toLowerCase` count as they build,
-    so neither calls the built-in and checks afterwards. A JS trap throws the
+  - On the JS target, `x_replaceAll` builds with the same carried-surrogate
+    counter. `x_toLowerCase` lowercases the whole string first, keeping the
+    browser's context rules, and checks the result. That costs one
+    intermediate of at most three times the input, which the browser's own
+    string limit bounds, and nothing past that is kept. A JS trap throws the
     runner's trap as a `Refusal`.
   - The JS target's other string producers (`+`, templates, `join`) stay
-    unbounded today, the same gap as §9's.
+    unbounded today, the same gap as §9.1's.
 - **`end?` is an optional roster arity, resolved after names.** A scoped
   action or action prop named `slice` takes precedence over the roster
   (`types/src/lib.rs:790`), so no parser rewrite is used.
@@ -132,6 +147,19 @@ needs two numbers or two strings, given …").
   `Capability::TextTransform`'s use-set and maps through the kernel's case
   link (`kernel/src/text/case.rs:31`), which is about 3–6 KiB on a web core.
   An artifact that lacks the link refuses the plan at boot (LLP 1047 D6).
+  - **The link gains a bounded entry.** The existing callback returns a
+    finished `Cow<str>` from a whole-string `to_lowercase()` (`case.rs:29`,
+    `:70`). Calling it and checking afterwards allocates past the bound, and
+    calling it on fragments loses context: `"ΟΣ"` must give `"ος"` (final
+    sigma), not `"οσ"`.
+  - The kernel adds a bounded lowercase beside `apply_after`:
+    `lowercase_bounded(text, max_bytes) -> Option<String>`. It walks the
+    whole string once, deciding final sigma from the characters on both sides
+    as `to_lowercase` does. It appends each mapped character only while the
+    output's UTF-8 length stays within `max_bytes`, and returns `None` (the
+    trap) as soon as it would not.
+  - Expansion is counted as it happens: `"İİ"` grows from 4 bytes to 6.
+  - The `text-transform` path keeps calling the unbounded form.
   - Mapping is Unicode default, locale-independent case conversion with final
     sigma. A code point whose mapping changed between Rust's and the browser's
     Unicode versions may map differently; that is declared.
@@ -208,50 +236,11 @@ The refusal reads "`in` is reserved in Contract (it shapes an expression);
 choose another name", without the `ins`/`myIn` suggestion. The grammar doc
 lists both sets.
 
-### D6 — One fixed point before any strict check
+### D6 — Deferred (§9.2)
 
-**Root cause.** `check_component` runs its inference phases once each, in
-this order:
-1. derives;
-2. owned (row) initializers (`checks.rs:409`), whose owner scopes strictly
-   infer every `each` list;
-3. handler-parameter refinement (`refine_params_from_view`,
-   `component.rs:207`);
-4. write refinement from action bodies (`:213`).
-
-A type learned in a later phase never reaches an earlier one. So:
-- shop's inner list reads its row's `pick#N` while that state is still `?`;
-- a root `items = []` is still `list<?>` when the nested `each` is checked;
-- `items = v` cannot type `items` until `v` has its type, which
-  `press=replaceItems(sourceItems)` gives it;
-- root initializers are never revisited, so `state other = items` keeps
-  `list<?>`.
-
-**Fix.** Iterate these phases, all lenient, until nothing changes:
-1. Derives.
-2. **Every** state initializer, root and owned. Owned initializers go outer
-   to inner, each in its `each`'s scope, which is never wider than D4's.
-3. Handler-parameter refinement.
-4. Action-write refinement, as the existing scratch round.
-
-Merging is a join: each phase **unifies** the type it learns with the type
-already learned, and never replaces it. An initializer's `list<?>` must not
-overwrite a `list<Item>` that a write already taught; today that overwrite is
-at `checks.rs:447`.
-
-Convergence is reached when no slot, derive or action-parameter type changes.
-The number of rounds is bounded by `slots + derives + parameters + 2`, because
-each change completes at least one `?`. A phase that still meets a `?` waits
-for the next round. After the last round, the strict passes run unchanged.
-
-**No `?` in a final message, without changing inference.** `uses.rs:138` and
-`lib.rs:236` decide what is provisional by searching message text.
-- `TypeError` gains a structured `provisional` flag, set when an operand's
-  type is incomplete, and those two sites read the flag.
-- A provisional error that reaches the final sink is reported as
-  `type-cannot-infer`, naming the binding when there is one.
-- A test asserts that no final message contains `?` in any form
-  (`` `?` ``, `option<?>`, `list<?>`).
+Shop F3's inference-order bug and the rule against `?` in a final message are
+not in stages 1–3. §9.2 keeps the diagnosis, the repros and the requirement a
+follow-up must meet.
 
 ### D7 — Diagnostics that name the fix
 
@@ -306,9 +295,13 @@ for the next round. After the last round, the strict passes run unchanged.
 
    Tests, on web and macOS through the driver, Linux headless and iOS in the
    async lane:
-   - an otherwise noninteractive `box tabindex=0` takes focus by Tab and then
-     its `key` handler fires. The test has no handler-granted focusability,
-     unlike r2's `main … key=` test, which proved nothing;
+   - a `box tabindex=0` with **no** `focus`, `blur` or `key` handler (those
+     already grant focusability: `NodeViewMac.swift:183`, `emit.rs:971`)
+     takes focus by Tab. The test asserts the focused element itself:
+     `document.activeElement` on the web, the window's first responder on
+     macOS, as the driver's `tree` reports focus. Key delivery is checked
+     separately: a `key` handler on an **ancestor** column observes the
+     bubbling key while the box holds focus;
    - positive values order before zero;
    - a `tabindex=-1` box is skipped by Tab but focused by `tap` and
      `autofocus`;
@@ -324,7 +317,7 @@ for the next round. After the last round, the strict passes run unchanged.
    - `idioms.rs` gains `split`, `indexOf`, `substring`, `padStart`,
      `padEnd`, `toUpperCase`, `Number`, `parseInt` and a three-argument
      `replace`, which points to `replaceAll`.
-   - `concat`, list `push`, `slice` on a list and list literals name §9's
+   - `concat`, list `push`, `slice` on a list and list literals name §9.1's
      follow-up and the data module for now.
    - `len` gets an explicit hint. The one-edit suggestions (`checks.rs:281`)
      cannot reach it.
@@ -357,13 +350,14 @@ apps all compile in stage 1.
 
 ## 3. Effect on each implementation
 
-| | Stage 1 (D4–D8, not D7.3) | Stage 2 (D7.3) | Stage 3 (D1, D2) |
+| | Stage 1 (D4, D5, D7, D8; not D7.3) | Stage 2 (D7.3) | Stage 3 (D1, D2) |
 |---|---|---|---|
 | syntax | D5 in a new `names.rs` (`parser.rs` is at 1,469 lines); `refresh` contextual; colon recovery; idioms | — | — |
-| types | D6 fixed point, `provisional` flag; D4 | — | string order; `optional` arity; `roster_calls` |
+| types | D4 | — | string order; `optional` arity; `roster_calls` |
+| kernel | — | — | `kernel/src/text/case.rs`: `lowercase_bounded(text, max_bytes)` beside `apply_after`, whole-string context (final sigma), counted expansion |
 | analyze, lower | D7.1; D7.2 allow-list; D8 walk | `tabindex` binding, case-variant refusal | defaults for recorded calls |
 | `format.json` | — | — | `slice`, `replaceAll`, `toLowerCase`; `optional`; min arity |
-| runner | — | — | string compare; bounded construction; `TextTransform` use |
+| runner | — | — | string compare; bounded construction with the carried-surrogate counter; `toLowerCase` through `lowercase_bounded`; `TextTransform` use |
 | JS target | — | explicit `tabindex` emitted, overriding synthesis | `x_slice`, `x_replaceAll`, `x_toLowerCase` in `format.js`, re-exported on `rt.js`'s existing `format.js` line (`rt.js` is at 1,498 lines) |
 | web host, Apple, Linux | — | focus eligibility and order | — |
 | Lean, difftest | — | — | `utf16Units`, string order, `slice`, `GetSubstitution`, `lean.rs` defaults; generator (not `toLowerCase`), astral strings |
@@ -378,21 +372,25 @@ The plan's digest changes and `formatVersion` does not.
     refused at binders, shape names included (both the declaration and the
     construction), and admitted as fields, named arguments, members and SVG
     `in`.
-  - `instance.rs`: shop's shape; a root `items = []` with a nested `each`;
-    `replaceItems(v)` typed through `press=replaceItems(sourceItems)`;
-    `state other = items` after a typed write.
   - `search.rs`: string order; the three functions; a user action named
     `slice` keeps its arity.
   - `diagnostics.rs`: D4, D7 and D8, each message asserted whole. For D8,
     exclusive arms are accepted, and a send in an arm plus a send in the
     common suffix is refused.
-  - `corpus.rs`: no final message contains `?` in any form;
-    `ghostty-terminal`; module-tag `inert` and `disabled` stay on the box; a
+  - `corpus.rs`: `ghostty-terminal`; module-tag `inert` and `disabled` stay on the box; a
     `tabindex` lowering case.
 - **Runner** (`stdlib.rs` tests, expected values from `bun -e`): negative and
   fractional indices, `NaN`, `±Infinity`, surrogate cuts, `"😀"` with an empty
   pattern, `$&`/`$$`/`` $` ``/`$'`/`$1`, a quadratic substitution trapping
-  before allocation, `"İ"`, final sigma, and order across U+E000/U+10000.
+  before allocation, and order across U+E000/U+10000.
+  - **Split pairs at the byte boundary:** with the limit lowered to a test
+    value, `"😀😀".replaceAll("", "")` (8 bytes) succeeds at a limit of 8 and
+    traps at 7. A string of many astral characters, each split by an
+    empty-pattern insertion, lands exactly on the limit. A lone half settled
+    at the end counts 3 bytes.
+  - **Kernel (`case.rs` tests):** `lowercase_bounded("ΟΣ")` is `"ος"`;
+    `"İİ"` is 6 bytes, fits a limit of 6 and returns `None` at 5; the result
+    always equals `to_lowercase` when it fits.
 - **Lean differential:** `semantics/corpus/text/{compare,slice,replace-all}`,
   the corpus run and a random sweep.
 - **JS against the runner:** `host/web-js/conformance/text.contract` runs the
@@ -410,13 +408,15 @@ The plan's digest changes and `formatVersion` does not.
 Implementer: Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever, on
 `gaps/papercuts` or its successor on main. Each commit passes the five checks.
 
-1. **Stage 1, 2026-10-04: the compiler (D4, D5, D6, D7.1, D7.2, D7.4, D8).**
-   No runtime change. Exit: the diaries' and reviews' repros compile or are
-   refused with the new text, and `native-fixture` is driven on web and macOS.
+1. **Stage 1, 2026-10-04: the compiler (D4, D5, D7 except D7.3, D8).** No
+   runtime change. Exit: the diaries' repros for these decisions compile or
+   are refused with the new text, and `native-fixture` is driven on web and
+   macOS.
 2. **Stage 2, 2026-10-05: `tabindex` (D7.3)** across the compiler, both web
    renderers, macOS, iOS and Linux. Exit: D7.3's tests are green on web and
    macOS through the driver.
-3. **Stage 3, 2026-10-05: strings (D1, D2).** Exit: the runner tables, Lean,
+3. **Stage 3, 2026-10-05: strings (D1, D2)**, including the kernel's
+   `lowercase_bounded`. Exit: the runner and kernel tables, Lean,
    difftest and conformance are green. The `TextTransform` link is measured by
    `metrics.mjs` on an unused app, a formatting-only app and a case-using app.
 
@@ -429,13 +429,13 @@ Implementer: Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever, on
   gain.
 - A warning instead of a refusal in D8: warnings go unread.
 - Shipping list construction on the runner first and the JS target later: the
-  two executors would refuse different programs (§9).
+  two executors would refuse different programs (§9.1).
 
 ## 7. Questions decided (the orchestrator, for Charlie, 2026-10-04)
 
 1. **Session-owned lists are admitted in principle.** The line runs between
    bounded, pure value operations and durable ownership, I/O and domain
-   algorithms. Shipping waits for §9's precondition.
+   algorithms. Shipping waits for §9.1's precondition.
 2. **U+FFFD normalization of the completed result** (D2).
 3. **The case tables are linked by use** (`TextTransform`, D2).
 4. **HTML `tabindex`, with no aliases.** A naming RFC for the remaining props
@@ -456,8 +456,20 @@ Implementer: Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever, on
     the web's synthesis, and a test list. It is its own stage.
   - Shape names are binders. `inert` is allow-listed.
   - D8 has a path-sensitive walk and a rollout.
+- **r4** (Astra's r3 review, the third and last round; dispositions in
+  `llp/reviews/1085-r3.astra.md`). This is a final edit with no new review
+  round, and the RFC is accepted as descoped.
+  - D6 moves to §9.2, with the requirement a follow-up must meet.
+  - D2's counter carries a pending high surrogate across segments and counts
+    the concatenated output.
+  - The kernel's case link gains `lowercase_bounded`.
+  - D7.3's first test drops the handler that granted focus and asserts the
+    focused element.
+  - Stage 1 is D4, D5, D7 (except D7.3) and D8.
 
-## 9. Deferred to a follow-up: list construction (r2's D3)
+## 9. Deferred to follow-ups
+
+### 9.1 List construction (r2's D3)
 
 **Decided in principle (§7.1).** List literals and `concat`, `slice` and
 `includes` on lists are admitted for session state. HN's collapsed ids and
@@ -503,3 +515,64 @@ construction (r2's D3: literals with kept trailing commas,
 `concat`/`slice`/`includes`, `type-list-item`, spread refused, the Lean
 `.list` with its proofs) lands after it, as an amendment to that LLP or to
 this one.
+
+### 9.2 Inference order and `?` in messages (r3's D6)
+
+**The bug, kept with its repros.** `check_component` runs its inference
+phases once each, in this order:
+
+1. derives;
+2. owned (row) initializers (`checks.rs:409`), whose owner scopes strictly
+   infer every `each` list;
+3. handler-parameter refinement (`component.rs:207`);
+4. action-write refinement (`:213`).
+
+A type learned in a later phase never reaches an earlier one. Each of these
+fails today with `target/debug/contract build --json`, and each is a test the
+follow-up must make pass:
+
+- **Shop F3.** A child used inside an `each`, with
+  `state pick = 0`, `derive chosen = at(b.items, pick)`, and its own view
+  `each img in images` over a derive reading `chosen`, gives "argument 2 of
+  `at` expects `number`, given `?`". This is the diary's
+  `shop/repros/each-derive-state.contract` with the use wrapped in an `each`.
+- A root `state items = []`, written by a typed action and iterated two deep,
+  gives "`?` has no fields".
+- `items = v` in `action replaceItems(v)`, typed only through
+  `press=replaceItems(sourceItems)`.
+- `state items = []; state other = items` gives "nothing writes a value into
+  `other`".
+
+**Why r3's repair was not taken.** r3 iterated all four phases, merging by
+unification, until nothing changed, within `slots + derives + parameters + 2`
+rounds. Unification accepts `? → option<?>` (`Ty::unify`,
+`types/src/lib.rs:102`), so two programs grow under repeated joins:
+
+- `derive d = some(d)` grows without end;
+- `action a(p, q)` used as `press=a(a, a)` grows `Action` types
+  exponentially through parameter refinement (`component.rs:460`).
+
+A round cutoff alone bounds neither the time nor the memory of a round. The
+current single-pass phases refuse both programs.
+
+**What a follow-up must meet.**
+
+1. **Recursive-type detection** (an occurs check: a type may not contain the
+   variable being solved for) **or an explicit type-growth guard** (a bound
+   on a type's size or depth, checked at every join).
+2. **Deterministic refusal on nonconvergence.** One diagnostic, naming the
+   binding whose type would not settle. It is the same on every run and
+   independent of declaration order.
+3. **Both growth regressions** (`derive d = some(d)`; `press=a(a, a)`) are
+   refused promptly, beside the four repros above, which must compile.
+4. **No `?` in a final message, without changing inference.** `uses.rs:138`
+   and `lib.rs:236` read message text to decide what is provisional:
+   - a structured `provisional` flag on `TypeError` replaces that;
+   - a surviving provisional error is reported as `type-cannot-infer`,
+     naming the binding;
+   - a test asserts that no final message contains `?` in any form
+     (`` `?` ``, `option<?>`, `list<?>`).
+
+Until then, the diary's workaround stands: move the `at()` into a file-level
+`fn` taking the state as an argument. `docs/agent-pitfalls.md` gains that
+pitfall in stage 1.
