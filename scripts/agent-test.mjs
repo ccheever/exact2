@@ -123,7 +123,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             case 'reload': await reload(); input = null; break;
             case 'key': delivered(await s.type(st.target, { key: st.key })); input = st.line; break;
             // A held picker, by the node its answer arrives at or its capability (files F11); paths are the test file's.
-            case 'pick': delivered(st.paths.length ? await s.type(`@${st.target}`, st.paths.map((p) => resolve(dirname(resolve(file)), p)).join('\n')) : await s.tap(`@${st.target}`, { choice: 'cancel' })); input = st.line; break;
+            case 'pick': delivered(st.paths.length ? await s.type(`@${st.target}`, st.paths.map((p) => resolve(dirname(resolve(file)), p)).join('\n') + '\n') : await s.tap(`@${st.target}`, { choice: 'cancel' })); input = st.line; break;
             case 'clipboard': delivered(await s.type(st.target, { clipboard: st.edit, text: st.text })); input = st.line; break;
             case 'clock': await s.clock(st.arg); input = null; break;
             case 'screenshot': await s.screenshot(st.path); break;

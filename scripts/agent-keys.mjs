@@ -111,6 +111,10 @@ export function heldTicket(pending, target) {
   return found[0].ticket;
 }
 
+/** The paths a `pick` answer names: one per line when it has a line break (an authored test's `pick`, whose quoted
+ * path may hold a space), else the CLI's whitespace-separated `type @id a.png b.png`. */
+export const pickedPaths = (value) => { const text = String(value); return text.split(text.includes('\n') ? '\n' : /\s+/).map((p) => p.trim()).filter(Boolean); };
+
 export function typeArguments(args) {
   // The clipboard's events at the target (spreadsheet F6): `copy`, `cut`, `paste <text…>`.
   if (['copy', 'cut'].includes(args[1]) && args.length === 2) return [args[0], {clipboard:args[1]}];

@@ -45,8 +45,8 @@ import { fileURLToPath } from 'node:url';
 import { openTouches, realTap } from '../host/apple/touches.mjs';
 import { dragTap } from './agent-drag.mjs';
 import { runTests } from './agent-test.mjs';
-import { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments } from './agent-keys.mjs';
-export { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments } from './agent-keys.mjs';
+import { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, pickedPaths } from './agent-keys.mjs';
+export { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, pickedPaths } from './agent-keys.mjs';
 import { appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
 import { crashReports, developmentLaunchEnvironment, phone, phoneBridge, showSimulator, simulator } from '../host/apple/devices.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
@@ -1182,7 +1182,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
         return s.landed(await s.op(req));
       }
       if (held?.device?.capability !== 'pick') return s.landed(await s.op({ op, ticket, text: String(value) }));
-      const paths = String(value).split(/\s+/).filter(Boolean).map(p => resolve(p));
+      const paths = pickedPaths(value).map(p => resolve(p));
       const missing = paths.find(p => !existsSync(p) || !statSync(p).isFile());
       if (missing) throw new Error(`type ${target}: no such file ${missing}`);
       const req = { op, ticket, text: paths.join('\n') };

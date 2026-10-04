@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 import vm from 'node:vm';
-import { render, sourceMapReader, identifyInspectedNode, heldTicket, holdOf } from '../../scripts/agent.mjs';
+import { render, sourceMapReader, identifyInspectedNode, heldTicket, holdOf, pickedPaths } from '../../scripts/agent.mjs';
 import { retainDevGeneration, readDevGeneration, readDevGenerationAsync, serveBuildTree } from './serve.mjs';
 import { focusController, placeReporter, timeReporter, pageReporter, viewBox, grantOrigins, launchLocation } from './navigation.js';
 import { storageKey } from './storage-environment.js';
@@ -1280,4 +1280,12 @@ test('a hold is addressed by its node or capability, and an unclear name is refu
   expect([heldTicket(pending, '@folder-input'), heldTicket(pending, '@open-directory'), heldTicket(pending, '@share'), heldTicket(pending, '@export')]).toEqual([7, 7, 9, 11]);
   expect(() => heldTicket(pending, '@notes')).toThrow(/no held device request .*held: @7 open-directory at "folder-input"/);
   expect(() => heldTicket([...pending, { name: 'other', ticket: 12, device: { capability: 'open-directory', args: { id: 'other' } } }], '@open-directory')).toThrow(/2 holds match/);
+});
+
+// Review A2: an authored test's `pick "photo" "my photo.png"` reaches the driver as one path per line, so a space
+// stays in its path; the CLI's `type @photo a.png b.png` still names two.
+test('a pick answer keeps a path with a space when it comes one per line', () => {
+  expect(pickedPaths('/tmp/my photo.png\n')).toEqual(['/tmp/my photo.png']);
+  expect(pickedPaths('/tmp/a b.png\n/tmp/c.png\n')).toEqual(['/tmp/a b.png', '/tmp/c.png']);
+  expect(pickedPaths('a.png b.png')).toEqual(['a.png', 'b.png']);
 });
