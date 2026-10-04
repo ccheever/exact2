@@ -63,6 +63,15 @@ fn captures_fonts_and_complete_static_trees_without_following_links() {
         .contains_key(std::path::Path::new("assets/data.bin")));
     #[cfg(unix)]
     {
+        // A link the capture never reads is no input (CLAUDE.md beside an
+        // app's AGENTS.md); one it would read, or a directory, is refused.
+        std::fs::write(app.0.join("AGENTS.md"), b"notes").unwrap();
+        std::os::unix::fs::symlink("AGENTS.md", app.0.join("CLAUDE.md")).unwrap();
+        let unchanged = sources(&app.0).unwrap();
+        assert!(!unchanged.contains_key(std::path::Path::new("CLAUDE.md")));
+        std::os::unix::fs::symlink(app.0.join("fonts"), app.0.join("more")).unwrap();
+        assert!(sources(&app.0).unwrap_err().contains("source links"));
+        std::fs::remove_file(app.0.join("more")).unwrap();
         std::os::unix::fs::symlink(app.0.join("private.bin"), app.0.join("assets/link.bin"))
             .unwrap();
         assert!(sources(&app.0).unwrap_err().contains("source links"));

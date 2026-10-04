@@ -571,18 +571,24 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
                     path.display()
                 ));
             }
-            if kind.is_symlink() {
-                return Err(format!("source links are not captured: {}", path.display()));
-            }
-            if kind.is_dir() {
-                walk(root, &path, out, total, mounts, prefix)?;
-            } else if matches!(
+            let captured = matches!(
                 path.extension().and_then(|s| s.to_str()),
                 Some("ts" | "json" | "contract" | "ttf" | "otf")
             ) || ["assets", "deck", "gpu/shaders"]
                 .iter()
-                .any(|tree| relative.starts_with(tree))
-            {
+                .any(|tree| relative.starts_with(tree));
+            // A link the capture would read (a source, or a directory that may
+            // hold one) is refused; one it never reads (CLAUDE.md → AGENTS.md)
+            // is no input, and is skipped.
+            if kind.is_symlink() {
+                if captured || path.is_dir() {
+                    return Err(format!("source links are not captured: {}", path.display()));
+                }
+                continue;
+            }
+            if kind.is_dir() {
+                walk(root, &path, out, total, mounts, prefix)?;
+            } else if captured {
                 if !kind.is_file() {
                     return Err(format!("source is not a regular file: {}", path.display()));
                 }
