@@ -190,7 +190,8 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     const { targetInfos } = await cdp.send('Target.getTargets').catch(async (error) => {
       await waitAtMost(stdioClosed, 1000);
       const said = launchTail.slice(-6).map(l => '  chrome: ' + l).join('\n');
-      throw new Error(`Chrome did not start (${error.message}); CHROME=${chrome}\n${said || '  (it printed nothing)'}\nSet CHROME to a browser that runs here.`);
+      const alive = child.exitCode === null && child.signalCode === null;
+      throw new Error(`Chrome ${alive ? 'did not answer' : 'did not start'} (${error.message}); CHROME=${chrome}\n${said || '  (it printed nothing)'}${alive ? '' : '\nSet CHROME to a browser that runs here.'}`);
     });
     const target = targetInfos.find((t) => t.type === 'page') ?? (await cdp.send('Target.createTarget', { url: 'about:blank' }));
     const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });

@@ -78,7 +78,9 @@ test('status prints the detailed diary only when EXACT_DIARY=detailed, and never
   const { parent, dir } = app();
   try {
     assert.equal(status(dir, {}), 'ask: 0 unsent diaries, 0 unsent logged commands');
-    assert.match(status(dir, { EXACT_DIARY: 'detailed' }), /^ask: 0 unsent[^]*detailed diary[^]*date \+%H:%M:%S[^]*self-assessment/);
+    assert.match(status(dir, { EXACT_DIARY: 'detailed' }), /^ask: 0 unsent[^]*detailed diary[^]*date '\+%F %T'[^]*self-assessment/);
+    // docs/diary.md reads `never` in this output as the opt-out; the extra instructions must not say it.
+    assert.doesNotMatch(status(dir, { EXACT_DIARY: 'detailed' }), /never/);
     setStanding(dir, 'never');
     assert.equal(status(dir, { EXACT_DIARY: 'detailed' }), 'never: 0 unsent diaries, 0 unsent logged commands');
   } finally { rmSync(parent, { recursive: true, force: true }); }

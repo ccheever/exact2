@@ -117,7 +117,7 @@ export async function send(dir, { yes = false, fetch: post = fetch } = {}) {
 /** The detailed diary (EXACT_DIARY=detailed): what a study of authoring needs beyond docs/diary.md. */
 export const DETAILED = `This session keeps the detailed diary. In the same diary file, also keep:
 
-- A timeline: a line at each step, stamped with the time from \`date +%H:%M:%S\`. Run it; never estimate a time.
+- A timeline: a line at each step, stamped with the time from \`date '+%F %T'\`. Run it each time rather than estimating.
 - For every error: the command, the first lines of its output, what you believed was wrong, each attempt, and what worked.
 - Every doc you read: what you were looking for, and whether it was there.
 - Every guess you made where the docs were silent. Later, mark each one right or wrong.
@@ -127,8 +127,10 @@ export const DETAILED = `This session keeps the detailed diary. In the same diar
 /** The standing answer and what is unsent; the detailed diary's instructions when a study asks for them. */
 export function status(dir, env = process.env) {
   const { diaries, commands } = pending(dir);
-  const line = `${standing(dir)}: ${diaries.length} unsent diaries, ${commands.length} unsent logged commands`;
-  return env.EXACT_DIARY === 'detailed' && standing(dir) !== 'never' ? `${line}\n\n${DETAILED}` : line;
+  const answer = standing(dir);
+  const line = answer === 'local' ? `local: ${diaries.length} diaries kept on this machine, ${commands.length} logged commands`
+    : `${answer}: ${diaries.length} unsent diaries, ${commands.length} unsent logged commands`;
+  return env.EXACT_DIARY === 'detailed' && answer !== 'never' ? `${line}\n\n${DETAILED}` : line;
 }
 
 async function main([verb = 'preview', ...rest]) {
