@@ -242,7 +242,7 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         }
         Some("layout") => p.layout_json(id(), field_bool(line, "plan")),
         Some("tap") => {
-            // Bounded input variants use the full JSON parser, never the legacy wheel reader.
+            // Input variants use the full JSON parser before any delivery.
             let request: serde_json::Value = match serde_json::from_str(line) {
                 Ok(request) => request,
                 Err(_) => return error("unreadable tap request"),
@@ -281,6 +281,19 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     Err(e) => error(&e),
                 };
             }
+            let wheel = match request.get("wheel") {
+                Some(wheel) => {
+                    let pair = wheel
+                        .as_array()
+                        .filter(|v| v.len() == 2)
+                        .and_then(|v| Some((v[0].as_f64()? as f32, v[1].as_f64()? as f32)));
+                    let Some(pair) = pair else {
+                        return error("wheel needs two finite deltas");
+                    };
+                    Some(pair)
+                }
+                None => None,
+            };
             // A click with modifiers held (gallery F20: `tap <id> modifiers Shift`).
             let held = match field_str(line, "modifiers")
                 .map(|m| exact_runner::KeyModifiers::held(&m))
@@ -302,8 +315,8 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     p.hold_modifier(code, true);
                 }
             }
-            let r = match field_pair(line, "wheel") {
-                Some((dx, dy)) => p.wheel(id, dx as f32, dy as f32),
+            let r = match wheel {
+                Some((dx, dy)) => p.wheel(id, dx, dy),
                 None if field_bool(line, "hover") => p.hover(id),
                 None => p.tap(id),
             };
@@ -822,22 +835,6 @@ fn wait_for_replies<D: DataSource>(p: &mut Presenter<D>, deadline: std::time::In
         }
     }
     true
-}
-
-/// `"key":[a,b]` in a flat request.
-fn field_pair(json: &str, key: &str) -> Option<(f64, f64)> {
-    let needle = format!("\"{key}\"");
-    let at = json.find(&needle)?;
-    let rest = json[at + needle.len()..]
-        .trim_start()
-        .strip_prefix(':')?
-        .trim_start();
-    let rest = rest.strip_prefix('[')?;
-    let end = rest.find(']')?;
-    let mut parts = rest[..end].split(',').map(|s| s.trim().parse::<f64>().ok());
-    let a = parts.next()??;
-    let b = parts.next()??;
-    Some((a, b))
 }
 
 #[cfg(test)]

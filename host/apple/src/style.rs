@@ -325,7 +325,11 @@ pub fn style_json_sized(style: &StyleProps, env: &Env, keep_size: bool) -> (Stri
                 true
             }
             RowValue::Number(n) => {
-                push_num(&mut out, n as f32);
+                if id == StyleId::ZIndex {
+                    push_int(&mut out, n as i64);
+                } else {
+                    push_num(&mut out, n as f32);
+                }
                 true
             }
             RowValue::Transitions(_) => false, // the engine's, not the presenter's

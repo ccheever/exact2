@@ -1,4 +1,6 @@
 use super::*;
+#[path = "surface_controls_tests/wheel.rs"]
+mod wheel;
 #[derive(Default)]
 struct NoData;
 impl DataSource for NoData {

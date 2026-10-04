@@ -88,6 +88,7 @@ impl Sites {
 
 pub struct Output {
     pub js: String,
+    pub paint: String,
     pub names: String,
     /// The locations rendered at build (`render=build` routes without
     /// parameters, and the not-found page), as JSON.
@@ -129,66 +130,6 @@ pub fn value_js(v: &Value) -> String {
     }
 }
 
-pub fn dump(plan: &Plan) {
-    let mut uses = Uses::default();
-    let s = Scope::default();
-    let f = |code: exact_plan::Code, uses: &mut Uses, scope: &Scope, params: usize| {
-        code::function(plan, plan.code(code), scope, params, uses)
-            .unwrap_or_else(|e| format!("<{e}>"))
-    };
-    eprintln!("router: {:?}", plan.router);
-    for (i, r) in plan.slots.iter().enumerate() {
-        eprintln!(
-            "slot {i} {} = {}",
-            plan.str(r.name),
-            f(r.init, &mut uses, &s, 0)
-        );
-    }
-    for (i, r) in plan.derives.iter().enumerate() {
-        eprintln!(
-            "derive {i} {} = {}",
-            plan.str(r.name),
-            f(r.body, &mut uses, &s, 0)
-        );
-    }
-    for (i, r) in plan.resources.iter().enumerate() {
-        eprintln!(
-            "resource {i} {} = {}(..{})",
-            plan.str(r.name),
-            plan.str(r.source),
-            r.args.len
-        );
-    }
-    let a = Scope {
-        action: true,
-        ..Scope::default()
-    };
-    for (i, r) in plan.actions.iter().enumerate() {
-        eprintln!(
-            "action {i} {} = {}",
-            plan.str(r.name),
-            f(r.body, &mut uses, &a, r.params.len as usize)
-        );
-    }
-    for (i, r) in plan.regions.iter().enumerate() {
-        eprintln!(
-            "region {i} {:?} parent {:?} arm {:?} order {} arms {:?}",
-            r.kind, r.parent, r.arm, r.order, r.arms
-        );
-    }
-    for (i, n) in plan.nodes.iter().enumerate() {
-        eprintln!(
-            "node {i} type {:?} parent {:?} arm {:?} order {} bindings {} handlers {}",
-            NodeType::from_wire(n.node_type),
-            n.parent,
-            n.arm,
-            n.order,
-            n.bindings.len,
-            n.handlers.len
-        );
-    }
-}
-
 struct Em<'a> {
     plan: &'a Plan,
     sites: &'a Sites,
@@ -196,6 +137,8 @@ struct Em<'a> {
     uses: Uses,
     out: String,
     classes: Vec<String>,
+
+    paint: bool,
     warnings: Vec<String>,
     row_actions: std::collections::BTreeSet<usize>,
     markdown: bool,
@@ -237,6 +180,17 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     let sites = Sites::new(plan)?;
     let mut warnings = Vec::new();
     let parts = style::project(plan, &sites, &mut warnings)?;
+    let paint = crate::paint::needed(plan, &parts);
+    let mut parts = parts;
+    if !paint {
+        for p in parts.iter_mut().flatten() {
+            let bits: u32 = p.props.remove("data-exact-f").unwrap().parse().unwrap();
+            if bits & 128 != 0 && bits & 2 == 0 {
+                p.css.push_str("isolation:isolate;");
+                p.props.insert("data-exact-policy".into(), String::new());
+            }
+        }
+    }
     let mut em = Em {
         plan,
         sites: &sites,
@@ -244,6 +198,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         uses: Uses::default(),
         out: String::new(),
         classes: Vec::new(),
+        paint,
         warnings,
         row_actions: Default::default(),
         markdown: false,
@@ -509,9 +464,12 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         }
         let _ = write!(body, "$symbols({{{}}});", roles.join(","));
     }
-    let (mount, paint) = (em.uses.rt("mount"), em.uses.rt("paintOwn"));
-    let own = serde_json::to_string(&style::paint_own()).unwrap();
-    let _ = write!(body, "{paint}({own});{mount}($R=>{{{view}}});");
+    if paint {
+        let painting = em.uses.rt("usePaint");
+        let _ = write!(body, "{painting}($paint());");
+    }
+    let mount = em.uses.rt("mount");
+    let _ = write!(body, "{mount}($R=>{{{view}}});");
     // A plan whose actions read geometry fetches the page's reader after
     // first paint, as the wasm host does for an artifact that imports it.
     if em.uses.names.contains("x_frame") || em.uses.names.contains("x_measure") {
@@ -677,6 +635,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         if dev_reload { "import{devResource as $devRes,devSignal as $devSig}from\"./checkpoint.js\";" } else { "" },
         // Loaded pieces, imported only where the plan uses them.
         [
+            (paint, "import{paintUse as $paint}from\"./paint.js\";"),
             (em.list, "import{vl as $vl}from\"./list.js\";"),
             (!facts.is_empty(), facts.as_str()),
             (em.symbols.0, "import{symbols as $symbols}from\"./symbols.js\";"),
@@ -735,6 +694,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     }
     Ok(Output {
         js,
+        paint: crate::paint::runtime(plan),
         css,
         names: names_js,
         pages: build_pages(plan),
@@ -871,10 +831,6 @@ impl Em<'_> {
             }
         }
         Ok(())
-    }
-
-    fn f(&mut self, code: exact_plan::Code, scope: &Scope) -> Result<String, String> {
-        code::function(self.plan, self.plan.code(code), scope, 0, &mut self.uses)
     }
 
     fn node(&mut self, i: u32, parent: &str, scope: &Scope) -> Result<(), String> {

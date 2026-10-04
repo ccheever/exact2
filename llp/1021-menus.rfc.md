@@ -365,6 +365,34 @@ without idle timeouts. The raw full-sheet crop differs by 0.47/255 mean channel
 value, so material parity remains open. This uses existing CSS declarations;
 no presentation offset or host change. `/tmp/messages-contact-geometry/verification.json`.
 
+**The chooser (Claude, 2026-10-04):** an "Open in…" button offering the
+installed map providers is the first consumer that chooses among N rows built
+from data. On iOS a `role="alertdialog"` popover is now a sheet with one action
+per press row and at most one handlerless cancel. It had required exactly one
+action and one cancel and opened nothing otherwise. Each action dispatches its
+own press, once, by the same owner rules as above. The owner is invalid if any
+of its actions stops being live, inside its popover or closing it, or now
+shows a different title or enablement, so a reused row given another
+provider never dispatches under its old title. A disabled action is
+presented dimmed (`isEnabled = false`), and the chosen one is checked again
+before dispatch.
+A shape the sheet cannot present (no action, every action disabled, two
+cancels, a row that is not text, an action or the cancel, an action that does
+not hide the popover) logs
+`confirmation <id> refused: <why>` and opens nothing; it is no longer silent.
+The popover's `aria-label` titles the `UIMenu`, and titles the sheet only
+when it is a chooser: more than one action and no explanatory text. A
+confirmation keeps no title row, as the native prompts it matches have none. A menu row's
+item image is its symbol, else its `img` once that has loaded, fitted to 24
+points. The menu reads the bitmap the hidden row already holds, so opening it
+never fetches. `UIAlertAction` has no public image, so sheet rows show no icon.
+`state.navigation.popover.actions` counts the sheet's actions. The author
+writes `role="menu"` on a column: there is no `menu` tag, and `hr` (D1) is not
+yet in the schema. The fixture's `open-in` (a menu) and `open-in-sheet` (a
+sheet), with rows from its `providers()` source, are the evidence. Placement
+beyond D2's rule (`position-area`), macOS parity for confirmations, and the
+keyboard contract stay where §5 puts them.
+
 **D3 — menu-shaped popovers may present natively.** A popover whose
 children are exclusively `button` rows (each with optional
 `role="menuitem"`/`"menuitemradio"`, `aria-checked`, `disabled`, and text

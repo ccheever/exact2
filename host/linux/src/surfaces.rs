@@ -974,6 +974,28 @@ impl<D: DataSource> Presenter<D> {
         self.input_surface(id)
             .is_some_and(|view| self.surfaces.input(view, event))
     }
+    /// Wheel targets the painted canvas itself, not its focused/captured input
+    /// owner or a child HUD element. A refused ABI delivery is still consumed.
+    pub(crate) fn surface_wheel(&mut self, x: f32, y: f32, dx: f32, dy: f32, at: f64) -> bool {
+        let Some(view) = self
+            .hit(x, y)
+            .filter(|view| self.surfaces.wants_input(*view))
+        else {
+            return false;
+        };
+        let Some((ox, oy, _, _)) = self.rect_of(view) else {
+            return false;
+        };
+        if !self.surfaces.input(
+            view,
+            json!({"t":"wheel","dx":dx,"dy":dy,"x":x-ox,"y":y-oy,"at":at}),
+        ) {
+            self.surfaces
+                .error
+                .get_or_insert_with(|| "GPU surface refused wheel input".into());
+        }
+        true
+    }
     pub(crate) fn surface_pointer(&mut self, id: u32, x: f32, y: f32, at: f64) -> Option<u32> {
         let view = self.input_surface(id)?;
         self.rect_of(view)?;

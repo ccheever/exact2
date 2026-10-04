@@ -560,10 +560,13 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             out.push_str("px");
         }
         RowValue::Number(n) => match id {
+            StyleId::ZIndex => {
+                let max = exact_kernel::paint_order::Z_MAX;
+                out.push_str(&(*n as i32).clamp(-max, max).to_string());
+            }
             StyleId::FlexGrow
             | StyleId::FlexShrink
             | StyleId::Opacity
-            | StyleId::ZIndex
             | StyleId::Order
             | StyleId::FontWeight
             | StyleId::Scale

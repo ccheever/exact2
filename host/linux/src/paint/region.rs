@@ -102,6 +102,7 @@ struct NodePaint {
     ordinal: usize,
     key: NodeKey,
     id: ViewId,
+    pointer_hit: bool,
     paint: BoxPaint,
     payload: Payload,
     opacity: f32,
@@ -376,6 +377,8 @@ impl Picture {
                 ordinal,
                 key: node.key,
                 id,
+                pointer_hit: node.computed_style(StyleMask::INHERITED).pointer_events
+                    != exact_kernel::PointerEvents::None,
                 paint,
                 payload,
                 opacity,
@@ -722,6 +725,7 @@ impl<'a> Replay<'a> {
                     let parent = r.transform;
                     if r.live_hit {
                         walk.boxes.push(PaintedBox {
+                            pointer_hit: n.pointer_hit,
                             projective: None,
                             affine: Some((parent, g.outer.rect)),
                             press: 1.,
@@ -810,6 +814,7 @@ mod hit_tests {
             let ts = Transform::from_rotate_at(degrees, 50.0, 50.0);
             let rect = (0.0, 0.0, 100.0, 100.0);
             let b = PaintedBox {
+                pointer_hit: true,
                 id: 1,
                 rect: bbox(ts, rect),
                 clip: None,

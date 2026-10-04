@@ -679,6 +679,7 @@ final class Presenter {
     func apply(_ batch: Batch) {
         defer { applyLanguage(batch) }
         if applySnapshots(batch) { return }
+        PaintOrder.begin()
         let post = Self.signposts.beginInterval("apply")
         defer { Self.signposts.endInterval("apply", post) }
         collections.beginBatch(batch)
@@ -708,6 +709,7 @@ final class Presenter {
         defer {
             collections.endBatch()
             pool.end()
+            PaintOrder.end()
             if outermost {
                 applying = false
                 reaimFixedGradients()
@@ -801,6 +803,7 @@ final class Presenter {
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
                 let color = v.style["text_color"]
                 v.applyStyle(op.style)
+                flats.styleChanged(id)
                 if v.surface != nil { v.applySurface() }
                 // Paint motion re-sends a style per frame (LLP 1055.000 D6):
                 // a paragraph's pixels carry their colour, so a new one is
@@ -835,6 +838,8 @@ final class Presenter {
                 beginFlight(op)
             case .land:
                 if let f = flights[id] { landFlight(f) }
+            case .rank:
+                if let rank = op.payload["rank"] as? NSNumber { flats.rank(id, rank.int64Value) }
             case .sticky:
                 if flats.isFlat(id) { flats.promote(id) }
                 stickies.apply(id, op.payload)
@@ -888,6 +893,7 @@ final class Presenter {
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
         session?.canvases.cancelMovedControls()
+        PaintOrder.flush()
         session?.canvases.captureIfNeeded()
         for id in scrollers.union(pendingScrolls).union(materialNodes) {
             guard let node = views[id] else { continue }
@@ -941,6 +947,8 @@ final class Presenter {
     /// `parent`'s children, in order: its views as subviews of its container,
     /// then its flat leaves' layers among them (LLP 1068 §6.1).
     func placeChildren(_ parent: NodeView, _ ids: [UInt32]) {
+        // Make any views required by this holder before assembling its list.
+        for id in flats.place(parent, ids) { flats.promote(id) }
         let want = ids.compactMap { views[$0] }
         let container = parent.container
         // An open popover under the agent stays in the top layer.
@@ -953,13 +961,15 @@ final class Presenter {
         // In order, below anything else in the container (a scroll
         // view's indicators): inserting a subview at an index moves
         // it when it is already there. One already there stays.
-        let contained = want.filter { !navigation.ownsContainment(of: $0, under: parent) && !menus.lifted($0) && !isFlying($0) }
+        let contained = NodeView.keepingGhosts(want.filter { !navigation.ownsContainment(of: $0, under: parent) && !menus.lifted($0) && !isFlying($0) }, in: container)
         current = container.subviews
         for (i, child) in contained.enumerated() where !(i < current.count && current[i] === child) {
+            let wasHere = child.superview === container
             container.insertSubview(child, at: i)
-            current = container.subviews
+            if wasHere { current = container.subviews }
+            else { current.insert(child, at: i) }
         }
-        for id in flats.place(parent, ids) { flats.promote(id) }
+        flats.mounted(parent.id)
         if parent === navigation.container { navigation.placeOwner() }
     }
 
@@ -1284,6 +1294,8 @@ enum Capture {
 
     /// The CPU capture: Core Graphics rasterizes the subtree into `bitmap`.
     static func draw(_ view: UIView, scale: CGFloat, into bitmap: Bitmap) {
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         let h = bitmap.height
         let ctx = bitmap.context
         // UIKit's geometry — y down from the top — into a context whose y
@@ -1314,7 +1326,7 @@ enum Capture {
         hide(view)
         capturing = true
         UIGraphicsPushContext(ctx)
-        view.layer.render(in: ctx)
+        paintOrderLayer(of: view, root: view.layer).render(in: ctx)
         UIGraphicsPopContext()
         capturing = false
         for o in hidden { o.isHidden = false }

@@ -32,6 +32,7 @@ use super::{font_names, layers, Host};
 #[path = "page.rs"]
 mod page;
 use crate::css;
+use exact_kernel::paint_order::{self, Child, Facts};
 use exact_kernel::SortedMap;
 use exact_kernel::{NodeFacts, PropId, ViewId};
 use exact_plan::EventKind;
@@ -268,6 +269,7 @@ fn write<S: Source>(
 ) -> Result<(String, String, bool, Option<Computed>, String), DocumentError> {
     let mut walk = Walk {
         src,
+        isolation: isolation(src, roots),
         computed,
         fonts,
         handlers,
@@ -284,9 +286,8 @@ fn write<S: Source>(
         sink: writing.sink,
         sent: 0,
     };
-    let mut after = false;
     for root in roots {
-        after |= walk.element(*root, after, None, 16., false)?;
+        walk.element(*root, None, 16., false)?;
     }
     let rest = walk.out[walk.sent..].to_string();
     Ok((
@@ -296,6 +297,63 @@ fn write<S: Source>(
         walk.computed,
         rest,
     ))
+}
+
+/// Decide every list before an opening tag can be streamed. This source may
+/// be a DocTree with no kernel; the rule is still the kernel's pure functions.
+fn isolation<S: Source>(src: &S, roots: &[ViewId]) -> SortedMap<ViewId, Child> {
+    fn walk<S: Source>(
+        src: &S,
+        id: ViewId,
+        beside_exclusion: bool,
+        parent_display: Option<exact_kernel::Display>,
+        out: &mut SortedMap<ViewId, Child>,
+    ) -> Child {
+        let node = src.facts(id).expect("live document node");
+        let children = src.children(id);
+        let exclusion = children.iter().any(|c| {
+            src.facts(*c).is_some_and(|c| {
+                c.style.position_type == exact_kernel::PositionType::Absolute
+                    && c.style.wrap_flow == exact_kernel::WrapFlow::Both
+            })
+        });
+        let own = paint_order::own_from(Facts {
+            style: node.style,
+            props: node.props,
+            kind: node.node_type,
+            root: node.is_root,
+            parent_display,
+            beside_exclusion,
+            holds_layout_transition: children.iter().any(|c| {
+                src.facts(*c)
+                    .is_some_and(|c| c.style.mask.has(exact_kernel::StyleId::LayoutTransition))
+            }),
+        });
+        let mut records: Vec<_> = children
+            .iter()
+            .map(|c| walk(src, *c, exclusion, Some(node.style.display), out))
+            .collect();
+        let facts: Vec<_> = records.iter().map(|c| (c.own, c.potentials)).collect();
+        for ((id, child), isolated) in children
+            .iter()
+            .zip(&mut records)
+            .zip(paint_order::decide(&facts))
+        {
+            child.isolated = isolated;
+            out.insert(*id, *child);
+        }
+        Child {
+            own,
+            isolated: false,
+            potentials: paint_order::potentials(&records),
+        }
+    }
+    let mut out = SortedMap::new();
+    for root in roots {
+        let child = walk(src, *root, false, None, &mut out);
+        out.insert(*root, child);
+    }
+    out
 }
 
 /// Add the rules `style`'s animations name, once each by name, for the
@@ -421,6 +479,7 @@ pub fn tab_routes(
 
 struct Walk<'r, 'w, S: Source> {
     src: &'r S,
+    isolation: SortedMap<ViewId, Child>,
     computed: Option<Computed>,
     fonts: Vec<String>,
     handlers: SortedMap<ViewId, Vec<EventKind>>,
@@ -448,24 +507,20 @@ struct Walk<'r, 'w, S: Source> {
 }
 
 impl<S: Source> Walk<'_, '_, S> {
-    /// The element and its subtree; whether it paints with the positioned
-    /// (`layers::layered`), for the siblings after it. `after`: one before
-    /// it does.
+    /// The element and its subtree, with isolation already decided.
     fn element(
         &mut self,
         id: ViewId,
-        after: bool,
         up: Option<ViewId>,
         inherited_font: f32,
         folded: bool,
-    ) -> Result<bool, DocumentError> {
+    ) -> Result<(), DocumentError> {
         let src = self.src;
         let node = src.facts(id).expect("the runner's tree names live views");
         let above = up.and_then(|u| src.facts(u));
-        let parent = above.map(|o| o.style.display);
         if node.node_type.is_metadata() {
             // The page's `<head>`, never an element (as the live host).
-            return Ok(false);
+            return Ok(());
         }
         let refuse = |reason: &str| DocumentError {
             view: id,
@@ -500,8 +555,8 @@ impl<S: Source> Walk<'_, '_, S> {
         };
         animations(node.style, &mut self.keyframes);
         let children = src.children(id);
-        let paint = layers::paint_of(&node, parent);
-        let isolated = layers::isolated(paint, after);
+        let paint = self.isolation.get(&id).copied().unwrap_or_default();
+        let isolated = paint.isolated || paint.own.policy;
         let holds = children.len() == 1
             && src.facts(children[0]).is_some_and(|c| {
                 let handled = self
@@ -520,6 +575,45 @@ impl<S: Source> Walk<'_, '_, S> {
         let element = if tag == "canvas" { "div" } else { tag };
         self.route_children(&node, &children);
         let chosen = (element == "select").then(|| props.get("value").cloned());
+        // A waiting keyed row is opaque to adoption. Its complete paint
+        // summary lets the JS target decide siblings without visiting it.
+        // Its parent and siblings can change before it adopts: keep inputs,
+        // not their current effects on z applicability or text-flow policy.
+        let waiting = paint_order::own_from(Facts {
+            style: node.style,
+            props: node.props,
+            kind: node.node_type,
+            root: node.is_root,
+            parent_display: None,
+            beside_exclusion: false,
+            holds_layout_transition: children.iter().any(|c| {
+                src.facts(*c)
+                    .is_some_and(|c| c.style.mask.has(exact_kernel::StyleId::LayoutTransition))
+            }),
+        });
+        // Bits mirror paint.js's template facts, plus descendant potentials.
+        let flags = u16::from(waiting.positioned)
+            | (u16::from(waiting.stacks && !waiting.policy) << 1)
+            | (u16::from(waiting.policy) << 2)
+            | (u16::from(waiting.outside) << 3)
+            | (u16::from(paint.potentials.z) << 4)
+            | (u16::from(paint.potentials.level0) << 5)
+            | (u16::from(node.style.isolation == exact_kernel::Isolation::Isolate) << 6)
+            | (u16::from(node.is_root) << 7)
+            | (u16::from(node.style.mask.has(exact_kernel::StyleId::LayoutTransition)) << 8)
+            | (u16::from(node.style.position_type == exact_kernel::PositionType::Absolute) << 9)
+            | (u16::from(node.style.wrap_flow == exact_kernel::WrapFlow::Both) << 10)
+            | (u16::from(node.node_type == exact_kernel::NodeType::Text) << 11)
+            | (u16::from(matches!(
+                node.style.display,
+                exact_kernel::Display::Flex | exact_kernel::Display::Grid
+            )) << 12);
+        let z = node.style.mask.has(exact_kernel::StyleId::ZIndex).then(|| {
+            node.style
+                .z_index
+                .clamp(-paint_order::Z_MAX, paint_order::Z_MAX)
+        });
+        let z = z.map_or_else(|| "null".into(), |z| z.to_string());
         let mut attrs: Vec<(String, Option<String>)> = Vec::new();
         let mut content: Option<String> = None;
         let mut markup: Option<String> = None;
@@ -629,10 +723,11 @@ impl<S: Source> Walk<'_, '_, S> {
         if !style.is_empty() {
             attrs.push(("style".into(), Some(style)));
         }
+        attrs.push(("data-exact-paint".into(), Some(format!("[{flags},{z}]"))));
         self.open(id, element, &attrs)?;
         if matches!(element, "img" | "input") {
             // Void: no content, no end tag.
-            return Ok(layers::layered(paint, isolated, false));
+            return Ok(());
         }
         if tag == "canvas" {
             if self.style.is_some() {
@@ -665,7 +760,6 @@ impl<S: Source> Walk<'_, '_, S> {
         let touch = restricts_touch(&node);
         self.touch += u32::from(touch);
         let outer = chosen.map(|value| std::mem::replace(&mut self.select, value));
-        let mut under = false;
         let only = children.len() == 1;
         for child in children.iter().copied() {
             let handled = self.handlers.get(&child).is_some_and(|k| !k.is_empty());
@@ -673,7 +767,7 @@ impl<S: Source> Walk<'_, '_, S> {
                 && src
                     .facts(child)
                     .is_some_and(|c| folds(&c, &node, above.as_ref(), true, handled));
-            under |= self.element(child, under, Some(id), font, fold)?;
+            self.element(child, Some(id), font, fold)?;
         }
         if let Some(outer) = outer {
             self.select = outer;
@@ -685,7 +779,7 @@ impl<S: Source> Walk<'_, '_, S> {
         self.out.push_str(element);
         self.out.push('>');
         self.stream();
-        Ok(layers::layered(paint, isolated, under))
+        Ok(())
     }
 
     /// Hand the sink what has been written since, once it is a chunk.

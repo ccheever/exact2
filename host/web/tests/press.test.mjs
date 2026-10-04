@@ -59,6 +59,21 @@ check('only the innermost pressable shows the press, and only while inside', asy
     };
     await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
     for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
+    // Host glass/dimming remains stacking even against authored `none`.
+    expect(await evaluate(`(() => {
+      const out = [];
+      for (const style of ['glass', 'prominent-glass', 'clear-glass', 'prominent-clear-glass']) {
+        const el = document.createElement('button');
+        el.dataset.buttonStyle = style;
+        el.style.backdropFilter = 'none';
+        el.style.filter = 'none'; el.disabled = true;
+        document.body.append(el);
+        const cs = getComputedStyle(el);
+        out.push(cs.backdropFilter !== 'none' && cs.filter === 'opacity(0.45)');
+        el.remove();
+      }
+      return out;
+    })()`)).toEqual([true, true, true, true]);
     const centre = (id) => evaluate(`(() => { const r = document.getElementById('${id}').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
     const mouse = (type, [x, y]) => call('Input.dispatchMouseEvent', { type, x, y, button: 'left', buttons: type === 'mouseReleased' ? 0 : 1, clickCount: 1 });
     const pressed = () => evaluate(`[...document.querySelectorAll('[data-pressed]')].map(el => el.id).join()`);

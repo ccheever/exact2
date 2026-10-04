@@ -14,6 +14,13 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// The kernel's id; a parked view takes a new row's and a new incarnation (`NodePool`, LLP 1068 §4.9).
     var id: UInt32
     var incarnation = NodePool.issue()
+    // Twice the kernel rank; transients never overwrite the authored answer.
+    var rank: Int64 = 0
+    var paintLifted = false
+    var paintGhost = false
+    var paintGhosts = 0
+    weak var paintParent: PaintView?
+    weak var ghostParent: NodeView?
     let firstDraw: () -> Void
     let kind: String
     var inlineText: [InlineText] = []
@@ -725,20 +732,18 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             if outsideX && (style["overflow_x"]?.string ?? "visible") != "visible" { return nil }
             if outsideY && (style["overflow_y"]?.string ?? "visible") != "visible" { return nil }
             let passesThrough = style["pointer_events"]?.string == "none"
-            for child in NodeView.hitOrder(subviews) {
-                if child === (glassSlot ?? materialView), Materials.glass(materialKind) || blurHostsChildren, let contentView = materialView?.contentView {
+            if let hit = NodeView.hitChildren(in: self, at: point, with: event, visit: { child in
+                if child === (self.glassSlot ?? self.materialView), Materials.glass(self.materialKind) || self.blurHostsChildren, let contentView = self.materialView?.contentView {
                     // The effect's UIKit bounds check must not hide authored
                     // children in CSS visible overflow. They remain descendants
                     // of the effect, so its recognizers still see their touches.
-                    for content in NodeView.hitOrder(contentView.subviews) where content is NodeView || content is GlassGroupView {
-                        if let hit = content.hitTest(convert(point, to: content), with: event) { return hit }
-                    }
+                    if let hit = NodeView.hitChildren(in: contentView, at: self.convert(point, to: contentView), with: event) { return hit }
                 }
                 // Under `pointer-events: none` this box's own platform views
                 // (a native module's, paint F9) are not targets either.
-                if passesThrough, !(child is NodeView) { continue }
-                if let hit = child.hitTest(convert(point, to: child), with: event) { return hit }
-            }
+                if passesThrough, !(child is NodeView) { return nil }
+                return child.hitTest(self.convert(point, to: child), with: event)
+            }) { return hit }
             // CSS `pointer-events: none` (inherited): the box is never the
             // target, so a touch goes to what is under it — a header's blur
             // over a list must not stop the list scrolling. A descendant
@@ -762,7 +767,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         guard !isHidden, isUserInteractionEnabled, bounds.contains(point) else { return nil }
         // Ordinary HUD paints above the captured children, so it hits first.
         let inOverlay = overlay.convert(point, from: self)
-        for child in overlay.subviews.reversed() where (child as? NodeView)?.placement == nil && (child as? NodeView)?.placementHidden != true {
+        for child in NodeView.hitOrder(overlay.subviews) where (child as? NodeView)?.placement == nil && (child as? NodeView)?.placementHidden != true {
             if let hit = child.hitTest(child.convert(inOverlay, from: overlay), with: event) { return hit }
         }
         // Nearest first: what is seen on top is what a tap reaches.
@@ -799,16 +804,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     func color(_ key: String, _ fallback: UIColor) -> UIColor {
         guard let c = channels(key) else { return fallback }
         return TextEngine.color(c)
-    }
-    /// CSS's used `z-index` (LLP 1074 T1): the row applies to a positioned
-    /// box and to a flex or grid item; a static box elsewhere paints in order.
-    var usedZIndex: CGFloat {
-        let position = style["position_type"]?.string
-        if position == "relative" || position == "absolute" || position == "sticky" { return number("z_index") }
-        var parent = superview
-        while let view = parent, !(view is NodeView) { parent = view.superview }
-        let display = (parent as? NodeView)?.style["display"]?.string
-        return display == "flex" || display == "grid" ? number("z_index") : 0
     }
     func number(_ key: String, _ fallback: CGFloat = 0) -> CGFloat {
         if let n = style[key]?.number { return CGFloat(n) }
@@ -1145,14 +1140,13 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     func renderFilter() {
         guard let f = boxFilter else { return }
         guard superview != nil else { f.remove(); return }
+        setPaintPosition(paintZPosition)
         f.render(layer, clip: resolvedClipMask(), scale: window?.screen.scale ?? traitCollection.displayScale)
     }
 
     override func didMoveToSuperview() {
         super.didMoveToSuperview()
-        // A static flex or grid item's z-index depends on its parent, which a
-        // view styled before it was mounted did not have.
-        if superview != nil, layer.zPosition != usedZIndex { layer.zPosition = usedZIndex }
+        paintOrderMoved()
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
         // A box styled before it joined its parent learns its material now.
         if superview != nil { syncVibrancy() }
@@ -1186,7 +1180,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             applyPlaceholder(f)
             f.frame = contentBox()
         }
-        layer.zPosition = usedZIndex
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)
         setNeedsDisplay()

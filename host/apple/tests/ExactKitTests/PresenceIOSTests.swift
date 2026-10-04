@@ -194,7 +194,9 @@ final class PresenceIOSTests: XCTestCase {
         XCTAssertNil(p.views[3], "its subtree too")
         XCTAssertTrue(leaving.superview === parent, "still in the window")
         XCTAssertTrue(inner.superview === leaving)
-        XCTAssertTrue(parent.subviews.last === leaving, "above its old siblings")
+        XCTAssertTrue(parent.subviews.first === leaving, "the ghost keeps its tree slot")
+        XCTAssertGreaterThan(leaving.paintZPosition, sibling.paintZPosition)
+        XCTAssertEqual(parent.paintRank, 1)
         XCTAssertEqual(leaving.frame, CGRect(x: 0, y: 0, width: 400, height: 50), "its last box")
         XCTAssertEqual(sibling.frame.minY, 0, "its sibling takes its place")
         XCTAssertFalse(leaving.isUserInteractionEnabled)
@@ -203,6 +205,7 @@ final class PresenceIOSTests: XCTestCase {
         XCTAssertEqual(leaving.alpha, 0.25, accuracy: 1e-6, "the engine animates it")
         p.apply(wireBatch([["op": "destroy", "id": 2]]))
         XCTAssertNil(leaving.superview, "the exit ended")
+        XCTAssertEqual(parent.paintRank, parent.rank)
         XCTAssertNil(inner.superview?.superview)
         XCTAssertTrue(p.views[4] === sibling)
     }

@@ -46,8 +46,17 @@ mod tests {
         assert_eq!(parse("rgb(255 0 0 / 50%)"), Some(half));
         assert_eq!(parse("#ff000080").unwrap().to_rgba8(), [255, 0, 0, 128]);
         assert_eq!(parse("red").unwrap().to_rgba8(), [255, 0, 0, 255]);
+        // A named colour in any case, as the kernel's rows take it (one table, `named`).
+        assert_eq!(parse(" Gray ").unwrap().to_rgba8(), [128, 128, 128, 255]);
         assert_eq!(parse("hsl(0, 0%, 0%)").unwrap().to_rgba8(), [0, 0, 0, 255]);
-        for bad in ["blurple", "#12", "rgb(1, 2)", "currentcolor", "#ggg"] {
+        for bad in [
+            "blurple",
+            "reddish",
+            "#12",
+            "rgb(1, 2)",
+            "currentcolor",
+            "#ggg",
+        ] {
             assert_eq!(parse(bad), None, "{bad}");
         }
         assert_eq!(css(half), "rgba(255, 0, 0, 0.5)");

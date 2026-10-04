@@ -24,6 +24,8 @@ tested against it, differentially and at random.
 | `Contract/TypeCheck.lean` | The checker as a program (`check`), proved sound for the judgments. |
 | `Contract/Soundness.lean` | Type soundness of expressions and statements against `eval` and `exec`. |
 | `Contract/TypeInvariant.lean` | The slot invariant over every reachable configuration. |
+| `Contract/EnvSound.lean`, `SettleSound.lean`, `RenderSound.lean` | Well-typed environments give `EnvOK`; settlement and rendering preserve typing and fail only legitimately. |
+| `Contract/StepSound.lean` | Well-typed programs don't go wrong: every reachable configuration is well typed and every step from it is safe. |
 | `difftest/` | The differential tester (Rust crate `contract-difftest`). |
 | `corpus/` | Scripted programs: `test` blocks whose steps both sides run. |
 | `Apps/` | Real apps' embeddings (generated, checked current by `difftest apps`) and, under `Apps/Proofs/`, invariants proved of them. |
@@ -275,7 +277,10 @@ All without `sorry` or axioms beyond Lean's own (`propext`,
 - `exec_sound_ty`: a well-typed action body run the same way asks only for
   writes of values of the target slots' types (root and row writes), sends
   to mutations, or fails legitimately.
-- `check_sound`: `check p = true → WellTyped p`.
+- `check_sound`: `check p = true → WellTyped p`. Beyond types, both ask
+  what the Rust analyzer asks of a task (`analyze-unknown-action`,
+  `analyze-handler-arity`): it names an action of no parameters, else a
+  timer would fire an unbound name.
 - `reachable_slotsOK` and `reachable_valTy` (`TypeInvariant.lean`, over
   `Contract.Reachable`): in every configuration a well-typed program
   reaches, each root slot is a state or mutation holding a value of its
@@ -286,7 +291,46 @@ All without `sorry` or axioms beyond Lean's own (`propext`,
   slot's own type. The router slot's boot value is no check's: it is the
   launch of `/`, and `routerValue_ty` gives its type.
 - `conforms_valTy`: what the runtime check admits at a complete type is a
-  value of that type.
+  value of that type; `conforms_of_valTy`: a value of a type whose numbers
+  are finite passes the check. Finiteness is all that separates them.
+- `EnvGood.envOK` (`EnvSound.lean`): an environment whose root slots are
+  present and of their types, whose row slots in force are of theirs and
+  whose settled derives and resources are declared ones of theirs
+  (`EnvGood`) satisfies `EnvOK` for the component scope.
+- `settle_good` (`SettleSound.lean`): settlement from well-typed previous
+  values returns derives and resources of their declared types
+  (`SettledOK`; the runtime checks each, and a kept resource was checked
+  when it was asked), and, when the slots are well typed for the scope the
+  bodies are typed in, fails only legitimately — by induction over
+  `settle`'s passes and its two loops, each derive evaluated by
+  `eval_sound_ty` under the derives settled so far.
+- `render_good` (`RenderSound.lean`): a well-typed view (`NodesTy`)
+  rendered in a well-typed environment and row store fails only
+  legitimately (a non-finite row key or row slot initializer, an
+  expression's refusal), keeps every live row's slots of their types
+  (`StoreOK`), and records only handlers naming an existing action with
+  curried arguments typed, in the element's own scope, at most the
+  action's leading parameters (`VNodeOK`).
+- `reachable_configOK` (`StepSound.lean`): every configuration a
+  well-typed program reaches is `ConfigOK` — root slots present and of
+  their types, settled values of theirs, live rows' slots of theirs, every
+  rendered handler `VNodeOK`, every timer running an action of no
+  parameters.
+- `runAction_sound`, `dispatch_sound`, `advance_sound`, `step_sound`: from
+  a `ConfigOK` configuration every action that exists, every dispatch and
+  every advance, whatever the oracle answers, lands in a `ConfigOK`
+  configuration and commits, or refuses or poisons for a `Legitimate`
+  reason (`refused`: the data seam, a non-finite number at a boundary, the
+  host's input, the router, a row slot outside its row, a settlement
+  cycle, fuel or the timer fire limit, an earlier poison; `unsupported`;
+  `pending`). `handler_args_good` and `curried_conform`: a handler's
+  curried arguments evaluate to values of its action's leading parameter
+  types, so the action's argument check refuses them only for a non-finite
+  number; the rest of that check is about the host's payload.
+- `dont_go_wrong`: **for `check p = true`, every reachable configuration
+  is well typed, and every event from it lands in a well-typed
+  configuration and either commits or fails for a `Legitimate` reason —
+  never a type error, never an unbound name.**
 
 Routes are typed: `Router` and `Entry` values, the verbs and reads at the
 roster's types (`routerTy`), `path("route", …)` with one string or number
@@ -296,12 +340,13 @@ router (a source can answer one): a verb or read of it traps, which the
 semantics gives as a refusal (`Route.verb`, `Route.read`; likewise
 `searchParam` of an invalid entry), not a type error.
 
-Left out: that settled derives and resources keep their types across steps
-(settlement checks `conforms`, but the invariant is not carried through
-`settle`'s loops), so `EnvOK` for an action's environment is a hypothesis
-of `exec_sound_ty`, not a theorem about reachable configurations; rendering
-(a view's soundness is typed by `NodesTy` but not proved); boot settlement
-reads late slots that still hold `()`. The judgments accept a `?` operand
+Left out: that `pending` never happens after settlement (settlement
+completes every derive and resource, but that and the absence of `pending`
+reads from a complete environment are not proved, so `pending` stays among
+the `Legitimate` reasons); that boot fails only legitimately (boot lands in
+a `ConfigOK` configuration, `boot_configOK`, but its settlement and timers
+read late slots that still hold `()`, so a derive or task reading one can
+meet a type error there). The judgments accept a `?` operand
 where the Rust checker defers it (no value has type `?`), check only what
 the semantics evaluates of a view (a `text`'s text, `testId`, handlers,
 regions), type a command's arguments without its host signature, and check
