@@ -52,8 +52,18 @@ const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? 
 // one restarts in place, never waiting on a wasm rebuild.
 const buildEnv = {...developmentBuildEnv(),EXACT_UPDATE_TRUST:'development',EXACT_WEB_LINK:'all'};
 let app = resolveApp(arg('--app', undefined));
-const port = Number(arg('--port', 8765));
 const lan = argv.includes('--lan');
+/** The first port from `from` up that `host` can listen on: another app's loop holding 8765 is common. */
+async function freePort(from, host) {
+  for (let p = from; p < from + 20; p++) {
+    const free = await new Promise((ok) => { const t = createServer(); t.once('error', () => ok(false)); t.listen(p, host, () => t.close(() => ok(true))); });
+    if (free) return p;
+  }
+  return from; // let the listen below say why
+}
+// An explicit --port is kept (and fails loudly if taken); the default moves to a free one.
+const port = argv.includes('--port') || argv.includes('--serve-as') ? Number(arg('--port', 8765)) : await freePort(8765, lan ? '0.0.0.0' : '127.0.0.1');
+if (port !== 8765 && !argv.includes('--port') && !argv.includes('--serve-as')) console.log(`port 8765 is in use; serving on ${port} (--port picks one)`);
 // `--serve-as <port>` (internal): the resident loop's producers behind the
 // JS loop on that port (host/web-js/dev.mjs forwards a native client's
 // requests here): its names are that port's, and it listens on loopback.
@@ -1082,7 +1092,7 @@ const server = createServer(async (req, res) => {
     sendStaticBody(req, res, body, { 'content-type': webContentType(found.route), ...(index ? { vary: 'Accept' } : {}), 'cache-control': 'no-store' });
   } catch { try { res.writeHead(404); res.end(); } catch { /* mid-write */ } }
 });
-server.on('error', (e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}`); killCompiler(); process.exit(1); });
+server.on('error', (e) => { console.error(`cannot listen on ${host}:${port}: ${e.code ?? e.message}${e.code === 'EADDRINUSE' ? ' (another dev loop? --port <n> picks another)' : ''}`); killCompiler(); process.exit(1); });
 await readStaticFileAsync(dist, '/index.html'); // warm the reader before advertising readiness
 server.listen(port, host, () => {
   // Every usable IPv4 with --lan, none silently picked (D8): a utun/VPN
