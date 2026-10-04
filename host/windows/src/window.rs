@@ -34,6 +34,7 @@ struct App<D: DataSource> {
     next_frame: Instant,
     failed: bool,
     minimized: bool,
+    occluded: bool,
     frames: u64,
     paint_ms: f64,
     present_ms: f64,
@@ -124,6 +125,7 @@ pub(super) fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], co
         next_frame: started,
         failed: false,
         minimized: false,
+        occluded: false,
         frames: 0,
         paint_ms: 0.,
         present_ms: 0.,
@@ -169,7 +171,8 @@ impl<D: DataSource + Default + 'static> App<D> {
             return;
         };
         let size = window.inner_size();
-        self.minimized = size.width == 0 || size.height == 0;
+        self.minimized = window.is_minimized() == Some(true) || size.width == 0 || size.height == 0;
+        p.surface_lifecycle(self.minimized || self.occluded, !self.focused);
         self.scale = window.scale_factor();
         if !self.minimized {
             if let Some(error) = p.resize_scaled(
@@ -304,7 +307,8 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
             size.height as f32 / self.scale as f32,
         );
         match app::boot_presenter::<D>(&mut self.config, viewport) {
-            Ok((p, warning)) => {
+            Ok((mut p, warning)) => {
+                p.surface_lifecycle(self.minimized || self.occluded, !self.focused);
                 if let Some(warning) = warning {
                     eprintln!("exact-windows: {warning}");
                 }
@@ -362,11 +366,16 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
         match event {
             WindowEvent::Focused(focused) => {
                 self.focused = focused;
+                p.surface_lifecycle(self.minimized || self.occluded, !focused);
                 if !focused {
                     self.buttons = 0;
                     let _ = p.pointer_lost(now);
                     p.blur();
                 }
+            }
+            WindowEvent::Occluded(occluded) => {
+                self.occluded = occluded;
+                p.surface_lifecycle(self.minimized || occluded, !self.focused);
             }
             WindowEvent::CursorMoved { position, .. } => {
                 self.pointer_inside = true;
