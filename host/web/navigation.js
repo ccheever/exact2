@@ -637,9 +637,11 @@ export function preferFold(request) {
 // bit 1 `prefers-reduced-transparency: reduce`, bit 2 `prefers-contrast: more`,
 // bit 3 `less` (both: `custom`), bit 4 `prefers-color-scheme: dark` — the
 // system's, whatever the page's `color-scheme` (a browser that does not know
-// a feature answers no preference, as CSS does). Told with each boot and resize.
+// a feature answers no preference, as CSS does) — and the primary input's
+// `pointer: coarse` (bit 5), `pointer: none` (bit 6) and `hover: none` (bit 7),
+// zero being a mouse. Told with each boot and resize.
 let preferenceQueries;
-const queries = () => (preferenceQueries ??= [["(prefers-reduced-motion: reduce)", 1], ["(prefers-reduced-transparency: reduce)", 2], ["(prefers-contrast: more)", 4], ["(prefers-contrast: less)", 8], ["(prefers-contrast: custom)", 12], ["(prefers-color-scheme: dark)", 16]].map(([q, bits]) => [matchMedia(q), bits]));
+const queries = () => (preferenceQueries ??= [["(prefers-reduced-motion: reduce)", 1], ["(prefers-reduced-transparency: reduce)", 2], ["(prefers-contrast: more)", 4], ["(prefers-contrast: less)", 8], ["(prefers-contrast: custom)", 12], ["(prefers-color-scheme: dark)", 16], ["(pointer: coarse)", 32], ["(pointer: none)", 64], ["(hover: none)", 128]].map(([q, bits]) => [matchMedia(q), bits]));
 export const preferences = () => queries().reduce((bits, [q, bit]) => bits | (q.matches ? bit : 0), 0);
 export const onPreferences = (changed) => queries().forEach(([q]) => q.addEventListener("change", changed));
 
