@@ -1,7 +1,7 @@
 # LLP 1088: What the app diaries ask of Contract
 
 **Type:** RFC
-**Status:** Accepted (stages 1–3 as descoped), r5, 2026-10-04. Accepted by the orchestrator for Charlie under the three-round rule (`rules/RULES.md`, "Fix loops get 3 rounds") after Astra's r3; D6 deferred. Stage 1 is built as of 2026-10-04, without D6's fixed point, and stages 2 and 3 as of 2026-10-04 (§10, "As built"). All three review rounds were one family (Astra, `gpt-6-astra`, max; Grok was unavailable): r1 NOT READY (7 MATERIAL, 6 MINOR); r2 NOT READY (4 new MATERIAL, 3 new MINOR); r3 NOT READY on one MATERIAL (D6's convergence) and three MINORs. The reviewer stated that only D6 blocked stage 1. r4 is a final edit with no further review: D6 moves to §9 with the requirement a follow-up must meet, and r3's MINORs are folded in. A second family, Grok 4.7 (xhigh), then reviewed r4 (truncated); r5 folds its findings into the decisions with no new round. Renumbered from 1085, then from 1086 (origin/main took 1085, then 1086 and 1087). §8 lists each revision.
+**Status:** Accepted (stages 1–3 as descoped), r5, 2026-10-04. Accepted by the orchestrator for Charlie under the three-round rule (`rules/RULES.md`, "Fix loops get 3 rounds") after Astra's r3; D6 deferred. Stage 1 is built as of 2026-10-04, without D6's fixed point, and stages 2 and 3 as of 2026-10-04 (§10, "As built"). §9.1, list construction, is built as of 2026-10-04 on LLP 1090's budget (§9.1, "As built"). All three review rounds were one family (Astra, `gpt-6-astra`, max; Grok was unavailable): r1 NOT READY (7 MATERIAL, 6 MINOR); r2 NOT READY (4 new MATERIAL, 3 new MINOR); r3 NOT READY on one MATERIAL (D6's convergence) and three MINORs. The reviewer stated that only D6 blocked stage 1. r4 is a final edit with no further review: D6 moves to §9 with the requirement a follow-up must meet, and r3's MINORs are folded in. A second family, Grok 4.7 (xhigh), then reviewed r4 (truncated); r5 folds its findings into the decisions with no new round. Renumbered from 1085, then from 1086 (origin/main took 1085, then 1086 and 1087). §8 lists each revision.
 **Systems:** Contract compiler (`contract/{syntax,types,analyze,lower}`, `contract/cli/src/lean.rs`), Plan (`plan/tables/format.json` `stdlib`), Runner (`vm.rs`, `stdlib.rs`, `uses.rs`), JS target (`host/web-js`), web host (`host/web`), Apple hosts (`host/apple`), Linux host, Lean semantics and difftest (`semantics/`), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
@@ -642,6 +642,70 @@ construction (r2's D3: literals with kept trailing commas,
 `concat`/`slice`/`includes`, `type-list-item`, spread refused, the Lean
 `.list` with its proofs) lands after it, as an amendment to that LLP or to
 this one.
+
+#### As built (2026-10-04, branch `impl/1088-lists`)
+
+LLP 1090's stages 1 and 2 met the precondition, so §9.1 lands here, as r2's
+D3 had it, on every evaluator, in two stages.
+
+- **Literals.** `Expr::EmptyList` became `Expr::List(items, span)`; the
+  items may span lines and keep a trailing comma, which the formatter
+  preserves. The items unify as a ternary's arms do, else `type-list-item`
+  ("a list's items have one type: item 2 is `string`, the items before it
+  `number`"). `[...xs, x]` is `syntax-refused-idiom`, naming
+  `concat(xs, [x])`. A literal lowers to its items and `List n`, which the
+  runner and the JS target (`K`) already bounded as any construction. A
+  placeholder's constant may now be a list of constants. Driving the
+  change found that `derives.rs`'s `map_children` treated an unknown
+  expression as a leaf, so a list's items were walked by every walker but
+  that one; it maps them now.
+- **Functions.** `concat(list<T>, list<T>)`, and `slice` and `includes`,
+  which take text or a list. The roster rows are `any` (`format.json`),
+  and the checker types the three in `lists.rs`, by the first argument:
+  `includes` over a list takes a string, number or bool that unifies with
+  the item type, and compares by SameValueZero, as the web does (NaN is
+  found, `-0` is `0`); records and options are refused, since the web
+  compares an object by identity. `push`, `append` and `unshift` name
+  `concat`; `contains` and `indexOf` name `includes`. `split` and `indexOf`
+  stay out (D2's list).
+- **Budget, in LLP 1090 D3's terms.** On both executors one list step for
+  each item `concat` or `slice` keeps, taken before the list is built, and
+  one for each item `includes` scans up to its match; a list they build is
+  measured as `Opcode::List` measures one, so a short `concat` of large
+  shared items traps `ValueTooLarge`. The runner charges them in the VM's
+  `Call` arm (`vm.rs`, `list_call`), the work in `runner/src/lists.rs`. On
+  the JS target `x_concat`, `x_slice` and `x_includes` (`budget.js`) take
+  the caller's `$s`, trap before they build, and leave their own steps in
+  `ST`, which the emitted code adds back (`code.rs`, `stepped`); a body
+  that calls one is metered. Text's `slice` and `includes` take no step.
+- **Lean.** `Expr.list` replaced `emptyList`, evaluated by `evalList` and
+  typed by `Ty.unifyAll`; `concat`, and `slice` and `includes` over a list
+  (`sliceOf`, `includesOf`, `Value.sameValueZero`), with `rosterTy` on both
+  sides. Type soundness, the big-step equivalence, expansion and lowering
+  correctness are extended (`ValTyL.unifyAll`, `VTys.joinAll`, `case_list`),
+  `lake build` green. One cost: `stdlib`'s equation lemmas are realized
+  where a proof first unfolds it, under the command line's options, and its
+  match on roster names outgrew the default heartbeat budget at `concat`;
+  `lakefile.toml` raises it for the library.
+- **Difftest.** The generator writes literals (so a list no longer needs
+  one in scope), `concat`, `slice` and `includes`, and resets a growing
+  list as it resets a growing string. Corpus `lists/{literals,construct}`;
+  the corpus, a random sweep (seed 1088, 300; seed 9, 300 with `--js`),
+  `types`, `lowering`, `lowering-corpus`, `expansion` and `apps` agree.
+- **Conformance.** `host/web-js/conformance/construct.{contract,steps}`, the
+  semantics on both runners; `budget.contract` gains cases 35–42: `concat`
+  and `slice` at and past the step bound, `includes` scanning and stopping
+  at its match, and `concat` past `MAX_VALUE_BYTES`. `conform.mjs construct
+  budget --build --linux --strict`: 10 and 53 steps equal on wasm, the JS
+  target and Linux, the bound refusals' text included. The Firefox and
+  WebKit runs are the async lane's.
+- **Tests.** `contract/cli/tests/it/lists.rs` (the fixture
+  `list-construction.contract` driven on the runner; the refusals; steps
+  and extents at the bound), `runner/src/lists.rs`, `js-runtime.test.mjs`,
+  `budget_tests.rs` (the emitted call and its pc), `parse.rs`, `fmt.rs`,
+  `rejects.txt` (`type-list-item`). Driven with a scratch app (`exact new`)
+  on the web (JS target) and macOS: a mail selection toggled, selected all
+  and cleared, threads folded, `app.test.contract` green on both.
 
 ### 9.2 Inference order and `?` in messages (r3's D6)
 
