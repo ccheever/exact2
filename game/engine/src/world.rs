@@ -298,6 +298,7 @@ impl World {
             .register::<ViewModel>()
             .register::<Opacity>()
             .register::<NodeMaterials>()
+            .register::<crate::ParticleLook>()
             .register::<MouseLook>()
             .register::<Visible>()
             .register::<Ambient>()

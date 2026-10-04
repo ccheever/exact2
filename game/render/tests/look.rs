@@ -299,3 +299,121 @@ fn a_generated_model_samples_a_shared_texture_through_its_uvs() {
         "right half blue: {right:?}"
     );
 }
+
+#[derive(Default, Args)]
+struct SparkArgs {
+    stretch: f32,
+    textured: bool,
+}
+struct Sparks;
+impl Game for Sparks {
+    const ID: &'static str = "look-sparks";
+    const ASSETS: &'static [&'static str] = &["flip.tex"];
+    type Args = SparkArgs;
+    fn setup(w: &mut World, args: &SparkArgs) {
+        w.insert_resource(Environment {
+            background: Some([0.; 3]),
+            fog: None,
+            bloom: None,
+            ..Default::default()
+        });
+        w.spawn((Transform::at(0., 0., 10.), Camera::orthographic(4.)));
+        // One spark a burst, flying right at 4 m/s, white and opaque, 0.1 m.
+        let e = w.spawn((
+            Transform {
+                position: Vec3::new(-1., 0., 0.),
+                rotation: Quat::from_rotation_z(-std::f32::consts::FRAC_PI_2),
+                ..Default::default()
+            },
+            Emitter {
+                rate: 0.,
+                lifetime: 1.,
+                speed: 4.,
+                spread: 0.,
+                gravity: Vec3::ZERO,
+                size: [0.1, 0.1],
+                color: [[1.; 4], [1.; 4]],
+                additive: false,
+                ..Default::default()
+            }
+            .burst(1),
+        ));
+        let texture = if args.textured { "flip.tex" } else { "" };
+        w.insert(
+            e,
+            ParticleLook {
+                texture: texture.into(),
+                atlas: [2, 1],
+                stretch: args.stretch,
+                ..Default::default()
+            },
+        );
+    }
+    fn tick(w: &mut World, _: &Input, _: &SparkArgs) {
+        emitter::step(w);
+    }
+}
+// A 2 x 1 atlas: frame 0 red, frame 1 green.
+fn flip() -> asset::TextureData {
+    asset::TextureData {
+        width: 2,
+        height: 1,
+        mips: vec![vec![255, 0, 0, 255, 0, 255, 0, 255], vec![128, 128, 0, 255]],
+        filter: [asset::Filter::Nearest; 3],
+        ..Default::default()
+    }
+}
+fn sparks(gpu: &Gpu, stretch: f32, textured: bool, now_ms: f64) -> fixture::Pixels {
+    let mut s = WorldSurface::<Sparks, ModelPresentation, true>::default();
+    s.bind(
+        &[Value::Number(f64::from(stretch)), Value::Bool(textured)],
+        None,
+    )
+    .unwrap();
+    s.device_ready(exact_gpu::wgpu::Features::empty());
+    s.asset("flip.tex", Ok(&bin::to_vec(&flip())));
+    s.prepare_assets(
+        &gpu.device,
+        &gpu.queue,
+        exact_gpu::wgpu::TextureFormat::Rgba8Unorm,
+    );
+    // The first frame starts the clock; the second runs to `now_ms`.
+    fixture::render(gpu, &mut s, &frame()).unwrap();
+    let frame = Frame { now_ms, ..frame() };
+    let (pixels, _) = fixture::render(gpu, &mut s, &frame).unwrap();
+    assert!(s.error().is_none(), "{:?}", s.error());
+    pixels
+}
+// The lit extent of the spark: columns and rows with any bright pixel.
+fn extent(p: &fixture::Pixels) -> (usize, usize) {
+    let lit = |x: u32, y: u32| p.at(x, y).iter().take(3).any(|&c| c > 60);
+    let cols = (0..128).filter(|&x| (0..128).any(|y| lit(x, y))).count();
+    let rows = (0..128).filter(|&y| (0..128).any(|x| lit(x, y))).count();
+    (cols, rows)
+}
+
+#[test]
+fn particles_stretch_along_their_motion_and_flip_through_an_atlas() {
+    let Some(gpu) = gpu() else { return };
+    // 4 m tall view over 128 px: 32 px per metre; a 0.1 m spark is ~3 px.
+    let round = extent(&sparks(&gpu, 0., false, 200.));
+    let streak = extent(&sparks(&gpu, 0.1, false, 200.));
+    eprintln!("spark extent (cols, rows): round {round:?}, stretched {streak:?}");
+    assert!(round.0 <= 5 && round.1 <= 5, "{round:?}");
+    // 0.1 s of 4 m/s adds 0.4 m: about 13 px along X, still thin in Y.
+    assert!(streak.0 >= 12 && streak.1 <= 5, "{streak:?}");
+    let colour = |p: &fixture::Pixels| {
+        (0..128)
+            .flat_map(|y| (0..128).map(move |x| (x, y)))
+            .map(|(x, y)| p.at(x, y))
+            .max_by_key(|c| u16::from(c[0]) + u16::from(c[1]))
+            .unwrap()
+    };
+    let (early, late) = (
+        colour(&sparks(&gpu, 0., true, 200.)),
+        colour(&sparks(&gpu, 0., true, 600.)),
+    );
+    eprintln!("flipbook early {early:?} late {late:?}");
+    assert!(early[0] > 150 && early[1] < 40, "frame 0 red: {early:?}");
+    assert!(late[1] > 150 && late[0] < 40, "frame 1 green: {late:?}");
+}

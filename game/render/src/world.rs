@@ -121,6 +121,11 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
             for (_, sprite) in w.query::<&exact_game::Sprite>().iter() {
                 self.sprite_texture(&sprite.texture);
             }
+            for (_, look) in w.query::<&exact_game::ParticleLook>().iter() {
+                if !look.texture.is_empty() {
+                    self.sprite_texture(&look.texture);
+                }
+            }
         }
         self.quads
             .feed::<ASSETS>(w, initial, next_tick, parent_changed)?;

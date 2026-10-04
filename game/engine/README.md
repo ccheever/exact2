@@ -170,6 +170,11 @@ the saved local transform. `animation::socket(w, target, joint)` reads the curre
 world-space tick endpoint; displayed attachments use the interpolated local chain.
 
 Emitters form local clouds: moving the emitter moves particles already born.
+`ParticleLook` beside an `Emitter` textures its particles from a `.tex` atlas
+(`atlas: [columns, rows]`, a flipbook at `fps`, or the frames spread over each
+lifetime) and stretches them along their motion (`stretch`: seconds of velocity
+added to the length), for sparks and streaks. `Emitter.additive` picks additive or
+straight-alpha blending for both.
 For sound, `w.sounds([..])` registers synthesized (`Synth`) or sampled (`Sample`)
 definitions in setup; a sample names a `.sound` asset declared in `Game::ASSETS`, and
 registration saves its frames, rate and channels. `w.play("chime").start()` creates

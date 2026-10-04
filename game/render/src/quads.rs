@@ -3,7 +3,9 @@ use crate::{
     buffers::{bytes, Buffer},
     FrameInput, RenderError,
 };
-use exact_game::{asset::AlphaMode, Emitter, Entity, Sprite, Transform, Visible, World};
+use exact_game::{
+    asset::AlphaMode, Emitter, Entity, ParticleLook, Sprite, Transform, Visible, World,
+};
 use exact_gpu::wgpu;
 use glam::Vec3;
 use std::{collections::BTreeMap, ops::Range};
@@ -11,7 +13,8 @@ use std::{collections::BTreeMap, ops::Range};
 #[derive(Clone, Copy)]
 pub(crate) enum Kind {
     Model(usize, u32),
-    Particle(bool),
+    /// Additive, and the `looks` index of a textured look (`NO_LOOK` for dots).
+    Particle(bool, u32),
     Sprite(usize),
     #[cfg(not(target_arch = "wasm32"))]
     Child(u16),
@@ -23,7 +26,7 @@ impl Kind {
         match self {
             Self::Model(..) => 0,
             Self::Sprite(_) => 1,
-            Self::Particle(_) => 2,
+            Self::Particle(..) => 2,
             #[cfg(not(target_arch = "wasm32"))]
             Self::Child(_) => 3,
         }
@@ -83,8 +86,11 @@ impl Arena {
         self.buffer.write(q, 0, bytes(&self.words));
     }
 }
+const NO_LOOK: u32 = u32::MAX;
 pub(crate) struct Quads {
     particles: Vec<Item<Emitter>>,
+    looks: Vec<Item<ParticleLook>>,
+    textured_pipelines: Option<[wgpu::RenderPipeline; 2]>,
     sprites: Vec<Item<Sprite>>,
     particle_data: Vec<Quad>,
     sprite_data: Vec<Quad>,
@@ -168,6 +174,8 @@ impl Quads {
         });
         let mut result = Self {
             particles: Vec::new(),
+            looks: Vec::new(),
+            textured_pipelines: None,
             sprites: Vec::new(),
             sprite_data: Vec::with_capacity(if ASSETS { 4096 } else { 0 }),
             particle_data: Vec::new(),
@@ -206,6 +214,7 @@ impl Quads {
     ) -> Result<(), RenderError> {
         self.hz = w.hz();
         feed(w, &mut self.particles, initial, next_tick, parent_changed);
+        feed(w, &mut self.looks, initial, next_tick, parent_changed);
         self.particles.retain(|item| match item.value.validate() {
             Ok(()) => true,
             Err(error) => {
@@ -404,6 +413,15 @@ impl Quads {
         let entries = particles + sprites + 4096;
         self.order.reserve(entries.saturating_sub(self.order.len()));
         self.draws.reserve(entries.saturating_sub(self.draws.len()));
+        if !self.looks.is_empty() && self.textured_pipelines.is_none() {
+            self.texture_layout(d);
+            let shader = source(d, include_str!("shaders/sprite.wgsl"));
+            let texture = self.texture_layout.as_ref().unwrap();
+            // Textured particles: straight alpha or additive, like dots.
+            self.textured_pipelines = Some(std::array::from_fn(|i| {
+                pipeline(d, &shader, &[&self.layout, texture], i + 2)
+            }));
+        }
         if !self.particles.is_empty() && self.particle_pipelines.is_none() {
             let shader = source(d, include_str!("shaders/particle.wgsl"));
             self.particle_pipelines = Some(std::array::from_fn(|i| {
@@ -448,6 +466,24 @@ impl Quads {
                 left -= e.live(self.hz, f.alpha).min(left);
                 continue;
             }
+            let found = self
+                .looks
+                .binary_search_by_key(&item.entity.index(), |l| l.entity.index())
+                .ok()
+                .filter(|&i| self.looks[i].entity == item.entity);
+            let look = found.map(|i| &self.looks[i].value);
+            // A texture draws only once resident (and only with assets).
+            let textured = found.filter(|&i| {
+                ASSETS && {
+                    let name = &self.looks[i].value.texture;
+                    !name.is_empty()
+                        && textures
+                            .get(name)
+                            .is_some_and(|t| t.active && t.sprite_bind.is_some())
+                }
+            });
+            let stretch = look.map_or(0., |l| l.stretch.max(0.));
+            let eye = f.camera_position;
             e.particles(self.hz, f.alpha, |p| {
                 if left == 0 {
                     return;
@@ -455,17 +491,26 @@ impl Quads {
                 left -= 1;
                 let position = t.transform_point3(p.position);
                 let index = self.particle_data.len();
-                self.particle_data.push(quad(
-                    position,
+                let (mut x, mut y) = (
                     right * p.size * t.x_axis.truncate().length(),
                     up * p.size * t.y_axis.truncate().length(),
-                    p.color,
-                    [0., 0., 1., 1.],
-                    3.,
-                    0.,
-                ));
+                );
+                let velocity = t.transform_vector3(p.velocity);
+                if stretch > 0. && velocity.length_squared() > 1e-12 {
+                    // Lengthen along the motion, facing the camera across it.
+                    let along = velocity.normalize();
+                    let across = along.cross(eye - position).normalize_or(right);
+                    y = along * (y.length() + velocity.length() * stretch);
+                    x = across * x.length();
+                }
+                let (uv, mode) = match (textured, look) {
+                    (Some(_), Some(l)) => (l.uv(l.frame(p.age, p.lifetime)), 2.),
+                    _ => ([0., 0., 1., 1.], 3.),
+                };
+                self.particle_data
+                    .push(quad(position, x, y, p.color, uv, mode, 0.));
                 self.order.push(Order {
-                    kind: Kind::Particle(e.additive),
+                    kind: Kind::Particle(e.additive, textured.map_or(NO_LOOK, |i| i as u32)),
                     depth: -f.view.transform_point3(position).z,
                     layer: e.layer,
                     slot: item.entity.index(),
@@ -534,7 +579,13 @@ impl Quads {
                         .unwrap()
                         .words
                         .extend(self.sprite_data[at].words);
-                    push_draw(&mut self.draws, &self.sprites, Kind::Sprite(index), start);
+                    push_draw(
+                        &mut self.draws,
+                        &self.sprites,
+                        &self.looks,
+                        Kind::Sprite(index),
+                        start,
+                    );
                 }
             }
         }
@@ -559,7 +610,7 @@ impl Quads {
         self.order.sort_unstable_by(Order::compare);
         for o in &self.order {
             let at = match o.kind {
-                Kind::Particle(_) => {
+                Kind::Particle(..) => {
                     let arena = self
                         .particle_arena
                         .as_mut()
@@ -579,7 +630,7 @@ impl Quads {
                 }
                 _ => o.index as u32,
             };
-            push_draw(&mut self.draws, &self.sprites, o.kind, at);
+            push_draw(&mut self.draws, &self.sprites, &self.looks, o.kind, at);
         }
         if let Some(arena) = &mut self.sprite_arena {
             arena.upload(d, q);
@@ -600,10 +651,18 @@ impl Quads {
     ) {
         pass.set_bind_group(0, &self.bind, &[]);
         match draw.kind {
-            Kind::Particle(additive) => {
-                pass.set_pipeline(
-                    &self.particle_pipelines.as_ref().unwrap()[usize::from(additive)],
-                );
+            Kind::Particle(additive, look) => {
+                if look == NO_LOOK {
+                    pass.set_pipeline(
+                        &self.particle_pipelines.as_ref().unwrap()[usize::from(additive)],
+                    );
+                } else {
+                    let texture = &textures[&self.looks[look as usize].value.texture];
+                    pass.set_pipeline(
+                        &self.textured_pipelines.as_ref().unwrap()[usize::from(additive)],
+                    );
+                    pass.set_bind_group(1, texture.sprite_bind.as_ref().unwrap(), &[]);
+                }
                 pass.set_vertex_buffer(
                     0,
                     self.particle_arena
@@ -644,10 +703,22 @@ impl Quads {
             / 20) as u64
     }
 }
-fn push_draw(draws: &mut Vec<Draw>, sprites: &[Item<Sprite>], kind: Kind, at: u32) {
+fn push_draw(
+    draws: &mut Vec<Draw>,
+    sprites: &[Item<Sprite>],
+    looks: &[Item<ParticleLook>],
+    kind: Kind,
+    at: u32,
+) {
     if let Some(previous) = draws.last_mut() {
         let compatible = match (previous.kind, kind) {
-            (Kind::Particle(a), Kind::Particle(b)) => a == b,
+            (Kind::Particle(a, i), Kind::Particle(b, j)) => {
+                a == b
+                    && (i == j
+                        || (i != NO_LOOK
+                            && j != NO_LOOK
+                            && looks[i as usize].value.texture == looks[j as usize].value.texture))
+            }
             (Kind::Sprite(a), Kind::Sprite(b)) => {
                 let (a, b) = (&sprites[a].value, &sprites[b].value);
                 a.texture == b.texture && a.alpha == b.alpha
@@ -911,7 +982,11 @@ mod retained_tests {
     }
     #[test]
     fn every_kind_and_owner_ordinal_has_the_same_total_order() {
-        let mut kinds = vec![Kind::Particle(false), Kind::Model(0, 0), Kind::Sprite(0)];
+        let mut kinds = vec![
+            Kind::Particle(false, NO_LOOK),
+            Kind::Model(0, 0),
+            Kind::Sprite(0),
+        ];
         #[cfg(not(target_arch = "wasm32"))]
         kinds.push(Kind::Child(0));
         let mut rows = Vec::new();
@@ -946,7 +1021,7 @@ mod retained_tests {
         // Rank is independently pinned; a mistaken enum rank must fail too.
         assert_eq!(Kind::Model(0, 0).rank(), 0);
         assert_eq!(Kind::Sprite(0).rank(), 1);
-        assert_eq!(Kind::Particle(false).rank(), 2);
+        assert_eq!(Kind::Particle(false, NO_LOOK).rank(), 2);
         #[cfg(not(target_arch = "wasm32"))]
         assert_eq!(Kind::Child(0).rank(), 3);
     }

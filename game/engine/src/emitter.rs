@@ -289,8 +289,18 @@ impl Emitter {
                 let y = 1. - random() * (1. - spread_cos);
                 let r = math::sqrt((1. - y * y).max(0.));
                 let v = Vec3::new(r * math::cos(angle), y, r * math::sin(angle)) * self.speed;
+                // d(travel)/dt and d(gravity)/dt for the drawn motion.
+                let (speed, fall) = if self.drag > 0.0001 {
+                    let decay = math::exp(-self.drag * t);
+                    (decay, (1. - decay) / self.drag)
+                } else {
+                    (1., t)
+                };
                 visit(Particle {
                     position: origin + v * travel + self.gravity * gravity,
+                    velocity: v * speed + self.gravity * fall,
+                    age: t,
+                    lifetime: birth.lifetime,
                     size,
                     color,
                 });
@@ -309,6 +319,12 @@ fn mix(mut n: u64) -> u64 {
 pub struct Particle {
     /// Local position.
     pub position: Vec3,
+    /// Local velocity, for stretched particles.
+    pub velocity: Vec3,
+    /// Seconds since birth, for flipbooks.
+    pub age: f32,
+    /// The birth's lifetime in seconds.
+    pub lifetime: f32,
     /// Quad diameter.
     pub size: f32,
     /// Linear straight RGBA.

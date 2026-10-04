@@ -17,6 +17,7 @@ mod environment;
 mod input;
 pub mod math;
 pub mod motion;
+mod particle_look;
 mod placed;
 mod rng;
 pub mod scene;
@@ -43,6 +44,7 @@ pub use glam::{Affine3A, Mat4, Quat, Vec2, Vec3, Vec3Swizzles, Vec4};
 pub use input::{
     Actions, Input, InputEvent, PointerPhase, PointerState, Region, Stick, MOUSE_BUTTONS,
 };
+pub use particle_look::ParticleLook;
 pub use placed::{CanvasChild, Facing, Placed, PlacedPlane};
 pub use rng::{RangeValue, Rng};
 pub use scene::*;

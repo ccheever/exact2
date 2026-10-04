@@ -187,6 +187,7 @@ The dev compiler retains its last good plan on an error.
 | Contact shadows in creases | `w.insert_resource(AmbientOcclusion::default())` turns on SSAO (off by default) |
 | Lighting from a photographed sky | `w.insert_resource(EnvironmentMap::new("sky.tex"))` with the equirect in `Game::ASSETS` |
 | Texture generated terrain | UVs in the `MeshData`, a material sampling a `.tex` from `art/textures/`, through `w.generated_model` |
+| Fire, smoke and sparks | `ParticleLook { texture, atlas, fps, stretch }` beside an `Emitter` |
 | A painted, visible sky | The same `EnvironmentMap` with `visible: true` (and `rotation` to turn it) |
 | Mouse look | `input.pointer()`'s `delta` is the device's motion this tick, not a difference of positions. Mark the canvas `data-pointer-lock="true"` (declared in `app.json`'s `data`) and a mouse press captures the mouse on the web, macOS and iPadOS (`GCMouse`) until Escape or blur, so the delta never stops at an edge; the Linux host always sends evdev's relative motion. |
 | Turn the drawn camera between ticks | Put `MouseLook { yaw_per_point, pitch_per_point, pitch_limit }` on the camera at the rates the tick turns it by: the drawn camera and its children turn by `Sim::unshown_motion()`, so a turn shows at the next frame whatever the tick and display rates (`engine/tests/look.rs`). Presentation only; insert it in `setup` or register it. |
