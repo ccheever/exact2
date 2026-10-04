@@ -260,7 +260,12 @@ impl<D: DataSource> Runner<D> {
         if let Err(e) = self
             .router_change()
             .and_then(|_| self.settle(false))
-            .and_then(|_| self.gate_step())
+            .and_then(|_| {
+                // As in an action's commit: the request goes out after the
+                // step, and a gate reads it pending.
+                self.pending_mut[m] |= later.is_some();
+                self.gate_step()
+            })
         {
             if let Some(request) = &later {
                 self.discard_request(request);

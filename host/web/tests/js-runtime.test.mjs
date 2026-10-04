@@ -85,6 +85,26 @@ test('a queue with no then asks its waiting send by drive() alone, off the agent
   expect([slot(), m.p(), m.next]).toEqual(['Q', false, Infinity]);
 });
 
+// LLP 1092 D8 on the JS target: the gate step runs inside the commit's undo `try`, after settlement, so a key that is
+// no key refuses the commit (`TaskKey`), its writes and the timers both as they were; a changed key re-arms from now.
+test('a gate step that refuses rolls back the commit and its timers', async () => {
+  const { sig, act, W, gated, clock, journal } = await import(resolve(dir, 'rt.js'));
+  clock.agent = true;
+  try {
+    const k = sig(0, 'n');
+    const tick = act(() => {});
+    gated(1000, tick, 1, 0, () => true, () => (k() === 5 ? NaN : k()), 'r');
+    const timer = () => clock.timers.find(t => t.name === 'r');
+    const due = timer().due;
+    act(() => W(k, 5))();
+    expect(journal.at(-1)).toContain('TaskKey { task: "r" }');
+    expect([k(), timer().due]).toEqual([0, due]);
+    clock.now = 400;
+    act(() => W(k, 1))();
+    expect([k(), timer().due]).toEqual([1, 1400]);
+  } finally { clock.agent = false; }
+});
+
 test('a key handler stops and prevents its event while a view transition holds the tree update', async () => {
   globalThis.requestAnimationFrame = f => setTimeout(f, 0);
   globalThis.document = { getElementById: () => ({}) };

@@ -686,7 +686,15 @@ impl<D: DataSource> Runner<D> {
         if let Err(e) = self
             .router_change()
             .and_then(|_| self.settle(false))
-            .and_then(|_| self.gate_step())
+            .and_then(|_| {
+                // Settlement's flags follow the tickets, and this commit's
+                // requests are handed out after the step: a gate reads them
+                // pending, as the settled derives did.
+                for (m, _, _, _) in &later {
+                    self.pending_mut[*m] |= !assigned.contains(m);
+                }
+                self.gate_step()
+            })
         {
             self.discard_later(&later);
             for (rows, slot, old) in row_undo.into_iter().rev() {

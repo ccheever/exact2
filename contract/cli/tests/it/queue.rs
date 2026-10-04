@@ -558,3 +558,53 @@ fn a_next_refused_by_a_task_key_keeps_its_head_and_stalls() {
     assert_eq!(r.data().asks, ["save:ok", "save:nan", "save:nan"]);
     assert_eq!(r.queued(), [("rec".to_string(), 1)]);
 }
+
+/// LLP 1092 D8: the gate step is on every commit's settlement path — a
+/// reply's (`fulfill_inner`) and a commit made again after a failed reply
+/// (`commit_again`) — and a key that is no key refuses that commit.
+#[test]
+fn a_task_key_refuses_a_reply_and_a_commit_made_again() {
+    // A reply whose answer makes the key no key: refused, the slot as it was.
+    let src = APP.replace(
+        "  view\n",
+        "  task watch key=recd == \"bad\" ? 0 / 0 : 1\n    after(100000, bump)\n  view\n",
+    );
+    let mut r = boot_with(
+        &src,
+        Desk {
+            later: true,
+            ..Desk::default()
+        },
+    );
+    r.act("record", vec![Value::str("bad")]).unwrap();
+    let t = tickets(&mut r);
+    assert!(matches!(
+        r.fulfill(t[0], reply("ok")),
+        Err(RunnerError::TaskKey { task }) if task == "watch"
+    ));
+    assert_eq!(r.derive("recd"), Some(&Value::str("-")));
+    assert_eq!(r.timer_due_ms(), Some(100_000.0), "the timer as it was");
+    // A failed reply's release commits again; that commit's key is no key
+    // once nothing is pending.
+    let src = APP.replace("  state ticks = 0\n", "  state ticks = 0\n  state armed = false\n").replace(
+        "  view\n",
+        "  action arm\n    armed = true\n    send rec = save(\"x\")\n  task watch key=armed and not pending(rec) ? 0 / 0 : 1\n    after(100000, bump)\n  view\n",
+    );
+    let mut r = boot_with(
+        &src,
+        Desk {
+            later: true,
+            ..Desk::default()
+        },
+    );
+    r.act("arm", vec![]).unwrap();
+    let t = tickets(&mut r);
+    r.data().fail_parse = true;
+    assert!(matches!(
+        r.fulfill(t[0], reply("ok")),
+        Err(RunnerError::TaskKey { .. })
+    ));
+    assert!(r
+        .journal()
+        .any(|l| l.contains("a failed request (0 asked again) refused: TaskKey")));
+}
