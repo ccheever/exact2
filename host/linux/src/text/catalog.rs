@@ -23,7 +23,7 @@ impl Catalog {
         let mut catalog = Self::with_fonts(FontSystem::new());
         let fonts = &mut catalog.fonts;
         if let Ok(dir) = std::env::var("EXACT_FONTS") {
-            super::font_cache::load(fonts.db_mut(), &dir);
+            super::font_cache::load(fonts, &dir);
         }
         if fonts.db().faces().next().is_none() {
             eprintln!("exact: no fonts found; text will not shape (set EXACT_FONTS to a directory of .ttf files)");

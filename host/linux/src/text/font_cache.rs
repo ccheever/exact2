@@ -3,18 +3,23 @@
 //! a cold start's text setup (LLP 1076). The cache is a small text file in
 //! the app's cache directory, keyed by the directory's listing (each file's
 //! name, length and modification time), so a system update that changes a
-//! font reads the directory again.
-use cosmic_text::fontdb;
+//! font reads the directory again. Each face's `wght` range is kept with it:
+//! font matching would otherwise open every file of another weight to learn
+//! whether it is variable.
+use cosmic_text::{fontdb, FontSystem};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
-const HEADER: &str = "exact-fonts 1";
+const HEADER: &str = "exact-fonts 2";
 
-/// Load `dir`'s faces into `db`, from the cache when the directory has not
-/// changed since it was written.
-pub(super) fn load(db: &mut fontdb::Database, dir: &str) {
+/// A cached face and its `wght` range.
+type Cached = (fontdb::FaceInfo, Option<(f32, f32)>);
+
+/// Load `dir`'s faces into `fonts`, from the cache when the directory has
+/// not changed since it was written.
+pub(super) fn load(fonts: &mut FontSystem, dir: &str) {
     let Some(cache) = cache_file(dir) else {
-        db.load_fonts_dir(dir);
+        fonts.db_mut().load_fonts_dir(dir);
         return;
     };
     let key = listing(Path::new(dir));
@@ -22,14 +27,19 @@ pub(super) fn load(db: &mut fontdb::Database, dir: &str) {
         .ok()
         .and_then(|t| parse(&t, key))
     {
-        for face in faces {
-            db.push_face_info(face);
-        }
+        let db = fonts.db_mut();
+        let axes: Vec<_> = faces
+            .into_iter()
+            .map(|(face, axis)| (db.push_face_info(face), axis))
+            .collect();
+        fonts.set_weight_axes(axes);
         return;
     }
+    let db = fonts.db_mut();
     let before: std::collections::HashSet<fontdb::ID> = db.faces().map(|f| f.id).collect();
     db.load_fonts_dir(dir);
     let mut out = format!("{HEADER} {key:016x}\n");
+    let mut axes = Vec::new();
     for f in db.faces().filter(|f| !before.contains(&f.id)) {
         let fontdb::Source::File(path) = &f.source else {
             continue;
@@ -38,8 +48,11 @@ pub(super) fn load(db: &mut fontdb::Database, dir: &str) {
         if families.iter().any(|n| n.contains(['\t', '\n', '\u{1f}'])) {
             continue;
         }
+        let axis = cosmic_text::face_weight_axis(db, f.id);
+        axes.push((f.id, axis));
         out.push_str(&format!(
-            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\n",
+            axis.map_or("-".to_string(), |(min, max)| format!("{min},{max}")),
             path.display(),
             f.index,
             f.post_script_name,
@@ -54,6 +67,7 @@ pub(super) fn load(db: &mut fontdb::Database, dir: &str) {
             families.join("\u{1f}"),
         ));
     }
+    fonts.set_weight_axes(axes);
     if let Some(parent) = cache.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -101,9 +115,9 @@ fn listing(dir: &Path) -> u64 {
     h.finish()
 }
 
-/// The faces a cache file written for `key` lists, or `None` (stale, short,
-/// or not one).
-fn parse(text: &str, key: u64) -> Option<Vec<fontdb::FaceInfo>> {
+/// The faces a cache file written for `key` lists, each with its `wght`
+/// range, or `None` (stale, short, or not one).
+fn parse(text: &str, key: u64) -> Option<Vec<Cached>> {
     let mut lines = text.lines();
     if lines.next()? != format!("{HEADER} {key:016x}") {
         return None;
@@ -111,10 +125,17 @@ fn parse(text: &str, key: u64) -> Option<Vec<fontdb::FaceInfo>> {
     lines
         .map(|line| {
             let f: Vec<&str> = line.split('\t').collect();
-            let [path, index, ps, style, weight, stretch, mono, families] = f[..] else {
+            let [axis, path, index, ps, style, weight, stretch, mono, families] = f[..] else {
                 return None;
             };
-            Some(fontdb::FaceInfo {
+            let axis = match axis {
+                "-" => None,
+                range => {
+                    let (min, max) = range.split_once(',')?;
+                    Some((min.parse().ok()?, max.parse().ok()?))
+                }
+            };
+            let face = fontdb::FaceInfo {
                 id: fontdb::ID::dummy(),
                 source: fontdb::Source::File(PathBuf::from(path)),
                 index: index.parse().ok()?,
@@ -132,7 +153,8 @@ fn parse(text: &str, key: u64) -> Option<Vec<fontdb::FaceInfo>> {
                 weight: fontdb::Weight(weight.parse().ok()?),
                 stretch: stretch_of(stretch.parse().ok()?),
                 monospaced: mono == "1",
-            })
+            };
+            Some((face, axis))
         })
         .collect()
 }
