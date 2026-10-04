@@ -338,3 +338,29 @@ fn malformed_live_terminal_does_not_consume_contact_or_clock() {
     assert!(p.pointer_up(106., 86., 30.).unwrap());
     assert_eq!(text(&p, "count"), "1");
 }
+/// Chess diary #4: `translate` in percentages of the box paints, hits and
+/// measures where CSS puts it — a dialog centred by `-50% -50%` — and
+/// `frame()` is that box, as `getBoundingClientRect` (LLP 1051.000 D1).
+#[test]
+fn a_box_centred_by_translate_percentages_is_hit_and_framed_where_it_paints() {
+    let mut p = boot(
+        r#"component App
+  state where = ""
+  action measure
+    let f = frame("dialog")
+    where = `${f.x},${f.y},${f.width},${f.height}`
+  view
+    box width="100%" height="100%" position="relative"
+      box id="dialog" testId="dialog" position="absolute" left="50%" top="50%" width=200 height=100 translate="-50% -50%"
+        button testId="ok" press=measure width=200 height=100
+          text "OK"
+      text where testId="where"
+"#,
+    );
+    let ok = id(&p, "ok");
+    // Laid out at 200,250; painted at 100,200.
+    assert_eq!(p.hit(110., 210.), Some(ok));
+    assert_ne!(p.hit(390., 340.), Some(ok));
+    press(&mut p, "ok");
+    assert_eq!(text(&p, "where"), "100,200,200,100");
+}

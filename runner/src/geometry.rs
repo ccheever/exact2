@@ -6,10 +6,11 @@
 //! on the web, through the artifact's link), D5 (provisional, unavailable)
 //!
 //! Both answer the box where the viewer sees it, as `getBoundingClientRect`
-//! does: every scroll offset above it applied, the page's included. The
-//! kernel lays out free of scrolling, so natively the host tells the runner
-//! where each scroller it presents stands ([`Scrolled`]) and the read
-//! subtracts them; the page's answer already has them.
+//! does: through every transform above it, with every scroll offset above
+//! it applied, the page's included. The kernel lays out free of both, so
+//! natively the read composes the transform rows, and the host tells the
+//! runner where each scroller it presents stands ([`Scrolled`]) for the read
+//! to subtract; the page's answer already has them.
 //!
 //! An action runs against a read-only runner, so `frame` reads through a
 //! borrowed kernel while the body runs, and every `measure` in the body is
@@ -113,6 +114,14 @@ impl Scrolled {
         }
     }
 
+    /// One scroller's offset, zero for a node with none noted.
+    fn offset(&self, key: NodeKey) -> (f64, f64) {
+        self.boxes
+            .iter()
+            .find(|(k, ..)| *k == key)
+            .map_or((0.0, 0.0), |(_, l, t)| (*l, *t))
+    }
+
     /// The scrolling above `view`: the page's and each ancestor
     /// scroller's, summed. A scroller's own offset moves its content, not
     /// its box.
@@ -187,7 +196,7 @@ fn kernel_frame(kernel: &Kernel, scrolled: &Scrolled, view: ViewId) -> GeometryA
         .key_of(view)
         .and_then(|key| kernel.laid_out_frame(key))
         .map_or(GeometryAnswer::UNAVAILABLE, |(frame, provisional)| {
-            GeometryAnswer::of(frame, provisional, scrolled.above(kernel, view))
+            client_rect(kernel, scrolled, view, frame, provisional)
         })
 }
 
@@ -197,8 +206,100 @@ fn kernel_measure(kernel: &mut Kernel, scrolled: &Scrolled, view: ViewId) -> Geo
         .key_of(view)
         .and_then(|key| kernel.measure_auto_height(key));
     answer.map_or(GeometryAnswer::UNAVAILABLE, |(frame, provisional)| {
-        GeometryAnswer::of(frame, provisional, scrolled.above(kernel, view))
+        // At the origin `frame` answers, with the size as if `auto`.
+        let placed = kernel_frame(kernel, scrolled, view);
+        GeometryAnswer {
+            width: f64::from(frame.width),
+            height: f64::from(frame.height),
+            provisional,
+            ..placed
+        }
     })
+}
+
+/// Where the viewer sees `view`'s laid-out border box, as
+/// `getBoundingClientRect` places it: the box through its own transform and
+/// every ancestor's (CSS's individual `translate`, its percentages of the
+/// box included, `rotate` and `scale` about `transform-origin`), less every
+/// scroll offset above it, the page's included; the bounding box of its
+/// four corners (LLP 1051.000 D1, changed 2026-10-04: kanban2's drop aimed
+/// at a translated card's laid-out place). The rows as committed: a
+/// transition in flight counts at its end, which a presenter, not the
+/// kernel, knows; a 3D rotation or a z translation counts by its 2D parts.
+fn client_rect(
+    kernel: &Kernel,
+    scrolled: &Scrolled,
+    view: ViewId,
+    frame: Frame,
+    provisional: bool,
+) -> GeometryAnswer {
+    use exact_kernel::svg::transform as tf;
+    let arena = kernel.arena();
+    let Some(key) = arena.key_of(view) else {
+        return GeometryAnswer::UNAVAILABLE;
+    };
+    let mut m = tf::IDENTITY;
+    let mut slot = key.index;
+    let mut at = frame;
+    loop {
+        let s = arena.style(slot);
+        let (w, h) = (at.width, at.height);
+        let (ox, oy) = s.transform_origin.resolve(w, h);
+        let turn = if s.rotate_axis.is_3d() { 0.0 } else { s.rotate };
+        let own = tf::mul(
+            tf::translate(
+                ox + s.translate.x + s.translate_percent.x / 100.0 * w,
+                oy + s.translate.y + s.translate_percent.y / 100.0 * h,
+            ),
+            tf::mul(
+                tf::mul(tf::rotate(turn), tf::scale(s.scale, s.scale)),
+                tf::translate(-ox, -oy),
+            ),
+        );
+        m = tf::mul(own, m);
+        let parent = (!arena.is_root(slot)).then(|| arena.parent(slot)).flatten();
+        let Some(parent) = parent else {
+            // The root's place: its own frame, in its root's space.
+            m = tf::mul(tf::translate(at.x, at.y), m);
+            break;
+        };
+        let up = arena.frame(parent);
+        let (left, top) = scrolled.offset(arena.key(parent));
+        m = tf::mul(
+            tf::translate(at.x - up.x - left as f32, at.y - up.y - top as f32),
+            m,
+        );
+        slot = parent;
+        at = up;
+    }
+    let corners = [
+        (0.0, 0.0),
+        (frame.width, 0.0),
+        (0.0, frame.height),
+        (frame.width, frame.height),
+    ]
+    .map(|p| tf::apply(m, p));
+    let (x0, y0, x1, y1) = corners.iter().fold(
+        (
+            f32::INFINITY,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            f32::NEG_INFINITY,
+        ),
+        |(a, b, c, d), (x, y)| (a.min(*x), b.min(*y), c.max(*x), d.max(*y)),
+    );
+    if !(x0.is_finite() && y0.is_finite() && x1.is_finite() && y1.is_finite()) {
+        return GeometryAnswer::UNAVAILABLE;
+    }
+    let (left, top) = scrolled.page;
+    GeometryAnswer {
+        x: f64::from(x0) - left,
+        y: f64::from(y0) - top,
+        width: f64::from(x1 - x0),
+        height: f64::from(y1 - y0),
+        provisional,
+        unavailable: false,
+    }
 }
 
 /// What an action's body reads geometry through (the VM's `Env`).

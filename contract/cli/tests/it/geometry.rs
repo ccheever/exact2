@@ -159,3 +159,61 @@ fn a_read_sees_the_box_where_the_viewer_does_with_every_scroll_above_it_applied(
         "a scroller's own offset moves its content, not its box"
     );
 }
+
+/// LLP 1051.000 D1, changed 2026-10-04: the box through every transform on
+/// it and above it, as `getBoundingClientRect` — kanban2's dragged card read
+/// where it showed, not where layout left it. A turned box answers its
+/// bounding box; a scroller inside a moved box moves with it.
+#[test]
+fn a_read_sees_the_box_through_every_transform_above_it() {
+    let plan = contract::compile(
+        r#"component App
+  state x = 0
+  state y = 0
+  state w = 0
+  state h = 0
+  state inner = 0
+  action read
+    x = frame("card").x
+    y = frame("card").y
+    w = frame("turned").width
+    h = frame("turned").height
+    inner = frame("inner").y
+  view
+    column
+      column id="lane" translate="30px 0" scale=2 width=100 height=100
+        column id="card" width=20 height=10 translate="-50% 10px"
+      column id="turned" width=100 height=100 rotate=45
+      scroll id="pane" height=50 translate="0 -25%"
+        column height=300
+        column id="inner" height=10
+      button press=read testId="read"
+        text "read"
+"#,
+    )
+    .unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    lay_out(&mut r);
+    r.act("read", vec![]).unwrap();
+    // The lane scales by 2 about its centre (50, 50) and moves 30 right:
+    // its local (0, 0) lands at (-20, -50). The card sits at (-10, 10) in
+    // it: -50% of 20 and 10px down, doubled.
+    assert_eq!((num(&r, "x"), num(&r, "y")), (-40.0, -30.0));
+    let d = 100.0 * std::f64::consts::SQRT_2;
+    assert!((num(&r, "w") - d).abs() < 1e-3, "{}", num(&r, "w"));
+    assert!((num(&r, "h") - d).abs() < 1e-3, "{}", num(&r, "h"));
+    // The pane is at 200, moved up 25% of its 50; the inner box is 300
+    // into it, less the pane's scroll.
+    let pane = r.kernel().find_by_id("pane")[0];
+    let pane = r.kernel().arena().local_id(pane.index);
+    r.scrolled(Some(pane), 0.0, 280.0);
+    r.act("read", vec![]).unwrap();
+    assert!((num(&r, "inner") - (200.0 - 12.5 + 300.0 - 280.0)).abs() < 1e-3);
+}
