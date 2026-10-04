@@ -611,10 +611,29 @@ function appleIconProblems(manifest, dir) {
   return icon && !existsSync(resolve(dir, icon.src)) ? [`icons: ${icon.src}, the square icon the Apple bundles are drawn from, does not exist`] : [];
 }
 
+/** An app's own document format (studio diary R13): a MIME type in IANA's
+ * vendor or unregistered trees (`application/vnd.studio.board+json`,
+ * `application/x-studio-board`), which no system type names. The Apple
+ * bake exports it as the app's: `<app id>.<subtype>`, conforming to what
+ * its structured-syntax suffix says (`+json` is JSON) and to data; the app
+ * is its editor and owner. `null` for any other type. */
+export function ownDocumentType(appId, mime) {
+  const m = /^[a-z]+\/(?:x-|vnd\.|prs\.)([a-z0-9][a-z0-9.+-]*)$/i.exec(mime);
+  if (!m || Object.hasOwn(DOCUMENT_UTIS, mime)) return null;
+  const [subtype, suffix] = m[1].toLowerCase().split('+');
+  const base = { json: 'public.json', xml: 'public.xml', zip: 'public.zip-archive' }[suffix];
+  return {
+    identifier: `${appId}.${subtype.replace(/[^a-z0-9.-]/g, '-')}`,
+    conformsTo: [...(base ? [base] : mime.startsWith('text/') ? ['public.plain-text'] : ['public.data']), 'public.content'],
+  };
+}
+
 function documentTypeProblems(manifest) {
-  return (manifest.file_handlers ?? []).flatMap((handler, i) => Object.keys(handler.accept)
-    .filter((mime) => !Object.hasOwn(DOCUMENT_UTIS, mime))
-    .map((mime) => `file_handlers[${i}].accept: ${mime} names no type the Apple hosts map (they map ${Object.keys(DOCUMENT_UTIS).join(', ')})`));
+  return (manifest.file_handlers ?? []).flatMap((handler, i) => Object.entries(handler.accept)
+    .flatMap(([mime, extensions]) => Object.hasOwn(DOCUMENT_UTIS, mime) ? []
+      : !ownDocumentType('app', mime) ? [`file_handlers[${i}].accept: ${mime} names no type the Apple hosts map (they map ${Object.keys(DOCUMENT_UTIS).join(', ')}), nor an app's own (application/vnd.<app>.<format> or application/x-<format>, +json for JSON)`]
+      : ![extensions].flat().some((e) => /^\.[^./]+$/.test(e)) ? [`file_handlers[${i}].accept: ${mime}, the app's own type, names no extension (".board")`]
+      : []));
 }
 
 let cachedSchema = null;

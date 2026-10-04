@@ -41,7 +41,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { closeSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { DOCUMENT_UTIS, HOST_DEV, checkModuleRoster, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesIos, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
+import { DOCUMENT_UTIS, ownDocumentType, HOST_DEV, checkModuleRoster, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesIos, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
 import { writeDataKeys } from './data-keys.mjs';
@@ -407,6 +407,8 @@ export const infoPlist = (app, device = false, { executable = 'ExactIOS', id = a
     dict.LSSupportsOpeningDocumentsInPlace = true;
     const imported = importedTypes(app);
     if (imported.length) dict.UTImportedTypeDeclarations = imported;
+    const exported = exportedTypes(app);
+    if (exported.length) dict.UTExportedTypeDeclarations = exported;
   }
   Object.assign(dict, openingLinks(app, 'ios', development));
   Object.assign(dict, usageKeys(reach));
@@ -451,21 +453,52 @@ export function distributionKeys() {
 const IMPORTED = new Set(['net.daringfireball.markdown']);
 
 /** `CFBundleDocumentTypes` from the manifest's `file_handlers` (LLP 1033 D1):
- *  one entry per handler, `Viewer` and `Alternate` so declaring a type never
- *  takes it away from whatever already owns it. */
+ *  per handler, its system types as `Viewer` and `Alternate`, so declaring
+ *  one never takes it away from whatever already owns it, and its app-owned
+ *  types (`ownDocumentType`) as the `Editor` and `Owner` an app is of its
+ *  own format (studio diary R13). */
 export function documentTypes(app) {
-  return (app.manifest.file_handlers ?? []).map((handler) => {
-    // readManifest refused an unmapped type, on every host (DOCUMENT_UTIS).
-    const types = Object.keys(handler.accept).map((mime) => DOCUMENT_UTIS[mime]);
-    const extensions = [...new Set(Object.values(handler.accept).flat().map((e) => e.replace(/^\./, '')).filter(Boolean))];
-    return {
-      CFBundleTypeName: handler.name ?? `${app.displayName} document`,
-      CFBundleTypeRole: 'Viewer',
-      LSHandlerRank: 'Alternate',
-      LSItemContentTypes: types,
-      ...(extensions.length ? { CFBundleTypeExtensions: extensions } : {}),
+  return (app.manifest.file_handlers ?? []).flatMap((handler) => {
+    const accept = Object.entries(handler.accept);
+    const extensionsOf = (entries) => [...new Set(entries.flatMap(([, e]) => [e].flat()).map((e) => e.replace(/^\./, '')).filter(Boolean))];
+    const entry = (entries, types, role, rank) => {
+      const extensions = extensionsOf(entries);
+      return {
+        CFBundleTypeName: handler.name ?? `${app.displayName} document`,
+        CFBundleTypeRole: role,
+        LSHandlerRank: rank,
+        LSItemContentTypes: types,
+        ...(extensions.length ? { CFBundleTypeExtensions: extensions } : {}),
+      };
     };
+    // readManifest refused a type that is neither (DOCUMENT_UTIS, ownDocumentType).
+    const system = accept.filter(([mime]) => Object.hasOwn(DOCUMENT_UTIS, mime));
+    const own = accept.filter(([mime]) => !Object.hasOwn(DOCUMENT_UTIS, mime));
+    return [
+      ...(own.length ? [entry(own, own.map(([mime]) => ownDocumentType(app.id, mime).identifier), 'Editor', 'Owner')] : []),
+      ...(system.length ? [entry(system, system.map(([mime]) => DOCUMENT_UTIS[mime]), 'Viewer', 'Alternate')] : []),
+    ];
   });
+}
+
+/** `UTExportedTypeDeclarations` for the app's own formats (studio diary
+ *  R13): each type `ownDocumentType` names, with its extensions and MIME
+ *  type, so Finder, the open panel and Launch Services know the format is
+ *  this app's. An extension another app's type already has on a Mac (Freeform
+ *  has `.board`) may still resolve to that one; the hosts' panels and drops
+ *  accept the declared extensions whichever type the Mac gives them. */
+export function exportedTypes(app) {
+  return (app.manifest.file_handlers ?? []).flatMap((handler) => Object.entries(handler.accept)
+    .filter(([mime]) => !Object.hasOwn(DOCUMENT_UTIS, mime))
+    .map(([mime, extensions]) => {
+      const own = ownDocumentType(app.id, mime);
+      return {
+        UTTypeIdentifier: own.identifier,
+        UTTypeDescription: handler.name ?? mime,
+        UTTypeConformsTo: own.conformsTo,
+        UTTypeTagSpecification: { 'public.filename-extension': [extensions].flat().map((e) => e.replace(/^\./, '')), 'public.mime-type': [mime] },
+      };
+    }));
 }
 
 /** `UTImportedTypeDeclarations` for the types `file_handlers` names that
@@ -551,6 +584,7 @@ export const macInfoPlist = (app, { development = null, icon = {}, reach = null 
   ...usageKeys(reach),
   ...(app.manifest.host?.macos?.window ? { ExactWindow: app.manifest.host.macos.window } : {}),
   ...(documentTypes(app).length ? { CFBundleDocumentTypes: documentTypes(app) } : {}),
+  ...(exportedTypes(app).length ? { UTExportedTypeDeclarations: exportedTypes(app) } : {}),
   // Where a launch lands (LLP 1069.010 D4) is the manifest's `launch_handler`'s, with or
   // without `file_handlers`: File ▸ New Window needs no document type. Always written, so
   // absence, `auto` and an explicit `navigate-existing` are one plist.

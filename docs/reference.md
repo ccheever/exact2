@@ -197,8 +197,18 @@ An app says what it opens with `file_handlers` in `app.json` — the W3C Web App
 Manifest's own key — and the macOS bake derives `CFBundleDocumentTypes` from
 it. Each MIME type it accepts must be one the Apple hosts map to a system type
 (`DOCUMENT_UTIS` in `scripts/app.mjs`; `application/octet-stream` is
-`public.data`); every build refuses another when it reads the manifest, the
-web's included. A path from the command line, from Finder, from ⌘O, or from a link inside
+`public.data`), which the app views (`Viewer`, rank `Alternate`), or the app's
+own format: a vendor or unregistered type (`application/vnd.studio.board+json`,
+`application/x-studio-board+json`) with its extensions (`[".board"]`), which the
+bake exports as `<app id>.<subtype>` (`UTExportedTypeDeclarations`, conforming to
+JSON for `+json`, XML for `+xml`, else data) with the app as its `Editor` and
+`Owner` (studio diary R13). Every build refuses any other type when it reads the
+manifest, the web's included. An extension another app already owns on a Mac
+(Freeform has `.board`) can still resolve to that app's type there; the open
+panels and drops take a declared extension whichever type the Mac gives it.
+A file chosen in the app's own picker (`showOpenFilePicker`,
+`showSaveFilePicker`) joins File ▸ Open Recent — a save once it is written —
+and becomes the window's document, as a routed one does. A path from the command line, from Finder, from ⌘O, or from a link inside
 a document all arrive at the same place: the app's `open-file` node
 (LLP 1033 D3). `exact uninstall <app>` takes both halves away.
 
