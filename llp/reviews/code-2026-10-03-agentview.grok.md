@@ -1,10 +1,10 @@
 # Code review: LLP 1080.000 §10, what the Signal clone needs from 1080 (151c5c0a5..1d5ca39bc), 2026-10-03 (grok)
 
-- **Family:** xAI — `~/.grok/bin/grok -m grok-4.7 --reasoning-effort xhigh --always-approve --no-subagents --output-format plain --prompt-file <brief>`, headless, one fresh session with `--cwd` a detached worktree at `1d5ca39bc`. `--always-approve` because plan mode cancels shell reads; the brief instructs read-only, and the worktree was clean afterwards.
+- **Family:** xAI — `~/.grok/bin/grok -m grok-4.7 --reasoning-effort xhigh --always-approve --no-subagents --output-format plain --prompt-file <brief>`, headless, one fresh session with `--cwd` a detached worktree at `1d5ca39bc`. `--always-approve` because plan mode cancels shell reads; the brief instructs read-only, and the worktree was clean afterwards. Rebased onto origin/main before landing: the reviewed `1d5ca39bc`, `a8363f493` and `116e492f4` landed as `c6ff66a8c`, `748c47500` and `214e2e554`; the landing commit is the one adding round 3.
 - **Method:** the shared brief (sha256 `2eb8cbdb68f4bba25d9e9d750ce3c279ad6f1bf4d35a9f43b02a2ca7d2027ae4`); round 1; blind to the other review. The author (Claude) is not a reviewer.
 - **Transcription:** stdout, unedited; the first three sentences are progress narration.
 - **Verdict:** LAND WITH FIXES.
-- **Disposition:** all seven taken in `a8363f493`:
+- **Disposition:** all seven taken in `a8363f493` (landed as `748c47500`):
   1. Checked: `axRoots` (`AgentAccessibility.swift:67-78`) never adds the navigation controller's bars, and a plain `screenshot` captures the viewport. Item 2 now asks for 1080.002 D3's chrome roots (decided, not built, not listed as owed) plus the tab bar and badges, and item 1 names `screenshot <png> window`. "Already walks the session's navigation chrome" is gone from both files.
   2. The drag is a straight press, drag and end hold within D8's bounds, with an exact-delta `delivery: platform` rule. Q3 is no longer claimed (no edge flags in D5's log; 1035.003 §3's failed transcript-edge drag is cited). G3's P3-gated gestures are told apart from swipe-to-reply and the viewer drag. The grammar has `press` and `hold`, and the master's §5 calls it a proposal.
   3. "Across separate commands" is cut: one `axe touch` held for 2 s. The `UIMenu` failure is added; the claim about stage 3's cases is dropped.
@@ -78,3 +78,28 @@ I'll review this documentation commit read-only against the source, the LLP 1080
 6. **Should-fix** — `llp/1080.000-real-touches-on-ios.rfc.md:754`. The diary's search proof is type "maya", then Cancel. Cancel is the search bar's own button, not D4's `navigationBarButton` and not the field. Add it beside `searchField`. The keyboard toolbar is correctly left outside 1080 (diary `applyKeyboard`; LLP 1008 §9.1; this Xcode has no Simulator.app).
 
 7. **Nit** — `llp/1080-agent-inspection-fidelity.rfc.md:93`. §5 drops the swipe-action reveal that §10 lists, and shortens the mic to press-and-hold. Name the same five gestures.
+
+## Round 3 (the last), 2026-10-03
+
+- **Method:** grok as before, `--cwd` a detached worktree at `116e492f4` with this change's two review files removed (blindness); brief sha256 `ae2b4fef32cc4cbb9528e4d16de3853ec9f2a351ad004e80daaeddfd562cc47d`. Blind to astra's round 3.
+- **Transcription:** stdout, unedited; the first four sentences are progress narration.
+- **Verdict:** LAND WITH FIXES.
+- **Disposition:** three taken in the landing commit, one argued. No fourth round, by the three-round rule:
+  1. Taken, checked: `substituted` (`TouchIOS.swift:83`) runs only from the real-touch aim. The flip is now asked to refuse adopted chrome on the activation path too.
+  2. Taken, checked: the walk's order is 1080.002 D2's (declared elements, indexed elements, then subviews; none below an element, `AgentAccessibility.swift:206`). "Probably reaches the bars" is gone; the stage 3 proof adds D3's chrome roots if the walk misses them.
+  3. Taken: the agent could not drive the edge pop, swipe-to-reply or the viewer's dismiss; the mic was one `axe` command; the swipe-action reveal is listed as ungated from P3 by the proposal, not as a failed drive.
+  4. Argued: the review files land in the same commit as the sentence. They were removed from the reviewers' worktrees only to keep this round blind.
+
+---
+
+I'll review the coordination note against the sources it cites and the Signal clone diary, and report only what is still wrong.The note is §10 plus a short pointer in the fidelity RFC. Next I’ll check each claim and line reference against the sources it names.The note’s line citations and the diary’s gesture list are the next check. I’ll read those sources at the lines the note names.LAND WITH FIXES
+
+1. **Must-fix** — `llp/1080.000-real-touches-on-ios.rfc.md` §10 item 1 (the presentation-flip bullet). `Agent.substituted` does not refuse taps unless a real touch is being aimed. It runs only from `aim` (`host/apple/Sources/ExactKit/IOS/TouchIOS.swift:151`), which `--touch platform` calls. Without the runner, `AgentIOS.tap` never calls it and will still activate. Edit: say the flip has to refuse adopted chrome on the activation path; `substituted` is the real-touch check only, and its text still assumes the authored stand-in is what the agent is showing.
+
+2. **Should-fix** — §10 item 2, the `AgentAccessibility.swift:251-262` sentence. That function does not walk subviews first. It returns `accessibilityElements` when those are set, then `accessibilityElement(at:)`, and only then subviews. `visit` returns without descending when `isAccessibilityElement` is set (`AgentAccessibility.swift:206`). 1080.002 D2 is that rule; D3’s navigation-bar and toolbar roots are not in `axRoots` (`:67-78`). Edit: cite D2’s order, drop “so under the flip it probably reaches the bars,” and make the stage 3 proof the check that the walk lists the bar buttons, search field, title view, and tab items — adding D3’s chrome roots if it does not.
+
+3. **Should-fix** — §10 item 3, “Five gestures the clone could not drive.” The diary does not say that for two of them. Build 9 drove the mic with one `axe touch` held 2 s (red, “Slide to cancel,” then a voice note); this note’s own evidence bullet says so. Swipe-action reveal is the diary’s “Easy: native swipe actions,” not in the build 7 undriven list (that list is swipe-to-reply, the dismiss drag, and pinch). Edit: undriven by the agent are the edge pop, swipe-to-reply, and the viewer dismiss. The mic was an `axe` one-command hold, which is why a `press(forDuration:)`-style `tap` is the ask. The swipe-action reveal is ungated from P3 only as a proposal, not as a failed clone drive.
+
+4. **Should-fix** — §10 opening, “Reviewed by Astra and Grok (`llp/reviews/code-2026-10-03-agentview.{astra,grok}.md`).” Those files are not in the tree. Edit: delete the sentence.
+
+The drag form itself fits §1 and DEFERRED (a form of `tap`, no new operation) and stays on the right side of Astra’s r1 finding 1: one call, no phases, no reads while the finger is down, `delivery: platform` as window dispatch only, Q3 left open. The 500 ms mic check is total time at `micUp` (`app.contract:222`), so `over` or `hold` can supply it.

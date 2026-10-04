@@ -89,7 +89,9 @@ LLP 1080.000 §10 records what the Signal clone needs, in its order of need:
 the native shell under the agent (stage 3's presentation flip, ideally ahead
 of the native aim, and targets D4 does not name: the search controller's field
 and Cancel, the title-view segment, and a module's custom title view); a
-stage 3 proof that `tree --ax` reads that shell; and a proposed whole-gesture
-`drag` form of `tap` for five gestures whose outcome can be checked after the
+stage 3 proof that `tree --ax` reads that shell (adding 1080.002 D3's chrome
+roots if it does not); and a proposed whole-gesture
+`drag` form of `tap` for six gestures whose outcome can be checked after the
 lift: the edge swipe back, swipe-to-reply, the viewer's dismiss drag, the
-swipe-action reveal, and the mic's press, slide and release.
+swipe-action reveal, a page sheet's swipe to dismiss, and the mic's press,
+slide and release.

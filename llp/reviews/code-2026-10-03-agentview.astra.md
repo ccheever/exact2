@@ -1,10 +1,10 @@
 # Code review: LLP 1080.000 §10, what the Signal clone needs from 1080 (151c5c0a5..1d5ca39bc), 2026-10-03 (astra)
 
-- **Family:** OpenAI — `gpt-6-astra` via `codex exec` (codex-cli 0.157.1), reasoning effort xhigh, read-only sandbox, `-C` a detached worktree at `1d5ca39bc`.
+- **Family:** OpenAI — `gpt-6-astra` via `codex exec` (codex-cli 0.157.1), reasoning effort xhigh, read-only sandbox, `-C` a detached worktree at `1d5ca39bc`. Rebased onto origin/main before landing: the reviewed `1d5ca39bc`, `a8363f493` and `116e492f4` landed as `c6ff66a8c`, `748c47500` and `214e2e554`; the landing commit is the one adding round 3.
 - **Method:** one brief (sha256 `2eb8cbdb68f4bba25d9e9d750ce3c279ad6f1bf4d35a9f43b02a2ca7d2027ae4`), the same one sent to grok; round 1; blind to the other review. Requested by the coordinator for Charlie's "agents can't see native chrome or drive real touches". The author (Claude) is not a reviewer.
 - **Transcription:** the run's final message (`--output-last-message`), unedited.
 - **Verdict:** LAND WITH FIXES.
-- **Disposition:** all eight taken in `a8363f493`:
+- **Disposition:** all eight taken in `a8363f493` (landed as `748c47500`):
   1. The two edge-swipe episodes are separated; the builds 1–4 cause is left unknown, and 2d461a0c is credited only with the build 7 tab-stack delegate report, undriven.
   2. The mic item names the 500 ms clock check (`app.contract:220`) and platform timing before any `clock`, limits "cannot start" to activation and `recognizedPan`, and says stage 1's real `tap` already sends both pointer events.
   3. "Does each" became "a candidate for each"; outcomes are asserted from `state` and `tree`, and what the call cannot prove is listed.
@@ -67,3 +67,22 @@ LAND WITH FIXES
 7. **Should-fix — [§10’s two additional targets](/tmp/rv-agentview/llp/1080.000-real-touches-on-ios.rfc.md:754): the custom conversation title is missing.** DIARY build 5 and `SignalHooks.swift:23–32,93` describe a hooked title view whose real tap opens details. Neither `navigationBarButton` nor the proposed title segment covers it. **Edit:** add this consumer and ask how its actual native view is targeted; also include search Cancel/focus/blur in the search-field proof.
 
 8. **Should-fix — [review attribution](/tmp/rv-agentview/llp/1080.000-real-touches-on-ios.rfc.md:727); Nit — [bounds citation](/tmp/rv-agentview/llp/1080.000-real-touches-on-ios.rfc.md:767).** Neither named `agentview` review file exists at this commit, and 1080.001 has no D7. **Edit:** remove or correct the review attribution; cite 1080.001 D4 and 1080.002 D7 for their respective bounds.
+## Round 3 (the last), 2026-10-03
+
+- **Method:** `codex exec` as before, `-C` a detached worktree at `116e492f4` with this change's two review files removed (blindness); brief sha256 `ae2b4fef32cc4cbb9528e4d16de3853ec9f2a351ad004e80daaeddfd562cc47d` (the whole note, report only what is still wrong). Blind to grok's round 3.
+- **Transcription:** the run's final message, unedited.
+- **Verdict:** LAND WITH FIXES.
+- **Disposition:** all three taken in the landing commit. No fourth round, by the three-round rule:
+  1. The occlusion exemption is gone: `from` lies in the target, D4's refusal unchanged, and an edge start targets the visible route or scroll ancestor containing the point.
+  2. `type <root> <location>` is called location navigation; Back is `tap back` under activation delivery (the clone's `back` action, with its cleanup).
+  3. A native page sheet's swipe to dismiss (Settings, New Message) joins the gesture list, in §10 and in the master's §5.
+
+---
+
+LAND WITH FIXES
+
+1. **Must-fix — [§10.3, line 794](/tmp/rv-agentview/llp/1080.000-real-touches-on-ios.rfc.md:794).** Allowing an edge start to be “exempt from D4’s occlusion check” contradicts the unchanged-design claim and permits touching an unrelated covering view. **Edit:** remove the exemption; target the visible scroll/route ancestor containing the start point, preserving D4’s refusals and observed-hit matching.
+
+2. **Should-fix — [§10, line 845](/tmp/rv-agentview/llp/1080.000-real-touches-on-ios.rfc.md:845).** `type <root> <location>` is navigation, not Back. The clone’s `navigate` calls `open`; its `back` calls `back` and performs conversation-close/photo cleanup ([app.contract:108](/Users/admin/.tuft/projects/signal-exact2/app.contract:108)). **Edit:** say “location navigation”; identify `tap back` under activation delivery separately as the existing non-gesture Back path.
+
+3. **Should-fix — [§10.3, gesture inventory](/tmp/rv-agentview/llp/1080.000-real-touches-on-ios.rfc.md:782).** Native sheet dismissal is missing: the diary identifies Settings and New Message as UIKit page sheets, distinct from the viewer’s transform drag. **Edit:** add their swipe-to-dismiss as a whole-gesture candidate, with post-lift route/state assertions, or explicitly list it as outstanding. Update the master’s corresponding inventory.
