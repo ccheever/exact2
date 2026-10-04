@@ -98,6 +98,11 @@ follows the directory name. Run the Rust tests with
 `bun game/app/shells.mjs ./my-game --test` — in a fresh clone too, with no bake and
 no environment variables. It generates `.shells/`, resolves offline and locked, runs
 the determinism lints and then `cargo test` on the game's crates.
+The generated workspace carries the SDK's Rust toolchain pin, including for games
+outside the SDK. Explicit `cargo +toolchain` and `RUSTUP_TOOLCHAIN` overrides still
+apply. Run direct Cargo commands from the game's `.shells/` directory so they also load its deterministic compiler
+flags and lint configuration; `--manifest-path` alone does not load that config
+when Cargo starts elsewhere. Regenerate the shells after updating the SDK.
 
 ### Authored render hooks
 

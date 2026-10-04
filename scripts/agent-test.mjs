@@ -9,9 +9,12 @@ import { fileURLToPath } from 'node:url';
 import { open } from './agent.mjs';
 import { resolveApp } from './app.mjs';
 
-/** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else its descendants' in order — the web's `textContent`, a button's label — else a field's value. `nodes` is a `tree` reply's, in preorder. */
+/** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a control's value (a select's options
+ * are its choices, not its text; LLP 1087 wizard trials), else its descendants' in order — the web's `textContent`, a button's
+ * label — else a field's value. `nodes` is a `tree` reply's, in preorder. */
 export function textOf(nodes, node) {
   if (node.props.text != null) return node.props.text;
+  if (node.type === 'Control' && node.props.value != null) return node.props.value;
   const at = nodes.indexOf(node), runs = [];
   for (let i = at + 1; i < nodes.length && nodes[i].depth > node.depth; i++) if (nodes[i].props.text != null) runs.push(nodes[i].props.text);
   return runs.length ? runs.join('') : node.props.value;
@@ -69,7 +72,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     let input = null;
     // An input the host could not perform fails its step: an unsupported drag or a refused tap did nothing to assert on.
     const delivered = (r) => { if (r?.error || r?.delivery === 'unsupported') throw new Error(r.error ?? r.reason ?? 'the host does not support this input'); };
-    const fail = (message) => failures.push(input == null ? message : `${message} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\`, a timer or a transition lands at a \`clock\` step, as \`clock settle\`)`);
+    const fail = (message) => failures.push(input == null ? message : `${message} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\` or a transition lands at \`clock settle\`; a timer fires when the clock reaches its time, \`clock +N\`)`);
     try {
       for (const st of t.steps) {
         const at = `${t.name}: line ${st.line}`;
