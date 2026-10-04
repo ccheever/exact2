@@ -526,7 +526,13 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
           // its next report carries the uncorrected offset and the runner
           // re-anchors from that. Vertical lists correct as before.
           const moving = axis === 'x' && velocity(s) !== 0;
-          if (g && !moving && (s.dimensions === null || s.dimensions === dimensionsOf(g))) {
+          // A port this commit resized (not reported yet, so the sequence
+          // has not moved past the correction's) is not the reader moving:
+          // a correction planned at that sequence still lands, clamped by
+          // the browser to the new port, as on Apple and Linux (review B5:
+          // a sent message's end-follow as the composer shrinks back).
+          const planned = BigInt(correction.scrollSequence) === s.sequence;
+          if (g && !moving && (planned || s.dimensions === null || s.dimensions === dimensionsOf(g))) {
             s.corrected = snapshot.revision;
             // Relative conversion also handles a list below siblings in its port.
             const to = port[name] + correction.offset - g.raw;

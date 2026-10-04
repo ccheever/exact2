@@ -280,6 +280,17 @@ test('collection read reuse: eligible nested correction alone reads geometry, la
   expect(result.repeated).toEqual({top:200,reads:[1,1,0,0]});
   expect(result.newer).toEqual({top:260,reads:[1,1,0,0]});
 });
+// Review B5: an absolute correction planned before the port resized in the same commit still lands (Apple's
+// and Linux's rule): the composer shrinks back after a send while the list follows its end.
+test('an absolute correction lands in the commit that resizes its port', async () => {
+  const result=await evaluate(`(() => {const f=fixture();
+    f.controller.commit([f.snapshot()]);f.port.scrollTop=160;f.port.dispatchEvent(new Event('scroll'));f.flush();
+    const seq=f.reports.at(-1).sequence;
+    f.port.style.height='150px';
+    f.controller.commit([f.snapshot('2',{correction:{scrollSequence:seq,offset:140}})]);
+    return {top:f.port.scrollTop};})()`);
+  expect(result).toEqual({top:200});
+});
 test('an anchor correction (from) moves the port by its shift after a later user scroll, once', async () => {
   const result=await evaluate(`(() => {const f=fixture();
     f.controller.commit([f.snapshot()]);f.port.scrollTop=160;f.port.dispatchEvent(new Event('scroll'));f.flush();
