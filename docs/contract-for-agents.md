@@ -108,7 +108,11 @@ After compiling, build and drive the actual app. From an `exact new` app:
 ```sh
 bun exact.mjs test web                          # app.test.contract; builds a stale web app first
 bun exact.mjs agent web tree "tap add" state logs "screenshot out.png"
+bun exact.mjs agent web --size 390x844 "screenshot phone.png"   # a phone-sized viewport
 ```
+
+The web carrier opens at 420×900; `--size <w>x<h>` (before the operations) opens
+another viewport, and a test's first step `size <w>x<h>` does the same for that test.
 
 Inside the exact2 checkout, for Caltrain:
 
@@ -676,16 +680,20 @@ above; paths are the test file's), `clock settle|+ms|+ms real|ms`, `reload`
 (the app restarts on the store it had, its state and clock starting over, so a
 test shows what persists),
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
-(the node's text, else its descendants' — a button's label — else a field's
-value), and `expect state name == <number|string|bool|none|[]>`, where `name`
-may go on into a record's fields (`board.active.present`). A failed expect with
-no input before it names the requests still in flight (the boot's own, or what
-a `clock +N` left on real time). An input
-step ends with what it settled: an answer the data module gave in the input's
-turn, and its mutation's `then`, are there for the next step. Otherwise the
-clock stands still between steps: a reply on real time (a store's, the
-network's), a timer or a transition an input started lands at a `clock` step,
-so `clock settle` before the `expect` that depends on it. `type "id" key "Name"`
+(the node's text; a control's value, so a `select` reads its chosen value, not its
+options; else its descendants' — a button's label — else a field's value), and
+`expect state name == <number|string|bool|none|[]>`, where `name` may go on into
+a record's fields (`board.active.present`). A failed expect with no input before
+it names the requests still in flight (the boot's own, or what a `clock +N` left
+on real time). An input step ends with what it settled: an answer the data
+module gave in the input's turn, and its mutation's `then`, are there for the
+next step. Otherwise the clock stands still between steps: a reply on real time
+(a store's, the network's) or a transition an input started lands at a `clock`
+step, so `clock settle` before the `expect` that depends on it. A timer
+(`after`, `every(ms)`) fires when the clock reaches or passes its time: `clock
+settle` fires it only if it reaches it while advancing to a motion's end, so
+move to it with `clock +N` (a `task … after(1, restore)` needs `clock +1`).
+`type "id" key "Name"`
 focuses the target if it takes the focus (else leaves the focus where it is)
 and presses the key as a keyboard would on every host: its `key` handlers,
 then its default — `"7"` types into a field, `"Enter"` submits it (a

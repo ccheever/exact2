@@ -61,7 +61,7 @@ def value : Nat → P Value
   | f + 1, cs =>
     match cs with
     | 'n' :: 'o' :: 'n' :: 'e' :: rest => .some (.none, rest)
-    | 'n' :: rest => (hexN 16 0 rest).map fun (b, r) => (.num (Float.ofBits (UInt64.ofNat b)), r)
+    | 'n' :: rest => (hexN 16 0 rest).map fun (b, r) => (.num (F64.ofBits (UInt64.ofNat b)), r)
     | '"' :: _ => (str cs).map fun (s, r) => (.str s, r)
     | 't' :: rest => .some (.bool true, rest)
     | 'f' :: rest => .some (.bool false, rest)

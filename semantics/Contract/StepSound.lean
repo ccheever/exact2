@@ -356,10 +356,10 @@ theorem curried_conform {p : Program} :
 /-! ## Moving the clock -/
 
 theorem ConfigOK.withTimers {p : Program} {c : Config} (hc : ConfigOK p c) (hpres : SlotsPresent p c.slots)
-    {ts : List Timer} (hts : TimersOK p ts) (t : Float) : ConfigOK p { c with timers := ts, now := t } :=
+    {ts : List Timer} (hts : TimersOK p ts) (t : F64) : ConfigOK p { c with timers := ts, now := t } :=
   ⟨hc.slots, .inl hpres, hc.settled, hc.store, hc.view, hts⟩
 
-theorem ConfigOK.withNow {p : Program} {c : Config} (hc : ConfigOK p c) (t : Float) :
+theorem ConfigOK.withNow {p : Program} {c : Config} (hc : ConfigOK p c) (t : F64) :
     ConfigOK p { c with now := t } :=
   ⟨hc.slots, hc.present, hc.settled, hc.store, hc.view, hc.timers⟩
 
@@ -388,7 +388,7 @@ theorem advance_go_sound {p : Program} (hp : WellTyped p) {o due finish}
       · exact hc.timers y hy
       · exact ⟨a, ha, hpa⟩
     dsimp only
-    generalize (if tm.once = true then (1.0 : Float) / 0.0 else tm.next + tm.interval) = x
+    generalize (if tm.once = true then F64.posInf else tm.next + tm.interval) = x
     generalize hr : runAction p o { c with timers := c.timers.set i { tm with next := x }, now := tm.next }
       tm.action [] [] = r
     obtain ⟨c₂, out₂⟩ := r

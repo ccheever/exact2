@@ -72,7 +72,7 @@ theorem EnvGood.withRows {p : Program} {env : Env} {s} (h : EnvGood p env) (hs :
 theorem LocalsOK.each {p : Program} {Γ ls a x ix} {item : Value} (h : LocalsOK p Γ ls) (hv : ValTy p item a) (i : Nat) :
     LocalsOK p (eachScope x ix a Γ)
       (match ix with
-       | .some n => (n, Value.num (Float.ofNat i)) :: (x, item) :: ls
+       | .some n => (n, Value.num (F64.ofNat i)) :: (x, item) :: ls
        | .none => (x, item) :: ls) := by
   cases ix with
   | none => exact h.cons hv

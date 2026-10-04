@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { bakeOutput, linuxBinary, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
+import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
@@ -226,7 +226,7 @@ export function gitIgnored(dir, keep = []) {
 // fonts and strings). A build reads more than the bake captures, so the rule
 // names the outputs and leaves everything else an input.
 const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace|world)$/i;
-const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|data|web|apple|linux)(\/|$)/;
+const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|data|web|apple|ios|macos|linux)(\/|$)/;
 /** A skip for an app's own files that no build reads. A file a build can
  * read always counts, ignored by Git or not: what the bake captures, anything
  * in an input tree, under `keep` (declared shader roots) or in one of the
@@ -254,10 +254,14 @@ export function receiptChanges(receipt, app) {
   if (!existsSync(receipt)) return [];
   const { build, target } = JSON.parse(readFileSync(receipt, 'utf8')), since = statSync(receipt).mtimeMs;
   const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
-  const own = newerThan(since, [app.dir], path => /\/(apple|linux|web)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path));
+  const own = newerThan(since, [app.dir], path => /\/(apple|ios|macos|linux|web)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path));
+  // Platform-local modules live under the host crate directory skipped above,
+  // but their separate dylib's sources are absent from the binary receipt.
+  const platform = target.includes('-ios') ? 'ios' : 'macos';
+  own.push(...newerThan(since, [moduleDirectory(app.dir, platform)], ignored));
   // The receipt names what the binary links, not what built it: the Rust
   // archive's own dep-info also names its build script's (the compiler, the bake).
-  const archive = `lib${app.crate('apple').replace(/-/g, '_')}.d`;
+  const archive = `lib${app.crate(platform).replace(/-/g, '_')}.d`;
   let infos = []; try { infos = readdirSync(resolve(app.target, target)).map(p => resolve(app.target, target, p, archive)).filter(existsSync); } catch {}
   const info = infos.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
   const tools = info ? depInfoNewer(since, null, info) : [];
@@ -282,7 +286,7 @@ export function webChanges(dist, app) {
   const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }] : ['host/web', 'runner', 'kernel', 'plan', 'motion', 'num', 'contract'];
   const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
   const notInput = path => Boolean(app.manifest?.game) && gameNonInput(relative(app.dir, path));
-  const appChanges = newerThan(since, [app.dir], path => /\/(apple|linux)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path) || notInput(path));
+  const appChanges = newerThan(since, [app.dir], path => /\/(apple|ios|macos|linux)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path) || notInput(path));
   const shared = newerThan(since, roots.map(r => typeof r === 'string' ? resolve(ROOT, r) : { shallow: resolve(ROOT, r.shallow) }));
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }

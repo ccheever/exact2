@@ -10,7 +10,8 @@
 //!
 //! Values: numbers, strings and bools are JavaScript's; a record or list is
 //! an array; `none` is `null` and `some(x)` is `x` (the JS target does not
-//! represent `some(none)`); unit is `null`.
+//! represent `some(none)`, and refuses a plan that makes one: nested.rs);
+//! unit is `null`.
 
 use exact_plan::{Opcode, Plan, Stdlib};
 use exact_runner::vm::{instructions, Instruction};
@@ -27,6 +28,8 @@ pub struct Scope {
     /// The JavaScript object holding the row slots in force (LLP 1017 P4c:
     /// a slot owned by an `each` lives on its row), by slot index.
     pub rows: Option<String>,
+    /// The parameters' types, when the body is an action's (nested.rs).
+    pub params: Vec<exact_plan::TypesId>,
 }
 
 /// One region frame's getters.
@@ -70,6 +73,7 @@ pub fn function(
     let ins: Vec<Instruction> = instructions(code)
         .collect::<Result<_, _>>()
         .map_err(|t| format!("malformed code: {t:?}"))?;
+    crate::nested::check(plan, &ins, &scope.params)?;
     let mut t = Translator {
         plan,
         scope,
@@ -347,7 +351,7 @@ impl Translator<'_> {
                     if primitive(&a) || primitive(&b) {
                         self.push(format!("({a}{}{b})", if not { "!==" } else { "===" }))
                     } else {
-                        let eq = self.uses.rt("eq");
+                        let eq = self.uses.rt("equal");
                         self.push(format!("{}{eq}({a},{b})", if not { "!" } else { "" }))
                     }
                 }
@@ -593,12 +597,18 @@ mod tests {
     use exact_plan::Stdlib;
 
     /// Every roster entry an `Opcode::Call` can name has its `x_` export in
-    /// rt.js; `at`, `formatDate` and `formatNumber` compiled and then failed
+    /// rt.js (or roster.js and router.js, which it re-exports); `at`, `formatDate` and `formatNumber` compiled and then failed
     /// the bundle for want of one (an app's diary, 2026-10-04). `map` and
     /// `filter` are opcodes with a callback body, never a call.
     #[test]
     fn every_called_roster_entry_has_a_runtime_export() {
-        let rt = [include_str!("../rt.js"), include_str!("../format.js")].concat();
+        let rt = [
+            include_str!("../rt.js"),
+            include_str!("../roster.js"),
+            include_str!("../router.js"),
+            include_str!("../format.js"),
+        ]
+        .concat();
         let exported = |name: &str| {
             rt.match_indices(name).any(|(at, _)| {
                 !rt[at + name.len()..]

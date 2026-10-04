@@ -10,9 +10,12 @@ import { open } from './agent.mjs';
 import { launchFacts } from './agent-launch.mjs';
 import { resolveApp } from './app.mjs';
 
-/** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else its descendants' in order — the web's `textContent`, a button's label — else a field's value. `nodes` is a `tree` reply's, in preorder. */
+/** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a control's value (a select's options
+ * are its choices, not its text; LLP 1087 wizard trials), else its descendants' in order — the web's `textContent`, a button's
+ * label — else a field's value. `nodes` is a `tree` reply's, in preorder. */
 export function textOf(nodes, node) {
   if (node.props.text != null) return node.props.text;
+  if (node.type === 'Control' && node.props.value != null) return node.props.value;
   const at = nodes.indexOf(node), runs = [];
   for (let i = at + 1; i < nodes.length && nodes[i].depth > node.depth; i++) if (nodes[i].props.text != null) runs.push(nodes[i].props.text);
   return runs.length ? runs.join('') : node.props.value;
@@ -97,7 +100,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // With no input since the clock last moved, a request still in flight (the boot's own, or one a jump
     // left on real time) is named: the expect read the value before its reply (workout F1).
     const fail = async (message) => {
-      if (input != null) return failures.push(`${message} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\`, a timer or a transition lands at a \`clock\` step, as \`clock settle\`)`);
+      if (input != null) return failures.push(`${message} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\` or a transition lands at \`clock settle\`; a timer fires when the clock reaches its time, \`clock +N\`)`);
       const pending = ((await s.state().catch(() => ({}))).pending ?? []).filter((p) => !p.device).map((p) => p.name);
       failures.push(pending.length ? `${message} (${pending.length} request${pending.length === 1 ? '' : 's'} still in flight: ${pending.join(', ')}; a reply lands at a \`clock\` step, as \`clock settle\`)` : message);
     };

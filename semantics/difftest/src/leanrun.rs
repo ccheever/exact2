@@ -305,7 +305,7 @@ pub fn numbers(bits: &[u64], dir: &Path) -> Result<Vec<String>, String> {
         "import Contract.OracleText\nopen Contract\n\ndef data : String := \"{}\"\n\n\
          def main : IO Unit := do\n  for w in data.splitOn \" \" do\n    \
          match OracleText.hexN 16 0 w.toList with\n    \
-         | .some (b, _) => IO.println (Number.jsToString (Float.ofBits (UInt64.ofNat b)))\n    \
+         | .some (b, _) => IO.println (Number.jsToString (F64.ofBits (UInt64.ofNat b)))\n    \
          | .none => IO.println \"?\"\n",
         data.join(" ")
     );

@@ -12,7 +12,9 @@
 //! Corpus cases are `test` blocks in `semantics/corpus/*.contract`; random
 //! cases come from [`gen`].
 
+pub mod arith;
 pub mod gen;
+pub mod js;
 pub mod leanrun;
 pub mod lowering;
 pub mod observe;

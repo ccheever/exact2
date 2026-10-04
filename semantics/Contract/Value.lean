@@ -10,7 +10,7 @@ import Contract.Number
 namespace Contract
 
 inductive Value where
-  | num (f : Float)
+  | num (f : F64)
   | bool (b : Bool)
   | str (s : String)
   | unit
@@ -65,7 +65,7 @@ def equalItems : List Value → List Value → Option Bool
     | Option.some true => equalItems xs ys
 end
 
-def asNum : Value → Result Float
+def asNum : Value → Result F64
   | .num f => .ok f
   | _ => .error (.type "number")
 

@@ -51,7 +51,7 @@ mutual
 
 /-- `e` evaluates to `v`, `inFn` hiding the component's names. -/
 inductive EvalR (env : Env) : Bool → Locals → Expr → Value → Prop
-  | num : EvalR env inFn ls (.num b) (.num (Float.ofBits b))
+  | num : EvalR env inFn ls (.num b) (.num (F64.ofBits b))
   | str : EvalR env inFn ls (.str s) (.str s)
   | bool : EvalR env inFn ls (.bool b) (.bool b)
   | none : EvalR env inFn ls .none .none

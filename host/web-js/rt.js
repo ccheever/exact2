@@ -1,6 +1,6 @@
 import { renderMarkup, reportPlace } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; // synced animations (LLP 1055.002, emit.rs `clocks`)
-import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head }; import { conforms, eq } from "./shape.js"; import { pointer } from "./pointer.js"; import { commands } from "./commands.js"; import { media, mediaProp, mediaOn, mediaPiece, MEDIA_EVENTS } from "./media.js";
-let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq }; // the compiler installs `Paint` only when a plan can layer boxes
+import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head }; import { conforms, eq, equal } from "./shape.js"; import { pointer } from "./pointer.js"; import { commands } from "./commands.js"; import { media, mediaProp, mediaOn, mediaPiece, MEDIA_EVENTS } from "./media.js";
+let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq, equal }; // the compiler installs `Paint` only when a plan can layer boxes
 // The JS target's runtime: fine-grained DOM signals for a plan compiled ahead by `exact-web-js`. Everything here is imported
 // by name, so an app's bundle carries only what its generated module uses.
 //
@@ -82,7 +82,9 @@ function flush() {
 function untracked(f) { const l = Listener; Listener = null; try { return f(); } finally { Listener = l; } }
 
 /** A slot: a getter, `.n` its node; `t` its declared type (writes conform). */
-export function sig(v, t) { const n = node(null, v); n.t = t; const g = () => read(n); g.n = n; return g; }
+export function sig(v, t) { // an initial value outside `t`: the runner refuses the boot, or the row's creation poisons (SlotType)
+  if (t && !conforms(v, t)) throw new Error(`a slot's initial value does not conform to its type: ${v}`);
+  const n = node(null, v); n.t = t; const g = () => read(n); g.n = n; return g; }
 const Settle = [];
 /** A derive: lazy, cached, equal results keep their object; settled at
  * every commit before the tree; its value conforms to its type. */
@@ -138,11 +140,12 @@ export function commit(f, what = "commit") {
   if (Writes) return f();
   if (Poisoned) return say(`refused ${what}: the runner is poisoned; reload`);
   Writes = []; Commands = []; Out = []; Landed = []; Sends = []; Refresh = [];
-  stamp();
-  const undo = [], saved = Resources.map(r => r.save()), held = Mutations.map(m => m.ticket), store = Store.save();
+  time();
+  const was = Now.v, undo = [], saved = Resources.map(r => r.save()), held = Mutations.map(m => m.ticket), store = Store.save();
   let ok = true;
   try {
     untracked(f);
+    tick();
     for (const [n, v] of Writes) {
       if (n.t && !conforms(v, n.t)) throw new Refusal(`a write does not conform to its slot's type: ${JSON.stringify(v)}`);
       undo.push([n, n.v]); write(n, v);
@@ -150,12 +153,14 @@ export function commit(f, what = "commit") {
     }
     for (const [m, source, args] of Sends) m.send(source, args, undo);
     for (const r of Refresh) r.force(undo);
+    if (!routerValid()) throw new Refusal("invalid router value"); // runner/src/runner/router.rs `change`
     settle();
     // A store write re-asks the resources that read the store, until quiet.
     for (let k = 0; Store.dirty && k < 4; k++) { Store.dirty = false; for (const r of Resources) if (r.store) r.revise(undo); settle(); }
   } catch (e) {
     ok = false;
     for (const [n, v] of undo.reverse()) write(n, v);
+    if (Now.v !== was) { Now.v = was; for (const o of Now.obs) stale(o, DIRTY); } // nor its time: the clock's readers read as they did
     Resources.forEach((r, k) => r.restore(saved[k])); Mutations.forEach((m, k) => { m.ticket = held[k]; });
     Store.restore(store);
     Out = []; Commands = []; Landed = []; Refused = e;
@@ -201,12 +206,15 @@ function drain() {
   // Options compare as nodes and values: a branch that replaces them with equal values still resets the pick.
   Scrolls.clear(); for (const e of Selects) if (!e.isConnected) Selects.delete(e); else { const o = [...e.options], v = o.map(x => x.value); if (e.$set || o.length !== e.$options?.length || o.some((x, i) => x !== e.$options[i] || v[i] !== e.$values[i])) { e.$set = false; e.$options = o; e.$values = v; if (e.value !== e.$value) e.value = e.$value; } }
 }
-/** An action: each call is one commit. */
-export function act(fn) { return (...a) => commit(() => fn(...a), "action"); }
+/** An action: each call is one commit. Its arguments conform to its parameters' types (`types`, after `skip` leading
+ * arguments: a row action's row), or it is refused before its body runs, as the runner's ArgumentType. */
+export function act(fn, types, skip = 0) {
+  return (...a) => commit(() => { for (let i = 0; types && i < types.length; i++) if (!conforms(a[i + skip], types[i])) throw new Refusal(`argument ${i + 1} does not conform to its parameter's type`); fn(...a); }, "action");
+}
 /** The host commands, by name; a loaded piece adds its own (list.js `scrollIntoView`). */
 export const Hosts = {
   focus: id => document.getElementById(id)?.focus(),
-  blur: id => document.getElementById(id)?.blur(), ...commands(say), // and commands.js's: selectText, openURL, postMessage, reload, delivery's
+  blur: id => { const a = document.activeElement; if (a && a !== document.body && (id == null || a.id === id)) a.blur(); }, ...commands(say), // commands.js's: selectText, openURL, postMessage, reload, delivery's; `blur()` drops whatever holds focus; `blur(id)` only when that node holds it (navigation.js runFocusCommands)
   setScheme: s => { document.documentElement.style.colorScheme = s === "system" ? "" : s; },
   copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), /* LLP 1077 D14: vibration where the browser has it */ scrollIntoView: (id, block, inline, behavior) => { const e = document.getElementById(id); if (e) e.scrollIntoView({ block: block ?? "start", inline: inline ?? "nearest", behavior: behavior ?? "auto" }); else say(`scrollIntoView "${id}" refused: no live node with that id`); }, // an element's, by id (minesweeper F3); list.js takes a row's
 };
@@ -225,10 +233,9 @@ export const clock = { now: 0, timers: [], agent: false, epoch: 0 };
 // the clock moving alone. Not a write: no commit counts it as a change.
 const Now = node(null, 0);
 let Timing = false;
-function stamp() {
-  if (!clock.agent && !Timing && start) clock.now = Math.max(clock.now, performance.now() - start);
-  if (Now.v !== clock.now) { Now.v = clock.now; for (const o of Now.obs) stale(o, DIRTY); }
-}
+// A commit takes its time first (`time`); its clock readers see it once the body has run (`tick`): the body reads the pre-state.
+function time() { if (!clock.agent && !Timing && start) clock.now = Math.max(clock.now, performance.now() - start); }
+function tick() { if (Now.v !== clock.now) { Now.v = clock.now; for (const o of Now.obs) stale(o, DIRTY); } }
 // A release build never enters agent mode (LLP 1069.007 D2): its build
 // writes this false, as the wasm host's files are gated.
 const AGENT_ADMITTED = true;
@@ -396,13 +403,14 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     const forced = r.forced, reread = r.reread, rev = r.rev;
     r.forced = r.reread = r.rev = false;
     // A failure keeps the value for its arguments, asking nothing; `refresh` or new ones ask again (settlement.rs). `fail` follows.
-    if (r.failed && (forced || !eq(a, r.failed))) r.failed = null;
+    if (r.failed && (forced || !equal(a, r.failed))) r.failed = null;
     flag(fail, r.failed);
     if (r.failed) return r.value;
     const baked = r.baked; r.baked = false;
     if (!forced && !reread && !rev) {
-      if (r.settled !== undefined && eq(a, r.settled) && !baked) return r.value;
-      if (r.ticket && eq(a, r.ticket.args)) return r.value;
+      // Arguments compare as the runner's do (`equal`: `-0` is `0`, NaN asks again); a bake is asked once anyway (LLP 1048.003 D6).
+      if (r.settled !== undefined && equal(a, r.settled) && !baked) return r.value;
+      if (r.ticket && equal(a, r.ticket.args)) return r.value;
     }
     let ans;
     try { ans = ask(source, a, name); }
@@ -420,7 +428,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     }
     // A declared refresh at a send re-reads: a request is discarded, and one in flight stays.
     if (reread) return r.value;
-    if (ans && ans.req && !forced && !rev && r.ticket?.req && !eq(a, r.ticket.args) && sameReq(ans.req, r.ticket.req)) {
+    if (ans && ans.req && !forced && !rev && r.ticket?.req && !equal(a, r.ticket.args) && sameReq(ans.req, r.ticket.req)) {
       say(`keep request ${r.ticket.id} (${name}): the same request for newer arguments`);
       r.ticket.args = a;
       return r.value;
@@ -987,7 +995,6 @@ export function hd(p, fields) {
   onEnd(head(t, fields, effect, After));
 }
 
-// ---------------------------------------------------------------- regions
 function range(p) {
   if (Adopt) return [mark(p), null];
   const a = document.createComment(""), b = document.createComment("");
@@ -1039,10 +1046,10 @@ export function each(p, list, key, row, pure) {
   let rows = new Map(), single = false, order = null;
   effect(() => {
     const items = list(), parent = b?.parentNode ?? p; // rows go where the end anchor is: at an arm's top, `p` is the fragment the arm was built in
-    // The keys are read here, so a key's other inputs rerun the pass too: a
-    // new key is a new row though its item is the same (jukebox F19; list.js).
-    const keys = items.map((item, i) => { const k = key(() => item, () => i); return typeof k + ":" + (Object.is(k, -0) ? 0 : k); });
+    // A key that reads more than its item and index (a slot) is read tracked, re-keying the rows as the runner's; a pure one only where needed.
+    const keys = pure ? null : items.map((item, i) => key(() => item, () => i)), keyAt = i => keys ? keys[i] : key(() => items[i], () => i);
     untracked(() => {
+      if (b) p = a.parentNode; // Conditional arms leave their build fragment.
       // Rows moving or leaving are adopted rows (a row waiting for its slice
       // shows its rendered values until then, and adopts at the current ones).
       if (b && LazyAt < Lazy.length) adoptAll();
@@ -1051,8 +1058,9 @@ export function each(p, list, key, row, pure) {
         let i = 0;
         for (; i < items.length; i++) {
           const item = items[i], r = order[i];
-          if (keys[i] !== r.k) break;
           if (r.item.n.v === item) continue;
+          const k = keyAt(i);
+          if (typeof k + ":" + (Object.is(k, -0) ? 0 : k) !== r.k) break;
           writeItem(r.item.n, item);
         }
         if (i === items.length) return;
@@ -1060,7 +1068,10 @@ export function each(p, list, key, row, pure) {
       // A row's place in the last pass is its `at`; repeats count once a key repeats.
       const next = new Map(), seen = new Map();
       items.forEach((item, i) => {
-        let k = keys[i];
+        let k = keyAt(i);
+        // A key is a string, a finite number or a bool, or the runner cannot build the rows (`key_text`, InstanceError::KeyKind): it poisons.
+        if (!(typeof k === "string" || typeof k === "boolean" || (typeof k === "number" && isFinite(k)))) throw new Error(`a row key that is not a string, finite number or bool: ${k}`);
+        k = typeof k + ":" + (Object.is(k, -0) ? 0 : k);
         if (next.has(k)) { const n = seen.get(k) ?? 1; seen.set(k, n + 1); k = "d" + n + ":" + k; journal.push(`each: repeated key ${k}`); }
         let r = rows.get(k);
         if (r) { rows.delete(k); r.old = r.at; if (!Object.is(r.item.n.v, item)) writeItem(r.item.n, item); if (r.index.n.v !== i) write(r.index.n, i); }
@@ -1230,7 +1241,7 @@ export function mount(f) {
   const early = globalThis.exact?.taps?.() ?? [];
   const shown = early.filter(t => t.type !== "click").map(t => [t.target, t.target.value, t.target.checked]);
   AdoptBy = performance.now() + ADOPT_MS;
-  Booting = true; commit(() => { scope(() => f(root)); built = true; }, adopting ? "adopt" : "boot");
+  Booting = true; let booted = commit(() => { scope(() => f(root)); built = true; }, adopting ? "adopt" : "boot");
   Adopt = false; AdoptBy = Infinity;
   if (!built) { Lazy.length = LazyAt = 0; LazyRows.clear(); }
   const adopted = adopting && built;
@@ -1238,9 +1249,10 @@ export function mount(f) {
     // The document isn't this plan's projection: build afresh (and say so).
     say(`adoption abandoned: ${journal.at(-1)}`);
     root.textContent = "";
-    commit(() => { scope(() => f(root)); built = true; }, "boot");
+    booted = commit(() => { scope(() => f(root)); built = true; }, "boot");
   }
-  Booting = false; if (!built) throw new Error("boot refused: " + journal.at(-1));
+  // A boot whose settlement refused (a derive outside its type) is refused whole, as `Runner::boot` fails: nothing shows.
+  Booting = false; if (!built || booted === false) { root.textContent = ""; throw new Error("boot refused: " + journal.at(-1)); }
   say(`boot: ${root.getElementsByTagName("*").length} nodes, epoch ${clock.epoch}`); // the runner's journal line (LLP 1012 logs)
   if (adopted) say("adopted the document");
   // The document's autofocus (LLP 1035.000 D9): once, at boot, the first
@@ -1277,23 +1289,11 @@ export function checkpoint() {
  * lists and records are arrays, unit and `none` null, `some(v)` v. */
 const value_ = v => v === null || typeof v !== "object" ? v : Array.isArray(v) ? v.map(value_) : "r" in v ? v.r.map(value_) : "s" in v ? value_(v.s) : "n" in v ? Number(v.n) : null;
 // ---------------------------------------------------------------- the roster (runner/src/stdlib.rs)
-/** A native module's props (LLP 1024 D1): key/value pairs to one JSON
- * object of strings, a none left out (`stdlib::native_props`). */
-export const NP = p => { const o = {}; for (let i = 0; i < p.length; i += 2) if (p[i + 1] != null) o[p[i]] = String(p[i + 1]); return JSON.stringify(o); };
-export const x_now = () => { NowRead = true; return read(Now); };
-export const x_length = v => v.length;
-export const x_isEmpty = v => v.length === 0;
-export const x_floor = Math.floor, x_max = Math.max, x_min = Math.min;
-// Numbers print as JavaScript prints them (`push_number`), `-0` as `0`.
-export const x_toString = v => String(v);
-export const x_includes = (a, b) => a.includes(b), x_startsWith = (a, b) => a.startsWith(b), x_endsWith = (a, b) => a.endsWith(b);
-export const x_trim = s => s.trim();
-export const x_first = l => l.length ? l[0] : null;
-/** `Array.prototype.at`, `none` where JavaScript answers undefined (`Stdlib::At`). */
-export const x_at = (l, i) => { const v = l.at(i); return v === undefined ? null : v; };
-export const x_join = (l, s) => l.map(String).join(s);
-export const x_encodeURIComponent = encodeURIComponent;
-export { x_formatTime, x_formatDate, x_formatNumber } from "./format.js";
+// Read untracked (an action's body, a handler's curried argument evaluated as the event arrives) it is the clock now:
+// the commit's time, or outside one the time the runner would evaluate the arguments at. A derive, resource or the
+// tree reads it tracked, as of the last commit: an advance that fired nothing committed no new time.
+export const x_now = () => { NowRead = true; if (Listener) return read(Now); if (!Writes) time(); return clock.now; };
+export * from "./roster.js"; // the roster's pure entries
 // ---------------------------------------------------------------- localized strings (LLP 1060)
 // The plan's tables, base first: [name, rtl, {key: text}]. The locale slot
 // starts at the base, and after boot holds the table the viewer's locale
@@ -1335,165 +1335,4 @@ export function language(slot) {
   if (typeof document !== "object" || !document.documentElement) return;
   effect(() => { const t = table(slot()) ?? Texts[0]; document.documentElement.lang = t[0]; document.documentElement.dir = t[1] ? "rtl" : "ltr"; });
 }
-// ---------------------------------------------------------------- the router (LLP 1038; route/src)
-// A Router is [tab, tabs, next]; a Tab [name, stack]; an Entry
-// [id, name, url, tab, params], params positional in the table's
-// first-declaration order of distinct `:names`.
-let Routes = [], Names = [];
-const names = p => p.split("/").filter(s => s[0] === ":").map(s => s.slice(1));
-/** The plan's route table: [name, pattern, parent, tab, notfound] rows. */
-export function routes(table) {
-  Routes = table.map(([name, pattern, parent, tab, notfound]) => ({ name, pattern, parent, tab, notfound }));
-  Names = [];
-  for (const r of Routes) if (!r.notfound) for (const n of names(r.pattern)) if (!Names.includes(n)) Names.push(n);
-}
-const HEX = "0123456789ABCDEF", utf8 = new TextEncoder();
-const enc = (s, esc) => { let o = ""; for (const b of utf8.encode(s)) o += esc(b) ? "%" + HEX[b >> 4] + HEX[b & 15] : String.fromCharCode(b); return o; };
-const dec = (s, plus) => { const out = []; for (let i = 0; i < s.length; i++) { const c = s.charCodeAt(i); if (c === 37 && /^[0-9a-f]{2}$/i.test(s.substr(i + 1, 2))) { out.push(parseInt(s.substr(i + 1, 2), 16)); i += 2; } else if (plus && c === 43) out.push(32); else out.push(...utf8.encode(s[i])); } return new TextDecoder().decode(new Uint8Array(out)); };
-const clean = s => s.replace(/^[\0- ]+|[\0- ]+$/g, "").replace(/[\t\n\r]/g, "");
-/** `canonical` (route/src/location.rs): path and query, dot segments resolved, escaped. */
-export function canonical(location) {
-  let input = clean(location[0] === "/" ? location : "/" + location).split("#")[0];
-  let [path, ...q] = input.split("?"); const query = q.join("?");
-  path = path.replace(/\\/g, "/").replace(/^\//, "");
-  const segs = [], parts = path.split("/");
-  parts.forEach((seg, i) => {
-    const d = seg.toLowerCase(), last = i === parts.length - 1;
-    if (d === "." || d === "%2e") { if (last) segs.push(""); }
-    else if (["..", ".%2e", "%2e.", "%2e%2e"].includes(d)) { segs.pop(); if (last) segs.push(""); }
-    else segs.push(enc(seg, b => b < 0x21 || b > 0x7e || '"#<>?^`{}|'.includes(String.fromCharCode(b))));
-  });
-  return "/" + segs.join("/") + (query ? "?" + enc(query, b => b < 0x21 || b > 0x7e || "\"#<>'".includes(String.fromCharCode(b))) : "");
-}
-const empty = () => Names.map(() => "");
-const segments = p => p === "/" ? [] : p.replace(/^\//, "").split("/");
-function matchRoute(url) {
-  const path = url.split("?")[0], parts = segments(path);
-  if (path === "/" || !path.endsWith("/")) for (let i = 0; i < Routes.length; i++) {
-    const r = Routes[i]; if (r.notfound) continue;
-    const pat = segments(canonical(r.pattern)); if (pat.length !== parts.length) continue;
-    const params = empty();
-    if (pat.every((s, k) => s[0] === ":" ? parts[k] !== "" && (params[Names.indexOf(s.slice(1))] = dec(parts[k], false), true) : s === parts[k])) return [i, params];
-  }
-  const nf = Routes.findIndex(r => r.notfound);
-  return nf < 0 ? null : [nf, empty()];
-}
-const roots = () => { const r = Routes.map((x, i) => x.tab ? i : -1).filter(i => i >= 0); return r.length || !Routes.length ? r : [0]; };
-function rootFor(i) {
-  const rs = roots();
-  if (!Routes[i].notfound) for (let c = i, k = 0; c != null && c >= 0 && k <= Routes.length; c = Routes[c].parent, k++) if (rs.includes(c)) return c;
-  return rs[0];
-}
-const segmentOf = v => { if (["", ".", ".."].includes(v)) throw new Refusal("a path parameter cannot be empty, `.` or `..`"); return enc(v, b => !/[A-Za-z0-9\-_.!~*'()]/.test(String.fromCharCode(b))); };
-const path = (r, values) => r.pattern.split("/").map(s => s[0] === ":" ? segmentOf(values.shift() ?? "") : s).join("/");
-function chain(location) {
-  const url = canonical(location), m = matchRoute(url);
-  if (!m) return [];
-  const [index, params] = m, root = rootFor(index);
-  if (root == null) return [];
-  const idx = [index];
-  if (!Routes[index].notfound) for (let p = Routes[index].parent; idx.at(-1) !== root && p != null && p >= 0; p = Routes[p].parent) { if (idx.includes(p)) return []; idx.push(p); }
-  if (!idx.includes(root)) idx.push(root);
-  return idx.reverse().map(i => {
-    const r = Routes[i], own = empty();
-    for (const n of names(r.pattern)) own[Names.indexOf(n)] = params[Names.indexOf(n)];
-    return { name: r.name, url: i === index ? url : canonical(path(r, names(r.pattern).map(n => params[Names.indexOf(n)]))), tab: Routes[root].name, params: own };
-  });
-}
-const entry = (id, d) => [id, d.name, d.url, d.tab, d.params];
-function refuse(r, why) { say(`router: ${why}`); return r; }
-function mint(r, d) { const id = r[2]; r[2] = id + 1; return entry(id, d); }
-const sel = r => r[1].findIndex(t => t[0] === r[0] && t[1].length);
-const copy = r => [r[0], r[1].map(t => [t[0], t[1].slice()]), r[2]];
-export const launch = location => x_open(["", [], 0], location);
-/** A reload's router carry: keep only a stack the new table still describes; otherwise launch its old top. */
-export function carryRouter(old, location) { const tabs = roots().map(i => Routes[i].name), stacks = old?.[1], valid = Array.isArray(stacks) && stacks.length === tabs.length && stacks.every((t, i) => t?.[0] === tabs[i] && Array.isArray(t[1]) && t[1].every(e => { const m = matchRoute(e?.[2] ?? ""); return m && Routes[m[0]].name === e[1]; })); if (!valid) return launch(stacks?.find(t => t?.[0] === old?.[0])?.[1]?.at(-1)?.[2] ?? location); const out = copy(old); for (const t of out[1]) for (const e of t[1]) e[4] = matchRoute(e[2])[1]; return out; }
-export function x_open(r, location) {
-  const c = chain(location);
-  if (!c.length) return refuse(r, `no route matches ${canonical(location)}`);
-  const out = copy(r);
-  if (!out[1].length) for (const i of roots()) out[1].push([Routes[i].name, [mint(out, { name: Routes[i].name, url: canonical(Routes[i].pattern), tab: Routes[i].name, params: empty() })]]);
-  const t = out[1].find(t => t[0] === c[0].tab);
-  if (!t) return refuse(r, `unknown tab ${c[0].tab}`);
-  t[1] = c.map((d, k) => t[1][k]?.[2] === d.url ? entry(t[1][k][0], d) : mint(out, d));
-  out[0] = c[0].tab;
-  return out;
-}
-function dest(r, location) { const url = canonical(location), m = matchRoute(url); return m && { name: Routes[m[0]].name, params: m[1], url, tab: r[0] }; }
-export function x_push(r, location) {
-  if (!r[1].length) return x_open(r, location);
-  const d = dest(r, location), i = sel(r);
-  if (!d) return refuse(r, `no route matches ${canonical(location)}`);
-  if (i < 0) return refuse(r, "router has no selected stack");
-  if (r[1][i][1].at(-1)?.[2] === d.url) return r; // the location on top: no new visit (route/src/router.rs)
-  const out = copy(r); out[1][i][1].push(mint(out, d)); return out;
-}
-export function x_replace(r, location) {
-  if (!r[1].length) return x_open(r, location);
-  const d = dest(r, location), i = sel(r);
-  if (!d) return refuse(r, `no route matches ${canonical(location)}`);
-  if (i < 0) return refuse(r, "router has no selected stack");
-  if (r[1][i][1].length === 1 && d.name !== r[1][i][0]) return refuse(r, "replace cannot change the tab's root route");
-  const out = copy(r), s = out[1][i][1]; s[s.length - 1] = entry(s.at(-1)[0], d); return out;
-}
-export function x_back(r) { const i = sel(r); if (i < 0 || r[1][i][1].length < 2) return r; const out = copy(r); out[1][i][1].pop(); return out; }
-export function x_select(r, name) {
-  const i = r[1].findIndex(t => t[0] === name && t[1].length);
-  if (i < 0) return refuse(r, `unknown tab ${name}`);
-  const out = copy(r); if (r[0] === name) out[1][i][1].length = 1; out[0] = name; return out;
-}
-export function x_go(r, location) {
-  const url = canonical(location);
-  if (!matchRoute(url)) return refuse(r, `no route matches ${url}`);
-  const s = x_stack(r), at = s.map(e => e[2]).lastIndexOf(url);
-  if (at >= 0) { const i = sel(r); if (i < 0) return r; const out = copy(r); out[1][i][1].length = at + 1; return out; }
-  const other = r[1].find(t => t[0] !== r[0] && t[1].at(-1)?.[2] === url);
-  return other ? x_select(r, other[0]) : x_push(r, location);
-}
-export const x_stack = r => r[1].find(t => t[0] === r[0])?.[1] ?? [];
-export const x_top = r => x_stack(r).at(-1) ?? [0, "", "", "", empty()];
-export const x_depth = r => x_stack(r).length;
-export const x_params = (r, name) => x_stack(r).map(e => e[4][Names.indexOf(name)]).filter(v => v);
-export function x_searchParam(e, name) {
-  const q = e[2].split("?")[1]; if (!q) return "";
-  for (const pair of q.split("#")[0].split("&").filter(Boolean)) { const [k, ...v] = pair.split("="); if (dec(k, true) === name) return dec(v.join("="), true); }
-  return "";
-}
-export const x_encodeRouteSegment = segmentOf;
-export const x_path = (name, ...values) => path(Routes.find(r => r.name === name && !r.notfound), values);
-/** The router slot's changes, to the browser's history (`navigation.js`,
- * the web host's own), and a popstate back as the navigation root's
- * `navigate` (LLP 1038 D7, D11). */
-let RouterSlot = null, Shown = null, Navigate = null, History = null; export const pageHistory = () => History; // the page's navigation.js, which the agent observes: its own copy's state is never written
-/** The plan's navigation roots, with a router or without (document.js `projectRoots`). */
-export function navigationRoots(history) { History = history; projectRoots(history, location => Navigate?.(location), say, After); }
-export function router(slot, history) {
-  RouterSlot = slot; navigationRoots(history);
-  // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
-  // route stays in this document, as input-glue.js's rule for the wasm host:
-  // a link with its own `press` navigates by it; any other goes to the
-  // root's `navigate` handler, as popstate does. A modified click, a
-  // `target` or `download`, another origin, this page's fragment or an
-  // undeclared path (a file) is the browser's alone.
-  document.addEventListener("click", ev => {
-    const a = ev.target.closest?.("a[href]"), root = document.getElementById("exact-root");
-    if (!a || !root?.contains(a) || ev.defaultPrevented) return;
-    const press = (a.dataset.exactOn ?? "").split(" ").includes("press");
-    if (ev.button !== 0 || ev.metaKey || ev.ctrlKey || ev.shiftKey || ev.altKey || (a.target && a.target !== "_self") || a.hasAttribute("download")) { if (press) ev.stopPropagation(); return; }
-    const url = new URL(a.href), to = url.pathname + url.search, here = to === location.pathname + location.search, m = matchRoute(canonical(to));
-    if (url.origin !== location.origin || (here && url.hash) || !m || Routes[m[0]].notfound) return;
-    if (!press && !Navigate) return;
-    ev.preventDefault();
-    if (press || here) return;
-    const before = RouterSlot.n?.v; Navigate(to); if (RouterSlot.n?.v === before) say(`history: link ${JSON.stringify(to)} refused`);
-  }, true);
-  effect(() => {
-    const r = slot(); if (!r || !r[1].length) return;
-    const top = x_top(r), ids = new Set(r[1].flatMap(t => t[1].map(e => e[0])));
-    const removed = Shown ? Shown[1].flatMap(t => t[1].map(e => e[0])).filter(id => !ids.has(id)) : [];
-    Shown = r;
-    history.apply({ top: top[0], url: top[2], removed });
-  });
-}
-export const navigateTo = f => { Navigate = f; }, navigateRoot = location => Navigate ? (Navigate(location), true) : false; // the agent's `type <root> <location>` (LLP 1038 D11)
-export const routeAt = location => matchRoute(canonical(location))?.[0] ?? -1;
+export * from "./router.js"; import { routerValid } from "./router.js"; // the router (LLP 1038), its own file

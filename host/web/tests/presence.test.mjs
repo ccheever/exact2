@@ -90,7 +90,7 @@ beforeAll(async () => {
     res.writeHead(200, { 'content-type': req.url === '/' ? 'text/html' : 'text/javascript' });
     const path = req.url.startsWith('/js/') ? req.url.slice(4) : req.url.slice(1);
     const js = resolve(WEB, '../web-js', path);
-    res.end(req.url === '/' ? page : readFileSync(req.url.startsWith('/js/') && existsSync(js) ? js : resolve(WEB, path))); 
+    res.end(req.url === '/' ? page : readFileSync(req.url.startsWith('/js/') && existsSync(js) ? js : resolve(WEB, path)));
   });
   await new Promise(ok => server.listen(0, '127.0.0.1', ok));
   profile = mkdtempSync(resolve(tmpdir(), 'exact-presence-'));

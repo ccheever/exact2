@@ -1,0 +1,11 @@
+# Enter at the field calls `blur()`: the focus drops and its blur handler runs.
+tap field
+key field a
+key field Enter
+# `blur("field")` names a node that does not hold the focus: nothing moves.
+tap second
+key second Enter
+# `blur("second")` names the node that holds it: the focus drops.
+key second Escape
+tap field
+key field Enter

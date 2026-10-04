@@ -6,7 +6,9 @@ tested against it, differentially and at random.
 | | |
 |---|---|
 | `Contract/Syntax.lean` | The abstract syntax: a deep embedding of the expanded root component (every used component's declarations lifted into it), the file's shapes and `fn`s. |
-| `Contract/Number.lean` | IEEE-754 binary64 exactly: `%` as fmod, `max`/`min`, and JavaScript's `Number#toString` over exact rationals. |
+| `Contract/Binary64.lean` | Numbers: IEEE-754 binary64 as its bits (`F64`), every operation the exact result rounded once to nearest, ties to even, over `Nat`/`Int` — computable in the kernel. |
+| `Contract/Binary64Facts.lean` | That model proved: correct rounding, overflow, monotonicity, exactness (below). |
+| `Contract/Number.lean` | `max`/`min` with the runner's NaN and signed-zero rules, and JavaScript's `Number#toString` over exact rationals. |
 | `Contract/Value.lean` | Values, structural equality as the runner's `compare::equal`, and the roster's string functions. |
 | `Contract/Route.lean` | The router (LLP 1038): canonical locations, the route table's matching, `path`, launch, the six verbs and the reads. |
 | `Contract/Eval.lean` | Operational semantics of expressions: the interpreter `eval`. |
@@ -54,7 +56,16 @@ cargo run -p contract-difftest -- corpus                    # every test block i
 cargo run -p contract-difftest -- random --seed 7 --count 500
 cargo run -p contract-difftest -- apps                      # app embeddings are current
 cargo run -p contract-difftest -- types --seed 1 --count 200
+cargo run --release -p contract-difftest -- arith --count 1000000
 ```
+
+`arith` checks the number model against this machine's `f64`: for each
+operand pair (random bits; edge values and their neighbours; pairs that
+cancel or sit a few exponents apart; integers around `2^53`; operands
+near overflow and underflow) and natural number, `+ - * / %`, `floor`,
+`max`, `min`, `trunc`, negation, a natural number as a double, and
+`< <= ==`, as the runner computes them, compared by bits (every NaN one).
+`numbers` does the same for number printing.
 
 `types` runs the Lean checker (`Contract.check`) against the Rust one: every
 corpus program and `count` generated ones, all accepted by the compiler,
@@ -125,6 +136,46 @@ reruns everything, it takes one to three minutes depending on load. It
 prints a command that reproduces each divergence. The async lane's
 `semantics` step is still the full run.
 
+## The web JS target
+
+The web build's JS target (`host/web-js`, LLP 1071) is a second
+implementation of Contract: the plan compiled ahead to one ES module over a
+small runtime. `--js` on `corpus`, `explore` and `random` checks every case
+a third way, against the runner (`difftest/src/js.rs`); `--js-only` skips
+the semantics (no Lean needed).
+
+```
+cargo run -p contract-difftest -- corpus --js
+cargo run -p contract-difftest -- explore contract/corpus apps/*/app.contract --js-only
+cargo run -p contract-difftest -- random --seed 7 --count 2000 --js-only
+```
+
+`difftest/js/drive.mjs` is the headless driver. Each case's program is
+compiled by `exact-web-js` (the build's compiler), bundled with the runtime
+and run under Bun in a fresh VM context over the render DOM
+(`host/web-js/dom.js`) given event listeners, the clock the driver's
+(`advance`, as under the agent). Its sources answer synchronously from the
+runner's oracle transcript, as the runner's do; the host's reserved sources
+(viewport, page, time…) answer what the runner answered at boot. A call the
+runner never made is noted (`# js: the oracle has no answer…`) and shows as
+the refusal it causes. It prints `Contract.Observe`'s format from the
+module's own state (names.js) and the DOM: a `testId`'s text is a text's,
+an inline run's, an option's or an SVG text's, as `agent.js` reads them.
+A tap goes to the element's `press` listener and a `type` to its `change`;
+an element without one is refused, as the runner refuses (NoHandler), and so
+is a value a browser could not deliver (a select's unknown or disabled
+option, a checkbox's text, a date outside HTML's format or its bounds).
+
+A program `exact-web-js` refuses is outside the JS target (`OUTSIDE-JS`),
+not a failure. A divergence prints `DIVERGE-JS` with whether the semantics
+agreed with the runner, and is kept under `target/difftest/failures/`
+(`*-js-*.{contract,events,rust.txt,js.txt}`); random ones are shrunk first.
+The JS target refuses a plan that can make an option of an option
+(`host/web-js/src/nested.rs`: it holds `some(x)` as `x`), so
+`options/nested.contract` and `options/some-of-option.contract` are
+outside it. The async lane runs the corpus and the explored
+programs with `--js`, and a random sweep of 500 with `--js-only`.
+
 ## Verifying an app
 
 An app is verified against its embedding, so the proofs are about the
@@ -152,9 +203,12 @@ source as it is.
    values. A body that never touches the slot is dismissed by `decide`
    (`Stmt.noAssigns`, `BodyKeeps.untouched`). A fact about one action is
    `runAction_commit` (the body's `ExecR` outcome, the slots after it)
-   plus `wp_sound` and `applyWrites_last`. Prefer properties that need no
-   float arithmetic: `Float` is opaque to the kernel, so `r + 1` can be
-   stated but not computed. `native_decide` is not used (it adds an axiom).
+   plus `wp_sound` and `applyWrites_last`. Numbers are `F64`s whose
+   arithmetic is defined over `Nat` and `Int`, so a numeric fact is
+   proved from `Contract.Binary64Facts` (`F64.add_ofNat`: integer `+` is
+   exact up to `2^53`; `F64.ofNat_le_ofNat`; …) or computed by
+   `decide +kernel` for given operands. `native_decide` is not used (it
+   adds an axiom).
 
 Worked example: Type Tour's `screen` is a string and
 `go(target: string)` writes any string it is given, yet the phone is only
@@ -189,6 +243,8 @@ proved, by app:
 | Update Lab | `UpdateLab.advance_keeps_user_state` | Moving the clock (the 250 ms probe) never changes `counter`, `note` or `live`. |
 | Update Lab | `UpdateLab.results_shape` | The three result slots always hold `none` or `some` answer. |
 | Update Lab | `UpdateLab.increment_adds_one` | A committed `increment` leaves `counter` at its old value plus one. |
+| Update Lab | `UpdateLab.counter_always` | `counter` is always exactly one of the doubles `1, 2, …, 2^53`, however many increments: past `2^53` adding one rounds back. |
+| Update Lab | `UpdateLab.counter_pos` | `counter ≥ 1`, in IEEE order. |
 | Photo Editor | `PhotoEditor.ready_stays` | Once `ready` is true, no event makes it otherwise. |
 | Photo Editor | `PhotoEditor.rotate_only_turns` | `rotate` changes no slot but `turns`. |
 | Photo Editor | `PhotoEditor.reset_spec` | A committed `reset` sets `turns` to zero and adds one to `resets`. |
@@ -331,6 +387,21 @@ All without `sorry` or axioms beyond Lean's own (`propext`,
   is well typed, and every event from it lands in a well-typed
   configuration and either commits or fails for a `Legitimate` reason —
   never a type error, never an unbound name.**
+- Numbers (`Binary64Facts.lean`). A finite double `y` is the integer
+  `y.scaled` times `2^-1074`, and an operation's exact result `±a / (d *
+  2^1074)`, so distances are compared in integers. `round_nearest`: the
+  rounding is a finite double nearest the exact value among all finite
+  doubles; `round_tie_even`: another as near makes its significand even;
+  `roundMag_eq_none_iff`: it overflows to infinity exactly from `2^1024 -
+  2^970`; `round_mono`: it is monotone; `roundMag_scale`: it depends on
+  the value alone; `round_exact`: a representable value rounds to itself.
+  `add_nearest`, `sub_nearest`, `mul_nearest`, `div_nearest`: `+ - * /`
+  on finite operands are their exact results so rounded. `ofNat_spec`:
+  every natural number up to `2^53` is a double exactly; `add_ofNat`,
+  `sub_ofNat`: integer arithmetic there is exact; `add_one_saturates`:
+  `2^53 + 1 = 2^53`; `ofNat_le_ofNat`, `ofNat_lt_ofNat`: those integers
+  compare as integers. Not proved but tested (`difftest arith`): NaN and
+  infinity cases, signed zeros, `%`, `floor`, `trunc`, `max`, `min`.
 
 Routes are typed: `Router` and `Entry` values, the verbs and reads at the
 roster's types (`routerTy`), `path("route", …)` with one string or number

@@ -329,11 +329,14 @@ on a date, time or range input it sets the value in HTML's format; on a checkbox
 it takes `true` or `false`. A target out of view is scrolled into view first.
 An input step ends with what it settled (an answer given in the input's turn,
 and its mutation's `then`); otherwise the clock stands still between steps:
-what an input starts (a reply on real time, a timer, a transition) lands at a
-`clock` step, as `clock settle`.
-`expect text` reads the node's text, else its descendants' text in order (a
-button's label), else a field's value. `expect state name.field` reads a field of
-a record at any depth; a missing field fails naming the fields there. `expect state` is deliberately restricted to the
+what an input starts (a reply on real time, a transition) lands at a `clock`
+step, as `clock settle`; a timer fires when the clock reaches or passes its time
+(`clock +N`), and `clock settle` fires one only if it reaches it while advancing
+to a motion's end.
+`expect text` reads the node's text, else a control's value (a `select`'s chosen
+value, not its options), else its descendants' text in order (a button's label),
+else a field's value. `expect state name.field` reads a field of a record at any
+depth; a missing field fails naming the fields there. `expect state` is deliberately restricted to the
 parser's literal cases, not arbitrary expressions or record comparisons. The
 parser currently treats unary minus as an expression rather than a number
 literal in this particular form. Use the interactive state inspection when a

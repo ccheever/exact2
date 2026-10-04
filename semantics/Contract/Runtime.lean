@@ -181,7 +181,7 @@ graph is acyclic, and each value is a function of the values it reads).
 A resource whose arguments equal (`argsEq`) those its previous value
 answered keeps that value and asks nothing, unless the commit refreshes it
 (`force`): its source is asked only when the question changes. -/
-def settle (p : Program) (o : Oracle) (slots : List (String × Value)) (now : Float)
+def settle (p : Program) (o : Oracle) (slots : List (String × Value)) (now : F64)
     (prev : Settled := {}) (force : List String := []) : Result Settled :=
   let rec pass : Nat → Settled → Result Settled
     | 0, _ => .error (.refused "settlement did not converge")
@@ -366,7 +366,7 @@ where
       Result (List VNode × RowStore)
     | 0, _, _, _, _, _, _ => .error outOfFuel
     | fuel + 1, cx, ls, tag, arm, body, live => do
-      let id : RowId := (cx.rows.head?.getD []) ++ [(tag, Value.num (Float.ofNat arm), 0)]
+      let id : RowId := (cx.rows.head?.getD []) ++ [(tag, Value.num (F64.ofNat arm), 0)]
       let slots ← armSlots fuel cx ls id (tag, arm)
       let cx' : RenderCx := { cx with env := { cx.env with rows := slots ++ cx.env.rows }, rows := id :: cx.rows }
       render fuel cx' ls body (live ++ [(id, slots)])
@@ -379,7 +379,7 @@ where
     | fuel + 1, cx, ls, tag, x, ix, key, body, item :: items, i, seen, live => do
       let ls' := (x, item) :: ls
       let ls' := match ix with
-        | .some n => (n, Value.num (Float.ofNat i)) :: ls'
+        | .some n => (n, Value.num (F64.ofNat i)) :: ls'
         | .none => ls'
       let k ← rowKey (← eval fuel cx.env false ls' key)
       let dup := (seen.filter (Value.same k ·)).length
@@ -396,9 +396,9 @@ where
 
 structure Timer where
   action : String
-  interval : Float
+  interval : F64
   once : Bool
-  next : Float
+  next : F64
   deriving Inhabited
 
 structure Config where
@@ -406,7 +406,7 @@ structure Config where
   settled : Settled
   store : RowStore
   view : List VNode
-  now : Float
+  now : F64
   timers : List Timer
   poisoned : Bool := false
   /-- The commands committed actions issued, oldest first. -/
@@ -440,7 +440,7 @@ def applyRowWrites (p : Program) (store : RowStore) (rows : List RowId)
 
 /-- Settle and render against new slots. -/
 def update (p : Program) (o : Oracle) (slots : List (String × Value)) (store : RowStore)
-    (now : Float) (prev : Settled := {}) (force : List String := []) :
+    (now : F64) (prev : Settled := {}) (force : List String := []) :
     Result (Settled × Result (List VNode × RowStore)) := do
   let st ← settle p o slots now prev force
   let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now }
@@ -601,7 +601,7 @@ def timerFireLimit : Nat := 4096
 /-- Move the clock to `t`, firing every timer due by then in order of due
 time (ties by declaration order), each at its own due time. A refusal stops
 the advance there, with the clock at the refusing timer's due time. -/
-def advance (p : Program) (o : Oracle) (c : Config) (t : Float) : Config × Outcome :=
+def advance (p : Program) (o : Oracle) (c : Config) (t : F64) : Config × Outcome :=
   let due (c : Config) : Option (Timer × Nat) :=
     (c.timers.zipIdx).foldl (fun best (tm, i) =>
       if tm.next ≤ t then
@@ -622,7 +622,7 @@ def advance (p : Program) (o : Oracle) (c : Config) (t : Float) : Config × Outc
       match due c with
       | .none => finish c
       | .some (tm, i) =>
-        let next := if tm.once then (1.0 / 0.0) else tm.next + tm.interval
+        let next := if tm.once then F64.posInf else tm.next + tm.interval
         let timers := c.timers.set i { tm with next }
         let c := { c with timers, now := tm.next }
         match runAction p o c tm.action [] [] with

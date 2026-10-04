@@ -19,7 +19,7 @@ theorem ask_legit (o : Oracle) (src : String) (args : List Value) (r : String) :
 /-- What settlement's evaluations need: the derives and resources are
 typed in a scope `G`, and an environment of the slots and any well-typed
 settled values satisfies `EnvOK` for `G`. -/
-structure SettleHyps (p : Program) (G : Scope) (slots : List (String × Value)) (now : Float) : Prop where
+structure SettleHyps (p : Program) (G : Scope) (slots : List (String × Value)) (now : F64) : Prop where
   prog : ProgOK p
   derives : ∀ d ∈ p.derives, ∃ t, HasTy p G [] d.body t
   resources : ∀ r ∈ p.resources, ∃ ts, ListTy p G [] r.args ts
