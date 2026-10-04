@@ -17,8 +17,8 @@ impl<D: DataSource> Presenter<D> {
 
     pub(super) fn apply_reports(&mut self, reports: Vec<crate::image::Report>) -> bool {
         let any = !reports.is_empty();
-        for (view, size) in reports {
-            if let Some(e) = self.host.set_intrinsic(view, size) {
+        if any {
+            if let Some(e) = self.host.set_intrinsics(reports) {
                 eprintln!("exact: {e}");
             }
         }
@@ -119,11 +119,10 @@ impl<D: DataSource> Presenter<D> {
                 }
                 w > 0. && h > 0. && x < viewport.0 && y < viewport.1 && x + w > 0. && y + h > 0.
             });
-        let mut error = None;
-        for (view, size) in reports {
-            error = error.or(self.host.set_intrinsic(view, size));
-            self.dirty = true;
+        self.dirty |= !reports.is_empty();
+        if reports.is_empty() {
+            return None;
         }
-        error
+        self.host.set_intrinsics(reports)
     }
 }

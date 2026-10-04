@@ -497,6 +497,26 @@ impl NodeArena {
         out
     }
 
+    /// The style that supplies row `id` of [`NodeArena::computed_style`]:
+    /// one row read without copying a whole style.
+    pub fn computed_source(&self, slot: u32, id: StyleId) -> &StyleProps {
+        let own = &self.styles[slot as usize];
+        if own.mask.has(id) || !id.inherited() {
+            return own;
+        }
+        let mut cur = self.parents[slot as usize];
+        while let Some(p) = cur {
+            if self.styles[p as usize].mask.has(id) {
+                return &self.styles[p as usize];
+            }
+            cur = self.parents[p as usize];
+        }
+        if self.document_style.mask.has(id) {
+            return &self.document_style;
+        }
+        own
+    }
+
     /// Values used only to compare inherited rows across a topology change.
     /// No unrelated style payloads are copied into these transient snapshots.
     pub(crate) fn computed_inherited(&self, slot: u32) -> InheritedStyle {

@@ -938,10 +938,32 @@ impl<D: DataSource> Host<D> {
     /// An image loaded: its intrinsic size in points (`None` when it failed
     /// or was cleared). Lays out again.
     pub fn set_intrinsic(&mut self, view: ViewId, size: Option<(f32, f32)>) -> Option<String> {
-        match self.runner.kernel_mut().set_intrinsic_size(view, size) {
-            Ok(()) => self.layout().err(),
-            Err(e) => Some(format!("intrinsic: {e:?}")),
+        self.set_intrinsics([(view, size)])
+    }
+
+    /// Several nodes' natural sizes (pictures a sync decoded), then one
+    /// layout, when any of them changed: not a layout per picture.
+    pub fn set_intrinsics(
+        &mut self,
+        sizes: impl IntoIterator<Item = (ViewId, Option<(f32, f32)>)>,
+    ) -> Option<String> {
+        let mut error = None;
+        let mut changed = false;
+        for (view, size) in sizes {
+            let kernel = self.runner.kernel_mut();
+            let before = kernel
+                .arena()
+                .slot_of(view)
+                .map(|slot| kernel.arena().intrinsic(slot));
+            match kernel.set_intrinsic_size(view, size) {
+                Ok(()) => changed |= before != Some(size),
+                Err(e) => error = error.or(Some(format!("intrinsic: {e:?}"))),
+            }
         }
+        if changed {
+            error = error.or(self.layout().err());
+        }
+        error
     }
 
     /// The viewport changed: lay out again.

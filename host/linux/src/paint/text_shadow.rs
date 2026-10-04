@@ -5,7 +5,7 @@
 use super::{Painter, Rect4};
 use crate::text::{Paragraph, RunPaint};
 use exact_kernel::style::GlyphShadow;
-use exact_kernel::{StyleId, StyleMask};
+use exact_kernel::StyleId;
 use std::sync::Arc;
 use tiny_skia::Transform;
 
@@ -19,12 +19,11 @@ impl Painter {
         origin: (f32, f32),
         ts: Transform,
     ) {
-        let style = node.computed_style(StyleMask::of(StyleId::TextShadow));
-        let Some(&GlyphShadow {
+        let Some(GlyphShadow {
             color,
             offset,
             blur,
-        }) = style.text_shadow.shadow()
+        }) = node.computed_row(StyleId::TextShadow, |s| s.text_shadow.shadow().copied())
         else {
             return;
         };

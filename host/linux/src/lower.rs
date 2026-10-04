@@ -239,12 +239,12 @@ impl<D: DataSource> Host<D> {
         let (cx0, cy0) = node
             .as_ref()
             .map_or((0.0, 0.0), |n| (point(n.style.cx), point(n.style.cy)));
-        // Its computed style is a whole style's copy: only for a dash track.
+        // Only for a dash track: the one row, where it is set.
         let dash0 = || {
             node.as_ref().map_or(0.0, |n| {
-                let mut mask = exact_kernel::StyleMask::EMPTY;
-                mask.set(exact_kernel::StyleId::StrokeDashoffset);
-                n.computed_style(mask).stroke_dashoffset
+                n.computed_row(exact_kernel::StyleId::StrokeDashoffset, |s| {
+                    s.stroke_dashoffset
+                })
             })
         };
         for play in self.engine.animation_plays(node_u64(key)) {

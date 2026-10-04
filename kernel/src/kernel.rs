@@ -122,6 +122,12 @@ impl<'a> NodeRef<'a> {
         self.arena.computed_style(self.slot, rows)
     }
 
+    /// One row of [`NodeRef::computed_style`], read where it is set
+    /// (`NodeArena::computed_source`), without copying a style.
+    pub fn computed_row<T>(&self, id: StyleId, read: impl FnOnce(&StyleProps) -> T) -> T {
+        read(self.arena.computed_source(self.slot, id))
+    }
+
     /// The run style this node's text measures and paints with: its own text
     /// rows, else its paragraph's, else the initial values.
     pub fn text_style(&self) -> TextStyle {

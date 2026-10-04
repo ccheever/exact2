@@ -168,9 +168,7 @@ impl BoxPaint {
     fn capture(node: &NodeRef<'_>, kernel: &Kernel, dark: bool, w: f32) -> Self {
         let s = node.style;
         let widths = s.border_widths();
-        let current = node
-            .computed_style(StyleMask::of(StyleId::TextColor))
-            .text_color;
+        let current = node.computed_row(StyleId::TextColor, |s| s.text_color);
         let colors = s.border_colors(current);
         let env = kernel.env();
         let pad = |d: Dimension| match d.resolve(&env) {

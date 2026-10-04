@@ -935,7 +935,8 @@ impl Collection {
             views::publish_position(u, mounted.wrapper, position, count);
             mounted.published = (position, count);
         }
-        let token = self.index.measurement_token(text).unwrap();
+        debug_assert_eq!(self.index.key(position), Some(text));
+        let token = self.index.measurement_token_at(position).unwrap();
         if token != mounted.token {
             mounted.token = token;
             mounted.epoch = advance(&mut self.next_epoch)?;
@@ -1198,7 +1199,7 @@ impl Collection {
         let row = &self.mounted[by_view[&measurement.view]];
         let key = self.index.shared_key(row.position).unwrap().clone();
         self.index
-            .set_measured_height(&key, row.token, measurement.size)
+            .set_measured_height_at(row.position, row.token, measurement.size)
             .map_err(index_error)?;
         if measurement.size == 0.0 {
             self.zero_heights.insert(key.to_string());

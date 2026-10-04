@@ -6,7 +6,7 @@
 
 use super::{Painter, Rect4};
 use crate::text::{Paragraph, RunPaint};
-use exact_kernel::{StyleId, StyleMask};
+use exact_kernel::StyleId;
 use std::sync::Arc;
 use tiny_skia::{Pixmap, Transform};
 
@@ -21,21 +21,18 @@ impl Painter {
         origin: (f32, f32),
         ts: Transform,
     ) -> bool {
-        let mut mask = StyleMask::of(StyleId::TextStrokeWidth);
-        mask.set(StyleId::TextStrokeColor);
-        let style = node.computed_style(mask);
-        let width = style.text_stroke_width;
+        // Each row where it is set: no whole style copied per paragraph.
+        let width = node.computed_row(StyleId::TextStrokeWidth, |s| s.text_stroke_width);
         if !(width > 0.0 && width.is_finite()) {
             return false;
         }
+        let stroke_color = node.computed_row(StyleId::TextStrokeColor, |s| s.text_stroke_color);
         let dark = self.dark;
         // `currentcolor` is each run's own colour.
         let stroked: Vec<RunPaint> = palette
             .iter()
             .map(|r| RunPaint {
-                color: style
-                    .text_stroke_color
-                    .map_or(r.color, |c| super::rgba(c.resolve(dark))),
+                color: stroke_color.map_or(r.color, |c| super::rgba(c.resolve(dark))),
                 source: r.source,
             })
             .collect();
