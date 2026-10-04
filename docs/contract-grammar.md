@@ -300,10 +300,11 @@ on a date, time or range input it sets the value in HTML's format; on a checkbox
 it takes `true` or `false`. A target out of view is scrolled into view first.
 The clock stands still between steps: what an input starts (a reply, a
 mutation's `then`, a transition) lands at a `clock` step, as `clock settle`; a
-timer fires when the clock passes its time (`clock +N`), and `clock settle`
-crosses one only on the way to the end of something else in flight.
-`expect text` reads the node's text, else its descendants' text in order (a
-button's label), else a field's value. `expect state` is deliberately restricted to the
+timer fires when the clock reaches or passes its time (`clock +N`), and `clock
+settle` fires one only if it reaches it while advancing to a motion's end.
+`expect text` reads the node's text, else a control's value (a `select`'s chosen
+value, not its options), else its descendants' text in order (a button's label),
+else a field's value. `expect state` is deliberately restricted to the
 parser's literal cases, not arbitrary expressions or record comparisons. The
 parser currently treats unary minus as an expression rather than a number
 literal in this particular form. Use the interactive state inspection when a

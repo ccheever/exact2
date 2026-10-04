@@ -72,7 +72,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     let input = null;
     // An input the host could not perform fails its step: an unsupported drag or a refused tap did nothing to assert on.
     const delivered = (r) => { if (r?.error || r?.delivery === 'unsupported') throw new Error(r.error ?? r.reason ?? 'the host does not support this input'); };
-    const fail = (message) => failures.push(input == null ? message : `${message} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\`, a timer or a transition lands at a \`clock\` step, as \`clock settle\`)`);
+    const fail = (message) => failures.push(input == null ? message : `${message} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\` or a transition lands at \`clock settle\`; a timer fires when the clock reaches its time, \`clock +N\`)`);
     try {
       for (const st of t.steps) {
         const at = `${t.name}: line ${st.line}`;
