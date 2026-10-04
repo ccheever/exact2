@@ -36,6 +36,19 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
       assert.equal(result.status, 0, result.stderr);
       assert.deepEqual(JSON.parse(result.stdout), { args, app: realpathSync(dir) });
     }
+    // chat F19, calendar F13: the files named, from the current directory (a glob too), each run in turn.
+    mkdirSync(resolve(dir, 'tests'));
+    for (const name of ['b.test.contract', 'a.test.contract']) writeFileSync(resolve(dir, 'tests', name), '');
+    const files = (command, cwd = dir) => {
+      const result = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...command], { cwd, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout.trim().split('\n').filter((l) => l.startsWith('{')).map((l) => JSON.parse(l).args);
+    };
+    const tested = (host, file, ...more) => [host, '--app', 'field-log', '--test', resolve(realpathSync(dir), file), ...more];
+    assert.deepEqual(files(['test', 'ios', 'tests/b.test.contract', '--size', '800x600']), [tested('ios', 'tests/b.test.contract', '--size', '800x600')]);
+    assert.deepEqual(files(['test', 'macos', 'tests/*.test.contract']), [tested('macos', 'tests/a.test.contract'), tested('macos', 'tests/b.test.contract')]);
+    assert.deepEqual(files(['test', 'ios', '--test', 'field-log/tests/a.test.contract'], parent), [tested('ios', 'tests/a.test.contract')]);
+    assert.equal(spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'test', 'ios', 'none/*.test.contract'], { cwd: dir, env: { ...process.env, EXACT2: sdk } }).status, 2);
     writeFileSync(resolve(sdk, 'scripts/agent.mjs'), 'process.exit(7);');
     const refused = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'test', 'ios'], { cwd: parent, env: { ...process.env, EXACT2: sdk } });
     assert.equal(refused.status, 7, 'a failed app test fails the generated command');

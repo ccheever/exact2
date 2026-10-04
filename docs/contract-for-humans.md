@@ -60,8 +60,10 @@ bun scripts/exact.mjs new ../hello
 The new app has `app.contract` (its interface), `app.ts` (its data module),
 `app.json` (its manifest), `app.test.contract`, `web/` and `apple/` crates, and its
 own Cargo workspace; it consumes this checkout by path. Its generated `exact.mjs`
-runs the web and native commands (`bun exact.mjs test`, for example); run it with
-no verb to list them, and see the [tooling reference](reference.md).
+runs the web and native commands (`bun exact.mjs test`, for example; `bun exact.mjs
+test web tests/*.test.contract` runs the files named, from the current directory,
+in turn); run it with no verb to list them, and see the [tooling reference](reference.md).
+Stopping or killing `bun exact.mjs web` stops its dev server too.
 
 You can compile a standalone Contract file without running a host:
 

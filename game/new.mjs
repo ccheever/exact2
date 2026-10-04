@@ -240,7 +240,7 @@ exact_web::host!(
   return `Created ${dir}
   cd '${dir.replaceAll("'", "'\\''")}'
   ${run} web          the web dev loop
-  ${run} test web     build, then run app.test.contract (web; macos or ios after mac/ios)
+  ${run} test web     build, then run app.test.contract, or the files named (web; macos or ios after mac/ios)
   ${run} agent web tree  inspect or drive the app
   ${run} ios --run    build and launch on an iOS simulator
   ${run} mac --run    build and launch on this Mac${deferred ? `
@@ -257,7 +257,7 @@ function commandsFor(dir, name) {
 // this file, the crates.io patches, the toolchain and the exact2 dependency paths.
 import { spawn } from 'node:child_process';
 import { constants } from 'node:os';
-import { resolve } from 'node:path';
+import { relative, resolve } from 'node:path';
 
 const EXACT2 = resolve(import.meta.dir, process.env.EXACT2 ?? ${JSON.stringify(pathFrom(dir, ROOT))});
 const [verb, ...rest] = process.argv.slice(2);
@@ -265,7 +265,7 @@ const host = (verb === 'test' || verb === 'agent') && rest[0] && !rest[0].starts
 const verbs = {
   web: ['host/web/dev.mjs', '--app', '${name}'],
   'web-build': ['host/web/build.mjs', '${name}'],
-  test: ['scripts/agent.mjs', host, '--app', '${name}', '--test', resolve(import.meta.dir, 'app.test.contract')],
+  test: ['scripts/agent.mjs', host, '--app', '${name}'],
   agent: ['scripts/agent.mjs', host, '--app', '${name}'],
   ios: ['host/apple/build.mjs', '--ios', '${name}-apple'],
   mac: ['host/apple/build.mjs', '${name}-apple'],
@@ -294,8 +294,24 @@ const run = ([script, ...args], more = [], stdio = 'inherit') => new Promise((do
 // The web build is about a second when nothing changed, so a web drive builds
 // first rather than refusing a stale build; a native build stays explicit.
 const drivesWeb = (verb === 'test' || verb === 'agent') && host === 'web' && !rest.some(a => a === '--url' || a === '--web-dist');
+// \`test [host] [file|glob …]\`: the test files named (each \`.contract\`, a glob or \`--test <file>\`, from the
+// current directory), else app.test.contract; each runs in turn and any failure fails the command.
+const tests = [];
+for (let i = verb === 'test' ? 0 : rest.length; i < rest.length;) {
+  const named = rest[i] === '--test' ? rest.splice(i, 2)[1] : /\\.contract$|\\*/.test(rest[i]) ? rest.splice(i, 1)[0] : (i++, null);
+  if (named == null) continue;
+  const found = named.includes('*') ? [...new Bun.Glob(named).scanSync({ absolute: true })].sort() : [resolve(named)];
+  if (!found.length) { console.error(\`no test file matches \${named}\`); process.exit(2); }
+  tests.push(...found);
+}
 if (drivesWeb) { const built = await run(verbs['web-build'], [], [0, 2, 2]); if (built) process.exit(built); }
-process.exit(await run(verbs[verb], rest));
+if (verb !== 'test') process.exit(await run(verbs[verb], rest));
+let failed = 0;
+for (const file of tests.length ? tests : [resolve(import.meta.dir, 'app.test.contract')]) {
+  if (tests.length > 1) console.log(\`# \${relative(process.cwd(), file)}\`);
+  failed = (await run(verbs.test, ['--test', file, ...rest])) || failed;
+}
+process.exit(failed);
 `;
 }
 
