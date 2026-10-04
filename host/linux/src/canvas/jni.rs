@@ -386,6 +386,30 @@ macro_rules! canvas_jni {
                 .unwrap_or(0)
             }
 
+            /// Pictures announced and not yet fetched, as id, width, height triples:
+            /// a reader on its own thread makes them before the stream that draws
+            /// them reaches its main thread.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_pendingPictures(
+                env: *mut JNIEnv,
+                _class: jclass,
+            ) -> jintArray {
+                let flat: Vec<i32> = $crate::canvas::pending_pictures()
+                    .into_iter()
+                    .flatten()
+                    .map(|n| n as i32)
+                    .collect();
+                let arr = ((**env).NewIntArray.expect("jni"))(env, flat.len() as i32);
+                ((**env).SetIntArrayRegion.expect("jni"))(
+                    env,
+                    arr,
+                    0,
+                    flat.len() as i32,
+                    flat.as_ptr(),
+                );
+                arr
+            }
+
             /// The scroller `scroll` moves (its group's id in the stream), or 0.
             #[no_mangle]
             pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_feed(
