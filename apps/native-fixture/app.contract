@@ -183,6 +183,14 @@ component NativeFixture
     draft = text
   action selectTab(name: string)
     nav = select(nav, name)
+  // A root overlay with a z-index after the tabs (docs/agent-pitfalls.md's
+  // pattern for full-screen overlays): it paints and takes touches over the
+  // native tab container (LLP 1083.000 D4).
+  state overlayShown = false
+  action showOverlay
+    overlayShown = true
+  action hideOverlay
+    overlayShown = false
   action openSheet
     nav = push(nav, "/sheet")
   // LLP 1075.003 §9.10: a pressable title with an avatar and a subtitle, a
@@ -283,6 +291,8 @@ component NativeFixture
                     // titled by its aria-label, each row its provider's icon,
                     // the remembered one checked; the same rows as a sheet
                     // when the popover asks for one (role="alertdialog").
+                    button press=showOverlay testId="show-overlay" padding=6 background-color="#e5e7eb"
+                      text "Overlay"
                     row gap=6 flex-wrap="wrap"
                       button press=refreshProviders popovertarget="open-in" testId="open-in" padding=6 background-color="#e5e7eb"
                         text "Open in Maps"
@@ -406,6 +416,10 @@ component NativeFixture
           when count > 0
             column testId="badge-second" position="absolute" top=4 right=24 min-width=16 height=16 padding-left=4 padding-right=4 border-radius=8 background-color="#ef4444" align-items="center" justify-content="center"
               text toString(count) font-size=10 color="#ffffff"
+      when overlayShown
+        column testId="root-overlay" role="dialog" aria-label="Overlay" position="absolute" top=0 right=0 bottom=0 left=0 z-index=10 background-color="#000000cc" align-items="center" justify-content="center"
+          button press=hideOverlay testId="hide-overlay" padding=12 background-color="#ffffff"
+            text "Close"
 
 component HookedRows
   props
