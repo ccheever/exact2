@@ -178,6 +178,19 @@ impl Parser {
                 }
                 Ok(Expr::EmptyList(span))
             }
+            // `none(value=1)`: a reserved word names no shape (LLP 1085 D5).
+            TokenKind::Ident(w)
+                if matches!(w.as_str(), "true" | "false" | "none") && self.at_punct("(") =>
+            {
+                Err(SyntaxError {
+                    id: "syntax-keyword-as-value",
+                    message: format!(
+                        "{}, so it names no shape or function",
+                        super::names::reserved_message(&w).replace("; choose another name", "")
+                    ),
+                    span,
+                })
+            }
             TokenKind::Ident(w) => match w.as_str() {
                 "true" => Ok(Expr::Bool(true, span)),
                 "false" => Ok(Expr::Bool(false, span)),
@@ -227,15 +240,15 @@ impl Parser {
                         span,
                     })
                 }
-                // A keyword that names a prop or field (`state`, `key`) reads as
-                // that name; one that shapes syntax, or a call, stays refused.
-                _ if is_keyword(&w) && (!is_name_word(&w) || self.at_punct("(")) => {
-                    Err(SyntaxError {
-                        id: "syntax-keyword-as-value",
-                        message: format!("`{w}` is a keyword"),
-                        span,
-                    })
-                }
+                // A contextual keyword (`state`, `key`, `refresh`) reads as the
+                // name it is here; a reserved one is never a value (LLP 1085 D5).
+                _ if super::names::is_reserved(&w) => Err(SyntaxError {
+                    id: "syntax-keyword-as-value",
+                    message: format!(
+                        "`{w}` is reserved in Contract (it shapes an expression), so it is not a value"
+                    ),
+                    span,
+                }),
                 _ => {
                     if self.eat_punct("(") {
                         let args = self.call_args()?;
