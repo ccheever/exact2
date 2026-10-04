@@ -363,6 +363,22 @@ impl Tree {
     }
 }
 
+/// A count that moves whenever any list's own pins change or a list
+/// holding one goes: an outer list's cached answer for the pins inside its
+/// rows is good while the count stands. One count for the process, so a
+/// runner booted on one thread and run on another reads the same count
+/// (it only ever grows; a bump on another runner only costs a recount).
+pub(super) struct PinEpoch;
+static PIN_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+impl PinEpoch {
+    pub(super) fn now() -> u64 {
+        PIN_EPOCH.load(std::sync::atomic::Ordering::Relaxed)
+    }
+    pub(super) fn bump() {
+        PIN_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -385,21 +401,5 @@ mod tests {
         assert!(kept.get("r10", "7").is_none());
         kept.retain_rows(|row| row == "new");
         assert_eq!(kept.len(), 1);
-    }
-}
-
-/// A count that moves whenever any list's own pins change or a list
-/// holding one goes: an outer list's cached answer for the pins inside its
-/// rows is good while the count stands. One count for the process, so a
-/// runner booted on one thread and run on another reads the same count
-/// (it only ever grows; a bump on another runner only costs a recount).
-pub(super) struct PinEpoch;
-static PIN_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-impl PinEpoch {
-    pub(super) fn now() -> u64 {
-        PIN_EPOCH.load(std::sync::atomic::Ordering::Relaxed)
-    }
-    pub(super) fn bump() {
-        PIN_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 }
