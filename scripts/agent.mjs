@@ -428,9 +428,15 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
           await call('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
         }
         else if (kind === 'press') {
+          // The page can move between the aim above and the press (a reply lands on real time while the
+          // agent's clock stands still): record what the press reached and refuse a tap that missed.
+          // Judged at the press itself: the tap's own action may replace the node right after.
+          if (id != null) await evaluate(`window.__exactPressed = null; window.__exactPress = (e) => { if (window.__exactPressed) return; const el = exact.views.get(${id}), hit = e.target; window.__exactPressed = !el || el === hit || el.contains(hit) || hit.contains(el) ? 'ok' : hit.closest?.('[data-testid]') ? '\"' + hit.closest('[data-testid]').dataset.testid + '\"' : hit.closest?.('[data-view]') ? 'node #' + hit.closest('[data-view]').dataset.view : hit.localName; }; addEventListener('pointerdown', window.__exactPress, true)`);
           await call('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
           await call('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', buttons: 1, clickCount: 1 });
           await call('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', buttons: 0, clickCount: 1 });
+          const missed = id == null ? null : await evaluate(`(() => { removeEventListener('pointerdown', window.__exactPress, true); const r = window.__exactPressed; window.__exactPressed = null; return r && r !== 'ok' ? r : null; })()`);
+          if (missed) throw new Error(`tap #${id} at (${x}, ${y}) landed on ${missed}: the page moved between aiming and the press; \`clock settle\` first, then tap again`);
         } else if (kind === 'type') {
           const f = await ask({ op: 'focus', id });
           if (f.error) throw new Error(f.error);
