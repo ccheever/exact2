@@ -974,6 +974,11 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   // Shell selection observes art's presence. Track absence for the dev watcher
   // without giving Cargo a missing path that forces every build dirty.
   if (app.manifest.game) add(resolve(app.dir, 'art'), true);
+  if (app.manifest.game?.presentation && graph.surface) {
+    add(resolve(app.dir, 'presentation/Cargo.toml'));
+    add(resolve(app.dir, 'presentation/src'), true);
+    add(resolve(app.dir, 'presentation/build.rs'), true);
+  }
   if (platform === 'macos' || platform === 'ios') {
     const packageRoot=resolve(ROOT,'host/apple');
     const swiftEnv = {...env, EXACT_APP_COMPOSITION: compat.inputs.store.L === '0' ? 'embedded' : 'updating'}; delete swiftEnv.SDKROOT;
@@ -1234,6 +1239,13 @@ export function pendingBuildInputs(build) {
 /** Remove a private mkdtemp directory owned by this invocation. Bun 1.4.2's
  * recursive rm can silently leave entries in large captured Git repositories. */
 export function removePrivateTree(path) {
+  path = resolve(path);
+  if (dirname(path) === path) throw new Error(`refusing to remove a filesystem root: ${path}`);
+  if (process.platform === 'win32') {
+    rmSync(path, {recursive:true, force:true, maxRetries:3, retryDelay:100});
+    if (existsSync(path)) throw new Error(`could not remove private directory ${path}: directory remains`);
+    return;
+  }
   const result = spawnSync('/bin/rm', ['-rf', '--', path], { encoding: 'utf8' });
   if (result.status !== 0 || existsSync(path)) {
     throw new Error(`could not remove private directory ${path}: ${result.error?.message || result.stderr || result.signal || 'directory remains'}`);

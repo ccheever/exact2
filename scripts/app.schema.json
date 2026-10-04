@@ -77,6 +77,17 @@
         "audio": { "type": "boolean" },
         "assets": { "type": "boolean" },
         "crate": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-logic$" },
+        "presentation": {
+          "type": "object",
+          "description": "Optional GPU-only render hooks in presentation/. The crate may read game logic resources; logic and host metadata must not depend on it. Shader files use gpu.shaderRoots and gpu.shaderPreludes.",
+          "required": ["crate", "type"],
+          "additionalProperties": false,
+          "properties": {
+            "crate": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-presentation$" },
+            "type": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$" },
+            "shaders": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$" }
+          }
+        },
         "data": {
           "type": "object",
           "description": "An optional linked Rust DataSource in the app's data/ crate, constructed with Default and wrapped by host storage.",
