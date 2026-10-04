@@ -394,6 +394,15 @@ Chrome's `inline-block` `<button>` that centres its content (declared in
 [LLP 1001](../llp/1001-kernel-v1.spec.md)): write `align-items="center"
 justify-content="center"` to centre it, and `flex-direction="row"` for a row.
 
+A link (`link href`, a text run's `href`, a Markdown link) to a path in the
+app navigates in it; one to an absolute URL (`https://…`, `//…`) leaves the
+app: natively it opens in the system browser, and on the web in a new
+browsing context (`target="_blank" rel="external noopener"`), so the app is
+still there when the reader comes back. On the web, `target="_self"` keeps
+such a link in the page (it replaces the app) and `target="_blank"` opens a
+path in a new one; natively `target` changes nothing, an app having no
+other tab. `mailto:` and `tel:` links go to their handlers everywhere.
+
 `button appearance="auto"` selects a native control; the literal switch is
 resolved after class merging. Default/`none` keeps the authored pressable.
 Native face content, styles, transitions/keyframes, and enclosing contexts have

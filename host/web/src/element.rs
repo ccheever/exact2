@@ -332,6 +332,13 @@ pub(super) fn in_button(kernel: &Kernel, node: &NodeRef<'_>) -> bool {
 }
 
 /// The element for a node wherever it is: its type, refined by `semanticTag`.
+/// A URL that leaves the app: an absolute `http(s)` one, or scheme-relative.
+/// A path, or a relative URL, stays in it (the native hosts' rule).
+pub fn leaves_app(href: &str) -> bool {
+    let h = href.trim_start().to_ascii_lowercase();
+    h.starts_with("http:") || h.starts_with("https:") || h.starts_with("//")
+}
+
 fn element(node: &NodeFacts<'_>) -> &'static str {
     if node.node_type == NodeType::TextInput
         && node.props.str(PropId::SemanticTag) == Some("textarea")
@@ -742,6 +749,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::SwipeIndicator => "swipeIndicator",
             PropId::Href if text.is_empty() => continue,
             PropId::Href => "href",
+            PropId::Target => "target",
             PropId::Disabled => "disabled",
             PropId::Min => "min",
             PropId::Max => "max",
@@ -900,6 +908,21 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
                 out.insert("data-symbol-fill".into(), String::new());
             }
             out.insert("alt".into(), String::new());
+        }
+    }
+    // A link to an absolute URL leaves the app, as natively (the system
+    // browser): a new browsing context, unless the author named a `target`
+    // (chat F11, hn-reader F3). `external` marks the default, which the JS
+    // target's runtime recomputes as a bound `href` changes (rt.js `P`).
+    if element(node) == "a" {
+        match out.get("target").map(String::as_str) {
+            Some("_blank") => _ = out.insert("rel".into(), "noopener".into()),
+            Some(_) => {}
+            None if out.get("href").is_some_and(|h| leaves_app(h)) => {
+                out.insert("target".into(), "_blank".into());
+                out.insert("rel".into(), "external noopener".into());
+            }
+            None => {}
         }
     }
     // A role the element already has natively is left off (ARIA in HTML:
@@ -1098,6 +1121,46 @@ mod dataset_tests {
                     | "targetY"
                     | "values"
             )
+    }
+
+    /// A link to an absolute URL opens outside the app, as natively, unless
+    /// its `target` is authored; a path stays (chat F11, hn-reader F3).
+    #[test]
+    fn a_link_out_of_the_app_opens_a_new_browsing_context() {
+        let link = |href: &str, target: Option<&str>| {
+            let style = StyleProps::default();
+            let mut props = PropList::new();
+            props.set(PropId::Href, PropValue::Str(href.into()));
+            if let Some(t) = target {
+                props.set(PropId::Target, PropValue::Str(t.into()));
+            }
+            let out = super::props_of(&NodeFacts {
+                id: 1,
+                node_type: NodeType::Pressable,
+                style: &style,
+                props: &props,
+                is_root: false,
+                inline_run: false,
+            });
+            let get = |k: &str| out.get(k).cloned();
+            (get("target"), get("rel"))
+        };
+        let out = (Some("_blank".into()), Some("external noopener".into()));
+        assert_eq!(link("https://example.com/a", None), out);
+        assert_eq!(link("//example.com/a", None), out);
+        assert_eq!(link("/c/42", None), (None, None));
+        assert_eq!(
+            link("https://example.com/", Some("_self")),
+            (Some("_self".into()), None)
+        );
+        let blank = (Some("_blank".into()), Some("noopener".into()));
+        assert_eq!(link("/c/42", Some("_blank")), blank);
+        let app = |t: &str| {
+            format!("component A\n  view\n    link href=\"/x\" target=\"{t}\"\n      text \"x\"\n")
+        };
+        assert!(contract::compile(&app("_blank")).is_ok());
+        let e = contract::compile(&app("_top")).unwrap_err().to_string();
+        assert!(e.contains("`target` takes"), "{e}");
     }
 
     /// @ref LLP 1075.003 §3.3 — every `data-` name this host writes on an

@@ -591,6 +591,17 @@ pub(crate) fn check_prop_value(
 ) -> Result<(), LowerError> {
     media::check(name, value, span)?;
     let want = tags::prop_ty(prop);
+    // An app's browsing contexts are its window and new ones: `_parent` and
+    // `_top` name frames an app does not have, a name one it cannot open.
+    if prop == PropId::Target
+        && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "_blank" | "_self"))
+    {
+        return err(
+            "lower-attr-value",
+            "`target` takes \"_blank\" or \"_self\"",
+            span,
+        );
+    }
     if prop == PropId::AccessibilityLive
         && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "off" | "polite" | "assertive"))
     {
