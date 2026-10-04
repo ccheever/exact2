@@ -5,33 +5,34 @@ use contract_syntax::Step;
 
 #[test]
 fn a_test_block_parses_to_the_eight_operations_and_expects() {
-    let src = "test \"login\"\n  tap \"title\"\n  type \"who\" \"alice\"\n  type \"password\" key \"Enter\"\n  clock settle\n  clock +500\n  screenshot \"after.png\"\n  expect tree has \"login-error\"\n  expect tree missing \"signed-in\"\n  expect text \"login-error\" == \"Wrong password\"\n  expect state password == \"\"\n  expect state attempt == 1\n  expect state ok == false\n  expect state picked == none\n  expect state tags == []\n";
+    let src = "test \"login\"\n  tap \"title\"\n  type \"who\" \"alice\"\n  type \"password\" key \"Enter\"\n  clock settle\n  clock +500\n  clock +250 real\n  screenshot \"after.png\"\n  expect tree has \"login-error\"\n  expect tree missing \"signed-in\"\n  expect text \"login-error\" == \"Wrong password\"\n  expect state password == \"\"\n  expect state attempt == 1\n  expect state ok == false\n  expect state picked == none\n  expect state tags == []\n";
     let tests = contract::tests(src).unwrap();
     assert_eq!(tests.len(), 1);
     let t = &tests[0];
     assert_eq!(t.name, "login");
-    assert_eq!(t.steps.len(), 14);
+    assert_eq!(t.steps.len(), 15);
     assert!(matches!(&t.steps[0], Step::Tap { target, hover: false, .. } if target == "title"));
     assert!(matches!(&t.steps[2], Step::Key { key, .. } if key == "Enter"));
     assert!(matches!(&t.steps[4], Step::Clock { arg, .. } if arg == "+500"));
+    assert!(matches!(&t.steps[5], Step::Clock { arg, .. } if arg == "+250 real"));
     assert!(matches!(
-        &t.steps[7],
+        &t.steps[8],
         Step::ExpectTree { present: false, .. }
     ));
-    assert!(matches!(&t.steps[8], Step::ExpectText { .. }));
+    assert!(matches!(&t.steps[9], Step::ExpectText { .. }));
     let json = contract::tests_json(&tests);
     assert!(json.starts_with("[{\"name\":\"login\",\"steps\":[{\"op\":\"tap\",\"target\":\"title\",\"hover\":false,\"line\":2}"), "{json}");
     assert!(
-        json.contains("{\"op\":\"expect-state\",\"name\":\"attempt\",\"value\":1,\"line\":12}"),
+        json.contains("{\"op\":\"expect-state\",\"name\":\"attempt\",\"value\":1,\"line\":13}"),
         "{json}"
     );
     assert!(
-        json.contains("{\"op\":\"expect-state\",\"name\":\"picked\",\"value\":null,\"line\":14}"),
+        json.contains("{\"op\":\"expect-state\",\"name\":\"picked\",\"value\":null,\"line\":15}"),
         "{json}"
     );
     // `[]` is the empty list on the wire too, never `null`.
     assert!(
-        json.contains("{\"op\":\"expect-state\",\"name\":\"tags\",\"value\":[],\"line\":15}"),
+        json.contains("{\"op\":\"expect-state\",\"name\":\"tags\",\"value\":[],\"line\":16}"),
         "{json}"
     );
     assert!(

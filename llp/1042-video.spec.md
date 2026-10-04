@@ -171,16 +171,31 @@ Standard events: loadedmetadata, canplay, play, playing, pause, ended, waiting,
 seeking, seeked, ratechange and volumechange (no action payload).
 `timeupdate(seconds)` and `durationchange(seconds)` carry finite seconds;
 unknown/indefinite duration is null in agent state and has no numeric action
-payload. `error(message)` carries a string. Native events are useful playback
+payload; after a seek `currentTime` and the next `timeupdate` are the seek's
+target, as HTML's official playback position is (AVPlayer reports its old time
+until the seek lands; jukebox F20). `error(code)` carries a stable code, never
+the engine's text (jukebox F6, 2026-10-04): MediaError's `aborted`, `network`,
+`decode` and `src-not-supported` (any failure before metadata, as HTML's
+dedicated media source failure), `not-allowed` for a `play()` the browser
+refused, `invalid-value` for a number out of range. A play interrupted by a
+pause or a new load (AbortError) is not an error. The text is in `state.media`.
+A node the tree removed reports nothing more on any host, a late rejected play
+or `timeupdate` included. Native events are useful playback
 observations, not an assertion that AVFoundation reproduces HTML's complete
 network-state/event ordering algorithm.
 
 `state.media` reports each mounted video id, currentTime, duration, paused,
 muted, readyState, videoWidth, videoHeight and renderer. Native generation
 identifies source replacement. This is an observation from the engine, never a
-second player model. The agent's eight operations do not change. `clock settle`
-settles layout; it never seeks a real video. Playback checks observe the media
-clock and use explicit pause/seek assignments when a stable frame is needed.
+second player model. The agent's operations do not change. Media is a real-time
+executor, as the network is: `clock settle` settles layout and never seeks or
+waits for a real video, and `clock +N` moves the virtual clock in no real time,
+so a video playing between operations moves only as far as the drive took
+(jukebox F14, 2026-10-04: a macOS drive read 0 s after a "2 s" drag, which the
+agent's clock had made instant). `clock +N real` lets N ms of real time pass
+with the clock stepping beside it, on every host: the media clock advances and
+its `timeupdate`s arrive. Playback checks observe the media clock that way and
+use explicit pause/seek assignments when a stable frame is needed.
 
 ## 4. Keyboard consumer
 

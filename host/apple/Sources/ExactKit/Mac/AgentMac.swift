@@ -757,7 +757,7 @@ extension Agent {
         }
         if let f = v.textArea {
             if !win.isKeyWindow { win.makeKey() }
-            win.makeFirstResponder(f)
+            if win.firstResponder !== f { win.makeFirstResponder(f) }
             f.selectAll(nil)
             f.insertText(TextInputLimit.prefix(req["text"] as? String ?? "", props: v.props), replacementRange: f.selectedRange())
             return ["typed": Int(v.id), "value": f.string]
@@ -767,7 +767,10 @@ extension Agent {
         // The field editor needs a key window; an accessory app's is not
         // one until asked (and asking does not activate the app).
         if !win.isKeyWindow { win.makeKey() }
-        win.makeFirstResponder(f)
+        // A field already being edited keeps its editor: asking again would
+        // end the editing (a blur) and begin it (a focus), which a person's
+        // typing never does.
+        if f.currentEditor().map({ win.firstResponder !== $0 }) ?? true { win.makeFirstResponder(f) }
         guard let editor = f.currentEditor() as? NSTextView else { return ["error": "the field has no editor"] }
         editor.selectAll(nil)
         editor.insertText(text, replacementRange: editor.selectedRange())

@@ -365,7 +365,6 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         (field?.currentEditor() as? NSTextView)?.insertionPointColor = caretColor
         (field?.currentEditor() as? NSTextView)?.isAutomaticSpellingCorrectionEnabled = allowsInputCorrection
         (field?.currentEditor() as? NSTextView)?.isContinuousSpellCheckingEnabled = allowsInputSpellChecking
-        if handlers.contains("focus") { presenter?.focus(id) }
     }
     func controlTextDidEndEditing(_ obj: Notification) {
         presenter?.collections.pinsChanged()
@@ -774,7 +773,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// (the web's masking), a plain one otherwise; the same delegate,
     /// borderless, the node paints its own box.
     func makeField(secure: Bool) -> NSTextField {
-        let f = secure ? NSSecureTextField(frame: .zero) : NSTextField(frame: .zero)
+        let f = secure ? SecureField(frame: .zero) : Field(frame: .zero)
         f.isBordered = false
         f.isBezeled = false
         f.drawsBackground = false

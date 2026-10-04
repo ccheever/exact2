@@ -497,6 +497,11 @@ nearest scroll containers, then the page) and say so in the reply's `scrolled`.
 move, with the finger still down. `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires
 first); its reply says what is still in flight, and `clock settle` lands it.
+A playing `video` is on real time too: the clock never seeks or holds it, so
+between operations it moves only as far as the drive took. `clock +N real` lets
+N ms of real time pass with the clock moving beside it, a step at a time: a
+video plays that far (its `timeupdate`s arrive), and a reply that lands in the
+span lands (LLP 1042 §3).
 
 Authored tests are a smaller language over that API:
 
@@ -511,7 +516,7 @@ test "an action uses its computed next value"
 This test goes with the complete example above. The steps are `size 1200x800`
 (first, the viewport the test's session opens at), `tap "id" [hover]`,
 `tap "id" drag dx dy [press ms] [over ms] [hold ms]`,
-`type "id" "text"` or `type "id" key "Name"`, `clock settle|+ms|ms`,
+`type "id" "text"` or `type "id" key "Name"`, `clock settle|+ms|+ms real|ms`,
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
 (the node's text, else its descendants' — a button's label — else a field's
 value), and `expect state name == <number|string|bool|none|[]>`. The clock

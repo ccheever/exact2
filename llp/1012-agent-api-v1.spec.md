@@ -344,6 +344,14 @@ timers send nothing is one advance; past the deadline, or 4096 stops, the
 rest is one advance; a request with no timer after it in the jump lands when
 it lands, as a fetch does under a real clock.
 
+**Real time (2026-10-04, jukebox F14).** What runs on real time — a playing
+video (LLP 1042 §3), a store, the network — is never held or seeked to the
+clock, and a jump takes no real time, so between two operations it moves only
+as far as the drive took. `clock +N real`, a form of `clock` and of a test's
+`clock` step, is the driver's alone: it lets N ms of real time pass, moving the
+clock to the elapsed time every 50 ms (`{"op":"clock","to":…}` on the wire), so
+timers fire beside a video's `timeupdate`s; the reply adds `real`, the ms it took.
+
 Agent mode is opt-in per launch: `?agent=1` on the page (only then does
 `globalThis.exact` carry `agent` and `now`), `EXACT_AGENT=1` for the macOS
 app. In it the driver owns time: the page's `now()` is the last clock
