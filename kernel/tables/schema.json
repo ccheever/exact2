@@ -1382,6 +1382,12 @@
       "name": "contextPreview",
       "kind": "bool",
       "_comment": "LLP 1021 §5.1: this row of a context popover is the menu's preview (on iOS the preview controller's view, sized by its layout), not a menu item; its `press` is what tapping the preview does (UIKit's commit). Elsewhere it is an ordinary row."
+    },
+    {
+      "id": 240,
+      "name": "focusGuide",
+      "kind": "str",
+      "_comment": "`focusGuide=\"auto\"` on a container: on tvOS a focus guide over its box sends a remote move that enters it from outside to the descendant that last held the focus, else its first focusable one (react-native-tvos TVFocusGuideView `autoFocus`). Other hosts ignore it; their Tab order is sequential."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",

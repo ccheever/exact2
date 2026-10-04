@@ -805,6 +805,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             // LLP 1053.000.000 D1: written, read by no rule, drawn nowhere.
             PropId::GlassGroup => "glassGroup",
             PropId::RetainFocus => "retainFocus",
+            // tvOS's focus guide; a browser's Tab order is sequential.
+            PropId::FocusGuide => continue,
             PropId::SwipeIndicator => "swipeIndicator",
             PropId::Href if text.is_empty() => continue,
             PropId::Href => "href",
