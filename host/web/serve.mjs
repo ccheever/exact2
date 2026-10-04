@@ -653,6 +653,9 @@ export function webContentType(route) {
     '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
     '.svg': 'image/svg+xml', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.wgsl': 'text/wgsl',
     // A game's baked assets (game/README "Assets"): binary, and compressible.
+    // Warming brotli-11 variants of every family (rivals: 43 MiB) takes CPU
+    // time at server start, off the request path; a request before its
+    // variant exists gets identity bytes.
     '.model': 'application/vnd.exact.model', '.tex': 'application/vnd.exact.texture',
   }[extname(route).toLowerCase()] ?? 'application/octet-stream';
 }
