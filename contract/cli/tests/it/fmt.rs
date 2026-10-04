@@ -283,3 +283,11 @@ fn a_bare_flag_a_prefix_minus_and_a_conditional_keep_their_meaning() {
     assert_eq!(plan.encode(), after.encode());
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// A test file's steps keep the driver's spellings: `size 1200x800` is one
+/// word and a drag's offsets are signed numbers, not a subtraction.
+#[test]
+fn test_steps_keep_their_viewport_and_signed_offsets() {
+    let src = "epoch \"2026-09-21T12:00:00Z\"\nsize 1200x800\n\ntest \"a\"\n  time-zone \"America/New_York\"\n  size 420x900\n  tap \"c\" drag 10 -4\n  tap \"c\" drag -4 -10 over 5\n";
+    assert_eq!(format(src).unwrap(), src);
+}

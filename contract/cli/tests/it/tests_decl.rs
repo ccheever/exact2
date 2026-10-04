@@ -95,3 +95,28 @@ fn a_test_drags_and_opens_at_its_size() {
     let e = contract::tests("test \"t\"\n  size 800 600\n").unwrap_err();
     assert_eq!(e.id, "syntax-expected-step");
 }
+
+#[test]
+fn a_file_and_a_test_carry_their_launch_facts() {
+    // habits F7, calendar F13: the date, zone, locale, seed and viewport a
+    // test needs are written in the file, not remembered as driver flags.
+    // The file's lines lead every test that does not name its own.
+    let src = "epoch \"2026-09-21T12:00:00Z\"\ntime-zone \"America/New_York\"\nsize 1200x800\n\ntest \"a\"\n  locale \"fr-FR\"\n  seed 7\n  tap \"x\"\n\ntest \"b\"\n  epoch 1790000000000\n  size 420x900\n  expect tree has \"y\"\n";
+    let tests = contract::tests(src).unwrap();
+    let json = contract::tests_json(&tests);
+    assert!(json.starts_with("[{\"name\":\"a\",\"steps\":[{\"op\":\"epoch\",\"value\":\"2026-09-21T12:00:00Z\",\"line\":1},{\"op\":\"time-zone\",\"value\":\"America/New_York\",\"line\":2},{\"op\":\"size\",\"width\":1200,\"height\":800,\"line\":3},{\"op\":\"locale\",\"value\":\"fr-FR\",\"line\":6},{\"op\":\"seed\",\"value\":7,\"line\":7},{\"op\":\"tap\""), "{json}");
+    assert!(json.contains("{\"name\":\"b\",\"steps\":[{\"op\":\"time-zone\",\"value\":\"America/New_York\",\"line\":2},{\"op\":\"epoch\",\"value\":\"1790000000000\",\"line\":11},{\"op\":\"size\",\"width\":420,\"height\":900,\"line\":12},{\"op\":\"expect-tree\""), "{json}");
+    // Each leads its test's steps and is named once; the values are the
+    // driver's: an ISO date or whole milliseconds, a whole seed.
+    for (src, line) in [
+        ("test \"t\"\n  tap \"a\"\n  seed 7\n", 3),
+        ("test \"t\"\n  locale \"fr\"\n  locale \"de\"\n", 3),
+        ("seed 1\nseed 2\n", 2),
+        ("test \"t\"\n  epoch \"Sept 21\"\n", 2),
+        ("test \"t\"\n  seed 1.5\n", 2),
+        ("test \"t\"\n  time-zone UTC\n", 2),
+    ] {
+        let e = contract::tests(src).unwrap_err();
+        assert_eq!(e.span.line, line, "{src}: {e}");
+    }
+}

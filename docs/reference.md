@@ -233,7 +233,9 @@ Agent sessions use `exactTime()` launch facts `seed: 1` (LLP 1069.007), `locale:
 `timeZone: "UTC"` and `epochAtZero` 2026-01-01T00:00:00Z (LLP 1027.000.000 D3, with the
 zone's `utcOffset` at that instant) on every host. Override them at session setup with
 `bun scripts/agent.mjs web --seed 42 --locale fr-CA --time-zone America/Toronto --epoch 2026-09-21T14:13:20Z tree`
-or `open({host, seed: 42, locale: "fr-CA", timeZone: "America/Toronto", epoch: "2026-09-21T14:13:20Z"})`.
+or `open({host, seed: 42, locale: "fr-CA", timeZone: "America/Toronto", epoch: "2026-09-21T14:13:20Z"})`;
+a test file writes them as launch lines (`epoch "2026-09-21T14:13:20Z"`, `time-zone "America/Toronto"`,
+[authored tests](contract-grammar.md#authored-tests)), which override the flags.
 Seeds are integers from 0 through 2^53 − 1; an epoch is an ISO date or Unix milliseconds. Native carriers pass
 `EXACT_AGENT_SEED`, `EXACT_AGENT_LOCALE`, `EXACT_AGENT_TIME_ZONE` and `EXACT_AGENT_EPOCH`
 (milliseconds); direct agent launches can set these too. Web agent pages accept

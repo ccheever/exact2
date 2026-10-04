@@ -379,9 +379,21 @@ fn compile_path_output(
 /// beside the app, holding nothing else. Parsed, never compiled: a test is a
 /// script for the agent driver (`scripts/agent.mjs --test`), and its steps
 /// are the eight operations plus `expect` lines that read their replies.
+/// The file's top-level launch lines lead each test's steps, unless the test
+/// names the same fact itself (habits F7, calendar F13).
 pub fn tests(src: &str) -> Result<Vec<TestDecl>, CompileError> {
     let file = contract_syntax::parse(src)?;
-    Ok(file.tests)
+    let word = |s: &Step| std::mem::discriminant(s);
+    Ok(file
+        .tests
+        .into_iter()
+        .map(|mut test| {
+            let own: Vec<_> = test.steps.iter().map(word).collect();
+            let inherited = file.launch.iter().filter(|l| !own.contains(&word(l)));
+            test.steps = inherited.cloned().chain(test.steps).collect();
+            test
+        })
+        .collect())
 }
 
 /// The tests as JSON for the driver: `[{"name":…,"steps":[{"op":…}]}]`,
@@ -413,18 +425,7 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
             if si > 0 {
                 s.push(',');
             }
-            let line = match step {
-                Step::Tap { span, .. }
-                | Step::Drag { span, .. }
-                | Step::Size { span, .. }
-                | Step::Type { span, .. }
-                | Step::Key { span, .. }
-                | Step::Clock { span, .. }
-                | Step::Screenshot { span, .. }
-                | Step::ExpectTree { span, .. }
-                | Step::ExpectText { span, .. }
-                | Step::ExpectState { span, .. } => span.line,
-            };
+            let line = step.span().line;
             match step {
                 Step::Tap { target, hover, .. } => {
                     s.push_str("{\"op\":\"tap\",\"target\":");
@@ -453,6 +454,21 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     s.push_str(&format!(
                         "{{\"op\":\"size\",\"width\":{width},\"height\":{height}"
                     ));
+                }
+                Step::Epoch { value, .. } => {
+                    s.push_str("{\"op\":\"epoch\",\"value\":");
+                    q(value, &mut s);
+                }
+                Step::TimeZone { zone, .. } => {
+                    s.push_str("{\"op\":\"time-zone\",\"value\":");
+                    q(zone, &mut s);
+                }
+                Step::Locale { tag, .. } => {
+                    s.push_str("{\"op\":\"locale\",\"value\":");
+                    q(tag, &mut s);
+                }
+                Step::Seed { seed, .. } => {
+                    s.push_str(&format!("{{\"op\":\"seed\",\"value\":{seed}"));
                 }
                 Step::Type { target, text, .. } => {
                     s.push_str("{\"op\":\"type\",\"target\":");

@@ -109,7 +109,8 @@ guide's rules don't make obvious.
 
 - **Every date in a screenshot is 1 January 2026** (31 December 2025 west of UTC).
   Cause: the agent's clock starts at `2026-01-01T00:00:00Z`, in UTC. Fix: `--epoch <ISO time> --time-zone <zone>` on
-  `scripts/agent.mjs` for dates that read as intended and stay reproducible.
+  `scripts/agent.mjs` for dates that read as intended and stay reproducible; in a test
+  file, `epoch "…"` and `time-zone "…"` lines, so a run without the flags still means it.
 - **`axe` stops delivering taps.** After `axe touch --down --up --delay` (a long
   press) or an `axe drag`, a following `axe tap` often reaches no window; it is
   intermittent, and a native bar button can miss the same way with no gesture

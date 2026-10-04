@@ -261,9 +261,14 @@ special typing; it is not a source-language type annotation.
 ## Authored tests
 
 ```ebnf
-test          = "test" STRING block(step) ;
-step          = "size" NUMBER "x" NUMBER NL          (* first step only; written 1200x800 *)
-              | "tap" STRING [ "hover" ] NL
+test-file     = { launch | test } ;                   (* a top-level launch line: every test's *)
+test          = "test" STRING block( { launch } { step } ) ;
+launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
+              | "epoch" ( STRING | NUMBER ) NL       (* "2026-09-21T12:00:00Z" or Unix ms *)
+              | "time-zone" STRING NL                (* an IANA zone, "America/New_York" *)
+              | "locale" STRING NL                   (* a BCP 47 tag, "fr-FR" *)
+              | "seed" NUMBER NL ;                   (* 0 through 2^53 - 1 *)
+step          = "tap" STRING [ "hover" ] NL
               | "tap" STRING "drag" [ "-" ] NUMBER [ "-" ] NUMBER
                   { ( "press" | "over" | "hold" ) NUMBER } NL
               | "type" STRING ( STRING | "key" STRING ) NL
@@ -275,9 +280,13 @@ step          = "size" NUMBER "x" NUMBER NL          (* first step only; written
 test-value    = NUMBER | STRING | "true" | "false" | "none" | "[" "]" ;
 ```
 
-Targets are driver test ids. Each test is a session of its own: `size 1200x800`,
-the driver's `--size`, is the viewport that session opens at, so it can only be
-the first step. `tap "id" drag dx dy` is the driver's `tap … drag` (from the
+Targets are driver test ids. Each test is a session of its own, opened with its
+launch lines: `size 1200x800`, `epoch "2026-09-21T12:00:00Z"`, `time-zone
+"America/New_York"`, `locale "fr-FR"` and `seed 7` are the driver's `--size`,
+`--epoch`, `--time-zone`, `--locale` and `--seed`, so they lead the test's steps,
+each once. Written at the top of the file they apply to every test that does not
+name its own; either way they override the drive's flags. A file whose
+assertions depend on the date says so in the file. `tap "id" drag dx dy` is the driver's `tap … drag` (from the
 node's middle, in points; `press`, `over`, `hold` in milliseconds, each once).
 `type` on a `select` chooses an enabled option by value, else by its one label;
 on a date, time or range input it sets the value in HTML's format; on a checkbox

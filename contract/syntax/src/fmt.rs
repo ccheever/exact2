@@ -124,8 +124,9 @@ struct Layout<'a> {
     levels: Vec<usize>,
     attributes: BTreeSet<Span>,
     type_angles: BTreeSet<Span>,
-    /// A keyframe selector's `%`, which stays against its number: `50%`.
-    percents: BTreeSet<Span>,
+    /// A token that stays against the one before it: a keyframe selector's
+    /// `%` (`50%`), a test's viewport height (`1200x800`).
+    attached: BTreeSet<Span>,
     /// A conditional's `:`, spaced as its `?` is: `a ? b : c` (habits F5).
     ternary_colons: BTreeSet<Span>,
     /// A prefix `-` or `!`, which stays against its operand: `-0.4`, `!done`.
@@ -196,7 +197,7 @@ impl<'a> Layout<'a> {
             levels,
             attributes: BTreeSet::new(),
             type_angles: BTreeSet::new(),
-            percents: BTreeSet::new(),
+            attached: BTreeSet::new(),
             ternary_colons,
             prefixes,
             breaks: BTreeMap::new(),
@@ -250,11 +251,31 @@ impl<'a> Layout<'a> {
                 let selector = self.tokens[start..].iter().take_while(|t| {
                     !matches!(t.kind, TokenKind::Newline | TokenKind::Eof) && Some(t.span) != first
                 });
-                self.percents.extend(
+                self.attached.extend(
                     selector
                         .filter(|t| t.kind == TokenKind::Punct("%"))
                         .map(|t| t.span),
                 );
+            }
+        }
+        // A test step's numbers are signed literals, not arithmetic:
+        // `drag 10 -4` (habits F5's sweep), and `size 1200x800` is one word.
+        for step in file.launch.iter().chain(file.tests.iter().flat_map(|t| &t.steps)) {
+            let Some(start) = self.position(step.span()) else {
+                continue;
+            };
+            let line = self.tokens[start..]
+                .iter()
+                .take_while(|t| !matches!(t.kind, TokenKind::Newline | TokenKind::Eof));
+            for (t, next) in line.clone().zip(line.skip(1)) {
+                if t.kind == TokenKind::Punct("-") {
+                    self.prefixes.insert(t.span);
+                }
+                if matches!(step, crate::Step::Size { .. })
+                    && matches!(t.kind, TokenKind::Number(_))
+                {
+                    self.attached.insert(next.span);
+                }
             }
         }
         for component in &file.components {
@@ -445,7 +466,7 @@ impl<'a> Layout<'a> {
             let tight = attr_equals
                 || after_attr_equals
                 || self.type_angles.contains(&token.span)
-                || self.percents.contains(&token.span)
+                || self.attached.contains(&token.span)
                 || (a == "<" && self.type_angles.contains(&previous.span))
                 || matches!(b, ")" | "]" | ",")
                 || matches!(a, "(" | "[")

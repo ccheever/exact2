@@ -44,6 +44,10 @@ pub struct File {
     /// `test` declarations, in order (LLP 1017 P7) — normally in a file of
     /// their own beside the app, `app.test.contract`.
     pub tests: Vec<TestDecl>,
+    /// A test file's launch lines (`size`, `epoch`, `time-zone`, `locale`,
+    /// `seed`), which every test in the file opens with unless it names its
+    /// own (habits F7, calendar F13).
+    pub launch: Vec<Step>,
     /// `component` declarations, in order. The first is the root.
     pub components: Vec<Component>,
 }
@@ -172,6 +176,35 @@ pub enum Step {
         width: f64,
         /// Points down.
         height: f64,
+        /// Where.
+        span: Span,
+    },
+    /// `epoch "2026-09-21T12:00:00Z"` (or Unix milliseconds): the date at
+    /// the session clock's zero, the driver's `--epoch` (habits F7).
+    Epoch {
+        /// An ISO date or whole milliseconds, as the driver takes it.
+        value: String,
+        /// Where.
+        span: Span,
+    },
+    /// `time-zone "America/New_York"`: the session's IANA zone, `--time-zone`.
+    TimeZone {
+        /// The zone.
+        zone: String,
+        /// Where.
+        span: Span,
+    },
+    /// `locale "fr-FR"`: the session's BCP 47 locale, `--locale`.
+    Locale {
+        /// The tag.
+        tag: String,
+        /// Where.
+        span: Span,
+    },
+    /// `seed 7`: the session's `exactTime().seed`, `--seed`.
+    Seed {
+        /// A whole number from 0 through 2^53 − 1.
+        seed: f64,
         /// Where.
         span: Span,
     },
@@ -957,6 +990,28 @@ pub enum TemplatePart {
     Text(String),
     /// `${expr}`.
     Expr(Expr),
+}
+
+impl Step {
+    /// Where: the step's line.
+    pub fn span(&self) -> Span {
+        match self {
+            Step::Tap { span, .. }
+            | Step::Drag { span, .. }
+            | Step::Size { span, .. }
+            | Step::Epoch { span, .. }
+            | Step::TimeZone { span, .. }
+            | Step::Locale { span, .. }
+            | Step::Seed { span, .. }
+            | Step::Type { span, .. }
+            | Step::Key { span, .. }
+            | Step::Clock { span, .. }
+            | Step::Screenshot { span, .. }
+            | Step::ExpectTree { span, .. }
+            | Step::ExpectText { span, .. }
+            | Step::ExpectState { span, .. } => *span,
+        }
+    }
 }
 
 impl Expr {

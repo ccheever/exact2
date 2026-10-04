@@ -472,8 +472,12 @@ test "an action uses its computed next value"
   expect state doubled == 2
 ```
 
-This test goes with the complete example above. The steps are `size 1200x800`
-(first, the viewport the test's session opens at), `tap "id" [hover]`,
+This test goes with the complete example above. A test opens with its launch
+lines — `size 1200x800`, `epoch "2026-09-21T12:00:00Z"`, `time-zone
+"America/New_York"`, `locale "fr-FR"`, `seed 7`, the driver's flags of those
+names — written first in the test or, for every test, at the top of the file.
+A test whose text depends on the date names its `epoch`; without one it runs at
+the driver's 2026-01-01 UTC. The steps are `tap "id" [hover]`,
 `tap "id" drag dx dy [press ms] [over ms] [hold ms]`,
 `type "id" "text"` or `type "id" key "Name"`, `clock settle|+ms|ms`,
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
