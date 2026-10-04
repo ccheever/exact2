@@ -130,6 +130,12 @@ extension Presenter {
             if sub === scroll.refreshControl { return ("refresh", owner?.id) }
             #endif
             if String(describing: Swift.type(of: sub)) == "_UIScrollViewScrollIndicator" { return ("indicator", owner?.id) }
+            // iOS 26's scroll edge effect (LLP 1077 D16): UIKit hangs each
+            // edge's effect in a passthrough container on the scroll view,
+            // the root viewport's included under `viewport-fit="cover"`.
+            let kinds = sub.subviews.map { String(describing: Swift.type(of: $0)) }
+            if String(describing: Swift.type(of: sub)) == "_UITouchPassthroughView",
+               kinds.contains(where: { $0 == "ScrollEdgeEffectView" || $0 == "BackdropView" }) { return ("edge-effect", owner?.id) }
         }
         return nil
     }
