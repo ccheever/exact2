@@ -872,3 +872,13 @@ export async function saveTrace(req, res, { app, dist, root }) {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exitCode = await main();
+
+/** A dev loop its launcher started stops when that process is gone, however it ended: `EXACT_LAUNCHER_PID` names
+ * it (an app's `exact.mjs`, or the JS loop for the resident producers it starts). A SIGKILL forwards no signal, and
+ * an orphaned server keeps its port (chat and onboarding F20). Without the variable a loop runs until stopped. */
+export function watchLauncher(stop, pid = Number(process.env.EXACT_LAUNCHER_PID)) {
+  if (!Number.isInteger(pid) || pid <= 1) return null;
+  const timer = setInterval(() => { try { process.kill(pid, 0); } catch (e) { if (e.code === 'ESRCH') { clearInterval(timer); stop(); } } }, 1000);
+  timer.unref?.();
+  return timer;
+}

@@ -1,4 +1,4 @@
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
@@ -60,6 +60,32 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     assert.equal(readFileSync(resolve(dir, 'Cargo.toml'), 'utf8'), manifest, 'the patch table is rewritten in place');
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
+
+// chat and onboarding F20: killing `bun exact.mjs web` left the dev server listening. A signal is passed on; a
+// SIGKILL passes nothing, so the server watches its launcher (`EXACT_LAUNCHER_PID`, serve.mjs `watchLauncher`).
+test('the generated exact.mjs ends its child with it: a signal is passed on, and a killed launcher leaves no server', async () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  const until = async (f) => { for (let i = 0; i < 100; i++) { const v = f(); if (v) return v; await new Promise((r) => setTimeout(r, 50)); } throw new Error('timed out'); };
+  try {
+    const dir = resolve(parent, 'field-log'), sdk = resolve(parent, 'sdk'), pidFile = resolve(parent, 'dev.pid');
+    createApp(dir);
+    mkdirSync(resolve(sdk, 'host/web'), { recursive: true });
+    writeFileSync(resolve(sdk, 'host/web/dev.mjs'), `import { watchLauncher } from ${JSON.stringify(resolve(import.meta.dir, '../host/web/serve.mjs'))};
+import { writeFileSync } from 'node:fs';
+process.on('SIGTERM', () => process.exit(0));
+watchLauncher(() => process.exit(0));
+writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));
+setInterval(() => {}, 1000);`);
+    for (const signal of ['SIGTERM', 'SIGKILL']) {
+      rmSync(pidFile, { force: true });
+      const launcher = spawn(process.execPath, [resolve(dir, 'exact.mjs'), 'web'], { cwd: parent, env: { ...process.env, EXACT2: sdk }, stdio: 'ignore' });
+      const dev = await until(() => existsSync(pidFile) && Number(readFileSync(pidFile, 'utf8')));
+      launcher.kill(signal);
+      await until(() => !alive(dev));
+    }
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 30_000);
 
 test('a new app refuses a name no host crate can carry, and a directory that is not empty', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
