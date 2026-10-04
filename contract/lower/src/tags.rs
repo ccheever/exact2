@@ -661,6 +661,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // HTML's attribute is `inputmode`; the kernel's prop keeps the DOM
         // property's spelling, as the schema does for every prop.
         "inputmode" => AttrTarget::Prop(p("inputMode")),
+        "enterkeyhint" => AttrTarget::Prop(p("enterKeyHint")),
+        // An image's accessible name by HTML's spelling (feed F1).
+        "alt" => AttrTarget::Prop(p("accessibilityLabel")),
         "autocapitalize" => AttrTarget::Prop(p("autocapitalize")),
         "autocorrect" => AttrTarget::Prop(p("autocorrect")),
         "spellcheck" => AttrTarget::Prop(p("spellcheck")),
@@ -1136,6 +1139,7 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         "hint" | "accessibilityHint" => "aria-description",
         "headingLevel" => "aria-level",
         "inputMode" | "keyboardType" => "inputmode",
+        "enterKeyHint" | "returnKeyType" => "enterkeyhint",
         "viewportFit" | "safeArea" | "safeAreaView" => "viewport-fit",
         "interactiveWidget" | "keyboardAvoidingView" | "keyboardAvoiding" => "interactive-widget",
         "secureTextEntry" => "type",

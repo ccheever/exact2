@@ -525,6 +525,22 @@ pub(crate) fn check_style_value(
             Some(v) => {
                 let mut probe = StyleProps::default();
                 for row in rows {
+                    // `unset`, or `inherit` on an inherited row: the row is
+                    // cleared where it binds (feed F1).
+                    if v.unsets(*row) {
+                        continue;
+                    }
+                    if matches!(&v, StyleValue::Text(t) if t.trim().eq_ignore_ascii_case("inherit"))
+                    {
+                        return err(
+                            "lower-attr-value",
+                            format!(
+                                "`{}=\"inherit\"`: `{}` does not inherit, and exact2 inherits only the rows CSS inherits; write the value",
+                                a.name, a.name
+                            ),
+                            span,
+                        );
+                    }
                     if let Err(e) = probe.set_dynamic(*row, &v) {
                         // A number written as a pixel string: say the number.
                         let pixels = match (&e, value) {

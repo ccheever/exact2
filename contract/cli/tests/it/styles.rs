@@ -48,7 +48,7 @@ fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
     assert_eq!(card.row_gap, 10.0);
     assert_eq!(
         card.background_color,
-        Color::parse_hex("#ffffffd9").unwrap().into(),
+        Some(Color::parse_hex("#ffffffd9").unwrap().into()),
         "`rgba(255, 255, 255, 0.85)` is `#ffffffd9`"
     );
     let tight = style_of("tight");
@@ -60,7 +60,7 @@ fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
     );
     assert_eq!(
         tight.background_color,
-        Color::parse_hex("#000000").unwrap().into()
+        Some(Color::parse_hex("#000000").unwrap().into())
     );
     // A `calc()` of a percentage and a length is one row, not text.
     assert_eq!(style_of("calc").width, Dimension::Calc(100.0, -89.0));
@@ -87,7 +87,7 @@ fn a_class_chooses_between_two_styles_by_state() {
     let (chip_id, idle) = chip(&r);
     assert_eq!(
         idle.background_color,
-        Color::parse_hex("#cccccc").unwrap().into()
+        Some(Color::parse_hex("#cccccc").unwrap().into())
     );
     assert_eq!(idle.opacity, 0.5);
     // Only `Active` sets padding: the kernel's default while `Idle` is chosen.
@@ -96,7 +96,7 @@ fn a_class_chooses_between_two_styles_by_state() {
     let (_, active) = chip(&r);
     assert_eq!(
         active.background_color,
-        Color::parse_hex("#0000ff").unwrap().into()
+        Some(Color::parse_hex("#0000ff").unwrap().into())
     );
     assert_eq!(active.opacity, 1.0);
     assert_eq!(active.padding_top, Dimension::Points(12.0));
@@ -443,12 +443,15 @@ fn transparent_is_a_colour() {
             .clone()
     }
     let b = style(&r, "box");
-    assert_eq!(b.background_color, clear.into());
+    assert_eq!(b.background_color, Some(clear.into()));
     assert_eq!(b.text_color, clear.into());
     assert_eq!(b.border_colors(clear.into())[0], clear.into());
     assert_eq!(
         style(&r, "text").background_color,
-        exact_kernel::ColorValue::LightDark(clear, Color::parse_hex("#000000").unwrap())
+        Some(exact_kernel::ColorValue::LightDark(
+            clear,
+            Color::parse_hex("#000000").unwrap()
+        ))
     );
     let flip = {
         let k = r.kernel();
@@ -497,7 +500,7 @@ fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
             "linear-gradient(#000, #fff), linear-gradient(#000, #fff), linear-gradient(#000, #fff), linear-gradient(#000, #fff), linear-gradient(#fff, #000)",
             "at most four background layers",
         ),
-        ("linear-gradient(red, blue)", "a stop's colour is"),
+        ("linear-gradient(red, blurple)", "a stop's colour is"),
         (
             "linear-gradient(#000 10px, #fff)",
             "a stop's position is a percentage",
@@ -1398,4 +1401,59 @@ fn order_moves_a_flex_item_and_a_bound_order_moves_it_again() {
     r.act("flip", vec![]).unwrap();
     assert_eq!((x(&mut r, "main"), x(&mut r, "rail")), (0.0, 200.0));
     assert_eq!(x(&mut r, "last"), 300.0);
+}
+
+/// CSS-wide keywords and `currentcolor` (feed F1): `inherit` on an
+/// inherited row and `unset` leave the row unset, so the parent's colour
+/// shows, bound or literal, over a class's row; `currentcolor` on a
+/// background or a tint is the keyword, which each host paints in `color`.
+#[test]
+fn inherit_unset_and_currentcolor_are_csss() {
+    let src = "style Loud\n  color=\"#ff0000\"\ncomponent A\n  state on = false\n  action flip\n    on = not on\n  view\n    column color=\"#0000ff\"\n      text \"a\" testId=\"inherit\" class=Loud color=\"inherit\"\n      text \"b\" testId=\"bound\" color=(on ? \"unset\" : \"#00ff00\")\n      view testId=\"swatch\" background-color=\"currentcolor\"\n      image \"symbol:add\" testId=\"icon\" tint-color=\"currentColor\" alt=\"Add\"\n      input testId=\"field\" value=\"\" enterkeyhint=\"send\"\n";
+    let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let node = |r: &Runner<NoData>, id: &str| {
+        let k = r.kernel();
+        let key = k.find_by_test_id(id)[0];
+        let n = k.node_by_key(key).unwrap();
+        (n.style.clone(), n.text_color())
+    };
+    let blue: exact_kernel::ColorValue = Color::parse_hex("#0000ff").unwrap().into();
+    let (inherit, color) = node(&r, "inherit");
+    assert!(!inherit.mask.has(exact_kernel::StyleId::TextColor));
+    assert_eq!(color, blue, "the class's red is not the node's");
+    assert_eq!(
+        node(&r, "bound").1,
+        Color::parse_hex("#00ff00").unwrap().into()
+    );
+    r.act("flip", vec![]).unwrap();
+    assert_eq!(node(&r, "bound").1, blue);
+    assert!(
+        r.journal().all(|l| !l.contains("invalid")),
+        "{:?}",
+        r.journal().collect::<Vec<_>>()
+    );
+    let (swatch, _) = node(&r, "swatch");
+    assert!(swatch.mask.has(exact_kernel::StyleId::BackgroundColor));
+    assert_eq!(swatch.background_color, None);
+    let (icon, _) = node(&r, "icon");
+    assert_eq!(icon.tint_color, None);
+    let k = r.kernel();
+    let icon = k.node_by_key(k.find_by_test_id("icon")[0]).unwrap();
+    assert_eq!(
+        icon.props.str(exact_kernel::PropId::AccessibilityLabel),
+        Some("Add")
+    );
+    let field = k.node_by_key(k.find_by_test_id("field")[0]).unwrap();
+    assert_eq!(
+        field.props.str(exact_kernel::PropId::EnterKeyHint),
+        Some("send")
+    );
 }

@@ -631,6 +631,16 @@ ordinary text selection; `auto` is the default. Text/all/contain need iOS and
 Linux selection executors and are refused precisely. These rows take literals
 or choices of literals, so unsupported runtime values cannot bypass the check.
 
+A colour is any CSS colour the browser paints: hex, `rgb()`, `hsl()`, `hwb()`,
+a named colour, `transparent`, `lab()`/`oklch()`/`color()` (clipped to sRGB
+natively), or `light-dark(a, b)`; the kernel parses it once for every host.
+`currentcolor` takes the node's `color` on borders, `background-color`,
+`tint-color`, text stroke and SVG paint. `unset` clears any row, and `inherit`
+an inherited one (`color`, fonts, `fill`…); `inherit` on a row CSS does not
+inherit is refused. `order` places flex and grid items. An image's accessible
+name is `alt` or `aria-label`; `enterkeyhint` labels a soft keyboard's enter
+key on the web and iOS.
+
 `border`, `border-top/right/bottom/left` take CSS width/style/color in any order,
 resetting omitted components to medium/none/currentcolor. Widths are px/pt,
 unitless zero, or thin/medium/thick (1/3/5 px); styles are none/hidden/solid.

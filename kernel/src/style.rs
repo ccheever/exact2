@@ -351,6 +351,21 @@ pub enum StyleValue {
 }
 
 impl StyleValue {
+    /// Whether this value is a CSS-wide keyword that leaves row `style`
+    /// unset — inherited, else initial — which is what clearing the row
+    /// does: `unset`, and `inherit` on an inherited row (`color:
+    /// currentcolor` is `inherit`). `inherit` on any other row needs its
+    /// parent's value, which no row holds, so it stays refused (feed F1).
+    pub fn unsets(&self, style: StyleId) -> bool {
+        let StyleValue::Text(t) = self else {
+            return false;
+        };
+        let t = t.trim();
+        t.eq_ignore_ascii_case("unset")
+            || (t.eq_ignore_ascii_case("inherit") && StyleMask::INHERITED.has(style))
+            || (t.eq_ignore_ascii_case("currentcolor") && style == StyleId::TextColor)
+    }
+
     pub(crate) fn line_height(&self, style: StyleId) -> Result<LineHeight, StyleValueError> {
         let value = match self {
             Self::Number(n) if *n >= 0.0 => Some(LineHeight::Number(*n as f32)),

@@ -721,6 +721,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::Placeholder => "placeholder",
             PropId::Type => "type",
             PropId::InputMode => "inputmode",
+            PropId::EnterKeyHint => "enterkeyhint",
             PropId::Autocapitalize => "autocapitalize",
             PropId::Autocorrect => "autocorrect",
             PropId::Spellcheck => "spellcheck",
@@ -910,7 +911,10 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             if symbol.is_some_and(|s| s.2) {
                 out.insert("data-symbol-fill".into(), String::new());
             }
-            out.insert("alt".into(), String::new());
+            // Decorative unless the author named it (`alt`, `aria-label`).
+            if !out.contains_key("alt") {
+                out.insert("alt".into(), String::new());
+            }
         }
     }
     // A link to an absolute URL leaves the app, as natively (the system

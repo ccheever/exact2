@@ -240,14 +240,14 @@ pub fn color_targets(
         .map(|p| {
             let value = match p {
                 Property::Color => Some(color(text, dark)),
-                Property::BackgroundColor => Some(color(s.background_color, dark)),
+                Property::BackgroundColor => Some(color(s.background_color.unwrap_or(text), dark)),
                 Property::Fill => paint(StyleId::Fill),
                 Property::Stroke => paint(StyleId::Stroke),
                 Property::BorderTopColor => Some(color(top, dark)),
                 Property::BorderRightColor => Some(color(right, dark)),
                 Property::BorderBottomColor => Some(color(bottom, dark)),
                 Property::BorderLeftColor => Some(color(left, dark)),
-                Property::TintColor => Some(color(s.tint_color, dark)),
+                Property::TintColor => Some(color(s.tint_color.unwrap_or(text), dark)),
                 Property::BoxShadow => Some(first.map_or(Value::ZERO, |f| {
                     Value::four(f.offset.x as f64, f.offset.y as f64, f.blur as f64, 0.0)
                 })),

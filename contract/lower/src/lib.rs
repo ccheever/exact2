@@ -1245,6 +1245,13 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         }
+        if a.name == "alt" && tag != "image" {
+            return err(
+                "lower-attr-tag",
+                format!("`alt` belongs to `image`, not `{tag}`; another element's accessible name is `aria-label`"),
+                a.span,
+            );
+        }
         if !svg_tag && !module && a.name == "mask" {
             return err(
                 "lower-attr-tag",

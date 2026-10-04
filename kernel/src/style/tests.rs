@@ -242,11 +242,18 @@ fn a_colour_row_takes_a_pair_dynamically_as_a_dimension_takes_env() {
     .expect("a colour row takes CSS's own function");
     assert_eq!(
         s.background_color,
-        ColorValue::LightDark(
+        Some(ColorValue::LightDark(
             Color::parse_hex("#ffffff").unwrap(),
             Color::parse_hex("#17181b").unwrap()
-        )
+        ))
     );
+    // `currentcolor` is the keyword, which a host resolves to `color`.
+    s.set_dynamic(
+        StyleId::BackgroundColor,
+        &StyleValue::Text("currentColor".into()),
+    )
+    .expect("a background takes currentcolor");
+    assert_eq!(s.background_color, None);
     // And still takes a plain colour, which is the common case.
     s.set_dynamic(StyleId::TextColor, &StyleValue::Text("#112233".into()))
         .expect("a hex is still a colour");

@@ -152,7 +152,7 @@ fn a_bad_side_or_a_fifth_value_is_refused_at_compile_time() {
             "#ff0000 #00ff00 #0000ff #ffffff #000000",
             "one to four colours",
         ),
-        ("#ff0000 red", "not a valid `border-color`"),
+        ("#ff0000 blurple", "not a valid `border-color`"),
     ] {
         let src = format!("component A\n  view\n    box border-color=\"{value}\"\n");
         let e = contract::compile(&src).unwrap_err();

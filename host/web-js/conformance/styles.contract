@@ -42,3 +42,5 @@ component Styles
         view testId="ordered-a" width=40 height=12 background-color="tomato"
         view testId="ordered-b" width=40 height=12 background-color="steelblue" order=(on ? -1 : 0)
         view testId="ordered-c" width=40 height=12 background-color="gold" order=1
+      view testId="current" width=60 height=20 color="#2a9d8f" background-color=(on ? "currentcolor" : "#e76f51")
+      text "inherits" testId="inherits" color=(on ? "unset" : "#e76f51")
