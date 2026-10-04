@@ -87,6 +87,34 @@ fn floats_print_as_display_prints_them() {
 }
 
 #[test]
+fn numbers_of_a_few_places_print_as_display_prints_them() {
+    let mut rng = Rng(0x2545_f491_4f6c_dd1d);
+    for _ in 0..200_000 {
+        let k = (rng.next() % 5) as i32;
+        let n = (rng.next() % 2_000_000_000_000) as f64 - 1e12;
+        let v = n / 10f64.powi(k);
+        assert_eq!(piece(Shortest(v)), format!("{v}"), "{n} / 10^{k}");
+        // Arithmetic that leaves a long tail, as a chart's scaling does.
+        let w = 24.0 - (n % 977.0) * 24.0 / 977.0;
+        assert_eq!(piece(Shortest(w)), format!("{w}"));
+        let r = (w * 10.0 + 0.5).floor() / 10.0;
+        assert_eq!(piece(Shortest(r)), format!("{r}"));
+    }
+    for v in [
+        0.1 + 0.2,
+        1e9 - 0.5,
+        999_999_999.999,
+        -0.001,
+        0.0005,
+        4.35,
+        -12.6,
+        1.005,
+    ] {
+        assert_eq!(piece(Shortest(v)), format!("{v}"));
+    }
+}
+
+#[test]
 fn a_template_fills_as_format_does() {
     let rc: Rc<str> = Rc::from("rc");
     let owned = String::from("owned");

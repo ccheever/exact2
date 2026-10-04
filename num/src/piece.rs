@@ -73,9 +73,45 @@ signed!(i32, i64, isize);
 
 impl Piece for Shortest {
     fn push_to(&self, out: &mut String) {
-        // Writing to a `String` cannot fail.
-        let _ = self.write(out);
+        if !few_places(self.0, out) {
+            // Writing to a `String` cannot fail.
+            let _ = self.write(out);
+        }
     }
+}
+
+/// `v` as `{}` writes it when its shortest text has at most three decimal
+/// places and it is below 10^9 in magnitude (most numbers an app shows), by
+/// trying 0 to 3 places in turn: the first `n / 10^k` that reads back as
+/// `v` is the shortest text, and the only one at `k` places, an ulp of `v`
+/// being far below 10^-3. False, writing nothing, for any other value.
+fn few_places(v: f64, out: &mut String) -> bool {
+    if v == 0.0 || !v.is_finite() || v.abs() >= 1e9 {
+        return false;
+    }
+    for (k, scale) in [1.0, 10.0, 100.0, 1000.0].into_iter().enumerate() {
+        let n = (v * scale).round();
+        if n / scale != v {
+            continue;
+        }
+        if v < 0.0 {
+            out.push('-');
+        }
+        let m = n.abs() as u64;
+        let unit = 10u64.pow(k as u32);
+        push_u64(out, m / unit);
+        if k > 0 {
+            out.push('.');
+            let mut buf = [0; 20];
+            let frac = ascii(m % unit, &mut buf);
+            for _ in frac.len()..k {
+                out.push('0');
+            }
+            out.push_str(frac);
+        }
+        return true;
+    }
+    false
 }
 
 impl Piece for Shortest32 {
