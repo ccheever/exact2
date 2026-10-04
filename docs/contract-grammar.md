@@ -444,7 +444,9 @@ contextual restrictions: `cargo run -q -p contract -- vocab padding` for one
 name, no name for all, `--json` for a document. From an app made by
 `exact new`, run `bun exact.mjs contract vocab`.
 `padding`, `margin`, `inset`, `border-width`, `border-style` and `border-color` take
-CSS's one to four values (`padding="12px 40px"`: top and bottom 12, sides 40).
+CSS's one to four values (`padding="12px 40px"`: top and bottom 12, sides 40), and
+`border-radius` its one to four corners (`border-radius="18px 18px 0 0"`: top-left,
+top-right, bottom-right, bottom-left; no `/` elliptical radii).
 CSS hyphens are part of the authored name. `testId` and admitted host-specific
 props retain their declared spelling.
 

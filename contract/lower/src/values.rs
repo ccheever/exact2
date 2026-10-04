@@ -163,9 +163,11 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
     }
 }
 
-/// The rows CSS's `border-color` shorthand sets: top, right, bottom, left.
-/// CSS's one-to-four-value box shorthands, rows in top, right, bottom, left order.
-const FOUR_SIDED: [[StyleId; 4]; 6] = [
+/// CSS's one-to-four-value box shorthands, rows in top, right, bottom, left
+/// order — `border-radius`'s corners in top-left, top-right, bottom-right,
+/// bottom-left order, which CSS fills from fewer values the same way
+/// (ledger2 Rough 5).
+const FOUR_SIDED: [[StyleId; 4]; 7] = [
     [
         StyleId::PaddingTop,
         StyleId::PaddingRight,
@@ -197,6 +199,12 @@ const FOUR_SIDED: [[StyleId; 4]; 6] = [
         StyleId::BorderColorLeft,
     ],
     [StyleId::Top, StyleId::Right, StyleId::Bottom, StyleId::Left],
+    [
+        StyleId::BorderRadiusTopLeft,
+        StyleId::BorderRadiusTopRight,
+        StyleId::BorderRadiusBottomRight,
+        StyleId::BorderRadiusBottomLeft,
+    ],
 ];
 
 /// Whether these rows are one of CSS's `<value>{1,4}` box shorthands.
@@ -241,9 +249,14 @@ pub(crate) fn sides(name: &str, value: &Expr) -> Result<Option<[Expr; 4]>, Lower
             Expr::Str(s, span) => {
                 let n = side_values(s).len();
                 if n > 4 {
+                    let order = if name == "border-radius" {
+                        "top-left, top-right, bottom-right, bottom-left; no `/` elliptical radii"
+                    } else {
+                        "top, right, bottom, left"
+                    };
                     return err(
                         "lower-attr-value",
-                        format!("`{name}` takes one to four values (top, right, bottom, left); \"{s}\" has {n}"),
+                        format!("`{name}` takes one to four values ({order}); \"{s}\" has {n}"),
                         *span,
                     );
                 }
