@@ -359,9 +359,20 @@ extension Agent {
         // are stamped at its declared pace and the lift one frame after the
         // last move, so the engine's tracker measures the driven flick, not
         // the driver's round trips between requests.
+        var previous = contact
         let send = { [self] (type: NSEvent.EventType, p: CGPoint) in
             let t = contactClock
-            if let e = NSEvent.mouseEvent(with: type, location: toWindow(p), modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1) {
+            if var e = NSEvent.mouseEvent(with: type, location: toWindow(p), modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1) {
+                // The factory leaves raw motion at zero. A pointer-locked canvas
+                // reads that motion, not the cursor position. CGEvent deltas are
+                // integers: round cumulative positions so timed steps keep the
+                // whole drag's distance instead of truncating every step.
+                if type == .leftMouseDragged, let from = previous, let cg = e.cgEvent {
+                    cg.setDoubleValueField(.mouseEventDeltaX, value: p.x.rounded() - from.x.rounded())
+                    cg.setDoubleValueField(.mouseEventDeltaY, value: p.y.rounded() - from.y.rounded())
+                    e = NSEvent(cgEvent: cg) ?? e
+                }
+                previous = p
                 presenter.menus.pointer(e)
                 win.sendEvent(e)
             }

@@ -1,18 +1,19 @@
 {
   "ticks": {
-    "0": "0xe4a8cfcdccd41d7a",
+    "0": "0x0fd97541205936b1",
     "1080": "0xf0f3b95bede822ab"
   },
   "saves": {
-    "continuation": "63bf2eccef48e13893547910d945a0ebc63e596e39880e19a4c62e5b55761dd4"
+    "continuation": "c6d01166d6b3bc6c5fe72aa686e5f210859beebd638ea5a0248f5d40a0be48bf",
+    "drill": "4c84ee0eb9e21a1e9147a90c6a90e22af73a64209db98f23fec4819249dc996f"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "bef55c0b0f1f5924ffeeea70fe67ff6c5dbc02af9a6f1a7bf12542e1594fe412",
+  "inputs": "0c972316bb1f37aad276cbf80a3f48e4621d17c555ac21ba41a18899e53fdf68",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "e00ff9dd5ebb5ea0e6acf11d88a3b0351230267a",
-  "reason": "the engine fix lanes (roblox/integrate b61db278a): paged world hash/EXGAME v4, EXPHYS v3, closed-form capsule rays, blocking characters, device mouse motion, MouseLook, ViewModel; Rivals adapted (62e2747a)"
+  "at": "bcad67aab3225a14235149a93560206905dbe908",
+  "reason": "Thirty-second target drill with saved combo progress and visible opponent labels; fixed range respawns; verified projection and immediate input across restore"
 }

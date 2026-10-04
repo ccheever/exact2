@@ -376,3 +376,102 @@ adapted, not re-pinned (the lead holds the repin until the engine is final).
   18 pass with the lints (`shells.mjs --test`). Game logic 2,017 lines (−1: the
   analytic capsule out, aiming and MouseLook in).
 
+## Agentic-development pass — 2026-10-04
+
+The first improvement was making the range worth replaying. It is now a
+thirty-second drill: follow the green target, build a multiplier up to ×5, lose
+the multiplier by hitting another dummy, and retry from the results screen.
+The score and target order are ordinary saved resources; combat still uses its
+first-to-five round. Every visible opponent also has a nameplate and health bar.
+
+Three concrete failures shaped the work:
+
+- A killed range dummy respawned at `[-18, 0.91, -18]`, far from its original
+  `[0, 0.91, 12]` lane. The ordinary safest-combat-spawn rule also handled dummies.
+  A failing simulation test reproduced it; training respawns now use their lanes.
+- There was no public world-point-to-HUD projection. `World::project(point,
+  viewport)` now uses the engine camera and its current parent transforms, returns
+  CSS pixels, and refuses points outside all six clip planes. Tests cover both
+  perspective and orthographic cameras, invalid input and same-tick parent motion.
+  Rivals separately raycasts to each head, so a nameplate cannot reveal a fighter
+  behind cover. Dead and offscreen fighters publish no contact either.
+- A fresh restored simulation ignored a test's mouse turn. I had stamped the raw
+  event with world seconds, but a fresh host clock starts over while saved world
+  time continues. The event was queued into the future. `Sim::input_now` supplies
+  the host timestamp for immediate input; the existing key and message helpers
+  use it too. The drill test now fires at six consecutive requested targets across
+  a restore and finishes with byte-identical saves. Raw timestamped `input` remains
+  available for device scheduling experiments.
+
+The timed drill also invalidated the latency fixture's use of an endless range:
+its sweep extends beyond thirty seconds. That fixture now uses an ordinary session
+with dummy brains, preserving every latency bound. No threshold was relaxed.
+The game's 21 enabled tests pass (11 simulation, 6 movement, 4 limits; 4 timing
+experiments remain ignored). The full `exact-game` test suite and clippy pass.
+
+### Jev observations
+
+`proof.mjs --playtest` gives Jev the visible HUD and nameplates, plus named actions.
+An authored keyboard motor aims from each rendered head anchor. Jev chooses whom
+to shoot, whether to reload and, in `--duel`, movement and weapon choices. It never
+receives enemy world coordinates. This is decision testing on the agent clock,
+not visual perception, human aim, input latency or a live-frame performance claim.
+
+The first web drill cleared **30 targets for 15,500 points**, finishing at ×5 with
+100% displayed accuracy in 45 decisions: 36 shoot commands and 9 waits. It followed
+the requested target and waited for respawns; it relied on automatic reloads.
+Gateway decision latency was median **309 ms**, p95 **841 ms**. The transcript
+records 35,676 input and 1,850 output tokens. Screenshots show readable labels and
+a clear final score/retry screen. Artifacts: `artifacts/jev-drill-web/`.
+
+The macOS drill made the same 45 choices and reached the same score, target count
+and displayed accuracy. Gateway median **305 ms**, p95 **521 ms**. Its carrier
+closed successfully; the separate descendant audit reported unavailable because
+`ps` stalled, so that run does not establish descendant cleanup. Native screenshots
+match the layout, though translucent dark panels appear darker than on the web;
+that visual difference remains to investigate. Artifacts: `artifacts/jev-drill-macos/`.
+
+The first web duel was much worse: **1–2 after 64 decisions**, with 55 scans,
+2 shoot commands and 7 waits. With no visible contact it repeatedly spun in place,
+even though the action history showed the loop and movement was available. The
+run did not finish a round. Its final cleanup check also failed because Chrome
+launched two GoogleUpdater descendants that remained alive after the browser
+closed; that is a harness/process finding, separate from its combat result.
+Gateway median **294 ms**, p95 **479 ms**; 46,685 input / 4,723 output tokens.
+Artifacts: `artifacts/jev-duel-web/`. This is useful negative evidence: stationary
+target selection alone does not establish a capable arena player.
+
+The next exploration should make combat feedback legible to the player: damage
+direction, useful orientation and an approach that does not get stuck repeating
+the same search. The rendered-HUD boundary should remain; feeding hidden enemy
+coordinates to the controller would hide the problem rather than improve the game.
+
+### Verification and keeping current
+
+The first collected Linux proof passed all gameplay checks, including the timed
+drill, retry, fixed-lane respawn and a fresh-process saved continuation. These runs
+were exploratory, so they reported `UNVERIFIED` until the full pin collector ran.
+The working branch merged main through `482d12ea8` before development, then through
+`ff2435041` at the next build boundary. That brought the new `host-dev` profile,
+authoring tools and Apple agent-clock fixes into the actual verification batch.
+The five root checks passed (2,256 enabled tests, 9 ignored), as did 106 proof and
+scaffolding tests. The Linux/web collector agreed in normal, saved-restore and
+fresh-game modes, and with native release; it accepted the new drill save pin.
+
+The independent macOS proof matched all four pins and passed every new drill
+check, but exposed an older driver failure: a 100-point mouse drag reported
+platform delivery while the fighter turned **zero radians**. A locked canvas reads
+`NSEvent.deltaX/Y`; the agent's `NSEvent.mouseEvent` factory supplies zero deltas
+even when its position moves. A small SDK experiment confirmed this and confirmed
+that setting the underlying CGEvent's mouse deltas preserves the event's position,
+window number and timestamp. This is a driver gap, not evidence that a physical
+mouse cannot turn the native game.
+
+The driver now fills raw motion on each drag event and rounds cumulative positions
+so a three-step 100-point drag still totals 100 points. Its regression failed with
+zero X and Y motion before the change; all 19 `SurfaceControlTests` pass afterward.
+The real macOS proof now passes the same 0.25-radian mouse turn as Linux/web and all
+drill/save checks (20.9 s including the native rebuild). The Swift test needed full
+Xcode's `DEVELOPER_DIR`; the command-line-tools Swift could not import XCTest.
+The native archive is under the explicit `aarch64-apple-darwin/host-dev` target,
+not the unqualified host-dev directory. Those two setup mistakes cost two builds.

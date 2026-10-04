@@ -12,6 +12,12 @@ private var replacementLost = true
 private var replacements = 0
 private var controlEvents: [[String: Any]] = []
 private var boundObjects: [NSDictionary] = []
+#if os(macOS)
+private final class ContactEventWindow: NSWindow {
+    var events: [NSEvent] = []
+    override func sendEvent(_ event: NSEvent) { events.append(event) }
+}
+#endif
 final class SurfaceControlTests: XCTestCase {
     private func fixture() -> (ExactSession, NodeView, NodeView) {
         #if os(macOS)
@@ -315,6 +321,27 @@ final class SurfaceControlTests: XCTestCase {
         XCTAssertEqual(m.deliveryClock(fresh,now:300)["now"] as? Double,300)
     }
     #if os(macOS)
+    func testAgentDragCarriesDeviceMotionForLockedCanvases() {
+        let (s, _, _) = fixture(); defer { s.destroy() }
+        let window = ContactEventWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = s.presenter.viewport
+        let agent = s.agentInstance
+        agent.contact = CGPoint(x: 50, y: 50)
+        agent.contactClock = 10
+        XCTAssertNil(agent.contact("move", ["dx": 100.0, "dy": -20.0, "ms": 48.0])["error"])
+        XCTAssertEqual(window.events.count, 3)
+        XCTAssertEqual(window.events.reduce(0) { $0 + $1.deltaX }, 100)
+        XCTAssertEqual(window.events.reduce(0) { $0 + $1.deltaY }, -20)
+        XCTAssertTrue(window.events.allSatisfy { $0.type == .leftMouseDragged && $0.windowNumber == window.windowNumber })
+        XCTAssertEqual(window.events.last!.timestamp, 10.048, accuracy: 0.000001)
+        let clip = s.presenter.viewport.contentView
+        let at = clip.convert(NSPoint(x: 150 + clip.bounds.origin.x, y: 30 + clip.bounds.origin.y), to: nil)
+        XCTAssertEqual(window.events.last!.locationInWindow, at)
+        XCTAssertNil(agent.contact("up", [:])["error"])
+        XCTAssertEqual(window.events.last!.deltaX, 0)
+        XCTAssertEqual(window.events.last!.deltaY, 0)
+        withExtendedLifetime(window) {}
+    }
     func testAgentCancelClearsMouseContact() {
         let (s,_,_) = fixture(); defer { s.destroy() }
         let window=NSWindow(contentRect:NSRect(x:0,y:0,width:200,height:200),styleMask:[.borderless],backing:.buffered,defer:false)
