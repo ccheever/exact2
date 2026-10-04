@@ -343,6 +343,8 @@ pub struct Runner<D: DataSource> {
     deferred_edges: Vec<(u32, Vec<Target>)>,
     /// Lists whose edge waits for their covered route to show (`collection.rs`).
     held_edges: Vec<u32>,
+    /// Resources whose previous answer was said to show for new arguments (`settlement.rs`).
+    stale_said: std::collections::BTreeSet<usize>,
     /// Requests for the host, since the last take.
     requests: Vec<RequestOut>,
     /// Resources an action asked to re-request; consumed by the next settle
@@ -782,6 +784,7 @@ impl<D: DataSource> Runner<D> {
             failed_args: Vec::new(),
             deferred_edges: Vec::new(),
             held_edges: Vec::new(),
+            stale_said: Default::default(),
             requests: Vec::new(),
             refresh_next: Vec::new(),
             reread_next: Vec::new(),

@@ -184,6 +184,12 @@ that ever gains a remote source (`station.name` today), and it conflates "not
 yet" with "none", which `match` would then have to tell apart with a second
 signal anyway.
 
+*Amended 2026-10-03:* a web page shows nothing for a query it has not answered,
+so the first time a resource's arguments change while it shows an answer to
+other ones (the last tab's rows under the next tab), the runner journals once
+for that resource that it shows the previous answer and that `pending(name)`
+is the loading state (`settlement.rs`, rt.js `res`).
+
 Bake is unchanged and synchronous: `contract::bake` runs `query` for every
 resource's boot arguments and a `Later` there is a build error naming the
 resource — *the first frame is compiled data* stays a build-time fact. A

@@ -424,13 +424,13 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
     }
     if (ans && (ans.req || ans.promise)) {
       hold();
+      if (!forced && !r.said && r.settled !== undefined && !eq(a, r.settled)) { r.said = 1; say(`resource ${name} shows its answer to its previous arguments until its new ones are answered (LLP 1016 D3); pending(${name}) is true meanwhile, for a loading state`); } // once (settlement.rs)
       const t = { id: ++Ticket, args: a, req: ans.req, promise: ans.promise };
       if (r.ticket) say(`forget ticket ${r.ticket.id} (${name})`);
       r.ticket = t; flag(pend, true); send(t, land(t));
       return r.value;
     }
-    // The source is not ready: the compiled value stands, stale, and the
-    // resource is asked again, forced, when it is (LLP 1027 D4).
+    // The source is not ready: the compiled value stands, stale, and the resource is asked again, forced, when it is (LLP 1027 D4).
     hold();
     flag(pend, true);
     if (!r.waiting) { r.waiting = true; data.ready(() => { r.waiting = false; commit(() => { r.forced = true; W(ver, ver.n.v + 1); W(pend, false); }, `data ready ${name}`); }); }

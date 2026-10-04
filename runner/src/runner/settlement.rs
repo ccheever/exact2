@@ -730,6 +730,18 @@ impl<D: DataSource> Runner<D> {
                     forced,
                 } = effect
                 {
+                    // @ref LLP 1016 D3 — a pending resource keeps its value:
+                    // for new arguments, the answer to the previous ones (the
+                    // last tab's rows under the next tab). Said once per
+                    // resource, since a web page would show nothing there.
+                    let shown = self.resources[i].as_ref();
+                    if !forced
+                        && shown.is_some_and(|s| !s.placeholder && s.args != args)
+                        && self.stale_said.insert(i)
+                    {
+                        let name = self.plan.str(self.plan.resources[i].name).to_string();
+                        self.log(format!("resource {name} shows its answer to its previous arguments until its new ones are answered (LLP 1016 D3); pending({name}) is true meanwhile, for a loading state"));
+                    }
                     let source = self.plan.str(self.plan.resources[i].source).to_string();
                     self.enqueue(Target::Resource(i), source, args, *request, forced);
                 }
@@ -1274,6 +1286,25 @@ mod tests {
             assert_eq!(checks(), 1);
             assert_eq!(r.resource("rows"), Some(&records(3)));
         }
+    }
+
+    // @ref LLP 1016 D3 — the previous arguments' answer showing is said once.
+    #[test]
+    fn new_arguments_showing_the_previous_answer_are_said_once() {
+        let mut r = boot(
+            plan(TypeKind::Number, None, false, false),
+            Data::new(records(1)),
+        );
+        r.data().later = true;
+        let said = |r: &Runner<Data>| {
+            r.journal()
+                .filter(|l| l.contains("resource rows shows its answer to its previous arguments"))
+                .count()
+        };
+        r.act("change", vec![Value::Number(1.)]).unwrap();
+        assert_eq!(said(&r), 1);
+        r.act("change", vec![Value::Number(2.)]).unwrap();
+        assert_eq!(said(&r), 1, "once per resource");
     }
 
     #[test]
