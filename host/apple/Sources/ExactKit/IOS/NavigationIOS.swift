@@ -638,6 +638,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             presenter.paintVisibleText()
             presenter.flushPendingFocus()
             recordPop(navigationController)
+            // At rest: a large title's insets are sampled now (§9.10).
+            coversChanged()
         }
         let source = interactiveSource
         interactiveSource = nil

@@ -136,11 +136,12 @@ extension NavigationHost {
         barShows(nav) && HeaderShape(route: c.node, back: nil).flatMap(HeaderShape.shown) != nil
     }
 
-    /// Whether the bar is UIKit's for now: the top route's header search is
-    /// active, and UIKit hides and shows the bar for it
-    /// (`hidesNavigationBarDuringPresentation`, §9.6).
-    func searching(_ nav: UINavigationController) -> Bool {
-        (nav.topViewController as? RouteController)?.search?.controller.isActive == true
+    /// Whether the bar is UIKit's for now on a route's account: its header
+    /// search is active or being presented or dismissed, and UIKit hides and
+    /// shows the bar for it (`hidesNavigationBarDuringPresentation`, §9.6).
+    func searching(_ c: RouteController?) -> Bool {
+        guard let search = c?.search?.controller else { return false }
+        return search.isActive || search.isBeingPresented || search.isBeingDismissed
     }
 
     /// Whether the bar shows for the route on top of a stack.
@@ -152,8 +153,9 @@ extension NavigationHost {
     /// Called from `willShow`, UIKit's place for it: the bar moves with the
     /// transition, an interactive pop's included, and back on a cancel.
     func showBar(_ nav: UINavigationController, for c: RouteController? = nil, animated: Bool) {
-        guard stacks[ObjectIdentifier(nav)] != nil, !searching(nav) else { return }
-        let shows = (c ?? nav.topViewController as? RouteController).map { routeShowsBar($0, in: nav) } ?? barShows(nav)
+        let c = c ?? nav.topViewController as? RouteController
+        guard stacks[ObjectIdentifier(nav)] != nil, !searching(c) else { return }
+        let shows = c.map { routeShowsBar($0, in: nav) } ?? barShows(nav)
         if nav.isNavigationBarHidden == shows { nav.setNavigationBarHidden(!shows, animated: animated) }
     }
 
@@ -195,7 +197,7 @@ extension NavigationHost {
     /// with it in one batch (a cold launch's) take the same. Written on
     /// change, so a hook's own value stands till then.
     func followTablist(_ routes: [RouteController], in nav: UINavigationController) {
-        guard let key = container?.props["navigationKey"], let at = routes.indices.dropFirst().first(where: { routes[$0].key == key }),
+        guard !ExactEnv.agentMode, let key = container?.props["navigationKey"], let at = routes.indices.dropFirst().first(where: { routes[$0].key == key }),
               let list = adoptedTablist.flatMap({ presenter.views[$0] }) ?? container.flatMap({ NavigationTabs.of($0, presenter)?.tablist })
         else { return }
         let hidden = list.style["display"]?.string == "none"
@@ -205,7 +207,7 @@ extension NavigationHost {
             // On top already, with no push to read it (a route revealed by a
             // pop with a guessed flag, or the tablist changing under it): the
             // bar follows now (iOS 18).
-            guard c === nav.topViewController, nav.transitionCoordinator == nil, let tabs = nav.tabBarController else { continue }
+            guard c === nav.topViewController, nav.transitionCoordinator == nil, tabBarShows, let tabs = tabController, nav.tabBarController === tabs else { continue }
             if #available(iOS 18.0, *), tabs.isTabBarHidden != hidden { tabs.setTabBarHidden(hidden, animated: nav.view.window != nil) }
         }
     }
