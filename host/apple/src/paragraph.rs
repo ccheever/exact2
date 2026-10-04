@@ -30,30 +30,29 @@ impl<D: DataSource> Host<D> {
         false
     }
 
-    /// A fixed-size box in a `header` (a title's avatar, LLP 1075.003
-    /// §9.10): its authored points, as `headerBoxSize` `"WxH"`. A header the
-    /// bar replaces is laid out as `display: none`, so no frame tells the
-    /// host the size the author gave it.
-    fn header_box_size(&self, id: ViewId) -> Option<String> {
+    /// A drawn face's box (a title's avatar, LLP 1075.003 §9.10): a View
+    /// with a background, authored width and height in points, and one
+    /// child (its text or symbol). Its points go as `faceBoxSize` `"WxH"`,
+    /// because a header the bar replaces is laid out as `display: none`, so no
+    /// frame tells the host the size the author gave it. The test reads the
+    /// node alone, never its ancestors: a box moved into or out of a header
+    /// needs no recomputation, and a child added or removed touches the box.
+    fn face_box_size(&self, id: ViewId) -> Option<String> {
         let kernel = self.runner.kernel();
         let node = kernel.node(id)?;
-        if node.node_type != NodeType::View {
+        if node.node_type != NodeType::View || node.children().len() != 1 {
             return None;
         }
+        let filled = node
+            .style
+            .background_color
+            .is_some_and(|c| c.resolve(false).a() != 0 || c.resolve(true).a() != 0);
         let (exact_kernel::Dimension::Points(w), exact_kernel::Dimension::Points(h)) =
             (node.style.width, node.style.height)
         else {
             return None;
         };
-        let mut at = node.parent;
-        for _ in 0..8 {
-            let parent = kernel.node(at?)?;
-            if parent.props.str(PropId::SemanticTag) == Some("header") {
-                return Some(format!("{w}x{h}"));
-            }
-            at = parent.parent;
-        }
-        None
+        filled.then(|| format!("{w}x{h}"))
     }
 
     pub(super) fn paragraph_owner(&self, id: ViewId) -> Option<ViewId> {
@@ -268,8 +267,8 @@ impl<D: DataSource> Host<D> {
             kind_for(&node)
         };
         let mut props = props_for(&node);
-        if let Some(size) = self.header_box_size(id) {
-            props.insert("headerBoxSize".into(), size);
+        if let Some(size) = self.face_box_size(id) {
+            props.insert("faceBoxSize".into(), size);
         }
         let env = self.runner.kernel().env();
         let (style, _skipped) = style::style_json_for(&node, &env);
@@ -324,8 +323,8 @@ impl<D: DataSource> Host<D> {
         }
         let node = self.runner.kernel().node(id).expect("live");
         let mut props = props_for(&node);
-        if let Some(size) = self.header_box_size(id) {
-            props.insert("headerBoxSize".into(), size);
+        if let Some(size) = self.face_box_size(id) {
+            props.insert("faceBoxSize".into(), size);
         }
         let env = self.runner.kernel().env();
         let (style, _skipped) = style::style_json_for(&node, &env);

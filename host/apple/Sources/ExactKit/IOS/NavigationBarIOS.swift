@@ -134,7 +134,7 @@ struct BadgeFace: Equatable {
     }
     /// The face of a filled box holding a text or a symbol (a title's
     /// avatar, §9.10, too). `authored`: draw it at the size the author gave
-    /// the box (`headerBoxSize`, the replaced header's points), between 20
+    /// the box (`faceBoxSize`, the authored points a replaced header has no frame for), between 20
     /// and 44, as a title's avatar is; otherwise at a bar item's 36.
     init?(box: NodeView, authored: Bool = false) {
         guard box.channels("background_color") != nil else { return nil }
@@ -152,7 +152,7 @@ struct BadgeFace: Equatable {
         func colours(_ dark: Bool) -> [[Double]] {
             [box.channels("background_color", dark: dark) ?? [0, 0, 0, 0], ink?.channels(key, dark: dark) ?? (dark ? [1, 1, 1, 1] : [0, 0, 0, 1])]
         }
-        let given = authored ? box.props["headerBoxSize"].flatMap { s -> CGFloat? in
+        let given = authored ? box.props["faceBoxSize"].flatMap { s -> CGFloat? in
             let parts = s.split(separator: "x").compactMap { Double($0) }
             return parts.count == 2 ? CGFloat(min(parts[0], parts[1])) : nil
         } : nil
