@@ -15,6 +15,10 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     createApp(dir);
     assert.deepEqual(outsideWorkspaceProblems(dir), []);
     assert.ok(existsSync(resolve(dir, 'app.test.contract')));
+    // The diary instructions travel in full inside the generated block, and .exact/ stays local.
+    const agents = () => readFileSync(resolve(dir, 'AGENTS.md'), 'utf8');
+    assert.match(agents(), /<!-- exact:begin[^]*## The authoring diary[^]*### Needed[^]*<!-- exact:end -->/);
+    assert.match(readFileSync(resolve(dir, '.gitignore'), 'utf8'), /^\/\.exact\/$/m);
     // Execute the generated dispatcher against fake SDK entry points: cwd may
     // be anywhere, but the source and test file must still name this app.
     const sdk = resolve(parent, 'sdk');
@@ -40,6 +44,8 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     writeFileSync(resolve(sdk, 'scripts/agent.mjs'), 'process.exit(7);');
     const refused = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'test', 'ios'], { cwd: parent, env: { ...process.env, EXACT2: sdk } });
     assert.equal(refused.status, 7, 'a failed app test fails the generated command');
+    const logged = readFileSync(resolve(dir, '.exact/commands.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+    assert.deepEqual(logged.map(c => [c.verb, c.exit]).slice(-2), [['agent ios', 0], ['test ios', 7]], 'each command is logged, without its arguments');
     const manifest = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
     writeFileSync(resolve(dir, 'Cargo.toml'), manifest.replace(/^taffy = .*\n/m, ''));
     writeFileSync(resolve(dir, 'rust-toolchain.toml'), '[toolchain]\nchannel = "1.0.0"\n');
@@ -49,13 +55,19 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     // A checkout that moved: every exact2 path in the app is wrong.
     const web = resolve(dir, 'web/Cargo.toml');
     writeFileSync(web, readFileSync(web, 'utf8').replaceAll(/path = "[^"]*"/g, 'path = "/nowhere/exact2/x"'));
-    assert.match(createApp(dir, { update: true }), /exact2 paths in web\/Cargo\.toml/);
+    // An app from before the diary joined the generated block loses its old diary block, keeps its own text, and ignores .exact/.
+    writeFileSync(resolve(dir, 'AGENTS.md'), '# Mine\n\n<!-- exact diary: old -->\nstale\n<!-- /exact diary -->\n\nAfter.\n');
+    writeFileSync(resolve(dir, '.gitignore'), '/target/');
+    assert.match(createApp(dir, { update: true }), /\.gitignore, AGENTS\.md, CLAUDE\.md, exact2 paths in web\/Cargo\.toml/);
+    assert.match(agents(), /^# Mine\n\nAfter\.\n\n<!-- exact:begin[^]*## The authoring diary[^]*<!-- exact:end -->\n$/);
+    assert.ok(!agents().includes('stale'));
+    assert.equal(readFileSync(resolve(dir, '.gitignore'), 'utf8'), '/target/\n/.exact/\n');
     assert.deepEqual(outsideWorkspaceProblems(dir), []);
     assert.ok(!readFileSync(web, 'utf8').includes('/nowhere'));
     const appTest = resolve(dir, 'app.test.contract');
     assert.match(readFileSync(appTest, 'utf8'), /the greeting loads/, 'update preserves existing tests');
     rmSync(appTest);
-    createApp(dir, { update: true });
+    assert.doesNotMatch(createApp(dir, { update: true }), /AGENTS|gitignore/, 'current instructions are left as they are');
     assert.match(readFileSync(appTest, 'utf8'), /test "the app opens"\n  clock settle/);
     assert.ok(!readFileSync(appTest, 'utf8').includes('greeting'), 'an older app need not have the scaffold IDs');
     assert.equal(readFileSync(resolve(dir, 'Cargo.toml'), 'utf8'), manifest, 'the patch table is rewritten in place');
