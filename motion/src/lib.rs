@@ -39,6 +39,7 @@ pub mod color;
 pub mod easing;
 pub mod engine;
 pub mod gesture;
+pub mod hue;
 pub mod math;
 pub mod named;
 pub mod parse;

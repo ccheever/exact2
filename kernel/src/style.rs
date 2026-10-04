@@ -754,18 +754,20 @@ impl From<Color> for ColorValue {
 }
 
 impl Color {
-    /// A CSS colour: hex or `rgb()` notation, `transparent` (transparent
-    /// black) or a named colour (`gray`), keywords in any ASCII case as CSS's
-    /// are; whitespace around it free.
+    /// A CSS colour: hex, `rgb()`, `hsl()` or `hwb()` notation, `transparent`
+    /// (transparent black) or a named colour (`gray`), keywords in any ASCII
+    /// case as CSS's are; whitespace around it free.
     pub fn parse(text: &str) -> Option<Color> {
         let text = text.trim();
         if text.eq_ignore_ascii_case("transparent") {
             return Some(Color::rgba(0, 0, 0, 0));
         }
         let named = || exact_motion::named::named(text).map(|[r, g, b]| Color::rgba(r, g, b, 255));
+        let hue = || exact_motion::hue::hue(text).map(|[r, g, b, a]| Color::rgba(r, g, b, a));
         Color::parse_hex(text)
             .or_else(|| Color::parse_rgb(text))
             .or_else(named)
+            .or_else(hue)
     }
 
     /// CSS `rgb()` / `rgba()` (one function under two names, as in CSS

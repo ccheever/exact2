@@ -172,6 +172,10 @@ fn a_colour_parses_as_hex_or_as_css_rgb_notation() {
     // CSS's named colours, in any ASCII case (CSS Color 4 §6.1).
     assert_eq!(Color::parse("red"), red);
     assert_eq!(
+        Color::parse("hsl(120 100% 25% / 50%)"),
+        Some(Color::rgba(0, 128, 0, 128))
+    );
+    assert_eq!(
         Color::parse(" Gray "),
         Some(Color::rgba(128, 128, 128, 255))
     );
@@ -203,7 +207,6 @@ fn a_colour_parses_as_hex_or_as_css_rgb_notation() {
         "rgb(a, b, c)",
         "rgb(nan, 0, 0)",
         "rgb(255, 0, 0",
-        "hsl(0, 100%, 50%)",
         "reddish",
         "lightgoldenrodyellowish",
     ] {
