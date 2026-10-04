@@ -211,7 +211,10 @@ app links. A development build compiles it file by file and incrementally, and
 beside the app's Rust; the host's two Rust modules build in
 `<target>/apple-modules`, and a checkout that has not built one takes it from
 `~/.cache/exact/apple-modules` when another checkout of this machine compiled
-it from the same bytes (delete that directory to compile them here). What is
+it from the same bytes. A target directory that has compiled nothing starts
+with the registry crates this machine has compiled
+(`~/.cache/exact/apple-crates`; Cargo decides which it can use). Delete either
+directory to compile everything here. What is
 distributed (`--archive`, `exact release`) is the whole-module build, stripped,
 with its dSYM and whole receipt beside it; a production build links its Rust
 with fat LTO and, when its plan is fixed, leaves out the loaded modules the
