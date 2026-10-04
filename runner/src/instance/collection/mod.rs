@@ -63,11 +63,28 @@ fn in_collection_row(plan: &Plan, frames: &[Frame]) -> bool {
 /// second of that travel more, up to two viewports.
 fn lead(viewport: f64, velocity: f64) -> [f64; 2] {
     let extra = (velocity.abs() * LEAD_SECONDS).min(viewport * 2.0);
+    let k = f64::from_bits(LEAD_SCALE.load(std::sync::atomic::Ordering::Relaxed));
     if velocity > 0.0 {
-        [viewport, viewport + extra]
+        [viewport * k, (viewport + extra) * k]
     } else {
-        [viewport + extra, viewport]
+        [(viewport + extra) * k, viewport * k]
     }
+}
+
+/// 1.0's bits: the process's lead scale (a host may boot on one thread and
+/// run on another).
+static LEAD_SCALE: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0x3FF0_0000_0000_0000);
+
+/// How much of a window's lead past its viewport collections realize: 1,
+/// the default, all of it; a host drawing its first frame may ask for 0 (the
+/// rows that show), then 1 once that frame is out, so the rows past the
+/// viewport mount after the first frame instead of before it.
+pub fn set_lead_scale(scale: f64) {
+    LEAD_SCALE.store(
+        scale.clamp(0.0, 1.0).to_bits(),
+        std::sync::atomic::Ordering::Relaxed,
+    );
 }
 
 /// Candidates from one accepted geometry report. The second edge may run only

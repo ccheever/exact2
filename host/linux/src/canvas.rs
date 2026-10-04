@@ -124,10 +124,13 @@ const IDLE_FRAMES: u64 = 10;
 
 #[path = "canvas/clip.rs"]
 mod clip;
+#[path = "canvas/jni.rs"]
+pub mod jni;
 #[path = "canvas/keys.rs"]
 mod keys;
 #[path = "canvas/layer.rs"]
 mod layer;
+pub use jni_sys;
 #[path = "canvas/picture.rs"]
 mod picture;
 #[path = "canvas/shadow.rs"]
@@ -911,6 +914,8 @@ pub struct CanvasHost<D: DataSource> {
     tracks: HashMap<u32, Vec<u32>>,
     /// The scroller [`CanvasHost::scroll`] moves.
     feed: Option<ViewId>,
+    /// Whether the windows' lead is back after the first frame.
+    lead: bool,
     tracks_epoch: u64,
 }
 
@@ -939,13 +944,17 @@ impl<D: DataSource + Default> CanvasHost<D> {
         let started = std::time::Instant::now();
         let origin_ns = monotonic_ns();
         std::env::set_var("EXACT_PAINTER", "canvas");
-        // Four viewports of decoded pictures, not Apple's eight: the reader
-        // holds its own copy of each one in use, so a larger cache costs twice.
+        // Eight viewports of decoded pictures, Apple's rule: the reader's copy
+        // is a GPU buffer (no heap copy, no upload), and a picture decoded
+        // again costs more than the memory it holds.
         if std::env::var_os("EXACT_IMAGE_VIEWPORTS").is_none() {
-            std::env::set_var("EXACT_IMAGE_VIEWPORTS", "4");
+            std::env::set_var("EXACT_IMAGE_VIEWPORTS", "8");
         }
         std::env::set_var("EXACT_SCALE", scale.to_string());
         let viewport = (size.0 as f32 / scale, size.1 as f32 / scale);
+        // The first frame realizes only the rows that show; the window's lead
+        // follows once it is out ([`CanvasHost::frame`]).
+        exact_runner::set_lead_scale(0.0);
         let mut config = crate::app::Config::from_env(plan, compat);
         config.scale = scale;
         let (p, error) = crate::app::boot_presenter::<D>(&mut config, viewport)?;
@@ -980,6 +989,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             tracks: HashMap::new(),
             feed: None,
             tracks_epoch: 0,
+            lead: false,
         })
     }
 
@@ -1004,6 +1014,12 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// One turn: the presenter's work, then a recording when anything
     /// changed. `Some` is the new op stream (valid until the next call).
     pub fn frame(&mut self) -> Option<Vec<u32>> {
+        // After the first frame: the windows' lead, realized off the frame.
+        if self.painted.is_some() && !self.lead {
+            self.lead = true;
+            exact_runner::set_lead_scale(1.0);
+            self.p.refine_deferred(true);
+        }
         let p = &mut self.p;
         let now = self.started.elapsed().as_secs_f64() * 1000.0;
         let _frame = Section::begin(c"exact frame");
@@ -1246,6 +1262,10 @@ impl<D: DataSource + Default> CanvasHost<D> {
 
     /// Milliseconds until the next timer, if any.
     pub fn next_due(&self) -> Option<f64> {
+        // The windows' lead is owed a turn as soon as the first frame is out.
+        if self.painted.is_some() && !self.lead {
+            return Some(0.0);
+        }
         self.p
             .host()
             .timer_due_ms()
@@ -1293,6 +1313,37 @@ impl<D: DataSource + Default> CanvasHost<D> {
 
     /// A picture announced by `IMAGE_DEF`, once (premultiplied RGBA rows).
     pub fn image(id: u32) -> Option<Picture> {
-        PENDING.with(|p| p.borrow_mut().remove(&id))
+        image(id)
     }
+
+    /// The view is `size` pixels after all (the reader booted at the size it
+    /// expected).
+    pub fn resize(&mut self, size: (u32, u32)) {
+        let viewport = (size.0 as f32 / self.scale, size.1 as f32 / self.scale);
+        if viewport == self.viewport {
+            return;
+        }
+        self.viewport = viewport;
+        if let Some(e) = self.p.resize(viewport.0, viewport.1) {
+            eprintln!("exact: resize: {e}");
+        }
+        self.force = true;
+    }
+}
+
+/// A picture announced by `IMAGE_DEF`, once (premultiplied RGBA rows).
+fn image(id: u32) -> Option<Picture> {
+    PENDING.with(|p| p.borrow_mut().remove(&id))
+}
+
+/// What this thread's recorder announced and the reader has not fetched yet,
+/// to [`give_pending`] to the thread that runs the host from now on (it
+/// booted on another, LLP 1076).
+pub fn take_pending() -> std::collections::BTreeMap<u32, Picture> {
+    PENDING.with(|p| std::mem::take(&mut *p.borrow_mut()))
+}
+
+/// The pictures [`take_pending`] took on the booting thread.
+pub fn give_pending(pending: std::collections::BTreeMap<u32, Picture>) {
+    PENDING.with(|p| p.borrow_mut().extend(pending));
 }

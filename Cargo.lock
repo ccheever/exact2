@@ -1093,6 +1093,7 @@ dependencies = [
  "getrandom 0.3.4",
  "iana-time-zone",
  "ibex2",
+ "jni-sys 0.3.1",
  "libc",
  "libloading",
  "png",
