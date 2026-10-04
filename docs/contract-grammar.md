@@ -469,7 +469,7 @@ hardware keyboard, Linux):
   default does not happen. Ancestors' handlers still hear the key, as they do
   on the web. Call it only for the keys you handle, so typing still works:
 
-```contract
+```text
 action move(k: string)
   if k == "ArrowDown"
     cursor = cursor + 1
