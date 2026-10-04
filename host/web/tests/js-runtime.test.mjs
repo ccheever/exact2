@@ -13,7 +13,7 @@ import { resolve } from 'node:path';
 
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-baked-'));
 const webJs = name => resolve(new URL(`../../web-js/${name}`, import.meta.url).pathname);
-for (const f of ['rt.js', 'roster.js', 'router.js', 'shape.js', 'notify.js']) copyFileSync(webJs(f), resolve(dir, f));
+for (const f of ['rt.js', 'roster.js', 'router.js', 'budget.js', 'shape.js', 'notify.js']) copyFileSync(webJs(f), resolve(dir, f));
 copyFileSync(resolve(new URL('../notify-glue.js', import.meta.url).pathname), resolve(dir, 'notify-glue.js'));
 for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace', 'onSelection', 'animationClocks', 'launchLocation'], 'pointer.js': ['pointer', 'record'], 'commands.js': ['commands'],
   'media.js': ['media', 'mediaProp', 'mediaOn', 'mediaPiece'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],
@@ -82,15 +82,17 @@ test('a key handler stops and prevents its event while a view transition holds t
 });
 
 // LLP 1088 D2: the roster's string entries are JavaScript's, made well formed, and `replaceAll` is bounded by the
-// runner's MAX_STRING as it builds (a quadratic `$\`` stops there), throwing the runner's trap as a Refusal.
+// runner's MAX_STRING as it builds (a quadratic `$\`` stops there), throwing the runner's trap at the call's pc (budget.js).
 test('slice, replaceAll and toLowerCase are the web methods, well formed and bounded', async () => {
-  const { x_slice, x_replaceAll, x_toLowerCase, Refusal } = await import(resolve(dir, 'rt.js'));
+  const { x_slice } = await import(resolve(dir, 'rt.js'));
+  const { x_replaceAll: replaceAll, x_toLowerCase: toLowerCase } = await import(resolve(dir, 'budget.js'));
+  const x_replaceAll = (s, f, w) => replaceAll(s, f, w, 4), x_toLowerCase = s => toLowerCase(s, 4);
   expect([x_slice('calc', 0, -1), x_slice('hello', -3, Infinity), x_slice('a😀b', 1, 2), x_slice('hello', NaN, 2.9)]).toEqual(['cal', 'llo', '�', 'he']);
   for (const [s, f, w] of [['aXbXc', 'X', '-'], ['aaa', 'aa', 'b'], ['abc', '', '-'], ['😀', '', ''], ['😀😀', '', ''], ['abc', 'b', "[$&|$`|$'|$$|$1|$<n>|$]"], ['abc', '', '$`'], ['x.y', '.', '$$'], ['', '', ' ']])
     expect(x_replaceAll(s, f, w)).toBe(s.replaceAll(f, w).toWellFormed());
   expect(x_replaceAll('😀', '', '-')).toBe('-�-�-');
   expect([x_toLowerCase('ΟΣ'), x_toLowerCase('İ'), x_toLowerCase('ABC')]).toEqual(['ος', 'i̇', 'abc']);
-  expect(() => x_replaceAll('x'.repeat(10000), '', "$`$'")).toThrow(Refusal);
+  expect(() => x_replaceAll('x'.repeat(10000), '', "$`$'")).toThrow('Trap(StringTooLong { pc: 4 })');
 });
 
 // Local notifications on the JS target (notify.js, linked by use, over the
@@ -127,4 +129,57 @@ test('notifications: refused without the grant, listed under the agent, else pos
     await new Promise(r => setTimeout(r, 60));
     expect([posted.at(-1).title, last()]).toEqual(['Soon', 'showNotification: shown']);
   } finally { delete globalThis.Notification; }
+});
+
+// LLP 1090: a string past MAX_STRING comes only from a data source, which the
+// JS target's Rust seam caps at 16 MiB a message, so conformance cannot carry
+// one (host/web-js/conformance/budget.contract); the runtime's checks are run
+// here, against the runner's texts (runner/src/runner/commit.rs, stdlib.rs).
+test('a string past MAX_STRING joins to itself alone and is counted in UTF-8 bytes', async () => {
+  const { x_join, K, cc, utf8, Trap } = await import(resolve(dir, 'budget.js'));
+  const long = 'a'.repeat(2 ** 26 + 1);
+  expect(x_join([long], ',', 3)).toBe(long); // stdlib::join's one string, unchecked
+  expect(() => x_join([long, ''], ',', 3)).toThrow('Trap(StringTooLong { pc: 3 })');
+  expect(() => K([long], 5)).toThrow(Trap);
+  expect(() => K([long], 5)).toThrow('Trap(ValueTooLarge { pc: 5 })');
+  expect([utf8('é'), utf8('€'), utf8('😀'), utf8('\ud800'), utf8('a\udc00b')]).toEqual([2, 3, 4, 3, 5]);
+  // 2^25 units of "é" are exactly 2^26 bytes; one more is past.
+  expect(cc('é'.repeat(2 ** 24), 'é'.repeat(2 ** 24), 7).length).toBe(2 ** 25);
+  expect(() => cc('é'.repeat(2 ** 24), 'é'.repeat(2 ** 24 + 1), 7)).toThrow('Trap(StringTooLong { pc: 7 })');
+  // A remembered part counted as 3 bytes a unit is recounted exactly (D3):
+  // 10 MB three times is 30 MB, seven times 70 MB.
+  const xs = K(Array.from({ length: 10000 }, () => 'a'.repeat(1000)), 1);
+  expect(K([xs, xs, xs], 2)).toHaveLength(3);
+  expect(() => K([xs, xs, xs, xs, xs, xs, xs], 2)).toThrow('Trap(ValueTooLarge { pc: 2 })');
+});
+
+test('an argument or a write past MAX_STRING is refused by name, and a trapping argument is a trap, poisoned or not', async () => {
+  const { act, sig, W, effect, journal } = await import(resolve(dir, 'rt.js'));
+  const { Trap } = await import(resolve(dir, 'budget.js'));
+  const last = () => journal.at(-1).replace(/^t=\S+ /, '');
+  const t = sig('', 's', 't');
+  const put = act(v => W(t, v), ['s'], 0, ['v']);
+  const row = act(($r, v) => W(t, v), ['s'], 1, ['v']);
+  const long = 'a'.repeat(2 ** 26 + 1), euro = '€'.repeat(22369622); // 67,108,866 bytes in fewer than 2^26 units
+  put(long);
+  expect(last()).toBe('refused action: StringTooLong { name: "v" }');
+  put.t(() => [euro])();
+  expect(last()).toBe('refused action: StringTooLong { name: "v" }');
+  row.t(() => [{}, long])(); // a row action's `$r` is not a parameter
+  expect(last()).toBe('refused action: StringTooLong { name: "v" }');
+  act(() => W(t, euro))();
+  expect(last()).toBe('refused action: StringTooLong { name: "t" }');
+  expect(t()).toBe('');
+  put.t(() => { throw new Trap('IterationLimit', 17); })();
+  expect(last()).toBe('refused action: Trap(IterationLimit { pc: 17 })');
+  // A trap while the tree updates poisons, as the runner's InstanceError; an argument still traps first.
+  const n = sig(0, 'n');
+  effect(() => { if (n() > 0) throw new Trap('IterationLimit', 9); });
+  act(() => W(n, 1))();
+  globalThis.heldTail?.(); // a view transition (shared.js, above) holds the tree update
+  expect(last()).toBe('poisoned: Instance(Trap(IterationLimit { pc: 9 }))');
+  put.t(() => { throw new Trap('IterationLimit', 17); })();
+  expect(last()).toBe('refused action: Trap(IterationLimit { pc: 17 })');
+  put.t(() => ['x'])();
+  expect(last()).toBe('refused action: the runner is poisoned; reload');
 });

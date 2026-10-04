@@ -344,19 +344,13 @@ impl Collection {
             ListAxis::Vertical => 0,
             ListAxis::Horizontal => 1,
         }];
-        let manual = descriptor
-            .bindings
-            .iter()
-            .map(|b| plan.binding(b))
-            .any(|b| {
-                b.kind == BindingKind::Prop
-                    && b.id == PropId::ScrollRestoration as u16
-                    && u.eval(b.expr, frames)
-                        .ok()
-                        .as_ref()
-                        .and_then(|v| v.as_str())
-                        == Some("manual")
-            });
+        // A trap here poisons like every other binding's (LLP 1090 D6).
+        let mut manual = false;
+        for b in descriptor.bindings.iter().map(|b| plan.binding(b)) {
+            if b.kind == BindingKind::Prop && b.id == PropId::ScrollRestoration as u16 {
+                manual |= u.eval(b.expr, frames)?.as_str() == Some("manual");
+            }
+        }
         let mut this = Box::new(Self {
             preview: None,
             view,

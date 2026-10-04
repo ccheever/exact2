@@ -202,6 +202,18 @@ at CSS.
 - `none` and `[]` need an inferable element type. A state initialized by either
   usually gets that information from later assignments; a typed argument or
   the other conditional/match arm can also supply it.
+- An option directly inside an option is refused (`type-option-option`):
+  `option<option<T>>` written, `some(none)`, `first` or `at` of a
+  `list<option<T>>`, a mutation `as shape option<T>`. The web erases `some`,
+  so `some(none)` would be `none` there; hold the inner option in a record
+  field. A type nests at most 64 deep, through shapes, lists and options
+  (`type-too-deep`).
+- One evaluation (an action body, a derive, a binding, a key, an argument)
+  takes at most 65,536 list steps (each `map`/`filter` body run, each item
+  `join` prints), builds strings of at most 64 MiB of UTF-8, and values of at
+  most 2²⁴ values and 64 MiB of string bytes. Every target refuses the same
+  step with the same reason: an action is refused with nothing changed, a view
+  binding stops the runner (LLP 1090).
 - A state's initializer runs before any resource answers and before any derive:
   it reads props, injects and the states declared above it, nothing else
   (`type-initializer-scope`). Derive a value from a resource instead, or keep
@@ -371,7 +383,7 @@ Choose the mechanism from its lifetime:
 | Initial resource fallback | `else empty(field=constant)`, or `else source(values)` answered once at build |
 
 Resources read as their declared type. Mutations read as `option<T>` and start at
-`none`. Do not treat a resource as an optional wrapper unless its declared type
+`none`, so a mutation's `T` is not itself an option. Do not treat a resource as an optional wrapper unless its declared type
 itself is optional. A mutation reply is unwrapped with match.
 
 `with` takes one or more expressions, before `as shape`, and appends them to the

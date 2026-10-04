@@ -81,10 +81,13 @@ function flush() {
 }
 function untracked(f) { const l = Listener; Listener = null; try { return f(); } finally { Listener = l; } }
 
-/** A slot: a getter, `.n` its node; `t` its declared type (writes conform). */
-export function sig(v, t) { // an initial value outside `t`: the runner refuses the boot, or the row's creation poisons (SlotType)
+/** A slot: a getter, `.n` its node; `t` its declared type (writes conform); `name` a string slot's, which a write past MAX_STRING names. */
+export function sig(v, t, name) { // an initial value outside `t`: the runner refuses the boot, or the row's creation poisons (SlotType)
   if (t && !conforms(v, t)) throw new Error(`a slot's initial value does not conform to its type: ${v}`);
-  const n = node(null, v); n.t = t; const g = () => read(n); g.n = n; return g; }
+  const n = node(null, v); n.t = t; n.name = name; const g = () => read(n); g.n = n; return g; }
+/** A string past MAX_STRING's UTF-8 bytes (runner `too_long`): one test, TextEncoder's U+FFFD for a lone surrogate (LLP 1090 D6). */
+const long = s => typeof s === "string" && s.length > 22369621 && (s.length > 67108864 || new TextEncoder().encode(s).length > 67108864);
+const tooLong = name => new Refusal(`StringTooLong { name: ${JSON.stringify(name)} }`);
 const Settle = [];
 /** A derive: lazy, cached, equal results keep their object; settled at
  * every commit before the tree; its value conforms to its type. */
@@ -148,6 +151,7 @@ export function commit(f, what = "commit") {
     tick();
     for (const [n, v] of Writes) {
       if (n.t && !conforms(v, n.t)) throw new Refusal(`a write does not conform to its slot's type: ${JSON.stringify(v)}`);
+      if (n.name && long(v)) throw tooLong(n.name);
       undo.push([n, n.v]); write(n, v);
       if (n.m && !n.landing) n.m.forget(undo);
     }
@@ -176,7 +180,7 @@ export function commit(f, what = "commit") {
   const tail = () => { // the tree update; inside a view transition when it may hand on a shared element's name (LLP 1013.000 D7)
     for (const f of Before) f();
     Pres?.before({ ops: [] }, Views); // presence measures what it tracks before the tree changes (LLP 1063)
-    try { flush(); } catch (e) { Poisoned = true; say(`poisoned: ${e.message}`); console.error(e); return false; }
+    try { flush(); } catch (e) { Poisoned = true; say(`poisoned: ${e.pc != null ? `Instance(${e.message})` : e.message}`); console.error(e); return false; } // a trap as the runner's InstanceError (LLP 1090 D6)
     settled(); if (!ok) return false;
     clock.epoch++; Store.persist();
     for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c);
@@ -207,9 +211,24 @@ function drain() {
   Scrolls.clear(); for (const e of Selects) if (!e.isConnected) Selects.delete(e); else { const o = [...e.options], v = o.map(x => x.value); if (e.$set || o.length !== e.$options?.length || o.some((x, i) => x !== e.$options[i] || v[i] !== e.$values[i])) { e.$set = false; e.$options = o; e.$values = v; if (e.value !== e.$value) e.value = e.$value; } }
 }
 /** An action: each call is one commit. Its arguments conform to its parameters' types (`types`, after `skip` leading
- * arguments: a row action's row), or it is refused before its body runs, as the runner's ArgumentType. */
-export function act(fn, types, skip = 0) {
-  return (...a) => commit(() => { for (let i = 0; types && i < types.length; i++) if (!conforms(a[i + skip], types[i])) throw new Refusal(`argument ${i + 1} does not conform to its parameter's type`); fn(...a); }, "action");
+ * arguments: a row action's row), each then within MAX_STRING when `names` names it a string's, or it is refused before
+ * its body runs, as the runner's ArgumentType and StringTooLong. `.t(f)` is a handler whose arguments `f` makes inside
+ * the commit (a trap refuses it, LLP 1090 D1), then the event's; on a poisoned runner `f` still runs first, as the
+ * runner evaluates them before its poisoned check. */
+export function act(fn, types, skip = 0, names) {
+  const go = a => {
+    for (let i = 0; types && i < types.length; i++) {
+      if (!conforms(a[i + skip], types[i])) throw new Refusal(`argument ${i + 1} does not conform to its parameter's type`);
+      if (names?.[i] && long(a[i + skip])) throw tooLong(names[i]);
+    }
+    fn(...a);
+  };
+  const a = (...x) => commit(() => go(x), "action");
+  a.t = f => (...v) => {
+    if (Poisoned) try { f(); } catch (e) { return say(`refused action: ${e.message}`); }
+    return commit(() => go([...f(), ...v]), "action");
+  };
+  return a;
 }
 /** The host commands, by name; a loaded piece adds its own (list.js `scrollIntoView`). */
 export const Hosts = {
@@ -1351,8 +1370,8 @@ function locale() {
 }
 const table = name => Texts.find(r => r[0] === name);
 /** `t(key, name=value…)`: MF2 simple messages, `{name}` or `{$name}`; an
- * unfilled name keeps its spelling; `\{ \} \\` escape. */
-export function x_t(name, key, pairs) {
+ * unfilled name keeps its spelling; `\{ \} \\` escape. budget.js's `x_t` bounds it. */
+export function text(name, key, pairs) {
   const text = table(name)?.[2][key] ?? Texts[0][2][key];
   if (text == null) throw new Refusal(`t: no text ${key}`);
   const at = n => { for (let i = 0; i < pairs.length; i += 2) if (pairs[i] === n) return pairs[i + 1]; };

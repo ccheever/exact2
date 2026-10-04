@@ -126,7 +126,7 @@ export function x_searchParam(e, name) {
   for (const pair of q.split("#")[0].split("&").filter(Boolean)) { const [k, ...v] = pair.split("="); if (dec(k, true) === name) return dec(v.join("="), true); }
   return "";
 }
-export const x_encodeRouteSegment = segmentOf;
+export { segmentOf }; // `encodeRouteSegment` is budget.js's, checked
 export const x_path = (name, ...values) => path(Routes.find(r => r.name === name && !r.notfound), values);
 /** The router slot's changes, to the browser's history (`navigation.js`,
  * the web host's own), and a popstate back as the navigation root's

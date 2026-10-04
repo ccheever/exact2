@@ -80,7 +80,8 @@ impl Em<'_> {
                 // conform, or the runner refuses (SlotType).
                 let sig = self.uses.rt("sig");
                 let ty = serde_json::to_string(&type_code(plan, slot.ty)).unwrap();
-                own.push(format!("{k}:{sig}({init},{ty})"));
+                let name = string_name(plan, slot);
+                own.push(format!("{k}:{sig}({init},{ty}{name})"));
             }
         }
         if own.is_empty() {
@@ -171,7 +172,18 @@ pub(super) fn root_slot(
         );
     } else {
         let sig = uses.rt("sig");
-        let _ = write!(body, "const s_{i}={sig}({init},{ty});");
+        let name = string_name(plan, r);
+        let _ = write!(body, "const s_{i}={sig}({init},{ty}{name});");
     }
     Ok(())
+}
+
+/// A string slot's name, as `sig`'s third argument: a write past MAX_STRING
+/// is refused naming it (the runner's StringTooLong, LLP 1090 D6).
+fn string_name(plan: &Plan, slot: &exact_plan::SlotsRow) -> String {
+    if type_code(plan, slot.ty) == "s" {
+        format!(",{}", serde_json::to_string(plan.str(slot.name)).unwrap())
+    } else {
+        String::new()
+    }
 }

@@ -4,7 +4,8 @@
 // `open`). After every step it compares the runner's typed state, including
 // the document head, the tree (depth, type, testId, text, value, label, handlers,
 // focus), layout boxes
-// by testId and a screenshot. `app.test.contract` files run on both.
+// by testId, a screenshot, and the reason of each refusal for passing one of
+// the runner's evaluation bounds (LLP 1090 D7). `app.test.contract` files run on both.
 // Every failure is reported in one run; the exit code is 0 unless `--strict`,
 // which exits 1 on any failure and prints each as a `FAIL <target> <step>:`
 // line (the async lane's check, scripts/async.mjs).
@@ -110,6 +111,12 @@ function serve(dir) {
 }
 
 // ---------------------------------------------------------------- comparisons
+// A refusal for passing one of the runner's evaluation bounds (LLP 1090 D6, D7): every target refuses that step with
+// the same reason, the `Debug` text of the runner's error, a line's prefix being each host's own. Other refusals compare
+// only as refused or not (the steps' state). A refusal repeated by a host's own deliveries counts once: a list's edge
+// is asked again at each report, and the Linux host reports a settling list more often than a page does.
+const BOUND = /Instance\(Trap\((?:IterationLimit|StringTooLong|ValueTooLarge|ValueTooDeep) \{ pc: \d+ \}\)\)|Trap\((?:IterationLimit|StringTooLong|ValueTooLarge|ValueTooDeep) \{ pc: \d+ \}\)|StringTooLong \{ name: "(?:[^"\\]|\\.)*" \}/;
+const boundReasons = async S => (await S.logs()).lines.flatMap(l => BOUND.exec(l)?.[0] ?? []).filter((r, i, all) => r !== all[i - 1]);
 const norm = t => t.nodes.map(n => [n.depth ?? 0, n.type, n.props?.testId ?? '', n.props?.text ?? '', n.props?.value ?? '', n.props?.accessibilityLabel ?? '', (n.handlers ?? []).join(' '), n.focused === true ? 'focused' : ''].join('|'));
 function diffLists(a, b, what, other = 'js', reference = 'wasm') {
   const out = [];
@@ -345,6 +352,14 @@ async function drive(t, report, fail, dir, ws, js) {
     const settle = async () => { await pair(() => W.clock('settle'), () => J.clock('settle')); await onLinux('settle', L => L.clock('settle')); };
     driveAt = 'boot settle';
     await settle();
+    // Each step's bound refusals, on every target (the journals read from here on).
+    const bounds = async step => {
+      const [rw, rj] = await pair(() => boundReasons(W), () => boundReasons(J));
+      const say = r => r.join(' | ') || '—';
+      if (say(rw) !== say(rj)) fail(step, `bound refusals: ${reference} «${say(rw)}» ${other} «${say(rj)}»`);
+      await onLinux(step, async L => { const rl = await boundReasons(L); if (say(rl) !== say(rw)) fail(step, `linux bound refusals: ${reference} «${say(rw)}» linux «${say(rl)}»`); });
+    };
+    await bounds('boot');
     let tree = await compare('boot');
     // Once only the reference took a step, the two pages differ by that step:
     // later compares would report its consequences, not new differences.
@@ -371,6 +386,7 @@ async function drive(t, report, fail, dir, ws, js) {
       if (refused && !jsRefused) { diverged = true; break; }
       await onLinux(line, L => LINUX_OPS.includes(op) ? run(L).then(() => answered('linux'), e => { if (!refused) throw e; }) : Promise.reject(new Error(`\`${op}\` is the page's pointer or history delivery, not the runner's`)));
       await settle();
+      await bounds(line);
       tree = await compare(line);
     }
     const tapped = new Set();
@@ -385,6 +401,7 @@ async function drive(t, report, fail, dir, ws, js) {
       await onLinux(`tap ${id}`, L => L.tap(id));
       // What the press sent lands on both first (a fetch races the compare otherwise).
       await settle();
+      await bounds(`tap ${id}`);
       tree = await compare(`tap ${id}`);
     }
     if (!diverged) {

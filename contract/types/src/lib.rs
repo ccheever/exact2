@@ -18,6 +18,7 @@
 #![deny(missing_docs)]
 
 mod actions;
+mod bounds;
 mod calls;
 mod checks;
 mod component;
@@ -29,6 +30,7 @@ mod posts;
 pub mod records;
 pub mod routes;
 mod selection;
+pub use bounds::MAX_TYPE_DEPTH;
 pub use selection::event_record;
 /// The strings call and the tables it is checked against (LLP 1060).
 pub mod strings;
@@ -289,11 +291,21 @@ pub struct Shapes {
     /// Action name → the first component that declares it: a statement
     /// naming one out of its scope is told where it is (LLP 1089 D10).
     pub actions: BTreeMap<String, String>,
+    /// Shape name → how deep its values can nest (LLP 1090 D2), once every
+    /// shape's fields are known.
+    pub depths: BTreeMap<String, u32>,
 }
 
 impl Shapes {
-    /// Resolve a written type.
+    /// Resolve a written type, refusing one no value of could cross every
+    /// target ([`Shapes::bounded`]).
     pub fn resolve(&self, t: &TypeExpr) -> Result<Ty, TypeError> {
+        let ty = self.resolve_unbounded(t)?;
+        self.bounded(&ty, t.span())?;
+        Ok(ty)
+    }
+
+    fn resolve_unbounded(&self, t: &TypeExpr) -> Result<Ty, TypeError> {
         Ok(match t {
             TypeExpr::Named(n, span) => match n.as_str() {
                 "number" => Ty::Number,
@@ -313,8 +325,8 @@ impl Shapes {
                     }
                 }
             },
-            TypeExpr::Option(inner, _) => Ty::Option(Box::new(self.resolve(inner)?)),
-            TypeExpr::List(inner, _) => Ty::List(Box::new(self.resolve(inner)?)),
+            TypeExpr::Option(inner, _) => Ty::Option(Box::new(self.resolve_unbounded(inner)?)),
+            TypeExpr::List(inner, _) => Ty::List(Box::new(self.resolve_unbounded(inner)?)),
         })
     }
 
@@ -657,8 +669,16 @@ pub fn ascribe(t: &Ty, declared: &TypeExpr, shapes: &Shapes, span: Span) -> Resu
     }
 }
 
-/// Infer an expression's type in `scope`.
+/// Infer an expression's type in `scope`, refusing one no value of could
+/// cross every target ([`Shapes::bounded`]): `some`, `map` and the roster's
+/// options and lists are where an inferred type grows.
 pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
+    let t = infer_unbounded(e, scope, shapes)?;
+    shapes.bounded(&t, e.span())?;
+    Ok(t)
+}
+
+fn infer_unbounded(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
     Ok(match e {
         Expr::Number(..) => Ty::Number,
         Expr::Str(..) => Ty::String,
@@ -1100,6 +1120,10 @@ pub fn check_declarations(file: &File) -> Result<Shapes, TypeError> {
             fields.push((f.name.clone(), shapes.resolve(&f.ty)?));
         }
         shapes.map.insert(s.name.clone(), fields);
+    }
+    shapes.measure_shapes();
+    for s in &file.shapes {
+        shapes.bounded(&Ty::Record(s.name.clone()), s.span)?;
     }
     // `fn`s (LLP 1017 P5): signatures first, then each body in a scope of
     // its parameters only — pure by construction — against the declared

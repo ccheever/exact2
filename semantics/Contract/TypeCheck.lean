@@ -24,6 +24,48 @@ def pathTy (p : Program) (args : List Expr) (ts? : Option (List Ty)) : Option Ty
     | .none => .none
   | _, _ => .none
 
+/-- How deep a value of `t` can nest (LLP 1090 D2): 0 for a scalar, one
+more than what it holds for an option, list or record; `?` is 0. Shapes are
+acyclic, so `fuel` (their number, plus one) is never what stops the walk. -/
+def Ty.depthIn (shapes : List Shape) : Nat → Ty → Nat
+  | fuel, .option t => Ty.depthIn shapes fuel t + 1
+  | fuel, .list t => Ty.depthIn shapes fuel t + 1
+  | fuel + 1, .record s =>
+    match shapes.find? (·.name == s) with
+    | .some sh => (sh.fields.attach.map fun ⟨f, _⟩ => Ty.depthIn shapes fuel f.ty).foldl max 0 + 1
+    | .none => 1
+  | 0, .record _ => 1
+  | _, _ => 0
+termination_by fuel t => (fuel, sizeOf t)
+
+/-- Whether an option sits directly inside an option somewhere in `t`. -/
+def Ty.optionInOption : Ty → Bool
+  | .option (.option _) => true
+  | .option t => t.optionInOption
+  | .list t => t.optionInOption
+  | _ => false
+
+/-- `t` bounds its values as the runner does, the Rust checker's
+`Shapes::bounded` (LLP 1090 D2): no option directly inside an option
+(`type-option-option`) and at most 64 deep (`type-too-deep`). -/
+def Ty.bounded (p : Program) (t : Ty) : Bool :=
+  !t.optionInOption && decide (t.depthIn p.shapes (p.shapes.length + 1) ≤ 64)
+
+/-- An inferred type, refused where it grows past the bounds: `some`, `map`
+and the roster's results are where it can. -/
+def boundedTy (p : Program) : Option Ty → Option Ty
+  | .some t => if t.bounded p then .some t else .none
+  | .none => .none
+
+theorem boundedTy_some {p : Program} {o : Option Ty} {t : Ty} (h : boundedTy p o = .some t) :
+    o = .some t := by
+  unfold boundedTy at h
+  split at h
+  · split at h
+    · exact h
+    · simp at h
+  · simp at h
+
 mutual
 
 /-- The type of `e`, or `none` when the judgments give it none. -/
@@ -33,7 +75,7 @@ def infer (p : Program) (G : Scope) : Scope → Expr → Option Ty
   | _, .bool _ => .some .bool
   | _, .none => .some (.option .unknown)
   | _, .emptyList => .some (.list .unknown)
-  | Γ, .some e => (infer p G Γ e).map .option
+  | Γ, .some e => boundedTy p ((infer p G Γ e).map .option)
   | Γ, .template parts =>
     match inferList p G Γ parts with
     | .some ts => if ts.all Ty.displayable then .some .string else .none
@@ -133,7 +175,7 @@ def inferCall (p : Program) (G : Scope) : Scope → String → List Expr → Opt
       if name = "map" then
         if ps.length ≤ 2 then
           match infer p G Γ l with
-          | .some (.list a) => (infer p G (bindTy ps a Γ) body).map .list
+          | .some (.list a) => boundedTy p ((infer p G (bindTy ps a Γ) body).map .list)
           | _ => .none
         else .none
       else if name = "filter" then
@@ -147,7 +189,7 @@ def inferCall (p : Program) (G : Scope) : Scope → String → List Expr → Opt
         else .none
       else
         match ts? with
-        | .some ts => rosterTy name ts
+        | .some ts => boundedTy p (rosterTy name ts)
         | .none => .none
   | Γ, name, args, ts? =>
     match p.fns.find? (·.name == name) with
@@ -165,13 +207,13 @@ def inferCall (p : Program) (G : Scope) : Scope → String → List Expr → Opt
           (if isResource p x && (lookupTy x Γ).isNone && (lookupTy x G).isSome then .some .bool else .none)
         else
           match ts? with
-          | .some ts => rosterTy name ts
+          | .some ts => boundedTy p (rosterTy name ts)
           | .none => .none
       | _ =>
         if name = "path" then pathTy p args ts?
         else
           match ts? with
-          | .some ts => rosterTy name ts
+          | .some ts => boundedTy p (rosterTy name ts)
           | .none => .none
 
 def inferList (p : Program) (G : Scope) : Scope → List Expr → Option (List Ty)
@@ -277,6 +319,15 @@ def checkTypes (p : Program) : Bool :=
     p.resources.all (·.ty.complete) && p.mutations.all (·.ty.complete) &&
     p.actions.all (fun a => a.params.all (·.2.complete))
 
+/-- Every declared type bounds its values (LLP 1090 D2); a mutation holds
+`option<T>` of its answer. -/
+def checkBounds (p : Program) : Bool :=
+  p.shapes.all (fun sh => (Ty.record sh.name).bounded p && sh.fields.all (·.ty.bounded p)) &&
+    p.states.all (·.ty.bounded p) && p.derives.all (·.ty.bounded p) &&
+    p.resources.all (·.ty.bounded p) && p.mutations.all (fun m => (Ty.option m.ty).bounded p) &&
+    p.actions.all (fun a => a.params.all (·.2.bounded p)) &&
+    p.fns.all (fun fd => fd.ret.bounded p && fd.params.all (·.2.bounded p))
+
 def checkFn (p : Program) (fd : FnDecl) : Bool := inferLe p [] fd.params.reverse fd.body fd.ret
 
 /-- The `i`th state's initializer, in the scope it runs in: a root slot's
@@ -308,7 +359,7 @@ def check (p : Program) : Bool :=
     p.fns.all (checkFn p) &&
     (List.range p.states.length).all (checkState p) && p.derives.all (checkDerive p) &&
     p.resources.all (checkResource p) && p.actions.all (checkAction p) && p.tasks.all (checkTask p) &&
-    checkNodes p (compScope p) [] p.view
+    checkNodes p (compScope p) [] p.view && checkBounds p
 
 /-- Each part of a program and the checker's verdict on it. -/
 def checkParts (p : Program) : List (String × Bool) :=
@@ -321,7 +372,7 @@ def checkParts (p : Program) : List (String × Bool) :=
   p.resources.map (fun r => (s!"resource {r.name}", checkResource p r)) ++
   p.actions.map (fun a => (s!"action {a.name}", checkAction p a)) ++
   p.tasks.map (fun t => (s!"task {t.name}", checkTask p t)) ++
-  [("view", checkNodes p (compScope p) [] p.view)]
+  [("view", checkNodes p (compScope p) [] p.view), ("bounds", checkBounds p)]
 
 /-- The first part the checker refuses, if any (a diagnostic). -/
 def checkFailure (p : Program) : Option String := ((checkParts p).find? (!·.2)).map (·.1)
@@ -365,7 +416,7 @@ theorem inferCall_rest {p : Program} {G Γ : Scope} {name : String} {args : List
               simp at h; subst h; exact .failed hfd hr.1.1 hr.1.2 hr.2
             · simp at h
           · split at h
-            · next ts => exact .roster hfd (hts ts rfl) h
+            · next ts => exact .roster hfd (hts ts rfl) (boundedTy_some h)
             · simp at h
       · split at h
         · next hn =>
@@ -386,7 +437,7 @@ theorem inferCall_rest {p : Program} {G Γ : Scope} {name : String} {args : List
             · simp at h
           · simp at h
         · split at h
-          · next ts => exact .roster hfd (hts ts rfl) h
+          · next ts => exact .roster hfd (hts ts rfl) (boundedTy_some h)
           · simp at h
 
 mutual
@@ -399,7 +450,9 @@ theorem infer_sound {p : Program} {G : Scope} : ∀ {Γ : Scope} (e : Expr) {t :
   | Γ, .none, t, h => by simp [infer] at h; subst h; exact .none
   | Γ, .emptyList, t, h => by simp [infer] at h; subst h; exact .emptyList
   | Γ, .some e, t, h => by
-    simp only [infer, Option.map_eq_some_iff] at h
+    simp only [infer] at h
+    have h := boundedTy_some h
+    simp only [Option.map_eq_some_iff] at h
     obtain ⟨u, hu, rfl⟩ := h
     exact .some (infer_sound e hu)
   | Γ, .template parts, t, h => by
@@ -543,6 +596,7 @@ theorem inferCall_sound {p : Program} {G : Scope} : ∀ {Γ : Scope} (name : Str
           · next hps =>
             split at h
             · next a ha =>
+              have h := boundedTy_some h
               simp only [Option.map_eq_some_iff] at h
               obtain ⟨b, hb, rfl⟩ := h
               exact .map hfd hps (infer_sound l ha) (infer_sound body hb)
@@ -566,7 +620,7 @@ theorem inferCall_sound {p : Program} {G : Scope} : ∀ {Γ : Scope} (name : Str
               · simp at h
             · simp at h
           · split at h
-            · next ts => exact .roster hfd (hts ts rfl) h
+            · next ts => exact .roster hfd (hts ts rfl) (boundedTy_some h)
             · simp at h
     | _ => exact inferCall_rest (by simp) hts h
   | Γ, name, [], ts?, t, hts, h => inferCall_rest (by simp) hts h
@@ -730,8 +784,8 @@ theorem checkNodes_sound {p : Program} {G : Scope} : ∀ {Γ : Scope} (ns : List
 /-- **The checker is sound**: a program it accepts is well typed. -/
 theorem check_sound {p : Program} (h : check p = true) : WellTyped p := by
   simp only [check, Bool.and_eq_true, List.all_eq_true] at h
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hsh, hnames⟩, htypes⟩, hrs⟩, hrslot⟩, hfns⟩, hstates⟩, hderives⟩, hres⟩, hacts⟩,
-    htasks⟩, hview⟩ := h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hsh, hnames⟩, htypes⟩, hrs⟩, hrslot⟩, hfns⟩, hstates⟩, hderives⟩, hres⟩, hacts⟩,
+    htasks⟩, hview⟩, -⟩ := h
   simp only [checkTypes, Bool.and_eq_true, List.all_eq_true] at htypes
   obtain ⟨⟨⟨⟨hst, hdt⟩, hrt⟩, hmt⟩, hat⟩ := htypes
   have hstate : ∀ i st, p.states[i]? = .some st → checkState p i = true := fun i st hi =>
