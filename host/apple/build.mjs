@@ -45,6 +45,8 @@ import { HOST_DEV, checkModuleRoster, copyShaders, appleCargoClaims, awaitBuildO
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
 import { writeDataKeys } from './data-keys.mjs';
+import { appIcon, iosAssets } from './assets.mjs';
+export { appIcon, iosAssets };
 import { deviceLaunchArgs, developmentLaunchEnvironment, identity, macIdentity, phone, profile, showSimulator, simulator, simulators } from './devices.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
@@ -527,88 +529,6 @@ export function launchMode(app) {
   return modes.find((m) => m !== 'auto') ?? 'navigate-existing';
 }
 
-/** The app icon from the manifest's first square icon of at least 512 px
- * (`icons`, the web manifest's own field): loose PNGs named by
- * `CFBundleIcons` on iOS, an `.icns` built by `iconutil` on macOS. Returns
- * the plist keys to merge; nothing when the app declares no such icon. */
-export function appIcon(app, dir, platform, { catalog = false } = {}) {
-  const icon = (app.manifest.icons ?? []).find((i) => { const m = /^(\d+)x(\d+)$/.exec(i.sizes ?? ''); return m && m[1] === m[2] && Number(m[1]) >= 512; });
-  if (!icon) return {};
-  const source = resolve(app.dir, icon.src);
-  if (!existsSync(source)) throw new Error(`host/apple: ${app.name}'s icon ${icon.src} does not exist`);
-  const sized = (px, out) => run('sips', ['-z', String(px), String(px), source, '--out', out], { stdio: 'ignore' });
-  if (platform === 'ios') {
-    for (const [name, px] of [['AppIcon60x60@2x.png', 120], ['AppIcon60x60@3x.png', 180], ['AppIcon76x76@2x~ipad.png', 152], ['AppIcon83.5x83.5@2x~ipad.png', 167]]) sized(px, resolve(dir, name));
-    // A distributed build also compiles the icon into Assets.car: App Store
-    // Connect requires the asset catalog, not loose PNGs.
-    if (catalog) {
-      const set = resolve(catalog, 'AppIcon.appiconset');
-      mkdirSync(set, { recursive: true });
-      sized(1024, resolve(set, 'icon.png'));
-      writeFileSync(resolve(set, 'Contents.json'), JSON.stringify({ images: [{ filename: 'icon.png', idiom: 'universal', platform: 'ios', size: '1024x1024' }], info: { author: 'exact', version: 1 } }));
-    }
-    const primary = (files) => ({ CFBundlePrimaryIcon: { CFBundleIconFiles: files, CFBundleIconName: 'AppIcon' } });
-    return { CFBundleIcons: primary(['AppIcon60x60']), 'CFBundleIcons~ipad': primary(['AppIcon60x60', 'AppIcon76x76', 'AppIcon83.5x83.5']) };
-  }
-  const set = mkdtempSync(resolve(dir, '.icon-')) + '.iconset';
-  mkdirSync(set);
-  for (const base of [16, 32, 128, 256, 512]) {
-    sized(base, resolve(set, `icon_${base}x${base}.png`));
-    sized(base * 2, resolve(set, `icon_${base}x${base}@2x.png`));
-  }
-  run('iconutil', ['-c', 'icns', set, '-o', resolve(dir, 'AppIcon.icns')], { stdio: 'ignore' });
-  rmSync(set, { recursive: true, force: true });
-  return { CFBundleIconFile: 'AppIcon' };
-}
-
-/** All iOS asset sets share one actool pass: each pass replaces Assets.car. */
-export function iosAssets(app, dir, device, { catalog = false } = {}) {
-  const work = mkdtempSync(resolve(tmpdir(), 'exact-ios-assets-'));
-  try {
-    const assets = resolve(work, 'Assets.xcassets');
-    const keys = { ...appIcon(app, dir, 'ios', { catalog: catalog ? assets : false }), ...launchScreen(app, assets) };
-    const hasIcon = existsSync(resolve(assets, 'AppIcon.appiconset'));
-    if (catalog && !hasIcon) throw new Error(`host/apple: ${app.name}'s distribution bundle requires an AppIcon; declare a square icon of at least 512 px`);
-    if (hasIcon || keys.UILaunchScreen) {
-      writeFileSync(resolve(assets, 'Contents.json'), JSON.stringify({ info: { author: 'exact', version: 1 } }));
-      const partial = resolve(work, 'partial.plist');
-      run('xcrun', ['actool', assets, '--compile', dir, '--platform', device ? 'iphoneos' : 'iphonesimulator',
-        '--minimum-deployment-target', app.manifest.host?.ios?.minimumOS ?? '17.0',
-        ...(hasIcon ? ['--app-icon', 'AppIcon', '--target-device', 'iphone', '--target-device', 'ipad'] : []),
-        '--output-partial-info-plist', partial, '--output-format', 'human-readable-text'], { stdio: 'ignore' });
-      Object.assign(keys, JSON.parse(run('plutil', ['-convert', 'json', '-o', '-', partial], { encoding: 'utf8', stdio: 'pipe' }).stdout));
-    }
-    if (catalog) {
-      const contents = JSON.parse(run('xcrun', ['assetutil', '--info', resolve(dir, 'Assets.car')], { encoding: 'utf8', stdio: 'pipe' }).stdout);
-      if (!contents.some(asset => asset.Name === 'AppIcon')) throw new Error(`host/apple: ${dir}/Assets.car has no AppIcon`);
-    }
-    return keys;
-  } finally { rmSync(work, { recursive: true, force: true }); }
-}
-
-/** The launch screen in the app's own background, light and dark
- * (the manifest's `background_color` and `background_color_dark`): iOS crossfades
- * from the launch screen to the first frame, and between two screens of one
- * colour that crossfade is invisible, so the app opens on its first frame.
- * `UILaunchScreen` names colours only from an asset catalog, so this
- * writes its colour set for the shared compile. Returns the plist keys to merge. */
-function launchScreen(app, catalog) {
-  const light = app.manifest.background_color, dark = app.manifest.background_color_dark;
-  if (!light) return {};
-  const components = (hex, field) => {
-    const m = /^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.exec(hex ?? '');
-    if (!m) throw new Error(`${field} must be a #RGB, #RRGGBB or #RRGGBBAA colour, not ${JSON.stringify(hex)}`);
-    const h = m[1].length === 3 ? [...m[1]].map((c) => c + c).join('') : m[1];
-    const a = h.length === 8 ? parseInt(h.slice(6), 16) : 255;
-    return { 'color-space': 'srgb', components: { red: `0x${h.slice(0, 2)}`, green: `0x${h.slice(2, 4)}`, blue: `0x${h.slice(4, 6)}`, alpha: (a / 255).toFixed(3) } };
-  };
-  const colors = [{ idiom: 'universal', color: components(light, 'background_color') }];
-  if (dark) colors.push({ idiom: 'universal', appearances: [{ appearance: 'luminosity', value: 'dark' }], color: components(dark, 'background_color_dark') });
-  mkdirSync(resolve(catalog, 'ExactLaunch.colorset'), { recursive: true });
-  writeFileSync(resolve(catalog, 'ExactLaunch.colorset', 'Contents.json'), JSON.stringify({ colors, info: { author: 'exact', version: 1 } }));
-  return { UILaunchScreen: { UIColorName: 'ExactLaunch' } };
-}
-
 /** The SDK an Apple app records when its manifest asks for the design before
  * iOS 26 and macOS 26 (`host.<platform>.designRequiresCompatibility`): the
  * last before it. iOS 27 and macOS 27 ignore UIDesignRequiresCompatibility
@@ -832,11 +752,10 @@ async function main(args) {
   // at build (injectedProfiles, LLP 1036.001 D1).
   const cargoProfile = cargoEnv.EXACT_UPDATE_TRUST === 'production' ? 'release' : HOST_DEV;
   // host-dev says `incremental = true`, and Cargo lets an inherited
-  // CARGO_INCREMENTAL=0 (another project's shell setup, an agent's prompt)
-  // overrule the profile: a touched kernel line then recompiles the kernel
-  // and everything over it whole, 17 s for 6 (an M5 Pro). The profile is this
-  // build's choice, so the build keeps it and says so, as developmentBuildEnv
-  // does an inherited RUSTUP_TOOLCHAIN.
+  // CARGO_INCREMENTAL=0 (another project's shell setup) overrule the profile:
+  // a touched kernel line then recompiles it whole, 17 s for 6 (an M5 Pro).
+  // The profile is this build's choice, so it keeps it and says so, as
+  // developmentBuildEnv does an inherited RUSTUP_TOOLCHAIN.
   if (cargoProfile === HOST_DEV && cargoEnv.CARGO_INCREMENTAL === '0') {
     console.error('ignoring CARGO_INCREMENTAL=0: a host-dev build compiles incrementally (Cargo.toml)');
     cargoEnv.CARGO_INCREMENTAL = '1';
@@ -856,12 +775,10 @@ async function main(args) {
   const swiftBuildRoot = expected.swift;
   // A development build compiles the Swift host as it compiles its Rust
   // (`host-dev`): optimized, but file by file and incrementally, so an edited
-  // Swift file is a 3-second build and not the whole module again (45 s on an
-  // M4; a cold compile is 25 s, not 57). SwiftPM compiles that way only in its
-  // debug configuration, so the optimization and the dead-code strip are
-  // asked for on top of it. A production bake and what is distributed (an
-  // archive, the Mac bundle `exact release` signs) keep the whole-module
-  // build, which is the smaller and faster binary.
+  // Swift file is a 3-second build and not the whole module's 45 (an M4; LLP
+  // 1036.000 §6). SwiftPM compiles that way only in its debug configuration,
+  // so the optimization is asked for on top of it. A production bake and
+  // what is distributed keep the whole-module build, the smaller and faster.
   const swiftWhole = cargoProfile === 'release' || distribution;
   // One `swift build` per product: given two `--product` flags SwiftPM
   // builds only the last; the second build is incremental and quick.
@@ -907,32 +824,26 @@ async function main(args) {
     EXACT_APP_COMPOSITION: composition,
   });
   // ExactKit is the same for every app and needs nothing of this one's Rust,
-  // so its compile starts here and runs beside the bake: a cold build's Swift
-  // (25 s, or 55 as a whole module) and its Rust (58 s) overlap, as do the
-  // two halves of a pull that changed both. Only the link waits for the
-  // archive. Another app's build compiling the same scratch is SwiftPM's own
-  // lock's; the claim below is for the link. `--embed` alone builds no Swift.
+  // so its compile starts here and runs beside the bake; only the link waits
+  // for the archive. Another app's build compiling the same scratch is
+  // SwiftPM's own lock's; the claim below is the link's. `--embed` alone
+  // builds no Swift.
   const embedOnly = args.includes('--embed') && !args.includes('--run') && !args.includes('--host');
   const hostCompile = embedOnly ? null : startApple('swift', [...swiftArgs, '--target', 'ExactKit'], resolve(webBuildDir, 'swift-compile.log'),
     { cwd: pkg, env: swiftEnv(expected.capture, expected.composition) });
   if (hostCompile) beside.push(hostCompile);
   // The host's two Rust modules (SVG islands, Canvas 2D on the GPU) are the
-  // same for every app too, and start with it. They build with the app's
-  // profile: a development build's were `release`, the kernel in one codegen
-  // unit and through thin LTO, 27 of the 35 s a touched kernel line cost and
-  // 57 of a cold build's 184 s (an M4). Their build directory is their own,
-  // because Cargo runs one build at a time in a directory and they would wait
-  // for the whole bake; what they share with the app (the kernel) is compiled
-  // for both, at once. Cargo's two copies of the kernel had already parted
-  // when the app's graph turned on a feature of a crate under it.
-  // Unstripped: Xcode 27's strip leaves the SVG dylib with a mis-aligned
-  // LINKEDIT string pool that dyld refuses (as Cargo.toml says of build
-  // scripts), even at `strip = "debuginfo"`, and the iOS canvas module
-  // unloadable the same way (found by dlopen in the simulator, 2026-09-30);
-  // that crate's build.rs has the linker omit its local symbols (-Wl,-x).
-  // The Canvas 2D GPU module's shaders are Metal libraries compiled at build
-  // time, which needs Xcode's Metal toolchain; without it the app is built
-  // without the module (canvases draw with Core Graphics).
+  // same for every app too, and start with it, in the app's profile: at
+  // `release` the kernel went through one codegen unit and thin LTO, 27 of
+  // the 35 s a touched kernel line cost (LLP 1036.000 §5, §7). Their build
+  // directory is their own, since Cargo runs one build at a time in a
+  // directory and they would wait for the whole bake; the kernel is compiled
+  // for both at once. Unstripped: Xcode 27's strip leaves the SVG dylib with
+  // a mis-aligned LINKEDIT string pool that dyld refuses (as Cargo.toml says
+  // of build scripts) and the iOS canvas module unloadable the same way
+  // (2026-09-30); that crate's build.rs omits its local symbols (-Wl,-x).
+  // The canvas module's shaders are Metal libraries compiled at build time:
+  // without Xcode's Metal toolchain there is none, and Core Graphics draws.
   const moduleTarget = resolve(process.env.CARGO_TARGET_DIR ?? resolve(root, 'target'), 'apple-modules');
   const moduleLibDir = resolve(moduleTarget, target, cargoProfile);
   mkdirSync(moduleTarget, { recursive: true });
@@ -1034,15 +945,25 @@ async function main(args) {
   // executable is in this build's private stage before the claim is let go.
   await hostCompile?.done({ repeated: true });
   let stripped = null;
+  // The compiler, by its version: part of the name of what is kept from one build to the next.
+  const swiftc = read('xcrun', ['--sdk', sdkName, 'swiftc', '--version']).stdout ?? '';
   mkdirSync(dirname(paths.swiftLock), { recursive: true });
   const releaseSwift = awaitBuildOutput(app, paths.swiftLock, (owner) => console.log(`host/apple: waiting for the Swift build of ${owner} in ${swiftBuildRoot.replace(root + '/', '')}`));
   try {
     // SwiftPM owns its output layout. Swift Build and the native build system
-    // use different directories; ask with the same destination arguments.
-    const located = read('swift', [...swiftArgs, '--show-bin-path'], { cwd: pkg, env });
-    if (located.status !== 0) throw new Error(`swift output path: ${located.stderr}`);
-    const swiftBinDir = located.stdout.trim();
-    if (!swiftBinDir || !isAbsolute(swiftBinDir)) throw new Error('swift returned no absolute binary output path');
+    // use different directories; ask with the same destination arguments —
+    // once for each compiler and arguments, since asking is half a second of
+    // every build: the answer is kept in the scratch it names.
+    const answer = resolve(swiftBuildRoot, `bin-path-${createHash('sha256').update(JSON.stringify([swiftc, swiftArgs])).digest('hex').slice(0, 16)}`);
+    let swiftBinDir = existsSync(answer) ? readFileSync(answer, 'utf8') : '';
+    if (!swiftBinDir || !existsSync(swiftBinDir)) {
+      const located = read('swift', [...swiftArgs, '--show-bin-path'], { cwd: pkg, env });
+      if (located.status !== 0) throw new Error(`swift output path: ${located.stderr}`);
+      swiftBinDir = located.stdout.trim();
+      if (!swiftBinDir || !isAbsolute(swiftBinDir)) throw new Error('swift returned no absolute binary output path');
+      mkdirSync(swiftBuildRoot, { recursive: true });
+      writeFileSync(answer, swiftBinDir);
+    }
     for (const p of products) rmSync(resolve(swiftBinDir, p), { force: true });
     for (const p of products) {
       const productArgs = [...swiftArgs];
@@ -1084,7 +1005,6 @@ async function main(args) {
   // artifact (`own`) in its own directory, so two apps never evict each
   // other's. Each is written under this process's name and renamed, since
   // another app's build may be compiling the same arm.
-  const swiftc = read('xcrun', ['--sdk', sdkName, 'swiftc', '--version']).stdout ?? '';
   const arm = (args, source, built, extra = '', own = false) => {
     const key = createHash('sha256').update(JSON.stringify([args.map(a => a === built ? '<out>' : a), [].concat(source).map(f => readFileSync(f, 'utf8')), swiftc, extra])).digest('hex').slice(0, 16);
     const dir = resolve(own ? linkRoot : swiftBuildRoot, 'arms'), cached = resolve(dir, `${key}-${basename(built)}`);
@@ -1310,7 +1230,7 @@ async function main(args) {
   copyAppleStaticTrees(paths.capture, bundle);
   verifyBakeFiles(bakedCompat, bakedPlan, listAssets(bundle, true));
   // tvOS icons are layered brand assets, which actool's iPhone/iPad icon set does not make; tvOS builds have none yet.
-  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: bakedCompat.reach, icon: tv ? {} : iosAssets(app, bundle, device, { catalog: !!ipa }), distribution: ipa ? distributionKeys() : null, tv }));
+  writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: bakedCompat.reach, icon: tv ? {} : iosAssets(app, bundle, device, { catalog: !!ipa, kept: { dir: resolve(linkRoot, 'assets'), stamp: swiftc } }), distribution: ipa ? distributionKeys() : null, tv }));
   writeUsageStrings(bakedCompat.reach, bundle);
   if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', loadName));
   for (const m of moduleDylibs) copyFileSync(resolve(libDir, m.built), resolve(bundle, 'Frameworks', m.load));

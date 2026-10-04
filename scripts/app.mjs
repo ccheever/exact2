@@ -22,7 +22,7 @@
 // validator small enough to live beside the reader; an app without one gets
 // the derived defaults it had before the manifest existed.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -977,7 +977,20 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   if (platform === 'macos' || platform === 'ios') {
     const packageRoot=resolve(ROOT,'host/apple');
     const swiftEnv = {...env, EXACT_APP_COMPOSITION: compat.inputs.store.L === '0' ? 'embedded' : 'updating'}; delete swiftEnv.SDKROOT;
-    const swift=JSON.parse(buildCommand('swift',['package','--package-path',packageRoot,'describe','--type','json'],app,swiftEnv).stdout);
+    // SwiftPM's description of the package is 0.6 s of every build, and it is a
+    // function of the manifest, the composition and which files are there:
+    // asked once for each, kept beside the Swift scratch.
+    const tree=(dir)=>readdirSync(dir,{withFileTypes:true}).flatMap((e)=>e.isDirectory()?tree(resolve(dir,e.name)):[resolve(dir,e.name)]).sort();
+    const described=resolve(app.target,'apple-swift',`package-${buildHash(canonicalBuild([readFileSync(resolve(packageRoot,'Package.swift'),'utf8'),swiftEnv.EXACT_APP_COMPOSITION,swiftEnv.EXACT_TESTS??null,tree(resolve(packageRoot,'Sources')).map((f)=>relative(packageRoot,f))])).slice(0,16)}.json`);
+    if(!existsSync(described)) {
+      mkdirSync(dirname(described),{recursive:true});
+      writeFileSync(`${described}.${process.pid}.tmp`,buildCommand('swift',['package','--package-path',packageRoot,'describe','--type','json'],app,swiftEnv).stdout);
+      renameSync(`${described}.${process.pid}.tmp`,described);
+      // Both compositions' are kept, and a few before them; an added file makes a new one.
+      const kept=readdirSync(dirname(described)).filter((f)=>/^package-[0-9a-f]{16}\.json$/.test(f)).map((f)=>resolve(dirname(described),f)).sort((a,b)=>statSync(b).mtimeMs-statSync(a).mtimeMs);
+      for(const old of kept.slice(6))rmSync(old,{force:true});
+    }
+    const swift=JSON.parse(readFileSync(described,'utf8'));
     const pending=[platform==='ios'?'ExactIOS':'ExactMac'],seen=new Set();
     while(pending.length) { const name=pending.pop();if(seen.has(name))continue;seen.add(name);const unit=swift.targets.find((t)=>t.name===name);if(!unit)throw new Error(`Swift package has no ${name}`);
       for(const file of unit.sources??[])add(resolve(packageRoot,unit.path,file));

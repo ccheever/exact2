@@ -199,7 +199,11 @@ canonical source directory, manifest id, destination, composition and trust
 policy. The Swift host is compiled once per destination for every app, in
 `<target>/apple-swift/<destination>-<minimum OS>`; each app only links there,
 one at a time, and its executable is copied to its own products before the next
-app links (LLP 1036.000). `--bundle` prints the stable Mac bundle at
+app links. A development build compiles it file by file and incrementally, and
+beside the app's Rust; the host's two Rust modules build in
+`<target>/apple-modules`. What is distributed (`--archive`, `exact release`) is
+the whole-module build, stripped, with its dSYM and whole receipt beside it
+(LLP 1036.000 §5–§9). `--bundle` prints the stable Mac bundle at
 `<target>/clients/<source-key>/<id>/macos/<Name>.app`; `scripts/exact.mjs`,
 `agent --app` and metrics use that same resolver. `--host` leaves both standalone
 and sample products; simulator and device bundles have separate destinations.
