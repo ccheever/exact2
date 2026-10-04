@@ -796,3 +796,21 @@ passes; macOS's optional scan is unavailable while every owned carrier closes.
 Both market captures were inspected. Artifacts: `artifacts/main-8c-{web,macos}/`.
 Rivals diary 006 records the shared checks and the correction of recent test
 totals that had counted nested subprocess result lines twice.
+
+## Main's button and colour update (2026-10-04)
+
+At Charlie's reminder to keep current, merge `a0a6d35fa` brings 120 commits
+through main `c2e909694`, before beginning the separate lost-player recovery
+change. The shared CSS colour parser supersedes our older local parser;
+main's button alignment removes Garden's hand-written label padding. Both
+sets of queue findings are preserved. The SDK and all three game lockfiles
+need the new `exact-canvas -> exact-motion` edge, captured with the existing
+`--update-lock` command.
+
+Garden's full proof passes on web (158.2 s) and macOS (66.9 s), including
+builds beside other verification. Inputs, every pin, four world observations
+and six saves agree. Both market screenshots were inspected: the controls
+are centred and readable, with the crop spacing and active plot retained.
+Both optional descendant scans are unavailable; all owned carriers close.
+Artifacts: `artifacts/main-c2-{web,macos}/`. Rivals diary 006 records the shared
+checks. No Garden logic or Jev policy changed; recovery guidance remains next.

@@ -942,3 +942,34 @@ web build takes 23.07 s. Existing duel/drill hashes remain unchanged; the new
 A final normal Linux proof reports `PASS` in 1.23 s. The measured spawn-timing
 queue item is closed. Garden and Forest also pass their complete proofs on both
 hosts after this SDK update, as their diaries record.
+
+## Main's button and colour update (2026-10-04)
+
+Charlie asked to keep updating from fast-moving main. Merge `a0a6d35fa`
+brings 120 commits through `c2e909694` at the next clean boundary, before the
+next gameplay change. Conflicts preserve both sets of queued findings and
+take main's shared CSS colour parser. Main also carries native input fixes,
+button content alignment and Apple build caching. Continue syncing between
+verified batches, keeping the source fixed during a proof collector.
+
+All five root gates pass: build, 2,347 enabled tests across 80 binaries (nine
+ignored), strict Clippy, formatting, caps and boot. Counts use each Cargo
+binary's final result once, excluding nested test subprocess summaries.
+The broader app/shell/generator suite runs 111 tests: 108 pass, two optional
+skips, one failure because the SDK's shared game lock omitted the new
+`exact-canvas -> exact-motion` edge. Refreshing it and the three game locks
+with the existing command makes all three focused lock tests pass, including
+the failed case. The generated-game test also builds and drives its new game
+on Linux and web. Logs: `/tmp/exact2-mainc2-{build,test,clippy,tools}.log` and
+`/tmp/exact2-mainc2-sdk-lock-test.log`. Advisory semantics verification with
+`quick --base a3322d7a2` still cannot run: `lake` is absent, not a pass.
+
+Rivals' full proof passes on web (147.0 s) and macOS (69.8 s). Inputs, every
+existing pin, nine world observations and eleven saves agree, including
+Mayhem, the range and the restored bot detour. Both title and Mayhem captures
+were inspected: all four modes and the gameplay HUD remain readable. Web's
+descendant audit passes; macOS's optional scan is unavailable while every
+owned carrier closes. Artifacts: `artifacts/main-c2-{web,macos}/`. Garden and
+Forest also pass both hosts with unchanged pins; their diaries record the
+comparisons. These wall times include builds and concurrent checks, not
+isolated performance measurements. No gameplay or Jev policy changed.

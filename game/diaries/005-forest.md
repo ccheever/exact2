@@ -777,3 +777,15 @@ observations and twelve saves agree. Web's process audit passes; macOS's
 optional scan is unavailable while every owned carrier closes. Both chopping
 captures were inspected. Artifacts: `artifacts/main-8c-{web,macos}/`. No Forest
 gameplay or Jev-policy change here; Rivals diary 006 records the shared checks.
+
+## Main's button and colour update (2026-10-04)
+
+Merge `a0a6d35fa` brings 120 commits through main `c2e909694`. Forest's full
+proof passes on web (168.6 s) and macOS (158.4 s), including builds beside
+other verification. Inputs, every pin, seven world observations and twelve
+saves agree. Both chopping screenshots were inspected; compass, recovery
+prompt and survival labels remain readable. Web's descendant audit passes;
+macOS's optional scan is unavailable while every owned carrier closes.
+Artifacts: `artifacts/main-c2-{web,macos}/`. Forest's lock captures the new
+shared colour-parser dependency. Rivals diary 006 records the shared checks;
+no Forest logic or Jev policy changed.
