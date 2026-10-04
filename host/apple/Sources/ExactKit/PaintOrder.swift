@@ -118,10 +118,12 @@ extension NodeView {
             let zero = ranks.firstIndex(of: 0)!
             dense.positions = Dictionary(uniqueKeysWithValues: ranks.enumerated().map { ($0.element, CGFloat($0.offset - zero) * 0.001) })
         }
-        // A document-plane view (a navigation container) sits just above
-        // rank ½ (the encoded 1: positioned or stacking, `z-index` auto or 0)
-        // and below `z-index: 1`, whatever its subview place.
-        for child in children { child.setPaintPosition(dense.positions[child.siblingPaintRank]! + (child.paintDocumentPlane ? 0.0005 : 0)) }
+        // A document-plane view (a navigation container) takes rank ½ (the
+        // encoded 1: positioned or stacking, `z-index` auto or 0), as the
+        // positioned route holders it stands for: among equals its subview
+        // place — the routes' place in the tree (`placeOwner`) — orders it,
+        // as CSS paints positioned siblings in tree order.
+        for child in children { child.setPaintPosition(dense.positions[child.siblingPaintRank]!) }
     }
 
     /// Live children may reorder around an exit, but the ghost keeps its
@@ -160,17 +162,17 @@ extension PaintView {
     fileprivate var paintForeground: Bool { paintPlane != nil }
     private var paintPlane: Int64? { objc_getAssociatedObject(self, &paintForegroundKey) as? Int64 }
     fileprivate var siblingPaintRank: Int64 { paintPlane ?? (self as? NodeView)?.paintRank ?? 0 }
-    fileprivate var paintDocumentPlane: Bool { paintPlane == 1 }
 
     /// A native view among authored siblings. A top-layer popover or a
     /// transition snapshot sits above every ranked sibling. A native
-    /// navigation container sits just above rank ½ (positioned or stacking,
-    /// `z-index` auto or 0): over its authored route holders and every
-    /// sibling without a positive `z-index`, wherever its subview place, and
-    /// under an authored overlay with a positive `z-index`, as before dense
-    /// ranks (LLP 1083.000 D4, the kernel's `paint_order::rank`). Signal
-    /// Clone's call screen and menus, root siblings with `z-index` after
-    /// the tab container, hid under it.
+    /// navigation container takes rank ½ (positioned or stacking, `z-index`
+    /// auto or 0), the rank of the positioned route holders it stands for:
+    /// over in-flow siblings, under an authored overlay with a positive
+    /// `z-index` (Signal Clone's call screen and menus hid under it), and
+    /// among equals where its subview place puts it — the routes' place in
+    /// the root's children — so a later positioned sibling, a root sheet
+    /// with no `z-index`, paints and takes touches over it, as on the web
+    /// (chat2 diary; LLP 1083.000 D4, the kernel's `paint_order::rank`).
     func setPaintForeground(_ on: Bool = true, aboveAuthored: Bool = true) {
         #if os(macOS)
         if on { wantsLayer = true }
