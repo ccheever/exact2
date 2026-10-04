@@ -712,7 +712,7 @@ subsequent async data parity, iOS simulator guard sweep and TypeScript Caltrain
 UI drive, physical iOS guard execution and physical live-URL replacement;
 signed module delivery remains owed.
 
-#### D5 Windows captured-module paths (2026-10-04, proposed)
+#### D5 Windows captured-module paths (2026-10-04, implemented)
 
 **Implementer:** Codex Windows lane, 2026-10-04. This is a bounded repair of
 the existing producer containment check. Parent independently reviewed and
@@ -784,6 +784,20 @@ strict Clippy passed, caps and boot passed. All 164 workspace packages passed
 format checking before the narrow change; both affected packages passed again
 after it. The optional Contract differential check was attempted and refused
 because `lake` is not installed; no Lean qualification is claimed.
+
+After rebasing onto `80c52506c` (platform colours), the default build and
+2,319 tests passed (54 existing ignores), default and native presenter strict
+Clippy passed, all 164 packages passed formatting, and caps/boot passed.
+The six actual producer library tests passed again. The rebuilt Contract CLI
+resolved and compiled Skirmish's single source and Markdown's app plus package
+source, with source maps. A focused native tint test passed with explicit CPU
+painting. Its first run had mistakenly named `EXACT_PAINT` rather than
+`EXACT_PAINTER`, so that successful Auto-painter run is not CPU-only evidence;
+the corrected run is recorded separately under `target/upstream-80c/`.
+The incoming colour schema changes its checked wire digest and bake identity;
+old style modules must be rebuilt. Game EXSIM v7 is unchanged, and Skirmish
+uses explicit text colours and no symbol tint. Native/browser game consumer
+qualification against this newer SDK remains separate from this compiler fix.
 
 Qualification is the existing actual TypeScript/Rolldown no-Hermes tests in
 both producer modes plus a bounded real-filesystem guard regression: nested
