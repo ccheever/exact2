@@ -120,6 +120,14 @@ fn main() -> ExitCode {
                 eprintln!("app.bind.plan: {e}");
                 return ExitCode::from(1);
             }
+            // What `app.ts` is type-checked against, as the native bake
+            // checks it (host/web-js/build.mjs; calendar F9).
+            if let Err(e) = contract::typescript(&plan).and_then(|d| {
+                std::fs::write(dir.join("app.contract.d.ts"), d).map_err(|e| e.to_string())
+            }) {
+                eprintln!("app.contract.d.ts: {e}");
+                return ExitCode::from(1);
+            }
             // A Contract compiled here is also the plan beside the pages
             // (the build's `app.plan`), so the build runs no second compile.
             if !input.ends_with(".plan") {

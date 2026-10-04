@@ -665,8 +665,9 @@ Each request captures the current source graph and runs full strict diagnostics;
 bundling and HBC compilation overlap checking, but bytecode inspection and the bake
 wait for checking to succeed. Resolved type-only imports must also stay inside the
 capture or pinned standard libraries. An invalid, deleted or superseded input
-cannot reuse a previous successful result. Both producer paths check the full
-`ES2020,WebWorker` standard libraries: data modules use web APIs, not DOM UI types
+cannot reuse a previous successful result. Both producer paths, and the web build
+(calc F2, calendar F9: one configuration, `js/bake/src/typescript.mjs`), check the
+full ES2023 and `WebWorker` standard libraries: data modules use web APIs, not DOM UI types
 such as `Window`, `Document` or `HTMLElement`, which native hosts cannot support.
 This is a cross-host type boundary, not a sandbox: the browser iframe can expose
 additional globals incidentally, and ambient worker types grant no runtime API.
