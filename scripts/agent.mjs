@@ -1174,11 +1174,16 @@ export async function browserKey({id, opts, evaluate, ask, call, frame}) {
   let code = opts.key, key, vk;
   if (/^Key[A-Z]$/.test(code)) { key = code.slice(3).toLowerCase(); vk = code.charCodeAt(3); }
   else if (/^Digit[0-9]$/.test(code)) { key = code.slice(5); vk = code.charCodeAt(5); }
+  // A key by its `key` name works as on every other target (pomodoro F5): a
+  // letter or digit on its US key, punctuation on its own, a named key.
+  else if (/^[a-zA-Z0-9]$/.test(code)) { key = code; vk = code.toUpperCase().charCodeAt(0); code = /\d/.test(code) ? `Digit${code}` : `Key${code.toUpperCase()}`; }
+  else if (code.length === 1 && code !== ' ') { key = code; vk = 0; code = { '-': 'Minus', '=': 'Equal', '[': 'BracketLeft', ']': 'BracketRight', '\\': 'Backslash', ';': 'Semicolon', "'": 'Quote', '`': 'Backquote', ',': 'Comma', '.': 'Period', '/': 'Slash' }[code] ?? ''; }
   else {
-    const special = { ArrowUp: ['ArrowUp', 38], ArrowDown: ['ArrowDown', 40], ArrowLeft: ['ArrowLeft', 37], ArrowRight: ['ArrowRight', 39], Space: [' ', 32], Enter: ['Enter', 13], Escape: ['Escape', 27], Shift: ['Shift', 16], ShiftLeft: ['Shift', 16], ShiftRight: ['Shift', 16] }[code];
-    if (!special) throw new Error(`key: unsupported code ${code}`);
+    const special = { ArrowUp: ['ArrowUp', 38], ArrowDown: ['ArrowDown', 40], ArrowLeft: ['ArrowLeft', 37], ArrowRight: ['ArrowRight', 39], Space: [' ', 32], ' ': [' ', 32], Enter: ['Enter', 13], Escape: ['Escape', 27], Tab: ['Tab', 9], Backspace: ['Backspace', 8], Delete: ['Delete', 46], Home: ['Home', 36], End: ['End', 35], PageUp: ['PageUp', 33], PageDown: ['PageDown', 34], Shift: ['Shift', 16], ShiftLeft: ['Shift', 16], ShiftRight: ['Shift', 16], ...Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`F${i + 1}`, [`F${i + 1}`, 112 + i]])) }[code];
+    if (!special) throw new Error(`key: unsupported key ${code}`);
     [key, vk] = special;
     if (code === 'Shift') code = 'ShiftLeft';
+    if (code === ' ') code = 'Space';
   }
   const reply = phase => ({ typed: id, key: opts.key, ...(phase != null ? { phase } : {}), delivery: 'platform' });
   const release = async () => {

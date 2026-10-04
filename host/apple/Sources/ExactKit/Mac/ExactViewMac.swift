@@ -149,7 +149,10 @@ public final class ExactView: NSView {
                 let code=KeyCodes.mac[Int(event.keyCode)] ?? "Unidentified"
                 if event.modifierFlags.intersection([.command,.control]).isEmpty,
                    self.session.canvases.pressedControlKey(code,down:event.type == .keyDown,timestamp:event.timestamp) {return nil}
-                return event.type == .keyDown && self.session.presenter.shortcuts.perform(event) ? nil : event
+                if event.type == .keyDown && self.session.presenter.shortcuts.perform(event) { return nil }
+                // The focused node's `key` handlers and its ancestors', before
+                // a field editor can take the key; a prevented one goes no further.
+                return self.session.presenter.keyDown(event) ? nil : event
             }
         }
         // Mounted and visible participate in frame demand (D3): an unmounted

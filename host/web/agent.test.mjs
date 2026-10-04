@@ -558,7 +558,8 @@ test('programmatic web opens stay on Chrome and Firefox drives a small Exact pla
     await session.type('field', {key:'a'});
     await session.type('press', {key:'Enter',phase:'down'});
     await session.type('press', {key:'Enter',phase:'up'});
-    await expect(session.type('press', {key:'a'})).rejects.toThrow('key: unsupported code a');
+    await session.type('press', {key:'a'}); // a key by its name, on a button too (pomodoro F5)
+    await expect(session.type('press', {key:'Hyper'})).rejects.toThrow('key: unsupported key Hyper');
     const beforeRefusals = JSON.stringify((await session.state()).slots);
     await expect(session.tap('touch', {down:true})).rejects.toThrow('firefox down unsupported:');
     await expect(session.pointer('move', {dx:20,dy:10,ms:32})).rejects.toThrow('firefox move unsupported:');

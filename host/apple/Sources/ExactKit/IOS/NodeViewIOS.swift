@@ -313,10 +313,12 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         let presses=pressedControls(presses,down:true)
         if presses.isEmpty {return}
         if inputCanvas?.canvasInput?.presses(presses, down: true, source: self) == true { return }
-        if !disabled, handlers.contains("press"), let key = presses.first?.key,
-           ["Enter", " "].contains(NodeView.keyName(key)) { presenter?.press(id); return }
-        guard !disabled, handlers.contains("key"), let key = presses.first?.key else { return super.pressesBegan(presses, with: event) }
-        presenter?.key(id, NodeView.keyName(key))
+        // The focus's `key` handlers and its ancestors' (KeyEvents.swift); an
+        // ancestor UIKit passes the presses up to dispatches none again.
+        let name = presses.first?.key.map(NodeView.keyName)
+        if !disabled, isFirstResponder, let name, presenter?.keyDown(at: self, name) == true { return }
+        if !disabled, handlers.contains("press"), let name, ["Enter", " "].contains(name) { presenter?.press(id); return }
+        super.pressesBegan(presses, with: event)
     }
     override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
         #if os(tvOS)
@@ -330,21 +332,6 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         let presses=pressedControls(presses,down:false)
         if presses.isEmpty {return}
         if inputCanvas?.canvasInput?.presses(presses, down: false, source: self) != true { super.pressesCancelled(presses, with: event) }
-    }
-    /// The web's key names for UIKit's.
-    static func keyName(_ key: UIKey) -> String {
-        switch key.keyCode {
-        case .keyboardReturnOrEnter, .keypadEnter: return "Enter"
-        case .keyboardEscape: return "Escape"
-        case .keyboardTab: return "Tab"
-        case .keyboardDeleteOrBackspace: return "Backspace"
-        case .keyboardDeleteForward: return "Delete"
-        case .keyboardUpArrow: return "ArrowUp"
-        case .keyboardDownArrow: return "ArrowDown"
-        case .keyboardLeftArrow: return "ArrowLeft"
-        case .keyboardRightArrow: return "ArrowRight"
-        default: return key.charactersIgnoringModifiers
-        }
     }
     /// A pointer over the node (an iPad's trackpad or mouse; a phone has
     /// none): `hover` in and out.
@@ -368,11 +355,13 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
         guard !disabled else { return false }
+        // The software keyboard's Return is a key the handlers hear first (a
+        // hardware one's they heard in `pressesBegan`); prevented, it neither
+        // commits nor submits.
+        if (textField as? TextField)?.heard != "Enter", presenter?.keyDown(at: self, "Enter") == true { return false }
         presenter?.commitEdit(id, textField.text ?? "", change: handlers.contains("change"))
-        // Enter in an input with a `submit` handler is the web's implicit
-        // submission; a `key` handler hears it as Enter as well.
+        // Enter in an input with a `submit` handler is the web's implicit submission.
         if handlers.contains("submit") { presenter?.submit(id) }
-        if handlers.contains("key") { presenter?.key(id, "Enter") }
         return false
     }
 

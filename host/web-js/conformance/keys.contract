@@ -1,0 +1,30 @@
+// Synthetic conformance plan: `key` is the DOM's keydown
+// (docs/contract-grammar.md#keys). A key at a field bubbles to its
+// ancestors' handlers, innermost first, and a printable one is typed unless a
+// handler calls `preventDefault()` (calc F3); a grid claims ArrowDown and
+// Space, so the scroller around it does not move (minesweeper F7).
+component Keys
+  state text = ""
+  state heard = ""
+  state cursor = 0
+  action typed(v: string)
+    text = v
+  action field(k: string)
+    heard = `${heard}f${k}`
+    if k == "x"
+      preventDefault()
+  action outer(k: string)
+    heard = `${heard}o${k}`
+  action grid(k: string)
+    if k == "ArrowDown"
+      cursor = cursor + 1
+      preventDefault()
+    if k == " "
+      cursor = 0
+      preventDefault()
+  view
+    column testId="page" key=outer height=320 overflow-y="scroll" gap=8 padding=8
+      input value=text input=typed key=field testId="field" padding=8
+      text heard testId="heard"
+      column key=grid testId="grid" height=900 background-color="#eeeeee"
+        text `${cursor}` testId="cursor"

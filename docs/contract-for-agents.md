@@ -463,7 +463,12 @@ test "an action uses its computed next value"
 This test goes with the complete example above. The steps are `tap "id" [hover]`,
 `type "id" "text"` or `type "id" key "Name"`, `clock settle|+ms|ms`,
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`,
-and `expect state name == <number|string|bool|none|[]>`. Not every interactive
+and `expect state name == <number|string|bool|none|[]>`. `type "id" key "Name"`
+focuses the target if it takes the focus (else leaves the focus where it is)
+and presses the key as a keyboard would on every host: its `key` handlers,
+then its default — `"7"` types into a field, `"Enter"` submits it, `"Space"`
+presses a button, `"r"` reaches an `aria-keyshortcuts="r"` button
+([keys](contract-grammar.md#keys)). Not every interactive
 driver operation is a test-file statement. `contract test` parses and prints JSON;
 `agent.mjs <host> --test <file>` actually drives the app.
 

@@ -211,6 +211,7 @@ export const Hosts = {
   setScheme: s => { document.documentElement.style.colorScheme = s === "system" ? "" : s; },
   copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), // LLP 1077 D14: vibration where the browser has it
 };
+let KeyEvent = null; Hosts.preventDefault = () => KeyEvent?.preventDefault(); // the keydown whose `key` handler is running (`on`): commands run before its commit returns
 function command(name, args) {
   const f = Hosts[name];
   say(`command ${name}`);
@@ -778,7 +779,7 @@ export function on(e, kind, f) {
     // an input's value would flatten).
     case "change": case "input": return l(kind, ev => { if (ev instanceof CustomEvent) return f(ev.detail); if (e.type !== "checkbox") return f(e.value); f(e.checked); if (e.$checked !== undefined && e.checked !== e.$checked) e.checked = e.$checked; });
     case "hover": l("pointerenter", () => f(true)); return l("pointerleave", () => f(false));
-    case "key": return l("keydown", ev => f(ev.key));
+    case "key": return l("keydown", ev => { const outer = KeyEvent; KeyEvent = ev; try { f(ev.key); } finally { KeyEvent = outer; } }); // it bubbles to every ancestor's handler
     case "submit": return l("keydown", ev => { if (ev.key === "Enter" && !ev.isComposing) { ev.preventDefault(); f(); } });
     // Only from the origin of the src the app committed (glue.js
     // `guestMessageAuthorized`, LLP 1020 D2): a guest that navigated away is
@@ -1273,7 +1274,6 @@ export function checkpoint() {
 /** A checkpoint value (`push_value`, host/web/src/page.rs) as a runtime value:
  * lists and records are arrays, unit and `none` null, `some(v)` v. */
 const value_ = v => v === null || typeof v !== "object" ? v : Array.isArray(v) ? v.map(value_) : "r" in v ? v.r.map(value_) : "s" in v ? value_(v.s) : "n" in v ? Number(v.n) : null;
-
 // ---------------------------------------------------------------- the roster (runner/src/stdlib.rs)
 /** A native module's props (LLP 1024 D1): key/value pairs to one JSON
  * object of strings, a none left out (`stdlib::native_props`). */

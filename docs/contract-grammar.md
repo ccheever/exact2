@@ -414,13 +414,51 @@ also carry `navigationKey` and `navigationBack`. Transform geometry/release
 bindings are required as a pair. See
 [`handler_arity`](../contract/analyze/src/lib.rs) and the corresponding corpus/tests.
 
+### Keys
+
+`key` is the DOM's `keydown`, on every host (web, macOS, iOS and iPadOS with a
+hardware keyboard, Linux):
+
+- **Where.** The key goes to the focused element: a field or textarea being
+  edited, a `button`, or any element with a `focus`, `blur` or `key` handler
+  (such an element takes the focus, as `tabindex="0"` gives it). It then bubbles: the
+  focused element's handler hears it first, then every ancestor's, innermost
+  first. With nothing focused, only `aria-keyshortcuts` buttons hear keys.
+- **What.** The payload is `KeyboardEvent.key`: the character typed, Shift's
+  included (`"a"`, `"A"`, `"7"`, `" "`, `"/"`), or the key's name (`"Enter"`,
+  `"Escape"`, `"Tab"`, `"Backspace"`, `"Delete"`, `"ArrowUp"`…, `"Home"`,
+  `"End"`, `"PageUp"`, `"PageDown"`, `"F1"`…). Every key is heard, printable
+  ones in a field included. Keys an input method is composing are its own.
+- **Then the default.** After the handlers, the key does what it would have:
+  a character is typed into the focused field, Backspace deletes, Enter
+  submits an input (`submit`) or presses a button, Space presses a button,
+  Tab moves the focus, arrows move the caret; on the web arrows, Space and
+  the page keys also scroll the page or the focus's scroller (a native
+  scroller does not scroll by key, so there is nothing there to prevent).
+- **Claiming a key.** An action run by a `key` event that calls the host
+  command `preventDefault()` is the handler's `event.preventDefault()`: that
+  default does not happen. Ancestors' handlers still hear the key, as they do
+  on the web. Call it only for the keys you handle, so typing still works:
+
+```contract
+action move(k: string)
+  if k == "ArrowDown"
+    cursor = cursor + 1
+    preventDefault()
+```
+
+- **Shortcuts.** An `aria-keyshortcuts` button hears its chord before any
+  `key` handler, and takes the key (no `key` handler hears it). The web and
+  macOS carry them; iOS does not yet.
+
 ## Host commands
 
 The current command name inventory is:
 
 `blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `focus`, `format`,
 `openURL`, `selectText`, `setScheme`, `showPicker`, `share`, `saveFile`,
-`showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`.
+`showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`,
+`haptic`, `postMessage`, `reload`, `preventDefault` ([keys](#keys)).
 
 These appear only as action statements. They are not ordinary value-returning
 functions. Some have dedicated compiler checks while others also rely on host
