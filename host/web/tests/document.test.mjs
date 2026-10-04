@@ -7,7 +7,7 @@ import { test, expect } from 'bun:test';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer } from 'node:http';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { Cdp, assertWebDistApp, browserDiagnosticNoise } from '../../../scripts/agent.mjs';
 import { chromium, refuseStale, webChanges } from '../../../scripts/agent-launch.mjs';
@@ -24,11 +24,13 @@ function weatherlightPrerequisite() {
   if (process.env.EXACT_JS_ENGINE === 'stub') return 'the Weatherlight document test needs the Hermes executor, not EXACT_JS_ENGINE=stub';
   if (!['linux', 'darwin'].includes(process.platform)) return `the Weatherlight wasm build is not provisioned on ${process.platform}`;
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+  // js/build.rs's macOS fallback: the machine's cache, when there is no sibling ibex.
+  const cache = resolve(homedir(), '.cache/exact/hermes-macos'), cached = process.platform === 'darwin' && !existsSync(resolve(ROOT, '../ibex')) && existsSync(resolve(cache, 'engine/hermes-input-receipt.json'));
   const engine = process.platform === 'linux' ? resolve(ROOT, '../ibex/linux-vanilla')
-    : resolve(process.env.EXACT_HERMES_DIR ?? resolve(ROOT, '../ibex/ios/Frameworks-vanilla'));
+    : resolve(process.env.EXACT_HERMES_DIR ?? (cached ? resolve(cache, 'engine') : resolve(ROOT, '../ibex/ios/Frameworks-vanilla')));
   const headers = process.platform === 'linux' ? resolve(process.env.HERMES_INCLUDE_DIR ?? resolve(engine, 'hermes-headers')) : resolve(engine, 'hermes-headers');
   const libraries = process.platform === 'linux' ? resolve(process.env.HERMES_LIB_DIR ?? resolve(engine, 'lib')) : resolve(engine, 'macos-static');
-  const hermesc = resolve(process.env.EXACT_HERMESC ?? resolve(ROOT, `../ibex/tools/hermes-vanilla/hermesc-${process.platform === 'linux' ? 'linux' : 'macos'}-${arch}`));
+  const hermesc = resolve(process.env.EXACT_HERMESC ?? (cached ? resolve(cache, 'hermesc') : resolve(ROOT, `../ibex/tools/hermes-vanilla/hermesc-${process.platform === 'linux' ? 'linux' : 'macos'}-${arch}`)));
   const needed = [headers, ...['libhermesvmlean_a.a', 'libjsi.a', 'libboost_context.a'].map(name => resolve(libraries, name)),
     hermesc, resolve(process.env.EXACT_TSC ?? resolve(ROOT, 'node_modules/.bin/tsc')),
     resolve(process.env.EXACT_ROLLDOWN ?? resolve(ROOT, 'node_modules/.bin/rolldown'))];

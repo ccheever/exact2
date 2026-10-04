@@ -16,7 +16,8 @@
 //! three tools when they are somewhere else; Linux also honors
 //! `HERMES_INCLUDE_DIR` / `HERMES_LIB_DIR`. On macOS, without a sibling ibex,
 //! the engine and compiler are looked for in the machine's cache,
-//! `~/.cache/exact/hermes-macos/{engine,hermesc}` (`js/bake` looks there too).
+//! `~/.cache/exact/hermes-macos/{engine,hermesc}` (`js/bake` looks there too),
+//! when `engine/hermes-input-receipt.json` there names the pin.
 //!
 //! The pin is vanilla Hermes 260318099.0.0-stable, facebook/hermes
 //! `HERMES_PIN` below, the one place it is written (ibex's
@@ -70,12 +71,17 @@ fn main() {
     ] {
         println!("cargo:rerun-if-changed={}", bindings.join(file).display());
     }
+    // Engine and compiler come from one place: the cache only when there is
+    // no sibling ibex at all, so the two are never mixed, and only a cache
+    // with a receipt, whose pin is checked below as ibex's is.
     let cache =
         PathBuf::from(env::var_os("HOME").unwrap_or_default()).join(".cache/exact/hermes-macos");
+    let from_cache = cfg!(target_os = "macos")
+        && !ibex.exists()
+        && cache.join("engine/hermes-input-receipt.json").is_file();
     let cached = |sibling: PathBuf, name: &str| {
-        let mine = cache.join(name);
-        if cfg!(target_os = "macos") && !sibling.exists() && mine.exists() {
-            mine
+        if from_cache {
+            cache.join(name)
         } else {
             sibling
         }
@@ -170,7 +176,13 @@ fn main() {
         return;
     }
     // Headers, compiler and VM come from one commit.
-    if let Ok(receipt) = std::fs::read_to_string(engine.join("hermes-input-receipt.json")) {
+    let receipt = std::fs::read_to_string(engine.join("hermes-input-receipt.json"));
+    assert!(
+        receipt.is_ok() || !from_cache,
+        "exact-js: the cached Hermes at {} has no receipt",
+        engine.display()
+    );
+    if let Ok(receipt) = receipt {
         let commit = receipt
             .split_once("\"sourceCommit\": \"")
             .and_then(|(_, rest)| rest.get(..40))

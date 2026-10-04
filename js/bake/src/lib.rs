@@ -385,13 +385,15 @@ impl Default for Tools {
                 if cfg!(target_os = "linux") {
                     root.join(format!("../ibex/tools/hermes-vanilla/hermesc-linux-{arch}"))
                 } else {
-                    // js/build.rs's fallback: the machine's cache, without a sibling ibex.
+                    // js/build.rs's fallback: the machine's cache when there is no sibling ibex.
                     let sibling =
                         root.join(format!("../ibex/tools/hermes-vanilla/hermesc-macos-{arch}"));
-                    let cached = Path::new(&std::env::var_os("HOME").unwrap_or_default())
-                        .join(".cache/exact/hermes-macos/hermesc");
-                    if !sibling.exists() && cached.exists() {
-                        cached
+                    let cache = Path::new(&std::env::var_os("HOME").unwrap_or_default())
+                        .join(".cache/exact/hermes-macos");
+                    if !root.join("../ibex").exists()
+                        && cache.join("engine/hermes-input-receipt.json").is_file()
+                    {
+                        cache.join("hermesc")
                     } else {
                         sibling
                     }

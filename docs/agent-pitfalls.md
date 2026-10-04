@@ -73,8 +73,8 @@ guide's rules don't make obvious.
 
 ## Driving and testing
 
-- **Every date in a screenshot says last year.** Cause: the agent's clock starts at
-  `2026-01-01T00:00:00Z` UTC. Fix: `--epoch <ISO time> --time-zone <zone>` on
+- **Every date in a screenshot is 1 January 2026** (31 December 2025 west of UTC).
+  Cause: the agent's clock starts at `2026-01-01T00:00:00Z`, in UTC. Fix: `--epoch <ISO time> --time-zone <zone>` on
   `scripts/agent.mjs` for dates that read as intended and stay reproducible.
 - **`axe` stops delivering taps after a long press.** After `axe touch --down --up
   --delay`, a following `axe tap` reaches no window; `axe touch --down --up`
@@ -86,8 +86,9 @@ guide's rules don't make obvious.
 - **Conformance fails on apps you didn't touch.** Cause: `host/web-js/conform.mjs`
   compares against wasm dists under `--wasm-root` (default `/tmp/e3-wasm`, shared by
   every checkout), and without `--build` it uses whatever another checkout or an
-  older commit left there. Fix: always `--build`, or a fresh `--wasm-root` of your
-  own.
+  older commit left there. Fix: name the apps and pass `--build` with a
+  `--wasm-root` of your own (`conform.mjs <app> --build --strict --wasm-root
+  /tmp/<yours>`). With no apps named, an empty root compares nothing and passes.
 - **A web size or speed number is inflated.** Cause: a development web build
   carries the agent adapter, install pages and the source map. Fix: measure the
   release: `host/web-js/build.mjs <app> --plan <wasm bake>/app.plan --production`,
