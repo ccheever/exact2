@@ -239,6 +239,9 @@ structure VNode where
   `input` whose literal `type` is `checkbox`, `range`, `date`, …): its
   payloads follow HTML's rules, which the semantics leaves out. -/
   control : Option String := .none
+  /-- A `list` whose `virtualized` is literally `true`: the runner shows
+  the rows its window lays out, which the observation leaves out. -/
+  windowed : Bool := false
   /-- The rows this element stands in, innermost first. -/
   rows : List RowId
   children : List VNode
@@ -305,7 +308,9 @@ def render : Nat → RenderCx → Locals → List Node → RowStore → Result (
         let testId ← elementTestId fuel cx.env ls props
         let (kids, live) ← render fuel cx ls children live
         pure ([{ tag, testId, text, handlers := hs, locals := ls, rows := cx.rows,
-                 control := elementControl tag props, children := kids : VNode }], live)
+                 control := elementControl tag props,
+                 windowed := tag == "list" && (lookupField "virtualized" props matches .some (.bool true)),
+                 children := kids : VNode }], live)
       | .when tag c thn els => do
         match ← eval fuel cx.env false ls c with
         | .bool true => renderArm fuel cx ls tag 0 thn live
@@ -423,6 +428,16 @@ def update (p : Program) (o : Oracle) (slots : List (String × Value)) (store : 
   let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now }
   .ok (st, render fuel { env, store } [] p.view [])
 
+/-- Whether the router slot, if the program has one, holds a valid router
+(`Route.routerOf`). -/
+def routerValid (p : Program) (slots : List (String × Value)) : Bool :=
+  match p.router with
+  | .none => true
+  | .some x =>
+    match lookup x slots with
+    | .some v => (Route.routerOf p.routes v).isSome
+    | .none => true
+
 /-- Run an action as one commit. `rows` are the rows in force where the
 event arrived (none for a timer). -/
 def runAction (p : Program) (o : Oracle) (c : Config) (name : String) (args : List Value)
@@ -457,6 +472,9 @@ def runAction (p : Program) (o : Oracle) (c : Config) (name : String) (args : Li
         if !((fx.writes ++ fx.rowWrites).all fun (x, v) => conforms p v (slotTy x)) then
           refuse (.refused "a write of the wrong type") else
         let slots := (answered ++ fx.writes).foldl (fun s (x, v) => setSlot s x v) c.slots
+        -- The router slot must hold a valid router after every commit (the
+        -- runner's `router_change`): a forged value is refused.
+        if !routerValid p slots then refuse (.refused "an invalid router value") else
         let store := applyRowWrites p c.store rows fx.rowWrites
         match update p o slots store c.now c.settled fx.refreshes with
         | .error e => refuse e
@@ -474,6 +492,12 @@ def initSlots (p : Program) : Result (List (String × Value)) := do
   let slots ← p.states.foldlM (fun slots st => do
       if st.owner.isSome then return slots
       if st.late then return slots ++ [(st.name, Value.unit)]
+      -- The router slot starts at the launch of `/` (the location the
+      -- harness's `Runner::boot` launches), never its initializer.
+      if p.router == Option.some st.name then
+        match Route.launch p.routes "/" with
+        | .ok r => return slots ++ [(st.name, Route.routerValue p.routes r)]
+        | .error why => throw (.refused s!"router launch refused: {why}")
       let env : Env := { prog := p, slots, now := 0 }
       let v ← eval fuel env false [] st.init
       if !conforms p v st.ty then throw (.refused s!"slot `{st.name}` initialized with the wrong type")
@@ -504,7 +528,6 @@ def Config.empty : Config := { slots := [], settled := {}, store := [], view := 
 render, and start the timers. -/
 def boot (p : Program) (o : Oracle) : Config × Outcome :=
   let empty := Config.empty
-  if p.states.any (·.ty == .record "Router") then (empty, .refused (.unsupported "routes")) else
   match initSlots p with
   | .error e => (empty, .refused e)
   | .ok slots =>

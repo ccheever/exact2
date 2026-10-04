@@ -34,11 +34,12 @@ theorem results_shape : ∀ m ∈ ["tsResult", "rustResult", "rustExecutorResult
     rcases hm with rfl | rfl | rfl <;> decide
   refine Reachable.slotIn ?_ (fun _ _ _ _ _ _ _ _ _ _ _ _ => .of_noAssign hn fun v => .inr ⟨v, rfl⟩)
     (fun _ _ _ _ => .of_noAssign hn fun v => .inr ⟨v, rfl⟩)
-  rintro v (⟨st, hst, hname, -⟩ | ⟨_, -, -, rfl⟩)
+  rintro v (⟨st, hst, hname, -⟩ | ⟨_, -, -, rfl⟩ | ⟨hr, -⟩)
   · simp only [updateLab, List.mem_cons, List.mem_nil_iff, or_false] at hst
     simp only [List.mem_cons, List.mem_nil_iff, or_false] at hm
     rcases hst with rfl | rfl | rfl <;> rcases hm with rfl | rfl | rfl <;> simp at hname
   · exact .inl rfl
+  · simp [updateLab] at hr
 
 /-- IEEE-754 binary64 one, as the embedding writes the literal `1`. -/
 def one : Float := Float.ofBits 0x3ff0000000000000

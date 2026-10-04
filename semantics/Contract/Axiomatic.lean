@@ -420,6 +420,8 @@ theorem runAction_commit {p o c name args rows c' out}
   · exact (refused h).elim
   split at h
   · exact (refused h).elim
+  split at h
+  · exact (refused h).elim
   · simp only [Prod.mk.injEq] at h; obtain ⟨rfl, -⟩ := h
     exact ⟨a, fx, answered, ha, exec_sound hx, hA, rfl, rfl⟩
   · simp only [Prod.mk.injEq] at h; obtain ⟨rfl, -⟩ := h

@@ -1,0 +1,88 @@
+// Parameters: path() encodes each argument (numbers through toString),
+// refuses an empty or dot-only one; matching decodes; params() lists the
+// stack's non-empty values; searchParam reads the query, form-decoded;
+// locations are canonicalized before matching.
+routes nav
+  tab home "/"
+    item "/item/:id"
+      part "/item/:id/part/:part"
+  find "/find"
+
+component App
+  state text = "a b/c?d%e"
+  state n = 2.5
+  state empty = ""
+  state dots = ".."
+  derive current = top(nav)
+  derive ids = params(nav, "id")
+  derive parts = params(nav, "part")
+  derive q = searchParam(current, "q")
+  derive tag = searchParam(current, "tag")
+  derive missing = searchParam(current, "nope")
+  action pushItem
+    nav = push(nav, path("item", text))
+  action pushNumber
+    nav = push(nav, path("part", n, n * 2))
+  action pushEmpty
+    nav = push(nav, path("item", empty))
+  action pushDot
+    nav = push(nav, path("item", dots))
+  action set(v: string)
+    text = v
+  action open(url: string)
+    nav = open(nav, url)
+  action push(url: string)
+    nav = push(nav, url)
+  view
+    column
+      text current.url testId="url"
+      text current.name testId="name"
+      text `${current.params.id}|${current.params.part}` testId="params"
+      text join(ids, ",") testId="ids"
+      text `${q}|${tag}|${missing}` testId="query"
+      text path("part", "x y", 3) testId="path"
+      button "x" press=pushItem testId="push-item"
+      button "x" press=pushNumber testId="push-number"
+      button "x" press=pushEmpty testId="push-empty"
+      button "x" press=pushDot testId="push-dot"
+      button "x" press=set("ünï €") testId="set-unicode"
+      button "x" press=set(".") testId="set-dot"
+      button "x" press=set("...") testId="set-dots"
+      button "x" press=open("/item/1/part/2?q=a+b%20c&tag=x&q=second#frag") testId="open-query"
+      button "x" press=open("item/%7e/./../9/part/%E2%82%AC") testId="open-dots"
+      button "x" press=push("/item\\b") testId="push-backslash"
+      button "x" press=push("/item/x/") testId="push-trailing"
+      button "x" press=push("/find?q=%ZZ&tag=%C3%28") testId="push-bad-escape"
+      button "x" press=push("/item/%ff%fe") testId="push-bad-utf8"
+      button "x" press=push("/item/sp ace\t\n ") testId="push-spaces"
+      button "x" press=push("/item/'quote'?x='y'") testId="push-quote"
+      button "x" press=push("/item/x/%2e%2E/y") testId="push-encoded-dots"
+      button "x" press=push("/item/x/.") testId="push-trailing-dot"
+
+test "path encodes and matching decodes"
+  tap "push-item"
+  expect text "name" == "item"
+  tap "push-number"
+  tap "set-unicode"
+  tap "push-item"
+
+test "empty and dot-only parameters are refused"
+  tap "push-empty"
+  tap "push-dot"
+  tap "set-dot"
+  tap "push-item"
+  tap "set-dots"
+  tap "push-item"
+
+test "queries and canonical locations"
+  tap "open-query"
+  expect text "query" == "a b c|x|"
+  tap "open-dots"
+  tap "push-backslash"
+  tap "push-trailing"
+  tap "push-bad-escape"
+  tap "push-bad-utf8"
+  tap "push-spaces"
+  tap "push-quote"
+  tap "push-encoded-dots"
+  tap "push-trailing-dot"

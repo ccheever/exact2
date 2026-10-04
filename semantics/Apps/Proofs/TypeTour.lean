@@ -39,7 +39,7 @@ theorem go_handler {ev args} (h : (ev, "go", args) ∈ Node.handlerLists typeTou
 
 /-- `screen` starts as `"lock"`. -/
 theorem screen_boot : ∀ v, SlotOrigin typeTour "screen" v → ScreenOK v := by
-  rintro v (⟨st, hst, hn, -, hv⟩ | ⟨m, hm, -⟩)
+  rintro v (⟨st, hst, hn, -, hv⟩ | ⟨m, hm, -⟩ | ⟨hr, -⟩)
   · simp only [typeTour, List.mem_cons, List.mem_nil_iff, or_false] at hst
     rcases hst with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl <;>
       simp at hn
@@ -47,6 +47,7 @@ theorem screen_boot : ∀ v, SlotOrigin typeTour "screen" v → ScreenOK v := by
     · cases h
     · cases hv; exact ⟨"lock", by simp [screens], rfl⟩
   · simp [typeTour] at hm
+  · simp [typeTour] at hr
 
 /-- **The phone is always on one of its five screens**, after any sequence
 of taps, inputs and clock moves, whatever its data sources answer. -/

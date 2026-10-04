@@ -1,6 +1,7 @@
 import Contract.Syntax
 import Contract.Number
 import Contract.Value
+import Contract.Route
 import Contract.Eval
 import Contract.Runtime
 import Contract.Observe

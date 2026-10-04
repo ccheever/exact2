@@ -40,7 +40,7 @@ inductive VNode.In : VNode → List VNode → Prop
 theorem findTestId_in {id : String} :
     ∀ {vs : List VNode} {m}, findTestId id vs = .some m → VNode.In m vs
   | [], _, h => by simp [findTestId] at h
-  | ⟨_, _, _, _, _, _, _, cs⟩ :: rest, m, h => by
+  | ⟨_, _, _, _, _, _, _, _, cs⟩ :: rest, m, h => by
     rw [findTestId] at h
     split at h
     · cases h; exact .head
@@ -350,11 +350,12 @@ theorem startTimers_actions {p slots timers} (h : startTimers p slots = .ok time
 
 /-- Where a slot's value at boot comes from: a root state's initializer
 (or `()`, for a late slot before boot settlement), or a mutation, which
-starts as `none`. -/
+starts as `none`, or the router slot, which starts at the launch of `/`. -/
 def SlotOrigin (p : Program) (x : String) (v : Value) : Prop :=
   (∃ st ∈ p.states, st.name = x ∧ st.owner = .none ∧
     ((st.late = true ∧ v = .unit) ∨ ∃ env, EvalR env false [] st.init v)) ∨
-  (∃ m ∈ p.mutations, m.name = x ∧ v = .none)
+  (∃ m ∈ p.mutations, m.name = x ∧ v = .none) ∨
+  (p.router = .some x ∧ ∃ r, Route.launch p.routes "/" = .ok r ∧ v = Route.routerValue p.routes r)
 
 theorem mem_setSlot {x y : String} {v w : Value} :
     ∀ {s : List (String × Value)}, (x, w) ∈ setSlot s y v → (x, w) ∈ s ∨ (x = y ∧ w = v)
@@ -394,6 +395,17 @@ theorem boot_slots_origin {p o c out} (h : boot p o = (c, out)) :
         · simp only [List.mem_singleton, Prod.mk.injEq] at hx
           obtain ⟨rfl, rfl⟩ := hx
           exact .inl ⟨a, ha, rfl, by simpa using ‹¬a.owner.isSome = true›, .inl ⟨‹_›, rfl⟩⟩
+      split at hf
+      · split at hf
+        · simp only [Except.pure_ok_iff] at hf
+          subst hf
+          intro x v hx
+          rcases List.mem_append.mp hx with hx | hx
+          · exact hb x v hx
+          · simp only [List.mem_singleton, Prod.mk.injEq] at hx
+            obtain ⟨rfl, rfl⟩ := hx
+            exact .inr (.inr ⟨by simpa using ‹(p.router == Option.some a.name) = true›, _, ‹_›, rfl⟩)
+        · simp [throw, throwThe, MonadExceptOf.throw] at hf
       simp only [Except.bind_ok_iff] at hf
       obtain ⟨w, hw, hf⟩ := hf
       split at hf
@@ -411,7 +423,7 @@ theorem boot_slots_origin {p o c out} (h : boot p o = (c, out)) :
     · exact this x v hx
     · obtain ⟨m, hm, he⟩ := List.mem_map.mp hx
       simp only [Prod.mk.injEq] at he
-      exact .inr ⟨m, hm, he.1, he.2.symm⟩
+      exact .inr (.inl ⟨m, hm, he.1, he.2.symm⟩)
   refine foldlM_inv (fun s => ∀ x v, (x, v) ∈ s → SlotOrigin p x v) ?_ h₀ hl
   intro b a b' ha hb hf
   simp only at hf

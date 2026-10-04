@@ -8,6 +8,7 @@ tested against it, differentially and at random.
 | `Contract/Syntax.lean` | The abstract syntax: a deep embedding of the expanded root component (every used component's declarations lifted into it), the file's shapes and `fn`s. |
 | `Contract/Number.lean` | IEEE-754 binary64 exactly: `%` as fmod, `max`/`min`, and JavaScript's `Number#toString` over exact rationals. |
 | `Contract/Value.lean` | Values, structural equality as the runner's `compare::equal`, and the roster's string functions. |
+| `Contract/Route.lean` | The router (LLP 1038): canonical locations, the route table's matching, `path`, launch, the six verbs and the reads. |
 | `Contract/Eval.lean` | Operational semantics of expressions: the interpreter `eval`. |
 | `Contract/Runtime.lean` | Operational semantics of programs: statements, actions as transactions, settlement of derives and resources, rendering with keyed rows, timers, events. |
 | `Contract/Big.lean` | The same semantics as inductive big-step relations, with proofs that the interpreter is sound and complete for them and that they are deterministic. |
@@ -130,10 +131,20 @@ dependencies, so the build takes seconds.
 
 ## What the semantics leaves out
 
-These are refused as unsupported rather than given a meaning: routes,
+These are refused as unsupported rather than given a meaning:
 `t(...)`, the `format*` entries, geometry reads, frame tasks, and a mutation's
-`then`. Presentation attributes are carried in the embedding but not
-evaluated. Only a `text`'s text and an element's `testId` are observed. The
+`then`. Routes are in (`Contract/Route.lean`, the `exact_route` crate and the
+runner's plan boundary transcribed): the router slot starts at the launch of
+`/`, as the harness boots the runner, and a commit that leaves it holding an
+invalid router is refused; the host's `navigate` event, which the harness
+does not deliver, is not modelled, nor a router carried across a reload, nor
+the change the runner publishes to a host after a commit. A refused verb
+answers its input, and the runner journals the refusal in its log, which no
+observation shows. The router slot is observed like any other root slot. Presentation attributes are carried in the embedding but not
+evaluated. Only a `text`'s text and an element's `testId` are observed, and nothing
+inside a virtualized `list`: the runner builds only the rows its window lays
+out, which is layout, so both sides leave a virtualized list's descendants
+out of the observation (the list's own line stays). The
 runner's resource bounds (string length, list steps, value size) are a
 refinement the semantics doesn't model. A program that hits them traps on the
 runner and not here.
