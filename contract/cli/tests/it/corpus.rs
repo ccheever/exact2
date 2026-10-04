@@ -280,12 +280,13 @@ fn state_initializers_keep_earlier_bindings_after_local_shadowing() {
 #[test]
 fn state_initializers_refuse_later_names_and_leaked_locals() {
     for (declarations, id, line) in [
+        // LLP 1085 D4: a later state is named as one.
         (
             "  state next = later\n  state later = 1\n",
-            "type-unknown-name",
+            "type-initializer-scope",
             2,
         ),
-        ("  state own = own\n", "type-unknown-name", 2),
+        ("  state own = own\n", "type-initializer-scope", 2),
         (
             "  state value = 1\n  state value = 2\n",
             "type-duplicate-name",
