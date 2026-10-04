@@ -41,16 +41,23 @@ impl Assets {
                 if near >= far {
                     continue;
                 }
-                let Some((nodes, names)) = r.model(model) else {
+                let Some((nodes, names, merged)) = r.model(model) else {
                     continue;
+                };
+                // Per-node looks need the unmerged parts.
+                let (nodes, names) = match &looks {
+                    Some(l) if !l.0.is_empty() => (nodes, names),
+                    _ if !merged.is_empty() => (merged, &[][..]),
+                    _ => (nodes, names),
                 };
                 drawn |= !nodes.is_empty();
                 let band = [near.max(0.).to_bits(), far.to_bits()];
-                for (&(geometry, material, local, skin), node) in nodes.iter().zip(names) {
+                for (i, &(geometry, material, local, skin)) in nodes.iter().enumerate() {
                     let slot = RENDER_SLOT_BASE + self.records.len() as u32;
                     let look = looks
                         .as_ref()
-                        .and_then(|l| l.0.iter().find(|m| m.node == *node));
+                        .zip(names.get(i))
+                        .and_then(|(l, node)| l.0.iter().find(|m| m.node == *node));
                     self.records.push(DrawInstance {
                         data: 0,
                         transform: entity.index(),

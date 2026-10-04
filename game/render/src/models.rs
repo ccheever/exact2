@@ -33,16 +33,20 @@ pub(crate) struct Material {
 /// u32 words per model instance record: header, local, normal, tint, glow.
 pub(crate) const INSTANCE_WORDS: usize = 44;
 pub(crate) type ModelNode = (MeshId, MaterialId, Mat4, Option<u32>);
+pub(crate) type Draws<'a> = (&'a [ModelNode], &'a [String], &'a [ModelNode]);
 pub(crate) struct Uploaded {
     pub nodes: Vec<ModelNode>,
     /// Each drawn node's name, for `NodeMaterials`.
     pub names: Vec<String>,
+    /// `nodes` with static parts sharing a material merged; empty when none merge.
+    pub merged: Vec<ModelNode>,
     pub(crate) digest: u64,
     pub active: bool,
     pub meshes: Vec<MeshId>,
     pub materials: Vec<MaterialId>,
     pub skins: Vec<u32>,
 }
+mod merge;
 mod textures;
 use textures::upload_texture;
 pub(crate) use textures::Texture;
@@ -425,12 +429,17 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                     )
                 })
             })
-            .collect();
+            .collect::<Vec<ModelNode>>();
+        let drawn: Vec<u32> = model.nodes.iter().filter_map(|n| n.mesh).collect();
+        let (merged, merged_meshes) = self.merge_static(model, &nodes, &drawn);
+        let mut meshes = meshes;
+        meshes.extend(merged_meshes);
         self.models.loaded.insert(
             name.into(),
             Uploaded {
                 nodes,
                 names,
+                merged,
                 digest,
                 active: true,
                 meshes,

@@ -456,3 +456,103 @@ fn node_materials_tint_and_light_named_nodes_of_one_instance() {
         "visor glows blue: {visor:?}"
     );
 }
+
+#[test]
+fn static_parts_sharing_a_material_draw_once_and_look_the_same() {
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
+    let mut model = Model {
+        meshes: vec![panel(0), panel(0), panel(0)],
+        materials: vec![material([0.9, 0.6, 0.3, 1.], AlphaMode::Opaque)],
+        bounds: [-2.4, -0.8, -0.1, 2.4, 0.8, 0.1],
+        ..Default::default()
+    };
+    // The third is mirrored (negative x scale): merging must rewind it.
+    for (i, (x, sx)) in [(-1.6, 1.), (0., 0.5), (1.6, -1.)].into_iter().enumerate() {
+        model.nodes.push(Node {
+            name: format!("part{i}"),
+            mesh: Some(i as u32),
+            transform: glam::Mat4::from_scale_rotation_translation(
+                Vec3::new(sx, 1., 1.),
+                glam::Quat::from_rotation_y(0.3),
+                Vec3::new(x, 0., 0.),
+            )
+            .to_cols_array(),
+            ..Default::default()
+        });
+    }
+    for m in &mut model.materials {
+        m.double_sided = false;
+    }
+    let render = |looks: bool| {
+        let mut sim = Sim::<Test>::new(()).unwrap();
+        sim.asset("panels.model", Some(&bin::to_vec(&model)))
+            .unwrap();
+        if looks {
+            // A neutral per-node look needs the parts unmerged.
+            let e = sim.world().named("model").unwrap();
+            let neutral = NodeMaterial {
+                node: "part0".into(),
+                ..Default::default()
+            };
+            sim.world_mut().insert(e, NodeMaterials(vec![neutral]));
+        }
+        let mut renderer = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        renderer.prepare_model("panels.model", &model).unwrap();
+        let mut feed = Feed::default();
+        feed.feed(sim.world(), &mut renderer).unwrap();
+        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 160,
+                height: 64,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let eye = Vec3::new(0., 0., 5.);
+        let mut f = exact_game_render::FrameInput {
+            view: view::look_at_mat4(eye, Vec3::ZERO, Vec3::Y),
+            proj: directx::orthographic(-2.5, 2.5, -1., 1., 0.1, 20.),
+            camera_position: eye,
+            ..Default::default()
+        };
+        f.environment.fog = None;
+        f.environment.bloom = None;
+        f.environment.background = Some([0.; 3]);
+        let stats = renderer.draw(&texture.create_view(&Default::default()), (160, 64), &f);
+        (stats, fixture::read(&gpu, &texture).unwrap())
+    };
+    let (merged, a) = render(false);
+    let (parts, b) = render(true);
+    assert_eq!(parts.instances, 3);
+    assert_eq!(merged.instances, 1);
+    assert!(merged.draws < parts.draws, "{merged:?} vs {parts:?}");
+    assert_eq!(merged.triangles, parts.triangles);
+    let lit = |p: &fixture::Pixels| {
+        (0..64)
+            .flat_map(|y| (0..160).map(move |x| (x, y)))
+            .filter(|&(x, y)| p.at(x, y)[0] > 20)
+            .count()
+    };
+    assert!(lit(&a) > 2000, "{}", lit(&a));
+    let mut differ = 0;
+    for y in 0..64 {
+        for x in 0..160 {
+            let (p, q) = (a.at(x, y), b.at(x, y));
+            if (0..3).any(|c| p[c].abs_diff(q[c]) > 2) {
+                differ += 1;
+            }
+        }
+    }
+    assert!(
+        differ <= 8,
+        "{differ} pixels differ between merged and per-part draws"
+    );
+}

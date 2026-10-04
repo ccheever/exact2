@@ -21,7 +21,9 @@ pub(crate) trait Writes {
         _: bool,
     ) {
     }
-    fn model(&self, _: &str) -> Option<(&[crate::models::ModelNode], &[String])> {
+    /// A loaded model's nodes, their names, and its merged draw list (empty when
+    /// nothing merges).
+    fn model(&self, _: &str) -> Option<crate::models::Draws<'_>> {
         None
     }
     fn assets_revision(&self) -> u64 {
@@ -73,13 +75,13 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
             a.feed(w, initial, tick, parent, models);
         }
     }
-    fn model(&self, name: &str) -> Option<(&[crate::models::ModelNode], &[String])> {
+    fn model(&self, name: &str) -> Option<crate::models::Draws<'_>> {
         if ASSETS {
             self.models
                 .loaded
                 .get(name)
                 .filter(|m| m.active)
-                .map(|m| (m.nodes.as_slice(), m.names.as_slice()))
+                .map(|m| (m.nodes.as_slice(), m.names.as_slice(), m.merged.as_slice()))
         } else {
             None
         }

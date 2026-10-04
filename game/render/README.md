@@ -309,6 +309,10 @@ emission per named node of one instance (stored in that node's instance record).
 an ordered 4×4 screen-door dither (depth stays exact, nothing is sorted; model
 shadows fade with it, primitive shadows do not), blended model materials multiply
 their alpha. Custom-material hooks ignore both.
+At load, a model's static parts (no skin, no clip, not blended) that share a
+material merge into one mesh pre-transformed into model space (mirrored parts
+rewound), so a many-part prop is one draw per material. An instance with
+`NodeMaterials` draws the unmerged parts, which stay resident for it.
 `ModelLod { levels, hide }` swaps an instance's model by camera distance: each level
 is its own batch with a distance band in its cull group words, and the GPU cull
 drops instances outside the band in every view (shadow cascades included), so a
