@@ -62,7 +62,7 @@ private struct TabFace: Equatable {
     /// leaves alike) is one shown, non-empty text: that text. A pill around
     /// a symbol and a label is not, nor a transparent box or text.
     private static func badgeText(_ box: NodeView) -> String? {
-        let shown = { (v: NodeView) in !v.isHidden && v.style["display"]?.string != "none" && v.number("opacity", 1) > 0 }
+        let shown = { (v: NodeView) in !v.isHidden && v.style["display"]?.string != "none" && v.alpha > 0 }
         guard !box.isParagraph, box.kind != "image", shown(box),
               let fill = box.channels("background_color"), fill[3] > 0,
               box.presenter?.flats.holdsLeaves(box.id) != true else { return nil }
