@@ -23,8 +23,8 @@ const page = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\s\
 <div id="exact-root" style="padding:20px">
   <div id="card" data-exact-on="press" style="scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.9;width:300px;height:300px;padding:20px">
     <button id="button" data-exact-on="press" style="scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.5;width:100px;height:100px">b</button>
-    <div id="plain" data-exact-on="press" style="width:100px;height:50px">p</div>
-    <button id="off" data-exact-on="press" disabled style="scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.5;width:100px;height:50px">d</button>
+    <div id="plain" data-exact-on="press" style="width:100px;height:50px;--exact-press-haptic:impact-medium">p</div>
+    <button id="off" data-exact-on="press" disabled style="scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.5;--exact-press-haptic:selection;width:100px;height:50px">d</button>
     <button id="native" type="button" data-button-style="filled" style="width:100px;height:40px"><span id="title">n</span></button>
   </div>
   <button id="scaled" data-exact-on="press" style="scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.5;width:100px;height:60px;--exact-scale:1.5;transform-origin:0 0">s</button>
@@ -33,6 +33,7 @@ const page = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\s\
 <script type="module">
   import { createInputHandlers } from './input-glue.js';
   const root = document.getElementById('exact-root');
+  window.vibrations = []; navigator.vibrate = ms => { vibrations.push(ms); return true; }; // headless Chrome has none
   createInputHandlers({ root, views: new Map(), retiredViews: new Set(), ready: () => true, inertAncestor: () => false, dispatch() {} });
   window.ready = true;
 </script>`;
@@ -81,13 +82,18 @@ check('only the innermost pressable shows the press, and only while inside', asy
     expect(await pressed()).toBe('');
 
     // The innermost pressable has no row: nothing shows, not even its card.
+    // Its `press-haptic` plays at the press, as `haptic()`'s length (LLP 1077 D14).
+    const vibrations = () => evaluate('vibrations.join()');
+    expect(await vibrations()).toBe('');
     await mouse('mousePressed', await centre('plain'));
     expect(await pressed()).toBe('');
+    expect(await vibrations()).toBe('12');
     await mouse('mouseReleased', await centre('plain'));
-    // A disabled button gives nothing either; its card is not pressed through it.
+    // A disabled button gives nothing either; its card is not pressed through it, and its haptic is silent.
     await mouse('mousePressed', await centre('off'));
     expect(await pressed()).toBe('');
     await mouse('mouseReleased', await centre('off'));
+    expect(await vibrations()).toBe('12');
     // A native button highlights as a UIButton does, with no row or handler
     // of its own: its face dims, nothing scales, its card is not pressed.
     const face = () => evaluate(`getComputedStyle(document.getElementById('title')).opacity`);

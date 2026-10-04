@@ -80,23 +80,47 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       results.push({ name: t.name, failures: [`${t.name}: ${lines.length ? `line ${lines.join(', ')}` : "the drive's launch flags"}: ${e.message}`] });
       continue;
     }
-    const s = await open({ host, browser, plan, ...facts, env: fresh, app, webDist, device, phone, url, storage: store });
+    const launch = (environment) => open({ host, browser, plan, ...facts, env: environment, app, webDist, device, phone, url, storage: store });
+    let s = await launch(fresh);
+    // `reload`: the app restarts on the store it had (mail F19, kanban F25): the web page loads again in its
+    // profile, keeping what the origin stored; a native app relaunches on the same scratch store, not emptied.
+    const reload = async () => {
+      if (s.host === 'web') { await s.carrier.reset({ keep: true }); s.now = 0; s.logCursor = 0; return; }
+      await s.close(); s = await launch(env);
+    };
     // The clock stands still between steps: what an input started (a reply,
     // a mutation's `then`, a timer, a transition) lands at a clock step. A
     // failed expect after an input with none says so (kanban F19).
     let input = null;
     // An input the host could not perform fails its step: an unsupported drag or a refused tap did nothing to assert on.
     const delivered = (r) => { if (r?.error || r?.delivery === 'unsupported') throw new Error(r.error ?? r.reason ?? 'the host does not support this input'); };
-    const fail = (message) => failures.push(input == null ? message : `${message} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\`, a timer or a transition lands at a \`clock\` step, as \`clock settle\`)`);
+    // With no input since the clock last moved, a request still in flight (the boot's own, or one a jump
+    // left on real time) is named: the expect read the value before its reply (workout F1).
+    const fail = async (message) => {
+      if (input != null) return failures.push(`${message} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\`, a timer or a transition lands at a \`clock\` step, as \`clock settle\`)`);
+      const pending = ((await s.state().catch(() => ({}))).pending ?? []).filter((p) => !p.device).map((p) => p.name);
+      failures.push(pending.length ? `${message} (${pending.length} request${pending.length === 1 ? '' : 's'} still in flight: ${pending.join(', ')}; a reply lands at a \`clock\` step, as \`clock settle\`)` : message);
+    };
     try {
       for (const st of t.steps) {
         const at = `${t.name}: line ${st.line}`;
         try {
           switch (st.op) {
             case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': break; // the session opened with it
-            case 'tap': delivered(await s.tap(st.target, st.hover ? { hover: true } : st.modifiers ? { modifiers: st.modifiers } : undefined)); input = st.line; break;
+            // The driver's `tap` forms (feed F10): `into` brings a virtualized list's row into view by its key.
+            case 'tap': delivered(await s.tap(st.target, st.form === 'into' ? { into: { key: st.key } } : st.form !== 'press' ? { [st.form]: true } : st.modifiers ? { modifiers: st.modifiers } : undefined)); input = st.line; break;
             case 'drag': delivered(await s.tap(st.target, { drag: { dx: st.dx, dy: st.dy, ...(st.from ? { from: st.from } : {}), ...(st.mouse ? { mouse: true } : {}), ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) } })); input = st.line; break;
-            case 'type': delivered(await s.type(st.target, st.text)); input = st.line; break;
+            case 'type': {
+              // `append`: after the field's value as the tree shows it, the text a keyboard would add (feed F8).
+              let text = st.text;
+              if (st.append) {
+                const { nodes } = await s.tree(), field = nodes.find((n) => n.props.testId === st.target && !n.inactive) ?? nodes.find((n) => n.props.testId === st.target);
+                if (field && typeof field.props.value !== 'string') throw new Error(`type … append: "${st.target}" shows no text value to append to`);
+                text = (field?.props.value ?? '') + text;
+              }
+              delivered(await s.type(st.target, text)); input = st.line; break;
+            }
+            case 'reload': await reload(); input = null; break;
             case 'key': delivered(await s.type(st.target, { key: st.key })); input = st.line; break;
             // A held picker, by the node its answer arrives at or its capability (files F11); paths are the test file's.
             case 'pick': delivered(st.paths.length ? await s.type(`@${st.target}`, st.paths.map((p) => resolve(dirname(resolve(file)), p)).join('\n')) : await s.tap(`@${st.target}`, { choice: 'cancel' })); input = st.line; break;
@@ -106,7 +130,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             case 'expect-tree': {
               const tree = await s.tree();
               const found = tree.nodes.some((n) => n.props.testId === st.target);
-              if (found !== st.present) fail(`${at}: expected testId "${st.target}" ${st.present ? 'present' : 'absent'}, it was ${found ? 'present' : 'absent'}`);
+              if (found !== st.present) await fail(`${at}: expected testId "${st.target}" ${st.present ? 'present' : 'absent'}, it was ${found ? 'present' : 'absent'}`);
               break;
             }
             case 'expect-text': {
@@ -114,15 +138,22 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
               // As a target is found: a covered screen's copy only when no active one carries it (shop F16).
               const matches = nodes.filter((n) => n.props.testId === st.target), n = matches.find((m) => !m.inactive) ?? matches[0];
               const got = n ? textOf(nodes, n) : undefined;
-              if (got !== st.value) fail(`${at}: text of "${st.target}" is ${n ? JSON.stringify(got) : 'absent (no view carries that testId)'}, expected ${JSON.stringify(st.value)}`);
+              if (got !== st.value) await fail(`${at}: text of "${st.target}" is ${n ? JSON.stringify(got) : 'absent (no view carries that testId)'}, expected ${JSON.stringify(st.value)}`);
               break;
             }
             case 'expect-state': {
               const state = await s.state();
               const bag = { ...(state.resources ?? {}), ...(state.derives ?? {}), ...(state.slots ?? {}) };
-              if (!(st.name in bag)) { failures.push(`${at}: no state named "${st.name}"`); break; }
-              const got = bag[st.name];
-              if (JSON.stringify(got) !== JSON.stringify(st.value)) fail(`${at}: ${st.name} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
+              // A field of a record at any depth, `name.field` (feed F10).
+              const [name, ...fields] = st.name.split('.');
+              if (!(name in bag)) { failures.push(`${at}: no state named "${name}"`); break; }
+              let got = bag[name], path = name, missing = null;
+              for (const field of fields) {
+                if (got === null || typeof got !== 'object' || !(field in got)) { missing = field; break; }
+                got = got[field]; path += `.${field}`;
+              }
+              if (missing != null) { failures.push(`${at}: ${path} has no field "${missing}" (${got !== null && typeof got === 'object' && !Array.isArray(got) ? `its fields: ${Object.keys(got).join(', ')}` : `it is ${JSON.stringify(got).slice(0, 200)}`})`); break; }
+              if (JSON.stringify(got) !== JSON.stringify(st.value)) await fail(`${at}: ${st.name} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
               break;
             }
             default: failures.push(`${at}: unknown step ${st.op}`);

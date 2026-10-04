@@ -52,7 +52,7 @@ for(const host of ['Mac','IOS']) check(`${host} hidden placement box is zero, no
   const swift=`struct Rect: Equatable {var width:Int;static let zero=Rect(width:0)}
 class View {var bounds=Rect(width:100)}
 class NodeView: View {var placedAncestor:NodeView?;var placementHidden=false}
-func box(_ v:View, region:Rect?=nil)->Rect {${guard}\nreturn bounds}
+func box(_ v:View, region:Rect?=nil)->Rect {${guard}\nreturn v.bounds}
 let parent=NodeView(), child=NodeView();child.placedAncestor=parent
 precondition(box(child).width==100);parent.placementHidden=true
 precondition(box(child)==Rect.zero)

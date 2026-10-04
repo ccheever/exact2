@@ -57,8 +57,9 @@ catch(e) { console.error(e.message); process.exitCode=1; }
       expect(bad.status).toBe(1);
       expect(bad.stderr).toContain('fixture.contract:7:3: invalid test step');
     }
+    // No cargo on PATH and none where rustup puts it, which the driver adds back (scripts/app.mjs cargoOnPath).
     const missing = spawnSync(process.execPath, [runner], {
-      cwd:dir, env:{...process.env,PATH:join(dir,'absent')}, encoding:'utf8',
+      cwd:dir, env:{...process.env,PATH:join(dir,'absent'),CARGO_HOME:join(dir,'absent')}, encoding:'utf8',
     });
     expect(missing.status).toBe(1);
     expect(missing.stderr).toContain('cargo');
@@ -243,7 +244,8 @@ function fixture(agentMode = true) {
   const context = vm.createContext({ events, agentMode, root, views: new Map([[1, el]]),
     state, outline, logs, textflow: null, flowLoading: null, flowContexts: [], flowDue: null, flowFrames: false, present() {}, lists: new Map(),
     Date: { now: () => 123 }, performance: { now: () => 10 }, TextEncoder, Uint8Array,
-    HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLIFrameElement: class {}, HTMLVideoElement: class {},
+    HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLIFrameElement: class {}, HTMLVideoElement: class {}, HTMLMediaElement: class {},
+    foldBits: () => 0 /* no fold posture (LLP 1078 D6) */,
     document: { activeElement: null, body: {}, querySelector: () => null },
     innerWidth: 300, innerHeight: 200, devicePixelRatio: 1, scrollX: 0, scrollY: 0,
     INHERITED_CSS: {}, getComputedStyle: () => ({}), inertAncestor: () => false,
@@ -260,7 +262,7 @@ function fixture(agentMode = true) {
     wasm: { exact_in: () => 0, exact_plan: () => 1, exact_out: () => 0,
       exact_plan_fonts: () => '[]', exact_boot: () => '{"ops":[],"timers":true}',
       exact_boot_plan: () => '{"ops":[],"timers":true}', exact_advance: () => '{"ops":[],"clock":16}' },
-    devAssets: null, bootAttempt: 0, encoder: new TextEncoder(), location: { pathname: '/', search: '' },
+    devAssets: null, bootAttempt: 0, encoder: new TextEncoder(), location: { pathname: '/', search: '', href: 'https://fixture.invalid/' }, URL,
     focus: focusController({ ready: () => true, elements: () => [], inert: () => false }), loadGpuIfNeeded() {}, writeIn: value => value, send() {}, messageViews: new Set(), markupModule: null,
     prepareFonts: async () => [], commitFonts() {}, releaseAssets() {}, incarnation: 0,
     // Ordinary boot tests model an already-loaded post-paint scheduler.
@@ -278,7 +280,7 @@ function fixture(agentMode = true) {
     loadStage: () => Promise.resolve(), stageLoaded: () => true, // every stage linked (LLP 1047.000 §9)
     preferences: () => '{}', localAssetURL: source => source,
   });
-  vm.runInContext(`const viewBox = ${viewBox};\n` + source.match(/^let gpuLoading = .*$/m)[0] + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
+  vm.runInContext(`const viewBox = ${viewBox};\n` + ['let gpuLoading', 'const POST_BOUND', 'let frameSampler'].map(head => source.match(new RegExp(`^${head} = .*$`, 'm'))[0]).join('\n') + '\n' + ['nodeDetail', 'agent', 'agentNow', 'agentReply', 'settleGpu', 'gpuPendingReply', 'agentSettled', 'tagged', 'clock', 'startClock', 'mutate', 'boot', 'bootNow'].map(declaration).join('\n') + '\n' + publicObject, context);
   context.reportPlace = placeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   context.reportTime = timeReporter(new URLSearchParams(agentMode ? 'agent=1' : ''), context);
   return context;
@@ -445,13 +447,13 @@ test('a clock jump lands what is in flight before each timer fires', async () =>
   timedRequests(f);
   const boot = new Promise(resolve => setTimeout(() => { f.events.push('reply boot'); resolve(); }, 0));
   f.inflight.add(boot); boot.finally(() => f.inflight.delete(boot));
-  expect(await f.exact.agent({ op: 'clock', to: 700 })).toEqual({ clock: 700, epoch: 2, incarnation: 1 });
-  // The last advance fires no timer, so the request it left in flight is not waited for.
+  // The last advance fires no timer, so the request it left in flight is not waited for; the reply names it (calendar F10).
+  expect(await f.exact.agent({ op: 'clock', to: 700 })).toEqual({ clock: 700, epoch: 2, incarnation: 1, inflight: 1 });
   expect(f.events).toEqual(['reply boot', 'advance 700 until a request → 300', 'reply 300', 'advance 700 until a request → 600', 'advance 700 → 700']);
   expect(f.inflight.size).toBe(1);
   // A due time at the target itself is the last stop: what is in flight lands first, nothing follows.
   f.events.length = 0;
-  expect(await f.exact.agent({ op: 'clock', to: 900 })).toEqual({ clock: 900, epoch: 2, incarnation: 1 });
+  expect(await f.exact.agent({ op: 'clock', to: 900 })).toEqual({ clock: 900, epoch: 2, incarnation: 1, inflight: 1 });
   expect(f.events).toEqual(['reply 600', 'advance 900 until a request → 900', 'advance 900 → 900']);
 });
 test('a jump that stops at its target still fires the other timers due there', async () => {
@@ -478,7 +480,7 @@ test('a jump that stops at its target still fires the other timers due there', a
 test('a timer whose request never lands cannot hold the clock: past the deadline the rest is one advance', async () => {
   const f = fixture();
   timedRequests(f, { stuck: true });
-  expect(await f.exact.agent({ op: 'clock', to: 1000 })).toEqual({ clock: 1000, epoch: 2, incarnation: 1 });
+  expect(await f.exact.agent({ op: 'clock', to: 1000 })).toEqual({ clock: 1000, epoch: 2, incarnation: 1, inflight: 3 });
   expect(f.events).toEqual(['advance 1000 until a request → 300', 'advance 1000 → 1000']);
 });
 
@@ -869,11 +871,12 @@ async function startupFixture(rustOnly = false) {
       if (file === './input-glue.js') return input.promise;
       if (file === './timer-glue.js') return timer.promise;
       if (file === './module-glue.js') return Promise.resolve({ baked: () => data.promise, prepare: async () => ({ id: 0 }) });
+      if (file === './frames.js') return new Promise(() => {}); // a development page's frame sampler (LLP 1079 D3) is not what these tests start
       throw new Error('unexpected startup module: ' + file);
     },
   });
   f.exact = {};
-  vm.runInContext(['setInputReady', 'activateData', 'main'].map(declaration).join('\n')
+  vm.runInContext([source.match(/^const AGENT_ADMITTED = .*$/m)[0], ...['setInputReady', 'activateData', 'main'].map(declaration)].join('\n')
     .replaceAll('import.meta.url', '"https://fixture.invalid/glue.js"'), f);
   await f.main();
   expect(loads).toEqual([]); // Neither optional nor app modules run before paint.

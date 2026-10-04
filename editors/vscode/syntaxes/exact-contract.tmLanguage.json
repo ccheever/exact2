@@ -208,7 +208,7 @@
           }
         },
         {
-          "match": "^\\s*(tap|type|clock|screenshot|expect)(?=\\s)",
+          "match": "^\\s*(tap|type|clock|screenshot|expect|reload)(?=\\s|$)",
           "captures": {
             "1": {
               "name": "keyword.control.test.exact-contract"

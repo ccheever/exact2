@@ -149,7 +149,7 @@ impl Parser {
                 return self.err(
                     "syntax-expected-step",
                     format!(
-                    "expected `tap`, `type`, `pick`, `clock`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`), found {}",
+                    "expected `tap`, `type`, `pick`, `clock`, `reload`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`), found {}",
                     describe(&other)
                 ),
                 )
@@ -217,13 +217,19 @@ impl Parser {
                         span,
                     });
                 }
-                let hover = if self.at_ident("hover") {
-                    self.next();
-                    true
-                } else {
-                    false
+                let form = match self.peek_kind().clone() {
+                    TokenKind::Ident(w) if w == "hover" || w == "dblclick" || w == "contextmenu" || w == "into" => {
+                        self.next();
+                        match w.as_str() {
+                            "hover" => TapForm::Hover,
+                            "dblclick" => TapForm::Dblclick,
+                            "contextmenu" => TapForm::Contextmenu,
+                            _ => TapForm::Into(self.str_lit("the row's key")?),
+                        }
+                    }
+                    _ => TapForm::Press,
                 };
-                let modifiers = if !hover && self.at_ident("modifiers") {
+                let modifiers = if form == TapForm::Press && self.at_ident("modifiers") {
                     self.next();
                     self.str_lit("the modifiers held, as \"Shift+Meta\"")?
                 } else {
@@ -231,7 +237,7 @@ impl Parser {
                 };
                 Step::Tap {
                     target,
-                    hover,
+                    form,
                     modifiers,
                     span,
                 }
@@ -249,7 +255,16 @@ impl Parser {
                     Step::Clipboard { target, edit: edit.into(), text, span }
                 } else {
                     let text = self.str_lit("the text")?;
-                    Step::Type { target, text, span }
+                    let append = self.at_ident("append");
+                    if append {
+                        self.next();
+                    }
+                    Step::Type {
+                        target,
+                        text,
+                        append,
+                        span,
+                    }
                 }
             }
             // `pick "id" "path"…` or `pick "id" cancel` (files F11).
@@ -392,6 +407,7 @@ impl Parser {
                 }
                 Step::Seed { seed, span }
             }
+            "reload" => Step::Reload { span },
             "screenshot" => Step::Screenshot {
                 path: self.str_lit("a file name")?,
                 span,
@@ -445,7 +461,12 @@ impl Parser {
                         }
                     }
                     "state" => {
-                        let (name, _) = self.ident()?;
+                        let (mut name, _) = self.ident()?;
+                        // A field of a record, at any depth (feed F10).
+                        while self.eat_punct(".") {
+                            name.push('.');
+                            name.push_str(&self.ident()?.0);
+                        }
                         self.expect_punct("==")?;
                         let value = self.expr()?;
                         if !matches!(
@@ -476,7 +497,7 @@ impl Parser {
                 return Err(SyntaxError {
                     id: "syntax-expected-step",
                     message: format!(
-                    "expected `tap`, `type`, `pick`, `clock`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`), found `{other}`"
+                    "expected `tap`, `type`, `pick`, `clock`, `reload`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`), found `{other}`"
                 ),
                     span,
                 })

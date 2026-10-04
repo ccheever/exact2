@@ -627,7 +627,7 @@ nearest scroll containers, then the page) and say so in the reply's `scrolled`.
 `tap <target> drag <dx> <dy> … during "<op>" …` runs the quoted reads after the
 move, with the finger still down. `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires
-first); its reply says what is still in flight, and `clock settle` lands it.
+first); its reply says what is still in flight (`inflight`, on every host), and `clock settle` lands it.
 A playing `video` or `audio` is on real time too: the clock never seeks or holds it, so
 between operations it moves only as far as the drive took. `clock +N real` lets
 N ms of real time pass with the clock moving beside it, a step at a time: a
@@ -655,16 +655,24 @@ lines — `size 1200x800`, `epoch "2026-09-21T12:00:00Z"`, `time-zone
 "America/New_York"`, `locale "fr-FR"`, `seed 7`, the driver's flags of those
 names — written first in the test or, for every test, at the top of the file.
 A test whose text depends on the date names its `epoch`; without one it runs at
-the driver's 2026-01-01 UTC. The steps are `tap "id" [hover]`,
+the driver's 2026-01-01 UTC. The steps are `tap "id" [hover|dblclick|contextmenu]`,
 `tap "id" modifiers "Shift+Meta"` (a press with keys held),
+`tap "list" into "key"` (a virtualized list's row brought into view by its key,
+so the next step can tap a row outside the rendered window),
 `tap "id" drag dx dy [from x y] [mouse] [press ms] [over ms] [hold ms]`,
-`type "id" "text"` or `type "id" key "Name"`, `type "id" paste "text"`,
-`type "id" copy`, `type "id" cut`, `pick "id" "path"…` or
+`type "id" "text"` (sets the value), `type "id" "text" append` (after the value
+the tree shows, as typing after a prefill), or `type "id" key "Name"`,
+`type "id" paste "text"`, `type "id" copy`, `type "id" cut`, `pick "id" "path"…` or
 `pick "id" cancel` (a held picker or export, by its node or capability as
-above; paths are the test file's), `clock settle|+ms|+ms real|ms`,
+above; paths are the test file's), `clock settle|+ms|+ms real|ms`, `reload`
+(the app restarts on the store it had, its state and clock starting over, so a
+test shows what persists),
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
 (the node's text, else its descendants' — a button's label — else a field's
-value), and `expect state name == <number|string|bool|none|[]>`. An input
+value), and `expect state name == <number|string|bool|none|[]>`, where `name`
+may go on into a record's fields (`board.active.present`). A failed expect with
+no input before it names the requests still in flight (the boot's own, or what
+a `clock +N` left on real time). An input
 step ends with what it settled: an answer the data module gave in the input's
 turn, and its mutation's `then`, are there for the next step. Otherwise the
 clock stands still between steps: a reply on real time (a store's, the

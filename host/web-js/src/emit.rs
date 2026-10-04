@@ -940,8 +940,11 @@ impl Em<'_> {
         // own declaration: inline, as the live host writes every row, not
         // the class (a class's custom property would be inherited).
         let presence = rows::presence_decls(&mut css);
-        // Press feedback, or a native button's highlight: the input piece shows it.
-        if presence.contains("--exact-press:") || attrs.iter().any(|a| a.0 == "data-button-style") {
+        // Press feedback, a press haptic, or a native button's highlight: the input piece shows it.
+        if presence.contains("--exact-press:")
+            || presence.contains("--exact-press-haptic:")
+            || attrs.iter().any(|a| a.0 == "data-button-style")
+        {
             let press = self.uses.rt("pressFeedback");
             let _ = write!(self.out, "{press}();");
         }

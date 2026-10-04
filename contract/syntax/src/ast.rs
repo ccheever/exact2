@@ -145,15 +145,15 @@ pub struct TestDecl {
 /// One step of a `test`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Step {
-    /// `tap "testId"` (`hover` for a pointer over, `modifiers "Shift"` for
-    /// a press with keys held).
+    /// `tap "testId"`, or one of the driver's other forms of it
+    /// (`modifiers "Shift"` for a press with keys held).
     Tap {
         /// The node, by `testId`.
         target: String,
-        /// `hover` instead of a press.
-        hover: bool,
-        /// `modifiers "Shift+Meta"`: the keys held through the press
-        /// (empty for none; gallery F20).
+        /// Which input: a press, unless the step names another.
+        form: TapForm,
+        /// `modifiers "Shift+Meta"`: the keys held through a press (empty
+        /// for none; gallery F20).
         modifiers: String,
         /// Where.
         span: Span,
@@ -222,12 +222,14 @@ pub enum Step {
         /// Where.
         span: Span,
     },
-    /// `type "testId" "text"`.
+    /// `type "testId" "text"`, or `… append`.
     Type {
         /// The field, by `testId`.
         target: String,
         /// The text.
         text: String,
+        /// `append`: after the field's value, not in place of it (feed F8).
+        append: bool,
         /// Where.
         span: Span,
     },
@@ -298,16 +300,39 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `reload`: the app restarts on the scratch store it had, so what it
+    /// kept is what it reads (mail F19, kanban F25, weather F3).
+    Reload {
+        /// Where.
+        span: Span,
+    },
     /// `expect state name == literal`: a slot, derive, or resource from the
-    /// `state` reply, compared to a number, string, bool, or `none`.
+    /// `state` reply, or a field of one (`name.field.field`, feed F10),
+    /// compared to a number, string, bool, or `none`.
     ExpectState {
-        /// The declaration's name.
+        /// The declaration's name, then any fields, joined by `.`.
         name: String,
         /// The literal.
         value: Expr,
         /// Where.
         span: Span,
     },
+}
+
+/// Which input a `tap` step gives: the driver's `tap` forms (LLP 1012).
+#[derive(Debug, Clone, PartialEq)]
+pub enum TapForm {
+    /// A press: down and up at the node's middle.
+    Press,
+    /// `hover`: a pointer over it.
+    Hover,
+    /// `dblclick`: two presses, the second a double click (feed F10).
+    Dblclick,
+    /// `contextmenu`: a secondary press.
+    Contextmenu,
+    /// `into "key"`: a virtualized list's row brought into view by its key
+    /// (LLP 1070.000 §5), so a row outside the rendered window can be tapped.
+    Into(String),
 }
 
 /// `fn name(param: type, …): type = expr` — a pure function written in
@@ -1068,6 +1093,7 @@ impl Step {
             | Step::Pick { span, .. }
             | Step::Clipboard { span, .. }
             | Step::Clock { span, .. }
+            | Step::Reload { span, .. }
             | Step::Screenshot { span, .. }
             | Step::ExpectTree { span, .. }
             | Step::ExpectText { span, .. }

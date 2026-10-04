@@ -468,7 +468,15 @@ public final class Agent {
             // included, before the fixed point is read (LLP 1070 G3).
             if settle { presenter.settlePump() }
             world = session.canvases.clock(settle: settle)
-            guard settle else { return reply(landed) }
+            // A jump does not wait for what is still in flight on real time
+            // (a store's, a worker's, the network's): the reply names how much,
+            // as the web hosts' do (calendar F10, workout F6).
+            guard settle else {
+                var out = reply(landed)
+                let inflight = pendingCount()
+                if inflight > 0 { out["inflight"] = inflight }
+                return out
+            }
             if pendingCount() > 0 {
                 rounds += 1
                 if rounds >= 16 || Date() >= deadline { return reply(landed, false, reason: "requests") }

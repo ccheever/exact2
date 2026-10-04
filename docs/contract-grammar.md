@@ -284,16 +284,20 @@ launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
               | "time-zone" STRING NL                (* an IANA zone, "America/New_York" *)
               | "locale" STRING NL                   (* a BCP 47 tag, "fr-FR" *)
               | "seed" NUMBER NL ;                   (* 0 through 2^53 - 1 *)
-step          = "tap" STRING [ "hover" ] NL
+step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu" | "into" STRING
+                  | "modifiers" STRING ] NL
               | "tap" STRING "drag" [ "-" ] NUMBER [ "-" ] NUMBER
                   { ( "press" | "over" | "hold" ) NUMBER
                   | "from" NUMBER NUMBER | "mouse" } NL
-              | "type" STRING ( STRING | "key" STRING ) NL
-              | "clock" ( "settle" | [ "+" ] NUMBER ) NL
+              | "type" STRING ( STRING [ "append" ] | "key" STRING
+                  | "copy" | "cut" | "paste" STRING ) NL
+              | "pick" STRING ( STRING { STRING } | "cancel" ) NL
+              | "clock" ( "settle" | [ "+" ] NUMBER [ "real" ] ) NL
+              | "reload" NL
               | "screenshot" STRING NL
               | "expect" "tree" ( "has" | "missing" ) STRING NL
               | "expect" "text" STRING "==" STRING NL
-              | "expect" "state" IDENT "==" test-value NL ;
+              | "expect" "state" IDENT { "." IDENT } "==" test-value NL ;
 test-value    = NUMBER | STRING | "true" | "false" | "none" | "[" "]" ;
 ```
 
@@ -311,6 +315,15 @@ iOS); `mouse` makes it the left button on the web, with the page's pointer
 with the mouse anyway). A finger's drag the browser takes to scroll an
 ancestor ends in `panrelease` and a `pan cancelled` journal line naming the
 `touch-action` that keeps it.
+`tap "id" dblclick` and `contextmenu` are the driver's forms of the same names
+(no Linux carrier double-clicks). `tap "list" into "key"` brings a virtualized
+list's row into view by its key, so a row outside the rendered window can be
+tapped by its own id on the next step. `type "id" "text"` sets the field's
+value, as Playwright's `fill`; `append` adds the text after the value the tree
+shows (a prefilled reply). `reload` restarts the app on the store it had: the
+web page loads again in the same profile, a native app relaunches on the same
+scratch store. Its state starts over and the clock is 0 again; what the app
+stored is what it reads, so persistence is testable.
 `type` on a `select` chooses an enabled option by value, else by its one label;
 on a date, time or range input it sets the value in HTML's format; on a checkbox
 it takes `true` or `false`. A target out of view is scrolled into view first.
@@ -319,7 +332,8 @@ and its mutation's `then`); otherwise the clock stands still between steps:
 what an input starts (a reply on real time, a timer, a transition) lands at a
 `clock` step, as `clock settle`.
 `expect text` reads the node's text, else its descendants' text in order (a
-button's label), else a field's value. `expect state` is deliberately restricted to the
+button's label), else a field's value. `expect state name.field` reads a field of
+a record at any depth; a missing field fails naming the fields there. `expect state` is deliberately restricted to the
 parser's literal cases, not arbitrary expressions or record comparisons. The
 parser currently treats unary minus as an expression rather than a number
 literal in this particular form. Use the interactive state inspection when a

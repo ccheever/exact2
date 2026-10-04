@@ -272,7 +272,8 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
         const ms = await evaluate("document.getElementById('exact-root')?.dataset.gpuMs ?? null");
         return ms == null ? null : Number(ms);
       },
-      async reset() {
+      /** A fresh document on this page: its origin's storage emptied, or `keep`ing it (a test's `reload`, mail F19). */
+      async reset({ keep = false } = {}) {
         // Release browser-owned input while its original document still exists.
         for (const key of heldKeys.values()) await call('Input.dispatchKeyEvent', {...key, type:'keyUp', text:undefined});
         if (contact?.mouse) await call('Input.dispatchMouseEvent', {type:'mouseReleased', x:contact.x, y:contact.y, button:'left', buttons:0, clickCount:1});
@@ -282,7 +283,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
         if (touch) await call('Emulation.setTouchEmulationEnabled', {enabled:false});
         touch = false;
         await evaluate('sessionStorage.clear()');
-        await call('Storage.clearDataForOrigin', {origin:page.origin, storageTypes:'all'});
+        if (!keep) await call('Storage.clearDataForOrigin', {origin:page.origin, storageTypes:'all'});
         await call('Page.navigate', {url:'about:blank'});
         const deadline = Date.now() + 30000;
         while (!await evaluate("location.href === 'about:blank'").catch(() => false)) {
@@ -973,7 +974,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const text = String(target), colon = text.indexOf(':');
       const node = await s.find(target, false);
       if (node) return { id: node.id };
-      if (colon < 0) throw new Error(`no view matches ${target}; tree lists live targets`);
+      if (colon < 0) throw new Error(`no view matches ${target}; tree lists live targets, and a virtualized list's row outside its window comes in by key: \`tap <list> into <key>\` (feed F10)`);
       return { id: (await s.find(text.slice(0, colon))).id, entity: text.slice(colon + 1) };
     },
     /** The node for a target: a testId (first in preorder on a selected route; a covered screen's copy only when no active one carries it) or a view id. */
@@ -982,7 +983,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const t = await s.op(required ? {op:'tree', target, shallow:true} : {op:'tree'});
       const matches = typeof target === 'number' || /^\d+$/.test(String(target)) ? t.nodes.filter((n) => n.id === Number(target)) : t.nodes.filter((n) => n.props.testId === target);
       const node = matches.find((n) => !n.inactive) ?? matches[0];
-      if (!node && required) throw new Error(`no view matches ${target}; tree lists live targets`);
+      if (!node && required) throw new Error(`no view matches ${target}; tree lists live targets, and a virtualized list's row outside its window comes in by key: \`tap <list> into <key>\` (feed F10)`);
       return node;
     },
     /**
