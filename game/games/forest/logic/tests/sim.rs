@@ -376,8 +376,6 @@ fn supply_compass_tracks_uncollected_food_and_restores_the_chosen_landmark() {
     assert_eq!(sim.world().require::<Item>(target).kind, Kind::Food);
     let at = sim.world().require::<Transform>(target).position;
     place(&mut sim, "player", at + Vec3::new(0.0, 0.7, 1.75));
-    // Finish the arranged teleport's camera follow before this gameplay checkpoint.
-    sim.run(TICK);
     assert!(
         player::guidance(sim.world()).contains(" · N · 2 m"),
         "a rounded two metres must still offer a direction"

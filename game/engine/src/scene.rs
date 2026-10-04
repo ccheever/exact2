@@ -998,8 +998,8 @@ impl FollowTarget {
 
 /// A saved camera follower, stepped by the scene after each game tick.
 /// The engine places followers after setup and setup-argument rebuilds. Restore
-/// places uninitialized followers while preserving saved, initialized poses and
-/// smoothing, so restoring never advances the simulation by an extra step.
+/// preserves saved poses, smoothing and pending placement; an uninitialized
+/// follower snaps when following next runs, normally after the next game tick.
 #[derive(Clone, Debug, Default, Component)]
 pub struct Follow {
     /// Target handle or name. A changed name resolution reinitializes the follow.

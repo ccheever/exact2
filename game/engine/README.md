@@ -140,8 +140,10 @@ never displace a message. `Sim::post(text)` does the same in tests.
 actual displacement and contact state. Collision movement uses the separate
 [physics](../physics/README.md) `CapsuleController`.
 
-`Follow` initializes after setup and argument rebuilds; restore initializes only
-new followers and preserves saved poses. It then steps after each tick. Call
+`Follow` initializes after setup and argument rebuilds, then steps after each tick.
+Restore preserves both saved poses and pending placement. A follower added,
+retargeted or invalidated by `World::teleport` before a save initializes when
+following next runs, after the next tick's game logic, just as without restoring. Call
 `scene::follow(w)` inside the tick to choose an earlier order; it will not step
 twice. Primitive dimensions belong to `Mesh`;
 `Collider::of(&mesh)` supplies matching collision geometry.

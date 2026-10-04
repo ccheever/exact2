@@ -140,7 +140,8 @@ impl<G: Game> Sim<G> {
             Self::from_world(bound, validated, input, s.queue.into()).map_err(DataError::new)?;
         next.world.assets = self.world.assets.clone();
         next.defer_assets = self.defer_assets;
-        crate::scene::place_followers(&next.world);
+        // A pending Follow must see the next game tick's target, exactly as
+        // the saved world would. Restore does not perform scene work early.
         next.world.propagate();
         next.world.restore_journal(s.journal, s.journal_next);
         next.world.restore_publications(s.published);

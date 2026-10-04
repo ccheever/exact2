@@ -602,3 +602,29 @@ The new macOS supply screenshot shows the forest through the HUD panels after
 main's capture fix. Root build, 2,313 enabled tests (nine ignored), clippy,
 formatting, caps and boot pass; 34 focused native input/transform/capture tests
 also pass. The pending camera-follow checkpoint investigation remains queued.
+
+## Pending camera work is part of a checkpoint (2026-10-04)
+
+Main advanced through `39ac858b2` before this batch; merge `01aaab7ff` was clean.
+The queued teleport case reproduced in both Forest and the engine. It is more
+than different save bytes: after teleporting the player to x=50, the original
+camera reaches x=51 on the next tick, while the restored camera reaches about
+x=50.10516. Restore initialized `Follow` before the next game tick moved its
+target, turning the original snap into a smoothed step. A newly spawned follower
+has the same defect, and both `restore` and `restore_bound` exhibit it.
+
+Removed follower placement from restore. Setup and setup-argument rebuilds still
+place followers; restore keeps their saved poses and pending work until the usual
+scene step. No new save field, format or API is needed. The engine guide now
+states that ordering explicitly. Forest's supply test no longer advances an extra
+tick to normalize its arranged teleport: its immediate save roundtrip and later
+collection/retarget continuation now agree directly.
+
+The engine regression exercises newly spawned, teleported and retargeted followers
+through both restore methods. A second case teleports after an explicit follow
+inside a game tick, then checks the checkpoint and subsequent ticks in Save and
+FreshGame modes against ordinary execution. Engine tests pass (401 enabled,
+seven ignored, including the added case); Forest's 15 tests, Garden's 13 tests and
+Rivals' 23 enabled tests pass. Garden's stale lock needed the prescribed refresh,
+adding two dependency edges without package-version changes. Cross-host app drives
+follow this checkpoint.

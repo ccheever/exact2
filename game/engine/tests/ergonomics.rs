@@ -303,28 +303,98 @@ fn engine_places_followers_after_setup_rebuild_and_restore_without_an_extra_tick
     s.run(100.0);
     restored.run(100.0);
     assert_eq!(s.save().unwrap(), restored.save().unwrap());
-    // A newly added or teleported follower can be unplaced in a carry.
-    s.world_mut().spawn_named(
-        "new-camera",
-        (
-            Transform::default(),
-            Follow::new("player").offset(0.0, 5.0, 8.0),
-        ),
-    );
-    restored.restore(&s.save().unwrap()).unwrap();
-    let player = restored
-        .world()
-        .get::<Transform>("player")
-        .unwrap()
-        .position;
-    assert_eq!(
-        restored
-            .world()
-            .get::<Transform>("new-camera")
+    // Pending placement is saved work too. Placing it during restore changes
+    // both the checkpoint and the next tick: the target moves before following.
+    let mut failures = Vec::new();
+    for bound in [false, true] {
+        for pending in ["spawned", "teleported", "retargeted"] {
+            let mut original = Sim::<Following>::new(Options { x: 4.0 }).unwrap();
+            original.run(17.0);
+            let camera = if pending == "teleported" {
+                let player = original.world().named("player").unwrap();
+                original
+                    .world_mut()
+                    .teleport(player, Transform::at(50.0, 2.0, 3.0));
+                "camera"
+            } else if pending == "retargeted" {
+                let target = original
+                    .world_mut()
+                    .spawn_named("other-player", Transform::at(-20.0, 2.0, 3.0));
+                original.world().require_mut::<Follow>("camera").target = target.into();
+                "camera"
+            } else {
+                original.world_mut().spawn_named(
+                    "new-camera",
+                    (
+                        Transform::default(),
+                        Follow::new("player").offset(0.0, 5.0, 8.0).lag(0.15),
+                    ),
+                );
+                "new-camera"
+            };
+            let saved = original.save().unwrap();
+            let mut restored = Sim::<Following>::new(Options { x: 4.0 }).unwrap();
+            if bound {
+                restored.restore_bound(&saved).unwrap();
+            } else {
+                restored.restore(&saved).unwrap();
+            }
+            let checkpoint_matches = saved == restored.save().unwrap();
+            original.run(17.0);
+            restored.run(17.0);
+            let continuation_matches = original.save().unwrap() == restored.save().unwrap();
+            if !checkpoint_matches || !continuation_matches {
+                failures.push(format!(
+                    "bound={bound}, pending={pending}: checkpoint={checkpoint_matches}, continuation={continuation_matches}, camera {:?} vs {:?}",
+                    original.world().require::<Transform>(camera).position,
+                    restored.world().require::<Transform>(camera).position,
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[test]
+fn pending_follow_at_a_tick_boundary_agrees_in_every_save_mode() {
+    struct LateTeleport;
+    impl Game for LateTeleport {
+        const ID: &'static str = "late-teleport";
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            w.spawn_named("player", Transform::default());
+            w.spawn_named(
+                "camera",
+                (
+                    Transform::default(),
+                    Follow::new("player").offset(0.0, 9.0, 13.0).lag(0.15),
+                ),
+            );
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            w.require_mut::<Transform>("player").position.x += 1.0;
+            scene::follow(w);
+            if w.tick() == 0 {
+                let player = w.named("player").unwrap();
+                w.teleport(player, Transform::at(50.0, 0.0, 0.0));
+            }
+        }
+    }
+    for mode in [Paranoid::Save, Paranoid::FreshGame] {
+        let mut reference = Sim::<LateTeleport>::new(())
             .unwrap()
-            .position,
-        player + Vec3::new(0.0, 5.0, 8.0)
-    );
+            .paranoid(Paranoid::Off);
+        let mut checked = Sim::<LateTeleport>::new(()).unwrap().paranoid(mode);
+        for _ in 0..12 {
+            reference.run(17.0);
+            checked.run(17.0);
+            assert!(
+                reference.save().unwrap() == checked.save().unwrap(),
+                "pending follow differs in {mode:?} at tick {}",
+                reference.world().tick(),
+            );
+        }
+    }
 }
 
 #[test]

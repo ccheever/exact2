@@ -350,6 +350,7 @@ dependencies = [
  "exact-num",
  "exact-plan",
  "icu_locale",
+ "serde_json",
 ]
 
 [[package]]
@@ -1039,6 +1040,7 @@ dependencies = [
 name = "exact-windows"
 version = "0.1.0"
 dependencies = [
+ "exact-kernel",
  "exact-linux",
  "exact-runner",
  "softbuffer",

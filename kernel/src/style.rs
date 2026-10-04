@@ -754,9 +754,8 @@ impl From<Color> for ColorValue {
 }
 
 impl Color {
-    /// A CSS colour: hex or `rgb()` notation, `transparent` (transparent
-    /// black) or a named colour (`gray`), keywords in any ASCII case as CSS's
-    /// are; whitespace around it free.
+    /// A CSS colour: hex, `rgb()`/`rgba()`, transparent black or a named colour.
+    /// Keywords ignore ASCII case; whitespace around the value is free.
     pub fn parse(text: &str) -> Option<Color> {
         let text = text.trim();
         if text.eq_ignore_ascii_case("transparent") {
@@ -1435,10 +1434,8 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
             s.aspect_ratio_content_box = true;
         }
     }
-    // A native tab bar fills the tablist's box. Its measured height supplies
-    // the automatic minimum, so even a short authored row reserves the bar.
-    // An explicit CSS min-height still owns that constraint; no natural ratio
-    // or preferred width is inferred from this container measurement.
+    // A native tab bar's measured height supplies only the automatic min-height;
+    // explicit CSS min-height still owns that constraint.
     if !arena.node_type(slot).is_replaced()
         && !matches!(
             arena.node_type(slot),
@@ -1487,8 +1484,7 @@ impl crate::generated::TouchAction {
     pub fn pinch_zoom(self) -> bool {
         matches!(self, Self::Auto | Self::Manipulation) || self.name().ends_with("pinch-zoom")
     }
-    /// The same value's pan axes alone: `pinch-zoom` dropped, which leaves
-    /// `none` when it named nothing else. What a pan decides by.
+    /// The pan axes alone: dropping `pinch-zoom` leaves `none` if it was alone.
     pub fn pans(self) -> Self {
         match self.name().strip_suffix("pinch-zoom") {
             Some("") => Self::None,
