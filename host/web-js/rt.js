@@ -345,8 +345,7 @@ function send(t, land) {
 }
 function ask(source, args, name) {
   const a = data.reserved?.[source] ? { v: data.reserved[source](source, args, name) } : data.answer(source, args, Store, name);
-  if (a && a.then) { const p = a; return { promise: p }; }
-  return a;
+  return a && a.then ? { promise: a } : a;
 }
 /** The reply to ticket `t` while its target `held()` it: a commit in which `f` takes the source's answer (a TypeScript
  * promise's value, or the parse of the outcome). A data or shape refusal there (no answer, or one outside its shape) lets
@@ -364,12 +363,13 @@ function reply(t, name, source, held, f, next, gone) {
     gone(); commit(() => {}, "a failed request");
   };
 }
-/** A resource: its value, the arguments it settled with, one ticket in flight. */
+const revalidated = (name, same) => `${name} answered: ${same ? "equal to its build-time answer" : "replaces its build-time answer"}`; // runner lines.rs
+/** A resource: its value, the arguments it settled with, one ticket in flight. A bake's answer is a first frame: `baked` asks at launch, as a native runner at `data_ready` (LLP 1048.003 D6; feed F24); a document's `kept` was asked for its page. */
 export function res(name, source, args, initial, initialArgs, type, ph) {
   const ver = sig(0), pend = sig(false), fail = sig(null);
   const kept = checkpoint().kept?.get(name);
   if (kept) [initialArgs, initial] = kept;
-  const r = { name, source, type, value: initial, settled: initialArgs, ticket: null, forced: false, reread: false, rev: false, store: false };
+  const r = { name, source, type, value: initial, settled: initialArgs, baked: !kept && initialArgs !== undefined, ticket: null, forced: false, reread: false, rev: false, store: false };
   const flag = (s, v, undo) => { if (!eq(s.n.v, v)) { undo?.push([s.n, s.n.v]); write(s.n, v); } };
   // Nothing kept: the placeholder shows, pending (LLP 1048.003 D6).
   const hold = () => {
@@ -386,7 +386,7 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
   // A reply the source cannot take leaves the value, failed for its arguments (`r.failed`, the runner's `failed_args`).
   const land = t => reply(t, name, source, () => r.ticket === t, p => {
     if (p.req) { t.req = p.req; t.id = ++Ticket; send(t, land(t)); return; }
-    take(p.v, t.args); r.ticket = r.failed = null;
+    if (t.baked) say(revalidated(name, eq(p.v, r.value))); take(p.v, t.args); r.ticket = r.failed = null;
     W(pend, false); W(fail, null); W(ver, ver.n.v + 1);
   }, "it keeps its last value", () => { r.ticket = null; r.failed = t.args; write(pend.n, false); write(fail.n, t.args); });
   const m = memo(() => {
@@ -398,8 +398,9 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
     if (r.failed && (forced || !eq(a, r.failed))) r.failed = null;
     flag(fail, r.failed);
     if (r.failed) return r.value;
+    const baked = r.baked; r.baked = false;
     if (!forced && !reread && !rev) {
-      if (r.settled !== undefined && eq(a, r.settled)) return r.value;
+      if (r.settled !== undefined && eq(a, r.settled) && !baked) return r.value;
       if (r.ticket && eq(a, r.ticket.args)) return r.value;
     }
     let ans;
@@ -411,7 +412,7 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
     }
     if (ans && ans.store) r.store = true;
     if (ans && "v" in ans) {
-      take(ans.v, a);
+      if (baked) say(revalidated(name, eq(ans.v, r.value))); take(ans.v, a);
       if (r.ticket && !reread) { say(`forget ticket ${r.ticket.id} (${name})`); r.ticket = null; }
       if (!r.ticket) flag(pend, false);
       return r.value;
@@ -425,21 +426,21 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
     }
     if (ans && (ans.req || ans.promise)) {
       hold();
-      const t = { id: ++Ticket, args: a, req: ans.req, promise: ans.promise };
+      const t = { id: ++Ticket, args: a, req: ans.req, promise: ans.promise, baked }; if (baked) say(`${name} shows its build-time answer until its source answers`);
       if (r.ticket) say(`forget ticket ${r.ticket.id} (${name})`);
       r.ticket = t; flag(pend, true); send(t, land(t));
       return r.value;
     }
-    // The source is not ready: the compiled value stands, stale, and the
-    // resource is asked again, forced, when it is (LLP 1027 D4).
+    // Not ready (Rust loads after first paint): the bake's answer for its arguments stands; another compiled value stands, stale, asked again, forced, when it is (LLP 1027 D4).
+    if (baked && eq(a, r.settled)) return r.value;
     hold();
     flag(pend, true);
     if (!r.waiting) { r.waiting = true; data.ready(() => { r.waiting = false; commit(() => { r.forced = true; W(ver, ver.n.v + 1); W(pend, false); }, `data ready ${name}`); }); }
     return r.value;
   }, type);
   Object.assign(r, {
-    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed],
-    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) r.ticket.args = x[3]; r.store = x[4]; r.failed = x[5]; },
+    save: () => [r.value, r.settled, r.ticket, r.ticket?.args, r.store, r.failed, r.baked],
+    restore: x => { [r.value, r.settled, r.ticket] = x; if (r.ticket) r.ticket.args = x[3]; r.store = x[4]; r.failed = x[5]; r.baked = x[6]; },
     force: undo => { r.forced = true; flag(ver, ver.n.v + 1, undo); },
     reread_: undo => { r.reread = true; flag(ver, ver.n.v + 1, undo); },
     revise: undo => { r.rev = true; flag(ver, ver.n.v + 1, undo); },
