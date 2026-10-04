@@ -14,18 +14,24 @@ final class Presenter {
     static let signposts = OSSignposter(subsystem: "com.exact.host", category: "scroll")
 
     var autofocusProcessed: Set<ObjectIdentifier> = []
-    private var controlsSyncOwed = false
-    /// What controls show changed outside a batch (a subtree's appearance or
-    /// size traits, geometry a sheet replayed after the batch): configure
-    /// them once, on the next turn, without waiting for a batch that an idle
-    /// app may never commit (LLP 1079's amendment of 2026-10-04).
-    func requestControlsSync() {
-        guard !controlsSyncOwed else { return }
-        controlsSyncOwed = true
+    private var projectionSyncOwed = false
+    /// What the native projections show changed outside a batch (a subtree's
+    /// appearance or size traits, geometry a sheet replayed after the batch).
+    /// Run the projection steps an empty batch used to run, once, on the next
+    /// turn, without waiting for a batch an idle app may never commit (LLP
+    /// 1079's amendment of 2026-10-04): tab bars, controls, and grouped lists,
+    /// which remount their carried rows and refresh their switches.
+    func requestProjectionSync() {
+        guard !projectionSyncOwed else { return }
+        projectionSyncOwed = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            controlsSyncOwed = false
-            if !applying { controls.sync() }
+            projectionSyncOwed = false
+            guard !applying else { return }
+            groupedLists.prepare()
+            segments.sync()
+            controls.sync()
+            groupedLists.sync(changed: [])
         }
     }
     /// The `aria-modal` view VoiceOver was last moved into, and the views
@@ -1005,8 +1011,8 @@ final class Presenter {
     /// session viewport. Replaying it uses the same path as the original batch.
     func applyGeometry(_ op: BatchOp) {
         // Replayed outside a batch (a sheet's dismissal completing): the
-        // controls under it size to their new boxes then.
-        if !applying { requestControlsSync() }
+        // projections under it take their new boxes then.
+        if !applying { requestProjectionSync() }
         let id = op.id
         guard let v = views[id] else { return }
         switch op.op {

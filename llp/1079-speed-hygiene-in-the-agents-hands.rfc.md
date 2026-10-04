@@ -670,7 +670,8 @@ four times a second, a 7 ms main-thread stall under any gesture.
 - Some things change outside any batch, and an idle tick used to refresh
   them by accident: a subtree's appearance or text size under a control,
   and geometry a sheet replays as it finishes dismissing. Each now asks for
-  a control sync on the next turn (`Presenter.requestControlsSync`), so a
+  a projection sync on the next turn (`Presenter.requestProjectionSync`: tab
+  bars, controls, grouped lists), so a
   timer app no longer depends on its own ticks. Apps with no timer gain the
   same.
 - A deferred GPU module drains its queued surface work when it loads. A

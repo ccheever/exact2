@@ -21,11 +21,21 @@ final class IdleTickTests: XCTestCase {
             XCTAssertEqual(session.clockDue, due, "and the next timer armed for it")
             XCTAssertEqual(session.clockTimer?.isValid, true)
         }
-        // No deadline: nothing armed.
+        // A later deadline re-arms; no deadline invalidates what was armed.
+        let armed = session.clockTimer
+        idle.timerDueMs = due + 250
+        session.applyTick(idle)
+        if !ExactEnv.agentMode {
+            XCTAssertEqual(session.clockDue, due + 250)
+            XCTAssertEqual(armed?.isValid, false, "the earlier timer is replaced")
+        }
+        let later = session.clockTimer
         idle.timerDueMs = nil
         session.applyTick(idle)
         XCTAssertEqual(session.appliedBatches, before)
         XCTAssertNil(session.clockTimer)
+        XCTAssertNil(session.clockDue)
+        XCTAssertNotEqual(later?.isValid, true, "and invalidated")
         // Each of these is news: the tick applies.
         var controls = Batch(ops: [], timers: true, motion: false, clock: nil, error: nil, timerDueMs: due)
         controls.controls = true

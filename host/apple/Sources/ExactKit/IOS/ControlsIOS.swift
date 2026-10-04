@@ -101,7 +101,7 @@ final class ControlHost: NSObject {
         // Its natural size follows text size, weight and scale, which no batch says.
         MainActor.assumeIsolated {
             made.registerForTraitChanges([UITraitPreferredContentSizeCategory.self, UITraitLegibilityWeight.self, UITraitDisplayScale.self]) { [weak self] (_: UIControl, _: UITraitCollection) in
-                self?.presenter.requestControlsSync()
+                self?.presenter.requestProjectionSync()
             }
         }
         if kind == "switch" || kind == "checkbox" { made.addTarget(self, action: #selector(changed(_:)), for: .valueChanged) }

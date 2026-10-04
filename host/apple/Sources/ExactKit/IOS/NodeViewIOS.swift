@@ -513,7 +513,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         self.presenter = presenter
         super.init(frame: .zero)
         registerForTraitChanges([UITraitUserInterfaceStyle.self]) { (node: NodeView, _: UITraitCollection) in
-            if node.kind == "control" { node.presenter?.requestControlsSync() } // its accent resolves per appearance
+            // A control's accent, a tablist's tint and a grouped list's
+            // switches resolve per appearance in their projections.
+            if node.kind == "control" || node.kind == "list" || node.props["accessibilityRole"] == "tablist" {
+                node.presenter?.requestProjectionSync()
+            }
             node.paragraphOwner.invalidateText()
             node.paragraphOwner.setNeedsDisplay()
             node.applyStyle(node.style)
