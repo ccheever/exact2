@@ -9,6 +9,7 @@ const esc = (s, attr) => String(s).replace(attr ? /[&"\r]/g : /[&<>\r]/g, c => (
 
 class Node {
   constructor(type) { this.nodeType = type; this.parentNode = null; this.childNodes = []; }
+  get parentElement() { return this.parentNode?.nodeType === 1 ? this.parentNode : null; }
   get firstChild() { return this.childNodes[0] ?? null; }
   get nextSibling() { const s = this.parentNode?.childNodes; return s ? s[s.indexOf(this) + 1] ?? null : null; }
   get isConnected() { let n = this; while (n.parentNode) n = n.parentNode; return n.nodeType === 9; }
@@ -43,11 +44,18 @@ class Style {
   set fontSize(v) { this.setProperty('font-size', v); } set fontWeight(v) { this.setProperty('font-weight', v); }
   set fontStyle(v) { this.setProperty('font-style', v); } set fontFamily(v) { this.setProperty('font-family', v); }
   set textDecoration(v) { this.setProperty('text-decoration', v); } set opacity(v) { this.setProperty('opacity', v); }
+  get isolation() { return this.getPropertyValue("isolation"); }
+  set isolation(v) { this.setProperty("isolation", v); }
   get cssText() { return [...this.map].map(([k, v]) => `${k}:${v};`).join(''); }
   set cssText(t) { this.map.clear(); for (const d of t.split(';')) { const i = d.indexOf(':'); if (i > 0) this.map.set(d.slice(0, i).trim(), d.slice(i + 1).trim()); } }
 }
 class Element extends Node {
   constructor(tag, fonts) { super(1); this.fonts = fonts; this.localName = tag; this.attrs = new Map(); this.style = new Style(); this.dataset = new Proxy({}, { set: (_, k, v) => (this.setAttribute('data-' + k.replace(/[A-Z]/g, c => '-' + c.toLowerCase()), v), true) }); }
+  get id() { return this.getAttribute("id") ?? ""; }
+  get attributes() { return [...this.attrs].map(([name, value]) => ({ name, value })); }
+  getAttributeNames() { return [...this.attrs.keys()]; }
+  get children() { return this.childNodes.filter(c => c.nodeType === 1); }
+  get nextElementSibling() { let n = this.nextSibling; while (n && n.nodeType !== 1) n = n.nextSibling; return n; }
   get tagName() { return this.localName.toUpperCase(); }
   setAttribute(k, v) { this.attrs.set(k, String(v)); }
   getAttribute(k) { return this.attrs.get(k) ?? null; }

@@ -146,7 +146,7 @@ test('a new app tells its agent where the guides are, and update keeps what the 
       assert.ok(existsSync(resolve(root, 'docs', guide)), guide);
     }
     assert.match(notes, /bun exact\.mjs contract types app\.contract -o app\.contract\.d\.ts/);
-    assert.ok(!lstatSync(resolve(dir, 'CLAUDE.md')).isSymbolicLink(), 'a build refuses links in an app');
+    assert.ok(lstatSync(resolve(dir, 'CLAUDE.md')).isSymbolicLink());
     assert.equal(readFileSync(resolve(dir, 'CLAUDE.md'), 'utf8'), notes);
     const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
     assert.equal(realpathSync(resolve(dir, manifest.$schema)), resolve(root, 'scripts/app.schema.json'));

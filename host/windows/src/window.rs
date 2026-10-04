@@ -44,6 +44,13 @@ struct App<D: DataSource> {
     first_tap: Option<String>,
 }
 
+fn wheel_delta(delta: MouseScrollDelta, scale: f64) -> (f32, f32) {
+    match delta {
+        MouseScrollDelta::LineDelta(x, y) => (-x * 40., -y * 40.),
+        MouseScrollDelta::PixelDelta(at) => ((-at.x / scale) as f32, (-at.y / scale) as f32),
+    }
+}
+
 pub(super) fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], compat: &str) -> i32 {
     if app::print_baked_receipt(compat) {
         return 0;
@@ -422,13 +429,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                let (dx, dy) = match delta {
-                    MouseScrollDelta::LineDelta(x, y) => (-x * 40., -y * 40.),
-                    MouseScrollDelta::PixelDelta(at) => (
-                        -at.x as f32 / self.scale as f32,
-                        -at.y as f32 / self.scale as f32,
-                    ),
-                };
+                let (dx, dy) = wheel_delta(delta, self.scale);
                 p.wheel_at(x, y, dx, dy);
             }
             WindowEvent::KeyboardInput { event, .. } => {
@@ -480,6 +481,30 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
             events.set_control_flow(ControlFlow::WaitUntil(deadline));
         } else {
             events.set_control_flow(ControlFlow::Wait);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn wheel_units_are_logical_pixels_with_browser_sign() {
+        for scale in [1., 2.] {
+            assert_eq!(
+                wheel_delta(MouseScrollDelta::LineDelta(0.25, -1.), scale),
+                (-10., 40.)
+            );
+            assert_eq!(
+                wheel_delta(
+                    MouseScrollDelta::PixelDelta(winit::dpi::PhysicalPosition::new(
+                        3.5 * scale,
+                        -12.25 * scale
+                    )),
+                    scale
+                ),
+                (-3.5, 12.25)
+            );
         }
     }
 }

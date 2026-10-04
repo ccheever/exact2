@@ -201,9 +201,13 @@ policy. The Swift host is compiled once per destination for every app, in
 one at a time, and its executable is copied to its own products before the next
 app links. A development build compiles it file by file and incrementally, and
 beside the app's Rust; the host's two Rust modules build in
-`<target>/apple-modules`. What is distributed (`--archive`, `exact release`) is
-the whole-module build, stripped, with its dSYM and whole receipt beside it
-(LLP 1036.000 §5–§9). `--bundle` prints the stable Mac bundle at
+`<target>/apple-modules`, and a checkout that has not built one takes it from
+`~/.cache/exact/apple-modules` when another checkout of this machine compiled
+it from the same bytes (delete that directory to compile them here). What is
+distributed (`--archive`, `exact release`) is the whole-module build, stripped,
+with its dSYM and whole receipt beside it; a production build links its Rust
+with fat LTO and, when its plan is fixed, leaves out the loaded modules the
+plan cannot reach (LLP 1036.000 §5–§10). `--bundle` prints the stable Mac bundle at
 `<target>/clients/<source-key>/<id>/macos/<Name>.app`; `scripts/exact.mjs`,
 `agent --app` and metrics use that same resolver. `--host` leaves both standalone
 and sample products; simulator and device bundles have separate destinations.

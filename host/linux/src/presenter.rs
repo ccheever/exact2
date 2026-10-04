@@ -1132,12 +1132,12 @@ impl<D: DataSource> Presenter<D> {
         self.boxes
             .iter()
             .rev()
-            .find(|b| {
+            .filter(|b| {
                 b.contains(x, y)
                     && !self.host.route_visibility(b.id).1
                     && self.display.allows(self.host.kernel(), b.id)
             })
-            .map(|b| self.svg_hit(b, x, y))
+            .find_map(|b| self.svg_hit(b, x, y))
     }
 
     /// The agent's `tap`: a press at the node's center through the same
@@ -1200,11 +1200,21 @@ impl<D: DataSource> Presenter<D> {
     /// up, then the page, unless its `overscroll-behavior` is `contain` or
     /// `none` on an axis the tick moves along: it keeps (drops) the tick.
     pub fn wheel_at(&mut self, x: f32, y: f32, dx: f32, dy: f32) {
-        if (dx == 0.0 && dy == 0.0) || !self.display.contains(x, y) {
+        if ![x, y, dx, dy].iter().all(|v| v.is_finite())
+            || (dx == 0.0 && dy == 0.0)
+            || !self.display.contains(x, y)
+        {
             return;
         }
-        if let Err(error) = self.pointer_cancel(self.pointer_now()) {
-            self.host.log(error);
+        if self.surface_wheel(x, y, dx, dy, self.pointer_now()) {
+            return;
+        }
+        // A UI wheel can take over a UI gesture, but does not release a game's
+        // captured pointer. Browser wheel events do not end pointer capture.
+        if self.contact_canvas().is_none() {
+            if let Err(error) = self.pointer_cancel(self.pointer_now()) {
+                self.host.log(error);
+            }
         }
         let mut at = self.hit(x, y);
         let collection_limits = self.collection_scroll_limits();
@@ -1293,6 +1303,9 @@ impl<D: DataSource> Presenter<D> {
 
     /// The agent's wheel: over the node's center.
     pub fn wheel(&mut self, id: ViewId, dx: f32, dy: f32) -> Result<String, String> {
+        if !dx.is_finite() || !dy.is_finite() {
+            return Err("wheel needs finite deltas".into());
+        }
         if self.host.route_visibility(id).1 {
             return Err(format!("view {id} is hidden or inert"));
         }
@@ -1390,6 +1403,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// Another host took over: it is measured as the last was, and counted.
     pub(crate) fn replaced(&mut self) {
+        self.brush.paint_epoch = None; // A new kernel may have the same epoch.
         self.hosts += 1;
         self.measure();
     }

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { pending, redact, send, setStanding, standing } from './feedback.mjs';
+import { pending, redact, send, setStanding, standing, status } from './feedback.mjs';
 import { needs, summary } from './feedback-worker.js';
 
 function app() {
@@ -48,6 +48,41 @@ test('send posts what is unsent once, marks it sent, and never sends for a proje
     writeFileSync(resolve(dir, '.exact/diary/2026-10-05-b.md'), 'b');
     await assert.rejects(send(dir, { yes: true, fetch: async () => ({ ok: false, status: 500 }) }), /500; nothing was marked sent/);
     assert.ok(existsSync(resolve(dir, '.exact/diary/2026-10-05-b.md')));
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
+test('local keeps the diary and never sends; a * entry answers for projects without their own', async () => {
+  const { parent, dir } = app();
+  try {
+    writeFileSync(resolve(dir, '.exact/diary/2026-10-04-a.md'), '### Rough\n- a slow build\n');
+    mkdirSync(process.env.EXACT_CONFIG_DIR, { recursive: true });
+    writeFileSync(resolve(process.env.EXACT_CONFIG_DIR, 'feedback.json'), JSON.stringify({ '*': 'local' }));
+    assert.equal(standing(dir), 'local');
+    const posts = [];
+    const fetch = async (url, init) => (posts.push(url), { ok: true, json: async () => ({ id: 'r' }) });
+    assert.match(await send(dir, { yes: true, fetch }), /never sends/);
+    assert.equal(posts.length, 0);
+    assert.ok(existsSync(resolve(dir, '.exact/diary/2026-10-04-a.md')));
+    // The project's own answer wins over *, and `ask` undoes local even under *.
+    setStanding(dir, 'always');
+    assert.equal(standing(dir), 'always');
+    setStanding(dir, 'ask');
+    assert.equal(standing(dir), 'ask');
+    // A * entry never consents to sending.
+    writeFileSync(resolve(process.env.EXACT_CONFIG_DIR, 'feedback.json'), JSON.stringify({ '*': 'always' }));
+    assert.equal(standing(dir), 'ask');
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+});
+
+test('status prints the detailed diary only when EXACT_DIARY=detailed, and never under never', () => {
+  const { parent, dir } = app();
+  try {
+    assert.equal(status(dir, {}), 'ask: 0 unsent diaries, 0 unsent logged commands');
+    assert.match(status(dir, { EXACT_DIARY: 'detailed' }), /^ask: 0 unsent[^]*detailed diary[^]*date '\+%F %T'[^]*self-assessment/);
+    // docs/diary.md reads `never` in this output as the opt-out; the extra instructions must not say it.
+    assert.doesNotMatch(status(dir, { EXACT_DIARY: 'detailed' }), /never/);
+    setStanding(dir, 'never');
+    assert.equal(status(dir, { EXACT_DIARY: 'detailed' }), 'never: 0 unsent diaries, 0 unsent logged commands');
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
 

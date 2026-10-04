@@ -408,9 +408,15 @@ the last statement of a last `if`/`match` branch). The compiler puts the named
 action's statements there, so it runs last in the same commit (LLP 1017 §P4c,
 "The tail call"). The Signal Clone's photo viewer is the consumer: its release
 decides to dismiss. Unblocks a child that decides, in its own logic, to tell
-its parent. Take: none offered; waived by Charlie's approval. Still refused:
-an action calling a root action by name, a call anywhere but the tail,
-recursion, and a return value.
+its parent. Take: none offered; waived by Charlie's approval.
+**Expanded (LLP 1089; waived by the orchestrator under Charlie's 2026-10-04
+delegation, "make decisions without me"):** a call anywhere a statement may
+stand, to an action of the same component, an `action` prop, or an injected
+action, expanded into that commit; a host command keeps its name. Consumers:
+Files' four copies of "open" (F27) and the spreadsheet's close-the-editor and
+move copies (F21); Mail's swipe (F18) is the tail call, once the docs say so.
+Take: none offered. Still refused: recursion, a return value, and an action
+passed as an argument.
 
 **Motion** — **in v1**, in the LLP 1002 shape: CSS's `transition` model. Targets
 are kernel style rows (`translate`, `scale`, `rotate`, `opacity`); a `transition`

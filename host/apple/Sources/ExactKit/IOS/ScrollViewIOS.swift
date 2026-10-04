@@ -10,10 +10,7 @@ final class PlainView: UIView {
     override func didAddSubview(_ subview: UIView) { super.didAddSubview(subview); FocusSearch.joined(subview) }
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard !isHidden, isUserInteractionEnabled, bounds.contains(point) else { return nil }
-        for sub in subviews.reversed() {
-            if let hit = sub.hitTest(convert(point, to: sub), with: event) { return hit }
-        }
-        return nil
+        return NodeView.hitChildren(in: self, at: point, with: event)
     }
 }
 
@@ -24,6 +21,11 @@ final class PlainView: UIView {
 /// wheel (the agent's) applies the web's chaining rule itself
 /// (`AgentIOS.swift`).
 class ScrollView: UIScrollView {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard let hit = super.hitTest(point, with: event) else { return nil }
+        return NodeView.hitChildren(in: self, at: point, with: event) ?? hit
+    }
+
     var scrollsX = true
     var scrollsY = true
     /// A pan cancels a touch in progress, as it does a custom button's; UIKit

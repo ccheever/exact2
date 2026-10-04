@@ -26,3 +26,7 @@ import Contract.Types
 import Contract.Soundness
 import Contract.TypeCheck
 import Contract.TypeInvariant
+import Contract.EnvSound
+import Contract.SettleSound
+import Contract.RenderSound
+import Contract.StepSound

@@ -73,6 +73,7 @@ final class RouteController: UIViewController {
         snapshot.frame = view.bounds
         snapshot.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(snapshot)
+        snapshot.setPaintForeground()
     }
 }
 
@@ -243,6 +244,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         let nav = makeNavigation(first: first.first?.node)
         parent.addChild(nav)
         p.root.addSubview(nav.view)
+        nav.view.setPaintForeground()
         nav.view.frame = p.root.bounds
         nav.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         nav.didMove(toParent: parent)
@@ -344,6 +346,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             let nav = makeNavigation(first: route)
             owner.addChild(nav)
             root.addSubview(nav.view)
+            nav.view.setPaintForeground()
             nav.view.frame = root.bounds
             nav.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             nav.didMove(toParent: owner)
@@ -466,6 +469,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         guard let nav = presentedNavigations.first(where: { $0.parent === parent }) else { return nil }
         let frame = nav.view.convert(nav.view.bounds, to: parent.view)
         parent.view.insertSubview(nav.view, at: 0)
+        nav.view.setPaintForeground(false)
         nav.view.frame = frame
         nav.view.accessibilityElementsHidden = true
         return nav

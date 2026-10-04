@@ -134,6 +134,7 @@ pub struct Host<D: DataSource> {
     pending_layout: IdSet<NodeKey>,
     /// Each sticky node's constraint as the presenter last heard it (LLP 1083).
     stickies: IdMap<ViewId, exact_kernel::StickyConstraint>,
+    ranks: IdMap<ViewId, i64>,
     roots: Vec<ViewId>,
     /// Last published common collection snapshot; refreshed only after layout.
     collections_json: String,
@@ -396,6 +397,7 @@ impl<D: DataSource> Host<D> {
             dirty_paragraphs: BTreeSet::new(),
             pending_layout: IdSet::default(),
             stickies: IdMap::default(),
+            ranks: IdMap::default(),
             roots: Vec::new(),
             collections_json: "[]".into(),
             engine: {
@@ -1160,6 +1162,7 @@ impl<D: DataSource> Host<D> {
             self.begin_exits(r, &mut batch);
             for key in &r.destroyed {
                 if let Some(id) = self.keys.remove(key) {
+                    self.ranks.remove(&id);
                     self.paint.runs.remove(&id);
                     if let Some((owner, _)) = self.inline_runs.remove(&id) {
                         self.dirty_paragraphs.insert(owner);
@@ -1260,6 +1263,9 @@ impl<D: DataSource> Host<D> {
         } else {
             self.layout(&mut batch).err()
         };
+        if layout_error.is_some() && !receipts.is_empty() {
+            self.emit_ranks(&mut batch);
+        }
         self.canvas_turn(&mut batch);
         for s in self.runner.take_surface_updates() {
             batch.surface(&s);

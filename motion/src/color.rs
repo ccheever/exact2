@@ -3,7 +3,8 @@
 //! @ref LLP 1055.000 D6; CSS Color 4 §12.2 (legacy colours interpolate in
 //! premultiplied sRGB)
 //!
-//! The kernel's colour rows admit hex, `rgb()`/`rgba()` and `transparent`;
+//! The kernel's colour rows admit hex, `rgb()`/`rgba()`, `transparent` and
+//! the named colours;
 //! a keyframe takes the same, so a colour a node can hold is a colour it can
 //! animate to. Motion sits below the kernel, so it parses them itself.
 
@@ -11,11 +12,15 @@ use crate::property::Value;
 
 /// A CSS colour: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()`
 /// (numbers 0–255 or percentages, alpha 0–1 or a percentage, commas or the
-/// space-and-slash form), or `transparent`. `None` for anything else.
+/// space-and-slash form), `transparent`, or a named colour. `None` for
+/// anything else.
 pub fn parse(text: &str) -> Option<Value> {
     let t = text.trim();
     if t.eq_ignore_ascii_case("transparent") {
         return Some(Value::ZERO);
+    }
+    if let Some([r, g, b]) = crate::named::named(t) {
+        return Some(Value::rgba8(r, g, b, 255));
     }
     if let Some(hex) = t.strip_prefix('#') {
         let digit = |i: usize| u8::from_str_radix(hex.get(i..i + 1)?, 16).ok();
@@ -107,7 +112,9 @@ mod tests {
         assert_eq!((half.x, half.w), (0.5, 0.5), "premultiplied");
         assert_eq!(parse("rgb(255 0 0 / 50%)"), Some(half));
         assert_eq!(parse("#ff000080").unwrap().to_rgba8(), [255, 0, 0, 128]);
-        for bad in ["red", "#12", "rgb(1, 2)", "hsl(0, 0%, 0%)", "#ggg"] {
+        // A named colour, as the kernel's rows take it (one table, `named`).
+        assert_eq!(parse(" Gray ").unwrap().to_rgba8(), [128, 128, 128, 255]);
+        for bad in ["reddish", "#12", "rgb(1, 2)", "hsl(0, 0%, 0%)", "#ggg"] {
             assert_eq!(parse(bad), None, "{bad}");
         }
         assert_eq!(css(half), "rgba(255, 0, 0, 0.5)");

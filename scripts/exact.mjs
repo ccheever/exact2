@@ -407,7 +407,7 @@ export function sdkReport(env = process.env) {
     rows.push(row('Xcode', developer, 'Xcode.app', xcode, 'install Xcode, then sudo xcode-select -s /Applications/Xcode.app', 'macOS and iOS'));
   }
   const hermes = hermesSources(env);
-  rows.push(row('hermesc', hermes.hermesc, 'facebook/hermes pin', hermes.hermescOk, hermes.fix, 'TypeScript apps'));
+  rows.push(row('hermesc', hermes.hermesc, 'facebook/hermes pin', hermes.hermescOk, hermes.fix, 'TypeScript apps on native hosts; the web needs none'));
   if (process.platform === 'darwin') rows.push(row('Hermes engine', hermes.engine, 'facebook/hermes pin', hermes.engineOk, hermes.fix, 'TypeScript on macOS (iOS builds its own)'));
   return rows;
 }

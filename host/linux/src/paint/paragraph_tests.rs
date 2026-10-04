@@ -330,3 +330,51 @@ fn html_maxlength_is_enforced_by_linux_typing() {
         Some("a😀")
     );
 }
+
+#[test]
+fn paint_ranks_survive_repaints_and_scroll_until_a_kernel_commit() {
+    let mut p = fixture("      box height=900 testId=\"row\"\n");
+    p.frame();
+    let passes = p.brush.rank_passes;
+    let epoch = p.host().kernel().epoch();
+    p.frame();
+    p.wheel_at(40., 40., 0., 80.);
+    p.frame();
+    assert_eq!(p.host().kernel().epoch(), epoch);
+    assert_eq!(
+        p.brush.rank_passes, passes,
+        "repaint and scroll reuse the ranks"
+    );
+    let id = p.host().kernel().find_by_test_id("row")[0];
+    let id = p.host().kernel().node_by_key(id).unwrap().id;
+    let mut style = exact_kernel::StyleProps::default();
+    style.opacity = 0.5;
+    style.mask.set(exact_kernel::StyleId::Opacity);
+    p.host
+        .runner_mut()
+        .kernel_mut()
+        .apply(
+            0,
+            epoch + 1,
+            &[exact_kernel::Op::SetStyle {
+                id,
+                patch: Box::new(style),
+            }],
+        )
+        .unwrap();
+    p.frame();
+    assert_eq!(
+        p.brush.rank_passes,
+        passes + 1,
+        "a style commit recomputes ranks"
+    );
+    assert_eq!(p.brush.ranks[&id], 1);
+    let plan = contract::compile("component App\n  view\n    box width=100 height=100\n").unwrap();
+    p.reload(&plan.encode(), NoData).unwrap();
+    p.frame();
+    assert_eq!(
+        p.brush.rank_passes,
+        passes + 2,
+        "replacement kernels invalidate ranks"
+    );
+}

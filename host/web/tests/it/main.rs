@@ -15,6 +15,7 @@ mod host;
 mod lists;
 mod navigation;
 mod page;
+mod paint_order;
 mod pan_release;
 mod parity;
 mod presence;

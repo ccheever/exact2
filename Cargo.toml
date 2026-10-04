@@ -36,6 +36,9 @@ cosmic-text = { path = "vendor/cosmic-text" }
 # build script refuses a workspace without this line.
 wgpu-hal = { path = "vendor/wgpu-hal" }
 
+# A production bake for an Apple target says `lto = "fat"` on Cargo's command
+# line (`buildBake`, scripts/app.mjs): 4.8% less binary for 16 s of that build.
+# Not here, because every developer tool builds at `release` too.
 [profile.release]
 opt-level = 3
 lto = "thin"

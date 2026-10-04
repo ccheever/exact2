@@ -889,7 +889,7 @@ extension Capture {
 
     /// `cacheDisplay` draws subviews in array order; the window server
     /// composites siblings by `zPosition`, which carries CSS `z-index`
-    /// (`usedZIndex`). For the capture, each view's subviews are in the
+    /// (the kernel's paint rank, LLP 1083.000). For the capture, each view's subviews are in the
     /// order they show — a sticky header over the rows that scroll under it
     /// (spreadsheet F13), a raised dropdown over the content after it (shop
     /// F18) — and the closure returned puts them back.

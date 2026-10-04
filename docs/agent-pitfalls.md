@@ -24,11 +24,6 @@ guide's rules don't make obvious.
   keyboard. Fix: `interactive-widget="resizes-content"` on the root, or
   `overlays-content` with a `role="toolbar" toolbarPlacement="keyboard"` for a
   toolbar that rides the keyboard without relayout (LLP 1008 §9.1). (Signal Clone.)
-- **`color="gray"` is refused.** `lower-attr-value: … is not a valid color`. Cause:
-  colors are `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()`, `transparent` or
-  `light-dark(…)`; CSS's named colors are not admitted. Fix: write the hex
-  (`#808080`). `contract vocab color` shows the value kind. (LLP 1086 reading-list
-  example, 2026-10-04.) **Candidate diagnostic:** name the hex for a CSS color name.
 
 ## Lists and scrolling
 
@@ -147,6 +142,10 @@ guide's rules don't make obvious.
   carries the agent adapter, install pages and the source map. Fix: measure the
   release: `host/web-js/build.mjs <app> --plan <wasm bake>/app.plan --production`,
   as `scripts/deploy.mjs` builds it.
+  The current `metrics.mjs` app.js gate is a different measurement: it calls
+  `host/web/build.mjs <app>-web` without `--production`, and prints its three
+  app.js lines only with `--long`. Reproduce that invocation when investigating
+  a gate violation; a release number cannot be substituted for it.
 - **Host code must never set a scroll offset during a pan or fling.** An absolute
   `contentOffset` write while `isTracking`/`isDecelerating` cuts the reader's
   motion: frame rate holds, the motion is wrong ("janky but not dropping frames").
@@ -159,3 +158,25 @@ guide's rules don't make obvious.
   the shell. Fix: set `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`
   when running `test ios` or `agent ios`. (CSS diary-fix scratch app, 2026-10-04;
   reproduced with `xcrun simctl list` in the origin/main source copy.)
+- **A fixture's nonempty list literal does not compile.** Contract admits `[]`
+  only; a nonempty list comes from a source, a shape field, or `map`/`filter`.
+  `split` is not a standard function here either. (Paint-order mutation fixture, 2026-10-04.)
+- **A copied Core Animation tree renders blank.** Calling `CALayer(layer:)`
+  directly gives an empty layer: a measured copy had zero bounds and no fill
+  or sublayers. For a capture, copy values into fresh layers and recursively
+  copy children and masks. Keep the live hierarchy intact. (LLP 1083.000, Apple A2.)
+- **A nonempty list literal does not compile.** Contract admits `[]` only; a
+  nonempty list comes from a source, a shape field, or `map`/`filter`, and
+  `split` is not a standard function. For a fixture or a static mount
+  measurement, generate the repeated markup. (LLP 1083.000, web W2 and Apple A2.)
+- **An sRGB capture test changes the pixel it reads.** AppKit's
+  `NSBitmapImageRep.colorAt` returns calibrated RGB even when the bitmap is
+  sRGB. Converting that `NSColor` to sRGB again turned measured bytes
+  `[128, 0, 127, 255]` into about 58% red and 57% blue. Compare the bitmap's
+  components or bytes in its declared color space. (Apple A2 capture test.)
+- **A canvas capture still shows the previous order after ranks flush.**
+  Cached shadow layers are plain `CALayer`s: changing their `zPosition`
+  outside a disabled-actions transaction implicitly animates the depth.
+  Flush ranks before capture and disable actions for that flush, including
+  mirror writes. A same-batch texture upload then sees the new front sibling.
+  (LLP 1083.000, Astra 6 regression.)

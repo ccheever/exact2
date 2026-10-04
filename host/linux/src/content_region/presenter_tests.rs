@@ -91,6 +91,69 @@ fn non_cpu_region_refuses_before_plan_font_or_device_work() {
         );
     }
 }
+
+#[test]
+fn retained_pointer_eligibility_changes_only_when_its_picture_is_acknowledged() {
+    let _service = crate::content_region::test_service();
+    for initial_hit in [true, false] {
+        let (old, new) = if initial_hit {
+            ("auto", "none")
+        } else {
+            ("none", "auto")
+        };
+        let source = APP.replace("testId=\"paragraph\"", &format!("testId=\"paragraph\" pointer-events=(title == \"old picture\" ? \"{old}\" : \"{new}\")"));
+        let (mut p, error) = Presenter::boot_with_content_region(
+            &contract::compile(&source).unwrap().encode(),
+            Empty,
+            (400., 500.),
+            1.,
+            PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+            PainterChoice::Cpu,
+            ContentRegionRegistration {
+                activate: None,
+                owner: "owner",
+                content: "content",
+                pending: "pending",
+            },
+        )
+        .unwrap();
+        assert!(error.is_none(), "{error:?}");
+        p.frame();
+        ready(&mut p);
+        let a = p.display_frame().unwrap();
+        assert!(p.display_complete(&a));
+        let paragraph = id(&p, "paragraph");
+        let b = p.box_of(paragraph).unwrap();
+        let point = (b.rect.0 + 2., b.rect.1 + 2.);
+        assert_eq!(p.hit(point.0, point.1) == Some(paragraph), initial_hit);
+        let replace = id(&p, "replace");
+        assert!(p.host.dispatch_at(replace, Event::Press, 1.).is_none());
+        assert!(p.after_commit().is_none());
+        ready(&mut p);
+        let b = p.display_frame().unwrap();
+        assert!(p.last_frame_succeeded);
+        let future = p
+            .host
+            .kernel()
+            .node(paragraph)
+            .unwrap()
+            .computed_style(exact_kernel::StyleMask::INHERITED)
+            .pointer_events;
+        assert_eq!(future != exact_kernel::PointerEvents::None, !initial_hit);
+        assert_eq!(
+            p.hit(point.0, point.1) == Some(paragraph),
+            initial_hit,
+            "unacknowledged B cannot change A hits"
+        );
+        assert!(p.display_complete(&b));
+        assert_eq!(
+            p.hit(point.0, point.1) == Some(paragraph),
+            !initial_hit,
+            "acknowledged B owns hits"
+        );
+    }
+}
+
 #[test]
 fn failed_frame_retains_source_hits_and_rejects_live_replacement_actions() {
     let _service = crate::content_region::test_service();

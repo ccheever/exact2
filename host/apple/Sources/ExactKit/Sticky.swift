@@ -122,26 +122,3 @@ final class StickyHost {
         return CGPoint(x: page.x - v.frame.minX, y: page.y - v.frame.minY)
     }
 }
-
-#if os(macOS)
-extension NSView {
-    /// CSS `z-index` orders siblings (`usedZIndex`, the layer's `zPosition`),
-    /// which AppKit paints by but does not hit-test by: it asks subviews in
-    /// reverse order. A sibling raised above the branch AppKit's `hit` came
-    /// from takes the point first when it holds it, so a pinned sticky
-    /// header is hit over the rows scrolling under it (LLP 1083 D6).
-    func raisedHit(_ hit: NSView?, _ point: NSPoint) -> NSView? {
-        guard let hit, hit !== self else { return hit }
-        var branch = hit
-        while let up = branch.superview, up !== self { branch = up }
-        let z = branch.layer?.zPosition ?? 0
-        let raised = subviews.reversed().filter { $0 !== branch && ($0.layer?.zPosition ?? 0) > z }
-        guard branch.superview === self, !raised.isEmpty else { return hit }
-        let local = convert(point, from: superview)
-        for view in raised.sorted(by: { ($0.layer?.zPosition ?? 0) > ($1.layer?.zPosition ?? 0) }) {
-            if let found = view.hitTest(local) { return found }
-        }
-        return hit
-    }
-}
-#endif

@@ -12,7 +12,7 @@ import IOSurface
 private final class MaterialContent: NSView {
     override var isFlipped: Bool { true }
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let hit = super.hitTest(point)
+        let hit = raisedHit(super.hitTest(point), point)
         return hit === self ? nil : hit
     }
 }
@@ -26,7 +26,7 @@ private final class GlassBackground: NSGlassEffectView {
 
 private final class BlurBackground: NSVisualEffectView {
     override func hitTest(_ point: NSPoint) -> NSView? {
-        let hit = super.hitTest(point)
+        let hit = raisedHit(super.hitTest(point), point)
         return hit === self ? nil : hit
     }
 }
@@ -35,6 +35,13 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func selectAll(_ sender: Any?) { presenter?.selection.selectAll() }
 
     let id: UInt32
+    // Twice the kernel rank; transients never overwrite the authored answer.
+    var rank: Int64 = 0
+    var paintLifted = false
+    var paintGhost = false
+    var paintGhosts = 0
+    weak var paintParent: PaintView?
+    weak var ghostParent: NodeView?
     let firstDraw: () -> Void
     let kind: String
     var inlineText: [InlineText] = []
@@ -666,7 +673,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         guard !isHidden, bounds.contains(inCanvas) else { return nil }
         // Ordinary HUD paints above the captured children, so it hits first.
         let inOverlay = overlay.convert(inCanvas, from: self)
-        for child in overlay.subviews.reversed() where (child as? NodeView)?.placement == nil && (child as? NodeView)?.placementHidden != true {
+        for child in NodeView.hitOrder(overlay.subviews) where (child as? NodeView)?.placement == nil && (child as? NodeView)?.placementHidden != true {
             if let hit = child.hitTest(inOverlay) { return hit }
         }
         // Nearest first: what is seen on top is what a tap reaches.
@@ -758,16 +765,6 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         paragraphOwner.needsDisplay = true
         applyStyle(style)
         needsDisplay = true
-    }
-    /// CSS's used `z-index` (LLP 1074 T1): the row applies to a positioned
-    /// box and to a flex or grid item; a static box elsewhere paints in order.
-    var usedZIndex: CGFloat {
-        let position = style["position_type"]?.string
-        if position == "relative" || position == "absolute" || position == "sticky" { return number("z_index") }
-        var parent = superview
-        while let view = parent, !(view is NodeView) { parent = view.superview }
-        let display = (parent as? NodeView)?.style["display"]?.string
-        return display == "flex" || display == "grid" ? number("z_index") : 0
     }
     func number(_ key: String, _ fallback: CGFloat = 0) -> CGFloat {
         if let n = style[key]?.number { return CGFloat(n) }
@@ -1108,9 +1105,6 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             applyPlaceholder(f)
             f.frame = contentBox()
         }
-        // CSS z-index: a WKWebView's remote layer otherwise paints over later
-        // siblings (the account mark on the deck).
-        layer?.zPosition = usedZIndex
         updateMaterial()
         needsDisplay = true
     }
@@ -1144,15 +1138,14 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // properties (`BoxLayerMac.swift`) gets them now, not at the next
         // display, so a new filtered box is not pictured empty.
         if layerBoxEligible, !Capture.capturing { applyLayerPaint() }
+        setPaintPosition(paintZPosition)
         f.render(layer, clip: resolvedClipMask(), scale: window?.backingScaleFactor ?? 2)
     }
 
     override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         if superview == nil { boxFilter?.remove() } else if boxFilter != nil { renderFilter() }
-        // A static flex or grid item's z-index depends on its parent, which a
-        // view styled before it was mounted did not have.
-        if superview != nil, let layer, layer.zPosition != usedZIndex { layer.zPosition = usedZIndex }
+        paintOrderMoved()
     }
 
     /// `overflow: hidden` clips to the rounded corners: one radius rides the
@@ -1181,7 +1174,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         wantsLayer = true
         applyShadow()
         if let hide = boxFilter?.hide { layer?.mask = hide } else { applyBoxMask() }
-        layer?.zPosition = usedZIndex
+        setPaintPosition(paintZPosition)
         applyTransform()
     }
 
