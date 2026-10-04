@@ -11,8 +11,12 @@ use std::os::windows::io::{AsRawHandle, FromRawHandle};
 use std::path::{Component, Path, Prefix};
 use windows_sys::Wdk::Foundation::OBJECT_ATTRIBUTES;
 use windows_sys::Wdk::Storage::FileSystem::*;
+use windows_sys::Wdk::System::SystemServices::{FILE_FS_DEVICE_INFORMATION, FILE_REMOTE_DEVICE};
 use windows_sys::Win32::Foundation::*;
 use windows_sys::Win32::Storage::FileSystem::*;
+use windows_sys::Win32::System::WindowsProgramming::{
+    DRIVE_CDROM, DRIVE_FIXED, DRIVE_RAMDISK, DRIVE_REMOVABLE,
+};
 use windows_sys::Win32::System::IO::IO_STATUS_BLOCK;
 
 pub fn refuse(message: impl Into<String>) -> io::Error {
@@ -65,19 +69,29 @@ pub fn validate_name(value: &str) -> io::Result<()> {
 fn validate(file: &File) -> io::Result<()> {
     if file.metadata()?.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
         return Err(refuse(
-            "app filesystem entries cannot be symlinks or reparse points; root must be a real directory",
+            "filesystem entries cannot be symlinks or reparse points; root must be a real directory",
         ));
     }
     Ok(())
 }
 fn open(
-    parent: &File,
+    parent: &Directory,
     leaf: &str,
     access: u32,
     disposition: u32,
     directory: bool,
 ) -> io::Result<File> {
-    open_encoded(parent, name(leaf)?, access, disposition, directory)
+    if !parent.1 {
+        exact_grants::WindowsPath::validate_component(leaf)?;
+    }
+    open_encoded(
+        &parent.0,
+        name(leaf)?,
+        access,
+        disposition,
+        directory,
+        parent.1,
+    )
 }
 fn open_encoded(
     parent: &File,
@@ -85,6 +99,7 @@ fn open_encoded(
     access: u32,
     disposition: u32,
     directory: bool,
+    insensitive: bool,
 ) -> io::Result<File> {
     let mut unicode = UNICODE_STRING {
         Length: (encoded.len() * 2) as u16,
@@ -95,7 +110,7 @@ fn open_encoded(
         Length: size_of::<OBJECT_ATTRIBUTES>() as u32,
         RootDirectory: parent.as_raw_handle(),
         ObjectName: &mut unicode,
-        Attributes: OBJ_CASE_INSENSITIVE,
+        Attributes: if insensitive { OBJ_CASE_INSENSITIVE } else { 0 },
         ..Default::default()
     };
     let mut handle = std::ptr::null_mut();
@@ -136,8 +151,48 @@ pub fn identity(file: &File) -> io::Result<(u64, u64)> {
     ))
 }
 #[derive(Debug)]
-pub struct Directory(pub File);
+pub struct Directory(pub File, bool);
 impl Directory {
+    pub fn try_clone(&self) -> io::Result<Self> {
+        Ok(Self(self.0.try_clone()?, self.1))
+    }
+    /// A native path operation pins its drive once. Case-sensitive directories
+    /// keep their own lookup policy; the grant comparison is separately exact.
+    pub fn native_drive(drive: u8) -> io::Result<Self> {
+        let path = format!("{}:\\", drive as char);
+        let name: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();
+        // SAFETY: a terminated UTF-16 drive-root name lives through this call.
+        let kind = unsafe { GetDriveTypeW(name.as_ptr()) };
+        if !matches!(
+            kind,
+            DRIVE_FIXED | DRIVE_REMOVABLE | DRIVE_CDROM | DRIVE_RAMDISK
+        ) {
+            return Err(refuse("native filesystem requires a local drive"));
+        }
+        let mut root = Self::root(&path, false)?;
+        root.1 = false;
+        let mut info = FILE_FS_DEVICE_INFORMATION::default();
+        let mut status = IO_STATUS_BLOCK::default();
+        // SAFETY: the held directory and sized output structures remain live.
+        checked(unsafe {
+            NtQueryVolumeInformationFile(
+                root.0.as_raw_handle(),
+                &mut status,
+                (&mut info as *mut FILE_FS_DEVICE_INFORMATION).cast(),
+                size_of::<FILE_FS_DEVICE_INFORMATION>() as u32,
+                FileFsDeviceInformation,
+            )
+        })?;
+        if status.Information < size_of::<FILE_FS_DEVICE_INFORMATION>()
+            || !matches!(info.DeviceType, FILE_DEVICE_DISK | FILE_DEVICE_CD_ROM)
+            || info.Characteristics & FILE_REMOTE_DEVICE != 0
+        {
+            return Err(refuse(
+                "opened native drive is not a qualified local filesystem",
+            ));
+        }
+        Ok(root)
+    }
     pub fn root(path: &str, create: bool) -> io::Result<Self> {
         let mut parts = Path::new(path).components();
         let drive = match parts.next() {
@@ -156,7 +211,7 @@ impl Directory {
             .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
             .open(format!("{drive}:\\"))?;
         validate(&file)?;
-        let mut dir = Self(file);
+        let mut dir = Self(file, true);
         for part in parts {
             match part {
                 Component::Normal(part) => {
@@ -172,20 +227,20 @@ impl Directory {
     }
     pub fn child(&self, leaf: &str, create: bool) -> io::Result<Self> {
         open(
-            &self.0,
+            self,
             leaf,
             FILE_LIST_DIRECTORY | FILE_TRAVERSE,
             if create { FILE_OPEN_IF } else { FILE_OPEN },
             true,
         )
-        .map(Self)
+        .map(|file| Self(file, self.1))
     }
     pub fn parent(&self, relative: &str, create: bool) -> io::Result<(Self, String)> {
         let parts: Vec<_> = relative.split('/').collect();
         for part in &parts {
             name(part)?;
         }
-        let mut dir = Self(self.0.try_clone()?);
+        let mut dir = self.try_clone()?;
         for part in &parts[..parts.len() - 1] {
             dir = dir.child(part, create)?;
         }
@@ -211,9 +266,9 @@ impl Directory {
         } else {
             FILE_OPEN
         };
-        let file = open(&self.0, leaf, access, disposition, false)?;
+        let file = open(self, leaf, access, disposition, false)?;
         if !file.metadata()?.is_file() {
-            return Err(refuse("app filesystem entries must be regular files"));
+            return Err(refuse("filesystem entries must be regular files"));
         }
         Ok(file)
     }
@@ -223,13 +278,13 @@ impl Directory {
         Ok(bytes)
     }
     pub fn entry(&self, leaf: &str) -> io::Result<File> {
-        open(&self.0, leaf, FILE_READ_DATA, FILE_OPEN, false)
+        open(self, leaf, FILE_READ_ATTRIBUTES, FILE_OPEN, false)
     }
     pub fn removable(&self, leaf: &str) -> io::Result<File> {
-        open(&self.0, leaf, DELETE, FILE_OPEN, false)
+        open(self, leaf, DELETE, FILE_OPEN, false)
     }
     pub fn kind(&self, leaf: &str) -> io::Result<Kind> {
-        let file = open(&self.0, leaf, FILE_READ_ATTRIBUTES, FILE_OPEN, false)?;
+        let file = open(self, leaf, FILE_READ_ATTRIBUTES, FILE_OPEN, false)?;
         let info = file.metadata()?;
         Ok(Kind {
             directory: info.is_dir(),
@@ -239,7 +294,14 @@ impl Directory {
     pub fn names(&self) -> io::Result<Vec<String>> {
         // An empty NT relative name reopens the owned object, creating an
         // independent enumeration cursor without looking up its old pathname.
-        let cursor = open_encoded(&self.0, Vec::new(), FILE_LIST_DIRECTORY, FILE_OPEN, true)?;
+        let cursor = open_encoded(
+            &self.0,
+            Vec::new(),
+            FILE_LIST_DIRECTORY,
+            FILE_OPEN,
+            true,
+            self.1,
+        )?;
         let mut storage = vec![0u64; 8192];
         let mut names = Vec::new();
         let mut class = FileIdBothDirectoryRestartInfo;
@@ -301,7 +363,7 @@ impl Directory {
         Ok(names)
     }
     pub fn unlink(&self, leaf: &str) -> io::Result<()> {
-        let file = open(&self.0, leaf, DELETE, FILE_OPEN, false)?;
+        let file = open(self, leaf, DELETE, FILE_OPEN, false)?;
         let info = FILE_DISPOSITION_INFORMATION { DeleteFile: true };
         let mut status = IO_STATUS_BLOCK::default();
         // SAFETY: all structures are live and correctly sized; only this owned
@@ -317,6 +379,9 @@ impl Directory {
         })
     }
     pub fn rename(&self, file: &File, leaf: &str) -> io::Result<()> {
+        if !self.1 {
+            exact_grants::WindowsPath::validate_component(leaf)?;
+        }
         let leaf = name(leaf)?;
         let length = (offset_of!(FILE_RENAME_INFORMATION, FileName) + leaf.len() * 2)
             .max(size_of::<FILE_RENAME_INFORMATION>());
@@ -354,7 +419,7 @@ impl Directory {
     ) -> io::Result<()> {
         let target = || match self.kind(leaf) {
             Ok(Kind { regular: true, .. }) => Ok(()),
-            Ok(_) => Err(refuse("app filesystem entries must be regular files")),
+            Ok(_) => Err(refuse("filesystem entries must be regular files")),
             Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
             Err(e) => Err(e),
         };

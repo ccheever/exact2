@@ -1010,6 +1010,14 @@ const validGrantName = name => typeof name === 'string' && name.length >= 1 && n
 const rustSpace = '[\\u0009-\\u000d\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]';
 const rustTrim = value => String(value).replace(new RegExp(`^${rustSpace}+|${rustSpace}+$`, 'g'), '');
 const rustWords = value => rustTrim(value).split(new RegExp(`${rustSpace}+`)).filter(Boolean);
+const nativeNamespace = value => typeof value === 'string' && /^win:[A-Z]$/.test(value);
+const nativeLeaf = value => {
+  if (typeof value !== 'string' || !value || value.length > 255 || value === '.' || value === '..'
+      || /[\\/:*?"<>|\u0000-\u001f\u007f-\u009f]/.test(value) || /[. ]$/.test(value)
+      || /[\ud800-\udfff]/u.test(value)) return false;
+  const base = value.split('.')[0].replace(/[a-z]/g, char => char.toUpperCase());
+  return !/^(?:CON|PRN|AUX|NUL|CLOCK\$|(?:COM|LPT)[1-9¹²³])$/.test(base);
+};
 const grantTupleValid = grant => {
   if (!Array.isArray(grant) || typeof grant[0] !== 'string') return false;
   if (networkGrants.has(grant[0])) {
@@ -1022,13 +1030,19 @@ const grantTupleValid = grant => {
     && (grant[0] !== 'fetch-subdomains' || !address && !grant[2].endsWith('.') && grant[2].split('.').filter(Boolean).length >= 2);
   }
   if (pathGrants.has(grant[0])) return grant.length >= 2
-    && ['', 'app:', 'doc:'].includes(grant[1])
-    && grant.slice(2).every(component => typeof component === 'string' && component && component !== '.' && component !== '..' && !component.includes('/'));
+    && (['', 'app:', 'doc:'].includes(grant[1]) || nativeNamespace(grant[1]))
+    && grant.slice(2).every(component => nativeNamespace(grant[1]) ? nativeLeaf(component)
+      : typeof component === 'string' && component && component !== '.' && component !== '..' && !component.includes('/'));
   if (!nameGrants.has(grant[0]) || grant.length !== 2 || typeof grant[1] !== 'string') return false;
   return grant[0] === 'env-read' || validGrantName(grant[1]);
 };
 
 const pathTuple = (kind, target) => {
+  const native = target.startsWith('\\\\?\\') ? target.slice(4) : target;
+  if (/^[a-z]:[/\\]/i.test(native)) {
+    const parts = native.slice(3).split(/[/\\]/).filter(Boolean);
+    return parts.every(nativeLeaf) ? [kind, `win:${native[0].toUpperCase()}`, ...parts] : null;
+  }
   const at = target.indexOf(':/');
   const namespace = at < 0 ? target.startsWith('/') ? '' : null : target.slice(0, at) + ':';
   if (namespace == null || !['', 'app:', 'doc:'].includes(namespace)) return null;
@@ -1051,8 +1065,21 @@ const networkTuple = (kind, target) => {
 };
 const sourceTuple = source => {
   const words = rustWords(source);
+  const capability = words[0];
+  if (capability === 'fs.read' || capability === 'fs.write') {
+    const rest = rustTrim(source.slice(capability.length));
+    if (rest.startsWith('"')) {
+      try {
+        const target = JSON.parse(rest);
+        // serde_json refuses lone UTF-16 surrogates; JSON.parse does not.
+        if (typeof target !== 'string' || /[\u0000-\u001f\u007f-\u009f]/.test(target)
+            || /[\ud800-\udfff]/u.test(target)) return null;
+        return pathTuple(capability === 'fs.read' ? 'fs-read' : 'fs-write', target);
+      } catch { return null; }
+    }
+  }
   if (words.length !== 2) return null;
-  const [capability, target] = words;
+  const target = words[1];
   if (capability === 'net.fetch') return networkTuple(target.includes('://*.') ? 'fetch-subdomains' : 'fetch', target);
   if (capability === 'net.websocket') return target.includes('*') ? null : networkTuple('websocket', target);
   if (capability === 'fs.read') return pathTuple('fs-read', target);

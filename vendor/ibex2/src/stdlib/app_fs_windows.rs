@@ -1,48 +1,24 @@
 //! @ref LLP 0068#windows-app-storage-qualification — logical app paths on Windows.
-use crate::stdlib::fs::{FsOp, FsResult, Stat};
+use crate::stdlib::fs::{FsOp, FsResult};
+use crate::stdlib::windows_directory::{self, identity, Directory};
+use crate::stdlib::windows_fs::{error, token, Target};
 use crate::{
     boundary::HostError,
     grant::{GrantSet, Operation},
 };
 use std::{
     fs::File,
-    io::{self, Write},
+    io,
     path::{Path, PathBuf},
     sync::Arc,
 };
-#[path = "windows_directory.rs"]
-mod windows_directory;
-use windows_directory::{identity, Directory};
-
 #[derive(Clone, Debug)]
 pub struct AppDirectories {
     roots: Arc<[Directory; 3]>,
     paths: Arc<[PathBuf; 3]>,
 }
-fn error(e: impl std::fmt::Display) -> HostError {
-    HostError::Failed(format!("filesystem: {e}"))
-}
 fn text(path: &Path) -> Result<&str, HostError> {
     path.to_str().ok_or_else(|| error("non-Unicode path"))
-}
-fn token() -> io::Result<String> {
-    let mut bytes = [0; 24];
-    getrandom::getrandom(&mut bytes).map_err(|e| io::Error::other(e.to_string()))?;
-    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
-}
-fn remove(parent: &Directory, leaf: &str) -> io::Result<()> {
-    let kind = match parent.kind(leaf) {
-        Ok(kind) => kind,
-        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(()),
-        Err(e) => return Err(e),
-    };
-    if kind.directory {
-        let child = parent.child(leaf, false)?;
-        for name in child.names()? {
-            remove(&child, &name)?;
-        }
-    }
-    parent.unlink(leaf)
 }
 impl AppDirectories {
     pub fn new(
@@ -144,106 +120,32 @@ impl AppDirectories {
         } else if write {
             check(true, path)?;
         }
-        let data = data.unwrap_or(&[]);
-        match op {
-            FsOp::ReadFile => {
-                let (dir, leaf) = self.parent(path)?;
-                Ok(FsResult::Bytes(dir.read(&leaf).map_err(error)?))
-            }
-            FsOp::ReadDir => Ok(FsResult::Names(
-                Directory(self.open(path)?).names().map_err(error)?,
-            )),
-            FsOp::Stat => {
-                let m = self.open(path)?.metadata().map_err(error)?;
-                Ok(FsResult::Stat(Stat {
-                    size: m.len(),
-                    is_file: m.is_file(),
-                    is_directory: m.is_dir(),
-                    modified_ms: m
-                        .modified()
-                        .ok()
-                        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                        .map(|d| d.as_millis() as u64)
-                        .unwrap_or(0),
-                }))
-            }
-            FsOp::Realpath => {
-                self.open(path)?;
-                let (index, parts) = self.parse(path)?;
-                let base = ["data", "cache", "tmp"][index];
-                Ok(FsResult::Text(if parts.is_empty() {
-                    format!("app:/{base}")
-                } else {
-                    format!("app:/{base}/{}", parts.join("/"))
-                }))
-            }
-            FsOp::Mkdir => {
-                let (index, parts) = self.parse(path)?;
-                let mut dir = Directory(self.roots[index].0.try_clone().map_err(error)?);
-                for part in parts {
-                    dir = dir.child(part, true).map_err(error)?;
-                }
-                Ok(FsResult::Done)
-            }
-            FsOp::CopyFile => {
-                let mut source = self.open(path)?;
-                if !source.metadata().map_err(error)?.is_file() {
-                    return Err(error("copy requires distinct regular files"));
-                }
-                let (parent, leaf) = self.parent(destination.unwrap())?;
-                let mut target = parent
-                    .file(&leaf, libc::O_WRONLY | libc::O_CREAT)
-                    .map_err(error)?;
-                if identity(&source).map_err(error)? == identity(&target).map_err(error)? {
-                    return Err(error("copy requires distinct regular files"));
-                }
-                target.set_len(0).map_err(error)?;
-                io::copy(&mut source, &mut target).map_err(error)?;
-                Ok(FsResult::Done)
-            }
-            _ => {
-                let (parent, leaf) = self.parent(path)?;
-                match op {
-                    FsOp::WriteFile | FsOp::AppendFile => {
-                        let mut file = parent
-                            .file(
-                                &leaf,
-                                libc::O_WRONLY
-                                    | libc::O_CREAT
-                                    | if op == FsOp::AppendFile {
-                                        libc::O_APPEND
-                                    } else {
-                                        0
-                                    },
-                            )
-                            .map_err(error)?;
-                        if op == FsOp::WriteFile {
-                            file.set_len(0).map_err(error)?;
-                        }
-                        file.write_all(data).map_err(error)?;
-                    }
-                    FsOp::AtomicWriteFile => {
-                        parent
-                            .write(&leaf, data, &token().map_err(error)?)
-                            .map_err(error)?;
-                    }
-                    FsOp::Remove => remove(&parent, &leaf).map_err(error)?,
-                    FsOp::Rename => {
-                        let (target, to) = self.parent(destination.unwrap())?;
-                        match target.kind(&to) {
-                            Ok(_) => {}
-                            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-                            Err(e) => return Err(error(e)),
-                        }
-                        target
-                            .rename(&parent.removable(&leaf).map_err(error)?, &to)
-                            .map_err(error)?;
-                    }
-                    _ => unreachable!(),
-                }
-                Ok(FsResult::Done)
-            }
+        if op == FsOp::Realpath {
+            self.open(path)?;
+            let (index, parts) = self.parse(path)?;
+            let base = ["data", "cache", "tmp"][index];
+            return Ok(FsResult::Text(if parts.is_empty() {
+                format!("app:/{base}")
+            } else {
+                format!("app:/{base}/{}", parts.join("/"))
+            }));
         }
+        let (index, parts) = self.parse(path)?;
+        if op == FsOp::Mkdir {
+            let mut dir = self.roots[index].try_clone().map_err(error)?;
+            for part in parts {
+                dir = dir.child(part, true).map_err(error)?;
+            }
+            return Ok(FsResult::Done);
+        }
+        let source = Target::pin(&self.roots[index], &parts).map_err(error)?;
+        let target = destination
+            .map(|path| {
+                let (index, parts) = self.parse(path)?;
+                Target::pin(&self.roots[index], &parts).map_err(error)
+            })
+            .transpose()?;
+        crate::stdlib::windows_fs::perform(op, &source, target.as_ref(), data)
     }
 }
 /// Validate a native SQLite location for a trusted provider. The embedder must
