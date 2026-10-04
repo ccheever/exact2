@@ -352,9 +352,7 @@ the running app.
 Browser providers support async answers and sequential/parallel `fetch` through
 the existing grant-checked host transport. Executor-local continuation tickets
 drain microtasks without re-entering wasm; stale incarnations cannot fulfill the
-replacement app. Real Chrome tests run all 20 Caltrain data cases and the same
-25 ambient-read probes at initialization, in answers, and after fetch as Hermes,
-plus store, errors, binary responses, interleaving and disposal cases.
+replacement app. 
 
 Linux provisions the same vanilla pin with `./scripts/build-hermes-linux.sh
 --vanilla --release --intl` in the sibling Ibex checkout. Exact links its lean
@@ -369,48 +367,12 @@ needs from ibex's Hermes source, once per machine, into
 `~/.cache/exact/hermes/<pin>-lean-ios` (override with `EXACT_HERMES_IOS_DIR`,
 LLP 1036.001 D5); the recipe and archive layout are in
 [LLP 1027 D6](../llp/1027-typescript-data-sources.rfc.md#d6--the-web-the-browser-is-the-executor-one-wasm-import-the-same-module-under-two-loaders).
-The normal Apple build captures the linked archives in its receipt. The iOS
-simulator executed an async module, fetched twice and followed a URL logic edit
-while retaining count 1 alongside the browser. The device-target archive also
-builds. The simulator guard app passed all 25 forms at initialization, in direct
-calls and after fetch, explicit UTC/Intl inputs, interleaved async calls and an
-uncaught-initialization refusal (27 HTTP requests, no pending work).
-The physical iPhone 17 Pro Max / iOS 26.6.1 now passes the same guard sweep,
-including all 75 refusals, 27 HTTP requests, no pending work, and a copied,
-inspected screenshot. A repeat assertion run passed in 5.7 s (83.5 ms first
-frame, one sample rather than a startup budget result).
-
-The TypeScript Caltrain twin passed the complete app drive and all three
-Contract tests on web, macOS, iOS simulator and physical iPhone, with its real assets, deck and
-GPU module. Production Caltrain remains Rust. `smoke.mjs --app-only` runs the
-selected app and its tests without unrelated bare-plan host fixtures, which a
-paired module client correctly refuses. The driver now supports
-`ios --device [--phone <name|udid>]`: the phone connects outward to a temporary
-Mac-side port with a per-launch token, because developer-console stdin closes
-immediately. Use a trusted LAN, allow local networking, and keep the app visible;
+The normal Apple build captures the linked archives in its receipt.
+`smoke.mjs --app-only` runs the selected app and its tests without unrelated
+bare-plan host fixtures. The driver supports `ios --device [--phone <name|udid>]`:
+the phone connects outward to a temporary Mac-side port with a per-launch token.
+Use a trusted LAN, allow local networking, and keep the app visible;
 `EXACT_AGENT_HOST` overrides the Mac IPv4 address. The carrier is not encrypted.
-Physical URL replacement is now driven alongside the browser: TypeScript edits
-change the answer with counter 1 and clock 12345 retained, unchanged plan and
-native binary, and the same phone PID. A candidate that throws only at the carried
-counter preserves both clients; the next valid edit recovers. Each valid revision
-passes the async guard sweep. Earlier apparent stalls included a UIKit delayed-touch
-crash; the dev-menu recognizers no longer delay touch endings. The complete proof
-passes with the menu enabled and tracing removed. The full Caltrain URL proof
-also passes: live edit, broken-candidate refusal and recovery preserve the selected
-station, clock and train boards, with unchanged phone PID/native binary. The
-initial menu-only mitigation was incomplete: Caltrain's hover recognizers still
-delayed touch endings. Hover now neither delays nor cancels finger events, and
-the four-finger shortcuts accept only direct touch events. Two physical Caltrain
-replacement/refusal/recovery runs pass with the menu enabled (the final one with
-tracing removed). Those gesture mitigations did not fix real finger scrolling:
-the same-binary diagnostic isolated session creation before UIApplicationMain.
-Both iOS adapters now create sessions after UIKit starts; Charlie confirmed
-scrolling in regular Caltrain and opening it natively from Safari. Normal URL
-module replacement also configures storage before activation, exactly once.
-Manual four-finger single/double-tap verification remains owed.
-Agent deadlines include native
-diagnostics; a closed carrier rejects later requests immediately. Systematic
-size/startup/per-call measurements remain to be proved.
 
 The dev page's **Open in native…** link offers an installed-client action and
 local setup instructions at `/__dev/open`. Development Apple builds register an
@@ -421,16 +383,12 @@ warm URL delivery. For a local macOS bundle, use
 The bundle includes its assets and native modules; it is not a notarized download.
 Browser navigation, both Apple cold/warm handlers and malformed-link refusals are
 tested. The page cannot detect installation, and does not trigger signing/builds.
-Safari's reported 5–10-second initial scroll delay remains unresolved: the web
-root is inert until the module loads. A held-loader Chrome probe confirmed that
-this blocks scrolling despite the complete list already being present; physical
-Safari timing still needs a working remote automation connection. Web-only program
-rebuilds also currently invalidate connected native clients unnecessarily.
 
-Remaining: Linux native TypeScript execution, npm dependency capture, signed
-module updates, downloadable custom clients, and the generic Go launcher.
-One async web/iOS edit measured 410 ms save-to-DOM / 430 ms to a rendering
-opportunity; the 100 ms save-to-present p50 target is not demonstrated.
+**Limits.** Linux native hosts don't run TypeScript yet (use a Rust data crate
+there); `app.ts` can't import npm packages; signed delivery of TypeScript and Rust
+modules isn't implemented, so set `deploy.store` to `"0"`. The history of how this
+was proved on each host is in [LLP 1027](../llp/1027-typescript-data-sources.rfc.md)
+and git.
 
 ## The five checks
 
