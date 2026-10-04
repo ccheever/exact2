@@ -149,8 +149,9 @@ pub(crate) fn sections(style: &'static str, children: &[Node]) -> Result<Vec<Nod
         .iter()
         .enumerate()
         .map(|(i, child)| {
-            // Under `each` every section shares one body: none is first.
-            let first = i == 0 && !matches!(child, Node::Each { .. });
+            // Only a section written first: one under control flow may
+            // share its body with others, or come after nothing.
+            let first = i == 0 && matches!(child, Node::Element { .. });
             over(child, &mut |node| section(style, node, first))
         })
         .collect()
@@ -401,6 +402,7 @@ fn symbol(node: &Node) -> Option<&str> {
             Some(match role {
                 "forward-chevron" => "chevron.forward",
                 "checkmark" => "checkmark",
+                "info" => "info.circle",
                 other => other.strip_prefix("sf/").unwrap_or(other),
             })
         }
@@ -456,6 +458,19 @@ fn row(node: &Node) -> Node {
         return node.clone();
     };
     let span = *span;
+    // A native button row (LLP 1069.011) is the platform's control: only
+    // the rows a native button takes, and its face left alone.
+    let native = attrs
+        .iter()
+        .rev()
+        .find(|a| a.name == "appearance")
+        .is_some_and(|a| matches!(&a.value, Expr::Str(v, _) if v == "auto"));
+    if native {
+        return with(
+            node,
+            vec![n("margin-left", 16.0, span), n("min-height", 52.0, span)],
+        );
+    }
     let tint = |plain: &str| -> Expr {
         match attrs.iter().rev().find(|a| a.name == "destructive") {
             Some(Attr {
@@ -514,7 +529,7 @@ fn row(node: &Node) -> Node {
         attr("color", tint(LABEL), span),
         s("text-align", "left", span),
     ];
-    let mut texts = 0;
+    let mut texts = Count::Known(0);
     let last = children.len().saturating_sub(1);
     let stack = text_stack(children);
     let parts = children
@@ -564,14 +579,30 @@ struct Place<'a> {
     tint: &'a dyn Fn(&str) -> Expr,
 }
 
-fn part(child: &Node, at: Place<'_>, texts: &mut usize) -> Node {
+/// How many texts come before a part: known, or chosen by one `when`'s
+/// condition (then, otherwise). Deeper choices count the fewer.
+#[derive(Clone)]
+enum Count {
+    Known(usize),
+    Cond(Expr, usize, usize),
+}
+
+impl Count {
+    fn low(&self) -> usize {
+        match self {
+            Count::Known(n) => *n,
+            Count::Cond(_, a, b) => *a.min(b),
+        }
+    }
+}
+
+fn part(child: &Node, at: Place<'_>, texts: &mut Count) -> Node {
     let Place {
         i,
         last,
         stack,
         tint,
     } = at;
-    let place = at;
     if let Node::When {
         cond,
         then,
@@ -579,13 +610,16 @@ fn part(child: &Node, at: Place<'_>, texts: &mut usize) -> Node {
         span,
     } = child
     {
-        let start = *texts;
-        let then: Vec<Node> = then.iter().map(|c| part(c, place, texts)).collect();
-        let after_then = *texts;
-        *texts = start;
-        let otherwise: Vec<Node> = otherwise.iter().map(|c| part(c, place, texts)).collect();
-        // A text after the condition is the title unless both arms wrote one.
-        *texts = (*texts).min(after_then);
+        let start = Count::Known(texts.low());
+        *texts = start.clone();
+        let then: Vec<Node> = then.iter().map(|c| part(c, at, texts)).collect();
+        let after_then = std::mem::replace(texts, start);
+        let otherwise: Vec<Node> = otherwise.iter().map(|c| part(c, at, texts)).collect();
+        *texts = match (after_then, texts.clone()) {
+            (Count::Known(a), Count::Known(b)) if a == b => Count::Known(a),
+            (Count::Known(a), Count::Known(b)) => Count::Cond(cond.clone(), a, b),
+            (a, b) => Count::Known(a.low().min(b.low())),
+        };
         return Node::When {
             cond: cond.clone(),
             then,
@@ -600,12 +634,18 @@ fn part(child: &Node, at: Place<'_>, texts: &mut usize) -> Node {
         span,
     } = child
     {
-        let start = *texts;
-        let arm: Vec<Node> = some.1.iter().map(|c| part(c, place, texts)).collect();
-        let after_some = *texts;
-        *texts = start;
-        let none: Vec<Node> = none.iter().map(|c| part(c, place, texts)).collect();
-        *texts = (*texts).min(after_some);
+        // A `match` has no condition to choose by: its arms count the
+        // fewer, and a symbol in first place there is not a leading one.
+        let at = Place {
+            i: if i == 0 { usize::MAX } else { i },
+            ..at
+        };
+        let start = Count::Known(texts.low());
+        *texts = start.clone();
+        let arm: Vec<Node> = some.1.iter().map(|c| part(c, at, texts)).collect();
+        let after_some = std::mem::replace(texts, start);
+        let none: Vec<Node> = none.iter().map(|c| part(c, at, texts)).collect();
+        *texts = Count::Known(after_some.low().min(texts.low()));
         return Node::Match {
             subject: subject.clone(),
             some: (some.0.clone(), arm),
@@ -644,41 +684,108 @@ fn part(child: &Node, at: Place<'_>, texts: &mut usize) -> Node {
                 ],
             )
         }
+        // Not shown, not counted, as the kernel reads it (D4).
+        ("text", _) if hidden(child) => child.clone(),
         ("text", _) => {
-            *texts += 1;
-            if *texts == 1 {
-                with(
-                    child,
-                    vec![n("flex-grow", 1.0, at), n("min-width", 0.0, at)],
-                )
-            } else {
-                with(child, vec![s("color", SECONDARY, at)])
-            }
+            // The first text is the title: it grows, in the row's colour;
+            // a later one is the value, in the secondary colour.
+            let grow = |title: bool| Expr::Number(if title { 1.0 } else { 0.0 }, at);
+            let colour = |title: bool| {
+                if title {
+                    tint(LABEL)
+                } else {
+                    Expr::Str(SECONDARY.into(), at)
+                }
+            };
+            let choose = |c: &Expr, a: Expr, b: Expr| {
+                Expr::Ternary(Box::new(c.clone()), Box::new(a), Box::new(b), at)
+            };
+            let (sheet, next) = match texts.clone() {
+                Count::Known(count) => (
+                    if count == 0 {
+                        vec![attr("flex-grow", grow(true), at), n("min-width", 0.0, at)]
+                    } else {
+                        vec![attr("color", colour(false), at)]
+                    },
+                    Count::Known(count + 1),
+                ),
+                Count::Cond(c, a, b) => (
+                    vec![
+                        attr("flex-grow", choose(&c, grow(a == 0), grow(b == 0)), at),
+                        n("min-width", 0.0, at),
+                        attr("color", choose(&c, colour(a == 0), colour(b == 0)), at),
+                    ],
+                    Count::Cond(c, a + 1, b + 1),
+                ),
+            };
+            *texts = next;
+            with(child, sheet)
         }
         ("column", _) if stack => subtitle(child),
         _ => child.clone(),
     }
 }
 
+/// Whether an element is written `display="none"`.
+fn hidden(node: &Node) -> bool {
+    matches!(node, Node::Element { attrs, .. }
+        if attrs.iter().rev().find(|a| a.name == "display").is_some_and(|a| matches!(&a.value, Expr::Str(v, _) if v == "none")))
+}
+
 /// Whether a row's parts are a leading symbol, one `column` of one or two
 /// texts and a trailing accessory at most: the subtitle cell the kernel
 /// reads. A `column` in any other row is the author's.
 fn text_stack(children: &[Node]) -> bool {
+    // What the kernel reads at a row's ends, or a condition between it and
+    // nothing (a checkmark shown by a `when`).
+    fn either(node: &Node, part: &dyn Fn(&Node) -> bool) -> bool {
+        match node {
+            Node::When {
+                then, otherwise, ..
+            } => [then, otherwise]
+                .iter()
+                .all(|arm| matches!(arm.as_slice(), [] | [_]) && arm.iter().all(part)),
+            other => part(other),
+        }
+    }
+    let leading = |n: &Node| symbol(n).is_some_and(|s| accessory(s).is_none());
+    let trailing = |n: &Node| match n {
+        Node::Element { tag, children, .. } => match tag.as_str() {
+            "image" => symbol(n).is_some_and(|s| accessory(s).is_some()),
+            "input" => true,
+            "button" => {
+                matches!(children.as_slice(), [only] if symbol(only).is_some_and(|s| s == "info.circle" || s == "info.circle.fill"))
+            }
+            _ => false,
+        },
+        _ => false,
+    };
     let mut rest = children;
     if let Some((first, after)) = rest.split_first() {
-        if symbol(first).is_some_and(|n| accessory(n).is_none()) {
+        if either(first, &leading) {
             rest = after;
         }
     }
     if let Some((last, before)) = rest.split_last() {
-        let trailing = symbol(last).is_some_and(|n| accessory(n).is_some())
-            || matches!(last, Node::Element { tag, .. } if tag == "input" || tag == "button");
-        if trailing {
+        if either(last, &trailing) {
             rest = before;
         }
     }
+    // One or two texts, a `when` showing one of them included.
+    fn lines(nodes: &[Node]) -> Option<(usize, usize)> {
+        nodes.iter().try_fold((0, 0), |(low, high), c| match c {
+            Node::Element { tag, .. } if tag == "text" => Some((low + 1, high + 1)),
+            Node::When {
+                then, otherwise, ..
+            } => {
+                let (a, b) = (lines(then)?, lines(otherwise)?);
+                Some((low + a.0.min(b.0), high + a.1.max(b.1)))
+            }
+            _ => None,
+        })
+    }
     matches!(rest, [Node::Element { tag, children, .. }]
-        if tag == "column" && (1..=2).contains(&children.len()) && children.iter().all(|c| is(c, "text")))
+        if tag == "column" && lines(children).is_some_and(|(low, high)| low >= 1 && high <= 2))
 }
 
 /// A title over a subtitle: UIKit's subtitle cell, 15 above and below, the
@@ -696,27 +803,43 @@ fn subtitle(node: &Node) -> Node {
         return node.clone();
     };
     let at = *span;
-    let mut texts = 0;
-    let parts = children
-        .iter()
-        .map(|c| {
-            if !is(c, "text") {
-                return c.clone();
+    // The second line, whether written or shown by a condition: any text
+    // after the first one.
+    fn line(c: &Node, first: &mut bool) -> Node {
+        match c {
+            Node::When {
+                cond,
+                then,
+                otherwise,
+                span,
+            } => {
+                let before = *first;
+                let then = then.iter().map(|n| line(n, first)).collect();
+                let after = std::mem::replace(first, before);
+                let otherwise = otherwise.iter().map(|n| line(n, first)).collect();
+                *first = *first && after;
+                Node::When {
+                    cond: cond.clone(),
+                    then,
+                    otherwise,
+                    span: *span,
+                }
             }
-            texts += 1;
-            if texts == 2 {
-                let Node::Element { span, .. } = c else {
-                    unreachable!()
-                };
-                with(
-                    c,
-                    vec![n("font-size", 15.0, *span), s("color", SECONDARY, *span)],
-                )
-            } else {
-                c.clone()
+            Node::Element { tag, span, .. } if tag == "text" => {
+                if std::mem::replace(first, false) {
+                    c.clone()
+                } else {
+                    with(
+                        c,
+                        vec![n("font-size", 15.0, *span), s("color", SECONDARY, *span)],
+                    )
+                }
             }
-        })
-        .collect();
+            other => other.clone(),
+        }
+    }
+    let mut first = true;
+    let parts = children.iter().map(|c| line(c, &mut first)).collect();
     let mut rows = vec![
         n("flex-grow", 1.0, at),
         n("min-width", 0.0, at),

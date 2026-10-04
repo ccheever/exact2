@@ -193,6 +193,78 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertEqual(order(5), [20, 21])
     }
 
+    func testAnInertRowOrSectionTakesNoTap() throws {
+        let p = presenter { self.model() }
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        let l = try list(p)
+        _ = try cell(p, 20)
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["inert": "true"], "clear": [String]()]]))
+        XCTAssertFalse(l.collectionView(l.collection, shouldHighlightItemAt: IndexPath(item: 0, section: 1)))
+        XCTAssertNotNil(p.groupedLists.activate(try XCTUnwrap(p.views[20]))?["error"])
+        XCTAssertFalse(try cell(p, 20).isUserInteractionEnabled, "an inert section's cell takes no touch")
+        XCTAssertTrue(try cell(p, 20).accessibilityElementsHidden)
+        p.apply(wireBatch([["op": "props", "id": 3, "set": [String: String](), "clear": ["inert"]]]))
+        XCTAssertNotNil(p.groupedLists.activate(try XCTUnwrap(p.views[20]))?["tapped"])
+        XCTAssertEqual(pressed, [20])
+    }
+
+    func testARowThatTurnsCustomAndBackAndAHeaderThatChanges() throws {
+        var custom = false, header = "Account"
+        let p = presenter {
+            var m = self.model(custom: custom)
+            m.sections[0].header = header
+            return m
+        }
+        let row = try XCTUnwrap(p.views[21])
+        XCTAssertNotNil(try cell(p, 21).contentConfiguration as? UIListContentConfiguration)
+        custom = true
+        p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "row21"], "clear": [String]()]]))
+        XCTAssertTrue(row.superview === (try cell(p, 21)).contentView, "custom now: carried")
+        XCTAssertFalse(p.groupedLists.draws(21), "the ordinary tap path finds a custom row's views")
+        custom = false; header = "Profile"
+        p.apply(wireBatch([["op": "props", "id": 21, "set": ["testId": "row21"], "clear": [String]()]]))
+        XCTAssertTrue(row.superview === p.views[5]?.container, "standard again: given back, and not carried")
+        XCTAssertNotNil(try cell(p, 21).contentConfiguration as? UIListContentConfiguration)
+        let l = try list(p)
+        l.collection.layoutIfNeeded()
+        let shown = l.collection.supplementaryView(forElementKind: UICollectionView.elementKindSectionHeader, at: IndexPath(item: 0, section: 0)) as? UICollectionViewListCell
+        XCTAssertEqual((shown?.contentConfiguration as? UIListContentConfiguration)?.text, "Profile")
+    }
+
+    func testAWheelOnARowScrollsTheListUIKitDraws() throws {
+        let p = presenter { self.model() }
+        let l = try list(p)
+        l.collection.contentInset.bottom = 2000
+        l.collection.layoutIfNeeded()
+        let scroller = try XCTUnwrap(p.groupedLists.scroller(for: 21))
+        XCTAssertTrue(scroller === l.collection, "the row's list, not its hidden scroll")
+        Agent.scroll(from: scroller, dx: 0, dy: 300)
+        XCTAssertEqual(l.collection.contentOffset.y + l.collection.adjustedContentInset.top, 300, accuracy: 0.5)
+        XCTAssertEqual(p.views[1]?.scroll?.contentOffset.y ?? 0, 0, "the hidden scroll stays")
+    }
+
+    func testASwitchWhoseFlipChangesItsRowKeepsItsSuperviewUntilTheActionReturns() throws {
+        var title = "Read Receipts"
+        let p = presenter {
+            var m = self.model()
+            m.sections[0].rows[2].title = title
+            return m
+        }
+        let s = try XCTUnwrap(switches(try cell(p, 12)).first)
+        p.onChecked = { _, _ in
+            title = "Receipts Off"
+            p.apply(wireBatch([["op": "props", "id": 13, "set": ["checked": "false"], "clear": [String]()]]))
+            XCTAssertNotNil(s.superview, "not taken out inside its own action")
+        }
+        s.setOn(false, animated: false)
+        s.sendActions(for: .valueChanged)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.1))
+        let c = try XCTUnwrap(try cell(p, 12).contentConfiguration as? UIListContentConfiguration)
+        XCTAssertEqual(c.text, "Receipts Off", "reconfigured once the action returned")
+        XCTAssertFalse(s.isOn)
+    }
+
     func testABatchUpdatesTheRowsAndAGoneListGoes() throws {
         var dark = false
         let p = presenter { self.model(dark: dark) }

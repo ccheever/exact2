@@ -144,6 +144,11 @@ impl Kernel {
             disabled: row.props.bool(PropId::Disabled) == Some(true),
             ..GroupedRow::default()
         };
+        // A native button is the platform's control: its views, carried.
+        if ControlKind::of(row.node_type, row.props).is_some() {
+            out.custom = true;
+            return out;
+        }
         let shown = |n: &NodeRef<'_>| -> Vec<NodeRef<'_>> {
             n.children()
                 .into_iter()

@@ -322,3 +322,57 @@ fn a_conditional_text_and_an_authors_column_are_styled_as_the_kernel_reads_them(
         "two lines and no subtitle padding (30 more) in a custom row's column"
     );
 }
+
+#[test]
+fn a_text_after_a_condition_is_styled_by_the_condition() {
+    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      when dark\n        text \"New\"\n      text \"Notifications\" testId=\"title\"");
+    let grow = |r: &Runner<NoData>| r.kernel().node(id(r, "title")).unwrap().style.flex_grow;
+    assert_eq!(grow(&r), 1.0, "the title while `dark` is false");
+    let row = id(&r, "row");
+    r.dispatch(row, exact_runner::Event::Press).unwrap();
+    assert_eq!(grow(&r), 0.0, "the value once `New` is the title");
+    let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
+    assert_eq!(
+        list.sections[0].rows[0].secondary.as_deref(),
+        Some("Notifications")
+    );
+}
+
+#[test]
+fn a_subtitle_beside_a_conditional_checkmark_and_a_native_button_row() {
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      column testId=\"stack\"\n        text \"Dark\"\n        text \"Always\"\n      when dark\n        image \"symbol:checkmark\"\n    button press=go testId=\"plain\"\n      column testId=\"other\"\n        text \"A\"\n        text \"B\"\n      button press=go\n        text \"Go\"\n    button appearance=\"auto\" press=go testId=\"native\"\n      text \"Native\"");
+    let k = r.kernel();
+    assert!(
+        k.node(id(&r, "stack")).unwrap().frame.height > 60.0,
+        "subtitle padding: the kernel reads a subtitle cell"
+    );
+    assert!(
+        k.node(id(&r, "other")).unwrap().frame.height < 50.0,
+        "beside a text button the row is custom, and so is its column"
+    );
+    let list = k.grouped_list(id(&r, "list")).unwrap();
+    assert!(list.sections[0].rows[0].subtitle);
+    assert!(list.sections[0].rows[1].custom);
+    assert!(
+        list.sections[0].rows[2].custom,
+        "a native button is carried, the platform's control"
+    );
+}
+
+#[test]
+fn a_subtitle_shown_by_a_condition_and_a_hidden_text() {
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      when dark\n        image \"symbol:notifications\"\n      column testId=\"stack\"\n        text \"Privacy\"\n        when dark\n          text \"Screen lock\"\n    button press=go\n      text \"Gone\" display=\"none\"\n      text \"Stay\" testId=\"stay\"");
+    let k = r.kernel();
+    assert!(
+        k.node(id(&r, "stack")).unwrap().frame.height > 45.0,
+        "subtitle padding though the second line is conditional"
+    );
+    let list = k.grouped_list(id(&r, "list")).unwrap();
+    assert!(list.sections[0].rows[0].subtitle);
+    assert_eq!(list.sections[0].rows[1].title.as_deref(), Some("Stay"));
+    assert_eq!(
+        k.node(id(&r, "stay")).unwrap().style.flex_grow,
+        1.0,
+        "a hidden text is not counted: `Stay` is the title"
+    );
+}

@@ -116,7 +116,10 @@ A row of any other shape is **custom**: a raster image, a third text, a nested b
   - It starts at the text: 16 pt in, or 56 pt after a leading symbol. The symbol is pulled into the margin (`margin-left: -40`).
   - Its 1-pt separator is its bottom border, and it overlaps the next row by that width (`margin-bottom: -1`). The group clips away the last row's separator, so no row needs to know it is last, even under `each`.
 - **Precedence:** the sheet's rows go under the element's classes and its own attributes. The rewrite marks them (`ua:`, a name no author can write), and the lowering takes them out before it expands classes (`grouped::split`).
-- **The inset follows a leading symbol shown by a condition** (`margin-left` becomes a choice on that `when`). A `match` or `each` in first place is styled as no symbol.
+- **The inset follows a leading symbol shown by a condition** (`margin-left` becomes a choice on that `when`). A `match` or `each` in first place is styled as no symbol, its image included.
+- **A text after a `when` is styled by that `when`'s condition.** Where the arms write different numbers of texts, its `flex-grow` and colour become choices on the condition, so it is the title or the value as the kernel reads it. Deeper conditions and a `match` count the fewer texts. A text written `display="none"` is not counted.
+- **A subtitle stack is the shape the kernel reads.** It is one `column` of one or two texts, a `when` showing the second line included, between a leading symbol and a trailing accessory (each possibly under a `when`). Any other `column` is the author's.
+- **A native button row** (`button appearance="auto"`, LLP 1069.011) gets only the rows a native button takes (its inset and height). The kernel reads it as custom, so iOS carries the platform's control.
 - **A plain list's sections have no margins.** A header or footer holds exactly one `text`.
 - **The parts:** 17 pt label colour, red when `destructive` (a bound `destructive` becomes a choice); the value and subtitle in the secondary colour; the accessory's size and colour; a subtitle stack's 15-pt padding. A `when` is read through.
 
@@ -126,7 +129,9 @@ Colours are `light-dark()` pairs of §2's values.
 - `tap` on a row UIKit draws is the cell's own selection (`delivery: host-activation`, `native: grouped-list`).
 - `tap` on a toggle's control flips the cell's switch, and `tap` on a detail button is the accessory's action.
 - Each is refused, having done nothing, when the cell is outside the list's port or something covers its middle, as a finger would miss it. The generic viewport check, which reads the hidden row's place, is skipped for nodes a grouped list draws.
-- A wheel over the list scrolls the collection view.
+- A wheel on the list, on a row it draws or on a carried view scrolls the collection view, wherever the hidden node lies.
+- A row whose node or ancestor (its section included) is `inert` takes no tap: its cell takes no touch and is no accessibility element. The agent's tap is refused under the software keyboard, as `Agent.obscured` refuses one.
+- A custom row is its own views: the agent's ordinary tap path finds them, a nested control included.
 - `layout <list>` reports `groupedList: {view: UICollectionView, listStyle, sections, rows, offset, content, insets}`, and a row reports its cell and accessory.
 - The inspection walk (LLP 1080.001 D3) accounts for the collection view (`grouped-list`), names this host as the hider of the authored rows, and skips a carried row as projected.
 
@@ -139,6 +144,7 @@ Colours are `light-dark()` pairs of §2's values.
 - **A custom row's width is the kernel's.** In a wider UIKit layout margin (an iPad, landscape), its views keep the sheet's 16-pt inset, while UIKit's own cells follow the margin.
 - **The large-title collapse (LLP 1075.003 §3.7) does not follow a grouped list.** It follows the route's authored scroll, which this list hides. The route's `setContentScrollView` would need to be the collection view (§7).
 - **Swipe actions (`swipeContent`) on a grouped list's rows are not projected into its cells.**
+- **The 35.33-pt first gap goes only to a section written first.** A first section under `when`, `match` or `each` may share its body with others or follow nothing, so it gets the 17.33-pt gap.
 - **A custom row takes no cell highlight.** Its carried views keep their own touch handling, so its press, press feedback and nested controls stay the author's.
 - **The list's scroll position is UIKit's.** An authored `scrollTop` write still goes to the hidden scroll, and the collection view reports no `scroll` event. The kernel's content height is the sheet's, not UIKit's, so mirroring one offset onto the other would be wrong at both ends. A settings screen needs neither. The agent's wheel scrolls the collection view (D8). A consumer that needs a position gets it designed then.
 

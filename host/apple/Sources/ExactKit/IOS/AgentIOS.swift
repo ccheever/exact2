@@ -531,7 +531,9 @@ extension Agent {
         if let wheel = req["wheel"] as? [Double], wheel.count == 2 {
             // The web's sign (a positive dy scrolls down), points.
             guard wheel.allSatisfy(\.isFinite) else { return ["error": "wheel deltas must be finite"] }
-            Agent.scroll(from: hit, dx: CGFloat(wheel[0]), dy: CGFloat(wheel[1]))
+            // A row a grouped list draws scrolls that list, wherever its
+            // hidden node lies (LLP 1082 D8).
+            Agent.scroll(from: presenter.groupedLists.scroller(for: v.id) ?? hit, dx: CGFloat(wheel[0]), dy: CGFloat(wheel[1]))
             if ExactEnv.agentFreezes { presenter.settlePump() }
             return ["tapped": Int(v.id), "wheel": wheel, "at": at]
         }

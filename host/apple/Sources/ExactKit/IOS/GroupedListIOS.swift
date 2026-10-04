@@ -91,10 +91,21 @@ final class GroupedListHost {
     private func list(drawing id: UInt32) -> (GroupedListView, GroupedListModel.Row)? {
         for list in lists.values {
             for section in list.model.sections {
-                if let row = section.rows.first(where: { $0.view == id || (!$0.custom && $0.target == id) }) { return (list, row) }
+                // A custom row is its own views, carried: the ordinary paths
+                // find them, nested controls included.
+                if let row = section.rows.first(where: { !$0.custom && ($0.view == id || $0.target == id) }) { return (list, row) }
             }
         }
         return nil
+    }
+
+    /// The collection view a wheel on `id` scrolls: the list's own, or the
+    /// one drawing that row or any carried view in it.
+    func scroller(for id: UInt32) -> UIScrollView? {
+        if let list = lists[id] { return list.collection }
+        if let (list, _) = list(drawing: id) { return list.collection }
+        guard let node = presenter.views[id] else { return nil }
+        return lists.values.first { node.isDescendant(of: $0.owner) }?.collection
     }
 
     /// Whether a list draws `id` (a row, or a row's toggle or detail
@@ -117,6 +128,12 @@ final class GroupedListHost {
         guard list.collection.convert(list.collection.bounds, to: window).contains(middle),
               let hit = window.hitTest(middle, with: nil), hit === cell || hit.isDescendant(of: cell) else {
             return ["error": "tap #\(id): something covers its cell's middle"]
+        }
+        // The software keyboard is a window of its own, which the app's hit
+        // test never sees (`Agent.obscured`).
+        if let container = presenter.modals.coordinateView ?? presenter.session?.view,
+           let top = presenter.keyboardGuideTop(in: container), middle.y >= container.convert(CGPoint(x: 0, y: top), to: nil).y {
+            return ["error": "tap #\(id): its cell's middle is under the software keyboard; dismiss it or scroll the row above it first"]
         }
         let at = presenter.viewport.convert(middle, from: nil)
         let reply: [String: Any] = ["tapped": id, "at": [Agent.r2(at.x), Agent.r2(at.y - presenter.viewport.contentOffset.y)],
@@ -170,6 +187,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     /// The order they were carried in: given back last first, each index
     /// is where it was before the ones carried after it left.
     private var carriedOrder: [UInt32] = []
+    /// The row whose switch's action is running.
+    private var flipping: UInt32?
     /// A custom cell's height changed since the list was last laid out.
     private var resized = false
     private var scrollWasHidden = false
@@ -239,7 +258,19 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // A row whose parts changed is configured again; a custom row always
         // is, as its views may have changed size.
         let changed = snapshot.itemIdentifiers.filter { id in old[id].map { $0 != rows[id] || $0.custom } ?? false }
-        snapshot.reconfigureItems(changed)
+        // A row whose switch is firing is reconfigured once its action has
+        // returned: rebuilding its accessories would take the switch out of
+        // its superview inside its own action.
+        if let id = flipping, changed.contains(id) {
+            DispatchQueue.main.async { [weak self] in
+                guard let self, source.indexPath(for: id) != nil else { return }
+                var later = source.snapshot()
+                later.reconfigureItems([id])
+                source.apply(later, animatingDifferences: false)
+                mount()
+            }
+        }
+        snapshot.reconfigureItems(changed.filter { $0 != flipping })
         // Headers and footers live in the sections' layout: one that came,
         // went or changed lays the list out again.
         let texts = previous.sections.map { [$0.header, $0.footer] } != next.sections.map { [$0.header, $0.footer] }
@@ -270,7 +301,11 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             assign(collection, \.verticalScrollIndicatorInsets, scroll.verticalScrollIndicatorInsets)
         }
         assign(collection, \.frame, owner.bounds)
-        for cell in collection.visibleCells { if let cell = cell as? GroupedCell, let id = cell.row { carry(id, into: cell) } }
+        for cell in collection.visibleCells {
+            guard let cell = cell as? GroupedCell, let id = cell.row else { continue }
+            carry(id, into: cell)
+            interact(cell, id)
+        }
         // A switch shows its control as it now stands, which a batch may
         // change without changing the row.
         for (id, toggle) in switches { refresh(id, toggle) }
@@ -284,6 +319,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     private func configure(_ cell: GroupedCell, _ id: UInt32) {
         cell.row = id
         guard let row = rows[id] else { return }
+        interact(cell, id)
         cell.accessibilityIdentifier = host.presenter.views[id]?.props["testId"]
         if row.custom {
             cell.contentConfiguration = nil
@@ -354,7 +390,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     private func flip(_ id: UInt32, _ toggle: UISwitch) {
         guard let target = rows[id]?.target, let node = host.presenter.views[target],
               rows[id]?.disabled == false, !node.disabled, !node.inert else { refresh(id, toggle); return }
+        flipping = id
         host.presenter.checked(target, toggle.isOn)
+        flipping = nil
         refresh(id, toggle)
     }
 
@@ -414,21 +452,35 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
     /// A tap: UIKit's highlight, then the row's press.
     func select(_ id: UInt32) -> Bool {
-        guard let row = rows[id], row.pressable, !row.disabled, let path = source.indexPath(for: id) else { return false }
+        guard pressable(id), let path = source.indexPath(for: id) else { return false }
         collection.selectItem(at: path, animated: false, scrollPosition: [])
         collectionView(collection, didSelectItemAt: path)
         return true
     }
 
     func collectionView(_ view: UICollectionView, shouldHighlightItemAt path: IndexPath) -> Bool {
-        source.itemIdentifier(for: path).flatMap { rows[$0] }.map { $0.pressable && !$0.disabled } ?? false
+        source.itemIdentifier(for: path).map(pressable) ?? false
+    }
+
+    /// Whether a tap presses the row: a button, not disabled, not inert
+    /// (its node or an ancestor, the section included).
+    private func pressable(_ id: UInt32) -> Bool {
+        guard let row = rows[id], row.pressable, !row.disabled, let node = host.presenter.views[id] else { return false }
+        return !node.inert
+    }
+
+    /// An inert row's cell takes no touch and is no element, as its node.
+    private func interact(_ cell: UICollectionViewCell, _ id: UInt32) {
+        let inert = host.presenter.views[id]?.inert ?? false
+        assign(cell, \.isUserInteractionEnabled, !inert)
+        assign(cell, \.accessibilityElementsHidden, inert)
     }
     func collectionView(_ view: UICollectionView, shouldSelectItemAt path: IndexPath) -> Bool {
         collectionView(view, shouldHighlightItemAt: path)
     }
     func collectionView(_ view: UICollectionView, didSelectItemAt path: IndexPath) {
         view.deselectItem(at: path, animated: !ExactEnv.agentFreezes)
-        guard let id = source.itemIdentifier(for: path), host.presenter.views[id] != nil else { return }
+        guard let id = source.itemIdentifier(for: path), pressable(id) else { return }
         host.presenter.viewport.endEditing(true)
         host.presenter.press(id)
     }
