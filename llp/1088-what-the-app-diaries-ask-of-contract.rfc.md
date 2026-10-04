@@ -777,7 +777,7 @@ D7.3 as specified, on every host:
 - **iOS.** `canBecomeFirstResponder` admits any explicit value; `moveFocus`
   skips an explicit negative and orders by HTML's rule. **tvOS:**
   `canBecomeFocused` is false for an explicit negative; there is no tvOS
-  test target in the tree, so that line is compiled, not tested.
+  test target in the tree, so that line is compiled (`build.mjs --tvos`), not tested.
 - **Linux.** `focusable` (tap, `autofocus`, `focus()`) admits any explicit
   value; the new `tabbable` (in `presenter/typing.rs`) is an explicit value
   ≥ 0 or what is focusable by kind, shown, not inert, with a box. Tab is the
@@ -866,5 +866,7 @@ D1 and D2 as specified, with these differences:
   order across U+E000); `case.rs` (kernel); `search.rs` and
   `corpus/strings.contract` (calendar's end-after-start and calc's
   Backspace in Contract); `uses.rs`; `js-runtime.test.mjs` (the JS entries
-  against the browser's methods and the trap).
+  against the browser's methods and the trap). Driven with a scratch app on
+  the web (JS and wasm targets) and macOS: an end before the start refused,
+  Backspace, a sign flip, a search lowercased on both sides.
 
