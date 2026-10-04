@@ -714,7 +714,10 @@ extension Agent {
             // This driver sends directly to NSWindow, bypassing NSApplication's
             // local monitor. Use the same session command router first.
             presenter.flushKeyViewLoop()
-            if phase != "up", presenter.menus.key(down) || presenter.dialogs.key(down) || presenter.shortcuts.perform(down) {
+            // The monitor's route (`Presenter.routeKey`): shortcuts, the focus's
+            // `key` handlers (a prevented key goes no further), then the menus'
+            // and dialogs' defaults.
+            if phase != "up", presenter.routeKey(down, focused: true, in: win) {
                 if phase != "down" { _ = presenter.menus.key(up) }
                 if phase == "down", let release = req["releaseKey"] as? String {
                     // A host command consumed the down; its up belongs to no module instance.
@@ -726,15 +729,12 @@ extension Agent {
                 return ["typed": Int(v.id), "key": chord, "value": v.textArea?.string ?? v.field?.stringValue ?? ""]
             }
             if v.kind == "native" { return nativeType(v, req, token: nativeToken) }
-            // The focus's `key` handlers, as the monitor routes a keyboard's;
-            // one that prevented the default keeps the key from AppKit.
-            let prevented = phase != "up" && presenter.keyDown(down, in: win)
             // Accessory test windows may have a first responder before
             // NSApp has a keyWindow. Deliver to the named responder first.
-            if phase != "up", !prevented, modifiers.contains(.command), v.performKeyEquivalent(with: down) || NSApp.mainMenu?.performKeyEquivalent(with: down) == true {
+            if phase != "up", modifiers.contains(.command), v.performKeyEquivalent(with: down) || NSApp.mainMenu?.performKeyEquivalent(with: down) == true {
                 return ["typed": Int(v.id), "key": chord]
             }
-            if phase != "up", !prevented { win.sendEvent(down) }
+            if phase != "up" { win.sendEvent(down) }
             if phase != "down" { win.sendEvent(up) }
             if phase == "down", let token = req["releaseKey"] as? String {
                 keyReleases[token] = { [weak v] in

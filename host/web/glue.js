@@ -593,8 +593,8 @@ function attach(el, id, handlers) {
     }
     if (kind === "submit" && el.tagName !== "TEXTAREA" && !el.exactMarkup) {
       // The web's implicit submission: Enter in a text input submits — here
-      // to the node's `submit` handler, no form needed (and no reload).
-      on("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); send(wasm.exact_dispatch(id, 7, 0, now())); } });
+      // to the node's `submit` handler, no form needed (and no reload). It is Enter's default: after every `key` handler on the path (the window's listener is last), unless one prevented it.
+      on("keydown", (e) => { if (e.key === "Enter" && !e.isComposing && !e.exactSubmit) { e.exactSubmit = true; addEventListener("keydown", w => { if (w === e && !e.defaultPrevented) { e.preventDefault(); send(wasm.exact_dispatch(id, 7, 0, now())); } }, { once: true }); } });
     }
   }
 }

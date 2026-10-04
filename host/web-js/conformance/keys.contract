@@ -1,12 +1,17 @@
 // Synthetic conformance plan: `key` is the DOM's keydown
 // (docs/contract-grammar.md#keys). A key at a field bubbles to its
 // ancestors' handlers, innermost first, and a printable one is typed unless a
-// handler calls `preventDefault()` (calc F3); a grid claims ArrowDown and
-// Space, so the scroller around it does not move (minesweeper F7).
+// handler calls `preventDefault()` (calc F3); Enter submits only when no
+// handler on its path prevented it (the page's, while the field is empty);
+// a grid claims ArrowDown and Space, so the scroller around it does not move
+// (minesweeper F7).
 component Keys
   state text = ""
   state heard = ""
   state cursor = 0
+  state submits = 0
+  action sent
+    submits = submits + 1
   action typed(v: string)
     text = v
   action field(k: string)
@@ -15,6 +20,8 @@ component Keys
       preventDefault()
   action outer(k: string)
     heard = `${heard}o${k}`
+    if k == "Enter" and text == ""
+      preventDefault()
   action grid(k: string)
     if k == "ArrowDown"
       cursor = cursor + 1
@@ -24,7 +31,7 @@ component Keys
       preventDefault()
   view
     column testId="page" key=outer height=320 overflow-y="scroll" gap=8 padding=8
-      input value=text input=typed key=field testId="field" padding=8
+      input value=text input=typed key=field submit=sent testId="field" padding=8
       text heard testId="heard"
       column key=grid testId="grid" height=900 background-color="#eeeeee"
         text `${cursor}` testId="cursor"
