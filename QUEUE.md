@@ -1,5 +1,7 @@
 # Queue
 
+- **`z-index="auto"` is refused** (2026-10-04, files F14, the lists lane). `z_index` is an `i32` row defaulting to 0, so a conditional `z-index` cannot fall back to CSS's `auto`, and `auto` and `0` differ in CSS (only `0` makes a stacking context). A lifted, dragged row writes `z-index=(lifted ? 2 : 0)` for now.
+- **A `pointer-events: none` overlay takes a click on macOS** (2026-10-04, the lists lane, driving the feed app's tests): a toast row with `pointer-events="none"` over the tab bar (its `row` parent sets it; CSS inherits it) kept `tap tab-compose` from pressing the tab on macOS, where the web passes it through; feed's "a post that fails comes back to the composer" fails there.
 - **CSS font generic mappings for cursive/fantasy/math/emoji/fangsong and CSS-wide font-family values** (2026-10-04, CSS lane): currently refused precisely so a generic is never silently treated as a local family.
 - **CSS intrinsic flex-basis keywords (content/min-content/max-content/fit-content)** (2026-10-04, CSS lane): dimension rows need an intrinsic sizing representation; compiler now diagnoses the declared mode limit precisely.
 - **CSS native interaction/painter gaps (diaries kanban F11, minesweeper F4, ledger F1, pomodoro F2)** (2026-10-04, CSS lane): resize handles; iOS/Linux user-select text/all/contain; dotted/dashed and other border styles; decoration color/style/thickness and Linux underline skip-ink:auto. Current compiler/driver diagnoses each declared limit.
