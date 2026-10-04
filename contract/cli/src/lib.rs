@@ -457,6 +457,7 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     target,
                     dx,
                     dy,
+                    to,
                     from,
                     mouse,
                     press,
@@ -466,7 +467,17 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                 } => {
                     s.push_str("{\"op\":\"drag\",\"target\":");
                     q(target, &mut s);
-                    s.push_str(&format!(",\"dx\":{dx},\"dy\":{dy}"));
+                    match to {
+                        // LLP 1094 D12: the driver's `drag to`.
+                        Some((to, at)) => {
+                            s.push_str(",\"to\":");
+                            q(to, &mut s);
+                            if let Some((x, y)) = at {
+                                s.push_str(&format!(",\"at\":[{x},{y}]"));
+                            }
+                        }
+                        None => s.push_str(&format!(",\"dx\":{dx},\"dy\":{dy}")),
+                    }
                     if let Some((x, y)) = from {
                         s.push_str(&format!(",\"from\":[{x},{y}]"));
                     }

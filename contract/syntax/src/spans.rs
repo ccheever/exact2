@@ -121,7 +121,7 @@ macro_rules! record_variants {
 }
 record_variants! {
     Step {
-        Tap { target, form, modifiers, span }, Drag { target, dx, dy, from, mouse, press, over, hold, span },
+        Tap { target, form, modifiers, span }, Drag { target, dx, dy, to, from, mouse, press, over, hold, span },
         Size { width, height, span }, Epoch { value, span }, TimeZone { zone, span },
         Locale { tag, span }, Seed { seed, span }, BeforeData { span }, Type { target, text, append, span }, Key { target, key, span },
         Pick { target, paths, span }, Clipboard { target, edit, text, span },

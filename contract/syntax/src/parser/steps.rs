@@ -189,8 +189,24 @@ impl Parser {
                 let target = self.str_lit("a testId")?;
                 if self.at_ident("drag") {
                     self.next();
-                    let dx = self.step_number("the drag's dx in points")?;
-                    let dy = self.step_number("the drag's dy in points")?;
+                    // `drag to "B" [at x y]` (LLP 1094 D12) or `drag dx dy`.
+                    let (dx, dy, to) = if self.at_ident("to") {
+                        self.next();
+                        let to = self.str_lit("the testId the drag ends on")?;
+                        let at = if self.at_ident("at") {
+                            self.next();
+                            let x = self.step_number("the end's x in the node's box")?;
+                            let y = self.step_number("the end's y in the node's box")?;
+                            Some((x, y))
+                        } else {
+                            None
+                        };
+                        (0.0, 0.0, Some((to, at)))
+                    } else {
+                        let dx = self.step_number("the drag's dx in points")?;
+                        let dy = self.step_number("the drag's dy in points")?;
+                        (dx, dy, None)
+                    };
                     let (mut press, mut over, mut hold) = (None, None, None);
                     let (mut from, mut mouse) = (None, false);
                     while let TokenKind::Ident(w) = self.peek_kind().clone() {
@@ -237,6 +253,7 @@ impl Parser {
                         target,
                         dx,
                         dy,
+                        to,
                         from,
                         mouse,
                         press,

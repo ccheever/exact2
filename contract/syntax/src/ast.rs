@@ -161,14 +161,17 @@ pub enum Step {
     /// `tap "testId" drag dx dy [from x y] [mouse] [press ms] [over ms]
     /// [hold ms]`: one whole drag from the node's middle, or from `from` in
     /// its box, a finger's or the left button's; the driver's `tap … drag`
-    /// (kanban F18, files diary F10).
+    /// (kanban F18, files diary F10). `tap "A" drag to "B" [at x y] …`
+    /// ends at B's middle, or at `at` from its top left (LLP 1094 D12).
     Drag {
         /// The node, by `testId`.
         target: String,
-        /// Points across.
+        /// Points across (0 for a drag `to` a node).
         dx: f64,
-        /// Points down.
+        /// Points down (0 for a drag `to` a node).
         dy: f64,
+        /// The node it ends on, by `testId`, and where in its box.
+        to: Option<(String, Option<(f64, f64)>)>,
         /// Where it starts, an offset from the node's top left; its middle
         /// when `None`.
         from: Option<(f64, f64)>,
