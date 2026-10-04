@@ -145,11 +145,12 @@ export function commit(f, what = "commit") {
   if (Writes) return f();
   if (Poisoned) return say(`refused ${what}: the runner is poisoned; reload`);
   Writes = []; Commands = []; Out = []; Landed = []; Sends = []; Refresh = [];
-  stamp();
+  time();
   const undo = [], saved = Resources.map(r => r.save()), held = Mutations.map(m => m.ticket), store = Store.save();
   let ok = true;
   try {
     untracked(f);
+    tick();
     for (const [n, v] of Writes) {
       if (n.t && !conforms(v, n.t)) throw new Refusal(`a write does not conform to its slot's type: ${JSON.stringify(v)}`);
       undo.push([n, n.v]); write(n, v);
@@ -206,8 +207,14 @@ function drain() {
   // Options compare as nodes and values: a branch that replaces them with equal values still resets the pick.
   Scrolls.clear(); for (const e of Selects) if (!e.isConnected) Selects.delete(e); else { const o = [...e.options], v = o.map(x => x.value); if (e.$set || o.length !== e.$options?.length || o.some((x, i) => x !== e.$options[i] || v[i] !== e.$values[i])) { e.$set = false; e.$options = o; e.$values = v; if (e.value !== e.$value) e.value = e.$value; } }
 }
-/** An action: each call is one commit. */
-export function act(fn) { return (...a) => commit(() => fn(...a), "action"); }
+/** An action: each call is one commit. Its arguments conform to its parameters' types (`types`, after `skip` leading
+ * arguments: a row action's row), or it is refused before its body runs, as the runner's ArgumentType. */
+export function act(fn, types, skip = 0) {
+  return (...a) => commit(() => {
+    if (types) for (let i = 0; i < types.length; i++) if (!conforms(a[i + skip], types[i])) throw new Refusal(`argument ${i + 1} does not conform to its parameter's type`);
+    fn(...a);
+  }, "action");
+}
 /** The host commands, by name; a loaded piece adds its own (list.js `scrollIntoView`). */
 export const Hosts = {
   focus: id => document.getElementById(id)?.focus(),
@@ -230,10 +237,10 @@ export const clock = { now: 0, timers: [], agent: false, epoch: 0 };
 // the clock moving alone. Not a write: no commit counts it as a change.
 const Now = node(null, 0);
 let Timing = false;
-function stamp() {
-  if (!clock.agent && !Timing && start) clock.now = Math.max(clock.now, performance.now() - start);
-  if (Now.v !== clock.now) { Now.v = clock.now; for (const o of Now.obs) stale(o, DIRTY); }
-}
+// A commit takes its time first (`time`), and its readers of the clock see it only once the action's body has run
+// (`tick`): the body reads the derives and resources as they stood (the runner's pre-state).
+function time() { if (!clock.agent && !Timing && start) clock.now = Math.max(clock.now, performance.now() - start); }
+function tick() { if (Now.v !== clock.now) { Now.v = clock.now; for (const o of Now.obs) stale(o, DIRTY); } }
 // A release build never enters agent mode (LLP 1069.007 D2): its build
 // writes this false, as the wasm host's files are gated.
 const AGENT_ADMITTED = true;
@@ -1292,9 +1299,10 @@ const value_ = v => v === null || typeof v !== "object" ? v : Array.isArray(v) ?
 /** A native module's props (LLP 1024 D1): key/value pairs to one JSON
  * object of strings, a none left out (`stdlib::native_props`). */
 export const NP = p => { const o = {}; for (let i = 0; i < p.length; i += 2) if (p[i + 1] != null) o[p[i]] = String(p[i + 1]); return JSON.stringify(o); };
-// Outside a commit and the tree update (a handler's curried argument, evaluated as the event arrives) it is the
-// clock now, as the runner evaluates the arguments at dispatch: an advance that fired nothing committed no new time.
-export const x_now = () => { NowRead = true; if (!Writes && !Flushing) stamp(); return read(Now); };
+// Read untracked (an action's body, a handler's curried argument evaluated as the event arrives) it is the clock now:
+// the commit's time, or outside one the time the runner would evaluate the arguments at. A derive, resource or the
+// tree reads it tracked, as of the last commit: an advance that fired nothing committed no new time.
+export const x_now = () => { NowRead = true; if (Listener) return read(Now); if (!Writes) time(); return clock.now; };
 export const x_length = v => v.length;
 export const x_isEmpty = v => v.length === 0;
 export const x_floor = Math.floor;

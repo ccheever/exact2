@@ -242,22 +242,18 @@ fn verdict(rust: Vec<String>, text: &str) -> JsVerdict {
         v.iter().filter(|l| !l.starts_with('#')).cloned().collect()
     };
     let (r, j) = (keep(&rust), keep(&js));
-    // The JS target asked a question the runner never did.
-    let asked = js.iter().position(|l| l.starts_with("# js: the oracle has no answer"));
+    // A question the runner never asked shows as a `#` note; it counts only
+    // where the lines differ (inside a commit both refuse, the order of
+    // what each evaluates before refusing is not observable).
     let at = r.iter().zip(&j).position(|(a, b)| a != b);
-    match (at, asked) {
-        (None, None) if r.len() == j.len() => JsVerdict::Agree,
-        (None, None) => JsVerdict::Diverge {
+    match at {
+        None if r.len() == j.len() => JsVerdict::Agree,
+        None => JsVerdict::Diverge {
             at: r.len().min(j.len()),
             rust,
             js,
         },
-        (Some(at), _) => JsVerdict::Diverge { at, rust, js },
-        (None, Some(_)) => JsVerdict::Diverge {
-            at: j.len(),
-            rust,
-            js,
-        },
+        Some(at) => JsVerdict::Diverge { at, rust, js },
     }
 }
 

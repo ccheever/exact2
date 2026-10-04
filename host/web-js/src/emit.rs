@@ -430,8 +430,24 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             em.row_actions.insert(i);
             f = f.replacen('(', "($r,", 1).replace("($r,)", "($r)");
         }
+        // The parameters' types: an argument outside its type is refused,
+        // as the runner refuses it (ArgumentType), before the body runs.
+        let types: Vec<String> = r
+            .params
+            .iter()
+            .map(|p| serde_json::to_string(&type_code(plan, plan.param(p).ty)).unwrap())
+            .collect();
         let act = em.uses.rt("act");
-        let _ = write!(body, "const a_{i}={act}({f});");
+        if types.is_empty() {
+            let _ = write!(body, "const a_{i}={act}({f});");
+        } else {
+            let _ = write!(
+                body,
+                "const a_{i}={act}({f},[{}]{});",
+                types.join(","),
+                if rows { ",1" } else { "" }
+            );
+        }
     }
     for (i, m) in plan.mutations.iter().enumerate() {
         if let Some(a) = m.then {
