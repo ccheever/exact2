@@ -18,7 +18,7 @@
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, chromium, removeBrowserProfile, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
+import { Cdp, chromium, closeWindowsBrowser, removeBrowserProfile, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
 import { sourceMapReaders, identifyInspectedNode, render, perfOp, readTrace, renderTrace, layoutArgs } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
@@ -176,16 +176,13 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     child.on('error', error => { cdp.fail(`web carrier unavailable: ${chrome}: ${error.code}; set CHROME to an installed browser`); r(); });
   });
   const close = async () => {
-    if (process.platform === 'win32') {
-      // Windows has no negative-PID process groups. Ask our recorded browser
-      // to close, then terminate only its recorded tree if it did not exit.
-      await cdp.send('Browser.close', {}, undefined, 2000).catch(() => {});
-      await waitAtMost(exited, 2000);
-      if (child.exitCode === null && child.signalCode === null)
-        spawnSync('taskkill', ['/PID', String(child.pid), '/T', '/F'], {stdio:'ignore', windowsHide:true, timeout:2000});
-    } else try { process.kill(-child.pid, 'SIGKILL'); } catch {}
-    await waitAtMost(exited, 2000);
-    server.close();
+    try {
+      if (process.platform === 'win32') await closeWindowsBrowser(child, cdp, exited, profile);
+      else {
+        try { process.kill(-child.pid, 'SIGKILL'); } catch {}
+        await waitAtMost(exited, 2000);
+      }
+    } finally { server.close(); }
     if (child.exitCode === null && child.signalCode === null)
       throw new Error(`Chrome ${child.pid} did not exit; owned profile retained at ${profile}`);
     await removeBrowserProfile(profile);
@@ -503,7 +500,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
       close,
     };
   } catch (e) {
-    await close();
+    try { await close(); } catch (failure) { e.message += `; cleanup: ${failure.message}`; }
     throw e;
   }
 }
