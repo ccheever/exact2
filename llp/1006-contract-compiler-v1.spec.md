@@ -616,7 +616,12 @@ a pressable with zero area is `bake-zero-size` (one holding an image or a
 canvas is exempt — their size is the host's), each named by the node's
 `testId`; `bake` returns `BakeError` — the runner's refusal or the lint's —
 and every host's `build.rs` fails on either (`contract/cli/tests/it/lint.rs`).
-The compiler cannot see layout; bake can, and it already had the kernel. The CLI: `contract
+The compiler cannot see layout; bake can, and it already had the kernel. The
+web's JS target (LLP 1071) bakes nothing, so its compile runs `contract::check`:
+the same checks over the first frame its page shows before the data module
+answers, keeping only verdicts no answer could change (a pressable hidden or
+sized to zero by its own style; not a `scroll` or a label a placeholder
+empties), about 1–30 ms a build (files diary F13). The CLI: `contract
 build <file> [-o <plan>]` prints a one-line summary or a rejection as
 `file:line:col [id] message`, exit 1.
 

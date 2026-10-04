@@ -184,7 +184,21 @@ const normalizeGrants = (label, spec, stem) => {
   if (set.error) throw new Error(`grant-parse: ${label}: ${set.error}`);
   return set;
 };
-const grants = ts ? String((await import(resolve(appDir, 'app.ts'))).grants ?? '') : '';
+const tsModule = ts ? await import(resolve(appDir, 'app.ts')) : null;
+const grants = ts ? String(tsModule.grants ?? '') : '';
+// What the native bake refuses of the module (js/bake/src/lib.rs `bake_in`,
+// bake/src/receipt.rs), refused here as well, so the web loop fails where a
+// native build would (files diary F13).
+if (ts) {
+  const expected = (await import('../../scripts/app.mjs')).readManifest(appDir, app).app.id;
+  const problems = [
+    ...['__exact_entry.ts', '__exact_tsconfig.json', '__exact_config.mjs', '__exact_paths.json', '__exact_canvas.js', '__exact_canvas.d.ts']
+      .filter(name => existsSync(resolve(appDir, name))).map(name => `${name} is reserved for the producer`),
+    ...('draw' in tsModule) !== ('surfaces' in tsModule) ? ['app.ts exports `draw` and `surfaces` together, or neither (LLP 1056 D1)'] : [],
+    ...!tsModule.appId ? ['app.ts exports no appId'] : tsModule.appId !== expected ? [`app.ts's appId is ${tsModule.appId}, but app.json names ${expected}`] : [],
+  ];
+  if (problems.length) { console.error(problems.map(p => `error: ${p}`).join('\n')); process.exit(1); }
+}
 const tsGrantSet = normalizeGrants(ts ? 'app.ts' : 'TypeScript', grants, 'typescript');
 let moduleStorage = false, rustGrants = '', rustGrantSet = normalizeGrants('Rust module', '', 'rust');
 if (rust) {

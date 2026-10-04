@@ -145,6 +145,26 @@ fn bake_refuses_a_pressable_with_zero_area() {
     }
 }
 
+/// The web's JS target bakes nothing; `contract::check` refuses there what
+/// every native bake would, before the page's module answers (files diary
+/// F13: a hidden shortcut button passed the web build and 21 web tests).
+#[test]
+fn check_refuses_without_data_what_no_answer_could_change() {
+    let hidden = "component A\n  state n = 0\n  action go\n    n = 1\n  view\n    column\n      button \"Down\" press=go display=\"none\" aria-keyshortcuts=\"Shift+ArrowDown\" testId=\"down\"\n";
+    match contract::check(&contract::compile(hidden).unwrap()).unwrap_err() {
+        BakeError::Lint { id, message, .. } => {
+            assert_eq!(id, "bake-zero-size");
+            assert!(message.contains("testId=\"down\""), "{message}");
+        }
+        other => panic!("{other:?}"),
+    }
+    // A label the module answers is empty until it does: not this check's
+    // to judge, nor a `scroll` that only its answered rows reach the bound
+    // of (unanswered, it is exactly as tall as its header).
+    let answered = "component A\n  resource title = title() as shape string\n  resource rows = rows() as shape list<string>\n  state n = 0\n  action go\n    n = 1\n  view\n    column\n      button press=go padding=0 border-width=0 testId=\"title\"\n        text title\n      row max-height=300\n        scroll\n          column\n            text \"Header\"\n            each r in rows key=r\n              text r\n";
+    contract::check(&contract::compile(answered).unwrap()).unwrap();
+}
+
 #[test]
 fn conditional_style_literals_are_refused_at_the_offending_branch() {
     for (property, value, bad) in [
