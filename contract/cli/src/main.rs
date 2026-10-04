@@ -114,9 +114,15 @@ fn types(
         eprintln!("{usage}");
         return ExitCode::from(2);
     }
-    let result = contract::compile_path(std::path::Path::new(&args[0]))
-        .map_err(|e| e.to_string())
-        .and_then(|plan| generate(&plan).map_err(|e| format!("{}: {e}", args[0])));
+    // Shapes are all a declaration file needs: a game's surface arguments
+    // never stop it, and are named as warnings (the platformer's diary, R4).
+    let path = std::path::Path::new(&args[0]);
+    if let Ok(surfaces) = contract::surface_findings(path) {
+        surface_warnings(&surfaces);
+    }
+    let result = contract::compile_path_all_unchecked(path, false)
+        .map_err(|mut all| all.swap_remove(0).to_string())
+        .and_then(|(plan, _)| generate(&plan).map_err(|e| format!("{}: {e}", args[0])));
     match result {
         Ok(declarations) => {
             if let Some(output) = args.get(2) {
@@ -133,6 +139,20 @@ fn types(
             eprintln!("{error}");
             ExitCode::from(1)
         }
+    }
+}
+
+/// A game's surface-argument findings on stderr, as warnings: the
+/// declaration is the last GPU build's, which a bake rewrites and checks.
+fn surface_warnings(surfaces: &contract::SurfaceFindings) {
+    for finding in &surfaces.findings {
+        eprintln!("warning: {finding}");
+    }
+    if let (false, Some(newer)) = (surfaces.findings.is_empty(), &surfaces.newer) {
+        eprintln!(
+            "warning: .shells/surfaces.json is older than {}: it names the arguments of the game's last GPU build; a web or native build rewrites it",
+            newer.display()
+        );
     }
 }
 

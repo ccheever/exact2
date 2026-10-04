@@ -221,7 +221,10 @@ in components or resources.
 
 After the first GPU build, the compiler and dev loop check surface names and
 arguments against the emitted `.shells/surfaces.json`, including hidden branches
-and imports. Rust argument edits reach that declaration through the next GPU build.
+and imports. Rust argument edits reach that declaration through the next GPU build,
+so while the game's Rust is newer than it, `contract build` reports its findings as
+warnings beside every other diagnostic, and `contract types` and `contract rust`
+never stop on them; a bake checks them against the declaration it has just written.
 The dev compiler retains its last good plan on an error.
 
 ### Movement and appearance

@@ -66,11 +66,20 @@ fn err<T>(id: &'static str, message: impl Into<String>, span: Span) -> Result<T,
 
 /// Check surface calls against an emitted module interface, before imports merge
 /// so each refusal still belongs to its source file. No module is constructed.
+/// Every call is checked: one finding never hides another, or another pass's.
 pub fn check_surface_arguments(
     file: &File,
     declared: &BTreeMap<String, Vec<String>>,
-) -> Result<(), AnalyzeError> {
-    fn walk(nodes: &[Node], declared: &BTreeMap<String, Vec<String>>) -> Result<(), AnalyzeError> {
+) -> Result<(), Vec<AnalyzeError>> {
+    fn finding(message: String, span: Span) -> AnalyzeError {
+        AnalyzeError {
+            id: "analyze-surface-arguments",
+            message,
+            span,
+            related: Vec::new(),
+        }
+    }
+    fn walk(nodes: &[Node], declared: &BTreeMap<String, Vec<String>>, out: &mut Vec<AnalyzeError>) {
         for node in nodes {
             match node {
                 Node::Element {
@@ -87,28 +96,23 @@ pub fn check_surface_arguments(
                             continue;
                         };
                         let Some(fields) = declared.get(name) else {
-                            return err(
-                                "analyze-surface-arguments",
-                                format!("unknown surface `{name}`"),
-                                *span,
-                            );
+                            out.push(finding(format!("unknown surface `{name}`"), *span));
+                            continue;
                         };
                         for arg in args {
                             if let Expr::NamedArg(field, _, span) = arg {
                                 if !fields.contains(field) {
-                                    return err(
-                                        "analyze-surface-arguments",
-                                        format!("unknown surface argument `{field}` for `{name}`; declared names: {}", fields.join(", ")),
+                                    out.push(finding(
+                                        format!("unknown surface argument `{field}` for `{name}`; the game declares: {} (.shells/surfaces.json, from its last GPU build)", fields.join(", ")),
                                         *span,
-                                    );
+                                    ));
                                 }
                             }
                         }
                         if !args.iter().any(|a| matches!(a, Expr::NamedArg(..)))
                             && args.len() > fields.len()
                         {
-                            return err(
-                                "analyze-surface-arguments",
+                            out.push(finding(
                                 format!(
                                     "surface `{name}` expected at most {} arguments ({}), got {}",
                                     fields.len(),
@@ -116,32 +120,36 @@ pub fn check_surface_arguments(
                                     args.len()
                                 ),
                                 *span,
-                            );
+                            ));
                         }
                     }
-                    walk(children, declared)?;
+                    walk(children, declared, out);
                 }
-                Node::Use { children, .. } => walk(children, declared)?,
-                Node::Each { body, .. } => walk(body, declared)?,
+                Node::Use { children, .. } => walk(children, declared, out),
+                Node::Each { body, .. } => walk(body, declared, out),
                 Node::When {
                     then, otherwise, ..
                 } => {
-                    walk(then, declared)?;
-                    walk(otherwise, declared)?;
+                    walk(then, declared, out);
+                    walk(otherwise, declared, out);
                 }
                 Node::Match { some, none, .. } => {
-                    walk(&some.1, declared)?;
-                    walk(none, declared)?;
+                    walk(&some.1, declared, out);
+                    walk(none, declared, out);
                 }
                 Node::Children { .. } => {}
             }
         }
-        Ok(())
     }
+    let mut out = Vec::new();
     for component in &file.components {
-        walk(&component.view, declared)?;
+        walk(&component.view, declared, &mut out);
     }
-    Ok(())
+    if out.is_empty() {
+        Ok(())
+    } else {
+        Err(out)
+    }
 }
 
 /// What analysis established beyond the types. Every rule analysis checks
