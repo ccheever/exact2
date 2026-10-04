@@ -83,6 +83,9 @@ pub struct Gait {
     pub speed: f32,
     /// Distance covered per cycle, metres.
     pub stride: f32,
+    /// Fraction of a cycle each foot is planted: above one half both feet share
+    /// the ground (a walk), below it the body flies between steps (a run).
+    pub duty: f32,
     /// Peak knee bend in the swing, radians.
     pub lift: f32,
     /// Arm swing as a fraction of the leg swing.
@@ -96,6 +99,7 @@ impl Gait {
         Self {
             speed,
             stride: (0.9 + 0.35 * speed).min(2.2),
+            duty: 0.6,
             lift: 0.55,
             arms: 0.6,
             lean: 0.04,
@@ -106,6 +110,7 @@ impl Gait {
         Self {
             speed,
             stride: (1.2 + 0.4 * speed).min(3.6),
+            duty: 0.35,
             lift: 1.25,
             arms: 1.0,
             lean: 0.18,
@@ -163,7 +168,8 @@ impl Rig {
         });
         self
     }
-    /// Mark a limb chain (root to tip) for gait clips, forward at `phase` of a cycle.
+    /// Mark a limb chain (root to tip) for gait clips. A leg touches down at `phase`
+    /// (a fraction of the cycle); an arm is furthest forward at `phase`.
     pub fn limb(&mut self, limb: Limb, bones: &[&str], phase: f32) -> &mut Self {
         assert!(bones.len() >= 2, "rig: a limb needs at least two bones");
         let bones = bones.iter().map(|b| self.index(b)).collect();
@@ -520,11 +526,15 @@ impl Rig {
         }
     }
 
-    fn leg_length(&self, chain: &Chain) -> f32 {
-        chain.bones[..2]
-            .iter()
-            .map(|&b| (self.bones[b].tail - self.bones[b].head).length())
-            .sum()
+    fn sagittal(&self, chain: &Chain) -> Sagittal {
+        let v = |b: usize| {
+            let d = self.bones[b].tail - self.bones[b].head;
+            (d.y, d.z)
+        };
+        Sagittal {
+            upper: v(chain.bones[0]),
+            lower: v(chain.bones[1]),
+        }
     }
     fn hip_height(&self) -> f32 {
         self.spine
@@ -548,7 +558,10 @@ impl Rig {
     }
 
     /// A looping gait cycle of `gait.period()` seconds, in place (no root motion),
-    /// with `step` markers at each footfall. Limb phases come from [`Rig::limb`].
+    /// with `step` markers at each footfall. Each leg touches down at its
+    /// [`Rig::limb`] phase, then slides back at a constant rate for `duty` of the
+    /// cycle, which keeps it still on the ground while the body moves at
+    /// `gait.speed`; it then eases forward with its knee lifted.
     pub fn walk(&self, name: &str, gait: Gait) -> Clip {
         assert!(
             gait.speed > 0. && gait.stride > 0. && gait.lift.is_finite() && gait.arms.is_finite(),
@@ -559,36 +572,30 @@ impl Rig {
         let mut tracks = Vec::new();
         let mut markers = Vec::new();
         for chain in &self.chains {
-            let cycle = move |t: f32| t / period + chain.phase;
+            let cycle = move |t: f32| t / period - chain.phase;
             match chain.limb {
                 Limb::Leg => {
-                    let reach = (gait.stride * 0.25 / self.leg_length(chain)).clamp(-0.95, 0.95);
-                    let swing = math::asin(reach);
-                    let hip = move |t: f32| -swing * math::cos(TAU * cycle(t));
-                    // Knee bends through the swing half: the foot travels forward
-                    // from its rearmost point (cycle 0.5) back to the front (1.0).
-                    let knee = move |t: f32| {
-                        let c = wrap(cycle(t));
-                        if c >= 0.5 {
-                            gait.lift * math::powi(math::sin((c - 0.5) * TAU), 2)
-                        } else {
-                            0.06 * gait.lift * math::sin(c * TAU)
-                        }
+                    let leg = self.sagittal(chain);
+                    let profile = move |t: f32| leg_profile(gait, wrap(t / period - chain.phase));
+                    let pose = move |t: f32| {
+                        let (x, knee) = profile(t);
+                        (leg.hip_for(x, knee), knee)
                     };
                     tracks.push(Self::rotation_track(chain.bones[0], &times, |t| {
-                        Quat::from_rotation_x(hip(t))
+                        Quat::from_rotation_x(pose(t).0)
                     }));
                     tracks.push(Self::rotation_track(chain.bones[1], &times, |t| {
-                        Quat::from_rotation_x(knee(t))
+                        Quat::from_rotation_x(pose(t).1)
                     }));
                     if let Some(&foot) = chain.bones.get(2) {
+                        // Level: undo the hip and knee rotations above it.
                         tracks.push(Self::rotation_track(foot, &times, |t| {
-                            Quat::from_rotation_x(-(hip(t) + knee(t)) * 0.8)
+                            let (hip, knee) = pose(t);
+                            Quat::from_rotation_x(-(hip + knee))
                         }));
                     }
-                    // A footfall when this foot is furthest forward.
-                    let at = wrap(-chain.phase) * period;
-                    markers.push((at.min(period), "step".to_string()));
+                    // A footfall when this foot touches down, at its phase.
+                    markers.push((wrap(chain.phase) * period, "step".to_string()));
                 }
                 Limb::Arm => {
                     let swing = 0.45 * gait.arms;
@@ -697,6 +704,60 @@ impl Rig {
             name: name.into(),
             tracks,
             markers: vec![],
+        }
+    }
+}
+
+// Foot placement over one leg's cycle `c` (0 = touchdown): the forward offset of
+// the foot from the hip and the knee bend. In stance the foot slides back at a
+// constant rate (it is planted while the body moves), in the swing it eases forward.
+fn leg_profile(gait: Gait, c: f32) -> (f32, f32) {
+    let duty = gait.duty;
+    let reach = duty * gait.stride;
+    if c < duty {
+        let u = c / duty;
+        (reach * (0.5 - u), 0.08 * gait.lift * math::sin(PI * u))
+    } else {
+        let u = (c - duty) / (1. - duty);
+        let ease = 0.5 - 0.5 * math::cos(PI * u);
+        (
+            reach * (ease - 0.5),
+            gait.lift * math::powi(math::sin(PI * u), 2),
+        )
+    }
+}
+
+// A leg seen from the side: the rest upper and lower bone vectors as (y, z).
+#[derive(Clone, Copy)]
+struct Sagittal {
+    upper: (f32, f32),
+    lower: (f32, f32),
+}
+fn rotate((y, z): (f32, f32), a: f32) -> (f32, f32) {
+    let (s, c) = math::sin_cos(a);
+    (y * c - z * s, y * s + z * c)
+}
+impl Sagittal {
+    // The ankle relative to the hip for a hip and knee rotation about X.
+    fn ankle(&self, hip: f32, knee: f32) -> (f32, f32) {
+        let low = rotate(self.lower, knee);
+        rotate((self.upper.0 + low.0, self.upper.1 + low.1), hip)
+    }
+    // The hip rotation (nearest zero) that puts the ankle `forward` metres ahead.
+    fn hip_for(&self, forward: f32, knee: f32) -> f32 {
+        let (y, z) = self.ankle(0., knee);
+        let r = math::sqrt(y * y + z * z).max(1e-6);
+        let phi = math::atan2(z, y);
+        let s = math::asin((forward / r).clamp(-0.95, 0.95));
+        let near = |a: f32| {
+            let a = wrap((a + PI) / TAU) * TAU - PI;
+            (a.abs(), a)
+        };
+        let (a, b) = (near(s - phi), near(PI - s - phi));
+        if a.0 <= b.0 {
+            a.1
+        } else {
+            b.1
         }
     }
 }

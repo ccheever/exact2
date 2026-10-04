@@ -167,3 +167,73 @@ fn rigs_walk_flinch_and_carry_a_socket_identically_across_reloads() {
         }
     }
 }
+
+// A humanoid moving along +Z at `speed`, its gait driven by rig::drive (or, with
+// `clip`, one clip played at its own rate). Records both foot joints in world space.
+#[derive(Default, Args)]
+struct Walk {
+    speed: f32,
+    clip: String,
+}
+struct Walker;
+impl Game for Walker {
+    const ID: &'static str = "rig-walker";
+    type Args = Walk;
+    fn setup(w: &mut World, args: &Walk) {
+        let hero = w.generated_model("hero.model", humanoid()).unwrap();
+        let animator = if args.clip.is_empty() {
+            Animator::new([rig::locomotion(
+                "move",
+                "idle",
+                [(1.4, "walk"), (4., "run")],
+            )])
+        } else {
+            Animator::new([State::clip("move", args.clip.as_str())])
+        };
+        w.spawn_named("hero", (Transform::default(), hero, animator));
+    }
+    fn tick(w: &mut World, _: &Input, args: &Walk) {
+        if args.clip.is_empty() {
+            rig::drive(&mut w.require_mut::<Animator>("hero"), "move", args.speed);
+        }
+        animation::step(w);
+        w.require_mut::<Transform>("hero").position.z += args.speed * w.dt();
+    }
+}
+fn feet(speed: f32, clip: &str, ticks: usize) -> Vec<[Vec3; 2]> {
+    let mut sim = Sim::<Walker>::new(Walk {
+        speed,
+        clip: clip.into(),
+    })
+    .unwrap();
+    (0..ticks)
+        .map(|_| {
+            sim.run(1000. / 60.);
+            let w = sim.world();
+            ["foot_l", "foot_r"].map(|f| animation::socket(w, "hero", f).unwrap().position)
+        })
+        .collect()
+}
+
+#[test]
+fn a_planted_foot_holds_still_through_its_stance() {
+    for (clip, gait) in [("walk", Gait::walk(1.4)), ("run", Gait::run(4.))] {
+        let samples = feet(gait.speed, clip, 240);
+        let period = gait.period();
+        // foot_l touches down at phase 0, foot_r at one half; check mid-stance only.
+        for (foot, phase) in [(0, 0.), (1, 0.5)] {
+            let mut worst = 0f32;
+            for t in 60..samples.len() - 1 {
+                let c = ((t + 1) as f32 / 60. / period - phase).rem_euclid(1.);
+                if c > 0.15 * gait.duty && c < 0.85 * gait.duty {
+                    let v = (samples[t + 1][foot].z - samples[t][foot].z) * 60.;
+                    worst = worst.max(v.abs());
+                }
+            }
+            assert!(
+                worst < 0.08 * gait.speed,
+                "{clip} foot {foot}: planted foot moves {worst} m/s"
+            );
+        }
+    }
+}
