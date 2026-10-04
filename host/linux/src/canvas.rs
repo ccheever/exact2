@@ -845,6 +845,8 @@ pub struct CanvasHost<D: DataSource> {
     /// [`MOVES`]); 1000 or more also leaves the last move standing, to check
     /// a moved frame against a painted one.
     moves: u32,
+    /// A GPU canvas wants another frame (Android: they present each frame).
+    surfaces: bool,
 }
 
 struct Painted {
@@ -906,7 +908,22 @@ impl<D: DataSource + Default> CanvasHost<D> {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(MOVES),
+            surfaces: false,
         })
+    }
+
+    /// A reader's `ANativeWindow` of `size` pixels for canvas `view`, alive
+    /// until [`CanvasHost::detach_window`]; whether `view` is a GPU canvas.
+    #[cfg(target_os = "android")]
+    pub fn attach_window(&mut self, view: u32, window: usize, size: (u32, u32)) -> bool {
+        self.surfaces = true;
+        self.p.attach_window(view, window, size)
+    }
+
+    /// The window of canvas `view` is going.
+    #[cfg(target_os = "android")]
+    pub fn detach_window(&mut self, view: u32) {
+        self.p.detach_window(view);
     }
 
     fn now(&self) -> f64 {
@@ -922,6 +939,18 @@ impl<D: DataSource + Default> CanvasHost<D> {
         p.hold_collections(self.scrolled);
         let frame = self.frame_held(now);
         self.p.hold_collections(false);
+        // Every attached GPU canvas (none: at once); a canvas with nothing
+        // new draws nothing.
+        #[cfg(target_os = "android")]
+        {
+            let _s = Section::begin(c"exact surfaces");
+            // GPU canvases follow the tree (made, bound, given their
+            // assets) outside a scroll's frame, as the Linux loop does.
+            if !self.scrolled {
+                self.p.sync_surfaces();
+            }
+            self.surfaces = self.p.render_surfaces(now);
+        }
         frame
     }
 
@@ -990,7 +1019,10 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// Whether another frame is wanted at the next vsync.
     pub fn animating(&self) -> bool {
         // A moved paint owes a paint: the frame after scrolling stops.
-        self.p.dirty() || self.p.needs_animation_frame() || self.p.host().wants_frames()
+        self.p.dirty()
+            || self.p.needs_animation_frame()
+            || self.p.host().wants_frames()
+            || self.surfaces
     }
 
     /// When only scrollers whose rows the last paint drew moved since it,

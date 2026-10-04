@@ -205,6 +205,62 @@ pub unsafe fn create(name: &str, _layer: *mut c_void, _width: u32, _height: u32)
     0
 }
 
+/// Give canvas `id` (made by [`create_headless`]) an Android window to
+/// present to. 0 on success, 1 on a refusal (see [`error`]).
+///
+/// # Safety
+/// `window` must be a live `ANativeWindow` that outlives the attachment
+/// (until [`detach`] or the canvas's destroy).
+#[cfg(target_os = "android")]
+pub unsafe fn attach(id: u32, window: *mut c_void, width: u32, height: u32) -> u32 {
+    use wgpu::rwh::{
+        AndroidDisplayHandle, AndroidNdkWindowHandle, RawDisplayHandle, RawWindowHandle,
+    };
+    let Some(window) = std::ptr::NonNull::new(window) else {
+        refuse("gpu_attach: a null window");
+        return 1;
+    };
+    let attached = with(|m| {
+        let gpu = m.gpu()?;
+        // SAFETY: the caller's contract — the window outlives the surface.
+        let target = unsafe {
+            gpu.instance
+                .create_surface_unsafe(wgpu::SurfaceTargetUnsafe::RawHandle {
+                    raw_display_handle: Some(
+                        RawDisplayHandle::Android(AndroidDisplayHandle::new()),
+                    ),
+                    raw_window_handle: RawWindowHandle::AndroidNdk(AndroidNdkWindowHandle::new(
+                        window,
+                    )),
+                })
+        };
+        match target {
+            Ok(t) => Some(m.attach(id, t, width, height)),
+            Err(e) => {
+                ERROR.with(|s| *s.borrow_mut() = format!("{e}"));
+                None
+            }
+        }
+    })
+    .flatten();
+    u32::from(attached != Some(true))
+}
+
+/// No window to attach off Android.
+///
+/// # Safety
+/// None: `window` is never read.
+#[cfg(not(target_os = "android"))]
+pub unsafe fn attach(_id: u32, _window: *mut c_void, _width: u32, _height: u32) -> u32 {
+    refuse("gpu_attach: this platform presents through gpu_create");
+    1
+}
+
+/// Drop canvas `id`'s window target; its state stays.
+pub fn detach(id: u32) {
+    with(|m| m.detach(id));
+}
+
 /// Register the text of shader `name` (LLP 1030 D8): validated, its
 /// interface checked against the one this module's Rust binds. Returns 0 on
 /// success, 1 on a refusal (see [`error`]). The module must be loaded.
@@ -552,6 +608,19 @@ macro_rules! module {
             if layer.is_null() { $crate::native::refuse("gpu_create: a null layer"); return 0 }
             unsafe { $crate::native::create(name, layer, width, height) }
         }
+
+        /// Give a canvas made headless an Android window (an `ANativeWindow`) to present to. 0 on success.
+        ///
+        /// # Safety
+        /// `window` is a live `ANativeWindow` until `gpu_detach` or `gpu_destroy`.
+        #[no_mangle]
+        pub unsafe extern "C" fn gpu_attach(id: u32, window: *mut ::std::ffi::c_void, width: u32, height: u32) -> u32 {
+            unsafe { $crate::native::attach(id, window, width, height) }
+        }
+
+        /// Drop a canvas's window target; its state stays.
+        #[no_mangle]
+        pub extern "C" fn gpu_detach(id: u32) { $crate::native::detach(id) }
 
         /// Clear the previous complete shader namespace after app acceptance.
         #[no_mangle]

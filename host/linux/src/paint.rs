@@ -1060,6 +1060,8 @@ impl Painter {
                 if let Some(c) = self.canvases.get(&node.id) {
                     let clips = [Shape::rect(content), outer];
                     self.backend.canvas(&c.pixels, content, &clips, ts);
+                } else {
+                    self.native(node, content, &outer, ts);
                 }
             }
             NodeType::Image => {

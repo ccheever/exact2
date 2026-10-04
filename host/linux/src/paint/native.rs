@@ -1,5 +1,5 @@
-//! Elements a platform draws: `video` (LLP 1042), `iframe` (LLP 1020) and a
-//! native module's view (LLP 1024). The kernel owns only their box; the walk
+//! Elements a platform draws: `video` (LLP 1042), `iframe` (LLP 1020), a
+//! native module's view (LLP 1024) and a GPU canvas's window (LLP 1009). The kernel owns only their box; the walk
 //! names each with its box and what the platform needs to show it, and a
 //! backend whose reader hosts platform views draws the view's own drawing
 //! there, under the same clips and above what came before it, so it scrolls,
@@ -15,6 +15,9 @@ pub enum NativeKind {
     WebView = 1,
     /// A native module's view, by module name.
     Module = 2,
+    /// A GPU canvas's window (LLP 1009): the reader makes one and gives it
+    /// to the host, whose module presents into it.
+    Surface = 3,
 }
 
 impl Painter {
@@ -57,6 +60,7 @@ impl Painter {
                     "props": p.str(PropId::NativeViewProps),
                 }),
             ),
+            NodeType::Canvas => (NativeKind::Surface, serde_json::json!({})),
             _ => return,
         };
         if content.2 <= 0.0 || content.3 <= 0.0 {

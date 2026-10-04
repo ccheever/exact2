@@ -59,7 +59,11 @@ impl Acquire {
     /// occluded window's drawable wait now starves the canvas instead of
     /// holding the main thread; the AppKit presenter's guard stays for the
     /// agent's clock, which acquires on the main thread.
-    pub(crate) const ENABLED: bool = cfg!(any(target_os = "ios", target_os = "macos"));
+    pub(crate) const ENABLED: bool = cfg!(any(
+        target_os = "ios",
+        target_os = "macos",
+        target_os = "android"
+    ));
 
     /// Whether a texture asked for at a present is waited on
     /// ([`Self::request_awaited`]): where the presenter reads

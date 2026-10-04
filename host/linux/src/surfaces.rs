@@ -16,6 +16,9 @@ use std::{
     path::PathBuf,
 };
 
+#[cfg(target_os = "android")]
+#[path = "surfaces/android.rs"]
+mod android;
 #[path = "surface_controls.rs"]
 mod controls;
 
@@ -30,7 +33,10 @@ struct Abi {
 }
 impl Abi {
     fn open(compat: &Value, artifact: &str) -> Result<Self, String> {
+        #[cfg(not(target_os = "android"))]
         let binary = std::env::current_exe().map_err(|e| e.to_string())?;
+        #[cfg(target_os = "android")]
+        let binary = android::library_dir().ok_or("EXACT_NATIVE_LIBS is not set")?;
         let name = gpu_card(compat, artifact)["name"]
             .as_str()
             .ok_or("GPU module has no baked identity")?;
@@ -82,8 +88,11 @@ impl Abi {
                     .get::<*const ()>(name.as_bytes())
                     .map_err(|e| e.to_string())?;
             }
+            #[cfg(not(target_os = "android"))]
             abi.symbol::<unsafe extern "C" fn()>(b"gpu_load_headless")();
         }
+        #[cfg(target_os = "android")]
+        android::load(&abi)?;
         Ok(abi)
     }
     // SAFETY: all callers supply the signature declared by gpu/src/native.rs.
@@ -310,6 +319,9 @@ pub(crate) struct Surfaces {
     pub(crate) error: Option<String>,
     work: Vec<RequestOut>,
     outcomes: Vec<(u64, Outcome)>,
+    /// Windows readers gave canvases, by view (Android).
+    #[cfg(target_os = "android")]
+    windows: BTreeMap<u32, android::Window>,
 }
 impl Surfaces {
     pub(crate) fn enqueue(&mut self, request: RequestOut, admitted: &str) {
@@ -353,6 +365,8 @@ impl Surfaces {
         for view in dead {
             let c = self.canvases.remove(&view).unwrap();
             self.abis[&c.artifact].destroy(c.id);
+            #[cfg(target_os = "android")]
+            self.windows.remove(&view);
             if c.owner {
                 self.error = self.error.take().or(host.surface_record(&c.name, None));
                 changed = true;
@@ -382,13 +396,18 @@ impl Surfaces {
             }
             match Abi::open(&compat, &artifact) {
                 Ok(abi) => {
-                    let length =
-                        unsafe { abi.symbol::<unsafe extern "C" fn() -> u32>(b"gpu_recover")() };
-                    let report = abi
-                        .bytes(length)
-                        .and_then(|b| serde_json::from_slice::<Value>(&b).ok());
-                    if report.as_ref().is_none_or(|r| r["status"] != "no device") {
-                        self.error = Some("headless recovery did not report no device".into());
+                    // Headless, a module recovers to "no device"; on Android it loaded one.
+                    #[cfg(not(target_os = "android"))]
+                    {
+                        let length = unsafe {
+                            abi.symbol::<unsafe extern "C" fn() -> u32>(b"gpu_recover")()
+                        };
+                        let report = abi
+                            .bytes(length)
+                            .and_then(|b| serde_json::from_slice::<Value>(&b).ok());
+                        if report.as_ref().is_none_or(|r| r["status"] != "no device") {
+                            self.error = Some("headless recovery did not report no device".into());
+                        }
                     }
                     self.abis.insert(artifact, abi);
                 }
@@ -701,6 +720,8 @@ impl Surfaces {
             }
         }
         self.outcomes.extend(completed);
+        #[cfg(target_os = "android")]
+        self.attach_windows();
         for abi in self.abis.values() {
             if let Some(error) = abi.error() {
                 self.error = Some(error);
