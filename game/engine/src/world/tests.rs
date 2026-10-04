@@ -119,8 +119,7 @@ fn loading_moves_asset_ownership_only_after_all_validation_succeeds() {
     world.assets.redelivery.insert("pending.model".into());
     world
         .assets
-        .dependencies
-        .insert("ready.model".into(), vec!["ready.tex".into()]);
+        .set_dependencies("ready.model", vec!["ready.tex".into()]);
     world.assets.retired.push("retired.model".into());
     let saved = world.save();
     let names: Vec<_> = world.assets.states.keys().map(|n| n.as_ptr()).collect();

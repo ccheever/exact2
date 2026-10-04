@@ -123,7 +123,7 @@ impl World {
         self.assets.identify(name, digest);
         self.assets.declared.insert(name.into());
         self.assets.models.insert(name.into(), model.into());
-        self.assets.dependencies.insert(name.into(), Vec::new());
+        self.assets.set_dependencies(name, Vec::new());
         self.assets.states.insert(name.into(), AssetState::Loaded);
         Ok(Mesh::asset(name))
     }

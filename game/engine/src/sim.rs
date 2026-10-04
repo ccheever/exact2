@@ -123,6 +123,8 @@ impl Paranoid {
 pub struct Sim<G: Game> {
     pub(crate) world: World,
     setup_pending: bool,
+    // The first required asset last seen not ready (`required_ready`).
+    ready_hint: Option<String>,
     asset_mesh_revision: u64,
     asset_sprite_names: Vec<(crate::Entity, String)>,
     defer_assets: bool,
@@ -405,29 +407,29 @@ impl<G: Game> Sim<G> {
         }
         self.finish_assets(name);
     }
-    /// A model's state follows its textures': re-derive the models `touched`
-    /// (a delivered or prepared name) is, or is a texture of. Every delivery
-    /// re-deriving every model made a world declaring hundreds of them
-    /// quadratic to load (garden's 202: ~4 s of a web load in this loop).
+    /// A model's state follows its textures': re-derive only the model
+    /// `touched` (a delivered or prepared name) is, and the models naming it
+    /// as a texture (`Assets::dependents`). Re-deriving every model on every
+    /// delivery made a world of hundreds of models quadratic to load (garden's
+    /// 202: ~4 s of a web load).
     fn finish_assets(&mut self, touched: &str) {
         use crate::asset::AssetState;
         let assets = &mut *self.world.assets;
-        for (name, textures) in &assets.dependencies {
-            if name != touched && !textures.iter().any(|t| t == touched) {
+        let mut models = assets.dependents.get(touched).cloned().unwrap_or_default();
+        if assets.dependencies.contains_key(touched) {
+            models.push(touched.into());
+        }
+        for name in models {
+            let Some(textures) = assets.dependencies.get(&name) else {
                 continue;
-            }
-            if !assets.states.contains_key(name) {
-                continue;
-            }
-            if matches!(assets.states.get(name), Some(AssetState::Failed(_))) {
+            };
+            if matches!(assets.states.get(&name), None | Some(AssetState::Failed(_))) {
                 continue;
             }
             let failed = textures.iter().find_map(|n| match assets.states.get(n) {
                 Some(AssetState::Failed(e)) => Some(e.clone()),
                 _ => None,
             });
-            // Write only a change: every delivery runs this over every model,
-            // and a rewrite clones the name and moves the states' revision.
             let next = if let Some(reason) = failed {
                 AssetState::Failed(reason)
             } else if textures
@@ -438,15 +440,44 @@ impl<G: Game> Sim<G> {
             } else {
                 continue;
             };
-            if assets.states.get(name) != Some(&next) {
-                assets.states.insert(name.clone(), next);
+            // Write only a change: a rewrite moves the states' revision.
+            if assets.states.get(&name) != Some(&next) {
+                assets.states.insert(name, next);
             }
         }
-        if self.setup_pending && assets.ready() {
+        if self.setup_pending && self.required_ready() {
             self.world = Self::build(&self.args, self.world.assets.clone());
             self.setup_pending = false;
             self.asset_mesh_revision = u64::MAX;
         }
+    }
+    /// `Assets::ready` resumed from the last required name found not ready:
+    /// the names before it were ready when passed, so a load costs one pass
+    /// over the required set, not one per delivery. A state can move back
+    /// (a retired, re-requested name), so the whole set is checked once more
+    /// before setup.
+    fn required_ready(&mut self) -> bool {
+        use crate::asset::AssetState;
+        let assets = &self.world.assets;
+        let unready = |n: &&String| {
+            assets
+                .states
+                .get(n)
+                .is_some_and(|s| *s != AssetState::Loaded)
+        };
+        let from = self.ready_hint.take();
+        let next = match &from {
+            Some(hint) => assets
+                .required
+                .range::<String, _>(hint.clone()..)
+                .find(unready),
+            None => assets.required.iter().find(unready),
+        };
+        if let Some(name) = next {
+            self.ready_hint = Some(name.clone());
+            return false;
+        }
+        from.is_none() || assets.ready()
     }
     /// Transport failure after the host's bounded retries.
     pub fn asset_failed(&mut self, name: &str, reason: &str) {
@@ -491,8 +522,7 @@ impl<G: Game> Sim<G> {
                 }
                 self.world
                     .assets
-                    .dependencies
-                    .insert(name.into(), model.textures.clone());
+                    .set_dependencies(name, model.textures.clone());
                 self.world.assets.models.insert(name.into(), model.into());
             }
             Err(reason) => {
@@ -568,6 +598,7 @@ impl<G: Game> Sim<G> {
             paused_clock: false,
             lookahead_us_hz: 0,
             last_motion: crate::Vec2::ZERO,
+            ready_hint: None,
             paranoid: Self::reconstruction(Paranoid::environment()),
             game: PhantomData,
         })
@@ -637,6 +668,7 @@ impl<G: Game> Sim<G> {
                 .checked_add(1)
                 .expect("presentation generation exhausted");
             self.setup_pending = !world.assets.ready();
+            self.ready_hint = None;
             self.asset_mesh_revision = u64::MAX;
             self.world = world;
             self.world_us = 0;

@@ -18,6 +18,9 @@ impl<V> AssetMap<V> {
     pub(crate) fn get(&self, name: &str) -> Option<&V> {
         self.find(name).ok().map(|i| &self.0[i].1)
     }
+    pub(crate) fn get_mut(&mut self, name: &str) -> Option<&mut V> {
+        self.find(name).ok().map(|i| &mut self.0[i].1)
+    }
     pub(crate) fn contains_key(&self, name: &str) -> bool {
         self.find(name).is_ok()
     }

@@ -508,6 +508,9 @@ pub(crate) struct Assets {
     pub prepared: BTreeSet<String>,
     pub redelivery: BTreeSet<String>,
     pub dependencies: map::AssetMap<Vec<String>>,
+    /// Each texture's models, `dependencies` reversed: a delivery finishes
+    /// only the models it concerns. Write both through `set_dependencies`.
+    pub dependents: map::AssetMap<Vec<String>>,
     pub retired: Vec<String>,
 }
 
@@ -541,6 +544,7 @@ impl std::ops::Deref for AssetStore {
             prepared: BTreeSet::new(),
             redelivery: BTreeSet::new(),
             dependencies: map::AssetMap::EMPTY,
+            dependents: map::AssetMap::EMPTY,
             retired: Vec::new(),
         };
         self.owner.as_ref().map_or(&EMPTY, |owner| owner.as_ref())
@@ -574,6 +578,32 @@ impl From<Model> for ModelAsset {
     }
 }
 impl Assets {
+    /// A model's textures, and the reverse index with them.
+    pub fn set_dependencies(&mut self, model: &str, textures: Vec<String>) {
+        self.remove_dependencies(model);
+        for texture in &textures {
+            match self.dependents.get_mut(texture) {
+                Some(models) if !models.iter().any(|m| m == model) => models.push(model.into()),
+                Some(_) => {}
+                None => self.dependents.insert(texture.clone(), vec![model.into()]),
+            }
+        }
+        self.dependencies.insert(model.into(), textures);
+    }
+    pub fn remove_dependencies(&mut self, model: &str) {
+        let Some(textures) = self.dependencies.get(model).cloned() else {
+            return;
+        };
+        for texture in textures {
+            if let Some(models) = self.dependents.get_mut(&texture) {
+                models.retain(|m| m != model);
+                if models.is_empty() {
+                    self.dependents.remove(&texture);
+                }
+            }
+        }
+        self.dependencies.remove(model);
+    }
     pub fn ready(&self) -> bool {
         self.required
             .iter()
@@ -611,7 +641,7 @@ impl Assets {
         self.states.remove(&name);
         if !self.declared.contains(&name) {
             self.models.remove(&name);
-            self.dependencies.remove(&name);
+            self.remove_dependencies(&name);
         }
         self.requested.remove(&name);
         self.prepared.remove(&name);
