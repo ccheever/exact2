@@ -8,6 +8,14 @@ use exact_runner::auth::{self, Arm, Browser};
 use exact_runner::DataSource;
 
 impl<D: DataSource> Bridge<D> {
+    /// `exact_scrolled`: a scroller the presenter shows, or the page, now
+    /// stands at `(left, top)` CSS px, for `frame` (LLP 1051.000 D1).
+    pub fn scrolled(&mut self, page: bool, view: u32, left: f64, top: f64) {
+        if let Some(h) = self.host.as_mut() {
+            h.runner_mut().scrolled((!page).then_some(view), left, top);
+        }
+    }
+
     /// `exact_canvas_held`: a 2D canvas's replay is behind, or caught up.
     pub fn canvas_held(&mut self, view: u32, held: bool) {
         if let Some(h) = self.host.as_mut() {

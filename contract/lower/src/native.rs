@@ -67,14 +67,16 @@ pub(crate) fn leftover(tag: &str, a: &Attr) -> bool {
 }
 
 /// A known attribute a module tag cannot use, refused by name. The table
-/// binds before the module (LLP 1024 D1), so `appearance="dark"` on
-/// `ghostty-terminal` would set a style row the leaf box never draws and
-/// the module would never see the prop: rows of a text leaf (the schema's
-/// text mask, `color`, `text-decoration-line`) and of a form control
-/// (LLP 1069.001 D6's `appearance`, `accent-color`, `caret-color`, and the
-/// control props) are refused on a module tag, naming what the word means.
-/// Layout, box and paint rows, the handlers, `testId`, `id` and ARIA stay
-/// the box's: the author sizes and places a module like any leaf.
+/// binds before the module (LLP 1024 D1), so a known word on a module tag
+/// binds to its box, and the box uses only what any leaf box uses: layout,
+/// box and paint rows, the handlers, `testId`, `id`, `role`, ARIA,
+/// `disabled` and `inert` (the module's interaction suppression reads them)
+/// — an allow-list (@ref LLP 1088 D7.2, paint F7: `command` set a host
+/// command the module never saw). Every other known word is refused, naming
+/// what it is: a text row (`color`), a form control's row (`appearance`)
+/// or prop (`value`), or another element's attribute (`command`, `href`).
+/// `class` and `data-*` never reach here, and an SVG element's own props
+/// (`svg_only_prop`, `mode`) stay the module's.
 pub(crate) fn refused(tag: &str, a: &Attr) -> Option<LowerError> {
     if !is_module_tag(tag) || leftover(tag, a) {
         return None;
@@ -98,8 +100,12 @@ pub(crate) fn refused(tag: &str, a: &Attr) -> Option<LowerError> {
                 return None;
             }
         }
+        tags::AttrTarget::Handler(_) | tags::AttrTarget::Flex => return None,
+        // A hook names its own refusal on a module (`lower-hook-module`).
+        _ if a.name == "hook" => return None,
+        _ if BOX_PROPS.contains(&a.name.as_str()) || a.name.starts_with("aria-") => return None,
         _ if CONTROL_PROPS.contains(&a.name.as_str()) => "a form control's prop",
-        _ => return None,
+        _ => "another element's attribute",
     };
     Some(LowerError {
         id: "lower-native-attr",
@@ -110,6 +116,9 @@ pub(crate) fn refused(tag: &str, a: &Attr) -> Option<LowerError> {
         span: a.span,
     })
 }
+
+/// The props besides ARIA's that any leaf box takes, so a module's too.
+const BOX_PROPS: [&str; 5] = ["testId", "id", "role", "disabled", "inert"];
 
 /// The form-control props (LLP 1069.001, LLP 1069.002) a module's box has
 /// no use for. `checked` is refused on every tag but `input` before this
@@ -277,6 +286,12 @@ mod tests {
             "inputmode",
             "spellcheck",
             "markup",
+            "command",
+            "commandfor",
+            "href",
+            "src",
+            "popover",
+            "virtualized",
         ] {
             let e = super::refused("ghostty-terminal", &attr(name))
                 .unwrap_or_else(|| panic!("{name} was not refused"));
@@ -307,6 +322,8 @@ mod tests {
             "aria-label",
             "role",
             "inert",
+            "disabled",
+            "aria-hidden",
             "load",
             "press",
             "change",

@@ -34,14 +34,11 @@ impl<D: DataSource> Presenter<D> {
                     collection_limits.get(&a).copied(),
                 )
             });
+            // `auto` scrolls as `scroll` does (a wheel moves it: `wheel_at`).
+            let scrolls = |o| matches!(o, Overflow::Scroll | Overflow::Auto);
             let (ox, oy) = bounds.axes;
-            if ox == Overflow::Scroll || oy == Overflow::Scroll {
-                scrollers.push((
-                    a,
-                    ox == Overflow::Scroll,
-                    oy == Overflow::Scroll,
-                    bounds.max,
-                ));
+            if scrolls(ox) || scrolls(oy) {
+                scrollers.push((a, scrolls(ox), scrolls(oy), bounds.max));
             }
             at = self.display.parent(kernel, a);
         }

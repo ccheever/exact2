@@ -48,6 +48,11 @@ const FORMS: &[(&str, &str)] = &[
         "intl-parts-prototype",
         "Intl.DateTimeFormat.formatToParts()",
     ),
+    ("timeout", "setTimeout()"),
+    ("interval", "setInterval()"),
+    ("computed-timeout", "setTimeout()"),
+    ("frame", "requestAnimationFrame()"),
+    ("performance", "performance.now()"),
 ];
 
 const SRC: &str = r#"

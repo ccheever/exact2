@@ -388,6 +388,7 @@ impl Kernel {
         if !self.arena.is_root(slot) {
             return Err(LayoutError::NotARoot(root).into());
         }
+        self.replace_env(self.arena.env().with_viewport(offer))?;
         let region = self
             .region
             .as_mut()
@@ -476,6 +477,7 @@ impl Kernel {
                 return Err(LayoutError::DuplicatePresentedHeight(sample.node).into());
             }
         }
+        self.replace_env(self.arena.env().with_viewport(offer))?;
         engine(&mut self.layout).present_heights(&self.arena, presented);
         let result = match layout::compute(
             &mut self.arena,

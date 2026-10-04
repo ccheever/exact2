@@ -31,7 +31,7 @@ const wire = value => {
 const result = r => ({changes:String(r.changes),lastInsertRowid:String(r.lastInsertRowid)});
 function base64(bytes) { let text='';for (let i=0;i<bytes.length;i+=16384)text+=String.fromCharCode(...bytes.subarray(i,i+16384));return btoa(text); }
 export function createStorageRequests(appId, admitted) {
-  const services = new Map(), key = storageKey(appId, location.href); let disposed = false;
+  const services = new Map(), key = storageKey(appId); let disposed = false;
   const check = () => { if(disposed)throw new Error('storage source unloaded'); };
   return {
     async run(payload, scope = null) {

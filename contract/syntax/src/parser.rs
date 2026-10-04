@@ -10,6 +10,7 @@ use crate::Span;
 
 mod expr;
 mod keyframes;
+mod names;
 #[path = "routes.rs"]
 mod routes;
 mod steps;
@@ -205,39 +206,6 @@ impl Parser {
                 "syntax-expected",
                 format!("expected `{w}`, found {}", describe(self.peek_kind())),
             )
-        }
-    }
-
-    fn ident(&mut self) -> R<(String, Span)> {
-        match self.peek_kind().clone() {
-            TokenKind::Ident(w) if !is_keyword(&w) => {
-                let t = self.next();
-                Ok((w, t.span))
-            }
-            // A keyword where a name goes says so, and how to get out of it
-            // (LLP 1054 L2: a shape field `key`, an action `view`).
-            TokenKind::Ident(w) => self.err(
-                "syntax-expected-name",
-                format!("expected a name, found `{w}`, a reserved word: choose another name (`{w}s`, `my{}{}`)", w[..1].to_uppercase(), &w[1..]),
-            ),
-            other => self.err(
-                "syntax-expected-name",
-                format!("expected a name, found {}", describe(&other)),
-            ),
-        }
-    }
-
-    /// A name in a place the grammar can't mistake for syntax: a shape field,
-    /// a prop, a member after `.`, a named argument. A keyword that only
-    /// structures a file (`state`, `key`, `view`, …) is a name here; one that
-    /// shapes an expression or a block (`when`, `if`, `match`, …) never is.
-    fn field_name(&mut self) -> R<(String, Span)> {
-        match self.peek_kind().clone() {
-            TokenKind::Ident(w) if is_name_word(&w) => {
-                let t = self.next();
-                Ok((w, t.span))
-            }
-            _ => self.ident(),
         }
     }
 
@@ -519,6 +487,19 @@ impl Parser {
         while !matches!(self.peek_kind(), TokenKind::Newline | TokenKind::Eof) {
             let (aname, aspan) = match (self.peek_kind().clone(), self.peek2().clone()) {
                 (TokenKind::Ident(n), TokenKind::Punct("=")) => (n, self.next().span),
+                // CSS's `background-color: "…"` (ledger F3): the row it meant,
+                // rewritten (LLP 1088 D7.4).
+                (TokenKind::Ident(n), TokenKind::Punct(":")) => {
+                    let value = match &self.tokens[(self.pos + 2).min(self.tokens.len() - 1)].kind {
+                        TokenKind::Str(v) => format!("{v:?}"),
+                        TokenKind::Number(v) => v.to_string(),
+                        _ => "…".into(),
+                    };
+                    return self.err(
+                        "syntax-expected-attr",
+                        format!("`{n}:` is CSS's declaration; a line of `{owner}` is `attr=literal`: write `{n}={value}`"),
+                    );
+                }
                 (other, _) => {
                     return self.err(
                         "syntax-expected-attr",
@@ -653,7 +634,7 @@ impl Parser {
                             self.next();
                             self.newline()?;
                             let list = self.block(|p| {
-                                let (name, span) = p.field_name()?;
+                                let (name, span) = p.ident()?;
                                 p.expect_punct(":")?;
                                 let ty = p.type_expr()?;
                                 p.newline()?;
@@ -676,7 +657,7 @@ impl Parser {
                             self.newline()?;
                             let mut provides: Vec<Binding> = Vec::new();
                             for b in self.block(|p| {
-                                let (name, span) = p.field_name()?;
+                                let (name, span) = p.ident()?;
                                 let expr = if p.eat_punct("=") {
                                     p.expr()?
                                 } else {
@@ -962,7 +943,9 @@ impl Parser {
                 span,
             });
         }
-        if self.at_ident("refresh") {
+        // `refresh` starts a statement only before a name, as `send` and
+        // `let` do (LLP 1088 D5): `refresh = x` assigns a state so named.
+        if self.at_ident("refresh") && matches!(self.peek2(), TokenKind::Ident(_)) {
             let span = self.expect_word("refresh")?;
             let target = self.named_ident(span)?;
             self.newline()?;
@@ -1401,57 +1384,6 @@ impl Parser {
         self.last = deepest;
         Ok(out)
     }
-}
-
-/// A keyword that may still be a name where one is expected: every keyword but
-/// those that begin or join an expression, a region, or a statement.
-fn is_name_word(w: &str) -> bool {
-    !is_keyword(w)
-        || !matches!(
-            w,
-            "when" | "if" | "else" | "each" | "in" | "match" | "case" | "as" | "fn" | "refresh"
-        )
-}
-
-fn is_keyword(w: &str) -> bool {
-    matches!(
-        w,
-        "component"
-            | "font"
-            | "shape"
-            | "state"
-            | "derive"
-            | "resource"
-            | "mutation"
-            | "refresh"
-            | "action"
-            | "task"
-            | "view"
-            | "props"
-            | "when"
-            | "if"
-            | "else"
-            | "style"
-            | "fn"
-            | "test"
-            | "expect"
-            | "from"
-            | "provide"
-            | "children"
-            | "inject"
-            | "slot"
-            | "each"
-            | "in"
-            | "key"
-            | "match"
-            | "case"
-            | "writes"
-            | "mount"
-            | "as"
-            | "and"
-            | "or"
-            | "not"
-    )
 }
 
 fn describe(k: &TokenKind) -> String {

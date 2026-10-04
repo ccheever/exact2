@@ -103,15 +103,23 @@ async function waitForBoot(page, why = 'the page never booted') {
   return Number(await page.locator('#exact-root').getAttribute('data-boot-ms'));
 }
 
-// A key by its `key` name or its code, on every target (as scripts/agent.mjs `browserKey`).
+// A key by its `key` name or its code, on every target (as scripts/agent.mjs `cdpKey`).
 const keyName = (code) => {
   if (code.length === 1) return code;
   if (/^Key[A-Z]$/.test(code)) return code;
   if (/^Digit[0-9]$/.test(code)) return code;
   if (/^F([1-9]|1[0-2])$/.test(code)) return code;
-  const key = { Space: ' ', Enter: 'Enter', Escape: 'Escape', Tab: 'Tab', Backspace: 'Backspace', Delete: 'Delete', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight', Shift: 'Shift', ShiftLeft: 'ShiftLeft', ShiftRight: 'ShiftRight' }[code];
+  const key = { Space: ' ', Enter: 'Enter', Escape: 'Escape', Tab: 'Tab', Backspace: 'Backspace', Delete: 'Delete', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight', Shift: 'Shift', ShiftLeft: 'ShiftLeft', ShiftRight: 'ShiftRight', Control: 'Control', Alt: 'Alt', Meta: 'Meta' }[code];
   if (!key) throw new Error(`key: unsupported key ${code}`);
   return key;
+};
+// A chord (`Shift+Enter`, `Meta+s`, `+`), Playwright's own syntax: the keys
+// to hold down in order, modifiers first.
+const chordKeys = (chord) => {
+  const held = [];
+  let rest = chord;
+  for (let m; (m = /^(Shift|Control|Alt|Meta)\+(.+)$/.exec(rest)); rest = m[2]) held.push(m[1]);
+  return [...held, keyName(rest)];
 };
 
 /** Open Firefox or WebKit through Playwright. The page still owns Exact's
@@ -198,12 +206,13 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       const isWorld = await page.evaluate(id => globalThis.exact.gpu?.wantsInput(id) ?? false, id);
       if (isWorld) { const r = await ask({ op: 'focus', id, world: true }); if (r.error || !r.ok) throw new Error(r.error ?? `view ${id} could not take focus`); }
       else await directFocus(id);
-      const key = keyName(opts.key), reply = phase => ({ typed: id, key: opts.key, ...(phase != null ? { phase } : {}), delivery: 'platform' });
-      const release = async () => { await page.keyboard.up(key); heldKeys.delete(opts.key); await frame(); return reply('up'); };
+      const keys = chordKeys(opts.key), reply = phase => ({ typed: id, key: opts.key, ...(phase != null ? { phase } : {}), delivery: 'platform' });
+      const up = async () => { for (const key of [...keys].reverse()) await page.keyboard.up(key); };
+      const release = async () => { await up(); heldKeys.delete(opts.key); await frame(); return reply('up'); };
       try {
         for (const phase of opts.phase == null ? ['down', 'up'] : [opts.phase]) {
-          await page.keyboard[phase](key);
-          if (phase === 'down') heldKeys.set(opts.key, key); else heldKeys.delete(opts.key);
+          if (phase === 'down') { for (const key of keys) await page.keyboard.down(key); heldKeys.set(opts.key, keys); }
+          else { await up(); heldKeys.delete(opts.key); }
         }
         await frame();
       } catch (error) { if (opts.phase === 'down') error.release = release; throw error; }
@@ -213,7 +222,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       host: 'web', browser: name, phasedTouch: false, boot, hostLines, evaluate, launchFacts: facts,
       async gpuMs() { const ms = await page.locator('#exact-root').getAttribute('data-gpu-ms'); return ms == null ? null : Number(ms); },
       async reset() {
-        for (const key of heldKeys.values()) await page.keyboard.up(key).catch(() => {});
+        for (const keys of heldKeys.values()) for (const key of [...keys].reverse()) await page.keyboard.up(key).catch(() => {});
         heldKeys.clear();
         await page.evaluate(async () => { sessionStorage.clear(); localStorage.clear(); await Promise.all((await indexedDB.databases?.() ?? []).map(x => x.name && new Promise(ok => { const r = indexedDB.deleteDatabase(x.name); r.onsuccess = r.onerror = r.onblocked = ok; }))); });
         await context.clearCookies(); hostLines.length = 0; await page.goto(address.href, { waitUntil: 'commit' }); this.boot = await waitForBoot(page, 'the reused page never booted');

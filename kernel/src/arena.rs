@@ -984,6 +984,7 @@ mod tests {
             (StyleId::FontWeight, number(700.0)),
             (StyleId::FontStyle, text("italic")),
             (StyleId::FontFamily, number(3.0)),
+            (StyleId::Cursor, text("grab")),
             (StyleId::TextAlign, text("right")),
             (StyleId::LineHeight, number(1.5)),
             (StyleId::LetterSpacing, number(2.0)),

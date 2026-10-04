@@ -87,6 +87,10 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   `ExactKit` (session, view, app owner — what an embedder links) and the executables
   as adapters over it. `apps/<name>/app.json` is the app manifest (LLP 1030 D2): the
   bundle id, name, host files, and deploy policy come from it, never from a crate name.
+- When you touch `contract/`, `runner/`, `plan/` or `semantics/`, run `cargo run -p
+  contract-difftest -- quick` before landing. It checks the semantics on what you changed,
+  takes about 10 s warm, and is advice, not a check (`semantics/README.md`, "Using it day to
+  day"; `contract verify <app>` is the app author's version).
 - Verify by running, never by grepping. Fix loops get three rounds, then stop and say so.
 - To see a change work, drive the app: `bun scripts/agent.mjs <web|macos|ios|linux> tree
   "tap change-station" "type station-search Palo" "clock +60000" state logs "screenshot

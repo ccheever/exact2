@@ -46,14 +46,15 @@ impl<D: DataSource> Presenter<D> {
         if node.props.bool(PropId::EmojiPicker) == Some(true) {
             return Err("emoji selection is not supported on the Linux host".into());
         }
+        let text = exact_kernel::control::limit_text(node.props, text).to_string();
         let now = self.host.now();
         if let Some(e) = self.set_focus(Some(id), now) {
             return Err(e);
         }
         let mut error = None;
         for (event, kind) in [
-            (Event::Input(text.into()), EventKind::Input),
-            (Event::Change(text.into()), EventKind::Change),
+            (Event::Input(text.clone().into()), EventKind::Input),
+            (Event::Change(text.clone().into()), EventKind::Change),
         ] {
             if self.host.runner().handlers_of(id).contains(&kind) {
                 error = error.or(self.host.dispatch_at(id, event, now));
@@ -207,10 +208,18 @@ impl<D: DataSource> Presenter<D> {
         };
         let role = node.props.str(PropId::AccessibilityRole);
         // A native button presses under any role, a tab's or a menu item's
-        // (LLP 1069.011.000 D1).
+        // (LLP 1069.011.000 D1); any other pressable as a button does, unless
+        // it is a link (chat F14).
         let native = exact_kernel::ControlKind::of(node.node_type, node.props)
             == Some(exact_kernel::ControlKind::Button);
-        if (role == Some("button") || native) && matches!(name, " " | "Enter")
+        let pressable = node.node_type != NodeType::TextInput
+            && self
+                .host
+                .runner()
+                .handlers_of(id)
+                .contains(&EventKind::Press);
+        if (role == Some("button") || native || pressable && role != Some("link"))
+            && matches!(name, " " | "Enter")
             || role == Some("link") && name == "Enter"
         {
             self.dispatch_press(id, now_ms, false);
@@ -238,8 +247,21 @@ impl<D: DataSource> Presenter<D> {
                     return;
                 }
             }
-            s if s.chars().count() == 1 => value.push_str(s),
+            // A Control or Meta chord types nothing, as in a browser.
+            s if s.chars().count() == 1 && self.held & 0b1100_1100 == 0 => value.push_str(s),
             _ => return,
+        }
+        if exact_kernel::control::text_maxlength(node.props).is_some_and(|limit| {
+            value.encode_utf16().count() > limit
+                && value.encode_utf16().count()
+                    > node
+                        .props
+                        .str(PropId::Value)
+                        .unwrap_or("")
+                        .encode_utf16()
+                        .count()
+        }) {
+            return;
         }
         self.edited = Some(id);
         if self

@@ -43,11 +43,14 @@ pub enum InputEvent {
     },
 }
 
-/// US keyboard state shared by evdev and VNC. Shift sides are independent;
-/// Ctrl/Meta shortcuts do not type or start game actions, but releases pass.
+/// US keyboard state shared by evdev and VNC. Shift sides are independent.
+/// A Ctrl/Meta chord passes: it is a `key` handler's (⌘S, kanban F27), and
+/// the presenter keeps it from typing or starting a game action
+/// (`hardware_key`).
 #[derive(Default)]
 pub(crate) struct Keyboard {
-    modifiers: u8,
+    /// The Shift keys held, a bit per side.
+    shifts: u8,
 }
 impl Keyboard {
     pub(crate) fn event(
@@ -63,21 +66,14 @@ impl Keyboard {
         let bit = match code {
             42 => 1,
             54 => 2,
-            29 => 4,
-            97 => 8,
-            125 => 16,
-            126 => 32,
             _ => 0,
         };
         if down {
-            self.modifiers |= bit;
+            self.shifts |= bit;
         } else {
-            self.modifiers &= !bit;
+            self.shifts &= !bit;
         }
-        if down && self.modifiers & !3 != 0 {
-            return None;
-        }
-        let shift = shift.unwrap_or(self.modifiers & 3 != 0);
+        let shift = shift.unwrap_or(self.shifts != 0);
         key(code, shift)?;
         Some(InputEvent::Key {
             code,
@@ -408,7 +404,7 @@ mod tests {
         assert_eq!(keyboard.event(0xffff, 1, None), None);
     }
     #[test]
-    fn shift_sides_and_shortcuts_do_not_swallow_releases() {
+    fn shift_sides_and_shortcut_chords_pass() {
         let mut keyboard = Keyboard::default();
         keyboard.event(42, 1, None);
         keyboard.event(54, 1, None);
@@ -424,7 +420,14 @@ mod tests {
         keyboard.event(54, 0, None);
         for modifier in [29, 97, 125, 126] {
             keyboard.event(modifier, 1, None);
-            assert_eq!(keyboard.event(17, 1, None), None);
+            assert!(matches!(
+                keyboard.event(17, 1, None),
+                Some(InputEvent::Key {
+                    code: 17,
+                    down: true,
+                    ..
+                })
+            ));
             assert!(matches!(
                 keyboard.event(17, 0, None),
                 Some(InputEvent::Key {

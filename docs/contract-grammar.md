@@ -56,11 +56,25 @@ a `keyframes` or `font` block, and a component need at least one entry.
 - No statement semicolons, single-quoted literals, JSX, or arbitrary braces for
   value interpolation. `{}` belongs to inline option-match syntax, not objects.
 
-The lexer reserves no separate keyword token kind. The parser treats particular
-names as keywords at particular sites. See
-[`is_keyword` / `is_name_word`](../contract/syntax/src/parser.rs) before relying on
-a keyword as an identifier. Shape fields and attribute names deliberately have
-more permissive naming contexts.
+The lexer reserves no separate keyword token kind. Sixteen words are reserved,
+and only where a name is bound ([`names.rs`](../contract/syntax/src/parser/names.rs),
+LLP 1088 D5): `when`, `if`, `else`, `each`, `in`, `match`, `case`, `as`, `fn`,
+`and`, `or`, `not`, `true`, `false`, `none`, `some`. A binder is a component's
+props, injects and provided names; states, derives, resources, mutations and actions; action and
+`fn` parameters and `fn` names; `let`, an `each` item and index, `case some(x)`,
+an arrow parameter; and a shape name (a shape name builds the shape, so
+`shape none` is refused). There a reserved word is refused as "`in` is reserved
+in Contract (it shapes an expression); choose another name", and is never a value.
+
+Every other keyword is contextual: a keyword only where its construct starts, a
+name at every binder and in every expression. They are `component`, `font`,
+`shape`, `style`, `from`, `state`, `derive`, `resource`, `mutation`, `action`,
+`task`, `mount`, `view`, `props`, `provide`, `inject`, `slot`, `children`, `key`,
+`refresh`, `writes`, `test` and `expect`. `refresh`, like `send` and `let`, begins
+a statement only before a name, so `action refresh`, `press=refresh` and
+`refresh feed` each have one parse. Shape fields, named arguments
+(`Flags(none=1)`), members after `.` and attribute names (SVG's `in`) admit every
+word.
 
 ## Declarations
 
@@ -336,7 +350,7 @@ Signatures are authored forms; localization's internal lowered signature differs
 | `params(router, parameterName)` | `list<string>` |
 | `searchParam(entry, name)` | String |
 | `t("key", name=value, …)` | Localized string; validates tables/placeholders |
-| `frame(id)` | `Geometry`, actions only; last layout in root space |
+| `frame(id)` | `Geometry`, actions only; last layout where the viewer sees it: in the viewport, every scroll offset applied, transforms not |
 | `measure("id")` | `Geometry`, actions only; literal id, height-auto measurement |
 
 The router functions (`open` through `searchParam`) and `encodeRouteSegment`
@@ -381,7 +395,11 @@ Several tags share a kernel node type with different fixed properties.
 
 `text` inside SVG has SVG semantics. A hyphenated tag names a native module: the
 bake checks it against `app.json`'s `modules` list (`bake-unknown-module`), and
-its attributes pass to the module unchecked. A capitalized name is a component use, not a
+its unknown attributes, and an SVG element's own props, pass to the module as one
+object. A known attribute binds to the module's box, and the box takes only layout,
+box and paint rows, handlers, `testId`, `id`, `class`, `data-*`, `role`, ARIA,
+`disabled` and `inert`; any other known name (`color`, `value`, `command`, `href`)
+is `lower-native-attr` (LLP 1024 D1, LLP 1088 D7.2). A capitalized name is a component use, not a
 built-in tag. Platform support can further restrict an admitted tag, notably
 native `foreignObject`.
 
@@ -400,6 +418,15 @@ Chrome's `inline-block` `<button>` that centres its content (declared in
 [LLP 1001](../llp/1001-kernel-v1.spec.md)): write `align-items="center"
 justify-content="center"` to centre it, and `flex-direction="row"` for a row.
 
+A link (`link href`, a text run's `href`, a Markdown link) to a path in the
+app navigates in it; one to an absolute URL (`https://…`, `//…`) leaves the
+app: natively it opens in the system browser, and on the web in a new
+browsing context (`target="_blank" rel="external noopener"`), so the app is
+still there when the reader comes back. On the web, `target="_self"` keeps
+such a link in the page (it replaces the app) and `target="_blank"` opens a
+path in a new one; natively `target` changes nothing, an app having no
+other tab. `mailto:` and `tel:` links go to their handlers everywhere.
+
 `button appearance="auto"` selects a native control; the literal switch is
 resolved after class merging. Default/`none` keeps the authored pressable.
 Native face content, styles, transitions/keyframes, and enclosing contexts have
@@ -412,22 +439,24 @@ expression grammar. Platform looks and stand-ins are documented in
 ## Events
 
 An event binding is an action reference or partially applied action. Captured
-arguments precede the event payload. The table contains all 40 handler names.
+arguments precede the event payload. The table contains all 43 handler names.
 Numeric multi-argument payload ordering should be copied from the feature's
 working fixture, not inferred from JavaScript's Event interface.
 
 | Payload appended to captured arguments | Handler names |
 | --- | --- |
-| One string | `change`, `input` (text field, textarea, `select`), `key`, `message`, `error` |
+| One string | `change`, `input` (text field, textarea, `select`), `message`, `error` |
+| A string, then optionally a `KeyboardEvent` | `key`: the key's name; an action taking one more parameter also hears the [modifiers](#keys) |
 | One boolean | `hover`; `change`, `input` on a checkbox or `switch` |
 | One number | `timeupdate`, `durationchange`; `change`, `input` on `type="range"` |
 | One `list<Picked>` | `change`, `input` on `type="file"` |
 | One `MarkdownSelection` | `select` |
 | Two numbers | `scroll`, `pan`, `panrelease`, `heightrelease` |
-| A string, then an `option<string>` | `reorderdrop`: the dragged row's key, then the key it lands before (`none` at the end) |
+| A string, then an `option<string>` | `reorderdrop`, on a vertical `list virtualized=true` only: the dragged row's key, then the key it lands before (`none` at the end) |
 | Four numbers | `transformgeometry` |
 | Six numbers | `transformrelease` |
 | Special: zero or one location string, no captured args | `navigate` |
+| Zero or one `PointerEvent` (the action takes it or leaves it) | `pointerdown`, `pointerup`, `pointermove` |
 | None | `press`, `cancel`, `focus`, `blur`, `submit`, `load`, `contextmenu`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
 
 `scroll` appends left then top offsets; `panrelease` appends x/y release velocity;
@@ -443,24 +472,65 @@ also carry `navigationKey` and `navigationBack`. Transform geometry/release
 bindings are required as a pair. See
 [`handler_arity`](../contract/analyze/src/lib.rs) and the corresponding corpus/tests.
 
+### Pointer
+
+`pointerdown`, `pointerup` and `pointermove` are DOM's, on every host. The
+innermost enabled node under a touch or the primary button that hears any of
+them holds the pointer: its `pointerdown` fires before any gesture decides,
+its `pointermove`s follow the pointer wherever it goes while held, and its
+`pointerup` comes when the pointer lifts or is cancelled (a cancel is an up),
+before the click's `press`. A free pointer (a mouse or a pen hovering, no
+button down) moving over a node is that node's `pointermove` too, the
+innermost hearing it; a touch has none. Moves go out at most once a frame,
+the latest. None of them takes anything from `press`, `pan` or scrolling, so
+a drawing surface sets `touch-action="none"`, as on the web, or a touch
+that scrolls is cancelled.
+
+An action that takes one more parameter than the binding captures gets a
+`PointerEvent` (DOM's names, [LLP 1056](../llp/1056-canvas-2d.rfc.md) §8.6):
+
+| Field | Meaning |
+| --- | --- |
+| `offsetX`, `offsetY` | The point from the node's content box, CSS px (DOM measures from the target's padding edge; a canvas draws in its content box) |
+| `buttons` | DOM's bits: 1 primary, a touch or a pen in contact; 2 secondary; 4 auxiliary; 0 on `pointerup` and a hover |
+| `pressure` | 0 to 1: a pen's or a pressed touch's force where the platform measures one, else 0.5 while down and 0 while not |
+| `pointerType` | `mouse`, `pen` or `touch` |
+| `pointerId` | 1 for the mouse; a touch or pen has its own while down |
+
+```text
+action stroke(e: PointerEvent)
+  points = `${points} ${e.offsetX},${e.offsetY}`
+canvas surface=ink(points) pointerdown=begin pointermove=stroke touch-action="none"
+```
+
 ### Keys
 
 `key` is the DOM's `keydown`, on every host (web, macOS, iOS and iPadOS with a
 hardware keyboard, Linux):
 
 - **Where.** The key goes to the focused element: a field or textarea being
-  edited, a `button`, or any element with a `focus`, `blur` or `key` handler
-  (such an element takes the focus, as `tabindex="0"` gives it). It then bubbles: the
+  edited, a `button`, or any element with a `press`, `focus`, `blur` or `key`
+  handler (such an element takes the focus, as `tabindex="0"` gives it, and
+  is in the Tab order). It then bubbles: the
   focused element's handler hears it first, then every ancestor's, innermost
   first. With nothing focused, only `aria-keyshortcuts` buttons hear keys.
 - **What.** The payload is `KeyboardEvent.key`: the character typed, Shift's
   included (`"a"`, `"A"`, `"7"`, `" "`, `"/"`), or the key's name (`"Enter"`,
   `"Escape"`, `"Tab"`, `"Backspace"`, `"Delete"`, `"ArrowUp"`…, `"Home"`,
-  `"End"`, `"PageUp"`, `"PageDown"`, `"F1"`…). Every key is heard, printable
-  ones in a field included. Keys an input method is composing are its own.
+  `"End"`, `"PageUp"`, `"PageDown"`, `"F1"`…, `"Shift"`). Every key is heard,
+  printable ones in a field included. Keys an input method is composing are
+  its own.
+- **Modifiers.** An action that takes one more parameter, typed
+  `KeyboardEvent`, hears the event too: the record `{ key: string, shiftKey:
+  bool, ctrlKey: bool, altKey: bool, metaKey: bool }`, the DOM's fields
+  (`altKey` is Option and `metaKey` Command on a Mac). A key typed with
+  Control or Meta held is a shortcut: it types nothing.
 - **Then the default.** After the handlers, the key does what it would have:
   a character is typed into the focused field, Backspace deletes, Enter
-  submits an input (`submit`) or presses a button, Space presses a button,
+  submits an input (`submit`), breaks a textarea's line (a textarea has no
+  `submit`, as in HTML) or presses a button, Space presses a button (Enter
+  and Space press any element with a `press` handler as they do a button,
+  Enter alone a `role="link"`; give it `role="button"` to be announced as one),
   Tab moves the focus, arrows move the caret; on the web arrows, Space and
   the page keys also scroll the page or the focus's scroller (a native
   scroller does not scroll by key, so there is nothing there to prevent).
@@ -475,6 +545,21 @@ action move(k: string)
     cursor = cursor + 1
     preventDefault()
 ```
+
+Enter sends and Shift+Enter breaks the line, as a chat composer does (on a
+phone the software keyboard's Return is Enter, so it sends there too):
+
+```text
+action compose(k: string, e: KeyboardEvent)
+  if k == "Enter" and not e.shiftKey
+    send(draft)
+    preventDefault()
+```
+
+`textarea value=draft input=write key=compose`. A shortcut reads the modifier
+the platform's users press: `(e.metaKey or e.ctrlKey) and k == "s"` saves on a
+Mac and elsewhere. The driver presses chords in Playwright's spelling (`type
+"composer" key "Shift+Enter"`, `key "Meta+s"`).
 
 - **Shortcuts.** An `aria-keyshortcuts` button hears its chord before any
   `key` handler, and takes the key (no `key` handler hears it). The web and
@@ -530,6 +615,14 @@ Syntax is only the first layer. In particular:
 - Resources/mutations/tasks are root-owned. A child may own ordinary state,
   derives, and actions. An action writes only its own admitted slots.
 - A `then` handler takes no parameters and must not send its own mutation.
+- A state's initializer reads only props, injects and the states above it; a
+  resource, derive, mutation, action or later state it names is
+  `type-initializer-scope` (LLP 1088 D4).
+- An action sends one mutation at most once on any path: a second send forgets
+  the first's reply (LLP 1016 D5), so it is `analyze-send-twice`. Exclusive
+  `if`/`match` arms, and sequential `if`s testing one unchanged name against
+  different literals, are separate paths (LLP 1088 D8). The walk reads the root's
+  actions after tail calls are inlined, where a caller and its callee are one commit.
   `pending`/`failed` operate on declarations, not arbitrary values.
 - View roots cannot be conditional/repeated regions. Tags, attributes, and
   children must fit their lowering rules. Class application is not a CSS cascade.

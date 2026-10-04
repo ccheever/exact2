@@ -391,20 +391,24 @@ fn visit_shape(
     Ok(())
 }
 
-/// The lexical scope at each expanded region arm, by tag and arm.
+/// The lexical scope at each expanded region arm, by tag and arm, whose
+/// subject types now, and whether every region's subject typed. A region
+/// over a list a later write completes (`state items = []`) is skipped,
+/// with all it holds: the view check refuses a list that never types
+/// (@ref LLP 1088 D6's two repros, without its fixed point).
 fn owner_scopes(
     c: &Component,
     ct: &ComponentTypes,
     types: &Types,
-) -> Result<BTreeMap<(u32, u8), Scope>, TypeError> {
+) -> (BTreeMap<(u32, u8), Scope>, bool) {
     let mut scopes = BTreeMap::new();
-    collect_owner_scopes(
+    let complete = collect_owner_scopes(
         &c.view,
         &types.component_scope(c, ct),
         &types.shapes,
         &mut scopes,
-    )?;
-    Ok(scopes)
+    );
+    (scopes, complete)
 }
 
 /// Infer each lifted child state's initializer where its instance is
@@ -423,7 +427,7 @@ pub(super) fn infer_owned_state_initializers(
     if owners.iter().all(|o| *o == Owner::Root) {
         return Ok(());
     }
-    let scopes = owner_scopes(c, ct, types)?;
+    let (scopes, complete) = owner_scopes(c, ct, types);
     let mut names: Vec<(String, Ref, Ty)> = c
         .props
         .iter()
@@ -456,6 +460,11 @@ pub(super) fn infer_owned_state_initializers(
             Owner::Instance => Some(Vec::new()),
             Owner::Arm { tag, arm } => {
                 let Some(owner_scope) = scopes.get(&(tag, arm)) else {
+                    if !complete {
+                        // Its region was skipped: the view check says why.
+                        names.push((state.name.clone(), Ref::Slot(i as u32), ct.slots[i].clone()));
+                        continue;
+                    }
                     return err(
                         "type-row-slot",
                         format!("child state `{}` has no owning region", state.name),
@@ -477,6 +486,9 @@ pub(super) fn infer_owned_state_initializers(
             scope.push(settled.clone());
             scope.push(names.clone());
             scope.frames.extend(regions);
+            if let Some(e) = super::component::initializer_scope(c, i, &scope, &types.shapes) {
+                return Err(e);
+            }
             ct.slots[i] = infer(&state.expr, &scope, &types.shapes)?;
         }
         names.push((state.name.clone(), Ref::Slot(i as u32), ct.slots[i].clone()));
@@ -489,11 +501,12 @@ fn collect_owner_scopes(
     scope: &Scope,
     shapes: &Shapes,
     scopes: &mut BTreeMap<(u32, u8), Scope>,
-) -> Result<(), TypeError> {
+) -> bool {
+    let mut complete = true;
     for node in nodes {
         match node {
             Node::Element { children, .. } | Node::Use { children, .. } => {
-                collect_owner_scopes(children, scope, shapes, scopes)?;
+                complete &= collect_owner_scopes(children, scope, shapes, scopes);
             }
             Node::Children { .. } => {}
             Node::When {
@@ -504,8 +517,8 @@ fn collect_owner_scopes(
             } => {
                 scopes.insert((*tag, 0), scope.clone());
                 scopes.insert((*tag, 1), scope.clone());
-                collect_owner_scopes(then, scope, shapes, scopes)?;
-                collect_owner_scopes(otherwise, scope, shapes, scopes)?;
+                complete &= collect_owner_scopes(then, scope, shapes, scopes);
+                complete &= collect_owner_scopes(otherwise, scope, shapes, scopes);
             }
             Node::Each {
                 tag,
@@ -515,18 +528,14 @@ fn collect_owner_scopes(
                 body,
                 ..
             } => {
-                let ty = infer(list, scope, shapes)?;
-                let Ty::List(item) = ty else {
-                    return err(
-                        "type-each-list",
-                        format!("`each` needs a list, given `{ty}`"),
-                        list.span(),
-                    );
+                let Ok(Ty::List(item)) = infer(list, scope, shapes) else {
+                    complete = false;
+                    continue;
                 };
                 let mut inner = scope.clone();
                 inner.push_each(var, index.as_deref(), *item);
                 scopes.insert((*tag, 0), inner.clone());
-                collect_owner_scopes(body, &inner, shapes, scopes)?;
+                complete &= collect_owner_scopes(body, &inner, shapes, scopes);
             }
             Node::Match {
                 tag,
@@ -535,26 +544,22 @@ fn collect_owner_scopes(
                 none,
                 ..
             } => {
-                let ty = infer(subject, scope, shapes)?;
-                let Ty::Option(item) = ty else {
-                    return err(
-                        "type-match-subject",
-                        format!("`match` needs an option, given `{ty}`"),
-                        subject.span(),
-                    );
+                let Ok(Ty::Option(item)) = infer(subject, scope, shapes) else {
+                    complete = false;
+                    continue;
                 };
                 let mut inner = scope.clone();
                 inner.push_region(Some((some.0.clone(), Ref::Bound(0), *item)));
                 scopes.insert((*tag, 0), inner.clone());
-                collect_owner_scopes(&some.1, &inner, shapes, scopes)?;
+                complete &= collect_owner_scopes(&some.1, &inner, shapes, scopes);
                 let mut none_scope = scope.clone();
                 none_scope.push_region(None);
                 scopes.insert((*tag, 1), none_scope.clone());
-                collect_owner_scopes(none, &none_scope, shapes, scopes)?;
+                complete &= collect_owner_scopes(none, &none_scope, shapes, scopes);
             }
         }
     }
-    Ok(())
+    complete
 }
 
 /// A slot's fill, checked where `children` stands with its caller's scope

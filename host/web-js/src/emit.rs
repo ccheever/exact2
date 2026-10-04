@@ -924,16 +924,12 @@ impl Em<'_> {
         } else {
             parts.tag.as_str()
         };
-        if element == "img" {
-            let bound = row.bindings.iter().map(|b| plan.binding(b)).any(|b| {
-                b.kind == BindingKind::Prop
-                    && b.id == PropId::ImageSource as u16
-                    && style::literal(plan, plan.code(b.expr)).is_none()
-            });
-            if bound || parts.props.contains_key("data-symbol-path") {
-                self.symbols.0 = true;
-                self.symbols.1 |= bound;
-            }
+        if let Some(bound) = (element == "img")
+            .then(|| self.image_piece(i, &parts))
+            .flatten()
+        {
+            self.symbols.0 = true;
+            self.symbols.1 |= bound;
         }
         let (mut attrs, content, extra) = rows::attributes(element, &parts.props);
         let mut css = parts.css.clone();
@@ -967,11 +963,11 @@ impl Em<'_> {
                 kinds.iter().map(|k| k.name()).collect::<Vec<_>>().join(" "),
             ));
         }
-        if kinds
+        // A pressable is focusable too, as natively (chat F14; input-glue.js).
+        let on = kinds
             .iter()
-            .any(|k| matches!(k, EventKind::Focus | EventKind::Blur | EventKind::Key))
-            && !matches!(element, "input" | "button")
-        {
+            .any(|k| matches!(k.name(), "focus" | "blur" | "key" | "press"));
+        if on && !["input", "button", "select", "textarea", "a", "summary"].contains(&element) {
             attrs.push(("tabindex".into(), "0".into()));
         }
         // A `symbol`'s content is drawn as `use`'s clones, which Chrome
@@ -1191,6 +1187,7 @@ impl Em<'_> {
                 | EventKind::Dblclick
                 | EventKind::Pointerdown
                 | EventKind::Pointerup
+                | EventKind::Pointermove
                 | EventKind::Play
                 | EventKind::Playing
                 | EventKind::Pause
@@ -1271,12 +1268,11 @@ impl Em<'_> {
         }
         if virtualized {
             let opts = self.list_options(i, scope, &edges)?;
-            let [Site::Region(r)] = self.sites.of_node(i) else {
+            let &[Site::Region(r)] = self.sites.of_node(i) else {
                 return Err(format!(
                     "node {i}: a virtualized list needs one direct `each`"
                 ));
             };
-            let r = *r;
             if plan.regions[r as usize].kind != RegionKind::Each {
                 return Err(format!(
                     "node {i}: a virtualized list needs one direct `each`"

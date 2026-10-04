@@ -183,6 +183,9 @@ extension NodeView {
         f.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         f.setFrameSize(NSSize(width: scroller.contentSize.width, height: max(f.frame.height, scroller.contentSize.height)))
     }
+    func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+        TextInputLimit.allows(textView.string, range: affectedCharRange, replacement: replacementString ?? "", props: props)
+    }
     func textDidChange(_ notification: Notification) {
         guard let f = textArea else { return }
         if let editor = (f as? TextArea)?.markup, editor.applying || editor.styling { return }

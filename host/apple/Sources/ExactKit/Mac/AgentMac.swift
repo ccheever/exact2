@@ -486,11 +486,19 @@ extension Agent {
             if let node = win.contentView?.hitTest(p) as? NodeView, node.canvasInput != nil,
                let event = NSEvent.mouseEvent(with: .mouseMoved, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) {
                 node.mouseMoved(with: event)
+                presenter.flushHoverMove()
                 return ["tapped": Int(v.id), "hover": true, "at": at, "delivery": "platform"]
             }
             // The pointer moved onto the target: the node with a hover
             // handler at the hit point enters (and whatever was hovered
-            // leaves), as a tracking area would report for a real move.
+            // leaves), as a tracking area would report for a real move, and
+            // the nearest `pointermove` node hears the move (LLP 1056 §3).
+            var mover: NSView? = win.contentView?.hitTest(p) ?? v
+            while let cur = mover, !((cur as? NodeView)?.handlers.contains("pointermove") ?? false) { mover = cur.superview }
+            if let node = mover as? NodeView, let event = NSEvent.mouseEvent(with: .mouseMoved, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) {
+                node.pointerHovered(event)
+                presenter.flushHoverMove()
+            }
             var n: NSView? = win.contentView?.hitTest(p) ?? v
             while let cur = n, !((cur as? NodeView)?.handlers.contains("hover") ?? false) { n = cur.superview }
             if let node = n as? NodeView { presenter.hover(node, true) } else if let h = presenter.hovered { presenter.hover(h, false) }
@@ -650,6 +658,11 @@ extension Agent {
                 case "Control": modifiers.insert(.control); case "Alt": modifiers.insert(.option)
                 default: return ["error": "unknown key modifier \(modifier)"] }
             }
+            // A modifier alone is held as it goes down, as the web's keydown
+            // for Shift says `shiftKey`; AppKit has it as a flags change, not
+            // a key for a responder (chat F8).
+            let lone = device.map { KeyCodes.modifier($0.code) } == true
+            if lone { modifiers.insert(["Shift": .shift, "Control": .control, "Alt": .option, "Meta": .command][key] ?? []) }
             // NSWindow delivery bypasses the local event monitor. Share its
             // pressed-control route before making any responder change.
             let phase = req["phase"] as? String
@@ -712,7 +725,7 @@ extension Agent {
                 case "ArrowRight": return ("\u{F703}", 124)
                 default:
                     let code = device.flatMap { device in KeyCodes.mac.first(where: { $0.value == device.code })?.key }
-                    return (key, UInt16(code ?? 0))
+                    return (lone ? "" : key, UInt16(code ?? 0))
                 }
             }()
             let t = ProcessInfo.processInfo.systemUptime
@@ -745,8 +758,8 @@ extension Agent {
             if phase != "up", modifiers.contains(.command), v.performKeyEquivalent(with: down) || NSApp.mainMenu?.performKeyEquivalent(with: down) == true {
                 return ["typed": Int(v.id), "key": chord]
             }
-            if phase != "up" { win.sendEvent(down) }
-            if phase != "down" { win.sendEvent(up) }
+            if phase != "up", !lone { win.sendEvent(down) }
+            if phase != "down", !lone { win.sendEvent(up) }
             if phase == "down", let token = req["releaseKey"] as? String {
                 keyReleases[token] = { [weak v] in
                     v?.keyUp(with: up)
@@ -759,11 +772,11 @@ extension Agent {
             if !win.isKeyWindow { win.makeKey() }
             win.makeFirstResponder(f)
             f.selectAll(nil)
-            f.insertText(req["text"] as? String ?? "", replacementRange: f.selectedRange())
+            f.insertText(TextInputLimit.prefix(req["text"] as? String ?? "", props: v.props), replacementRange: f.selectedRange())
             return ["typed": Int(v.id), "value": f.string]
         }
         guard let f = v.field else { return ["error": "view \(v.id) is not an input"] }
-        let text = req["text"] as? String ?? ""
+        let text = TextInputLimit.prefix(req["text"] as? String ?? "", props: v.props)
         // The field editor needs a key window; an accessory app's is not
         // one until asked (and asking does not activate the app).
         if !win.isKeyWindow { win.makeKey() }
@@ -832,22 +845,15 @@ extension Agent {
             if loading > 0 { r["imagesPending"] = loading }
             return r
         }
-        guard let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return ["error": "no bitmap for the viewport"] }
         Capture.web = session.webviews.snapshots().merging(session.natives.snapshots()) { web, _ in web }
         let hidden = (presenter.views.values.compactMap(\.web) + session.natives.snapshotViews).map { ($0, $0.isHidden) }
         hidden.forEach { $0.0.isHidden = true }
         // As a capture: every canvas paints its picture, read back from the
         // module, and every iframe paints its arm snapshot at its node.
-        let fills = Capture.hideBoxFills(in: v)
-        Capture.capturing = true
-        v.cacheDisplay(in: v.bounds, to: rep)
-        Capture.capturing = false
-        Capture.restore(fills)
+        let picture = Capture.picture(of: v)
         hidden.forEach { $0.0.isHidden = $0.1 }
         Capture.web = [:]
-        // The display's profile can be P3. Agent pixel comparisons and films
-        // consume sRGB bytes, so convert the pixels rather than just retagging.
-        guard let png = rep.converting(to: .sRGB, renderingIntent: .default)?.representation(using: .png, properties: [:]) else { return ["error": "no sRGB PNG"] }
+        guard let png = picture?.representation(using: .png, properties: [:]) else { return ["error": "no sRGB PNG of the viewport"] }
         do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
         var r: [String: Any] = ["screenshot": path, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height)]
         if loading > 0 { r["imagesPending"] = loading }
@@ -867,5 +873,98 @@ extension Agent {
         (Agent.systemAppearance ?? NSApp.effectiveAppearance).bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
     nonisolated(unsafe) static var systemAppearance: NSAppearance?
+}
+
+extension Capture {
+    /// `view` as the agent's screenshot shows it, in sRGB: drawn into sRGB,
+    /// so a translucent fill blends there as Chrome blends it, whatever the
+    /// display's profile (spreadsheet F18), and agent pixel comparisons and
+    /// films read sRGB bytes.
+    static func picture(of view: NSView) -> NSBitmapImageRep? {
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)?.retagging(with: .sRGB) else { return nil }
+        draw(view, to: rep)
+        return rep
+    }
+
+    /// `view` drawn by `cacheDisplay` as the window shows it: as a capture
+    /// (`capturing`), box fills an inset shadow paints hidden, siblings in
+    /// their z order, animations at what they present.
+    static func draw(_ view: NSView, to rep: NSBitmapImageRep) {
+        let shown = showAnimations(in: view.layer)
+        let fills = hideBoxFills(in: view), ordered = paintOrder(in: view)
+        capturing = true
+        view.cacheDisplay(in: view.bounds, to: rep)
+        capturing = false
+        ordered(); restore(fills); shown()
+    }
+
+    /// `cacheDisplay` draws subviews in array order; the window server
+    /// composites siblings by `zPosition`, which carries CSS `z-index`
+    /// (`usedZIndex`). For the capture, each view's subviews are in the
+    /// order they show — a sticky header over the rows that scroll under it
+    /// (spreadsheet F13), a raised dropdown over the content after it (shop
+    /// F18) — and the closure returned puts them back.
+    private static func paintOrder(in root: NSView) -> () -> Void {
+        var undo: [(NSView, [NSView])] = []
+        func walk(_ view: NSView) {
+            let subviews = view.subviews
+            if subviews.contains(where: { ($0.layer?.zPosition ?? 0) != 0 }) {
+                // Stable: equal z keeps document order.
+                let shown = subviews.enumerated().sorted {
+                    let (a, b) = ($0.element.layer?.zPosition ?? 0, $1.element.layer?.zPosition ?? 0)
+                    return a != b ? a < b : $0.offset < $1.offset
+                }.map(\.element)
+                if shown != subviews { undo.append((view, subviews)); arrange(view, shown) }
+            }
+            subviews.forEach(walk)
+        }
+        walk(root)
+        return { for (view, subviews) in undo.reversed() { arrange(view, subviews) } }
+    }
+
+    /// Reorder in place: assigning `subviews` detaches and reattaches them,
+    /// which resigns a first responder among them (`CollectionMac`).
+    private static func arrange(_ view: NSView, _ order: [NSView]) {
+        var ranks = Dictionary(uniqueKeysWithValues: order.enumerated().map { (ObjectIdentifier($0.element), $0.offset) })
+        withUnsafeMutablePointer(to: &ranks) { context in
+            view.sortSubviews({ left, right, raw in
+                let rank = raw!.assumingMemoryBound(to: [ObjectIdentifier: Int].self).pointee
+                let a = rank[ObjectIdentifier(left)] ?? 0, b = rank[ObjectIdentifier(right)] ?? 0
+                return a < b ? .orderedAscending : a > b ? .orderedDescending : .orderedSame
+            }, context: context)
+        }
+    }
+
+    /// `cacheDisplay` draws the layers' model values, never what Core
+    /// Animation shows: a lowered animation (a box's `opacity` keyframes,
+    /// an SVG shape's paint) was captured at its underlying value while the
+    /// window showed it playing (shop F25). For the capture, each animated
+    /// key path's model value is what the layer presents; the closure
+    /// returned puts the model back.
+    private static func showAnimations(in root: CALayer?) -> () -> Void {
+        guard let root else { return {} }
+        CATransaction.flush() // presentation() reads committed animations
+        var undo: [(CALayer, String, Any?)] = []
+        func walk(_ layer: CALayer) {
+            if let keys = layer.animationKeys(), !keys.isEmpty, let shown = layer.presentation() {
+                var paths: Set<String> = []
+                for key in keys { if let path = (layer.animation(forKey: key) as? CAPropertyAnimation)?.keyPath { paths.insert(path) } }
+                for path in paths {
+                    undo.append((layer, path, layer.value(forKeyPath: path)))
+                    layer.setValue(shown.value(forKeyPath: path), forKeyPath: path)
+                }
+            }
+            layer.sublayers?.forEach(walk)
+            if let mask = layer.mask { walk(mask) }
+        }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        walk(root)
+        CATransaction.commit()
+        return {
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            for (layer, path, value) in undo.reversed() { layer.setValue(value, forKeyPath: path) }
+            CATransaction.commit()
+        }
+    }
 }
 #endif

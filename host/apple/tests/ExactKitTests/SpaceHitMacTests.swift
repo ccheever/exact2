@@ -148,6 +148,14 @@ final class SpaceHitMacTests: XCTestCase {
         func inWindow(_ x: CGFloat, _ y: CGFloat) -> NSPoint { box.convert(NSPoint(x: x, y: y), to: nil) }
         XCTAssertTrue(box.hitTest(sup.convert(NSPoint(x: 180, y: 80), from: box)) === button, "where it is drawn")
         XCTAssertFalse(box.hitTest(sup.convert(NSPoint(x: 80, y: 80), from: box)) === button, "placed, but not translated")
+        // A point that misses every placed child is the canvas's, unless the
+        // canvas lets the pointer through (Grok's batch 2 review).
+        let canvas = try XCTUnwrap(p.views[2])
+        XCTAssertTrue(box.hitTest(sup.convert(NSPoint(x: 180, y: 150), from: box)) === canvas)
+        canvas.applyStyle(["pointer_events": "none"])
+        XCTAssertFalse(box.hitTest(sup.convert(NSPoint(x: 180, y: 150), from: box)) === canvas, "pointer-events: none")
+        XCTAssertTrue(box.hitTest(sup.convert(NSPoint(x: 180, y: 80), from: box)) === button, "its placed child still takes it")
+        canvas.applyStyle([:])
         XCTAssertEqual(button.local(inWindow(180, 80)).x, 30, accuracy: 1e-6)
         XCTAssertEqual(button.local(inWindow(180, 80)).y, 30, accuracy: 1e-6)
         XCTAssertTrue(button.pressInside(inWindow(180, 80)), "a release where it is drawn is inside")

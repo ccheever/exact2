@@ -75,7 +75,7 @@ fn one(name: &str, json: bool) -> ExitCode {
         }
         if let Some(a) = tags::attr(name) {
             println!("{name}: {} attribute", kind(&a));
-            for line in attr_detail(&a) {
+            for line in attr_detail(name, &a) {
                 println!("  {line}");
             }
             if let Some(only) = only_on(name) {
@@ -104,6 +104,7 @@ fn kind(a: &AttrTarget) -> &'static str {
         AttrTarget::InvertedBoolProp(_) => "inverted-prop",
         AttrTarget::Handler(_) => "handler",
         AttrTarget::Flex => "flex",
+        AttrTarget::Shorthand => "shorthand",
         AttrTarget::Surface => "surface",
     }
 }
@@ -126,10 +127,11 @@ fn only_on(name: &str) -> Option<&'static str> {
 /// The rows `flex: <n>` sets.
 const FLEX_ROWS: [StyleId; 3] = [StyleId::FlexGrow, StyleId::FlexShrink, StyleId::FlexBasis];
 
-fn rows_of(a: &AttrTarget) -> &'static [StyleId] {
+fn rows_of(name: &str, a: &AttrTarget) -> &'static [StyleId] {
     match a {
         AttrTarget::Styles(rows) => rows,
         AttrTarget::Flex => &FLEX_ROWS,
+        AttrTarget::Shorthand => vocab::shorthand_rows(name),
         _ => &[],
     }
 }
@@ -157,8 +159,8 @@ fn tag_json(name: &str, t: &Tag) -> Value {
 fn attr_json(name: &str, a: &AttrTarget) -> Value {
     let mut doc = json!({ "name": name, "kind": kind(a) });
     match a {
-        AttrTarget::Styles(_) | AttrTarget::Flex => {
-            doc["rows"] = rows_of(a).iter().map(|r| row_json(*r)).collect();
+        AttrTarget::Styles(_) | AttrTarget::Flex | AttrTarget::Shorthand => {
+            doc["rows"] = rows_of(name, a).iter().map(|r| row_json(*r)).collect();
         }
         AttrTarget::Prop(p) | AttrTarget::InvertedBoolProp(p) => {
             doc["prop"] = p.name().into();
@@ -221,10 +223,10 @@ fn row_text(row: StyleId) -> String {
 
 /// An attribute's detail lines: a style's rows (shared description once),
 /// a prop's type, a handler's event.
-fn attr_detail(a: &AttrTarget) -> Vec<String> {
+fn attr_detail(name: &str, a: &AttrTarget) -> Vec<String> {
     match a {
-        AttrTarget::Styles(_) | AttrTarget::Flex => {
-            let rows = rows_of(a);
+        AttrTarget::Styles(_) | AttrTarget::Flex | AttrTarget::Shorthand => {
+            let rows = rows_of(name, a);
             let names: Vec<&str> = rows.iter().map(|r| r.name()).collect();
             let texts: Vec<String> = rows.iter().map(|r| row_text(*r)).collect();
             let mut lines = vec![format!("rows {}", names.join(", "))];
@@ -276,10 +278,10 @@ fn listing() -> String {
     let of = |k: &'static str| attrs.iter().filter(move |(_, a)| kind(a) == k);
     out += &format!(
         "\nstyle attributes ({}): name  codec [values], default (rows, when not one of the same name)\n",
-        of("style").count() + of("flex").count()
+        of("style").count() + of("flex").count() + of("shorthand").count()
     );
-    for (name, a) in of("style").chain(of("flex")) {
-        let rows = rows_of(a);
+    for (name, a) in of("style").chain(of("flex")).chain(of("shorthand")) {
+        let rows = rows_of(name, a);
         let mut text = if rows.iter().all(|r| row_text(*r) == row_text(rows[0])) {
             row_text(rows[0])
         } else {

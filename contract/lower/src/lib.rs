@@ -26,11 +26,13 @@ pub mod dataset;
 pub mod expr;
 mod fonts;
 mod grouped;
+mod handlers;
 mod keyframes;
 mod lint;
 mod media;
 mod native;
 mod routes;
+mod shorthands;
 mod sites;
 mod stmts;
 mod strings;
@@ -152,6 +154,7 @@ pub(crate) struct Lowerer<'a> {
     pub(crate) svg_depth: u32,
     /// Whether the enclosing element contains its exclusions (LLP 1043.000).
     parent_positioned: bool,
+    parent_bounded_column: bool,
     /// Where a native button may not be, from the nearest ancestor that says.
     pub(crate) button_context: Option<&'static str>,
     /// Whether the element being lowered is a popover's direct child.
@@ -254,6 +257,7 @@ fn lower_with_sites(
         fn_depth: 0,
         svg_depth: 0,
         parent_positioned: true,
+        parent_bounded_column: false,
         button_context: None,
         popover_child: false,
         host_transforms: Default::default(),
@@ -270,7 +274,7 @@ fn lower_with_sites(
     for s in &file.styles {
         for a in &s.attrs {
             match tags::attr(&a.name) {
-                Some(tags::AttrTarget::Styles(_)) | Some(tags::AttrTarget::Flex) => {}
+                Some(tags::AttrTarget::Styles(_) | tags::AttrTarget::Flex | tags::AttrTarget::Shorthand) => {}
                 Some(tags::AttrTarget::Prop(p)) if p.styleable() => {} // LLP 1069.011 D12
                 Some(_) => l.errors.push(LowerError {
                     id: "lower-style-attr",
@@ -806,7 +810,11 @@ impl<'a> Lowerer<'a> {
                 if tag == "scroll"
                     && !clips_y
                     && parent_stacks
-                    && !has(&["height", "max-height", "flex"])
+                    && !has(&["height", "max-height"])
+                    && !expanded
+                        .iter()
+                        .any(|a| a.name == "flex" && values::flex_bounds(&a.value))
+                    && !values::shrinking_scroll(expanded, self.parent_bounded_column)
                 {
                     return err(
                         "lower-scroll-unbounded",
@@ -920,6 +928,7 @@ impl<'a> Lowerer<'a> {
                     }
                     if let Err(e) = self.attr(
                         tag,
+                        contract_syntax::input_control(tag, attrs),
                         a,
                         scope,
                         locals,
@@ -1086,7 +1095,10 @@ impl<'a> Lowerer<'a> {
                     &mut self.popover_child,
                     expanded.iter().any(|a| a.name == "popover"),
                 );
+                let bounded = self.parent_bounded_column;
+                self.parent_bounded_column = values::bounded_column(tag, expanded, bounded);
                 let lowered = self.nodes(children, Some(id), arm, scope, locals, Some(tag));
+                self.parent_bounded_column = bounded;
                 self.button_context = button_context;
                 self.popover_child = popover_child;
                 self.parent_positioned = parent_positioned;
@@ -1186,6 +1198,7 @@ impl<'a> Lowerer<'a> {
     fn attr(
         &mut self,
         tag: &str,
+        control: Option<&str>,
         a: &Attr,
         scope: &Scope,
         locals: u16,
@@ -1271,20 +1284,22 @@ impl<'a> Lowerer<'a> {
             );
         }
         match target {
+            tags::AttrTarget::Shorthand => self.bind_shorthand(a, scope, locals, font, bindings)?,
             tags::AttrTarget::Flex => {
-                // CSS `flex: <n>` is `<n> 1 0%`: grow n, shrink 1, basis 0%.
-                let (grow, ty) = self.typed_code(&a.value, scope, locals)?;
-                values::check_style_value(a, &[StyleId::FlexGrow], &ty, font)?;
-                let one = self.b.constant(&Value::Number(1.0));
-                let zero_basis = self.b.constant(&Value::str("0%"));
-                for (row, code) in [
-                    ("flex_grow", grow),
-                    ("flex_shrink", one),
-                    ("flex_basis", zero_basis),
-                ] {
+                for (index, row) in [StyleId::FlexGrow, StyleId::FlexShrink, StyleId::FlexBasis]
+                    .into_iter()
+                    .enumerate()
+                {
+                    let value = values::flex_component(&a.value, index)?;
+                    let component = Attr { value, ..a.clone() };
+                    let (code, ty) = self.typed_code(&component.value, scope, locals)?;
+                    values::check_style_value(&component, &[row], &ty, font)?;
+                    if index < 2 && matches!(ty, Ty::String) {
+                        return err("lower-attr-type", "a computed `flex` must be a number; write a literal CSS shorthand or a choice of literal shorthands", a.span);
+                    }
                     bindings.push(BindingsRow {
                         kind: BindingKind::Style,
-                        id: exact_kernel::StyleId::from_name(row).unwrap() as u16,
+                        id: row as u16,
                         expr: code,
                     });
                 }
@@ -1400,86 +1415,7 @@ impl<'a> Lowerer<'a> {
                 *surface = Some(self.b.surface(name, &codes));
             }
             tags::AttrTarget::Handler(event) => {
-                let (name, args): (&str, &[Expr]) = match &a.value {
-                    Expr::Ident(n, _) => (n, &[]),
-                    Expr::Call(n, args, _) => (n, args),
-                    _ => {
-                        return err(
-                            "lower-handler",
-                            "a handler is an action name or `action(args)`",
-                            a.span,
-                        )
-                    }
-                };
-                let Some(ai) = self.root.actions.iter().position(|x| x.name == name) else {
-                    return err(
-                        "lower-unknown-action",
-                        format!("`{name}` is not an action of the root"),
-                        a.span,
-                    );
-                };
-                // The view is inlined, so a handler behind a child's `action`
-                // prop names the real action here: its arity is checked now,
-                // not at dispatch (LLP 1006 §8's circle-back; LLP 1017 P1b).
-                let params = self.root.actions[ai].params.len();
-                let valid = contract_analyze::handler_arity(event, args.len())
-                    .is_some_and(|range| range.contains(&params));
-                if !valid {
-                    return err(
-                        "lower-handler-arity",
-                        format!(
-                            "`{name}` takes {params} parameter(s); `{event}=` supplies {}{}",
-                            args.len(),
-                            match event {
-                                "hover" => " plus whether the pointer is over",
-                                "key" => " plus the key's name",
-                                "change" | "input" => " plus the new value",
-                                "message" => " plus the message",
-                                "scroll" => " plus scrollLeft and scrollTop",
-                                "heightrelease" => " plus height and velocity",
-                                "panrelease" => " plus vx and vy",
-                                "transformgeometry" => " plus four geometry numbers",
-                                "transformrelease" => " plus six transform release numbers",
-                                _ => "",
-                            }
-                        ),
-                        a.span,
-                    );
-                }
-                if event == "reorderdrop"
-                    && self.types.components[0].actions[ai][args.len()..]
-                        != [Ty::String, Ty::Option(Box::new(Ty::String))]
-                {
-                    return err(
-                        "lower-handler-type",
-                        "`reorderdrop` supplies string and option<string>",
-                        a.span,
-                    );
-                }
-                if matches!(
-                    event,
-                    "pan"
-                        | "panrelease"
-                        | "heightrelease"
-                        | "transformgeometry"
-                        | "transformrelease"
-                ) && self.types.components[0].actions[ai][args.len()..]
-                    .iter()
-                    .any(|ty| *ty != Ty::Number)
-                {
-                    return err(
-                        "lower-handler-type",
-                        format!("`{event}` supplies only numeric payload parameters"),
-                        a.span,
-                    );
-                }
-                let mut codes = Vec::new();
-                for arg in args {
-                    codes.push(self.expr_code(arg, scope, locals)?);
-                }
-                let kind =
-                    EventKind::from_name(event).expect("tag table admitted an unknown handler");
-                handlers.push((kind, self.actions[ai], codes));
+                self.handler(tag, event, control, a, scope, locals, handlers)?;
             }
         }
         Ok(())
