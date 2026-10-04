@@ -777,7 +777,12 @@ impl Backend for Recorder {
     }
 
     fn row_culled(&self, bounds: Rect4) -> bool {
-        self.group.is_none() && self.culled(Some(bounds))
+        // A scroller's rows all draw so a move needs no paint, unless its
+        // clips leave nothing (a page out of view): no move shows them.
+        match self.group {
+            None => self.culled(Some(bounds)),
+            Some(_) => self.clipped_out(),
+        }
     }
 
     fn group_begin(&mut self, id: ViewId, scroll: (f32, f32)) {
