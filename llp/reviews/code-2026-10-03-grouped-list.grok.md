@@ -129,3 +129,129 @@ Covered today: a static settings tree, a trailing `when` checkmark, one author `
 Components are fine: uses are inlined before `grouped::sections`, so a component whose view is a `section` is checked as a section.
 
 Verdict: DO NOT LAND
+
+
+## Round 2, 2026-10-03
+
+- **Method:** grok as round 1, `--cwd` a detached worktree at `41bff3539`; brief sha256 `05b80dea1c2a65ea9266c8daec3b2fb3326b12b6bf2883f1c09a1a9ce6a58a46`. Blind to astra's round 2. stdout, unedited; the first paragraph sentences are progress narration.
+- **Verdict:** DO NOT LAND.
+- **Disposition:** fixed in `b8664e6bf` unless noted:
+  1. *A text after a `when`.* Fixed: the next text's style is a choice on the condition (as astra #4), and the true state is asserted. `match` is declared.
+  2. *`text_stack` through `when`.* Fixed: a `when` showing the second line counts, the second line is styled inside its arm, and a leading `when` symbol is read through. Tested.
+  3. *A leading `match`.* Fixed (as astra #6).
+  4. *First-section gaps.* Declared, by the simpler rule: only a section written first gets 35.33. The list-padding scheme would be wrong when the first rendered section has a header.
+  5. *The wheel on a row below the fold.* Fixed. `scroller(for:)` resolves the list for a row it draws, a carried view or the list itself, and the wheel scrolls that. Tested: the collection moves and the hidden scroll does not.
+  6. *A hidden text counted.* Fixed: a text written `display="none"` is not counted. Tested.
+  7. *A switch rebuilt inside its own action.* Fixed. The firing row is left out of that batch's reconfigure and reconfigured after the action returns. Tested.
+  8. *Any trailing button or input.* Fixed (as astra #5).
+
+---
+
+I'll review the grouped-list change from the merge-base through HEAD, starting with the LLP, the recorded dispositions, and the diff since round 1.The branch is three commits past `origin/main`: the LLP 1082 implementation, the round-1 fixes, and the recorded dispositions. I'll read those dispositions and the spec before checking the fixes.Round 1’s dispositions are in. Next I’ll read the sheet, the kernel reader, and the iOS host to check each fix and look for anything the first pass missed.The round-2 review is the remaining deliverable. I'll confirm the line numbers on the fixes and the two host splits before writing it.Round 2 of LLP 1082. The UIKit fixes in `25a5b053c` hold: class rows beat the sheet, the leading-symbol inset is a real ternary on `when` (both states tested), hidden sections and whole rows drop out of the kernel model, a horizontal `row` of two texts stays custom, plain sections meet, a header or footer must be one `text`, custom rows restore last-carried first, the switch reads its target when it fires and is taken out of its superview before the accessory is built, `disabled` and `inert` refresh on mount, layout invalidation happens after `apply`, and a tap resolves the cell (off-port and covered middles refused, and that check runs before the control host). `cargo test -p contract --test it grouped_list` passes, 10 tests. The Swift suite was not run.
+
+Two arguments hold. A custom row takes no cell highlight (§4): the carried views keep their press, press feedback, and nested controls, and a standard row still highlights. Authored `scrollTop` and `scroll` events stay on the hidden scroll (§4): the kernel's content height is the sheet's, so one offset mapped onto the other is wrong at both ends. `groupedList.offset` is the visible one. `layout`'s `sx`/`sy` still reads the hidden scroll (`AgentIOS.swift:228`).
+
+Two claims do not hold, and they are findings 4 and 5. The sheet still disagrees with the kernel on two shapes D4 reads live. That is enough to keep this from landing.
+
+1. **Must-fix — A text after a `when` or `match` is styled for the arm that wrote fewer texts.** `contract/lower/src/grouped.rs:588` and `:608`, applied at `:647`.
+
+`part` styles each arm from the same start count, then sets the counter to the minimum of the two. The following text is therefore the title whenever either arm is empty. The kernel reads the live arm.
+
+```
+button
+  when unread
+    text "New"
+  text "Notifications"
+```
+
+With `unread` false the kernel has one title, and the web gives "Notifications" `flex-grow: 1`. That is the only state `a_conditional_text_and_an_authors_column_are_styled_as_the_kernel_reads_them` locks (`contract/cli/tests/it/grouped_list.rs:306`). The disposition says the same thing and calls it fixed. With `unread` true the kernel has a value cell (title "New", secondary "Notifications") and iOS paints `.valueCell()`. The web gives both texts `flex-grow: 1` and the primary color, because the counter was put back to 0. A text before the `when` is fine: it is always text 1, and a text inside the arm is styled at the count that includes it. The same `min` is on `match`.
+
+Fix: give the following text a ternary `flex-grow` and color on that condition, the way `inset` (`:480`) is a ternary for a leading `when`. Assert the true state. The current assertion cannot fail there, because the style is not conditional.
+
+2. **Must-fix — `text_stack` does not read through `when` or `match`, so a subtitle cell on iOS is an unpadded column on the web.** `contract/lower/src/grouped.rs:666`. The kernel test is `kernel/src/grouped.rs:203`.
+
+`text_stack` strips one leading non-accessory symbol element and requires the column's direct children to all be `text`. D4 (`llp/1082-native-grouped-lists.rfc.md:84`) says a `when` between parts counts, and D7 (`:121`) says a `when` is read through. `when` is not a node in the live tree, so `shown` (`kernel/src/grouped.rs:147`) sees the texts.
+
+```
+button
+  column
+    text "Privacy"
+    when extra
+      text "Screen lock"
+```
+
+The `when` fails `children.iter().all(|c| is(c, "text"))` (`grouped.rs:681`). The sheet applies neither the 15 pt padding nor the 15 pt secondary. In both states the kernel sets `subtitle` (one or two texts). iOS uses `.subtitleCell()` (68 pt, 15 pt secondary). The web shows a 52 pt row of 17 pt primary text.
+
+The same split happens with the symbol in front of the column:
+
+```
+button
+  when hasIcon
+    image "symbol:bell"
+  column
+    text "Privacy"
+    text "Screen lock"
+```
+
+The leading child is a `when`, so it is not stripped, `stack` stays false, and with `hasIcon` false the kernel still sees a two-text column. The icon inset ternary itself is correct.
+
+Fix: read through `when` and `match` in `text_stack`, and treat the column as the stack when every arm leaves one or two texts. An optional second line is a subtitle cell in both states, so the static 15 pt padding is right. Style that second text inside the arm. `subtitle` (`:703`) currently skips anything that is not a direct `text`. The existing test covers a custom profile column and a horizontal `row`, which this shape is not.
+
+3. **Should-fix — A leading `match` pulls the symbol out of a row that was styled as having no symbol, and the group clips it.** `contract/lower/src/grouped.rs:480` and `:621`, with the `i == 0` place passed in at `:604`.
+
+D7 (`:119`) styles a `match` or `each` in first place as no symbol. `inset` does that: only a `when` becomes a ternary, so a leading `match` gets `margin-left: 16`. `part` still walks the `match` and, because the place is `i == 0`, gives the image `margin-left: -40`. The group is `overflow: hidden` (`:361`). The symbol is clipped and the title sits at 16. iOS draws a normal symbol cell, because the kernel sees the live image.
+
+```
+button
+  match mode
+    some
+      image "symbol:bell"
+      text "Title"
+```
+
+An `each` in that place stays consistent, because `part` does not walk into it. Keep the trailing-accessory walk so a checkmark inside a last-child `match` stays styled. Do not pass `i == 0` into a leading `match`.
+
+4. **Should-fix — The first-section gap is wrong for a leading `each`, and wrong between sections inside a leading `when` or `match`.** `contract/lower/src/grouped.rs:152` and `:300`.
+
+Headerless sections use `margin-top: 35.33` when `first` is set and `17.33` otherwise (`FIRST_GAP`, `SECTION_GAP`). Sibling margins collapse to the max, and the list's scroll is a new block formatting context, so those numbers are the gaps.
+
+A direct `each` forces `first` false for every section in the shared body. Between headerless sections, `17.33` collapsed with `17.33` is the right `17.33`. The first of those sections is `18` pt short of UIKit's `35.33`. The shared body cannot mark one iteration. A list `padding-top` of `18` when that `each` is the first child and its section has no header yields `18 + 17.33 = 35.33`, because padding blocks collapse. A section with a header already has top margin `0`, so that padding stays off.
+
+`over` (`:173`) applies the same `first` flag to every element it reaches. A leading `when` or `match` is not an `each`, so `first` is true, and every headerless section inside it gets `margin-top: 35.33`. The collapsed gap between them is `35.33` instead of `17.33`. That includes an `each` nested in that `when`:
+
+```
+list appearance="auto"
+  when ready
+    each item in items
+      section
+        button
+          text item.name
+```
+
+Pass `first` only to the first section of a first-child `when` or `match`.
+
+5. **Should-fix — A wheel whose target row sits outside the list's port scrolls the hidden scroll.** `host/apple/Sources/ExactKit/IOS/AgentIOS.swift:531` and `:601`.
+
+`scroll(from:)` moves a `GroupedCollectionView` when the walk is already on one. That happens for a wheel on the list node, and for a row whose layout middle hit-tests the collection. `activate` (`GroupedListIOS.swift:109`) resolves the cell instead. The wheel does not. It starts at the hit of the node's layout middle (`AgentIOS.swift:483`). A row below the fold has that middle outside the list. Hit-testing misses the collection, which is a sibling of the hidden scroll, and the walk starts at the hidden row. The hidden `ScrollView` is an ancestor and takes the tick (`:606`). The cells do not move. `layout`'s `sx`/`sy` then reports the hidden offset (`:228`) while `groupedList.offset` stays put. After the collection has scrolled, a row that is visible in a cell still has its kernel box at the unmoved layout position, so wheeling that row id takes the same path. The tap error tells the agent to scroll the row into view first. No test calls `Agent.scroll`. The scrolled-away test sets `contentOffset` on the collection.
+
+Fix: when `draws(id)`, scroll that list's collection view, the same resolution `activate` uses.
+
+6. **Should-fix — A literal `display="none"` part still counts as a text in the sheet.** `contract/lower/src/grouped.rs:647`. The kernel skips it at `kernel/src/grouped.rs:151`. D4 says those children are not counted (`llp/1082-native-grouped-lists.rfc.md:91`).
+
+```
+button
+  text "Gone" display="none"
+  text "Stay"
+```
+
+The sheet styles "Gone" as the title (`flex-grow: 1`) and "Stay" as the value (secondary, no `flex-grow`). The kernel and iOS read "Stay" as the title. `hidden_parts_and_a_row_of_texts_are_read_as_the_web_shows_them` hides a whole row and a whole section (`grouped_list.rs:279`), so this path does not fail it. The idiomatic conditional is `when`, which is finding 1. Skip a literal `display="none"` child in the text counter and the inset, and test a part inside a visible row. A bound `display` is not visible at compile time.
+
+7. **Should-fix — A switch flip that changes the row's parts removes the switch from its superview inside its own action.** `host/apple/Sources/ExactKit/Session.swift:675` and `host/apple/Sources/ExactKit/IOS/GroupedListIOS.swift:334`.
+
+`onChecked` calls `apply` before returning. `flip` (`:357`) runs from the switch's `.valueChanged`. If that batch changes the row model (a title "On"/"Off", a sibling `when`), `update` reconfigures the item (`:241`) and `accessories` calls `toggle.removeFromSuperview()` on the switch that is firing, then hands it back to `.customView`. A batch that only changes `checked` leaves the row model equal, so it does not reconfigure. That path is the one the test drives, and the replacement-target test applies its batch from outside the action. This path was not run (no simulator). Keep a switch that is already installed in that cell, or defer the reconfigure of the firing cell until the action returns.
+
+8. **Nit — `text_stack` treats any trailing `button` or `input` as the accessory.** `contract/lower/src/grouped.rs:674`.
+
+A two-text column followed by a text field or an ordinary button gets the 15 pt subtitle padding. The kernel marks that row custom, and iOS carries the views, so both hosts show the padding. Narrow the strip to a real accessory (symbol, switch, checkbox, or the info button) if that padding should stay the author's.
+
+Verdict: DO NOT LAND

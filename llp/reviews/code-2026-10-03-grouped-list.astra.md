@@ -55,3 +55,54 @@
 Validation: caps passed. Cargo tests could not start because the sandbox denied build-directory creation. No files were changed; no servers or simulators were started.
 
 Verdict: DO NOT LAND
+
+
+## Round 2, 2026-10-03
+
+- **Method:** `codex exec` as round 1, `-C` a detached worktree at `41bff3539`; brief sha256 `05b80dea1c2a65ea9266c8daec3b2fb3326b12b6bf2883f1c09a1a9ce6a58a46` (round 1's brief, plus: check the fixes `cc5d28641..41bff3539` and the dispositions, then review the whole again). Blind to grok's round 2.
+- **Verdict:** DO NOT LAND.
+- **Disposition:** all fixed in `b8664e6bf` except #8, which is declared:
+  1. *Inert.* Fixed. Highlight, selection and the agent's tap check the row node's `inert`, which walks its ancestors, so an inert section counts. An inert row's cell takes no touch and its accessibility elements are hidden, refreshed on every mount. Tested across batches.
+  2. *The keyboard.* Fixed. `activate` refuses a cell whose middle is under the keyboard guide, as `Agent.obscured` does.
+  3. *Custom rows under the agent.* Fixed. A custom row is not a row the host draws: the ordinary tap path hit-tests its carried views, so a nested button is the one pressed. Tested (`draws` is false for a custom row).
+  4. *A text after a condition.* Fixed. The count is symbolic: where a `when`'s arms write different numbers of texts, the next text's `flex-grow` and colour are choices on its condition. Tested in both states. A `match` counts the fewer texts and is declared (it has no condition to choose by).
+  5. *The subtitle predicate.* Fixed. `text_stack` uses the kernel's accessory rules (symbol, `input`, an info-only button) and reads a `when` at either end. Tested with a conditional checkmark and with a text button.
+  6. *A leading `match`.* Fixed. A symbol in first place inside a `match` is not styled as leading, which matches its inset.
+  7. *Native button rows.* Fixed. They get only the rows a native button takes, and the kernel reads them as custom. Tested: it compiles and is custom.
+  8. *First section under control flow.* Declared (LLP 1082 §4): only a section written first gets the 35.33-pt gap.
+  9. *Lifecycle coverage.* Added: a row turning custom and back, with its views carried and given back, and a header's text changing.
+
+---
+
+The switch target/state, class precedence, hidden-row filtering, label validation, plain gaps, and reverse restoration fixes look correct by inspection. I accept the documented scroll-write/event deferral and the decision that custom rows retain their own touch handling. Several fixes remain incomplete.
+
+1. **Must-fix — Native cells bypass `inert`.** [GroupedListIOS.swift:417](/tmp/rv-grouped2/host/apple/Sources/ExactKit/IOS/GroupedListIOS.swift:417)  
+   `select` and `shouldHighlightItemAt` check only `disabled`. A standard `button inert=true press=go` still highlights and dispatches `go`: its inert NodeView is hidden behind an independent cell. An inert section has the same problem. Preserve effective authored inertness in the projection and enforce it for selection, interaction, and accessibility. Test changing row and section inertness across batches.
+
+2. **Must-fix — Keyboard occlusion is still bypassed.** [GroupedListIOS.swift:116](/tmp/rv-grouped2/host/apple/Sources/ExactKit/IOS/GroupedListIOS.swift:116)  
+   The new window hit-test handles overlays in the app window, but the software keyboard requires the separate check in [AgentIOS.swift:586](/tmp/rv-grouped2/host/apple/Sources/ExactKit/IOS/AgentIOS.swift:586). Grouped activation returns before that check. A cell beneath an overlapping keyboard can therefore activate and change state. Apply the keyboard-guide check using the projected cell’s position; test refusal without dispatch. Round 1’s occlusion fix is incomplete.
+
+3. **Must-fix — Agent taps on custom rows bypass their retained touch handling.** [GroupedListIOS.swift:132](/tmp/rv-grouped2/host/apple/Sources/ExactKit/IOS/GroupedListIOS.swift:132)  
+   `list(drawing:)` includes custom rows, and activation always selects the outer row. For a custom button containing another button at its middle, a finger presses the inner button; the agent presses the outer button instead. This contradicts the accepted custom-row disposition. Let custom rows use the ordinary hit-target activation path through their carried views. Add a nested-control test.
+
+4. **Must-fix — Conditional text styling now fails in the opposite branch.** [contract/lower/src/grouped.rs:588](/tmp/rv-grouped2/contract/lower/src/grouped.rs:588)  
+   For `when dark → text "New"` followed by `text "Notifications"`, taking the minimum branch count permanently styles “Notifications” as a title. With `dark=true`, the kernel correctly reads it as the secondary value, but the sheet gives both texts title styling and `flex-grow=1`. The new test checks only `false`. Make subsequent styling conditional on the actual preceding text count and test both states, including `match`.
+
+5. **Must-fix — The new subtitle predicate still disagrees with the kernel.** [contract/lower/src/grouped.rs:666](/tmp/rv-grouped2/contract/lower/src/grouped.rs:666)  
+   A two-text `column` followed by a conditional checkmark fails `text_stack`, losing subtitle padding, secondary colour, and sizing. The kernel recognizes a subtitle cell in both states. Conversely, this predicate strips *any* trailing button/input, so a column beside an ordinary text button gets subtitle styling even though the kernel considers the row custom. Match the kernel’s accessory rules and handle conditional parts; test both counterexamples.
+
+6. **Must-fix — Leading symbols under `match` are clipped away.** [contract/lower/src/grouped.rs:480](/tmp/rv-grouped2/contract/lower/src/grouped.rs:480)  
+   `part` now descends into `match` and applies the leading symbol’s `margin-left=-40`, but `inset` handles only `when`, leaving the row inset at 16. The symbol falls outside the clipped group while UIKit displays it normally. The documented “styled as no symbol” limitation does not justify this incompatible pair of styles. Compute the inset consistently with the branch traversal and test both arms.
+
+7. **Should-fix — Generated sheet rows make native-button rows fail compilation.** [contract/lower/src/grouped.rs:501](/tmp/rv-grouped2/contract/lower/src/grouped.rs:501)  
+   A section containing `button appearance="auto" press=go` receives generated `flex-direction`, padding, border, and text styles. Native-button validation then rejects these as forbidden authored styles, although the author supplied none. Preserve native controls through the custom-row escape hatch, applying row decoration without injecting incompatible control styles. Add a compilation and projection test.
+
+8. **Should-fix — “First section” is still computed from syntax position.** [contract/lower/src/grouped.rs:153](/tmp/rv-grouped2/contract/lower/src/grouped.rs:153)  
+   If the first `when` contains two headerless sections, both receive the 35.33-point first-section gap. If that `when` is empty, the following section receives only 17.33 despite becoming first. An initial `each` still never receives the first gap. Determine firstness across the rendered sequence, or implement equivalent list-level spacing. The claimed `when`/`match` fix is incomplete; test multiple and empty branches.
+
+9. **Should-fix — UIKit lifecycle coverage remains too narrow.** [GroupedListIOSTests.swift:196](/tmp/rv-grouped2/host/apple/tests/ExactKitTests/GroupedListIOSTests.swift:196)  
+   The batch test adds a checkmark and removes the list. It does not exercise actual cell reuse, a surviving row changing between standard and custom, or supplementary insertion/removal during section reordering. Add those cases, checking carried-view ownership, restored hierarchy, cell heights, and current header/footer text.
+
+Validation: caps passed. Cargo tests could not start because the sandbox denied build-directory creation. No files were changed; no servers or simulators were started.
+
+Verdict: DO NOT LAND
