@@ -402,7 +402,9 @@ sends one mutation twice on one path is refused (`analyze-send-twice`), counting
 the sends of the actions it calls: send one combined request, or use a mutation
 per request. `refreshes` re-reads
 its resources when the mutation is sent (an answer the source gives at once shows
-immediately) and forces them again when the reply lands. `then` is parameterless,
+immediately) and forces them again when the reply lands; a mutation the source
+answers at once has landed, so its resources are forced in the sending commit (an
+async read is asked again, not dropped). `then` is parameterless,
 runs once at the host's next clock advance as a new commit (under the driver, an
 input's own answer's `then` before the input's reply), reads the latest
 answer, does not run for a failure that brought no answer, and cannot send its

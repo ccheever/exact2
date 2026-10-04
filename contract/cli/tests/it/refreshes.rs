@@ -14,6 +14,7 @@ component App
   mutation dm as shape Msg refreshes chats
   mutation like as shape Msg
   mutation fav as shape Msg refreshes feed
+  mutation star as shape Msg refreshes feed
   resource chats = chats() as shape list<Msg>
   resource feed = feed(page, token) as shape list<Msg>
 
@@ -23,6 +24,8 @@ component App
     send like = like()
   action favor
     send fav = like()
+  action starNow
+    send star = star()
   action next
     page = page + 1
   action relogin
@@ -77,6 +80,8 @@ impl DataSource for Chat {
                     "{}",
                 )))
             }
+            // Answered at once: the write has happened when it returns.
+            "star" => Ok(Answer::Now(Value::record(vec![Value::str("")]))),
             "like" => Ok(Answer::Later(Request::post_json(
                 "https://chat.test/like",
                 "{}",
@@ -236,8 +241,8 @@ fn refreshes_names_this_component_s_resources_once_each() {
     let plan = contract::compile(&src("chats, feed")).unwrap();
     assert_eq!(
         plan.mutation_refreshes.len(),
-        3,
-        "chats and feed, and fav's feed"
+        4,
+        "chats and feed, and fav's and star's feed"
     );
 }
 
@@ -260,4 +265,21 @@ fn a_network_resource_is_asked_the_host_only_when_the_reply_lands() {
     assert_eq!(after.len(), 1);
     assert_eq!(after[0].target, "feed");
     assert!(after[0].forced && !r.holds(loading));
+}
+
+/// A mutation answered at once has landed in the sending commit: what it
+/// declares is forced then, as a reply's landing forces it. A re-read there
+/// dropped the feed's request and no reply came to ask again, so the feed
+/// kept its old value (found by the x2apps data6 lane on the web build and
+/// macOS alike).
+#[test]
+fn a_mutation_answered_at_once_forces_its_network_resource_in_that_commit() {
+    let mut r = boot();
+    r.act("next", vec![]).unwrap();
+    let loading = r.take_requests()[0].ticket;
+    r.act("starNow", vec![]).unwrap();
+    let sent = r.take_requests();
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0].target, "feed");
+    assert!(sent[0].forced && !r.holds(loading));
 }

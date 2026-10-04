@@ -64,6 +64,24 @@ test('a stream answer settles per message, keeps its ticket, and closes when let
   await new Promise(r => setTimeout(r, 0));
   expect([feed(), feed.p(), feed.r.ticket, inflight.n]).toEqual([-1, false, null, 0]);
 });
+// A mutation answered at once has landed in the sending commit: the read it
+// `refreshes` is forced then, as a reply's landing forces it (runner
+// commit.rs `landed_now`). A re-read there dropped an async read's promise and
+// no reply came to ask again, so it kept its old value (the data6 lane).
+test('a mutation answered at once forces the async read it refreshes', async () => {
+  const { res, mut, M, data, commit, sig } = await import(resolve(dir, 'rt.js'));
+  let count = 0;
+  data.answer = (source) => source === 'inc' ? { v: ++count } : { promise: Promise.resolve(count) };
+  let doc;
+  commit(() => { doc = res('doc', 'doc', () => [], undefined, undefined, 'n', 0); doc(); });
+  await new Promise(r => setTimeout(r, 0));
+  expect(doc()).toBe(0);
+  const op = mut('op', sig(null), [doc], null);
+  commit(() => M(op, 'inc', []));
+  await new Promise(r => setTimeout(r, 0));
+  expect([doc(), doc.p()]).toEqual([1, false]);
+});
+
 
 test('a key handler stops and prevents its event while a view transition holds the tree update', async () => {
   globalThis.requestAnimationFrame = f => setTimeout(f, 0);
@@ -183,3 +201,4 @@ test('an argument or a write past MAX_STRING is refused by name, and a trapping 
   put.t(() => ['x'])();
   expect(last()).toBe('refused action: the runner is poisoned; reload');
 });
+

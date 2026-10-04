@@ -483,6 +483,7 @@ impl<D: DataSource> Runner<D> {
         // once the commit stands.
         let mut later: Vec<(usize, String, Vec<Value>, Request)> = Vec::new();
         let mut answered: Vec<(u32, Value)> = Vec::new();
+        let mut landed_now: Vec<usize> = Vec::new();
         for (m, source, sargs) in &outcome.sends {
             let m = *m as usize;
             let mrow = self.plan.mutations[m].clone();
@@ -513,6 +514,7 @@ impl<D: DataSource> Runner<D> {
                     };
                     answered.push((slot as u32, Value::some(v)));
                     self.landed.push(m);
+                    landed_now.push(m);
                 }
                 Answer::Later(request) => later.push((m, source.clone(), sargs.clone(), request)),
             }
@@ -581,12 +583,22 @@ impl<D: DataSource> Runner<D> {
         // What the action refreshes, added to what is already waiting
         // (LLP 1054.000.000 D2); and what each mutation it sent to declares
         // it changes, read again now that every send has asked its source.
+        // A mutation answered at once has landed: what it changes is forced,
+        // as a reply's landing forces it (`fulfill`). A re-read would drop a
+        // source that answers later, and no reply would come to ask again
+        // (an async read stayed at its old value, found by the data6 lane).
         for r in outcome.refreshes.iter() {
             self.force_refresh(*r as usize);
+        }
+        for m in &landed_now {
+            for r in self.declared_refreshes(*m) {
+                self.force_refresh(r);
+            }
         }
         self.reread_next = outcome
             .sends
             .iter()
+            .filter(|(m, _, _)| !landed_now.contains(&(*m as usize)))
             .flat_map(|(m, _, _)| self.declared_refreshes(*m as usize))
             .collect();
         // A refusal from here is put back by the checkpoint (run_action);

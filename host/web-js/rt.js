@@ -534,7 +534,9 @@ export function mut(name, slot, refreshes, type) {
         const t = { id: ++Ticket, source, args, req: a.req, promise: a.promise, stream: a.stream };
         m.ticket = t; undo.push([pend.n, pend.n.v]); write(pend.n, true); send(t, land(t));
       } else throw new Refusal(`${name}: its source is not ready`);
-      for (const r of refreshes) r.r.reread_(undo);
+      // Answered at once, it has landed: what it changes is forced, as a reply's landing forces it (a re-read
+      // drops a source that answers later, and no reply would come to ask again; runner commit.rs `landed_now`).
+      for (const r of refreshes) if (a && "v" in a) R(r.r); else r.r.reread_(undo);
     },
   });
   m.p = () => pend();
