@@ -192,6 +192,28 @@ pub fn ty(t: &Ty) -> String {
     }
 }
 
+/// Every `"…"` that follows `prefix` in `text` (an embedding's names, which
+/// are identifiers: no escaped quote inside, and a string literal's own
+/// quotes are escaped, so it never matches).
+fn quoted_after(text: &str, prefix: &str) -> Vec<String> {
+    text.match_indices(prefix)
+        .filter_map(|(at, _)| {
+            let rest = &text[at + prefix.len()..];
+            rest.find('"').map(|end| rest[..end].to_string())
+        })
+        .collect()
+}
+
+/// The shapes a type names.
+fn record_names(t: &Ty, out: &mut Vec<String>) {
+    match t {
+        Ty::Record(s) => out.push(s.clone()),
+        Ty::Option(t) | Ty::List(t) => record_names(t, out),
+        Ty::Action(ts) => ts.iter().for_each(|t| record_names(t, out)),
+        _ => {}
+    }
+}
+
 fn list<T>(
     items: &[T],
     mut f: impl FnMut(&T) -> Result<String, CompileError>,
@@ -218,8 +240,6 @@ impl Emitter<'_> {
         let types = &self.checked.types;
         let ct = &types.components[0];
         let mut o = String::new();
-        let _ = writeln!(o, "def {name} : Contract.Program := {{");
-        let _ = writeln!(o, "  shapes := {},", self.shapes_list());
         let _ = writeln!(o, "  fns := {},", self.fns_list()?);
         let owners = &self.checked.expanded.owners;
         let mut states = Vec::new();
@@ -262,6 +282,8 @@ impl Emitter<'_> {
         let _ = writeln!(o, "  locale := {},", self.locale());
         let _ = writeln!(o, "  sources := {}", self.sources_list(ct));
         o.push_str("}\n");
+        let _ = writeln!(self.out, "def {name} : Contract.Program := {{");
+        let _ = writeln!(self.out, "  shapes := {},", self.shapes_list(&o));
         self.out.push_str(&o);
         Ok(())
     }
@@ -326,15 +348,39 @@ impl Emitter<'_> {
         format!("[{}]", sources.join(",\n    "))
     }
 
-    /// Every shape the checker knows, the compiler's own too (a source may
-    /// answer a `Router`).
-    fn shapes_list(&self) -> String {
-        let shape_rows: Vec<String> = self
-            .checked
-            .types
-            .shapes
-            .map
+    /// The shapes `body` (the rest of the embedding) reaches: every shape
+    /// it names (a type `(.record "S")`, a record built `(.record "S" …)`),
+    /// those of the roster entries it calls (`Router`, `Entry`, …), the
+    /// router's four when there are routes, and the shapes their fields
+    /// name, in the checker's order. Not every shape the checker knows: a
+    /// compiler shape the program never reaches (an event's, say) would
+    /// make every embedding stale when the compiler gains one.
+    fn shapes_list(&self, body: &str) -> String {
+        let map = &self.checked.types.shapes.map;
+        let mut seen = std::collections::BTreeSet::new();
+        let mut todo: Vec<String> = quoted_after(body, ".record \"");
+        for name in quoted_after(body, ".call \"") {
+            if let Some(f) = exact_plan::Stdlib::from_name(&name) {
+                for spec in f.params().iter().chain([&f.returns()]) {
+                    record_names(&Ty::from_roster(spec), &mut todo);
+                }
+            }
+        }
+        if self.checked.file.routes.is_some() {
+            todo.extend(["Router", "Entry", "Tab", "Params"].map(String::from));
+        }
+        while let Some(s) = todo.pop() {
+            if let Some(fields) = map.get(&s) {
+                if seen.insert(s) {
+                    for (_, t) in fields {
+                        record_names(t, &mut todo);
+                    }
+                }
+            }
+        }
+        let shape_rows: Vec<String> = map
             .iter()
+            .filter(|(s, _)| seen.contains(*s))
             .map(|(s, fields)| {
                 let fs: Vec<String> = fields
                     .iter()

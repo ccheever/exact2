@@ -62,8 +62,6 @@ impl Emitter<'_> {
         let checked: &Checked = self.checked;
         let file = checked.file;
         let mut o = String::new();
-        let _ = writeln!(o, "def {name} : Contract.Components.CProgram := {{");
-        let _ = writeln!(o, "  shapes := {},", self.shapes_list());
         let _ = writeln!(o, "  fns := {},", self.fns_list()?);
         let records: Vec<String> = file
             .shapes
@@ -83,7 +81,11 @@ impl Emitter<'_> {
         let _ = writeln!(o, "  strings := {},", self.strings_list());
         let _ = writeln!(o, "  locale := {}", self.locale());
         o.push_str("}\n");
-        Ok(o)
+        let head = format!(
+            "def {name} : Contract.Components.CProgram := {{\n  shapes := {},\n",
+            self.shapes_list(&o)
+        );
+        Ok(head + &o)
     }
 
     /// Component `k` of the file (0 the root).
