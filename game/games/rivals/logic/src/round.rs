@@ -1,4 +1,4 @@
-//! Round rules: first to five kills wins the round; the dead respawn after two
+//! Round rules: first to the mode's kill target wins; the dead respawn after two
 //! seconds at the spawn farthest from living enemies; a round-win screen holds
 //! everyone for four seconds, then the next round starts clean.
 use crate::arena::SPAWNS;
@@ -6,7 +6,6 @@ use crate::fighter::{self, Fighter};
 use crate::weapons::{Damage, Rocket, Weapon};
 use exact_game::*;
 
-pub const TO_WIN: u32 = 5;
 pub const RESPAWN: f32 = 2.0;
 pub const OVER: f32 = 4.0;
 const FEED_LIFE: f32 = 6.0;
@@ -232,8 +231,8 @@ pub fn respawn(w: &mut World) {
     }
 }
 
-/// Start the round-win screen when someone reaches five kills.
-pub fn check_win(w: &mut World) {
+/// Start the round-win screen when someone reaches the mode's kill target.
+pub fn check_win(w: &mut World, to_win: u32) {
     let now = w.seconds() as f32;
     if w.resource::<Round>().over(now) {
         return;
@@ -241,7 +240,7 @@ pub fn check_win(w: &mut World) {
     let winner = w
         .query::<&Fighter>()
         .iter()
-        .find(|(_, f)| f.kills >= TO_WIN)
+        .find(|(_, f)| f.kills >= to_win)
         .map(|(e, f)| (e, f.label.clone()));
     if let Some((e, label)) = winner {
         w.require_mut::<Fighter>(e).rounds += 1;

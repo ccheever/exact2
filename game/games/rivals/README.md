@@ -14,8 +14,10 @@ bun game/app/shells.mjs game/games/rivals --test
 ## Playing
 
 Pick **Duel** (one bot), **Free for all** (seven bots), **Mayhem** (24 bots) or
-**Range** (three standing dummies). In combat, first to five kills takes the
-round. All 25 fighters have distinct starts; the dead respawn after two seconds
+**Range** (three standing dummies). Duel and Free for all are first to five
+kills; Mayhem is first to 25, leaving time to reload, respawn and come back.
+The scoreboard shows the active target. All 25 fighters have distinct starts;
+the dead respawn after two seconds
 at the spawn farthest from living enemies, including anyone else who respawned
 on that tick.
 

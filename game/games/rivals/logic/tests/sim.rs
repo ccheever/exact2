@@ -622,34 +622,105 @@ fn save_mid_fight_continues_identically() {
 
 #[test]
 fn rounds_end_at_five_kills_and_restart() {
+    for bots in [1, 7] {
+        let mut sim = game(Options {
+            bots,
+            skill: 1.0,
+            ..Options::default()
+        });
+        // A passive player loses the round to a bot in either smaller mode.
+        let mut over = false;
+        for _ in 0..240 {
+            sim.run(1000.0);
+            if sim
+                .world()
+                .published("over")
+                .is_some_and(|v| v.as_bool() == Some(true))
+                || round(&sim).over_until > 0.0
+            {
+                over = true;
+                break;
+            }
+        }
+        assert!(
+            over,
+            "round never ended: {:?}",
+            fighter(&sim, "bot-1").kills
+        );
+        let winner = round(&sim).winner;
+        assert!(winner.starts_with("bot-"));
+        assert_eq!(fighter(&sim, &winner).kills, 5);
+        assert_eq!(
+            sim.world().published("to_win").unwrap().as_number(),
+            Some(5.0)
+        );
+        sim.run(4500.0);
+        assert_eq!(round(&sim).number, 2);
+        assert!(fighter(&sim, &winner).kills < 5);
+        assert_eq!(fighter(&sim, &winner).rounds, 1);
+    }
+}
+
+#[test]
+fn mayhem_continues_past_five_and_restores_through_the_round_finish() {
     let mut sim = game(Options {
-        bots: 1,
-        skill: 1.0,
+        bots: 24,
         ..Options::default()
     });
-    // A passive player loses the round to the bot.
-    let mut over = false;
-    for _ in 0..240 {
-        sim.run(1000.0);
-        if sim
-            .world()
-            .published("over")
-            .is_some_and(|v| v.as_bool() == Some(true))
-            || round(&sim).over_until > 0.0
-        {
-            over = true;
-            break;
-        }
+    let leader = |sim: &Sim<Rivals>| {
+        sim.world()
+            .query::<&Fighter>()
+            .iter()
+            .map(|(_, f)| f.kills)
+            .max()
+            .unwrap()
+    };
+    while leader(&sim) < 5 && sim.world().seconds() < 60.0 {
+        sim.run(100.0);
     }
     assert!(
-        over,
-        "round never ended: {:?}",
-        fighter(&sim, "bot-1").kills
+        leader(&sim) >= 5,
+        "the crowded fight never scored five kills"
     );
-    assert_eq!(fighter(&sim, "bot-1").kills, 5);
-    assert_eq!(round(&sim).winner, "bot-1");
-    sim.run(4500.0);
-    assert_eq!(round(&sim).number, 2);
-    assert_eq!(fighter(&sim, "bot-1").kills, 0);
-    assert_eq!(fighter(&sim, "bot-1").rounds, 1);
+    assert_eq!(
+        round(&sim).over_until,
+        0.0,
+        "Mayhem ended with a duel's score"
+    );
+    assert_eq!(
+        sim.world().published("to_win").unwrap().as_number(),
+        Some(25.0)
+    );
+    let five_at = sim.world().seconds();
+    let saved = sim.save().unwrap();
+    let mut back = game(Options {
+        bots: 24,
+        ..Options::default()
+    });
+    back.restore_bound(&saved).unwrap();
+    for s in [&mut sim, &mut back] {
+        while round(s).over_until == 0.0 && s.world().seconds() < 180.0 {
+            s.run(100.0);
+        }
+        assert!(
+            !round(s).winner.is_empty(),
+            "Mayhem never reached its target"
+        );
+        let winner = round(s).winner;
+        assert_eq!(fighter(s, &winner).kills, 25);
+        assert_eq!(fighter(s, &winner).rounds, 1);
+        println!(
+            "Mayhem: five kills at {five_at:.1} s, winner {winner} at {:.1} s",
+            s.world().seconds()
+        );
+        s.run(4200.0);
+        assert_eq!(round(s).number, 2);
+        assert!(round(s).winner.is_empty());
+        assert_eq!(
+            s.world().published("to_win").unwrap().as_number(),
+            Some(25.0)
+        );
+        assert_eq!(fighter(s, &winner).rounds, 1);
+    }
+    assert!(sim.save().unwrap() == back.save().unwrap());
 }

@@ -131,7 +131,7 @@ component Rivals
               text "You" font-weight=700 color="#6cb6ff"
               text `${hud.kills}` testId="you-kills" font-size=28 font-weight=800
               column align-items="center" gap=2
-                text `First to ${hud.to_win}` font-size=12 color="#9aa4b2"
+                text `First to ${hud.to_win}` testId="score-target" font-size=12 color="#9aa4b2"
                 text `Round ${hud.round} · ${hud.you_rounds}–${hud.rival_rounds}` testId="rounds" font-size=12 color="#9aa4b2"
               text `${hud.rival_kills}` testId="rival-kills" font-size=28 font-weight=800
               text hud.rival font-weight=700 color="#ff8a8a"
@@ -186,7 +186,7 @@ component Rivals
       else
         column width="100%" height="100%" box-sizing="border-box" padding=24 align-items="center" justify-content="center" gap=22
           text "RIVALS" font-size=56 font-weight=900 letter-spacing=4
-          text "First to five kills takes the round" color="#9aa4b2"
+          text "First to 5 kills · Mayhem first to 25" color="#9aa4b2"
           column width="100%" max-width=360 align-items="center" gap=6
             text "Mouse or arrow keys look · WASD move" width="100%" text-align="center"
             text "Shift sprint · Space jump · C slide" width="100%" text-align="center"

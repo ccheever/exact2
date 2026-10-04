@@ -994,3 +994,54 @@ inspected. Web's process audit passes; native's optional scan is unavailable
 with owned carriers closed. Artifacts: `artifacts/main-e702-{web,macos}/`.
 Forest diary 005 records the shared checks and unavailable Lean oracle.
 No Rivals gameplay or Jev-policy change in this integration.
+
+## A Mayhem round lasts long enough to recover (2026-10-04)
+
+The maximum-roster playtests ended in 5.74/6.52 game seconds at five kills,
+a duel-sized target with 25 fighters trading shots. Mayhem now needs 25 kills;
+the smaller modes keep five. The target is derived from the existing roster
+argument, so saved arguments also retain the rule. The title and scoreboard
+name it, and Jev's observations now include that visible scoreboard label.
+No controller goals, actions, aim motor or decision limits changed.
+
+A new regression fails on the old code when the passive-player fight reaches
+five at 7.9 s. With the change, the same fight reaches 25 at 76.6 s. Saving
+after five, restoring, finishing and restarting produce identical bytes.
+The existing five-kill test now also plays the seven-bot free-for-all to its
+actual win and restart. All 28 game tests pass (four timing tests ignored),
+including the input-latency and movement tests; game determinism lint and
+formatting pass.
+
+One fresh Jev run per host:
+
+| Host | Decisions | Game seconds | Result | Deaths | Health | Decision p50 / p95 |
+|---|---:|---:|---|---:|---:|---|
+| Web | 45 | 21.85 | Win 25–10 | 4 | 80 | 327 / 461 ms |
+| macOS | 62 | 27.38 | Win 25–10 | 6 | 100 | 304 / 681 ms |
+
+Web makes 31 shooting choices, eleven respawn waits, two turns and one reload;
+macOS makes 33 shooting choices, 24 waits, four turns and one forward move.
+The longer target leaves room for repeated deaths and recovery rather than
+ending during the opening exchange. It does not by itself induce tactical
+movement. The pointer motor still lands every shot as a headshot (63/53), so
+these wins do not establish human difficulty, aiming skill or a success rate.
+The model still chooses what to do; precise aim comes from the authored motor.
+This pacing batch is closed without further tuning.
+
+Artifacts: `artifacts/jev-pacing-{web,macos}/`; both final captures were
+inspected and both process audits pass. Input/output tokens: 54,706/5,057 and
+73,568/6,240. Wall times including builds: 42.5/69.0 s. Model latency does not
+advance game time.
+
+The host proof also plays a complete Mayhem round using normal keys and the
+clock: save after five kills, reach the 25-kill win screen, restart into round
+two, then repeat from a fresh process. Exploratory web/macOS checks pass in
+92.2/63.6 s, agreeing on inputs, pins, ten world observations and fourteen
+saves. Both optional descendant scans are unavailable while all owned
+carriers close. The screenshots after five kills were inspected on both hosts.
+
+Before this work, merge `ec4375505` brings main `1544d8abb`'s development-bake
+and Apple relinking optimizations. The shared app-tool suite passes 82 tests
+(two optional integration skips). Root build, 2,348 enabled tests across
+81 binaries (nine ignored), Clippy, formatting and boot pass. Strict
+cross-mode acceptance and the other games' integration sweep follow.

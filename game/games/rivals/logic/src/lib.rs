@@ -1,5 +1,5 @@
-//! Rivals: a fast first-person arena duel against bots. First to five kills
-//! takes the round. Mouse (or arrow keys) looks, WASD moves, Shift sprints,
+//! Rivals: a fast first-person arena fight. Five kills wins; Mayhem needs 25.
+//! Mouse (or arrow keys) looks, WASD moves, Shift sprints,
 //! Space jumps, C slides; click or F fires; 1/2/3 pick rifle, rockets, knife.
 pub mod arena;
 pub mod bots;
@@ -34,6 +34,14 @@ pub struct Options {
 impl Options {
     pub fn bot_count(&self) -> u32 {
         self.bots.clamp(1, 24)
+    }
+    /// The maximum roster needs room for reloads and respawns before a win.
+    pub fn kills_to_win(&self) -> u32 {
+        if self.bot_count() == 24 {
+            25
+        } else {
+            5
+        }
     }
 }
 
@@ -421,7 +429,7 @@ pub fn tick(w: &mut World, input: &Input, args: &Options) {
     round::score(w, hits);
     round::respawn(w);
     if !args.range {
-        round::check_win(w);
+        round::check_win(w, args.kills_to_win());
     }
     for s in bots::snapshot(w) {
         let f = w.require::<Fighter>(s.entity).clone();
@@ -578,7 +586,7 @@ pub fn publish(w: &World, args: &Options, viewport: Vec2) {
         } else {
             format!("{} (leader)", rival.label)
         },
-        to_win: round::TO_WIN,
+        to_win: args.kills_to_win(),
         round: r.number,
         you_rounds: me.rounds,
         rival_rounds: w

@@ -147,6 +147,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   // Seven bots: on the web, the screenshot of a fight in progress.
   const f = await open({fresh:true});
   await f.tap('ffa');
+  check('the smaller free-for-all keeps its five-kill target', text(await f.tree(),'score-target') === 'First to 5');
   await f.world('world').key_down('KeyF');
   await f.world('world').run(2600);
   check('the free-for-all is a fight', (await f.world('world').snapshot()).entities.some(e => e.components?.Rocket || e.components?.Effect));
@@ -157,6 +158,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   // its busy fight must retain the same queries, bot decisions and respawns.
   const crowd = await open({fresh:true});
   await crowd.tap('mayhem');
+  check('Mayhem names its longer round target', text(await crowd.tree(),'score-target') === 'First to 25');
   const mayhem = crowd.world('world');
   const starters = (await mayhem.snapshot()).entities.filter(e => e.components?.Fighter);
   check('Mayhem starts twenty-five fighters without overlapping capsules', starters.length === 25 && starters.every((a, i) => starters.slice(i + 1).every(b => {
@@ -183,7 +185,46 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   check('fresh process continues Mayhem identically', JSON.stringify(await finishMayhem(crowdBack)) === JSON.stringify(crowdedEnd));
   await crowdBack.world('world').save(resolve(out, 'mayhem-restored.world'));
   check('Mayhem continuation saves are byte-identical', readFileSync(resolve(out, 'mayhem-continued.world')).equals(readFileSync(resolve(out, 'mayhem-restored.world'))));
+
+  // Five kills was previously the whole round. Keep playing past that point,
+  // and save there so a fresh process must use the same longer win condition.
+  const playing = crowdBack.world('world');
+  const highScore = tree => Math.max(Number(text(tree,'you-kills')), Number(text(tree,'rival-kills')));
+  let scores = await crowdBack.tree();
+  for (let i = 0; i < 60 && highScore(scores) < 5; i++) {
+    await playing.run(1000);
+    scores = await crowdBack.tree();
+  }
+  check('Mayhem stays live past five kills', highScore(scores) >= 5 && !node(scores,'round-over'));
+  await playing.save(resolve(out,'mayhem-five.world'));
+  const five = await playing.snapshot();
+  if (host !== 'linux') await crowdBack.screenshot(resolve(out,'mayhem-five.png'));
+  const finishRound = async session => {
+    const g = session.world('world');
+    let tree = await session.tree();
+    for (let i = 0; i < 180 && !node(tree,'round-over'); i++) {
+      await g.run(1000);
+      tree = await session.tree();
+    }
+    check('the full Mayhem round ends at twenty-five kills', !!node(tree,'round-over') && highScore(tree) === 25, highScore(tree));
+    if (host !== 'linux') await session.screenshot(resolve(out,'mayhem-winner.png'));
+    await g.run(4200);
+    tree = await session.tree();
+    check('the next round retains the Mayhem target', text(tree,'rounds')?.startsWith('Round 2 ·')
+      && text(tree,'score-target') === 'First to 25' && !node(tree,'round-over'));
+    return g.snapshot();
+  };
+  const nextRound = await finishRound(crowdBack);
+  await playing.save(resolve(out,'mayhem-round.world'));
+  pinSave('mayhem-round',resolve(out,'mayhem-round.world'));
   await crowdBack.close();
+  const roundBack = await open({fresh:true,world:resolve(out,'mayhem-five.world')});
+  await roundBack.tap('mayhem');
+  check('a fresh process restores the fight past five kills', JSON.stringify(await roundBack.world('world').snapshot()) === JSON.stringify(five));
+  check('the full round and restart continue identically', JSON.stringify(await finishRound(roundBack)) === JSON.stringify(nextRound));
+  await roundBack.world('world').save(resolve(out,'mayhem-round-restored.world'));
+  check('the longer round saves are byte-identical', readFileSync(resolve(out,'mayhem-round.world')).equals(readFileSync(resolve(out,'mayhem-round-restored.world'))));
+  await roundBack.close();
 
   const training = await open({fresh:true});
   await training.tap('range');
@@ -298,7 +339,7 @@ async function playtest({open, out, say}) {
   for (let turn = 0; turn < (duel ? 128 : 96); turn++) {
     const {tree, contacts} = await visible(s);
     if (node(tree, 'drill-done') || node(tree, 'round-over')) break;
-    const state = Object.fromEntries(['hp','ammo','weapon-name','you-kills','rival-kills','drill-clock','drill-score','drill-target','heading','incoming-direction']
+    const state = Object.fromEntries(['hp','ammo','weapon-name','you-kills','rival-kills','score-target','drill-clock','drill-score','drill-target','heading','incoming-direction']
       .map(id => [id, text(tree,id) ?? '']));
     const choices = {wait:'Wait half a second for a respawn, reload, or target to appear'};
     if (!node(tree, 'dead')) {
@@ -356,7 +397,7 @@ async function playtest({open, out, say}) {
   }
   const tree = await s.tree();
   const result = {mode, motor:'pointer', actions, score:text(tree,'drill-score'), done:!!node(tree,'drill-done') || !!node(tree,'round-over'), hp:text(tree,'hp'),
-    playerKills:text(tree,'you-kills'), rivalKills:text(tree,'rival-kills'), world:await game.snapshot()};
+    playerKills:text(tree,'you-kills'), rivalKills:text(tree,'rival-kills'), target:text(tree,'score-target'), world:await game.snapshot()};
   say(`JEV outcome: ${JSON.stringify({...result,world:undefined,actions:undefined})}`);
   writeFileSync(resolve(out, `jev-${mode}-outcome.json`), JSON.stringify(result,null,2));
   await s.screenshot(resolve(out, `jev-${mode}.png`));
