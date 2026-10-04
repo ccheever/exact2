@@ -1123,7 +1123,13 @@ impl Em<'_> {
         self.editor(i, element, &e)?;
         for (k, b) in row.bindings.iter().enumerate() {
             let b = plan.binding(b);
-            if style::literal(plan, plan.code(b.expr)).is_some() {
+            if let Some(v) = style::literal(plan, plan.code(b.expr)) {
+                // A literal source is built into pieces too, once: left as a
+                // constant it painted nothing (notes diary's link repro).
+                if markdown && b.kind == BindingKind::Prop && b.id == PropId::Text as u16 {
+                    let source = serde_json::to_string(v.as_str().unwrap_or_default()).unwrap();
+                    self.markdown(&e, &format!("()=>{source}"));
+                }
                 continue;
             }
             let f = self
