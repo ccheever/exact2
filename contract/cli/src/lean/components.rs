@@ -9,7 +9,7 @@
 //! (its first entries); a child's carry the types the checker gave the
 //! child standalone (`Types::components`, file order).
 
-use super::{list, load, read, string, ty, Emitter};
+use super::{list, load, read, string, strings_beside, ty, Emitter};
 use crate::CompileError;
 use contract_syntax::{Component, File, Node, TypeExpr};
 use contract_types::{Checked, ComponentTypes};
@@ -20,22 +20,27 @@ use std::path::Path;
 pub fn lean_components(src: &str, name: &str) -> Result<String, CompileError> {
     crate::compile(src)?;
     let file = contract_syntax::parse(src)?;
-    emit_file(&file, name)
+    emit_file(&file, name, None)
 }
 
 /// [`lean_components`] for a file, resolving its `use`s.
 pub fn lean_components_path(path: &Path, name: &str) -> Result<String, CompileError> {
     let src = read(path)?;
     crate::compile_path_source(path, &src)?;
-    emit_file(&load(path, &src)?, name)
+    emit_file(&load(path, &src)?, name, strings_beside(path)?)
 }
 
-fn emit_file(file: &File, name: &str) -> Result<String, CompileError> {
-    let checked = contract_types::check_all(file, false, contract_lower::tags::style, None)
+fn emit_file(
+    file: &File,
+    name: &str,
+    strings: Option<std::sync::Arc<contract_types::strings::Strings>>,
+) -> Result<String, CompileError> {
+    let checked = contract_types::check_all(file, false, contract_lower::tags::style, strings)
         .map_err(|mut all| CompileError::from(all.swap_remove(0)))?;
     let e = Emitter {
         out: String::new(),
         checked: &checked,
+        root: checked.expanded.root.clone(),
     };
     e.components(name)
 }
@@ -74,7 +79,9 @@ impl Emitter<'_> {
         }
         let _ = writeln!(o, "  components := [{}],", children.join(",\n    "));
         let _ = writeln!(o, "  routes := {},", self.routes_list());
-        let _ = writeln!(o, "  router := {}", self.router());
+        let _ = writeln!(o, "  router := {},", self.router());
+        let _ = writeln!(o, "  strings := {},", self.strings_list());
+        let _ = writeln!(o, "  locale := {}", self.locale());
         o.push_str("}\n");
         Ok(o)
     }

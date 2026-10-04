@@ -15,6 +15,8 @@ pub(crate) struct Writes<'a> {
     pub(crate) slots: &'a [(String, Ty)],
     /// Whether `send` statements may be written (the root's mutations).
     pub(crate) send: bool,
+    /// Whether `nav = verb(…)` may be written (the root's router slot).
+    pub(crate) nav: bool,
 }
 
 impl Gen<'_> {
@@ -33,6 +35,7 @@ impl Gen<'_> {
             out.push_str(&format!("{pad}{line}\n"));
         }
         let n = self.rng.range(usize::from(first.is_empty()), 4);
+        self.sent.clear();
         self.block(env.clone(), w, 2, indent, n, &mut out);
         out
     }
@@ -59,11 +62,12 @@ impl Gen<'_> {
             3,
             if depth > 0 { 2 } else { 0 },
             if depth > 0 { 2 } else { 0 },
-            if w.send && !self.mutations.is_empty() {
+            if w.send && self.mutations.iter().any(|m| !self.sent.contains(&m.name)) {
                 2
             } else {
                 0
             },
+            if w.nav { 3 } else { 0 },
         ];
         match self.rng.weighted(&weights) {
             0 => {
@@ -84,27 +88,41 @@ impl Gen<'_> {
             2 => {
                 let c = self.expr(env, &Ty::Bool, d, false);
                 out.push_str(&format!("{pad}if {c}\n"));
+                let before = self.sent.clone();
                 let n = self.rng.range(1, 2);
                 self.block(env.clone(), w, depth - 1, indent + 2, n, out);
+                let then = std::mem::replace(&mut self.sent, before);
                 if self.rng.chance(1, 2) {
                     out.push_str(&format!("{pad}else\n"));
                     let n = self.rng.range(1, 2);
                     self.block(env.clone(), w, depth - 1, indent + 2, n, out);
                 }
+                self.join_sent(then);
             }
             3 => {
                 let inner = self.held(env, true);
                 let subject = self.expr(env, &Ty::opt(inner.clone()), 1, false);
                 let v = self.fresh("v");
                 out.push_str(&format!("{pad}match {subject}\n{pad}  case some({v})\n"));
+                let before = self.sent.clone();
                 let n = self.rng.range(1, 2);
                 self.block(env.with(&v, inner), w, depth - 1, indent + 4, n, out);
+                let some = std::mem::replace(&mut self.sent, before);
                 out.push_str(&format!("{pad}  case none\n"));
                 let n = self.rng.range(1, 2);
                 self.block(env.clone(), w, depth - 1, indent + 4, n, out);
+                self.join_sent(some);
             }
+            5 => out.push_str(&self.nav_stmt(env, &pad)),
             _ => {
-                let m = self.rng.pick(&self.mutations).clone();
+                let open: Vec<_> = self
+                    .mutations
+                    .iter()
+                    .filter(|m| !self.sent.contains(&m.name))
+                    .cloned()
+                    .collect();
+                let m = self.rng.pick(&open).clone();
+                self.sent.push(m.name.clone());
                 let args: Vec<String> = m.args.iter().map(|t| self.expr(env, t, 1, true)).collect();
                 out.push_str(&format!(
                     "{pad}send {} = {}({})\n",
@@ -112,6 +130,15 @@ impl Gen<'_> {
                     m.source,
                     args.join(", ")
                 ));
+            }
+        }
+    }
+
+    /// After two exclusive arms: what either sent to.
+    fn join_sent(&mut self, other: Vec<String>) {
+        for m in other {
+            if !self.sent.contains(&m) {
+                self.sent.push(m);
             }
         }
     }

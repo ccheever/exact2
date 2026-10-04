@@ -133,7 +133,15 @@ fn first((expanded, mut errors): (Expanded, Vec<SyntaxError>)) -> Result<Expande
 /// a consequence the checker does not repeat. The expansion is complete only
 /// when no error is returned; `mapped` keeps source provenance.
 pub fn expand_all(file: &File, mapped: bool) -> (Expanded, Vec<SyntaxError>) {
-    expand_with_sites(file, mapped)
+    expand_with_sites(file, mapped, false)
+}
+
+/// [`expand_all`] with every typed prop's and inject's argument ascribed
+/// its declared type ([`Expr::Typed`]), so the expansion alone says what
+/// each use was checked against: what `contract lean` embeds, for the
+/// semantics' checker to judge. The plan compiler expands without it.
+pub fn expand_typed(file: &File) -> (Expanded, Vec<SyntaxError>) {
+    expand_with_sites(file, false, true)
 }
 
 /// The file's record constructors: every declared shape that is not also a
@@ -180,12 +188,21 @@ fn untyped_leaf(e: &Expr) -> bool {
     }
 }
 
+/// `action`: a prop that names an action, never a value.
+fn is_action(ty: &TypeExpr) -> bool {
+    matches!(ty, TypeExpr::Named(name, _) if name == "action")
+}
+
 /// The stand-in for a value a refused use could not supply.
 fn absent(span: crate::Span) -> Expr {
     Expr::Ident("?".into(), span)
 }
 
-fn expand_with_sites(file: &File, capture_sites: bool) -> (Expanded, Vec<SyntaxError>) {
+fn expand_with_sites(
+    file: &File,
+    capture_sites: bool,
+    typed_props: bool,
+) -> (Expanded, Vec<SyntaxError>) {
     let source = &file.components[0];
     // Expansion replaces the view; retain only the root declarations here.
     let mut root = Component {
@@ -231,6 +248,7 @@ fn expand_with_sites(file: &File, capture_sites: bool) -> (Expanded, Vec<SyntaxE
         extra_actions: Vec::new(),
         instance: 0,
         capture_sites,
+        typed_props,
         errors: Vec::new(),
         instances: if capture_sites {
             vec![Instance {
@@ -310,6 +328,8 @@ struct Ctx<'a> {
     /// The instantiation whose view is being inlined: 0 at the root.
     instance: u32,
     capture_sites: bool,
+    /// Ascribe every typed prop's and inject's argument (`expand_typed`).
+    typed_props: bool,
     /// Every instantiation so far, the root first (LLP 1035.005 D3).
     instances: Vec<Instance>,
     /// Uses that could not be expanded, in the order met.
@@ -386,7 +406,7 @@ fn inline_nodes(
                     // A `none` or `[]` in it is typed by the prop's declaration,
                     // not left `?` for the child's reads to trip on.
                     let value = match &p.ty {
-                        Some(ty) if untyped_leaf(&value) => {
+                        Some(ty) if untyped_leaf(&value) || (ctx.typed_props && !is_action(ty)) => {
                             let span = value.span();
                             Expr::Typed(Box::new(value), ty.clone(), span)
                         }
@@ -421,7 +441,13 @@ fn inline_nodes(
                         child_subst.insert(p.name.clone(), absent(*span));
                         continue;
                     };
-                    child_subst.insert(p.name.clone(), e.clone());
+                    let e = match &p.ty {
+                        Some(ty) if ctx.typed_props && !is_action(ty) => {
+                            Expr::Typed(Box::new(e.clone()), ty.clone(), e.span())
+                        }
+                        _ => e.clone(),
+                    };
+                    child_subst.insert(p.name.clone(), e);
                 }
                 // The child's own `state`, `derive`, and `action` (LLP 1017 P4c):
                 // renamed apart with this use's number and lifted into the

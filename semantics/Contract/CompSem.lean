@@ -84,10 +84,10 @@ def rootProgram (p : CProgram) : Program :=
   { shapes := p.shapes, fns := p.fns,
     states := (match p.router with
       | .some x => [{ name := x, ty := .record "Router", init := .none }]
-      | .none => []) ++ p.root.states,
+      | .none => []) ++ p.localeStates ++ p.root.states,
     derives := p.root.derives, resources := p.root.resources,
     mutations := p.root.mutations, actions := p.root.actions, tasks := p.root.tasks,
-    routes := p.routes, router := p.router }
+    routes := p.routes, router := p.router, strings := p.strings, locale := p.locale }
 
 /-- What an evaluation reads: the root's names (`Env` over `rootProgram`)
 and the instances' states. -/
@@ -561,6 +561,8 @@ structure CConfig where
   timers : List Timer
   poisoned : Bool := false
   commands : List (String × List Value) := []
+  /-- The `then`s armed, as `Contract.Config.armed`. -/
+  armed : List (String × F64) := []
   deriving Inhabited
 
 def CConfig.empty : CConfig :=
@@ -625,7 +627,8 @@ def crunAction (p : CProgram) (o : Oracle) (c : CConfig) (f : Frame) (name : Str
           match renderRoot p slots st c.now store with
           | .ok (view, live) =>
             ({ c with slots, settled := st, store := live, view,
-                      commands := c.commands ++ fx.commands }, .ok)
+                      commands := c.commands ++ fx.commands,
+                      armed := armThens rp c.armed fx.sends c.now }, .ok)
           | .error e =>
             ({ c with slots, settled := st, store, poisoned := true,
                       commands := c.commands ++ fx.commands }, .poisoned e)
@@ -641,7 +644,6 @@ def cboot (p : CProgram) (o : Oracle) : CConfig × Outcome :=
     match startTimers rp slots with
     | .error e => (empty, .refused e)
     | .ok timers =>
-      if rp.mutations.any (·.andThen.isSome) then (empty, .refused (.unsupported "`then`")) else
       match settle rp o slots 0 with
       | .error e => (empty, .refused e)
       | .ok st =>
@@ -682,19 +684,29 @@ def cadvance (p : CProgram) (o : Oracle) (c : CConfig) (t : F64) : CConfig × Ou
         | .none => Option.some (tm, i)
         | .some (b, j) => if tm.next < b.next then Option.some (tm, i) else Option.some (b, j)
       else best) Option.none
+  let pick (c : CConfig) : Option (String × F64 × String) :=
+    match dueThen (rootProgram p) c.armed t, due c with
+    | .some (m, w, a), .some (tm, _) => if w ≤ tm.next then Option.some (m, w, a) else Option.none
+    | th, _ => th
   let finish (c : CConfig) : CConfig × Outcome := ({ c with now := if t > c.now then t else c.now }, .ok)
   let rec go : Nat → CConfig → CConfig × Outcome
     | 0, c =>
-      match due c with
-      | .none => finish c
-      | .some _ => (c, .refused (.refused "too many timer fires"))
+      match pick c, due c with
+      | .none, .none => finish c
+      | _, _ => (c, .refused (.refused "too many timer fires"))
     | n + 1, c =>
       if c.poisoned then (c, .refused (.refused "poisoned")) else
+      match pick c with
+      | .some (m, w, a) =>
+        let c := { c with armed := c.armed.filter (·.1 != m), now := if c.now < w then w else c.now }
+        match crunAction p o c .root a [] with
+        | (c, .ok) => go n c
+        | (c, out) => (c, out)
+      | .none =>
       match due c with
       | .none => finish c
       | .some (tm, i) =>
-        let next := if tm.once then F64.posInf else tm.next + tm.interval
-        let timers := c.timers.set i { tm with next }
+        let timers := c.timers.set i tm.fired
         let c := { c with timers, now := tm.next }
         match crunAction p o c .root tm.action [] with
         | (c, .ok) => go n c
@@ -712,7 +724,8 @@ partial def CVNode.toVNode (n : CVNode) : VNode :=
 derives and resources, the commands, the view. -/
 def CConfig.toConfig (c : CConfig) : Config :=
   { slots := c.slots, settled := c.settled, store := [], view := c.view.map CVNode.toVNode,
-    now := c.now, timers := c.timers, poisoned := c.poisoned, commands := c.commands }
+    now := c.now, timers := c.timers, poisoned := c.poisoned, commands := c.commands,
+    armed := c.armed }
 
 def cstep (p : CProgram) (o : Oracle) (c : CConfig) : Observe.Event → CConfig × Outcome
   | .tap t => cdispatch p o c t "press" .none

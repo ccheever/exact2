@@ -9,12 +9,18 @@
 //! buttons (and ids that are missing or inert), types into inputs and
 //! advances the clock.
 //!
+//! Some programs also declare a `routes` table and navigate it (verbs,
+//! `path(…)` and the router's reads, [`nav`]), give the mutation a `then`,
+//! run a frame task (`every(frame, a)`), or print with the `format*`
+//! entries.
+//!
 //! Expressions are typed by construction ([`expr`]); what the checker
 //! refuses that the generator otherwise would write is avoided at the
 //! source and noted where it is.
 
 mod action;
 mod expr;
+mod nav;
 mod root;
 mod ty;
 mod view;
@@ -145,6 +151,17 @@ pub(crate) struct Gen<'s> {
     pub(crate) targets: Targets,
     /// Child uses so far.
     pub(crate) uses: u64,
+    /// Whether this program declares `routes nav` (its router slot `nav`).
+    pub(crate) routes: bool,
+    /// Whether this program's strings may use `formatTime`, `formatDate`
+    /// and `formatNumber`.
+    pub(crate) formats: bool,
+    /// The root action the mutation's `then` names.
+    pub(crate) then: Option<usize>,
+    /// The mutations the action body being written has sent to on the
+    /// path so far: a second send on one path is refused
+    /// (`analyze-send-twice`).
+    pub(crate) sent: Vec<String>,
     next: usize,
 }
 
@@ -164,6 +181,10 @@ impl<'s> Gen<'s> {
             children: Vec::new(),
             targets: Targets::default(),
             uses: 0,
+            routes: false,
+            formats: false,
+            then: None,
+            sent: Vec::new(),
             next: 0,
         }
     }
@@ -190,8 +211,16 @@ impl<'s> Gen<'s> {
 
     fn program(&mut self) -> String {
         let mut out = String::new();
+        // Each feature in about one program in five, so most cases stay
+        // with what every other part of the generator exercises.
+        self.routes = self.rng.chance(1, 5);
+        self.formats = self.rng.chance(1, 5);
         self.gen_shapes(&mut out);
         self.gen_fns(&mut out);
+        if self.routes {
+            out.push_str(nav::TABLE);
+            out.push('\n');
+        }
         let root = self.root_decls();
         // The first component is the root, so the children follow it.
         let mut children = String::new();

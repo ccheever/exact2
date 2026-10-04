@@ -76,7 +76,18 @@ structure CProgram where
   components : List CComponent := []
   routes : List RouteDecl := []
   router : Option String := .none
+  /-- The strings tables and the resolved locale's slot (`Program.strings`,
+  `Program.locale`). -/
+  strings : List (String × List (String × String)) := []
+  locale : Option String := .none
   deriving Repr, Inhabited
+
+/-- The resolved locale's slot, as `contract lean` writes it: a root state
+of the base locale (the first table's), after the router's. -/
+def CProgram.localeStates (p : CProgram) : List StateDecl :=
+  match p.locale with
+  | .some x => [{ name := x, ty := .string, init := .str ((p.strings.head?.map (·.1)).getD "") }]
+  | .none => []
 
 def CProgram.component? (p : CProgram) (name : String) : Option CComponent :=
   p.components.find? (·.name == name)
