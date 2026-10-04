@@ -23,7 +23,7 @@ fn main() {
     let app_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
     let target = std::env::var("TARGET").unwrap_or_default();
     let platform = match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
-        // tvOS bakes as iOS (the tvOS proof of concept reuses the iOS manifest section).
+        // tvOS bakes as iOS: it reuses the manifest's iOS section.
         Ok("ios" | "tvos") => "ios",
         _ => "macos",
     };

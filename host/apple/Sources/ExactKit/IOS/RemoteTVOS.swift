@@ -1,4 +1,4 @@
-// The Siri Remote on tvOS (branch proof of concept). UIKit's focus engine
+// The Siri Remote on tvOS (LLP 1008 §9). UIKit's focus engine
 // moves the focus among exact2's nodes — what a keyboard can focus, and any
 // enabled press target — and reports each move as focus and blur. Select
 // presses the focused node. Menu presses the active route's Back control

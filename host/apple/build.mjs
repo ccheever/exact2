@@ -6,7 +6,7 @@
 //   bun host/apple/build.mjs [crate] --test                                  the Swift host tests
 //   bun host/apple/build.mjs [crate] --test --ios [--sim <udid|name>]        the UIKit ones (*IOSTests) on a simulator
 //   bun host/apple/build.mjs --ios [crate] [--run] [--sim <udid|name>]        iOS, on a simulator
-//   bun host/apple/build.mjs --tvos [crate] [--run] [--sim <udid|name>]       tvOS, on an Apple TV simulator (proof of concept)
+//   bun host/apple/build.mjs --tvos [crate] [--run] [--sim <udid|name>]       tvOS, on an Apple TV simulator
 //   bun host/apple/build.mjs --device [crate] [--run] [--phone <udid|name>]   iOS, on a phone
 //   bun host/apple/build.mjs --device [crate] --archive <out.ipa>            iOS, an .ipa to distribute
 //   bun host/apple/build.mjs --device [crate] --archive <out.ipa> --unsigned an .ipa a service re-signs
@@ -350,7 +350,7 @@ function wrapFramework(frameworks, loose, name, app) {
 /** The iOS `Info.plist` from the manifest (LLP 1030 D2: one declaration; `build.mjs` consumes what it generates). The dev client's local-networking permission is `host.ios.localNetworking` (a string: the prompt); the store-required version numbers are counters bake owns, not authored. */
 export const infoPlist = (app, device = false, { executable = 'ExactIOS', id = app.id, name = app.displayName, development = null, icon = {}, distribution = null, reach = null, tv = false } = {}) => {
   const ios = app.manifest.host?.ios ?? {};
-  // tvOS (proof of concept) reuses the manifest's iOS section; Apple TV is device family 3.
+  // tvOS reuses the manifest's iOS section; Apple TV is device family 3.
   const families = tv ? [3] : (ios.deviceFamily ?? ['iphone', 'ipad']).map((f) => (f === 'ipad' ? 2 : 1));
   const dict = {
     CFBundleExecutable: executable,
@@ -680,11 +680,15 @@ function main(args) {
   try { launchEnv = developmentLaunchEnvironment(args); }
   catch (e) { console.error(e.message); process.exitCode = 1; return; }
   const device = args.includes('--device');
-  // tvOS runs the iOS simulator path with tvOS's target, SDK and plist (proof of concept).
+  // tvOS runs the iOS simulator path with tvOS's target, SDK and plist.
   const tv = args.includes('--tvos');
   const ios = device || tv || args.includes('--ios');
   if (tv && (device || args.includes('--archive') || args.includes('--host') || args.includes('--embed'))) {
     console.error('--tvos builds for an Apple TV simulator only; it takes none of --device, --archive, --host, --embed');
+    process.exitCode = 1; return;
+  }
+  if (tv && !read('rustup', ['target', 'list', '--installed'], { cwd: root }).stdout?.split('\n').includes(tvosTarget)) {
+    console.error(`--tvos needs Rust's ${tvosTarget} std, which this toolchain lacks. Install it with \`rustup target add ${tvosTarget}\``);
     process.exitCode = 1; return;
   }
   const ipa = args.includes('--archive') ? resolve(process.cwd(), args[args.indexOf('--archive') + 1] ?? '') : null;
@@ -1153,7 +1157,7 @@ function main(args) {
   // with the module before a surface is created, never strings in the dylib.
   copyAppleStaticTrees(paths.capture, bundle);
   verifyBakeFiles(bakedCompat, bakedPlan, listAssets(bundle, true));
-  // tvOS icons are layered brand assets, which actool's iPhone/iPad icon set does not make; the proof of concept has none.
+  // tvOS icons are layered brand assets, which actool's iPhone/iPad icon set does not make; tvOS builds have none yet.
   writeFileSync(resolve(bundle, 'Info.plist'), infoPlist(app, device, { development, reach: bakedCompat.reach, icon: tv ? {} : iosAssets(app, bundle, device, { catalog: !!ipa }), distribution: ipa ? distributionKeys() : null, tv }));
   writeUsageStrings(bakedCompat.reach, bundle);
   if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', loadName));
