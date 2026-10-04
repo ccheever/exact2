@@ -2,7 +2,8 @@ import { admitsSecret, createRequestExecutor, fetchHostAsset, sameGrantDeclarati
 import { rustGrantSet, tsGrantSet } from './admission-data.js';
 import { boundedHttpBody } from './http-body.js';
 // A Rust data module on the JS runtime (LLP 1029.000's seam, ABI 3,
-// `logic/abi/src/lib.rs`): the app's importless module wasm and its plan,
+// `logic/abi/src/lib.rs`): the app's importless module wasm and its plan's
+// declarations (`app.bind.plan`, the plan without the bake's answers),
 // fetched after first pixel; once bound and activated, every answer is a
 // synchronous call, as the runner's `DataSource::answer` is. Until then the
 // runtime keeps each resource's compiled value and asks again at `ready`.
@@ -65,7 +66,7 @@ function reader(b) {
 }
 
 export async function install(data, sources, load = p => fetchHostAsset(p).then(r => r.arrayBuffer())) {
-  const [wasm, plan] = await Promise.all([load('./rust/wasm/app.module.wasm'), load('./app.plan')]);
+  const [wasm, plan] = await Promise.all([load('./rust/wasm/app.module.wasm'), load('./app.bind.plan')]);
   // Bytes, or a module a renderer compiled once for every render.
   const made = await WebAssembly.instantiate(wasm, {}), instance = made.instance ?? made;
   const e = instance.exports;

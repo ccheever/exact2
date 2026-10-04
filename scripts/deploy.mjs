@@ -1088,7 +1088,9 @@ export async function publishStream({ origin, row, bundle, compat, app, signer, 
  * no dot path but the allowlist's, so never its `.gen`). */
 function webRootFiles(web) {
   const names = new Set(listPublicFiles(web));
-  if (!existsSync(resolve(web, 'app.wasm'))) for (const name of listBuildFiles(web)) names.add(name);
+  // A JS-target build publishes its whole tree, less a development source map:
+  // it names the app's source files, and publication omits it (README, maps).
+  if (!existsSync(resolve(web, 'app.wasm'))) for (const name of listBuildFiles(web)) if (!name.endsWith('.plan.map.json')) names.add(name);
   return [...names].sort();
 }
 

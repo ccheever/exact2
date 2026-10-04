@@ -4,7 +4,7 @@
 // `haptic()` plays (D14). The iOS-only ones (scroll edge, pointer hover,
 // Smart Invert, numerals that roll) are `IOS/AffordancesIOS.swift`.
 import ObjectiveC
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 typealias SymbolImage = UIImage
 typealias SymbolConfig = UIImage.SymbolConfiguration
@@ -44,7 +44,7 @@ extension NodeView {
     /// when it has one.
     func symbolImage(_ name: String, _ config: SymbolConfig) -> SymbolImage? {
         let value = number("symbol_value", -1)
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         if value >= 0 { return UIImage(systemName: name, variableValue: Double(value), configuration: config) }
         return UIImage(systemName: name, withConfiguration: config)
         #else
@@ -77,8 +77,8 @@ extension NodeView {
             case "pulse": leaf.addSymbolEffect(.pulse)
             case "variable-color": leaf.addSymbolEffect(.variableColor.iterative)
             case "scale": leaf.addSymbolEffect(.scale.up)
-            case "breathe": if #available(iOS 18.0, macOS 15.0, *) { leaf.addSymbolEffect(.breathe) }
-            case "rotate": if #available(iOS 18.0, macOS 15.0, *) { leaf.addSymbolEffect(.rotate) }
+            case "breathe": if #available(iOS 18.0, macOS 15.0, tvOS 18.0, *) { leaf.addSymbolEffect(.breathe) }
+            case "rotate": if #available(iOS 18.0, macOS 15.0, tvOS 18.0, *) { leaf.addSymbolEffect(.rotate) }
             default: break
             }
         }
@@ -87,7 +87,7 @@ extension NodeView {
         guard state.value != nil, value != state.value else { return }
         switch effect {
         case "bounce": leaf.addSymbolEffect(.bounce, options: .nonRepeating)
-        case "wiggle": if #available(iOS 18.0, macOS 15.0, *) { leaf.addSymbolEffect(.wiggle, options: .nonRepeating) }
+        case "wiggle": if #available(iOS 18.0, macOS 15.0, tvOS 18.0, *) { leaf.addSymbolEffect(.wiggle, options: .nonRepeating) }
         default: break
         }
     }
@@ -99,7 +99,7 @@ extension NodeView {
     }
 }
 
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 typealias SymbolLeaf = UIImageView
 #else
 typealias SymbolLeaf = NSImageView
@@ -124,7 +124,9 @@ final class SymbolEffectState {
 /// Force Touch trackpad.
 enum Haptics {
     static func play(_ kind: String) {
-        #if os(iOS)
+        #if os(tvOS)
+        // tvOS has no haptics.
+        #elseif os(iOS)
         switch kind {
         case "selection": UISelectionFeedbackGenerator().selectionChanged()
         case "success": UINotificationFeedbackGenerator().notificationOccurred(.success)

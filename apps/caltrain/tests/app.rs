@@ -54,11 +54,13 @@ fn the_app_compiles_deterministically_and_bakes_its_first_frame() {
     // iframe fixture, @ref LLP 1020 M1); and `nav`, the routes table's
     // location (LLP 1038 D2), there for `render=build` (LLP 1048.003 D5).
     assert_eq!(a.slots.len(), 16);
-    // Seven data-crate resources, and `delivery` — the runner's own
-    // `exactDelivery` (LLP 1030 D7), read by the update banner.
-    assert_eq!(a.resources.len(), 8);
-    // …and `activateUpdate`, the banner's `deliveryActivate`.
-    assert_eq!(a.actions.len(), 18);
+    // Seven data-crate resources, `delivery` — the runner's own
+    // `exactDelivery` (LLP 1030 D7), read by the update banner — and
+    // `viewport`, whose `pointer` says a TV.
+    assert_eq!(a.resources.len(), 9);
+    // …and `activateUpdate`, the banner's `deliveryActivate`, and
+    // `reloadApp`, the header's Reload.
+    assert_eq!(a.actions.len(), 19);
     assert_eq!(a.timers.len(), 1);
     assert!(
         a.resources.iter().all(|r| r.initial.len == 0),
@@ -336,7 +338,7 @@ fn hover_focus_and_keys_reach_their_actions() {
     let search = view_of(&r, "station-search");
     assert!(r.kernel().find_by_test_id("search-hint").is_empty());
     r.dispatch(search, Event::Focus).unwrap();
-    r.dispatch(search, Event::Key("Enter".into())).unwrap();
+    r.dispatch(search, Event::key("Enter")).unwrap();
     assert_eq!(
         text_of(&r, "search-hint").as_deref(),
         Some("searching · last key Enter")

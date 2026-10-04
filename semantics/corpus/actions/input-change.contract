@@ -1,0 +1,40 @@
+// An input's change event carries its text as the action's last argument,
+// after any curried ones.
+component App
+  state first = ""
+  state last = ""
+  state field = ""
+  state edits = 0
+  derive full = trim(`${first} ${last}`)
+  action setFirst(v: string)
+    first = v
+    edits = edits + 1
+  action setNamed(name: string, v: string)
+    field = name
+    last = v
+    edits = edits + 1
+  view
+    column
+      input value=first change=setFirst testId="first"
+      input value=last change=setNamed("last") testId="last"
+      text full testId="full"
+      text `${field} ${edits}` testId="meta"
+
+test "typing"
+  type "first" "Ada"
+  expect text "full" == "Ada"
+  type "last" "Lovelace"
+  expect text "full" == "Ada Lovelace"
+  expect text "meta" == "last 2"
+
+test "retype replaces"
+  type "first" "A"
+  type "first" "Al"
+  type "first" ""
+  expect state first == ""
+  expect state edits == 3
+  expect text "full" == ""
+
+test "tap an input does nothing"
+  tap "first"
+  expect state edits == 0

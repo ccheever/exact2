@@ -33,14 +33,16 @@ import { accessSync, chmodSync, constants, existsSync, mkdirSync, mkdtempSync, r
 import { homedir, tmpdir } from 'node:os';
 import { createHash } from 'node:crypto';
 import { BINARYEN } from '../host/web/stages.mjs';
-import { resolve } from 'node:path';
+import { delimiter, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
 import { createApp } from '../game/new.mjs';
-import { appleArtifacts, assertAppleIdentity, macReleaseEntitlements } from '../host/apple/build.mjs';
+import { appleArtifacts, assertAppleIdentity, macReleaseEntitlements, stripForDistribution } from '../host/apple/build.mjs';
 import { closeFilesystemReader } from './filesystem.mjs';
 import { builtAppMatches, jsTargetBuild } from '../host/web/serve.mjs';
+import { chromium } from './agent-launch.mjs';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const APPLICATIONS = resolve(homedir(), 'Applications');
 
 /** The app's assembled bundle in this repo — `host/apple/build.mjs --bundle`'s one stable output. */
@@ -69,8 +71,8 @@ function refuseForeignBundle(app, bundle) {
 }
 
 /** Build the app's macOS bundle. Cargo and SwiftPM decide what is stale; this always asks them. */
-function build(app, { quiet = false } = {}) {
-  const r = spawnSync(process.execPath, [resolve(ROOT, 'host/apple/build.mjs'), app.crate('apple'), '--bundle'], {
+function build(app, { quiet = false, distribution = false } = {}) {
+  const r = spawnSync(process.execPath, [resolve(ROOT, 'host/apple/build.mjs'), app.crate('apple'), '--bundle', ...(distribution ? ['--distribution'] : [])], {
     cwd: ROOT,
     stdio: quiet ? ['inherit', 'ignore', 'inherit'] : 'inherit',
     env: { EXACT_UPDATE_TRUST: 'development', ...process.env },
@@ -214,12 +216,16 @@ function release(app) {
   EXACT_DEVELOPER_ID=<sha1> names one explicitly.`);
   }
   const profile = process.env.EXACT_NOTARY_PROFILE ?? 'exact-notary';
-  const bundle = build(app);
+  // The whole-module Swift host and the receipt a shipped bundle carries (host/apple/build.mjs).
+  const bundle = build(app, { distribution: true });
   const out = resolve(app.target, 'dist', app.name);
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
   const staged = resolve(out, `${app.displayName}.app`);
   sh('/usr/bin/ditto', [bundle, staged]);
+  // What ships carries no local symbols; they stay here as a dSYM (before signing: stripping changes the bytes signed).
+  const symbols = stripForDistribution(resolve(staged, 'Contents/MacOS/ExactMac'), resolve(out, `${app.displayName}.dSYM`));
+  console.log(`symbols: ${symbols.dsym} (${(symbols.saved / 1048576).toFixed(1)} MB off the executable)`);
 
   // Sign inside out, with the hardened runtime and a timestamp. Both are
   // notarisation's requirements, not preferences: a build without them is
@@ -311,6 +317,14 @@ export function binaryenVersion(output) {
   return /^wasm-opt (version \d+)(?: \([^)]*\))?$/.exec(output.trim())?.[1] ?? output.trim();
 }
 
+export function binaryenArchive(version, os = process.platform, cpu = process.arch) {
+  const platform = {darwin:'macos',linux:'linux',win32:'windows'}[os];
+  const arch = cpu === 'x64' ? 'x86_64' : cpu === 'arm64' && os !== 'win32'
+    ? (os === 'linux' ? 'aarch64' : 'arm64') : null;
+  if (!platform || !arch) throw new Error(`no Binaryen setup for ${os}/${cpu}`);
+  return `binaryen-${version}-${arch}-${platform}.tar.gz`;
+}
+
 /** Install the versions declared by the SDK, once per machine. */
 export function setup({check = false} = {}) {
   const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain;
@@ -326,19 +340,17 @@ export function setup({check = false} = {}) {
     const result = spawnSync(cmd, args, {cwd: ROOT, encoding: 'utf8'});
     return result.status === 0 ? result.stdout.trim() : '';
   };
-  if (!output('rustup', ['--version'])) throw new Error('install rustup from https://rustup.rs, then rerun exact setup');
+  if (!check && !output('rustup', ['--version'])) throw new Error('install rustup from https://rustup.rs, then rerun exact setup');
   if (!check) {
     run('rustup', ['toolchain', 'install', pin.channel, '--profile', pin.profile,
       ...pin.components.flatMap(c => ['--component', c]), ...pin.targets.flatMap(t => ['--target', t])]);
-    run('rustup', ['toolchain', 'install', WEB_TOOLCHAIN, '--profile', 'minimal', '--component', 'rust-src']);
+    // The nightly builds the web's wasm: with -Zbuild-std from rust-src for size, and without it (a --wasm dev build) from its own wasm32 std.
+    run('rustup', ['toolchain', 'install', WEB_TOOLCHAIN, '--profile', 'minimal', '--component', 'rust-src', '--target', 'wasm32-unknown-unknown']);
     webToolchainEnv(process.env); // Fetch the nightly standard library's locked sources too.
     if (output('wasm-bindgen', ['--version']) !== `wasm-bindgen ${bindgen}`)
       run('cargo', [`+${pin.channel}`, 'install', 'wasm-bindgen-cli', '--version', bindgen, '--locked', '--force']);
     if (binaryenVersion(output('wasm-opt', ['--version'])) !== BINARYEN) {
-      const platform = {darwin: 'macos', linux: 'linux'}[process.platform];
-      const arch = process.arch === 'arm64' ? (platform === 'linux' ? 'aarch64' : 'arm64') : process.arch === 'x64' ? 'x86_64' : null;
-      if (!platform || !arch) throw new Error(`no Binaryen setup for ${process.platform}/${process.arch}`);
-      const name = `binaryen-${version}-${arch}-${platform}.tar.gz`;
+      const name = binaryenArchive(version);
       const url = `https://github.com/WebAssembly/binaryen/releases/download/${version}/${name}`;
       const stage = mkdtempSync(resolve(tmpdir(), 'exact-binaryen-'));
       try {
@@ -349,23 +361,116 @@ export function setup({check = false} = {}) {
         if (createHash('sha256').update(readFileSync(archive)).digest('hex') !== expected) throw new Error('Binaryen checksum mismatch');
         mkdirSync(binaryen, {recursive: true});
         run('tar', ['-xzf', archive, '--strip-components=1', '-C', binaryen]);
-        process.env.PATH = `${resolve(binaryen, 'bin')}:${process.env.PATH ?? ''}`;
+        process.env.PATH = `${resolve(binaryen, 'bin')}${delimiter}${process.env.PATH ?? ''}`;
       } finally { rmSync(stage, {recursive: true, force: true}); }
     }
     run(process.execPath, ['install', '--frozen-lockfile']);
   }
-  const rows = [
-    ['Bun', process.versions.bun, JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).packageManager.slice(4)],
-    ['Rust', output('rustc', [`+${pin.channel}`, '--version']).split(' ')[1], pin.channel],
-    ['wasm-bindgen', output('wasm-bindgen', ['--version']), `wasm-bindgen ${bindgen}`],
-    ['wasm-opt', binaryenVersion(output('wasm-opt', ['--version'])), BINARYEN],
-  ];
-  for (const [name, have, want] of rows) console.log(`${name}: ${have || 'missing'} (SDK ${want})`);
-  const nightlyRoot = output('rustc', [`+${WEB_TOOLCHAIN}`, '--print', 'sysroot']);
-  if (!nightlyRoot || !existsSync(resolve(nightlyRoot, 'lib/rustlib/src/rust/library/Cargo.toml')))
-    throw new Error(`${WEB_TOOLCHAIN} or rust-src missing; run exact setup`);
-  if (rows.some(([, have, want]) => have !== want)) throw new Error('SDK tools differ; use the pinned Bun and run exact setup');
+  const report = sdkReport();
+  printReport(report);
+  const missing = report.filter(row => row.required && !row.ok);
+  if (missing.length) throw new Error(`${missing.map(row => row.name).join(', ')} ${missing.length === 1 ? 'is' : 'are'} missing or differ; run exact setup (it installs what it can and names the rest)`);
   console.log('SDK tools ready. Build scripts select the pinned stable/nightly without changing rustup default.');
+}
+
+/** Every prerequisite at once (LLP 1086 D6): what is installed, what the SDK
+ * pins, and, for what only some apps need, which ones. A row is `required`
+ * when no app here builds without it. */
+export function sdkReport(env = process.env) {
+  const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain;
+  const bindgen = Bun.TOML.parse(readFileSync(resolve(ROOT, 'game/Cargo.toml'), 'utf8')).workspace.dependencies['wasm-bindgen'].replace(/^=/, '');
+  const output = (cmd, args) => {
+    const result = spawnSync(cmd, args, {cwd: ROOT, encoding: 'utf8', env});
+    return result.status === 0 ? result.stdout.trim() : '';
+  };
+  const row = (name, have, want, ok, fix, need = null) => ({name, have: have || 'missing', want, ok, fix, required: !need, need});
+  const rows = [];
+  const rustup = output('rustup', ['--version']);
+  rows.push(row('rustup', rustup.split(' ')[1], 'any', !!rustup, 'install rustup from https://rustup.rs'));
+  const rust = output('rustc', [`+${pin.channel}`, '--version']).split(' ')[1];
+  rows.push(row('Rust', rust, pin.channel, rust === pin.channel, 'exact setup'));
+  const nightlyRoot = output('rustc', [`+${WEB_TOOLCHAIN}`, '--print', 'sysroot']);
+  const nightly = !!nightlyRoot && existsSync(resolve(nightlyRoot, 'lib/rustlib/src/rust/library/Cargo.toml'));
+  rows.push(row('web nightly', nightlyRoot ? (nightly ? WEB_TOOLCHAIN : 'no rust-src') : '', `${WEB_TOOLCHAIN} + rust-src`, nightly, 'exact setup'));
+  // An app's web build makes its own std (-Zbuild-std); a GPU module's and a --wasm dev build use the prebuilt one.
+  const nightlyWasm = !!nightlyRoot && existsSync(resolve(nightlyRoot, 'lib/rustlib/wasm32-unknown-unknown'));
+  rows.push(row('web nightly wasm32', nightlyWasm ? 'installed' : '', `${WEB_TOOLCHAIN} wasm32-unknown-unknown`, nightlyWasm, 'exact setup', 'GPU modules and --wasm builds'));
+  const bun = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).packageManager.slice(4);
+  rows.push(row('Bun', process.versions.bun, bun, process.versions.bun === bun, `use Bun ${bun} (README, Quick start)`));
+  const bindgenHave = output('wasm-bindgen', ['--version']);
+  rows.push(row('wasm-bindgen', bindgenHave, `wasm-bindgen ${bindgen}`, bindgenHave === `wasm-bindgen ${bindgen}`, 'exact setup'));
+  const opt = binaryenVersion(output('wasm-opt', ['--version']));
+  rows.push(row('wasm-opt', opt, BINARYEN, opt === BINARYEN, 'exact setup'));
+  const modules = existsSync(resolve(ROOT, 'node_modules/.bin/rolldown'));
+  rows.push(row('node_modules', modules ? 'installed' : '', 'bun.lock', modules, `bun install --frozen-lockfile in ${ROOT}`));
+  const browser = chromium(env);
+  rows.push(row('Chrome', browser.unavailable ? '' : browser.executable, 'any', !browser.unavailable, 'install Google Chrome, or set CHROME'));
+  if (process.platform === 'darwin') {
+    const developer = output('xcode-select', ['-p']);
+    const xcode = /\.app\/Contents\/Developer$/.test(developer);
+    rows.push(row('Xcode', developer, 'Xcode.app', xcode, 'install Xcode, then sudo xcode-select -s /Applications/Xcode.app', 'macOS and iOS'));
+  }
+  const hermes = hermesSources(env);
+  rows.push(row('hermesc', hermes.hermesc, 'facebook/hermes pin', hermes.hermescOk, hermes.fix, 'TypeScript apps on native hosts; the web needs none'));
+  if (process.platform === 'darwin') rows.push(row('Hermes engine', hermes.engine, 'facebook/hermes pin', hermes.engineOk, hermes.fix, 'TypeScript on macOS (iOS builds its own)'));
+  return rows;
+}
+
+/** Where js/build.rs will look for Hermes, in its order: a named path; the
+ * machine cache, only with no sibling ibex at all; the sibling ibex. */
+export function hermesSources(env = process.env) {
+  const ibex = resolve(ROOT, '../ibex'), cache = resolve(env.HOME ?? homedir(), '.cache/exact/hermes-macos');
+  const fromCache = process.platform === 'darwin' && !env.EXACT_HERMES_DIR && !existsSync(ibex) && existsSync(resolve(cache, 'engine'));
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
+  const hermesc = env.EXACT_HERMESC ? resolve(env.EXACT_HERMESC)
+    : process.platform === 'linux' ? resolve(ibex, `tools/hermes-vanilla/hermesc-linux-${arch}`)
+    : fromCache ? resolve(cache, 'hermesc') : resolve(ibex, `tools/hermes-vanilla/hermesc-macos-${arch}`);
+  const engine = env.EXACT_HERMES_DIR ? resolve(env.EXACT_HERMES_DIR) : fromCache ? resolve(cache, 'engine') : resolve(ibex, 'ios/Frameworks-vanilla');
+  const receipt = !fromCache || (() => { try { return readFileSync(resolve(cache, 'engine/hermes-input-receipt.json'), 'utf8').includes('"sourceCommit"'); } catch { return false; } })();
+  return {
+    hermesc: existsSync(hermesc) ? hermesc : '', hermescOk: existsSync(hermesc),
+    engine: existsSync(engine) ? engine : '', engineOk: existsSync(engine) && receipt,
+    fix: `git clone https://github.com/expo/ibex ${ibex} && (cd ${ibex} && ./scripts/build-hermes.sh --vanilla)`,
+  };
+}
+
+/** The table, then one line per thing to do. */
+export function printReport(rows, {onlyMissing = false} = {}) {
+  const shown = onlyMissing ? rows.filter(row => !row.ok) : rows;
+  for (const row of shown) {
+    const mark = row.ok ? 'ok     ' : row.required ? 'MISSING' : 'needed ';
+    console.log(`${mark} ${row.name}: ${row.have} (SDK ${row.want})${row.need ? ` — for ${row.need}` : ''}${row.ok ? '' : `\n          ${row.fix}`}`);
+  }
+}
+
+/** `exact contract …` — this checkout's compiler, from anywhere (LLP 1086 D4).
+ * Debug, as the guides use it; the pinned toolchain whatever rustup would pick
+ * from the caller's directory; exact2's own target/, never an inherited one
+ * (an app's, or another checkout's). */
+export function contract(args, env = process.env) {
+  const pin = Bun.TOML.parse(readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8')).toolchain.channel;
+  const clean = {...env};
+  delete clean.RUSTUP_TOOLCHAIN;
+  delete clean.CARGO_TARGET_DIR;
+  const result = spawnSync('cargo', [`+${pin}`, 'run', '-q', '--manifest-path', resolve(ROOT, 'Cargo.toml'), '-p', 'contract', '--', ...args], {stdio: 'inherit', env: clean});
+  if (result.error) throw new Error(`cargo: ${result.error.message} (install rustup from https://rustup.rs)`);
+  return result.status ?? 1;
+}
+
+/** `exact new`: check the machine first, since a missing Cargo fails the
+ * scaffold itself; then write the app and say what its builds will still need. */
+function newApp(path, update) {
+  if (update) return console.log(createApp(path, {update}));
+  const report = sdkReport();
+  if (report.some(row => row.name === 'rustup' && !row.ok)) {
+    printReport(report, {onlyMissing: true});
+    throw new Error('exact new needs Cargo (rustup) to resolve the new app; install it, then run exact new again');
+  }
+  console.log(createApp(path));
+  if (report.some(row => !row.ok)) {
+    console.log('\nThis machine still needs (exact setup --check shows the whole table):');
+    printReport(report, {onlyMissing: true});
+  }
 }
 
 const USAGE = `exact — run an Exact app from the command line (macOS)
@@ -378,6 +483,8 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact list                   the apps in this repo
   exact new <path> [--update]  a new app outside this repo, using this checkout;
                                --update follows a moved checkout or a new patch
+  exact contract <args…>       the Contract compiler (build, types, vocab, …),
+                               with paths relative to where you run it
 
 An app is a directory under apps/ (or EXACT_APP_DIR for one outside this repo).
 EXACT_BIN_DIR names where a shim goes; the default is the first of ~/.local/bin,
@@ -392,10 +499,11 @@ function main(argv) {
   if (!verb || verb === '--help' || verb === '-h' || verb === 'help') return console.log(USAGE);
   if (verb === 'setup') return setup({check: name === '--check'});
   if (verb === 'list') return list();
-  if (verb === 'new') return console.log(createApp(name, { update: rest.includes('--update') }));
+  if (verb === 'contract') return process.exit(contract(argv.slice(1)));
+  if (verb === 'new') return newApp(name, rest.includes('--update'));
   if (!['run', 'install', 'uninstall', 'release'].includes(verb)) { console.error(`exact: no verb ${verb}\n\n${USAGE}`); process.exit(2); }
   if (!name) { console.error(`exact ${verb}: name an app (exact list)`); process.exit(2); }
-  if (process.platform !== 'darwin') { console.error(`exact ${verb} is macOS's; on Linux build the app's own executable (cargo build --release -p ${name}-linux)`); process.exit(2); }
+  if (process.platform !== 'darwin') { console.error(`exact ${verb} is macOS's; on Linux build the app's own executable (cargo build --profile host-dev -p ${name}-linux to drive it, --release to ship it)`); process.exit(2); }
   const app = resolveApp(name);
   if (verb === 'run') return run(app, rest);
   // `--release` on `install` is the same path, since that is what it is for.
@@ -404,7 +512,7 @@ function main(argv) {
   return uninstall(app);
 }
 
-if (process.argv[1] && resolve(process.argv[1]) === new URL(import.meta.url).pathname) {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try { await main(process.argv.slice(2)); }
   catch (e) { console.error(`exact: ${e.message}`); process.exit(1); }
 }

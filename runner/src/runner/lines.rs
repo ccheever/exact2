@@ -38,6 +38,26 @@ pub(super) fn query(resource: &str, source: &str) -> String {
     text!("query {}: {}", resource, source)
 }
 
+/// A source not ready at boot: the bake's answer shows until it is ready
+/// and answers again (LLP 1048.003 D6; feed F24). The web JS target says
+/// the same (`rt.js`).
+pub(super) fn build_time(resource: &str) -> String {
+    text!(
+        "{} shows its build-time answer until its source answers",
+        resource
+    )
+}
+
+/// That ask answered: the line says whether the first frame was right.
+pub(super) fn revalidated(resource: &str, same: bool) -> String {
+    let what = if same {
+        "equal to its build-time answer"
+    } else {
+        "replaces its build-time answer"
+    };
+    text!("{} answered: {}", resource, what)
+}
+
 pub(super) fn advanced(fired: usize, epoch: u64) -> String {
     let plural = if fired == 1 { "" } else { "s" };
     text!("advance → {} timer{} fired, epoch {}", fired, plural, epoch)

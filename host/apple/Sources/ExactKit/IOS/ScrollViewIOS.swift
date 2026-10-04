@@ -1,4 +1,4 @@
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 /// A plain container: the document, a canvas's overlay (LLP 1014). Hit-
@@ -10,10 +10,7 @@ final class PlainView: UIView {
     override func didAddSubview(_ subview: UIView) { super.didAddSubview(subview); FocusSearch.joined(subview) }
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard !isHidden, isUserInteractionEnabled, bounds.contains(point) else { return nil }
-        for sub in subviews.reversed() {
-            if let hit = sub.hitTest(convert(point, to: sub), with: event) { return hit }
-        }
-        return nil
+        return NodeView.hitChildren(in: self, at: point, with: event)
     }
 }
 
@@ -24,6 +21,11 @@ final class PlainView: UIView {
 /// wheel (the agent's) applies the web's chaining rule itself
 /// (`AgentIOS.swift`).
 class ScrollView: UIScrollView {
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard let hit = super.hitTest(point, with: event) else { return nil }
+        return NodeView.hitChildren(in: self, at: point, with: event) ?? hit
+    }
+
     var scrollsX = true
     var scrollsY = true
     /// A pan cancels a touch in progress, as it does a custom button's; UIKit
@@ -119,4 +121,33 @@ class ScrollView: UIScrollView {
     }
 }
 
+extension NodeView {
+    /// A `refresh` handler on a scroll container is UIKit's pull-to-refresh:
+    /// the control fires the event; the app's `refreshing` going false ends it.
+    func updateRefresh() {
+        // tvOS has no refresh control.
+        #if !os(tvOS)
+        guard let sv = scroll else { return }
+        if handlers.contains("refresh") {
+            if sv.refreshControl == nil {
+                let control = UIRefreshControl()
+                control.addTarget(self, action: #selector(pulledToRefresh), for: .valueChanged)
+                sv.refreshControl = control
+            }
+            if props["refreshing"] != "true", let control = sv.refreshControl, control.isRefreshing {
+                control.endRefreshing()
+            }
+        } else if sv.refreshControl != nil {
+            sv.refreshControl = nil
+        }
+        #endif
+    }
+    #if !os(tvOS)
+    @objc func pulledToRefresh() {
+        presenter?.refresh(id)
+        // An app that starts nothing leaves `refreshing` false: end promptly.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self, token = incarnation] in if self?.incarnation == token { self?.updateRefresh() } }
+    }
+    #endif
+}
 #endif

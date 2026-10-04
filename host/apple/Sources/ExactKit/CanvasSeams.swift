@@ -678,7 +678,7 @@ private enum CanvasAudio {
         guard !ExactEnv.agentMode else { return false }
         wanted = true
         guard !active else { return true }
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         do {
             let session = AVAudioSession.sharedInstance()
             if !configured { try session.setCategory(.ambient); configured = true }
@@ -825,7 +825,7 @@ final class CanvasLifecycle: NSObject {
             }
         }
     }
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     @objc private func interruption(_ note: Notification) {
         // Decode immutable notification values on the poster; touch no UI/ABI here.
         guard let raw = note.userInfo?[AVAudioSessionInterruptionTypeKey] as? UInt,

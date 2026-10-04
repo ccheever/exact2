@@ -1,0 +1,26 @@
+// A `type` step delivers a text change. Checkbox and range inputs take a
+// bool and a number: what happens when text arrives? (The range case is
+// edge/range-input-text.contract.)
+component App
+  state on = false
+  state level = 0
+  state words = ""
+  action setOn(v: bool)
+    on = v
+  action setLevel(v: number)
+    level = v
+  action setWords(v: string)
+    words = v
+  view
+    column
+      input type="checkbox" checked=on change=setOn testId="cb"
+      input type="range" value=level min=0 max=10 change=setLevel testId="range"
+      textarea value=words change=setWords testId="ta"
+
+test "checkbox gets text"
+  type "cb" "true"
+  type "cb" "on"
+
+test "textarea"
+  type "ta" "two\nlines"
+  expect state words == "two\nlines"

@@ -1,0 +1,17 @@
+// A handler's curried argument that reads now(), pressed after an idle
+// clock advance (no commit in between). Is the argument the clock when the
+// press arrives, or when the element was last rendered?
+component App
+  state at = -1
+  action mark(t: number)
+    at = t
+  view
+    button "mark" press=mark(now()) testId="mark"
+
+test "argument reads the clock"
+  clock +100
+  tap "mark"
+  expect state at == 100
+  clock +50
+  tap "mark"
+  expect state at == 150

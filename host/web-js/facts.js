@@ -25,7 +25,8 @@ export function viewport(readers) {
     const p = preferences(), f = fold();
     return byName(readers, name, { width: innerWidth, height: innerHeight, prefersReducedMotion: !!(p & 1), prefersReducedTransparency: !!(p & 2),
       prefersContrast: CONTRAST[(p >> 2) & 3], prefersColorScheme: p & 16 ? "dark" : "light",
-      devicePosture: f.posture, horizontalViewportSegments: f.cols, verticalViewportSegments: f.rows }); // @ref LLP 1078 D2, D6
+      devicePosture: f.posture, horizontalViewportSegments: f.cols, verticalViewportSegments: f.rows, // @ref LLP 1078 D2, D6
+      pointer: p & 64 ? "none" : p & 32 ? "coarse" : "fine", hover: p & 128 ? "none" : "hover" });
   };
   if (typeof addEventListener !== "function") return;
   const changed = again("exactViewport", "viewport");

@@ -18,8 +18,9 @@ impl P {
     }
     fn run(&self) -> (Vec<String>, Option<String>) {
         let mut rt = Hermes::new(DynamicCode::Closed).unwrap();
-        rt.install_stdlib();
-        rt.install_bindings().unwrap();
+        let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
+        rt.install_runtime(ibex2::bindings::Groups::DEFAULT, &context)
+            .unwrap();
         rt.set_loader(Root::Declared(self.0.clone()), ModuleGrants::none())
             .expect("loader");
         let e = rt.run_entry("./index.js").err().map(|e| e.to_string());

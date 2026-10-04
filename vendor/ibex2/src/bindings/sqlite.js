@@ -1,6 +1,7 @@
 // SQLite authority is carried by module parameters and opaque database objects.
 // @ref LLP 0067#3-the-check — handles stay inside bindings; handoff carries authority
-(function (field, retain) {
+(function (brand) {
+return function (field, retain) {
   "use strict";
   var databases = new WeakMap(), statements = new WeakMap();
   function own(map, value, name) {
@@ -95,6 +96,7 @@
     return queued(state, function () { return state.raw.prepare(state.handle, sql).then(function (handle) {
       var statement = Object.create(Statement.prototype);
       statements.set(statement, { handle: handle, database: database, closed: false });
+      brand(statement, "SQLiteStatement");
       retain(handle, 1, statement);
       return statement;
     }); }, database);
@@ -155,9 +157,11 @@
       return raw.open(path).then(function (handle) {
         var database = Object.create(Database.prototype);
         databases.set(database, { handle: handle, raw: raw, pending: Promise.resolve(), closed: false });
+        brand(database, "SQLiteDatabase");
         retain(handle, 0, database);
         return database;
       });
     }) });
   };
-});
+};
+})(globalThis.__ibex2_brand || function (value) { return value; });

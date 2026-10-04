@@ -25,8 +25,34 @@ guide's rules don't make obvious.
   `overlays-content` with a `role="toolbar" toolbarPlacement="keyboard"` for a
   toolbar that rides the keyboard without relayout (LLP 1008 §9.1). (Signal Clone.)
 
+- **A raised `z-index` leaves a dragged card under the next column.** A card at
+  `position="relative" z-index=10`, dragged over a neighbouring column, paints
+  beneath it. Cause: `z-index` orders siblings, not a whole stacking context as in
+  CSS (a declared deviation, [LLP 1001](../llp/1001-kernel-v1.spec.md) "`z-index`
+  orders siblings"), and on the web a box that follows a positioned or stacked box
+  becomes a paint group (`isolation: isolate`). A child cannot rise above its
+  parent's later siblings. Fix: raise the ancestor that is a sibling of the others
+  (the card's column, while it holds the dragged card), or draw the dragged card in
+  an overlay at the board level. (Authoring bench, LLP 1087, t4-kanban: two builders,
+  5 and 10 minutes, 2026-10-04.)
+
 ## Lists and scrolling
 
+- **A tap that changes one row of a long list takes ~80 ms on the web.** Cause: the
+  mutation answers the whole list (10,000 rows), and on the JS target a Rust
+  module's answer crosses into JS as a copy and every row is checked again. Fix:
+  make the list's resource a window (LLP 1027.004: `feed(cursor)` answering at most
+  200 rows, `reachstart`/`reachend` on the `list` moving the cursor) and give the
+  mutation `refreshes feed`: 16–24 ms. A development build on the JS target says so
+  in `logs` (`big answer: <resource or mutation> … carries N list rows`) once an
+  answer's longest list passes 2,000 rows (`host/web-js/seam.js`). (Heavy-list
+  bench against Dioxus, 2026-10-03.)
+- **A bounded list hitches at its first window shift, or its first tap is slow.**
+  Cause: a Rust data source that parses or builds its data on first use does it
+  then; the first window is baked into the plan, so the first query is the first
+  `reachend` (or tap), on the main thread mid-scroll (75 ms for a 7 MB JSON on the
+  web). Fix: do that work in `DataSource::activate`, which runs after first pixel.
+  (Heavy-list bench, 2026-10-04.)
 - **A transcript or feed should open at its newest row.** Writing `scrollTop` to a
   huge number lands short on a virtualized list by the estimate error of the rows
   it has not built (84 pt with `estimated-item-height=52`). Fix:
@@ -40,6 +66,13 @@ guide's rules don't make obvious.
   something is in flight), and remove `scroll=` handlers left over from
   experiments: each commits per scroll frame. (Signal Clone, build 2; QUEUE has
   the host side.)
+
+- **A custom row in a grouped list overflows its card on the right.** Cause:
+  the sheet already gives each row its margin (16 pt, or 56 pt after an icon)
+  and a 16-pt trailing padding. A custom row with `width="100%"` adds the
+  margin on top and runs 16 pt past the card. Fix: leave custom row content
+  at its natural width (`flex-grow=1` on the part that should stretch), not
+  `width="100%"`. (Signal Clone, build 15.)
 
 ## Native presentation and navigation (iOS)
 
@@ -63,6 +96,12 @@ guide's rules don't make obvious.
   is dropped and the host becomes the first path segment (`location_of`, LLP 1038
   D8). Fix: match on the path (`startsWith(location, "/connect?")`), not the URL.
   (Signal Clone, phone path.)
+- **VoiceOver reads the screen behind a full-screen overlay.** A call screen
+  or menu drawn as a root child above the bars hides the chat list from sight,
+  not from VoiceOver: it still reached the rows and the native tab bar behind.
+  Fix: `role="dialog" aria-modal=true` (or `role="alertdialog"`) on the
+  overlay's root (LLP 1080.003); on iOS its siblings, the tab container and its
+  bars among them, are then skipped while it shows. (Signal Clone, build 13.)
 - **With `viewport-fit="cover"`, route content goes under the native bar.** Cause:
   the bar's cover is added to the route's padding, but a cover-fit root has no top
   safe area. Fix: put `env(safe-area-inset-top)` on the route column, not on each
@@ -87,11 +126,39 @@ guide's rules don't make obvious.
   `box-sizing`.) **Candidate diagnostic:** the compiler or a development log
   could name the failed condition.
 
+- **A text field shows an edit its action refused.** A field bound with
+  `value=text input=edit`, where `edit` ignores a blank value, shows the blank while
+  `text` keeps the old value, and the next keystroke builds on what is shown. Cause: on
+  the web (both targets) a text field is re-set only when its bound value changes, so
+  an unchanged binding does not overwrite the edit. Fix: bind the field to draft state that `edit` always writes, and on commit
+  (`change`, Enter, `blur`) write the accepted value or reset the draft to it, which
+  changes the bound value and redraws the field. (Authoring bench, LLP 1087, t2-todo:
+  two builders, about 10 minutes each, 2026-10-04.)
+
+- **A `pan` hears nothing from a finger on the web.** A drag with
+  `tap <id> drag dx dy` (or a real touch) moves nothing and logs nothing. Cause:
+  without `touch-action="none"` on the pan's box the browser takes the touch for
+  scrolling and the pointer events are cancelled. Fix: `touch-action="none"` on the
+  dragged box (only that box, so the page still scrolls from elsewhere). (Authoring
+  bench, LLP 1087, t4-kanban: about 15 minutes, 2026-10-04.) **Candidate
+  diagnostic:** the compiler could warn on a `pan` without `touch-action`.
+
+- **A native build stops at the bake with a source's storage error.** `exact.mjs ios`
+  (or `mac`) panics in `apple/build.rs`: `bake …: Data { resource: "tasks", error:
+  Unavailable("storage is unavailable during bake") }`, while the web build asks the
+  source again at launch, as [the human guide](contract-for-humans.md#writing-the-data-module)
+  says. Cause: the native bake treats a source that throws at bake as a failure; an
+  `else` placeholder does not change that. Fix: in the source, catch the storage error
+  whose `code` is `'bake'` and answer a default: `catch (e) { if (e.code === 'bake')
+  return []; throw e; }` ([the reference](reference.md#what-a-data-module-can-use)).
+  (Authoring bench, LLP 1087, t2-todo on iOS, 2026-10-04.)
+
 ## Driving and testing
 
 - **Every date in a screenshot is 1 January 2026** (31 December 2025 west of UTC).
   Cause: the agent's clock starts at `2026-01-01T00:00:00Z`, in UTC. Fix: `--epoch <ISO time> --time-zone <zone>` on
-  `scripts/agent.mjs` for dates that read as intended and stay reproducible.
+  `scripts/agent.mjs` for dates that read as intended and stay reproducible; in a test
+  file, `epoch "…"` and `time-zone "…"` lines, so a run without the flags still means it.
 - **`axe` stops delivering taps.** After `axe touch --down --up --delay` (a long
   press) or an `axe drag`, a following `axe tap` often reaches no window; it is
   intermittent, and a native bar button can miss the same way with no gesture
@@ -101,7 +168,23 @@ guide's rules don't make obvious.
   simulator when taps stop landing. `axe` also cannot press tab bar items or
   `UIMenu` rows. (Signal Clone, builds 10 and 11; reproduced on `05d0c576e`.)
 
+- **A storage test fails with `storage is busy`, or storage is "unavailable in
+  agent mode".** Cause: a drive has no storage unless it names a scratch store, and
+  an open SQLite database locks its file, so a mutation and the refresh it triggers
+  collide. Fix: `--storage <name>` on an `agent` drive (authored tests get a
+  store of their own), and queue every `storage.sqlite.open` in `app.ts`
+  ([the human guide](contract-for-humans.md#writing-the-data-module) shows one).
+  (LLP 1086 reading-list example, 2026-10-04.)
+
 ## Working on exact2 itself
+
+- **A platform feature looks missing, and you start building it.** Cause: the
+  feature already exists under a name you did not search for. Haptics
+  (`haptic()`, `press-haptic`) were proposed as a new gap after they had
+  landed. Fix: before calling something missing, search
+  `docs/contract-for-agents.md` and the LLP index (`ls llp/`, then `grep -ril
+  <term> llp`). Name the LLP that lacks it when you report the gap. (Signal
+  Clone, 2026-10-04.)
 
 - **Conformance fails on apps you didn't touch.** Cause: `host/web-js/conform.mjs`
   compares against wasm dists under `--wasm-root` (default `/tmp/e3-wasm`, shared by
@@ -113,9 +196,35 @@ guide's rules don't make obvious.
   carries the agent adapter, install pages and the source map. Fix: measure the
   release: `host/web-js/build.mjs <app> --plan <wasm bake>/app.plan --production`,
   as `scripts/deploy.mjs` builds it.
+  The current `metrics.mjs` app.js gate is a different measurement: it calls
+  `host/web/build.mjs <app>-web` without `--production`, and prints its three
+  app.js lines only with `--long`. Reproduce that invocation when investigating
+  a gate violation; a release number cannot be substituted for it.
 - **Host code must never set a scroll offset during a pan or fling.** An absolute
   `contentOffset` write while `isTracking`/`isDecelerating` cuts the reader's
   motion: frame rate holds, the motion is wrong ("janky but not dropping frames").
   Defer follows to the end of the drag or deceleration, and apply anchoring and
   estimate corrections as relative adjustments in the same layout pass (Signal
   Clone evening of 2026-10-02; `32805146`, `c03685dc`).
+- **A fixture's nonempty list literal does not compile.** Contract admits `[]`
+  only; a nonempty list comes from a source, a shape field, or `map`/`filter`.
+  `split` is not a standard function here either. (Paint-order mutation fixture, 2026-10-04.)
+- **A copied Core Animation tree renders blank.** Calling `CALayer(layer:)`
+  directly gives an empty layer: a measured copy had zero bounds and no fill
+  or sublayers. For a capture, copy values into fresh layers and recursively
+  copy children and masks. Keep the live hierarchy intact. (LLP 1083.000, Apple A2.)
+- **A nonempty list literal does not compile.** Contract admits `[]` only; a
+  nonempty list comes from a source, a shape field, or `map`/`filter`, and
+  `split` is not a standard function. For a fixture or a static mount
+  measurement, generate the repeated markup. (LLP 1083.000, web W2 and Apple A2.)
+- **An sRGB capture test changes the pixel it reads.** AppKit's
+  `NSBitmapImageRep.colorAt` returns calibrated RGB even when the bitmap is
+  sRGB. Converting that `NSColor` to sRGB again turned measured bytes
+  `[128, 0, 127, 255]` into about 58% red and 57% blue. Compare the bitmap's
+  components or bytes in its declared color space. (Apple A2 capture test.)
+- **A canvas capture still shows the previous order after ranks flush.**
+  Cached shadow layers are plain `CALayer`s: changing their `zPosition`
+  outside a disabled-actions transaction implicitly animates the depth.
+  Flush ranks before capture and disable actions for that flush, including
+  mirror writes. A same-batch texture upload then sees the new front sibling.
+  (LLP 1083.000, Astra 6 regression.)

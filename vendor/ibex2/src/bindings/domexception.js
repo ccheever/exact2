@@ -2,6 +2,7 @@
 // @ref https://webidl.spec.whatwg.org/#idl-DOMException — names and legacy codes
 (function () {
   "use strict";
+  const brand = globalThis.__ibex2_brand || (value => value);
   const slots = new WeakMap();
   const codes = [
     ["IndexSizeError", "INDEX_SIZE_ERR"],
@@ -47,6 +48,10 @@
         if (codes[i][0] === name) code = i + 1;
       }
       slots.set(this, {message, name, code});
+      // DOMException is the one serializable platform type in this runtime.
+      // The private record lets structuredClone reproduce its serialized
+      // fields without reading a public accessor after bootstrap.
+      brand(this, "DOMException", {message, name});
     }
     get message() { return state(this).message; }
     get name() { return state(this).name; }
@@ -90,6 +95,13 @@
         throw new RangeError("Invalid quota or requested size");
       }
       quotaSlots.set(this, values);
+      // DOMException registered the base serialization record. Replace it
+      // only after the derived slots exist so structuredClone can preserve
+      // both the derived brand and its nullable fields.
+      brand(this, "QuotaExceededError", {
+        message: state(this).message, name: "QuotaExceededError",
+        quota: values.quota, requested: values.requested
+      });
     }
     get quota() { return quotaState(this).quota; }
     get requested() { return quotaState(this).requested; }

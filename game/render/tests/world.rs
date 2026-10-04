@@ -11,6 +11,9 @@ use exact_gpu::{
     Frame, Gpu, InputEvent, Surface, Value,
 };
 
+#[path = "visibility/mod.rs"]
+mod visibility_tests;
+
 fn gpu() -> Option<Gpu> {
     crate::test_device::device_or_skip(exact_gpu::fixture::device())
 }

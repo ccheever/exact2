@@ -1,0 +1,43 @@
+// `trim` strips ECMA-262 WhiteSpace and LineTerminator: ASCII spaces, tabs,
+// newlines, NBSP, the U+2000 block, U+3000, BOM - but not U+0085, U+200B
+// or U+180E. The test steps hold those characters literally.
+component App
+  state s = "  x  "
+  derive t = trim(s)
+  derive n = length(trim(s))
+  action set(v: string)
+    s = v
+  view
+    column
+      input value=s change=set testId="in"
+      text `[${t}]` testId="t"
+
+test "ascii"
+  expect text "t" == "[x]"
+  type "in" "\t\n x y \n\t"
+  expect text "t" == "[x y]"
+  type "in" "   "
+  expect text "t" == "[]"
+  expect state n == 0
+
+test "unicode spaces stripped"
+  type "in" " x "
+  expect state t == "x"
+  type "in" "　x "
+  expect state t == "x"
+  type "in" "﻿x﻿"
+  expect state t == "x"
+  type "in" " x "
+  expect state t == "x"
+  type "in" " x "
+  expect state t == "x"
+  type "in" " x "
+  expect state t == "x"
+
+test "not stripped"
+  type "in" "x"
+  expect state n == 3
+  type "in" "​x​"
+  expect state n == 3
+  type "in" "᠎x"
+  expect state n == 2

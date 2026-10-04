@@ -22,6 +22,12 @@ and randomness; `Sim` owns input. The renderer interpolates completed ticks.
   `Lit`) are registered by every world.
 - `near` and `near_xz` read global poses in entity order, including parented
   entities. `nearest_xz_mut` supplies one entity and its mutable component together.
+- `Visible(false)` hides the entity and all `Parent` descendants from drawing,
+  shadows, lights and picking. `is_visible(e)` reads current ancestor rows even
+  while paused; absent `Visible` rows are true, but children cannot override a
+  hidden ancestor. Dangling parent handles and unrepaired cycles are hidden.
+  `SocketFollow` alone does not inherit visibility. Cameras, spatial queries,
+  collision, audio and simulation continue; hidden particles age normally.
 - `despawn(e)` removes that entity immediately. After the tick, the simulation
   removes its descendants and propagates transforms. Both cost what changed:
   after the first propagation they visit only despawned parents and the

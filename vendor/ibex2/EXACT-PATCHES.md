@@ -1,14 +1,15 @@
 # Vendored ibex2 and ibex2-sqlite — Exact patches
 
 - **Upstream:** `https://github.com/expo/ibex.git`, commit
-  `639de62de0ba473417dd85b8f4c61aa08dc07a78` (2026-09-11, on `main`):
+  `e3e00690` (2026-10-04, on `main`):
   `crates/ibex2` → `vendor/ibex2`, `crates/ibex2-sqlite` → `vendor/ibex2-sqlite`.
 - **Why vendored (Charlie, 2026-09-22):** a fresh clone must build without a
   sibling `../ibex` checkout. The compiler includes `src/bindings/storage.d.ts`
   as text, `exact-js` compiles `src/engine/ibex2_jsi.cc` and the binding
   scripts, and seven manifests depend on the crates.
-- **Patches:** three, below. Otherwise the copy is the commit's tracked tree,
-  byte for byte, plus this file.
+- **Patches:** three Exact-only patches below and the Windows connection and native
+  filesystem backports described next. Otherwise the copy is the commit's tracked tree, byte for byte,
+  plus this file.
 - **Not vendored:** the Hermes engine and `hermesc` builds. They are
   hand-built outputs in the ibex checkout (`ios/Frameworks-vanilla`,
   `tools/hermes-vanilla`, `linux-vanilla`), needed only by `exact-js`.
@@ -20,59 +21,77 @@
     | tar -x -C vendor --strip-components=1
   ```
 
-  then restore this file with the new commit and date.
+  then restore this file with the new commit and date, and reapply patches
+  3, 4 and 5 (`git show ae0c186a9 a268b5512 001e43d03 -- vendor/ibex2`, and
+  patch 5's commit, `git log -1 --format=%h -S run_document -- vendor/ibex2`).
+  Keep the Windows connection backport unless the new snapshot contains it.
+  Keep the native filesystem backport and its shared-parser adaptation too.
+  Patch 4 replaces `src/grant.rs` wholesale, so keep the vendored file
+  rather than merging upstream's: a grant-grammar change upstream must be
+  ported to `grants/src/lib.rs` by hand.
 
-## Patch 1: subdomain `net.fetch` grants; credentials dropped on a cross-origin redirect — to upstream
+## Windows connection readiness — upstream backport
 
-Charlie, 2026-09-26 (LLP 1054.000 R5): "a wildcard grant is probably worth
-it actually, and the developer should just use it carefully." An AT
-Protocol account lives on one of many hosts (`*.host.bsky.network`), and
-going through the entryway costs a hop.
+Backport Ibex `3f72340e` (2026-10-04), reviewed in upstream LLP 0068's Windows
+outbound connection section. Winsock can return a peer address before a pending
+nonblocking connection is usable. Windows now waits for writable/exceptional
+socket readiness and checks `SO_ERROR` before handoff, with bounded cancellation
+polling on the caller's thread. The new module and tests match upstream; the
+WinSock feature and Windows dispatch are added here. Exact patch 3's Unix poll
+implementation remains unchanged, and its helper is compiled only off Windows.
+No grant, TLS, Hermes ABI or SQLite changes accompany this backport.
 
-- `src/grant.rs`: `Grant::FetchSubdomains(Origin)`, from `net.fetch
-  scheme://*.domain[:port]`. It admits a host strictly under `domain` at
-  that scheme and port, and never `domain` itself. `*` must be the whole
-  leftmost label, the domain needs two labels or more and cannot be an
-  address, and `*` anywhere else, or on `net.websocket`, refuses the grant
-  line. Hosts compare as the URL parser normalized them (lowercase,
-  punycode); a trailing dot does not match.
-- `src/stdlib/fetch.rs`: a followed redirect to another origin drops
-  `Authorization`, `Cookie` and `Proxy-Authorization`, as the Fetch
-  standard does for `Authorization`. With subdomain grants, a sibling host
-  is admitted, and it must not receive a token meant for the first.
-- Tests: `grant::tests::a_subdomain_*`,
-  `stdlib::fetch::tests::a_cross_origin_redirect_drops_credentials_*`.
-- The web glue's `grantAdmits` (`host/web/glue.js`, copied in
-  `module-glue.js`) applies the same rule, and the render server's CSP
-  passes the pattern through as CSP's own `*.` (subdomains only).
-- There is no public-suffix check: `*.co.uk` or `*.github.io` would parse.
-  The app writer is trusted to name a domain they mean.
+## Windows native filesystem grants — bounded upstream backport
 
-## Patch 2: a listening WebSocket under `net.websocket` — to upstream
+Backport only Ibex `cc71b185`'s filesystem slice (2026-10-04), reviewed in Exact
+LLP 1027.001 D2 and upstream LLP 0068. The snapshot remains `e3e00690`; no other
+runtime, binding, Events, Blob/FormData, Hermes or native SQLite change follows.
 
-Exact's LLP 1069.004 slice 3 (2026-09-27): Bluesky's Jetstream is the
-consumer, and `net.websocket <origin>` was parsed and checked but opened
-nothing.
+- `src/stdlib/{app_fs_windows,fs,windows_directory}.rs` and new
+  `windows_fs.rs`, `windows_fs_tests.rs` carry the retained drive/ancestor/operand
+  backend, strict native leaves, locality and reparse refusal, native case policy,
+  pre-mutation regularity/identity checks and focused Windows regressions.
+  `mod.rs` enables only those Windows modules. `Cargo.toml` adds only the two
+  Windows API feature families needed for retained-drive device qualification.
+- Exact patch 4 still owns the grammar. `src/grant.rs` keeps its exact-grants
+  reexport; its realization helper is the unchanged lexical set on Windows.
+  `fs.rs` retains the Exact realization helper call on the existing admission
+  path. No upstream `grant.rs` replacement was copied.
+- `src/stdlib/windows_path.rs` reexports the pure `exact_grants::WindowsPath`.
+  Exact moved the upstream lexical parser and quoted filesystem-target grammar
+  into `grants/`, retaining its `doc:/` namespace and source-line scopes. Native
+  syntax is recognized on all build hosts; execution remains Windows-only.
+- Exact's native NT leaf open/rename calls also use that shared component
+  validator before their existing encoding checks. This avoids a divergent
+  control-character/UTF-16 boundary; an added Windows test couples parser and
+  NT leaf refusal. Legacy `app:/` names retain their existing checks.
 
-- `src/stdlib/websocket.rs`: `Incoming` (text, binary, too large, closed),
-  `MessageSource`, `SocketTransport`, and `open`, which admits
-  `Operation::WebSocket` for a `ws:`/`wss:` URL on every open (a handshake
-  follows no redirect). `accept_key` (RFC 6455's SHA-1 accept) for a
-  client and a test peer. Receive-only: nothing is sent but the handshake,
-  a pong, and the closing handshake.
-- `src/host.rs`: `Bindings::websocket` carries the grant, over the host's
-  socket transport (`Host::with_socket_transport` for a test's own).
-- `src/transport/darwin_websocket.rs` + `src/engine/darwin_websocket.mm`:
-  `NSURLSessionWebSocketTask` on Apple, an ephemeral session per socket that
-  refuses redirects; the ceiling is the task's `maximumMessageSize`.
-- `src/transport/websocket.rs`: off Apple, TCP (the rustls transport's
-  cancellable connect) and rustls with the same native trust store,
-  `webpki-roots` where the machine has none; loaded on the first `wss:`.
-  Built in tests on Apple too.
-- Tests: `stdlib::websocket::tests`, `transport::websocket::tests` (a local
-  peer: upgrade, fragments, a ping, extended length, the closing handshake,
-  an over-limit and a binary message, a refused handshake, a dropped
-  connection, an abort) run on both transports.
+Native SQLite execution remains refused. The existing app SQLite provider and
+its trusted-embedder/stable-ancestry contract are unchanged. Raw Rust remains
+trusted; filesystem grants govern capability calls rather than forming an OS
+sandbox. Native paths pin identities per operation, and hard links retain their
+ordinary shared contents. Browser builds carry native tuples inertly.
+
+## Upstreamed (no longer patches)
+
+Patches 1 and 2 landed in ibex as `fbe2baee` (2026-10-04), byte for byte
+except for code comments retargeted to Ibex LLPs (LLP 0067 §2, LLP 0059.000
+§3.5 and §3.12). Upstreaming them added two things:
+
+- **Userinfo is refused in origin grants.** `https://*.example.com@evil.com`
+  had parsed as `*.evil.com`, and `https://api.example.com@evil.com` as
+  `evil.com`. Both parsers now refuse any `net.fetch`/`net.websocket`
+  target containing `@`: ibex2's, and `grants/src/lib.rs` with
+  `host/web/navigation.js`'s `networkTuple`, held together by
+  `host/web/tests/fixtures/grants.json`.
+- **`fetch_limits` pins the new redirect rule.** It had pinned credentials
+  surviving a granted cross-origin hop. exact2 never ran that Hermes-gated
+  test against its copy.
+
+1. *Subdomain `net.fetch` grants; credentials dropped on a cross-origin
+   redirect* (12bacca23, Charlie 2026-09-26, LLP 1054.000 R5).
+2. *A listening WebSocket under `net.websocket`* (0736a4ab7, LLP 1069.004
+   slice 3).
 
 ## Patch 3: the rustls transport builds on macOS — Exact only
 
@@ -86,14 +105,18 @@ macOS too.
   where they were everywhere but Apple.
 - `src/transport/mod.rs`: `rustls_http` and `RustlsHttpTransport` build on
   macOS too. `default_transport` is unchanged: `NSURLSession` on Apple.
-- `src/transport/rustls_http.rs`: the trust store is read once per process
-  (reading the macOS keychain took ~170 ms, and every transport paid it: a
-  render server's first render on each worker, 2026-09-30), and a pending
-  connect waits in `poll(2)` for the socket to be writable instead of
-  sleeping 10 ms between checks.
+- `src/transport/rustls_http.rs`: a pending connect waits in `poll(2)` for the
+  socket to be writable instead of sleeping 10 ms between checks. The former
+  trust-store cache patch is now upstream: its lazy process cache also avoids
+  loading system roots for unused transports or plain HTTP without a TLS proxy.
 - Not for upstream: it exists for one embedder's server role.
 
 ## Patch 4: one grant grammar shared with the web runner — Exact only
+
+It also carries the `doc:/` path namespace (80dbd7642, LLP 1069.010 D1, the
+documents a person chose, resolved by the host beside `app:/`), which went
+into `grant.rs` before patch 4 moved the grammar and was never listed here.
+It lives in `grants/src/lib.rs` now.
 
 2026-10-02, LLP 1016 D6 / LLP 1018 D3: `src/grant.rs` reexports
 `exact-grants` (`../../grants`), the previous parser and authority types moved
@@ -101,8 +124,39 @@ unchanged into a pure crate. URL normalization remains the `url` crate's,
 including IDNA and address normalization. Secret/scope name validation is
 shared too. Native filesystem realization stays here: the executor maps
 filesystem prefixes through its resolver; the shared crate performs no I/O.
+The two realization call sites in `src/stdlib/fs.rs` and `app_fs_unix.rs` use
+the local `crate::grant::realized_fs` helper, and `src/secrets/mod.rs` delegates
+name validation to `exact_grants::valid_name`. These are part of this patch.
 
 The runner, Rust-only bakes, and wasm host now use the same parser as native
 bindings. One invalid I/O line grants nothing. The current JS target holds
 the same grammar against `host/web/tests/fixtures/grants.json` using browser
 URLs, and scopes module fetch and secret access to the parsed set.
+
+## Windows refresh, 2026-10-04
+
+The complete `e3e00690` snapshot includes Windows app storage and native SQLite,
+the upstream grouped installer, structured clone and WebCrypto work. Windows
+file operations retain owned directory handles and refuse reparse nodes;
+SQLite uses its native VFS under the trusted embedder's stable-ancestry contract,
+with database and sidecar reparse preflight. See Exact LLP 1027.001 D2 and
+[Ibex LLP 0068](https://github.com/expo/ibex/blob/e3e00690/llp/0068-the-standard-library-for-a-rust-consumer.spec.md).
+Exact still disables Ibex's default features; the refresh does not automatically
+enable the new crypto implementation or claim a Windows Exact TypeScript engine.
+
+## Patch 5: documents the person chose (`doc:`) — Exact only
+
+2026-10-04, LLP 1069.010 D1 (files F2): a TypeScript source's `storage.fs`
+reaches a `doc:/<n>/<name>` path as a Rust source's storage request does,
+under the same `fs.read doc:/` / `fs.write doc:/` grants.
+
+- `src/stdlib/fs.rs`: `Document`, `Documents` (the embedder's table, a
+  `doc:` path to its real location) and `run_document`, the one executor
+  both languages run on a native host: the grant checked on the path as
+  spelt, `rename`/`copyFile`/`realpath` refused, `rm` one file or empty
+  folder beneath the chosen document, the real path never in an error.
+  `run` refuses a `doc:` path instead of calling it relative.
+- `src/task.rs`, `src/bindings.rs`: `set_documents` on the runtime state
+  and the `Context`; `src/boundary_abi.rs`'s `run_fs` sends a `doc:` path
+  to `run_document`.
+- Not for upstream until Ibex has a picker that mints such paths.

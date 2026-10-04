@@ -1,0 +1,95 @@
+// Accept fixture: `position: sticky` (LLP 1083). A scroll view holds four
+// sections, each with a header at `top: 0` inside its own section, so the
+// next section's header pushes it out, then a footer at `bottom: 0`, which
+// stays at the scroll view's bottom until its own place comes into view. A
+// bar at `top: 0` sticks to the page. Each header and the bar paint over
+// what scrolls under them by `z-index`, as on the web, where a static box
+// after them would otherwise paint over them (LLP 1001). A press on a header
+// is counted, so a pinned header is hit where it shows.
+component Sticky
+  state taps = 0
+  state last = "none"
+  action tapped(name: string)
+    taps = taps + 1
+    last = name
+  view
+    column testId="root" color="#111111" background-color="#ffffff"
+      row testId="bar" position="sticky" top=0 z-index=2 height=44 align-items="center" padding-left=12 background-color="#222222"
+        text `${taps} ${last}` color="#ffffff" testId="status"
+      scroll testId="list" height=300 background-color="#f4f4f4"
+        column testId="section-A"
+          column testId="header-A" position="sticky" top=0 z-index=1 height=32 justify-content="center" padding-left=12 background-color="#3366cc" press=tapped("A")
+            text "Section A" color="#ffffff"
+          text "A1" testId="row-A-1" height=28 padding-left=12
+          text "A2" testId="row-A-2" height=28 padding-left=12
+          text "A3" testId="row-A-3" height=28 padding-left=12
+          text "A4" testId="row-A-4" height=28 padding-left=12
+          text "A5" testId="row-A-5" height=28 padding-left=12
+          text "A6" testId="row-A-6" height=28 padding-left=12
+          text "A7" testId="row-A-7" height=28 padding-left=12
+          text "A8" testId="row-A-8" height=28 padding-left=12
+        column testId="section-B"
+          column testId="header-B" position="sticky" top=0 z-index=1 height=32 justify-content="center" padding-left=12 background-color="#3366cc" press=tapped("B")
+            text "Section B" color="#ffffff"
+          text "B1" testId="row-B-1" height=28 padding-left=12
+          text "B2" testId="row-B-2" height=28 padding-left=12
+          text "B3" testId="row-B-3" height=28 padding-left=12
+          text "B4" testId="row-B-4" height=28 padding-left=12
+          text "B5" testId="row-B-5" height=28 padding-left=12
+          text "B6" testId="row-B-6" height=28 padding-left=12
+          text "B7" testId="row-B-7" height=28 padding-left=12
+          text "B8" testId="row-B-8" height=28 padding-left=12
+        column testId="section-C"
+          column testId="header-C" position="sticky" top=0 z-index=1 height=32 justify-content="center" padding-left=12 background-color="#3366cc" press=tapped("C")
+            text "Section C" color="#ffffff"
+          text "C1" testId="row-C-1" height=28 padding-left=12
+          text "C2" testId="row-C-2" height=28 padding-left=12
+          text "C3" testId="row-C-3" height=28 padding-left=12
+          text "C4" testId="row-C-4" height=28 padding-left=12
+          text "C5" testId="row-C-5" height=28 padding-left=12
+          text "C6" testId="row-C-6" height=28 padding-left=12
+          text "C7" testId="row-C-7" height=28 padding-left=12
+          text "C8" testId="row-C-8" height=28 padding-left=12
+        column testId="section-D"
+          column testId="header-D" position="sticky" top=0 z-index=1 height=32 justify-content="center" padding-left=12 background-color="#3366cc" press=tapped("D")
+            text "Section D" color="#ffffff"
+          text "D1" testId="row-D-1" height=28 padding-left=12
+          text "D2" testId="row-D-2" height=28 padding-left=12
+          text "D3" testId="row-D-3" height=28 padding-left=12
+          text "D4" testId="row-D-4" height=28 padding-left=12
+          text "D5" testId="row-D-5" height=28 padding-left=12
+          text "D6" testId="row-D-6" height=28 padding-left=12
+          text "D7" testId="row-D-7" height=28 padding-left=12
+          text "D8" testId="row-D-8" height=28 padding-left=12
+        row testId="footer" position="sticky" bottom=0 z-index=1 height=36 align-items="center" padding-left=12 background-color="#cc6633"
+          text "Footer" color="#ffffff"
+      text "Page 1" testId="page-1" height=40 padding-left=12
+      text "Page 2" testId="page-2" height=40 padding-left=12
+      text "Page 3" testId="page-3" height=40 padding-left=12
+      text "Page 4" testId="page-4" height=40 padding-left=12
+      text "Page 5" testId="page-5" height=40 padding-left=12
+      text "Page 6" testId="page-6" height=40 padding-left=12
+      text "Page 7" testId="page-7" height=40 padding-left=12
+      text "Page 8" testId="page-8" height=40 padding-left=12
+      text "Page 9" testId="page-9" height=40 padding-left=12
+      text "Page 10" testId="page-10" height=40 padding-left=12
+      text "Page 11" testId="page-11" height=40 padding-left=12
+      text "Page 12" testId="page-12" height=40 padding-left=12
+      text "Page 13" testId="page-13" height=40 padding-left=12
+      text "Page 14" testId="page-14" height=40 padding-left=12
+      text "Page 15" testId="page-15" height=40 padding-left=12
+      text "Page 16" testId="page-16" height=40 padding-left=12
+      text "Page 17" testId="page-17" height=40 padding-left=12
+      text "Page 18" testId="page-18" height=40 padding-left=12
+      text "Page 19" testId="page-19" height=40 padding-left=12
+      text "Page 20" testId="page-20" height=40 padding-left=12
+      text "Page 21" testId="page-21" height=40 padding-left=12
+      text "Page 22" testId="page-22" height=40 padding-left=12
+      text "Page 23" testId="page-23" height=40 padding-left=12
+      text "Page 24" testId="page-24" height=40 padding-left=12
+      text "Page 25" testId="page-25" height=40 padding-left=12
+      text "Page 26" testId="page-26" height=40 padding-left=12
+      text "Page 27" testId="page-27" height=40 padding-left=12
+      text "Page 28" testId="page-28" height=40 padding-left=12
+      text "Page 29" testId="page-29" height=40 padding-left=12
+      text "Page 30" testId="page-30" height=40 padding-left=12

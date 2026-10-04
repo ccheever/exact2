@@ -65,6 +65,9 @@ pub struct CommitReceipt {
     pub layout_invalidated: bool,
     /// The destroyed nodes that play an exit before a host removes them.
     pub exits: Vec<Exit>,
+    /// Shared-element names handed from a destroyed node to a created one
+    /// (LLP 1013.000 D3).
+    pub handoffs: Vec<crate::Handoff>,
     /// Live nodes whose `display` changed: their descendants' animations
     /// are cancelled or restarted (LLP 1055.000 D15; CSS Animations 1 §3).
     pub display_changed: Vec<NodeKey>,
@@ -516,6 +519,8 @@ pub(crate) fn apply_document(
     let mut detach = Detach::default();
     // Children detached by this batch that declare an exit: the parent each left.
     let mut left: IdMap<u32, u32> = IdMap::default();
+    // Destroyed nodes carrying a shared-element name (LLP 1013.000 D3).
+    let mut leavers = Vec::new();
     // A node this batch creates and then styles: its first engine style
     // would be derived twice, at the create (from the default style) and at
     // the style. It is created with the engine's default instead and derived
@@ -583,6 +588,9 @@ pub(crate) fn apply_document(
                         }
                         if let Some(node) = arena.taffy(s) {
                             detach.nodes.push(node);
+                        }
+                        if !created.contains(&s) {
+                            leavers.extend(crate::handoff::leaver(arena, s));
                         }
                         receipt.destroyed.push(arena.key(s));
                         created.remove(&s);
@@ -768,11 +776,13 @@ pub(crate) fn apply_document(
                         count(arena.children(p).len(), 0);
                         arena.prune_children(p);
                         sync_children(arena, layout, p);
+                        crate::kernel::cover_children_changed(arena, layout, p);
                         arena.flags_mut(p).insert(NodeFlags::CHILDREN_DIRTY);
                         touched.push(arena.key(p));
                     }
                     arena.set_children(slot, new);
                     sync_children(arena, layout, slot);
+                    crate::kernel::cover_children_changed(arena, layout, slot);
                     arena.flags_mut(slot).insert(NodeFlags::CHILDREN_DIRTY);
                     if arena.node_type(slot) == NodeType::Text {
                         invalidate_text(arena, layout, slot);
@@ -859,6 +869,7 @@ pub(crate) fn apply_document(
             .resolve(*key)
             .is_some_and(|slot| created.contains(&slot))
     });
+    receipt.handoffs = crate::handoff::pair(arena, &receipt.created, leavers);
     // Publication needs sorted unique live keys, not a tree update for every op.
     // Generations discard touches from a node destroyed earlier in this batch:
     // only a slot's live key resolves, so a set of slots, read back in order,
@@ -974,6 +985,7 @@ impl Detach {
                 count(arena.children(parent).len(), 0);
                 arena.prune_children(parent);
                 sync_children(arena, layout, parent);
+                crate::kernel::cover_children_changed(arena, layout, parent);
             }
         }
         self.seen.clear();
@@ -1098,6 +1110,29 @@ fn style_changed(
         arena.flags_mut(slot).insert(NodeFlags::STYLE_DIRTY);
         if let Some(node) = arena.taffy(slot) {
             layout.restyle(arena, slot, node);
+        }
+        // CSS `order` (feed F19) is the engine's child order in a flex or
+        // grid container: an item's moves it, a container's `display`
+        // decides whether its ordered children are reordered.
+        if mask.has(crate::StyleId::Order) {
+            if let Some(p) = arena.parent(slot) {
+                sync_children(arena, layout, p);
+            }
+        }
+        if mask.has(crate::StyleId::Display)
+            && arena
+                .children(slot)
+                .iter()
+                .any(|&c| arena.style(c).order != 0)
+        {
+            sync_children(arena, layout, slot);
+        }
+        // A replaced header's padding is part of its route's top cover.
+        if arena.cover(slot) == Some(crate::kernel::HostCover::Whole) {
+            if let Some((p, node)) = arena.parent(slot).and_then(|p| Some((p, arena.taffy(p)?))) {
+                layout.restyle(arena, p, node);
+                layout.mark_dirty(node);
+            }
         }
         receipt.layout_invalidated = true;
     }

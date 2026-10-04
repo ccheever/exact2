@@ -122,7 +122,7 @@ struct Light {
 }
 #[derive(Default)]
 pub(super) struct Scene {
-    versions: Option<[u64; 6]>,
+    versions: Option<[u64; 7]>,
     pub(super) attachments: Attachments,
     camera: Option<(History, Camera)>,
     // The camera's MouseLook, its revision and camera, and its descendants.
@@ -186,6 +186,7 @@ impl Scene {
             w.revision::<exact_game::Lit>(),
             w.revision::<SpotLight>(),
             w.revision::<LightShadows>(),
+            w.revision::<exact_game::Visible>(),
         ];
         let old = self.versions;
         if old.is_none_or(|v| v[0] != versions[0]) || structure {
@@ -206,7 +207,8 @@ impl Scene {
             history.update(w, next_tick, parent_changed);
         }
         self.feed_look(w, next_tick, structure || parent_changed, parent_changed);
-        if old.is_none_or(|v| v[1] != versions[1]) || structure {
+        let visibility_changed = old.is_none_or(|v| v[6] != versions[6]) || parent_changed;
+        if old.is_none_or(|v| v[1] != versions[1]) || structure || visibility_changed {
             // The first two posed directional lights: the sun, then a fill.
             let (sun, fill) = (self.sun, self.fill);
             let keep = |e: Entity, t: Transform| {
@@ -219,6 +221,7 @@ impl Scene {
             let mut query = w.query::<&DirectionalLight>();
             let mut posed = query
                 .iter()
+                .filter(|(e, _)| w.is_visible(*e))
                 .filter_map(|(e, s)| pose(w, e).map(|t| (keep(e, t), *s)));
             self.sun = posed.next();
             self.fill = posed.next();
@@ -226,7 +229,7 @@ impl Scene {
         for (history, _) in [&mut self.sun, &mut self.fill].into_iter().flatten() {
             history.update(w, next_tick, parent_changed);
         }
-        if old.is_none_or(|v| v[2..] != versions[2..]) || structure {
+        if old.is_none_or(|v| v[2..] != versions[2..]) || structure || visibility_changed {
             // Compact departures once; keep each kind's histories in entity order
             // and append arrivals. Value-only edits reuse the buffer without sorting.
             let mut kept = 0;
@@ -237,7 +240,8 @@ impl Scene {
                 let spot = index >= spot_at;
                 index += 1;
                 let e = l.history.entity;
-                let live = w.global(e).is_some()
+                let live = w.is_visible(e)
+                    && w.global(e).is_some()
                     && if spot {
                         w.has::<SpotLight>(e)
                     } else {
@@ -253,6 +257,9 @@ impl Scene {
             let mut fresh = Vec::new();
             let mut at = 0;
             for (e, light) in w.query::<&PointLight>().iter() {
+                if !w.is_visible(e) {
+                    continue;
+                }
                 let emitter = Emitter::point(light, w.has::<LightShadows>(e));
                 let lit = w.get::<exact_game::Lit>(e).as_deref().cloned();
                 if at < points && self.lights[at].history.entity == e {
@@ -271,6 +278,9 @@ impl Scene {
             }
             let mut at = points;
             for (e, light) in w.query::<&SpotLight>().iter() {
+                if !w.is_visible(e) {
+                    continue;
+                }
                 let emitter = Emitter::spot(light, w.has::<LightShadows>(e));
                 let lit = w.get::<exact_game::Lit>(e).as_deref().cloned();
                 if at < kept && self.lights[at].history.entity == e {
@@ -301,7 +311,7 @@ impl Scene {
                 self.lights.extend(all.into_iter().map(|(_, l)| l));
             }
         }
-        if next_tick || moved || structure || old != Some(versions) {
+        if next_tick || moved || structure || visibility_changed || old != Some(versions) {
             self.selected.clear();
             self.attachments.frame(1.);
             let camera = self.camera.map_or(Vec3::ZERO, |(h, _)| {

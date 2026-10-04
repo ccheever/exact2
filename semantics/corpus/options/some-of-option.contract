@@ -1,0 +1,18 @@
+// `some` of a value that is itself an option, with no option of an option
+// declared anywhere: `some(m)` is some even while `m` is none. (The web JS
+// target, which holds `some(x)` as `x`, refuses the program.)
+component App
+  mutation m as shape number
+  state n = 0
+  derive wrapped = match some(m) { case some(x) => x == none, case none => false }
+  action check(p: option<number>)
+    n = match some(p) { case some(x) => 1, case none => 2 }
+  view
+    column
+      text `${wrapped} ${n}` testId="r"
+      button "check" press=check(none) testId="check"
+
+test "some of none is some"
+  expect text "r" == "true 0"
+  tap "check"
+  expect text "r" == "true 1"

@@ -1,0 +1,35 @@
+// provide / inject: the nearest provider wins; a provided state follows
+// actions.
+component App
+  state theme = "light"
+  provide
+    theme
+    accent = "red"
+  action dark
+    theme = "dark"
+  view
+    column
+      Label(tag="outer")
+      Panel()
+      button "dark" press=dark testId="dark"
+
+component Panel
+  provide
+    accent = "blue"
+  view
+    Label(tag="inner")
+
+component Label
+  props
+    tag: string
+  inject
+    theme: string
+    accent: string
+  view
+    text `${theme}/${accent}` testId=`label-${tag}`
+
+test "provided values"
+  expect text "label-outer" == "light/red"
+  expect text "label-inner" == "light/blue"
+  tap "dark"
+  expect text "label-inner" == "dark/blue"

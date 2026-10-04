@@ -52,8 +52,9 @@ const evaluate = source => (0, eval)(source);
 
 function init(message) {
   admitted = message.admitted;
-  // Disable accidental browser I/O before the module captures globals.
-  for (const name of ['XMLHttpRequest', 'WebSocket', 'EventSource', 'setTimeout', 'setInterval', 'requestAnimationFrame']) {
+  // Disable accidental browser I/O before the module captures globals; the
+  // prelude refuses timers and the clock, by name, as Hermes does.
+  for (const name of ['XMLHttpRequest', 'WebSocket', 'EventSource']) {
     Object.defineProperty(self, name, { value: () => { throw new Error(`${name} is unavailable in data sources`); }, configurable: false });
   }
   storage = createStorage(self, admitted, () => context.owner, message.storage);

@@ -127,7 +127,7 @@ limit already keeps every valid synth below 32 MiB at 48 kHz. The Player checks 
 aggregate budget at its actual output rate before rendering. Samples add nothing to
 it: their allocation is the world's.
 Web buffers follow active source references; a failed start leaves no cached PCM.
-Apple retains PCM while commands or voices can reference its raw pointer. A Stop
+Native outputs retain PCM while commands or voices can reference its raw pointer. A Stop
 command's sequence is acknowledged through the return SPSC ring; only the main
 thread then releases the Arc. A full return ring coalesces and retries its latest
 watermark. Device disposal still joins callbacks before dropping any PCM.
@@ -153,7 +153,7 @@ right gains → channel merger → destination; the `AudioBuffer` is created at 
 source's rate and cached per allocation. Playback rate implements pitch; gains use
 `setTargetAtTime` with a 10 ms time constant.
 
-Apple has 32 fixed voice slots. `start`/`set`/`stop` enqueue producer-side work;
+Apple and Windows share 32 fixed voice slots. `start`/`set`/`stop` enqueue producer-side work;
 `flush` retries it (Player calls flush each sync). Pending Set commands coalesce by
 identity, latest wins. Unpublished Start/Stop pairs cancel; published commands
 retain their order and PCM until acknowledged. Published starts occupy at most 32
@@ -182,6 +182,29 @@ discarding samples while silencing other layouts.
 The coalesced Set table is bounded by the Player's selected voices.
 
 
+Windows uses event-driven shared-mode WASAPI, with stereo float PCM at 48 kHz
+and the system sample-rate converter for the endpoint format. One STA worker owns
+all COM interfaces and feeds the same native mixer. Drop signals and joins that
+worker before releasing retained PCM or unloading a game module. Suspend stops
+and resets the endpoint; even a coalesced suspend/resume clears pre-suspend voices
+and queued starts before readiness. A newly ready frame starts current voices at
+the saved world offsets. A fatal device error closes the old worker and retries
+opening the current default endpoint after 300 live frames. Changing the default
+route while the old endpoint stays healthy is not yet followed automatically.
+
+The Windows host forwards focus loss/return as interruption/resumption, and
+minimize/occlusion as hidden/visible. The two causes stay independent and apply to
+replacement surfaces before their first bind. Game pause still uses transport.
+`cargo test -p exact-game-audio endpoint_loopback_play_suspend_resume_stop --
+--ignored --nocapture` is an opt-in device qualification: stereo output, suspend,
+stale-voice refusal, resume and stop. It stores only amplitudes at its known tone
+frequency; it writes no captured audio. `demo DIRECTORY --play` also supports
+Windows. After baking `audio-fixture` for Windows, set `EXACT_AUDIO_FIXTURE` to
+its packaged `audio_fixture_gpu.dll` and run the ignored test
+`baked_fixture_live_clock_and_independent_lifecycle` to qualify sampled sound
+through the live GPU ABI, independent visibility/focus causes, and silent agent
+clock. These probes are separate from the device-free default test run.
+
 ## Game surfaces
 
 Set `"audio": true` beside `game.crate` and `game.type` in the app manifest. The
@@ -194,8 +217,7 @@ The surface syncs after each render's simulation advance, with its presentation
 generation and `!paused`. `SurfacePlayer` owns a separate live/seekable clock flag:
 a live input can construct WebAudio and invoke resume on the trusted gesture's
 stack before any frame; a seekable input constructs nothing. Seekable frames close
-any previous device. Native headless modules start seekable; other native targets
-own no player or device. Failed device creation retries every 300 live sync frames, with
+any previous device. Native headless modules start seekable; Apple and Windows live surfaces own the native player. Other native targets own no player or device. Failed device creation retries every 300 live sync frames, with
 one warning per surface; seekable frames preserve that cooldown.
 
 The GPU seam is `Surface::lifecycle(Lifecycle)` (default no-op), with Hidden,

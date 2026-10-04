@@ -68,6 +68,54 @@ pub struct SvgPaint<'a> {
 }
 
 impl Painter {
+    /// A portable symbol role (LLP 1035.004 D1) as the web draws it: the
+    /// role's path in a 24-unit box at the image's font size, placed by
+    /// `object-fit`, stroked `1.1 + (weight − 100) / 400` units with round
+    /// caps and joins (a `-fill` role filled even-odd), in its tint or its
+    /// text colour. An `sf/` name stays an empty box (LLP 1035.004.000 D4).
+    pub(super) fn symbol(
+        &mut self,
+        node: &NodeRef<'_>,
+        content: Rect4,
+        tint: Option<[u8; 4]>,
+        ts: Transform,
+    ) {
+        let Some(role) = node
+            .props
+            .str(exact_kernel::PropId::ImageSource)
+            .and_then(|s| s.strip_prefix("symbol:"))
+        else {
+            return;
+        };
+        let Some((_, d, filled)) = exact_kernel::generated::symbol(role) else {
+            return;
+        };
+        let style = node.style;
+        let size = style.font_size.max(1.0);
+        let natural = (size.round().max(1.0) as u32, size.round().max(1.0) as u32);
+        let Some((x, y, w, h)) = super::object_fit(natural, style.object_fit, content) else {
+            return;
+        };
+        let path = exact_kernel::svg::parse_d(d);
+        let colour = tint.unwrap_or_else(|| rgba(node.text_color().resolve(self.dark)));
+        let weight = f32::from(style.font_weight).clamp(100.0, 900.0);
+        let paint = SvgPaint {
+            path: &path,
+            fill: filled.then_some(Ink::Solid(colour)),
+            even_odd: true,
+            stroke: (!filled).then_some(Ink::Solid(colour)),
+            order: [0, 1, 2],
+            width: 1.1 + (weight - 100.0) / 400.0,
+            cap: 1,
+            join: 1,
+            miter: 4.0,
+            dash: Vec::new(),
+            phase: 0.0,
+        };
+        self.backend
+            .svg_path(&paint, ts.pre_translate(x, y).pre_scale(w / 24.0, h / 24.0));
+    }
+
     /// SVG text (LLP 1055.000 D11): each run shaped as a one-line paragraph
     /// by the text engine, its chunk anchored by the runs' total advance and
     /// set on the baseline `dominant-baseline` names. The fill is painted;

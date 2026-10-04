@@ -1,14 +1,16 @@
 # wind-fixture
 
-Render hooks in a game, end to end: `app.json`'s `game.render` names the `render/`
-crate's `Wind` hooks and its `shaders::SHADERS` pack, and the generated GPU shell
-exports `module!(WindGame, assets, hooks = game_render::Wind, shaders = …)`.
+Render hooks in a game, end to end: `app.json`'s `game.presentation` names the
+`presentation/` crate's `Wind` hooks and its `shaders::SHADERS` registry, and the
+generated GPU shell exports `module!(WindGame, assets, hooks =
+game_presentation::Wind, shaders = game_presentation::shaders::SHADERS)`.
 
-- `render/src/wind*.wgsl`: a custom vertex material (`CustomMaterial`) over the
+- `presentation/src/wind*.wgsl`: a custom vertex material (`CustomMaterial`) over the
   generated `reed.model`, composed after the engine's `MATERIAL_WGSL`; its paired
   shadow pass bends the same way. Compiled in, because it needs the engine prelude.
-- `render/shaders/sky.wgsl`: a dusk sky in the background stage, shipped as a shader
-  pack asset (`render/shaders/` is a game's shader root), so an edit reloads live.
+- `presentation/shaders/sky.wgsl`: a dusk sky in the background stage, shipped as a
+  shader asset (`gpu.shaderRoots` declares `presentation/shaders`), so an edit
+  reloads live.
 
 The wind is presentation: it reads simulation time and never moves an entity. Its
 strength is a `#[derive(Presentation)] Gust` that `Game::present` rebuilds from the

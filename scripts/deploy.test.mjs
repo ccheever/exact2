@@ -376,7 +376,7 @@ async function rejects(action, matches) {
 
 { // Edit diagnostics own and remove large captured Git trees, including on callback failure.
   const app = resolveApp('caltrain'), previous = process.env.CARGO_TARGET_DIR;
-  let source, run, isolated = false, installed = false, caught = false;
+  let source, run, isolated = false, installed = false, caught = false, why = '';
   try {
     await withAppFixture(app, async f => {
       source = f.sourceRoot; run = f.run;
@@ -391,10 +391,11 @@ async function rejects(action, matches) {
       for (let i = 0; i < 5000; i++) writeFileSync(join(source, `cleanup-${i}`), 'private');
       throw new Error('expected diagnostic callback failure');
     });
-  } catch (error) { caught = error.message === 'expected diagnostic callback failure'; }
+  } catch (error) { caught = error.message === 'expected diagnostic callback failure'; why = caught ? '' : error.message; }
+  // A fixture that could not start (a cold Cargo cache offline: run `cargo fetch`) says so.
   result('diagnostic source and outputs are isolated and cleaned on failure', isolated && installed && caught
     && !existsSync(source ?? '/missing') && !existsSync(run ?? '/missing')
-    && !existsSync(join(app.dir, 'diagnostic-private.txt')) && process.env.CARGO_TARGET_DIR === previous);
+    && !existsSync(join(app.dir, 'diagnostic-private.txt')) && process.env.CARGO_TARGET_DIR === previous, why);
 }
 
 // A release remains recognizable to a person without being the bake's lock

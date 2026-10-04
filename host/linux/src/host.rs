@@ -153,8 +153,12 @@ impl<D: DataSource> Host<D> {
         // Native hosts link every row's grammar (LLP 1053.000 §2).
         exact_kernel::style::link_backdrop_filter();
         exact_kernel::style::link_segments();
+        exact_kernel::style::link_wide_colors();
         exact_kernel::timeline::link();
         let kernel = Kernel::new(measurer);
+        // An `app:/data` image shows from the first frame, before storage
+        // is configured and whether or not anything was picked (D7).
+        crate::picker::know_roots(data.app_id());
         let mut runner = Runner::boot_with_delivery(
             plan,
             data,
@@ -293,8 +297,6 @@ impl<D: DataSource> Host<D> {
                 ));
                 self.canvas2d.text = Some(text.clone());
                 self.runner.set_canvas_text(text);
-                // Native hosts parse the wide colour forms (LLP 1056 §8.2).
-                exact_runner::exact_canvas::color::link_wide();
             }
             self.runner.layout_canvases(scale);
             if frame {
@@ -542,50 +544,22 @@ impl<D: DataSource> Host<D> {
     }
 
     fn configure_storage(&mut self) -> Result<(), exact_runner::DataError> {
-        use exact_runner::DataError;
-        use std::path::PathBuf;
-        // Scripted drives must not read or write the developer's app files;
-        // one that names a scratch tree gets storage there instead.
-        let scratch = match std::env::var_os("EXACT_AGENT") {
-            Some(_) => match agent_scratch()? {
-                Some(name) => Some(name),
-                None => return Ok(()),
-            },
-            None => None,
-        };
         let app_id = self.runner.data().app_id().to_string();
-        if app_id.is_empty() {
+        let Some(([data, cache, temporary], fresh)) = crate::picker::app_dirs(&app_id)? else {
             return Ok(());
-        }
-        if matches!(app_id.as_str(), "." | "..")
-            || !app_id
-                .bytes()
-                .all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b))
-        {
-            return Err(DataError::Unavailable("unsafe app storage identity".into()));
-        }
-        let home = std::env::var_os("HOME")
-            .map(PathBuf::from)
-            .filter(|p| p.is_absolute())
-            .ok_or_else(|| DataError::Unavailable("app storage needs an absolute HOME".into()))?;
-        let base = |variable: &str, fallback: &str| {
-            std::env::var_os(variable)
-                .map(PathBuf::from)
-                .filter(|p| p.is_absolute())
-                .unwrap_or_else(|| home.join(fallback))
-                .join("exact")
-                .join(&app_id)
         };
-        let mut data = base("XDG_DATA_HOME", ".local/share").join("data");
-        let mut cache = base("XDG_CACHE_HOME", ".cache");
-        if let Some(name) = scratch {
-            cache = cache.join("agent").join(name);
-            data = cache.join("data");
+        // An authored test's store starts empty every run (`agent --test`).
+        if let Some(tree) = fresh {
+            match std::fs::remove_dir_all(&tree) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                    return Err(exact_runner::DataError::Unavailable(format!(
+                        "EXACT_AGENT_STORAGE_FRESH: could not empty {}: {e}",
+                        tree.display()
+                    )));
+                }
+                _ => {}
+            }
         }
-        // Sibling roots keep app:/cache grants from implicitly reaching tmp.
-        // The user's cache base avoids a predictable shared /tmp directory.
-        let temporary = cache.join("temporary");
-        let cache = cache.join("cache");
         // What `app:/` names for the picker and an image's source (LLP
         // 1069.002 D4, D7); the last launch's picks go.
         crate::picker::set_roots(data.clone(), cache.clone(), temporary.clone());
@@ -755,14 +729,14 @@ impl<D: DataSource> Host<D> {
     /// error; the tree is untouched (as the kernel was).
     pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> Option<String> {
         let event = self.document_value(view, event);
-        if matches!(event, Event::Press)
+        if matches!(event, Event::Press | Event::PressWith(_))
             && crate::navigation::popover_invoker(self.runner.kernel(), view)
         {
             self.log(crate::navigation::POPOVER_UNSUPPORTED);
             return Some(crate::navigation::POPOVER_UNSUPPORTED.into());
         }
         self.now_ms = now_ms.max(self.now_ms);
-        if matches!(event, Event::Press)
+        if matches!(event, Event::Press | Event::PressWith(_))
             && self
                 .runner
                 .kernel()
@@ -868,6 +842,13 @@ impl<D: DataSource> Host<D> {
     /// agent's jump ([`exact_runner::Runner::advance_until_request`]).
     pub fn advance_until_request(&mut self, now_ms: f64) -> Option<String> {
         let a = self.runner.advance_until_request(now_ms);
+        self.advanced(a).0
+    }
+
+    /// The `then`s an agent's input settled, the clock unmoved
+    /// ([`exact_runner::Runner::land_then`]).
+    pub fn land_then(&mut self) -> Option<String> {
+        let a = self.runner.land_then();
         self.advanced(a).0
     }
 
@@ -1229,28 +1210,6 @@ impl<D: DataSource> Host<D> {
             }
         }
         order
-    }
-}
-
-/// A scripted drive's scratch storage (`EXACT_AGENT_STORAGE=<name>`): a tree
-/// of its own under the cache base, so a drive can exercise storage without
-/// touching the app's real files. Absent, a drive has no storage.
-fn agent_scratch() -> Result<Option<String>, exact_runner::DataError> {
-    let Some(name) = std::env::var_os("EXACT_AGENT_STORAGE") else {
-        return Ok(None);
-    };
-    match name.to_str() {
-        Some(name)
-            if !matches!(name, "" | "." | "..")
-                && name
-                    .bytes()
-                    .all(|b| b.is_ascii_alphanumeric() || b".-_".contains(&b)) =>
-        {
-            Ok(Some(name.to_owned()))
-        }
-        _ => Err(exact_runner::DataError::Unavailable(
-            "EXACT_AGENT_STORAGE: one name of letters, digits, '.', '-' or '_'".into(),
-        )),
     }
 }
 

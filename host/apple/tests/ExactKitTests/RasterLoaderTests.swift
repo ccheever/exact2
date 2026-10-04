@@ -57,6 +57,24 @@ final class RasterLoaderTests: XCTestCase {
         XCTAssertEqual(revalidated.count, 2)
         XCTAssertTrue(revalidated.last?.lowercased().contains("if-none-match: \"raster-v1\"") == true)
     }
+    /// A `data:` source opens as a page's `<img>` takes it, to its bound
+    /// (LLP 1011 §2): base64, forgiving whitespace and escapes, or percent-encoded.
+    func testDataURLsOpenWithinTheirBound() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try png(root, "image.png", width: 24, height: 32, identity: 5)
+        let bytes = try Data(contentsOf: root.appendingPathComponent("image.png"))
+        let resolver = AssetResolver(root: root)
+        let input = try RasterInput.open("data:image/png;base64,\(bytes.base64EncodedString(options: .lineLength64Characters))", resolver: resolver)
+        XCTAssertEqual(try input.bytes(), bytes)
+        XCTAssertEqual(try input.metadata().naturalSize, CGSize(width: 24, height: 32))
+        XCTAssertEqual(RasterInput.dataURL("data:;base64,aGk%3D"), Data("hi".utf8))
+        XCTAssertEqual(RasterInput.dataURL("data:image/svg+xml,%3Csvg%3E <"), Data("<svg> <".utf8))
+        XCTAssertNil(RasterInput.dataURL("data:image/png;base64"))
+        let over = "data:," + String(repeating: "a", count: RasterInput.dataLimit)
+        XCTAssertThrowsError(try RasterInput.open(over, resolver: resolver))
+    }
     private func png(_ root: URL, _ name: String, width: Int, height: Int, identity: Int) throws {
         let context = try XCTUnwrap(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
             bytesPerRow: width * 4, space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))

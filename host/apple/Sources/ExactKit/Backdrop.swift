@@ -20,7 +20,7 @@
 // spelling and wins on a node that has both, on every host.
 import CExact
 import CoreGraphics
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 #else
 import AppKit
@@ -29,7 +29,7 @@ import AppKit
 /// `backgroundMaterial`'s vocabulary (LLP 1053.000 D4): the schema's table,
 /// read through `exact_material_platform`, as this platform's own names.
 enum Materials {
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     static let platformCode: UInt8 = 0
     #else
     static let platformCode: UInt8 = 1
@@ -70,7 +70,7 @@ enum Materials {
         return ["name": name, "drawn": apple, "standIn": standIn]
     }
 
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     /// A `UIBlurEffect.Style` by its Swift name.
     static func blurStyle(_ apple: String) -> UIBlurEffect.Style? {
         switch apple {
@@ -79,6 +79,7 @@ enum Materials {
         case "dark": .dark
         case "regular": .regular
         case "prominent": .prominent
+        #if !os(tvOS)
         case "systemUltraThinMaterial": .systemUltraThinMaterial
         case "systemThinMaterial": .systemThinMaterial
         case "systemMaterial": .systemMaterial
@@ -94,6 +95,7 @@ enum Materials {
         case "systemMaterialDark": .systemMaterialDark
         case "systemThickMaterialDark": .systemThickMaterialDark
         case "systemChromeMaterialDark": .systemChromeMaterialDark
+        #endif
         default: nil
         }
     }
@@ -130,7 +132,7 @@ extension NodeView {
     }
 }
 
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 /// A backdrop blur's material view, remembering the σ it was made for.
 final class BackdropEffectView: UIVisualEffectView {
     var sigma: CGFloat = -1
@@ -147,14 +149,23 @@ extension NodeView {
     func materialEffect(_ kind: String, interactive: Bool) -> UIVisualEffect {
         let apple = Materials.resolve(kind) { [weak self] in self?.presenter?.session?.log($0) }
         if apple == "glass" || apple == "glassClear" {
-            if #available(iOS 26.0, *) {
+            if #available(iOS 26.0, tvOS 26.0, *) {
                 let glass = UIGlassEffect(style: apple == "glass" ? .regular : .clear)
                 glass.isInteractive = interactive
                 return glass
             }
+            #if os(tvOS)
+            // tvOS has no system materials; .regular is its nearest blur.
+            return UIBlurEffect(style: .regular)
+            #else
             return UIBlurEffect(style: .systemUltraThinMaterial)
+            #endif
         }
+        #if os(tvOS)
+        return UIBlurEffect(style: Materials.blurStyle(apple) ?? .regular)
+        #else
         return UIBlurEffect(style: Materials.blurStyle(apple) ?? .systemUltraThinMaterial)
+        #endif
     }
 
     /// The backdrop blur's effect, nil when this is not a backdrop.

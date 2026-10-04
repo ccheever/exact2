@@ -171,12 +171,25 @@ impl Parser {
                     return self.err(
                         "syntax-expected",
                         format!(
-                            "expected `]`, found {}; `[]` is the empty list, and Contract has no list literal with items: a list comes from a source, a shape field, or `map`/`filter`",
+                            "expected `]`, found {}; `[]` is the empty list, and Contract has no list literal with items yet (LLP 1088 §9's follow-up): a list comes from the data module, a shape field, or `map`/`filter`",
                             describe(self.peek_kind())
                         ),
                     );
                 }
                 Ok(Expr::EmptyList(span))
+            }
+            // `none(value=1)`: a reserved word names no shape (LLP 1088 D5).
+            TokenKind::Ident(w)
+                if matches!(w.as_str(), "true" | "false" | "none") && self.at_punct("(") =>
+            {
+                Err(SyntaxError {
+                    id: "syntax-keyword-as-value",
+                    message: format!(
+                        "{}, so it names no shape or function",
+                        super::names::reserved_message(&w).replace("; choose another name", "")
+                    ),
+                    span,
+                })
             }
             TokenKind::Ident(w) => match w.as_str() {
                 "true" => Ok(Expr::Bool(true, span)),
@@ -227,15 +240,15 @@ impl Parser {
                         span,
                     })
                 }
-                // A keyword that names a prop or field (`state`, `key`) reads as
-                // that name; one that shapes syntax, or a call, stays refused.
-                _ if is_keyword(&w) && (!is_name_word(&w) || self.at_punct("(")) => {
-                    Err(SyntaxError {
-                        id: "syntax-keyword-as-value",
-                        message: format!("`{w}` is a keyword"),
-                        span,
-                    })
-                }
+                // A contextual keyword (`state`, `key`, `refresh`) reads as the
+                // name it is here; a reserved one is never a value (LLP 1088 D5).
+                _ if super::names::is_reserved(&w) => Err(SyntaxError {
+                    id: "syntax-keyword-as-value",
+                    message: format!(
+                        "`{w}` is reserved in Contract (it shapes an expression), so it is not a value"
+                    ),
+                    span,
+                }),
                 _ => {
                     if self.eat_punct("(") {
                         let args = self.call_args()?;
@@ -320,10 +333,31 @@ impl Parser {
     pub(super) fn template(&mut self, raw: &str, span: Span) -> R<Expr> {
         let (mut parts, mut deepest) = (Vec::new(), 0);
         let mut text = String::new();
-        let mut rest = raw;
-        while let Some(i) = rest.find("${") {
-            text.push_str(&rest[..i]);
-            let after = &rest[i + 2..];
+        let mut pos = 0;
+        // Text decodes the escapes a `"…"` string does; `\${` is literal text.
+        while let Some(c) = raw[pos..].chars().next() {
+            if c == '\\' {
+                let next = raw[pos + 1..].chars().next();
+                let Some(decoded) = next.and_then(escaped) else {
+                    return Err(SyntaxError {
+                        id: "syntax-bad-escape",
+                        message: "unknown escape".into(),
+                        span: Span {
+                            source_id: span.source_id,
+                            ..Span::point(span.line, span.col + 1 + pos as u32)
+                        },
+                    });
+                };
+                text.push(decoded);
+                pos += 1 + next.map_or(0, char::len_utf8);
+                continue;
+            }
+            if !raw[pos..].starts_with("${") {
+                text.push(c);
+                pos += c.len_utf8();
+                continue;
+            }
+            let after = &raw[pos + 2..];
             let end = template_expr_end(after).ok_or(SyntaxError {
                 id: "syntax-unterminated-template-expr",
                 message: "`${` never closes".into(),
@@ -365,9 +399,8 @@ impl Parser {
             self.names.names.extend(sub.names.names);
             self.names.sources.extend(sub.names.sources);
             parts.push(TemplatePart::Expr(e));
-            rest = &after[end + 1..];
+            pos += 2 + end + 1;
         }
-        text.push_str(rest);
         if !text.is_empty() {
             parts.push(TemplatePart::Text(text));
         }

@@ -21,6 +21,8 @@ struct Recording {
     meshes: Vec<(Vec<Vertex>, Vec<u32>)>,
     limit: u32,
     record: bool,
+    models: Vec<crate::models::ModelNode>,
+    instances: Vec<crate::DrawInstance>,
 }
 impl Default for Recording {
     fn default() -> Self {
@@ -34,6 +36,8 @@ impl Default for Recording {
             meshes: Vec::new(),
             limit: 1_000_000,
             record: true,
+            models: Vec::new(),
+            instances: Vec::new(),
         }
     }
 }
@@ -53,6 +57,16 @@ impl Recording {
     }
 }
 impl Writes for Recording {
+    fn assets_revision(&self) -> u64 {
+        u64::from(!self.models.is_empty())
+    }
+    fn model(&self, _: &str) -> Option<&[crate::models::ModelNode]> {
+        Some(&self.models)
+    }
+    fn instances(&mut self, records: &[crate::DrawInstance]) -> Result<(), RenderError> {
+        self.instances = records.to_vec();
+        Ok(())
+    }
     fn max_slots(&self) -> u32 {
         self.limit
     }
@@ -110,6 +124,8 @@ impl Writes for Recording {
         Ok(())
     }
 }
+#[path = "visibility_tests.rs"]
+mod visibility_tests;
 struct Moving;
 impl Game for Moving {
     type Args = ();

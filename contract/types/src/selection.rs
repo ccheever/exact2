@@ -1,6 +1,26 @@
 //! The positional event payloads shared with the runner: `select`'s
-//! (LLP 1045 D6) and a file input's `change` (LLP 1069.002 D3).
+//! (LLP 1045 D6), a file input's `change` (LLP 1069.002 D3), the
+//! pointer's (LLP 1056 §3 stage 3), `key`'s optional `KeyboardEvent` and
+//! `scroll`'s optional `ScrollEvent` (chat F4).
 use super::{Shapes, Ty};
+
+/// The DOM event record a handler's event offers its action as an optional
+/// last parameter, after whatever the event always carries (`key`'s name):
+/// the action takes it by declaring one more parameter, or leaves it. One
+/// rule for every such event (LLP 1056 §3 stage 3; chat F2, kanban F27):
+/// analysis counts it (`contract_analyze::handler_arity`), the view's
+/// handlers type it here, the runner appends it (`Event::record`), and the
+/// JS target passes it as a trailing argument a shorter action ignores.
+pub fn event_record(attr: &str) -> Option<&'static str> {
+    match attr {
+        "pointerdown" | "pointerup" | "pointermove" => Some("PointerEvent"),
+        "key" => Some("KeyboardEvent"),
+        "scroll" => Some("ScrollEvent"),
+        "press" => Some("MouseEvent"),
+        "copy" | "cut" | "paste" => Some("ClipboardEvent"),
+        _ => None,
+    }
+}
 
 pub(super) fn declare(shapes: &mut Shapes) {
     shapes.map.insert(
@@ -11,6 +31,73 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("link".into(), Ty::String),
             ("unavailable".into(), Ty::String),
         ],
+    );
+    // What a `key` handler's action hears after the key when it takes one
+    // more parameter, in the order `Event::Key` writes it: the DOM's
+    // `KeyboardEvent` fields by their names (chat F2, kanban F27).
+    shapes.map.insert(
+        "KeyboardEvent".into(),
+        vec![
+            ("key".into(), Ty::String),
+            ("shiftKey".into(), Ty::Bool),
+            ("ctrlKey".into(), Ty::Bool),
+            ("altKey".into(), Ty::Bool),
+            ("metaKey".into(), Ty::Bool),
+        ],
+    );
+    // DOM's `ClipboardEvent`, its data as plain text (`getData("text/plain")`):
+    // what a paste carries; empty on copy and cut, as the DOM's is until a
+    // listener sets it — the action writes the clipboard with `copyText`.
+    shapes
+        .map
+        .insert("ClipboardEvent".into(), vec![("text".into(), Ty::String)]);
+    // DOM's `PointerEvent`, the subset every host measures, in the order
+    // `exact_runner::PointerEvent` writes it: the point from the node's
+    // content box, the buttons' bits, the pressure, the device, its id, and
+    // the modifiers held (a `MouseEvent`'s).
+    shapes.map.insert(
+        "PointerEvent".into(),
+        vec![
+            ("offsetX".into(), Ty::Number),
+            ("offsetY".into(), Ty::Number),
+            ("buttons".into(), Ty::Number),
+            ("pressure".into(), Ty::Number),
+            ("pointerType".into(), Ty::String),
+            ("pointerId".into(), Ty::Number),
+            ("shiftKey".into(), Ty::Bool),
+            ("ctrlKey".into(), Ty::Bool),
+            ("altKey".into(), Ty::Bool),
+            ("metaKey".into(), Ty::Bool),
+        ],
+    );
+    // DOM's `MouseEvent`, the modifiers held, what a `press` action may take
+    // (gallery F20: shift-click range select, ⌘-click), in the order
+    // `exact_runner::KeyModifiers::mouse` writes it.
+    shapes.map.insert(
+        "MouseEvent".into(),
+        vec![
+            ("shiftKey".into(), Ty::Bool),
+            ("ctrlKey".into(), Ty::Bool),
+            ("altKey".into(), Ty::Bool),
+            ("metaKey".into(), Ty::Bool),
+        ],
+    );
+    // What a `scroll` handler's action hears after the offsets when it takes
+    // one more parameter, in the order `exact_runner::ScrollEvent` writes it:
+    // the scroller's own `Element` fields as the event fires, so "at the
+    // end" is the web's `scrollHeight - scrollTop - clientHeight` (chat F4).
+    shapes.map.insert(
+        "ScrollEvent".into(),
+        [
+            "scrollLeft",
+            "scrollTop",
+            "scrollWidth",
+            "scrollHeight",
+            "clientWidth",
+            "clientHeight",
+        ]
+        .map(|f| (f.into(), Ty::Number))
+        .to_vec(),
     );
     // One picked file, in the order `exact_runner::Picked` writes it: the
     // `app:/tmp/picked/…` path, the original name, the MIME type and size

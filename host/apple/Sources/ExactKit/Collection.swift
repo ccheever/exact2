@@ -60,8 +60,11 @@ struct CollectionCursor {
     /// a relative move, whatever the port did since. A later revision
     /// carrying the same anchor's correction owes only what it adds.
     private var shifted: (sequence: UInt64, from: Double, offset: Double)?
-    mutating func takeShift(revision: UInt64, _ c: CollectionSnapshot.Correction) -> Double? {
-        guard let from = c.from, c.sequence >= jumpedAt, correctedRevision.map({ revision > $0 }) ?? true else { return nil }
+    /// `jumpedBefore`: where `jumpedAt` was before a port resize in this
+    /// same batch; a correction planned since then still lands.
+    mutating func takeShift(revision: UInt64, _ c: CollectionSnapshot.Correction, jumpedBefore: UInt64? = nil) -> Double? {
+        guard let from = c.from, c.sequence >= (jumpedBefore ?? jumpedAt),
+              correctedRevision.map({ revision > $0 }) ?? true else { return nil }
         correctedRevision = revision
         let done = shifted.flatMap { $0.sequence == c.sequence && $0.from == from ? $0.offset : nil } ?? from
         shifted = (c.sequence, from, c.offset)
@@ -190,6 +193,10 @@ final class CollectionHost {
         /// building only what shows).
         var lastLimit: UInt32?
         var port: [Double]?
+        /// The offset when the batch began: where the reader is. Rows that
+        /// leave above a deep offset shrink the document first, and the
+        /// platform's clamp to it is not a scroll (`endBatch`'s shift).
+        var batchStart: Double?
         init(_ snapshot: CollectionSnapshot) { self.snapshot = snapshot }
     }
     weak var presenter: Presenter?
@@ -213,7 +220,7 @@ final class CollectionHost {
     private var gestureContact: UInt64?
     private var lastVisited: UInt32 = 0
     private var refreshPins = false
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     /// `focusedView()` walks every node; a report asks each frame. UIKit's
     /// responder changes all reach `pinsChanged` (a node's become and
     /// resign, an input's begin and end editing), which forgets it.
@@ -333,11 +340,12 @@ final class CollectionHost {
         building = nil; retireOwed.removeAll(); fillLimits.removeAll(); fillSent.removeAll()
         budget = CollectionTurnBudget(); rescuing.removeAll()
         refreshPins = false; lastVisited = 0
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         focusFound = nil
         #endif
     }
     func beginBatch(_ batch: Batch) {
+        if batchDepth == 0 { for (view, entry) in entries { entry.batchStart = geometry(view)?.offset } }
         batchDepth += 1
         for op in batch.ops where op.op == .collections {
             guard let items = op.payload["items"] as? [[String: Any]] else { continue }
@@ -368,16 +376,20 @@ final class CollectionHost {
         for (view, entry) in entries {
             guard let port = geometry(view) else { continue }
             let dimensions = [port.portCross, port.portMain, port.cross]
-            let planned = entry.cursor.sequence
+            let planned = entry.cursor.sequence, jumped = entry.cursor.jumpedAt
             if let previous = entry.port, previous != dimensions { entry.cursor.jump() }
             entry.port = dimensions
             if let correction = entry.snapshot.correction, correction.from != nil {
                 // Rows before the anchor changed size in this batch: the
                 // offset moves with them before this frame displays, even
-                // under a pan or a fling, which go on from there.
-                if let delta = entry.cursor.takeShift(revision: entry.snapshot.revision, correction) {
+                // under a pan or a fling, which go on from there. A port this
+                // same batch resized is not the reader moving either: rows
+                // put above the reader as a pull-to-refresh zone closes stay
+                // put on the page (feed F14), so a correction planned
+                // before it still lands.
+                if let delta = entry.cursor.takeShift(revision: entry.snapshot.revision, correction, jumpedBefore: jumped) {
                     correcting = true
-                    shift(view, by: delta, extent: entry.snapshot.extent)
+                    shift(view, by: delta, extent: entry.snapshot.extent, from: entry.batchStart)
                     correcting = false
                 }
             } else if let correction = entry.snapshot.correction,
@@ -391,6 +403,7 @@ final class CollectionHost {
                 correct(view, top: correction.offset, extent: entry.snapshot.extent, smooth: correction.smooth)
                 correcting = false
             }
+            entry.batchStart = nil
             dirty.insert(view)
         }
         batchDepth = max(0, batchDepth - 1)
@@ -522,7 +535,7 @@ final class CollectionHost {
         schedule()
     }
     func pinsChanged() {
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         focusFound = nil
         #endif
         guard !entries.isEmpty else { return }
@@ -575,7 +588,7 @@ final class CollectionHost {
             if filling?() == true { return }
             let rescue = !rescuing.isDisjoint(with: dirty)
             guard budget.begin(rescue: rescue) else { return }
-            #if os(iOS)
+            #if os(iOS) || os(tvOS)
             let focus = focusFound ?? focusedView()
             focusFound = focus
             #else
@@ -670,7 +683,7 @@ final class CollectionHost {
             budget.nextTurn()
             if refreshPins {
                 refreshPins = false; dirty.formUnion(entries.keys)
-                #if os(iOS)
+                #if os(iOS) || os(tvOS)
                 focusFound = nil
                 #endif
             }

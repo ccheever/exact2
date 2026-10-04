@@ -8,7 +8,7 @@
 // controller's view — what is not a node is counted `opaque`, and any node
 // found there is still matched. The walks are the presenter's, so a test
 // drives them with frames of its own; the agent gathers their inputs.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 extension Agent {
@@ -114,6 +114,7 @@ extension Presenter {
             if sub === controls.controls[id] { return ("control", id) }
             if segments.inspectionOwns(sub) { return ("segment", id) }
             if swipeActions.inspectionOwns(sub) { return ("swipe", id) }
+            if groupedLists.inspectionOwns(sub) { return ("grouped-list", id) }
             if Self.platformKinds.contains(o.kind) || o.props["hook"] != nil { return ("platform", id) }
         }
         if menus.inspectionOwns(sub) { return ("menu", owner?.id) }
@@ -125,8 +126,16 @@ extension Presenter {
         // covered owner. Its interior is UIKit's; nodes in it are matched.
         if sub.next is UIViewController { return ("controller", nil) }
         if let scroll = parent as? UIScrollView {
+            #if !os(tvOS)
             if sub === scroll.refreshControl { return ("refresh", owner?.id) }
+            #endif
             if String(describing: Swift.type(of: sub)) == "_UIScrollViewScrollIndicator" { return ("indicator", owner?.id) }
+            // iOS 26's scroll edge effect (LLP 1077 D16): UIKit hangs each
+            // edge's effect in a passthrough container on the scroll view,
+            // the root viewport's included under `viewport-fit="cover"`.
+            let kinds = sub.subviews.map { String(describing: Swift.type(of: $0)) }
+            if String(describing: Swift.type(of: sub)) == "_UITouchPassthroughView",
+               kinds.contains(where: { $0 == "ScrollEdgeEffectView" || $0 == "BackdropView" }) { return ("edge-effect", owner?.id) }
         }
         return nil
     }
@@ -138,6 +147,7 @@ extension Presenter {
         if menus.hides(n) { return "menus" }
         if navigation.controllers.values.contains(where: { $0.lifted === n }) { return "navigation" }
         if swipeActions.hides(n) { return "swipe" }
+        if groupedLists.hides(n) { return "grouped-list" }
         return nil
     }
 
@@ -326,7 +336,7 @@ extension Presenter {
             guard seen[id] === v, v.window != nil else { report.skip("offWindow"); continue }
             if modals.holdsGeometry(id) { report.skip("deferred"); continue }
             if v.placedAncestor != nil { report.skip("placed"); continue }
-            if menus.projects(v) || swipeActions.projects(v) { report.skip("projected"); continue }
+            if menus.projects(v) || swipeActions.projects(v) || groupedLists.projects(v) { report.skip("projected"); continue }
             if navigation.controllers[id]?.node === v { report.skip("route"); continue }
             if f.transformed || !CATransform3DIsIdentity(v.layer.transform) { report.skip("transformed"); continue }
             if geometryAnimating(v.layer) { report.skip("animating"); continue }

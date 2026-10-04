@@ -8,7 +8,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { resolve } from 'node:path';
 import { developmentInstallPage, installNetworkPage, localInstallURL, INSTALL_FILES, LOCAL_IOS_INSTALL_ENDPOINT } from '../../scripts/install-page.mjs';
-import { phones, simulators } from '../apple/build.mjs';
+import { phones, simulators } from '../apple/devices.mjs';
 
 const root = resolve(new URL('../..', import.meta.url).pathname);
 const publicTarget = target => ({ id: target.id, kind: target.kind, name: target.name, model: target.model, os: target.os, state: target.state });

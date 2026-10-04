@@ -56,10 +56,23 @@ public final class ExactView: NSView {
         }
     }
 
-    private func ownsShortcutFocus() -> Bool {
-        let responder = window?.firstResponder as? NSView
+    /// Whether this session's shortcuts and `key` handlers hear the window's
+    /// keys: its view holds the focus, or nothing does — the window itself is
+    /// the first responder — as a page's shortcuts hear keys with no element
+    /// focused (jukebox F11). Of several sessions in one window, the first in
+    /// view order hears them then.
+    func ownsShortcutFocus() -> Bool {
+        let first = window?.firstResponder
+        let responder = first as? NSView
         let editorOwner = (responder as? NSTextView)?.delegate as? NSView
-        return responder?.isDescendant(of: self) == true || editorOwner?.isDescendant(of: self) == true
+        if responder?.isDescendant(of: self) == true || editorOwner?.isDescendant(of: self) == true { return true }
+        guard let window, first == nil || first === window, let content = window.contentView else { return false }
+        func session(in view: NSView) -> ExactView? {
+            if let found = view as? ExactView { return found }
+            for sub in view.subviews { if let found = session(in: sub) { return found } }
+            return nil
+        }
+        return session(in: content) === self
     }
 
     public override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -137,19 +150,26 @@ public final class ExactView: NSView {
         if window != nil {
             // Text editors can consume control chords before the responder chain.
             // Route declared commands first, scoped to this session's focused view.
-            shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp]) { [weak self] event in
+            shortcutMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged, .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp]) { [weak self] event in
                 guard let self, event.window === self.window else { return event }
+                // A modifier pressed is a keydown on the web (`"Shift"`); to
+                // AppKit a flags change, which goes on to it either way.
+                if event.type == .flagsChanged {
+                    if self.ownsShortcutFocus() { _ = self.session.presenter.keyDown(event) }
+                    return event
+                }
                 if event.type != .keyDown && event.type != .keyUp {
                     self.session.presenter.menus.pointer(event)
                     return event
                 }
-                if self.session.presenter.menus.key(event) || self.session.presenter.dialogs.key(event) { return nil }
                 if event.type == .keyDown { self.session.presenter.flushKeyViewLoop() }
-                guard self.ownsShortcutFocus() else { return event }
+                let focused = self.ownsShortcutFocus()
                 let code=KeyCodes.mac[Int(event.keyCode)] ?? "Unidentified"
-                if event.modifierFlags.intersection([.command,.control]).isEmpty,
+                if focused, event.modifierFlags.intersection([.command,.control]).isEmpty,
                    self.session.canvases.pressedControlKey(code,down:event.type == .keyDown,timestamp:event.timestamp) {return nil}
-                return event.type == .keyDown && self.session.presenter.shortcuts.perform(event) ? nil : event
+                // Shortcuts, then the `key` handlers (before a field editor can
+                // take the key), then the menus' and dialogs' defaults.
+                return self.session.presenter.routeKey(event, focused: focused) ? nil : event
             }
         }
         // Mounted and visible participate in frame demand (D3): an unmounted

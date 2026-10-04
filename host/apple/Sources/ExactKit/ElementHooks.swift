@@ -36,7 +36,7 @@ final class ElementHooks {
     /// What a hooked node gives up on this host: on iOS its flat leaf, and
     /// its row's reuse unless its hook is `reusable`.
     static func lost(reusable: Bool) -> [String] {
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         reusable ? ["flat"] : ["flat", "pool"]
         #else
         []
@@ -121,7 +121,7 @@ final class ElementHooks {
         // counts the rest, so a fling does not flood the journal.
         let quiet = entry.inList && (calls[word]?[event.name] ?? 0) > 1
         let reusable = presenter.session?.natives.elementHook(entry.node, event: event.rawValue, platform: Self.platform(of: entry.node, presenter), quiet: quiet) ?? false
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         // The answer is the view's while it is still this node's: a click
         // inside the hook (after the batch) can have replaced the node and
         // given its view to another. At `ended` it is the last word.
@@ -169,7 +169,7 @@ final class ElementHooks {
         for entry in nodes.values {
             let word = entry.node.props["hook"] ?? ""
             live[word, default: 0] += 1
-            #if os(iOS)
+            #if os(iOS) || os(tvOS)
             if entry.node.hookReusable { reused[word, default: 0] += 1 }
             #endif
         }
@@ -183,7 +183,7 @@ final class ElementHooks {
         return out
     }
 
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     private var reported: Set<String> = []
     /// Before each batch, in a development build (LLP 1075.003 §3.5,
     /// 1075.003.000 §3.6): what Exact owns of each hooked node's scroll view,
@@ -209,7 +209,7 @@ final class ElementHooks {
     /// The platform object of the node's kind, or nil: a text field or view,
     /// a control (a switch, slider, date picker…), a web view, a scroll view.
     static func platform(of node: NodeView, _ presenter: Presenter) -> AnyObject? {
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         node.field ?? node.textArea ?? presenter.controls.controls[node.id] ?? presenter.segments.control(of: node.id) ?? node.web ?? node.scroll
         #else
         node.field ?? node.textArea ?? presenter.controls.controls[node.id] ?? presenter.segments.control(of: node.id) ?? node.scroll
@@ -227,7 +227,7 @@ final class ElementHooks {
     /// A hook's `click()`, `focus()` or `blur()` on a node, as the DOM's, on
     /// the next turn (`later`). False when refused.
     func act(_ id: UInt32, _ action: UInt32) -> Bool {
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         return presenter.navigation.act(id, action)
         #else
         guard let node = presenter.views[id] else { return false }

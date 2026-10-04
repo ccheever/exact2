@@ -1,0 +1,17 @@
+# The resolved SVG filter chain and its wire form (LLP 1055.000 D14).
+# @ref LLP 1036.000 §12 — a leaf below the kernel, so the island rasterizer
+# (a loaded module on Apple) reads a chain without compiling the kernel.
+# No dependency.
+[package]
+name = "exact-svg-filter"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "An SVG filter as a chain of primitives, and its flat wire form"
+publish = false
+
+[lib]
+name = "exact_svg_filter"
+crate-type = ["rlib"]
+
+[dependencies]

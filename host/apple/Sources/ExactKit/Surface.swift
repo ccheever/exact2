@@ -12,7 +12,7 @@
 // — Core Animation's own properties when it can say the box (one border, one
 // radius, no gradient), else drawn, as the node's `draw(_:)` draws it — and a
 // node that clips its children clips them to the shown box through a mask.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 #else
 import AppKit
@@ -57,7 +57,7 @@ extension NodeView {
         if host.sublayers?.first !== s { host.insertSublayer(s, at: 0) }
         let box = CGRect(x: 0, y: 0, width: max(0, bounds.width * layoutScale.x), height: max(0, bounds.height * layoutScale.y))
         if s.frame != box { s.frame = box }
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         s.contentsScale = traitCollection.displayScale
         #else
         s.contentsScale = window?.backingScaleFactor ?? 2
@@ -82,7 +82,7 @@ extension NodeView {
 
     private func surfaceChanged() {
         applyShadow(outline: roundedPath(in: bounds).cgPath)
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         applyBoxLayer()
         applyGradientLayer()
         setNeedsDisplay()

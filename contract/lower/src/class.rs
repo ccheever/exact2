@@ -109,7 +109,7 @@ impl Lowerer<'_> {
                 let rows = attrs.iter().chain(class.iter().flatten());
                 let positioned = |a: &Attr| {
                     a.name == "position"
-                        && !matches!(&a.value, Expr::Str(v, _) if v == "static" || v == "relative")
+                        && !matches!(&a.value, Expr::Str(v, _) if v == "static" || v == "relative" || v == "sticky")
                 };
                 let moves =
                     |a: &Attr| matches!(a.name.as_str(), "exit-animation" | "layout-transition");

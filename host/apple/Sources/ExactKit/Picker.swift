@@ -18,8 +18,10 @@ import PhotosUI
 import AppKit
 #endif
 
-/// The app's directories behind `app:/`, told by the library with each
-/// picked name, so an `image` source can read a picked file (D7).
+/// The app's directories behind `app:/`, so an `image` source can read the
+/// app's own file (D7): told by the library at boot and with each picked
+/// name, so a photo kept in `app:/data` shows after a relaunch with nothing
+/// picked (recipes F18).
 enum AppFiles {
     private static let lock = NSLock()
     private static var roots: [String: URL] = [:]
@@ -27,6 +29,12 @@ enum AppFiles {
         guard let r = reply["roots"] as? [String: String] else { return }
         lock.lock(); defer { lock.unlock() }
         for (name, path) in r { roots[name] = URL(fileURLWithPath: path, isDirectory: true) }
+    }
+    /// The roots the library has now (`appRoots`), before the first frame's
+    /// images load and again once storage is configured.
+    static func learn(_ runtime: Runtime) {
+        let reply = try? JSONSerialization.jsonObject(with: Data(runtime.agent("{\"op\":\"appRoots\"}").utf8))
+        learn(reply as? [String: Any] ?? [:])
     }
     /// The file an `app:/data|cache|tmp/…` path names; nil for `..` or a root.
     static func url(_ path: String) -> URL? {
@@ -187,7 +195,14 @@ final class Picker: NSObject {
     }
 }
 
-#if canImport(UIKit)
+#if os(tvOS)
+extension Picker {
+    func present(_ r: Request) {
+        // tvOS has no photo or document picker.
+        session.log("picker: refused: no picker"); cancel(r.view)
+    }
+}
+#elseif canImport(UIKit)
 extension Picker: PHPickerViewControllerDelegate, UIDocumentPickerDelegate {
     func present(_ r: Request) {
         guard var controller = session.presenter.root.window?.rootViewController else {

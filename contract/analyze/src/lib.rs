@@ -13,9 +13,13 @@
 #![deny(missing_docs)]
 
 mod arity;
+mod payload;
+mod sends;
+
+pub use payload::handler_arity_message;
 
 use contract_syntax::{Component, Expr, File, Node, Span};
-use contract_types::{Checked, Ref, Scope, Ty};
+use contract_types::{Checked, Ref, Scope, Shapes, Ty};
 use std::collections::{BTreeMap, BTreeSet};
 
 /// Another authored location needed to understand a rejection.
@@ -201,7 +205,15 @@ pub fn check_all(checked: &Checked<'_>) -> Result<Analysis, Vec<AnalyzeError>> {
         let scope = types.component_scope(scoped, ct);
         errors.extend(check_tasks(c).err());
         errors.extend(check_mutation_then(c).err());
-        errors.extend(check_view(&c.view, &scope, file).err());
+        // The root's actions after tail calls are inlined: a caller's send and
+        // its callee's are one commit (LLP 1088 D8).
+        errors.extend(sends::check(scoped));
+        let view = View {
+            file,
+            actions: scoped,
+            shapes: &types.shapes,
+        };
+        errors.extend(check_view(&c.view, &scope, &view).err());
     }
     errors.extend(check_controls(&expanded.root.view, false).err());
     errors.extend(arity::check(file, types, &expanded.root).err());
@@ -282,7 +294,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 42] = [
+pub const HANDLERS: [&str; 46] = [
     "press",
     "change",
     "input",
@@ -299,9 +311,17 @@ pub const HANDLERS: [&str; 42] = [
     "contextmenu",
     "dblclick",
     // A touch or button went down on the node, and came up or was cancelled
-    // (DOM's names; Charlie, 2026-10-03: hold-to-record, LLP 1005 §3).
+    // (DOM's names; Charlie, 2026-10-03: hold-to-record, LLP 1005 §3); the
+    // pointer moved over it or while held (LLP 1056 §3 stage 3). Each may
+    // hand its action a `PointerEvent`.
     "pointerdown",
     "pointerup",
+    "pointermove",
+    // DOM's clipboard events at the focused node (spreadsheet F4, F14);
+    // each may hand its action a `ClipboardEvent`.
+    "copy",
+    "cut",
+    "paste",
     "swiperight",
     "refresh",
     "scroll",
@@ -334,7 +354,8 @@ pub const HANDLERS: [&str; 42] = [
 /// What a handler's event carries as its action's last argument: `input`
 /// and `change` the new value (a text field's text, a checkbox's checked
 /// state: LLP 1069.001 D4), `hover` whether the pointer is over, `key` the
-/// key's name, `message` the posted string; the others nothing.
+/// key's name, `message` the posted string; the others nothing. An event
+/// may then offer its record ([`contract_types::event_record`]).
 pub fn handler_payload(attr: &str) -> Option<&'static str> {
     match attr {
         "change" | "input" | "key" | "message" | "navigate" | "error" => Some("string"),
@@ -360,22 +381,59 @@ pub fn handler_arity(attr: &str, given: usize) -> Option<std::ops::RangeInclusiv
         "scroll" | "pan" | "panrelease" | "heightrelease" | "reorderdrop" => 2,
         _ => usize::from(handler_payload(attr).is_some()),
     };
-    Some(given + payload..=given + payload)
+    // Then the event's record, the action's to take or leave.
+    let record = usize::from(contract_types::event_record(attr).is_some());
+    Some(given + payload..=given + payload + record)
 }
 
-fn check_view(nodes: &[Node], scope: &Scope, file: &File) -> Result<(), AnalyzeError> {
+/// Whether an action whose parameters are `params` (its bound arguments
+/// first) can be `attr=`'s with `given` bound ([`handler_arity`]). The
+/// event's optional record is taken by a last parameter of the record's
+/// type, or one left to inference; any other type there is an argument
+/// left unbound, an arity mistake, as it was before the event offered a
+/// record (`press` and its `MouseEvent`).
+pub fn handler_accepts(attr: &str, given: usize, params: &[Ty]) -> bool {
+    let Some(range) = handler_arity(attr, given) else {
+        return false;
+    };
+    if !range.contains(&params.len()) {
+        return false;
+    }
+    match contract_types::event_record(attr) {
+        Some(record) if params.len() == *range.end() && range.start() < range.end() => {
+            matches!(params.last(), Some(Ty::Record(r)) if r == record)
+                || matches!(params.last(), Some(Ty::Unknown))
+        }
+        _ => true,
+    }
+}
+
+/// What the view check reads besides the scope: the file's components, the
+/// component whose actions the scope's `Ref::Action`s index, and the shapes.
+struct View<'a> {
+    file: &'a File,
+    actions: &'a Component,
+    shapes: &'a Shapes,
+}
+
+fn check_view(nodes: &[Node], scope: &Scope, view: &View<'_>) -> Result<(), AnalyzeError> {
+    let file = view.file;
     for n in nodes {
         match n {
             Node::Children { .. } => {}
             Node::Element {
-                attrs, children, ..
+                tag,
+                attrs,
+                children,
+                ..
             } => {
+                let control = contract_syntax::input_control(tag, attrs);
                 for a in attrs {
                     if HANDLERS.contains(&a.name.as_str()) {
-                        check_handler(&a.name, &a.value, scope, a.span)?;
+                        check_handler(&a.name, &a.value, scope, a.span, control, view)?;
                     }
                 }
-                check_view(children, scope, file)?;
+                check_view(children, scope, view)?;
             }
             Node::Use {
                 name,
@@ -383,7 +441,7 @@ fn check_view(nodes: &[Node], scope: &Scope, file: &File) -> Result<(), AnalyzeE
                 children,
                 span,
             } => {
-                check_view(children, scope, file)?;
+                check_view(children, scope, view)?;
                 if !file.components.iter().any(|x| &x.name == name) {
                     return err(
                         "analyze-unknown-component",
@@ -405,8 +463,8 @@ fn check_view(nodes: &[Node], scope: &Scope, file: &File) -> Result<(), AnalyzeE
             Node::When {
                 then, otherwise, ..
             } => {
-                check_view(then, scope, file)?;
-                check_view(otherwise, scope, file)?;
+                check_view(then, scope, view)?;
+                check_view(otherwise, scope, view)?;
             }
             Node::Each {
                 var,
@@ -415,32 +473,39 @@ fn check_view(nodes: &[Node], scope: &Scope, file: &File) -> Result<(), AnalyzeE
                 body,
                 ..
             } => {
-                let t = contract_types::infer(list, scope, &Default::default()).ok();
+                let t = contract_types::infer(list, scope, view.shapes).ok();
                 let item = match t {
                     Some(Ty::List(item)) => *item,
                     _ => Ty::Unknown,
                 };
                 let mut inner = scope.clone();
                 inner.push_each(var, index.as_deref(), item);
-                check_view(body, &inner, file)?;
+                check_view(body, &inner, view)?;
             }
             Node::Match { some, none, .. } => {
                 let mut inner = scope.clone();
                 inner.push_region(Some((some.0.clone(), Ref::Bound(0), Ty::Unknown)));
-                check_view(&some.1, &inner, file)?;
+                check_view(&some.1, &inner, view)?;
                 let mut none_scope = scope.clone();
                 none_scope.push_region(None);
-                check_view(none, &none_scope, file)?;
+                check_view(none, &none_scope, view)?;
             }
         }
     }
     Ok(())
 }
 
-fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<(), AnalyzeError> {
-    let (name, given) = match value {
-        Expr::Ident(n, _) => (n.as_str(), 0usize),
-        Expr::Call(n, args, _) => (n.as_str(), args.len()),
+fn check_handler(
+    attr: &str,
+    value: &Expr,
+    scope: &Scope,
+    span: Span,
+    control: Option<&str>,
+    view: &View<'_>,
+) -> Result<(), AnalyzeError> {
+    let (name, args) = match value {
+        Expr::Ident(n, _) => (n.as_str(), &[][..]),
+        Expr::Call(n, args, _) => (n.as_str(), args.as_slice()),
         _ => {
             return err(
                 "analyze-handler-shape",
@@ -470,28 +535,28 @@ fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<
             span,
         );
     }
+    let given = args.len();
     // A prop of bare `action` type has unknown arity; only a real action is checked.
-    if matches!(r, Ref::Action(_)) {
-        let valid = handler_arity(attr, given).is_some_and(|range| range.contains(&params.len()));
+    if let Ref::Action(index) = r {
+        let valid = handler_accepts(attr, given, params);
         if !valid {
+            let declared = view.actions.actions.get(index as usize);
+            let params: Vec<(String, Ty)> = declared
+                .map(|a| {
+                    a.params
+                        .iter()
+                        .map(|p| p.name.clone())
+                        .zip(params.iter().cloned())
+                        .collect()
+                })
+                .unwrap_or_default();
+            let arg_types: Vec<Option<Ty>> = args
+                .iter()
+                .map(|a| contract_types::infer(a, scope, view.shapes).ok())
+                .collect();
             return err(
                 "analyze-handler-arity",
-                format!(
-                    "`{name}` takes {} parameter(s); `{attr}=` supplies {given}{}",
-                    params.len(),
-                    match handler_payload(attr) {
-                        Some("bool") => " plus whether the pointer is over",
-                        Some(_) if attr == "key" => " plus the key's name",
-                        Some(_) if attr == "message" => " plus the message",
-                        Some(_) => " plus the new value",
-                        None if attr == "scroll" => " plus scrollLeft and scrollTop",
-                        None if attr == "heightrelease" => " plus height and velocity",
-                        None if attr == "panrelease" => " plus vx and vy",
-                        None if attr == "transformgeometry" => " plus four geometry numbers",
-                        None if attr == "transformrelease" => " plus six transform release numbers",
-                        None => "",
-                    }
-                ),
+                handler_arity_message(attr, control, name, args, &params, &arg_types),
                 span,
             );
         }

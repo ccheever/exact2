@@ -1,0 +1,29 @@
+// first() and at() return options; match them in views and actions.
+shape Item
+  id: string
+  n: number
+
+component App
+  resource items = items() as shape list<Item>
+  state chosen = "none"
+  derive head = first(items)
+  derive hasHead = head != none
+  derive agree = hasHead == not isEmpty(items)
+  action chooseFirst
+    match first(items)
+      case some(i)
+        chosen = i.id
+      case none
+        chosen = "empty"
+  view
+    column
+      match first(items)
+        case some(i)
+          text i.id testId="first"
+        case none
+          text "no items" testId="empty"
+      button "choose" press=chooseFirst testId="choose"
+
+test "first"
+  expect state agree == true
+  tap "choose"

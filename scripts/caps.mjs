@@ -18,10 +18,11 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { extname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const RULES_PATH = 'rules/RULES.md';
 const CODE_EXTENSIONS = new Set([
-  '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.rs', '.go', '.py', '.rb',
+  '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.rs', '.go', '.py', '.rb', '.lean',
   '.java', '.kt', '.swift', '.c', '.h', '.cc', '.cpp', '.hpp', '.cs', '.php',
 ]);
 const DEAD_STATUSES = new Set(['superseded', 'shelved', 'withdrawn', 'tombstoned', 'archived']);
@@ -203,4 +204,4 @@ function main() {
   return 1;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) process.exit(main());
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exit(main());

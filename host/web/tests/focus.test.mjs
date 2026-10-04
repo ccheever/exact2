@@ -89,16 +89,17 @@ test('a carried restart keeps focus at its place and autofocuses nothing',()=>{
 test('declared shortcuts support named keys and leave text input and composition with editors',()=>{
   const previous={document:globalThis.document,getComputedStyle:globalThis.getComputedStyle};
   const handlers=new Map();
-  let chord='',presses=0,editing=false,inert=false,modal=null;
+  let chord='',presses=0,editing=false,inert=false,modal=null,shown=[],activates=false;
   const button={isConnected:true,disabled:false,getClientRects:()=>[{}],getAttribute:()=>chord,click:()=>presses++};
-  const root={addEventListener(){},querySelectorAll:()=>[button]};
-  const target={matches:()=>editing,closest:()=>modal};
-  globalThis.document={addEventListener:(name,handler)=>handlers.set(name,handler),activeElement:target};
+  const root={addEventListener(){},querySelectorAll:s=>s.includes('aria-modal')?shown:[button],contains:()=>false};
+  const target={matches:s=>s.startsWith('button')?activates:editing,closest:()=>modal};
+  // Every listener on the document hears the key, in order, as a browser's would.
+  globalThis.document={addEventListener:(name,handler)=>handlers.set(name,[...(handlers.get(name)??[]),handler]),activeElement:target};
   globalThis.getComputedStyle=()=>({visibility:'visible'});
   const key=(key,mods={},extra={})=>{
     const event={key,metaKey:false,ctrlKey:false,altKey:false,shiftKey:false,...mods,...extra,
       composedPath:()=>[target],preventDefault(){this.prevented=true;},stopImmediatePropagation(){this.stopped=true;}};
-    handlers.get('keydown')(event);return event;
+    for(const handler of handlers.get('keydown'))handler(event);return event;
   };
   try {
     createInputHandlers({root,views:new Map(),retiredViews:new Set(),ready:()=>true,inertAncestor:()=>inert,dispatch(){}});
@@ -136,9 +137,16 @@ test('declared shortcuts support named keys and leave text input and composition
     button.disabled=true;expect(key('c').prevented).toBe(true);expect(presses).toBe(remaining);button.disabled=false;
     inert=true;expect(key('c').prevented).toBeUndefined();inert=false;
     modal={contains:()=>false};expect(key('c').prevented).toBeUndefined();modal=null;
+    // Gallery F22: a shown `aria-modal` view holds the shortcuts behind it; a hidden one holds none.
+    shown=[{getClientRects:()=>[{}],contains:()=>false}];expect(key('c').prevented).toBeUndefined();
+    shown=[{getClientRects:()=>[],contains:()=>false}];expect(key('c').prevented).toBe(true);shown=[];
+    // Onboarding F27: Enter or Space on a focused button is its own, not a shortcut's.
+    const own=presses;activates=true;chord='Enter';expect(key('Enter').prevented).toBeUndefined();
+    expect(key('Enter',{metaKey:true}).prevented).toBeUndefined();chord='Meta+Enter';expect(key('Enter',{metaKey:true}).prevented).toBe(true);activates=false;
+    const remaining2=presses;expect(remaining2).toBe(own+1);
     for(const invalid of ['Meta+','Meta+++','Meta+Unknown','Cmd+c','F0','F36','Enter+c']) {
       chord=invalid;expect(key('c',{metaKey:true}).prevented).toBeUndefined();
     }
-    expect(presses).toBe(remaining);
+    expect(presses).toBe(remaining2);
   } finally {Object.assign(globalThis,previous);}
 });

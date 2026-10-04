@@ -456,7 +456,7 @@ A stage's unsupported enum values are ignored as invalid values are, with a deve
 - **The clip-extent operators** `source-in`, `source-out`, `destination-in`, `destination-atop` and `copy` (§1).
 - **Smoothing:** `imageSmoothingEnabled` and `imageSmoothingQuality`, which apply to `drawImage` and patterns.
 
-**Stage 3:** `isPointInPath` and `isPointInStroke` (D9), and pointer coordinates in a 2D canvas's handlers. These are content-box CSS px on the existing press and move events, so they do not wait on the GPU input seam.
+**Stage 3:** `isPointInPath` and `isPointInStroke` (D9), and pointer coordinates in a 2D canvas's handlers. These are content-box CSS px on the existing press and move events, so they do not wait on the GPU input seam. The coordinates are built (§8.6), on every node, not only a canvas.
 
 **Refused by name, each with its trigger:**
 
@@ -786,6 +786,20 @@ Cold first draw at the tip: 103–157 ms from process start to the first GPU pix
 - **Parity** (`EXACT_CANVAS_GPU=always`, every canvas on the GPU): vello 94 of 94 crops and Caltrain's map on macOS (worst 5.52/255 at 1×, 4.21 at 2×) and on the iOS simulator (worst 5.34; 3.26 at 3×); Skia the same (macOS worst 5.29 and 3.88, simulator 5.17 and 3.13). Core Graphics for comparison: macOS worst 5.31. Every fixture passes the default bands except the declared Apple text band (§8.2), as before.
 - **Build:** the module builds in 18 s clean (its 22 kernels in parallel), about 1 s incrementally; it is not in the blocking gate's `default-members`.
 - **Linux** replays Canvas 2D into tiny-skia (D7). The vello module could serve it too: the IOSurface wrapper becomes the painter's own wgpu device and texture, and the kernels compile to SPIR-V at build time with the same patches. Apple and Linux would then match each other and not only Chrome. Not done here.
+
+## 8.6 Stage 3's pointer coordinates, as built (2026-10-04, `fix/pointer`)
+
+The paint app's diary (F1) found a canvas with no coordinates, movement or pressure, and drew through a native module per host instead. What is built, by DOM's names:
+
+- **The events.** `pointerdown` and `pointerup` (LLP 1005 §Events, 2026-10-03) and a new `pointermove`. Each may hand its action a `PointerEvent` record as an optional last argument, as `navigate` hands its location: an action that takes one more parameter than the binding captures gets it, and one that does not runs as before. The record is `offsetX`, `offsetY` (from the node's content box, CSS px), `buttons` (DOM's bits), `pressure` (0 to 1), `pointerType` (`mouse`, `pen`, `touch`) and `pointerId`.
+- **On every node, not only a canvas.** The record is the node's, whatever draws in it; a canvas's content box is its drawing space (D6), so a 2D canvas needs nothing more. The offset is the content box's, not DOM's padding edge, so an author's `padding` does not move the canvas's origin under the pointer: declared.
+- **When `pointermove` fires (decided).** Always while the pointer is over the node on a desktop, as on the web, and not only while pressed: a free mouse or pen (no button down) moving over the node is the innermost listener's move, with `buttons` 0, which a hover cursor or a brush preview needs. Once a pointer goes down on a node that hears any of the three, its moves are that node's wherever it goes until it lifts. The cost is one dispatch a frame while a mouse moves over a listening node, and only there; nodes without the handler pay nothing. A touch has no free moves. An iPad's hovering pointer and pencil are not delivered (UIKit's hover recognizer), the one gap.
+- **One a frame.** The web batches to the latest per animation frame (`requestAnimationFrame`), as `pan` does (LLP 1043.000 D8); UIKit and AppKit already deliver moves once a frame; Linux delivers each move, as its `pan` does. A move pending at a down or an up goes first.
+- **No `coalesced` list (yet).** Option A proposed one for smooth strokes. A list of samples inside the record needs a second record type (a record cannot hold a list of itself in the plan's types), a name DOM does not have. A per-frame stroke is a polyline at the display's rate; the trigger is a stroke consumer whose curves show the segments, and the shape would be DOM's `getCoalescedEvents()` as a list field.
+- **Touch and scrolling.** The events take nothing from `press`, `pan` or scrolling. A drawing surface sets `touch-action: none`, the web's rule, which the web and UIKit's scroll views already honour; without it the browser cancels a touch that scrolls, and the up comes then.
+- **Hosts.** The JS target (`host/web-js/pointer.js`) and the wasm host (`input-glue.js` `pointer`) read the DOM event: the point from `getBoundingClientRect` and the computed borders and padding, a scale undone; DOM's own `buttons`, `pressure`, `pointerType`, `pointerId`. macOS (`MouseChainMac`): the point through `local(_:)` (every transform), the button bits from the event and `pressedMouseButtons`, a tablet's pen with its pressure (`subtype == .tabletPoint`), else a mouse at 0.5 while down; free moves from a tracking area on a node that hears `pointermove`. iOS (`PointerIOS`): the touch's location, `force / maximumPossibleForce` where UIKit measures one, `pencil` as `pen`, a touch numbered from 2. Linux (`presenter/pointer.rs`, which `pointerdown`/`pointerup` never had before): a mouse, id 1, 0.5 while down, beside the contact.
+- **ABI.** Kinds 29, 30 and 31 carry `offsetX,offsetY,buttons,pressure,pointerType,pointerId` (`exact_runner::PointerEvent`).
+- **Proven by** `contract/cli/tests/it/pointer.rs`, `runner` (`pointer::tests`), Linux's `events_tests`, the Mac XCTest of LLP 1005's, and a scratch paint app drawing strokes into a Canvas 2D surface from these events, driven with `tap … down`/`move`/`up` on the JS target, the wasm host and macOS to the same points.
 
 ## 9. `rules/DEFERRED.md`: the admission
 

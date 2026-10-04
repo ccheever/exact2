@@ -4,10 +4,16 @@
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 export const directories = Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' });
 export const now = Date.now.bind(Date);
+// The URL the page was opened at, which names a drive and its scratch store:
+// an app's router rewrites `location` as it navigates (the drive's `?agent&…`
+// goes with it), the document's navigation entry keeps it. A page that opens
+// its store, or a picker its own, after a navigation opens the same one
+// (recipes F9). A worker has no entry and is handed its key.
+export const launchHref = () => globalThis.performance?.getEntriesByType?.('navigation')[0]?.name ?? location.href;
 // Whose store a page opens: the app's, or for a scripted drive (`?agent`) only
 // a scratch store the drive names (`&storage=<name>`, `agent.mjs --storage`),
 // apart from the app's own, as on native. null: this drive has no storage.
-export function storageKey(appId, href) {
+export function storageKey(appId, href = launchHref()) {
   const params = new URL(href).searchParams, name = params.get('storage');
   if (!(AGENT_ADMITTED && params.has('agent'))) return appId;
   if (name == null) return null;
@@ -20,7 +26,7 @@ export const agentStorageRefusal = 'storage is unavailable in agent mode unless 
 // 1, as `exactTime().seed` reads it), or null outside the agent. Only a
 // loopback page: a link that adds `?agent` to a deployed page must not make
 // its PKCE verifiers predictable.
-export function agentSeed(href) {
+export function agentSeed(href = launchHref()) {
   const url = new URL(href);
   if (!AGENT_ADMITTED || !url.searchParams.has('agent') || !['localhost', '127.0.0.1', '[::1]'].includes(url.hostname)) return null;
   const seed = Number(url.searchParams.get('seed') ?? 1);

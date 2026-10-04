@@ -40,7 +40,8 @@ test('the JS dev loop carries state by built logic revision and refreshes host f
   const brief=value=>JSON.stringify(value,(key,item)=>typeof item==='string'&&item.length>200?`${item.slice(0,200)}… (${item.length} chars)`:item);
   const waitFor=async (read,accept,ms=30000)=>{const end=Date.now()+ms;let last;while(Date.now()<end){try{last=await read();if(accept(last))return last}catch{}await new Promise(r=>setTimeout(r,20))}throw new Error(`dev reload did not become observable: ${brief(last)}\n${lines.slice(-3000)}`)};
   try {
-    writeFileSync(helper,"export const devReloadValue = () => 'before:' + Date.now();\n");
+    // A fresh value per answer tells a carried answer from a refetched one; data sources have no Date.now() (web-js/ts-fetch.js).
+    writeFileSync(helper,"export const devReloadValue = () => 'before:' + crypto.getRandomValues(new Uint32Array(2)).join('.');\n");
     writeFileSync(logic,withLogic(originalLogic));
     writeFileSync(contract,withProbe(original));
     dev=spawn(process.execPath,[resolve(new URL('../../web/dev.mjs',import.meta.url).pathname),'--app','realworld','--port',String(port)],{cwd:resolve(new URL('../../..',import.meta.url).pathname),env:{...process.env,EXACT_WEB_DIST:privateDist},stdio:['ignore','pipe','pipe']});
@@ -72,14 +73,17 @@ test('the JS dev loop carries state by built logic revision and refreshes host f
     assert.equal(state.focus.logical,probe.id);
     assert.deepEqual(state.resources.devReloadAnswer,before.resources.devReloadAnswer,'an ordinary settled answer is carried when emitted logic is identical');
     assert.equal(state.resources.devReloadPage.onLine,true,'exactPage is read from the new document instead of the checkpoint');
-    writeFileSync(helper,"export const devReloadValue = () => 'after:' + Date.now();\n");
+    writeFileSync(helper,"export const devReloadValue = () => 'after:' + crypto.getRandomValues(new Uint32Array(2)).join('.');\n");
     const changedLogic=await waitFor(()=>drive.state(),s=>s.resources.devReloadAnswer?.value?.startsWith('after:'));
     assert.match(changedLogic.resources.devReloadAnswer.value,/^after:/,'an imported-helper edit changes the emitted logic digest and drops stale answers');
+    // The number probe declares no devReload* sources, so the logic goes back too: its build type-checks app.ts against the contract.
     writeFileSync(contract,edited(withNumberProbe(original)));
+    writeFileSync(logic,originalLogic);
     await waitFor(()=>drive.state(),s=>s.slots.reloadProbe===7);
     writeFileSync(contract,edited(original));
     await waitFor(()=>drive.state(),s=>!('reloadProbe' in s.slots));
     writeFileSync(contract,edited(withProbe(original)));
+    writeFileSync(logic,withLogic(originalLogic));
     const fresh=await waitFor(()=>drive.state(),s=>s.slots.reloadProbe==='fresh');
     assert.equal(fresh.slots.reloadProbe,'fresh','a slot absent from the intervening plan is not resurrected');
   } finally {
@@ -96,7 +100,9 @@ test('the Caltrain JS dev loop keeps its station search across an app edit', asy
   const contract=resolve(new URL('../../../apps/caltrain/app.contract',import.meta.url).pathname),original=readFileSync(contract,'utf8');
   const restoreTimes=keepTimes([contract]);
   const privateDist=mkdtempSync(join(tmpdir(),'exact-dev-carry-'));
-  const edited=original.replace('            text "Caltrain" font-size=13','            text "Caltrain reloaded" font-size=13');
+  // The brand's text, wherever the layout puts it; an edit that no longer applies fails here, not as a reload that never shows.
+  const edited=original.replace(/(\n\s*text )"Caltrain"( [^\n]*testId="brand")/,'$1"Caltrain reloaded"$2');
+  assert.notEqual(edited, original, 'the brand edit no longer applies to apps/caltrain/app.contract');
   const listener=createServer();await new Promise((ok,fail)=>{listener.once('error',fail);listener.listen(0,'127.0.0.1',ok)});const port=listener.address().port;await new Promise(ok=>listener.close(ok));
   let dev,drive,lines='';
   const waitFor=async (read,accept,ms=30000)=>{const end=Date.now()+ms;let last;while(Date.now()<end){try{last=await read();if(accept(last))return last}catch{}await new Promise(r=>setTimeout(r,20))}throw new Error(`Caltrain reload did not become observable: ${JSON.stringify(last)}\n${lines.slice(-3000)}`)};

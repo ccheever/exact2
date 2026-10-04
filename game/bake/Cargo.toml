@@ -17,3 +17,6 @@ sha2 = "0.10"
 ctt-intel-texture-compressor = "0.5"
 ctt-astcenc = "0.5"
 bcdec_rs = "0.2"
+
+[dev-dependencies]
+flate2 = "1"

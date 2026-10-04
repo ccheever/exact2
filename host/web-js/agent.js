@@ -3,13 +3,13 @@
 // `scripts/agent.mjs web` asks. Input and screenshots stay the carrier's own
 // (CDP). Loaded only under `?agent`; never part of an app's boot bytes.
 import names, { types } from './names.js';
-import { R, eq, pieces, pageHistory, Head } from './rt.js';
+import { pieces, pageHistory, Head, navigateRoot } from './rt.js';
 import * as perf from './perf.js';
-import { environment, navigation, guestOutline, guestTap, guestType, viewBox, foldEnv, preferFold } from './navigation.js';
+import { environment, navigation, guestOutline, guestTap, guestType, viewBox, foldEnv, preferFold, typedControl, typeControl, reveal, animationClocks } from './navigation.js';
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
 const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-pressed', 'accessibilityPressed'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['placeholder', 'placeholder'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hook', 'hook'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];
-const TYPES = { TEMPLATE: 'Head', BUTTON: 'Pressable', INPUT: 'TextInput', TEXTAREA: 'TextInput', VIDEO: 'Video', IMG: 'Image', IFRAME: 'WebView', A: 'Pressable' };
+const TYPES = { TEMPLATE: 'Head', BUTTON: 'Pressable', INPUT: 'TextInput', TEXTAREA: 'TextInput', VIDEO: 'Video', AUDIO: 'Video', IMG: 'Image', IFRAME: 'WebView', A: 'Pressable' };
 export function install(exact) {
   const views = exact.views, id = exact.viewId;
   // A Markdown text's pieces are its content, not views.
@@ -29,17 +29,19 @@ export function install(exact) {
   const record = (el, depth) => {
     const props = {};
     if (el.dataset.testid) props.testId = el.dataset.testid;
-    if (el.tagName === 'IMG') props.imageSource = el.dataset.symbolSource ?? el.getAttribute('src') ?? '';
+    if (el.tagName === 'IMG') props.imageSource = el.dataset.symbolSource ?? el.dataset.appSrc ?? el.getAttribute('src') ?? '';
     if (el.hasAttribute('aria-label')) props.accessibilityLabel = el.getAttribute('aria-label');
     else if (el.tagName === 'IMG' && el.getAttribute('alt')) props.accessibilityLabel = el.getAttribute('alt');
     // A paragraph of runs has no text of its own: its runs carry it.
     if (/^(Text|SvgText|SvgTSpan)$/.test(type(el)) && (el.$source != null || !kids(el).length)) props.text = el.$source ?? (flowed(el) ? el.$flow.text : el.textContent);
-    if ('value' in el && el.tagName !== 'BUTTON' && el.type !== 'checkbox') props.value = el.value;
+    // An option's value is its authored `value` (the DOM's falls back to its label), as the runner's tree gives it.
+    if ('value' in el && el.tagName !== 'BUTTON' && el.type !== 'checkbox' && (el.tagName !== 'OPTION' || el.hasAttribute('value'))) props.value = el.value;
     // The runner's props that element.rs writes as attributes, by its names.
     for (const [attr, prop, num] of PROPS) if (el.hasAttribute(attr)) props[prop] = num ? Number(el.getAttribute(attr)) : el.getAttribute(attr);
     // The intent `tree --ax` reads (LLP 1080.002 D7), as the runner names it.
     if (el.hasAttribute('inert')) props.inert = true;
     if (el.getAttribute('aria-hidden') === 'true') props.accessibilityElementsHidden = true;
+    if (el.getAttribute('aria-modal') === 'true') props.accessibilityModal = true;
     if (el.hasAttribute('autofocus')) props.autofocus = true; else if (el.dataset.autofocus === 'false') props.autofocus = false;
     const n = { id: id(el), type: type(el), depth, props };
     if (el.dataset.exactOn) n.handlers = el.dataset.exactOn.split(' ');
@@ -146,9 +148,10 @@ export function install(exact) {
   // to where the last one ends, as the wasm host's does.
   // (navigation.js's `animationClock`, restated; the build gives this module
   // its own copy of navigation.js, so it could now be imported.)
-  const starts = new WeakMap(), held = new WeakSet();
+  // A synced animation starts on its clock's boundary (LLP 1055.002).
+  const starts = new WeakMap(), held = new WeakSet(), clocks = animationClocks(document);
   const anim = {
-    register(t) { for (const a of document.getAnimations()) if (!starts.has(a)) { starts.set(a, t); if (a.playState === 'paused') held.add(a); } },
+    register(t) { clocks.commit(); for (const a of document.getAnimations()) if (!starts.has(a)) { starts.set(a, clocks.start(a, t) ?? t); if (a.playState === 'paused') held.add(a); } },
     seek(to, sync = true) {
       for (const a of document.getAnimations()) {
         const timing = a.effect?.getComputedTiming();
@@ -181,14 +184,6 @@ export function install(exact) {
   exact.After.push(() => seek(false));
   // Held device requests (LLP 1069.007 D3): `openAuthSession`'s (auth.js).
   const holds = () => [...exact.auth?.holds() ?? [], ...exact.files?.holds() ?? []];
-  // After a clock move, `exactTime` is answered again where its answer
-  // changed: the offset at the new virtual instant, which a DST change
-  // moves (LLP 1069.007 D2), as the wasm host's `exact_set_time` after `clock`.
-  const retime = () => {
-    const time = exact.data.reserved?.exactTime;
-    const stale = time ? exact.resources.filter(r => r.source === 'exactTime' && !eq(r.value, time('exactTime', [], r.name))) : [];
-    if (stale.length) exact.commit(() => { for (const r of stale) R(r); }, 'time');
-  };
   const settleGpu = async () => await exact.gpu?.settled?.() ?? [];
   const gpuPendingReply = (req, pending) => {
     const names = pending.map(item => item.name ?? 'GPU work');
@@ -246,7 +241,10 @@ export function install(exact) {
           // A tap addressed to an iframe enters its guest (glue.js, LLP 1020 D4).
           return el instanceof HTMLIFrameElement ? guestTap(el, req) : {};
         }
-      case 'type': { const el = views.get(req.id); return el instanceof HTMLIFrameElement ? guestType(el, req) : {}; }
+      // A control's value is set, not typed (LLP 1069.001 D9; navigation.js), as the web host's glue.js sets it.
+      // A location typed into the navigation root is its `navigate` (LLP 1038 D11), as glue.js delivers it.
+      case 'type': { const el = views.get(req.id); if (el?.hasAttribute('navigationBack') && req.key == null) return navigateRoot(req.text ?? '') ? { typed: req.id, delivery: 'recognized', handled: true } : { handled: true, error: 'the navigation root has no `navigate` handler' }; return typedControl(el) && req.key == null ? typeControl(el, req) : el instanceof HTMLIFrameElement ? guestType(el, req) : {}; }
+      case 'reveal': return { ...reveal(views.get(req.id), req.id), ...tags() }; // before a tap or a type
       case 'logs': { const j = exact.journal, from = Math.max(req.since ?? 0, j.start); return { lines: j.slice(from - j.start), from, next: j.start + j.length }; }
       // `perf <target>` (LLP 1079 D2): the plan sites under a view, with their work (perf.js).
       case 'perf': {
@@ -256,6 +254,15 @@ export function install(exact) {
         return perf.reply(el, tags());
       }
       case 'clock': {
+        // The end of an input (LLP 1012 §2): the `then`s of the answers it
+        // settled land, the clock unmoved and no timer fired (Runner::land_then).
+        if (req.land) {
+          // The clock is unmoved, so nothing reconciles here: each landed commit registered its animations (exact.After).
+          const stopped = exact.advance(exact.clock.now, false, undefined, false);
+          if (typeof stopped === 'string') { seek(false); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
+          seek(false);
+          return { clock: exact.clock.now };
+        }
         if (req.settle) {
           // Settled: no request in flight and no commit pending, within 20 s.
           // Virtualized lists report until a round sends nothing, reading
@@ -281,7 +288,7 @@ export function install(exact) {
             for (let stops = 0; ; stops++) {
               const before = exact.inflight.n, held = stops < 4096 && performance.now() < end;
               const stopped = exact.advance(to, false, held ? () => exact.inflight.n > before : undefined);
-              if (typeof stopped === 'string') { retime(); seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
+              if (typeof stopped === 'string') { seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
               if (!stopped) break;
               while (exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 1));
             }
@@ -289,7 +296,6 @@ export function install(exact) {
             seek();
             await new Promise(r => requestAnimationFrame(() => r()));
           }
-          retime();
           const gpuPending = await settleGpu();
           if (gpuPending.length) return gpuPendingReply(req, gpuPending);
           const waiting = holds();
@@ -301,22 +307,31 @@ export function install(exact) {
         // host's does (Runner::advance_until_request): the runner keeps one
         // request per target, so the next tick's send would drop it.
         // A jump that fires timers which send nothing is one advance (one
-        // journal line), as the runner's is.
+        // journal line), as the runner's is. What was in flight before the
+        // jump lands before a timer fires too, as the wasm and native hosts'
+        // jumps wait for it (calendar F10: a store's reply is on real time).
+        const due = () => exact.clock.timers.some(t => t.due <= req.to);
+        // A view transition on its way is ready first, so its animations
+        // start at this clock, not the one the jump reaches (LLP 1013.000 D9).
+        await exact.viewTransition?.();
         for (const end = performance.now() + 20000; ;) {
+          while (due() && exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 1));
           const before = exact.inflight.n, stopped = exact.advance(req.to, false, () => exact.inflight.n > before);
           // A refusal stops the jump at its time: the runner's error (a timer's, a `then`'s).
-          if (typeof stopped === 'string') { retime(); seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
+          if (typeof stopped === 'string') { seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
           if (!stopped) break;
           // A reply is usually a task or two away: poll at the browser's
           // shortest timer, not a frame's worth (a 300 ms timer's minute
           // is 200 of these).
           while (exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 1));
         }
-        retime(); seek();
+        seek();
         await new Promise(r => requestAnimationFrame(() => r()));
         const gpuPending = await settleGpu();
         if (gpuPending.length) return gpuPendingReply(req, gpuPending);
-        return { clock: exact.clock.now };
+        // Requests still in flight on real time, which a jump does not wait for (`clock settle` does): the driver says so.
+        const inflight = exact.inflight.n - holds().length;
+        return { clock: exact.clock.now, ...(inflight > 0 ? { inflight } : {}) };
       }
       case 'tags': return tags();
       // @ref LLP 1080.002 D4 — the ids `tree` gives, where CDP's DOM snapshot reads them, and the document's nonce.
@@ -332,10 +347,13 @@ export function install(exact) {
         const focus = { logical: activeId, editor: active && (active.localName === 'input' || active.localName === 'textarea' || active.exactMarkup) ? activeId : null, responder: active?.localName ?? null, pending: null };
         const language = { lang: document.documentElement.lang || 'en', dir: document.documentElement.dir || 'ltr' };
         const keyboard = { visible: overlap > 0, overlap: Math.round(overlap * 100) / 100, policy: document.querySelector('[interactiveWidget]')?.getAttribute('interactiveWidget') ?? 'resizes-visual', interactive: false };
-        const media = [...document.querySelectorAll('#exact-root video')].map(el => ({ id: id(el), state: { currentTime: el.currentTime, duration: Number.isFinite(el.duration) ? el.duration : null, paused: el.paused, muted: el.muted, volume: el.volume, playbackRate: el.playbackRate, readyState: el.readyState, videoWidth: el.videoWidth, videoHeight: el.videoHeight, src: el.currentSrc, error: el.error ? { code: el.error.code, message: el.error.message } : null, renderer: 'HTMLVideoElement' } }));
+        const media = [...document.querySelectorAll('#exact-root video, #exact-root audio')].map(el => ({ id: id(el), state: { currentTime: el.currentTime, duration: Number.isFinite(el.duration) ? el.duration : null, paused: el.paused, muted: el.muted, volume: el.volume, playbackRate: el.playbackRate, readyState: el.readyState, videoWidth: el.videoWidth, videoHeight: el.videoHeight, src: el.currentSrc, error: el.error ? { code: el.error.code, message: el.error.message } : null, renderer: el.constructor.name } }));
         // The active head's fields, `null` where none is set, as the runner's `state.head` (agent.rs).
         const head = Object.fromEntries(['title', 'description', 'image', 'canonical', 'robots', 'status'].map(k => [k, Head['head' + k[0].toUpperCase() + k.slice(1)] ?? null]));
-        return { slots, derives, resources, pending, head, focus, language, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.surfaceRefusals ? { surfaceRefusals: exact.surfaceRefusals() } : {}), ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hookStats ? { hooks: exact.hookStats } : {}), ...tags() };
+        // The drive's app storage (trivia F7): none unless it names a scratch store, as storage-environment.js's `storageKey`.
+        const store = new URL(performance.getEntriesByType?.('navigation')[0]?.name ?? location.href).searchParams.get('storage');
+        const storage = store == null ? { available: false, code: 'agent', message: 'storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)' } : { available: true, store };
+        return { slots, derives, resources, pending, head, focus, language, storage, keyboard, navigation: (pageHistory() ?? navigation).observation(document.getElementById('exact-root')), media, window: { title: document.title }, ...(exact.canvas2dState ? { canvas: exact.canvas2dState() } : {}), ...(exact.surfaceRefusals ? { surfaceRefusals: exact.surfaceRefusals() } : {}), ...(exact.lists ? { scrollIntoView: exact.lists.intoView() } : {}), ...(exact.presenceLive ? { presence: presence() } : {}), ...(exact.hookStats ? { hooks: exact.hookStats } : {}), ...tags() };
       }
       // The page group (LLP 1069.000 D6), where the plan reads `exactPage` (facts.js).
       // The fold group (LLP 1078 D7) likewise: through facts.js where the plan reads the fold's fields (it re-answers them), else the

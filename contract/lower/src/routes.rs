@@ -171,3 +171,75 @@ fn route_policy(
     }
     Ok((render, activate, paint))
 }
+
+/// Where an element sits relative to a navigation root (LLP 1038 D6, LLP
+/// 1075.003 §3.7). Every host finds a root's routes among its own children
+/// and among its tabpanels' children, and nowhere else: a route behind a
+/// wrapper was ignored, with only a runtime log naming its key (hn-reader
+/// F5, shop F9), so the compiler refuses it.
+#[derive(Clone, Debug, Default)]
+pub(crate) enum NavPlace {
+    /// No navigation root encloses it.
+    #[default]
+    Outside,
+    /// A root's child: the tags from the root down.
+    RootChild(Vec<String>),
+    /// A tabpanel's child, the panel in a root.
+    PanelChild(Vec<String>),
+    /// Deeper inside a root, behind a wrapper, outside any route.
+    InRoot(Vec<String>),
+    /// Inside a route.
+    InRoute,
+}
+
+impl NavPlace {
+    /// The place of `tag`'s children, or the refusal of a route `tag` that
+    /// no host would find here.
+    pub(crate) fn enter(
+        &self,
+        tag: &str,
+        attrs: &[Attr],
+        span: Span,
+    ) -> Result<NavPlace, LowerError> {
+        let has = |name: &str| attrs.iter().any(|a| a.name == name);
+        let path = |p: &[String]| [p, &[tag.to_string()]].concat();
+        if has("navigationKey") && has("navigationBack") {
+            return Ok(NavPlace::RootChild(vec![tag.to_string()]));
+        }
+        if has("navigationKey") {
+            let shown = match self {
+                NavPlace::InRoot(p) => p.join(" > "),
+                NavPlace::InRoute => {
+                    return err(
+                        "lower-route-place",
+                        format!("this `{tag}` has a `navigationKey` inside another route; a route is a child of the navigation root or of a `role=\"tabpanel\"` in it, never of a route, so no host would show it"),
+                        span,
+                    )
+                }
+                NavPlace::Outside => return Ok(NavPlace::Outside),
+                _ => return Ok(NavPlace::InRoute),
+            };
+            return err(
+                "lower-route-place",
+                format!("this `{tag}` has a `navigationKey` but sits at `{shown} > {tag}`; the hosts find a route only as a child of the navigation root (the element with `navigationBack`) or of a `role=\"tabpanel\"` in it, so this one is never shown. Move the wrapper's layout onto the route or inside it (docs/contract-for-agents.md, \"Tabs and stacks\")"),
+                span,
+            );
+        }
+        // A dynamic `role` may be a tabpanel: its children are given the benefit.
+        let panel = attrs
+            .iter()
+            .rev()
+            .find(|a| a.name == "role")
+            .is_some_and(|a| match &a.value {
+                Expr::Str(v, _) => v == "tabpanel",
+                _ => true,
+            });
+        Ok(match self {
+            NavPlace::RootChild(p) | NavPlace::InRoot(p) if panel => NavPlace::PanelChild(path(p)),
+            NavPlace::RootChild(p) | NavPlace::PanelChild(p) | NavPlace::InRoot(p) => {
+                NavPlace::InRoot(path(p))
+            }
+            other => other.clone(),
+        })
+    }
+}

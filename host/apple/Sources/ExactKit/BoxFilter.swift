@@ -14,7 +14,7 @@ import QuartzCore
 final class BoxFilter {
     /// Stands where the box stands (its geometry mirrored), clipped by the
     /// box's `clip-path` after the filter, as CSS orders them.
-    private let picture = CALayer()
+    let picture = CALayer()
     /// The filtered pixels, over the region in the box's bounds space.
     private let content = CALayer()
     /// The box's mask while filtered: nothing of the box itself shows.
@@ -58,7 +58,6 @@ final class BoxFilter {
         picture.anchorPoint = box.anchorPoint
         picture.position = box.position
         picture.transform = box.transform
-        picture.zPosition = box.zPosition
         picture.opacity = box.opacity
         picture.isHidden = box.isHidden
         picture.mask = clip

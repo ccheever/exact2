@@ -2,7 +2,7 @@
 // Invert leaving a node's pixels alone (D18), a scroll container's edge
 // effect (D16, iOS 26), the iPad pointer's effect over a node (D17), and
 // a text's numerals rolling as they change (D15).
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import ObjectiveC
 import UIKit
 
@@ -19,7 +19,7 @@ extension NodeView {
 
     /// D16: the edge effect where content meets a bar; `none` hides it.
     private func applyScrollEdge(_ sv: UIScrollView) {
-        guard #available(iOS 26.0, *) else { return }
+        guard #available(iOS 26.0, tvOS 26.0, *) else { return }
         let value = style["scroll_edge_effect"]?.string ?? "automatic"
         for edge in [sv.topEdgeEffect, sv.bottomEdgeEffect, sv.leftEdgeEffect, sv.rightEdgeEffect] {
             let hidden = value == "none"
@@ -31,6 +31,8 @@ extension NodeView {
 
     /// D17: a pointer interaction whose style is the node's effect.
     private func applyHoverEffect() {
+        // tvOS has no pointer interactions.
+        #if !os(tvOS)
         let effect = style["hover_effect"]?.string ?? "auto"
         // Only the interaction this row added: a native hook's stays.
         let ours = interactions.compactMap { $0 as? UIPointerInteraction }.first { $0.delegate is HoverEffect }
@@ -41,9 +43,11 @@ extension NodeView {
         let delegate = HoverEffect.of(self)
         delegate.effect = effect
         if ours == nil { addInteraction(UIPointerInteraction(delegate: delegate)) }
+        #endif
     }
 }
 
+#if !os(tvOS)
 /// The pointer's style over one node (D17), kept on the node.
 final class HoverEffect: NSObject, UIPointerInteractionDelegate {
     var effect = "auto"
@@ -65,6 +69,7 @@ final class HoverEffect: NSObject, UIPointerInteractionDelegate {
         }
     }
 }
+#endif
 
 /// D15: a paragraph whose text changed under `content-transition: numeric`
 /// rolls in from below (from above for `numeric-countdown`), as SwiftUI's
@@ -85,4 +90,19 @@ enum NumeralRoll {
         ink.add(roll, forKey: "exact.numeric")
     }
 }
+
+#if !os(tvOS)
+extension NodeView {
+    @objc func hovering(_ g: UIHoverGestureRecognizer) {
+        if g.state == .ended || g.state == .cancelled { presenter?.hoverInline(nil) }
+        else if let run = inlineTarget(at: g.location(in: self), handler: "hover") { presenter?.hoverInline(run.id); return }
+        else { presenter?.hoverInline(nil) }
+        switch g.state {
+        case .began: presenter?.hover(self, true)
+        case .ended, .cancelled, .failed: presenter?.hover(self, false)
+        default: break
+        }
+    }
+}
+#endif
 #endif

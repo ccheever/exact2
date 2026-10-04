@@ -84,6 +84,10 @@ pub struct Bridge<D: DataSource> {
     pub(crate) pan: crate::pan_velocity::PanVelocity,
     /// Canvas draws in a turn of their own (LLP 1072 §8.5), in each host booted.
     canvas_deferred: bool,
+    /// The display preferences last told (`set_preferences`), kept across
+    /// boots: a runner booted later lays out its first frame with them, not
+    /// with a mouse's defaults and then again.
+    preferences: exact_runner::Preferences,
     input: Vec<u8>,
     output: Vec<u8>,
 }
@@ -120,6 +124,7 @@ impl<D: DataSource> Bridge<D> {
             app_call: None,
             pan: crate::pan_velocity::PanVelocity::new(),
             canvas_deferred: false,
+            preferences: exact_runner::Preferences::NONE,
             input: Vec::new(),
             output: Vec::new(),
         }
@@ -466,8 +471,7 @@ impl<D: DataSource> Bridge<D> {
             plan,
             data,
             measurer,
-            width,
-            height,
+            self.boot_viewport(width, height),
             None,
             snapshot,
             secrets,
@@ -740,8 +744,7 @@ impl<D: DataSource> Bridge<D> {
             PlanBytes::Copied(&plan),
             data,
             measurer,
-            width,
-            height,
+            self.boot_viewport(width, height),
             carried.as_ref(),
             snapshot,
             secrets,
@@ -847,8 +850,9 @@ impl<D: DataSource> Bridge<D> {
 
     /// Dispatch an event at `now_ms`; `kind` is 0 = press, 1 = change,
     /// 2 = hover in, 3 = hover out, 4 = focus, 5 = blur, 6 = key, 7 = submit,
-    /// 8 = load, 9 = message (the payload — a change's text, a key's name,
-    /// or a guest message — is the input buffer's first `len` bytes, UTF-8).
+    /// 8 = load, 9 = message (the payload — a change's text, a key's chord
+    /// (`Event::key`), or a guest message — is the input buffer's first `len`
+    /// bytes, UTF-8).
     /// Kind 14 is navigate: one UTF-8 location at the navigation root (LLP 1038 D8).
     /// Kind 23 is a text field's `input`; 24 and 25 a checkbox's `change`
     /// and `input`, the payload `true` or `false` (LLP 1069.001 D4).
@@ -856,7 +860,13 @@ impl<D: DataSource> Bridge<D> {
         let payload =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
         let event = match kind {
-            0 => Event::Press,
+            // A press, with the modifiers held as a chord prefix (gallery F20).
+            0 => {
+                let Some(event) = Event::press(&payload) else {
+                    return self.emit(r#"{"ops":[],"error":"invalid press modifiers"}"#.into());
+                };
+                event
+            }
             1 => Event::Change(payload.into()),
             // @ref LLP 1069.001 D4 — 23 is a text field's `input`; 24 and 25 a checkbox's `change` and `input`, the payload `true`/`false`.
             // @ref LLP 1069.002 D3, D2 — 26 is a file input's `change`, one picked file per line; 27 its `cancel`.
@@ -882,19 +892,18 @@ impl<D: DataSource> Bridge<D> {
             3 => Event::Hover(false),
             4 => Event::Focus,
             5 => Event::Blur,
-            6 => Event::Key(payload),
+            6 => Event::key(&payload),
             7 => Event::Submit,
             8 => Event::Load,
             9 => Event::Message(payload),
             10 => Event::Contextmenu,
             11 => Event::Dblclick,
-            29 => Event::Pointerdown, // LLP 1005 §Events
-            30 => Event::Pointerup,
             12 => Event::Swiperight,
             // The platform's pull-to-refresh control fired.
             22 => Event::Refresh,
-            // Scroll, media, pan, selection and pan release (LLP 1057 §10.6).
-            13 | 19 | 20 | 21 | 28 => match Event::of_host_kind(kind, &payload) {
+            // Scroll, media, pan, selection and pan release (LLP 1057 §10.6),
+            // and the pointer's down, up and move (LLP 1005 §Events, 1056 §3).
+            13 | 19 | 20 | 21 | 28..=34 => match Event::of_host_kind(kind, &payload) {
                 Ok(event) => event,
                 Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),
             },
@@ -1073,15 +1082,15 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// Move the clock (timers).
-    pub fn advance(&mut self, now_ms: f64, until_request: bool) -> u32 {
-        let out = self
-            .host
-            .as_mut()
-            .map_or_else(not_booted, |h| match until_request {
-                true => h.advance_until_request(now_ms),
-                false => h.advance(now_ms),
-            });
+    /// Move the clock: `mode` 0 fires every timer due (the wall clock), 1
+    /// stops after a timer that sends (the agent's jump), 2 lands only the
+    /// `then`s already armed, the clock unmoved (an agent's input's end).
+    pub fn advance(&mut self, now_ms: f64, mode: u32) -> u32 {
+        let out = self.host.as_mut().map_or_else(not_booted, |h| match mode {
+            2 => h.land_then(),
+            1 => h.advance_until_request(now_ms),
+            _ => h.advance(now_ms),
+        });
         self.emit(out)
     }
 
@@ -1122,19 +1131,6 @@ impl<D: DataSource> Bridge<D> {
             .host
             .as_mut()
             .map_or_else(not_booted, |h| h.resize(width, height));
-        self.emit(out)
-    }
-
-    /// The user's display preferences changed or became known (LLP 1061
-    /// D4; LLP 1069.000 D1): bit 0 reduced motion, bit 1 reduced
-    /// transparency, bit 2 contrast more, bit 3 contrast less, bit 4 a dark
-    /// system.
-    pub fn set_preferences(&mut self, bits: u32) -> u32 {
-        let preferences = exact_runner::Preferences::from_bits(bits);
-        let out = self
-            .host
-            .as_mut()
-            .map_or_else(not_booted, |h| h.set_preferences(preferences));
         self.emit(out)
     }
 
@@ -1470,6 +1466,7 @@ pub fn with_entry<D: DataSource>(
 }
 
 mod exports;
+mod preferences;
 pub(crate) mod segments;
 
 #[path = "abi/commands.rs"]

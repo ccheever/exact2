@@ -1,10 +1,13 @@
 {
   "game": {
     "assets": true,
-    "render": {
-      "crate": "wind-fixture-render",
-      "hooks": "Wind",
+    "presentation": {
+      "crate": "wind-fixture-presentation",
+      "type": "Wind",
       "shaders": "shaders::SHADERS"
     }
+  },
+  "gpu": {
+    "shaderRoots": ["presentation/shaders"]
   }
 }

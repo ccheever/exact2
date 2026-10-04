@@ -391,7 +391,7 @@ public final class ExactSession {
     var timerDue: Double?
     /// The view presenting this session, while one is mounted (D1).
     weak var view: ExactView?
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     private var systemDark = false
     #endif
     /// This session's agent, once a carrier asked for it (`Agent.swift`).
@@ -434,7 +434,7 @@ public final class ExactSession {
     /// macOS follows once physical scrolling there is measured (stage 5).
     /// Read when a session wires itself; tests set it to drive the
     /// asynchronous path on macOS.
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     nonisolated(unsafe) static var asyncFills = !ExactEnv.agentMode && ExactEnv.environment["EXACT_FILL_SYNC"] != "1"
     #else
     nonisolated(unsafe) static var asyncFills = false
@@ -528,7 +528,7 @@ public final class ExactSession {
         rasters.trimCold()
         text.dropColdShaped()
         if let m = text.measurer { Owner.shared.post { m.dropColdShaped() } }
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         presenter.textRasters.dropKept()
         #endif
         DispatchQueue.global(qos: .utility).async { malloc_zone_pressure_relief(nil, 0) }
@@ -667,7 +667,7 @@ public final class ExactSession {
             if batch.ops.isEmpty && batch.error == nil && batch.motion == frames.motion && batch.spatial == frames.spatial && batch.timerDueMs == timerDue && batch.canvasOwed == canvasOwed { return }
             apply(batch)
         }
-        presenter.onPress = { [unowned self] id in apply(runtime.press(id, now: now())) }
+        presenter.onPress = { [unowned self] id in apply(runtime.press(id, held: presenter.pressHeld, now: now())) }
         presenter.onChange = { [unowned self] id, value in apply(runtime.change(id, documentValue(id, value), now: now())) }
         presenter.onInput = { [unowned self] id, value in apply(runtime.input(id, value, now: now())) }
         // @ref LLP 1069.001 D4 — a toggle is HTML's `input` then `change`,
@@ -686,6 +686,9 @@ public final class ExactSession {
         presenter.buttonFace = { [unowned self] id in runtime.buttonFace(id) }
         presenter.onIntrinsic = { [unowned self] sizes in whenIdle { [unowned self] in apply(runtime.intrinsics(sizes)) } }
         #if os(iOS)
+        presenter.groupedList = { [unowned self] id in runtime.groupedList(id) }
+        #endif
+        #if os(iOS) || os(tvOS)
         // @ref LLP 1075.003 §3.5, Q3 (c) — what a bar covers reaches layout
         // as an intrinsic size does; the hooks replay once the module connects.
         presenter.onCovers = { [unowned self] covers in whenIdle { [unowned self] in apply(runtime.covers(covers)) } }
@@ -710,16 +713,18 @@ public final class ExactSession {
         presenter.onPanRelease = { [unowned self] id, vx, vy in apply(runtime.panRelease(id, vx: vx, vy: vy, now: now())) }
         presenter.onPanSample = { [unowned self] first, x, y, t in runtime.panSample(first: first, x: x, y: y, t: t) }
         presenter.panVelocity = { [unowned self] t in runtime.panVelocity(at: t) }
-        presenter.onScroll = { [unowned self] id, left, top in apply(runtime.scroll(id, left: left, top: top, now: now())) }
+        presenter.onScroll = { [unowned self] id, metrics in apply(runtime.scroll(id, metrics: metrics, now: now())) }
+        presenter.onScrolled = { [unowned self] id, left, top in runtime.scrolled(id, left: left, top: top) }
         #if canImport(AppKit)
         presenter.onListIndex = { [unowned self] id, key in runtime.listIndex(id, key: key) }
         presenter.onListText = { [unowned self] id, first, last in runtime.listText(id, first: first, last: last) }
         #endif
         presenter.onDblclick = { [unowned self] id in apply(runtime.dblclick(id, now: now())) }
-        presenter.onPointer = { [unowned self] id, down in apply(runtime.pointer(id, down: down, now: now())) }
+        presenter.onPointer = { [unowned self] id, kind, sample in apply(runtime.pointer(id, kind, sample, now: now())) }
         presenter.onSubmit = { [unowned self] id in apply(runtime.submit(id, now: now())) }
         presenter.onLoad = { [unowned self] id in apply(runtime.load(id, now: now())) }
         presenter.onMessage = { [unowned self] id, value in apply(runtime.message(id, value, now: now())) }
+        presenter.onClipboard = { [unowned self] id, kind, text in apply(runtime.clipboard(id, kind, text, now: now())) }
         // Commands are queued here and delivered once the batch is applied
         // (D2): a delegate then runs against a settled tree.
         presenter.onCommand = { [unowned self] name, args, source in pendingCommands.append((name, args, source)) }
@@ -730,6 +735,7 @@ public final class ExactSession {
     @discardableResult
     public func boot(size: CGSize) -> Batch {
         let t = CACurrentMediaTime()
+        primePreferences()
         if let bytes = app.lastPlan {
             // A selected launch can crash in runner/font/asset preparation.
             // Record the attempt first; an integrity refusal clears it below.
@@ -754,6 +760,7 @@ public final class ExactSession {
     @discardableResult
     public func boot(plan bytes: Data, size: CGSize) -> Batch {
         let t = CACurrentMediaTime()
+        primePreferences()
         let cp = text.checkpoint()
         let batch = runtime.bootPlan(bytes, width: size.width, height: size.height)
         if batch.error == nil { updateToken = 0; app.invalidateDevGeneration() }
@@ -775,6 +782,7 @@ public final class ExactSession {
             if booted { presenter.reset() }
             booted = true
             text.commitFonts()
+            AppFiles.learn(runtime) // before the first frame's `app:/` images load (LLP 1069.002 D7)
         }
         apply(batch)
         if batch.error == nil { tellTime() }
@@ -855,6 +863,7 @@ public final class ExactSession {
         app.lifecycle?.generationStarted(app, token: updateToken)
         autofocusHeld = restart
         sampler?.reset() // a new runner numbers its transactions afresh (LLP 1079 D3)
+        AppFiles.learn(runtime)
         apply(batch)
         tellTime()
         view?.rebooted()
@@ -952,7 +961,11 @@ public final class ExactSession {
                         fputs("exact: copyText requires one string\n", stderr)
                         continue
                     }
-                    #if canImport(UIKit)
+                    #if os(tvOS)
+                    // tvOS has no pasteboard.
+                    fputs("exact: copyText: no pasteboard\n", stderr)
+                    _ = text
+                    #elseif canImport(UIKit)
                     UIPasteboard.general.string = text
                     #else
                     NSPasteboard.general.clearContents()
@@ -960,6 +973,12 @@ public final class ExactSession {
                         fputs("exact: copyText failed\n", stderr)
                     }
                     #endif
+                    continue
+                }
+                if name == "reload" {
+                    // The dev menu's Reload, from the app; a build without the dev menu refuses it.
+                    guard DevMenu.enabled else { fputs("exact: reload: no dev menu in this build\n", stderr); continue }
+                    app.deliver { DevMenu.reload() }
                     continue
                 }
                 if name == "haptic" {
@@ -983,6 +1002,10 @@ public final class ExactSession {
                 }
                 if name == "blur" {
                     app.deliver { [weak self] in self?.presenter.blurElement(args) }
+                    continue
+                }
+                if name == "scrollIntoView" {
+                    app.deliver { [weak self] in self?.presenter.scrollElementIntoView(args) }
                     continue
                 }
                 if name == "showPicker" {
@@ -1051,6 +1074,7 @@ public final class ExactSession {
                 }
                 return
             }
+            AppFiles.learn(runtime) // the roots storage configured
             apply(batch)
             if batch.error == nil {
                 presenter.collections.dataReady()
@@ -1086,7 +1110,7 @@ public final class ExactSession {
             clockTimer = SessionClockTimer.schedule(after: delay / 1000) { [weak self] _ in
                 guard let self, state != .destroyed else { return }
                 clockTimer = nil
-                whenIdle { [weak self] in guard let self, state != .destroyed else { return }; apply(runtime.advance(now: now())) }
+                whenIdle { [weak self] in guard let self, state != .destroyed else { return }; followOffset(); apply(runtime.advance(now: now())) }
             }
         }
         frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
@@ -1099,12 +1123,24 @@ public final class ExactSession {
         if launchPlace.epoch != nil {
             tellAgentOffset()
         } else {
-            let offset = Double(TimeZone.current.secondsFromGMT()) / 60
-            apply(runtime.setTime(epochAtZero: Date().timeIntervalSince1970 * 1000 - now(), utcOffset: offset))
+            toldOffset = nil
+            followOffset()
         }
         apply(runtime.setPlace(locale: launchPlace.locale, timeZone: launchPlace.timeZone, seed: launchPlace.seed))
         tellPreferences()
         tellPage()
+    }
+    /// The machine zone's offset now, told when it is not the one last told:
+    /// at boot and before each advance, so a DST change or a new zone reaches
+    /// the timer that fires after it (habits F6). Under the agent, the
+    /// drive's zone moves it instead (`tellAgentOffset`).
+    var toldOffset: Double?
+    func followOffset() {
+        guard launchPlace.epoch == nil else { return }
+        let offset = Double(TimeZone.autoupdatingCurrent.secondsFromGMT()) / 60
+        guard offset != toldOffset else { return }
+        toldOffset = offset
+        apply(runtime.setTime(epochAtZero: Date().timeIntervalSince1970 * 1000 - now(), utcOffset: offset))
     }
     /// Under the agent, the drive's date at the clock's zero and its zone's
     /// offset at the virtual instant the clock reads: told at boot and after
@@ -1121,7 +1157,17 @@ public final class ExactSession {
     /// frame on screen already reads the user's preferences.
     func tellPreferences() {
         guard booted, state != .destroyed else { return }
-        #if os(iOS)
+        apply(runtime.setPreferences(preferenceBits()))
+    }
+    /// Before a first boot the runtime keeps them, so the first frame is laid
+    /// out with the device's preferences rather than a mouse's and then again
+    /// (`pointer: none` on tvOS sets a different layout).
+    private func primePreferences() {
+        guard !booted, state != .destroyed else { return }
+        _ = runtime.setPreferences(preferenceBits())
+    }
+    private func preferenceBits() -> UInt32 {
+        #if os(iOS) || os(tvOS)
         // The scene owns system appearance; a window's app override does not.
         if let scene = view?.window?.windowScene {
             systemDark = scene.traitCollection.userInterfaceStyle == .dark
@@ -1130,7 +1176,7 @@ public final class ExactSession {
         #else
         let dark = DisplayPreferences.systemDark
         #endif
-        apply(runtime.setPreferences(DisplayPreferences.bits(systemDark: dark)))
+        return DisplayPreferences.bits(systemDark: dark)
     }
     /// @ref LLP 1069.000 D2 — told after every boot and on each change; a
     /// change while iOS suspends the process lands with the foreground
@@ -1230,7 +1276,7 @@ public final class ExactSession {
     }
     /// The scene became active (iOS): the canvases follow.
     public func becameActive() { frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames) }
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     /// A hardware keyboard's Tab (or Shift-Tab) when no node of this session
     /// holds the focus: an app's last responder forwards it here, as macOS's
     /// window starts its key-view loop at the view.
@@ -1324,6 +1370,7 @@ final class Frames: NSObject {
         if !s.fillInFlight {
             if timerSoon, !ExactEnv.agentMode, s.clock == nil {
                 let now = s.now()
+                s.followOffset()
                 if tasks { s.apply(s.runtime.frame(now: frameNow)) }
                 else if s.timerDue.map({ now >= $0 }) ?? true { s.apply(s.runtime.advance(now: now)) }
             }

@@ -80,7 +80,7 @@ final class ReorderIOSTests: XCTestCase {
         grip.reorderDragged(drag)
         XCTAssertNotNil(grip.reorderHold)
         drag.at.y = 170; drag.state = .changed; grip.reorderDragged(drag)
-        XCTAssertEqual(p.views[2]?.layer.zPosition, 1000, "the lifted row paints above later rows")
+        XCTAssertEqual(p.views[2]?.layer.zPosition, 0.001, "the lifted row paints above later rows")
         drag.at.y = 180; drag.state = .ended; grip.reorderDragged(drag)
         XCTAssertEqual(calls.log, ["begin 3 top=0.0", "move 7 dy=50.0", "drop 7 dy=60.0"])
         let hold = try XCTUnwrap(p.reorder)

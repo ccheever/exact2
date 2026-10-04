@@ -3,7 +3,7 @@ use crate::{
     buffers::{bytes, Buffer},
     FrameInput, RenderError,
 };
-use exact_game::{asset::AlphaMode, Emitter, Entity, Sprite, Transform, Visible, World};
+use exact_game::{asset::AlphaMode, Emitter, Entity, Sprite, Transform, World};
 use exact_gpu::wgpu;
 use glam::{Vec2, Vec3};
 use std::{collections::BTreeMap, ops::Range};
@@ -679,13 +679,24 @@ pub(crate) fn feed<T: exact_game::Component + Clone>(
     next_tick: bool,
     parent_changed: bool,
 ) {
+    feed_poses(w, items, initial, next_tick, parent_changed, true);
+}
+
+pub(crate) fn feed_poses<T: exact_game::Component + Clone>(
+    w: &World,
+    items: &mut Vec<Item<T>>,
+    initial: bool,
+    next_tick: bool,
+    parent_changed: bool,
+    visible_only: bool,
+) {
     let revision = w.revision::<T>();
     // Compact once, then append arrivals. Never shift the tail for each removal.
     items.retain_mut(|i| {
         let Some(value) = w.get::<T>(i.entity) else {
             return false;
         };
-        if w.get::<Visible>(i.entity).is_some_and(|v| !v.0) {
+        if visible_only && !w.is_visible(i.entity) {
             return false;
         }
         let Some(pose) = crate::world::scene::pose(w, i.entity) else {
@@ -712,7 +723,7 @@ pub(crate) fn feed<T: exact_game::Component + Clone>(
             retained += 1;
             continue;
         }
-        if w.get::<Visible>(entity).is_some_and(|v| !v.0) {
+        if visible_only && !w.is_visible(entity) {
             continue;
         }
         if let Some(pose) = crate::world::scene::pose(w, entity) {

@@ -52,6 +52,10 @@ and this one does not. Read them first.
 - `num/` — `exact-num`, number text as std reads it without std's tables
   (a correctly rounded decimal-to-float parse); a leaf under motion, text flow,
   the kernel, the runner and the web host. LLP 1047 §6.
+- `svg-filter/` — `exact-svg-filter`, a resolved SVG filter as a chain of
+  primitives and its flat wire form (LLP 1055.000 D14); a leaf under the kernel,
+  which re-exports it as `svg::filter`, and under `exact-svg-raster`, which
+  therefore does not compile the kernel (LLP 1036.000 §12).
 - `plan/` — `exact-plan`, the plan format: tables, bytecode, and the validating
   decoder, generated from `plan/tables/format.json`. Depends on nothing. LLP 1005.
 - `runner/` — `exact-runner`, the plan runner: the VM, keyed instances, kernel
@@ -65,7 +69,13 @@ and this one does not. Read them first.
   the real DOM, CSS computed once from the kernel's rows, springs lowered to
   frames, a no-`unsafe` ABI, the glue, the headless-Chrome smoke, the motion
   parity harness (`parity.mjs`), and the dev loop (`bun host/web/dev.mjs`:
-  edit `app.contract`, the page restarts in ~20 ms). LLP 1007.
+  edit `app.contract`, the page rebuilds and reloads; `--wasm` is the resident
+  loop that restarts the plan in place in ~20 ms). LLP 1007.
+- `host/web-js/` — the web's default build (LLP 1071): the plan compiled to one
+  ES module over a ~20 KB runtime that drives the DOM directly. `build.mjs`
+  makes it; a game, delivery's oracle and the parity smokes keep `--wasm`.
+- `host/render/` — the render host (LLP 1048): pages pre-rendered per request by
+  a Rust renderer, then adopted in place by the runtime rather than hydrated.
 - `host/apple/` — `exact-apple`, the Apple host: the runner and kernel as a static
   library with a C ABI (`include/exact.h`), the kernel's own layout with CoreText
   measurement through a registered callback, `exact-motion` as the executor, typed
@@ -89,10 +99,14 @@ and this one does not. Read them first.
   GPU crate implements against wgpu, the module that runs surfaces on a device,
   and its ABI — a C ABI for the `dylib` the macOS presenter `dlopen`s, wasm-bindgen
   exports for the wasm the page fetches — both loaded on demand after the first
-  pixel. `apps/caltrain/gpu` is the app's module: the line map.
+  pixel. `apps/caltrain/gpu` is the app's module: the aurora, the glass and the
+  deck. The line map left it for Canvas 2D (LLP 1056), drawn by the data crate.
 - `vendor/taffy/` — Taffy 0.9.2 plus six Exact patches (`EXACT-PATCHES.md`).
 - `scripts/` — `caps` and `boot` (two of the five checks), `metrics` (the startup and
-  speed numbers in one run, diagnostic), and `issue` (filesystem issues, `docs/issues.md`).
+  speed numbers in one run, diagnostic), `issue` (filesystem issues, `docs/issues.md`),
+  and `exact.mjs` (`exact new`, `setup`, `contract`, `run`, `install`).
+- `docs/` — the guides for people and agents building apps: Contract for agents,
+  for humans, its grammar, the pitfalls, and the developer reference (LLP 1086).
 - `skills/`, `.claude/skills/` — the orchestrate skill and the LLP skills (installed
   from `ccheever/llp@v0.5.1`; receipt in `.llp/skills-receipt.json`).
 

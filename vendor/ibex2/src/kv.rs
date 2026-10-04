@@ -544,14 +544,17 @@ pub fn default_store() -> Box<dyn KvStore> {
 mod tests {
     use super::*;
 
+    static NEXT_TEMP_DIR: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
     fn temp_dir() -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "ibex2-kv-{}-{}",
+            "ibex2-kv-{}-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()
-                .as_nanos()
+                .as_nanos(),
+            NEXT_TEMP_DIR.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
         ));
         let _ = std::fs::remove_dir_all(&dir);
         dir

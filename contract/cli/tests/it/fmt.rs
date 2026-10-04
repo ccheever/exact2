@@ -55,7 +55,12 @@ fn shape(src: &str) -> String {
 fn every_corpus_file_and_app_round_trips_through_the_printer() {
     let mut report = Vec::new();
     for path in sources().iter() {
-        let name = path.strip_prefix(repo()).unwrap().display().to_string();
+        let name = path
+            .strip_prefix(repo())
+            .unwrap()
+            .display()
+            .to_string()
+            .replace('\\', "/");
         let src = std::fs::read_to_string(path).unwrap();
         let formatted = format(&src).unwrap_or_else(|e| panic!("{name}: {e}"));
         assert_eq!(shape(&src), shape(&formatted), "{name}: the tree changed");
@@ -240,4 +245,57 @@ fn formatter_refuses_unknown_flags_extra_paths_and_invalid_source_without_writin
         .contains("syntax-duplicate-attr"));
     assert_eq!(std::fs::read_to_string(&file).unwrap(), invalid);
     std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// Habits F5: wrapping a long head put the bare `autofocus` on a line of its
+/// own, which reads as a child; a prefix `-` and a conditional's `:` were
+/// spaced as binary operators. The formatted program compiles to the same
+/// plan, and a break that would change the tree is refused.
+#[test]
+fn a_bare_flag_a_prefix_minus_and_a_conditional_keep_their_meaning() {
+    let dir = std::env::temp_dir().join(format!("exact-fmt-flag-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("app.contract");
+    let src = r#"component App
+  state name = ""
+  state n = 0
+  action set(v: string)
+    name = v
+  action step
+    n = n + (n > 3 ? -1 : 1)
+    n = n > 9 ? 0: n
+    name = !(n > 2) ? `${-n}` : name
+  view
+    column padding=16 gap=8 letter-spacing=-0.4
+      input value=name input=set aria-label="Name of the thing" placeholder="Something long enough to wrap" padding=8 border-radius=10 font-size=16 autofocus
+      button press=step testId="step"
+        text toString(n - 1)
+"#;
+    std::fs::write(&file, src).unwrap();
+    let formatted = format(src).unwrap();
+    assert!(
+        formatted.contains("        font-size=16 autofocus\n"),
+        "{formatted}"
+    );
+    assert!(
+        formatted.contains("n = n + (n > 3 ? -1 : 1)"),
+        "{formatted}"
+    );
+    assert!(formatted.contains("n = n > 9 ? 0 : n"), "{formatted}");
+    assert!(formatted.contains("name = !(n > 2) ? "), "{formatted}");
+    assert!(formatted.contains("letter-spacing=-0.4\n"), "{formatted}");
+    assert!(formatted.contains("toString(n - 1)"), "{formatted}");
+    assert_eq!(shape(src), shape(&formatted));
+    let plan = contract::compile_path(&file).unwrap();
+    let after = contract::compile_path_source(&file, &formatted).unwrap();
+    assert_eq!(plan.encode(), after.encode());
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A test file's steps keep the driver's spellings: `size 1200x800` is one
+/// word and a drag's offsets are signed numbers, not a subtraction.
+#[test]
+fn test_steps_keep_their_viewport_and_signed_offsets() {
+    let src = "epoch \"2026-09-21T12:00:00Z\"\nsize 1200x800\n\ntest \"a\"\n  time-zone \"America/New_York\"\n  size 420x900\n  tap \"c\" drag 10 -4\n  tap \"c\" drag -4 -10 over 5\n";
+    assert_eq!(format(src).unwrap(), src);
 }

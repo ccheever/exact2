@@ -9,8 +9,12 @@ const esc = (s, attr) => String(s).replace(attr ? /[&"\r]/g : /[&<>\r]/g, c => (
 
 class Node {
   constructor(type) { this.nodeType = type; this.parentNode = null; this.childNodes = []; }
+  get parentElement() { return this.parentNode?.nodeType === 1 ? this.parentNode : null; }
   get firstChild() { return this.childNodes[0] ?? null; }
   get nextSibling() { const s = this.parentNode?.childNodes; return s ? s[s.indexOf(this) + 1] ?? null : null; }
+  // rt.js `each` empties a region that is all its parent holds by these: without them every sibling went too.
+  get previousSibling() { const s = this.parentNode?.childNodes; return s ? s[s.indexOf(this) - 1] ?? null : null; }
+  get lastChild() { return this.childNodes.at(-1) ?? null; }
   get isConnected() { let n = this; while (n.parentNode) n = n.parentNode; return n.nodeType === 9; }
   append(...nodes) { for (const n of nodes) this.insertBefore(typeof n === 'string' ? new Text(n) : n, null); }
   // The nodes as one fragment, then before the first child (rt.js `each`'s row fragments).
@@ -43,11 +47,21 @@ class Style {
   set fontSize(v) { this.setProperty('font-size', v); } set fontWeight(v) { this.setProperty('font-weight', v); }
   set fontStyle(v) { this.setProperty('font-style', v); } set fontFamily(v) { this.setProperty('font-family', v); }
   set textDecoration(v) { this.setProperty('text-decoration', v); } set opacity(v) { this.setProperty('opacity', v); }
+  get isolation() { return this.getPropertyValue("isolation"); }
+  set isolation(v) { this.setProperty("isolation", v); }
   get cssText() { return [...this.map].map(([k, v]) => `${k}:${v};`).join(''); }
   set cssText(t) { this.map.clear(); for (const d of t.split(';')) { const i = d.indexOf(':'); if (i > 0) this.map.set(d.slice(0, i).trim(), d.slice(i + 1).trim()); } }
 }
 class Element extends Node {
-  constructor(tag, fonts) { super(1); this.fonts = fonts; this.localName = tag; this.attrs = new Map(); this.style = new Style(); this.dataset = new Proxy({}, { set: (_, k, v) => (this.setAttribute('data-' + k.replace(/[A-Z]/g, c => '-' + c.toLowerCase()), v), true) }); }
+  constructor(tag, fonts) { super(1); this.fonts = fonts; this.localName = tag; this.attrs = new Map(); this.style = new Style(); const data = k => 'data-' + k.replace(/[A-Z]/g, c => '-' + c.toLowerCase());
+    // Read as written: rt.js reads `dataset.exactOn` and the like back.
+    this.dataset = new Proxy({}, { set: (_, k, v) => (this.setAttribute(data(k), v), true), get: (_, k) => typeof k === 'string' ? this.getAttribute(data(k)) ?? undefined : undefined,
+      has: (_, k) => typeof k === 'string' && this.hasAttribute(data(k)), deleteProperty: (_, k) => (this.removeAttribute(data(k)), true) }); }
+  get id() { return this.getAttribute("id") ?? ""; }
+  get attributes() { return [...this.attrs].map(([name, value]) => ({ name, value })); }
+  getAttributeNames() { return [...this.attrs.keys()]; }
+  get children() { return this.childNodes.filter(c => c.nodeType === 1); }
+  get nextElementSibling() { let n = this.nextSibling; while (n && n.nodeType !== 1) n = n.nextSibling; return n; }
   get tagName() { return this.localName.toUpperCase(); }
   setAttribute(k, v) { this.attrs.set(k, String(v)); }
   getAttribute(k) { return this.attrs.get(k) ?? null; }
@@ -58,12 +72,18 @@ class Element extends Node {
   get firstElementChild() { return this.childNodes.find(c => c.nodeType === 1) ?? null; }
   getElementsByTagName(tag) { return this.childNodes.flatMap(c => c.nodeType === 1 ? [...(tag === '*' || c.localName === tag ? [c] : []), ...c.getElementsByTagName(tag)] : []); }
   querySelectorAll() { return []; } querySelector() { return null; } contains() { return false; }
+  // Simple selectors only (`tag`, `tag[attr]`, `[attr]`, comma-separated): rt.js `on` asks whether a press is native.
+  matches(sel) { return sel.split(',').some(p => { const m = /^([\w-]*)(?:\[([\w-]+)\])?$/.exec(p.trim()); return !!m && (!m[1] || m[1] === this.localName) && (!m[2] || this.hasAttribute(m[2])); }); }
   get value() { return this.localName === 'textarea' ? this.textContent : this.getAttribute('value') ?? ''; }
-  set value(v) { if (this.localName === 'textarea') this.textContent = v; else if (v === '') this.removeAttribute('value'); else this.setAttribute('value', v); }
+  get options() { return this.childNodes.filter(c => c.localName === 'option'); }
+  // A select's value is the option that carries it, `selected` (document.rs).
+  set value(v) { if (this.localName === 'select') for (const o of this.childNodes) o.toggleAttribute?.('selected', o.getAttribute('value') === v); else if (this.localName === 'textarea') this.textContent = v; else if (v === '') this.removeAttribute('value'); else this.setAttribute('value', v); }
   set checked(v) { this.toggleAttribute('checked', !!v); }
   get checked() { return this.hasAttribute('checked'); }
   set muted(v) {} pause() {} play() { return Promise.resolve(); }
   set className(v) { this.setAttribute('class', v); }
+  // Read only (symbols.js `tinted`): the class attribute's names.
+  get classList() { const names = (this.getAttribute('class') ?? '').split(/\s+/).filter(Boolean); return Object.assign(names, { contains: c => names.includes(c) }); }
   set href(v) { this.setAttribute('href', v); }
   html(inheritedFont = 16) {
     // Symbol images need a real natural size before adoption. Contract's
@@ -97,7 +117,7 @@ export function createDocument(shell = '') {
   const head = new Element('head'); const body = new Element('body');
   doc.append(head, body); body.append(root);
   Object.assign(doc, {
-    title: '', head, body, documentElement: body,
+    title: '', head, body, documentElement: body, styleSheets: [], // symbols.js reads a tint from the stylesheets: a render has none
     createElement: t => new Element(t, fonts), createElementNS: (_, t) => new Element(t, fonts),
     createTextNode: t => new Text(t), createComment: () => new Comment(), createDocumentFragment: () => new Fragment(),
     getElementById: id => (id === 'exact-root' ? root : null),

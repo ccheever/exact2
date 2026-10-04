@@ -1,0 +1,19 @@
+// A text change to a `select` that names no option. The runner checks it
+// against the options (HTML: a select reports one of its enabled options)
+// and refuses; the semantics delivers the string.
+component App
+  state choice = "a"
+  action pick(v: string)
+    choice = v
+  view
+    select value=choice change=pick testId="sel"
+      option "Alpha" value="a"
+      option "Beta" value="b" disabled=true
+
+test "unknown option"
+  type "sel" "zzz"
+  expect state choice == "a"
+
+test "disabled option"
+  type "sel" "b"
+  expect state choice == "a"

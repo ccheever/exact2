@@ -51,6 +51,15 @@ pub fn prop_value(id: u16, value: &Value) -> Result<(PropId, PropValue), BridgeE
     Ok((prop, out))
 }
 
+/// Whether `value` is a CSS-wide keyword that leaves row `id` unset
+/// ([`StyleValue::unsets`]): the row is cleared, as a class choice's
+/// `none` is, and nothing is refused.
+pub fn unsets(id: u16, value: &Value) -> bool {
+    matches!(value, exact_plan::str_value!())
+        && StyleId::from_bit(id as u32)
+            .is_some_and(|style| StyleValue::Text(value.text().into()).unsets(style))
+}
+
 /// Set style row `id` on `patch` from `value`.
 pub fn set_style(
     patch: &mut StyleProps,

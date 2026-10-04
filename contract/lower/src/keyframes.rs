@@ -123,14 +123,7 @@ fn text(c: Constant) -> String {
     match c {
         Constant::Str(s) => s,
         Constant::Bool(b) => b.to_string(),
-        Constant::Number(0.0) => "0".into(),
-        Constant::Number(n) if n.is_finite() && !(1e-6..1e21).contains(&n.abs()) => {
-            let scientific = exact_num::Exponent(n).to_string();
-            let (mantissa, exponent) = scientific.split_once('e').expect("scientific notation");
-            let exponent: i32 = exponent.parse().expect("decimal exponent");
-            format!("{mantissa}e{exponent:+}")
-        }
-        Constant::Number(n) => exact_num::Shortest(n).to_string(),
+        Constant::Number(n) => exact_num::js(n),
     }
 }
 

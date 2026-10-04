@@ -1,0 +1,16 @@
+# The game's render hooks (app.json game.presentation): what its GPU module draws
+# beyond the engine's frame. Only the GPU shell links it; the simulation never does.
+[package]
+name = "wind-fixture-presentation"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+workspace = "../.shells"
+
+[dependencies]
+exact-game-render.workspace = true
+exact-gpu.workspace = true
+wind-fixture-logic = { path = "../logic" }
+
+[build-dependencies]
+exact-gpu-reflect.workspace = true

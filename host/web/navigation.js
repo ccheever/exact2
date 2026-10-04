@@ -194,7 +194,7 @@ export const navigation = {
       if (at < 0) {
         if (refused.get(nav) !== key) {
           refused.set(nav, key);
-          log(`navigationKey "${key}" matches no route; the stack is unchanged`);
+          log(`navigationKey "${key}" matches no route among the root's children or those of the tabpanels its tablist names; the stack is unchanged`);
         }
         continue;
       }
@@ -213,7 +213,9 @@ export const navigation = {
         for (const [index, route] of routes.entries()) {
           const active = index === selected;
           if (!active && route.contains(document.activeElement)) document.activeElement.blur();
-          route.style.visibility = active || (modal && index === selected - 1) ? "" : "hidden";
+          const covered = modal && index === selected - 1;
+          route.style.visibility = active || covered ? "" : "hidden";
+          route.toggleAttribute("data-exact-covered", covered);
           route.inert = !active || !!route.authoredInert;
         }
       }
@@ -339,10 +341,11 @@ export function presenceLoader(load, root, apply, log) {
 // The agent's browser clock (LLP 1012): author-paused animations keep their
 // own time (LLP 1055 D10); every other animation follows the runner's clock.
 export function animationClock(now, settled, synced) {
-  const starts = new WeakMap(), held = new WeakSet();
+  const starts = new WeakMap(), held = new WeakSet(), clocks = animationClocks(document);
   return {
     register(t) {
-      for (const a of document.getAnimations()) if (!starts.has(a)) { starts.set(a, t); if (a.playState === 'paused') held.add(a); }
+      clocks.commit();
+      for (const a of document.getAnimations()) if (!starts.has(a)) { starts.set(a, clocks.start(a, t) ?? t); if (a.playState === 'paused') held.add(a); }
     },
     seek(to) {
       for (const a of document.getAnimations()) {
@@ -364,6 +367,67 @@ export function animationClock(now, settled, synced) {
         if (timing && timing.endTime !== Infinity && !held.has(a)) to = Math.max(to, (starts.get(a) ?? now()) + timing.endTime);
       }
       return to;
+    },
+  };
+}
+
+// Synced animations (LLP 1055.002): a node whose `animation-timeline` is
+// `clock(Name)` carries `--exact-animation-clock:Name` (css.rs), and each CSS
+// animation on it joins that clock. A clock is one origin, set when an
+// animation joins it idle (no other member unfinished) and kept while it is
+// busy; a joiner starts on the latest cycle boundary at or before it joins
+// (a cycle is two iterations under `alternate`), so it ends where it would.
+// `start` is the synced start at `now` (the agent's clock seeks from it);
+// `sync`, after a commit, sets each joined or resumed animation's
+// `startTime` once on the page's timeline. Nothing runs per frame.
+export function animationClocks(root) {
+  const origins = new Map(), members = new Map(), paused = new WeakMap(), clocked = new WeakMap();
+  const clockOf = a => a.animationName === undefined ? '' : a.effect?.target?.style?.getPropertyValue('--exact-animation-clock').trim() ?? '';
+  const live = a => a.effect?.target?.isConnected && a.playState !== 'idle' && a.playState !== 'finished';
+  // Each commit (`sync`, or the agent's `register`) first lets go of every
+  // member whose node left, whose play ended, or that moved to another
+  // clock: it holds no clock busy, and a removed screen's targets are not
+  // kept for the page's lifetime.
+  const commit = () => {
+    for (const [c, m] of members) { for (const b of m) if (!live(b) || clockOf(b) !== c) m.delete(b); if (!m.size) members.delete(c); }
+  };
+  function start(a, now) {
+    const c = clockOf(a);
+    if (!c) return null;
+    let m = members.get(c);
+    if (!m) members.set(c, m = new Set());
+    // Busy while any member is live, `a` included: a paused or resumed
+    // member keeps the origin, so a resume rejoins its phase (D6).
+    if (!m.size || !origins.has(c)) origins.set(c, now);
+    m.add(a);
+    const { duration, direction } = a.effect.getComputedTiming(), period = duration * (/alternate/.test(direction) ? 2 : 1);
+    if (!(period > 0 && Number.isFinite(period))) return now;
+    // On a boundary in float can read a hair before it: that is on it.
+    const into = ((now - origins.get(c)) % period + period) % period;
+    return now - (period - into < 1e-6 ? 0 : into);
+  }
+  return {
+    start,
+    commit,
+    sync(now = document.timeline.currentTime) {
+      commit();
+      if (!root.querySelector('[style*="--exact-animation-clock"]')) return;
+      for (const a of document.getAnimations()) {
+        const is = a.playState === 'paused', was = paused.get(a), c = clockOf(a), had = clocked.get(a) ?? '';
+        // On a clock and not its member: new, moved onto it, or let go
+        // while it was off one (its name taken away and given back).
+        const member = !c || members.get(c)?.has(a);
+        if (was === is && c === had && member) continue;
+        paused.set(a, is); clocked.set(a, c);
+        // An ended play stays ended: a clock does not restart it.
+        if (a.playState === 'finished' || a.playState === 'idle') continue;
+        // A pause keeps its membership: paused, it still holds the clock
+        // busy. A new one joins (paused, without a start, which would
+        // unpause it); a resume rejoins.
+        if (is && was !== undefined && c === had && member) continue;
+        const s = start(a, now);
+        if (s !== null && !is) a.startTime = s;
+      }
     },
   };
 }
@@ -448,6 +512,7 @@ export function renderMarkup(el, json) {
     if (flags & 4) span.style.textDecoration = "line-through";
     if (flags & 16) span.style.opacity = "0.62";
     if (destination) span.href = destination;
+    if (destination && /^(https?:)?\/\//i.test(href.trim())) { span.target = "_blank"; span.rel = "external noopener"; } // it leaves the app, as natively (element.rs `leaves_app`)
     el.appendChild(span);
   }
 }
@@ -522,6 +587,11 @@ export function focusController({ready, elements, inert}) {
 // node and value in it is committed (a focus handler may dispatch an action).
 export function runFocusCommands(commands, { root, ready, inertAncestor, log }) {
   for (const { name, args } of commands) {
+    if (name === "scrollIntoView") { // `Element.scrollIntoView()` by the element's id, after the batch's layout (minesweeper F3)
+      const el = [...root.querySelectorAll("[id]")].find(node => node.id === args?.[0]);
+      if (el) el.scrollIntoView({ block: args[1] ?? "start", inline: args[2] ?? "nearest", behavior: args[3] ?? "auto" }); else log(`scrollIntoView "${args?.[0]}" refused: no live node with that id`);
+      continue;
+    }
     if (name === "blur") { // `blur()` drops whatever holds focus; `blur(id)` only when that node holds it.
       const active = document.activeElement;
       if (ready && active && active !== document.body && (!args?.length || active.id === args[0])) active.blur();
@@ -637,9 +707,11 @@ export function preferFold(request) {
 // bit 1 `prefers-reduced-transparency: reduce`, bit 2 `prefers-contrast: more`,
 // bit 3 `less` (both: `custom`), bit 4 `prefers-color-scheme: dark` — the
 // system's, whatever the page's `color-scheme` (a browser that does not know
-// a feature answers no preference, as CSS does). Told with each boot and resize.
+// a feature answers no preference, as CSS does) — and the primary input's
+// `pointer: coarse` (bit 5), `pointer: none` (bit 6) and `hover: none` (bit 7),
+// zero being a mouse. Told with each boot and resize.
 let preferenceQueries;
-const queries = () => (preferenceQueries ??= [["(prefers-reduced-motion: reduce)", 1], ["(prefers-reduced-transparency: reduce)", 2], ["(prefers-contrast: more)", 4], ["(prefers-contrast: less)", 8], ["(prefers-contrast: custom)", 12], ["(prefers-color-scheme: dark)", 16]].map(([q, bits]) => [matchMedia(q), bits]));
+const queries = () => (preferenceQueries ??= [["(prefers-reduced-motion: reduce)", 1], ["(prefers-reduced-transparency: reduce)", 2], ["(prefers-contrast: more)", 4], ["(prefers-contrast: less)", 8], ["(prefers-contrast: custom)", 12], ["(prefers-color-scheme: dark)", 16], ["(pointer: coarse)", 32], ["(pointer: none)", 64], ["(hover: none)", 128]].map(([q, bits]) => [matchMedia(q), bits]));
 export const preferences = () => queries().reduce((bits, [q, bit]) => bits | (q.matches ? bit : 0), 0);
 export const onPreferences = (changed) => queries().forEach(([q]) => q.addEventListener("change", changed));
 
@@ -705,15 +777,49 @@ export function timeReporter(params, platform = globalThis) {
     return [epoch, (Date.UTC(at.year, at.month - 1, at.day, at.hour, at.minute, at.second) - Math.floor((epoch + elapsed) / 1000) * 1000) / 60000];
   };
 }
+// Where the page launches (LLP 1038 D5): its path and query, less a drive's
+// own parameters, which are the host's facts and not a route's — a driven
+// page numbers its visits as a native host does (feed F16). The JS target
+// launches here too (rt.js re-exports it).
+export function launchLocation(platform = globalThis) {
+  const { pathname, search } = platform.location, q = new URLSearchParams(search);
+  if (!(AGENT_ADMITTED && q.has('agent'))) return pathname + search;
+  for (const k of ['agent', 'seed', 'locale', 'timeZone', 'epoch', 'storage']) q.delete(k);
+  const rest = q.toString();
+  return pathname + (rest ? '?' + rest : '');
+}
+// The drive's facts are the launch URL's: a route the app pushed before the
+// first ask has no `?agent&…` (storage-environment.js `launchHref`).
+const launched = () => new URL(globalThis.performance?.getEntriesByType?.('navigation')[0]?.name ?? location.href).searchParams;
 let pageTime;
-export const reportTime = (elapsed) => (pageTime ??= timeReporter(new URL(location.href).searchParams))(elapsed);
+export const reportTime = (elapsed) => (pageTime ??= timeReporter(launched()))(elapsed);
 
 let pagePlace;
 export function reportPlace() {
-  pagePlace ??= placeReporter(new URL(location.href).searchParams);
+  pagePlace ??= placeReporter(launched());
   return pagePlace();
 }
 
+// An iframe guest's origin as authored when its `src` or `sandbox` was
+// committed (an opaque sandbox posts as "null"), which a `message` from it must match.
+const iframeOrigins = new WeakMap(); // iframe -> authored/committed guest origin
+export function commitGuestOrigin(el) {
+  const sandbox = new Set((el.getAttribute("sandbox") ?? "").split(/\s+/).filter(Boolean));
+  const opaque = el.hasAttribute("sandbox") && !sandbox.has("allow-same-origin");
+  let origin = null;
+  if (!opaque) {
+    const src = el.getAttribute("src");
+    try { origin = !src || src === "about:blank" ? location.origin : new URL(src, document.baseURI).origin; }
+    catch { origin = null; }
+    if (origin === "null") origin = null;
+  }
+  iframeOrigins.set(el, { origin, opaque });
+}
+export function guestMessageAuthorized(el, eventOrigin) {
+  const committed = iframeOrigins.get(el);
+  if (!committed) return false;
+  return committed.opaque ? eventOrigin === "null" : eventOrigin === committed.origin;
+}
 // A same-origin guest joins `tree` as a compact, bounded outline. Access to
 // a sandboxed or cross-origin document is simply absent (@ref LLP 1020 D4).
 export function guestOutline(frame) {
@@ -804,14 +910,32 @@ export function settleValue(el) {
   const c = el instanceof HTMLOptionElement ? el.parentElement : el;
   if (c && valuedControl(c) && c.exactValue !== undefined && c.value !== c.exactValue) c.value = c.exactValue;
 }
+// What `type <id> <value>` sets rather than types into (D9): the valued
+// controls, and a checkbox (or `switch`), which a value turns on or off.
+export const typedControl = (el) => valuedControl(el) || (el instanceof HTMLInputElement && el.type === "checkbox");
 // D9: `type <id> <value>` sets a control's value as the platform would on a
 // choice or a release: HTML's `input`, then `change`. A select takes one of
-// its enabled options' values, and nothing else.
+// its enabled options by value, else by its one label (Playwright's
+// `selectOption`, the diaries' kanban F17 and shop F10); a checkbox takes
+// `true` or `false` and is clicked when that differs, as a person would.
 export function typeControl(el, request) {
-  const text = String(request.text ?? ""), id = request.id;
+  let text = String(request.text ?? "");
+  const id = request.id;
   if (el.disabled || inertAncestor(el)) return { handled: true, error: `view ${id} is disabled or inert` };
-  if (el instanceof HTMLSelectElement && ![...el.options].some((o) => o.value === text && !o.disabled))
-    return { handled: true, error: `select ${id} has no enabled option ${JSON.stringify(text)} (options: ${[...el.options].map((o) => JSON.stringify(o.value)).join(", ")})` };
+  // A read-only field takes no value a person could enter. HTML's `readonly` applies to a textarea and the
+  // text-like and date/time inputs only; a checkbox, range, color or select ignores it.
+  if (el.readOnly && (el instanceof HTMLTextAreaElement || /^(text|search|url|tel|email|password|date|month|week|time|datetime-local|number)$/.test(el.type))) return { handled: true, error: `view ${id} is read-only` };
+  if (el.type === "checkbox") {
+    if (text !== "true" && text !== "false") return { handled: true, error: `checkbox ${id} takes true or false, not ${JSON.stringify(text)}` };
+    if (el.checked !== (text === "true")) el.click();
+    return { typed: id, checked: el.checked, delivery: "recognized", handled: true };
+  }
+  if (el instanceof HTMLSelectElement) {
+    const enabled = [...el.options].filter((o) => !o.disabled), labelled = enabled.filter((o) => o.label.trim() === text.trim());
+    if (!enabled.some((o) => o.value === text) && labelled.length === 1) text = labelled[0].value;
+    else if (!enabled.some((o) => o.value === text))
+      return { handled: true, error: `select ${id} has no enabled option ${JSON.stringify(text)}${labelled.length > 1 ? " (that label is on more than one option: choose by value)" : ""} (options: ${enabled.map((o) => `${JSON.stringify(o.value)} ${JSON.stringify(o.label)}`).join(", ")})` };
+  }
   if (el.type === "range" && !(text.trim() !== "" && Number.isFinite(Number(text)))) return { handled: true, error: `${JSON.stringify(text)} is not a number` };
   el.value = text;
   if (el.value !== text && el instanceof HTMLInputElement && el.type !== "range") return settleValue(el), { handled: true, error: `${JSON.stringify(text)} is not a value an input type=${el.type} takes; it sanitized to ${JSON.stringify(el.value)}` };
@@ -820,13 +944,38 @@ export function typeControl(el, request) {
   return { typed: id, value: el.value, delivery: "recognized", handled: true };
 }
 
-// A view's box as the agent reports it. A text folded into its box's content
-// (LLP 1007.001, `display: contents`) makes no box of its own: its box is the
-// anonymous block its text is, as a style-less block child's was — its line
-// boxes along the main axis, and its box's content box across when the box
-// stretches its items (a block, or a flex or grid box that stretches).
+// The agent's `reveal` (ledger F7, shop F11): before a tap or a type, a
+// target whose middle is out of view is scrolled to the middle of its
+// nearest scroll containers, then of the page (across, only as far as it
+// takes) — Playwright's actionability scroll, the web's own `scrollIntoView`. A scroll event reaches the app as a
+// person's scroll would. `scrolled` is where the middle moved from and to;
+// a middle already in view moves nothing.
+export function reveal(el, id) {
+  if (!el?.isConnected) return { error: `no view ${id}` };
+  const middle = () => { const b = viewBox(el); return [b.left + b.width / 2, b.top + b.height / 2]; };
+  const [x, y] = middle();
+  let seen = x >= 0 && y >= 0 && x < innerWidth && y < innerHeight;
+  for (let a = el.parentElement; seen && a && a.id !== "exact-root"; a = a.parentElement) {
+    const cs = getComputedStyle(a), b = a.getBoundingClientRect();
+    if ((cs.overflowX !== "visible" || cs.overflowY !== "visible") && !(x >= b.left && x < b.right && y >= b.top && y < b.bottom)) seen = false;
+  }
+  if (seen) return { revealed: id, scrolled: false };
+  (folded(el) ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+  return { revealed: id, scrolled: true, from: [x, y], to: middle() };
+}
+
+// A text folded into its box's content (LLP 1007.001): `display: contents`,
+// or an inline box under a box that restricts touch. A paragraph's inline
+// runs are not `data-exact-text`; only the paragraph is.
+const folded = el => { const d = getComputedStyle(el).display; return d === "contents" || d === "inline" && el.hasAttribute("data-exact-text"); };
+
+// A view's box as the agent reports it. A folded text has no block box of its
+// own: its box is the anonymous block its text is, as a style-less block
+// child's was — its line boxes along the main axis, and its box's content box
+// across when the box stretches its items (a block, or a flex or grid box
+// that stretches).
 export function viewBox(el) {
-  if (getComputedStyle(el).display !== "contents") return el.getBoundingClientRect();
+  if (!folded(el)) return el.getBoundingClientRect();
   const range = document.createRange();
   range.selectNodeContents(el);
   const t = range.getBoundingClientRect(), p = el.parentElement;
@@ -884,6 +1033,14 @@ const validGrantName = name => typeof name === 'string' && name.length >= 1 && n
 const rustSpace = '[\\u0009-\\u000d\\u0020\\u0085\\u00a0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000]';
 const rustTrim = value => String(value).replace(new RegExp(`^${rustSpace}+|${rustSpace}+$`, 'g'), '');
 const rustWords = value => rustTrim(value).split(new RegExp(`${rustSpace}+`)).filter(Boolean);
+const nativeNamespace = value => typeof value === 'string' && /^win:[A-Z]$/.test(value);
+const nativeLeaf = value => {
+  if (typeof value !== 'string' || !value || value.length > 255 || value === '.' || value === '..'
+      || /[\\/:*?"<>|\u0000-\u001f\u007f-\u009f]/.test(value) || /[. ]$/.test(value)
+      || /[\ud800-\udfff]/u.test(value)) return false;
+  const base = value.split('.')[0].replace(/[a-z]/g, char => char.toUpperCase());
+  return !/^(?:CON|PRN|AUX|NUL|CLOCK\$|(?:COM|LPT)[1-9¹²³])$/.test(base);
+};
 const grantTupleValid = grant => {
   if (!Array.isArray(grant) || typeof grant[0] !== 'string') return false;
   if (networkGrants.has(grant[0])) {
@@ -896,13 +1053,19 @@ const grantTupleValid = grant => {
     && (grant[0] !== 'fetch-subdomains' || !address && !grant[2].endsWith('.') && grant[2].split('.').filter(Boolean).length >= 2);
   }
   if (pathGrants.has(grant[0])) return grant.length >= 2
-    && ['', 'app:', 'doc:'].includes(grant[1])
-    && grant.slice(2).every(component => typeof component === 'string' && component && component !== '.' && component !== '..' && !component.includes('/'));
+    && (['', 'app:', 'doc:'].includes(grant[1]) || nativeNamespace(grant[1]))
+    && grant.slice(2).every(component => nativeNamespace(grant[1]) ? nativeLeaf(component)
+      : typeof component === 'string' && component && component !== '.' && component !== '..' && !component.includes('/'));
   if (!nameGrants.has(grant[0]) || grant.length !== 2 || typeof grant[1] !== 'string') return false;
   return grant[0] === 'env-read' || validGrantName(grant[1]);
 };
 
 const pathTuple = (kind, target) => {
+  const native = target.startsWith('\\\\?\\') ? target.slice(4) : target;
+  if (/^[a-z]:[/\\]/i.test(native)) {
+    const parts = native.slice(3).split(/[/\\]/).filter(Boolean);
+    return parts.every(nativeLeaf) ? [kind, `win:${native[0].toUpperCase()}`, ...parts] : null;
+  }
   const at = target.indexOf(':/');
   const namespace = at < 0 ? target.startsWith('/') ? '' : null : target.slice(0, at) + ':';
   if (namespace == null || !['', 'app:', 'doc:'].includes(namespace)) return null;
@@ -913,6 +1076,8 @@ const pathTuple = (kind, target) => {
 const networkTuple = (kind, target) => {
   const wildcard = kind === 'fetch-subdomains';
   if (wildcard && !target.includes('://*.')) return null;
+  // Userinfo is refused, as in Rust: `https://a.example@evil.com` is evil.com.
+  if (target.includes('@')) return null;
   try {
     const url = new URL(wildcard ? target.replace('://*.', '://') : target);
     const port = Number(url.port || ({ 'http:': 80, 'https:': 443, 'ws:': 80, 'wss:': 443, 'ftp:': 21 })[url.protocol]);
@@ -923,8 +1088,21 @@ const networkTuple = (kind, target) => {
 };
 const sourceTuple = source => {
   const words = rustWords(source);
+  const capability = words[0];
+  if (capability === 'fs.read' || capability === 'fs.write') {
+    const rest = rustTrim(source.slice(capability.length));
+    if (rest.startsWith('"')) {
+      try {
+        const target = JSON.parse(rest);
+        // serde_json refuses lone UTF-16 surrogates; JSON.parse does not.
+        if (typeof target !== 'string' || /[\u0000-\u001f\u007f-\u009f]/.test(target)
+            || /[\ud800-\udfff]/u.test(target)) return null;
+        return pathTuple(capability === 'fs.read' ? 'fs-read' : 'fs-write', target);
+      } catch { return null; }
+    }
+  }
   if (words.length !== 2) return null;
-  const [capability, target] = words;
+  const target = words[1];
   if (capability === 'net.fetch') return networkTuple(target.includes('://*.') ? 'fetch-subdomains' : 'fetch', target);
   if (capability === 'net.websocket') return target.includes('*') ? null : networkTuple('websocket', target);
   if (capability === 'fs.read') return pathTuple('fs-read', target);

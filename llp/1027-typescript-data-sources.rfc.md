@@ -535,6 +535,12 @@ therefore show their kept answer or baked placeholder on the first frame and
 refresh through `data_ready()` after activation. Fieldnotes exercises this path:
 a returning notebook opens its saved notes without a user action.
 
+**Compiled answers are first frames (2026-10-04).** `data_ready` also asks
+every resource that showed a compiled answer, even one whose arguments are
+the bake's. Only an `else` row is not asked. The module at launch is not the
+module the bake ran, and the web asks it at launch. Feed's no-argument
+`explore()` stayed empty on macOS while the web filled it (LLP 1048.003 D6).
+
 The alternative — create the engine before boot, since it is 0.3 ms —
 was considered and not taken, not because the number is large but because the rule
 is a count, not a timer, and the reason it is a count is that the
@@ -665,8 +671,9 @@ Each request captures the current source graph and runs full strict diagnostics;
 bundling and HBC compilation overlap checking, but bytecode inspection and the bake
 wait for checking to succeed. Resolved type-only imports must also stay inside the
 capture or pinned standard libraries. An invalid, deleted or superseded input
-cannot reuse a previous successful result. Both producer paths check the full
-`ES2020,WebWorker` standard libraries: data modules use web APIs, not DOM UI types
+cannot reuse a previous successful result. Both producer paths, and the web build
+(calc F2, calendar F9: one configuration, `js/bake/src/typescript.mjs`), check the
+full ES2023 and `WebWorker` standard libraries: data modules use web APIs, not DOM UI types
 such as `Window`, `Document` or `HTMLElement`, which native hosts cannot support.
 This is a cross-host type boundary, not a sandbox: the browser iframe can expose
 additional globals incidentally, and ambient worker types grant no runtime API.

@@ -367,8 +367,9 @@ fn a_package_above_the_project_root_is_refused() {
     std::fs::write(root.join("index.js"), "require('sneaky');").unwrap();
 
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
-    assert!(rt.install_stdlib());
-    rt.install_bindings().expect("bindings");
+    let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
+    rt.install_runtime(ibex2::bindings::Groups::DEFAULT, &context)
+        .expect("bindings");
     rt.set_loader(Root::Declared(root.clone()), ModuleGrants::none())
         .expect("loader");
     let err = rt.run_entry("./index.js").err().map(|e| e.to_string());
@@ -814,8 +815,9 @@ fn a_manifest_naming_an_uninstalled_package_is_refused() {
     let p = Project::new("pkg-missing");
     p.file("index.js", "console.log('ran');");
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
-    assert!(rt.install_stdlib());
-    rt.install_bindings().expect("bindings");
+    let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
+    rt.install_runtime(ibex2::bindings::Groups::DEFAULT, &context)
+        .expect("bindings");
     let manifest = ModuleGrants::parse("[nope]\nnet.fetch https://example.com\n").unwrap();
     let err = rt
         .set_loader(Root::Declared(p.0.clone()), manifest)

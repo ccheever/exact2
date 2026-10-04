@@ -3,7 +3,7 @@
 // Only a completed pop invokes the Contract back control. The bar a stack
 // shows, what a route projects into it and when the app module's hooks run
 // are LLP 1075.003's (NavigationBarIOS.swift, NativeHooks.swift).
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 final class RouteController: UIViewController {
@@ -23,6 +23,9 @@ final class RouteController: UIViewController {
     var barPresses: [BarPress] = []
     /// The header's search field as UIKit's search controller (§9.6).
     var search: HeaderSearch?
+    /// The title Exact drew from the heading's group, and the subtitle it
+    /// wrote; whether the root's tablist was hidden when it last looked (§9.10).
+    var titleView: HeaderTitleView?, subtitle: String?, tablistHidden: Bool?
     init(_ node: NodeView) {
         self.node = node
         super.init(nibName: nil, bundle: nil)
@@ -43,11 +46,20 @@ final class RouteController: UIViewController {
         // changes (a route loaded before its window has a trait collection
         // would otherwise keep the light colour in dark mode). A route
         // without one shows the system background, not white.
+        #if os(tvOS)
+        // tvOS has no system backgrounds; white stands in, as the viewport's.
+        view.backgroundColor = node.props["navigationPresentation"] == "modal"
+            ? .white
+            : UIColor { [weak node] traits in
+                node?.channels("background_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .white
+            }
+        #else
         view.backgroundColor = node.props["navigationPresentation"] == "modal"
             ? .secondarySystemGroupedBackground
             : UIColor { [weak node] traits in
                 node?.channels("background_color", dark: traits.userInterfaceStyle == .dark).map { TextEngine.color($0) } ?? .systemBackground
             }
+        #endif
         view.addSubview(node)
     }
     func mount() {
@@ -61,6 +73,7 @@ final class RouteController: UIViewController {
         snapshot.frame = view.bounds
         snapshot.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         view.addSubview(snapshot)
+        snapshot.setPaintForeground()
     }
 }
 
@@ -91,6 +104,8 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     private var selectedRouteCount = 0
     var adoptedTablist: UInt32?
     var tabItems: [String] = []
+    /// The bar's tint as last written: the tablist's accent, light and dark.
+    var tabTint: [[Double]?]?
     let tabProxy = TabDelegateProxy()
     private(set) var changing = false
     /// While a push or pop runs: paints what each frame newly reveals.
@@ -192,6 +207,14 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             (logicalChildren[owner.id] ?? []).compactMap { presenter.views[$0] }.filter { $0.props["navigationKey"] != nil }
         }
         routeIDs = stacks.flatMap { $0.map(\.id) }
+        // Every route left the tree (the root shows something else now): the
+        // containers go with them, or their views — a removed route's frozen
+        // snapshot among them — stay over the new content (mail F21).
+        if routeIDs.isEmpty, primaryOwner != nil || !presentedNavigations.isEmpty {
+            presenter.session?.log("navigation: the root has no routes now; its containers are retired")
+            reset(clearFocus: false)
+            return nil
+        }
         // D1: the stack is the prefix through the route the root names; a
         // key that names none leaves the stack alone, and says so once.
         let rootKey = root.props["navigationKey"] ?? ""
@@ -200,7 +223,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
               let range = NavigationRules.stack(routeKeys: keys(stacks[at]), selected: rootKey) else {
             if refusedKey != rootKey {
                 refusedKey = rootKey
-                presenter.session?.log("navigationKey \"\(rootKey)\" matches no route; the stack is unchanged")
+                presenter.session?.log("navigationKey \"\(rootKey)\" matches no route among the root's children or those of the tabpanels its tablist names; the stack is unchanged")
             }
             return nil
         }
@@ -231,6 +254,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         let nav = makeNavigation(first: first.first?.node)
         parent.addChild(nav)
         p.root.addSubview(nav.view)
+        nav.view.setPaintForeground()
         nav.view.frame = p.root.bounds
         nav.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         nav.didMove(toParent: parent)
@@ -248,8 +272,11 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// is loaded first, or the swipe never asks Exact.
     func watchPops(_ nav: UINavigationController) {
         nav.loadViewIfNeeded()
+        // tvOS has no interactive pop gesture.
+        #if !os(tvOS)
         nav.interactivePopGestureRecognizer?.delegate = self
-        if #available(iOS 26.0, *) { nav.interactiveContentPopGestureRecognizer?.delegate = self }
+        if #available(iOS 26.0, tvOS 26.0, *) { nav.interactiveContentPopGestureRecognizer?.delegate = self }
+        #endif
     }
 
     /// Initial containment is ready before child frames. It does not present
@@ -329,6 +356,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
             let nav = makeNavigation(first: route)
             owner.addChild(nav)
             root.addSubview(nav.view)
+            nav.view.setPaintForeground()
             nav.view.frame = root.bounds
             nav.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             nav.didMove(toParent: owner)
@@ -345,7 +373,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         }
         if let top = modalNavigation ?? primaryOwner {
             top.view.frame = root.bounds
-            root.bringSubviewToFront(top.view)
+            if top === primaryOwner { placeOwner() } else { root.bringSubviewToFront(top.view) }
             top.view.layoutIfNeeded()
         }
         for (id, c) in controllers where !routeIDs.contains(id) { end(c) }
@@ -354,6 +382,27 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         if p.tabs != nil { replayTabs() }
         reportCovers()
         refitForBars()
+    }
+
+    /// The container standing in for the routes paints where they are in
+    /// the root's children, as CSS paints siblings in tree order (LLP
+    /// 1083.000): above the children before them, under those after them —
+    /// an authored tablist, a toast. On top of every child it hid a sibling
+    /// tablist and a root overlay, and took their taps (shop F21, recipes F23).
+    func placeOwner() {
+        guard let root = container, let owner = primaryOwner?.view, owner.superview === root else { return }
+        let ids = logicalChildren[root.id] ?? []
+        let panels = tabPanels.compactMap { presenter.views[$0] }
+        let region = ids.firstIndex { id in
+            routeIDs.contains(id) || presenter.views[id].map { child in panels.contains { $0 === child || $0.isDescendant(of: child) } } == true
+        }
+        let after = Set(region.map { ids[($0 + 1)...] } ?? [])
+        guard let next = root.subviews.first(where: { ($0 as? NodeView).map { after.contains($0.id) } == true }) else {
+            if root.subviews.last !== owner { root.bringSubviewToFront(owner) }
+            return
+        }
+        let at = root.subviews.firstIndex { $0 === next }!
+        if at == 0 || root.subviews[at - 1] !== owner { root.insertSubview(owner, belowSubview: next) }
     }
 
     /// A route's controller leaves for good: its header paints again and the
@@ -427,6 +476,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         guard pendingSync else { return }
         pendingSync = false
         sync(Batch(ops: [], timers: false, motion: false, clock: nil, error: nil))
+        presenter.syncModal()
     }
 
     /// Retire only the named owner; a late completion cannot remove its
@@ -450,6 +500,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         guard let nav = presentedNavigations.first(where: { $0.parent === parent }) else { return nil }
         let frame = nav.view.convert(nav.view.bounds, to: parent.view)
         parent.view.insertSubview(nav.view, at: 0)
+        nav.view.setPaintForeground(false)
         nav.view.frame = frame
         nav.view.accessibilityElementsHidden = true
         return nav
@@ -528,13 +579,37 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
                                            inActiveRoute: { $0 === route || $0.isDescendant(of: route) })
     }
 
+    /// Where each pop recognizer's first touch went down, in its view. A
+    /// pan's translation at `shouldBegin` leaves out the travel before it
+    /// recognized: a real touch from x = 1 read as starting at 30, past the
+    /// 20-point edge, and over a `swiperight` row the pop was refused (LLP
+    /// 1080.000 §11). The edge rule judges where the finger landed.
+    /// Keyed weakly: a retired stack's recognizers take their entries with them.
+    private let popTouchDown = NSMapTable<UIGestureRecognizer, NSValue>.weakToStrongObjects()
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        // The first finger of each gesture replaces the last gesture's; a second finger does not.
+        if gestureRecognizer.numberOfTouches == 0 { notePopTouchDown(gestureRecognizer, at: touch.location(in: gestureRecognizer.view)) }
+        return true
+    }
+    func notePopTouchDown(_ gestureRecognizer: UIGestureRecognizer, at point: CGPoint) { popTouchDown.setObject(NSValue(cgPoint: point), forKey: gestureRecognizer) }
+
+    /// The swipe's start: its first touch's point, else (no touch seen) its translation's origin.
+    func popStart(_ pan: UIPanGestureRecognizer, in view: UIView) -> CGPoint {
+        if let down = popTouchDown.object(forKey: pan)?.cgPointValue { return down }
+        let location = pan.location(in: view), delta = pan.translation(in: view)
+        return CGPoint(x: location.x - delta.x, y: location.y - delta.y)
+    }
+
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard let pan = gestureRecognizer as? UIPanGestureRecognizer, let view = pan.view else {
             return popMayBegin(gestureRecognizer, from: nil, in: nil, velocity: .zero)
         }
-        let location = pan.location(in: view), delta = pan.translation(in: view)
-        return popMayBegin(gestureRecognizer, from: CGPoint(x: location.x - delta.x, y: location.y - delta.y),
-                           in: view, velocity: pan.velocity(in: view))
+        return popShouldBegin(pan, in: view, velocity: pan.velocity(in: view))
+    }
+    /// `shouldBegin` for a pan at `velocity`: from where its finger landed.
+    func popShouldBegin(_ pan: UIPanGestureRecognizer, in view: UIView, velocity: CGPoint) -> Bool {
+        popMayBegin(pan, from: popStart(pan, in: view), in: view, velocity: velocity)
     }
 
     /// Whether a pop recognizer's swipe, starting at `start` in `view` (a
@@ -543,11 +618,16 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
     /// its active route (D1), and not a pan a `swiperight` node or a canvas
     /// owns, nor more vertical than horizontal.
     func popMayBegin(_ gestureRecognizer: UIGestureRecognizer, from start: CGPoint?, in view: UIView?, velocity: CGPoint) -> Bool {
+        // tvOS has no interactive pop gesture.
+        #if os(tvOS)
+        let owner: UINavigationController? = nil
+        #else
         let owner = allNavigations.first { nav in
             if nav.interactivePopGestureRecognizer === gestureRecognizer { return true }
             if #available(iOS 26.0, *) { return nav.interactiveContentPopGestureRecognizer === gestureRecognizer }
             return false
         }
+        #endif
         if let owner, owner !== navigation { return false }
         let depth = navigation?.viewControllers.count ?? 0
         let control = backControl
@@ -630,11 +710,14 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
                 sync(Batch(ops: [], timers: false, motion: false, clock: nil, error: nil))
             }
             presenter.session?.view?.fit()
+            presenter.syncModal()
             // What the settled route shows has pixels (the swipe may have
             // left a band of it unpainted, or a cancelled pop the source).
             presenter.paintVisibleText()
             presenter.flushPendingFocus()
             recordPop(navigationController)
+            // At rest: a large title's insets are sampled now (§9.10).
+            coversChanged()
         }
         let source = interactiveSource
         interactiveSource = nil
@@ -701,4 +784,14 @@ private final class RevealTick: NSObject {
     init(_ host: NavigationHost) { self.host = host }
     @objc func tick() { if let host { host.revealTick() } }
 }
+#if os(tvOS)
+extension NavigationHost {
+    /// Whether the Siri Remote's Menu goes back: a route to pop and a Back control.
+    var menuGoesBack: Bool { (navigation?.viewControllers.count ?? 0) > 1 && backControl != nil }
+    func menuBack() {
+        guard menuGoesBack, !changing, let control = backControl else { return }
+        presenter.press(control.id)
+    }
+}
+#endif
 #endif

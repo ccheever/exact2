@@ -299,7 +299,7 @@ impl Drop for Native {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 pub(crate) fn mapping_count(bytes: &[u8]) -> usize {
     let digest = format!("{:x}", Sha256::digest(bytes));
     usize::from(RETAINED.lock().unwrap().modules.contains_key(&digest))

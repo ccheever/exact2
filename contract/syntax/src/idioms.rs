@@ -31,10 +31,27 @@ pub fn method_fix(name: &str) -> String {
 pub fn refusal(name: &str) -> Option<String> {
     Some(match name {
         "reduce" | "reduceRight" | "find" | "findIndex" | "findLast" | "some" | "every"
-        | "sort" | "toSorted" | "slice" | "flatMap" | "flat" | "concat" | "indexOf"
-        | "forEach" | "reverse" | "toReversed" => format!(
+        | "sort" | "toSorted" | "flatMap" | "flat" | "forEach" | "reverse" | "toReversed" => format!(
             "`{name}` is refused (LLP 1017.003: lists have only `map`, `filter` and `join`); compute it in the data source and hand the view the result, as the crypto port keeps `lo` and `hi` beside its series"
         ),
+        // @ref LLP 1088 D7.4 — the web's string and list spellings an agent
+        // reaches for first, each with what to write today.
+        "concat" | "slice" | "push" => format!(
+            "`{name}` on a list is not in Contract yet: building a list in a view waits on LLP 1088 §9's follow-up; build it in the data module and hand the view the result"
+        ),
+        "split" => "`split` is not in Contract: a view takes its lists from the data module, so split the text there and hand the view the list".into(),
+        "indexOf" => "`indexOf` is not in Contract: test text with `includes(s, t)`, `startsWith(s, t)` or `endsWith(s, t)`; a position in a list is the data module's to compute".into(),
+        "substring" | "substr" => format!(
+            "`{name}` is not in Contract: cut the text in the data module (LLP 1088 D2 admits the web's `slice(s, start, end)` for text)"
+        ),
+        "padStart" | "padEnd" => format!(
+            "`{name}` is not in Contract (LLP 1088 D2 defers it): pad in the data module, or align with CSS (`text-align`, a fixed `width`)"
+        ),
+        "toUpperCase" => "display casing is CSS: `text-transform=\"uppercase\"`; Contract has no `toUpperCase` (LLP 1088 D2)".into(),
+        "Number" | "parseInt" | "parseFloat" => format!(
+            "Contract does not parse numbers from text (`{name}`, LLP 1088 D2 defers it): have the data module answer a number, or keep the number in state and print it with `toString`"
+        ),
+        "len" => "write `length(x)`: Contract spells the web's `.length`, of text or of a list, as a roster function".into(),
         "min" | "max" => format!(
             "write `{name}(a, b)` for two numbers; `Math.{name}(...xs)` over a list is refused (LLP 1017.003): compute it in the data source, as the crypto port keeps `lo` and `hi` beside its series"
         ),

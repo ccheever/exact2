@@ -29,9 +29,12 @@ mod cover;
 mod document;
 mod geometry;
 mod intrinsic;
+mod sticky;
 mod trim;
 
 pub use cover::HostCover;
+pub(crate) use cover::{children_changed as cover_children_changed, header_inset};
+pub use sticky::StickyConstraint;
 
 /// How many receipts the kernel retains for late readers.
 pub const RECEIPT_RING: usize = 64;
@@ -385,6 +388,7 @@ impl Kernel {
         if !self.arena.is_root(slot) {
             return Err(LayoutError::NotARoot(root).into());
         }
+        self.replace_env(self.arena.env().with_viewport(offer))?;
         let region = self
             .region
             .as_mut()
@@ -473,6 +477,7 @@ impl Kernel {
                 return Err(LayoutError::DuplicatePresentedHeight(sample.node).into());
             }
         }
+        self.replace_env(self.arena.env().with_viewport(offer))?;
         engine(&mut self.layout).present_heights(&self.arena, presented);
         let result = match layout::compute(
             &mut self.arena,
@@ -722,7 +727,8 @@ impl Kernel {
         let users: Vec<u32> = self
             .arena
             .iter_live()
-            .filter(|s| uses_env(self.arena.style(*s)))
+            // A covered box too: its top cover can hold an inset (cover.rs).
+            .filter(|s| uses_env(self.arena.style(*s)) || self.arena.cover(*s).is_some())
             .collect();
         for slot in &users {
             if let (Some(node), Some(layout)) =

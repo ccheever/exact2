@@ -5,7 +5,10 @@
 // (unavailable).
 //
 // `frame` writes nothing: LLP 1063's layout-box measure, composed up to the
-// root, free of every transform and scroll offset. `measure` writes one inline
+// root, free of every transform, with every scroll offset above it applied
+// and placed in the viewport, as `getBoundingClientRect` places a box (the
+// kernel's hosts subtract the offsets their presenters note; kanban diary
+// F4). `measure` writes one inline
 // `height` and restores it within the call, so no rendering step sees it; it
 // never goes through the host's `apply`, which commits.
 import { measure as layoutBoxes, size } from './presence-glue.js';
@@ -34,20 +37,25 @@ function restore(style, [name, value, priority]) {
 }
 
 function createGeometry(root) {
-  // Where layout put `el`: its border box in the root's space. Each step is
-  // LLP 1063's box of an element in its parent (a virtualized row's root in
-  // the list content, since its wrapper only positions it), composed up.
+  // Where the viewer sees `el`'s laid-out border box: in the viewport,
+  // scrolled but untransformed. Each step is LLP 1063's box of an element in
+  // its parent (a virtualized row's root in the list content, since its
+  // wrapper only positions it) less the parent's scroll, composed up; the
+  // root's own place in the viewport carries the page's scroll.
   const frame = el => {
     const box = layoutBoxes();
     let x = 0, y = 0, at = el, own = null;
     while (at && at !== root) {
-      const b = box(at);
+      const parent = at.parentElement?.hasAttribute('data-listitemkey') ? at.parentElement.parentElement : at.parentElement;
+      const b = box(at, parent);
       if (!b) return null;
       own ??= b;
-      x += b[0]; y += b[1];
-      at = at.parentElement?.hasAttribute('data-listitemkey') ? at.parentElement.parentElement : at.parentElement;
+      x += b[0] - parent.scrollLeft; y += b[1] - parent.scrollTop;
+      at = parent;
     }
-    return at === root && own ? [x, y, own[2], own[3]] : null;
+    if (at !== root || !own) return null;
+    const page = root.getBoundingClientRect();
+    return [x + page.left, y + page.top, own[2], own[3]];
   };
 
   // Its border box at `height: auto`, every other style kept (D4): refused

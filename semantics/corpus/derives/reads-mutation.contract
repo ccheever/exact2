@@ -1,0 +1,25 @@
+// Derives over a mutation's slot, chained with state.
+shape Reply
+  count: number
+  text: string
+
+component App
+  state asked = 0
+  mutation reply as shape Reply
+  derive got = match reply { case some(r) => r.count, case none => -1 }
+  derive answered = reply != none
+  derive summary = answered ? `asked ${asked}` : "waiting"
+  action ask
+    asked = asked + 1
+    send reply = ask(asked)
+  view
+    column
+      text summary testId="summary"
+      button "ask" press=ask testId="ask"
+
+test "mutation derives"
+  expect state answered == false
+  expect text "summary" == "waiting"
+  tap "ask"
+  expect state answered == true
+  expect text "summary" == "asked 1"

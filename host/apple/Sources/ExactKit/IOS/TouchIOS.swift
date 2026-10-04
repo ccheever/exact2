@@ -5,7 +5,7 @@
 // log records each touch the window dispatched, after UIKit dispatched it
 // (D5): window dispatch only — never a recognizer's outcome, a cancellation
 // or a handled press, which `state` and `tree` answer.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 /// The app's window: an ordinary `UIWindow` that, under the agent only,
@@ -107,6 +107,10 @@ extension Agent {
 
     /// The scene's interface orientation, by UIKit's name for it.
     static func orientation(_ scene: UIWindowScene?) -> String {
+        #if os(tvOS)
+        // tvOS has no interface orientation.
+        return "unknown"
+        #else
         switch scene?.effectiveGeometry.interfaceOrientation {
         case .portrait: return "portrait"
         case .portraitUpsideDown: return "portraitUpsideDown"
@@ -114,6 +118,7 @@ extension Agent {
         case .landscapeRight: return "landscapeRight"
         default: return "unknown"
         }
+        #endif
     }
 
     /// The private touch forms of `tap` (LLP 1080.000 D4/D5), or nil.
@@ -136,7 +141,13 @@ extension Agent {
         // The point: the request's, else the middle of the target — of a
         // visible shaped fragment for an inline id, as `tap` aims.
         var at = req
-        if let offset = req["aim"] as? [String: Any] { at["x"] = offset["x"]; at["y"] = offset["y"] }
+        if let offset = req["aim"] as? [String: Any] {
+            // A point that is present must be one: never the middle in its place.
+            for k in ["x", "y"] where offset[k] != nil {
+                guard let n = offset[k] as? Double, n.isFinite else { return ["error": "tap #\(v.id): the aim's \(k) must be a finite number"] }
+            }
+            at["x"] = offset["x"]; at["y"] = offset["y"]
+        }
         guard let local = tapPoint(at, node: v) else { return ["error": "tap #\(req["id"] ?? v.id): no visible text fragment; scroll it into view first"] }
         let vp = presenter.viewport
         let p = vp.convert(CGPoint(x: local.x + vp.contentOffset.x, y: local.y + vp.contentOffset.y), to: nil)
@@ -162,6 +173,8 @@ extension Agent {
             "screen": ["w": Agent.r2(space.bounds.width), "h": Agent.r2(space.bounds.height), "x": Agent.r2(origin.x), "y": Agent.r2(origin.y)],
             "point": [Agent.r2(s.x), Agent.r2(s.y)], "node": Int(v.id),
             "at": [Agent.r2(local.x), Agent.r2(local.y)], // the viewport point, as `tap` replies it
+            "window": [Agent.r2(p.x), Agent.r2(p.y)], // the window point, as the dispatch log records touches
+            "viewport": [Agent.r2(vp.bounds.width), Agent.r2(vp.bounds.height)], // where a drag must end
             // The Exact node the window's hit test finds there: where the dispatch log must see the touch land.
             "hit": TouchLog.landing(seen)["node"] ?? NSNull(),
         ] as [String: Any]]

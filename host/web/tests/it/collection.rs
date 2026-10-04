@@ -134,7 +134,7 @@ fn bridge_rejects_oversized_input_and_uses_the_common_le_decoder() {
     exact_web::link(exact_web_capabilities::ALL);
     bridge.boot(&plan, NoData, 390.0, 844.0, "/");
     let bytes = facts(&host.runner().collections()[0]).encode().unwrap();
-    bridge.advance(25.0, false);
+    bridge.advance(25.0, 0);
     bridge.input_write(&bytes);
     let len = bridge.collection_feedback(bytes.len() + 1);
     assert!(String::from_utf8_lossy(bridge.output_bytes(len as usize))

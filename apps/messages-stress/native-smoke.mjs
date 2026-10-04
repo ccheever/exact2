@@ -7,7 +7,7 @@ import { arch, cpus, platform, release } from 'node:os';
 import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { open } from '../../scripts/agent.mjs';
-import { resolveApp } from '../../scripts/app.mjs';
+import { linuxBinary, resolveApp } from '../../scripts/app.mjs';
 import { appleArtifacts } from '../../host/apple/build.mjs';
 
 const args = process.argv.slice(2);
@@ -29,7 +29,7 @@ mkdirSync(output, { recursive: true });
 const app = resolveApp('messages-stress');
 const executable = host === 'macos'
   ? (process.env.EXACT_MAC_BIN ?? appleArtifacts(app).binary)
-  : (process.env.EXACT_LINUX_BIN ?? resolve(app.target, 'release/messages-stress-linux'));
+  : (process.env.EXACT_LINUX_BIN ?? linuxBinary(app));
 const git = (...argv) => spawnSync('git', argv, { cwd: app.workspace, encoding: 'utf8' }).stdout?.trim() ?? null;
 const report = {
   app: app.id, host, operating_system: platform(), os_release: release(), architecture: arch(),

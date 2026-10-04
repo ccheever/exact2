@@ -12,7 +12,7 @@ use exact_plan::{Opcode, Stdlib};
 /// A host command's arguments in the order its hosts read them. `share`'s
 /// are named (LLP 1069.003 D1) and lower as `(title, text, url)`, `None`
 /// for an absent one, so the plan's `Command` op stays positional.
-pub(crate) fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
+pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
     let named = |want: &str| {
         args.iter().find_map(|a| match a {
             Expr::NamedArg(n, value, _) if n == want => Some(value.as_ref()),
@@ -20,14 +20,20 @@ pub(crate) fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e E
         })
     };
     // @ref LLP 1070.000 §1: the list, the key, then the options in a fixed
-    // order, `none` where the author left the web's default.
+    // order, `none` where the author left the web's default: six, the
+    // runner's own. An element's (minesweeper F3) is four, the id and the
+    // options, which the runner leaves to its host.
     if name == "scrollIntoView" {
         let mut out: Vec<_> = args
             .iter()
             .filter(|a| !matches!(a, Expr::NamedArg(..)))
             .map(Some)
             .collect();
-        out.extend(["block", "inline", "behavior", "row"].map(named));
+        let element = out.len() == 1;
+        out.extend(["block", "inline", "behavior"].map(named));
+        if !element {
+            out.push(named("row"));
+        }
         return out;
     }
     if name != "share" {
@@ -467,6 +473,14 @@ pub(crate) fn compile(
             *locals -= 1;
             asm.drop_local();
             ty
+        }
+        Expr::Typed(value, ty, span) => {
+            let t = compile(l, asm, value, scope, locals)?;
+            contract_types::ascribe(&t, ty, &l.types.shapes, *span).map_err(|e| LowerError {
+                id: e.id,
+                message: e.message,
+                span: e.span,
+            })?
         }
         Expr::Arrow { span, .. } => {
             return err(

@@ -193,14 +193,19 @@ impl Collection {
         }
         Ok(true)
     }
+    /// A source row whose height changes ends the preview. A remeasure of
+    /// the translated row a few float32 ulps off (76 as 75.99998, measured
+    /// through its transform mid-drag; habits F10) is not a change: layout
+    /// moves in 1/64 (Chrome, WebKit) or 1/60 (Firefox) pixels.
     pub(super) fn check_preview_height(&mut self, u: &mut Update<'_>) -> Result<(), InstanceError> {
+        const HEIGHT_NOISE: f64 = 0.01;
         if self.preview.as_ref().is_some_and(|p| {
             !p.terminal
-                && self
+                && !self
                     .index
                     .position(&p.source)
                     .and_then(|i| self.index.height(i))
-                    != Some(p.height)
+                    .is_some_and(|h| (h - p.height).abs() <= HEIGHT_NOISE)
         }) {
             self.end_preview(u)?;
         }

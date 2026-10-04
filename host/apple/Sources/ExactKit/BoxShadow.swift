@@ -14,7 +14,7 @@
 // Gaussian's standard deviation; CSS's blur radius is twice that.
 import CoreGraphics
 import QuartzCore
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 #else
 import AppKit
@@ -194,7 +194,7 @@ extension NodeView {
     /// The casters onto the layer: the outer ones at its bottom, cast from
     /// the border box; the inset ones over the box's paint; or gone.
     func applyShadow(outline: CGPath) {
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         let host: CALayer? = layer
         #else
         let host = layer
@@ -245,7 +245,7 @@ extension NodeView {
 }
 
 extension NodeView {
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     private typealias ClipBox = PlainView
     #else
     /// The shadow at the node's current size.
@@ -316,7 +316,7 @@ extension NodeView {
     private final class ClipBox: NSView {
         override var isFlipped: Bool { true }
         override func hitTest(_ point: NSPoint) -> NSView? {
-            let hit = super.hitTest(point)
+            let hit = raisedHit(super.hitTest(point), point)
             return hit === self ? nil : hit
         }
     }
@@ -327,7 +327,7 @@ extension NodeView {
     func syncClipBox(_ wanted: Bool) {
         if wanted, clipBox == nil {
             let box = ClipBox(frame: bounds)
-            #if os(iOS)
+            #if os(iOS) || os(tvOS)
             box.autoresizingMask = [.flexibleWidth, .flexibleHeight]
             #else
             box.autoresizingMask = [.width, .height]
@@ -354,7 +354,10 @@ extension Capture {
     /// A capture renders a box's sublayers over what its `draw(_:)` paints,
     /// so a box with an inset shadow — drawn in `draw(_:)` over its fill —
     /// has its fill and gradient sublayers hidden for the capture (its
-    /// `draw(_:)` paints both); `restore` shows them again.
+    /// `draw(_:)` paints both), and so does an image whose pixels are a
+    /// sublayer: while capturing, `draw(_:)` paints its bitmap (sRGB, as the
+    /// shot is), and a translucent image composited twice comes out darker.
+    /// `restore` shows them again.
     static func hideBoxFills(in root: NSView) -> [CALayer] {
         var out: [CALayer] = []
         func walk(_ v: NSView) {
@@ -363,6 +366,11 @@ extension Capture {
                     l.isHidden = true
                     out.append(l)
                 }
+            }
+            if let n = v as? NodeView, n.kind == "image", n.symbolView == nil, n.raster?.image != nil,
+               let l = n.imageLayer, !l.isHidden {
+                l.isHidden = true
+                out.append(l)
             }
             v.subviews.forEach(walk)
         }
