@@ -317,7 +317,8 @@ sends one mutation twice on one path is refused (`analyze-send-twice`): send one
 combined request, or use a mutation per request. `refreshes` re-reads
 its resources when the mutation is sent (an answer the source gives at once shows
 immediately) and forces them again when the reply lands. `then` is parameterless,
-runs once at the host's next clock advance as a new commit, reads the latest
+runs once at the host's next clock advance as a new commit (under the driver, an
+input's own answer's `then` before the input's reply), reads the latest
 answer, does not run for a failure that brought no answer, and cannot send its
 own mutation. Do not mistake the scheduling boundary
 for a general async workflow or a per-reply event log.
@@ -401,6 +402,25 @@ nothing (the web and Apple journal `image refused`). Keep a picked photo by copy
 `app:/data` and answering that path; never tell hosts apart in the data module
 (`HermesInternal`) to choose a source
 ([LLP 1069.002](../llp/1069.002-media-picker.rfc.md) D7, [LLP 1011](../llp/1011-image-v1.spec.md) §2).
+
+A sound is HTML's `audio` (LLP 1042 §8): `video`'s props and events with no
+picture, hidden unless it has `controls`. Bind `paused` and play from the input's
+own action, so the play is inside the user gesture the web requires (a play that
+nothing pressed for is refused, `error` `not-allowed`); mirror `pause` into the
+binding, since a sound that ends pauses itself. Asking an ended sound to play
+again starts it over, on every host:
+
+```contract
+  state hush = true
+  action ding
+    hush = false
+  action hushed
+    hush = true
+  view
+    column
+      button "Ding" press=ding
+      audio "assets/ding.wav" preload="auto" paused=hush pause=hushed
+```
 
 Keep `id` and `testId` separate:
 
@@ -551,6 +571,11 @@ nearest scroll containers, then the page) and say so in the reply's `scrolled`.
 move, with the finger still down. `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires
 first); its reply says what is still in flight, and `clock settle` lands it.
+A playing `video` or `audio` is on real time too: the clock never seeks or holds it, so
+between operations it moves only as far as the drive took. `clock +N real` lets
+N ms of real time pass with the clock moving beside it, a step at a time: a
+video plays that far (its `timeupdate`s arrive), and a reply that lands in the
+span lands (LLP 1042 §3).
 
 Authored tests are a smaller language over that API:
 
@@ -569,13 +594,15 @@ names — written first in the test or, for every test, at the top of the file.
 A test whose text depends on the date names its `epoch`; without one it runs at
 the driver's 2026-01-01 UTC. The steps are `tap "id" [hover]`,
 `tap "id" drag dx dy [press ms] [over ms] [hold ms]`,
-`type "id" "text"` or `type "id" key "Name"`, `clock settle|+ms|ms`,
+`type "id" "text"` or `type "id" key "Name"`, `clock settle|+ms|+ms real|ms`,
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
 (the node's text, else its descendants' — a button's label — else a field's
-value), and `expect state name == <number|string|bool|none|[]>`. The clock
-stands still between steps: a reply, a mutation's `then`, a timer or a
-transition an input started lands at a `clock` step, so `clock settle` before
-the `expect` that depends on it. `type "id" key "Name"`
+value), and `expect state name == <number|string|bool|none|[]>`. An input
+step ends with what it settled: an answer the data module gave in the input's
+turn, and its mutation's `then`, are there for the next step. Otherwise the
+clock stands still between steps: a reply on real time (a store's, the
+network's), a timer or a transition an input started lands at a `clock` step,
+so `clock settle` before the `expect` that depends on it. `type "id" key "Name"`
 focuses the target if it takes the focus (else leaves the focus where it is)
 and presses the key as a keyboard would on every host: its `key` handlers,
 then its default — `"7"` types into a field, `"Enter"` submits it (a

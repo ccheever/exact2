@@ -579,7 +579,7 @@ pub(super) fn attributes(
             | "playsinline"
             | "disablepictureinpicture"
             | "disableremoteplayback"
-                if element == "video" =>
+                if element == "video" || element == "audio" =>
             {
                 if value == "true" {
                     attrs.push((name.clone(), String::new()));

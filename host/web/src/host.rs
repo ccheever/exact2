@@ -708,7 +708,7 @@ impl<D: DataSource> Host<D> {
         self.advanced(a)
     }
 
-    fn advanced(&mut self, a: exact_runner::Advanced) -> String {
+    pub(crate) fn advanced(&mut self, a: exact_runner::Advanced) -> String {
         self.now_ms = a.now_ms.max(self.now_ms);
         // LLP 1056 D5: a canvas that asked for a frame draws at the landed time.
         self.runner.canvas_frame();

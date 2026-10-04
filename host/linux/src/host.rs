@@ -846,6 +846,13 @@ impl<D: DataSource> Host<D> {
         self.advanced(a).0
     }
 
+    /// The `then`s an agent's input settled, the clock unmoved
+    /// ([`exact_runner::Runner::land_then`]).
+    pub fn land_then(&mut self) -> Option<String> {
+        let a = self.runner.land_then();
+        self.advanced(a).0
+    }
+
     /// Timer-loop demand, without skipping any runner, layout or effect work.
     pub(crate) fn advance_effects(&mut self, now_ms: f64) -> (Option<String>, bool) {
         let a = self.runner.advance_timed(now_ms);

@@ -11,7 +11,7 @@
 //   tap <target> [wheel <dx> <dy> [gesture] | into <key> [block <v>] [inline <v>] | hover | history <n> | {"history":n} | contextmenu | mouse | dblclick | pinch <scale> [at <x> <y>] | drag <dx> <dy> [from <x> <y>] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …]] | type <target> <text…> | type <target> key <Name>
 //   tap <target> down [at <x> <y>] · tap move [by] <x> <y> [over <ms>] · tap hold <ms> · tap up · tap cancel   (a held contact, LLP 1035.003 D1)
 //   tap @N <choice> | type @N <value>   (a held device request, by ticket: LLP 1069.007 D4)
-//   clock <ms|+ms|settle> | prefer <media feature or page fact> <value> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>]
+//   clock <ms|+ms|+ms real|settle> | prefer <media feature or page fact> <value> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>]
 //   bun scripts/agent.mjs trace <file>   (a development session's trace, LLP 1079 D5: no app runs)
 // A target is a testId or a view id; each op is one argument (quote it).
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
@@ -741,7 +741,7 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
     throw e;
   }
 }
-const CLOCK_STEP_MS = 1000, CLOCK_BUDGET_MS = 3000, CLOCK_SPAN_MS = 600_000;
+const CLOCK_STEP_MS = 1000, CLOCK_BUDGET_MS = 3000, CLOCK_SPAN_MS = 600_000, REAL_STEP_MS = 50;
 /** The next step of a split clock: aimed at CLOCK_BUDGET_MS of wall clock from the last step's cost, growing at most 4x and never past CLOCK_SPAN_MS of world time. */
 export const clockSpan = (span, elapsedMs) => Math.max(CLOCK_STEP_MS, Math.min(span * 4, CLOCK_SPAN_MS, span * CLOCK_BUDGET_MS / Math.max(1, elapsedMs)));
 // ---------------------------------------------------------------- the eight operations
@@ -1004,7 +1004,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
         if (s.contact) throw new Error('a contact is already down; use `tap up` or `tap cancel` first');
         const down = await carrier.input(node.id, 'down', { x, y });
         const { phase, ...r } = down.delivery === 'unsupported' ? down : await carrier.input(null, 'up', {});
-        return s.tagged({ ...r, tapped: node.id, target, entity: node.entity, at: [x, y], delivery: r.delivery ?? s.input.delivery('down'), carrier: host, mode: timing });
+        return s.landed({ ...r, tapped: node.id, target, entity: node.entity, at: [x, y], delivery: r.delivery ?? s.input.delivery('down'), carrier: host, mode: timing });
       }
       // @ref LLP 1038 D11 — no native carrier turns browser history into a press.
       if (opts.history !== undefined && host !== 'web') return s.tagged({ tapped: node.id, target, history: opts.history, delivery: 'unsupported', carrier: host, mode: timing });
@@ -1055,7 +1055,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
         s.contact = r.contact === false ? null : { x: r.at[0], y: r.at[1] };
         if (Number.isFinite(r.clock)) s.now = r.clock;
       }
-      return s.tagged({ ...r, tapped: node.id, target, ...(scrolled ? { scrolled } : {}), delivery: r.delivery ?? s.input.delivery(kind), carrier: host, mode: r.mode ?? timing });
+      return s.landed({ ...r, tapped: node.id, target, ...(scrolled ? { scrolled } : {}), delivery: r.delivery ?? s.input.delivery(kind), carrier: host, mode: r.mode ?? timing });
     },
     /** Scroll view `id` into view when its middle is out of it — its nearest scroll containers, then the page (the host's `reveal`): `{from, to}` where its middle moved, or null when it was in view. */
     async reveal(id) {
@@ -1088,7 +1088,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
         if (r.contact === false || phase === 'up' || phase === 'cancel') s.contact = null;
         else if (phase === 'move') s.contact = { x: r.at[0], y: r.at[1] };
       }
-      return s.tagged({ ...r, phase, delivery: r.delivery ?? s.input.delivery(phase), carrier: host, mode: r.mode ?? timing });
+      return s.landed({ ...r, phase, delivery: r.delivery ?? s.input.delivery(phase), carrier: host, mode: r.mode ?? timing });
     },
     /** Deliver a location to a navigation root (LLP 1038 D11), or set an input's text through the host's text input path; an iframe accepts `{text, selector}` or `{key, selector}` for its guest. */
     async type(target, text) {
@@ -1099,19 +1099,19 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const key = options.key;
       if (options.for !== undefined) {
         if (key == null || options.phase != null || !Number.isFinite(options.for) || options.for < 0) throw new Error('type for: expected a key and a nonnegative finite duration, without phase');
-        return typeFor({ node, target, options, carrier, clock: spec => s.clock(spec), tagged: reply => s.tagged(reply), delivery: s.input.delivery('key'), host, timing });
+        return typeFor({ node, target, options, carrier, clock: spec => s.clock(spec), tagged: reply => s.landed(reply), delivery: s.input.delivery('key'), host, timing });
       }
       // A field out of view is scrolled into it, as for a tap; a root (a navigation root's location) is the page.
       const scrolled = node.depth === 0 ? null : await s.reveal(node.id);
       const r = key != null ? await carrier.input(node.id, 'key', { ...options, key: String(key) }) : await carrier.input(node.id, 'type', { ...options, text: String(options.text ?? '') });
-      return s.tagged({ ...r, typed: node.id, target, ...(scrolled ? { scrolled } : {}), delivery: r.delivery ?? s.input.delivery(key != null ? 'key' : 'type'), carrier: host, mode: timing });
+      return s.landed({ ...r, typed: node.id, target, ...(scrolled ? { scrolled } : {}), delivery: r.delivery ?? s.input.delivery(key != null ? 'key' : 'type'), carrier: host, mode: timing });
     },
     /** Answer held device request `@N` (LLP 1069.007 D4), resolved before any view: `tap @N <choice>` (`cancel`, or a choice the capability declares) or `type @N <value>` (a fixture path, a URL, JSON). The hold is consumed once; a stale ticket is refused by name. The reply says `delivery: "substituted"`. */
     async answer(op, target, value) {
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
       const ticket = ticketOf(target);
       if (value == null || value === '') throw new Error(`${op} ${target}: expected ${op === 'tap' ? 'a choice (cancel, …)' : 'a value'}; state shows the hold under pending`);
-      if (op === 'tap') return s.op({ op, ticket, choice: String(value) });
+      if (op === 'tap') return s.landed(await s.op({ op, ticket, choice: String(value) }));
       // A picker's answer is files on this machine (LLP 1069.002 D9): each
       // made absolute here, where the host copies it from; the browser is
       // handed the bytes, as a real picker hands it a File.
@@ -1122,7 +1122,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
         const to = resolve(String(value));
         const r = await s.op({ op, ticket, text: to });
         if (typeof r.bytes === 'string') { writeFileSync(to, Buffer.from(r.bytes, 'base64')); delete r.bytes; }
-        return r;
+        return s.landed(r);
       }
       // A document picker's answer is paths on this machine (LLP 1069.010
       // D2), minted as the person's choice; the browser is handed each
@@ -1136,25 +1136,38 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
           req.files = paths.map((p) => held.device.capability === 'open-directory' ? { name: basename(p), files: tree(p) }
             : held.device.capability === 'save-file' ? { name: basename(p), bytes: '' } : { name: basename(p), bytes: readFileSync(p).toString('base64') });
         }
-        return s.op(req);
+        return s.landed(await s.op(req));
       }
-      if (held?.device?.capability !== 'pick') return s.op({ op, ticket, text: String(value) });
+      if (held?.device?.capability !== 'pick') return s.landed(await s.op({ op, ticket, text: String(value) }));
       const paths = String(value).split(/\s+/).filter(Boolean).map(p => resolve(p));
       const missing = paths.find(p => !existsSync(p) || !statSync(p).isFile());
       if (missing) throw new Error(`type ${target}: no such file ${missing}`);
       const req = { op, ticket, text: paths.join('\n') };
       if (host === 'web') req.files = paths.map(p => ({ name: basename(p), bytes: readFileSync(p).toString('base64') }));
-      return s.op(req);
+      return s.landed(await s.op(req));
     },
     /** Move the clock: to an absolute millisecond, by '+N', or to 'settle' — a fixed point at which nothing is in flight (`settled: false` if timers keep starting motion). Timers fire on the way, each at its own time; motion is seeked, never played. The clock lands where the runner says; a timer's refusal is the error. */
     async clock(spec = 'settle') {
       // @ref LLP 1080.000 §12 — an Apple host takes its clock over at the wall under platform timing (and reports a clock it already has otherwise); a seek counts from where it stands. Settle needs no count.
       if (spec !== 'settle' && ['ios', 'host-ios', 'macos', 'host'].includes(carrier.host)) s.now = (await s.op({ op: 'clock', take: true })).clock;
+      // `+N real`: N ms of real time pass, the clock moving with them a step
+      // at a time, so what runs on real time — a playing video (LLP 1042 §3),
+      // a store, the network — goes on beside the app's timers (jukebox F14).
+      const real = /^\+(\d+(?:\.\d+)?)\s+real$/.exec(String(spec));
+      if (real) {
+        const from = s.now, end = from + Number(real[1]), t0 = performance.now();
+        for (;;) {
+          const to = Math.min(end, from + performance.now() - t0), r = await s.op({ op: 'clock', to });
+          s.now = r.clock;
+          if (to >= end) return { ...r, real: Math.round(performance.now() - t0) };
+          await new Promise(ok => setTimeout(ok, Math.min(REAL_STEP_MS, end - to)));
+        }
+      }
       const req = { op: 'clock' };
       if (spec === 'settle') req.settle = true;
       else if (typeof spec === 'string' && spec.startsWith('+')) req.to = s.now + Number(spec.slice(1));
       else req.to = Number(spec);
-      if (!req.settle && !Number.isFinite(req.to)) throw new Error(`clock: not a time: ${spec}; use clock +100 or clock settle; state shows the current clock`);
+      if (!req.settle && !Number.isFinite(req.to)) throw new Error(`clock: not a time: ${spec}; use clock +100, clock +100 real or clock settle; state shows the current clock`);
       // A long seek steps by wall clock (each operation ~CLOCK_BUDGET_MS of Chrome's 15 s window, from CLOCK_STEP_MS of world
       // time, at most 4x a step and CLOCK_SPAN_MS), so a cheap hour is a few presents, not 3,600; the final reply is the seek's.
       let span = CLOCK_STEP_MS;
@@ -1220,6 +1233,20 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (failure) { failure.message += images.length ? `; the ${images.length} frames taken are in ${out} and ${dir}` : ''; throw failure; }
       const { screenshot, ...tags } = last;
       return { ...tags, screenshot: out, frames, every, over, at, dir, form: animated ? 'animated' : 'sheet' };
+    },
+    /**
+     * An input's end (LLP 1012 §2): the `then` of each answer the input
+     * settled lands before the reply, as a click handler's state is there for
+     * a test's next line — the clock unmoved and no timer fired (trivia F3,
+     * kanban F19). A reply still on real time (a store's, the network's)
+     * stays for a `clock` step. The reply's tags are read after it.
+     */
+    async landed(r) {
+      if (r == null || r.error != null || r.delivery === 'unsupported') return s.tagged(r);
+      const l = await carrier.ask({ op: 'clock', land: true });
+      if (l.error) return { ...r, error: l.error };
+      delete r.epoch; delete r.incarnation; delete r.clock;
+      return s.tagged(r);
     },
     /**
      * Every reply carries the runner's `epoch`, `incarnation` and `clock`
@@ -1367,7 +1394,7 @@ async function main(argv) {
   // A trace a person's session saved (LLP 1079 D5), read back with no app running.
   if (host === 'trace' && ops.length === 1) { const t = await readTrace(ops[0], traceLocators); console.log(flags.json ? JSON.stringify(t) : renderTrace(t)); return 0; }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--browser chrome|firefox|webkit] [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--size <w>x<h>] [--json] <op> [<op> …]\n  desktop carriers open 420x900 unless --size names another viewport; tap and type scroll a target out of view into it first; web defaults to chrome; EXACT_WEB_BROWSER selects the same option. Install the other engines outside the repo: bunx playwright@1.63.0 install firefox webkit\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | mouse | dblclick | pinch <scale> [at <x> <y>] | drag <dx> <dy> [from <x> <y>] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …: after the move, the finger down]] | tap <target> down [at <x> <y>], then tap move [by] <x> <y> [over <ms>] | tap hold <ms> | tap up | tap cancel | type <target> <text…> (a select, date, time, range or checkbox: its value) | type <target> key <Name> [for <ms>] | tap @N <choice> | type @N <value> | clock <ms|+ms|settle> | prefer <media feature, page fact, posture folded|continuous, segments <cols>x<rows> [gap <points>]> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>]\n       bun scripts/agent.mjs trace <file>   (a development session\'s trace, LLP 1079 D5)\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--browser chrome|firefox|webkit] [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--size <w>x<h>] [--json] <op> [<op> …]\n  desktop carriers open 420x900 unless --size names another viewport; tap and type scroll a target out of view into it first; web defaults to chrome; EXACT_WEB_BROWSER selects the same option. Install the other engines outside the repo: bunx playwright@1.63.0 install firefox webkit\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | mouse | dblclick | pinch <scale> [at <x> <y>] | drag <dx> <dy> [from <x> <y>] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …: after the move, the finger down]] | tap <target> down [at <x> <y>], then tap move [by] <x> <y> [over <ms>] | tap hold <ms> | tap up | tap cancel | type <target> <text…> (a select, date, time, range or checkbox: its value) | type <target> key <Name> [for <ms>] | tap @N <choice> | type @N <value> | clock <ms|+ms|+ms real|settle> | prefer <media feature, page fact, posture folded|continuous, segments <cols>x<rows> [gap <points>]> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>]\n       bun scripts/agent.mjs trace <file>   (a development session\'s trace, LLP 1079 D5)\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
   const s = await open({ host, browser, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, touch: flags.touch, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch });
@@ -1436,7 +1463,7 @@ async function main(argv) {
           else r = args[1] === 'wheel' ? await s.tap(args[0], { wheel: [Number(args[2]), Number(args[3])], gesture: args[4] === 'gesture' }) : args[1] === 'hover' ? await s.tap(args[0], { hover: true }) : ['contextmenu', 'dblclick', 'mouse'].includes(args[1]) ? await s.tap(args[0], { [args[1]]: true }) : await s.tap(args[0]);
           break;
         case 'type': r = await s.type(...typeArguments(args)); break;
-        case 'clock': r = await s.clock(args[0] ?? 'settle'); break;
+        case 'clock': r = await s.clock(args.join(' ') || 'settle'); break;
         case 'prefer': r = await s.prefer(Object.fromEntries(args.flatMap((a, i) => i % 2 ? [] : [[a, args[i + 1]]]))); break;
         case 'perf': r = await perfOp(s, args, line, step); break;
         default: throw new Error(`unknown op: ${op} (tree, layout, state, logs, screenshot, tap, type, clock, prefer, perf)`);

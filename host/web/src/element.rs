@@ -475,6 +475,8 @@ fn element(node: &NodeFacts<'_>) -> &'static str {
         NodeType::Control => "input",
         NodeType::Canvas => "canvas",
         NodeType::WebView => "iframe",
+        // @ref LLP 1042 §8 — HTML's `audio` is the media node marked so.
+        NodeType::Video if node.props.str(PropId::SemanticTag) == Some("audio") => "audio",
         NodeType::Video => "video",
         // Never created: a head is the page's `<head>` (LLP 1048.003 D1).
         NodeType::Head => "template",

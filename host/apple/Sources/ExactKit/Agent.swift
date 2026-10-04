@@ -216,6 +216,9 @@ public final class Agent {
             for (key, value) in Agent.hostState?() ?? [:] { nativeSections[key] = value }
             nativeSections["presence"] = presenter.presenceObservation()
             nativeSections["media"] = presenter.views.compactMap { id, view in view.video.map { ["id": id, "state": $0.state()] as [String: Any] } }
+            // The drive's app storage (trivia F7): none unless it names a scratch store.
+            nativeSections["storage"] = ExactEnv.environment["EXACT_AGENT_STORAGE"].map { ["available": true, "store": $0] as [String: Any] }
+                ?? ["available": false, "code": "agent", "message": "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)"]
             var raster = session.rasters.diagnostics
             raster["encodedResolverBytes"] = session.app.resolver.encodedCacheBytes
             raster["encodedHTTPCache"] = RasterInput.httpCacheUsage
@@ -415,6 +418,15 @@ public final class Agent {
         }
         if req["take"] as? Bool == true { return ["clock": session.clock ?? 0] }
         let from = session.clock ?? 0
+        // The end of an input (LLP 1012 §2): the `then`s of the answers it
+        // settled land, the clock unmoved and no timer fired (Runner::land_then).
+        if req["land"] as? Bool == true {
+            let batch = session.runtime.landThen()
+            session.apply(batch)
+            session.apply(session.runtime.tick(now: from))
+            if let e = batch.error { return ["error": "clock: \(e)", "clock": from] }
+            return ["clock": from]
+        }
         let settle = req["settle"] as? Bool == true
         // A request in flight (LLP 1016) is waited for first: its reply
         // commits — and may start motion or ask for more — before the fixed

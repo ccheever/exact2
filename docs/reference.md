@@ -349,6 +349,13 @@ the filesystem's POSIX name (`'ENOENT'`, `'EEXIST'`, `'ENOTDIR'`, `'EISDIR'`,
 `'ENOTEMPTY'`, `'EBUSY'`), else `'failed'`. Branch on the code, never the
 message: `catch (e) { if (e.code === 'ENOENT') return empty; throw e; }`.
 
+A drive's app storage is a scratch store it names (`--storage <name>`) or none;
+an authored test gets a fresh one of its own. The driver's `state.storage` says
+which (`{available: false, code: 'agent', message}` or `{available: true,
+store}`), and the web's journal says `storage refused (agent): …` the first time
+a refusal lands. A Rust module's storage request in such a drive is answered
+with the same message, never refused outright (trivia F7).
+
 An answer's storage and `fetch` steps run whether or not it awaits them: a save
 started and not awaited (queued behind the module's own promise chain, say)
 lands on every host. In the browser the answer is given at once and the save

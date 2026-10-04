@@ -425,6 +425,8 @@ final class Runtime {
         }
     }
     func advance(now: Double, untilRequest: Bool = false) -> Batch { on { read(exact_advance(rt, now, untilRequest ? 1 : 0)) } }
+    /// The `then`s an agent's input settled, the clock unmoved (LLP 1012 §2).
+    func landThen() -> Batch { on { read(exact_advance(rt, 0, 2)) } }
     func frame(now: Double) -> Batch { on { read(exact_frame(rt, now)) } }
     func presentFrames(_ yes: Bool) { on { () -> Void in _ = exact_present_frames(rt, yes ? 1 : 0) } }
     func resize(width: CGFloat, height: CGFloat) -> Batch { on { read(exact_resize(rt, Float(width), Float(height))) } }

@@ -194,6 +194,27 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                         ",\"paint\":{{\"ms\":{paint},\"readbackMs\":{readback}}}"
                     ));
                 }
+                // A `video` or `audio` (LLP 1042 §5, §8): this host has no
+                // decoder and no audio output, so each is reported as an
+                // element that never plays would read, and says why.
+                let media: Vec<_> = p
+                    .host()
+                    .kernel()
+                    .rows(None)
+                    .unwrap_or_default()
+                    .iter()
+                    .filter(|r| r.node_type == exact_kernel::NodeType::Video)
+                    .map(|r| serde_json::json!({"id": r.id, "state": {"unavailable": "no media decoder or audio output on this host", "paused": true, "currentTime": 0, "duration": null, "readyState": 0}}))
+                    .collect();
+                s.push_str(&format!(",\"media\":{}", serde_json::json!(media)));
+                // The drive's app storage (trivia F7): none unless it names a scratch store.
+                let storage = match std::env::var("EXACT_AGENT_STORAGE") {
+                    Ok(store) => serde_json::json!({"available": true, "store": store}),
+                    Err(_) => {
+                        serde_json::json!({"available": false, "code": "agent", "message": "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)"})
+                    }
+                };
+                s.push_str(&format!(",\"storage\":{storage}"));
                 s.push_str(
                     ",\"keyboard\":{\"unavailable\":true},\"navigation\":{\"unavailable\":true}}",
                 );
@@ -586,6 +607,20 @@ fn settle<D: DataSource>(p: &Presenter<D>) -> Option<f64> {
 /// more, again — bounded, `settled: false` when the bound is hit (LLP 1012
 /// §2).
 fn clock<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
+    // The end of an input (LLP 1012 §2): the `then`s of the answers it
+    // settled land, the clock unmoved and no timer fired (Runner::land_then).
+    if field_bool(line, "land") {
+        let (landed, e) = p.land_then();
+        p.sync_surfaces();
+        return match e {
+            Some(e) => {
+                let mut s = String::from("{\"error\":");
+                exact_runner::agent::quote(&format!("clock: {e}"), &mut s);
+                format!("{s},\"clock\":{}}}", num(landed))
+            }
+            None => format!("{{\"clock\":{}}}", num(landed)),
+        };
+    }
     let reply = clock_within(p, line, SETTLE_BOUND);
     retell_offset(p);
     reply

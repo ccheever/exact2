@@ -551,6 +551,9 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
             }
             if matches!(&*name, ".git" | "node_modules" | "target" | "dist")
                 || name.starts_with(".exact-js-bake-")
+                // The driver reads a test file; no build does, so editing
+                // one rebuilds nothing (trivia F8).
+                || name.ends_with(".test.contract")
                 // Written beside app.ts for an editor (below); the bake makes its own.
                 || (at == root && name == DECLARATIONS)
             {

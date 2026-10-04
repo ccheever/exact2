@@ -865,6 +865,13 @@ impl<D: DataSource> Host<D> {
         self.advanced(a)
     }
 
+    /// The `then`s an agent's input settled, the clock unmoved
+    /// ([`exact_runner::Runner::land_then`]).
+    pub fn land_then(&mut self) -> String {
+        let a = self.runner.land_then();
+        self.advanced(a)
+    }
+
     /// Whether this host's display drives frame tasks (LLP 1073 D4): off when
     /// the agent's clock takes over, so its advances fire virtual frames.
     pub fn present_frames(&mut self, on: bool) {

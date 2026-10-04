@@ -1,6 +1,6 @@
 import { renderMarkup, reportPlace } from "./navigation.js"; export { animationClocks } from "./navigation.js"; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { conforms, eq } from "./shape.js"; import { pointer } from "./pointer.js";
-import { paintList, paintFacts, paintFlush } from "./paint.js";
+import { paintList, paintFacts, paintFlush } from "./paint.js"; import { media, mediaProp, mediaOn, mediaPiece, MEDIA_EVENTS } from "./media.js";
 export { conforms, eq }; export { paintOwn } from "./paint.js";
 import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head };
 // The JS target's runtime: fine-grained DOM signals for a plan compiled ahead by `exact-web-js`. Everything here is imported
@@ -252,13 +252,14 @@ export function frames(action) {
  * tasks' virtual frames too, the wall clock's (`wall`) none. `stop()`, asked after each, ends it there (the agent's:
  * one that sent a request): true. A refusal, or 4096 commits (TIMER_FIRE_LIMIT), stops it at that time, and a
  * non-finite `to` (NonFiniteClock) leaves the clock where it was: its journal line, as the runner's error. Under the
- * agent the journal gets the runner's line for an advance that fired. */
-export function advance(to, wall, stop) {
+ * agent the journal gets the runner's line for an advance that fired. `timers` false fires none: the armed `then`s
+ * alone, at `to` = now, as an agent's input ends (Runner::land_then; trivia F3). */
+export function advance(to, wall, stop, timers = true) {
   if (!Number.isFinite(to)) return say(`refused advance: NonFiniteClock (${to})`), journal.at(-1);
   let fired = 0, stopped = false;
   for (;;) {
     let next = null, then = null;
-    for (const t of clock.timers) if (t.due <= to && !(wall && t.frame) && (!next || t.due < next.due)) next = t;
+    if (timers) for (const t of clock.timers) if (t.due <= to && !(wall && t.frame) && (!next || t.due < next.due)) next = t;
     // An answer's `then` goes before a timer due at the same time: the answer landed first.
     for (const m of Mutations) if (m.due <= to && (!then || m.due < then.due) && (!next || m.due <= next.due)) then = m;
     if (!next && !then) break;
@@ -499,12 +500,13 @@ const rel = (k, v) => (k === "src" || k === "poster") && /^\/(assets|deck|shader
   && (Release ??= (() => { try { return /^\/\.exact\/root\/web\/releases\/[0-9a-f]{64}\/$/.test(new URL(document.baseURI).pathname); } catch { return false; } })()) ? "." + v : v;
 export function h(p, tag, cls, attrs, text, ns) {
   if (attrs?.["aria-keyshortcuts"] != null) input();
-  if (Adopt) return adopt(p, tag, cls, attrs);
+  if (Adopt) { const e = adopt(p, tag, cls, attrs); if (tag === "video" || tag === "audio") media(e, attrs); return e; }
   const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag);
   if (cls !== 0) e.setAttribute("class", "c" + cls);
   if (attrs) { for (const k in attrs) e.setAttribute(k, rel(k, attrs[k])); if ("data-scrolldocument" in attrs) Docs.add(e); if ("data-exact-box" in attrs) paintList(p); }
   if (text !== 0) e.textContent = text;
   p.append(e);
+  if (tag === "video" || tag === "audio") media(e, attrs); // an `audio` is the same media host (LLP 1042 §8)
   return e;
 }
 /** An SVG element (the compiler knows the node's type; element.rs's tag). */
@@ -569,12 +571,10 @@ export function P(e, name, f) {
     // link loses its `href`, an iframe shows about:blank.
     if (v != null && (name === "href" || (name === "src" && e.localName === "iframe")) && !navigable(v)) v = name === "src" ? "about:blank" : null;
     if (PropHooks[name]?.(e, v)) return;
+    if (e.$media) mediaProp(e, name, v); // media.js: `paused`, `volume`, `currentTime` … are the glue's
     if (name === "text") { if (!e.childElementCount && e.textContent !== (v ?? "")) e.textContent = v ?? ""; }
     else if (name === "value") { if (e.localName === "select") { Selects.add(e); e.$value = v ?? ""; e.$set = true; } if (e.value !== (v ?? "")) e.value = v ?? ""; }
     else if (name === "scrollTop" || name === "scrollLeft") { if (v != null) (Scrolls.get(e) ?? Scrolls.set(e, {}).get(e))[name] = Number(v); }
-    else if (name === "paused") {
-      if (v === "true") e.pause(); else e.play().catch(err => e.dispatchEvent(new CustomEvent("exact-error", { detail: err.message })));
-    }
     else if (BOOL.test(name)) { e.toggleAttribute(name, v === "true"); if (name === "disabled" && v === "true" && document.activeElement === e) e.blur(); /* HTML focus fixup, now (glue.js) */ if (name === "checked") e.checked = e.$checked = v === "true"; if (name === "muted") e.muted = v === "true"; }
     else if (v == null) { if (e.hasAttribute(name)) { e.removeAttribute(name); if (name.startsWith("data-exact-")) paintFacts(e); } }
     else if (e.getAttribute(name) !== v) { e.setAttribute(name, v); if (name.startsWith("data-exact-")) paintFacts(e); }
@@ -770,6 +770,7 @@ function guestOrigin(e) {
 export function on(e, kind, f) {
   const l = (t, g) => e.addEventListener(t, g);
   if (OnHooks.file && e.localName === "input" && e.type === "file" && OnHooks.file(e, kind, f)) return;
+  if (e.$media && MEDIA_EVENTS.has(kind)) return mediaOn(e, kind, f); // media.js: the glue's reports
   // A module view hears its module's events, and the page's own input as any element does (glue.js `attach`): a click is its press.
   if (e.exactNative) { l("exact-native", ev => { if (ev.detail.kind === kind) f(...(ev.detail.value == null ? [] : [ev.detail.value])); }); if (kind === "message") return; }
   switch (kind) {
@@ -787,13 +788,10 @@ export function on(e, kind, f) {
     // `guestMessageAuthorized`, LLP 1020 D2): a guest that navigated away is
     // not heard; an opaque sandbox's origin is "null".
     case "message": return addEventListener("message", ev => { if (ev.source === e.contentWindow && ev.origin === guestOrigin(e)) f(typeof ev.data === "string" ? ev.data : JSON.stringify(ev.data)); });
-    case "error": l("exact-error", ev => f(ev.detail)); return l("error", () => f(e.error?.message || "Media could not be loaded"));
-    case "timeupdate": return l(kind, () => f(e.currentTime));
     // The port's offsets, as the web host sends them (`glue.js` `attach`).
     case "scroll": return l(kind, () => { if (e.$bootScroll) { e.$bootScroll = false; return; } f(e.scrollLeft, e.scrollTop); });
     // Pull to refresh is a native port's; the web has none (`glue.js` attaches nothing).
     case "refresh": return;
-    case "durationchange": return l(kind, () => Number.isFinite(e.duration) && f(e.duration));
     case "contextmenu": case "dblclick": return l(kind, ev => { ev.preventDefault(); f(); }); case "pointerdown": case "pointerup": case "pointermove": return pointer(e, kind, f); // pointer.js (LLP 1005 §Events, 1056 §3)
     // Chrome blurs an element it is removing (still connected); a retired view's blur is dropped (glue.js).
     case "blur": return l(kind, () => queueMicrotask(() => e.isConnected && f()));
@@ -813,7 +811,7 @@ export function on(e, kind, f) {
 let Pres = null, Presence = null, Present = null, Leave = null, Sh = null; // Sh: shared.js, loaded with presence-glue.js, runs the commits that hand on a shared element's name in a view transition (LLP 1013.000 D7)
 /** The after-paint pieces on their way (the agent waits for them before an
  * operation, as glue.js's `agentSettled` waits for `pieces.pending()`). */
-export const pieces = () => Promise.all([Motion, Inputs, Presence, Flow, Native].filter(Boolean)).then(() => {}, () => {});
+export const pieces = () => Promise.all([Motion, Inputs, Presence, Flow, Native, mediaPiece()].filter(Boolean)).then(() => {}, () => {});
 /** A view leaves with the exit animation `css` names (a virtualized list's
  * row wrapper, list.js): whether it stays, leaving, for presence-glue.js to remove. */
 export function exitView(el, css) { if (!Pres || !css) return false; Pres.exit(el, css); return exiting(el); }
@@ -1040,6 +1038,9 @@ export function each(p, list, key, row, pure) {
   let rows = new Map(), single = false, order = null;
   effect(() => {
     const items = list(), parent = b?.parentNode ?? p; // rows go where the end anchor is: at an arm's top, `p` is the fragment the arm was built in
+    // The keys are read here, so a key's other inputs rerun the pass too: a
+    // new key is a new row though its item is the same (jukebox F19; list.js).
+    const keys = items.map((item, i) => { const k = key(() => item, () => i); return typeof k + ":" + (Object.is(k, -0) ? 0 : k); });
     untracked(() => {
       // Rows moving or leaving are adopted rows (a row waiting for its slice
       // shows its rendered values until then, and adopts at the current ones).
@@ -1049,9 +1050,8 @@ export function each(p, list, key, row, pure) {
         let i = 0;
         for (; i < items.length; i++) {
           const item = items[i], r = order[i];
+          if (keys[i] !== r.k) break;
           if (r.item.n.v === item) continue;
-          const k = key(() => item, () => i);
-          if (typeof k + ":" + (Object.is(k, -0) ? 0 : k) !== r.k) break;
           writeItem(r.item.n, item);
         }
         if (i === items.length) return;
@@ -1059,8 +1059,7 @@ export function each(p, list, key, row, pure) {
       // A row's place in the last pass is its `at`; repeats count once a key repeats.
       const next = new Map(), seen = new Map();
       items.forEach((item, i) => {
-        let k = key(() => item, () => i);
-        k = typeof k + ":" + (Object.is(k, -0) ? 0 : k);
+        let k = keys[i];
         if (next.has(k)) { const n = seen.get(k) ?? 1; seen.set(k, n + 1); k = "d" + n + ":" + k; journal.push(`each: repeated key ${k}`); }
         let r = rows.get(k);
         if (r) { rows.delete(k); r.old = r.at; if (!Object.is(r.item.n.v, item)) writeItem(r.item.n, item); if (r.index.n.v !== i) write(r.index.n, i); }

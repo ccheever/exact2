@@ -190,6 +190,15 @@ fn execute(
         }),
     })
 }
+/// A scripted drive's answer when it names no scratch store: the web's
+/// refusal, word for word (`storage-environment.js`, `storage-request.js`),
+/// as a TypeScript module's `agent` refusal says it (trivia F7).
+pub(super) fn agent_refusal() -> Outcome {
+    Outcome::Storage(
+        serde_json::to_vec(&json!({"error": "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)"}))
+            .unwrap(),
+    )
+}
 /// Whether a storage request names a `doc:` path (LLP 1069.010 D1).
 pub(super) fn document(payload: &[u8]) -> bool {
     serde_json::from_slice::<Value>(payload).is_ok_and(|r| {

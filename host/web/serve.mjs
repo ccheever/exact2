@@ -654,6 +654,7 @@ export function webContentType(route) {
     '.html': 'text/html', '.css': 'text/css', '.js': 'text/javascript', '.mjs': 'text/javascript', '.json': 'application/json',
     '.wasm': 'application/wasm', '.plan': 'application/vnd.exact.plan',
     '.mp4': 'video/mp4', '.webm': 'video/webm', '.vtt': 'text/vtt',
+    '.wav': 'audio/wav', '.mp3': 'audio/mpeg', '.m4a': 'audio/mp4', '.aac': 'audio/aac', '.ogg': 'audio/ogg', '.oga': 'audio/ogg',
     '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
     '.svg': 'image/svg+xml', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.wgsl': 'text/wgsl',
   }[extname(route).toLowerCase()] ?? 'application/octet-stream';

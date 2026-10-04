@@ -145,12 +145,17 @@ const coded = e => {
   error.code ??= /^denied: /.test(error.message) ? 'denied' : /\bbusy\b|database is locked/.test(error.message) ? 'EBUSY' : 'failed';
   throw error;
 };
+let toldAgent = false;
 function storageOf(grants) {
   if (!['fs-read', 'fs-write', 'sqlite-open'].some(kind => hasGrant(grants, kind))) return undefined;
   let fs, sqlite;
   const key = () => import('./storage-environment.js').then(({ storageKey, agentStorageRefusal }) => {
     const k = source.appId ? storageKey(source.appId) : null;
-    if (k == null) throw Object.assign(new Error(agentStorageRefusal), { kind: 'Unavailable', code: 'agent' });
+    if (k == null) {
+      // Said once in the journal, as on every host (trivia F7).
+      if (!toldAgent) { toldAgent = true; journal.push(`t=${clock.now} storage refused (agent): ${agentStorageRefusal}`); }
+      throw Object.assign(new Error(agentStorageRefusal), { kind: 'Unavailable', code: 'agent' });
+    }
     return k;
   });
   const files = () => fs ??= key().then(k => import(new URL('./storage-fs.js', import.meta.url).href).then(m => m.createFileSystem(k, grants)));

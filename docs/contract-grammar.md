@@ -307,8 +307,10 @@ node's middle, in points; `press`, `over`, `hold` in milliseconds, each once).
 `type` on a `select` chooses an enabled option by value, else by its one label;
 on a date, time or range input it sets the value in HTML's format; on a checkbox
 it takes `true` or `false`. A target out of view is scrolled into view first.
-The clock stands still between steps: what an input starts (a reply, a
-mutation's `then`, a timer, a transition) lands at a `clock` step, as `clock settle`.
+An input step ends with what it settled (an answer given in the input's turn,
+and its mutation's `then`); otherwise the clock stands still between steps:
+what an input starts (a reply on real time, a timer, a transition) lands at a
+`clock` step, as `clock settle`.
 `expect text` reads the node's text, else its descendants' text in order (a
 button's label), else a field's value. `expect state` is deliberately restricted to the
 parser's literal cases, not arbitrary expressions or record comparisons. The
@@ -396,7 +398,7 @@ Several tags share a kernel node type with different fixed properties.
 | Boxes / layout | `view`, `box`, `row`, `column`, `scroll`, `list` |
 | Structure | `main`, `header`, `nav`, `section`, `footer`, `article`, `aside`, `dialog` |
 | Text and controls | `text`, `button`, `link`, `input`, `textarea`, `select`, `option` |
-| Media / metadata | `image`, `video`, `iframe`, `canvas`, `head` |
+| Media / metadata | `image`, `video`, `audio`, `iframe`, `canvas`, `head` |
 | SVG scene | `svg`, `g`, `path`, `polyline`, `polygon`, `circle`, `ellipse`, `line`, `rect` |
 | SVG definitions | `defs`, `symbol`, `use`, `clipPath`, `marker`, `mask`, `pattern` |
 | SVG color / text / embedding | `linearGradient`, `radialGradient`, `stop`, `tspan`, `foreignObject` |
@@ -474,6 +476,16 @@ working fixture, not inferred from JavaScript's Event interface.
 | Zero or one `PointerEvent` (the action takes it or leaves it) | `pointerdown`, `pointerup`, `pointermove` |
 | None | `press`, `cancel`, `focus`, `blur`, `submit`, `load`, `contextmenu`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
 
+An `audio` is HTML's: `video`'s props and events without `poster`, `playsinline`
+or `playbackVisibilityThreshold`; no box unless `controls` (then Chrome's 300×54,
+which `width`/`height` override), whatever `display` says
+([LLP 1042](../llp/1042-video.spec.md) §8).
+A `video`'s or `audio`'s `error` appends a stable code, never the engine's text: MediaError's
+`aborted`, `network`, `decode` and `src-not-supported` (a source that never loaded),
+`not-allowed` (the browser refused to start playing) or `invalid-value` (a number out
+of range). A play interrupted by a pause or a new source is no error. A `video` the
+tree removed reports nothing more, on every host
+([LLP 1042](../llp/1042-video.spec.md) §3).
 `scroll` appends left then top offsets; `panrelease` appends x/y release velocity;
 `heightrelease` appends height and velocity. A `pan` hears a drag that starts
 anywhere inside it, a nested `button` or `press` node included: past the slop

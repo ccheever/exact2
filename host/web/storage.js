@@ -1,7 +1,7 @@
 // Storage completions belong to an answer checkpoint, not an arbitrary browser
 // microtask. @ref LLP 1027 D10: host work returns through the data seam.
 import { agentStorageRefusal, directories, storageKey } from './storage-environment.js';
-let fileFactory, sqliteFactory;
+let fileFactory, sqliteFactory, toldAgent = false;
 
 export function createStorage(win, admitted, scope, key = storageKey(admitted.appId)) {
   // Once storage has been used, a replacement reserves its owner before the
@@ -45,7 +45,11 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
   }
   function enqueue(invoke, convert = clone, discard = () => {}) {
     if (disposed) return win.Promise.reject(unavailable());
-    if (key == null) return win.Promise.reject(error({message:agentStorageRefusal, code:'agent'}));
+    if (key == null) {
+      // Said once, as on every host (trivia F7): the page's console reaches the driver's logs.
+      if (!toldAgent) { toldAgent = true; console.warn(`storage refused (agent): ${agentStorageRefusal}`); }
+      return win.Promise.reject(error({message:agentStorageRefusal, code:'agent'}));
+    }
     const owner = scope();
     const active = () => { if (disposed || retired.has(owner)) throw unavailable(); };
     return new win.Promise((resolve, reject) => {

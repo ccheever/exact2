@@ -1076,15 +1076,15 @@ impl<D: DataSource> Bridge<D> {
         self.emit(out)
     }
 
-    /// Move the clock (timers).
-    pub fn advance(&mut self, now_ms: f64, until_request: bool) -> u32 {
-        let out = self
-            .host
-            .as_mut()
-            .map_or_else(not_booted, |h| match until_request {
-                true => h.advance_until_request(now_ms),
-                false => h.advance(now_ms),
-            });
+    /// Move the clock: `mode` 0 fires every timer due (the wall clock), 1
+    /// stops after a timer that sends (the agent's jump), 2 lands only the
+    /// `then`s already armed, the clock unmoved (an agent's input's end).
+    pub fn advance(&mut self, now_ms: f64, mode: u32) -> u32 {
+        let out = self.host.as_mut().map_or_else(not_booted, |h| match mode {
+            2 => h.land_then(),
+            1 => h.advance_until_request(now_ms),
+            _ => h.advance(now_ms),
+        });
         self.emit(out)
     }
 

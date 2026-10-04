@@ -94,7 +94,16 @@ function serve(dir) {
     let f = resolve(dir, '.' + p);
     try { if (statSync(f).isDirectory()) f = resolve(f, 'index.html'); } catch { f = resolve(dir, 'index.html'); }
     let body; try { body = readFileSync(f); } catch { res.writeHead(404); return res.end(); }
-    res.writeHead(200, { 'content-type': TYPES[extname(f)] ?? 'application/octet-stream', 'cache-control': 'no-store' }); res.end(body);
+    const type = { 'content-type': TYPES[extname(f)] ?? 'application/octet-stream', 'cache-control': 'no-store', 'accept-ranges': 'bytes' };
+    // A byte range, as the agent's server answers one: a media element seeks
+    // within what it has not buffered only by asking for one.
+    const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range ?? '');
+    if (range && (range[1] || range[2])) {
+      const start = range[1] ? Number(range[1]) : Math.max(0, body.length - Number(range[2])), end = range[1] && range[2] ? Math.min(Number(range[2]), body.length - 1) : body.length - 1;
+      if (start > end) { res.writeHead(416, { 'content-range': `bytes */${body.length}` }); return res.end(); }
+      res.writeHead(206, { ...type, 'content-range': `bytes ${start}-${end}/${body.length}` }); return res.end(body.subarray(start, end + 1));
+    }
+    res.writeHead(200, type); res.end(body);
   });
   return new Promise(ok => server.listen(0, '127.0.0.1', () => ok({ url: `http://127.0.0.1:${server.address().port}/`, close: () => server.close() })));
 }

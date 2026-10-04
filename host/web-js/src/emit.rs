@@ -1097,7 +1097,9 @@ impl Em<'_> {
                 );
             }
         }
-        if element == "video" && parts.props.get("muted").map(String::as_str) == Some("true") {
+        if (element == "video" || element == "audio")
+            && parts.props.get("muted").map(String::as_str) == Some("true")
+        {
             let _ = write!(self.out, "{e}.muted=!0;");
         }
         // A `markup="markdown"` text builds its pieces (LLP 1045 D3).

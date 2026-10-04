@@ -239,7 +239,7 @@
     "view-tags": {
       "patterns": [
         {
-          "match": "^\\s*(view|box|column|row|dialog|main|header|nav|section|footer|article|aside|list|scroll|text|button|link|textarea|input|canvas|iframe|video|image|svg|symbol|marker|mask|pattern|foreignObject|filter|feBlend|feColorMatrix|feComponentTransfer|feComposite|feConvolveMatrix|feDiffuseLighting|feDisplacementMap|feDropShadow|feFlood|feFuncR|feFuncG|feFuncB|feFuncA|feGaussianBlur|feMerge|feMergeNode|feMorphology|feOffset|feSpecularLighting|feTile|feTurbulence|feDistantLight|fePointLight|feSpotLight|tspan|defs|linearGradient|radialGradient|stop|use|clipPath|g|path|polyline|polygon|circle|ellipse|line|rect|select|option|head)(?=\\s|$)(?!\\s*[=:])",
+          "match": "^\\s*(view|box|column|row|dialog|main|header|nav|section|footer|article|aside|list|scroll|text|button|link|textarea|input|canvas|iframe|video|audio|image|svg|symbol|marker|mask|pattern|foreignObject|filter|feBlend|feColorMatrix|feComponentTransfer|feComposite|feConvolveMatrix|feDiffuseLighting|feDisplacementMap|feDropShadow|feFlood|feFuncR|feFuncG|feFuncB|feFuncA|feGaussianBlur|feMerge|feMergeNode|feMorphology|feOffset|feSpecularLighting|feTile|feTurbulence|feDistantLight|fePointLight|feSpotLight|tspan|defs|linearGradient|radialGradient|stop|use|clipPath|g|path|polyline|polygon|circle|ellipse|line|rect|select|option|head)(?=\\s|$)(?!\\s*[=:])",
           "captures": {
             "1": {
               "name": "support.type.view.exact-contract"

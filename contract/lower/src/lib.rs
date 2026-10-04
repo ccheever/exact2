@@ -787,6 +787,8 @@ impl<'a> Lowerer<'a> {
                     attrs
                 });
                 let expanded = row_list.as_deref().unwrap_or(expanded);
+                let audio = media::audio_rows(tag, expanded, *span)?;
+                let expanded = audio.as_deref().unwrap_or(expanded);
                 // @ref LLP 1074 T1 — a box that contains its absolutely positioned
                 // descendants on every host is lowered `position: relative`.
                 let in_svg = svg::in_svg(self.svg_depth > 0, parent_tag);
@@ -1215,7 +1217,7 @@ impl<'a> Lowerer<'a> {
             && matches!(a.name.as_str(), "sandbox" | "load" | "message")
             && !(tag == "canvas" && a.name == "message")
             && !module)
-            || (tag != "iframe" && tag != "video" && a.name == "src")
+            || (!matches!(tag, "iframe" | "video" | "audio") && a.name == "src")
         {
             return err(
                 "lower-attr-tag",

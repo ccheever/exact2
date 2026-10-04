@@ -225,7 +225,15 @@ impl Parser {
                         match self.peek_kind().clone() {
                             TokenKind::Number(n) => {
                                 self.next();
-                                format!("+{n}")
+                                // `clock +ms real`: that much real time passes
+                                // with the clock (media, the network: LLP 1042 §3).
+                                match self.peek_kind() {
+                                    TokenKind::Ident(w) if w == "real" => {
+                                        self.next();
+                                        format!("+{n} real")
+                                    }
+                                    _ => format!("+{n}"),
+                                }
                             }
                             other => {
                                 return self.err(
@@ -246,7 +254,7 @@ impl Parser {
                         return self.err(
                             "syntax-expected-step",
                             format!(
-                                "`clock` takes `settle`, `+ms`, or `ms`, found {}",
+                                "`clock` takes `settle`, `+ms`, `+ms real`, or `ms`, found {}",
                                 describe(&other)
                             ),
                         )

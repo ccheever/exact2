@@ -571,7 +571,7 @@ impl<S: Source> Walk<'_, '_, S> {
                 | "playsinline"
                 | "disablepictureinpicture"
                 | "disableremoteplayback"
-                    if element == "video" =>
+                    if element == "video" || element == "audio" =>
                 {
                     if value == "true" {
                         attrs.push((name.clone(), None));
