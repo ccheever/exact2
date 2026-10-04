@@ -46,17 +46,10 @@ impl<D: DataSource> Presenter<D> {
     ) -> Option<String> {
         let epoch = self.host.kernel().epoch();
         if self.images.order.as_ref().is_none_or(|(e, _)| *e != epoch) {
-            let kernel = self.host.kernel();
             let order = self
                 .host
-                .preorder()
-                .into_iter()
-                .filter(|id| {
-                    kernel
-                        .node(*id)
-                        .is_some_and(|n| n.node_type == NodeType::Image)
-                })
-                .collect();
+                .kernel()
+                .preorder_where(&self.host.roots(), |t, _| t == NodeType::Image);
             self.images.order = Some((epoch, order));
         }
         let live = self

@@ -346,7 +346,17 @@ impl<D: DataSource> Presenter<D> {
         }
         let collections: BTreeSet<_> = self.host.collections().iter().map(|s| s.view).collect();
         let mut live = BTreeSet::new();
-        for view in self.host.preorder() {
+        // Only nodes with a scroll binding prop can be bound (most of a list's
+        // nodes have none): the walk keeps those.
+        let bound = self
+            .host
+            .kernel()
+            .preorder_where(&self.host.roots(), |_, props| {
+                props.get(PropId::ScrollTop).is_some()
+                    || props.get(PropId::ScrollLeft).is_some()
+                    || props.get(PropId::ScrollFollowEnd).is_some()
+            });
+        for view in bound {
             if collections.contains(&view) {
                 continue;
             }

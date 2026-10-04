@@ -760,6 +760,30 @@ impl Kernel {
         Some(self.node_at(slot))
     }
 
+    /// The nodes under `roots`, in preorder, whose type and props `keep`
+    /// accepts: a
+    /// walk over the arena's own child lists, allocating nothing per node
+    /// (a host's per-commit scan for the few nodes it cares about).
+    pub fn preorder_where(
+        &self,
+        roots: &[ViewId],
+        mut keep: impl FnMut(NodeType, &PropList) -> bool,
+    ) -> Vec<ViewId> {
+        let mut out = Vec::new();
+        let mut stack: Vec<u32> = roots
+            .iter()
+            .rev()
+            .filter_map(|id| self.arena.slot_of(*id))
+            .collect();
+        while let Some(slot) = stack.pop() {
+            if keep(self.arena.node_type(slot), self.arena.props(slot)) {
+                out.push(self.arena.local_id(slot));
+            }
+            stack.extend(self.arena.children(slot).iter().rev());
+        }
+        out
+    }
+
     /// One node by key; `None` once that allocation is gone.
     pub fn node_by_key(&self, key: NodeKey) -> Option<NodeRef<'_>> {
         let slot = self.arena.resolve(key)?;
