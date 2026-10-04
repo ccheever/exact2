@@ -7,6 +7,13 @@ use exact_gpu::{fixture, Frame, Surface};
 #[path = "../../bake/tests/samples.rs"]
 mod samples;
 
+/// BoxTextured's colour texture, named by its content at bake.
+fn box_texture() -> String {
+    static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| samples::sample("BoxTextured").textures[0].clone())
+        .clone()
+}
+
 #[derive(Default, Component)]
 struct Drift {
     velocity: Vec3,
@@ -215,7 +222,7 @@ impl Game for Herd {
             if i % 2 == 0 {
                 w.spawn((Transform::at(at.x, at.y, at.z), Mesh::asset("glass.model")));
             } else {
-                let mut sprite = Sprite::new("BoxTextured/0-srgb-straight.tex", [1.5, 1.]);
+                let mut sprite = Sprite::new(box_texture(), [1.5, 1.]);
                 sprite.alpha = [
                     asset::AlphaMode::Opaque,
                     asset::AlphaMode::Mask,
