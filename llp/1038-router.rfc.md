@@ -458,6 +458,16 @@ mirror that op through the ordinary commit table from the restored cursor
 After Forward, that push truncates the forward tail, so the new entry need
 not grow the total `history.length`.
 
+*Amended 2026-10-03 (agents writing a feed hit both):* a link the root's
+`navigate` follows is a new visit on the web, but a handler's `go` to a
+location the stack holds pops to it and history goes back with it (a revisited
+profile tab reused its old entry): each such link journals `history: link …
+took N entries off the stack instead of adding a visit …`, naming `push` as the
+handler or the link's press. And a covered route stays mounted (D6), so its
+testIds repeat the shown route's in the document, where a web page holds only
+the shown screen: the projection journals that once per covered route, in a
+selection's first projections, naming the scoped query.
+
 Popstates are handled one at a time; a commit is synchronous in this host,
 so a second one waits in a queue rather than interleaving (0311's rule). A
 reload is `open` of the address bar — the declared chain, not the

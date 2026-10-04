@@ -1486,7 +1486,7 @@ export function router(slot, history) {
     if (!press && !Navigate) return;
     ev.preventDefault();
     if (press || here) return;
-    const before = RouterSlot.n?.v; Navigate(to); if (RouterSlot.n?.v === before) say(`history: link ${JSON.stringify(to)} refused`);
+    const before = RouterSlot.n?.v; History.follow(to, () => Navigate(to)); if (RouterSlot.n?.v === before) say(`history: link ${JSON.stringify(to)} refused`);
   }, true);
   effect(() => {
     const r = slot(); if (!r || !r[1].length) return;

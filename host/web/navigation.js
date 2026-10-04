@@ -5,7 +5,9 @@ let refused = new WeakMap();
 // The tabpanels each root last hid or showed: one it stops naming shows again.
 let managed = new WeakMap();
 let written = [], gone = new Set(), cursor = 0, first = null, originIndex = null;
-let echo = null, pop = null, draining = false;
+let echo = null, pop = null, draining = false, linking = null;
+// A selection's projections that still look for testIds a covered route repeats, and the routes said.
+let looking = new WeakMap(), repeated = new WeakSet();
 const queue = [];
 const waiters = new Set();
 let root, navigate, log;
@@ -42,6 +44,27 @@ function pressBack(nav) {
   if (control.matches(":disabled") || control.closest("[inert]") || !control.getClientRects().length || getComputedStyle(control).visibility !== "visible")
     return `its id="${control.id}" control is disabled, inert or not shown`;
   control.click();
+}
+
+// A covered route stays mounted (D6), so its testIds are in the document
+// beside the shown route's, and a query by `[data-testid]` finds the covered
+// copy first, where a web page would hold only the shown screen. Said once
+// per covered route, looked for in a selection's first projections (its
+// data lands in them), never on every scroll's.
+function repeats(nav, routes, key, log) {
+  const seen = looking.get(nav);
+  if (seen?.key === key && seen.left-- <= 0) return;
+  if (seen?.key !== key) looking.set(nav, { key, left: 16 });
+  const shown = routes.find(r => r.getAttribute("navigationKey") === key);
+  const covered = routes.filter(r => r !== shown && !repeated.has(r));
+  if (!shown || !covered.length) return;
+  const ids = new Set([shown, ...shown.querySelectorAll("[data-testid]")].map(e => e.dataset.testid).filter(Boolean));
+  for (const route of covered) {
+    const copies = [route, ...route.querySelectorAll("[data-testid]")].filter(e => ids.has(e.dataset.testid));
+    if (!copies.length) continue;
+    repeated.add(route);
+    log(`navigation: route ${route.getAttribute("navigationKey")} is covered and kept mounted (hidden, inert) for Back, and ${copies.length} of its testIds repeat the shown route's (e.g. "${copies[0].dataset.testid}"): a query by [data-testid] finds the covered copy first; scope it to the shown route ([data-testid="…"]:not([inert] *)) or use the agent's tree, which prefers the shown copy`);
+  }
 }
 
 function go(to, from, finish = () => {}) {
@@ -173,7 +196,13 @@ export const navigation = {
     echo = null; pop = null; queue.length = 0;
     for (const finish of [...waiters]) finish();
   },
+  /** A followed link (rt.js, input-glue.js): `run` dispatches it to the root's `navigate`. */
+  follow(to, run) { linking = to; try { return run(); } finally { linking = null; } },
   apply(op) {
+    // A link is a new visit on the web; a handler that takes entries off the
+    // stack (`go` to a location the stack holds pops to it, and history goes
+    // back with it) does what no web link does: said each time.
+    if (linking !== null && op.removed.length) log(`history: link ${JSON.stringify(linking)} took ${op.removed.length} ${op.removed.length === 1 ? "entry" : "entries"} off the stack instead of adding a visit, as a web link does: the root's navigate handler went to a location the stack holds (go pops to it, open replaces the stack); push(nav, url) for a link, or press=push(…) on it, adds a visit`);
     last = op;
     if (pop) { pop.op = op; for (const id of op.removed) gone.add(id); }
     else { queue.push({ op }); drain(); }
@@ -216,6 +245,7 @@ export const navigation = {
         panel.style.visibility = active ? "" : "hidden";
         panel.inert = !active || !!panel.authoredInert;
       }
+      repeats(nav, stacks[at], key, log);
       for (const [stack, routes] of stacks.entries()) {
         // The selected stack shows the route the root names; another keeps its top laid out.
         const selected = stack === at ? routes.findIndex(route => route.getAttribute("navigationKey") === key) : routes.length - 1;

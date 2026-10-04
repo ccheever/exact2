@@ -65,7 +65,7 @@ fn sweep(js: bool) {
         )
         .replace(
             "          when e.name == \"home\"\n",
-            "          link href=\"/post/42\" testId=`link-post-${e.id}` padding=8\n            text \"Link post\"\n          text testId=`link-text-${e.id}`\n            text \"Link person\" href=\"/people/7\" testId=`link-person-${e.id}`\n          link href=\"/prompts\" press=selectTab(\"prompts\") testId=`link-press-${e.id}` padding=8\n            text \"Link prompts by press\"\n          link href=\"/post/43\" press=push(\"/post/43\") testId=`link-push-${e.id}` padding=8\n            text \"Link that pushes\"\n          link href=\"/manifest.json\" testId=`link-file-${e.id}` padding=8\n            text \"Link undeclared\"\n          when e.name == \"home\"\n",
+            "          link href=\"/post/42\" testId=`link-post-${e.id}` padding=8\n            text \"Link post\"\n          link href=\"/\" testId=`link-home-${e.id}` padding=8\n            text \"Link home\"\n          text testId=`link-text-${e.id}`\n            text \"Link person\" href=\"/people/7\" testId=`link-person-${e.id}`\n          link href=\"/prompts\" press=selectTab(\"prompts\") testId=`link-press-${e.id}` padding=8\n            text \"Link prompts by press\"\n          link href=\"/post/43\" press=push(\"/post/43\") testId=`link-push-${e.id}` padding=8\n            text \"Link that pushes\"\n          link href=\"/manifest.json\" testId=`link-file-${e.id}` padding=8\n            text \"Link undeclared\"\n          when e.name == \"home\"\n",
         )
         .replace(
             "          when e.name == \"home\"\n            text \"Home\"\n",
@@ -92,6 +92,11 @@ fn sweep(js: bool) {
         .replace(
             "          when e.name == \"home\"",
             "          button press=replaceBack testId=`replace-back-${e.id}`\n            text \"Rewrite Back\"\n          button press=refuseBack testId=`refuse-${e.id}`\n            text \"Refuse Back\"\n          button press=replace(\"/post/43\") testId=`replace-${e.id}`\n            text \"Replace\"\n          button press=go(\"/\") testId=`go-home-${e.id}`\n            text \"Go home\"\n          when e.name == \"home\"",
+       )
+        // One testId on every screen: a covered one repeats the shown one's.
+        .replace(
+            "          button press=push(\"/post/42\") testId=`push-post-${e.id}`",
+            "          text \"Route\" testId=\"route-label\"\n          button press=push(\"/post/42\") testId=`push-post-${e.id}`",
         );
     let plan = contract::bake(contract::compile(&source).unwrap(), Empty).unwrap();
     let dir = std::env::temp_dir().join(format!(

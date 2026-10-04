@@ -1,4 +1,5 @@
 // Input-only glue: loaded after the baked first pixel, independently of data readiness.
+import { navigation } from "./navigation.js";
 const shortcutKeys = new Set(["Enter", "Tab", "Escape", "Backspace", "Delete", "Insert", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"]);
 export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false }) {
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
@@ -21,7 +22,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     if (!press && !(nav?.hasAttribute("navigationBack") && nav.exactHandlers?.includes("navigate"))) return;
     event.preventDefault();
     if (press || here) return;
-    if (!navigate(to)?.ops?.some(op => op.op === "router")) wasm.exact_log(writeIn(`history: link ${JSON.stringify(to)} refused`));
+    if (!navigation.follow(to, () => navigate(to))?.ops?.some(op => op.op === "router")) wasm.exact_log(writeIn(`history: link ${JSON.stringify(to)} refused`));
   }, true);
   document.addEventListener("keydown", (event) => {
     if (event.isComposing || !ready() || event.defaultPrevented) return;

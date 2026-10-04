@@ -388,6 +388,19 @@ try {
     assert.deepEqual(back.calls.filter(c => c.name === 'go').map(c => c.args[0]), [-1], 'the traversal is accepted where it landed: no restoring go');
     assert.equal(back.logs.lines.filter(l => l.includes('refused')).length, 0);
   });
+  await run('a link whose handler pops the stack says so', async () => {
+    const n = await fresh(); await tap('push-post'); await record('link-pop prelude', '/post/42', n + 1, 2, 0);
+    await tap('link-home'); await until(`location.pathname==='/'`);
+    const popped = await record('link home pops', '/', n + 1, 1, 0, 'took 1 entry off the stack instead of adding a visit');
+    followed(popped);
+  });
+  await run('a covered route\'s repeated testIds are said once', async () => {
+    const n = await fresh(); await tap('push-post');
+    const pushed = await record('covered repeats', '/post/42', n + 1, 2, 0, 'testIds repeat the shown route\'s (e.g. "route-label")');
+    await tap('push-person'); await tap('back');
+    const again = await record('said once per route', '/post/42', n + 2, 2, 1);
+    assert.equal(again.logs.lines.filter(l => l.includes(`route ${pushed.navigation.stack[0]} is covered`)).length, 0);
+  });
   await run('navigate handler without a matching commit restores once', async () => {
     const n = await fresh(); await tap('push-post'); await historyTap(-1); await tap('refuse-link');
     await record('refused navigate prelude', '/', n + 1, 1, 1);
