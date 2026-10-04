@@ -99,7 +99,13 @@ and one tag join the table (LLP 1017 §8.1; every name is the HTML one):
   `press` and `popovertarget`; both fire, the spec's behavior — the
   switcher uses exactly this to refresh `accounts` as the menu opens (D6).
 - `hr` — a void row, the separator; outside a popover it is the element's
-  bare self (a rule).
+  bare self (a rule). *Built 2026-10-04:* a `view` whose `semanticTag` is
+  `hr`, carrying the UA stylesheet's rows (`margin: 0.5em auto`, a 1px
+  `inset` border, `color: gray`, `overflow: hidden`), the author's own rows
+  winning; children are refused (`lower-void`). `inset` joined the border
+  styles for it (LLP 1001 §1, "Border semantics": Chrome's two shades on
+  the native hosts). Like the browser's, an `hr` in a flex column has auto
+  side margins and so no width until the author zeroes them.
 - `aria-checked` on a `button` — the ARIA state, lowered like its three
   siblings at `tags.rs:165`.
 
@@ -389,9 +395,24 @@ item image is its symbol, else its `img` once that has loaded, fitted to 24
 points. The menu reads the bitmap the hidden row already holds, so opening it
 never fetches. `UIAlertAction` has no public image, so sheet rows show no icon.
 `state.navigation.popover.actions` counts the sheet's actions. The author
-writes `role="menu"` on a column: there is no `menu` tag, and `hr` (D1) is not
-yet in the schema. The fixture's `open-in` (a menu) and `open-in-sheet` (a
-sheet), with rows from its `providers()` source, are the evidence. Placement
+writes `role="menu"` on a column: there is no `menu` tag. An `hr` row (D1)
+is a section break in the `UIMenu`, and `NSMenu.separator()` in macOS's
+`NSMenu`.
+The fixture's `open-in` (a menu, its providers, an `hr`, then Cancel) and
+`open-in-sheet` (a sheet), with rows from its `providers()` source, are the
+evidence.
+
+*Refused at compile time (2026-10-04).* What the sheet refuses at the tap,
+Contract refuses where a literal shows it, as `lower-alertdialog` naming the
+row: a popover with `role="alertdialog"` (or a `dialog` with that role, which
+also needs `closedby="any"`) whose rows, read through `each`, `when` and
+`match` to the elements they produce, are anything but `text`, actions (a
+`button` with `press` that hides it: `popovertarget` and
+`popovertargetaction="hide"`, or `commandfor` and `command="close"`) and at
+most one cancel (a `button` without `press` that hides it; one on each arm of
+one `when` is one, one inside `each` may repeat and is refused), or that has
+no action. A value known only at run time (a bound `popovertargetaction`, an
+`id` that is not a literal) is left to the host, which still refuses and logs. Placement
 beyond D2's rule is `position-area` ("Placement", below); the keyboard
 contract stays where §5 puts it.
 

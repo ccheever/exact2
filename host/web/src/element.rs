@@ -338,8 +338,8 @@ pub fn tag_of<'a>(node: &NodeFacts<'a>, in_button: bool) -> &'a str {
         return name;
     }
     match element(node) {
-        "div" | "main" | "header" | "nav" | "section" | "footer" | "article" | "aside" | "h1"
-        | "h2" | "h3" | "h4" | "h5" | "h6"
+        "div" | "main" | "header" | "nav" | "section" | "footer" | "article" | "aside" | "hr"
+        | "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
             if in_button =>
         {
             "span"
@@ -410,6 +410,9 @@ fn element(node: &NodeFacts<'_>) -> &'static str {
             "article" => return "article",
             "aside" => return "aside",
             "dialog" => return "dialog",
+            // @ref LLP 1021 D1 — HTML's separator, void: the kernel gives it
+            // no children, and its UA rows are the node's own.
+            "hr" => return "hr",
             _ => {}
         }
     }

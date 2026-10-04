@@ -198,6 +198,18 @@ final class PopoverMacTests: XCTestCase {
         p.apply(wireBatch([["op": "create", "id": 8, "kind": "native"], ["op": "children", "id": 5, "ids": [8]]]))
         XCTAssertFalse(p.menus.isMenuShaped(pop), "custom content inside a button must keep its pixels")
     }
+    /// HTML's `hr` (LLP 1021 D1) is a menu row: the separator between items.
+    func testAnHrRowIsTheMenusSeparator() {
+        let p = fixture(), pop = p.views[3]!
+        p.apply(wireBatch([
+            ["op": "create", "id": 9, "kind": "view", "props": ["semanticTag": "hr"]],
+            ["op": "create", "id": 10, "kind": "button", "handlers": ["press"], "props": ["popovertarget": "form", "popovertargetaction": "hide"]],
+            ["op": "children", "id": 3, "ids": [5, 9, 10]],
+        ]))
+        XCTAssertTrue(p.menus.isMenuShaped(pop), "an hr keeps a menu menu-shaped")
+        let menu = p.menus.menu(of: pop)
+        XCTAssertEqual(menu.items.map(\.isSeparatorItem), [false, true, false])
+    }
     func testNativeHideButtonClosesTheFormThroughAppKit() throws {
         let p = fixture(), pop = p.views[3]!
         p.buttonFace = { _ in var face = ButtonFace(); face.title = "Close"; return face }

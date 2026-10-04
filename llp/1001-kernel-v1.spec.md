@@ -98,9 +98,16 @@ one length or percentage; paired horizontal/vertical radii and the slash-separat
 that separate value-pair syntax.
 
 **Border semantics (Codex, 2026-09-11):** four `border_style_*` rows
-(bits 91–94) accept `none | hidden | solid`, initially `none`. Contract's
+(bits 91–94) accept `none | hidden | solid | inset`, initially `none`. Contract's
 single-value `border-style` sets all four; `border-<side>-style` sets one.
-Other line styles are refused until a consumer needs their painting. Widths
+Other line styles are refused until a consumer needs their painting. `inset`
+came with HTML's `hr` (LLP 1021 D1, 2026-10-04): the browser draws it, and
+`border_colors()` gives the native hosts Chrome's two shades, measured from its
+pixels — the top and left `Color::Dark()`, the bottom and right `Color::Light()`,
+a colour within `#202020` of black lightened instead, one within `#ebebeb` of
+white its own lit side, and `currentcolor` read as Chrome's `#eeeeee` (so a
+bare `hr` is `#9a9a9a` over `#eeeeee` whatever its `color`). Firefox shades
+differently; Chrome is the oracle. Widths
 retain their authored values, initially 3 (`medium`), while `border_widths()`
 returns zero for `none`/`hidden`. Layout, Apple content insets and Linux paint
 consume those effective widths. Border colours initially use `currentcolor`:
