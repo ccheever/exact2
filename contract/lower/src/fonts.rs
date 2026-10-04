@@ -42,16 +42,6 @@ impl Lowerer<'_> {
             })?)
         };
         for font in &file.fonts {
-            if font.name.contains(',') {
-                return err(
-                    "lower-font-family-list",
-                    format!(
-                        "font family `{}` contains a comma; v1 stacks are single-member",
-                        font.name
-                    ),
-                    font.span,
-                );
-            }
             if self.font_stacks.contains_key(&font.name) {
                 return err(
                     "lower-font-duplicate",
@@ -208,51 +198,62 @@ impl Lowerer<'_> {
     /// resolved now. @ref LLP 1053 G7 — a literal, or a choice (`?:`,
     /// `match`) whose every arm is one; a runtime string is refused, since
     /// fonts are declared and resolved at compile time.
-    pub(super) fn family_stacks(&self, value: &Expr) -> Result<Expr, LowerError> {
+    pub(super) fn family_stacks(&mut self, value: &Expr) -> Result<Expr, LowerError> {
         let mut out = value.clone();
         self.family_arms(value, &mut |_, _| {})?;
-        self.replace_arms(&mut out);
+        self.replace_arms(&mut out)?;
         Ok(out)
     }
 
-    fn replace_arms(&self, e: &mut Expr) {
+    fn replace_arms(&mut self, e: &mut Expr) -> Result<(), LowerError> {
         match e {
             Expr::Str(name, span) => {
-                let stack = self.font_stacks[name.as_str()];
+                let stack = if let Some(stack) = self.font_stacks.get(name.as_str()) {
+                    *stack
+                } else {
+                    let names = family_names(name, *span)?;
+                    let mut members = Vec::new();
+                    for name in names {
+                        let single = if let Some(stack) = self.font_stacks.get(&name) {
+                            *stack
+                        } else {
+                            let family = self.b.font_family(name.trim_matches('"'), &[]);
+                            let stack = self
+                                .b
+                                .font_stack(&[(StackMemberKind::Family, Some(family))]);
+                            self.font_stacks.insert(name, stack);
+                            stack
+                        };
+                        let plan = self.b.plan();
+                        let member =
+                            plan.stack_member(plan.stack(single).members.iter().next().unwrap());
+                        members.push((member.kind, member.family));
+                    }
+                    let stack = self.b.font_stack(&members);
+                    self.font_stacks.insert(name.clone(), stack);
+                    stack
+                };
                 *e = Expr::Number(stack.0 as f64, *span);
             }
             Expr::Ternary(_, yes, no, _) => {
-                self.replace_arms(yes);
-                self.replace_arms(no);
+                self.replace_arms(yes)?;
+                self.replace_arms(no)?;
             }
             Expr::Match { some, none, .. } => {
-                self.replace_arms(some);
-                self.replace_arms(none);
+                self.replace_arms(some)?;
+                self.replace_arms(none)?;
             }
-            Expr::Let { body, .. } => self.replace_arms(body),
+            Expr::Let { body, .. } => self.replace_arms(body)?,
             _ => unreachable!("family_arms admitted only these"),
         }
+        Ok(())
     }
 
     /// Visit every arm's family name, refusing what is not a known literal.
     fn family_arms(&self, e: &Expr, visit: &mut dyn FnMut(&str, Span)) -> Result<(), LowerError> {
         match e {
             Expr::Str(name, span) => {
-                if name.contains(',') {
-                    return err(
-                        "lower-font-family-list",
-                        "v1 font stacks are single-member; a comma list is not supported",
-                        *span,
-                    );
-                }
-                if !self.font_stacks.contains_key(name) {
-                    return err(
-                        "lower-font-undeclared",
-                        format!("font family `{name}` is neither generic nor declared"),
-                        *span,
-                    );
-                }
-                visit(name, *span);
+                for member in family_names(name, *span)? { visit(&member, *span); }
                 Ok(())
             }
             Expr::Ternary(_, yes, no, _) => {
@@ -271,4 +272,94 @@ impl Lowerer<'_> {
             ),
         }
     }
+}
+
+/// CSS family lists, including quoted names containing spaces or commas.
+fn family_names(value: &str, span: Span) -> Result<Vec<String>, LowerError> {
+    if value.contains('\\') {
+        return err(
+            "lower-font-family-list",
+            "CSS escapes in font-family are not implemented; use the actual family characters",
+            span,
+        );
+    }
+    let mut quote = None;
+    let mut names = Vec::new();
+    let mut start = 0;
+    let mut escaped = false;
+    for (i, c) in value.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if c == '\\' {
+            escaped = true;
+            continue;
+        }
+        if let Some(q) = quote {
+            if c == q {
+                quote = None;
+            }
+        } else if c == '\'' || c == '"' {
+            quote = Some(c);
+        } else if c == ',' {
+            names.push(&value[start..i]);
+            start = i + 1;
+        }
+    }
+    names.push(&value[start..]);
+    if quote.is_some() || escaped || names.len() > 64 {
+        return err(
+            "lower-font-family-list",
+            "font-family expects at most 64 comma-separated CSS family names with balanced quotes",
+            span,
+        );
+    }
+    names
+        .into_iter()
+        .map(|name| {
+            let name = name.trim();
+            let quoted = name.starts_with(['\'', '"']);
+            let name = if quoted && name.len() >= 2 && name.ends_with(name.chars().next().unwrap())
+            {
+                &name[1..name.len() - 1]
+            } else if name.contains(['\'', '"']) {
+                return err(
+                    "lower-font-family-list",
+                    "a quoted CSS family name must occupy one whole list member",
+                    span,
+                );
+            } else {
+                name
+            };
+            if name.is_empty() || name.contains([';', '{', '}']) {
+                return err(
+                    "lower-font-family-list",
+                    "font-family expects nonempty CSS family names separated by commas",
+                    span,
+                );
+            }
+            let generic = [
+                "system-ui",
+                "ui-sans-serif",
+                "sans-serif",
+                "ui-serif",
+                "serif",
+                "ui-monospace",
+                "monospace",
+                "ui-rounded",
+            ];
+            Ok(
+                if quoted && generic.contains(&name.to_ascii_lowercase().as_str()) {
+                    format!("\"{name}\"")
+                } else if !quoted && name.eq_ignore_ascii_case("-apple-system") {
+                    "system-ui".into()
+                } else if !quoted && generic.contains(&name.to_ascii_lowercase().as_str()) {
+                    name.to_ascii_lowercase()
+                } else {
+                    name.to_string()
+                },
+            )
+        })
+        .collect()
 }

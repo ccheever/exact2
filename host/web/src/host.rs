@@ -14,7 +14,7 @@ use crate::css;
 use crate::motion::{Lowered, Motion, Still};
 use exact_kernel::{CommitReceipt, Kernel, NodeKey, NodeType, PropId, ViewId};
 use exact_motion::{EngineError, HoldEnd, HoldStart, Property, Value as MotionValue};
-use exact_plan::{EventKind, Plan, StackMemberKind, StacksId};
+use exact_plan::{EventKind, Plan};
 use exact_runner::{
     Carried, DataSource, Dispatch, Event, FailureKind, Outcome, RequestOut, Response, Runner,
     RunnerError, SurfaceOutcome, Timed, Work,

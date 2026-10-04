@@ -1257,3 +1257,29 @@ fn cursor_keywords_are_css_and_inherit() {
         );
     }
 }
+
+#[test]
+fn css_font_fallback_lists_keep_every_member_in_order() {
+    let plan = contract::compile("component App\n  view\n    text \"Fallback\" font-family=\"Inter, system-ui, sans-serif\"\n").unwrap();
+    let stack = plan.stacks.last().unwrap();
+    let members: Vec<_> = stack
+        .members
+        .iter()
+        .map(|id| plan.stack_member(id).kind)
+        .collect();
+    assert_eq!(
+        members,
+        [
+            exact_plan::StackMemberKind::Family,
+            exact_plan::StackMemberKind::SystemUi,
+            exact_plan::StackMemberKind::SansSerif
+        ]
+    );
+    let family = plan.familie(
+        plan.stack_member(stack.members.iter().next().unwrap())
+            .family
+            .unwrap(),
+    );
+    assert_eq!(plan.str(family.name), "Inter");
+    assert_eq!(family.faces.len, 0, "a local family needs no bundled asset");
+}

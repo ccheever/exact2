@@ -136,10 +136,6 @@ pub enum PlanError {
     FaceSource {
         face: u32,
     },
-    /// A declared family has no face.
-    EmptyFamily {
-        family: u32,
-    },
     /// A family repeats one static `(weight, italic)` coordinate.
     DuplicateFace {
         family: u32,
@@ -147,7 +143,7 @@ pub enum PlanError {
         weight: u16,
         italic: bool,
     },
-    /// v1 accepts one member per stack (the table remains a range).
+    /// A CSS fallback stack requires one to 64 members.
     StackMembers {
         stack: u32,
         members: u32,
@@ -376,9 +372,6 @@ impl Plan {
             }
         }
         for (i, family) in self.families.iter().enumerate() {
-            if family.faces.len == 0 {
-                return Err(PlanError::EmptyFamily { family: i as u32 });
-            }
             // A family's faces are few: a scan, not a hash table's code.
             let mut coordinates = Vec::new();
             for face_id in family.faces.iter() {
@@ -399,7 +392,7 @@ impl Plan {
             return Err(PlanError::TooManyStacks(self.stacks.len()));
         }
         for (i, stack) in self.stacks.iter().enumerate() {
-            if stack.members.len != 1 {
+            if !(1..=64).contains(&stack.members.len) {
                 return Err(PlanError::StackMembers {
                     stack: i as u32,
                     members: stack.members.len,

@@ -1045,3 +1045,11 @@ the keyword. macOS uses NSCursor; unavailable artwork (help/wait/progress,
 diagonal resize, zoom before macOS 15) uses an arrow/crosshair stand-in. iOS,
 tvOS and Linux ignore this presentation hint: their presenters expose no
 CSS cursor executor. Cursor image URLs remain unsupported.
+
+Font lists (2026-10-04) are CSS family lists, one to 64 members; a plan family
+with no faces names an installed local family. Web uses the full CSS list;
+Apple matches available families and gives CoreText the ordered cascade.
+Linux matches the first available family, with its existing cosmic-text
+glyph fallback. It logs `font-stack-fallback` for a multi-member list: an
+authored per-glyph cascade needs a shaping API beyond cosmic-text's one
+`Attrs.family`, and remains owed rather than silently claimed as CSS parity.

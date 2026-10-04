@@ -100,11 +100,11 @@ fn refusal(source: &str, id: &str) {
 #[test]
 fn family_identity_and_sources_fail_closed() {
     refusal(
-        "component App\n  view\n    text \"x\" font-family=\"Missing\"\n",
-        "lower-font-undeclared",
+        "component App\n  view\n    text \"x\" font-family=\"\"\n",
+        "lower-font-family-list",
     );
     refusal(
-        "component App\n  view\n    text \"x\" font-family=\"serif, sans-serif\"\n",
+        "component App\n  view\n    text \"x\" font-family=\"serif,, sans-serif\"\n",
         "lower-font-family-list",
     );
     refusal(
@@ -216,9 +216,9 @@ fn a_family_choice_is_refused_unless_every_arm_is_a_known_literal() {
         ("family", "lower-font-family-literal"),
         ("(on ? family : \"serif\")", "lower-font-family-literal"),
         ("`${family}`", "lower-font-family-literal"),
-        ("(on ? \"Missing\" : \"serif\")", "lower-font-undeclared"),
+        ("(on ? \"\" : \"serif\")", "lower-font-family-list"),
         (
-            "(on ? \"serif, monospace\" : \"serif\")",
+            "(on ? \"serif,, monospace\" : \"serif\")",
             "lower-font-family-list",
         ),
     ] {
