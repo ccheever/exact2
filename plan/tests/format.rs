@@ -775,3 +775,31 @@ fn a_callback_body_is_entered_and_left_only_at_its_ends() {
     crossed.push(Opcode::Return as u8);
     assert_eq!(with(crossed), bad(7, 14));
 }
+
+#[test]
+fn a_plan_without_compiled_values_keeps_every_other_data_range() {
+    let mut b = PlanBuilder::from_plan(sample());
+    let ty = b.plan().resources[0].ty;
+    let other = b.resource("nearby#else", "no_stations", &[], ty, None);
+    b.set_resource_placeholder(exact_plan::ResourcesId(0), other);
+    let empty = Value::list(Vec::new());
+    b.set_resource_placeholder_value(other, &empty);
+    let plan = b.finish().unwrap();
+    let bare = plan.without_compiled_values();
+    // Decoding is the validation pass, so the rewritten plan is a valid one.
+    assert_eq!(Plan::decode(&bare.encode()).unwrap(), bare);
+    for row in &bare.resources {
+        assert_eq!((row.initial.len, row.initial_args.len), (0, 0));
+    }
+    assert!(bare.data.len() < plan.data.len());
+    let kept = &bare.resources[other.0 as usize];
+    assert_eq!(
+        Value::from_bytes(bare.bytes(kept.placeholder_value)).unwrap(),
+        empty
+    );
+    // Nothing else changes.
+    let mut same = bare.clone();
+    same.resources = plan.resources.clone();
+    same.data = plan.data.clone();
+    assert_eq!(same, plan);
+}

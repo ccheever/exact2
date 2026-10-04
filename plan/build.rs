@@ -559,6 +559,27 @@ fn main() {
         }
     }
     let _ = writeln!(w, " }}");
+    // Every data range a row names: the data pool's only references (no
+    // opcode operand addresses it), so a rewrite of the pool remaps these.
+    let _ = writeln!(w, "    /// Call `f` with every data range a table row names, table by table: the data pool's only references.");
+    let _ = write!(
+        w,
+        "    pub fn each_bytes_mut(&mut self, f: &mut dyn FnMut(&mut Bytes)) {{"
+    );
+    for t in &schema.tables {
+        for fl in t
+            .fields
+            .iter()
+            .filter(|fl| matches!(parse_codec(&fl.codec), Codec::Bytes))
+        {
+            let _ = write!(
+                w,
+                " for r in &mut self.{} {{ f(&mut r.{}); }}",
+                t.name, fl.name
+            );
+        }
+    }
+    let _ = writeln!(w, " }}");
 
     // encode
     let _ = writeln!(w, "    /// Canonical encoding: header, pools, then every table in declaration order with fixed-width fields. Deterministic for equal plans.");

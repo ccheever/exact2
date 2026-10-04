@@ -147,8 +147,8 @@ if (rust) {
   rustGrants = await moduleGrants(built);
   rustGrantSet = normalizeGrants(ts ? 'Rust module' : 'app', rustGrants, 'rust');
   moduleStorage = /^\s*(?:fs|sqlite)\./m.test(rustGrants);
-  if (opt('--plan')) cpSync(resolve(opt('--plan')), resolve(out, 'app.plan'));
-  else cpSync(resolve(gen, 'app.plan'), resolve(out, 'app.plan'));
+  // The module binds with the plan's declarations, not the bake's answers.
+  cpSync(resolve(gen, 'app.bind.plan'), resolve(out, 'app.bind.plan'));
 }
 writeFileSync(resolve(gen, 'admission-data.js'), `import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(${JSON.stringify(tsGrantSet)}),rustGrantSet=createGrantSet(${JSON.stringify(rustGrantSet)});\n`);
 writeFileSync(resolve(gen, 'main.js'), [
@@ -404,8 +404,7 @@ if (files || moduleStorage || /^\s*(?:fs|sqlite)\./m.test(grants)) {
   await copyLazyModules(roots);
 }
 // The plan beside the pages: a render server (either renderer) reads it.
-if (opt('--plan') && !existsSync(resolve(out, 'app.plan'))) cpSync(resolve(opt('--plan')), resolve(out, 'app.plan'));
-else if (!existsSync(resolve(out, 'app.plan'))) cpSync(resolve(gen, 'app.plan'), resolve(out, 'app.plan'));
+cpSync(opt('--plan') ? resolve(opt('--plan')) : resolve(gen, 'app.plan'), resolve(out, 'app.plan'));
 // A development build's source map for that plan, for the agent driver only
 // (LLP 1012.001.000 D6): never in a production build, never a stale one.
 rmSync(resolve(out, 'app.plan.map.json'), { force: true });

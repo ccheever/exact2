@@ -110,6 +110,16 @@ fn main() -> ExitCode {
                     return ExitCode::from(1);
                 }
             }
+            // What a Rust data module binds with (rust-data.js): the plan
+            // without the bake's answers, which the page already has in
+            // `app.js` and which can be most of a baked plan's bytes.
+            if let Err(e) = std::fs::write(
+                dir.join("app.bind.plan"),
+                plan.without_compiled_values().encode(),
+            ) {
+                eprintln!("app.bind.plan: {e}");
+                return ExitCode::from(1);
+            }
             // A Contract compiled here is also the plan beside the pages
             // (the build's `app.plan`), so the build runs no second compile.
             if !input.ends_with(".plan") {

@@ -551,6 +551,35 @@ impl Plan {
         }
         Ok(())
     }
+
+    /// This plan without its resources' compiled values (`initial` and
+    /// `initial_args`), the data pool rebuilt to hold only what its other
+    /// rows still name. It is what a data module binds with: a source reads
+    /// the plan's declarations there, never the bake's answers, which can be
+    /// most of a baked plan's bytes.
+    pub fn without_compiled_values(&self) -> Plan {
+        let mut plan = self.clone();
+        for row in &mut plan.resources {
+            row.initial = Bytes::default();
+            row.initial_args = Bytes::default();
+        }
+        let mut data = Vec::new();
+        let mut moved = std::collections::HashMap::new();
+        plan.each_bytes_mut(&mut |b: &mut Bytes| {
+            if b.len == 0 {
+                *b = Bytes::default();
+                return;
+            }
+            let offset = *moved.entry((b.offset, b.len)).or_insert_with(|| {
+                let at = data.len() as u32;
+                data.extend_from_slice(&self.data[b.offset as usize..(b.offset + b.len) as usize]);
+                at
+            });
+            b.offset = offset;
+        });
+        plan.data = std::borrow::Cow::Owned(data);
+        plan
+    }
 }
 
 /// Whether a plan asset source is a portable local relative path.
