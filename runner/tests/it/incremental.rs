@@ -195,7 +195,7 @@ fn event(rng: &mut Rng, kind: EventKind) -> Option<Event> {
         EventKind::Hover => Event::Hover(rng.below(2) == 0),
         EventKind::Focus => Event::Focus,
         EventKind::Blur => Event::Blur,
-        EventKind::Key => Event::Key(rng.pick(&["Enter", "Escape", "ArrowDown", "a"]).to_string()),
+        EventKind::Key => Event::key(rng.pick(&["Enter", "Escape", "Shift+ArrowDown", "a"])),
         EventKind::Submit => Event::Submit,
         EventKind::Load => Event::Load,
         EventKind::Message => Event::Message(text(rng)),

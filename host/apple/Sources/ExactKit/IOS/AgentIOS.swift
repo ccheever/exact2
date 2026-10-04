@@ -729,18 +729,22 @@ extension Agent {
             // prevented it, its default — a press, or the editor's edit, made
             // here since UIKit synthesizes no presses. A target that takes no
             // focus leaves it where it is, as the web's `focus()` on one does.
-            let name = KeyCodes.device(key)?.key ?? (key == "Space" ? " " : key)
+            // A chord's modifiers ride with its key; with Control or Command
+            // held a key types nothing, as a keyboard's shortcut does not.
+            let (held, bare) = KeyCodes.split(key)
+            let name = KeyCodes.device(bare)?.key ?? (bare == "Space" ? " " : bare)
+            let types = name.count == 1 && !held.contains("Control+") && !held.contains("Meta+")
             if let f = v.textArea { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
             else if let f = v.field { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
             else if v.canBecomeFirstResponder, !v.isFirstResponder { _ = v.becomeFirstResponder() }
             let focus = v.field != nil || v.textArea != nil || v.isFirstResponder || v.handlers.contains("press") ? v : nil
-            if req["phase"] as? String != "up", !presenter.keyDown(at: focus, name), let focus {
+            if req["phase"] as? String != "up", !presenter.keyDown(at: focus, name, held: held), let focus {
                 if let f = focus.textArea {
-                    if name == "Enter" { f.insertText("\n") } else if name == "Backspace" { f.deleteBackward() } else if name.count == 1 { f.insertText(name) }
+                    if name == "Enter" { f.insertText("\n") } else if name == "Backspace" { f.deleteBackward() } else if types { f.insertText(name) }
                     pendingTextReveal = f as? TextArea
                 } else if let f = focus.field as? TextField {
                     f.heard = name
-                    if name == "Backspace" { f.deleteBackward() } else if name == "Enter" { _ = focus.textFieldShouldReturn(f) } else if name.count == 1 { f.insertText(name) }
+                    if name == "Backspace" { f.deleteBackward() } else if name == "Enter" { _ = focus.textFieldShouldReturn(f) } else if types { f.insertText(name) }
                     f.heard = nil
                 } else if focus.handlers.contains("press"), name == "Enter" || name == " " { presenter.press(focus.id) }
             }

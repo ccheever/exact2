@@ -268,11 +268,30 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             let Some(id) = id() else {
                 return error("type needs an id");
             };
-            if let Some(key) = field_str(line, "key") {
+            if let Some(chord) = field_str(line, "key") {
+                // A chord's modifiers are held for its key (`Shift+Enter`,
+                // `Meta+s`), as a keyboard's are, then released.
+                let (held, key) = exact_runner::KeyModifiers::split(&chord);
+                let modifiers = [
+                    (held.shift, "ShiftLeft"),
+                    (held.ctrl, "ControlLeft"),
+                    (held.alt, "AltLeft"),
+                    (held.meta, "MetaLeft"),
+                ];
+                for (on, code) in modifiers {
+                    if on {
+                        p.hold_modifier(code, true);
+                    }
+                }
                 let phase = field_str(line, "phase");
-                let r = p.type_key(id, &key, &key, phase.as_deref() != Some("up"), false);
+                let r = p.type_key(id, key, key, phase.as_deref() != Some("up"), false);
                 if phase.is_none() && r.is_ok() {
-                    let _ = p.type_key(id, &key, &key, false, false);
+                    let _ = p.type_key(id, key, key, false, false);
+                }
+                for (on, code) in modifiers {
+                    if on {
+                        p.hold_modifier(code, false);
+                    }
                 }
                 return r.unwrap_or_else(|e| error(&e));
             }

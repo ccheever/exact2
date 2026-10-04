@@ -238,7 +238,8 @@ impl<D: DataSource> Presenter<D> {
                     return;
                 }
             }
-            s if s.chars().count() == 1 => value.push_str(s),
+            // A Control or Meta chord types nothing, as in a browser.
+            s if s.chars().count() == 1 && self.held & 0b1100_1100 == 0 => value.push_str(s),
             _ => return,
         }
         self.edited = Some(id);

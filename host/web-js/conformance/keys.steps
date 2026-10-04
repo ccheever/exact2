@@ -6,3 +6,12 @@ key field Backspace
 key grid ArrowDown
 key grid ArrowDown
 key grid Space
+# A chord's modifiers reach the action: Shift+Enter breaks the textarea's
+# line, Enter sends it, and Meta+s or Control+s at the grid saves (and types
+# nothing in the field).
+key area a
+key area Shift+Enter
+key area b
+key area Enter
+key grid Meta+s
+key field Control+s

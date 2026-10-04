@@ -493,6 +493,10 @@ fn refine_params_from_view(
                                 "change" | "input" if file => {
                                     vec![Ty::List(Box::new(Ty::Record("Picked".into())))]
                                 }
+                                // `key`'s action may take the `KeyboardEvent` too.
+                                "key" if ct.actions[ai].len() == args.len() + 2 => {
+                                    vec![Ty::String, Ty::Record("KeyboardEvent".into())]
+                                }
                                 "change" | "input" | "key" | "message" | "navigate" | "error" => {
                                     vec![Ty::String]
                                 }

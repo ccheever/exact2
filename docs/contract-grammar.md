@@ -412,7 +412,8 @@ working fixture, not inferred from JavaScript's Event interface.
 
 | Payload appended to captured arguments | Handler names |
 | --- | --- |
-| One string | `change`, `input` (text field, textarea, `select`), `key`, `message`, `error` |
+| One string | `change`, `input` (text field, textarea, `select`), `message`, `error` |
+| A string, then optionally a `KeyboardEvent` | `key`: the key's name; an action taking one more parameter also hears the [modifiers](#keys) |
 | One boolean | `hover`; `change`, `input` on a checkbox or `switch` |
 | One number | `timeupdate`, `durationchange`; `change`, `input` on `type="range"` |
 | One `list<Picked>` | `change`, `input` on `type="file"` |
@@ -450,11 +451,18 @@ hardware keyboard, Linux):
 - **What.** The payload is `KeyboardEvent.key`: the character typed, Shift's
   included (`"a"`, `"A"`, `"7"`, `" "`, `"/"`), or the key's name (`"Enter"`,
   `"Escape"`, `"Tab"`, `"Backspace"`, `"Delete"`, `"ArrowUp"`…, `"Home"`,
-  `"End"`, `"PageUp"`, `"PageDown"`, `"F1"`…). Every key is heard, printable
-  ones in a field included. Keys an input method is composing are its own.
+  `"End"`, `"PageUp"`, `"PageDown"`, `"F1"`…, `"Shift"`). Every key is heard,
+  printable ones in a field included. Keys an input method is composing are
+  its own.
+- **Modifiers.** An action that takes one more parameter, typed
+  `KeyboardEvent`, hears the event too: the record `{ key: string, shiftKey:
+  bool, ctrlKey: bool, altKey: bool, metaKey: bool }`, the DOM's fields
+  (`altKey` is Option and `metaKey` Command on a Mac). A key typed with
+  Control or Meta held is a shortcut: it types nothing.
 - **Then the default.** After the handlers, the key does what it would have:
   a character is typed into the focused field, Backspace deletes, Enter
-  submits an input (`submit`) or presses a button, Space presses a button,
+  submits an input (`submit`), breaks a textarea's line (a textarea has no
+  `submit`, as in HTML) or presses a button, Space presses a button,
   Tab moves the focus, arrows move the caret; on the web arrows, Space and
   the page keys also scroll the page or the focus's scroller (a native
   scroller does not scroll by key, so there is nothing there to prevent).
@@ -469,6 +477,21 @@ action move(k: string)
     cursor = cursor + 1
     preventDefault()
 ```
+
+Enter sends and Shift+Enter breaks the line, as a chat composer does (on a
+phone the software keyboard's Return is Enter, so it sends there too):
+
+```contract
+action compose(k: string, e: KeyboardEvent)
+  if k == "Enter" and not e.shiftKey
+    send(draft)
+    preventDefault()
+```
+
+`textarea value=draft input=write key=compose`. A shortcut reads the modifier
+the platform's users press: `(e.metaKey or e.ctrlKey) and k == "s"` saves on a
+Mac and elsewhere. The driver presses chords in Playwright's spelling (`type
+"composer" key "Shift+Enter"`, `key "Meta+s"`).
 
 - **Shortcuts.** An `aria-keyshortcuts` button hears its chord before any
   `key` handler, and takes the key (no `key` handler hears it). The web and

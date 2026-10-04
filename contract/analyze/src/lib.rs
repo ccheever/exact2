@@ -334,7 +334,8 @@ pub const HANDLERS: [&str; 42] = [
 /// What a handler's event carries as its action's last argument: `input`
 /// and `change` the new value (a text field's text, a checkbox's checked
 /// state: LLP 1069.001 D4), `hover` whether the pointer is over, `key` the
-/// key's name, `message` the posted string; the others nothing.
+/// key's name (and, to an action taking one more, its `KeyboardEvent`:
+/// [`handler_arity`]), `message` the posted string; the others nothing.
 pub fn handler_payload(attr: &str) -> Option<&'static str> {
     match attr {
         "change" | "input" | "key" | "message" | "navigate" | "error" => Some("string"),
@@ -353,6 +354,11 @@ pub fn handler_payload(attr: &str) -> Option<&'static str> {
 pub fn handler_arity(attr: &str, given: usize) -> Option<std::ops::RangeInclusive<usize>> {
     if attr == "navigate" {
         return (given == 0).then_some(0..=1);
+    }
+    // The key's name, then optionally the whole `KeyboardEvent` (its
+    // modifiers: chat F2, kanban F27).
+    if attr == "key" {
+        return Some(given + 1..=given + 2);
     }
     let payload = match attr {
         "transformgeometry" => 4,
@@ -481,7 +487,9 @@ fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<
                     params.len(),
                     match handler_payload(attr) {
                         Some("bool") => " plus whether the pointer is over",
-                        Some(_) if attr == "key" => " plus the key's name",
+                        Some(_) if attr == "key" => {
+                            " plus the key's name, and optionally its `KeyboardEvent`"
+                        }
                         Some(_) if attr == "message" => " plus the message",
                         Some(_) => " plus the new value",
                         None if attr == "scroll" => " plus scrollLeft and scrollTop",

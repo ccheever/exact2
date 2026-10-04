@@ -850,8 +850,9 @@ impl<D: DataSource> Bridge<D> {
 
     /// Dispatch an event at `now_ms`; `kind` is 0 = press, 1 = change,
     /// 2 = hover in, 3 = hover out, 4 = focus, 5 = blur, 6 = key, 7 = submit,
-    /// 8 = load, 9 = message (the payload — a change's text, a key's name,
-    /// or a guest message — is the input buffer's first `len` bytes, UTF-8).
+    /// 8 = load, 9 = message (the payload — a change's text, a key's chord
+    /// (`Event::key`), or a guest message — is the input buffer's first `len`
+    /// bytes, UTF-8).
     /// Kind 14 is navigate: one UTF-8 location at the navigation root (LLP 1038 D8).
     /// Kind 23 is a text field's `input`; 24 and 25 a checkbox's `change`
     /// and `input`, the payload `true` or `false` (LLP 1069.001 D4).
@@ -885,7 +886,7 @@ impl<D: DataSource> Bridge<D> {
             3 => Event::Hover(false),
             4 => Event::Focus,
             5 => Event::Blur,
-            6 => Event::Key(payload),
+            6 => Event::key(&payload),
             7 => Event::Submit,
             8 => Event::Load,
             9 => Event::Message(payload),

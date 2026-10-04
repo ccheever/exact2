@@ -91,8 +91,8 @@ pub use runner::{
     canvas_engine, routing, virtual_frame, Advanced, Announce, AuthLinks, CanvasEngine, CanvasLink,
     CanvasList, Carried, Checkpoint, Command, ControlValue, DataError, DataSource, DeviceLinks,
     DrawReply, DrawRequest, Drawn, Event, FormatLink, Geometry, GeometryLink, Hold, HoldAnswer,
-    InFlight, Interrupt, Limits, ListTextPosition, Native, NativeCall, NativeHandler, Picked,
-    PickerLinks, PickerRequest, RouterChange, RouterLink, Routing, Runner, RunnerError,
+    InFlight, Interrupt, KeyModifiers, Limits, ListTextPosition, Native, NativeCall, NativeHandler,
+    Picked, PickerLinks, PickerRequest, RouterChange, RouterLink, Routing, Runner, RunnerError,
     RunnerLinks, StreamCount, SurfaceAnswer, Target, Timed, JOURNAL_RING, MAX_CLOCK_MS, PICKED,
     TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };

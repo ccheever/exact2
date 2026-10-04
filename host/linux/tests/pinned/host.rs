@@ -260,6 +260,61 @@ fn a_key_bubbles_and_prevent_default_keeps_its_character_out() {
     assert_eq!(slot(&p, "heard"), Some(Value::str("f7o7fxox")));
 }
 
+/// A key carries the modifiers held: the agent's chord holds them for its
+/// key, and a keyboard's Control chord reaches the handlers, starts nothing
+/// and types nothing (chat F2: Enter sends, Shift+Enter breaks the line;
+/// kanban F27: Ctrl+S).
+#[test]
+fn a_key_carries_its_modifiers_from_a_chord_and_the_keyboard() {
+    let source = r#"component Keys
+  state draft = ""
+  state sent = ""
+  state saved = 0
+  action write(v: string)
+    draft = v
+  action compose(k: string, e: KeyboardEvent)
+    if k == "Enter" and not e.shiftKey
+      sent = draft
+      draft = ""
+      preventDefault()
+    if e.ctrlKey and k == "s"
+      saved = saved + 1
+  view
+    column
+      textarea value=draft input=write key=compose testId="area"
+"#;
+    let plan = contract::compile(source).unwrap();
+    let (mut p, error) =
+        Presenter::boot(&plan.encode(), NoData, (390.0, 844.0), 1.0, assets()).unwrap();
+    assert!(error.is_none());
+    let area = view(&p, "area");
+    for key in ["a", "Shift+Enter", "b"] {
+        let r = handle(
+            &mut p,
+            &format!(r#"{{"op":"type","id":{area},"key":"{key}"}}"#),
+        );
+        assert!(!r.contains("error"), "{key}: {r}");
+    }
+    let slot = |p: &Presenter<NoData>, name: &str| p.host().runner().slot(name).cloned();
+    assert_eq!(slot(&p, "draft"), Some(Value::str("a\nb")));
+    p.hardware_key("ControlLeft", "Control", true, false);
+    p.hardware_key("KeyS", "s", true, false);
+    p.hardware_key("KeyS", "s", false, false);
+    p.hardware_key("ControlLeft", "Control", false, false);
+    assert_eq!(slot(&p, "saved"), Some(Value::Number(1.0)));
+    assert_eq!(
+        slot(&p, "draft"),
+        Some(Value::str("a\nb")),
+        "a chord types nothing"
+    );
+    handle(
+        &mut p,
+        &format!(r#"{{"op":"type","id":{area},"key":"Enter"}}"#),
+    );
+    assert_eq!(slot(&p, "sent"), Some(Value::str("a\nb")));
+    assert_eq!(slot(&p, "draft"), Some(Value::str("")));
+}
+
 #[test]
 fn unsupported_emoji_picker_does_not_dispatch_a_fake_selection() {
     let plan = contract::compile(

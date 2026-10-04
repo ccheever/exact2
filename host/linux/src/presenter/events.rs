@@ -38,6 +38,37 @@ impl<D: DataSource> Presenter<D> {
         error
     }
 
+    /// A modifier key went down or up, by its code (`ShiftLeft`…): what
+    /// the next key's event says is held.
+    pub(crate) fn hold_modifier(&mut self, code: &str, down: bool) {
+        let bit = match code {
+            "ShiftLeft" => 1,
+            "ShiftRight" => 2,
+            "ControlLeft" => 4,
+            "ControlRight" => 8,
+            "AltLeft" => 16,
+            "AltRight" => 32,
+            "MetaLeft" => 64,
+            "MetaRight" => 128,
+            _ => return,
+        };
+        if down {
+            self.held |= bit;
+        } else {
+            self.held &= !bit;
+        }
+    }
+
+    /// The modifiers held, as a `key` event carries them.
+    pub(crate) fn modifiers(&self) -> exact_runner::KeyModifiers {
+        exact_runner::KeyModifiers {
+            shift: self.held & 3 != 0,
+            ctrl: self.held & 12 != 0,
+            alt: self.held & 48 != 0,
+            meta: self.held & 192 != 0,
+        }
+    }
+
     /// A key at the focused node, by the web's name: every `key` handler at
     /// or above it hears it, innermost first, as a keydown bubbles — the path
     /// fixed before the first runs. True when one called `preventDefault()`:
@@ -60,7 +91,7 @@ impl<D: DataSource> Presenter<D> {
         for id in path {
             error = error.or(self
                 .host
-                .dispatch_at(id, Event::Key(name.to_owned()), now_ms)
+                .dispatch_at(id, Event::Key(name.to_owned(), self.modifiers()), now_ms)
                 .or(self.after_commit()));
             let queued = self.commands.len();
             self.commands.retain(|c| c.name != "preventDefault");
