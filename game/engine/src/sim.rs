@@ -269,6 +269,9 @@ impl<G: Game> Sim<G> {
     }
     // Presentation runs at a tick boundary and must leave the entity table alone.
     pub(crate) fn present(world: &mut World, args: &G::Args) {
+        // A rebuild by construction: nothing a previous present wrote survives,
+        // so a restored world and a continuous one present the same state.
+        world.clear_presentation();
         let entities = world.entities_revision();
         G::present(world, args);
         assert_eq!(

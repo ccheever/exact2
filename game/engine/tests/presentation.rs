@@ -100,3 +100,73 @@ fn presenting_cannot_spawn() {
     }
     let _ = Sim::<Spawns>::new(());
 }
+
+#[test]
+#[should_panic(expected = "a tick read or wrote presentation component `Bob`")]
+fn a_tick_cannot_read_presentation_state() {
+    struct Peeks;
+    impl Game for Peeks {
+        const ID: &'static str = "peeks";
+        type Args = ();
+        fn setup(w: &mut World, a: &()) {
+            Plain::setup(w, a);
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            // Branching on drawn state would diverge after a restore.
+            if w.get::<Bob>("crate").is_some_and(|b| b.flash > 0.5) {
+                w.require_mut::<Crate>("crate").hp = 0;
+            }
+        }
+        fn present(w: &mut World, a: &()) {
+            Dressed::present(w, a);
+        }
+    }
+    Sim::<Peeks>::new(()).unwrap().run(100.);
+}
+
+#[test]
+#[should_panic(expected = "a tick read or wrote presentation component `Bob`")]
+fn a_tick_cannot_query_presentation_state() {
+    struct Scans;
+    impl Game for Scans {
+        const ID: &'static str = "scans";
+        type Args = ();
+        fn setup(w: &mut World, a: &()) {
+            Plain::setup(w, a);
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            let _ = w.query::<&Bob>().iter().count();
+        }
+    }
+    Sim::<Scans>::new(()).unwrap().run(100.);
+}
+
+#[test]
+fn present_rebuilds_from_nothing_so_a_stateful_present_cannot_drift() {
+    // Counts its own presents: continuous and restored worlds would differ if
+    // the previous present's rows survived into the next.
+    #[derive(Default, Presentation)]
+    struct Count(u32);
+    struct Counts;
+    impl Game for Counts {
+        const ID: &'static str = "counts";
+        type Args = ();
+        fn setup(w: &mut World, a: &()) {
+            Plain::setup(w, a);
+        }
+        fn tick(w: &mut World, i: &Input, a: &()) {
+            Plain::tick(w, i, a);
+        }
+        fn present(w: &mut World, _: &()) {
+            let e = w.named("crate").unwrap();
+            let seen = w.get::<Count>(e).map_or(0, |c| c.0);
+            w.insert(e, Count(seen + 1));
+        }
+    }
+    let mut a = Sim::<Counts>::new(()).unwrap();
+    a.run(500.);
+    assert_eq!(a.world().require::<Count>("crate").0, 1);
+    let mut b = Sim::<Counts>::new(()).unwrap();
+    b.restore(&a.save().unwrap()).unwrap();
+    assert_eq!(b.world().require::<Count>("crate").0, 1);
+}

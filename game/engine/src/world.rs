@@ -548,6 +548,7 @@ impl World {
     }
     /// Insert or replace a component, returning false if the entity is gone.
     pub fn insert<C: Component>(&mut self, e: Entity, c: C) -> bool {
+        self.sim_reads::<C>();
         if !self.contains(e) {
             return false;
         }
@@ -595,6 +596,7 @@ impl World {
     }
     /// Remove storage only when replacing a controller while preserving its sampled Pose.
     pub(crate) fn remove_component<C: Component>(&mut self, e: Entity) -> Option<C> {
+        self.sim_reads::<C>();
         if !self.contains(e) {
             return None;
         }
@@ -607,6 +609,7 @@ impl World {
     }
     /// Test membership without borrowing the component's values.
     pub fn has<C: Component>(&self, e: Entity) -> bool {
+        self.sim_reads::<C>();
         self.contains(e) && self.storage::<C>().is_some_and(|s| s.has(e.index as usize))
     }
     /// Borrow one component row immutably. Other rows of C stay free; a conflict
@@ -621,7 +624,36 @@ impl World {
     pub fn get_mut<C: Component>(&self, target: impl Target) -> Option<RefMut<'_, C>> {
         self.get_mut_at(target, Location::caller())
     }
+    /// Erase every presentation row, so `Game::present` rebuilds them all.
+    pub(crate) fn clear_presentation(&mut self) {
+        self.leases.restructure();
+        let slots = self.state.slots.len();
+        for (name, registration) in &self.registry {
+            if !registration.presentation {
+                continue;
+            }
+            if let Some(storage) = self.components.get_mut(name) {
+                for index in 0..slots {
+                    if storage.has(index) {
+                        storage.remove(index);
+                    }
+                }
+            }
+        }
+    }
+    /// A tick never sees presentation state: `Game::present` rebuilds it after
+    /// the tick, so a value read there would differ after a restore.
+    #[inline]
+    pub(crate) fn sim_reads<C: Component>(&self) {
+        if C::PRESENTATION && self.in_tick {
+            panic!(
+                "a tick read or wrote presentation component `{}`; presentation state is written by Game::present and read by renderers, hooks and agents, never by the simulation",
+                C::NAME
+            );
+        }
+    }
     pub(crate) fn get_at<C: Component>(&self, target: impl Target, at: At) -> Option<Ref<'_, C>> {
+        self.sim_reads::<C>();
         let e = target.entity(self)?;
         if !self.contains(e) {
             return None;
@@ -635,6 +667,7 @@ impl World {
         target: impl Target,
         at: At,
     ) -> Option<RefMut<'_, C>> {
+        self.sim_reads::<C>();
         let e = target.entity(self)?;
         if !self.contains(e) {
             return None;
@@ -645,6 +678,7 @@ impl World {
     }
     /// Copy one row out, refusing only a live exclusive lease on it.
     pub(crate) fn copied_at<C: Component + Copy>(&self, e: Entity, at: At) -> Option<C> {
+        self.sim_reads::<C>();
         if !self.contains(e) {
             return None;
         }

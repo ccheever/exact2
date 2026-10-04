@@ -79,6 +79,7 @@ pub struct ComponentBorrow<'w, C, const MUT: bool, const OPTIONAL: bool> {
 }
 impl<'w, C: Component, const M: bool, const O: bool> ComponentBorrow<'w, C, M, O> {
     fn new(world: &'w World, seen: &mut [Option<TypeId>; 8]) -> Self {
+        world.sim_reads::<C>();
         let id = TypeId::of::<C>();
         assert!(
             !seen.contains(&Some(id)),
@@ -339,6 +340,7 @@ pub struct QueryBorrow<'w, Q: Query> {
     registered: Option<Registration<'w>>,
 }
 fn raw<C: Component>(world: &World) -> (&[u64], *const RawStorage) {
+    world.sim_reads::<C>();
     world.storage::<C>().map_or((&[], std::ptr::null()), |s| {
         (&s.mask, &s.raw as *const RawStorage)
     })
