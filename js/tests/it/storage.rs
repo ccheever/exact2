@@ -982,6 +982,46 @@ component App
     assert!(refusals.is_empty(), "{refusals:#?}");
 }
 
+/// A re-read the runner dropped before handing it out (files diary F18: a
+/// mutation refreshing a folder's preview mid-walk) is forgotten here too: a
+/// deferred call left parked under the walk's key took the walk's next
+/// storage step, so the walk's turn never ended and every answer behind it
+/// waited forever. A composer above (the mixed source) cannot name the
+/// walk's dispatched token to `forgotten`, so only `discard` drops it.
+#[test]
+fn a_discarded_re_read_leaves_the_read_in_flight_its_steps() {
+    use exact_runner::Target;
+    let root = Root::new();
+    let mut m = root.module();
+    m.activate().unwrap();
+    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    let target = Target::Resource(0);
+    let a = args("walk", "x");
+    let mut answer = m.answer_for(target, &mut s, "work", &a).unwrap();
+    // The re-read arrives while the walk is between storage steps: deferred
+    // behind its turn, then dropped by the runner.
+    let Answer::Later(again) = m.answer_for(target, &mut s, "work", &a).unwrap() else {
+        panic!("a re-read behind an open turn waits")
+    };
+    m.discard(again.continuation.expect("a deferred continuation"));
+    for _ in 0..100 {
+        match answer {
+            Answer::Now(v) => {
+                assert_eq!(text(v), "x:24", "the walk ends with its own steps");
+                assert_eq!(m.in_flight(), 0, "nothing is left parked");
+                return;
+            }
+            Answer::Later(request) => {
+                let token = request.continuation.expect("storage continuation");
+                let work = m.continuation(token).expect("the walk's own step");
+                let outcome = std::thread::spawn(work).join().unwrap();
+                answer = m.parse_for(target, &mut s, "work", &a, outcome).unwrap();
+            }
+        }
+    }
+    panic!("the walk did not settle")
+}
+
 /// Each refusal names its reason as a code the web's adapters use too
 /// (kanban F28); the message beside it may differ by host.
 #[test]
