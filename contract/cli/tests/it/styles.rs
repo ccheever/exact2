@@ -498,7 +498,7 @@ fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
             "linear-gradient(#000, #fff), linear-gradient(#000, #fff), linear-gradient(#000, #fff), linear-gradient(#000, #fff), linear-gradient(#fff, #000)",
             "at most four background layers",
         ),
-        ("linear-gradient(red, blue)", "a stop's colour is"),
+        ("linear-gradient(reddish, blue)", "a stop's colour is"),
         (
             "linear-gradient(#000 10px, #fff)",
             "a stop's position is a percentage",
