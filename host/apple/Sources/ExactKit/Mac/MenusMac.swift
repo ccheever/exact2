@@ -1,7 +1,7 @@
 // LLP 1021 D2–D4: button menus project to NSMenu, and so does an
 // alertdialog popover of the chooser's shape ("The chooser": actions, at most
-// one hide-only cancel, text rows as its message), anchored below its
-// invoker (ChooserMac.swift). Other popovers move their actual subtree into
+// one hide-only cancel, text rows as its message), popped up against its
+// invoker by its `position-area` (ChooserMac.swift). Other popovers move their actual subtree into
 // the session's top layer, including native editors. The agent uses that
 // same painted presentation for every shape.
 #if os(macOS)
@@ -32,6 +32,8 @@ final class MenuHost: NSObject {
         }
     }
     private var entries: [Entry] = []
+    /// A confirmation whose chosen item awaits its turn (ChooserMac.swift).
+    var choosing: Confirmation?
     private var popovers: [UInt32: NodeView] = [:]
     /// LLP 1080.001 D3: an open popover's layer, and the popovers this host
     /// hides while closed or lifts while open.
@@ -128,9 +130,10 @@ final class MenuHost: NSObject {
                 guard let source, self.live(source), self.live(entry.popover), source.window === window,
                       !source.inert, !source.disabled, entry.confirmation.map(self.valid) ?? true
                 else { self.close(entry.popover); return }
-                menu.popUp(positioning: nil, at: NSPoint(x: 0, y: source.bounds.height + 2), in: source)
-                // Escape or a click outside chose nothing. A chosen item's
-                // action has been sent by the next turn; none is taken after.
+                menu.popUp(positioning: nil, at: self.popUpPoint(menu, entry.popover, in: source), in: source)
+                // Escape or a click outside chose nothing. A chosen item has
+                // only been recorded: it presses on the next turn, after this
+                // stack and AppKit's tracking of `source` have unwound.
                 self.close(entry.popover, cancelling: false)
                 if let owner = entry.confirmation { DispatchQueue.main.async { owner.finished = true } }
             }
@@ -149,6 +152,14 @@ final class MenuHost: NSObject {
             }) { window.makeFirstResponder(presenter.keyView(of: target)) }
         }
     }
+    /// Where a menu presenting `pop` pops up in `source`: its top-left, by
+    /// the popover's `position-area` and margins as its painted box would
+    /// sit, the menu's own size the box, clamped to the viewport (§5).
+    func popUpPoint(_ menu: NSMenu, _ pop: NodeView, in source: NodeView) -> NSPoint {
+        let bounds = presenter.map { source.convert($0.viewport.bounds, from: $0.viewport) } ?? .infinite
+        return PositionArea.origin(PositionArea.of(pop), anchor: source.bounds, size: menu.size,
+                                   margins: PositionArea.margins(of: pop), in: bounds)
+    }
     func close(_ pop: NodeView, restoreFocus: Bool = true, cancelling: Bool = true) {
         guard let index = entries.firstIndex(where: { $0.popover === pop }) else { return }
         while entries.count > index + 1, let last = entries.last { close(last.popover, restoreFocus: restoreFocus) }
@@ -156,7 +167,7 @@ final class MenuHost: NSObject {
         let hadFocus = window.flatMap(focusOwner).map { contains(pop, $0) } ?? false
         entries.remove(at: index)
         // Reset, unmount, a changed row: the menu ends and nothing it showed dispatches.
-        if cancelling { entry.confirmation?.finished = true }
+        if cancelling { entry.confirmation?.cancel() }
         entry.menu?.cancelTracking()
         pop.isHidden = pop.props["popover"] != nil || pop.style["display"]?.string == "none"
         if entry.menu == nil {
@@ -181,6 +192,7 @@ final class MenuHost: NSObject {
     }
     func reset() {
         while let last = entries.last { close(last.popover, restoreFocus: false) }
+        choosing?.cancel(); choosing = nil
         popovers.removeAll()
         pointerDown = nil; escapeHeld = false
     }
@@ -231,7 +243,8 @@ final class MenuHost: NSObject {
             entry.layer.frame = presenter.viewport.bounds
             let anchor = source.convert(source.bounds, to: entry.layer)
             var box = entry.frame
-            box.origin = PositionArea.origin(PositionArea.of(entry.popover), anchor: anchor, size: box.size, in: entry.layer.bounds)
+            box.origin = PositionArea.origin(PositionArea.of(entry.popover), anchor: anchor, size: box.size,
+                                             margins: PositionArea.margins(of: entry.popover), in: entry.layer.bounds)
             if entry.popover.frame != box { entry.popover.frame = box }
         }
     }

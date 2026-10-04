@@ -4,8 +4,8 @@ import XCTest
 @testable import ExactKit
 
 /// LLP 1021 "The chooser" on AppKit: an alertdialog popover is an NSMenu
-/// below its invoker, an item per action, and a chosen item presses its own
-/// row once, only while the menu still shows what is there.
+/// against its invoker, an item per action, and a chosen item presses its
+/// own row once, on the next turn, only while the menu still shows what is there.
 final class ChooserMacTests: XCTestCase {
     private var windows: [NSWindow] = []
     override func tearDown() { windows.forEach { $0.close() }; windows.removeAll() }
@@ -57,6 +57,13 @@ final class ChooserMacTests: XCTestCase {
     private func send(_ item: NSMenuItem) throws {
         NSApp.sendAction(try XCTUnwrap(item.action), to: item.target, from: item)
     }
+    /// A chosen item presses on the next main-queue turn: let every turn
+    /// queued so far run (the main queue is FIFO).
+    private func turn() {
+        let turned = expectation(description: "the next turn")
+        DispatchQueue.main.async { turned.fulfill() }
+        wait(for: [turned], timeout: 5)
+    }
 
     func testAChooserIsAMenuWithAnItemPerChoice() throws {
         let p = chooser(props: [4: ["accessibilityChecked": "true"], 5: ["disabled": "true"], 3: ["destructive": "true"]])
@@ -85,6 +92,8 @@ final class ChooserMacTests: XCTestCase {
             let (_, menu) = try owner(p)
             try send(menu.items[index])
             try send(menu.items[index])
+            XCTAssertEqual(pressed, [], "not inside the menu's action")
+            turn()
             XCTAssertEqual(pressed, expected, "item \(index), once; a disabled one never")
         }
     }
@@ -98,13 +107,46 @@ final class ChooserMacTests: XCTestCase {
         p.apply(wireBatch([["op": "props", "id": 14, "set": ["text": "Citymapper"]]]))
         XCTAssertFalse(p.menus.valid(owner), "a row now says something else")
         try send(menu.items[2])
+        turn()
         XCTAssertEqual(pressed, [])
-        // Open, the same change ends the menu.
+    }
+
+    func testAnOpenMenuWhoseRowChangesItsTitleEnds() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent keeps every popover painted (LLP 1021 D4)")
         let q = chooser()
         q.press(1)
         XCTAssertTrue(q.menus.isOpen(try XCTUnwrap(q.views[2])))
         q.apply(wireBatch([["op": "props", "id": 13, "set": ["text": "Citymapper"]]]))
-        XCTAssertFalse(q.menus.isOpen(try XCTUnwrap(q.views[2])) && !ExactEnv.agentMode)
+        XCTAssertFalse(q.menus.isOpen(try XCTUnwrap(q.views[2])), "a row now says something else")
+    }
+
+    /// A batch between the choice and its turn that hides the chosen row —
+    /// its own `display: none`, inert, or a hidden ancestor of the popover —
+    /// leaves nothing to press. The popover itself is hidden in place while
+    /// its menu presents it, which does not count.
+    func testAChoiceHiddenBeforeItsTurnIsNeverPressed() throws {
+        let hides: [[[String: Any]]] = [
+            [["op": "style", "id": 4, "style": ["display": "none"]]],
+            [["op": "props", "id": 4, "set": ["inert": "true"]]],
+            [["op": "style", "id": 10, "style": ["display": "none"]]],
+        ]
+        for hide in hides {
+            let p = chooser()
+            // The popover authored in its own wrapper (10), beside its invoker.
+            p.apply(wireBatch([["op": "create", "id": 10, "kind": "view"], ["op": "children", "id": 10, "ids": [2]],
+                               ["op": "frame", "id": 10, "x": 0, "y": 0, "w": 220, "h": 200],
+                               ["op": "children", "id": 9, "ids": [1, 10]]]))
+            var pressed: [UInt32] = []
+            p.onPress = { pressed.append($0) }
+            let (owner, menu) = try owner(p)
+            XCTAssertTrue(p.menus.valid(owner), "a hidden popover's rows are choosable")
+            XCTAssertTrue(menu.items[2].isEnabled)
+            try send(menu.items[2])
+            p.apply(wireBatch(hide))
+            XCTAssertFalse(p.menus.valid(owner), "\(hide)")
+            turn()
+            XCTAssertEqual(pressed, [], "\(hide)")
+        }
     }
 
     func testResetEndsTheMenuAndNothingDispatches() throws {
@@ -118,6 +160,15 @@ final class ChooserMacTests: XCTestCase {
         p.menus.reset()
         XCTAssertNil(p.menus.presentedConfirmation)
         try send(menu.items[1])
+        turn()
+        XCTAssertEqual(pressed, [])
+        // Chosen, then reset before its turn: nothing either.
+        let q = chooser()
+        q.onPress = { pressed.append($0) }
+        let (_, chosen) = try self.owner(q)
+        try send(chosen.items[1])
+        q.menus.reset()
+        turn()
         XCTAssertEqual(pressed, [])
     }
 
@@ -141,33 +192,138 @@ final class ChooserMacTests: XCTestCase {
         XCTAssertNil(none.menus.confirmation(of: try XCTUnwrap(none.views[2]), from: try XCTUnwrap(none.views[1])), "every action disabled")
     }
 
-    /// The real popUp: AppKit's own tracking, an item chosen in it.
-    func testThePoppedUpMenuDispatchesTheChosenItem() throws {
+    /// The real popUp: AppKit's own tracking of the menu in its invoker, an
+    /// item chosen inside it (`performActionForItem`, AppKit's own send of
+    /// the item's action; synthesized clicks need accessibility trust), and
+    /// the press doing what Messages' Discard Changes does: its batch
+    /// unmounts the invoker the menu was popped up in. The press lands once,
+    /// after the tracking has ended, and nothing touches the dead invoker.
+    func testAChoiceThatUnmountsTheInvokerPressesOnceAfterTheMenuEnds() throws {
         try XCTSkipIf(ExactEnv.agentMode, "the agent keeps every popover painted (LLP 1021 D4)")
         let p = chooser()
         let window = try XCTUnwrap(windows.last)
         window.orderFrontRegardless()
         var pressed: [UInt32] = []
-        p.onPress = { pressed.append($0) }
+        var tracking = false, trackingAtPress: Bool?
+        weak var invoker = p.views[1]
+        p.onPress = { id in
+            pressed.append(id)
+            trackingAtPress = tracking
+            // The session's apply of the app's batch: navigate back, the
+            // whole screen — invoker, popover, rows — gone.
+            p.apply(wireBatch([["op": "children", "id": 9, "ids": []]]
+                              + [1, 2, 3, 4, 5, 6, 13, 14, 15, 16].map { ["op": "destroy", "id": $0] }))
+        }
         var seen: NSMenu?
-        let token = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+        let center = NotificationCenter.default
+        let begin = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
             guard let menu = note.object as? NSMenu, menu.items.contains(where: { $0.title == "Waze" }) else { return }
             seen = menu
+            tracking = true
             // Choose Google Maps from inside AppKit's tracking loop.
             RunLoop.current.perform(inModes: [.eventTracking, .default]) {
                 menu.performActionForItem(at: 2)
+                XCTAssertEqual(pressed, [], "nothing presses inside the tracking")
+                menu.cancelTracking()
+            }
+        }
+        let end = center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { note in
+            if note.object as? NSMenu === seen { tracking = false }
+        }
+        defer { center.removeObserver(begin); center.removeObserver(end) }
+        p.press(1)
+        let done = Date(timeIntervalSinceNow: 5)
+        while pressed.isEmpty && Date() < done { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+        turn()
+        XCTAssertNotNil(seen, "the menu tracked")
+        XCTAssertEqual(seen?.items.first?.title, "Open location in")
+        XCTAssertEqual(pressed, [4], "Google Maps, once")
+        XCTAssertEqual(trackingAtPress, false, "pressed after the menu's tracking ended")
+        XCTAssertNil(p.views[1], "the invoker is unmounted")
+        XCTAssertNil(invoker?.superview)
+        XCTAssertNil(p.menus.presentedConfirmation)
+    }
+
+    /// A batch during the tracking that hides the row the user then picks
+    /// (`display: none`, its title and handler unchanged) ends the menu, and
+    /// the pick presses nothing.
+    func testARowHiddenDuringTheTrackingIsNeverPressed() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent keeps every popover painted (LLP 1021 D4)")
+        let p = chooser()
+        try XCTUnwrap(windows.last).orderFrontRegardless()
+        var pressed: [UInt32] = []
+        p.onPress = { pressed.append($0) }
+        var seen: NSMenu?, ended = false
+        let center = NotificationCenter.default
+        let begin = center.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu, menu.items.contains(where: { $0.title == "Waze" }) else { return }
+            seen = menu
+            RunLoop.current.perform(inModes: [.eventTracking, .default]) {
+                p.apply(wireBatch([["op": "style", "id": 4, "style": ["display": "none"]]]))
+                menu.performActionForItem(at: 2)
+                menu.cancelTracking()
+            }
+        }
+        let end = center.addObserver(forName: NSMenu.didEndTrackingNotification, object: nil, queue: nil) { note in
+            if note.object as? NSMenu === seen { ended = true }
+        }
+        defer { center.removeObserver(begin); center.removeObserver(end) }
+        p.press(1)
+        let done = Date(timeIntervalSinceNow: 5)
+        while !ended && Date() < done { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+        turn()
+        XCTAssertNotNil(seen, "the menu tracked")
+        XCTAssertEqual(pressed, [], "a hidden row is not chosen")
+        XCTAssertFalse(p.menus.isOpen(try XCTUnwrap(p.views[2])))
+    }
+
+    /// The menu pops up where the popover's box would sit (§5): its
+    /// `position-area` against the invoker, its margins around the menu.
+    func testTheMenuPopsUpByItsPositionArea() throws {
+        let p = chooser()
+        // Mid-window, so no side clamps a menu of a few rows.
+        p.apply(wireBatch([["op": "frame", "id": 1, "x": 20, "y": 200, "w": 120, "h": 30]]))
+        let (pop, source) = (try XCTUnwrap(p.views[2]), try XCTUnwrap(p.views[1]))
+        let (_, menu) = try owner(p)
+        let size = menu.size
+        XCTAssertGreaterThan(size.height, 0)
+        XCTAssertEqual(p.menus.popUpPoint(menu, pop, in: source), NSPoint(x: 0, y: 30), "none: below, at its left edge")
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["position_area": "top", "margin_bottom": 12.0]]]))
+        let top = p.menus.popUpPoint(menu, pop, in: source)
+        XCTAssertEqual(top.y, -size.height - 12, "above, a 12-point gap")
+        XCTAssertEqual(top.x, max(-20, 60 - size.width / 2), "centred on the invoker, clamped to the viewport")
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["position_area": "center", "margin_bottom": 0.0]]]))
+        XCTAssertEqual(p.menus.popUpPoint(menu, pop, in: source).y, 15 - size.height / 2, "centred over it")
+    }
+
+    /// The real popUp at a `top` area: the menu's window sits above the
+    /// invoker rather than below it.
+    func testATopAreaMenuOpensAboveItsInvoker() throws {
+        try XCTSkipIf(ExactEnv.agentMode, "the agent keeps every popover painted (LLP 1021 D4)")
+        let p = chooser()
+        let window = try XCTUnwrap(windows.last)
+        window.orderFrontRegardless()
+        p.apply(wireBatch([["op": "frame", "id": 1, "x": 20, "y": 340, "w": 120, "h": 30],
+                           ["op": "style", "id": 2, "style": ["position_area": "top"]]]))
+        let source = try XCTUnwrap(p.views[1])
+        let invoker = window.convertToScreen(source.convert(source.bounds, to: nil))
+        var frame: NSRect?, seen = false
+        let token = NotificationCenter.default.addObserver(forName: NSMenu.didBeginTrackingNotification, object: nil, queue: nil) { note in
+            guard let menu = note.object as? NSMenu, menu.items.contains(where: { $0.title == "Waze" }) else { return }
+            seen = true
+            RunLoop.current.perform(inModes: [.eventTracking, .default]) {
+                frame = NSApp.windows.filter { $0.isVisible && $0.level.rawValue >= NSWindow.Level.popUpMenu.rawValue }
+                    .map(\.frame).max { $0.height < $1.height }
                 menu.cancelTracking()
             }
         }
         defer { NotificationCenter.default.removeObserver(token) }
         p.press(1)
         let done = Date(timeIntervalSinceNow: 5)
-        while (seen == nil || p.menus.isOpen(p.views[2]!)) && Date() < done { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
-        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.05))
-        XCTAssertNotNil(seen, "the menu tracked")
-        XCTAssertEqual(seen?.items.first?.title, "Open location in")
-        XCTAssertEqual(pressed, [4], "Google Maps, once")
-        XCTAssertFalse(p.menus.isOpen(p.views[2]!))
+        while (!seen || p.menus.isOpen(p.views[2]!)) && Date() < done { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+        let menu = try XCTUnwrap(frame, "the menu's window")
+        XCTAssertGreaterThanOrEqual(menu.minY, invoker.maxY - 8, "above the invoker (screen y grows up): \(menu) vs \(invoker)")
+        XCTAssertEqual(menu.midX, invoker.midX, accuracy: 12, "centred on it")
     }
 
     func testAMenuIsTitledByItsLabelAndFitsARowsBitmap() throws {

@@ -323,7 +323,8 @@ final class MenuHost {
         if pop.isHidden { pop.isHidden = false }
         guard let source = presenter.views[entry.source], source.window != nil else { return }
         let anchor = source.convert(source.bounds, to: entry.layer), size = pop.bounds.size
-        let at = PositionArea.origin(PositionArea.of(pop), anchor: anchor, size: size, in: entry.layer.bounds)
+        let at = PositionArea.origin(PositionArea.of(pop), anchor: anchor, size: size,
+                                    margins: PositionArea.margins(of: pop), in: entry.layer.bounds)
         let center = CGPoint(x: at.x + size.width / 2, y: at.y + size.height / 2)
         if pop.center != center { pop.center = center }
     }
@@ -544,13 +545,19 @@ final class MenuHost {
     /// below-left, native Messages' prompts). UIKit places a popover by the
     /// arrow directions it permits — `.down` puts it above its source,
     /// `.up` below — centred on the source rect where it fits, so a centred
-    /// area anchors at the whole invoker.
+    /// area anchors at the whole invoker. `center` (the invoker's own cell)
+    /// anchors there with no arrow and may cover it, `none`'s presentation:
+    /// UIKit centres it across the invoker and picks its vertical position.
     static func place(_ presentation: UIPopoverPresentationController, _ area: String, source: UIView) {
         guard area != "none" else { return }
         if PositionArea.centred(area) { presentation.sourceRect = source.bounds }
-        if area == "center" { return }
-        presentation.permittedArrowDirections = area.hasPrefix("top") ? .down : .up
-        presentation.canOverlapSourceViewRect = false
+        if area == "center" {
+            presentation.permittedArrowDirections = []
+            presentation.canOverlapSourceViewRect = true
+        } else {
+            presentation.permittedArrowDirections = area.hasPrefix("top") ? .down : .up
+            presentation.canOverlapSourceViewRect = false
+        }
     }
     #endif
 

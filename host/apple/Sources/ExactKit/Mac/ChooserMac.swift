@@ -1,16 +1,19 @@
 // LLP 1021 "The chooser" on AppKit: a `role="alertdialog"` popover of the
 // shape iOS presents as an action sheet — one or more press rows that hide
 // it (the actions), at most one handlerless hide-only cancel, text rows (the
-// message) — is an NSMenu popped up below its invoker, as a button menu is.
+// message) — is an NSMenu popped up against its invoker by its
+// `position-area`, as a button menu is.
 // One item per action: its title, its image (a symbol, else its `img` once
 // loaded), checked for `aria-checked`, dimmed when disabled, red when
 // destructive. A chooser (more than one action, no text) is headed by its
 // `aria-label` as a section header, the menu's own titling on macOS; a
 // confirmation's text rows head it instead, as disabled lines. The cancel has
 // no item: Escape and a click outside cancel a menu, and dispatch nothing.
-// A chosen item presses its row by view id once, and only while the menu is
-// still the one shown: owner live, every action live, in its popover, closing
-// it, its title and enablement as presented. Under the agent every popover
+// A chosen item presses its row by view id once, on the turn after the menu
+// has ended (AppKit is still tracking the invoker when it sends the item's
+// action, and the press's batch may unmount it), and only while the menu
+// still shows what is there: owner live, every action live, in its popover,
+// closing it, shown, its title and enablement as presented. Under the agent every popover
 // stays painted (D4), so its drives tap the painted rows.
 #if os(macOS)
 import AppKit
@@ -29,8 +32,11 @@ extension MenuHost {
         let actions: [Presented]
         let heading: String?
         let message: [String]
-        /// Chosen, cancelled or ended: nothing more dispatches.
+        /// Chosen, cancelled or ended: no item is taken after.
         var finished = false
+        /// The action chosen, pressed on the next turn unless cancelled first.
+        var chosen: Int?
+        func cancel() { finished = true; chosen = nil }
         init(source: NodeView, popover: NodeView, actions: [Presented], heading: String?, message: [String]) {
             self.source = source; self.popover = popover; self.actions = actions
             self.heading = heading; self.message = message
@@ -52,8 +58,14 @@ extension MenuHost {
     private func opens(_ source: NodeView, _ pop: NodeView) -> Bool {
         source.props["popovertarget"] == pop.props["id"] && source.props["popovertargetaction"] != "hide"
     }
-    private func choosable(_ action: NodeView) -> Bool {
-        live(action) && action.handlers.contains("press") && !action.disabled && !action.inert
+    /// Live, pressable, enabled, not inert, and not hidden by the page — its
+    /// own or an ancestor's `display: none` or hiding — though the popover
+    /// itself is hidden in place while its menu presents it (iOS's `eligible`).
+    private func choosable(_ action: NodeView, in pop: NodeView) -> Bool {
+        guard live(action), action.handlers.contains("press"), !action.disabled, !action.inert else { return false }
+        return !sequence(first: action as NSView, next: { self.parent(of: $0) }).contains { view in
+            (view as? NodeView)?.style["display"]?.string == "none" || (view.isHidden && view !== pop)
+        }
     }
 
     /// The owner for `pop` opened from `source`, or nil — logged with why —
@@ -72,11 +84,11 @@ extension MenuHost {
             return refuse("only text, actions and one cancel may be its rows")
         }
         guard actions.allSatisfy({ closes($0, pop) }) else { return refuse("each action must also hide it (popovertargetaction=hide)") }
-        guard actions.contains(where: choosable) else { return refuse("every action is disabled") }
+        guard actions.contains(where: { choosable($0, in: pop) }) else { return refuse("every action is disabled") }
         let texts = children.filter { $0.kind == "text" }.map(title(of:)).filter { !$0.isEmpty }
         let label = pop.props["accessibilityLabel"].flatMap { $0.isEmpty ? nil : $0 }
         return Confirmation(source: source, popover: pop,
-                            actions: actions.map { .init($0, title: title(of: $0), enabled: choosable($0)) },
+                            actions: actions.map { .init($0, title: title(of: $0), enabled: choosable($0, in: pop)) },
                             heading: texts.isEmpty && actions.count > 1 ? label : nil, message: texts)
     }
 
@@ -92,7 +104,7 @@ extension MenuHost {
     private func presented(_ owner: Confirmation, _ entry: Confirmation.Presented) -> Bool {
         guard let action = entry.node, let pop = owner.popover, live(action) else { return false }
         return closes(action, pop) && action.isDescendant(of: pop) && title(of: action) == entry.title
-            && choosable(action) == entry.enabled
+            && choosable(action, in: pop) == entry.enabled
     }
 
     func menu(of owner: Confirmation) -> NSMenu {
@@ -135,13 +147,27 @@ extension MenuHost {
         return item
     }
 
+    /// An item chosen: recorded now, pressed on the next main-queue turn.
+    /// AppKit sends the action inside `popUp`, while it still tracks the
+    /// menu in the invoker; a press whose batch unmounts the invoker (a
+    /// confirmation that navigates back) must not run under that stack.
     @objc private func choose(_ sender: NSMenuItem) {
         guard let choice = sender.representedObject as? Choice, !choice.owner.finished,
               choice.owner.actions.indices.contains(choice.index) else { return }
         let owner = choice.owner
         owner.finished = true
-        let entry = owner.actions[choice.index]
-        guard valid(owner), entry.enabled, let node = entry.node, choosable(node) else { return }
+        owner.chosen = choice.index
+        choosing = owner
+        DispatchQueue.main.async { [weak self, owner] in self?.dispatch(owner) }
+    }
+    /// The recorded choice, once, if the menu still showed what is there.
+    private func dispatch(_ owner: Confirmation) {
+        if choosing === owner { choosing = nil }
+        guard let index = owner.chosen else { return }
+        owner.chosen = nil
+        let entry = owner.actions[index]
+        guard valid(owner), entry.enabled, let node = entry.node, let pop = owner.popover,
+              choosable(node, in: pop) else { return }
         presenter?.press(node.id, fromNativeMenu: true)
     }
 

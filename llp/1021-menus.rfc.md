@@ -418,9 +418,11 @@ beyond D2's rule is `position-area` ("Placement", below); the keyboard
 contract stays where §5 puts it.
 
 **The chooser on macOS (Claude, 2026-10-04):** the same shape, by the same
-rules and with the same refusal lines, is an `NSMenu` popped up below its
+rules and with the same refusal lines, is an `NSMenu` popped up against its
 invoker (`popUp(positioning:at:in:)`), as a button menu already was; it had
-been painted in the top layer. One item per action: its title, its image (as
+been painted in the top layer. The menu's top-left is where the popover's
+box would sit by its `position-area` ("Placement", below), the menu's own
+size taken as the box: below the invoker by default. One item per action: its title, its image (as
 iOS's menu rows), `.on` for `aria-checked`, dimmed when disabled, red when
 `destructive`. A chooser is headed by its `aria-label` as a section header
 (`NSMenuItem.sectionHeader`): a pop-up `NSMenu` never shows its own title,
@@ -428,9 +430,17 @@ and the HIG's way to label a menu's items is a header above them. A
 confirmation's text rows are disabled lines at the top, wrapped at 260
 points, then a separator, and no heading. The cancel has no item: Escape
 and a click outside end a menu and dispatch nothing, as UIKit drops the
-cancel from a sheet shown as a popover. A chosen item presses its row by
-view id once, after the owner checks above; a batch that changes a row's
-title or enablement, a reset or an unmount ends the menu. A refused shape
+cancel from a sheet shown as a popover. A chosen item is recorded, and its
+row is pressed by view id once, on the next main-queue turn after the menu
+ends, as iOS presses after the sheet is dismissed. AppKit sends an item's
+action inside `popUp`, while it still tracks the menu in the invoker, and a
+press whose batch unmounts that invoker (Messages' Discard Changes
+navigates back) must not run under it. The owner checks above run then,
+and again as each batch lands: a batch that changes a row's title or
+enablement, hides it (its own or an ancestor's `display: none` or hiding,
+though not the popover's own, hidden in place while its menu shows it) or
+makes it inert, a reset or an unmount ends the menu, and a choice awaiting
+its turn presses nothing. A refused shape
 is logged and keeps its painted presentation, which macOS, unlike iOS, has.
 A menu-shaped popover is headed by its `aria-label` the same way, and a
 row of an `img` and text is menu-shaped, its item showing the bitmap fitted
@@ -473,12 +483,26 @@ popover, and nothing in the host reimplements it). The UA sheet's
 `position-area` Chrome 154 uses zero margins (measured: a 242×122 popover
 under `top span-all` over an invoker at x 190, width 172, y 801 is at
 155,679, centred and flush; without the row, margin auto centres it in the
-viewport), and the fixture's `open-above-sheet` lays out the same way. The painted top layers — iOS under the agent (`lift`)
-and macOS's — place by the table, from one function (`PositionArea.swift`).
+viewport), and the fixture's `open-above-sheet` lays out the same way.
+The painted top layers — iOS under the agent (`lift`)
+and macOS's — place by the table, from one function (`PositionArea.swift`),
+and macOS pops a menu up at the point it gives (the menu's size the box).
+As CSS does, it aligns the popover's margin box, not its border box:
+`position-area="top"` with `margin-bottom=12` leaves 12 points between the
+popover and the invoker, and clamping keeps the margins inside the layer.
+Margins are the kernel's resolved points (`auto` is 0). The iOS sheet
+ignores them: UIKit places it.
 The iOS sheet (`role="alertdialog"`, a `UIAlertController` popover) takes a
 side from it: a `top` area permits only a down arrow, which UIKit places
 above the source, `bottom` only an up arrow; a centred area anchors at the
 whole invoker rather than its label, which UIKit centres on where it fits.
+`center` anchors at the whole invoker too, with no arrow permitted and
+`canOverlapSourceViewRect`, `none`'s arrowless presentation: UIKit centres
+the sheet across the invoker (the probe above: anchored to the full row,
+Block centres at x=81) and picks its vertical position itself, as for
+`none`, shifted to stay on screen. It is not centred over the invoker in
+both axes as CSS's `center` is; no public API does that short of a custom
+`popoverBackgroundViewClass`.
 A permitted direction makes UIKit draw its arrow toward the invoker; no
 public API places a popover on a side without one short of a custom
 `popoverBackgroundViewClass`, which this does not take on.

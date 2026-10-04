@@ -291,6 +291,28 @@ final class NativeContextsIOSTests: XCTestCase {
         XCTAssertEqual(pressed, [])
     }
 
+    /// `position-area: center` on the sheet (LLP 1021 "Placement"): anchored
+    /// at the whole invoker, no arrow, allowed over it; UIKit centres the
+    /// sheet across the invoker and picks its vertical position itself.
+    func testACentredSheetSitsOverItsInvoker() throws {
+        let (p, controller, scene) = chooser({ Self.providers })
+        defer { p.menus.reset(); window.isHidden = true }
+        p.apply(wireBatch([["op": "style", "id": 2, "style": ["position_area": "center"]],
+                           ["op": "frame", "id": 1, "x": 100.0, "y": 150.0, "w": 200.0, "h": 40.0]]))
+        let source = try XCTUnwrap(p.views[1])
+        XCTAssertEqual(p.menus.activate(source), true)
+        let alert = try XCTUnwrap(controller.presentedViewController as? UIAlertController)
+        let presentation = try XCTUnwrap(alert.popoverPresentationController)
+        XCTAssertEqual(presentation.sourceRect, source.bounds, "the whole invoker, not its label")
+        XCTAssertEqual(presentation.permittedArrowDirections, [])
+        XCTAssertTrue(presentation.canOverlapSourceViewRect)
+        try XCTSkipUnless(scene, "a presentation completes only in a scene's window")
+        settle(p) { !p.menus.inTransition }
+        let sheet = alert.view.convert(alert.view.bounds, to: nil), invoker = source.convert(source.bounds, to: nil)
+        print("position-area center: sheet \(sheet), invoker \(invoker)")
+        XCTAssertEqual(sheet.midX, invoker.midX, accuracy: 2, "centred across it")
+    }
+
     /// A shape the sheet cannot present, two cancels, opens nothing. (Its
     /// logged reason needs a session; this presenter has none.)
     func testAChooserTheSheetCannotPresentIsRefused() throws {
