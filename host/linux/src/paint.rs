@@ -580,6 +580,11 @@ pub struct Painter {
     /// app's `setScheme` last said; `light` until it says otherwise.
     pub dark: bool,
     backend: Box<dyn Backend>,
+    #[cfg(test)]
+    pub(crate) rank_passes: usize,
+    /// Retained until the kernel commits; scroll and damage paints reuse it.
+    pub(crate) paint_epoch: Option<u64>,
+    ranks: Rc<BTreeMap<ViewId, i64>>,
     pub(crate) placements: BTreeMap<ViewId, crate::placement::Placement>,
     /// Each 2D canvas's latest bitmap (LLP 1056).
     pub(crate) canvases: BTreeMap<ViewId, crate::canvas2d::CanvasPaint>,
@@ -668,6 +673,10 @@ impl Painter {
             scale,
             dark: false,
             backend,
+            #[cfg(test)]
+            rank_passes: 0,
+            paint_epoch: None,
+            ranks: Rc::default(),
             accepted_text: BTreeMap::new(),
             arrange_lift: None,
             region_picture: None,
@@ -834,20 +843,28 @@ impl Painter {
         }
         self.damage.next.clear();
         self.damage.unsupported = false;
-        let mut walk = Walk {
-            scene,
-            boxes: Vec::new(),
-            text: BTreeMap::new(),
-            skip,
-            replay,
-            ranks: Rc::new(
+        if self.paint_epoch != Some(scene.kernel.epoch()) {
+            self.ranks = Rc::new(
                 scene
                     .kernel
                     .paint_order()
                     .into_iter()
                     .map(|(id, p)| (id, p.rank))
                     .collect(),
-            ),
+            );
+            self.paint_epoch = Some(scene.kernel.epoch());
+            #[cfg(test)]
+            {
+                self.rank_passes += 1;
+            }
+        }
+        let mut walk = Walk {
+            scene,
+            boxes: Vec::new(),
+            text: BTreeMap::new(),
+            skip,
+            replay,
+            ranks: self.ranks.clone(),
         };
         for root in scene.roots {
             self.node(&mut walk, *root, Transform::identity(), scene.page, None);

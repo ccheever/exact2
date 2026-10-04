@@ -585,6 +585,7 @@ impl<D: DataSource> Presenter<D> {
         }
         self.restore_time(&mut host)?;
         self.host = host;
+        self.brush.paint_epoch = None; // A new kernel may have the same epoch.
         self.replaced();
         if self.display.new_session() {
             self.painted = false;
