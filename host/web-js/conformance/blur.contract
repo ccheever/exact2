@@ -1,0 +1,31 @@
+// Synthetic conformance plan: the `blur` command. `blur()` drops the focus,
+// whoever holds it; `blur(id)` drops it only when that node holds it
+// (host/linux presenter, docs/contract-grammar.md#commands). A field that
+// commits on Enter calls `blur()` — the authoring bench's todo row (LLP 1087),
+// which the JavaScript target once left focused.
+component Blur
+  state text = ""
+  state focused = false
+  state log = ""
+  action typed(v: string)
+    text = v
+  action focusIn
+    focused = true
+    log = `${log}+`
+  action focusOut
+    focused = false
+    log = `${log}-`
+  action commit(k: string)
+    if k == "Enter"
+      blur()
+      preventDefault()
+  action other(k: string)
+    if k == "Enter"
+      blur("elsewhere")
+      preventDefault()
+  view
+    column testId="root" gap=8 padding=8
+      input value=text input=typed key=commit focus=focusIn blur=focusOut testId="field" padding=8
+      input key=other testId="second" padding=8
+      text (focused ? "focused" : "not focused") testId="state"
+      text log testId="log"

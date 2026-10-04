@@ -215,7 +215,7 @@ export function act(fn, types, skip = 0) {
 /** The host commands, by name; a loaded piece adds its own (list.js `scrollIntoView`). */
 export const Hosts = {
   focus: id => document.getElementById(id)?.focus(),
-  blur: id => document.getElementById(id)?.blur(),
+  blur: id => (id == null ? document.activeElement : document.getElementById(id))?.blur(), // `blur()` drops the focus; `blur(id)` only that node's
   setScheme: s => { document.documentElement.style.colorScheme = s === "system" ? "" : s; },
   copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), // LLP 1077 D14: vibration where the browser has it
 };
