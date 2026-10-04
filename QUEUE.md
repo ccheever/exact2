@@ -459,16 +459,16 @@ sits on that list carries the trade it would take.
    controls; the reader needs a compact layout at that width.
    During verification the macOS timer-step smoke once read width 50 at t=1250
    instead of 75, then passed on repeat; investigate the intermittent clock fixture.
-5. **View transitions** (LLP 1013, Draft RFC) — behind the webview/deck lane by
-   LLP 1020 §6's decided take (Charlie, 2026-08-30): the trade that moved `webview`
-   off DEFERRED. Shared elements, heroes, and magic-move
-   the web's way, not RN's: a `view_transition_name` row, an action keyword as the
-   boundary, `startViewTransition` on the web, snapshot + host-owned ghost under
-   `exact-motion` on macOS, one parity fixture. Identity is by name at the host, so
-   `when`/`match` arms keep destroying and creating and nothing reparents in the plan
-   model. Needs the agent API's `clock` (3) to seek the ghost, `transition` in the tag
-   table (below), and two ghost-only size properties on the engine. Charlie to confirm
-   the boundary (§Open questions).
+5. **Shared elements, stage 2** (LLP 1013.000 §3; stage 1 built 2026-10-04: the
+   `sharedElement` attribute, live native flights on iOS/macOS, CSS View Transitions
+   on the web's JS target, `apps/shared-elements`). Next: velocity carried into a
+   flight (a release's, an interrupted flight's: Q5), drag-to-dismiss handing a hold
+   to the flight back, a name as the zoom's source (`navigationSource`), flights on
+   Linux and on the wasm web target, and a prop changed on a live node pairing.
+
+- **The JS target lacks `at()`** — `match at(xs, i)` compiles but the web build fails
+  with `No matching export in rt.js for import "x_at"` (found writing
+  `apps/shared-elements`, 2026-10-04; it uses `first(filter(…))` instead).
 
 - **Rust replacement follow-ups** — **LLP 1029.000**: native/browser/Wasmi replacement
   and dev/prod controls are implemented. Next: physical-phone size/latency and

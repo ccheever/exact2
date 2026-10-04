@@ -343,9 +343,7 @@ fn culling_changes_no_pixels_with_animated_skins_models_and_sockets() {
     let format = exact_gpu::wgpu::TextureFormat::Rgba8Unorm;
     surface.prepare_assets(&gpu.device, &gpu.queue, format);
     for texture in surface.assets().requests {
-        let path = std::path::PathBuf::from(std::env::var_os("HOME").unwrap())
-            .join("Library/Caches/exact2-game/gltf-samples")
-            .join(&texture);
+        let path = samples::cache().join(&texture);
         surface.asset(&texture, Ok(&std::fs::read(path).unwrap()));
     }
     surface.prepare_assets(&gpu.device, &gpu.queue, format);

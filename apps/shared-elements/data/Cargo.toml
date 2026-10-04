@@ -1,0 +1,16 @@
+# The shared-elements example's data source (LLP 1013.000): photos, cards and tasks.
+[package]
+name = "shared-elements-data"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "The shared-elements example's data source: photos, cards and tasks"
+publish = false
+
+[lib]
+name = "shared_elements_data"
+crate-type = ["rlib"]
+
+[dependencies]
+exact-plan = { path = "../../../plan" }
+exact-runner = { path = "../../../runner" }
