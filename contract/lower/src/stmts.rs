@@ -92,6 +92,9 @@ impl Lowerer<'_> {
                     .unwrap()];
                 asm.refresh(r);
             }
+            // A tail call's type check (LLP 1017 §11): nothing to run.
+            Stmt::Command { name, .. }
+                if name.starts_with(contract_syntax::inline::tail::CHECK) => {}
             Stmt::Command { name, args, .. } => {
                 let args = expr::command_args(name, args);
                 for arg in &args {

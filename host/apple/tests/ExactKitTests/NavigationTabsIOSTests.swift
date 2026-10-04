@@ -94,6 +94,10 @@ final class NavigationTabsIOSTests: XCTestCase {
         try tapNode(session, "bump-second")
         // The count's filled box on the Second tab is its item's badge (§9.9).
         until("the badge follows the authored box") { second.tabBarItem.badgeValue == "1" }
+        XCTAssertNil(home.tabBarItem.badgeValue, "a filled pill around a symbol and a text is no badge")
+        // A badge a hook set on a tab that never authored one stays through
+        // that tab's face changing (its selected symbol).
+        home.tabBarItem.badgeValue = "hook"
         // A draft and a scroll in Second.
         let draft = try node(session, "draft")
         _ = Agent(session: session).type(["id": Int(draft.id), "text": "kept"])
@@ -108,6 +112,7 @@ final class NavigationTabsIOSTests: XCTestCase {
         // Away and back.
         tapTab(tabs, 0)
         until("Home selected") { tabs.selectedIndex == 0 }
+        XCTAssertEqual(home.tabBarItem.badgeValue, "hook", "the hook's badge stays")
         XCTAssertEqual(home.topViewController?.navigationItem.title, "Detail", "the pushed screen survived")
         XCTAssertTrue(try node(session, "counts").accessibleText.contains("count 1"), "the hidden tab's update shows")
         tapTab(tabs, 1)
@@ -115,6 +120,9 @@ final class NavigationTabsIOSTests: XCTestCase {
         XCTAssertEqual(css(), scrolled, accuracy: 0.5, "the scroll offset survived")
         XCTAssertTrue(try node(session, "list-second") === list, "the same views, retained")
         XCTAssertEqual(try node(session, "draft").field?.text, "kept", "the draft survived")
+        // The box goes, the badge goes.
+        try tapNode(session, "unbump-second")
+        until("the badge leaves with its box") { second.tabBarItem.badgeValue == nil }
         // Reselecting a tab pops it to its root.
         tapTab(tabs, 0)
         until("Home selected") { tabs.selectedIndex == 0 }

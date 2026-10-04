@@ -166,13 +166,25 @@ found it (as any statement in an action does), and the callee's writes land
 after the caller's (`a = 1` then a callee's `a = 2` leaves 2). The writes
 allowlist is the union, because it is computed from the inlined body. No
 plan opcode and no runtime change, so both runners and every host run it
-already. A chain of tail calls inlines in order. A cycle is refused
-(`syntax-tail-cycle`), and so is a caller `let` that would hide a name the
-callee reads (`syntax-tail-capture`: rename the local). An action prop
-argument that does not name an action, a ternary for instance, is refused at
-the use (`syntax-tail-call`).
+already. Hygiene: every name the caller binds (its parameters, its
+`let`s and `match` bindings) and every parameter and binder of a callee is
+renamed apart, using `@`, which an author cannot write. So an inlined
+statement reads the root's state, never a caller's local of the same
+spelling, and in a chain an inner action never reads an outer action's
+parameter. The callee's own parameters are substituted in its own body
+before its own tail calls are resolved. Each call leaves an `@check:<action>`
+statement with its arguments. The type pass holds those arguments to the
+callee's parameter types (curried ones included), and lowering emits
+nothing for it. The arguments are also typed in the child's own scope, so a
+child cannot pass a root name it never had. A cycle is refused
+(`syntax-tail-cycle`), and so is an action prop argument that does not name
+an action, such as a ternary (`syntax-tail-call`). The first version refused a
+caller `let` that hid a callee read. Astra's and Grok's review showed it
+missed parameters and chains, so renaming apart replaced the refusal.
 
 Tests: `contract/cli/tests/it/tail_call.rs`, run on the runner. They cover a
 conditional dismiss, curried arguments ahead of the call's own, reads before
-and writes after the caller's, the refusal anywhere but the tail, and the
-capture refusal. DEFERRED records the ruling under **Actions**.
+and writes after the caller's, the refusal anywhere but the tail, a caller
+parameter and local spelled like root state, a chain through an intermediate
+action's parameter, argument types against the callee, and an argument the
+child never had. DEFERRED records the ruling under **Actions**.

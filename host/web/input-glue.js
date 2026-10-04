@@ -125,7 +125,10 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         if (wants("pointerup") && ready()) fire(30);
       };
       return e => {
-        if (e.button !== 0 || held !== null || el.matches(":disabled") || inertAncestor(el)) return;
+        // The innermost enabled pointer node takes it (the event bubbles
+        // here first from inner ones, which mark it).
+        if (e.exactPointerOwner || !e.isPrimary || e.button !== 0 || held !== null || el.matches(":disabled") || inertAncestor(el)) return;
+        e.exactPointerOwner = el;
         held = e.pointerId;
         document.addEventListener("pointerup", up, true); document.addEventListener("pointercancel", up, true);
         if (wants("pointerdown")) fire(29);

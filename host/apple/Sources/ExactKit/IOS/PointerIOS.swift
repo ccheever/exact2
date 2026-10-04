@@ -9,12 +9,25 @@ import UIKit
 final class PointerRecognizer: UIGestureRecognizer {
     weak var node: NodeView?
     private var touch: UITouch?
+    /// No touch held: a pooled row may keep it (it is synced with the
+    /// handlers it is reused with).
+    var idle: Bool { touch == nil }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesBegan(touches, with: event)
-        guard touch == nil, let first = touches.first, let node, !node.disabled else { return }
+        guard touch == nil, let first = touches.first, let node, !node.disabled, !nearer(first.view) else { return }
         touch = first
         if node.handlers.contains("pointerdown") { node.presenter?.pointer(node.id, down: true) }
+    }
+    /// Whether an enabled pointer node between the touched view and this
+    /// one takes the touch: the innermost does, as on the web and macOS.
+    func nearer(_ touched: UIView?) -> Bool {
+        var view = touched
+        while let v = view, v !== node {
+            if let n = v as? NodeView, n.wantsPointer, !n.disabled { return true }
+            view = v.superview
+        }
+        return false
     }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
         super.touchesEnded(touches, with: event)
@@ -41,8 +54,9 @@ final class PointerRecognizer: UIGestureRecognizer {
 
 extension NodeView {
     /// Install or remove the node's pointer observer with its handlers.
+    var wantsPointer: Bool { handlers.contains("pointerdown") || handlers.contains("pointerup") }
     func syncPointerRecognizer() {
-        let wants = handlers.contains("pointerdown") || handlers.contains("pointerup")
+        let wants = wantsPointer
         let current = gestureRecognizers?.first { $0 is PointerRecognizer }
         if wants, current == nil {
             let g = PointerRecognizer(target: nil, action: nil)

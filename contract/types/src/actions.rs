@@ -184,6 +184,20 @@ impl Cx<'_, '_> {
                 if name.starts_with(contract_syntax::inline::TAIL) {
                     return Ok(());
                 }
+                // A resolved tail call's arguments against the callee's
+                // parameters (LLP 1017 §11).
+                if let Some(target) = name.strip_prefix(contract_syntax::inline::tail::CHECK) {
+                    return match scope.lookup(target) {
+                        Some((Ref::Action(_), Ty::Action(params))) => {
+                            tail_args(target, params, args, scope, shapes, *span)
+                        }
+                        _ => err(
+                            "type-tail-call",
+                            format!("`{target}` is not an action"),
+                            *span,
+                        ),
+                    };
+                }
                 if self.tails.contains(&(stmt as *const Stmt)) {
                     if let Some((Ref::Prop(_), Ty::Action(params))) = scope.lookup(name) {
                         return tail_args(name, params, args, scope, shapes, *span);
@@ -369,6 +383,10 @@ fn tail_args(
     shapes: &Shapes,
     span: Span,
 ) -> Result<(), TypeError> {
+    // Every argument is the caller's, whatever the callee's signature says.
+    for arg in args {
+        infer(arg, scope, shapes)?;
+    }
     if !params.is_empty() && args.len() != params.len() {
         return err(
             "type-arity",

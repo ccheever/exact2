@@ -57,6 +57,28 @@ final class GesturePrecedenceIOSTests: XCTestCase {
         XCTAssertNil(node.gestureRecognizers?.first { $0 is PointerRecognizer })
     }
 
+    /// Nested pointer nodes: the innermost enabled one takes the touch, as
+    /// on the web and macOS; a disabled inner one passes it out.
+    func testTheInnermostEnabledPointerNodeTakesTheTouch() throws {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown", "pointerup"]],
+            ["op": "create", "id": 2, "kind": "button", "handlers": ["pointerdown"]],
+            ["op": "create", "id": 3, "kind": "view"],
+            ["op": "children", "id": 2, "ids": [3]], ["op": "children", "id": 1, "ids": [2]], ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0],
+            ["op": "frame", "id": 2, "x": 10.0, "y": 10.0, "w": 80.0, "h": 60.0],
+            ["op": "frame", "id": 3, "x": 5.0, "y": 5.0, "w": 20.0, "h": 20.0]
+        ])
+        let recognizer = { (id: UInt32) in p.views[id]?.gestureRecognizers?.compactMap { $0 as? PointerRecognizer }.first }
+        let outer = try XCTUnwrap(recognizer(1)), inner = try XCTUnwrap(recognizer(2))
+        let touched = try XCTUnwrap(p.views[3])
+        XCTAssertTrue(outer.nearer(touched), "the inner pointer node is nearer")
+        XCTAssertFalse(inner.nearer(touched))
+        XCTAssertFalse(outer.nearer(p.views[1]), "a touch on the outer node itself is its own")
+        p.views[2]?.props["disabled"] = "true"
+        XCTAssertFalse(outer.nearer(touched), "a disabled inner node passes it out")
+    }
+
     func testTheSecondTapStillPressesAndDblclickComesAfterIt() throws {
         let p = host([
             ["op": "create", "id": 1, "kind": "view", "handlers": ["press", "dblclick"]],

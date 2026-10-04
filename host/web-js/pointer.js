@@ -16,7 +16,9 @@ export function pointer(e, kind, f) {
       s.pointerup?.();
     };
     e.addEventListener("pointerdown", ev => {
-      if (ev.button !== 0 || s.held !== null || e.disabled) return;
+      // The innermost enabled pointer node takes it, as the web host's does.
+      if (ev.$pointerOwner || !ev.isPrimary || ev.button !== 0 || s.held !== null || e.matches(":disabled") || e.closest("[inert]")) return;
+      ev.$pointerOwner = e;
       s.held = ev.pointerId;
       document.addEventListener("pointerup", up, true);
       document.addEventListener("pointercancel", up, true);

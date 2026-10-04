@@ -196,26 +196,125 @@ component Child
 }
 
 #[test]
-fn a_local_that_would_hide_what_the_called_action_reads_is_refused() {
+fn the_called_action_reads_the_root_never_a_caller_local_or_parameter_of_its_name() {
+    // The child's parameter `n` and its local `m` share the spelling of root
+    // state the root's action reads: the root's are read.
     let src = r#"component App
-  state n = 0
-  action bump
-    n = n + 1
+  state n = 7
+  state m = 3
+  state seen = ""
+  action report
+    seen = `${n} ${m}`
   view
-    Child(cb=bump)
+    column
+      Child(done=report)
+      text seen testId="seen"
+
+component Child
+  props
+    done: action
+  state mine = 0
+  action go(n: number)
+    let m = n + 1
+    mine = m
+    done()
+  view
+    button press=go(42) testId="go"
+      text "go"
+"#;
+    let mut r = boot(src);
+    press(&mut r, "go");
+    assert_eq!(text_of(&r, "seen"), "7 3");
+}
+
+#[test]
+fn a_chain_of_tail_calls_runs_in_order_each_reading_its_own_names() {
+    // Outer's parameter `why` shares the spelling of root state the inner
+    // action reads.
+    let src = r#"component App
+  state why = "root"
+  state last = ""
+  state log = ""
+  action inner
+    last = why
+  view
+    column
+      Outer(next=inner)
+      text `${last} ${log}` testId="state"
+
+component Outer
+  props
+    next: action
+  state relays = 0
+  action relay(why: string)
+    relays = relays + 1
+    next()
+  view
+    Inner(done=relay("arg"))
+
+component Inner
+  props
+    done: action
+  state n = 0
+  action go
+    n = n + 1
+    done()
+  view
+    button press=go testId="go"
+      text "go"
+"#;
+    let mut r = boot(src);
+    press(&mut r, "go");
+    assert_eq!(text_of(&r, "state"), "root ");
+}
+
+#[test]
+fn the_arguments_are_held_to_the_called_actions_parameter_types() {
+    let src = r#"component App
+  state result = ""
+  action record(value: string)
+    result = value
+  view
+    Child(cb=record)
 
 component Child
   props
     cb: action
   state m = 0
   action go
-    let n = 5
-    m = n
-    cb()
+    m = m + 1
+    cb(42)
   view
     button press=go testId="go"
       text "go"
 "#;
     let e = contract::compile(src).unwrap_err();
-    assert_eq!(e.id, "syntax-tail-capture", "{e}");
+    assert_eq!(e.id, "type-argument", "{e}");
+}
+
+#[test]
+fn an_argument_must_be_a_name_the_child_has() {
+    let src = r#"component App
+  state secret = "root"
+  state got = ""
+  action record(value: string)
+    got = value
+  view
+    Child(cb=record)
+
+component Child
+  props
+    cb: action
+  state m = 0
+  action go
+    m = m + 1
+    cb(secret)
+  view
+    button press=go testId="go"
+      text "go"
+"#;
+    assert!(
+        contract::compile(src).is_err(),
+        "the child never had `secret`"
+    );
 }

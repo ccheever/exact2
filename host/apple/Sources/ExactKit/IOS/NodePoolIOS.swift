@@ -314,7 +314,8 @@ final class NodePool {
             && v.overlay == nil && v.canvasInput == nil
             && idle(v)
             && v.swipeHold == nil && v.heightHold == nil && v.reorderHold == nil && v.transformHold == nil
-            && !v.pressed && (v.gestureRecognizers?.isEmpty ?? true) && v.interactions.isEmpty
+            && !v.pressed && (v.gestureRecognizers ?? []).allSatisfy({ ($0 as? PointerRecognizer)?.idle == true })
+            && v.interactions.isEmpty
             && v.flowShapes.isEmpty && v.contextTransform.isIdentity
             && v.pendingScrollLeft == nil && v.pendingScrollTop == nil
             // A hooked node's view is the app's to keep (LLP 1075.003.000),

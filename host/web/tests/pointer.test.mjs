@@ -20,13 +20,15 @@ const page = `<!doctype html>
 <div id="exact-root" style="padding:20px">
   <button id="mic" style="width:100px;height:100px">m</button>
   <button id="off" disabled style="width:100px;height:50px">d</button>
+  <div id="outer" style="width:200px;height:120px;padding:10px"><button id="inner" style="width:100px;height:60px">i</button></div>
+  <div id="wrap" style="width:200px;height:80px;padding:10px"><button id="child" style="width:100px;height:40px">c</button></div>
 </div>
 <script type="module">
   import { createInputHandlers } from './input-glue.js';
   const root = document.getElementById('exact-root');
   const h = createInputHandlers({ root, views: new Map(), retiredViews: new Set(), ready: () => true, inertAncestor: () => false, dispatch() {} });
   window.log = [];
-  for (const id of ['mic', 'off']) {
+  for (const id of ['mic', 'off', 'outer', 'inner', 'wrap']) {
     const el = document.getElementById(id);
     el.exactHandlers = ['pointerdown', 'pointerup', 'press'];
     const on = (type, f) => el.addEventListener(type, f);
@@ -34,6 +36,7 @@ const page = `<!doctype html>
     on('pointerdown', e => (p ??= h.pointer(el, on, k => window.log.push(id + (k === 29 ? ' down' : ' up'))))(e));
     on('click', () => window.log.push(id + ' press'));
   }
+  document.getElementById('child').addEventListener('click', () => window.log.push('child press'));
   window.ready = true;
 </script>`;
 
@@ -81,6 +84,16 @@ check('down before the press, up wherever the button lifts, nothing when disable
     await mouse('mousePressed', off);
     await mouse('mouseReleased', off);
     expect(await log()).toEqual([]);
+    // Nested pointer nodes: the innermost takes the pointer.
+    const inner = await centre('inner');
+    await mouse('mousePressed', inner);
+    await mouse('mouseReleased', inner);
+    expect((await log()).filter(l => !l.endsWith('press'))).toEqual(['inner down', 'inner up']);
+    // A pointer node around a pressable child leaves the child its press.
+    const kid = await centre('child');
+    await mouse('mousePressed', kid);
+    await mouse('mouseReleased', kid);
+    expect(await log()).toEqual(['wrap down', 'wrap up', 'child press', 'wrap press']);
   } finally {
     child.kill();
     server.close();

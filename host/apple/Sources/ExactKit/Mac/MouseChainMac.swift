@@ -119,8 +119,7 @@ extension NodeView {
         guard let presenter, presenter.pointerHeld == nil else { return }
         var next: NSView? = self
         while let view = next {
-            if let node = view as? NodeView, node.handlers.contains("pointerdown") || node.handlers.contains("pointerup") {
-                guard !node.disabled else { return }
+            if let node = view as? NodeView, !node.disabled, node.handlers.contains("pointerdown") || node.handlers.contains("pointerup") {
                 presenter.pointerHeld = node.id
                 if node.handlers.contains("pointerdown") { presenter.pointer(node.id, down: true) }
                 return

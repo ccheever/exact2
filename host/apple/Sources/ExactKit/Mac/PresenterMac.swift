@@ -540,6 +540,7 @@ final class Presenter {
 
     /// A restart: every view goes.
     func reset() {
+        pointerHeld = nil
         elements.reset()
         viewport.invalidateDocumentFit()
         session?.regions.reset()
@@ -680,6 +681,8 @@ final class Presenter {
     /// view (LLP 1063) does not until its exit ends.
     @discardableResult
     func release(_ id: UInt32, forget: Bool) -> NodeView? {
+        // A held node that goes has no handler left to hear its up.
+        if pointerHeld == id { pointerHeld = nil }
         mouseSwipe.retire(id)
         mouseLayoutPan.retire(id)
         mouseHeightDrag.retire(id)

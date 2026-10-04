@@ -28,6 +28,18 @@ final class NativeButtonMac: NSButton {
     /// The look drawn, its name in the table's macOS column.
     var drawn = "push"
     override var acceptsFirstResponder: Bool { false }
+    // `pointerdown`/`pointerup` (LLP 1005 §Events): AppKit's tracking loop
+    // takes the button's mouse events, so the node hears them here. The up
+    // goes before the action the loop sends, DOM's order.
+    override func mouseDown(with event: NSEvent) {
+        owner?.pointerPressed()
+        super.mouseDown(with: event)
+        owner?.pointerReleased()
+    }
+    override func sendAction(_ action: Selector?, to target: Any?) -> Bool {
+        owner?.pointerReleased()
+        return super.sendAction(action, to: target)
+    }
 }
 
 extension NodeView {

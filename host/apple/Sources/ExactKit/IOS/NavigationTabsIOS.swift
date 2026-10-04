@@ -41,7 +41,7 @@ private struct TabFace: Equatable {
     /// badge (LLP 1075.003 §9.9), as the web paints it on the tab.
     let badge: String?
     init(_ tab: NodeView) {
-        var symbol: String?, label = tab.props["accessibilityLabel"] ?? "", badge: String?
+        var symbol: String?, label = tab.props["accessibilityLabel"] ?? "", badges: [String] = []
         if tab.isNativeButton, let face = tab.face {
             // A native button's children are its face (LLP 1069.011.000 D1).
             symbol = face.symbol
@@ -50,15 +50,23 @@ private struct TabFace: Equatable {
         for case let child as NodeView in tab.container.subviews {
             if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty { symbol = name }
             else if child.isParagraph, !child.accessibleText.isEmpty { label = child.accessibleText }
-            else if child.style["background_color"] != nil, !child.isHidden {
-                let texts = child.container.subviews.compactMap { $0 as? NodeView }.filter { $0.isParagraph }
-                if texts.count == 1, !texts[0].accessibleText.isEmpty { badge = texts[0].accessibleText }
-            }
+            else if let text = Self.badgeText(child) { badges.append(text) }
         }
-        self.badge = badge
+        // One badge box, or none: two are not a badge.
+        self.badge = badges.count == 1 ? badges[0] : nil
         base = symbol.map { $0.hasSuffix(".fill") ? String($0.dropLast(5)) : $0 }
         title = label
         disabled = tab.disabled
+    }
+    /// A shown box with a visible fill whose only node child is one shown,
+    /// non-empty text: that text. A pill around a symbol and a label is not.
+    private static func badgeText(_ box: NodeView) -> String? {
+        guard !box.isParagraph, box.kind != "image", !box.isHidden, box.style["display"]?.string != "none",
+              let fill = box.channels("background_color"), fill[3] > 0 else { return nil }
+        let children = box.container.subviews.compactMap { $0 as? NodeView }
+        guard children.count == 1, let text = children.first, text.isParagraph, !text.isHidden,
+              text.style["display"]?.string != "none", !text.accessibleText.isEmpty else { return nil }
+        return text.accessibleText
     }
 }
 

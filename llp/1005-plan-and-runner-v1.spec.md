@@ -476,24 +476,34 @@ schema mismatch), the `math` pins. All under `cargo test --workspace`; clippy
 Clone's hold-to-record mic as the consumer; DEFERRED under Motion's gesture
 arena). These are DOM's names for a touch or the primary button going down on
 a node, and coming up or being cancelled. A cancel is delivered as
-`pointerup`, so an action that started something always hears the end.
+`pointerup`, so an action that started something hears the end, unless its
+node is removed while the pointer is down. A removed node has no handler
+left to run, and the hosts then forget the pointer (an app that starts
+something on `pointerdown` keeps the node mounted until the up).
 Neither carries a payload, and neither is recognized: the down fires before
 any gesture has decided, and both sit beside `press`, `pan` and
 `contextmenu` without taking anything from them. On the web a cancel is
 DOM's `pointercancel`. DOM's order holds: down, up, then the click's
-`press`. The innermost node that hears either one takes the pointer, and its
+`press`. The innermost enabled node that hears either one takes the pointer, on
+every host (a disabled one passes it to an enabled ancestor), and only the
+primary pointer counts, and its
 up arrives wherever the pointer lifts: heard on the document on the web (a
 pointer capture would also retarget the click and press on a lift
 elsewhere), through AppKit's own mouse-up routing, and with the touch on
 UIKit.
 - **Web** (`glue.js` with `input-glue.js` `pointer`; the JS target's
-  `pointer.js`): the element's own events.
+  `pointer.js`): the element's own events. The innermost claims the event
+  as it bubbles, so its ancestors' handlers leave it.
 - **iOS** (`IOS/PointerIOS.swift`): a gesture recognizer that only observes.
   It never recognizes and can neither prevent nor be prevented, so a press,
-  a pan, a long press and the scroll view keep their touches.
+  a pan, a long press and the scroll view keep their touches. Each node's
+  recognizer skips a touch that a nearer enabled pointer node takes. An idle
+  one does not keep a row out of the node pool.
 - **macOS** (`MouseChainMac`): `mouseDown`/`mouseUp`, on the innermost
   enabled node from the hit view up, held on the presenter until the button
-  comes up.
+  comes up. A native button's own tracking loop reports both (its up
+  before the action it sends). A held node's release, or a reset, clears
+  the hold.
 - **Linux:** not built; the events never fire.
 - **ABI:** dispatch kinds 29 and 30.
 - **Agent:** `tap` remains an activation (`press`). The pointer events are

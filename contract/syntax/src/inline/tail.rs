@@ -1,21 +1,31 @@
-//! The tail call (LLP 1017 P4c; Charlie, 2026-10-03): a child's action may
+//! The tail call (LLP 1017 §11; Charlie, 2026-10-03): a child's action may
 //! end by calling one of its `action` props, as `close()` ends a viewer's
-//! release, also as the last statement of an `if` or `match` branch that is
-//! itself last. Inlining marks the call with the root action the prop named
+//! release, also as the last statement of the branches of a last `if` or
+//! `match`. Inlining marks the call with the root action the prop named
 //! (`@tail:<action>`, the prop's curried arguments first); this pass puts
 //! that action's statements in its place. Its parameters become `let`s of
 //! the call's arguments, so the call is exactly the callee's statements run
 //! last in the caller: one commit, every statement reading the state as the
-//! action found it, the callee's writes after the caller's. No new opcode
-//! and no runtime change. A cycle is refused, and so is a caller `let` that
-//! would hide a name the callee reads.
+//! action found it, the callee's writes after the caller's.
+//!
+//! Hygiene: every name the caller binds (its parameters, its `let`s and
+//! `match` bindings) and every parameter and binder of a callee is renamed
+//! apart (`@` cannot begin an authored name), so an inlined statement reads
+//! the root's state, never a caller's local of the same spelling, and a
+//! chain's inner action never reads an outer one's parameter. Each call
+//! keeps an `@check:<action>` statement with its arguments, which the type
+//! pass holds to the callee's parameter types and lowering drops.
 
-use super::subst::{stmt_occurs, subst_stmts, Subst};
+use super::subst::{subst_stmts, Subst};
 use super::TAIL;
 use crate::ast::{Action, Expr, Stmt};
 use crate::parser::SyntaxError;
 use crate::Span;
 use std::collections::{BTreeMap, BTreeSet};
+
+/// The statement a tail call leaves for the type pass: the callee's name
+/// after this prefix, the call's arguments.
+pub const CHECK: &str = "@check:";
 
 /// The statements in tail position: the last one, or the last ones of the
 /// branches of a last `if` or `match`.
@@ -38,6 +48,12 @@ pub fn tail_positions(body: &[Stmt]) -> Vec<&Stmt> {
     }
 }
 
+fn marked(body: &[Stmt]) -> bool {
+    tail_positions(body)
+        .iter()
+        .any(|s| matches!(s, Stmt::Command { name, .. } if name.starts_with(TAIL)))
+}
+
 struct Cx<'a> {
     actions: &'a [Action],
     records: &'a BTreeSet<String>,
@@ -58,9 +74,36 @@ pub(super) fn resolve(
         path: Vec::new(),
         fresh: 0,
     };
-    for action in actions.iter_mut() {
+    for action in actions.iter_mut().filter(|a| marked(&a.body)) {
         cx.path = vec![action.name.clone()];
-        match cx.block(&action.body, &[]) {
+        // The caller's parameters and binders, renamed apart.
+        cx.fresh += 1;
+        let k = cx.fresh;
+        let map: BTreeMap<String, Expr> = action
+            .params
+            .iter()
+            .filter(|p| !p.name.starts_with('@'))
+            .map(|p| {
+                (
+                    p.name.clone(),
+                    Expr::Ident(format!("{}@c{k}", p.name), p.span),
+                )
+            })
+            .collect();
+        for p in action
+            .params
+            .iter_mut()
+            .filter(|p| !p.name.starts_with('@'))
+        {
+            p.name = format!("{}@c{k}", p.name);
+        }
+        let body = subst_stmts(
+            &action.body,
+            &mut Subst::new(&map, records),
+            &BTreeMap::new(),
+        );
+        let body = cx.apart(&body);
+        match cx.block(&body) {
             Ok(body) => action.body = body,
             Err(e) => errors.push(e),
         }
@@ -68,17 +111,70 @@ pub(super) fn resolve(
 }
 
 impl Cx<'_> {
-    /// A block with its tail position resolved; `outer` are the names bound
-    /// around it (the caller's `let`s and `match` bindings in force).
-    fn block(&mut self, body: &[Stmt], outer: &[String]) -> Result<Vec<Stmt>, SyntaxError> {
+    /// Every `let` and `match` binding in `body` renamed to a name no author
+    /// can write, its reads with it.
+    fn apart(&mut self, body: &[Stmt]) -> Vec<Stmt> {
+        let mut out = Vec::new();
+        let mut rest = body.to_vec();
+        while !rest.is_empty() {
+            let stmt = rest.remove(0);
+            match stmt {
+                Stmt::Let { name, expr, span } => {
+                    self.fresh += 1;
+                    let renamed = format!("{name}@b{}", self.fresh);
+                    let map = BTreeMap::from([(name, Expr::Ident(renamed.clone(), span))]);
+                    rest =
+                        subst_stmts(&rest, &mut Subst::new(&map, self.records), &BTreeMap::new());
+                    out.push(Stmt::Let {
+                        name: renamed,
+                        expr,
+                        span,
+                    });
+                }
+                Stmt::If {
+                    cond,
+                    then,
+                    otherwise,
+                    span,
+                } => out.push(Stmt::If {
+                    cond,
+                    then: self.apart(&then),
+                    otherwise: self.apart(&otherwise),
+                    span,
+                }),
+                Stmt::Match {
+                    subject,
+                    some,
+                    none,
+                    span,
+                } => {
+                    self.fresh += 1;
+                    let renamed = format!("{}@b{}", some.0, self.fresh);
+                    let map =
+                        BTreeMap::from([(some.0.clone(), Expr::Ident(renamed.clone(), span))]);
+                    let body = subst_stmts(
+                        &some.1,
+                        &mut Subst::new(&map, self.records),
+                        &BTreeMap::new(),
+                    );
+                    out.push(Stmt::Match {
+                        subject,
+                        some: (renamed, self.apart(&body)),
+                        none: self.apart(&none),
+                        span,
+                    });
+                }
+                other => out.push(other),
+            }
+        }
+        out
+    }
+
+    /// A block with its tail position resolved.
+    fn block(&mut self, body: &[Stmt]) -> Result<Vec<Stmt>, SyntaxError> {
         let Some(last) = body.last() else {
             return Ok(Vec::new());
         };
-        let mut bound = outer.to_vec();
-        bound.extend(body.iter().filter_map(|s| match s {
-            Stmt::Let { name, .. } => Some(name.clone()),
-            _ => None,
-        }));
         let mut out = body[..body.len() - 1].to_vec();
         match last {
             Stmt::If {
@@ -88,8 +184,8 @@ impl Cx<'_> {
                 span,
             } => out.push(Stmt::If {
                 cond: cond.clone(),
-                then: self.block(then, &bound)?,
-                otherwise: self.block(otherwise, &bound)?,
+                then: self.block(then)?,
+                otherwise: self.block(otherwise)?,
                 span: *span,
             }),
             Stmt::Match {
@@ -97,33 +193,24 @@ impl Cx<'_> {
                 some,
                 none,
                 span,
-            } => {
-                let mut inner = bound.clone();
-                inner.push(some.0.clone());
-                out.push(Stmt::Match {
-                    subject: subject.clone(),
-                    some: (some.0.clone(), self.block(&some.1, &inner)?),
-                    none: self.block(none, &bound)?,
-                    span: *span,
-                });
-            }
+            } => out.push(Stmt::Match {
+                subject: subject.clone(),
+                some: (some.0.clone(), self.block(&some.1)?),
+                none: self.block(none)?,
+                span: *span,
+            }),
             Stmt::Command { name, args, span } if name.starts_with(TAIL) => {
-                out.extend(self.call(&name[TAIL.len()..], args, *span, &bound)?);
+                out.extend(self.call(&name[TAIL.len()..], args, *span)?);
             }
             other => out.push(other.clone()),
         }
         Ok(out)
     }
 
-    /// The callee's statements for a marked call: `let`s of its arguments,
-    /// then its body, renamed apart.
-    fn call(
-        &mut self,
-        target: &str,
-        args: &[Expr],
-        span: Span,
-        bound: &[String],
-    ) -> Result<Vec<Stmt>, SyntaxError> {
+    /// The callee's statements for a marked call: the check, `let`s of its
+    /// arguments, then its body, its own names renamed apart first and its
+    /// own tail calls resolved after.
+    fn call(&mut self, target: &str, args: &[Expr], span: Span) -> Result<Vec<Stmt>, SyntaxError> {
         let refuse = |id, message: String| Err(SyntaxError { id, message, span });
         let actions = self.actions;
         let Some(callee) = actions.iter().find(|a| a.name == target) else {
@@ -142,10 +229,6 @@ impl Cx<'_> {
                 ),
             );
         }
-        self.path.push(target.to_string());
-        let inner = self.block(&callee.body, &[]);
-        self.path.pop();
-        let inner = inner?;
         self.fresh += 1;
         let k = self.fresh;
         let renamed = |p: &str| format!("{p}@tail{k}");
@@ -154,28 +237,26 @@ impl Cx<'_> {
             .iter()
             .map(|p| (p.name.clone(), Expr::Ident(renamed(&p.name), p.span)))
             .collect();
-        let inlined = subst_stmts(
-            &inner,
+        let own = subst_stmts(
+            &callee.body,
             &mut Subst::new(&map, self.records),
             &BTreeMap::new(),
         );
-        if let Some(n) = bound
-            .iter()
-            .find(|n| inlined.iter().any(|s| stmt_occurs(s, n)))
-        {
-            return refuse("syntax-tail-capture", format!("the local `{n}` here hides the `{n}` that `{target}` reads; give the local another name"));
-        }
-        let mut out: Vec<Stmt> = callee
-            .params
-            .iter()
-            .zip(args)
-            .map(|(p, arg)| Stmt::Let {
-                name: renamed(&p.name),
-                expr: arg.clone(),
-                span,
-            })
-            .collect();
-        out.extend(inlined);
+        let own = self.apart(&own);
+        self.path.push(target.to_string());
+        let inner = self.block(&own);
+        self.path.pop();
+        let mut out = vec![Stmt::Command {
+            name: format!("{CHECK}{target}"),
+            args: args.to_vec(),
+            span,
+        }];
+        out.extend(callee.params.iter().zip(args).map(|(p, arg)| Stmt::Let {
+            name: renamed(&p.name),
+            expr: arg.clone(),
+            span,
+        }));
+        out.extend(inner?);
         Ok(out)
     }
 }
