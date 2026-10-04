@@ -421,6 +421,9 @@ pub struct Runner<D: DataSource> {
     journal: std::collections::VecDeque<String>,
     /// Device requests held for the agent (LLP 1069.007 D3): not I/O.
     device_holds: Vec<device::Hold>,
+    /// Notifications the app posted under the agent (`state.notifications`):
+    /// the agent's substitute for the system's (`crate::notify`).
+    notifications: Vec<crate::notify::Notice>,
     /// Auth sessions (LLP 1069.006): live ones, and answers to deliver.
     auth: crate::auth::Sessions,
     /// The device capabilities linked (LLP 1047 D3): [`DeviceLinks`].
@@ -816,6 +819,7 @@ impl<D: DataSource> Runner<D> {
             derive_store_dependent: Vec::new(),
             journal: std::collections::VecDeque::new(),
             device_holds: Vec::new(),
+            notifications: Vec::new(),
             auth: Default::default(),
             device_links: DeviceLinks::CORE,
             input_source: None,
@@ -1089,6 +1093,15 @@ impl<D: DataSource> Runner<D> {
     /// Inspect data-source identity and readiness without executing app logic.
     pub fn data_ref(&self) -> &D {
         &self.data
+    }
+
+    /// What the app posted under the agent, oldest first (`crate::notify`).
+    pub fn notifications(&self) -> &[crate::notify::Notice] {
+        &self.notifications
+    }
+
+    pub(crate) fn notifications_mut(&mut self) -> &mut Vec<crate::notify::Notice> {
+        &mut self.notifications
     }
 
     /// Current value of a slot by name.

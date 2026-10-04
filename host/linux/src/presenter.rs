@@ -478,6 +478,8 @@ impl<D: DataSource> Presenter<D> {
                     let runner = self.host.runner_mut();
                     exact_runner::share::arm(runner, share, c.source, self.agent, false);
                 }
+                // No notification centre here: refused, or listed for the agent.
+                "showNotification" | "closeNotification" => self.notify(&c.name, &c.args),
                 "blur" => self.blur_command(&c.args),
                 "focus" => self.focus_command(&c.args),
                 // An element's, by its id (minesweeper F3); a row's is the runner's.

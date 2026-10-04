@@ -941,6 +941,42 @@ component A
     button press=go
       text "a"
 ---
+== type-notification-argument
+# `showNotification` takes the Notification API's names, named.
+component A
+  action go
+    showNotification("Stretch")
+  view
+    button press=go
+      text "a"
+---
+== type-notification-argument
+# It needs a title.
+component A
+  action go
+    showNotification(body="Five minutes")
+  view
+    button press=go
+      text "a"
+---
+== type-notification-argument
+# `showTrigger` is a time in epoch milliseconds, not text.
+component A
+  action go
+    showNotification(title="Stretch", showTrigger="7:30")
+  view
+    button press=go
+      text "a"
+---
+== type-notification-argument
+# `closeNotification` takes the tag.
+component A
+  action go
+    closeNotification()
+  view
+    button press=go
+      text "a"
+---
 == type-file-picker-argument
 # `showSaveFilePicker` takes (id, suggestedName) (LLP 1069.010 D2).
 component A

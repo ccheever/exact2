@@ -215,7 +215,7 @@ at CSS.
   capture or recursion. Pass an app value in; do not invent an ambient reference.
 - Named arguments belong to component uses, record constructors,
   `t("key", placeholder=value)`, `empty(field=value)`, canvas `surface=` bindings,
-  and the commands `share(…)` and `scrollIntoView(…)`. Every other function takes
+  and the commands `share(…)`, `showNotification(…)` and `scrollIntoView(…)`. Every other function takes
   positional arguments.
 
 For the full roster and special calls, see

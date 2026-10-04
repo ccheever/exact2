@@ -759,6 +759,11 @@ pub(super) const HOST_COMMANDS: &[&str] = &[
     // @ref LLP 1069.002 D2 — `HTMLInputElement.showPicker()` on a file input.
     "showPicker",
     "share",
+    // Local notifications by the Notification API's names (rules/DEFERRED.md,
+    // 2026-10-04): `showNotification(title=, body=, tag=, showTrigger=)` and
+    // `closeNotification(tag)`.
+    "showNotification",
+    "closeNotification",
     // @ref LLP 1069.010 D3 — export: the host copies an `app:/` file out.
     "saveFile",
     // @ref LLP 1069.010 D2 — the File System Access API's pickers.
@@ -901,6 +906,81 @@ fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Resu
         return err(
             "type-share-argument",
             "`share` needs `text=` or `url=`",
+            span,
+        );
+    }
+    Ok(())
+}
+
+/// `showNotification(title=, body=, tag=, showTrigger=)`: the Notification
+/// API's title and options by name, named only, `title` required; strings,
+/// and `showTrigger` a number (when to show it, in epoch milliseconds: the
+/// Notification Triggers draft's `TimestampTrigger`). `closeNotification(tag)`:
+/// one string. Whether the grants name `device.notifications` is the host's
+/// to refuse, as `fetch`'s grants are.
+fn notification_args(
+    name: &str,
+    args: &[Expr],
+    scope: &Scope,
+    shapes: &Shapes,
+    span: Span,
+) -> Result<(), TypeError> {
+    const USAGE: &str = "`showNotification(title=…, body=…, tag=…, showTrigger=…)`";
+    if name == "closeNotification" {
+        let one = matches!(args, [tag] if !matches!(tag, Expr::NamedArg(..)));
+        if !one || Ty::String.unify(&infer(&args[0], scope, shapes)?).is_none() {
+            return err(
+                "type-notification-argument",
+                "`closeNotification` takes the tag it closes: `closeNotification(\"reminder-1\")`",
+                span,
+            );
+        }
+        return Ok(());
+    }
+    let mut seen = BTreeSet::new();
+    for arg in args {
+        let Expr::NamedArg(arg_name, value, at) = arg else {
+            return err(
+                "type-notification-argument",
+                format!("`showNotification` takes named arguments: {USAGE}"),
+                arg.span(),
+            );
+        };
+        let want = match arg_name.as_str() {
+            "title" | "body" | "tag" => Ty::String,
+            "showTrigger" => Ty::Number,
+            other => {
+                return err(
+                    "type-notification-argument",
+                    format!("`showNotification` has no argument `{other}`; it takes title=, body=, tag= and showTrigger="),
+                    *at,
+                )
+            }
+        };
+        if !seen.insert(arg_name.as_str()) {
+            return err(
+                "type-notification-argument",
+                format!("`{arg_name}=` is given twice"),
+                *at,
+            );
+        }
+        let t = infer(value, scope, shapes)?;
+        if want.unify(&t).is_none() {
+            let what = match want {
+                Ty::Number => "a number: epoch milliseconds",
+                _ => "a string",
+            };
+            return err(
+                "type-notification-argument",
+                format!("`{arg_name}=` is {what}, not `{t}`"),
+                value.span(),
+            );
+        }
+    }
+    if !seen.contains("title") {
+        return err(
+            "type-notification-argument",
+            format!("`showNotification` needs `title=`: {USAGE}"),
             span,
         );
     }
@@ -1059,6 +1139,9 @@ pub(super) fn check_command(
     }
     if name == "saveFile" {
         return save_file_args(args, scope, shapes, span);
+    }
+    if name == "showNotification" || name == "closeNotification" {
+        return notification_args(name, args, scope, shapes, span);
     }
     if name.starts_with("show") && name.ends_with("Picker") && name != "showPicker" {
         return picker_args(name, args, scope, shapes, span);

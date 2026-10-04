@@ -2,7 +2,13 @@
 // wasm web host runs it (host/web/glue.js, navigation.js), so a command the
 // compiler admits (contract/types/src/checks.rs `HOST_COMMANDS`) is one this
 // runtime carries (files diary F5: `selectText` was refused here).
-export const commands = say => ({
+// Notifications posted under the agent, where none reaches the system: the
+// agent's `state.notifications` (agent.js), as the runner keeps them.
+export const notices = [];
+const untag = tag => { for (let i = notices.length; i--;) if (notices[i].tag === tag) notices.splice(i, 1); };
+const notifyGlue = () => import("./notify-glue.js").then(() => globalThis.exact.notifications);
+// `agent()` and `grants()`: rt.js's clock and the data module's grant text.
+export const commands = (say, { agent, grants }) => ({
   // Focus, then the field's whole text selected, as `select()` does
   // (navigation.js `runFocusCommands`).
   selectText: id => {
@@ -35,4 +41,20 @@ export const commands = say => ({
   // loaded the newest root, and nothing is ever staged.
   deliveryCheck: () => say("delivery: no update store on the web; the page loaded the newest root"),
   deliveryActivate: () => say("delivery: nothing is staged"),
+  // Local notifications by the Notification API's names, the runner's rule
+  // (runner/src/notify.rs): the data and `device.notifications` checked,
+  // listed under the agent (a tag replacing its older one), else posted by
+  // the web host's notify-glue.js. The outcome is a journal line.
+  showNotification: (title, body, tag, showTrigger) => {
+    const refuse = why => say(`showNotification: refused: ${why}`);
+    if (typeof title !== "string" || !title) return refuse("needs a title=");
+    if (showTrigger != null && !(Number.isFinite(showTrigger) && showTrigger >= 0)) return refuse("showTrigger= is a time in epoch milliseconds");
+    if (!/^\s*device\.notifications\s/m.test(grants() ?? "")) return refuse("the grants name no device.notifications");
+    const notice = { title, body: body ?? null, tag: tag ?? null, showTrigger: showTrigger ?? null };
+    if (!agent()) return notifyGlue().then(n => n.show(notice, say));
+    say(`showNotification: listed${tag == null ? "" : ` (${tag})`}`);
+    if (tag != null) untag(tag);
+    notices.push(notice);
+  },
+  closeNotification: tag => agent() ? untag(tag) : notifyGlue().then(n => n.close(tag)),
 });

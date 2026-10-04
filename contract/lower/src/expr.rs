@@ -36,10 +36,14 @@ pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
         }
         return out;
     }
-    if name != "share" {
-        return args.iter().map(Some).collect();
-    }
-    ["title", "text", "url"]
+    // The Web Share API's members, and the Notification API's title and
+    // options, in a fixed order, `none` where the author gave none.
+    let order: &[&str] = match name {
+        "share" => &["title", "text", "url"],
+        "showNotification" => &["title", "body", "tag", "showTrigger"],
+        _ => return args.iter().map(Some).collect(),
+    };
+    order
         .iter()
         .map(|want| {
             args.iter().find_map(|a| match a {

@@ -675,8 +675,8 @@ The current command name inventory is:
 `blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `focus`, `format`,
 `openURL`, `selectText`, `setScheme`, `showPicker`, `share`, `saveFile`,
 `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`,
-`haptic`, `postMessage`, `reload`, `preventDefault` and `stopPropagation`
-([keys](#keys)).
+`showNotification`, `closeNotification`, `haptic`, `postMessage`, `reload`,
+`preventDefault` and `stopPropagation` ([keys](#keys)).
 
 These appear only as action statements. They are not ordinary value-returning
 functions. Some have dedicated compiler checks while others also rely on host
@@ -691,6 +691,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js) |
 | `setScheme(...)` | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |
 | `share(...)` | [share corpus](../contract/corpus/share.contract) |
+| `showNotification(title=, body=, tag=, showTrigger=)`, `closeNotification(tag)`: a local notification by the Notification API's names, now or at `showTrigger` (epoch milliseconds); a newer one with the same `tag` replaces it, and `closeNotification` takes it away, shown or waiting. Needs the grant `device.notifications <strings key>`; see [notifications](reference.md#notifications) | [notify corpus](../contract/corpus/notify.contract) |
 | `showPicker(id)`, export `saveFile(...)` | [picker tests](../contract/cli/tests/it/picker.rs), [Fieldnotes](../apps/fieldnotes/app.contract) |
 | `showOpenFilePicker(id[, multiple])` | [file-picker corpus](../contract/corpus/file-pickers.contract) |
 | `showDirectoryPicker(id)` | Same corpus |
@@ -701,7 +702,8 @@ argument validation. Use the working implementation when selecting arguments:
 The web (its JS target) and the Apple hosts carry every command. The
 headless Linux host has no browser, clipboard, text selection, editor or dev
 menu: its `openURL`, `copyText`, `selectText`, `format` and `reload` are
-journaled as unsupported there, and `haptic` does nothing. On the web,
+journaled as unsupported there, `haptic` does nothing, and `showNotification`
+is refused (`showNotification: refused: unavailable`). On the web,
 `reload()` is the page's own reload, and `deliveryCheck` and
 `deliveryActivate` find nothing (a web build has no update store; the page is
 the newest root).

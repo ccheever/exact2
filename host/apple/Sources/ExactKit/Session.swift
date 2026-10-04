@@ -990,6 +990,10 @@ public final class ExactSession {
                     app.deliver { [weak self] in self?.share(args, source: source) }
                     continue
                 }
+                if name == "showNotification" || name == "closeNotification" {
+                    app.deliver { [weak self] in self?.notify(name, args) }
+                    continue
+                }
                 if name == "postMessage" {
                     // The inverse of `message=`: text into the named surface, in order.
                     let text = args.first as? String ?? "", surface = args.count > 1 ? args[1] as? String ?? "" : ""

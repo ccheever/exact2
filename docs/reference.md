@@ -405,6 +405,31 @@ saves the whole database file. Database files share the filesystem namespace,
 so closed databases can be copied or exported through `storage.fs`. SQLite integer results
 are `bigint`: convert them to a Contract-compatible value before returning.
 
+### Notifications
+
+`showNotification(title=…, body=…, tag=…, showTrigger=…)` posts a local
+notification; `closeNotification(tag)` takes one away, shown or still
+waiting. The names are the Notification API's (`showTrigger` is the
+Notification Triggers draft's member, given as the time in epoch
+milliseconds: the date now is `exactTime().epochAtZero + now()`). A newer notification
+with the same `tag` replaces the older. The app's grants must name
+`device.notifications purpose.notifications` (a strings key, LLP 1069.008;
+iOS shows its own fixed prompt text), or the command is refused. Permission
+is asked the first time; the outcome is a journal line
+(`showNotification: shown`, `scheduled`, `refused: denied`, …).
+
+| host | now | at `showTrigger` |
+| --- | --- | --- |
+| web | `new Notification(title, {body, tag})` | while the page is open: the web has no trigger that outlives the page |
+| macOS, iOS | `UNUserNotificationCenter`, shown with the app in front too | the system's, delivered with the app closed |
+| Linux | refused: `unavailable` | the same |
+
+Under the agent nothing reaches the system on any host: `state.notifications`
+lists what the app posted (`{title, body, tag, showTrigger}`, a tag replacing
+its older one, `closeNotification` removing it), so a drive reads a reminder
+without a permission prompt. Scheduling is one time per call: a daily
+reminder posts the next one when the app runs.
+
 ### Documents the person chose (`doc:`)
 
 A file or folder the person picks (`showOpenFilePicker`, `showDirectoryPicker`,
