@@ -483,11 +483,22 @@ impl<D: DataSource> Runner<D> {
         // once the commit stands.
         let mut later: Vec<(usize, String, Vec<Value>, Request)> = Vec::new();
         let mut answered: Vec<(u32, Value)> = Vec::new();
+        // A send before the source can answer — a TypeScript module a native
+        // host loads after first pixel (LLP 1027 D4) — waits for it, pending,
+        // as a resource's ask does and as the web's send to a module still
+        // loading does: `data_ready` sends it (notes diary: a document
+        // opened at launch was refused, and lost).
+        let mut unsent: Vec<(usize, String, Vec<Value>)> = Vec::new();
         for (m, source, sargs) in &outcome.sends {
             let m = *m as usize;
             let mrow = self.plan.mutations[m].clone();
             let name = self.plan.str(mrow.name).to_string();
             let target = Target::Mutation(m);
+            if !self.data.ready() && !exact_plan::runner_owned_source(source) {
+                unsent.retain(|u| u.0 != m);
+                unsent.push((m, source.clone(), sargs.clone()));
+                continue;
+            }
             let answer = match self.data.answer_for(target, &mut self.store, source, sargs) {
                 Ok(answer) => answer,
                 Err(error) => {
@@ -578,6 +589,16 @@ impl<D: DataSource> Runner<D> {
                 self.pending_mut[*m] = true;
             }
         }
+        // Waiting from here, so the settlement sees them pending; a refusal
+        // puts the waiting sends back as they were.
+        let unsent_before = (!unsent.is_empty()).then(|| self.unsent.clone());
+        for (m, source, args) in &unsent {
+            self.unsent.retain(|u| u.0 != *m);
+            if !assigned.contains(m) {
+                self.unsent.push((*m, source.clone(), args.clone()));
+                self.pending_mut[*m] = true;
+            }
+        }
         // What the action refreshes, added to what is already waiting
         // (LLP 1054.000.000 D2); and what each mutation it sent to declares
         // it changes, read again now that every send has asked its source.
@@ -593,6 +614,9 @@ impl<D: DataSource> Runner<D> {
         // row slots live in the tree, so they are undone here.
         if let Err(e) = self.router_change().and_then(|_| self.settle(false)) {
             self.discard_later(&later);
+            if let Some(before) = unsent_before {
+                self.unsent = before;
+            }
             for (rows, slot, old) in row_undo.into_iter().rev() {
                 match old {
                     Some(v) => rows.borrow_mut().insert(slot, v),
@@ -612,6 +636,11 @@ impl<D: DataSource> Runner<D> {
             if assigned.contains(&m) {
                 self.forget(Target::Mutation(m));
             }
+        }
+        for (m, _, _) in unsent.iter().filter(|u| !assigned.contains(&u.0)) {
+            self.log(super::lines::unsent(
+                self.plan.str(self.plan.mutations[*m].name),
+            ));
         }
         let commands: Vec<String> = self.commands[first_command..]
             .iter()
@@ -666,6 +695,7 @@ impl<D: DataSource> Runner<D> {
         self.requests.clear();
         self.forgot |= !self.pending.is_empty();
         self.pending.clear();
+        self.unsent.clear();
         self.sync_pending_flags();
     }
 
@@ -693,6 +723,9 @@ impl<D: DataSource> Runner<D> {
             let t = self.pending.remove(pos).ticket;
             self.forgot = true;
             self.log(super::lines::forgot(t, &self.target_name(target)));
+        }
+        if let Target::Mutation(m) = target {
+            self.unsent.retain(|u| u.0 != m);
         }
         self.sync_pending_flags();
     }
@@ -786,9 +819,13 @@ impl<D: DataSource> Runner<D> {
                 Target::Mutation(m) => self.pending_mut[m] = true,
             }
         }
-        // A placeholder shown until the source can answer is pending too.
+        // A placeholder shown until the source can answer is pending too,
+        // and so is a send waiting for it.
         for (i, awaiting) in self.awaiting.iter().enumerate() {
             self.pending_res[i] |= *awaiting;
+        }
+        for (m, _, _) in &self.unsent {
+            self.pending_mut[*m] = true;
         }
     }
 
