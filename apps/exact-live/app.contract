@@ -426,12 +426,12 @@ component ExactLive
           else
             box flex=1
           when running
-            button press=pause testId="pause-live" min-height=44 justify-content="center" padding=10 border-width=0 border-radius=8 background-color=theme.wash
+            button press=pause testId="pause-live" min-height=44 padding=10 border-width=0 border-radius=8 background-color=theme.wash
               text "Pause" font-size=12 color=theme.accent
           else
-            button press=startLive testId="start-live" min-height=44 justify-content="center" padding=10 border-width=0 border-radius=8 background-color=theme.accent
+            button press=startLive testId="start-live" min-height=44 padding=10 border-width=0 border-radius=8 background-color=theme.accent
               text "Go live" font-size=12 color=theme.page
-          button press=toggleInspector testId="toggle-load" aria-label="Workload controls" min-width=44 min-height=44 justify-content="center" padding=10 border-width=0 border-radius=8 background-color=theme.card
+          button press=toggleInspector testId="toggle-load" aria-label="Workload controls" min-width=44 min-height=44 padding=10 border-width=0 border-radius=8 background-color=theme.card
             text "•••" color=theme.ink
         row align-items="center" gap=6
           PaneButton(name="rundown", label="Rundown", selected=pane, choose=showPane)
@@ -497,20 +497,20 @@ component ExactLive
                 RunbookPanel(book=book, busy=pending(book), requested=bookBytes, narrow=readingNarrow, toggle=toggleReading)
               else
                 RundownPanel(gallery=gallery, rows=rows, command=command, reorder=dropRundown)
-              button press=toggleSheet testId="open-crew-sheet" height=44 justify-content="center" flex-shrink=0 border-width=0 background-color=theme.wash
+              button press=toggleSheet testId="open-crew-sheet" height=44 flex-shrink=0 border-width=0 background-color=theme.wash
                 text "Open crew notes ↑" font-size=13 color=theme.accent
           when crewSheet and pane != "crew"
             column id="crew-sheet" testId="crew-sheet" position="absolute" left=0 right=0 bottom=0 height=sheetPx max-height="100%" min-height=120 box-sizing="border-box" overflow="hidden" background-color=theme.card border-radius=16 transition="height spring(300, 30, 1)" z-index=10
               row height=48 flex-shrink=0 align-items="center" gap=8 padding-left=12 padding-right=12
                 box heightDragFor="crew-sheet" heightrelease=snapSheet touch-action="none" flex=1 height=44 testId="crew-sheet-grip" aria-label="Resize crew notes"
                   text "──  Crew notes" font-size=13 color=theme.muted
-                button press=chooseSheet(180) min-height=44 justify-content="center" padding=8 border-width=0 testId="crew-sheet-peek"
+                button press=chooseSheet(180) min-height=44 padding=8 border-width=0 testId="crew-sheet-peek"
                   text "Peek" font-size=11
-                button press=chooseSheet(360) min-height=44 justify-content="center" padding=8 border-width=0 testId="crew-sheet-read"
+                button press=chooseSheet(360) min-height=44 padding=8 border-width=0 testId="crew-sheet-read"
                   text "Read" font-size=11
-                button press=chooseSheet(640) min-height=44 justify-content="center" padding=8 border-width=0 testId="crew-sheet-full"
+                button press=chooseSheet(640) min-height=44 padding=8 border-width=0 testId="crew-sheet-full"
                   text "Full" font-size=11
-                button press=toggleSheet min-height=44 justify-content="center" padding=8 border-width=0 testId="close-crew-sheet"
+                button press=toggleSheet min-height=44 padding=8 border-width=0 testId="close-crew-sheet"
                   text "Close" font-size=11
               CrewPanel(history=history, draft=draft, replying=replying, tooLong=draftTooLong, edit=editDraft, post=sendDraft, reply=replyTo, cancel=clearReply, stress=(count != 0))
       column padding=10 flex-shrink=0 border-top-width=1 border-color=theme.edge background-color=theme.card
@@ -537,7 +537,7 @@ component PaneButton
     selected: string
     choose: action
   view
-    button press=choose(name) testId=`pane-${name}` aria-label=`${label}${selected == name ? ", selected" : ""}` min-height=44 justify-content="center" padding=10 border-width=0 border-radius=7 background-color=(selected == name ? theme.wash : theme.page)
+    button press=choose(name) testId=`pane-${name}` aria-label=`${label}${selected == name ? ", selected" : ""}` min-height=44 padding=10 border-width=0 border-radius=7 background-color=(selected == name ? theme.wash : theme.page)
       text label font-size=13 font-weight=600 color=(selected == name ? theme.accent : theme.muted)
 
 component LoadButton
@@ -549,7 +549,7 @@ component LoadButton
     selected: number
     choose: action
   view
-    button press=choose(n) padding=8 min-height=44 justify-content="center" border-width=0 border-radius=6 background-color=(selected == n ? theme.accent : theme.card)
+    button press=choose(n) padding=8 min-height=44 border-width=0 border-radius=6 background-color=(selected == n ? theme.accent : theme.card)
       text label font-size=12 color=(selected == n ? theme.card : theme.ink)
 
 component RundownPanel
@@ -580,7 +580,7 @@ component RundownPanel
         list id="rundown-arrange" reorderdrop=reorder virtualized=true testId="rundown-list" flex=1 min-height=0 width="100%" overflow-x="hidden" overscroll-behavior="contain"
           each photo in rows key=photo.id
             column padding-left=16 padding-right=16 padding-top=6 padding-bottom=6 width="100%" box-sizing="border-box" gap=6
-              button press=command("open", photo.id, 0) testId=`open-${photo.id}` width="100%" height=190 justify-content="center" border-width=0 padding=0 border-radius=10 overflow="hidden" aria-label=`Open ${photo.title}`
+              button press=command("open", photo.id, 0) testId=`open-${photo.id}` width="100%" height=190 border-width=0 padding=0 border-radius=10 overflow="hidden" aria-label=`Open ${photo.title}`
                 image photo.asset aria-label=photo.alt width="100%" height="100%" object-fit="cover"
               ArrangeCard(photo=photo, gallery=gallery, command=command)
         when gallery.notice != ""
@@ -625,7 +625,7 @@ component CrewPanel
               text "Cancel" font-size=11
         row gap=8 align-items="center"
           input value=draft input=edit testId="crew-input" aria-label="Write a local crew note" placeholder="Leave a note for this scene…" flex=1 min-width=0 min-height=44 padding=10 border-width=1 border-color=theme.edge border-radius=8 background-color=theme.page color=theme.ink font-size=14
-          button press=post testId="send-note" padding=10 min-height=44 justify-content="center" border-width=0 border-radius=8 background-color=theme.accent
+          button press=post testId="send-note" padding=10 min-height=44 border-width=0 border-radius=8 background-color=theme.accent
             text "Post" font-size=12 color=theme.card
         text "Device-local · latest note retained" font-size=10 color=theme.muted
         when tooLong
@@ -646,7 +646,7 @@ component RunbookPanel
         column flex=1 gap=4
           text "THE RUNBOOK" font-size=10 letter-spacing=1 color=theme.accent
           text "Make the handoff feel effortless." font-size=16 font-weight=600
-        button press=toggle testId="reading-width" padding=8 min-height=44 justify-content="center" border-width=0 border-radius=7 background-color=theme.wash
+        button press=toggle testId="reading-width" padding=8 min-height=44 border-width=0 border-radius=7 background-color=theme.wash
           text (narrow ? "Roomy" : "Focused") font-size=12 color=theme.accent
       when busy
         column padding=20 gap=8 testId="runbook-pending"
@@ -771,7 +771,7 @@ component ActionButton
     shortcut: string
     command: action
   view
-    button press=command(op, target, n) id=id testId=id aria-keyshortcuts=shortcut min-height=44 justify-content="center" padding=8 border-width=0 border-radius=6 background-color=theme.wash
+    button press=command(op, target, n) id=id testId=id aria-keyshortcuts=shortcut min-height=44 padding=8 border-width=0 border-radius=6 background-color=theme.wash
       text label font-size=12 color=theme.accent
 
 

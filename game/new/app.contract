@@ -33,7 +33,7 @@ component SmallGame
           when hud.near != ""
             text "Press E or tap Light" testId="near-prompt" position="absolute" top=76 left=24 padding=12 border-radius=12 background-color="#202731cc"
           button action="move" role="slider" aria-label="Move" testId="move" position="absolute" left=24 bottom=24 width=96 height=96 border-radius=48 background-color="#354751"
-            text "Move" color="#ffffff" text-align="center" padding-top=36
+            text "Move" color="#ffffff"
           row position="absolute" right=24 bottom=24 gap=12
             button action="jump" testId="jump" padding=16 border-radius=12 background-color="#354751"
               text "Jump" color="#ffffff"
