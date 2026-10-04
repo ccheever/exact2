@@ -150,7 +150,8 @@ impl Images {
             });
             view.desired = (node.frame.width * scale, node.frame.height * scale);
             view.visible = visible(*id);
-            // LLP 1035.004.000: symbols are an empty em square on Linux,
+            // LLP 1035.004.000: a symbol is an em square no file fills (the
+            // paint walk strokes a portable role's path into it, `symbol`),
             // never a file request and never the previously accepted raster.
             if source.starts_with("symbol:") {
                 if let Some((request, _)) = view.request.take() {

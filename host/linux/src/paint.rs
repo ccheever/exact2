@@ -1010,7 +1010,13 @@ impl Painter {
                 }
             }
             NodeType::Image => {
-                if let Some(img) = walk.scene.images.get(&node.id) {
+                if node
+                    .props
+                    .str(exact_kernel::PropId::ImageSource)
+                    .is_some_and(|s| s.starts_with("symbol:"))
+                {
+                    self.symbol(node, content, image_tint(s, &shown, self.dark), ts);
+                } else if let Some(img) = walk.scene.images.get(&node.id) {
                     if let Some(dst) = object_fit(img.natural(), s.object_fit, content) {
                         self.backend.image(
                             img,

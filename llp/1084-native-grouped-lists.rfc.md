@@ -2,7 +2,7 @@
 
 **Type:** RFC
 **Status:** Implemented 2026-10-03 (§6, as built). Numbered 1082 until 2026-10-04, when it was renumbered because LLP 1082 (hosting) had landed under the same number. Charlie approved the direction on 2026-10-03: "A native grouped-list role mapped to UICollectionView list layout." That approval is the human word for the fixture page (`scripts/fixtures/grouped-list.contract`) and for the DEFERRED entry this adds (§5).
-**Systems:** Contract (`contract/lower/src/grouped.rs`, new: the shape checks and the sheet; `lib.rs`: the hook; `tags.rs`: `listStyle`), Kernel (`schema.json`: prop 225 `listStyle`, the `info` symbol role; `kernel/src/grouped.rs`, new: `Kernel::grouped_list`), Apple host (`abi/commands.rs`, `abi/exports.rs`, `include/exact.h`: `exact_grouped_list`; `IOS/GroupedListIOS.swift`, new; `PresenterIOS.swift`, `Bridge.swift`, `Session.swift`, `ChromeIndex.swift`, `AgentIOS.swift`, `AgentNativeIOS.swift`: the wiring), web, macOS and Linux (nothing: they draw the sheet)
+**Systems:** Contract (`contract/lower/src/grouped.rs`, new: the shape checks and the sheet; `lib.rs`: the hook; `tags.rs`: `listStyle`), Kernel (`schema.json`: prop 225 `listStyle`, the `info` symbol role; `kernel/src/grouped.rs`, new: `Kernel::grouped_list`), Linux host (`paint.rs`, `paint/svg.rs`: symbol roles painted, §4), Apple host (`abi/commands.rs`, `abi/exports.rs`, `include/exact.h`: `exact_grouped_list`; `IOS/GroupedListIOS.swift`, new; `PresenterIOS.swift`, `Bridge.swift`, `Session.swift`, `ChromeIndex.swift`, `AgentIOS.swift`, `AgentNativeIOS.swift`: the wiring), web and macOS (nothing: they draw the sheet)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Implementer:** Claude (Opus 5.5), on `grouped-list`, 2026-10-03
 **Date:** 2026-10-03
@@ -138,12 +138,12 @@ Colours are `light-dark()` pairs of §2's values.
 ## 4. What is declared, not fixed
 
 - **The sheet is iOS 27's inset-grouped look on every other host.** It is not macOS's grouped form or a GTK list. Like the native-button looks, it is a stated approximation.
-- **What the fallbacks draw differently from UIKit, seen in the comparison sheets (§6), each deliberate:**
-  - *The web's switch is a checkbox.* Chrome has no `switch` attribute. LLP 1069.001 D1 says a browser without it draws a checkbox that ARIA still announces as a switch, and the sheet does not restyle a control.
-  - *The web's row titles look heavier than UIKit's.* The sheet sets no weight: the title is `system-ui` at 400. The agent's web screenshot is rendered at 1×, without UIKit's 3× hinting, so the glyphs read heavier.
-  - *The web's chevrons are faint.* A role symbol is a stroked path in a 24-unit box (LLP 1035.004.000). At the chevron's 14-pt box the stroke is about 1.2 px. A larger box would draw Apple's glyph too large on macOS, which fits `chevron.forward` to the box.
-  - *Linux draws no leading symbols, chevrons, checkmark or info button.* Linux has no symbol path: a `symbol:` image is an empty em square there (LLP 1035.004.000 D4).
-  - *Linux's section headers look bold.* The header is 600, UIKit's semibold. The Linux host's pinned face, DejaVu Sans, has no semibold, so 600 draws Bold.
+- **Where the fallbacks differ from UIKit (§6's comparison sheets).** One gap is fixed; the rest are declared.
+  - *Fixed: Linux draws symbol roles.* The paint walk strokes a portable role's path the way the web does (`paint/svg.rs` `symbol`): the leading icons, the chevrons, the checkmark and the info button. Before this, Linux painted every `symbol:` image as an empty box. An `sf/` name still draws nothing there (LLP 1035.004.000 D4). This applies to every app on Linux, not only grouped lists. Tested in `host/linux/tests/it/svg.rs`.
+  - *Declared: the web's switch is a checkbox.* Chrome has no `switch` attribute, and LLP 1069.001 D1 specifies the checkbox fallback. Drawing a 51 × 31 track in `index.html` would be a few lines of CSS. But it would move every switch's box on the web away from the Chrome-oracle table (`kernel/tests/it/browser_controls.rs`) and the kernel's 13 × 13 default. That is a change to form controls, not a grouped-list fix, so it is queued.
+  - *Declared: the web's row titles look heavier than UIKit's.* The sheet sets no weight, so a title is `system-ui` at 400. The agent's web screenshots are 1× rasters, while UIKit's are 3×. This was checked in the CSS, not against a 2× capture.
+  - *Declared: the web's chevrons are faint.* A role symbol is a stroked path in a 24-unit box (LLP 1035.004.000). In the chevron's 14-pt box the stroke is about 1.4 px. A larger box would draw Apple's own glyph too large on macOS, which fits `chevron.forward` to the box.
+  - *Declared: Linux's section headers look bold.* A header is weight 600, UIKit's semibold. The Linux host's pinned face, DejaVu Sans, has no semibold, so 600 draws Bold.
 - **The sheet is fixed at 17 pt.** Dynamic type is UIKit's, on iOS.
 - **The sheet has no pressed highlight.** A web row is a `button` and keeps the button's own focus ring.
 - **Symbols on the web are role paths in a 24-unit box** (LLP 1035.004.000), so a sheet-sized chevron draws a little smaller there than UIKit's glyph. An `sf/` name draws nothing on the web or Linux, as everywhere.
