@@ -97,7 +97,10 @@ opt-level = 3
 # 3.4 s, against 102 s at `release`, whose one codegen unit compiles the kernel
 # in 58 s on one core before a 36 s LTO link. Startup is ~5% slower and the
 # binary ~1 MB larger than release (Charlie, 2026-09-24); what ships is baked
-# at `release`.
+# at `release`. `lto = "off"`, which also drops the thin LTO rustc runs inside
+# each crate, was measured (an M4, 2026-10-04) and not taken: a cold build's
+# Rust is 21% less CPU and a rebuild no faster, while the runner's boot work is
+# 13% slower and the executable 3 MB larger.
 [profile.host-dev]
 inherits = "release"
 lto = false
