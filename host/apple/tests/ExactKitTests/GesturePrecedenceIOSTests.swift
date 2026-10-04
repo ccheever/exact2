@@ -39,7 +39,7 @@ final class GesturePrecedenceIOSTests: XCTestCase {
             ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0]
         ])
         var log: [String] = []
-        p.onPointer = { id, down in log.append("\(down ? "down" : "up") \(id)") }
+        p.onPointer = { id, kind, _ in log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)") }
         let node = try XCTUnwrap(p.views[1])
         let g = try XCTUnwrap(node.gestureRecognizers?.compactMap { $0 as? PointerRecognizer }.first)
         XCTAssertFalse(g.cancelsTouchesInView)

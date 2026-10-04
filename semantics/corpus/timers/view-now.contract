@@ -1,0 +1,19 @@
+// now() read directly in a view and in a testId: shown as of the last
+// render, which an idle advance does not redo.
+component App
+  state n = 0
+  action poke
+    n = n + 1
+  view
+    column
+      text `${now()}` testId="clock"
+      text "x" testId=`at-${now()}`
+      button "poke" press=poke testId="poke"
+
+test "view now"
+  clock +100
+  tap "poke"
+  expect text "clock" == "100"
+  expect tree has "at-100"
+  clock +1
+  expect text "clock" == "100"

@@ -61,8 +61,10 @@ extension Agent {
 
     var presenter: Presenter { session.presenter }
 
-    /// AppKit animates nothing here that a seek does not move.
-    func nativeInFlight() -> Bool { false }
+    /// AppKit animates nothing here that a seek does not move, but for a
+    /// list's smooth correction under platform timing, the clip view's
+    /// animator (LLP 1070.000 §11): the fixed point is where it lands.
+    func nativeInFlight() -> Bool { !presenter.collections.animating.isEmpty }
 
     /// Diagnostic tap {resize:[w,h]} (LLP 1041 §8). Resize the containing
     /// NSWindow, allowing ExactView's ordinary fit/inset path to follow.
@@ -312,6 +314,36 @@ extension Agent {
         return presenter.textHost(UInt32(id))
     }
 
+    /// The agent's `reveal` (ledger F7, shop F11): before a tap or a type, a
+    /// view whose middle is out of view is scrolled to the middle of each
+    /// enclosing clip view it is outside of, innermost first, then the page's
+    /// — as the web's `scrollIntoView` does there (block centre, inline only
+    /// as far as it takes), each clamped to its range. The clip views' bounds
+    /// observers tell the app, as a person's scroll does.
+    func reveal(_ req: [String: Any]) -> [String: Any] {
+        guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
+        let from = box(v)
+        var scrolled = false
+        for case let clip as NSClipView in sequence(first: v.superview, next: { $0?.superview }).compactMap({ $0 }) {
+            let frame = v.convert(v.bounds, to: clip), port = clip.bounds
+            let mid = CGPoint(x: frame.midX, y: frame.midY)
+            if port.contains(mid) { continue }
+            var origin = port.origin
+            if mid.y < port.minY || mid.y >= port.maxY { origin.y = mid.y - port.height / 2 }
+            if mid.x < port.minX || mid.x >= port.maxX { origin.x = frame.maxX > port.maxX ? frame.maxX - port.width : frame.minX }
+            let to = clip.constrainBoundsRect(NSRect(origin: origin, size: port.size)).origin
+            if to == port.origin { continue }
+            clip.scroll(to: to)
+            (clip.superview as? NSScrollView)?.reflectScrolledClipView(clip)
+            scrolled = true
+        }
+        guard scrolled else { return ["revealed": Int(v.id), "scrolled": false] }
+        presenter.settlePump()
+        let to = box(v)
+        return ["revealed": Int(v.id), "scrolled": true,
+                "from": [Agent.r2(from.midX), Agent.r2(from.midY)], "to": [Agent.r2(to.midX), Agent.r2(to.midY)]]
+    }
+
     /// A contact held across requests (LLP 1035.003 D1): the mouse button
     /// down at a point in the viewport, dragged along a declared path,
     /// held, released — each phase a real `NSEvent` through `sendEvent`,
@@ -443,11 +475,19 @@ extension Agent {
             if let node = win.contentView?.hitTest(p) as? NodeView, node.canvasInput != nil,
                let event = NSEvent.mouseEvent(with: .mouseMoved, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) {
                 node.mouseMoved(with: event)
+                presenter.flushHoverMove()
                 return ["tapped": Int(v.id), "hover": true, "at": at, "delivery": "platform"]
             }
             // The pointer moved onto the target: the node with a hover
             // handler at the hit point enters (and whatever was hovered
-            // leaves), as a tracking area would report for a real move.
+            // leaves), as a tracking area would report for a real move, and
+            // the nearest `pointermove` node hears the move (LLP 1056 §3).
+            var mover: NSView? = win.contentView?.hitTest(p) ?? v
+            while let cur = mover, !((cur as? NodeView)?.handlers.contains("pointermove") ?? false) { mover = cur.superview }
+            if let node = mover as? NodeView, let event = NSEvent.mouseEvent(with: .mouseMoved, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) {
+                node.pointerHovered(event)
+                presenter.flushHoverMove()
+            }
             var n: NSView? = win.contentView?.hitTest(p) ?? v
             while let cur = n, !((cur as? NodeView)?.handlers.contains("hover") ?? false) { n = cur.superview }
             if let node = n as? NodeView { presenter.hover(node, true) } else if let h = presenter.hovered { presenter.hover(h, false) }
@@ -527,12 +567,31 @@ extension Agent {
             return ["tapped": Int(v.id), "pinch": scale, "at": at, "delivery": "platform"]
         }
         if v.kind == "iframe" { return session.webviews.tap(v, request: req, at: at) }
+        // A right click (minesweeper F8): the right button down and up at the
+        // point through the window, as a mouse's are routed; `rightMouseUp`
+        // answers it on the node with a `contextmenu` handler.
+        if req["contextmenu"] as? Bool == true {
+            let t = ProcessInfo.processInfo.systemUptime
+            let eventNumber = AgentMouseRelease.nextEventNumber()
+            guard let down = NSEvent.mouseEvent(with: .rightMouseDown, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: 1, pressure: 1),
+                  let up = NSEvent.mouseEvent(with: .rightMouseUp, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: 1, pressure: 0)
+            else { return ["error": "no mouse event"] }
+            win.sendEvent(down)
+            win.sendEvent(up)
+            return ["tapped": Int(v.id), "at": at, "contextmenu": true, "delivery": "platform"]
+        }
+        // The modifiers held through the click (gallery F20: shift-click).
+        var held: NSEvent.ModifierFlags = []
+        for name in (req["modifiers"] as? String ?? "").split(separator: "+") {
+            guard let flag = ["Shift": NSEvent.ModifierFlags.shift, "Control": .control, "Alt": .option, "Meta": .command][String(name)] else { return ["error": "tap: unknown modifier \(name)"] }
+            held.insert(flag)
+        }
         // A double click is two real clicks, the second with clickCount 2.
         for clicks in 1...(req["dblclick"] as? Bool == true ? 2 : 1) {
             let t = ProcessInfo.processInfo.systemUptime
             let eventNumber = AgentMouseRelease.nextEventNumber()
-            guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: clicks, pressure: 1),
-                  let up = NSEvent.mouseEvent(with: .leftMouseUp, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: clicks, pressure: 0),
+            guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: p, modifierFlags: held, timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: clicks, pressure: 1),
+                  let up = NSEvent.mouseEvent(with: .leftMouseUp, location: p, modifierFlags: held, timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: clicks, pressure: 0),
                   let release = AgentMouseRelease(up)
             else { return ["error": "no mouse event"] }
             // NSTextView and AVKit controls may track synchronously inside mouseDown.
@@ -572,6 +631,7 @@ extension Agent {
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
+        if let edit = req["clipboard"] as? String { return clipboardType(v, edit, req["text"] as? String) }
         if v.kind == "native", req["key"] == nil { return nativeType(v, req) }
         if session.canvases.wantsInput(v.id) { return canvasType(v, req) }
         if req["key"] == nil, let reply = presenter.controls.type(v, req["text"] as? String ?? "") { return reply }
@@ -594,6 +654,11 @@ extension Agent {
                 case "Control": modifiers.insert(.control); case "Alt": modifiers.insert(.option)
                 default: return ["error": "unknown key modifier \(modifier)"] }
             }
+            // A modifier alone is held as it goes down, as the web's keydown
+            // for Shift says `shiftKey`; AppKit has it as a flags change, not
+            // a key for a responder (chat F8).
+            let lone = device.map { KeyCodes.modifier($0.code) } == true
+            if lone { modifiers.insert(["Shift": .shift, "Control": .control, "Alt": .option, "Meta": .command][key] ?? []) }
             // NSWindow delivery bypasses the local event monitor. Share its
             // pressed-control route before making any responder change.
             let phase = req["phase"] as? String
@@ -636,7 +701,10 @@ extension Agent {
                 _ = v.focusSurfacePointer()
             } else if v.acceptsFirstResponder {
                 if win.firstResponder !== v { win.makeFirstResponder(v) }
-            } else { return ["error": "view \(v.id) takes no key"] }
+            }
+            // A target that takes no focus leaves it where it is, as the web's
+            // `focus()` on one does: the key goes to whatever holds the focus,
+            // or to the page's shortcuts when nothing does (pomodoro F5).
             let (chars, code): (String, UInt16) = {
                 switch key {
                 case "Plus": return ("+", 24)
@@ -653,7 +721,7 @@ extension Agent {
                 case "ArrowRight": return ("\u{F703}", 124)
                 default:
                     let code = device.flatMap { device in KeyCodes.mac.first(where: { $0.value == device.code })?.key }
-                    return (key, UInt16(code ?? 0))
+                    return (lone ? "" : key, UInt16(code ?? 0))
                 }
             }()
             let t = ProcessInfo.processInfo.systemUptime
@@ -666,7 +734,10 @@ extension Agent {
             // This driver sends directly to NSWindow, bypassing NSApplication's
             // local monitor. Use the same session command router first.
             presenter.flushKeyViewLoop()
-            if phase != "up", presenter.menus.key(down) || presenter.dialogs.key(down) || presenter.shortcuts.perform(down) {
+            // The monitor's route (`Presenter.routeKey`): shortcuts, the focus's
+            // `key` handlers (a prevented key goes no further), then the menus'
+            // and dialogs' defaults.
+            if phase != "up", presenter.routeKey(down, focused: true, in: win) {
                 if phase != "down" { _ = presenter.menus.key(up) }
                 if phase == "down", let release = req["releaseKey"] as? String {
                     // A host command consumed the down; its up belongs to no module instance.
@@ -680,11 +751,18 @@ extension Agent {
             if v.kind == "native" { return nativeType(v, req, token: nativeToken) }
             // Accessory test windows may have a first responder before
             // NSApp has a keyWindow. Deliver to the named responder first.
+            // An Edit menu chord (⌘X, ⌘C, ⌘V) first, whether or not a window is
+            // key (the agent's need not be): its action through the responder chain,
+            // as the menu would send it (spreadsheet F14: ⌘V's paste).
+            let edits: [String: Selector] = ["x": #selector(NSText.cut(_:)), "c": #selector(NSText.copy(_:)), "v": #selector(NSText.paste(_:))]
+            if phase != "up", modifiers == .command, let action = edits[key], win.firstResponder?.tryToPerform(action, with: nil) == true {
+                return ["typed": Int(v.id), "key": chord, "delivery": "platform"]
+            }
             if phase != "up", modifiers.contains(.command), v.performKeyEquivalent(with: down) || NSApp.mainMenu?.performKeyEquivalent(with: down) == true {
                 return ["typed": Int(v.id), "key": chord]
             }
-            if phase != "up" { win.sendEvent(down) }
-            if phase != "down" { win.sendEvent(up) }
+            if phase != "up", !lone { win.sendEvent(down) }
+            if phase != "down", !lone { win.sendEvent(up) }
             if phase == "down", let token = req["releaseKey"] as? String {
                 keyReleases[token] = { [weak v] in
                     v?.keyUp(with: up)
@@ -695,17 +773,20 @@ extension Agent {
         }
         if let f = v.textArea {
             if !win.isKeyWindow { win.makeKey() }
-            win.makeFirstResponder(f)
+            if win.firstResponder !== f { win.makeFirstResponder(f) }
             f.selectAll(nil)
-            f.insertText(req["text"] as? String ?? "", replacementRange: f.selectedRange())
+            f.insertText(TextInputLimit.prefix(req["text"] as? String ?? "", props: v.props), replacementRange: f.selectedRange())
             return ["typed": Int(v.id), "value": f.string]
         }
         guard let f = v.field else { return ["error": "view \(v.id) is not an input"] }
-        let text = req["text"] as? String ?? ""
+        let text = TextInputLimit.prefix(req["text"] as? String ?? "", props: v.props)
         // The field editor needs a key window; an accessory app's is not
         // one until asked (and asking does not activate the app).
         if !win.isKeyWindow { win.makeKey() }
-        win.makeFirstResponder(f)
+        // A field already being edited keeps its editor: asking again would
+        // end the editing (a blur) and begin it (a focus), which a person's
+        // typing never does.
+        if f.currentEditor().map({ win.firstResponder !== $0 }) ?? true { win.makeFirstResponder(f) }
         guard let editor = f.currentEditor() as? NSTextView else { return ["error": "the field has no editor"] }
         editor.selectAll(nil)
         editor.insertText(text, replacementRange: editor.selectedRange())
@@ -722,7 +803,23 @@ extension Agent {
         guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "CGWindowListCreateImage") else { return nil } // RTLD_DEFAULT
         let create = unsafeBitCast(symbol, to: Create.self)
         // kCGWindowListOptionIncludingWindow; kCGWindowImageBoundsIgnoreFraming | kCGWindowImageBestResolution
-        return create(.null, 1 << 3, UInt32(number), 1 << 0 | 1 << 3)?.takeRetainedValue()
+        guard let image = create(.null, 1 << 3, UInt32(number), 1 << 0 | 1 << 3)?.takeRetainedValue(), !emptyPicture(image) else { return nil }
+        return image
+    }
+
+    /// Whether the window server's picture holds nothing. A display that is
+    /// asleep, or a locked screen, still answers, with a transparent picture
+    /// a pixel or two short of the window: no picture, not a wrong one. An
+    /// opaque window's has no transparent pixel, so its average says.
+    static func emptyPicture(_ image: CGImage) -> Bool {
+        var pixel = [UInt8](repeating: 0, count: 4)
+        let drawn = pixel.withUnsafeMutableBytes { bytes -> Bool in
+            guard let one = CGContext(data: bytes.baseAddress, width: 1, height: 1, bitsPerComponent: 8, bytesPerRow: 4,
+                                      space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            one.draw(image, in: CGRect(x: 0, y: 0, width: 1, height: 1))
+            return true
+        }
+        return !drawn || pixel[3] == 0
     }
 
     func screenshot(_ req: [String: Any]) -> [String: Any] {
@@ -747,29 +844,22 @@ extension Agent {
             CATransaction.flush()
             let refresh = 1 / Double(max(30, window.screen?.maximumFramesPerSecond ?? 60))
             RunLoop.main.run(until: Date(timeIntervalSinceNow: 2 * refresh + 0.004))
-            guard let image = Self.ownWindowImage(window.windowNumber) else { return ["error": "the window server gave no picture of window \(window.windowNumber)"] }
+            guard let image = Self.ownWindowImage(window.windowNumber) else { return ["error": "the window server gave no picture of window \(window.windowNumber); a display that is asleep or a locked screen gives an empty one"] }
             guard let png = NSBitmapImageRep(cgImage: image).converting(to: .sRGB, renderingIntent: .default)?.representation(using: .png, properties: [:]) else { return ["error": "no PNG"] }
             do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
             var r: [String: Any] = ["screenshot": path, "window": true, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height), "scale": Agent.r2(window.backingScaleFactor)]
             if loading > 0 { r["imagesPending"] = loading }
             return r
         }
-        guard let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return ["error": "no bitmap for the viewport"] }
         Capture.web = session.webviews.snapshots().merging(session.natives.snapshots()) { web, _ in web }
         let hidden = (presenter.views.values.compactMap(\.web) + session.natives.snapshotViews).map { ($0, $0.isHidden) }
         hidden.forEach { $0.0.isHidden = true }
         // As a capture: every canvas paints its picture, read back from the
         // module, and every iframe paints its arm snapshot at its node.
-        let fills = Capture.hideBoxFills(in: v)
-        Capture.capturing = true
-        v.cacheDisplay(in: v.bounds, to: rep)
-        Capture.capturing = false
-        Capture.restore(fills)
+        let picture = Capture.picture(of: v)
         hidden.forEach { $0.0.isHidden = $0.1 }
         Capture.web = [:]
-        // The display's profile can be P3. Agent pixel comparisons and films
-        // consume sRGB bytes, so convert the pixels rather than just retagging.
-        guard let png = rep.converting(to: .sRGB, renderingIntent: .default)?.representation(using: .png, properties: [:]) else { return ["error": "no sRGB PNG"] }
+        guard let png = picture?.representation(using: .png, properties: [:]) else { return ["error": "no sRGB PNG of the viewport"] }
         do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
         var r: [String: Any] = ["screenshot": path, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height)]
         if loading > 0 { r["imagesPending"] = loading }
@@ -789,5 +879,98 @@ extension Agent {
         (Agent.systemAppearance ?? NSApp.effectiveAppearance).bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
     nonisolated(unsafe) static var systemAppearance: NSAppearance?
+}
+
+extension Capture {
+    /// `view` as the agent's screenshot shows it, in sRGB: drawn into sRGB,
+    /// so a translucent fill blends there as Chrome blends it, whatever the
+    /// display's profile (spreadsheet F18), and agent pixel comparisons and
+    /// films read sRGB bytes.
+    static func picture(of view: NSView) -> NSBitmapImageRep? {
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)?.retagging(with: .sRGB) else { return nil }
+        draw(view, to: rep)
+        return rep
+    }
+
+    /// `view` drawn by `cacheDisplay` as the window shows it: as a capture
+    /// (`capturing`), box fills an inset shadow paints hidden, siblings in
+    /// their z order, animations at what they present.
+    static func draw(_ view: NSView, to rep: NSBitmapImageRep) {
+        let shown = showAnimations(in: view.layer)
+        let fills = hideBoxFills(in: view), ordered = paintOrder(in: view)
+        capturing = true
+        view.cacheDisplay(in: view.bounds, to: rep)
+        capturing = false
+        ordered(); restore(fills); shown()
+    }
+
+    /// `cacheDisplay` draws subviews in array order; the window server
+    /// composites siblings by `zPosition`, which carries CSS `z-index`
+    /// (the kernel's paint rank, LLP 1083.000). For the capture, each view's subviews are in the
+    /// order they show — a sticky header over the rows that scroll under it
+    /// (spreadsheet F13), a raised dropdown over the content after it (shop
+    /// F18) — and the closure returned puts them back.
+    private static func paintOrder(in root: NSView) -> () -> Void {
+        var undo: [(NSView, [NSView])] = []
+        func walk(_ view: NSView) {
+            let subviews = view.subviews
+            if subviews.contains(where: { ($0.layer?.zPosition ?? 0) != 0 }) {
+                // Stable: equal z keeps document order.
+                let shown = subviews.enumerated().sorted {
+                    let (a, b) = ($0.element.layer?.zPosition ?? 0, $1.element.layer?.zPosition ?? 0)
+                    return a != b ? a < b : $0.offset < $1.offset
+                }.map(\.element)
+                if shown != subviews { undo.append((view, subviews)); arrange(view, shown) }
+            }
+            subviews.forEach(walk)
+        }
+        walk(root)
+        return { for (view, subviews) in undo.reversed() { arrange(view, subviews) } }
+    }
+
+    /// Reorder in place: assigning `subviews` detaches and reattaches them,
+    /// which resigns a first responder among them (`CollectionMac`).
+    private static func arrange(_ view: NSView, _ order: [NSView]) {
+        var ranks = Dictionary(uniqueKeysWithValues: order.enumerated().map { (ObjectIdentifier($0.element), $0.offset) })
+        withUnsafeMutablePointer(to: &ranks) { context in
+            view.sortSubviews({ left, right, raw in
+                let rank = raw!.assumingMemoryBound(to: [ObjectIdentifier: Int].self).pointee
+                let a = rank[ObjectIdentifier(left)] ?? 0, b = rank[ObjectIdentifier(right)] ?? 0
+                return a < b ? .orderedAscending : a > b ? .orderedDescending : .orderedSame
+            }, context: context)
+        }
+    }
+
+    /// `cacheDisplay` draws the layers' model values, never what Core
+    /// Animation shows: a lowered animation (a box's `opacity` keyframes,
+    /// an SVG shape's paint) was captured at its underlying value while the
+    /// window showed it playing (shop F25). For the capture, each animated
+    /// key path's model value is what the layer presents; the closure
+    /// returned puts the model back.
+    private static func showAnimations(in root: CALayer?) -> () -> Void {
+        guard let root else { return {} }
+        CATransaction.flush() // presentation() reads committed animations
+        var undo: [(CALayer, String, Any?)] = []
+        func walk(_ layer: CALayer) {
+            if let keys = layer.animationKeys(), !keys.isEmpty, let shown = layer.presentation() {
+                var paths: Set<String> = []
+                for key in keys { if let path = (layer.animation(forKey: key) as? CAPropertyAnimation)?.keyPath { paths.insert(path) } }
+                for path in paths {
+                    undo.append((layer, path, layer.value(forKeyPath: path)))
+                    layer.setValue(shown.value(forKeyPath: path), forKeyPath: path)
+                }
+            }
+            layer.sublayers?.forEach(walk)
+            if let mask = layer.mask { walk(mask) }
+        }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        walk(root)
+        CATransaction.commit()
+        return {
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            for (layer, path, value) in undo.reversed() { layer.setValue(value, forKeyPath: path) }
+            CATransaction.commit()
+        }
+    }
 }
 #endif

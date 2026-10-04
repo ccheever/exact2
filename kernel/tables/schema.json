@@ -53,7 +53,8 @@
     },
     {
       "id": 12,
-      "name": "Video"
+      "name": "Video",
+      "_comment": "@ref LLP 1042: HTML's `video`, and its `audio` (`semanticTag` audio, LLP 1042 §8): one media node, one player per host."
     },
     {
       "id": 13,
@@ -332,7 +333,8 @@
     {
       "id": 32,
       "name": "accessibilityModal",
-      "kind": "bool"
+      "kind": "bool",
+      "_comment": "@ref LLP 1080.003: ARIA `aria-modal`: while true, assistive technology reaches only this element's subtree among its siblings (iOS `accessibilityViewIsModal` while exposed; the web's `aria-modal`, which ARIA honours on a `dialog` or `alertdialog` role; macOS deferred)."
     },
     {
       "id": 33,
@@ -1133,7 +1135,7 @@
     },
     {
       "id": 186,
-      "name": "order",
+      "name": "feOrder",
       "kind": "str"
     },
     {
@@ -1289,10 +1291,92 @@
       "name": "symbolEffectValue",
       "kind": "str",
       "_comment": "@ref LLP 1077 D12: a symbol's discrete effect (bounce, wiggle) plays each time this value changes, as SwiftUI's `.symbolEffect(_:value:)`."
+    },
+    {
+      "id": 225,
+      "name": "listStyle",
+      "kind": "str",
+      "_comment": "@ref LLP 1084 D2: a grouped list's style, `inset-grouped`, `grouped` or `plain`; set by Contract on every `list` whose appearance is `auto` (UICollectionLayoutListConfiguration.Appearance on iOS)."
+    },
+    {
+      "id": 226,
+      "name": "sharedElement",
+      "kind": "str",
+      "_comment": "@ref LLP 1013.000 D1: the node's shared-element name. A name that leaves one node and arrives at another in one commit is a handoff (CommitReceipt::handoffs); the arriver flies from the leaver's box."
+    },
+    {
+      "id": 227,
+      "name": "rows",
+      "kind": "int",
+      "measure": true,
+      "_comment": "HTML textarea preferred line count; absent or invalid, two. CSS height and field-sizing override intrinsic size."
+    },
+    {
+      "id": 228,
+      "name": "maxlength",
+      "kind": "int",
+      "_comment": "HTML maximum user-entered UTF-16 length; absent or negative, unlimited. Programmatic value changes are not truncated."
+    },
+    {
+      "id": 229,
+      "name": "target",
+      "kind": "str",
+      "_comment": "HTML's link `target`, `_blank` or `_self`: where the web opens a link's URL. Unset, a link to an absolute URL opens in a new browsing context, as the native hosts open it in the system browser (x2apps chat F11, hn-reader F3); natively a path navigates in the app and any other URL leaves it, whatever the target."
+    },
+    {
+      "id": 230,
+      "name": "enterKeyHint",
+      "kind": "str",
+      "_comment": "HTML's `enterkeyhint` (feed F25): what a software keyboard's enter key says — enter, done, go, next, previous, search or send. The web writes the attribute; iOS sets the field's return key; a host with no software keyboard (macOS, Linux, a desktop browser) has nothing to label."
+    },
+    {
+      "id": 231,
+      "name": "accessibilityInvalid",
+      "kind": "str",
+      "_comment": "ARIA `aria-invalid` (x2apps onboarding F22): `true`, `false`, `grammar` or `spelling`; a bool expression is written as `true`/`false`. AppKit serves WebKit's `AXInvalid`; UIKit has no such property, so iOS exposes none."
+    },
+    {
+      "id": 232,
+      "name": "accessibilityDescribedBy",
+      "kind": "str",
+      "_comment": "ARIA `aria-describedby`: the HTML ids, space-separated, of the elements whose text describes this one (accname's description), after `aria-description`'s words. AppKit's `AXHelp`, UIKit's `accessibilityHint`."
+    },
+    {
+      "id": 233,
+      "name": "accessibilityRequired",
+      "kind": "bool",
+      "_comment": "ARIA `aria-required` (x2apps onboarding F22): a field the form needs filled. AppKit's `AXRequired`; UIKit has no such property, so iOS exposes none."
+    },
+    {
+      "id": 234,
+      "name": "accessibilityHasPopup",
+      "kind": "str",
+      "_comment": "ARIA `aria-haspopup` (x2apps spreadsheet F20): `false`, `true`, `menu`, `listbox`, `tree`, `grid` or `dialog`; a bool expression is written as `true`/`false`. AppKit serves Chromium's `AXHasPopup` and `AXPopupValue`; UIKit has no such property, so iOS exposes none."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
   "enums": {
+    "Resize": {
+      "values": [
+        "none",
+        "both",
+        "horizontal",
+        "vertical",
+        "block",
+        "inline"
+      ],
+      "default": "none"
+    },
+    "UserSelect": {
+      "values": [
+        "auto",
+        "none",
+        "text",
+        "all",
+        "contain"
+      ],
+      "default": "auto"
+    },
     "FlexDirection": {
       "values": [
         "row",
@@ -1373,15 +1457,21 @@
       "values": [
         "relative",
         "absolute",
-        "static"
+        "static",
+        "sticky"
       ],
       "default": "static"
+    },
+    "Cursor": {
+      "values": ["auto", "default", "none", "context-menu", "help", "pointer", "progress", "wait", "cell", "crosshair", "text", "vertical-text", "alias", "copy", "move", "no-drop", "not-allowed", "grab", "grabbing", "e-resize", "n-resize", "ne-resize", "nw-resize", "s-resize", "se-resize", "sw-resize", "w-resize", "ew-resize", "ns-resize", "nesw-resize", "nwse-resize", "col-resize", "row-resize", "all-scroll", "zoom-in", "zoom-out"],
+      "default": "auto"
     },
     "Overflow": {
       "values": [
         "visible",
         "hidden",
-        "scroll"
+        "scroll",
+        "auto"
       ],
       "default": "visible"
     },
@@ -1884,7 +1974,7 @@
       "default": "none"
     }
   },
-  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points, 3-6 an env(safe-area-inset-top/right/bottom/left) length with the f32 the points added, 7 calc(<percent> \u00b1 <px>) with a second f32 the points, 8-13 an env(viewport-segment-width/height/top/left/bottom/right x y) length with the f32 the points added and then two u8 indices x then y \u2014 LLP 1078 D3) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (CSS grid-template grammar Taffy can lay out: none, named lines, px, %, fr, auto, min/max-content, fit-content(), minmax(), and fixed/auto-fill/auto-fit repeat(); canonical CSS text on the wire) | placement (CSS grid placement: auto, nonzero numeric or named lines and positive numeric or named spans; canonical CSS text on the wire) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | drag-timeline, animation-timeline, animation-range, timeline-scope (CSS text: the four timeline rows, LLP 1057.003) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. Every length row (each dimension, line-height, font-size, letter-spacing, the gaps, border widths and radii, shape-margin) also takes CSS `rem` and `em` through `set_dynamic`; the row holds the pixels the kernel resolves at the end of each commit against the host's root font size (LLP 1069.000 D3), so every reader and the wire see pixels. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
+  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points, 3-6 an env(safe-area-inset-top/right/bottom/left) length with the f32 the points added, 7 calc(<percent> \u00b1 <px>) with a second f32 the points, 8-13 an env(viewport-segment-width/height/top/left/bottom/right x y) length with the f32 the points added and then two u8 indices x then y \u2014 LLP 1078 D3; 14-23 viewport vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh with f32 the percentage) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (CSS grid-template grammar Taffy can lay out: none, named lines, px, %, fr, auto, min/max-content, fit-content(), minmax(), and fixed/auto-fill/auto-fit repeat(); canonical CSS text on the wire) | placement (CSS grid placement: auto, nonzero numeric or named lines and positive numeric or named spans; canonical CSS text on the wire) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | drag-timeline, animation-timeline, animation-range, timeline-scope (CSS text: the four timeline rows, LLP 1057.003) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. Every length row (each dimension, line-height, font-size, letter-spacing, the gaps, border widths and radii, shape-margin) also takes CSS `rem` and `em` through `set_dynamic`; the row holds the pixels the kernel resolves at the end of each commit against the host's root font size (LLP 1069.000 D3), so every reader and the wire see pixels. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
   "styles": [
     {
       "bit": 0,
@@ -2220,7 +2310,7 @@
     {
       "bit": 47,
       "field": "background_color",
-      "codec": "color",
+      "codec": "current-color",
       "default": 0
     },
     {
@@ -2476,7 +2566,7 @@
     {
       "bit": 86,
       "field": "tint_color",
-      "codec": "color",
+      "codec": "current-color",
       "default": 255
     },
     {
@@ -2880,7 +2970,7 @@
       "bit": 148,
       "field": "animation_timeline",
       "codec": "animation-timeline",
-      "_comment": "@ref LLP 1057.003 D1: CSS `animation-timeline`, `auto | <dashed-ident>`: the node's animations are held at the named drag timeline's progress, never played on the clock."
+      "_comment": "@ref LLP 1057.003 D1: CSS `animation-timeline`, `auto | <dashed-ident>`: the node's animations are held at the named drag timeline's progress, never played on the clock. @ref LLP 1055.002 D2: a third value, `clock(<ident>)`, keeps them on the clock from a start every animation on that clock timeline shares, a deviation LLP 1001 declares."
     },
     {
       "bit": 149,
@@ -3029,6 +3119,31 @@
       "field": "background_attachment",
       "codec": "enum:BackgroundAttachment",
       "_comment": "@ref LLP 1066 D7: CSS `background-attachment`. `fixed` sizes and places the gradient box on the viewport, not the node's padding box: one gradient across every node that has it, staying still as they scroll (a messenger's outgoing bubbles). `local` is not admitted."
+    },
+    {
+      "bit": 172,
+      "field": "cursor",
+      "codec": "enum:Cursor",
+      "inherited": true,
+      "_comment": "CSS cursor (inherited), every keyword but image cursors: the web writes it, Windows (LLP 1015.000) and macOS map it to a system cursor."
+    },
+    {
+      "bit": 173,
+      "field": "resize",
+      "codec": "enum:Resize"
+    },
+    {
+      "bit": 174,
+      "field": "user_select",
+      "codec": "enum:UserSelect"
+    },
+    {
+      "bit": 175,
+      "field": "order",
+      "codec": "i32",
+      "layout": true,
+      "default": 0,
+      "_comment": "CSS `order` (feed F19): a flex or grid item's place in its container's order-modified document order, which the kernel gives the layout engine as its child order. Painting and focus stay in document order; LLP 1001 declares the paint half."
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",
@@ -3369,6 +3484,11 @@
       "waveform",
       "waveform",
       "M4 10v4M8 7v10M12 4v16M16 7v10M20 10v4"
+    ],
+    [
+      "info",
+      "info.circle",
+      "M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM12 11v6M12 7.5v.5"
     ]
   ],
   "_symbols": "[role, Apple system symbol name, browser SVG path in a 24-unit box]. The path is stroked; a filled state is its own role, `<role>-fill` for Apple's `<name>.fill`, whose path is a filled silhouette (even-odd, so a cutout is a subpath). Portable roles only; symbol:sf/<name> passes an opaque name directly to Apple (LLP 1035.004.000), without a table entry. The sf namespace is reserved.",

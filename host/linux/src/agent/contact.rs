@@ -34,10 +34,12 @@ pub(crate) fn answer<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> St
 fn perform<D: DataSource>(p: &mut Presenter<D>, request: &Value) -> Result<String, String> {
     let phase = request["phase"].as_str().ok_or("contact needs a phase")?;
     let allowed: &[&str] = match phase {
-        "down" => &["op", "session", "phase", "id", "x", "y"],
-        "move" => &["op", "session", "phase", "x", "y", "dx", "dy", "ms"],
-        "hold" => &["op", "session", "phase", "ms"],
-        "up" | "cancel" => &["op", "session", "phase"],
+        "down" => &["op", "session", "phase", "id", "x", "y", "mouse"],
+        "move" => &[
+            "op", "session", "phase", "x", "y", "dx", "dy", "ms", "mouse",
+        ],
+        "hold" => &["op", "session", "phase", "ms", "mouse"],
+        "up" | "cancel" => &["op", "session", "phase", "mouse"],
         _ => return Err("unknown contact phase".into()),
     };
     if request

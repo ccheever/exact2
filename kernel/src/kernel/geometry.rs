@@ -106,11 +106,13 @@ impl Kernel {
     }
 
     /// Whether an image or video under `slot` still waits for its natural
-    /// size, so the box may change when it loads (LLP 1051.000 D5).
+    /// size, so the box may change when it loads (LLP 1051.000 D5). An
+    /// `audio` has none to wait for (LLP 1042 §8).
     fn unsettled(&self, slot: u32) -> bool {
         self.arena.subtree(slot).into_iter().any(|s| {
             matches!(self.arena.node_type(s), NodeType::Image | NodeType::Video)
                 && self.arena.intrinsic(s).is_none()
+                && self.arena.props(s).str(crate::PropId::SemanticTag) != Some("audio")
         })
     }
 }

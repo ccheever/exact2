@@ -14,7 +14,7 @@ use crate::css;
 use crate::motion::{Lowered, Motion, Still};
 use exact_kernel::{CommitReceipt, Kernel, NodeKey, NodeType, PropId, ViewId};
 use exact_motion::{EngineError, HoldEnd, HoldStart, Property, Value as MotionValue};
-use exact_plan::{EventKind, Plan, StackMemberKind, StacksId};
+use exact_plan::{EventKind, Plan};
 use exact_runner::{
     Carried, DataSource, Dispatch, Event, FailureKind, Outcome, RequestOut, Response, Runner,
     RunnerError, SurfaceOutcome, Timed, Work,
@@ -708,7 +708,7 @@ impl<D: DataSource> Host<D> {
         self.advanced(a)
     }
 
-    fn advanced(&mut self, a: exact_runner::Advanced) -> String {
+    pub(crate) fn advanced(&mut self, a: exact_runner::Advanced) -> String {
         self.now_ms = a.now_ms.max(self.now_ms);
         // LLP 1056 D5: a canvas that asked for a frame draws at the landed time.
         self.runner.canvas_frame();
@@ -909,7 +909,7 @@ impl<D: DataSource> Host<D> {
     }
 
     fn emit_receipts(&mut self, receipts: &[Timed], batch: &mut Batch) {
-        // Which views are `relative` in the tree the receipts end at (layers.rs).
+        // Paint isolation in the final tree, before creates and updates.
         let changed: Vec<ViewId> = (receipts.iter())
             .flat_map(|t| t.receipt.created.iter().chain(&t.receipt.touched))
             .filter_map(|key| self.runner.kernel().node_by_key(*key).map(|n| n.id))
@@ -982,16 +982,16 @@ impl<D: DataSource> Host<D> {
         }
         // Earlier receipts also read the final tree, whose children can be
         // created by a later receipt in this seek. Attach only after all creates.
-        for t in receipts {
-            for key in t.receipt.created.iter().chain(t.receipt.touched.iter()) {
-                if let Some(node) = self.runner.kernel().node_by_key(*key) {
-                    let (id, parent) = (node.id, node.parent);
-                    self.emit_children(id, batch);
-                    for box_ in std::iter::once(id).chain(parent) {
-                        self.refold(box_, batch);
-                    }
-                }
-            }
+        let mut refold = std::collections::BTreeSet::new();
+        for id in changed {
+            let parent = self.runner.kernel().node(id).and_then(|n| n.parent);
+            self.emit_children(id, batch);
+            refold.extend(std::iter::once(id).chain(parent));
+        }
+        // One parent visit per batch: a theme flip touches every text row,
+        // but their shared parent's fold needs to be decided only once.
+        for id in refold {
+            self.refold(id, batch);
         }
         let roots = self.page_roots();
         if roots != self.roots {
@@ -1369,19 +1369,17 @@ impl<D: DataSource> Host<D> {
         };
         let (props, css) = match kept {
             // The projection's, for this view of this tree: the same values.
-            Some((_, kept, props, css)) if kept == tag => (props, css),
+            Some((_, kept, props, css)) if kept == tag => (props, self.paint_css(&node, css)),
             _ => {
                 let kernel = self.runner.kernel();
                 let (css, _skipped) = css::css_text(&css_style(kernel, &node), &self.font_names);
                 let mut props = props_for(&node);
                 svg_props(kernel, &node, &mut props);
-                let css = element::contents(
-                    host_css(&node, css, tag),
-                    element::folded(kernel, &node, !kinds.is_empty()),
-                );
+                let css = host_css(&node, css, tag);
+                let css = element::folded_css(kernel, &node, css, !kinds.is_empty());
                 let handled = |c| self.mirror.get(&c).is_some_and(|m| m.handled);
                 let css = element::blocks(css, element::holds_folded(kernel, &node, &handled));
-                (props, layers::with_isolation(css, self.layers.isolated(id)))
+                (props, self.paint_css(&node, css))
             }
         };
         let handlers: Vec<&str> = kinds

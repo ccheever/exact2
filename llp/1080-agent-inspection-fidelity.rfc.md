@@ -95,3 +95,8 @@ roots if it does not); and a proposed whole-gesture
 lift: the edge swipe back, swipe-to-reply, the viewer's dismiss drag, the
 swipe-action reveal, a page sheet's swipe to dismiss, and the mic's press,
 slide and release.
+
+Charlie approved items 1 and 4 on 2026-10-03. Item 4 is built: LLP 1080.000
+§11, `tap <target> drag <dx> <dy> [from <x> <y>] [press <ms>] [over <ms>]
+[hold <ms>] [during "<op>" …]`, with the edge-swipe fix it found. Stage 3
+stays with this document's implementer.

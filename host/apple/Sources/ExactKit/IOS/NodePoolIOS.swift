@@ -52,7 +52,7 @@
 // the batch does not destroy (it may be moving elsewhere).
 // While VoiceOver or Switch Control runs nothing parks: its cursor stays on
 // the element it was on, never on a view that is now another row.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 final class NodePool {
@@ -224,10 +224,18 @@ final class NodePool {
     /// unzoomed, no authored scroll pending (LLP 1068 §4.2.1).
     private func atRest(_ list: NodeView) -> Bool {
         guard let sv = list.scroll else { return false }
+        #if os(tvOS)
+        // tvOS has no refresh control.
+        return !sv.isTracking && !sv.isDragging && !sv.isDecelerating && !presenter.collections.correcting
+            && sv.zoomScale == 1
+            && list.pendingScrollTop == nil && list.pendingScrollLeft == nil
+            && sv.layer.animationKeys()?.isEmpty ?? true
+        #else
         return !sv.isTracking && !sv.isDragging && !sv.isDecelerating && !presenter.collections.correcting
             && sv.refreshControl?.isRefreshing != true && sv.zoomScale == 1
             && list.pendingScrollTop == nil && list.pendingScrollLeft == nil
             && sv.layer.animationKeys()?.isEmpty ?? true
+        #endif
     }
     private func destroyedIDs() -> Set<UInt32> {
         if let destroyed { return destroyed }
@@ -509,6 +517,7 @@ extension NodeView {
         if accessibilityHint != nil { accessibilityHint = nil }
         if accessibilityIdentifier != nil { accessibilityIdentifier = nil }
         if accessibilityElementsHidden { accessibilityElementsHidden = false }
+        if accessibilityViewIsModal { accessibilityViewIsModal = false }
         props = [:]
         // The presenter's indexes for the new id (LLP 1068 §4.0): each is
         // filled by a property observer a rebind does not fire.

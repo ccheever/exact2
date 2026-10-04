@@ -593,7 +593,8 @@ component MessageBubble
             assert!(Instant::now() < end, "existing real worker watchdog");
             assert!(p.host.content_region().unwrap().refusal().is_none());
             std::thread::sleep(Duration::from_millis(1));
-            assert!(p.poll_content_region().is_none());
+            let error = p.poll_content_region();
+            assert!(error.is_none(), "{error:?}");
         }
     }
     pub(crate) fn ack(p: &mut Presenter<Rows>) -> SubmittedFrame {

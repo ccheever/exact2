@@ -59,7 +59,11 @@ impl Acquire {
     /// occluded window's drawable wait now starves the canvas instead of
     /// holding the main thread; the AppKit presenter's guard stays for the
     /// agent's clock, which acquires on the main thread.
-    pub(crate) const ENABLED: bool = cfg!(any(target_os = "ios", target_os = "macos"));
+    pub(crate) const ENABLED: bool = cfg!(any(
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "macos"
+    ));
 
     /// Whether a texture asked for at a present is waited on
     /// ([`Self::request_awaited`]): where the presenter reads
@@ -68,7 +72,7 @@ impl Acquire {
     /// canvas whenever any texture lands, which with this would draw a
     /// canvas twice in a frame; it keeps asking at the tick until it does
     /// the same.
-    pub(crate) const AWAITED: bool = cfg!(any(target_os = "ios", test));
+    pub(crate) const AWAITED: bool = cfg!(any(target_os = "ios", target_os = "tvos", test));
 
     /// Ask for `target`'s next texture, unless one is already in flight.
     pub(crate) fn request(&mut self, target: &Arc<wgpu::Surface<'static>>) {
@@ -151,7 +155,7 @@ impl Acquire {
     }
 }
 
-#[cfg(test)]
+#[cfg(all(test, target_os = "macos"))]
 impl Acquire {
     /// Hang up on the thread (it exits, dropping its handle on the surface)
     /// and hand back the channel it answers on.

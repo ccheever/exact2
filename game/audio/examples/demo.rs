@@ -2,7 +2,11 @@
 use exact_game::{audio::Synth, hash};
 use exact_game_audio::render;
 #[cfg(target_os = "macos")]
+use exact_game_audio::AppleOutput as Device;
+#[cfg(any(target_os = "macos", windows))]
 use exact_game_audio::Output;
+#[cfg(windows)]
+use exact_game_audio::WindowsOutput as Device;
 use std::{fs, io::Write, path::Path};
 fn wav(path: &Path, pcm: &[f32], rate: u32) -> std::io::Result<()> {
     let mut f = fs::File::create(path)?;
@@ -32,15 +36,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .ok_or("usage: demo DIRECTORY [--play]")?;
     fs::create_dir_all(dir)?;
     let play = args.iter().any(|s| s == "--play");
-    #[cfg(target_os = "macos")]
-    let mut output = if play {
-        Some(exact_game_audio::AppleOutput::new()?)
-    } else {
-        None
-    };
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(any(target_os = "macos", windows))]
+    let mut output = if play { Some(Device::new()?) } else { None };
+    #[cfg(not(any(target_os = "macos", windows)))]
     if play {
-        return Err("--play is supported on macOS only; Linux uses NullOutput".into());
+        return Err("--play is supported on macOS and Windows; Linux uses NullOutput".into());
     }
     let sounds = [
         (
@@ -113,7 +113,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             hash::of(&pcm)
         );
         wav(&Path::new(dir).join(format!("{name}.wav")), &pcm, 48000)?;
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", windows))]
         if let Some(output) = &mut output {
             let pcm = exact_game_audio::Pcm::F32(pcm.into());
             assert!(output.start(0, &pcm, 48000, name == "wind", 0, 1.0));

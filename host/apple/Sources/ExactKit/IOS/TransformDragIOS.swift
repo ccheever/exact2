@@ -1,4 +1,4 @@
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 import QuartzCore
 
@@ -9,11 +9,20 @@ import QuartzCore
 /// focal point; the anchor moves whenever a recognizer starts or stops or the
 /// finger count changes, which also absorbs UIKit's centroid jump.
 final class TransformContact {
+    #if os(tvOS)
+    // tvOS has no pinch; nothing makes a contact there.
+    let pinch: UIGestureRecognizer
+    #else
     let pinch: UIPinchGestureRecognizer
+    #endif
     var panning = false, pinching = false
     /// The pair's value, the focal point (window points) and pinch scale at the anchor.
     var anchor: (value: TransformDragPosition, focal: CGPoint, scale: CGFloat, touches: Int)?
+    #if os(tvOS)
+    init(_ pinch: UIGestureRecognizer) { self.pinch = pinch }
+    #else
     init(_ pinch: UIPinchGestureRecognizer) { self.pinch = pinch }
+    #endif
 }
 
 extension NodeView {
@@ -29,6 +38,8 @@ extension NodeView {
         return TransformDragPosition(matrix: source.affineTransform(), center: .zero)
     }
     func updateTransformDragGesture() {
+        // tvOS has no multi-finger pan or pinch.
+        #if !os(tvOS)
         if presenter?.transformBindings[id]?.target != nil, transformRecognizer == nil {
             let pan = UIPanGestureRecognizer(target: self, action: #selector(transformDragging(_:)))
             pan.maximumNumberOfTouches = 2; pan.delegate = self
@@ -43,6 +54,7 @@ extension NodeView {
             if let pinch = transformContact?.pinch { removeGestureRecognizer(pinch) }
             transformContact = nil
         }
+        #endif
     }
     /// The binding's recognizers: eligible handles only, and the pinch only
     /// where the platform would not zoom — a node from here up whose
@@ -72,6 +84,7 @@ extension NodeView {
         guard let clipID = presenter?.transformBindings[id]?.clip, let clip = presenter?.views[clipID], let window else { return nil }
         return clip.convert(CGPoint(x: clip.bounds.midX, y: clip.bounds.midY), to: window)
     }
+    #if !os(tvOS)
     @objc func transformDragging(_ gesture: UIGestureRecognizer) {
         guard let contact = transformContact, let pan = transformRecognizer else { return }
         let time = CACurrentMediaTime(), isPan = gesture === pan
@@ -113,6 +126,7 @@ extension NodeView {
         default: break
         }
     }
+    #endif
 }
 extension Presenter {
     func transformFacts(_ binding: TransformDragBinding) -> TransformGeometryFacts? {

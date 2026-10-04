@@ -6,11 +6,12 @@ import { createServer } from 'node:http';
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { launchFacts, refuseStale, warnStale, webChanges } from './agent-launch.mjs';
+import { fileURLToPath } from 'node:url';
+import { launchFacts, refuseStale, staleError, warnStale, webChanges } from './agent-launch.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
-import { resolveApp, webDist as defaultWebDist } from './app.mjs';
+import { resolveApp, webBuildCommand, webDist as defaultWebDist } from './app.mjs';
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 const INSTALL = 'bunx playwright@1.63.0 install firefox webkit';
 const WORLD_LIMIT = 256 * 1024 * 1024;
 
@@ -51,9 +52,8 @@ function worldFile(path) {
   return bytes;
 }
 
-const quote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
 async function assertDist(dist, app) {
-  if (!await builtAppMatches(dist, app)) throw new Error(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, '.exact-build.json')}; run EXACT_APP_DIR=${quote(app.dir)} EXACT_WEB_DIST=${quote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}`);
+  if (!await builtAppMatches(dist, app)) throw staleError(`web dist is not a complete build for selected app ${app.id}; stale receipt ${resolve(dist, '.exact-build.json')}; run ${webBuildCommand(app, dist)}`);
 }
 
 async function files({ plan, pageURL, app, webDist }) {
@@ -61,7 +61,7 @@ async function files({ plan, pageURL, app, webDist }) {
   if (!pageURL) {
     await assertDist(dist, selected);
     const js = jsTargetBuild(dist), env = process.env.EXACT_APP_DIR || webDist || process.env.EXACT_WEB_DIST ? `EXACT_APP_DIR=${selected.dir} EXACT_WEB_DIST=${dist} ` : '';
-    const command = `${env}bun host/web/build.mjs ${selected.crate('web')}${js ? '' : ' --wasm'}`, changed = webChanges(dist, selected);
+    const command = webBuildCommand(selected, dist, js ? '' : ' --wasm', `${env}bun host/web/build.mjs ${selected.crate('web')}${js ? '' : ' --wasm'}`), changed = webChanges(dist, selected);
     refuseStale('web', resolve(dist, '.exact-build.json'), changed.app, command);
     warnStale('web', resolve(dist, '.exact-build.json'), changed.shared, `if they matter, run ${command}`);
   }
@@ -103,13 +103,23 @@ async function waitForBoot(page, why = 'the page never booted') {
   return Number(await page.locator('#exact-root').getAttribute('data-boot-ms'));
 }
 
-const keyName = (code, browserOwned = false) => {
-  if (!browserOwned && code.length === 1) return code;
+// A key by its `key` name or its code, on every target (as scripts/agent.mjs `cdpKey`).
+const keyName = (code) => {
+  if (code.length === 1) return code;
   if (/^Key[A-Z]$/.test(code)) return code;
   if (/^Digit[0-9]$/.test(code)) return code;
-  const key = { Space: ' ', Enter: 'Enter', Escape: 'Escape', ...(browserOwned ? {} : { Tab: 'Tab', Backspace: 'Backspace' }), ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight', Shift: 'Shift', ShiftLeft: 'ShiftLeft', ShiftRight: 'ShiftRight' }[code];
-  if (!key) throw new Error(`key: unsupported code ${code}`);
+  if (/^F([1-9]|1[0-2])$/.test(code)) return code;
+  const key = { Space: ' ', Enter: 'Enter', Escape: 'Escape', Tab: 'Tab', Backspace: 'Backspace', Delete: 'Delete', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight', Shift: 'Shift', ShiftLeft: 'ShiftLeft', ShiftRight: 'ShiftRight', Control: 'Control', Alt: 'Alt', Meta: 'Meta' }[code];
+  if (!key) throw new Error(`key: unsupported key ${code}`);
   return key;
+};
+// A chord (`Shift+Enter`, `Meta+s`, `+`), Playwright's own syntax: the keys
+// to hold down in order, modifiers first.
+const chordKeys = (chord) => {
+  const held = [];
+  let rest = chord;
+  for (let m; (m = /^(Shift|Control|Alt|Meta)\+(.+)$/.exec(rest)); rest = m[2]) held.push(m[1]);
+  return [...held, keyName(rest)];
 };
 
 /** Open Firefox or WebKit through Playwright. The page still owns Exact's
@@ -191,17 +201,18 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       }, id);
       if (!result.ok) throw new Error(`view ${id} could not take focus`);
     };
-    const browserKey = async (id, opts, browserOwned = true) => {
+    const browserKey = async (id, opts) => {
       if (opts.phase != null && !['down', 'up'].includes(opts.phase)) throw new Error(`key: not a phase: ${opts.phase}`);
       const isWorld = await page.evaluate(id => globalThis.exact.gpu?.wantsInput(id) ?? false, id);
       if (isWorld) { const r = await ask({ op: 'focus', id, world: true }); if (r.error || !r.ok) throw new Error(r.error ?? `view ${id} could not take focus`); }
       else await directFocus(id);
-      const key = keyName(opts.key, browserOwned), reply = phase => ({ typed: id, key: opts.key, ...(phase != null ? { phase } : {}), delivery: 'platform' });
-      const release = async () => { await page.keyboard.up(key); heldKeys.delete(opts.key); await frame(); return reply('up'); };
+      const keys = chordKeys(opts.key), reply = phase => ({ typed: id, key: opts.key, ...(phase != null ? { phase } : {}), delivery: 'platform' });
+      const up = async () => { for (const key of [...keys].reverse()) await page.keyboard.up(key); };
+      const release = async () => { await up(); heldKeys.delete(opts.key); await frame(); return reply('up'); };
       try {
         for (const phase of opts.phase == null ? ['down', 'up'] : [opts.phase]) {
-          await page.keyboard[phase](key);
-          if (phase === 'down') heldKeys.set(opts.key, key); else heldKeys.delete(opts.key);
+          if (phase === 'down') { for (const key of keys) await page.keyboard.down(key); heldKeys.set(opts.key, keys); }
+          else { await up(); heldKeys.delete(opts.key); }
         }
         await frame();
       } catch (error) { if (opts.phase === 'down') error.release = release; throw error; }
@@ -210,13 +221,16 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
     const carrier = {
       host: 'web', browser: name, phasedTouch: false, boot, hostLines, evaluate, launchFacts: facts,
       async gpuMs() { const ms = await page.locator('#exact-root').getAttribute('data-gpu-ms'); return ms == null ? null : Number(ms); },
-      async reset() {
-        for (const key of heldKeys.values()) await page.keyboard.up(key).catch(() => {});
+      /** A fresh document on this page: its origin's storage emptied, or `keep`ing it (a test's `reload`, mail F19). */
+      async reset({ keep = false } = {}) {
+        for (const keys of heldKeys.values()) for (const key of [...keys].reverse()) await page.keyboard.up(key).catch(() => {});
         heldKeys.clear();
-        await page.evaluate(async () => { sessionStorage.clear(); localStorage.clear(); await Promise.all((await indexedDB.databases?.() ?? []).map(x => x.name && new Promise(ok => { const r = indexedDB.deleteDatabase(x.name); r.onsuccess = r.onerror = r.onblocked = ok; }))); });
-        await context.clearCookies(); hostLines.length = 0; await page.goto(address.href, { waitUntil: 'commit' }); this.boot = await waitForBoot(page, 'the reused page never booted');
+        await page.evaluate(async (keep) => { sessionStorage.clear(); if (keep) return; localStorage.clear(); await Promise.all((await indexedDB.databases?.() ?? []).map(x => x.name && new Promise(ok => { const r = indexedDB.deleteDatabase(x.name); r.onsuccess = r.onerror = r.onblocked = ok; }))); }, keep);
+        if (!keep) await context.clearCookies();
+        hostLines.length = 0; await page.goto(address.href, { waitUntil: 'commit' }); this.boot = await waitForBoot(page, 'the reused page never booted');
       },
       ask,
+      async reveal(id) { const r = await ask({ op: 'reveal', id }); if (r.scrolled) await frame(); return r; },
       async prefer(media, pageFacts) {
         const unsupported = Object.entries(media).find(([key, value]) => (key === 'prefers-reduced-transparency' && value !== 'no-preference') || (key === 'prefers-contrast' && !['more', 'no-preference'].includes(value)));
         if (unsupported) throw new Error(`${name} prefer cannot emulate ${unsupported[0]} ${unsupported[1]} through Playwright`);
@@ -239,14 +253,15 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         if (kind === 'history') { const reply = await ask({ op: 'tap', id, history: opts.history }); if (reply.error) throw new Error(reply.error); await frame(); return reply; }
         const box = id == null ? null : (await ask({ op: 'layout' })).nodes.find(n => n.id === id);
         if (id != null && (!box || (box.w === 0 && box.h === 0))) throw new Error(`view ${id} has no box on screen`);
-        const x = box ? box.x + box.w / 2 : undefined, y = box ? box.y + box.h / 2 : undefined;
+        const point = kind === 'contextmenu' ? opts.at : null;
+        const x = box ? box.x + (point?.[0] ?? box.w / 2) : undefined, y = box ? box.y + (point?.[1] ?? box.h / 2) : undefined;
         if (kind === 'press' || kind === 'key' || kind === 'type') {
           const request = kind === 'press' ? { op: 'tap', id, selector: opts.selector, x: opts.x, y: opts.y }
             : { op: 'type', id, selector: opts.selector, ...(kind === 'key' ? { key: opts.key } : { text: opts.text }) };
           const guest = await ask(request);
           if (guest.guest === true || guest.handled === true) { if (guest.error) throw new Error(guest.error); await frame(); return { ...guest, at: [x, y] }; }
         }
-        if (kind === 'key' && (opts.phase != null || await page.evaluate(id => globalThis.exact.gpu?.wantsInput(id) || globalThis.exact.views.get(id)?.matches('button, a[href], [role="button"], [role="link"]') || false, id))) return browserKey(id, opts, true);
+        if (kind === 'key' && (opts.phase != null || await page.evaluate(id => globalThis.exact.gpu?.wantsInput(id) || globalThis.exact.views.get(id)?.matches('button, a[href], [role="button"], [role="link"]') || false, id))) return browserKey(id, opts);
         if (id != null && ['press', 'contextmenu', 'dblclick'].includes(kind)) {
           const why = await page.evaluate(({ id, x, y }) => { const el = globalThis.exact.views.get(id), hit = document.elementFromPoint(x, y); return !el ? null : !hit ? 'its middle is outside the viewport; scroll it into view first' : el === hit || el.contains(hit) || hit.contains(el) ? null : `${hit.dataset?.view ? `node #${hit.dataset.view}` : hit.tagName.toLowerCase()} covers its middle`; }, { id, x, y });
           if (why) throw new Error(`tap #${id} at (${x}, ${y}): ${why}`);
@@ -267,7 +282,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         else if (kind === 'dblclick') await page.mouse.dblclick(x, y);
         else if (kind === 'press') await page.mouse.click(x, y);
         else if (kind === 'type') { await focus(id); await page.keyboard.insertText(opts.text); }
-        else if (kind === 'key') return browserKey(id, opts, false);
+        else if (kind === 'key') return browserKey(id, opts);
         else if (kind === 'pinch') throw new Error(`${name} pinch unsupported: Playwright cannot produce trusted phased touches; synthetic dispatchEvent input is not equal input`);
         await frame();
         return { at: kind === 'wheel' ? deliveredAt : [x, y] };

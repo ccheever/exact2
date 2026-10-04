@@ -1,0 +1,33 @@
+// Number comparisons, including mixed magnitudes and decimal rounding.
+component App
+  state a = 0.1
+  state b = 0.2
+  derive sumEq = a + b == 0.3
+  derive sumGt = a + b > 0.3
+  derive le = a <= b
+  derive ge = a >= b
+  derive ne = a != b
+  derive bigEq = 9007199254740992 == 9007199254740993
+  derive tiny = 0.0000001 > 0
+  derive negLt = -1 < -0.5
+  action swap
+    a = b
+    b = a
+  view
+    column
+      text `${le} ${ge} ${ne}` testId="r"
+      button "swap" press=swap testId="swap"
+
+test "decimal"
+  expect state sumEq == false
+  expect state sumGt == true
+  expect state bigEq == true
+  expect state tiny == true
+  expect state negLt == true
+  expect text "r" == "true false true"
+
+test "swap reads pre-state"
+  tap "swap"
+  expect state a == 0.2
+  expect state b == 0.1
+  expect text "r" == "false true true"

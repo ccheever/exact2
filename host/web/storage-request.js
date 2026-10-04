@@ -6,6 +6,7 @@ import { agentStorageRefusal, storageKey } from './storage-environment.js';
 import { grantError } from './grant-admission.js';
 import './documents-glue.js';
 const maxBytes = 16 << 20;
+let toldAgent = false;
 const encoder = new TextEncoder();
 const bytes = args => {
   if (typeof args.text === 'string') return encoder.encode(args.text);
@@ -31,7 +32,7 @@ const wire = value => {
 const result = r => ({changes:String(r.changes),lastInsertRowid:String(r.lastInsertRowid)});
 function base64(bytes) { let text='';for (let i=0;i<bytes.length;i+=16384)text+=String.fromCharCode(...bytes.subarray(i,i+16384));return btoa(text); }
 export function createStorageRequests(appId, admitted) {
-  const services = new Map(), key = storageKey(appId, location.href); let disposed = false;
+  const services = new Map(), key = storageKey(appId); let disposed = false;
   const check = () => { if(disposed)throw new Error('storage source unloaded'); };
   return {
     async run(payload, scope = null) {
@@ -48,7 +49,11 @@ export function createStorageRequests(appId, admitted) {
           if(encoded.length>maxBytes)throw new Error('storage result exceeds its byte limit');
           return encoded;
         }
-        if (key == null) throw new Error(agentStorageRefusal);
+        if (key == null) {
+          // Said once, as on every host (trivia F7): the page's console reaches the driver's logs.
+          if (!toldAgent) { toldAgent = true; console.warn(`storage refused (agent): ${agentStorageRefusal}`); }
+          throw new Error(agentStorageRefusal);
+        }
         if (request.version!==1 || !args || typeof args.path!=='string' || !args.path.startsWith('app:/')) throw new Error('invalid portable storage request');
         const scopeKey=scope.seal;
         if (!services.has(scopeKey)) services.set(scopeKey,{fs:createFileSystem(key,scope),sqlite:createSqlite(key,scope)});

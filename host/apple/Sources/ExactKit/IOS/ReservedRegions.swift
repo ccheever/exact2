@@ -8,7 +8,7 @@
 // `#if compiler` or `canImport` tells the two SDKs apart; a 27.0 build
 // finds neither class at run time and reports a flat viewport, a 27.1
 // build on a Duo finds both. Below iOS 27.1 the classes do not exist.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 import ObjectiveC
 

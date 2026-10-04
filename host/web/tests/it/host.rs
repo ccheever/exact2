@@ -1342,13 +1342,10 @@ fn a_node_takes_no_position_the_plan_did_not_give_it() {
     assert_eq!(badge.matches("position:absolute;").count(), 1, "{badge}");
 }
 
-/// The kernel paints in tree order; the page paints the positioned after the
-/// static. So a static box that follows something positioned (in an earlier
-/// sibling's subtree) is isolated, and paints over it as it does natively:
-/// the text after an absolute photo, the section after the card. Isolation
-/// is no containing block, so the photo stays where the plan put it.
+/// A static holder leaking a positioned descendant isolates its followers.
+/// A plain child following that descendant stays in flow (LLP 1083.000).
 #[test]
-fn what_follows_a_positioned_node_is_isolated() {
+fn a_leaking_holder_is_covered_by_its_static_followers() {
     let plan = contract::compile(
         r##"component App
   view
@@ -1380,7 +1377,7 @@ fn what_follows_a_positioned_node_is_isolated() {
     };
     for (test_id, isolated) in [
         ("card", false),
-        ("info", true),
+        ("info", false),
         ("after", true),
         ("later", true),
         ("inner", false),
@@ -1395,12 +1392,16 @@ fn what_follows_a_positioned_node_is_isolated() {
         assert!(!css(test_id).contains("position"), "{test_id}: {first}");
     }
     assert!(css("photo").contains("position:absolute;"));
-    // The document says the same, for the page a server sends.
+    // The server document writes the same isolation as the live batch.
     let doc = host.document().unwrap().root;
-    for test_id in ["info", "after", "later"] {
+    for (test_id, isolated) in [("info", false), ("after", true), ("later", true)] {
         let at = doc.find(&format!("data-testid=\"{test_id}\"")).unwrap();
         let open = &doc[doc[..at].rfind('<').unwrap()..at + doc[at..].find('>').unwrap()];
-        assert!(open.contains("isolation:isolate;"), "{test_id}: {open}");
+        assert_eq!(
+            open.contains("isolation:isolate;"),
+            isolated,
+            "{test_id}: {open}"
+        );
     }
 }
 
@@ -1447,7 +1448,7 @@ fn a_frame_task_fires_once_per_presented_frame() {
 }
 
 #[test]
-fn flex_and_grid_item_z_index_relayer_following_siblings() {
+fn flex_and_grid_item_z_index_does_not_lift_plain_followers() {
     for display in ["flex", "grid", "block"] {
         let src = format!(
             r#"component App
@@ -1472,25 +1473,25 @@ fn flex_and_grid_item_z_index_relayer_following_siblings() {
         let doc = host.document().unwrap().root;
         let at = doc.find("data-testid=\"second\"").unwrap();
         let element = &doc[doc[..at].rfind('<').unwrap()..at + doc[at..].find('>').unwrap()];
-        assert_eq!(
-            element.contains("isolation:isolate"),
-            display != "block",
-            "{doc}"
-        );
+        assert!(!element.contains("isolation:isolate"), "{doc}");
         let at = &batch[batch
             .find(&format!("\"op\":\"create\",\"id\":{id},"))
             .unwrap()..];
         let css = &at[at.find("\"css\":\"").unwrap() + 7..];
-        assert_eq!(
-            css[..css.find('"').unwrap()].contains("isolation:isolate"),
-            display != "block"
-        );
+        assert!(!css[..css.find('"').unwrap()].contains("isolation:isolate"));
         let first = view_with_test_id(&host, "first");
         let changed = host.dispatch(first, Event::Press);
-        assert!(!host.document().unwrap().root.contains("isolation:isolate"));
+        assert_eq!(
+            host.document()
+                .unwrap()
+                .root
+                .matches("isolation:isolate")
+                .count(),
+            1
+        );
         if display != "block" {
             assert!(
-                changed.contains(&format!("\"op\":\"style\",\"id\":{id}")),
+                !changed.contains(&format!("\"op\":\"style\",\"id\":{id}")),
                 "{changed}"
             );
         }

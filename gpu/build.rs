@@ -10,7 +10,7 @@ fn main() {
     println!("cargo::rerun-if-changed=build.rs");
     println!("cargo::rerun-if-env-changed=DEP_EXACT_WGPU_HAL_PATCHES");
     let os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
-    if !matches!(os.as_str(), "macos" | "ios") {
+    if !matches!(os.as_str(), "macos" | "ios" | "tvos") {
         return;
     }
     // Set by the patched crate's build script (its `links` name), for the

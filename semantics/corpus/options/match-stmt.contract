@@ -1,0 +1,71 @@
+// `match` as a statement: the bound name is local to its arm; both arms may
+// write; nested matches.
+component App
+  state draft = none
+  state saved = ""
+  state log = ""
+  state n = none
+  action setDraft(v: string)
+    draft = some(v)
+  action save
+    match draft
+      case some(d)
+        saved = d
+        draft = none
+        log = log + "s"
+      case none
+        log = log + "n"
+  action bump
+    match n
+      case some(v)
+        n = some(v + 1)
+      case none
+        n = some(0)
+  action both
+    match draft
+      case some(d)
+        match n
+          case some(v)
+            saved = `${d}${v}`
+          case none
+            saved = `${d}?`
+      case none
+        saved = "-"
+  view
+    column
+      text saved testId="saved"
+      text log testId="log"
+      button "d" press=setDraft("hi") testId="draft"
+      button "s" press=save testId="save"
+      button "b" press=bump testId="bump"
+      button "both" press=both testId="both"
+
+test "save with nothing"
+  tap "save"
+  expect state log == "n"
+  expect state saved == ""
+
+test "save a draft"
+  tap "draft"
+  tap "save"
+  expect state saved == "hi"
+  expect state draft == none
+  expect state log == "s"
+  tap "save"
+  expect state log == "sn"
+
+test "counter option"
+  tap "bump"
+  tap "bump"
+  tap "bump"
+  tap "draft"
+  tap "both"
+  expect text "saved" == "hi2"
+
+test "nested none"
+  tap "draft"
+  tap "both"
+  expect text "saved" == "hi?"
+  tap "save"
+  tap "both"
+  expect text "saved" == "-"

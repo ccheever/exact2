@@ -57,8 +57,8 @@ bun host/web/serve.mjs --origin target/markdown-stress-dist --loopback 4321
 
 bun host/apple/build.mjs markdown-stress-apple --run
 
-cargo build --release -p markdown-stress-linux
-EXACT_AGENT=1 EXACT_PAINTER=cpu target/release/markdown-stress-linux
+cargo build --profile host-dev -p markdown-stress-linux
+EXACT_AGENT=1 EXACT_PAINTER=cpu target/host-dev/markdown-stress-linux
 ```
 
 The web dev loop is `bun host/web/dev.mjs --app markdown-stress`.
@@ -86,8 +86,8 @@ need separate proof.
 The same executable can select a complete cold paragraph before its first layout:
 
 ```sh
-EXACT_PAINTER=cpu target/release/markdown-stress-linux --content-region=1048576
-EXACT_PAINTER=cpu target/release/markdown-stress-linux --content-region=4194304
+EXACT_PAINTER=cpu target/host-dev/markdown-stress-linux --content-region=1048576
+EXACT_PAINTER=cpu target/host-dev/markdown-stress-linux --content-region=4194304
 ```
 
 These are nominal source budgets, with the unchanged complete-chunk generator.

@@ -176,6 +176,7 @@ test('shell test CLI honors an app path and keeps the no-path SDK sweep', () => 
     mkdirSync(bin);
     for (const file of ['Cargo.toml', '.cargo/config.toml', 'app/shells.mjs', 'app/shells.lock'])
       cpSync(resolve(import.meta.dir, file), resolve(sdk, file));
+    cpSync(resolve(import.meta.dir, '../rust-toolchain.toml'), resolve(parent, 'rust-toolchain.toml'));
     cpSync(resolve(import.meta.dir, 'new'), resolve(sdk, 'new'), {recursive:true});
     const fixture = resolve(sdk, 'games/fixture'), bench = resolve(sdk, 'bench/example');
     for (const app of [external, fixture, bench]) {
@@ -444,7 +445,7 @@ test('the SDK lock decides every version; a game that adds packages captures its
   assert.deepEqual(outsideWorkspaceProblems(import.meta.dir), []);
   const sdkCargo = Bun.TOML.parse(readFileSync(resolve(import.meta.dir, 'Cargo.toml'), 'utf8'));
   const coreCargo = Bun.TOML.parse(readFileSync(resolve(import.meta.dir, '../Cargo.toml'), 'utf8'));
-  assert.deepEqual(sdkCargo.profile['apple-dev'], coreCargo.profile['apple-dev']);
+  assert.deepEqual(sdkCargo.profile['host-dev'], coreCargo.profile['host-dev']);
   // The checked-in SDK lock is current for the union of every shell's dependencies.
   sdkLock();
 }, 120000);

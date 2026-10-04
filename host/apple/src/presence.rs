@@ -76,6 +76,11 @@ impl<D: DataSource> Host<D> {
                     stack.extend(&m.children);
                 }
             }
+            // A flight inside it ends: the presenter puts the view back,
+            // and it leaves with the rest (LLP 1013.000).
+            for id in &members {
+                self.end_flight_of(*id);
+            }
             batch.exit(view);
             self.presence.leaving.push(Leaving {
                 view,
@@ -211,7 +216,7 @@ impl<D: DataSource> Host<D> {
         let frame = self.engine.frame();
 
         for p in frame {
-            if p.property == Property::Height {
+            if p.property == Property::Height || self.present_flight(&p, batch) {
                 continue;
             }
             let key = node_key(p.node);
@@ -268,5 +273,6 @@ impl<D: DataSource> Host<D> {
             self.present_colors(view, batch, inherits);
         }
         self.svg.emit(self.runner.kernel(), &self.engine, batch);
+        self.land_flights(batch);
     }
 }

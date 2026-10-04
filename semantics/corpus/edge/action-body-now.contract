@@ -1,0 +1,12 @@
+// now() read in an action body after an idle clock advance.
+component App
+  state at = -1
+  action mark
+    at = now()
+  view
+    button "mark" press=mark testId="mark"
+
+test "body reads the clock"
+  clock +100
+  tap "mark"
+  expect state at == 100

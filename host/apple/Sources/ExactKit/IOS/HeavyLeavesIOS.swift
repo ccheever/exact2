@@ -30,7 +30,7 @@
 // process's first of each kind, which pays for loading, left out); one not
 // yet measured, a GPU canvas, a 2D canvas and an editor are never held, and a
 // video only when its box does not wait on its metadata (both sides set).
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 final class HeavyLeaves: NSObject, UIGestureRecognizerDelegate {

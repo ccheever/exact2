@@ -1,0 +1,36 @@
+// Rows keyed by a bool: at most two distinct keys, the rest duplicates.
+shape Item
+  on: bool
+
+component App
+  resource a = items(1) as shape list<Item>
+  resource b = items(2) as shape list<Item>
+  resource c = items(3) as shape list<Item>
+  derive ab = length(a) >= length(b) ? a : b
+  derive items = length(ab) >= length(c) ? ab : c
+  state flip = false
+  action toggle
+    flip = not flip
+  view
+    column
+      button "toggle" press=toggle testId="toggle"
+      each it, i in items key=(it.on != flip)
+        Row(index=i)
+
+component Row
+  props
+    index: number
+  state hits = 0
+  action hit
+    hits = hits + 1
+  view
+    button "hit" press=hit testId=`hit-${index}`
+      text `${index}:${hits}` testId=`row-${index}`
+
+test "bool keys"
+  tap "hit-0"
+  tap "hit-1"
+  tap "hit-1"
+  tap "toggle"
+  tap "hit-2"
+  tap "toggle"

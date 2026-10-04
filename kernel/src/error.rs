@@ -442,7 +442,7 @@ pub enum StyleValueError {
     OutOfRange {
         style: StyleId,
     },
-    /// A color text was not hex (`#rgb`, `#rrggbb`, `#rrggbbaa`) or `rgb()`.
+    /// A color text was not a CSS colour [`crate::Color::parse`] reads.
     BadColor {
         style: StyleId,
     },

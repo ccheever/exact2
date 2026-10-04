@@ -1,0 +1,36 @@
+// Options compare structurally: none == none, some(x) == some(y) iff x == y,
+// some(_) != none.
+component App
+  state a = none
+  state b = none
+  derive eq = a == b
+  derive ne = a != b
+  derive isNone = a == none
+  derive isSome1 = a == some(1)
+  action setA(v: number)
+    a = some(v)
+  action setB(v: number)
+    b = some(v)
+  action clearA
+    a = none
+  view
+    column
+      text `${eq} ${ne} ${isNone} ${isSome1}` testId="r"
+      button "a1" press=setA(1) testId="a1"
+      button "a2" press=setA(2) testId="a2"
+      button "b1" press=setB(1) testId="b1"
+      button "clear" press=clearA testId="clear"
+
+test "none none"
+  expect text "r" == "true false true false"
+  expect state a == none
+
+test "some vs none"
+  tap "a1"
+  expect text "r" == "false true false true"
+  tap "b1"
+  expect text "r" == "true false false true"
+  tap "a2"
+  expect text "r" == "false true false false"
+  tap "clear"
+  expect text "r" == "false true true false"

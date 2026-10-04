@@ -9,18 +9,13 @@
 //! @ref LLP 0057#31-what-goes-in-rust-and-what-does-not — JavaScript owns object shape; Rust owns standard-library policy and state
 
 use crate::boundary::{HostArg, HostError, HostValue};
+use crate::host_opcodes::intl_datetime::{
+    CANONICAL_TIME_ZONE, CREATE, FORMAT, FORMAT_PARTS, PART_TYPE, PART_VALUE, RESOLVED,
+    SUPPORTED_LOCALES,
+};
 use std::collections::HashMap;
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::sync::{Arc, Mutex, Weak};
-
-const CREATE: u32 = 130;
-const FORMAT: u32 = 131;
-const FORMAT_PARTS: u32 = 132;
-const PART_TYPE: u32 = 133;
-const PART_VALUE: u32 = 134;
-const RESOLVED: u32 = 135;
-const SUPPORTED_LOCALES: u32 = 136;
-const CANONICAL_TIME_ZONE: u32 = 137;
 
 const ERA_FIELD: i32 = 0;
 const YEAR_FIELD: i32 = 1;

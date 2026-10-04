@@ -4,7 +4,7 @@
 // `accent-color` and a checkmark (UIKit has no checkbox). Contract owns the
 // value: the control flips at once, reports, and shows the committed
 // `checked` after the action (D4). `appearance: none` draws nothing native.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 /// Safari iOS's checkbox: a 16×16 rounded square, filled and checked when on.
@@ -51,7 +51,12 @@ final class ExactCheckbox: UIControl {
             check.stroke()
         } else {
             let ring = UIBezierPath(roundedRect: box.insetBy(dx: 0.5, dy: 0.5), cornerRadius: side * 0.25)
+            #if os(tvOS)
+            // tvOS has no systemBackground; the ring shows what is behind it.
+            UIColor.clear.setFill()
+            #else
             UIColor.systemBackground.withAlphaComponent(alpha).setFill()
+            #endif
             ring.fill()
             ring.lineWidth = 1
             UIColor.systemGray.withAlphaComponent(alpha).setStroke()
@@ -82,7 +87,12 @@ final class ControlHost: NSObject {
         menus.removeValue(forKey: node.id)
         let made: UIControl
         switch kind {
+        #if os(tvOS)
+        // tvOS has no UISwitch; a checkbox stands in.
+        case "switch": made = ExactCheckbox(frame: .zero)
+        #else
         case "switch": made = UISwitch()
+        #endif
         case "checkbox": made = ExactCheckbox(frame: .zero)
         case "button": made = makeNativeButton(node) // LLP 1069.011
         default: made = makeValueControl(kind, node.id)
@@ -119,6 +129,16 @@ final class ControlHost: NSObject {
             if control.superview !== mount { mount.addSubview(control) }
             let on = owner.props["checked"].map { $0 == "true" }
             let accent = owner.channels("accent_color").map { TextEngine.color($0) }
+            #if os(tvOS)
+            if let b = control as? NativeButtonIOS {
+                configureNative(b, owner, accent: accent)
+            } else if let c = control as? ExactCheckbox {
+                if let on { c.isOn = on }
+                assign(c, \.accent, accent)
+            } else {
+                configureValue(control, owner, accent: accent)
+            }
+            #else
             if let b = control as? NativeButtonIOS {
                 configureNative(b, owner, accent: accent)
             } else if let s = control as? UISwitch {
@@ -130,6 +150,7 @@ final class ControlHost: NSObject {
             } else {
                 configureValue(control, owner, accent: accent)
             }
+            #endif
             if !(control is NativeButtonIOS) {
                 assign(control, \.isEnabled, !owner.disabled)
                 assign(control, \.accessibilityLabel, owner.props["accessibilityLabel"])
@@ -145,7 +166,11 @@ final class ControlHost: NSObject {
                 let frame = control.frame(forAlignmentRect: box)
                 if control.frame != frame { control.frame = frame }
             } else {
+                #if os(tvOS)
+                let width = natural.width
+                #else
                 let width = control is UISlider ? box.width : natural.width
+                #endif
                 assign(control, \.frame, CGRect(x: box.midX - width / 2, y: box.midY - natural.height / 2,
                                                 width: width, height: natural.height))
             }
@@ -168,12 +193,18 @@ final class ControlHost: NSObject {
     @objc private func changed(_ sender: UIControl) {
         let id = UInt32(sender.tag)
         guard presenter.views[id] != nil else { return }
+        #if os(tvOS)
+        let on = (sender as? ExactCheckbox)?.isOn ?? false
+        #else
         let on = (sender as? UISwitch)?.isOn ?? (sender as? ExactCheckbox)?.isOn ?? false
+        #endif
         presenter.checked(id, on)
         // The committed state is authoritative: an action that refused the
         // toggle snaps the control back (D4).
         if let committed = presenter.views[id]?.props["checked"].map({ $0 == "true" }) {
+            #if !os(tvOS)
             if let s = sender as? UISwitch, s.isOn != committed { s.setOn(committed, animated: true) }
+            #endif
             if let c = sender as? ExactCheckbox, c.isOn != committed { c.isOn = committed }
         }
     }
@@ -183,9 +214,14 @@ final class ControlHost: NSObject {
         // A native button takes the ordinary tap path (LLP 1069.011 D10).
         guard let control = controls[node.id], !(control is NativeButtonIOS) else { return nil }
         guard control.window != nil, control.isEnabled, !node.inert else { return false }
+        #if os(tvOS)
+        if control is ExactCheckbox { control.sendActions(for: .touchUpInside) }
+        else { return openValue(control) }
+        #else
         if let s = control as? UISwitch { s.setOn(!s.isOn, animated: false); s.sendActions(for: .valueChanged) }
         else if control is ExactCheckbox { control.sendActions(for: .touchUpInside) }
         else { return openValue(control) }
+        #endif
         return true
     }
 
@@ -195,9 +231,15 @@ final class ControlHost: NSObject {
         if let value = valueObservation(control) {
             return value.merging(["size": [Agent.r2(control.bounds.width), Agent.r2(control.bounds.height)]]) { a, _ in a }
         }
+        #if os(tvOS)
+        let on = (control as? ExactCheckbox)?.isOn ?? false
+        return ["view": "checkbox", "on": on,
+                "size": [Agent.r2(control.bounds.width), Agent.r2(control.bounds.height)]]
+        #else
         let on = (control as? UISwitch)?.isOn ?? (control as? ExactCheckbox)?.isOn ?? false
         return ["view": control is UISwitch ? "UISwitch" : "checkbox", "on": on,
                 "size": [Agent.r2(control.bounds.width), Agent.r2(control.bounds.height)]]
+        #endif
     }
 
     func reset() {

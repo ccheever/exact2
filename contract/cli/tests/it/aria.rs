@@ -79,3 +79,84 @@ fn aria_pressed_refuses_a_word_aria_does_not_have_and_a_number() {
         assert!(e.contains(says), "{value}: {e}");
     }
 }
+
+/// `aria-modal` (LLP 1080.003) lowers to `accessibilityModal` and follows
+/// its state; Signal Clone's call screen and menus had no way to say it.
+#[test]
+fn aria_modal_lowers_and_follows_state() {
+    let mut r = boot(
+        "component App\n  state open = true\n  action close\n    open = false\n  view\n    column\n      column role=\"dialog\" aria-modal=open testId=\"sheet\"\n        button press=close testId=\"close\"\n          text \"Close\"\n      column testId=\"plain\"\n",
+    );
+    let modal = |r: &Runner<NoData>, id: &str| {
+        let node = r.kernel().node(view_of(r, id)).unwrap();
+        node.props.bool(PropId::AccessibilityModal)
+    };
+    assert_eq!(modal(&r, "sheet"), Some(true));
+    assert_eq!(modal(&r, "plain"), None);
+    let close = view_of(&r, "close");
+    r.dispatch(close, Event::Press).unwrap();
+    assert_eq!(modal(&r, "sheet"), Some(false));
+}
+
+/// A form's states (onboarding F22) and a menu button's (spreadsheet F20),
+/// by their ARIA names: `aria-invalid` and `aria-haspopup` take their words
+/// or a bool, `aria-required` a bool, `aria-describedby` ids.
+#[test]
+fn form_states_and_haspopup_lower_by_their_aria_names() {
+    let mut r = boot(
+        "component App\n  state bad = false\n  action check\n    bad = true\n  view\n    column\n      input aria-invalid=bad aria-required=true aria-describedby=\"email-error\" testId=\"email\"\n      text \"Enter an email\" id=\"email-error\"\n      button press=check aria-haspopup=\"menu\" aria-expanded=false testId=\"menu\"\n        text \"File\"\n      button press=check aria-haspopup=bad aria-invalid=\"spelling\" testId=\"other\"\n        text \"Other\"\n",
+    );
+    let required = r
+        .kernel()
+        .node(view_of(&r, "email"))
+        .unwrap()
+        .props
+        .bool(PropId::AccessibilityRequired);
+    assert_eq!(required, Some(true));
+    assert_eq!(
+        prop(&r, "email", PropId::AccessibilityDescribedBy).as_deref(),
+        Some("email-error")
+    );
+    assert_eq!(
+        prop(&r, "email", PropId::AccessibilityInvalid).as_deref(),
+        Some("false")
+    );
+    assert_eq!(
+        prop(&r, "menu", PropId::AccessibilityHasPopup).as_deref(),
+        Some("menu")
+    );
+    assert_eq!(
+        prop(&r, "other", PropId::AccessibilityHasPopup).as_deref(),
+        Some("false")
+    );
+    assert_eq!(
+        prop(&r, "other", PropId::AccessibilityInvalid).as_deref(),
+        Some("spelling")
+    );
+    let menu = view_of(&r, "menu");
+    r.dispatch(menu, Event::Press).unwrap();
+    assert_eq!(
+        prop(&r, "email", PropId::AccessibilityInvalid).as_deref(),
+        Some("true")
+    );
+    for (attr, value, says) in [
+        (
+            "aria-invalid",
+            "\"wrong\"",
+            "`aria-invalid` takes a bool or \"true\", \"false\", \"grammar\" or \"spelling\"",
+        ),
+        (
+            "aria-haspopup",
+            "\"popup\"",
+            "`aria-haspopup` takes a bool or \"true\", \"false\", \"menu\", \"listbox\", \"tree\", \"grid\" or \"dialog\"",
+        ),
+        ("aria-required", "\"yes\"", "`aria-required` takes a bool"),
+    ] {
+        let e = contract::compile(&format!(
+            "component App\n  view\n    input {attr}={value}\n"
+        ))
+        .unwrap_err()
+        .to_string();
+        assert!(e.contains(says), "{attr}={value}: {e}");
+    }
+}

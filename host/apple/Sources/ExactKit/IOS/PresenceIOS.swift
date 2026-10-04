@@ -5,7 +5,7 @@
 // host's `destroy` of the leaving view ends the exit and drops them all.
 // Its `present` ops keep coming until then: the engine animates it.
 // A view's transform, with a layout transition's box, is in `PressFeedback.swift`.
-#if os(iOS)
+#if os(iOS) || os(tvOS)
 import UIKit
 
 struct Leaving {
@@ -16,6 +16,7 @@ struct Leaving {
 extension Presenter {
     func beginExit(_ id: UInt32) {
         guard let view = views[id] else { return }
+        landFlights(inside: view) // a flying view leaves with its subtree (LLP 1013.000)
         var members: [NodeView] = []
         var stack: [UIView] = [view]
         while let next = stack.popLast() {
@@ -26,13 +27,16 @@ extension Presenter {
         for member in members { release(member.id) { _ in } }
         view.isUserInteractionEnabled = false
         view.accessibilityElementsHidden = true
-        view.superview?.bringSubviewToFront(view)
+        // A leaving modal no longer hides what stays (LLP 1080.003).
+        view.accessibilityViewIsModal = false
+        view.setGhost(true)
         leaving[id] = Leaving(view: view, members: members)
     }
 
     /// The host's `destroy` of a leaving view: its exit ended.
     func endExit(_ id: UInt32) -> Bool {
         guard let ended = leaving.removeValue(forKey: id) else { return false }
+        ended.view.setGhost(false)
         for member in ended.members { member.forget() }
         ended.view.removeFromSuperview()
         return true

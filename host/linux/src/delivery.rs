@@ -32,6 +32,7 @@ pub trait Store {
     /// Take a boot diagnostic.
     fn take_note(&mut self) -> Option<String>;
     /// The completion wake in the display's poll set.
+    #[cfg(unix)]
     fn fd(&self) -> std::os::unix::io::RawFd;
     /// Start a check, returning whether one started.
     fn check(&self) -> bool;

@@ -1,0 +1,27 @@
+// fns called from actions, handler arguments and conditions.
+fn next(n: number, step: number): number = n + step
+fn label(n: number): string = n == 1 ? "one" : `${n} items`
+fn allowed(n: number): bool = n < 3
+
+component App
+  state n = 0
+  state msg = ""
+  action add(step: number)
+    if allowed(n)
+      n = next(n, step)
+      msg = label(next(n, step))
+    else
+      msg = "blocked"
+  view
+    column
+      text `${n} ${msg}` testId="r"
+      button "one" press=add(1) testId="one"
+      button "two" press=add(next(1, 1)) testId="two"
+
+test "fn in action"
+  tap "one"
+  expect text "r" == "1 one"
+  tap "two"
+  expect text "r" == "3 3 items"
+  tap "one"
+  expect text "r" == "3 blocked"

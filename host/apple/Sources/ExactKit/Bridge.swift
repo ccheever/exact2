@@ -160,7 +160,7 @@ final class Runtime {
     private func islands(_ batch: Batch) -> Batch {
         let svg = on(busy: UInt8(0)) { exact_svg_islands(rt) }
         if svg & 1 != 0 { SvgRasterModule.prewarm() }
-        #if os(iOS)
+        #if os(iOS) || os(tvOS)
         if svg & 2 != 0 { SvgFilterMetal.prewarm() }
         #endif
         return batch
@@ -204,7 +204,8 @@ final class Runtime {
             return read(exact_fulfill_surface(rt, ticket, kind, n, now))
         }
     }
-    func press(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 0, 0, now)) } }
+    /// A press, with the modifiers held as a chord prefix (`KeyCodes.held`).
+    func press(_ view: UInt32, held: String = "", now: Double) -> Batch { on { read(exact_dispatch(rt, view, 0, write(held), now)) } }
     /// The pointer over the view (`true`) or gone from it.
     func hover(_ view: UInt32, over: Bool, now: Double) -> Batch { on { read(exact_dispatch(rt, view, over ? 2 : 3, 0, now)) } }
     func focus(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 4, 0, now)) } }
@@ -275,9 +276,20 @@ final class Runtime {
     /// the engine's tracker (LLP 1057.001 §3), viewport px at `t` seconds.
     func panSample(first: Bool, x: Double, y: Double, t: Double) { on { () -> Void in _ = exact_pan_sample(rt, first ? 1 : 0, x, y, t) } }
     func panVelocity(at t: Double) -> (Double, Double) { on(busy: (0, 0)) { (exact_pan_velocity(rt, 0, t), exact_pan_velocity(rt, 1, t)) } }
-    func scroll(_ view: UInt32, left: Double, top: Double, now: Double) -> Batch {
+    /// A scroller (nil: the page) now stands at `left`, `top` (LLP 1051.000
+    /// D1): posted, never waited for, since AppKit calls from inside its
+    /// scroll synchronizer.
+    func scrolled(_ view: UInt32?, left: Double, top: Double) {
+        Owner.shared.notify { [self] in
+            guard !destroyed else { return }
+            exact_scrolled(rt, view == nil ? 1 : 0, view ?? 0, left, top)
+        }
+    }
+    /// A scroll event: left, top, then the scroller's `scrollWidth`,
+    /// `scrollHeight`, `clientWidth` and `clientHeight` (`ScrollEvent`, chat F4).
+    func scroll(_ view: UInt32, metrics: [Double], now: Double) -> Batch {
         return on {
-            let n = write("\(left),\(top)")
+            let n = write(metrics.map { "\($0)" }.joined(separator: ","))
             return read(exact_dispatch(rt, view, 13, n, now))
         }
     }
@@ -321,8 +333,15 @@ final class Runtime {
         }
     }
     func dblclick(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 11, 0, now)) } }
-    /// `pointerdown` (29) or `pointerup` (30), LLP 1005 §3.
-    func pointer(_ view: UInt32, down: Bool, now: Double) -> Batch { on { read(exact_dispatch(rt, view, down ? 29 : 30, 0, now)) } }
+    /// `pointerdown` (29), `pointerup` (30) or `pointermove` (31) with its
+    /// record (LLP 1005 §3, LLP 1056 §3 stage 3).
+    func pointer(_ view: UInt32, _ kind: PointerKind, _ sample: PointerSample, now: Double) -> Batch {
+        on { read(exact_dispatch(rt, view, kind.rawValue, write(sample.line), now)) }
+    }
+    /// The clipboard's `copy` (32), `cut` (33) or `paste` (34) with its plain text.
+    func clipboard(_ view: UInt32, _ kind: UInt32, _ text: String, now: Double) -> Batch {
+        on { read(exact_dispatch(rt, view, kind, write(text), now)) }
+    }
     func submit(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 7, 0, now)) } }
     func media(_ view: UInt32, event: String, payload: String, now: Double) -> Batch {
         return on {
@@ -413,6 +432,8 @@ final class Runtime {
         }
     }
     func advance(now: Double, untilRequest: Bool = false) -> Batch { on { read(exact_advance(rt, now, untilRequest ? 1 : 0)) } }
+    /// The `then`s an agent's input settled, the clock unmoved (LLP 1012 §2).
+    func landThen() -> Batch { on { read(exact_advance(rt, 0, 2)) } }
     func frame(now: Double) -> Batch { on { read(exact_frame(rt, now)) } }
     func presentFrames(_ yes: Bool) { on { () -> Void in _ = exact_present_frames(rt, yes ? 1 : 0) } }
     func resize(width: CGFloat, height: CGFloat) -> Batch { on { read(exact_resize(rt, Float(width), Float(height))) } }
@@ -456,6 +477,15 @@ final class Runtime {
             return ButtonFace(json: Data(bytes: exact_out(rt), count: Int(len)))
         }
     }
+    #if os(iOS)
+    /// A grouped list's sections and rows (LLP 1084 D4).
+    func groupedList(_ view: UInt32) -> GroupedListModel? {
+        return on(busy: nil) {
+            let len = exact_grouped_list(rt, view)
+            return GroupedListModel(json: Data(bytes: exact_out(rt), count: Int(len)))
+        }
+    }
+    #endif
     /// A select's options and the one it shows (LLP 1069.001 D5).
     func selectOptions(_ view: UInt32) -> SelectMenu {
         return on(busy: SelectMenu(json: Data())) {
@@ -560,4 +590,19 @@ final class Runtime {
     func log(_ line: String) {
         Owner.shared.notify { [self] in _ = exact_log(rt, write(line)) }
     }
+}
+
+/// The pointer's three events and their ABI kinds (LLP 1005 §3).
+enum PointerKind: UInt32 { case down = 29, up = 30, move = 31 }
+
+/// DOM's `PointerEvent`, the subset the runner's record carries (LLP 1056 §3
+/// stage 3): the point from the node's content box in its own points, DOM's
+/// button bits (AppKit's `pressedMouseButtons` uses the same), 0 to 1 of
+/// pressure (DOM's 0.5 while pressed where nothing measures it), the device
+/// (`mouse`, `pen`, `touch`) and its id (the mouse is 1, as browsers number it).
+struct PointerSample {
+    var x: Double, y: Double, buttons: Int, pressure: Double, type: String, id: Int
+    /// The modifiers held, a chord prefix (`KeyCodes.held`): a `MouseEvent`'s.
+    var held = ""
+    var line: String { "\(x),\(y),\(buttons),\(min(1, max(0, pressure))),\(type),\(id),\(held)" }
 }

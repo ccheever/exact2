@@ -54,13 +54,13 @@ final class TextSelection {
     var isActive: Bool { allListText || logicalAnchor != nil || (anchor != nil && focus != nil) }
 
     var paragraphs: [NodeView] {
-        if let ordered { return ordered }
+        if let ordered { return ordered.filter(selectable) }
         guard let presenter else { return [] }
         var result: [NodeView] = []
         func walk(_ view: NSView) {
             if view.isHidden { return }
             if let node = view as? NodeView, presenter.session?.regions.owns(node) == true { return }
-            if let node = view as? NodeView, node.isParagraph { result.append(node); return }
+            if let node = view as? NodeView, node.isParagraph { if selectable(node) { result.append(node) }; return }
             for child in view.subviews { walk(child) }
         }
         walk(presenter.root)
@@ -90,7 +90,16 @@ final class TextSelection {
         invalidate()
     }
 
+    private func selectable(_ node: NodeView) -> Bool {
+        var current: NSView? = node
+        while let view = current {
+            if (view as? NodeView)?.style["user_select"]?.string == "none" { return false }
+            current = view.superview
+        }
+        return true
+    }
     func begin(_ node: NodeView, event: NSEvent) {
+        guard selectable(node) else { clear(); return }
         gesture += 1; motion = 0; pendingBegin = false; deferredDrag = nil; deferredEnd = nil
         let point = node.local(event.locationInWindow)
         if let reader = node.readerParagraph, reader.offset(at: point, node: node) == nil {
@@ -219,6 +228,7 @@ final class TextSelection {
     }
 
     func range(_ node: NodeView) -> NSRange? {
+        guard selectable(node) else { return nil }
         if let list {
             guard let (owner, p) = position(node, offset: 0), owner === list else { return nil }
             let count = length(node)
@@ -311,7 +321,4 @@ final class TextSelection {
     }
 }
 
-extension NodeView {
-    @objc func copy(_ sender: Any?) { presenter?.selection.copy() }
-}
 #endif

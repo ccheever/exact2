@@ -265,6 +265,16 @@ impl<D: DataSource> Presenter<D> {
     /// Route device keys through the same targeted path as agent keys.
     pub fn hardware_key(&mut self, code: &str, key: &str, down: bool, repeat: bool) {
         self.restore_controls();
+        self.hold_modifier(code, down);
+        // A Control or Meta chord is a shortcut, as a browser's: the focus's
+        // `key` handlers hear it, and no canvas or control starts with it.
+        if down && self.held & 0b1100_1100 != 0 {
+            if self.focus.is_some() {
+                let name = if code == "NumpadEnter" { "Enter" } else { key };
+                self.key_down(name, self.host.now());
+            }
+            return;
+        }
         let contact = if code == "Space" {
             u32::MAX - 1
         } else {
@@ -468,7 +478,20 @@ impl<D: DataSource> Presenter<D> {
                         .runner()
                         .handlers_of(id)
                         .iter()
-                        .any(|k| matches!(k, EventKind::Focus | EventKind::Blur | EventKind::Key)))
+                        // A pressable is a tab stop, as on every host (chat F14).
+                        .any(|k| {
+                            matches!(
+                                k,
+                                EventKind::Focus
+                                    | EventKind::Blur
+                                    | EventKind::Key
+                                    | EventKind::Press
+                                    // The clipboard's events go to the focus.
+                                    | EventKind::Copy
+                                    | EventKind::Cut
+                                    | EventKind::Paste
+                            )
+                        }))
         })
     }
 
@@ -573,7 +596,14 @@ impl<D: DataSource> Presenter<D> {
                 target
             }
         });
-        if let Some(e) = self.host.dispatch_at(target, Event::Press, now_ms) {
+        // With the modifiers held (gallery F20: shift-click), as a click has them.
+        let held = self.modifiers();
+        let press = if held == Default::default() {
+            Event::Press
+        } else {
+            Event::PressWith(held)
+        };
+        if let Some(e) = self.host.dispatch_at(target, press, now_ms) {
             eprintln!("exact: {e}");
         }
         if let Some(e) = self.after_commit() {

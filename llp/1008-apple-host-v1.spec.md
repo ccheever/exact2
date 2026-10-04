@@ -1324,6 +1324,50 @@ but untested; `scripts/metrics.mjs` has no iOS row; the agent API on a
 phone (the socket is a simulator's; a phone would want the same lines over
 `devicectl`'s tunnel or USB).
 
+### tvOS (Doug Lowder, landed 2026-10-03)
+
+tvOS is the UIKit presenter compiled for Apple TV, not another presenter
+(`rules/DEFERRED.md` §Surfaces). Shared Swift admits it beside `os(iOS)` and
+carves out what tvOS lacks: editing text views, the pasteboard, keyboard
+frames and the keyboard layout guide, pointer lock, large titles, navigation
+subtitles, inset grouped lists and `UISwitch` (a grouped list's toggle row
+shows a checkmark). Every `target_os = "ios"` gate outside `vendor/` admits
+`"tvos"` as well, so the Metal GPU path, Apple audio and the iOS SVG lowering
+take the iOS behavior. A tvOS-only file, `IOS/RemoteTVOS.swift`, compiles
+into the tvOS binary alone.
+
+- **Build.** `bun host/apple/build.mjs --tvos [crate] [--run] [--sim …]`
+  builds for an Apple TV simulator through the iOS path, with
+  `aarch64-apple-tvos-sim` (arm64 only; `rustup target add` it), the
+  manifest's iOS section and deployment target, and device family 3. No
+  device builds, icons or iframe arm (tvOS has no WebKit). An app with
+  `app.ts` needs `EXACT_JS_ENGINE=stub` until Hermes is built for tvOS.
+- **The Siri Remote.** Node views join UIKit's focus engine. A node takes
+  focus when a keyboard could focus it or when it is an enabled press target.
+  Each move dispatches `focus` and `blur` and shows the ring, drawn 10 pt
+  outside the box at the sides and 5 pt above and below, with a 12 pt radius.
+  Select presses the focused node. Menu presses the active route's
+  `navigationBack` while a route can pop, else a shown, enabled button that
+  declares `aria-keyshortcuts="Escape"`. With neither, the recognizer is
+  removed, so Menu leaves the app, as tvOS requires at an app's root.
+  A canvas's overlay stays at alpha 1 behind the Metal picture, because tvOS
+  never focuses a view at alpha 0. Nothing fires `pointerdown`/`pointerup`.
+- **Interaction media.** Hosts send CSS's `pointer` (`fine`, `coarse`,
+  `none`) and `hover` (`hover`, `none`) as preference bits 5–7, and
+  `exactViewport` names them. Zero is a mouse, so a host that sends nothing
+  answers as before. tvOS reports `pointer: none`, `hover: none`, and iOS
+  reports `coarse`. Caltrain reads `pointer == "none"` as a TV: two columns,
+  24-point root text, no Light/Dark, the sky dimmed.
+- **`reload()`.** An action may call `reload()`. The Apple session answers it
+  with the dev menu's Reload when the dev menu is on, and every other host
+  refuses it as it refuses any command it does not answer. Caltrain shows its
+  Reload only on a TV, where a remote has no dev-menu gesture.
+
+The tier 2 async lane (`scripts/async.mjs --tier 2`, hourly) builds it, and
+files a break against the range since the last commit it checked. Not yet:
+the agent driver and the smoke on a TV, and scripted remote presses
+(QUEUE.md "tvOS, what is owed").
+
 ## 10. The store (LLP 1018, as built 2026-08-30)
 
 Nothing crosses the ABI: `host/apple/src/store.rs` endows the app's

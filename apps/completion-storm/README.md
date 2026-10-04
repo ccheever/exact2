@@ -24,7 +24,7 @@ Build the native adapters with the same fixture running:
 
 ```sh
 bun host/apple/build.mjs completion-storm-apple --bundle
-EXACT_UPDATE_TRUST=development cargo build --release -p completion-storm-linux
+EXACT_UPDATE_TRUST=development cargo build --profile host-dev -p completion-storm-linux
 
 # Each command launches and drives the app, then closes it.
 bun apps/completion-storm/smoke.mjs macos

@@ -471,10 +471,7 @@ const OTHER_KINDS: &[OtherKind] = &[
 fn other_laid_out(kind: OtherKind, context: Context, variant: Variant) -> Kernel {
     let mut root = rows(context.root());
     root.push((StyleId::Width, n(400.0)));
-    let mut item = rows(&context.item(variant.css()));
-    if kind.node_type == NodeType::Pressable {
-        item.extend(rows("display:flex;flex-direction:column"));
-    }
+    let item = rows(&context.item(variant.css()));
     let mut ops = vec![
         Op::CreateView {
             id: 1,
@@ -589,7 +586,7 @@ fn a_block_button_clamps_its_preferred_width_to_the_available_line() {
         },
         Op::SetStyle {
             id: 2,
-            patch: Box::new(props(&rows("display:flex;flex-direction:column"))),
+            patch: Box::new(props(&rows("display:block"))),
         },
         Op::SetProp {
             id: 2,
@@ -704,7 +701,8 @@ fn the_block_sizing_marker_follows_a_pressables_href_from_its_initial_props() {
 
 // Literal getBoundingClientRect recordings, context × variant in the order above.
 // CDP, createElement/append (no parsed text between controls). The font is the
-// web reset's 16px system-ui. Button: 40x18 child, display:flex;flex-direction:column.
+// web reset's 16px system-ui. Button: 40x18 child, the reset's display:block
+// (re-recorded 2026-10-04; equal to the earlier flex-column recording).
 // Intrinsic sizing is host-owned (LLP 1069.001 D3); the field measurer supplies
 // Chrome's measured default size=20/cols=20/rows=2 for this box-layout test.
 // password/email/url/tel/search were recorded separately and equal TEXT.
@@ -807,3 +805,63 @@ const BUTTON: [[(f32, f32); 10]; 6] = [
     [(40.0, 18.0), (300.0, 18.0), (100.0, 20.0), (40.0, 20.0), (320.0, 38.0), (40.0, 40.0), (40.0, 40.0), (40.0, 10.0), (100.0, 18.0), (40.0, 18.0)],
     [(400.0, 18.0), (300.0, 18.0), (300.0, 20.0), (400.0, 200.0), (320.0, 38.0), (400.0, 40.0), (400.0, 40.0), (400.0, 10.0), (400.0, 18.0), (300.0, 18.0)],
 ];
+
+#[test]
+fn textarea_rows_scale_intrinsic_lines_and_explicit_height_still_wins() {
+    let mut kernel = other_laid_out(
+        *OTHER_KINDS.iter().find(|k| k.name == "textarea").unwrap(),
+        Context::Block,
+        Variant::Auto,
+    );
+    assert_eq!(
+        kernel.node(2).unwrap().props.str(PropId::SemanticTag),
+        Some("textarea")
+    );
+    let original = kernel.node(2).unwrap().frame.height;
+    kernel
+        .apply(
+            1,
+            2,
+            &[Op::SetProp {
+                id: 2,
+                prop: PropId::Rows,
+                value: PropValue::Int(3),
+            }],
+        )
+        .unwrap();
+    kernel
+        .compute_layout(1, Offer::definite(800.0, 600.0))
+        .unwrap();
+    let three = kernel.node(2).unwrap().frame.height;
+    assert!(
+        (three - original * 1.5).abs() < 0.001,
+        "{original} -> {three}"
+    );
+    kernel
+        .apply(
+            2,
+            3,
+            &[Op::SetStyle {
+                id: 2,
+                patch: Box::new(props(&rows("height:45px"))),
+            }],
+        )
+        .unwrap();
+    kernel
+        .compute_layout(1, Offer::definite(800.0, 600.0))
+        .unwrap();
+    assert_eq!(kernel.node(2).unwrap().frame.height, 45.0);
+}
+
+#[test]
+fn html_maxlength_counts_utf16_and_does_not_modify_authored_values() {
+    let mut props = exact_kernel::PropList::default();
+    props.set(PropId::Maxlength, PropValue::Int(3));
+    props.set(PropId::Value, PropValue::Str("authored long value".into()));
+    assert_eq!(exact_kernel::control::limit_text(&props, "a😀b"), "a😀");
+    assert_eq!(props.str(PropId::Value), Some("authored long value"));
+    props.set(PropId::Maxlength, PropValue::Int(1));
+    assert_eq!(exact_kernel::control::limit_text(&props, "😀"), "");
+    props.set(PropId::Type, PropValue::Str("number".into()));
+    assert_eq!(exact_kernel::control::limit_text(&props, "12345"), "12345");
+}

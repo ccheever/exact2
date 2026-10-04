@@ -9,10 +9,10 @@
 //!
 //! An engine fault is never a panic: it is recorded, reported as
 //! [`LayoutError::Engine`], and the kernel rebuilds the tree from the columns.
-
 #[cfg(test)]
 mod containment_tests;
 mod hoist;
+mod order;
 mod publication;
 
 use crate::id::{IdMap, IdSet};
@@ -246,11 +246,7 @@ impl LayoutMirror for LayoutTree {
             LayoutTree::set_children(self, node, &[]);
             return 0;
         }
-        let ids: Vec<_> = arena
-            .children(parent)
-            .iter()
-            .filter_map(|c| arena.taffy(*c))
-            .collect();
+        let ids = order::laid_out(arena, parent, &self.taffy, node);
         LayoutTree::set_children(self, node, &ids);
         ids.len()
     }
@@ -991,6 +987,19 @@ impl LayoutTree {
                         });
                         metrics
                     };
+                    let mut metrics = metrics;
+                    if arena.node_type(slot) == NodeType::TextInput
+                        && arena.style(slot).field_sizing == FieldSizing::Fixed
+                        && arena.props(slot).str(crate::PropId::SemanticTag) == Some("textarea")
+                    {
+                        let rows = arena
+                            .props(slot)
+                            .get(crate::PropId::Rows)
+                            .and_then(crate::PropValue::as_int)
+                            .filter(|n| *n > 0)
+                            .unwrap_or(2);
+                        metrics.height *= rows as f32 / 2.0;
+                    }
                     first_baseline = metrics.first_baseline;
                     Size {
                         width: metrics.width,
@@ -1187,12 +1196,8 @@ impl LayoutTree {
             if matches!(arena.node_type(*slot), NodeType::Text | NodeType::Control) {
                 continue;
             }
-            let children: Vec<NodeId> = arena
-                .children(*slot)
-                .iter()
-                .filter_map(|c| arena.taffy(*c))
-                .collect();
             if let Some(node) = arena.taffy(*slot) {
+                let children = order::laid_out(arena, *slot, &tree.taffy, node);
                 tree.set_children(node, &children);
             }
         }

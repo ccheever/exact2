@@ -18,7 +18,7 @@ struct TextRasterKey: Hashable {
 }
 
 struct TextRasterImage {
-    #if os(iOS)
+    #if os(iOS) || os(tvOS)
     let image: CGImage
     #else
     let surface: IOSurface

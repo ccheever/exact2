@@ -64,3 +64,58 @@ fn media_properties_events_and_rejections() {
         );
     }
 }
+
+/// HTML's `<audio>` (LLP 1042 §8): the media node as an `audio` element,
+/// hidden without `controls` (Chrome's `display: none !important`), Chrome's
+/// 300×54 with them, and no video-only attribute.
+#[test]
+fn audio_is_html_audio() {
+    let css = |view: &str| {
+        let source =
+            format!("component App\n  state shown = false\n  view\n    column\n      {view}\n");
+        let plan = contract::compile(&source).unwrap();
+        let (_, first) = Host::boot(
+            &plan.encode(),
+            caltrain_data::Caltrain,
+            Viewport::default(),
+            "/",
+        )
+        .unwrap();
+        let at = first
+            .find("\"tag\":\"audio\"")
+            .unwrap_or_else(|| panic!("{first}"));
+        let row = &first[at..];
+        assert!(
+            !row[..row.find('}').unwrap()].contains("semanticTag"),
+            "{row}"
+        );
+        let css = &row[row.find("\"css\":\"").unwrap() + 7..];
+        css[..css.find('"').unwrap()].to_owned()
+    };
+    let hidden = css(r#"audio "assets/ding.wav" testId="sound" paused=true display="block""#);
+    assert!(hidden.contains("display:none"), "{hidden}");
+    let shown = css(r#"audio "assets/ding.wav" testId="sound" controls=true"#);
+    assert!(
+        shown.contains("width:300px;height:54px") && !shown.contains("display"),
+        "{shown}"
+    );
+    let narrow = css(r#"audio "assets/ding.wav" testId="sound" controls=true width=120"#);
+    assert!(narrow.contains("width:120px"), "{narrow}");
+    let bound = css(r#"audio "assets/ding.wav" testId="sound" controls=shown"#);
+    assert!(
+        bound.contains("display:none"),
+        "a bound `controls` binds `display` with it: {bound}"
+    );
+    for attribute in [
+        "poster=\"a.png\"",
+        "playsinline=true",
+        "playbackVisibilityThreshold=0.5",
+    ] {
+        let source = format!("component App\n  view\n    audio \"a.wav\" {attribute}\n");
+        let error = contract::compile(&source).unwrap_err();
+        assert!(
+            format!("{error:?}").contains("belongs to `video`"),
+            "{error:?}"
+        );
+    }
+}

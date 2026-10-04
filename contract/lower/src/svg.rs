@@ -184,7 +184,7 @@ const FE_ATTRS: [&str; 47] = [
     "feScale",
     "xChannelSelector",
     "yChannelSelector",
-    "order",
+    "feOrder",
     "kernelMatrix",
     "divisor",
     "bias",
@@ -785,11 +785,13 @@ impl Lowerer<'_> {
 }
 
 /// Whether a node's animations follow a named timeline: any
-/// `animation-timeline` but a literal `auto`.
+/// `animation-timeline` but a literal `auto` or a clock timeline, which
+/// keeps them on the clock (LLP 1055.002).
 fn timeline_bound(attrs: &[Attr]) -> bool {
     attrs.iter().any(|a| {
         a.name == "animation-timeline"
-            && !matches!(&a.value, Expr::Str(v, _) if v.trim().eq_ignore_ascii_case("auto"))
+            && !matches!(&a.value, Expr::Str(v, _)
+                if v.trim().eq_ignore_ascii_case("auto") || v.trim().starts_with("clock("))
     })
 }
 
@@ -830,8 +832,9 @@ fn coerce(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<Vec<Attr>> {
     // SVG text's `x`, `y`, `dx`, `dy` are position lists, not geometry
     // rows (LLP 1055.000 D11): they lower to their own props.
     let text = tag == "tspan" || (tag == "text" && in_svg);
-    // @ref LLP 1055.000 D14 — a primitive's `dx`, `dy` and `scale`, and a
-    // light's `x`, `y`, `z`, are props: the plain names are rows.
+    // @ref LLP 1055.000 D14 — a primitive's `dx`, `dy`, `scale` and
+    // `order`, and a light's `x`, `y`, `z`, are props: the plain names are
+    // rows.
     if FE.contains(&tag) {
         let light = tag.ends_with("Light");
         let renamed: Vec<Attr> = attrs
@@ -842,6 +845,8 @@ fn coerce(tag: &str, in_svg: bool, attrs: &[Attr]) -> Option<Vec<Attr>> {
                     "dy" => "feDy",
                     "scale" => "feScale",
                     "radius" => "feRadius",
+                    // CSS `order` is a flex or grid item's (feed F19).
+                    "order" => "feOrder",
                     "x" if light => "lightX",
                     "y" if light => "lightY",
                     "z" if light => "lightZ",

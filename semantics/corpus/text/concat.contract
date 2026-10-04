@@ -1,0 +1,45 @@
+// `+` on strings concatenates; templates print each part with toString.
+component App
+  state a = "foo"
+  state b = "bar"
+  state n = 3
+  state flag = true
+  derive cat = a + b
+  derive catNum = a + toString(n)
+  derive tpl = `${a}-${b}-${n}-${flag}`
+  derive nested = `<${`[${a}]`}>`
+  derive dollar = `$${n}.00`
+  derive escaped = "quote \" backslash \\ tab\tend"
+  derive multi = a + " " + b + " " + a
+  action setA(v: string)
+    a = v
+  action toggle
+    flag = not flag
+  view
+    column
+      input value=a change=setA testId="a"
+      text cat testId="cat"
+      text tpl testId="tpl"
+      text nested testId="nested"
+      text dollar testId="dollar"
+      text escaped testId="esc"
+      text multi testId="multi"
+      button "t" press=toggle testId="toggle"
+
+test "initial"
+  expect state cat == "foobar"
+  expect state catNum == "foo3"
+  expect text "tpl" == "foo-bar-3-true"
+  expect text "nested" == "<[foo]>"
+  expect text "dollar" == "$3.00"
+  expect state escaped == "quote \" backslash \\ tab\tend"
+  expect text "multi" == "foo bar foo"
+
+test "after edits"
+  type "a" ""
+  expect state cat == "bar"
+  expect text "nested" == "<[]>"
+  tap "toggle"
+  expect text "tpl" == "-bar-3-false"
+  type "a" "日本"
+  expect text "multi" == "日本 bar 日本"

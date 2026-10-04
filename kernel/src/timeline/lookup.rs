@@ -72,7 +72,7 @@ pub(crate) fn refresh(arena: &mut NodeArena, receipt: &CommitReceipt) -> Vec<Nod
 
 fn bears(s: &StyleProps) -> bool {
     s.drag_timeline.name.is_some()
-        || s.animation_timeline.0.is_some()
+        || s.animation_timeline.name().is_some()
         || s.timeline_scope != TimelineScope::None
 }
 
@@ -104,7 +104,7 @@ pub(super) fn resolve(arena: &mut NodeArena, receipt: &CommitReceipt) -> Vec<Nod
         .slots
         .iter()
         .filter_map(|slot| {
-            let name = at.style(slot).animation_timeline.0.as_deref()?;
+            let name = at.style(slot).animation_timeline.name()?;
             Some((at.key(slot), lookup(at, slot, name)))
         })
         .collect();
@@ -179,7 +179,7 @@ pub(crate) fn rows(arena: &NodeArena, slot: u32) -> TimelineRows {
         .as_ref()
         .map(|_| style.drag_timeline.axis == Axis::X);
     // `normal` has no length range to map a drag onto: unbound.
-    let binding = style.animation_timeline.0.as_ref().and_then(|_| {
+    let binding = style.animation_timeline.name().and_then(|_| {
         let [a, b] = style.animation_range.0?;
         let timeline = arena
             .timelines

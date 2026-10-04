@@ -48,7 +48,7 @@ fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
     assert_eq!(card.row_gap, 10.0);
     assert_eq!(
         card.background_color,
-        Color::parse_hex("#ffffffd9").unwrap().into(),
+        Some(Color::parse_hex("#ffffffd9").unwrap().into()),
         "`rgba(255, 255, 255, 0.85)` is `#ffffffd9`"
     );
     let tight = style_of("tight");
@@ -60,7 +60,7 @@ fn a_class_applies_its_style_and_the_nodes_own_attribute_wins() {
     );
     assert_eq!(
         tight.background_color,
-        Color::parse_hex("#000000").unwrap().into()
+        Some(Color::parse_hex("#000000").unwrap().into())
     );
     // A `calc()` of a percentage and a length is one row, not text.
     assert_eq!(style_of("calc").width, Dimension::Calc(100.0, -89.0));
@@ -87,7 +87,7 @@ fn a_class_chooses_between_two_styles_by_state() {
     let (chip_id, idle) = chip(&r);
     assert_eq!(
         idle.background_color,
-        Color::parse_hex("#cccccc").unwrap().into()
+        Some(Color::parse_hex("#cccccc").unwrap().into())
     );
     assert_eq!(idle.opacity, 0.5);
     // Only `Active` sets padding: the kernel's default while `Idle` is chosen.
@@ -96,7 +96,7 @@ fn a_class_chooses_between_two_styles_by_state() {
     let (_, active) = chip(&r);
     assert_eq!(
         active.background_color,
-        Color::parse_hex("#0000ff").unwrap().into()
+        Some(Color::parse_hex("#0000ff").unwrap().into())
     );
     assert_eq!(active.opacity, 1.0);
     assert_eq!(active.padding_top, Dimension::Points(12.0));
@@ -177,7 +177,7 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
         ("overflow", StyleId::OverflowX, "clip"),
         ("object-fit", StyleId::ObjectFit, "stretch"),
         ("font-style", StyleId::FontStyle, "slanted"),
-        ("position", StyleId::PositionType, "sticky"),
+        ("position", StyleId::PositionType, "fixed"),
         ("border-style", StyleId::BorderStyleTop, "dashed"),
         ("align-self", StyleId::AlignSelf, "middle"),
         (
@@ -203,6 +203,7 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
             "local",
         ),
         ("touch-action", StyleId::TouchAction, "swipe"),
+        ("cursor", StyleId::Cursor, "hand"),
     ] {
         for named_style in [false, true] {
             let source = if named_style {
@@ -443,12 +444,15 @@ fn transparent_is_a_colour() {
             .clone()
     }
     let b = style(&r, "box");
-    assert_eq!(b.background_color, clear.into());
+    assert_eq!(b.background_color, Some(clear.into()));
     assert_eq!(b.text_color, clear.into());
     assert_eq!(b.border_colors(clear.into())[0], clear.into());
     assert_eq!(
         style(&r, "text").background_color,
-        exact_kernel::ColorValue::LightDark(clear, Color::parse_hex("#000000").unwrap())
+        Some(exact_kernel::ColorValue::LightDark(
+            clear,
+            Color::parse_hex("#000000").unwrap()
+        ))
     );
     let flip = {
         let k = r.kernel();
@@ -497,7 +501,7 @@ fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
             "linear-gradient(#000, #fff), linear-gradient(#000, #fff), linear-gradient(#000, #fff), linear-gradient(#000, #fff), linear-gradient(#fff, #000)",
             "at most four background layers",
         ),
-        ("linear-gradient(red, blue)", "a stop's colour is"),
+        ("linear-gradient(red, blurple)", "a stop's colour is"),
         (
             "linear-gradient(#000 10px, #fff)",
             "a stop's position is a percentage",
@@ -826,7 +830,9 @@ component Pin
     .unwrap_err();
     assert_eq!(error.id, "lower-attr-value");
     assert!(
-        error.message.contains("must be `relative` or `absolute`"),
+        error
+            .message
+            .contains("must be `relative`, `absolute` or `sticky`"),
         "{error:?}"
     );
     contract::compile(
@@ -1140,4 +1146,315 @@ fn corner_radii_refuse_negative_nonfinite_lengths_percentages_and_auto() {
         let source = format!("component Corners\n  view\n    view border-radius=\"{value}\"\n");
         assert!(contract::compile(&source).is_err(), "{value}");
     }
+}
+
+#[test]
+fn overflow_auto_is_a_scroll_container_on_either_axis() {
+    let r = boot("component App\n  view\n    column\n      box overflow=\"auto\" testId=\"both\"\n      box overflow-x=\"auto\" testId=\"x\"\n      box overflow-y=\"auto\" testId=\"y\"\n");
+    use exact_kernel::Overflow;
+    assert_eq!(style_of(&r, "both").overflow_x, Overflow::Auto);
+    assert_eq!(style_of(&r, "both").overflow_y, Overflow::Auto);
+    for name in ["both", "x", "y"] {
+        assert!(matches!(
+            style_of(&r, name).overflow_x,
+            Overflow::Auto | Overflow::Visible
+        ));
+    }
+}
+
+#[test]
+fn css_flex_shorthands_lower_in_order_to_the_longhands() {
+    for (value, grow, shrink, basis) in [
+        ("none", 0.0, 0.0, Dimension::Auto),
+        ("auto", 1.0, 1.0, Dimension::Auto),
+        ("0 1 auto", 0.0, 1.0, Dimension::Auto),
+        ("2", 2.0, 1.0, Dimension::Percent(0.0)),
+        ("2 3", 2.0, 3.0, Dimension::Percent(0.0)),
+        ("2 3 40px", 2.0, 3.0, Dimension::Points(40.0)),
+        ("25%", 1.0, 1.0, Dimension::Percent(25.0)),
+        ("40px 2 3", 2.0, 3.0, Dimension::Points(40.0)),
+        ("1 1 0", 1.0, 1.0, Dimension::Points(0.0)),
+    ] {
+        let r = boot(&format!(
+            "component App\n  view\n    column\n      box testId=\"item\" flex=\"{value}\"\n"
+        ));
+        let s = style_of(&r, "item");
+        assert_eq!(
+            (s.flex_grow, s.flex_shrink, s.flex_basis),
+            (grow, shrink, basis),
+            "{value}"
+        );
+    }
+    let r = boot("component App\n  state on = true\n  view\n    column\n      box testId=\"item\" flex=(on ? \"none\" : \"2 3 40px\") flex-shrink=4\n");
+    assert_eq!(style_of(&r, "item").flex_shrink, 4.0);
+    for value in ["-1", "1 -2 auto", "1 2 3px garbage", "1 2 3"] {
+        assert_eq!(refused(&format!("flex=\"{value}\"")).id, "lower-attr-value");
+    }
+}
+
+#[test]
+fn a_zero_minimum_scroller_can_shrink_under_a_bounded_column() {
+    for bound in ["height=200", "max-height=200", "max-height=\"100%\""] {
+        contract::compile(&format!("component App\n  view\n    column {bound}\n      scroll flex-shrink=1 min-height=0\n        box height=1000\n")).unwrap();
+    }
+    for parent in ["column", "box height=200"] {
+        let e = contract::compile(&format!(
+            "component App\n  view\n    {parent}\n      scroll flex-shrink=1 min-height=0\n"
+        ))
+        .unwrap_err();
+        assert_eq!(e.id, "lower-scroll-unbounded");
+    }
+}
+
+#[test]
+fn viewport_units_are_admitted_on_dimension_rows() {
+    for unit in exact_kernel::ViewportUnit::ALL {
+        let r = boot(&format!(
+            "component App\n  view\n    box width=\"50{}\" padding-top=\"5{}\" testId=\"item\"\n",
+            unit.name(),
+            unit.name()
+        ));
+        assert_eq!(style_of(&r, "item").width, Dimension::Viewport(unit, 50.0));
+    }
+}
+
+#[test]
+fn a_css_width_transition_names_the_engine_limit_not_a_syntax_error() {
+    let e = refused("transition=\"width 200ms ease\"");
+    assert_eq!(e.id, "lower-attr-value");
+    assert!(
+        e.message.contains("`width` is a CSS layout property"),
+        "{e}"
+    );
+    assert!(e.message.contains("layout per frame"), "{e}");
+    assert!(
+        e.message.contains("opacity") && e.message.contains("border-color"),
+        "{e}"
+    );
+    assert!(!e.message.contains("not a CSS"), "{e}");
+    let malformed = refused("transition=\"opacity 20ms gibberish\"");
+    assert!(malformed.message.contains("invalid transition components"));
+    for v in [
+        "opacity 200ms ease",
+        "border-color 200ms ease",
+        "stroke-dashoffset 200ms linear",
+        "height 200ms ease",
+    ] {
+        contract::compile(&format!(
+            "component App\n  view\n    box transition=\"{v}\"\n"
+        ))
+        .unwrap();
+    }
+}
+
+#[test]
+fn cursor_keywords_are_css_and_inherit() {
+    for value in exact_kernel::StyleId::Cursor.enum_names() {
+        let r = boot(&format!(
+            "component App\n  view\n    box cursor=\"{value}\"\n      box testId=\"child\"\n"
+        ));
+        let key = r.kernel().find_by_test_id("child")[0];
+        let node = r.kernel().node_by_key(key).unwrap();
+        assert_eq!(
+            node.computed(exact_kernel::StyleId::Cursor),
+            exact_kernel::RowValue::Enum(value)
+        );
+    }
+}
+
+#[test]
+fn css_font_fallback_lists_keep_every_member_in_order() {
+    let plan = contract::compile("component App\n  view\n    text \"Fallback\" font-family=\"Inter, system-ui, sans-serif\"\n").unwrap();
+    let stack = plan.stacks.last().unwrap();
+    let members: Vec<_> = stack
+        .members
+        .iter()
+        .map(|id| plan.stack_member(id).kind)
+        .collect();
+    assert_eq!(
+        members,
+        [
+            exact_plan::StackMemberKind::Family,
+            exact_plan::StackMemberKind::SystemUi,
+            exact_plan::StackMemberKind::SansSerif
+        ]
+    );
+    let family = plan.familie(
+        plan.stack_member(stack.members.iter().next().unwrap())
+            .family
+            .unwrap(),
+    );
+    assert_eq!(plan.str(family.name), "Inter");
+    assert_eq!(family.faces.len, 0, "a local family needs no bundled asset");
+}
+
+#[test]
+fn css_border_and_decoration_shorthands_reset_and_preserve_choices() {
+    let source = r##"style Card
+  border="2px solid #123456"
+component App
+  state done = false
+  action finish
+    done = true
+  view
+    column
+      button "Finish" press=finish testId="finish"
+      text "Card" class=Card border-top="thick #abcdef" border-bottom="solid" text-decoration=(done ? "underline line-through" : "none") testId="card"
+"##;
+    let plan = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
+    let mut runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let card = runner.kernel().find_by_test_id("card")[0];
+    let style = runner.kernel().node_by_key(card).unwrap().style;
+    assert_eq!(style.border_width_top, 5.0);
+    assert_eq!(style.border_style_top, exact_kernel::BorderStyle::None);
+    assert_eq!(style.border_width_right, 2.0);
+    assert_eq!(style.border_style_right, exact_kernel::BorderStyle::Solid);
+    assert_eq!(style.border_width_bottom, 3.0);
+    assert_eq!(
+        style.border_color_bottom, None,
+        "omitted color resets to currentcolor"
+    );
+    let button = runner.kernel().find_by_test_id("finish")[0];
+    runner
+        .dispatch(
+            runner.kernel().node_by_key(button).unwrap().id,
+            exact_runner::Event::Press,
+        )
+        .unwrap();
+    assert_eq!(
+        runner
+            .kernel()
+            .node_by_key(card)
+            .unwrap()
+            .style
+            .text_decoration_line,
+        exact_kernel::TextDecorationLine::UnderlineLineThrough
+    );
+}
+
+#[test]
+fn css_native_interaction_gaps_are_named_precisely() {
+    for (name, value, reason) in [
+        ("resize", "vertical", "user-controlled box geometry"),
+        ("user-select", "all", "selection ownership"),
+        ("border", "1px dashed red", "native painters"),
+        ("text-decoration", "underline wavy", "native text painters"),
+    ] {
+        let source = format!("component App\n  view\n    text \"x\" {name}=\"{value}\"\n");
+        let error = contract::compile(&source).unwrap_err().to_string();
+        assert!(error.contains(reason), "{error}");
+        assert!(!error.contains("unknown attribute"), "{error}");
+    }
+    contract::compile("component App\n  view\n    textarea rows=3 maxlength=5 resize=\"none\" user-select=\"none\"\n").unwrap();
+}
+
+#[test]
+fn css_flex_factor_order_and_intrinsic_basis_refusals_are_precise() {
+    let source = |value: &str| format!("component App\n  view\n    box flex=\"{value}\"\n");
+    assert!(
+        contract::compile(&source("0 auto 1")).is_err(),
+        "grow and shrink must be adjacent in CSS"
+    );
+    contract::compile(&source("20px 0 1")).unwrap();
+    contract::compile(&source("NONE")).unwrap();
+    for basis in ["content", "min-content", "max-content", "fit-content"] {
+        let error = contract::compile(&source(&format!("1 1 {basis}")))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("intrinsic basis sizing") && error.contains("CSS flex-basis"),
+            "{error}"
+        );
+    }
+}
+
+/// CSS `order` is a box's style row, bound or literal: a flex item moves in
+/// its row, as on the web (feed F19: it compiled as an SVG filter
+/// primitive's attribute and moved nothing).
+#[test]
+fn order_moves_a_flex_item_and_a_bound_order_moves_it_again() {
+    let src = "component A\n  state rail = true\n  action flip\n    rail = not rail\n  view\n    row testId=\"row\" width=300\n      view testId=\"main\" width=200 height=10\n      view testId=\"rail\" width=100 height=10 order=(rail ? -1 : 0)\n      view testId=\"last\" width=0 height=10 order=1\n";
+    let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let x = |r: &mut Runner<NoData>, id: &str| {
+        let root = r.roots()[0];
+        r.kernel_mut()
+            .compute_layout(root, exact_kernel::Offer::definite(400.0, 400.0))
+            .unwrap();
+        let k = r.kernel();
+        k.node_by_key(k.find_by_test_id(id)[0]).unwrap().frame.x
+    };
+    assert_eq!((x(&mut r, "rail"), x(&mut r, "main")), (0.0, 100.0));
+    r.act("flip", vec![]).unwrap();
+    assert_eq!((x(&mut r, "main"), x(&mut r, "rail")), (0.0, 200.0));
+    assert_eq!(x(&mut r, "last"), 300.0);
+}
+
+/// CSS-wide keywords and `currentcolor` (feed F1): `inherit` on an
+/// inherited row and `unset` leave the row unset, so the parent's colour
+/// shows, bound or literal, over a class's row; `currentcolor` on a
+/// background or a tint is the keyword, which each host paints in `color`.
+#[test]
+fn inherit_unset_and_currentcolor_are_csss() {
+    let src = "style Loud\n  color=\"#ff0000\"\ncomponent A\n  state on = false\n  action flip\n    on = not on\n  view\n    column color=\"#0000ff\"\n      text \"a\" testId=\"inherit\" class=Loud color=\"inherit\"\n      text \"b\" testId=\"bound\" color=(on ? \"unset\" : \"#00ff00\")\n      view testId=\"swatch\" background-color=\"currentcolor\"\n      image \"symbol:add\" testId=\"icon\" tint-color=\"currentColor\" alt=\"Add\"\n      input testId=\"field\" value=\"\" enterkeyhint=\"send\"\n";
+    let plan = contract::bake(contract::compile(src).unwrap(), NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let node = |r: &Runner<NoData>, id: &str| {
+        let k = r.kernel();
+        let key = k.find_by_test_id(id)[0];
+        let n = k.node_by_key(key).unwrap();
+        (n.style.clone(), n.text_color())
+    };
+    let blue: exact_kernel::ColorValue = Color::parse_hex("#0000ff").unwrap().into();
+    let (inherit, color) = node(&r, "inherit");
+    assert!(!inherit.mask.has(exact_kernel::StyleId::TextColor));
+    assert_eq!(color, blue, "the class's red is not the node's");
+    assert_eq!(
+        node(&r, "bound").1,
+        Color::parse_hex("#00ff00").unwrap().into()
+    );
+    r.act("flip", vec![]).unwrap();
+    assert_eq!(node(&r, "bound").1, blue);
+    assert!(
+        r.journal().all(|l| !l.contains("invalid")),
+        "{:?}",
+        r.journal().collect::<Vec<_>>()
+    );
+    let (swatch, _) = node(&r, "swatch");
+    assert!(swatch.mask.has(exact_kernel::StyleId::BackgroundColor));
+    assert_eq!(swatch.background_color, None);
+    let (icon, _) = node(&r, "icon");
+    assert_eq!(icon.tint_color, None);
+    let k = r.kernel();
+    let icon = k.node_by_key(k.find_by_test_id("icon")[0]).unwrap();
+    assert_eq!(
+        icon.props.str(exact_kernel::PropId::AccessibilityLabel),
+        Some("Add")
+    );
+    let field = k.node_by_key(k.find_by_test_id("field")[0]).unwrap();
+    assert_eq!(
+        field.props.str(exact_kernel::PropId::EnterKeyHint),
+        Some("send")
+    );
 }

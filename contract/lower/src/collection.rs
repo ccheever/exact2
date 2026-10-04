@@ -29,6 +29,19 @@ impl Lowerer<'_> {
         children: &[Node],
         span: Span,
     ) -> Result<(), LowerError> {
+        // Reorder is a collection's (LLP 1010 §6, LLP 1043.000): every host
+        // drags only a virtualized list's measured rows, so anywhere else
+        // `reorderdrop` would never fire, on any host (the weather diary's
+        // F1 met it as the web build's refusal).
+        let virtualized = tag == "list"
+            && attrs
+                .iter()
+                .any(|a| a.name == "virtualized" && matches!(a.value, Expr::Bool(true, _)));
+        if let Some(reorder) = attrs.iter().find(|a| a.name == "reorderdrop") {
+            if !virtualized {
+                return err("lower-reorder-collection", format!("`reorderdrop` reorders a virtualized list's rows, and every host drags only those: write `list virtualized=true` with one `each`, and give each row a handle with `reorderFor` naming the list's `id`; on {} it would never fire", if tag == "list" { "a list that is not virtualized".to_string() } else { format!("`{tag}`") }), reorder.span);
+            }
+        }
         let Some(opt) = attrs.iter().find(|a| a.name == "virtualized") else {
             return Ok(());
         };
@@ -49,7 +62,7 @@ impl Lowerer<'_> {
         if !row
             && !attrs.iter().any(|a| match a.name.as_str() {
                 "height" | "max-height" => !matches!(&a.value, Expr::Str(s, _) if s == "auto"),
-                "flex" => numeric_literal(&a.value).is_none_or(|n| n > 0.0),
+                "flex" => super::values::flex_bounds(&a.value),
                 _ => false,
             })
         {
@@ -226,10 +239,6 @@ impl Lowerer<'_> {
                 "position" => {
                     matches!(&a.value, Expr::Str(s, _) if s == "relative" || s == "static")
                 }
-                "top" | "bottom" | "left" | "right" | "rotate" => {
-                    numeric_literal(&a.value) == Some(0.0)
-                }
-                "scale" => numeric_literal(&a.value) == Some(1.0),
                 "margin" | "margin-top" | "margin-bottom" => {
                     numeric_literal(&a.value).is_some_and(|v| v >= 0.0)
                 }
@@ -261,6 +270,13 @@ impl Lowerer<'_> {
                 }
                 _ => true,
             };
+            if !allowed
+                && a.name == "position"
+                && matches!(&a.value, Expr::Str(s, _) if s == "sticky")
+            {
+                // @ref LLP 1083 D5 — each row is laid out in a wrapper of its own.
+                return err("lower-collection-flow", "a windowed row's root would stick only inside its own row: make a section one row, and its header `position: sticky` inside it", a.span);
+            }
             if !allowed {
                 return err("lower-collection-flow", format!("`{}` is not supported on this virtual collection flow root; absolute/overlapping rows and alternate container layouts are not windowed", a.name), a.span);
             }

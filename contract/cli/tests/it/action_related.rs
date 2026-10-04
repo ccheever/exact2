@@ -139,15 +139,15 @@ fn navigate_optional_arity_survives_multiple_bindings_and_intersection() {
 
 #[test]
 fn all_event_payload_arities_share_the_lowering_rule() {
+    // `press` may also hand on its `MouseEvent` (`handler_accepts`).
+    assert_eq!(contract_analyze::handler_arity("press", 0), Some(0..=1));
     for (event, count) in [
-        ("press", 0),
         ("change", 1),
         ("hover", 1),
         ("timeupdate", 1),
         ("durationchange", 1),
         ("pan", 2),
         ("panrelease", 2),
-        ("scroll", 2),
         ("heightrelease", 2),
         ("transformgeometry", 4),
         ("transformrelease", 6),
@@ -171,6 +171,8 @@ fn all_event_payload_arities_share_the_lowering_rule() {
             refusal(&root("text \"hello\"", &wrong));
         }
     }
+    // `scroll`'s two offsets, then its optional `ScrollEvent` (chat F4).
+    assert_eq!(contract_analyze::handler_arity("scroll", 0), Some(2..=3));
     // Edges carry no payload: their action takes exactly the bound arguments.
     assert_eq!(
         contract_analyze::handler_arity("reachstart", 1),
@@ -215,7 +217,7 @@ fn related_import_locations_resolve_independently_and_cli_prints_them() {
     let child = app.write("button.contract", BUTTON).canonicalize().unwrap();
     let error = contract::compile_path(&root).unwrap_err();
     assert_eq!(error.id, "analyze-action-arity");
-    assert_eq!(error.file.as_ref(), Some(&child));
+    assert_eq!(error.file.as_deref(), Some(child.as_path()));
     assert_eq!(error.related[0].file.as_ref(), Some(&child));
     assert_eq!(error.related[1].file.as_ref(), Some(&root));
     assert_eq!(

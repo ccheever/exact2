@@ -41,7 +41,7 @@ final class GesturePrecedenceMacTests: XCTestCase {
     /// lifts, as the web's order has it.
     func testPointerDownAndUpReachTheNearestPointerNodeAroundThePress() {
         let p = host([
-            ["op": "create", "id": 1, "kind": "button", "handlers": ["press", "pointerdown", "pointerup"]],
+            ["op": "create", "id": 1, "kind": "button", "handlers": ["press", "pointerdown", "pointerup", "pointermove"]],
             ["op": "create", "id": 2, "kind": "view"],
             ["op": "children", "id": 1, "ids": [2]],
             ["op": "roots", "ids": [1]],
@@ -50,13 +50,89 @@ final class GesturePrecedenceMacTests: XCTestCase {
         ])
         var log: [String] = []
         p.onPress = { log.append("press \($0)") }
-        p.onPointer = { id, down in log.append("\(down ? "down" : "up") \(id)") }
+        var samples: [PointerSample] = []
+        p.onPointer = { id, kind, sample in
+            log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)"); samples.append(sample)
+        }
         let child = p.views[2]!
         child.mouseDown(with: event(.leftMouseDown, child))
         XCTAssertEqual(log, ["down 1"], "before any press")
+        // LLP 1056 §3 stage 3: the held pointer's drag is the node's move,
+        // its point from the node's content box (the child's middle, 35 in).
+        child.mouseDragged(with: event(.leftMouseDragged, child, down: 5, right: 10))
+        XCTAssertEqual(log, ["down 1", "move 1"])
+        XCTAssertEqual(samples.last?.x, 45); XCTAssertEqual(samples.last?.y, 40)
+        XCTAssertEqual(samples.last?.type, "mouse"); XCTAssertEqual(samples.last?.id, 1)
         child.mouseUp(with: event(.leftMouseUp, child))
-        XCTAssertEqual(log, ["down 1", "up 1", "press 1"])
+        XCTAssertEqual(log, ["down 1", "move 1", "up 1", "press 1"])
+        XCTAssertEqual(samples.last?.buttons, 0)
         XCTAssertNil(p.pointerHeld)
+    }
+
+    /// LLP 1056 §3: a free pointer's moves are one a display frame, the
+    /// latest, as the web host sends them; a pending one goes before a down
+    /// (Grok's batch 2 review). AppKit can report several `mouseMoved` a frame.
+    func testFreeMovesAreOneAFrameAndGoBeforeADown() {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown", "pointermove"]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0]
+        ])
+        window!.orderFront(nil)
+        var log: [String] = []
+        var xs: [Double] = []
+        p.onPointer = { id, kind, sample in log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)"); xs.append(sample.x) }
+        let node = p.views[1]!
+        for right in [0.0, 5.0, 10.0] { node.mouseMoved(with: event(.mouseMoved, node, right: right)) }
+        XCTAssertEqual(log, [], "nothing until the frame")
+        let frame = expectation(description: "a display frame")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { frame.fulfill() }
+        wait(for: [frame], timeout: 2)
+        XCTAssertEqual(log, ["move 1"], "one move a frame")
+        XCTAssertEqual(xs.last, 110, "the latest")
+        node.mouseMoved(with: event(.mouseMoved, node, right: 20))
+        node.mouseDown(with: event(.leftMouseDown, node))
+        XCTAssertEqual(log, ["move 1", "move 1", "down 1"], "the pending move before the down")
+        node.mouseUp(with: event(.leftMouseUp, node))
+    }
+
+    /// Two `pointermove` nodes crossed in one frame each hear their own
+    /// last move (Grok's batch 2 delta review).
+    func testEachNodeCrossedInAFrameHearsItsLastMove() {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["pointermove"]],
+            ["op": "create", "id": 2, "kind": "view", "handlers": ["pointermove"]],
+            ["op": "create", "id": 3, "kind": "view"],
+            ["op": "children", "id": 3, "ids": [1, 2]],
+            ["op": "roots", "ids": [3]],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 400.0, "h": 300.0],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0],
+            ["op": "frame", "id": 2, "x": 200.0, "y": 0.0, "w": 200.0, "h": 100.0]
+        ])
+        var log: [String] = []
+        p.onPointer = { id, _, sample in log.append("move \(id) \(Int(sample.x))") }
+        let (a, b) = (p.views[1]!, p.views[2]!)
+        a.mouseMoved(with: event(.mouseMoved, a))
+        a.mouseMoved(with: event(.mouseMoved, a, right: 5))
+        b.mouseMoved(with: event(.mouseMoved, b))
+        p.flushHoverMove()
+        XCTAssertEqual(log, ["move 1 105", "move 2 100"])
+    }
+
+    /// A presenter released with a move pending leaves no display link
+    /// running (Grok's batch 2 delta review).
+    func testAReleasedPresenterStopsItsHoverLink() {
+        weak var link: CADisplayLink?
+        autoreleasepool {
+            var p: Presenter? = Presenter()
+            p!.viewport.frame = NSRect(x: 0, y: 0, width: 100, height: 100)
+            p!.hoverMoved(1, PointerSample(x: 0, y: 0, buttons: 0, pressure: 0, type: "mouse", id: 1))
+            link = p!.hoverLink
+            XCTAssertNotNil(link)
+            p = nil
+        }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+        XCTAssertNil(link, "invalidated, the run loop lets it go")
     }
 
     func testDoubleClickPressesTwiceThenDoubleClicks() {
@@ -167,6 +243,34 @@ final class GesturePrecedenceMacTests: XCTestCase {
         node.mouseDragged(with: event(.leftMouseDragged, node, right: 10))
         node.mouseUp(with: event(.leftMouseUp, node, right: 10))
         XCTAssertEqual(log, ["pan 10.0"], "a pan that begins cancels the press")
+    }
+
+    /// Rule 3 for a `pan` (kanban F6): a press between keeps the contact only
+    /// within the slop — a drag that starts on a card's button pans the card,
+    /// and a tap on the button still presses it.
+    func testAnAncestorPanTakesADragThatStartsOnAButton() {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["pan"]],
+            ["op": "create", "id": 2, "kind": "button", "handlers": ["press"]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 100.0],
+            ["op": "frame", "id": 2, "x": 10.0, "y": 10.0, "w": 100.0, "h": 40.0]
+        ])
+        var log: [String] = []
+        p.onPress = { log.append("press \($0)") }
+        p.onPan = { id, dx, _ in log.append("pan \(id) \(dx)") }
+        let button = p.views[2]!
+        button.mouseDown(with: event(.leftMouseDown, button))
+        button.mouseDragged(with: event(.leftMouseDragged, button, right: 2))
+        button.mouseUp(with: event(.leftMouseUp, button, right: 2))
+        XCTAssertEqual(log, ["press 2"], "inside the slop it is the button's press")
+        log = []
+        button.mouseDown(with: event(.leftMouseDown, button))
+        button.mouseDragged(with: event(.leftMouseDragged, button, right: 10))
+        button.mouseDragged(with: event(.leftMouseDragged, button, right: 30))
+        button.mouseUp(with: event(.leftMouseUp, button, right: 30))
+        XCTAssertEqual(log, ["pan 1 10.0", "pan 1 20.0"], "past it the card pans and the press is cancelled")
     }
 }
 #endif

@@ -109,7 +109,7 @@ pub fn load(registry: &'static Registry) -> u32 {
 
 /// The active Metal device identity, for filtering host removal notifications.
 pub fn device_registry_id() -> u64 {
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
     return with(|m| {
         use objc2_metal::MTLDevice;
         let gpu = m.gpu.as_ref()?;
@@ -118,7 +118,7 @@ pub fn device_registry_id() -> u64 {
     })
     .flatten()
     .unwrap_or(0);
-    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    #[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "tvos")))]
     0
 }
 
@@ -170,7 +170,7 @@ pub fn unload() {
 ///
 /// # Safety
 /// `layer` must be a live `CAMetalLayer` that outlives the canvas.
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
 pub unsafe fn create(name: &str, layer: *mut c_void, width: u32, height: u32) -> u32 {
     let created = with(|m| {
         let gpu = m.gpu()?;
@@ -201,7 +201,7 @@ pub unsafe fn create(name: &str, layer: *mut c_void, width: u32, height: u32) ->
 ///
 /// # Safety
 /// None: `layer` is never read.
-#[cfg(not(any(target_os = "macos", target_os = "ios")))]
+#[cfg(not(any(target_os = "macos", target_os = "ios", target_os = "tvos")))]
 pub unsafe fn create(name: &str, _layer: *mut c_void, _width: u32, _height: u32) -> u32 {
     refuse(&format!(
         "gpu_create `{name}`: this platform has no presentable target yet"
@@ -344,7 +344,7 @@ pub fn sync() -> u32 {
 /// # Safety
 /// `raw` is a live `MTLTexture` of `width`×`height`, `rgba8Unorm`, kept
 /// alive by the host while the canvas lives.
-#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
 pub unsafe fn texture_from_metal(id: u32, width: u32, height: u32, raw: *mut c_void) -> u32 {
     // SAFETY: the caller's contract, passed on.
     match with(|m| unsafe { m.texture_from_metal(id, width, height, raw) }) {
@@ -697,7 +697,7 @@ macro_rules! module {
         /// # Safety
         /// `raw` is a live `MTLTexture` of that size, `rgba8Unorm`, alive
         /// while the canvas is.
-        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
         #[no_mangle]
         pub unsafe extern "C" fn gpu_texture_metal(id: u32, width: u32, height: u32, raw: *mut ::std::ffi::c_void) -> u32 {
             unsafe { $crate::native::texture_from_metal(id, width, height, raw) }
@@ -1290,7 +1290,7 @@ mod device_loss_tests {
                 4 => assert!(!m.sync()),
                 5 => assert!(m.gpu().is_none()),
                 _ => {
-                    #[cfg(any(target_os = "macos", target_os = "ios"))]
+                    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos"))]
                     // A sentinel must never be retained/imported after loss.
                     assert!(!unsafe { m.texture_from_metal(id, 1, 1, std::ptr::dangling_mut()) });
                 }

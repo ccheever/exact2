@@ -1,0 +1,32 @@
+// `send m = source(args)`: the answer lands in the mutation's slot (an
+// option) in the same commit; derives read it with `match`.
+shape Result
+  ok: bool
+  message: string
+
+component App
+  state attempts = 0
+  mutation saved as shape Result
+  derive status = match saved { case some(r) => r.ok ? "ok" : "failed", case none => "idle" }
+  derive message = match saved { case some(r) => r.message, case none => "" }
+  action save(text: string)
+    attempts = attempts + 1
+    send saved = save(text, attempts)
+  view
+    column
+      text status testId="status"
+      text message testId="message"
+      text `${attempts}` testId="attempts"
+      button "a" press=save("alpha") testId="save-a"
+      button "b" press=save("beta") testId="save-b"
+
+test "idle"
+  expect text "status" == "idle"
+  expect state saved == none
+
+test "send answers"
+  tap "save-a"
+  expect state attempts == 1
+  tap "save-b"
+  tap "save-a"
+  expect state attempts == 3

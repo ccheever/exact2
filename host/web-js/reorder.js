@@ -83,9 +83,12 @@ export function install({ internals: { Collection, Lists, Views, find, minEpoch,
       if (release) this.releasePins([false, true]);
       return true;
     },
+    /** A source row whose height changes ends the preview; a remeasure of
+     * the translated row that differs by float noise is not a change
+     * (`HEIGHT_NOISE`, runner `check_preview_height`). */
     checkPreviewHeight() {
       const p = this.preview;
-      if (p && !p.terminal && this.index.h[this.index.pos.get(p.source)] !== p.height) this.endPreview();
+      if (p && !p.terminal && !(Math.abs(this.index.h[this.index.pos.get(p.source)] - p.height) <= HEIGHT_NOISE)) this.endPreview();
     },
     offsets() {
       const p = this.preview;
@@ -116,6 +119,11 @@ export function install({ internals: { Collection, Lists, Views, find, minEpoch,
       }
     },
   });
+  // A row's measured border box comes through its transform: a row the
+  // preview translates remeasures a few float32 ulps off (76 as 75.99998)
+  // when a relayout reports it mid-drag (habits F10). Layout itself moves in
+  // 1/64 (Chrome, WebKit) or 1/60 (Firefox) pixels, so a hundredth is noise.
+  const HEIGHT_NOISE = 0.01;
   const GEOMETRY = ["list", "revision", "scrollSequence", "scrollTop", "portWidth", "portHeight", "rowWidth", "totalExtent"];
   let ReorderOwner = null, ReorderSerial = 0;
   /** A grip's binding: its `reorderFor` list (the strict ancestor the

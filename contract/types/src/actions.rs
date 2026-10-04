@@ -332,6 +332,7 @@ fn names<'e>(e: &'e Expr, bound: &mut Vec<&'e str>, out: &mut Vec<(&'e str, Span
         Expr::Some(x, _)
         | Expr::Member(x, _, _)
         | Expr::NamedArg(_, x, _)
+        | Expr::Typed(x, _, _)
         | Expr::Unary(_, x, _) => names(x, bound, out),
         Expr::Call(_, args, _) => args.iter().for_each(|a| names(a, bound, out)),
         Expr::Binary(_, a, b, _) => {

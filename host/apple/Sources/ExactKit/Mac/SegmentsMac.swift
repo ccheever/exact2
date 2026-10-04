@@ -72,7 +72,7 @@ final class SegmentHost {
             if members[owner.id] != ids {
                 restore(owner: owner.id)
                 members[owner.id] = ids
-                for tab in tabs { hidden[tab.id] = tab.isHidden; tab.isHidden = true }
+                for tab in tabs { hidden[tab.id] = tab.hiddenByHost; tab.isHidden = true }
             } else {
                 for tab in tabs { tab.isHidden = true }
             }

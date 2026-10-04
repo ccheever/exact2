@@ -30,7 +30,7 @@ bun host/apple/build.mjs --app textflow --run
 bun host/apple/build.mjs --app textflow --ios --run
 
 # Linux's CPU painter, also usable headlessly on macOS
-cargo build --release -p textflow-linux --offline
+cargo build --profile host-dev -p textflow-linux --offline
 bun scripts/agent.mjs linux --app textflow --size 960x900 tree
 ```
 

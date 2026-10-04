@@ -798,6 +798,7 @@ fn timer_demand_pending_b_keeps_dirty_c_and_b_pixels() {
     assert_eq!(paints.get(), 2);
 }
 #[test]
+#[cfg(unix)]
 #[allow(unsafe_code)] // poll borrows this live executor FD with a zero timeout; it takes no ownership.
 fn timer_demand_nonvisual_command_wakes_existing_executor_without_paint() {
     let source = "component App\n  action tick\n    copyText(\"timer\")\n  task timer mount\n    every(250, tick)\n  view\n    text \"unchanged\"\n";

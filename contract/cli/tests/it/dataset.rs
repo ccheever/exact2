@@ -87,6 +87,16 @@ fn a_word_a_host_writes_or_html_cannot_spell_is_refused() {
             "written by the web host",
         ),
         (
+            "data-scrollstart=\"x\"",
+            "lower-data-word",
+            "written by the web host",
+        ),
+        (
+            "data-liststyle=\"x\"",
+            "lower-data-word",
+            "written by the web host",
+        ),
+        (
             "data-exact-id=\"x\"",
             "lower-data-word",
             "written by the web host",

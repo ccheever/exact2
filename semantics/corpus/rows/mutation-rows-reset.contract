@@ -1,0 +1,40 @@
+// Rows from a mutation's answer: each reload replaces the list; rows whose
+// key survives keep their state, the rest start fresh.
+shape Item
+  id: string
+
+component App
+  state k = 0
+  mutation got as shape list<Item>
+  derive items = match got { case some(xs) => xs, case none => [] }
+  action load
+    k = k + 1
+    send got = page(k % 3)
+  view
+    column
+      button "load" press=load testId="load"
+      text `${length(items)}` testId="count"
+      each it, i in items key=it.id
+        Row(id=it.id, index=i)
+
+component Row
+  props
+    id: string
+    index: number
+  state hits = 0
+  action hit
+    hits = hits + 1
+  view
+    button "hit" press=hit testId=`hit-${index}`
+      text `${id}:${hits}` testId=`row-${index}`
+
+test "reloads"
+  tap "load"
+  tap "hit-0"
+  tap "hit-1"
+  tap "load"
+  tap "hit-0"
+  tap "load"
+  tap "load"
+  tap "hit-0"
+  tap "load"

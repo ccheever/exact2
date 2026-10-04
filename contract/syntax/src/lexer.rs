@@ -79,6 +79,28 @@ impl Lexer {
         }
     }
 
+    /// Whether the innermost open block holds only `name=` lines: an
+    /// element's continued attributes, with no nested block of its own.
+    fn attributes_only(out: &[Token]) -> bool {
+        let Some(open) = out
+            .iter()
+            .rposition(|t| matches!(t.kind, TokenKind::Indent))
+        else {
+            return false;
+        };
+        let block = &out[open + 1..];
+        !block.iter().any(|t| matches!(t.kind, TokenKind::Dedent))
+            && block
+                .split(|t| matches!(t.kind, TokenKind::Newline))
+                .filter(|line| !line.is_empty())
+                .all(|line| {
+                    matches!(
+                        (line.first().map(|t| &t.kind), line.get(1).map(|t| &t.kind)),
+                        (Some(TokenKind::Ident(_)), Some(TokenKind::Punct("=")))
+                    )
+                })
+    }
+
     /// Tokens and every line's refusal. A refused line ends where it failed
     /// (brackets it opened are closed), so the lines after it lex, and parse,
     /// as they would without it.
@@ -151,8 +173,10 @@ impl Lexer {
                         },
                     });
                 } else {
+                    let mut popped = 0;
                     while indent < *indents.last().unwrap() {
                         indents.pop();
+                        popped += 1;
                         out.push(Token {
                             kind: TokenKind::Dedent,
                             span: Span {
@@ -160,6 +184,16 @@ impl Lexer {
                                 ..Span::point(line_no, first_col)
                             },
                         });
+                    }
+                    // An element's continued `name=` lines may sit deeper than
+                    // its children: the children then open the same block at
+                    // their own level, as if the attributes had been indented to it.
+                    if popped == 1
+                        && indent > *indents.last().unwrap()
+                        && Self::attributes_only(&out[..out.len() - 1])
+                    {
+                        out.pop();
+                        indents.push(indent);
                     }
                     if indent != *indents.last().unwrap() {
                         return Err(LexError {
@@ -365,14 +399,9 @@ impl Lexer {
         let mut chars = text[start + 1..].char_indices();
         while let Some((i, c)) = chars.next() {
             match c {
-                '\\' => match chars.next() {
-                    Some((_, 'n')) => out.push('\n'),
-                    Some((_, 't')) => out.push('\t'),
-                    Some((_, '"')) => out.push('"'),
-                    Some((_, '\\')) => out.push('\\'),
-                    Some((_, '`')) => out.push('`'),
-                    Some((_, '$')) => out.push('$'),
-                    _ => {
+                '\\' => match chars.next().and_then(|(_, c)| escaped(c)) {
+                    Some(c) => out.push(c),
+                    None => {
                         return Err(LexError {
                             id: "syntax-bad-escape",
                             message: "unknown escape".into(),
@@ -390,6 +419,20 @@ impl Lexer {
             span,
         })
     }
+}
+
+/// The character `\c` stands for, in a `"…"` string and a template's text
+/// alike: `\n`, `\t`, `\"`, `\\`, `` \` `` and `\$` (so `\${` is literal).
+pub(crate) fn escaped(c: char) -> Option<char> {
+    Some(match c {
+        'n' => '\n',
+        't' => '\t',
+        '"' => '"',
+        '\\' => '\\',
+        '`' => '`',
+        '$' => '$',
+        _ => return None,
+    })
 }
 
 /// The byte offset of the backtick closing a template literal. Nested

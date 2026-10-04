@@ -434,7 +434,8 @@ fn each_child<'a>(e: &'a Expr, f: &mut dyn FnMut(&'a Expr)) {
         Expr::Some(x, _)
         | Expr::Unary(_, x, _)
         | Expr::Member(x, _, _)
-        | Expr::NamedArg(_, x, _) => f(x),
+        | Expr::NamedArg(_, x, _)
+        | Expr::Typed(x, _, _) => f(x),
         Expr::Binary(_, a, b, _) => {
             f(a);
             f(b);
@@ -480,6 +481,7 @@ fn map_children(e: &Expr, f: &mut dyn FnMut(&Expr) -> Expr) -> Expr {
         Expr::Unary(op, x, s) => Expr::Unary(*op, Box::new(f(x)), *s),
         Expr::Member(x, field, s) => Expr::Member(Box::new(f(x)), field.clone(), *s),
         Expr::NamedArg(n, x, s) => Expr::NamedArg(n.clone(), Box::new(f(x)), *s),
+        Expr::Typed(x, t, s) => Expr::Typed(Box::new(f(x)), t.clone(), *s),
         Expr::Binary(op, x, y, s) => {
             let x = Box::new(f(x));
             Expr::Binary(*op, x, Box::new(f(y)), *s)

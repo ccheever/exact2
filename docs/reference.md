@@ -25,8 +25,13 @@ the `hermesc` compiler from a sibling **ibex** checkout at `../ibex`
 `./scripts/build-hermes.sh --vanilla` there once. `EXACT_HERMES_DIR` and
 `EXACT_HERMESC` point at an engine and a compiler built elsewhere. Without
 them, the build of such an app stops in `exact-js`'s build script with a
-message naming these steps. An app with a Rust data crate and no `app.ts`
-needs none of this.
+message naming these steps. On iOS the app links a lean VM instead, built
+once per machine into `~/.cache/exact/hermes/<pin>-lean-ios` by
+`host/apple/build.mjs --ios`, which clones the pinned source and builds a host
+compiler when this machine has neither; CMake is its one prerequisite, and a
+build without it says so in one message (`EXACT_HERMES_IOS_DIR` names archives
+built elsewhere). An app with a Rust data crate and no `app.ts` needs none of
+this.
 
 Snapback4 consumers use release **0.2.30**: the CLI and browser device are pinned
 in `bun.lock`; Cargo pins native devices and schema compilers to the matching
@@ -77,7 +82,7 @@ never to block. Its design documents are imported under `llp/research/`.
 | `apps/exact-live/` | A creative production workspace combining photo zoom, scene ordering, crew chat and a runbook. The [browser preview](https://exact-live.tuft.host/) passes 19 interaction checks; native delivery and connected jobs remain in progress. See its [README](../apps/exact-live/README.md). | LLP 1041 §8 |
 | `gpu/` (`exact-gpu`) | The GPU canvas: a `Surface` trait against wgpu, a per-app module loaded on demand (a dylib on macOS, a second wasm on the web) after the first pixel; the same Rust renders on Metal and on the browser's WebGPU. `apps/caltrain/gpu` is the line map and the aurora. `gpu/reflect` (`exact-gpu-reflect`, naga only) reflects every `.wgsl` in a GPU crate's `build.rs`: bindings, struct layouts, vertex inputs, and entry points generated as Rust, the WGSL as the one declaration authority. | LLP 1009 |
 | `host/apple/` (`exact-apple`) | The Apple host: runner + kernel as a static library with a C ABI, the kernel's layout with CoreText measurement through a callback, `exact-motion` as the executor, typed batches; `macos/` is the AppKit presenter and `ios/` the UIKit one (SwiftPM, sharing `swift/`). `bun host/apple/build.mjs --run`; `bun host/apple/build.mjs --ios --run` on a simulator. | LLP 1008 |
-| `host/linux/` (`exact-linux`) | The Linux host, the first that paints: runner + kernel natively, cosmic-text measuring and painting from one cache, `exact-motion` as the executor, the kernel tree drawn by one walk over a backend — vello on the GPU (the main one), tiny-skia on the CPU (the fallback and the pixel oracle) — onto DRM/KMS dumb buffers with evdev input, or into a buffer with no display (the agent API, screenshots, the smoke; on macOS too). Pure Rust, no system library. `cargo build --release -p caltrain-linux`. | LLP 1015 |
+| `host/linux/` (`exact-linux`) | The Linux host, the first that paints: runner + kernel natively, cosmic-text measuring and painting from one cache, `exact-motion` as the executor, the kernel tree drawn by one walk over a backend — vello on the GPU (the main one), tiny-skia on the CPU (the fallback and the pixel oracle) — onto DRM/KMS dumb buffers with evdev input, or into a buffer with no display (the agent API, screenshots, the smoke; on macOS too). Pure Rust, no system library. `cargo build --profile host-dev -p caltrain-linux` for the one an agent drives (a touched line rebuilds in seconds); `--release` for the one that ships. | LLP 1015 |
 | `host/web/` (`exact-web`) | The web host: runner + kernel in wasm over the real DOM, CSS computed once from the kernel's rows, springs lowered to frames the browser plays, a no-`unsafe` ABI, ~150 lines of glue, a headless-Chrome smoke, the motion parity harness, and the dev loop (`bun host/web/dev.mjs`, edit → present ~20 ms). | LLP 1007 |
 | `vendor/taffy/` | Taffy 0.9.2 plus two Exact patches. | `vendor/taffy/EXACT-PATCHES.md` |
 
@@ -190,13 +195,30 @@ line to add when none is.
 
 An app says what it opens with `file_handlers` in `app.json` — the W3C Web App
 Manifest's own key — and the macOS bake derives `CFBundleDocumentTypes` from
-it. A path from the command line, from Finder, from ⌘O, or from a link inside
+it. Each MIME type it accepts must be one the Apple hosts map to a system type
+(`DOCUMENT_UTIS` in `scripts/app.mjs`; `application/octet-stream` is
+`public.data`); every build refuses another when it reads the manifest, the
+web's included. A path from the command line, from Finder, from ⌘O, or from a link inside
 a document all arrive at the same place: the app's `open-file` node
 (LLP 1033 D3). `exact uninstall <app>` takes both halves away.
 
-Apple products and Swift caches live under the resolved app's target directory,
-scoped by canonical source directory, manifest id, destination, composition and
-trust policy. `--bundle` prints the stable Mac bundle at
+Apple products live under the resolved app's target directory, scoped by
+canonical source directory, manifest id, destination, composition and trust
+policy. The Swift host is compiled once per destination for every app, in
+`<target>/apple-swift/<destination>-<minimum OS>`; each app only links there,
+one at a time, and its executable is copied to its own products before the next
+app links. A development build compiles it file by file and incrementally, and
+beside the app's Rust; the host's two Rust modules build in
+`<target>/apple-modules`, and a checkout that has not built one takes it from
+`~/.cache/exact/apple-modules` when another checkout of this machine compiled
+it from the same bytes. A target directory that has compiled nothing starts
+with the registry crates this machine has compiled
+(`~/.cache/exact/apple-crates`; Cargo decides which it can use). Delete either
+directory to compile everything here. What is
+distributed (`--archive`, `exact release`) is the whole-module build, stripped,
+with its dSYM and whole receipt beside it; a production build links its Rust
+with fat LTO and, when its plan is fixed, leaves out the loaded modules the
+plan cannot reach (LLP 1036.000 §5–§10). `--bundle` prints the stable Mac bundle at
 `<target>/clients/<source-key>/<id>/macos/<Name>.app`; `scripts/exact.mjs`,
 `agent --app` and metrics use that same resolver. `--host` leaves both standalone
 and sample products; simulator and device bundles have separate destinations.
@@ -231,9 +253,11 @@ is in [LLP 1030.000 §7](../llp/1030.000-dev-server-as-deployer.rfc.md#7-exact2-
 
 Agent sessions use `exactTime()` launch facts `seed: 1` (LLP 1069.007), `locale: "en-US"`,
 `timeZone: "UTC"` and `epochAtZero` 2026-01-01T00:00:00Z (LLP 1027.000.000 D3, with the
-zone's `utcOffset` at that instant) on every host. Override them at session setup with
+zone's `utcOffset` at that instant, answered again when the virtual date crosses a DST change) on every host. Override them at session setup with
 `bun scripts/agent.mjs web --seed 42 --locale fr-CA --time-zone America/Toronto --epoch 2026-09-21T14:13:20Z tree`
-or `open({host, seed: 42, locale: "fr-CA", timeZone: "America/Toronto", epoch: "2026-09-21T14:13:20Z"})`.
+or `open({host, seed: 42, locale: "fr-CA", timeZone: "America/Toronto", epoch: "2026-09-21T14:13:20Z"})`;
+a test file writes them as launch lines (`epoch "2026-09-21T14:13:20Z"`, `time-zone "America/Toronto"`,
+[authored tests](contract-grammar.md#authored-tests)), which override the flags.
 Seeds are integers from 0 through 2^53 − 1; an epoch is an ISO date or Unix milliseconds. Native carriers pass
 `EXACT_AGENT_SEED`, `EXACT_AGENT_LOCALE`, `EXACT_AGENT_TIME_ZONE` and `EXACT_AGENT_EPOCH`
 (milliseconds); direct agent launches can set these too. Web agent pages accept
@@ -259,8 +283,55 @@ In `app.ts`, use `import type { Sources, Answer } from './app.contract.d.ts'`.
 Annotate the provider map as `Sources`; each function takes `(args, store, storage)` and
 returns its declared result or a Promise of it. An `Answer` dispatcher can call
 `sources[source](args, store, storage)` without casts. `bun install --frozen-lockfile` installs the pinned `tsc`.
+An answer is held to its shape exactly, on every executor: each declared field
+present (an `undefined` one is missing, as `JSON.stringify` leaves it out), none
+undeclared at any depth, each value of its declared kind. TypeScript's excess
+property check misses a spread (`{ ...row, amount }` keeps `row`'s other fields),
+so the refusal is at run time, the same on the web as on a device:
+``` `ledger` answered outside its shape: field `days`: field `transactions`: field `cents` is not in the shape ```.
 Use a distinct filename: adjacent `app.ts` shadows an `app.d.ts` import.
-Generated declarations are build artifacts, not files to commit.
+Generated declarations are build artifacts, not files to commit. A development
+build writes them beside `app.ts` for an editor: the web build and the native
+development bake both do.
+
+### What a data module can use
+
+Every build type-checks `app.ts` and what it imports with one configuration,
+`js/bake/src/typescript.mjs`: the web build (alongside bundling, ~40 ms for a
+small app, about nothing on the build's wall time) and the native bake, with
+the same capture, entry and diagnostics, so an `app.ts` that builds on one
+host builds on all of them and a type error stops every build the same way.
+`strict`; target and library ES2023, plus ES2024's `Object.groupBy`,
+`Map.groupBy`, `Promise.withResolvers` and well-formed strings; `WebWorker`'s
+web APIs, never the DOM's UI types (`Document`, `HTMLElement`, `Window`).
+Imports may name `.ts` files (`import { day } from './dates.ts'`) or leave the
+extension off; `tsconfig.json` contributes only `paths` and `baseUrl`.
+
+The language is the same everywhere. The globals beyond it are the browser's
+on the web and these on Hermes (macOS, iOS, Linux):
+
+| Available on every executor | Notes on Hermes |
+| --- | --- |
+| `fetch`, `Headers`, `Response` | Grant-checked; `signal` aborts. A `Response` has `status`, `ok`, `headers`, `text()`, `json()`, `arrayBuffer()`; no `Request`, `Blob` or `FormData` |
+| `structuredClone` | No transfer list |
+| `TextEncoder`, `TextDecoder` | The decoder is UTF-8 only |
+| `URL`, `URLSearchParams`, `atob`, `btoa` | |
+| `crypto.getRandomValues`, `crypto.randomUUID`, `crypto.subtle` | Inside an answer; `subtle` digests (SHA-256/384/512) and ECDSA P-256 keys (LLP 1069.005), and refuses the rest by name |
+| `AbortController`, `AbortSignal` | `AbortSignal.timeout()` refuses: no timers |
+| `queueMicrotask`, `Promise` | |
+| `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.Collator`, `localeCompare`, `toLocaleString` | Date formatting needs an explicit timestamp. No `Intl.PluralRules`, `RelativeTimeFormat`, `ListFormat`, `Segmenter`, `DisplayNames` or `Locale` (Apple's engine; Linux's is built `--intl`) |
+| `console` | To the runner's logs |
+
+Not in a data module, by design (LLP 1027.000): timers (`setTimeout`,
+`setInterval`), `performance.now()`, `Date.now()`, `new Date()` without a value
+and `Math.random()`: time and seeds are source arguments. Every executor
+refuses them by name, with the same message, on first use: Hermes, the web's
+module realm, and the web build, whose bundler gives the app's own modules
+guarded `Date`, `Math`, `Intl`, timers and `performance` in place of the
+page's (LLP 1027.000 D3), so an app that reads the clock fails in the web loop
+as it would on a device. The type check cannot see the difference.
+ES2024's resizable `ArrayBuffer`, shared memory and the RegExp `v` flag are not
+in Hermes, so they are not in the library.
 
 The dispatcher receives storage as its fourth argument:
 `answer(source, args, store, storage)`. `store` remains the grant-checked secrets
@@ -283,11 +354,78 @@ same browser origin, subject to browser storage retention and quota policies.
 An open database exclusively locks its file; conflicting opens or filesystem
 mutations return `Unavailable` with a busy message. Agent mode skips storage.
 
+In `app.ts`, a storage refusal is an `Error` with `kind: 'Unavailable'`, a `code` and a
+`message`. The code is the same on every host; the message says more and may
+differ. Storage itself is unavailable: `'bake'` (the build compiles no answer
+that reads storage; show a placeholder), `'agent'` (a scripted drive that names
+no scratch store, `--storage <name>`), `'unsupported'` (a host with no app
+storage). The operation was refused: `'denied'` (the grants do not cover it),
+the filesystem's POSIX name (`'ENOENT'`, `'EEXIST'`, `'ENOTDIR'`, `'EISDIR'`,
+`'ENOTEMPTY'`, `'EBUSY'`), else `'failed'`. Branch on the code, never the
+message: `catch (e) { if (e.code === 'ENOENT') return empty; throw e; }`.
+
+A drive's app storage is a scratch store it names (`--storage <name>`) or none;
+an authored test gets a fresh one of its own. The driver's `state.storage` says
+which (`{available: false, code: 'agent', message}` or `{available: true,
+store}`), and the web's journal says `storage refused (agent): …` the first time
+a refusal lands. A Rust module's storage request in such a drive is answered
+with the same message, never refused outright (trivia F7).
+
+An answer's storage and `fetch` steps run whether or not it awaits them: a save
+started and not awaited (queued behind the module's own promise chain, say)
+lands on every host. In the browser the answer is given at once and the save
+finishes behind it; on Hermes the answer is given once the steps it started
+have landed (kanban F22). A storage or `fetch` call made when no answer is in
+flight is refused and logged, never silently dropped. An answer the runner
+lets go between storage steps (a refresh it discards before a mutation lands, a
+read whose arguments changed or that a `refresh` replaced) still runs the steps it began, and the chain
+behind them, to their end before the next answer starts; only its answer is
+dropped, so serializing storage through one promise chain composes with
+`refreshes` and fast-changing arguments (ledger F12, minesweeper F10).
+
 This first browser implementation targets modest app stores: filesystem
 operations read the app's file records, and each SQLite mutation atomically
 saves the whole database file. Database files share the filesystem namespace,
 so closed databases can be copied or exported through `storage.fs`. SQLite integer results
 are `bigint`: convert them to a Contract-compatible value before returning.
+
+### Documents the person chose (`doc:`)
+
+A file or folder the person picks (`showOpenFilePicker`, `showDirectoryPicker`,
+`showSaveFilePicker`), or opens from the system at the app's `open-file` node,
+arrives as a `doc:/<n>/<name>` path (LLP 1069.010 D1). `storage.fs` reaches it,
+and paths beneath a chosen folder, under the grants `fs.read doc:/` and
+`fs.write doc:/` — the same grants, operations, refusals and codes whether the
+data module is TypeScript or Rust, on every host:
+
+```ts
+export const grants = 'fs.read doc:/';
+// listing([folder]) with folder = 'doc:/1/notes', from `change` on the picker's node
+for (const name of await storage.fs.readdir(folder)) {
+  const stat = await storage.fs.stat(`${folder}/${name}`);       // a folder's size is 0
+  if (stat.isFile) bytes = await storage.fs.readFile(`${folder}/${name}`);
+}
+```
+
+| Operation on a `doc:` path | Grant | What it does |
+| --- | --- | --- |
+| `readFile`, `stat`, `readdir` | `fs.read doc:/` | `doc:/<n>` itself lists only `<name>` |
+| `writeFile`, `atomicWriteFile`, `appendFile` | `fs.write doc:/` | Creates a file beneath a chosen folder |
+| `mkdir` | `fs.write doc:/` | Makes the folders above it too |
+| `rm` | `fs.write doc:/` | One file or one empty folder beneath the chosen document; never the document itself, never a tree |
+| `rename`, `copyFile`, `realpath` | — | Refused (`'failed'`): read the bytes and write them |
+
+A path never minted, `.`/`..`, and a closed window's or page's handle are
+refused. A document needs no app storage: a drive without `--storage` reaches
+it. On the web the paths are the `FileSystemHandle`s the page's picker
+returned (Chromium; Safari and Firefox refuse the pickers), and a module placed
+on a worker on the wasm web host cannot reach them (`'unsupported'`); on macOS
+and iOS they are security-scoped URLs held for the session; Linux opens no
+picker panel (a drive's held pickers still answer), so outside a drive only
+`open-file` delivers one there. The handles end with the
+session: nothing about a document is remembered across launches.
+
+### Bake and deliver a TypeScript module
 
 Build an app-local `app.ts` module and bake its Contract through the resulting
 Hermes bytecode (currently a macOS producer with the sibling ibex toolchain):
@@ -352,9 +490,7 @@ the running app.
 Browser providers support async answers and sequential/parallel `fetch` through
 the existing grant-checked host transport. Executor-local continuation tickets
 drain microtasks without re-entering wasm; stale incarnations cannot fulfill the
-replacement app. Real Chrome tests run all 20 Caltrain data cases and the same
-25 ambient-read probes at initialization, in answers, and after fetch as Hermes,
-plus store, errors, binary responses, interleaving and disposal cases.
+replacement app. 
 
 Linux provisions the same vanilla pin with `./scripts/build-hermes-linux.sh
 --vanilla --release --intl` in the sibling Ibex checkout. Exact links its lean
@@ -369,48 +505,12 @@ needs from ibex's Hermes source, once per machine, into
 `~/.cache/exact/hermes/<pin>-lean-ios` (override with `EXACT_HERMES_IOS_DIR`,
 LLP 1036.001 D5); the recipe and archive layout are in
 [LLP 1027 D6](../llp/1027-typescript-data-sources.rfc.md#d6--the-web-the-browser-is-the-executor-one-wasm-import-the-same-module-under-two-loaders).
-The normal Apple build captures the linked archives in its receipt. The iOS
-simulator executed an async module, fetched twice and followed a URL logic edit
-while retaining count 1 alongside the browser. The device-target archive also
-builds. The simulator guard app passed all 25 forms at initialization, in direct
-calls and after fetch, explicit UTC/Intl inputs, interleaved async calls and an
-uncaught-initialization refusal (27 HTTP requests, no pending work).
-The physical iPhone 17 Pro Max / iOS 26.6.1 now passes the same guard sweep,
-including all 75 refusals, 27 HTTP requests, no pending work, and a copied,
-inspected screenshot. A repeat assertion run passed in 5.7 s (83.5 ms first
-frame, one sample rather than a startup budget result).
-
-The TypeScript Caltrain twin passed the complete app drive and all three
-Contract tests on web, macOS, iOS simulator and physical iPhone, with its real assets, deck and
-GPU module. Production Caltrain remains Rust. `smoke.mjs --app-only` runs the
-selected app and its tests without unrelated bare-plan host fixtures, which a
-paired module client correctly refuses. The driver now supports
-`ios --device [--phone <name|udid>]`: the phone connects outward to a temporary
-Mac-side port with a per-launch token, because developer-console stdin closes
-immediately. Use a trusted LAN, allow local networking, and keep the app visible;
+The normal Apple build captures the linked archives in its receipt.
+`smoke.mjs --app-only` runs the selected app and its tests without unrelated
+bare-plan host fixtures. The driver supports `ios --device [--phone <name|udid>]`:
+the phone connects outward to a temporary Mac-side port with a per-launch token.
+Use a trusted LAN, allow local networking, and keep the app visible;
 `EXACT_AGENT_HOST` overrides the Mac IPv4 address. The carrier is not encrypted.
-Physical URL replacement is now driven alongside the browser: TypeScript edits
-change the answer with counter 1 and clock 12345 retained, unchanged plan and
-native binary, and the same phone PID. A candidate that throws only at the carried
-counter preserves both clients; the next valid edit recovers. Each valid revision
-passes the async guard sweep. Earlier apparent stalls included a UIKit delayed-touch
-crash; the dev-menu recognizers no longer delay touch endings. The complete proof
-passes with the menu enabled and tracing removed. The full Caltrain URL proof
-also passes: live edit, broken-candidate refusal and recovery preserve the selected
-station, clock and train boards, with unchanged phone PID/native binary. The
-initial menu-only mitigation was incomplete: Caltrain's hover recognizers still
-delayed touch endings. Hover now neither delays nor cancels finger events, and
-the four-finger shortcuts accept only direct touch events. Two physical Caltrain
-replacement/refusal/recovery runs pass with the menu enabled (the final one with
-tracing removed). Those gesture mitigations did not fix real finger scrolling:
-the same-binary diagnostic isolated session creation before UIApplicationMain.
-Both iOS adapters now create sessions after UIKit starts; Charlie confirmed
-scrolling in regular Caltrain and opening it natively from Safari. Normal URL
-module replacement also configures storage before activation, exactly once.
-Manual four-finger single/double-tap verification remains owed.
-Agent deadlines include native
-diagnostics; a closed carrier rejects later requests immediately. Systematic
-size/startup/per-call measurements remain to be proved.
 
 The dev page's **Open in native…** link offers an installed-client action and
 local setup instructions at `/__dev/open`. Development Apple builds register an
@@ -421,16 +521,12 @@ warm URL delivery. For a local macOS bundle, use
 The bundle includes its assets and native modules; it is not a notarized download.
 Browser navigation, both Apple cold/warm handlers and malformed-link refusals are
 tested. The page cannot detect installation, and does not trigger signing/builds.
-Safari's reported 5–10-second initial scroll delay remains unresolved: the web
-root is inert until the module loads. A held-loader Chrome probe confirmed that
-this blocks scrolling despite the complete list already being present; physical
-Safari timing still needs a working remote automation connection. Web-only program
-rebuilds also currently invalidate connected native clients unnecessarily.
 
-Remaining: Linux native TypeScript execution, npm dependency capture, signed
-module updates, downloadable custom clients, and the generic Go launcher.
-One async web/iOS edit measured 410 ms save-to-DOM / 430 ms to a rendering
-opportunity; the 100 ms save-to-present p50 target is not demonstrated.
+**Limits.** Linux native hosts don't run TypeScript yet (use a Rust data crate
+there); `app.ts` can't import npm packages; signed delivery of TypeScript and Rust
+modules isn't implemented, so set `deploy.store` to `"0"`. The history of how this
+was proved on each host is in [LLP 1027](../llp/1027-typescript-data-sources.rfc.md)
+and git.
 
 ## The five checks
 

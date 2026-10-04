@@ -34,6 +34,26 @@ final class CollectionMacTests: XCTestCase {
         ]))
         return (p, p.views[1]!)
     }
+    func testCSSCursorKeywordsReachAppKit() {
+        XCTAssertTrue(CSSCursor.value("grab") === NSCursor.openHand)
+        XCTAssertTrue(CSSCursor.value("grabbing") === NSCursor.closedHand)
+        XCTAssertTrue(CSSCursor.value("pointer") === NSCursor.pointingHand)
+        XCTAssertNil(CSSCursor.value("auto"))
+    }
+    func testOverflowAutoCreatesAnAutohidingScrollContainer() {
+        _ = NSApplication.shared
+        let p = Presenter()
+        p.apply(batchFixture(ops: [
+            ["op": "create", "id": 1, "kind": "view", "style": ["overflow_x": "auto", "overflow_y": "auto"]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0],
+            ["op": "content", "id": 1, "w": 400.0, "h": 500.0]
+        ], timers: false, motion: false, clock: nil, error: nil))
+        let sv = p.views[1]!.scroll!
+        XCTAssertTrue(sv.scrollsX && sv.scrollsY)
+        XCTAssertTrue(sv.autohidesScrollers)
+    }
+
     func testMeasuresActualNestedClipViewWithoutAuthoredScrollHandler() throws {
         let (p, list) = fixture(estimatedItemHeight: "24")
         defer { p.collections.reset() }
@@ -149,6 +169,26 @@ final class CollectionMacTests: XCTestCase {
         p.apply(batch([["op": "collections", "items": [snapshot(revision: 6,
             correction: ["scrollSequence": 0, "offset": 100, "from": 200])]]]))
         XCTAssertEqual(clip.bounds.minY, 282, "not across an authored jump")
+    }
+    /// Rows put above the reader in the batch that also resizes the port (a
+    /// pull-to-refresh zone closing as the new posts land) still move the
+    /// offset with them: the resize is not the reader moving (feed F14).
+    func testAnAnchorsCorrectionLandsInTheBatchThatResizesThePort() throws {
+        let (p, list) = fixture()
+        defer { p.collections.reset() }
+        let clip = try XCTUnwrap(list.scroll?.contentView)
+        clip.scroll(to: NSPoint(x: 0, y: 100)); list.scroll?.reflectScrolledClipView(clip)
+        p.apply(batch([
+            ["op": "collections", "items": [snapshot(revision: 2, correction: ["scrollSequence": 0, "offset": 940, "from": 100])]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 248.0],
+        ]))
+        XCTAssertEqual(clip.bounds.minY, 940, "two posts of 420 came in above the reader")
+        // The next resize is a jump: a correction planned before it is stale.
+        p.apply(batch([
+            ["op": "collections", "items": [snapshot(revision: 3, correction: ["scrollSequence": 0, "offset": 1000, "from": 100])]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0],
+        ]))
+        XCTAssertEqual(clip.bounds.minY, 940)
     }
     func testClearedSnapshotRetiresStateAndObserver() {
         let (p, _) = fixture()
@@ -535,6 +575,25 @@ final class CollectionMacTests: XCTestCase {
         p.apply(batch([["op": "children", "id": 1, "ids": [5, 6]]]))
         XCTAssertEqual(container.removed, [2], "a retired row must still detach")
         XCTAssertFalse(window.firstResponder === paragraph)
+    }
+
+    /// A row playing `exit-animation` is a subview but no longer a child;
+    /// ordering the rows keeps it, a paint ghost at its old place that paints
+    /// over them (its paint rank), instead of trapping (mail F22).
+    func testAnExitingRowKeepsARankWhileTheRowsReorder() throws {
+        let (p, list) = fixture()
+        defer { p.collections.reset(); p.reset() }
+        p.apply(batch([
+            ["op": "create", "id": 4, "kind": "view"],
+            ["op": "create", "id": 5, "kind": "view"],
+            ["op": "children", "id": 1, "ids": [2, 4, 5]],
+            ["op": "exit", "id": 2],
+            ["op": "children", "id": 1, "ids": [5, 4]],
+        ]))
+        XCTAssertEqual(list.container.subviews.compactMap { ($0 as? NodeView)?.id }, [2, 5, 4])
+        XCTAssertTrue(try XCTUnwrap(list.container.subviews.first as? NodeView).paintGhost, "the leaving row is a paint ghost")
+        p.apply(batch([["op": "destroy", "id": 2]]))
+        XCTAssertEqual(list.container.subviews.compactMap { ($0 as? NodeView)?.id }, [5, 4])
     }
 
     func testPrependingANewNativeChildKeepsRetainedSiblingsMounted() throws {

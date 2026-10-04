@@ -3,7 +3,9 @@
 // through the touch runner (`--touch platform`), in both timing modes. Each
 // `tap` must reply `delivery: platform` with the touch the app's window
 // dispatched; what the tap did is read from `tree`, never from the reply.
-// Held contacts reply `unsupported` until P3 passes. Prints the runner's
+// Held contacts reply `unsupported` until P3 passes; a whole real drag
+// (`tap … drag`, §11) scrolls the stations, with a read while the finger is
+// down, and a still press opens them as a tap does. Prints the runner's
 // start and per-tap times (G2) as observations, never a gate. A runner that
 // does not start fails: this simulator is the supported destination.
 //   bun scripts/smoke-touch.mjs [--build] [--sim <udid|name>]
@@ -38,9 +40,20 @@ for (const timing of ['agent', 'platform']) {
       check(r.delivery === 'platform' && r.landed?.session === 'main' && r.touch?.type === 'direct', `${timing}: tap ${target} was not a real touch: ${JSON.stringify(r)}`);
       return r;
     };
-    const change = await tap('change-station');
+    // A still press (§11): the finger down 300 ms, then up, presses as a tap does.
+    const still = await s.tap('change-station', { drag: { dx: 0, dy: 0, press: 300, during: [async () => (await s.tree()).nodes.length] } });
+    check(still.delivery === 'platform' && still.touch?.moved === 0 && still.during?.[0] > 0, `${timing}: a still press was not one real touch with a read while down: ${JSON.stringify(still)}`);
+    if (timing === 'platform') await s.clock('settle');
     let tree = await s.tree();
-    check(byTestId(tree, 'station-search'), `${timing}: a real tap on change-station did not open the stations (landed on ${JSON.stringify(change.landed)})`);
+    check(byTestId(tree, 'station-search'), `${timing}: a still real press on change-station did not open the stations (landed on ${JSON.stringify(still.landed)})`);
+    // A whole real drag up the stations scrolls them: the row moves up the screen.
+    const row = async () => (await s.layout()).nodes.find((n) => n.props?.testId === 'station-paloalto' || n.testId === 'station-paloalto')?.y;
+    const y0 = await row();
+    const dragged = await s.tap('stations-screen', { drag: { dx: 0, dy: -250, over: 400, hold: 100 } });
+    await s.clock('settle');
+    const y1 = await row();
+    check(dragged.delivery === 'platform' && dragged.touch?.moved > 0 && y0 - y1 > 150, `${timing}: a real drag of 250 pt moved the stations ${y0 - y1} pt: ${JSON.stringify(dragged)}`);
+    console.log(`${timing}: drag moved the stations ${y0 - y1} pt in ${dragged.touch?.moved} moves`);
     await s.type('station-search', 'Palo');
     await tap('station-paloalto');
     if (timing === 'platform') await s.clock('settle');

@@ -663,3 +663,98 @@ fn callback_renders_sixteen_bit_stereo_into_the_device_buffer() {
     assert_eq!(status, 0);
     assert_eq!(out, [0.5, -0.25, -0.5, 0.25, 0.5, -0.25, -0.5, 0.25]);
 }
+
+#[test]
+fn lifecycle_discard_clears_voices_and_full_start_ring_without_dropping_pcm() {
+    let (mut p, mut m) = Pending::new();
+    let pcm: Arc<[f32]> = vec![0.25].into();
+    for id in 0..32 {
+        start(&mut p, id, &pcm, 48000);
+    }
+    p.flush();
+    m.commands();
+    assert!(m.voices.iter().all(Option::is_some));
+    // Fill the ring directly to reproduce the full mixer/full queue boundary.
+    for sequence in 100..100 + CAPACITY as u64 {
+        assert!(p
+            .commands
+            .push(Packet {
+                sequence,
+                command: Command::Start {
+                    id: sequence,
+                    pcm: Samples::of(&f(&pcm)),
+                    rate: 48000,
+                    looping: true,
+                    offset: 0,
+                    pitch: 1.,
+                }
+            })
+            .is_ok());
+    }
+    m.discard();
+    assert!(m.voices.iter().all(Option::is_none));
+    assert!(m.commands.pop().is_none());
+    assert_eq!(m.frame(), (0., 0.));
+    let mut last = 0;
+    while let Some(n) = p.acknowledgements.pop() {
+        last = n;
+    }
+    assert_eq!(last, 99 + CAPACITY as u64);
+    assert!(p.retained.contains_key(&(pcm.as_ptr() as usize)));
+}
+
+#[test]
+fn malformed_pcm_refuses_without_mutating_pending_ownership() {
+    let invalid = [
+        Pcm::F32(Arc::from([])),
+        Pcm::I16 {
+            samples: Arc::from([7i16]),
+            channels: 0,
+        },
+        Pcm::I16 {
+            samples: Arc::from([7i16; 3]),
+            channels: 3,
+        },
+        Pcm::I16 {
+            samples: Arc::from([]),
+            channels: 1,
+        },
+        Pcm::I16 {
+            samples: Arc::from([]),
+            channels: 2,
+        },
+        Pcm::I16 {
+            samples: Arc::from([7i16]),
+            channels: 2,
+        },
+    ];
+    let (mut pending, mut mixer) = Pending::new();
+    for pcm in &invalid {
+        assert!(!pending.start(7, pcm, 48000, true, 0, 1.));
+        assert!(pending.live.is_empty());
+        assert!(pending.retained.is_empty());
+        assert!(pending.controls.is_empty());
+        assert!(mixer.commands.pop().is_none());
+    }
+    let valid = Pcm::F32(Arc::from([0.25f32]));
+    assert!(pending.start(7, &valid, 48000, true, 0, 1.));
+    pending.set(7, 1., 1.);
+    pending.flush();
+    let live = pending.live.clone();
+    let sent = pending.sent.clone();
+    let sequence = pending.sequence;
+    for pcm in &invalid {
+        assert!(!pending.start(7, pcm, 48000, true, 0, 1.));
+        assert_eq!(pending.live, live);
+        assert_eq!(pending.sent, sent);
+        assert_eq!(pending.sequence, sequence);
+        assert_eq!(pending.retained.len(), 1);
+        assert!(pending.retained.contains_key(&valid.address()));
+        assert!(pending.controls.is_empty() && pending.stopping.is_empty());
+    }
+    mixer.commands();
+    for _ in 0..500 {
+        mixer.frame();
+    }
+    assert_eq!(mixer.frame(), (0.25, 0.25));
+}

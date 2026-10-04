@@ -417,7 +417,7 @@ fn keyframe_folding_matches_the_vms_operators_and_number_text() {
         "`${0.000001}` == \"0.000001\"",
         "`${0.0000001}` == \"1e-7\"",
         "`${1000000000000000000000}` == \"1e+21\"",
-        "`${1 / 0}` == \"inf\"",
+        "`${1 / 0}` == \"Infinity\"",
         "`${0 / 0}` == \"NaN\"",
         "`${true}:${false}:${1.25}` == \"true:false:1.25\"",
     ] {
@@ -457,4 +457,12 @@ fn transition_and_exit_templates_compute_their_times() {
         "{exit:?}"
     );
     assert_eq!(exit.name, "leave");
+}
+
+/// A named colour in a keyframe, a keyframed `light-dark()` and a shadow
+/// compile as they do on a node: motion and the kernel share one table.
+#[test]
+fn a_keyframe_takes_the_colour_names_a_node_takes() {
+    let source = "keyframes glow\n  from color=\"gray\" background-color=\"light-dark(white, black)\" box-shadow=\"0 0 4px rebeccapurple\"\n  to color=\"#000\"\ncomponent App\n  view\n    text \"a\" testId=\"a\" animation=\"glow 1s\" color=\"Gray\"\n";
+    contract::compile(source).unwrap();
 }

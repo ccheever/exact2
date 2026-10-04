@@ -235,9 +235,9 @@ fn macos_samples_them() {
         844.0,
     )
     .unwrap();
-    assert!(!host.svg.box_motion || cfg!(target_os = "ios"));
+    assert!(!host.svg.box_motion || cfg!(any(target_os = "ios", target_os = "tvos")));
     let on = host.dispatch_at(id(&host, "go"), Event::Press, 100.0);
-    if !cfg!(target_os = "ios") {
+    if !cfg!(any(target_os = "ios", target_os = "tvos")) {
         assert!(keys(&on, id(&host, "sweep")).is_empty(), "{on}");
         assert!(on.contains("\"motion\":true"));
     }

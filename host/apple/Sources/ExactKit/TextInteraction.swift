@@ -25,11 +25,13 @@ extension NodeView {
         syncHoverTracking()
         needsDisplay = true
         #else
+        #if !os(tvOS)
         if inlineText.contains(where: { $0.handlers.contains("hover") }), hoverRecognizer == nil {
             let gesture = UIHoverGestureRecognizer(target: self, action: #selector(hovering(_:)))
             gesture.delaysTouchesBegan = false; gesture.delaysTouchesEnded = false; gesture.cancelsTouchesInView = false
             addGestureRecognizer(gesture); hoverRecognizer = gesture
         }
+        #endif
         setNeedsDisplay()
         #endif
     }

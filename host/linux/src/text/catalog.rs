@@ -107,56 +107,87 @@ impl Catalog {
             }));
 
         for (stack_index, stack) in plan.stacks.iter().enumerate() {
-            let member = plan.stack_member(stack.members.iter().next().expect("validated stack"));
-            if member.kind != StackMemberKind::Family {
-                continue;
+            if stack.members.len > 1 {
+                eprintln!("[Fonts] font-stack-fallback: stack={stack_index}; Linux selects the first installed CSS family; missing glyphs use cosmic-text's platform fallback, not the remaining authored families (LLP 1001)");
             }
-            let family_id = member.family.expect("validated family member");
-            let family = plan.familie(family_id);
-            let alias = format!("ExactPlanStack{stack_index}");
-            let mut staged = Vec::new();
-            let mut failed = false;
-            for face_id in family.faces.iter() {
-                let face = plan.face(face_id);
-                let source = plan.str(face.source);
-                let Some(bytes) = assets.read(source) else {
-                    failed = true;
-                    break;
-                };
-                let mut parsed = fontdb::Database::new();
-                let ids = parsed.load_font_source(fontdb::Source::Binary(Arc::new(bytes.to_vec())));
-                if ids.len() != 1 {
-                    failed = true;
+            for member_id in stack.members.iter() {
+                let member = plan.stack_member(member_id);
+                if member.kind != StackMemberKind::Family {
+                    next.families[stack_index] = match member.kind {
+                        StackMemberKind::UiSerif | StackMemberKind::Serif => FamilyChoice::Serif,
+                        StackMemberKind::UiMonospace | StackMemberKind::Monospace => {
+                            FamilyChoice::Monospace
+                        }
+                        _ => FamilyChoice::SansSerif,
+                    };
                     break;
                 }
-                let mut info = parsed.face(ids[0]).expect("returned face id").clone();
-                let Some(language) = info.families.first().map(|(_, language)| *language) else {
-                    failed = true;
-                    break;
-                };
-                info.id = fontdb::ID::dummy();
-                info.families = vec![(alias.clone(), language)];
-                info.weight = fontdb::Weight(face.weight);
-                info.style = if face.italic {
-                    fontdb::Style::Italic
-                } else {
-                    fontdb::Style::Normal
-                };
-                info.stretch = fontdb::Stretch::Normal;
-                staged.push((face.weight, face.italic, info));
-            }
-            if failed || staged.len() != family.faces.len as usize {
-                eprintln!(
-                    "[Fonts] font.registration.failed: stack={stack_index} family={}",
-                    family_id.0
-                );
-                continue;
-            }
-            next.families[stack_index] = FamilyChoice::Declared(alias);
-            for (weight, italic, info) in staged {
-                let id = next.fonts.db_mut().push_face_info(info);
-                next.declared_faces
-                    .insert((stack_index as u16, weight, italic), id);
+                let family_id = member.family.expect("validated family member");
+                let family = plan.familie(family_id);
+                if family.faces.len == 0 {
+                    let name = plan.str(family.name);
+                    if next
+                        .fonts
+                        .db()
+                        .query(&fontdb::Query {
+                            families: &[Family::Name(name)],
+                            ..Default::default()
+                        })
+                        .is_some()
+                    {
+                        next.families[stack_index] = FamilyChoice::Declared(name.into());
+                        break;
+                    }
+                    continue;
+                }
+                let alias = format!("ExactPlanStack{stack_index}");
+                let mut staged = Vec::new();
+                let mut failed = false;
+                for face_id in family.faces.iter() {
+                    let face = plan.face(face_id);
+                    let source = plan.str(face.source);
+                    let Some(bytes) = assets.read(source) else {
+                        failed = true;
+                        break;
+                    };
+                    let mut parsed = fontdb::Database::new();
+                    let ids =
+                        parsed.load_font_source(fontdb::Source::Binary(Arc::new(bytes.to_vec())));
+                    if ids.len() != 1 {
+                        failed = true;
+                        break;
+                    }
+                    let mut info = parsed.face(ids[0]).expect("returned face id").clone();
+                    let Some(language) = info.families.first().map(|(_, language)| *language)
+                    else {
+                        failed = true;
+                        break;
+                    };
+                    info.id = fontdb::ID::dummy();
+                    info.families = vec![(alias.clone(), language)];
+                    info.weight = fontdb::Weight(face.weight);
+                    info.style = if face.italic {
+                        fontdb::Style::Italic
+                    } else {
+                        fontdb::Style::Normal
+                    };
+                    info.stretch = fontdb::Stretch::Normal;
+                    staged.push((face.weight, face.italic, info));
+                }
+                if failed || staged.len() != family.faces.len as usize {
+                    eprintln!(
+                        "[Fonts] font.registration.failed: stack={stack_index} family={}",
+                        family_id.0
+                    );
+                    continue;
+                }
+                next.families[stack_index] = FamilyChoice::Declared(alias);
+                for (weight, italic, info) in staged {
+                    let id = next.fonts.db_mut().push_face_info(info);
+                    next.declared_faces
+                        .insert((stack_index as u16, weight, italic), id);
+                }
+                break;
             }
         }
         next

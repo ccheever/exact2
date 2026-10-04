@@ -5,7 +5,7 @@
 // adds the intent of the views it joined and the findings (D7, D8).
 // Observations only: Chrome's names and roles are kept as Chrome gives them.
 
-const ROLES_INTERACTIVE = new Set(['button', 'link', 'textbox', 'searchbox', 'checkbox', 'switch', 'slider', 'tab', 'menuitem', 'combobox', 'option']);
+const ROLES_INTERACTIVE = new Set(['button', 'link', 'textbox', 'searchbox', 'checkbox', 'radio', 'switch', 'slider', 'tab', 'menuitem', 'combobox', 'option']);
 const FIELD = 200, BYTES = 256 * 1024, DEPTH = 64, EXCLUDED = 8;
 
 /** A request's `limit`, validated (D7): an integer 1–2000, 500 when absent. */
@@ -107,7 +107,9 @@ function collectWeb(nodes, snapshot, limit) {
         }
       }
       const states = {};
-      for (const name of ['disabled', 'selected', 'expanded', 'focused', 'busy', 'modal']) { const v = prop(n, name); if (v != null) states[name] = v === true || v === 'true'; }
+      for (const name of ['disabled', 'selected', 'expanded', 'focused', 'busy', 'modal', 'required']) { const v = prop(n, name); if (v != null) states[name] = v === true || v === 'true'; }
+      // ARIA's word-valued states, kept as their words; `false` is their absence.
+      for (const [name, as] of [['invalid', 'invalid'], ['hasPopup', 'haspopup']]) { const v = prop(n, name); if (v != null && v !== 'false' && v !== false) states[as] = String(v); }
       const checked = prop(n, 'checked'); if (checked != null) states.checked = checked === 'mixed' ? 'mixed' : checked === true || checked === 'true';
       const level = prop(n, 'level'); if (level != null) states.level = Number(level);
       const el = d !== undefined && isElement(d) ? attrs(d) : {};
@@ -265,7 +267,8 @@ export function axRole(e, source) {
   }
   // An aria-pressed toggle is AXCheckBox/AXToggle on AppKit, a `button` on the web.
   if (source === 'appkit' && raw === 'AXCheckBox' && e.native?.subrole === 'AXToggle') return 'button';
-  if (source === 'appkit') return { AXButton: 'button', AXLink: 'link', AXHeading: 'heading', AXTextField: 'textbox', AXTextArea: 'textbox', AXCheckBox: 'checkbox' }[raw] ?? e.role;
+  if (source === 'appkit' && raw === 'AXCheckBox' && e.native?.subrole === 'AXSwitch') return 'switch';
+  if (source === 'appkit') return { AXButton: 'button', AXLink: 'link', AXHeading: 'heading', AXTextField: 'textbox', AXTextArea: 'textbox', AXCheckBox: 'checkbox', AXRadioButton: 'radio', AXSlider: 'slider', AXPopUpButton: 'combobox' }[raw] ?? e.role;
   return e.role;
 }
 // The states each source can observe, and the roles a state applies to (D6).
@@ -275,7 +278,7 @@ export function axRole(e, source) {
 // accessibilityExpandedStatus); AppKit's accessor cannot tell false from
 // unsupported, so the AppKit walk reports it only when true (TRUE_ONLY).
 const CAN = { 'chrome-cdp': ['checked', 'level', 'disabled', 'expanded'], uikit: ['checked', 'disabled', 'expanded'], appkit: ['checked', 'level', 'disabled', 'expanded'] };
-const APPLIES = { checked: r => r === 'checkbox', level: r => r === 'heading', disabled: () => true, expanded: () => true };
+const APPLIES = { checked: r => r === 'checkbox' || r === 'radio' || r === 'switch', level: r => r === 'heading', disabled: () => true, expanded: () => true };
 const ABSENT_IS_FALSE = new Set(['disabled']);
 const TRUE_ONLY = { appkit: new Set(['expanded']) };
 const checkedOf = (e, source) => source === 'uikit' && (e.value === 'checked' || e.value === 'unchecked') ? e.value === 'checked' : e.states?.checked;

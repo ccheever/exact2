@@ -5,9 +5,17 @@ use wasmi::{
     Config, Engine, Linker, Memory, Module, Store, StoreLimits, StoreLimitsBuilder, TypedFunc,
 };
 
+// @ref LLP 1029.000 — a call's fuel is a base for any request plus an
+// allowance for each byte the host hands it: a runaway loop stops at the
+// base, while decoding a large plan at activation is work in proportion to
+// what the host chose to send (Caltrain's 46 KB plan takes about 430 a byte).
 const FUEL: u64 = 20_000_000;
+const FUEL_PER_BYTE: u64 = 1_000;
+pub(crate) fn budget(input: usize) -> u64 {
+    FUEL.saturating_add(FUEL_PER_BYTE.saturating_mul(input as u64))
+}
 struct Wasm {
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
     stateless: bool,
     store: Store<StoreLimits>,
     memory: Memory,
@@ -61,7 +69,7 @@ pub(crate) fn load(bytes: &[u8]) -> Result<Box<dyn Executor>, String> {
     if version != ABI {
         return Err("Rust wasm export ABI differs".into());
     }
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
     let stateless = match instance.get_typed_func::<(), u32>(&store, "exact_logic_stateless") {
         Ok(function) => function.call(&mut store, ()).map_err(err)? == 1,
         Err(_) => false,
@@ -75,7 +83,7 @@ pub(crate) fn load(bytes: &[u8]) -> Result<Box<dyn Executor>, String> {
         return Err("Rust wasm could not create session".into());
     }
     Ok(Box::new(Wasm {
-        #[cfg(not(target_os = "ios"))]
+        #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
         stateless,
         memory,
         session,
@@ -110,7 +118,7 @@ impl Drop for Wasm {
     }
 }
 impl Executor for Wasm {
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(not(any(target_os = "ios", target_os = "tvos")))]
     fn stateless(&self) -> bool {
         self.stateless
     }
@@ -118,7 +126,8 @@ impl Executor for Wasm {
         if bytes.len() > MAX_MESSAGE {
             return Err("Rust wasm request exceeds bound".into());
         }
-        self.store.set_fuel(FUEL).map_err(err)?;
+        let fuel = budget(bytes.len());
+        self.store.set_fuel(fuel).map_err(err)?;
         let len = bytes.len() as u32;
         let ptr = self.alloc.call(&mut self.store, len).map_err(err)?;
         if ptr == 0 {
@@ -130,7 +139,13 @@ impl Executor for Wasm {
         let result = self
             .call
             .call(&mut self.store, (self.session, ptr, len))
-            .map_err(err)?;
+            .map_err(|e| {
+                if e.as_trap_code() == Some(wasmi::TrapCode::OutOfFuel) {
+                    format!("Rust wasm: the call used all of its {fuel} fuel ({len} input bytes)")
+                } else {
+                    err(e)
+                }
+            })?;
         self.dealloc
             .call(&mut self.store, (ptr, len))
             .map_err(err)?;

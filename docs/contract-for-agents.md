@@ -22,6 +22,7 @@ This guide is documentation, not an additional policy layer. Documents in
 - [Data requests and side effects](#data-requests-and-side-effects)
 - [Views, layout, and interaction](#views-layout-and-interaction)
 - [Routes and web documents](#routes-and-web-documents)
+- [Tabs and stacks](#tabs-and-stacks)
 - [Time, motion, graphics, and platform facts](#time-motion-graphics-and-platform-facts)
 - [Inspection and testing](#inspection-and-testing)
 - [Repair common mistakes](#repair-common-mistakes)
@@ -74,15 +75,21 @@ A proposal in a design document is not an implemented grammar production.
 
 ## The implementation loop
 
-Run from the exact2 root unless the app's own wrapper says otherwise:
+In an app made by `exact new`, run its own `exact.mjs` from the app's directory.
+Its `contract` verb is exact2's compiler, with paths relative to where you run it:
 
 ```sh
-bun install --frozen-lockfile
-cargo run -q -p contract -- build apps/caltrain/app.contract --json
-cargo run -q -p contract -- symbols apps/caltrain/app.contract
-cargo run -q -p contract -- fmt --stdout apps/caltrain/app.contract
-bun host/web/dev.mjs --app caltrain
+bun exact.mjs contract types app.contract -o app.contract.d.ts   # what app.ts imports
+bun exact.mjs contract build app.contract --json
+bun exact.mjs contract symbols app.contract
+bun exact.mjs contract fmt --stdout app.contract
+bun exact.mjs contract vocab padding                              # is it accepted, and how
+bun exact.mjs web
 ```
+
+Inside the exact2 checkout, for its own apps, the same commands are
+`cargo run -q -p contract -- <command> apps/<name>/app.contract …` and
+`bun host/web/dev.mjs --app <name>`. Run `bun install --frozen-lockfile` there once.
 
 Use `build --json` before and after the edit. It returns one JSON array with all
 independent diagnostics it can collect, capped at 20; success is `[]`. Keep the
@@ -90,11 +97,27 @@ exit status: 0 success, 1 compilation/I/O failure, 2 invalid invocation. Read al
 diagnostics, including related locations, before making the next repair.
 
 Formatting is explicit. `fmt --stdout` previews, `fmt --check` checks, and plain
-`fmt` writes. Avoid formatting unrelated files. `symbols` reports definitions
+`fmt` writes. Formatting changes spacing and breaks only: a result that would
+parse to a different program is refused (`fmt-tree-change`) and nothing is
+written. Avoid formatting unrelated files. `symbols` reports definitions
 and references, with component interfaces and inferred action effects. Search
 by exact name with `symbols file.contract --name name`.
 
-After compiling, build and drive the actual app. For Caltrain on the web:
+After compiling, build and drive the actual app. From an `exact new` app:
+
+```sh
+bun exact.mjs test web                          # app.test.contract; builds a stale web app first
+bun exact.mjs agent web tree "tap add" state logs "screenshot out.png"
+bun exact.mjs agent web --size 390x844 "screenshot phone.png"   # a phone-sized viewport
+```
+
+The web carrier opens at 420×900; `--size <w>x<h>` (before the operations) opens
+another viewport, and a test's first step `size <w>x<h>` does the same for that test.
+On the web each drive is a fresh browser profile, so its storage ends with the drive;
+`--storage <name>` keeps a native host's scratch store between drives. To show what
+survives a restart on any host, use an authored test's `reload` step (below).
+
+Inside the exact2 checkout, for Caltrain:
 
 ```sh
 bun host/web/build.mjs caltrain-web
@@ -102,10 +125,20 @@ bun scripts/agent.mjs web tree "tap change-station" "type station-search Palo" s
 bun scripts/agent.mjs web --test apps/caltrain/app.test.contract
 ```
 
-For another app, supply its `--app` and build target as its manifest/scripts
-require. For an external app, set `EXACT_APP_DIR` on both build and drive. A stale
+For an external app driven from the exact2 root, set `EXACT_APP_DIR` on both build
+and drive. A stale
 artifact is a failed verification; rebuild what the driver names. A successful
 Cargo rlib build does not prove a native app launches or behaves correctly.
+
+A script drives the same session in JavaScript: `const s = await open({ host:
+'web', app, epoch, timeZone, storage })` from `scripts/agent.mjs`, then
+`s.tap(target, opts)`, `s.type(target, text | { key })`, `s.clock(arg)`,
+`s.tree()`, `s.state()`, `s.logs()`, `s.layout()`, `s.screenshot(path)` and
+`s.close()` — the CLI's operations by the same names. `s.op(request)` is the
+host's wire beneath them: it addresses views by numeric `id`, and it refuses a
+request it would answer by doing nothing (a `target`, an unknown op, a web
+`tap` with no browser input behind it). A reload or a raw browser step goes
+through `s.carrier` (`evaluate`, and on Chrome `call` for CDP).
 
 Use the existing five repository checks for repository changes. Do not add a
 new global check or fixture framework for an ordinary app edit. For documentation,
@@ -115,7 +148,7 @@ compile complete examples, parse authored tests, and check local links.
 
 | Form | Placement | Meaning |
 | --- | --- | --- |
-| `use Name from "./file.contract"` | File | Local import inside the app boundary |
+| `use A, B as C from "./file.contract"` | File | Names from another file; nothing unnamed comes along (LLP 1091) |
 | `shape Name` | File | Finite record with typed fields |
 | `fn name(arg: T): U = expr` | File | Effect-free, nonrecursive expression function |
 | `style Name` | File | Literal style attributes |
@@ -142,6 +175,19 @@ hyphens, so write `a - b` for subtraction between identifiers. Units are quoted
 are deeper than the element and begin with `name=`. Parentheses permit multiline
 calls and expressions without creating an indentation block.
 
+Only sixteen words are refused as names, and only where a name is bound (a
+state, prop, parameter, `let`, `each` item, shape name, …): `when`, `if`, `else`,
+`each`, `in`, `match`, `case`, `as`, `fn`, `and`, `or`, `not`, `true`, `false`,
+`none`, `some`. Every other keyword (`key`, `state`, `from`, `refresh`, `view`, …)
+is an ordinary name there, so `action searchKey(key: string)` and `action refresh`
+compile. Shape fields, named arguments and members take any word
+([grammar](contract-grammar.md#lexical-rules)).
+
+`contract vocab` lists every built-in tag, attribute, and CSS property the compiler
+accepts, with each property's value kind and default; `contract vocab <name>`
+answers for one, or suggests the spelling it meant. Check there before guessing
+at CSS.
+
 ## Values, expressions, and functions
 
 - Types are `number`, `string`, `bool`, declared shapes, `option<T>`, `list<T>`,
@@ -149,6 +195,10 @@ calls and expressions without creating an indentation block.
 - `none` and `[]` need an inferable element type. A state initialized by either
   usually gets that information from later assignments; a typed argument or
   the other conditional/match arm can also supply it.
+- A state's initializer runs before any resource answers and before any derive:
+  it reads props, injects and the states declared above it, nothing else
+  (`type-initializer-scope`). Derive a value from a resource instead, or keep
+  per-row state in a component used inside `each`.
 - `Shape(field=value, …)` constructs every field exactly once.
   `Shape(base, field=value, …)` copies a base of the same shape and replaces fields.
   The one positional base comes first. Compiler-owned shapes are not constructible.
@@ -270,10 +320,13 @@ ask. The default web JS target keeps no persisted resource answers
 ([LLP 1027.005](../llp/1027.005-resource-identity-and-request-context.rfc.md)).
 
 The current request owns its answer; older replies cannot overwrite a newer
-request. Assigning a mutation forgets its in-flight reply. `refreshes` re-reads
+request. Assigning a mutation forgets its in-flight reply, so an action that
+sends one mutation twice on one path is refused (`analyze-send-twice`): send one
+combined request, or use a mutation per request. `refreshes` re-reads
 its resources when the mutation is sent (an answer the source gives at once shows
 immediately) and forces them again when the reply lands. `then` is parameterless,
-runs once at the host's next clock advance as a new commit, reads the latest
+runs once at the host's next clock advance as a new commit (under the driver, an
+input's own answer's `then` before the input's reply), reads the latest
 answer, does not run for a failure that brought no answer, and cannot send its
 own mutation. Do not mistake the scheduling boundary
 for a general async workflow or a per-reply event log.
@@ -285,18 +338,24 @@ A domain error returned as a record is an answer and must be handled as data.
 Infer the actual source interface from the Contract:
 
 ```sh
-cargo run -q -p contract -- types path/to/app.contract -o /tmp/app.contract.d.ts
-cargo run -q -p contract -- rust path/to/app.contract -o /tmp/shapes.rs
+bun exact.mjs contract types app.contract -o app.contract.d.ts
+bun exact.mjs contract rust app.contract -o /tmp/shapes.rs
 ```
 
 Use those generated declarations with the existing TypeScript/Rust integration.
+The [human guide's data-module section](contract-for-humans.md#writing-the-data-module)
+has a complete `app.ts`: synchronous, `fetch` and SQLite sources, the grants
+each needs, and how to drive it with storage.
 The compiler accepting a source call does not provide its implementation. Check
 its arguments, declared result, grants, storage access, and bake-time behavior.
 Keep generated output out of version control. Use app-local sources for domain
 formatting or algorithms beyond the finite standard roster.
 
-A bake runs initial data work and packages first-frame values. Live requests
-run after that under host scheduling. Do not assume a secret store, disk database,
+A bake runs initial data work and packages first-frame values. A first-frame
+value is not the answer: every host asks the TypeScript module again at launch,
+natively once it loads after first pixel, even a source with no arguments
+(`logs`: `<resource> shows its build-time answer until its source answers`, then
+`<resource> answered: …`). Live requests run after that under host scheduling. Do not assume a secret store, disk database,
 or authenticated network session is available while baking. See
 [the data-module reference](reference.md#generate-typescript-data-source-types).
 
@@ -306,7 +365,11 @@ The view forms are element, component use, `when`/`else`, keyed `each`, exhausti
 option `match`, and `children`. Wrap root regions in a stable element. A component
 call uses parentheses; a built-in element uses space-separated attributes.
 `button "Save" press=save` is text-child sugar; an explicit text child is useful
-when that label needs its own styling or driver id.
+when that label needs its own styling or driver id. A `button` is the web's
+`<button>`: a block whose content is centred in its height and whose text is
+centred (`text-align: center`). Give a sized button no alignment rows; write
+`display="flex"` (a row) for an icon and a label side by side, and
+`text-align="start"` on a list row or card made of a button.
 
 Use the CSS and HTML vocabulary. Defaults matter: a bare box is block and
 content-box, while `row` and `column` supply flex styles. Do not emit React Native
@@ -327,9 +390,16 @@ or a growing `flex`, and takes `estimated-item-height`. A horizontal one needs a
 literal `display="flex"` and a literal positive `height`, takes
 `estimated-item-width`, and refuses wrapping, reversed or right-to-left flow, a
 nonzero `gap`, main-axis padding, `justify-content` other than `flex-start`, and
-`reorderdrop`. Lists nest one level deep; an inner vertical list needs a literal
+`reorderdrop`. `reorderdrop` belongs only on a vertical `list virtualized=true`
+(each row's handle names it with `reorderFor`); the compiler refuses it on any
+other element, where no host could drag. Lists nest one level deep; an inner vertical list needs a literal
 `height` or `max-height`. Do not revive the removed legacy `item-height`
-windowing mechanism.
+windowing mechanism. Rows inserted, removed or resized above what the reader
+sees keep the reader's place, as CSS scroll anchoring does; a list at its start
+stays there, so rows inserted on top show, and one following its end
+(`scrollFollowEnd`) follows it. A row root may move where it paints
+(`translate`, `rotate`, `scale`, a relative `top`/`left`, `z-index`: a lifted
+row being dragged) and keeps its place in the list.
 
 A native button is an explicit `button appearance="auto"` after class merging;
 an ordinary button remains an authored `appearance="none"` pressable. The switch
@@ -339,6 +409,35 @@ styleable host-policy prop; its names and allowable branches are checked against
 `schema.json`'s `buttonStyles`. Follow the native-button allowlist and context
 checks in [`controls.rs`](../contract/lower/src/controls.rs), and test the actual
 platform look. Do not assume arbitrary custom paint or typography is admitted.
+
+An `image` source is the same string on every host: a path under the app's
+`assets/`, an `http(s)` URL, `symbol:<role>`, an `app:/data|cache|tmp/…` file
+(a picked photo, or one the data module kept with `storage.fs`; it shows after a
+relaunch too), or a `data:` URL of at most 1 MiB, past which every host shows
+nothing (the web and Apple journal `image refused`). Keep a picked photo by copying it to
+`app:/data` and answering that path; never tell hosts apart in the data module
+(`HermesInternal`) to choose a source
+([LLP 1069.002](../llp/1069.002-media-picker.rfc.md) D7, [LLP 1011](../llp/1011-image-v1.spec.md) §2).
+
+A sound is HTML's `audio` (LLP 1042 §8): `video`'s props and events with no
+picture, hidden unless it has `controls`. Bind `paused` and play from the input's
+own action, so the play is inside the user gesture the web requires (a play that
+nothing pressed for is refused, `error` `not-allowed`); mirror `pause` into the
+binding, since a sound that ends pauses itself. Asking an ended sound to play
+again starts it over, on every host:
+
+```contract
+component Ding
+  state hush = true
+  action ding
+    hush = false
+  action hushed
+    hush = true
+  view
+    column
+      button "Ding" press=ding
+      audio "assets/ding.wav" preload="auto" paused=hush pause=hushed
+```
 
 Keep `id` and `testId` separate:
 
@@ -376,6 +475,54 @@ Bind the host's navigation root and per-entry `navigationKey`s as the
 [router fixture](../contract/corpus/routes.contract) demonstrates. Test back,
 tab switching, the same-URL push, external navigation, and route parameters.
 
+Every route (a node with a `navigationKey` under the root) is a direct child of the
+root or of a `role="tabpanel"` in it — through `each` and `when`, never another
+element: the compiler refuses one behind a wrapper (`lower-route-place`). Make each
+route `position="absolute" inset=0`: the hosts hide a covered route, as
+`visibility: hidden` does, so an in-flow route still takes its room.
+
+## Tabs and stacks
+
+Tabs with a stack each have one layout that works on web, macOS and iOS
+([the tabs fixture](../contract/corpus/tabs.contract), driven by
+`host/web-js/conformance/tabs.steps`):
+
+```text
+main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow display="flex" flex-direction="column" height="100%"
+  column flex=1 min-height=0 position="relative"
+    each t in nav.tabs key=t.name
+      column role="tabpanel" id=`panel-${t.name}` position="absolute" inset=0
+        each e in t.stack key=e.id
+          column navigationKey=`${e.id}` position="absolute" inset=0 background-color="#fff"
+            …
+  row role="tablist" display=(top(nav).name == "full" ? "none" : "flex") height=56
+    button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=pick("home")
+      image "symbol:home"
+      text "Home"
+  when toast != ""
+    button position="absolute" … // a root overlay: after the tablist, over everything
+```
+
+- Each tab names its panel with `aria-controls`; the panels are the stacks, and every
+  tab's stack stays mounted, so a pushed screen, a draft and a scroll offset survive
+  a visit to another tab. A tab is `select(nav, name)`; selecting the shown tab
+  again pops it to its root.
+- On iOS the panels become a `UITabBarController`: a tab of one symbol over its label
+  is its bar item, a filled box holding a text is the item's badge, and the
+  tablist's `accent-color` (inherited, as in CSS) tints the selected item. Under the
+  agent the authored tablist paints and takes taps instead; `tap tab-…` works on every
+  host.
+- Hide the tab bar on a route with `display="none"` on the tablist. Never remove the
+  tablist with `when`: without it the root has no tabs and the panels' routes are
+  found by no host.
+- Root children after the panels box (a toast, a timer strip, a full-screen menu) paint
+  over the routes and the native bars on every host, as later siblings do in CSS.
+- A modal route (`navigationPresentation="modal"`) paints its own background; the
+  route under it is dimmed.
+- Without tabs, the routes are the root's own children, laid out the same way.
+- Tests reach a tab by `tap`, or deliver a location as `type <root> "/saved"` (LLP
+  1038 D11), which calls the root's `navigate`.
+
 A `head` node supplies document metadata. The innermost active value wins for
 each field. `scroll document` declares page scrolling. Route `render`/`activate`
 policy belongs to the site's renderer/build pipeline; follow
@@ -394,6 +541,14 @@ catch up missed display frames. For deterministic tests, use the driver's clock.
 the agent), not a date. For the date, read the reserved `exactTime` source and add
 `time.epochAtZero + now()`. A read does not itself schedule a future render. Use a timer if a displayed value must keep changing without other
 input. Prefer `clock settle` to waiting for a transition in real time.
+`time.utcOffset` is the zone's offset *now*: every host answers it again when the
+offset at the clock's instant changes (a DST change, a new zone), checked before a
+timer fires, so a midnight timer after the clocks change reads the new offset.
+Under the agent it is the drive's zone at the virtual date, checked after each
+`clock` (the JS target also before each timer inside one). It is not the offset
+of an arbitrary timestamp: to show a past or future instant across a DST change
+in the viewer's zone, format it in TypeScript with
+`new Intl.DateTimeFormat(time.locale, { timeZone: time.timeZone })`.
 
 Use admitted CSS transitions and keyframes. Check which properties animate and
 which require optional capabilities. `spring(…)` (a `transition` timing
@@ -401,17 +556,37 @@ function), `exit-animation`, `layout-transition`, and presentation timelines hav
 specific documented behavior;
 they do not admit arbitrary frame callbacks or a second app-state graph.
 
+For drawing and pointer-tracking, `pointerdown`, `pointermove` and `pointerup`
+hand an action that takes it a `PointerEvent` (`offsetX`/`offsetY` from the
+node's content box, `buttons`, `pressure`, `pointerType`, `pointerId`), on any
+node, a canvas included; set `touch-action="none"` on a drawing surface. See
+[Pointer](contract-grammar.md#pointer).
+
 `frame(id)` and `measure("literal-id")` are action-only geometry reads returning
-`Geometry`. Handle `unavailable` and `provisional`. `frame` reads the last layout's untransformed
-border box in root space; `measure` reads an auto-height hypothetical layout.
+`Geometry`. Handle `unavailable` and `provisional`. `frame` reads the last layout's border box
+where the viewer sees it, as `getBoundingClientRect` does: in the viewport, with every
+scroll offset above it (the page's too) applied, but untransformed, so a drop target
+needs no scroll bookkeeping; `measure` reads an auto-height hypothetical layout at
+the same origin.
 Neither is a computed style binding to run every render.
 
 SVG uses SVG names. `foreignObject` compiles and renders on the web; native hosts
 refuse it at run time, so position a box over the `svg` there. Canvas 2D calls
 live in a data module, and GPU/game surfaces in their optional module. A
 hyphenated native tag must be listed in `app.json`'s `modules` (the bake refuses
-others) and implemented by the module; its attributes pass through unchecked. Do not
+others) and implemented by the module; its unknown attributes pass through
+unchecked as the module's props. A known attribute binds to the module's box, which
+takes layout, box and paint rows, handlers, `testId`, `id`, `role`, ARIA, `disabled`
+and `inert`; any other known name (`color`, `value`, `command`, `href`) is refused,
+so give the module prop another name. Do not
 turn a missing widget or canvas operation into invented Contract syntax.
+
+Haptics are already there (LLP 1077 D14). `press-haptic` (`selection`,
+`impact-light|medium|heavy|soft|rigid`) plays at touch-down without a round
+trip, as `press-scale` does. `haptic("selection" | "impact-…" | "success" |
+"warning" | "error")` is a host command an action runs, for example when a
+drag crosses a threshold. iOS uses the feedback generators; the web vibrates
+where it can; Linux does nothing.
 
 Platform facts are reserved sources (`exactViewport`, `exactPage`, `exactDelivery`,
 `exactSurface`, `exactTime`); the bake refuses a declared field the source does
@@ -432,9 +607,9 @@ locations when an error crosses a child prop, injected action, or imported file.
 Do not use a character index as a byte offset in Unicode source.
 
 ```sh
-cargo run -q -p contract -- build path/to/app.contract --json
-cargo run -q -p contract -- symbols path/to/app.contract --name save
-cargo run -q -p contract -- build path/to/app.contract -o /tmp/app.plan --map
+bun exact.mjs contract build app.contract --json
+bun exact.mjs contract symbols app.contract --name save
+bun exact.mjs contract build app.contract -o /tmp/app.plan --map
 ```
 
 The source map (`<plan>.map.json`, beside the plan) is separate from the plan and
@@ -449,6 +624,36 @@ commands. Use `tree` to find targets, `state` for data and delivery, `layout` fo
 geometry, `perf` for the work a drive cost (`perf <target> during "<op>" …`: per
 plan site, evaluations, unchanged results, instances created and retired), and
 screenshots for rendered output. Logs name refused operations and data errors.
+For a game canvas, JavaScript `s.tap("world", {mouse:true, at:[x,y]})` sends one
+primary mouse click on web, Windows, and Linux. `{contextmenu:true, at:[x,y]}`
+sends a right-click. Coordinates are relative to the target's top-left; omit
+`at` for its center. Both refuse invalid, covered, or offscreen points and held
+contacts. The CLI forms are `tap world mouse` and `tap world contextmenu`, or use
+a JSON options object for coordinates. Plain canvas taps and held contacts are
+fingers, so their platform pointer identity and retained press history can differ
+from a mouse's; use the intended physical input when comparing game saves.
+
+`tap` and `type` scroll a target whose middle is out of view into it first (its
+nearest scroll containers, then the page) and say so in the reply's `scrolled`.
+`type` on a control sets it as a person choosing would, with `input` then
+`change`: a `select` takes an option's value or its label, a date, time or
+`datetime-local` input its HTML value (`2026-10-09`, `14:00`,
+`2026-10-09T14:30`), a range a number, a checkbox `true` or `false`.
+`tap <target> drag <dx> <dy> … during "<op>" …` runs the quoted reads after the
+move, with the finger still down. `clock +N` moves the virtual clock without
+waiting for a store's or the network's reply on real time (unless a timer fires
+first); its reply says what is still in flight (`inflight`, on every host), and `clock settle` lands it.
+A playing `video` or `audio` is on real time too: the clock never seeks or holds it, so
+between operations it moves only as far as the drive took. `clock +N real` lets
+N ms of real time pass with the clock moving beside it, a step at a time: a
+video plays that far (its `timeupdate`s arrive), and a reply that lands in the
+span lands (LLP 1042 §3).
+Under the driver a picker, an export, a share or an auth session opens no panel:
+it is held and `state` lists it under `pending` with its capability. Answer it by
+the node its answer arrives at (the `id` the command names) or by its capability:
+`type @folder-input path/to/folder`, `type @pick photo.jpg`, `tap @open-directory
+cancel`. `@N`, its ticket, works too, but a ticket counts every request before it,
+so it differs between hosts and runs.
 
 Authored tests are a smaller language over that API:
 
@@ -460,10 +665,45 @@ test "an action uses its computed next value"
   expect state doubled == 2
 ```
 
-This test goes with the complete example above. The steps are `tap "id" [hover]`,
-`type "id" "text"` or `type "id" key "Name"`, `clock settle|+ms|ms`,
-`screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`,
-and `expect state name == <number|string|bool|none|[]>`. Not every interactive
+This test goes with the complete example above. A test opens with its launch
+lines — `size 1200x800`, `epoch "2026-09-21T12:00:00Z"`, `time-zone
+"America/New_York"`, `locale "fr-FR"`, `seed 7`, the driver's flags of those
+names — written first in the test or, for every test, at the top of the file.
+A test whose text depends on the date names its `epoch`; without one it runs at
+the driver's 2026-01-01 UTC. The steps are `tap "id" [hover|dblclick|contextmenu]`,
+`tap "id" modifiers "Shift+Meta"` (a press with keys held),
+`tap "list" into "key"` (a virtualized list's row brought into view by its key,
+so the next step can tap a row outside the rendered window),
+`tap "id" drag dx dy [from x y] [mouse] [press ms] [over ms] [hold ms]`,
+`type "id" "text"` (sets the value), `type "id" "text" append` (after the value
+the tree shows, as typing after a prefill), or `type "id" key "Name"`,
+`type "id" paste "text"`, `type "id" copy`, `type "id" cut`, `pick "id" "path"…` or
+`pick "id" cancel` (a held picker or export, by its node or capability as
+above; paths are the test file's), `clock settle|+ms|+ms real|ms`, `reload`
+(the app restarts on the store it had, its state and clock starting over, so a
+test shows what persists),
+`screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
+(the node's text; a control's value, so a `select` reads its chosen value, not its
+options; else its descendants' — a button's label — else a field's value), and
+`expect state name == <number|string|bool|none|[]>`, where `name` may go on into
+a record's fields (`board.active.present`). A failed expect with no input before
+it names the requests still in flight (the boot's own, or what a `clock +N` left
+on real time). An input step ends with what it settled: an answer the data
+module gave in the input's turn, and its mutation's `then`, are there for the
+next step. Otherwise the clock stands still between steps: a reply on real time
+(a store's, the network's) or a transition an input started lands at a `clock`
+step, so `clock settle` before the `expect` that depends on it. A timer
+(`after`, `every(ms)`) fires when the clock reaches or passes its time: `clock
+settle` fires it only if it reaches it while advancing to a motion's end, so
+move to it with `clock +N` (a `task … after(1, restore)` needs `clock +1`).
+`type "id" key "Name"`
+focuses the target if it takes the focus (else leaves the focus where it is)
+and presses the key as a keyboard would on every host: its `key` handlers,
+then its default — `"7"` types into a field, `"Enter"` submits it (a
+textarea's breaks the line), `"Space"` presses a button, `"r"` reaches an
+`aria-keyshortcuts="r"` button. A chord holds its modifiers for the key, in
+Playwright's spelling: `"Shift+Enter"`, `"Meta+s"`, `"Control+Alt+ArrowLeft"`
+([keys](contract-grammar.md#keys)). Not every interactive
 driver operation is a test-file statement. `contract test` parses and prints JSON;
 `agent.mjs <host> --test <file>` actually drives the app.
 
@@ -495,7 +735,10 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | Read a slot after writing it to get the new value | Compute `let next` before the assignments |
 | Dynamic navigation template | `path("route", args…)` |
 | Unconditional per-frame app work | CSS/presentation motion where possible; bounded root frame task where needed |
-| Add a function because it exists in JavaScript | Check the roster or put the operation in the data module |
+| Add a function because it exists in JavaScript | Check the roster or put the operation in the data module; `len`, `split`, `push(xs, x)` and their kind are refused naming what to write |
+| `background-color: "#fff"` in a `style` | `background-color="#fff"` |
+| `change=flip(t.id)` on a checkbox, `action flip(id: string)` | The event appends its payload: `action flip(id: string, checked: bool)` (the refusal spells it) |
+| Two `send`s to one mutation in one action | One combined request, or a mutation per request |
 
 What compiles and then misbehaves (an image tile at its intrinsic size, native bars
 the agent does not show, a back gesture refused) is in
@@ -522,3 +765,77 @@ For learning, continue with the [human guide](contract-for-humans.md). For exact
 syntax and vocabulary, use the [grammar reference](contract-grammar.md). For a
 new feature, start from the corresponding compiler fixture rather than memory
 of JavaScript, React Native, or the predecessor's Contract language.
+
+CSS overflow accepts `visible`, `hidden`, `scroll`, and `auto`. `auto` clips and
+permits scrolling, with indicators shown only when content overflows. A visible
+axis beside hidden/scroll/auto computes to auto, as on the web.
+
+`flex` accepts CSS `none`, `auto`, a basis, or `<grow> [<shrink>] [<basis>]`
+(including `flex="0 1 auto"`). Numeric bindings keep the `n 1 0%` meaning.
+Shorthands may be literal choices; computed strings are refused. A scroller
+with `min-height=0` and positive shrink fits under a bounded flex column.
+
+Dimension rows (width/height, their min/max, padding/margins, offsets and
+border radii) accept `vw`, `vh`, `vmin`, `vmax`, and `svw/svh/lvw/lvh/dvw/dvh`.
+On native, all viewport variants follow the window; on web, CSS resolves
+small/large/dynamic viewports. Scalar lengths such as font size and gap do
+not yet accept viewport units.
+
+Transitions animate translate/scale/rotate/opacity, box paint (color,
+background-color, border colors, tint-color, box-shadow), SVG paint/geometry
+and the admitted numeric height path. `width` and other general layout
+properties cannot interpolate yet: native layout is not run per frame.
+The diagnostic names this engine limit; `layout-transition` animates a
+change in the laid-out box using the existing measured projection.
+
+`cursor` takes CSS cursor keywords (`pointer`, `grab`, `grabbing`, etc.) and
+inherits. Web emits CSS; macOS maps to NSCursor with system artwork stand-ins
+where needed; iOS/tvOS/Linux ignore the hint (LLP 1001). URLs are refused.
+
+`font-family` accepts literal CSS fallback lists and choices of them, including
+`"Inter, system-ui, sans-serif"` and quoted names. A family declared with
+`font` uses its bundled faces; other names are local installed families. Web
+and Apple retain the ordered glyph fallback cascade. Linux selects the first
+installed family, then uses cosmic-text's platform glyph fallback; it logs
+this declared limitation for a multi-member stack (LLP 1001).
+
+`textarea rows=3` sets its preferred height in lines (default 2); explicit CSS
+height and `field-sizing="content"` override it. `maxlength=80` on text inputs
+and textareas limits user edits in UTF-16 units; authored `value` updates are
+not truncated. It does not apply to `input type="number"`.
+
+`resize="none"` disables browser resize handles. Other CSS resize values are
+refused with a native geometry explanation. `user-select="none"` prevents
+ordinary text selection; `auto` is the default. Text/all/contain need iOS and
+Linux selection executors and are refused precisely. These rows take literals
+or choices of literals, so unsupported runtime values cannot bypass the check.
+
+A colour is any CSS colour the browser paints: hex, `rgb()`, `hsl()`, `hwb()`,
+a named colour, `transparent`, `lab()`/`oklch()`/`color()` (clipped to sRGB
+natively), or `light-dark(a, b)`; the kernel parses it once for every host.
+`currentcolor` takes the node's `color` on borders, `background-color`,
+`tint-color`, text stroke and SVG paint. `unset` clears any row, and `inherit`
+an inherited one (`color`, fonts, `fill`…); `inherit` on a row CSS does not
+inherit is refused. `order` places flex and grid items. An image's accessible
+name is `alt` or `aria-label`; `enterkeyhint` labels a soft keyboard's enter
+key on the web and iOS.
+
+`border`, `border-top/right/bottom/left` take CSS width/style/color in any order,
+resetting omitted components to medium/none/currentcolor. Widths are px/pt,
+unitless zero, or thin/medium/thick (1/3/5 px); styles are none/hidden/solid.
+Other CSS border styles are diagnosed as native painter gaps. `text-decoration`
+takes none, underline, line-through, or both lines; solid/currentcolor/auto
+components retain the supported defaults. Color/style/thickness extensions are
+refused by name. Linux paints solid lines with UA metrics and diagnoses its
+missing underline skip-ink behavior in the driver log.
+
+A flex shorthand's grow/shrink factors must be adjacent. Intrinsic flex-basis
+keywords (content/min-content/max-content/fit-content) are CSS values, but the
+current dimension representation cannot size that mode; the diagnostic names
+this limit. `auto` takes the basis from the authored main-size property.
+
+Font lists distinguish quoted local names from unquoted CSS generics. The eight
+mapped generics are system-ui, ui-sans-serif, sans-serif, ui-serif, serif,
+ui-monospace, monospace and ui-rounded. Other CSS generics and CSS-wide
+font-family values are refused with the native mapping/stack representation
+reason, rather than being silently treated as local family names.

@@ -202,8 +202,11 @@ and `toString` (§5).
 **Instances** (LLP 1017 P4c, 2026-08-30): a child may own `state`, `derive`,
 and `action` (never a resource, mutation, or task — `type-child-resource`);
 `expand` lifts them into the root per use, renamed apart, a derive as a
-substituted expression, and a use under an `each` makes its states row slots
-(`slots.owner`), one value per keyed row on the runner. The "only the root
+substituted expression, and a use under a region makes its states slots of
+that region's arm (`slots.owner`: one value per keyed row or shown
+`when`/`match` arm on the runner, initialized when the instance is created,
+after settlement); a use outside every region makes them `late` root slots,
+initialized at the boot render (LLP 1017.000, child state). The "only the root
 holds state" rule of §2 and §7 is gone. **Composition** (LLP 1017 P4a/b, 2026-08-30): a component may declare `inject`
 (typed names, like `props`) that a use site does not pass, and a `provide`
 section beside them (LLP 1035.005.000 D9, 2026-10-02), one binding per line:
@@ -561,9 +564,9 @@ and the iOS Calendar example's `animateDrag` (`editorMorphAt`) and
 to `nodes`/`regions`/`arms`/`bindings`/`handlers` through the tag/attribute
 table (`tags.rs`: `column`/`row`/`main`/`scroll`/`text`/`button`/`link`/
 `input`/`image` onto kernel node types plus fixed rows — `button` is a
-pressable `column`, role button with `display: flex; flex-direction: column`
-(Charlie, 2026-09-23: "One native button, flex column"), so the web's
-`<button>` lays out as the kernel does (LLP 1007 §1); attributes onto style
+`Pressable`, role button, with Chrome's `text-align: center`, a block whose
+content the kernel centres as the web's `<button>` does (Charlie, 2026-10-04,
+reversing 2026-09-23's flex column; LLP 1001 §1); attributes onto style
 rows by their **literal CSS names** (LLP 1017 §8.1, 2026-08-30 — `font-size`,
 `background-color`, `border-radius`→four rows, `gap`→`row_gap`+`column_gap`,
 `padding`→four rows, `flex=n`→CSS `flex: n` = grow n, shrink 1, basis 0%;
@@ -613,7 +616,12 @@ a pressable with zero area is `bake-zero-size` (one holding an image or a
 canvas is exempt — their size is the host's), each named by the node's
 `testId`; `bake` returns `BakeError` — the runner's refusal or the lint's —
 and every host's `build.rs` fails on either (`contract/cli/tests/it/lint.rs`).
-The compiler cannot see layout; bake can, and it already had the kernel. The CLI: `contract
+The compiler cannot see layout; bake can, and it already had the kernel. The
+web's JS target (LLP 1071) bakes nothing, so its compile runs `contract::check`:
+the same checks over the first frame its page shows before the data module
+answers, keeping only verdicts no answer could change (a pressable hidden or
+sized to zero by its own style; not a `scroll` or a label a placeholder
+empties), about 1–30 ms a build (files diary F13). The CLI: `contract
 build <file> [-o <plan>]` prints a one-line summary or a rejection as
 `file:line:col [id] message`, exit 1.
 

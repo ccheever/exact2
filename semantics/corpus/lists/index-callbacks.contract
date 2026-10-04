@@ -1,0 +1,19 @@
+// Callbacks with an index parameter in map and filter.
+shape Item
+  id: string
+
+component App
+  resource items = items() as shape list<Item>
+  derive evens = filter(items, (x, i) => i % 2 == 0)
+  derive odds = filter(items, (x, i) => i % 2 == 1)
+  derive parts = length(evens) + length(odds) == length(items)
+  derive numbered = join(map(items, (x, i) => `${i + 1}`), ",")
+  derive firstHalf = filter(items, (x, i) => i < length(items) / 2)
+  derive lastIndex = join(map(filter(items, (x, i) => i == length(items) - 1), (x, i) => toString(i)), "")
+  view
+    column
+      text numbered testId="numbered"
+      text `${length(evens)}/${length(odds)}` testId="split"
+
+test "index callbacks"
+  expect state parts == true

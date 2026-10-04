@@ -1,0 +1,44 @@
+// Rows keyed by the item's id follow their key when the list changes (a
+// different source argument answers a different list); row state follows
+// the key, and a key that leaves and returns starts fresh.
+shape Item
+  id: string
+
+component App
+  state page = 0
+  resource items = items(page) as shape list<Item>
+  action next
+    page = page + 1
+  action prev
+    page = page - 1
+  view
+    column
+      text `page ${page}` testId="page"
+      each it, i in items key=it.id
+        Cell(id=it.id, index=i)
+      button "next" press=next testId="next"
+      button "prev" press=prev testId="prev"
+
+component Cell
+  props
+    id: string
+    index: number
+  state hits = 0
+  action hit
+    hits = hits + 1
+  view
+    row
+      button "hit" press=hit testId=`hit-${index}`
+      text `${id}#${hits}` testId=`cell-${index}`
+
+test "pages"
+  tap "hit-0"
+  tap "hit-1"
+  tap "hit-1"
+  tap "next"
+  expect text "page" == "page 1"
+  tap "hit-0"
+  tap "prev"
+  tap "next"
+  tap "next"
+  tap "prev"

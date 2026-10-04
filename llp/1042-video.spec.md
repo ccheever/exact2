@@ -171,16 +171,31 @@ Standard events: loadedmetadata, canplay, play, playing, pause, ended, waiting,
 seeking, seeked, ratechange and volumechange (no action payload).
 `timeupdate(seconds)` and `durationchange(seconds)` carry finite seconds;
 unknown/indefinite duration is null in agent state and has no numeric action
-payload. `error(message)` carries a string. Native events are useful playback
+payload; after a seek `currentTime` and the next `timeupdate` are the seek's
+target, as HTML's official playback position is (AVPlayer reports its old time
+until the seek lands; jukebox F20). `error(code)` carries a stable code, never
+the engine's text (jukebox F6, 2026-10-04): MediaError's `aborted`, `network`,
+`decode` and `src-not-supported` (any failure before metadata, as HTML's
+dedicated media source failure), `not-allowed` for a `play()` the browser
+refused, `invalid-value` for a number out of range. A play interrupted by a
+pause or a new load (AbortError) is not an error. The text is in `state.media`.
+A node the tree removed reports nothing more on any host, a late rejected play
+or `timeupdate` included. Native events are useful playback
 observations, not an assertion that AVFoundation reproduces HTML's complete
 network-state/event ordering algorithm.
 
 `state.media` reports each mounted video id, currentTime, duration, paused,
 muted, readyState, videoWidth, videoHeight and renderer. Native generation
 identifies source replacement. This is an observation from the engine, never a
-second player model. The agent's eight operations do not change. `clock settle`
-settles layout; it never seeks a real video. Playback checks observe the media
-clock and use explicit pause/seek assignments when a stable frame is needed.
+second player model. The agent's operations do not change. Media is a real-time
+executor, as the network is: `clock settle` settles layout and never seeks or
+waits for a real video, and `clock +N` moves the virtual clock in no real time,
+so a video playing between operations moves only as far as the drive took
+(jukebox F14, 2026-10-04: a macOS drive read 0 s after a "2 s" drag, which the
+agent's clock had made instant). `clock +N real` lets N ms of real time pass
+with the clock stepping beside it, on every host: the media clock advances and
+its `timeupdate`s arrive. Playback checks observe the media clock that way and
+use explicit pause/seek assignments when a stable frame is needed.
 
 ## 4. Keyboard consumer
 
@@ -395,6 +410,35 @@ setter only for a changed value (volumechange no longer fires on every
 update); only handled events cross the ABI and the 4 Hz timeupdate runs only
 while handled, as the web glue does; one parsed `AVURLAsset` per unchanged
 local file; `src`/`poster` resolved only when they change.
+
+## 8. Audio (x2apps diaries, 2026-10-04)
+
+Three apps (snake F1, jukebox, trivia F5) had no way to play a sound; one
+played audio files through a `video`. `audio` is HTML's `<audio>`: the same
+media node (`Video`, `semanticTag` audio), so every prop, event, error code
+and `state.media` row above is its too, and each host's player is the one a
+`video` has (an `<audio>` element on both web targets, the AVPlayer arm on
+Apple). What differs is what HTML's differs in:
+
+- No picture: `poster`, `playsinline` and `playbackVisibilityThreshold` are
+  refused (`lower-attr-tag`); Chrome's off-screen autoplay rule (§3) never
+  holds one; on iOS it never takes full screen or picture in picture, and
+  only `controls` brings AVKit's controller.
+- No box without `controls`: the UA's `audio:not([controls]) { display: none
+  !important }`, so no authored `display` shows one; a bound `controls` binds
+  `display` with it. With `controls` the box is Chrome's 300×54 until the
+  author sizes it. It never waits for a natural size.
+- A sound effect plays from the input's own action: the web glue calls
+  `play()` in the commit that the press made, inside the user gesture
+  (verified: a play the boot asks for is refused `not-allowed` in the
+  driver's Chrome, one a tap asks for plays). An ended item asked to play
+  starts over, as HTML's `play()` does; Apple seeks to the start, and reports
+  `pause` before `ended` as the element does. `preload="auto"` readies it.
+
+Linux has no decoder or audio output: its `state.media` lists each media
+node as unavailable, paused at 0. iOS plays under the default audio session,
+so the ring/silent switch silences it, where Safari's element plays (the app
+audio-session arbiter is §5's, unbuilt).
 
 Sources: [HTML media](https://html.spec.whatwg.org/multipage/media.html),
 [AVPlayerViewController](https://developer.apple.com/documentation/avkit/avplayerviewcontroller),

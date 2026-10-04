@@ -32,12 +32,12 @@ final class NativeButtonMac: NSButton {
     // takes the button's mouse events, so the node hears them here. The up
     // goes before the action the loop sends, DOM's order.
     override func mouseDown(with event: NSEvent) {
-        owner?.pointerPressed()
+        owner?.pointerPressed(event)
         super.mouseDown(with: event)
-        owner?.pointerReleased()
+        owner?.pointerReleased(nil)
     }
     override func sendAction(_ action: Selector?, to target: Any?) -> Bool {
-        owner?.pointerReleased()
+        owner?.pointerReleased(nil)
         return super.sendAction(action, to: target)
     }
 }

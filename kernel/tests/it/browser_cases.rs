@@ -55,6 +55,7 @@ pub(crate) fn css_rows(css: &str) -> Rows {
             "justify-content" => &[JustifyContent],
             "align-self" => &[AlignSelf],
             "flex-grow" => &[FlexGrow],
+            "flex-shrink" => &[FlexShrink],
             "overflow" => &[OverflowX, OverflowY],
             "padding" => &[PaddingTop, PaddingRight, PaddingBottom, PaddingLeft],
             "padding-left" => &[PaddingLeft],
@@ -528,13 +529,6 @@ fn percentage_padding_resolves_against_the_containing_block_width() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-/// A `button` is a flex column (LLP 1006 §3; Charlie, 2026-09-23: "One
-/// native button, flex column"). Measured on a real `<button type="button">`
-/// with `index.html`'s reset and `<span>` children: a flex `<button>` is laid
-/// out as any flex container, so its content starts where the kernel puts it.
-/// A block `<button>` would not — the same 20px child sits at 40 in 100px,
-/// centred by the anonymous box HTML's rendering rules give a button (LLP
-/// 1007 §1) — which is why a button is never block.
 #[test]
 fn calc_of_a_percentage_and_a_length_resolves_against_the_containing_block() {
     // CSS Values 4 §10: each term against the percentage's own basis. The
@@ -582,54 +576,199 @@ fn calc_of_a_percentage_and_a_length_resolves_against_the_containing_block() {
     assert!(bad.is_empty(), "{bad:#?}");
 }
 
+/// Lays out a 400px-wide block holding `nodes` (`(id, parent, rows)`),
+/// where `button` is a `Pressable` (a `<button>` on the web) and every other
+/// node a box; `text` names the one text node, if any.
+fn lay_out_button(button: u32, nodes: Vec<(u32, u32, Rows)>, text: Option<(u32, &str)>) -> Kernel {
+    let mut ops = vec![
+        Op::CreateView {
+            id: 1,
+            node_type: NodeType::View,
+        },
+        Op::SetStyle {
+            id: 1,
+            patch: Box::new(props(&vec![(Width, n(400.0))])),
+        },
+    ];
+    let mut children: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+    for (id, parent, rows) in nodes {
+        let node_type = match text {
+            Some((t, _)) if t == id => NodeType::Text,
+            _ if id == button => NodeType::Pressable,
+            _ => NodeType::View,
+        };
+        ops.push(Op::CreateView { id, node_type });
+        let mut rows = rows;
+        rows.extend([(FontSize, n(16.0)), (LineHeight, t("18px"))]);
+        ops.push(Op::SetStyle {
+            id,
+            patch: Box::new(props(&rows)),
+        });
+        children.entry(parent).or_default().push(id);
+    }
+    if let Some((id, text)) = text {
+        ops.push(Op::SetProp {
+            id,
+            prop: PropId::Text,
+            value: text.into(),
+        });
+    }
+    for (id, list) in children {
+        ops.push(Op::SetChildren { id, children: list });
+    }
+    ops.push(Op::AttachRoot { id: 1 });
+    let mut k = kernel();
+    k.apply(0, 1, &ops).unwrap();
+    k.compute_layout(1, Offer::definite(800.0, 600.0)).unwrap();
+    k
+}
+
+/// A `button` is Chrome's `<button>` with `index.html`'s reset (`all:
+/// unset; display: block`; Charlie, 2026-10-04, reversing 2026-09-23's flex
+/// column): its automatic width shrinks to fit, and a block button's content
+/// sits in an anonymous flow-root box centred, safely, in its height, which
+/// no `align-content` moves. A flex or grid button is an ordinary container.
+/// Chrome 154, 2026-10-04, `<span style="display:block">` children,
+/// `getBoundingClientRect` relative to the outer box.
 #[test]
-fn a_flex_button_lays_out_as_the_kernel_does() {
+fn a_button_lays_out_its_content_as_chrome_does() {
+    use crate::browser_cases::css_rows as css;
     let mut failures = Vec::new();
-    let mut case = |name: &str, root: Rows, nodes, texts: &[(u32, &str)], want: &[_]| {
-        failures.extend(mismatches(name, &lay_out(props(&root), nodes, texts), want));
+    let mut case = |name: &str, nodes: &[(u32, u32, &str)], want: &[(u32, [f32; 4])]| {
+        let nodes = nodes.iter().map(|(id, p, c)| (*id, *p, css(c))).collect();
+        failures.extend(mismatches(name, &lay_out_button(2, nodes, None), want));
     };
-    let column = |height: f64| {
-        vec![
-            (Display, t("flex")),
-            (FlexDirection, t("column")),
-            (Width, n(400.0)),
-            (Height, n(height)),
-        ]
-    };
+    let block = |rows: &'static str| [(2, 1, rows), (3, 2, "height:20px")];
     case(
-        "a 100px button's 20px child starts at the top",
-        column(100.0),
-        vec![(2, 1, vec![(Height, n(20.0))])],
-        &[],
-        &[(2, [0.0, 0.0, 400.0, 20.0])],
+        "a 100px button's 20px child is centred",
+        &block("height:100px"),
+        &[(2, [0.0, 0.0, 0.0, 100.0]), (3, [0.0, 40.0, 0.0, 20.0])],
     );
     case(
-        "a 100px button's text starts at the top",
-        column(100.0),
-        empty(1, &[2]),
-        &[(2, "Hello")],
-        &[(2, [0.0, 0.0, 400.0, 18.0])],
-    );
-    case(
-        "a 44px button centres a label and an icon",
-        vec![
-            (Display, t("flex")),
-            (FlexDirection, t("row")),
-            (AlignItems, t("center")),
-            (JustifyContent, t("center")),
-            (ColumnGap, n(8.0)),
-            (Width, n(400.0)),
-            (Height, n(44.0)),
-        ],
-        vec![
-            (2, 1, vec![(Width, n(40.0)), (Height, n(18.0))]),
-            (3, 1, vec![(Width, n(20.0)), (Height, n(20.0))]),
-        ],
-        &[],
+        "two children are centred as one group",
         &[
-            (2, [166.0, 13.0, 40.0, 18.0]),
-            (3, [214.0, 12.0, 20.0, 20.0]),
+            (2, 1, "height:100px"),
+            (3, 2, "height:20px"),
+            (4, 2, "height:20px;width:30px"),
+        ],
+        &[(3, [0.0, 30.0, 30.0, 20.0]), (4, [0.0, 50.0, 30.0, 20.0])],
+    );
+    case(
+        "overflowing content starts at the top",
+        &[(2, 1, "height:100px"), (3, 2, "height:150px")],
+        &[(3, [0.0, 0.0, 0.0, 150.0])],
+    );
+    case(
+        "a child's margin stays inside the centred box",
+        &[
+            (2, 1, "height:100px"),
+            (3, 2, "height:20px;margin-top:10px"),
+        ],
+        &[(3, [0.0, 45.0, 0.0, 20.0])],
+    );
+    case(
+        "align-content does not move it",
+        &block("height:100px;align-content:flex-start"),
+        &[(3, [0.0, 40.0, 0.0, 20.0])],
+    );
+    case(
+        "padding",
+        &block("height:100px;padding:10px"),
+        &[(2, [0.0, 0.0, 20.0, 120.0]), (3, [10.0, 50.0, 0.0, 20.0])],
+    );
+    case(
+        "min-height",
+        &[(2, 1, "min-height:60px"), (3, 2, "height:20px;width:30px")],
+        &[(2, [0.0, 0.0, 30.0, 60.0]), (3, [0.0, 20.0, 30.0, 20.0])],
+    );
+    case(
+        "border-box with padding and border",
+        &[
+            (
+                2,
+                1,
+                "box-sizing:border-box;height:60px;padding-top:5px;padding-bottom:5px;padding-left:10px;padding-right:10px;border-width:2px;border-style:solid",
+            ),
+            (3, 2, "height:20px;width:30px"),
+        ],
+        &[(2, [0.0, 0.0, 54.0, 60.0]), (3, [12.0, 20.0, 30.0, 20.0])],
+    );
+    case(
+        "a nested block is centred whole",
+        &[
+            (2, 1, "height:100px;width:200px"),
+            (3, 2, "padding:5px"),
+            (4, 3, "height:20px;width:30px"),
+        ],
+        &[(3, [0.0, 35.0, 200.0, 30.0]), (4, [5.0, 40.0, 30.0, 20.0])],
+    );
+    case(
+        "a flex button is a row that starts its items",
+        &[
+            (2, 1, "display:flex;height:100px"),
+            (3, 2, "height:20px;width:30px"),
+            (4, 2, "height:10px;width:30px"),
+        ],
+        &[
+            (2, [0.0, 0.0, 60.0, 100.0]),
+            (3, [0.0, 0.0, 30.0, 20.0]),
+            (4, [30.0, 0.0, 30.0, 10.0]),
         ],
     );
+    case(
+        "a flex column button centres by justify-content",
+        &block("display:flex;flex-direction:column;justify-content:center;height:100px"),
+        &[(3, [0.0, 40.0, 0.0, 20.0])],
+    );
+    case(
+        "a grid button starts its items",
+        &block("display:grid;height:100px"),
+        &[(3, [0.0, 0.0, 0.0, 20.0])],
+    );
+    case(
+        "stretched in a flex column",
+        &[
+            (5, 1, "display:flex;flex-direction:column;height:100px"),
+            (2, 5, "height:60px"),
+            (3, 2, "height:20px;width:30px"),
+        ],
+        &[(2, [0.0, 0.0, 400.0, 60.0]), (3, [0.0, 20.0, 30.0, 20.0])],
+    );
+    case(
+        "stretched in a grid",
+        &[
+            (5, 1, "display:grid;height:60px"),
+            (2, 5, ""),
+            (3, 2, "height:20px;width:30px"),
+        ],
+        &[(2, [0.0, 0.0, 400.0, 60.0]), (3, [0.0, 20.0, 30.0, 20.0])],
+    );
+    case(
+        "an absolute child's static position follows the centred content",
+        &[
+            (2, 1, "position:relative;height:100px"),
+            (3, 2, "height:20px;width:30px"),
+            (4, 2, "position:absolute;height:10px;width:10px"),
+        ],
+        &[(3, [0.0, 40.0, 30.0, 20.0]), (4, [0.0, 60.0, 10.0, 10.0])],
+    );
+    case(
+        "a lone absolute child's static position is the centre",
+        &[
+            (2, 1, "position:relative;height:100px;width:50px"),
+            (4, 2, "position:absolute;height:10px;width:10px"),
+        ],
+        &[(4, [0.0, 50.0, 10.0, 10.0])],
+    );
+    let k = lay_out_button(
+        2,
+        vec![(2, 1, css("height:100px;width:200px")), (3, 2, vec![])],
+        Some((3, "Hello")),
+    );
+    failures.extend(mismatches(
+        "a text label",
+        &k,
+        &[(3, [0.0, 41.0, 200.0, 18.0])],
+    ));
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

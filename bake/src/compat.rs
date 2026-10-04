@@ -395,7 +395,12 @@ fn executors(app_dir: &Path, platform: &str) -> Vec<String> {
             .into(),
         );
     }
-    let host = app_dir.join("apple/src/lib.rs");
+    let platform_host = app_dir.join(platform).join("src/lib.rs");
+    let host = if platform_host.is_file() {
+        platform_host
+    } else {
+        app_dir.join("apple/src/lib.rs")
+    };
     if platform != "web" && std::fs::read_to_string(host).is_ok_and(|s| s.contains("Swappable")) {
         out.push("wasmtime".into());
     }

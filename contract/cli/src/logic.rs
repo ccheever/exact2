@@ -50,6 +50,9 @@ pub fn web_rust_mode(inputs: &serde_json::Value) -> &str {
     }
 }
 
+/// The wide colour functions (LLP 1056 §8.2).
+const WIDE_COLORS: [&str; 5] = ["lab(", "lch(", "oklab(", "oklch(", "color("];
+
 /// Whether the app's Rust data crate (`../data` beside the web crate that
 /// builds this) names a wide colour function in its source: Canvas 2D's
 /// `lab()`, `lch()`, `oklab()`, `oklch()` or `color()` (LLP 1056 §8.2).
@@ -79,11 +82,10 @@ fn names_wide_colors() -> bool {
                     // Inside string literals only: the odd pieces between
                     // quotes on a line.
                     s.lines().any(|line| {
-                        line.split('"').skip(1).step_by(2).any(|lit| {
-                            ["lab(", "lch(", "oklab(", "oklch(", "color("]
-                                .iter()
-                                .any(|f| lit.contains(f))
-                        })
+                        line.split('"')
+                            .skip(1)
+                            .step_by(2)
+                            .any(|lit| WIDE_COLORS.iter().any(|f| lit.contains(f)))
                     })
                 })
         })
@@ -132,7 +134,16 @@ pub fn web_linked(plan: &exact_plan::Plan, inputs: &serde_json::Value) -> String
         .iter()
         .map(|c| c.name())
         .chain(["inspection"])
-        .chain((all || names_wide_colors()).then_some("canvas_colors"))
+        // A colour row's text, literal or a template's piece, names one in
+        // the plan's strings; a drawing names one in the data crate.
+        .chain(
+            (all || plan
+                .strings
+                .iter()
+                .any(|s| WIDE_COLORS.iter().any(|f| s.contains(f)))
+                || names_wide_colors())
+            .then_some("wide_colors"),
+        )
         .chain((all || grants(inputs, "auth.session")).then_some("auth"))
         .collect();
     let mut entry = format!("/// What this artifact links beyond the core (LLP 1047 D3).\nconst EXACT_LINKED: ::exact_web::Linked = ::exact_web_capabilities::linked!({});\n", names.join(", "));

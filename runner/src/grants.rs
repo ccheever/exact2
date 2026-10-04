@@ -249,6 +249,25 @@ mod tests {
     use super::normalized_json;
 
     #[test]
+    fn quoted_targets_keep_source_spelling_beside_decoded_namespaces() {
+        let source = "fs.read \"C:\\\\With Space\\\\雪\"\nfs.write \"doc:/chosen/a b\"";
+        let (lines, error) = super::normalized(source);
+        assert!(error.is_none());
+        assert_eq!(lines[0].source, source.lines().next().unwrap());
+        let json = normalized_json(source);
+        assert!(
+            json.contains(r#"["fs-read","win:C","With Space","雪"]"#),
+            "{json}"
+        );
+        assert!(
+            json.contains(r#"["fs-write","doc:","chosen","a b"]"#),
+            "{json}"
+        );
+        let (_, error) = super::normalized("fs.read \"C:/safe\" fs.write C:/\nfs.read app:/data");
+        assert!(error.is_some(), "one malformed declaration refuses the set");
+    }
+
+    #[test]
     fn normalized_output_keeps_exact_lines_comments_and_bad_parent_sources() {
         let json = normalized_json(
             "# app\nauth.session https://login.test\nnet.fetch https://API.example\nsecret.keep camelCase",
