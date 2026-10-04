@@ -279,3 +279,46 @@ fn presentation_streams_differ_for_every_tick_and_salt() {
         sim.run(1000. / 60.);
     }
 }
+
+#[test]
+fn a_present_that_fails_on_a_restored_world_refuses_the_restore() {
+    // The same game ID saved by a build with no crate: this build's present
+    // requires one, so the untrusted save is refused instead of crashing.
+    struct Bare;
+    impl Game for Bare {
+        const ID: &'static str = "picky";
+        type Args = ();
+        fn setup(_: &mut World, _: &()) {}
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    struct Picky;
+    impl Game for Picky {
+        const ID: &'static str = "picky";
+        type Args = ();
+        fn setup(w: &mut World, a: &()) {
+            Plain::setup(w, a);
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+        fn present(w: &mut World, _: &()) {
+            let crate_ = w.named("crate").expect("present needs the crate");
+            w.insert(crate_, Bob::default());
+        }
+    }
+    let mut bare = Sim::<Bare>::new(()).unwrap();
+    bare.run(50.);
+    let mut picky = Sim::<Picky>::new(()).unwrap();
+    let before = picky.world().hash();
+    let error = picky
+        .restore(&bare.save().unwrap())
+        .unwrap_err()
+        .to_string();
+    assert!(
+        error.contains("Game::present failed on the restored world: present needs the crate"),
+        "{error}"
+    );
+    assert_eq!(
+        picky.world().hash(),
+        before,
+        "the refused restore changed nothing"
+    );
+}
