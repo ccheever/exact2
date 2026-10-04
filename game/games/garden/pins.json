@@ -5,15 +5,16 @@
   },
   "saves": {
     "continuation": "d7a91ec927afb6f8144f25acf1c150e9b61e79be23e23938c61f0ce50e4d82db",
-    "market": "6910128d1f1d06175257b0159eae2c9c7280f86bdc4f97a8646114e48e1160a4"
+    "market": "6910128d1f1d06175257b0159eae2c9c7280f86bdc4f97a8646114e48e1160a4",
+    "recovery": "302e11d239c811ad4ea3f29d1a96a0098de23ee664ba2cd03837803a6cff26b0"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "0a970f4156485a8828fb50e265372226cd57c67eda27c1f910511b0f6f14c2a8",
+  "inputs": "0cd9c503afd70139d3ef013cbaf70dec3e1ba81f4348ecc2c977d4914d75d96a",
   "game": "garden",
   "generated": "bun game/prove.mjs garden --repin --hosts 'linux,web'",
-  "at": "15447a888b494c3f73f770573d5fa96e196b2ddb",
-  "reason": "Garden offsets stems and fruit beside the player and saves a four-entity active plot outline; normal proofs verify planting and harvest colors while retaining all five market orders and identical fresh continuation."
+  "at": "79e52f11b6405450e1de3f00f185fd64a4dcebba",
+  "reason": "Public return guidance at every garden boundary; recover and plant identically after a fresh restore"
 }

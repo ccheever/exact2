@@ -856,3 +856,69 @@ to the recorded north-boundary trap before handing control over. It keeps the
 model, goal, choices and decision budget unchanged; no world mutation or extra
 model-only observation sets up the case. Both first runs buy one carrot seed,
 then choose `walk_south` on decision two and plant on decision three.
+
+### Jev's result and the limit of the improvement
+
+The targeted runs both use all 96 decisions and deliver four orders. Web
+ends with the corn seed held, 1,177¢ and three plants at 518.9 game seconds;
+native has planted corn, has 353¢ and is twenty game seconds from its first
+corn harvest at 796.5 seconds. The public return prompt resolves all six/five
+outside episodes that the respective decision loops observe, in one or two
+decisions each. Web's final decision walks north out again; the cap prevents
+another observation/return. This is recovery evidence, not a complete-market
+win. Ordinary unforced runs finish all five orders on both hosts above.
+
+At the last row, "Move to an empty tile" still gives no direction. Web keeps
+trying north from an occupied tile and returning south onto it, with seed
+purchases interleaved; native eventually moves east to plant corn. That is a
+separate queued finding. Do not tune the controller or increase its cap to
+turn this batch into a win. The baseline and public-guidance change close this
+recovery target without reopening the earlier market tuning rounds.
+
+Artifacts: `artifacts/jev-return-{web,macos}/` for ordinary play and
+`artifacts/jev-outside-{web,macos}/` for the controlled start. All four process
+audits pass. Targeted model latency p50/p95 is 284/576 ms on web and 301/543 ms
+on native; request usage totals 116,500/9,917 and 116,121/9,952 input/output
+tokens. Ordinary runs are 311/540 and 323/543 ms, with 75,965/6,248 and
+78,774/6,599 tokens. Whole targeted runs take 35.7/56.3 wall seconds. These
+are visible-text decisions on an advanced clock, not pixel perception or
+real-time play. All four final captures were inspected.
+
+### Accepted baseline and another main update
+
+After feature `b65d36c1f`, merge `a5f62346d` brings main `00d37ef9f`: the SVG
+filter chain is now below the kernel. `79e52f11b` refreshes the shared and three
+game locks for `exact-svg-filter`; all three focused lock tests pass. All five
+root gates pass on this merged source: build, 2,347 enabled tests across 81
+binaries (nine ignored), strict Clippy plus formatting, caps and boot. Before
+that merge, one root run reproduced the already queued exclusive update-store
+lock flake; the full failed binary then passed all 50 tests. Its cause is not
+fixed by this game change; the additional Mac evidence is on the existing
+queue item. Logs: `/tmp/exact2-main00d-{build,test,clippy,lock-tests}.log`.
+
+With the source fixed, strict collector `artifacts/prove/run-7kIc7z/` exits zero
+and accepts all seven matching runs. Linux normal/Save/Fresh Game take
+39.810/6.008/5.792 s; web 97.186/90.492/86.435 s; native release 58.027 s.
+The final ordinary web rebuild takes 20.007 s. Each gameplay run has zero
+failures and an available, passing descendant audit. Collector child reports
+say UNVERIFIED while recording the candidate; the collector's full agreement
+is what accepts it. A subsequent ordinary Linux proof checks the accepted
+pins and reports PASS in 1.424 s (`artifacts/return-strict-linux/`).
+
+The independent macOS proof on the merged source matches all seven runs:
+inputs, six world observations and nine saves, including the return and
+planting continuation. It takes 43.312 s, with zero failures; its optional
+process scan is unavailable while all owned carriers close. Lost/returned
+screenshots were inspected again. Artifact: `artifacts/return-main-macos/`.
+Every old tick and save pin remains unchanged. The only new save pin is
+`recovery = 302e11d239c811ad4ea3f29d1a96a0098de23ee664ba2cd03837803a6cff26b0`;
+the expanded proof's input digest is
+`0cd9c503afd70139d3ef013cbaf70dec3e1ba81f4348ecc2c977d4914d75d96a`.
+
+Forest and Rivals also pass both hosts after the merge, with matching states
+and unchanged pins; their diaries record that sweep. These verification wall
+times include builds and concurrent checks, not isolated performance data.
+The useful engine lesson here is that existing publication, input and save
+seams were enough: give the player the missing spatial fact, then test that
+following it works. Private coordinates in Jev's input would have bypassed
+the defect that a person could encounter too.

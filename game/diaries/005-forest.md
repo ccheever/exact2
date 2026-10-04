@@ -789,3 +789,13 @@ macOS's optional scan is unavailable while every owned carrier closes.
 Artifacts: `artifacts/main-c2-{web,macos}/`. Forest's lock captures the new
 shared colour-parser dependency. Rivals diary 006 records the shared checks;
 no Forest logic or Jev policy changed.
+
+## SVG filter extraction integration (2026-10-04)
+
+During Garden's recovery batch, merge `a5f62346d` brings main `00d37ef9f` and
+`79e52f11b` refreshes the game locks. Forest's full web/macOS proofs pass in
+145.9/141.7 s, with equal inputs, seven world observations and twelve saves;
+every pin stays unchanged. Both chopping captures were inspected. Web's
+descendant audit passes; native's optional scan is unavailable with every
+owned carrier closed. Artifacts: `artifacts/main-00d-{web,macos}/`. Garden
+diary 004 records the shared passing gates. No Forest logic or policy changes.

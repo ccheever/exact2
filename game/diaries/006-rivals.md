@@ -973,3 +973,14 @@ owned carrier closes. Artifacts: `artifacts/main-c2-{web,macos}/`. Garden and
 Forest also pass both hosts with unchanged pins; their diaries record the
 comparisons. These wall times include builds and concurrent checks, not
 isolated performance measurements. No gameplay or Jev policy changed.
+
+## SVG filter extraction integration (2026-10-04)
+
+During Garden's recovery batch, merge `a5f62346d` brings main `00d37ef9f` and
+`79e52f11b` refreshes the game locks. Rivals' full web/macOS proofs pass in
+112.5/61.4 s, with equal inputs, nine world observations and eleven saves;
+every duel, range and Mayhem pin stays unchanged. Both Mayhem captures were
+inspected. Web's descendant audit passes; native's optional scan is unavailable
+with every owned carrier closed. Artifacts: `artifacts/main-00d-{web,macos}/`.
+Garden diary 004 records the shared passing gates. No Rivals logic or policy
+changes. Wall times include builds and concurrent verification.
