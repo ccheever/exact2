@@ -120,6 +120,30 @@ fn every_chrome_paint_case_writes_the_kernels_isolated_and_policy_sets() {
         let mut css = BTreeMap::new();
         apply(&mut css, &batch);
         agrees(&host, &css, fields[0]);
+        let document = host.document().unwrap();
+        let tree = host.runner().document_tree().unwrap();
+        let (detached, _) =
+            exact_web::document::project_tree(&tree, host.runner(), Default::default()).unwrap();
+        assert_eq!(detached.root, document.root, "{}: DocTree", fields[0]);
+        for (&id, css) in &css {
+            let open = document
+                .root
+                .split(&format!("data-view=\"{id}\""))
+                .nth(1)
+                .unwrap()
+                .split('>')
+                .next()
+                .unwrap();
+            let style = open
+                .split("style=\"")
+                .nth(1)
+                .unwrap()
+                .split('"')
+                .next()
+                .unwrap();
+            assert_eq!(style, css, "{}: view {id}", fields[0]);
+        }
+
         // The adoption path reuses the server projection's CSS. It must
         // replace that path's isolation with the live kernel's decisions.
         let page = exact_web::document::checkpoint(host.runner(), "/");

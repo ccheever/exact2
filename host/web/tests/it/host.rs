@@ -1392,12 +1392,16 @@ fn a_leaking_holder_is_covered_by_its_static_followers() {
         assert!(!css(test_id).contains("position"), "{test_id}: {first}");
     }
     assert!(css("photo").contains("position:absolute;"));
-    // The server document retains its old rule until its own migration.
+    // The server document writes the same isolation as the live batch.
     let doc = host.document().unwrap().root;
-    for test_id in ["info", "after", "later"] {
+    for (test_id, isolated) in [("info", false), ("after", true), ("later", true)] {
         let at = doc.find(&format!("data-testid=\"{test_id}\"")).unwrap();
         let open = &doc[doc[..at].rfind('<').unwrap()..at + doc[at..].find('>').unwrap()];
-        assert!(open.contains("isolation:isolate;"), "{test_id}: {open}");
+        assert_eq!(
+            open.contains("isolation:isolate;"),
+            isolated,
+            "{test_id}: {open}"
+        );
     }
 }
 
@@ -1469,11 +1473,7 @@ fn flex_and_grid_item_z_index_does_not_lift_plain_followers() {
         let doc = host.document().unwrap().root;
         let at = doc.find("data-testid=\"second\"").unwrap();
         let element = &doc[doc[..at].rfind('<').unwrap()..at + doc[at..].find('>').unwrap()];
-        assert_eq!(
-            element.contains("isolation:isolate"),
-            display != "block",
-            "{doc}"
-        );
+        assert_eq!(element.contains("isolation:isolate"), false, "{doc}");
         let at = &batch[batch
             .find(&format!("\"op\":\"create\",\"id\":{id},"))
             .unwrap()..];
@@ -1481,7 +1481,14 @@ fn flex_and_grid_item_z_index_does_not_lift_plain_followers() {
         assert!(!css[..css.find('"').unwrap()].contains("isolation:isolate"));
         let first = view_with_test_id(&host, "first");
         let changed = host.dispatch(first, Event::Press);
-        assert!(!host.document().unwrap().root.contains("isolation:isolate"));
+        assert_eq!(
+            host.document()
+                .unwrap()
+                .root
+                .matches("isolation:isolate")
+                .count(),
+            1
+        );
         if display != "block" {
             assert!(
                 !changed.contains(&format!("\"op\":\"style\",\"id\":{id}")),
