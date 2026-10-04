@@ -139,7 +139,6 @@ impl<G: Game> Sim<G> {
         let mut next =
             Self::from_world(bound, validated, input, s.queue.into()).map_err(DataError::new)?;
         next.world.assets = self.world.assets.clone();
-        next.shown = std::mem::take(&mut self.shown);
         next.defer_assets = self.defer_assets;
         crate::scene::place_followers(&next.world);
         next.world.propagate();

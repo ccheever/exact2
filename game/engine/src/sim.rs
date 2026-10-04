@@ -130,8 +130,6 @@ pub struct Sim<G: Game> {
     setup_pending: bool,
     asset_mesh_revision: u64,
     asset_sprite_names: Vec<(crate::Entity, String)>,
-    // Every asset a mesh or sprite has shown: once loaded it stays resident.
-    pub(crate) shown: std::collections::BTreeSet<String>,
     defer_assets: bool,
     textures: std::collections::BTreeMap<String, crate::asset::TextureData>,
     pub(crate) args: G::Args,
@@ -272,9 +270,7 @@ impl<G: Game> Sim<G> {
             return Vec::new();
         }
         for name in G::STREAMED {
-            if self.shown.insert((*name).to_owned()) {
-                self.world.assets.request(name);
-            }
+            self.world.assets.request(name);
         }
         let revision = self.world.revision::<crate::Mesh>();
         let sprites_changed =
@@ -300,23 +296,12 @@ impl<G: Game> Sim<G> {
                 .collect();
             let mut roots: std::collections::BTreeSet<_> =
                 names.iter().map(|(n, _)| n.clone()).collect();
-            // Declared and once-loaded assets stay resident: an asset that leaves
-            // the screen and returns is still Loaded, so a save never refuses for
-            // it. Only unreferenced requests still in flight (or failed) retire.
+            // Declared and streamed assets stay resident: one that leaves the
+            // screen and returns is still Loaded, so a save never refuses for it.
+            // Undeclared cosmetics retire when unshown, bounding their memory.
             roots.extend(G::ASSETS.iter().map(|n| (*n).to_owned()));
             roots.extend(G::STREAMED.iter().map(|n| (*n).to_owned()));
-            let assets = &self.world.assets;
-            roots.extend(assets.declared.iter().cloned());
-            self.shown.extend(roots.iter().cloned());
-            roots.extend(
-                assets
-                    .states
-                    .iter()
-                    .filter(|(n, s)| {
-                        **s == crate::asset::AssetState::Loaded && self.shown.contains(*n)
-                    })
-                    .map(|(n, _)| n.clone()),
-            );
+            roots.extend(self.world.assets.declared.iter().cloned());
             if let Some(level) = G::LEVEL {
                 roots.insert(level.name.into());
             }
@@ -565,7 +550,6 @@ impl<G: Game> Sim<G> {
             world,
             asset_mesh_revision: u64::MAX,
             asset_sprite_names: Vec::new(),
-            shown: Default::default(),
             defer_assets: false,
             textures: Default::default(),
             args_json: crate::json::to_string(&args).map_err(|e| e.to_string())?,

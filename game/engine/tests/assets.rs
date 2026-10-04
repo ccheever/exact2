@@ -433,10 +433,8 @@ fn headless_loader_drains_dependencies_and_reports_failures_without_panicking() 
     );
 }
 
-// A shown asset stays resident once loaded: when it returns it is Loaded at
-// once and a save does not refuse (Grow a Garden's 202 hidden specks).
 #[test]
-fn a_shown_asset_stays_resident_after_it_leaves_and_returns_loaded() {
+fn cosmetic_names_retire_and_respawn_requests_again() {
     let mut sim = Sim::<Cosmetic>::new(()).unwrap();
     assert_eq!(sim.take_assets(), ["late.model"]);
     sim.asset("late.model", Some(&bin::to_vec(&asset::Model::default())))
@@ -444,16 +442,11 @@ fn a_shown_asset_stays_resident_after_it_leaves_and_returns_loaded() {
     let entity = sim.world().resolve("late").unwrap();
     sim.world_mut().despawn(entity);
     assert!(sim.take_assets().is_empty());
-    assert!(sim.take_retired_assets().is_empty());
-    assert!(sim
-        .agent(r#"{"op":"state"}"#)
-        .contains(r#"{"name":"late.model","state":"Loaded"}"#));
+    assert!(!sim.agent(r#"{"op":"state"}"#).contains("late.model"));
     sim.world_mut()
         .spawn((Transform::default(), Mesh::asset("late.model")));
-    assert!(sim.take_assets().is_empty());
-    assert!(sim.save().is_ok(), "a returning asset never gates a save");
+    assert_eq!(sim.take_assets(), ["late.model"]);
 }
-// A request nobody shows any more, still in flight, retires as before.
 #[test]
 fn an_unshown_request_in_flight_still_retires() {
     let mut sim = Sim::<Cosmetic>::new(()).unwrap();
@@ -681,10 +674,9 @@ fn paranoid_discovery_keeps_tick_edits_retirement_and_public_restore_visible() {
         deliver(&mut sim, &names[0]);
         // Prepare the future root before the tick so paranoid saves can use it.
         deliver(&mut sim, &names[1]);
-        // Shown assets stay resident: nothing retires as the root changes or goes.
         sim.run(10.);
         assert!(sim.take_assets().is_empty());
-        assert!(sim.take_retired_assets().is_empty());
+        assert_eq!(sim.take_retired_assets(), [names[0].clone()]);
         let first = sim.save().unwrap();
         sim.run(10.);
         assert!(sim.take_assets().is_empty());
@@ -692,7 +684,7 @@ fn paranoid_discovery_keeps_tick_edits_retirement_and_public_restore_visible() {
         let checkpoint = sim.save().unwrap();
         sim.run(10.);
         assert!(sim.take_assets().is_empty());
-        assert!(sim.take_retired_assets().is_empty());
+        assert_eq!(sim.take_retired_assets(), [names[1].clone()]);
         let empty = sim.save().unwrap();
         if SPRITES {
             sim.world_mut()
@@ -707,11 +699,12 @@ fn paranoid_discovery_keeps_tick_edits_retirement_and_public_restore_visible() {
         assert!(sim.take_assets().is_empty());
         let replacement = sim.save().unwrap();
         sim.restore(&checkpoint).unwrap();
-        assert!(sim.take_assets().is_empty());
-        assert!(sim.take_retired_assets().is_empty());
+        assert_eq!(sim.take_assets(), [names[1].clone()]);
+        assert_eq!(sim.take_retired_assets(), [names[2].clone()]);
+        deliver(&mut sim, &names[1]);
         sim.run(10.);
         assert!(sim.take_assets().is_empty());
-        assert!(sim.take_retired_assets().is_empty());
+        assert_eq!(sim.take_retired_assets(), [names[1].clone()]);
         assert_eq!(sim.save().unwrap(), empty);
         vec![first, checkpoint, empty, replacement]
     }
