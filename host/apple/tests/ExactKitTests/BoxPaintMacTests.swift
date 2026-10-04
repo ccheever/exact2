@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import ImageIO
 import XCTest
 @testable import ExactKit
 
@@ -79,6 +80,42 @@ final class BoxPaintMacTests: XCTestCase {
         // Half black over white, once: not the quarter a second coat leaves.
         XCTAssertEqual(rgba(rep, 50, 25)[0], 0.5, accuracy: 0.1, "a fill the layer paints")
         XCTAssertEqual(rgba(rep, 50, 75)[0], 0.5, accuracy: 0.1, "a rounded, bordered fill")
+    }
+
+    /// An image whose pixels are a sublayer is captured once: `draw(_:)`
+    /// paints the bitmap for the shot, and the sublayer is hidden for it,
+    /// so half-transparent red over white stays pink (Grok's batch 2 review).
+    func testATranslucentLayerImageIsCapturedOnce() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("exact-image-capture-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let context = try XCTUnwrap(CGContext(data: nil, width: 4, height: 4, bitsPerComponent: 8, bytesPerRow: 16,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(red: 1, green: 0, blue: 0, alpha: 0.5); context.fill(CGRect(x: 0, y: 0, width: 4, height: 4))
+        let destination = try XCTUnwrap(CGImageDestinationCreateWithURL(root.appendingPathComponent("half.png") as CFURL, "public.png" as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, try XCTUnwrap(context.makeImage()), nil)
+        XCTAssertTrue(CGImageDestinationFinalize(destination))
+
+        let p = presenter(), loader = RasterLoader(), resolver = AssetResolver(root: root)
+        defer { loader.shutdown(); withExtendedLifetime(resolver) {} }
+        let page = NodeView(id: 1, kind: "view", presenter: p)
+        page.frame = NSRect(x: 0, y: 0, width: 100, height: 100)
+        p.root.addSubview(page); p.views[1] = page
+        page.applyStyle(["background_color": [255, 255, 255, 255]])
+        let image = NodeView(id: 2, kind: "image", presenter: p)
+        image.frame = NSRect(x: 0, y: 0, width: 40, height: 40)
+        page.addSubview(image); p.views[2] = image
+        image.applyStyle(["object_fit": .string("fill")])
+        image.loadGeneration = 1
+        loader.load(image, source: "half.png", resolver: resolver)
+        let end = Date(timeIntervalSinceNow: 5)
+        while image.raster == nil && Date() < end { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.01)) }
+        image.layer?.displayIfNeeded()
+        let sub = try XCTUnwrap(image.imageLayer, "the image took the layer path")
+        let rep = capture(page)
+        let c = rgba(rep, 20, 20)
+        XCTAssertEqual(c[0], 1, accuracy: 0.05); XCTAssertEqual(c[1], 0.5, accuracy: 0.1, "pink, not the red of a second coat: \(c)")
+        XCTAssertFalse(sub.isHidden, "the sublayer shows again after the shot")
     }
 
     /// A capture shows what the window does: siblings in `z-index` order
