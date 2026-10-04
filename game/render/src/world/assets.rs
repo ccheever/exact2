@@ -1,11 +1,12 @@
 use super::*;
 use crate::{DrawInstance, MaterialId, RENDER_SLOT_BASE};
+// Geometry, material, mirrored, viewmodel, and the level's distance band bits.
+type GroupKey = (MeshId, MaterialId, bool, bool, [u32; 2]);
 #[derive(Default)]
 pub(super) struct Assets {
     pub records: Vec<DrawInstance>,
     pub entities: Vec<exact_game::Entity>,
-    // Geometry, material, mirrored, viewmodel, and the level's distance band bits.
-    groups: BTreeMap<(MeshId, MaterialId, bool, bool, [u32; 2]), Vec<u32>>,
+    groups: BTreeMap<GroupKey, Vec<u32>>,
 }
 impl Assets {
     pub fn batches(
@@ -37,7 +38,7 @@ impl Assets {
             let mut drawn = false;
             for (level, &(model, near)) in levels.iter().enumerate() {
                 let far = levels.get(level + 1).map_or(end, |l| l.1).min(end);
-                if !(near < far) {
+                if near >= far {
                     continue;
                 }
                 let Some((nodes, names)) = r.model(model) else {
