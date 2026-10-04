@@ -156,13 +156,14 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
   }
   onProcess?.(child);
   const hostLines = [], launchTail = [];
-  child.stderr.on('data', (d) => {
-    for (const l of String(d).split('\n')) {
-      if (!l) continue;
-      if (!browserDiagnosticNoise(l)) hostLines.push('chrome: ' + l);
-      launchTail.push(l); if (launchTail.length > 8) launchTail.shift(); // unfiltered, for a launch that fails
-    }
-  });
+  let partial = ''; // a line split across stderr chunks
+  const line = (l) => {
+    if (!l) return;
+    if (!browserDiagnosticNoise(l)) hostLines.push('chrome: ' + l);
+    launchTail.push(l); if (launchTail.length > 8) launchTail.shift(); // unfiltered, for a launch that fails
+  };
+  child.stderr.on('data', (d) => { const parts = (partial + d).split('\n'); partial = parts.pop(); parts.forEach(line); });
+  child.stderr.on('end', () => { line(partial); partial = ''; });
   const stdioClosed = new Promise((r) => child.on('close', r)); // after 'exit', once stderr is drained
   const cdp = new Cdp(child.stdio[3], child.stdio[4]);
   const exited = new Promise((r) => {

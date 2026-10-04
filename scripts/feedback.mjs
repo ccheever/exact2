@@ -128,7 +128,7 @@ export const DETAILED = `This session keeps the detailed diary. In the same diar
 export function status(dir, env = process.env) {
   const { diaries, commands } = pending(dir);
   const answer = standing(dir);
-  const line = answer === 'local' ? `local: ${diaries.length} diaries kept on this machine, ${commands.length} logged commands`
+  const line = answer === 'local' ? `local: ${diaries.length} unsent diaries, kept on this machine; ${commands.length} logged commands`
     : `${answer}: ${diaries.length} unsent diaries, ${commands.length} unsent logged commands`;
   return env.EXACT_DIARY === 'detailed' && answer !== 'never' ? `${line}\n\n${DETAILED}` : line;
 }
