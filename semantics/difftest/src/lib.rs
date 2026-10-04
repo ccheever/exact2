@@ -17,9 +17,11 @@ pub mod leanrun;
 pub mod lowering;
 pub mod observe;
 pub mod oracle;
+pub mod quick;
 pub mod rng;
 pub mod script;
 pub mod types;
+pub mod verify;
 
 use script::{Case, Expect, Item, Scripted};
 use std::path::{Path, PathBuf};
@@ -128,33 +130,47 @@ pub fn check(cases: Vec<Case>, batch: usize, tag: &str) -> Result<Vec<Outcome>, 
         ready: Vec<Prepared>,
     }
     let chunks: Vec<&[Case]> = cases.chunks(batch.max(1)).collect();
-    // The runner's half, and the Lean modules' text, here; Lean's half in
-    // parallel below.
-    let batches: Vec<Batch> = chunks
-        .iter()
-        .map(|chunk| {
-            let mut b = Batch {
-                done: Vec::new(),
-                ready: Vec::new(),
-            };
-            for (i, case) in chunk.iter().enumerate() {
-                match prepare(case, i) {
-                    Ok(p) => {
-                        b.ready.push(p);
-                        b.done.push(None);
-                    }
-                    Err(v) => b.done.push(Some(v)),
-                }
-            }
-            b
-        })
-        .collect();
     let jobs = std::env::var("DIFFTEST_JOBS")
         .ok()
         .and_then(|j| j.parse::<usize>().ok())
         .unwrap_or_else(|| {
             std::thread::available_parallelism().map_or(2, |n| (n.get() / 2).max(1))
         });
+    // The runner's half, and the Lean modules' text, a batch per thread;
+    // Lean's half in parallel below.
+    let prepared: Vec<std::sync::Mutex<Option<Batch>>> =
+        chunks.iter().map(|_| std::sync::Mutex::new(None)).collect();
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    std::thread::scope(|scope| {
+        for _ in 0..jobs.min(chunks.len()) {
+            scope.spawn(|| loop {
+                let k = next.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                let Some(chunk) = chunks.get(k) else { break };
+                let mut b = Batch {
+                    done: Vec::new(),
+                    ready: Vec::new(),
+                };
+                for (i, case) in chunk.iter().enumerate() {
+                    match prepare(case, i) {
+                        Ok(p) => {
+                            b.ready.push(p);
+                            b.done.push(None);
+                        }
+                        Err(v) => b.done.push(Some(v)),
+                    }
+                }
+                *prepared[k].lock().expect("batch slot") = Some(b);
+            });
+        }
+    });
+    let batches: Vec<Batch> = prepared
+        .into_iter()
+        .map(|b| {
+            b.into_inner()
+                .expect("batch slot")
+                .expect("every batch prepared")
+        })
+        .collect();
     let next = std::sync::atomic::AtomicUsize::new(0);
     type Observed = Result<Vec<Vec<String>>, String>;
     let results: Vec<std::sync::Mutex<Option<Observed>>> = batches
