@@ -520,6 +520,30 @@ component Ding
       audio "assets/ding.wav" preload="auto" paused=hush pause=hushed
 ```
 
+A Markdown editor is a `textarea` with `markup="markdown"`; a `text` with it is
+the reader (one node; the value stays the source string). Its toolbar is
+`retainFocus` buttons calling `format(id, command[, argument])`, and its
+`select` event hands an action the formats at the selection, for active states
+([Markdown](contract-grammar.md#markdown-markup-format-select): the commands and
+the `MarkdownSelection` fields):
+
+```contract
+component Editor
+  state body = "# Title"
+  state bold = false
+  action edit(v: string)
+    body = v
+  action selected(s: MarkdownSelection)
+    bold = includes(` ${s.formats} `, " bold ")
+  action embolden
+    format("editor", "bold")
+  view
+    column
+      button (bold ? "Bold (on)" : "Bold") press=embolden retainFocus=true
+      textarea id="editor" value=body input=edit select=selected markup="markdown"
+      text body markup="markdown"
+```
+
 Keep `id` and `testId` separate:
 
 - `id`: host command target, geometry, cross-node references.
