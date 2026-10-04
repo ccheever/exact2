@@ -1,7 +1,9 @@
 //! Animations the Canvas host's reader plays (LLP 1076 on Android, after LLP
 //! 1055 D7's lowering on Apple): an `opacity`, `translate`, `scale` or
-//! `rotate` animation of a box, and an `opacity` or `r` animation of a filled
-//! circle, are not sampled by the engine. The painter records the node once
+//! `rotate` animation of a box, an `opacity` or `r` animation of a filled
+//! circle, and a stroked shape's `stroke-dashoffset` (a draw-in: the reader
+//! records that one path again with the dash phase), are not sampled by the
+//! engine. The painter records the node once
 //! into a layer at its underlying values ([`Presented::lowered`]); the reader
 //! samples the keyframes this module encodes ([`Host::layer_tracks`]) every
 //! display frame and moves or fades the layer, as a browser's compositor
@@ -25,20 +27,23 @@ use exact_motion::{Easing, StepPosition, Value};
 use exact_runner::DataSource;
 
 /// The properties a reader plays.
-pub(crate) const LOWERED: [Property; 5] = [
+pub(crate) const LOWERED: [Property; 6] = [
     Property::Opacity,
     Property::Translate,
     Property::Scale,
     Property::Rotate,
     Property::R,
+    Property::StrokeDashoffset,
 ];
 
 /// [`Presented::lowered`] bits: the reader plays the node's opacity…
 pub const LOWER_OPACITY: u8 = 1;
 /// …its `translate`, `rotate` and `scale` (all three, about its origin)…
 pub const LOWER_TRANSFORM: u8 = 2;
-/// …or a filled circle's radius, as a scale about its centre.
+/// …or a filled circle's radius, as a scale about its centre…
 pub const LOWER_R: u8 = 4;
+/// …or a stroked shape's dash offset, its one path recorded again.
+pub const LOWER_DASH: u8 = 8;
 
 /// Track property codes on the wire.
 #[cfg(target_os = "android")]
@@ -53,6 +58,8 @@ const SCALE: u32 = 3;
 const ROTATE: u32 = 4;
 #[cfg(target_os = "android")]
 const R: u32 = 5;
+#[cfg(target_os = "android")]
+const DASH: u32 = 6;
 
 impl<D: DataSource> Host<D> {
     /// Lower the reader's properties when the painter is the Canvas host's
@@ -137,15 +144,19 @@ impl<D: DataSource> Host<D> {
         if self.lowered_mask(key) == 0 {
             return out;
         }
-        let r0 = self
-            .runner
-            .kernel()
-            .node_by_key(key)
+        let node = self.runner.kernel().node_by_key(key);
+        let r0 = node
+            .as_ref()
             .and_then(|n| match n.style.r {
                 Dimension::Points(r) => Some(r),
                 _ => None,
             })
             .unwrap_or(0.0);
+        let dash0 = node.as_ref().map_or(0.0, |n| {
+            let mut mask = exact_kernel::StyleMask::EMPTY;
+            mask.set(exact_kernel::StyleId::StrokeDashoffset);
+            n.computed_style(mask).stroke_dashoffset
+        });
         for play in self.engine.animation_plays(node_u64(key)) {
             let a = &play.animation;
             for p in a.keyframes.properties() {
@@ -158,6 +169,7 @@ impl<D: DataSource> Host<D> {
                     Property::Scale => (Value::scalar(base.scale as f64), &[(SCALE, 0)]),
                     Property::Rotate => (Value::scalar(base.rotate as f64), &[(ROTATE, 0)]),
                     Property::R => (Value::scalar(r0 as f64), &[(R, 0)]),
+                    Property::StrokeDashoffset => (Value::scalar(dash0 as f64), &[(DASH, 0)]),
                     _ => continue,
                 };
                 let track = a.keyframes.track(p, underlying, play.dark);
@@ -192,6 +204,7 @@ fn mask(props: &[Property]) -> u8 {
             Property::Opacity => LOWER_OPACITY,
             Property::Translate | Property::Scale | Property::Rotate => LOWER_TRANSFORM,
             Property::R => LOWER_R,
+            Property::StrokeDashoffset => LOWER_DASH,
             _ => 0,
         }
     })
@@ -262,10 +275,16 @@ fn playable(n: &exact_kernel::NodeRef<'_>, props: &[Property]) -> bool {
         {
             return false;
         }
+        // A radius scales the whole drawing: a fill alone. A dash offset is one
+        // stroked path's phase; the two in one layer would scale the dash.
         if props.contains(&Property::R) {
             return n.node_type == NodeType::SvgCircle
                 && matches!(s.stroke, Paint::None)
+                && !props.contains(&Property::StrokeDashoffset)
                 && matches!(s.r, Dimension::Points(r) if r > 0.0);
+        }
+        if props.contains(&Property::StrokeDashoffset) {
+            return n.node_type.is_svg_shape() && !matches!(s.stroke, Paint::None);
         }
         return true;
     }

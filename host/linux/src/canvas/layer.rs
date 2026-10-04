@@ -12,9 +12,11 @@ use tiny_skia::Transform;
 /// `[29, id]`: draw layer `id` here (its reader's node, recorded from the
 /// last `LAYER_SET`).
 pub(super) const LAYER_REF: u32 = 29;
-/// `[30, id, len, m0..m5, px, py, tx, ty, scale, rotate, opacity, r, ops…]`:
-/// a layer's matrix (points → the stream's pixels), its pivot and base
-/// values in points before the matrix, then its drawing.
+/// `[30, id, len, m0..m5, px, py, tx, ty, scale, rotate, opacity, r, dash,
+/// at, ops…]`: a layer's matrix (points → the stream's pixels), its pivot and
+/// base values in points before the matrix (`dash`: path units per dash
+/// offset unit), where its drawing's dash phase is (a word index into the
+/// ops, or `u32::MAX`), then its drawing.
 pub(super) const LAYER_SET: u32 = 30;
 /// `[31, id, len, words…]`: a layer's keyframes (`Host::layer_tracks`);
 /// none: it shows its base values.
@@ -27,14 +29,14 @@ pub(crate) const CLOCK: u32 = 33;
 
 thread_local! {
     /// The layers alive after the last finished recording: id, node, base.
-    pub(crate) static ALIVE: RefCell<Vec<(u32, u64, [f32; 6])>> = const { RefCell::new(Vec::new()) };
+    pub(crate) static ALIVE: RefCell<Vec<(u32, u64, [f32; 7])>> = const { RefCell::new(Vec::new()) };
 }
 
 /// The recorder's layer state.
 #[derive(Default)]
 pub(super) struct Layers {
     ids: HashMap<u64, u32>,
-    info: HashMap<u32, (u64, [f32; 6])>,
+    info: HashMap<u32, (u64, [f32; 7])>,
     next: u32,
     /// Each layer's header and drawing as last sent.
     sent: HashMap<u32, Vec<u32>>,
@@ -51,6 +53,7 @@ pub(super) struct Layers {
 
 struct Open {
     id: u32,
+    dash: Option<u32>,
     header: Vec<u32>,
     ops: Vec<u32>,
     matrix: Option<[f32; 6]>,
@@ -75,6 +78,14 @@ impl Layers {
     pub(super) fn row_free(&mut self, id: u32) {
         self.rows.remove(&id);
     }
+
+    /// A dash phase is written at `at` (an index into the recording ops):
+    /// the innermost open layer's first is the one its reader moves.
+    pub(super) fn note_dash(&mut self, at: usize) {
+        if let Some(open) = self.open.last_mut() {
+            open.dash.get_or_insert(at as u32);
+        }
+    }
 }
 
 impl Recorder {
@@ -84,7 +95,7 @@ impl Recorder {
         key: u64,
         ts: Transform,
         pivot: (f32, f32),
-        base: [f32; 6],
+        base: [f32; 7],
     ) {
         let l = &mut self.layers;
         let id = *l.ids.entry(key).or_insert_with(|| {
@@ -118,6 +129,7 @@ impl Recorder {
         let matrix = self.matrix.take();
         self.layers.open.push(Open {
             id,
+            dash: None,
             header,
             ops,
             matrix,
@@ -129,6 +141,7 @@ impl Recorder {
     pub(super) fn layer_close(&mut self) {
         let Some(Open {
             id,
+            dash,
             header,
             ops,
             matrix,
@@ -147,6 +160,7 @@ impl Recorder {
         let body = std::mem::replace(&mut self.ops, ops);
         self.matrix = matrix;
         let mut full = header;
+        full.push(dash.unwrap_or(u32::MAX));
         full.extend(body);
         let l = &mut self.layers;
         if l.sent.get(&id) != Some(&full) {

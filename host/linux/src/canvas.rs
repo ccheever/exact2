@@ -613,6 +613,8 @@ impl Backend for Recorder {
                 self.ops.push(DASH);
                 self.f(s.phase);
                 self.ops.push(s.dash.len() as u32);
+                // A layer playing the dash offset finds its phase here.
+                self.layers.note_dash(self.ops.len());
                 for d in &s.dash {
                     self.f(*d);
                 }
@@ -735,7 +737,7 @@ impl Backend for Recorder {
         }
     }
 
-    fn layer_begin(&mut self, key: u64, ts: Transform, pivot: (f32, f32), base: [f32; 6]) -> bool {
+    fn layer_begin(&mut self, key: u64, ts: Transform, pivot: (f32, f32), base: [f32; 7]) -> bool {
         self.layer_open(key, ts, pivot, base);
         true
     }

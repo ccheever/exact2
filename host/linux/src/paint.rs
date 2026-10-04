@@ -576,13 +576,14 @@ pub trait Backend {
     /// A node its reader animates (`crate::host::lower`): what follows, to
     /// [`Backend::layer_end`], is its layer `key`, moved and faded about
     /// `pivot` in `ts`'s space from `base` (translate x, y, scale, rotate,
-    /// opacity, a circle's radius). False: drawn where it is.
+    /// opacity, a circle's radius, path units per dash offset unit). False:
+    /// drawn where it is.
     fn layer_begin(
         &mut self,
         _key: u64,
         _ts: Transform,
         _pivot: (f32, f32),
-        _base: [f32; 6],
+        _base: [f32; 7],
     ) -> bool {
         false
     }

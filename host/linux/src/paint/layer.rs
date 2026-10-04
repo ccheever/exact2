@@ -3,7 +3,7 @@
 //! moves and fades it every frame without the row being recorded again.
 
 use super::{border, gradient, Backend, Painter, Presented, Rect4, RunPaint, Shape};
-use crate::host::lower::{LOWER_OPACITY, LOWER_R, LOWER_TRANSFORM};
+use crate::host::lower::{LOWER_DASH, LOWER_OPACITY, LOWER_R, LOWER_TRANSFORM};
 use crate::image::Bitmap;
 use crate::text::{Paragraph, TextEngine};
 use exact_kernel::motion::motion_node;
@@ -70,7 +70,7 @@ impl Painter {
         origin: (f32, f32),
         ts: Transform,
     ) -> Opened {
-        if p.lowered == 0 || p.lowered & LOWER_R != 0 {
+        if p.lowered == 0 || p.lowered & (LOWER_R | LOWER_DASH) != 0 {
             return Opened { lowered: 0 };
         }
         let [dx, dy, ..] = p.layout;
@@ -80,6 +80,7 @@ impl Painter {
             p.scale * p.press,
             p.rotate,
             p.opacity,
+            0.0,
             0.0,
         ];
         let pivot = (x + origin.0 + dx, y + origin.1 + dy);
@@ -105,15 +106,19 @@ impl Painter {
         else {
             return Opened { lowered: 0 };
         };
-        let circle = match &item.kind {
-            exact_kernel::svg::scene::Kind::Shape(s) => s.circle,
+        let shape = match &item.kind {
+            exact_kernel::svg::scene::Kind::Shape(s) => Some(s),
             _ => None,
         };
-        if p.lowered & LOWER_R != 0 && circle.is_none() {
+        let circle = shape.and_then(|s| s.circle);
+        if (p.lowered & LOWER_R != 0 && circle.is_none())
+            || (p.lowered & LOWER_DASH != 0 && shape.is_none())
+        {
             return Opened { lowered: 0 };
         }
         let (cx, cy, r) = circle.unwrap_or((0.0, 0.0, 0.0));
-        let base = [0.0, 0.0, 1.0, 0.0, item.opacity, r];
+        let dash = shape.map_or(0.0, |s| s.dash_scale);
+        let base = [0.0, 0.0, 1.0, 0.0, item.opacity, r, dash];
         let taken = self
             .backend
             .layer_begin(motion_node(item.key), own, (cx, cy), base);
