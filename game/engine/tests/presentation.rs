@@ -200,7 +200,8 @@ fn presents(change: fn(&mut World)) -> String {
 
 #[test]
 fn present_cannot_change_simulation_state() {
-    let cases: [(fn(&mut World), &str); 8] = [
+    type Change = fn(&mut World);
+    let cases: [(Change, &str); 8] = [
         (
             |w| w.require_mut::<Transform>("crate").position.x += 1.,
             "wrote component `Transform`",
