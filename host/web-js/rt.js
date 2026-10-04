@@ -553,7 +553,7 @@ export function adoptRow(w, f) {
   w.textContent = ""; w.$n = undefined;
   return unadopted(f);
 }
-const BOOL = /^(disabled|readonly|inert|checked|autoplay|controls|loop|muted|playsinline|disablepictureinpicture|disableremoteplayback)$/;
+const BOOL = /^(disabled|readonly|inert|checked|multiple|autoplay|controls|loop|muted|playsinline|disablepictureinpicture|disableremoteplayback)$/;
 /** A loaded piece's own handling of a prop (symbols.js's `src`): true when handled. */
 export const PropHooks = {};
 /** A dynamic prop, by the DOM name the live host uses (`applyProps`). */
