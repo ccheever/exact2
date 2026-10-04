@@ -1083,3 +1083,26 @@ The final app/build, Windows portability and surface-record suite passes
 three-round fix loop. Log: `/tmp/exact2-maina988-tools-final.log`. The root
 Rust sources are unchanged since the passing gates above; caps and boot pass
 again with the accepted pins and diary updates.
+
+## Periodic main update: file-local Contract names (2026-10-04)
+
+After accepting the pacing batch, another fetch finds main `7cdf080e2`. Merge
+`e19460756` brings its file-local Contract imports and named aliases without
+conflicts. The games' authored Contracts need no changes. Root build, 2,351
+enabled tests across 81 binaries (nine ignored), strict Clippy, formatting
+and boot pass. The compiler advisory `quick --base 0991e07e3` exits 2 because
+Lean's `lake` is absent; no semantics-oracle pass is claimed. Logs:
+`/tmp/exact2-main7cdf-{build,test,clippy,semantics}.log`.
+
+Rivals' complete proofs pass on web/macOS in 134.8/62.9 s. Both hosts agree
+on inputs, every pin, ten world observations and fourteen saves; all worlds
+and saves match the accepted pacing baseline. Only the source-input digest
+changes. Both round-win screenshots were inspected, including the 25-kill
+target. Web's process audit passes; native's optional scan is unavailable
+while every owned carrier closes. Artifacts: `artifacts/main-7cdf-{web,macos}/`.
+The Garden and Forest diaries record their corresponding integration runs.
+These timings include builds and concurrent work, not isolated measurements.
+No gameplay or Jev-policy changes accompany the merge.
+
+Caps passes after staging the three diaries. All six game runs finish with
+zero failures, and the working tree is committed at this verified boundary.

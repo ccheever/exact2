@@ -944,3 +944,14 @@ Web's process audit passes; native's optional scan is unavailable with every
 owned carrier closed. Artifacts: `artifacts/main-a988-{web,macos}/`. Rivals
 diary 006 records the shared gates and browser-modifier fixture finding.
 No Garden gameplay or Jev-policy changes.
+
+## Contract module scoping integration (2026-10-04)
+
+Merge `e19460756` brings main `7cdf080e2` at the next completed proof boundary.
+Garden passes web/macOS in 104.6/33.2 s. Both hosts agree on inputs, all pins,
+six worlds and nine saves. Every world and save also matches the previous
+main integration; only the source-input digest changes. Both returned-to-plot
+captures were inspected. Web's process audit passes; native's optional scan
+is unavailable while all owned carriers close. Artifacts:
+`artifacts/main-7cdf-{web,macos}/`. Rivals diary 006 records the shared checks.
+No gameplay or Jev-policy change; wall times include builds and concurrent work.

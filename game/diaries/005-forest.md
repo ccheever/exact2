@@ -894,3 +894,15 @@ audit passes; native's optional scan is unavailable with every owned carrier
 closed. Artifacts: `artifacts/main-a988-{web,macos}/`. Rivals diary 006 records
 the shared gates and browser-modifier fixture finding. No Forest gameplay or
 Jev-policy changes.
+
+## Contract module scoping integration (2026-10-04)
+
+Merge `e19460756` brings main `7cdf080e2` after Rivals' strict collector
+finishes. Forest passes web/macOS in 132.6/171.7 s. Both hosts agree on
+inputs, all pins, nine worlds and fifteen saves. All worlds and saves also
+match the previous integration; only the source-input digest changes. Both
+shelter captures were inspected. Web's process audit passes; native's
+optional scan is unavailable while all owned carriers close. Artifacts:
+`artifacts/main-7cdf-{web,macos}/`. Rivals diary 006 records the passing root
+gates and the advisory Lean check unavailable because `lake` is absent.
+No gameplay or Jev-policy change; times include builds and concurrent work.
