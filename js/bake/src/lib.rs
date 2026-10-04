@@ -571,18 +571,28 @@ fn sources(root: &Path) -> Result<BTreeMap<PathBuf, Vec<u8>>, String> {
                     path.display()
                 ));
             }
-            if kind.is_symlink() {
-                return Err(format!("source links are not captured: {}", path.display()));
-            }
-            if kind.is_dir() {
-                walk(root, &path, out, total, mounts, prefix)?;
-            } else if matches!(
+            let captured = matches!(
                 path.extension().and_then(|s| s.to_str()),
                 Some("ts" | "json" | "contract" | "ttf" | "otf")
             ) || ["assets", "deck", "gpu/shaders"]
                 .iter()
-                .any(|tree| relative.starts_with(tree))
-            {
+                .any(|tree| relative.starts_with(tree));
+            // Links are refused, except a document link outside the captured
+            // trees (CLAUDE.md → AGENTS.md): no build reads one. The web
+            // build's capture keeps the same rule (host/web-js/build.mjs).
+            if kind.is_symlink() {
+                let document = matches!(
+                    path.extension().and_then(|s| s.to_str()),
+                    Some("md" | "txt")
+                );
+                if captured || !document || path.is_dir() {
+                    return Err(format!("source links are not captured: {}", path.display()));
+                }
+                continue;
+            }
+            if kind.is_dir() {
+                walk(root, &path, out, total, mounts, prefix)?;
+            } else if captured {
                 if !kind.is_file() {
                     return Err(format!("source is not a regular file: {}", path.display()));
                 }

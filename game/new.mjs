@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { gameDefaults } from './app/shells.mjs';
 import { pathFrom, patchLines } from '../scripts/app.mjs';
@@ -302,10 +302,12 @@ ${END}
 `;
 }
 
-/** CLAUDE.md is a copy of AGENTS.md, not exact2's own symlink: a build's
- * source capture refuses links in an app, and `update` rewrites both blocks. */
+/** CLAUDE.md is AGENTS.md, as in exact2 itself: a link (a build's capture
+ * skips a link it never reads), or a copy where the filesystem has none
+ * (`update` rewrites a copy's block too). */
 function linkClaude(dir) {
-  writeFileSync(resolve(dir, 'CLAUDE.md'), readFileSync(resolve(dir, 'AGENTS.md')));
+  try { symlinkSync('AGENTS.md', resolve(dir, 'CLAUDE.md')); }
+  catch { writeFileSync(resolve(dir, 'CLAUDE.md'), readFileSync(resolve(dir, 'AGENTS.md'))); }
 }
 
 /** The diary's own block, from before it joined the generated one. */

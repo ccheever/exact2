@@ -24,11 +24,6 @@ guide's rules don't make obvious.
   keyboard. Fix: `interactive-widget="resizes-content"` on the root, or
   `overlays-content` with a `role="toolbar" toolbarPlacement="keyboard"` for a
   toolbar that rides the keyboard without relayout (LLP 1008 §9.1). (Signal Clone.)
-- **`color="gray"` is refused.** `lower-attr-value: … is not a valid color`. Cause:
-  colors are `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `rgba()`, `transparent` or
-  `light-dark(…)`; CSS's named colors are not admitted. Fix: write the hex
-  (`#808080`). `contract vocab color` shows the value kind. (LLP 1086 reading-list
-  example, 2026-10-04.) **Candidate diagnostic:** name the hex for a CSS color name.
 
 ## Lists and scrolling
 

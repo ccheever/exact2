@@ -375,6 +375,9 @@ structure WellTyped (p : Program) : Prop where
   resources : ∀ r ∈ p.resources, ∃ ts, ListTy p (compScope p) [] r.args ts
   actions : ∀ a ∈ p.actions, StmtsTy p (compScope p) a.params.reverse a.body
   tasks : ∀ t ∈ p.tasks, ∃ u, HasTy p (compScope p) [] t.ms u ∧ u.le .number = true
+  /-- A task names an action, which takes no parameters (the analyzer's
+  `analyze-unknown-action`, `analyze-handler-arity`): a timer passes none. -/
+  taskActions : ∀ t ∈ p.tasks, ∃ a, p.actions.find? (·.name == t.action) = .some a ∧ a.params = []
   view : NodesTy p (compScope p) [] p.view
 
 end Contract

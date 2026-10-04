@@ -458,3 +458,11 @@ fn transition_and_exit_templates_compute_their_times() {
     );
     assert_eq!(exit.name, "leave");
 }
+
+/// A named colour in a keyframe, a keyframed `light-dark()` and a shadow
+/// compile as they do on a node: motion and the kernel share one table.
+#[test]
+fn a_keyframe_takes_the_colour_names_a_node_takes() {
+    let source = "keyframes glow\n  from color=\"gray\" background-color=\"light-dark(white, black)\" box-shadow=\"0 0 4px rebeccapurple\"\n  to color=\"#000\"\ncomponent App\n  view\n    text \"a\" testId=\"a\" animation=\"glow 1s\" color=\"Gray\"\n";
+    contract::compile(source).unwrap();
+}

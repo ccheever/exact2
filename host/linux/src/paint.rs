@@ -348,6 +348,8 @@ pub struct PaintedBox {
     pub clip: Option<Rect4>,
     /// The scroll offset for a scroll container.
     pub scroll: Option<(f32, f32)>,
+    /// Generic pointer eligibility of this painted scene, including inheritance.
+    pub(crate) pointer_hit: bool,
     projective: Option<ProjectiveHit>,
     affine: Option<(Transform, Rect4)>,
     press: f32,
@@ -944,6 +946,8 @@ impl Painter {
         };
         walk.boxes.push(PaintedBox {
             id,
+            pointer_hit: node.computed_style(StyleMask::INHERITED).pointer_events
+                != exact_kernel::PointerEvents::None,
             projective: None,
             affine: Some((ts, (x, y, w, h))),
             press: p.press,
