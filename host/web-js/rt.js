@@ -162,8 +162,7 @@ export function commit(f, what = "commit") {
   } catch (e) {
     ok = false;
     for (const [n, v] of undo.reverse()) write(n, v);
-    // A refused commit committed no new time either: the clock's readers read as they did.
-    if (Now.v !== was) { Now.v = was; for (const o of Now.obs) stale(o, DIRTY); }
+    if (Now.v !== was) { Now.v = was; for (const o of Now.obs) stale(o, DIRTY); } // nor its time: the clock's readers read as they did
     Resources.forEach((r, k) => r.restore(saved[k])); Mutations.forEach((m, k) => { m.ticket = held[k]; });
     Store.restore(store);
     Out = []; Commands = []; Landed = []; Refused = e;

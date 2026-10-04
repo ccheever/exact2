@@ -72,6 +72,8 @@ class Element extends Node {
   get firstElementChild() { return this.childNodes.find(c => c.nodeType === 1) ?? null; }
   getElementsByTagName(tag) { return this.childNodes.flatMap(c => c.nodeType === 1 ? [...(tag === '*' || c.localName === tag ? [c] : []), ...c.getElementsByTagName(tag)] : []); }
   querySelectorAll() { return []; } querySelector() { return null; } contains() { return false; }
+  // Simple selectors only (`tag`, `tag[attr]`, `[attr]`, comma-separated): rt.js `on` asks whether a press is native.
+  matches(sel) { return sel.split(',').some(p => { const m = /^([\w-]*)(?:\[([\w-]+)\])?$/.exec(p.trim()); return !!m && (!m[1] || m[1] === this.localName) && (!m[2] || this.hasAttribute(m[2])); }); }
   get value() { return this.localName === 'textarea' ? this.textContent : this.getAttribute('value') ?? ''; }
   get options() { return this.childNodes.filter(c => c.localName === 'option'); }
   // A select's value is the option that carries it, `selected` (document.rs).
