@@ -7,6 +7,7 @@
 use exact_kernel::svg::Paint;
 use exact_kernel::SortedMap;
 use exact_kernel::{Kernel, NodeFacts, NodeRef, NodeType, ObjectFit, PropId, PropValue, StyleId};
+use std::borrow::Cow;
 
 /// How a projection finds the element an SVG reference names: the kernel's
 /// `resolve_id`, or a tree's own (LLP 1055.000 D3).
@@ -596,20 +597,28 @@ fn attribute_rows(t: NodeType) -> &'static [(exact_kernel::StyleId, &'static str
 /// its `id` rewritten to its DOM id, `href` to its target's, and the rows
 /// of [`attribute_rows`] as attributes.
 pub(super) fn svg_props(kernel: &Kernel, node: &NodeRef<'_>, out: &mut SortedMap<String, String>) {
-    svg_props_of(&|from, id| kernel.resolve_id(from, id), &node.facts(), out)
+    let mut props = Props::new();
+    svg_props_of(
+        &|from, id| kernel.resolve_id(from, id),
+        &node.facts(),
+        &mut props,
+    );
+    for (name, value) in props {
+        out.insert(name.into_owned(), value.into_owned());
+    }
 }
 
+/// An element's attributes by name, borrowing the node's text where it can
+/// ([`props_of`]).
+pub type Props<'a> = SortedMap<Cow<'static, str>, Cow<'a, str>>;
+
 /// [`svg_props`], from a node's facts and its tree's references.
-pub fn svg_props_of(
-    resolve: Resolve<'_>,
-    node: &NodeFacts<'_>,
-    out: &mut SortedMap<String, String>,
-) {
+pub fn svg_props_of(resolve: Resolve<'_>, node: &NodeFacts<'_>, out: &mut Props<'_>) {
     if !node.node_type.is_svg_element() {
         return;
     }
     if node.props.str(PropId::Id).is_some() {
-        out.insert("id".into(), dom_id(node.id));
+        out.insert("id".into(), dom_id(node.id).into());
     }
     if let Some(target) = node
         .props
@@ -617,7 +626,7 @@ pub fn svg_props_of(
         .and_then(|h| h.strip_prefix('#'))
         .and_then(|h| resolve(node.id, h))
     {
-        out.insert("href".into(), format!("#{}", dom_id(target)));
+        out.insert("href".into(), format!("#{}", dom_id(target)).into());
     }
     for (row, name) in attribute_rows(node.node_type) {
         if !node.style.mask.has(*row) {
@@ -632,17 +641,20 @@ pub fn svg_props_of(
             }
             _ => continue,
         };
-        out.insert((*name).into(), text);
+        out.insert((*name).into(), text.into());
     }
 }
 
 pub(super) fn props_for(node: &NodeRef<'_>) -> SortedMap<String, String> {
     props_of(&node.facts())
+        .into_iter()
+        .map(|(name, value)| (name.into_owned(), value.into_owned()))
+        .collect()
 }
 
 /// [`props_for`], from a node's facts.
-pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
-    let mut out = SortedMap::new();
+pub fn props_of<'a>(node: &NodeFacts<'a>) -> Props<'a> {
+    let mut out = Props::new();
     if node.style.wrap_flow == exact_kernel::WrapFlow::Both {
         out.insert("data-wrap-flow".into(), "both".into());
     }
@@ -650,7 +662,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
         && !node.is_inline_run()
         && !exact_kernel::control::is_option_node(node.node_type, node.props)
     {
-        out.insert("data-exact-text".into(), String::new());
+        out.insert("data-exact-text".into(), "".into());
     }
     // A `markup="markdown"` text node paints its source as pieces the page
     // builds into spans (LLP 1045 D3, D4): the same expansion the native
@@ -663,7 +675,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
     .then_some(crate::link::linked().markup)
     .flatten();
     if let (Some(pieces), Some(source)) = (markup, node.props.str(PropId::Text)) {
-        out.insert("markupPieces".into(), pieces(source));
+        out.insert("markupPieces".into(), pieces(source).into());
     }
     for (id, value) in node.props.iter() {
         if markup.is_some() && id == PropId::Text {
@@ -672,7 +684,12 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
         if id == PropId::Editable {
             out.insert(
                 "readonly".into(),
-                (value == &PropValue::Bool(false)).to_string(),
+                if value == &PropValue::Bool(false) {
+                    "true"
+                } else {
+                    "false"
+                }
+                .into(),
             );
             continue;
         }
@@ -680,18 +697,18 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
         if let (PropId::Dataset, PropValue::Str(json)) = (id, value) {
             if let Some(dataset) = crate::link::linked().dataset {
                 for (word, value) in dataset(json) {
-                    out.insert("data-".to_owned() + &word, value);
+                    out.insert(("data-".to_owned() + &word).into(), value.into());
                 }
             }
             continue;
         }
-        let text = match value {
-            PropValue::Str(s) => s.clone(),
-            PropValue::Bool(b) => b.to_string(),
-            PropValue::Int(i) => i.to_string(),
+        let text: Cow<'a, str> = match value {
+            PropValue::Str(s) => s.as_str().into(),
+            PropValue::Bool(b) => if *b { "true" } else { "false" }.into(),
+            PropValue::Int(i) => i.to_string().into(),
             // LLP 1053.000.000.000 D3: the reserved `-1` is written as `auto`.
             PropValue::Float(f) if id == PropId::GlassGroup && *f == -1.0 => "auto".into(),
-            PropValue::Float(f) => crate::css::num(*f as f32),
+            PropValue::Float(f) => crate::css::num(*f as f32).into(),
         };
         let name = match id {
             PropId::Text => "text",
@@ -851,11 +868,14 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
                 // Every other prop rides as `data-<name>` so nothing is lost.
                 // Schema names are ASCII (`prop_names_are_ascii`), so ASCII
                 // lowering is the whole lowering and links no Unicode tables.
-                out.insert(format!("data-{}", other.name().to_ascii_lowercase()), text);
+                out.insert(
+                    format!("data-{}", other.name().to_ascii_lowercase()).into(),
+                    text,
+                );
                 continue;
             }
         };
-        out.insert(name.to_string(), text);
+        out.insert(name.into(), text);
     }
     if heading_level(node).is_some_and(|level| level > 6) {
         out.get_or_insert_with("role".into(), || "heading".into());
@@ -871,7 +891,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
         // @ref LLP 1069.001 D1 — WebKit's `switch`; a browser without it
         // draws a checkbox that ARIA still hears as a switch.
         if node.props.str(PropId::AccessibilityRole) == Some("switch") {
-            out.insert("switch".into(), String::new());
+            out.insert("switch".into(), "".into());
         }
     }
     // A `<button>` submits a form unless it says otherwise; a `button` never does.
@@ -889,28 +909,28 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             .and_then(|s| s.strip_prefix("symbol:"))
         {
             let symbol = exact_kernel::generated::symbol(role);
-            out.insert("data-symbol-source".into(), format!("symbol:{role}"));
+            out.insert("data-symbol-source".into(), format!("symbol:{role}").into());
             out.insert(
                 "data-symbol-path".into(),
                 symbol.map(|s| s.1).unwrap_or("").into(),
             );
             // A filled role's path is a silhouette, drawn filled, not stroked.
             if symbol.is_some_and(|s| s.2) {
-                out.insert("data-symbol-fill".into(), String::new());
+                out.insert("data-symbol-fill".into(), "".into());
             }
-            out.insert("alt".into(), String::new());
+            out.insert("alt".into(), "".into());
         }
     }
     // A role the element already has natively is left off (ARIA in HTML:
     // authors should not restate it): a button's `button`, a checkbox's
     // `checkbox`, a link's `link`. Its accessibility is the element's own.
-    let implicit = match (element(node), out.get("type").map(String::as_str)) {
+    let implicit = match (element(node), out.get("type").map(|t| t.as_ref())) {
         ("button", _) => Some("button"),
         ("input", Some("checkbox")) => Some("checkbox"),
         ("a", _) if out.contains_key("href") => Some("link"),
         _ => None,
     };
-    if implicit.is_some() && out.get("role").map(String::as_str) == implicit {
+    if implicit.is_some() && out.get("role").map(|r| r.as_ref()) == implicit {
         out.remove("role");
     }
     out
@@ -1050,6 +1070,9 @@ mod dataset_tests {
             is_root: false,
             inline_run: false,
         })
+        .into_iter()
+        .map(|(name, value)| (name.into_owned(), value.into_owned()))
+        .collect()
     }
 
     /// An SVG filter primitive's own prop: the compiler sets it only on an

@@ -36,7 +36,7 @@ impl<D: DataSource> Runner<D> {
     /// showing the rendered answer meanwhile: the render had no store.
     #[allow(clippy::too_many_arguments)] // the host boot facts
     pub fn boot_checkpoint(
-        plan: Plan,
+        plan: impl Into<std::sync::Arc<Plan>>,
         data: D,
         kernel: Kernel,
         checkpoint: &Checkpoint,
@@ -63,7 +63,7 @@ impl<D: DataSource> Runner<D> {
     #[allow(clippy::too_many_arguments)] // the host boot facts
     pub fn boot_checkpoint_linked(
         links: super::RunnerLinks,
-        plan: Plan,
+        plan: impl Into<std::sync::Arc<Plan>>,
         data: D,
         kernel: Kernel,
         checkpoint: &Checkpoint,
@@ -74,7 +74,7 @@ impl<D: DataSource> Runner<D> {
     ) -> Result<Runner<D>, RunnerError> {
         Runner::boot_inner(
             links,
-            plan,
+            plan.into(),
             data,
             kernel,
             super::Seed::Checkpoint(checkpoint),

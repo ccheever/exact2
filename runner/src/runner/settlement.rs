@@ -275,6 +275,7 @@ impl<D: DataSource> Runner<D> {
                     let result = {
                         let env = Env {
                             plan: &self.plan,
+                            decoded: self.sites.decoded(),
                             strings: &self.strings,
                             router: self.router.as_deref(),
                             lists: self.links.lists,
@@ -347,6 +348,7 @@ impl<D: DataSource> Runner<D> {
                         let result = {
                             let env = Env {
                                 plan: &self.plan,
+                                decoded: self.sites.decoded(),
                                 strings: &self.strings,
                                 router: self.router.as_deref(),
                                 lists: self.links.lists,

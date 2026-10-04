@@ -496,21 +496,95 @@ type SiteParent = (Option<NodesId>, Option<ArmsId>);
 /// Ordered child sites, built once from the runner's immutable plan.
 #[derive(Debug)]
 pub struct SiteIndex {
+    /// What follows from the plan alone: worked out once per plan on a
+    /// thread, and shared by its runners there ([`SiteIndex::of`]).
+    shape: std::rc::Rc<Sites>,
+    /// A binding that reads nothing (a literal style row in a list row's
+    /// template) has one value for the plan's life: evaluated once, by
+    /// binding index, instead of once per instance. Each runner's own: a
+    /// value may still depend on what the runner was booted with.
+    constants: Vec<std::cell::OnceCell<Value>>,
+}
+
+/// [`SiteIndex`]'s part that is the plan's.
+#[derive(Debug)]
+pub struct Sites {
     groups: Vec<(SiteParent, std::ops::Range<usize>)>,
     sites: Vec<(u32, Site)>,
     /// What every binding and site reads.
     deps: Deps,
     /// The plan's `@keyframes`, parsed once (LLP 1055 D5).
     keyframes: bridge::KeyframesTable,
-    /// A binding that reads nothing (a literal style row in a list row's
-    /// template) has one value for the plan's life: evaluated once, by
-    /// binding index, instead of once per instance.
-    constants: Vec<std::cell::OnceCell<Value>>,
+    /// The plan's code pool, decoded once (`vm::decode_pool`).
+    decoded: Option<Vec<crate::vm::Instruction>>,
 }
 
+impl Sites {
+    /// The plan's code pool decoded, for [`crate::vm::Env::decoded`].
+    pub(crate) fn decoded(&self) -> Option<&[crate::vm::Instruction]> {
+        self.decoded.as_deref()
+    }
+}
+
+impl std::ops::Deref for SiteIndex {
+    type Target = Sites;
+    fn deref(&self) -> &Sites {
+        &self.shape
+    }
+}
+
+thread_local! {
+    /// The plans this thread's runners were booted from lately, by `Arc`,
+    /// and their sites: a server booting a runner per request indexes its
+    /// plan once.
+    static SHAPES: std::cell::RefCell<Vec<(std::sync::Weak<Plan>, std::rc::Rc<Sites>)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
+}
+
+/// How many plans [`SHAPES`] keeps per thread.
+const SHAPES_KEPT: usize = 4;
+
 impl SiteIndex {
-    /// Index the exact parent/arm pair, preserving authored order and rank ties.
+    /// Index `plan` for one runner.
     pub fn new(plan: &Plan) -> Self {
+        Self::with(std::rc::Rc::new(Sites::new(plan)), plan)
+    }
+
+    /// [`SiteIndex::new`], sharing the plan's part with the other runners
+    /// this thread booted from the same `Arc`.
+    pub fn of(plan: &std::sync::Arc<Plan>) -> Self {
+        let shape = SHAPES.with(|shapes| {
+            let mut shapes = shapes.borrow_mut();
+            shapes.retain(|(kept, _)| kept.strong_count() > 0);
+            if let Some((_, shape)) = shapes
+                .iter()
+                .find(|(kept, _)| std::ptr::eq(kept.as_ptr(), std::sync::Arc::as_ptr(plan)))
+            {
+                return std::rc::Rc::clone(shape);
+            }
+            let shape = std::rc::Rc::new(Sites::new(plan));
+            if shapes.len() == SHAPES_KEPT {
+                shapes.remove(0);
+            }
+            shapes.push((std::sync::Arc::downgrade(plan), std::rc::Rc::clone(&shape)));
+            shape
+        });
+        Self::with(shape, plan)
+    }
+
+    fn with(shape: std::rc::Rc<Sites>, plan: &Plan) -> Self {
+        SiteIndex {
+            shape,
+            constants: (0..plan.bindings.len())
+                .map(|_| Default::default())
+                .collect(),
+        }
+    }
+}
+
+impl Sites {
+    /// Index the exact parent/arm pair, preserving authored order and rank ties.
+    fn new(plan: &Plan) -> Self {
         let mut entries = Vec::with_capacity(plan.nodes.len() + plan.regions.len());
         for (i, n) in plan.nodes.iter().enumerate() {
             entries.push(((n.parent, n.arm), n.order, Site::Node(NodesId(i as u32))));
@@ -545,9 +619,7 @@ impl SiteIndex {
             sites,
             deps: Deps::default(),
             keyframes: bridge::keyframes(plan),
-            constants: (0..plan.bindings.len())
-                .map(|_| Default::default())
-                .collect(),
+            decoded: crate::vm::decode_pool(&plan.code),
         };
         index.deps = Deps::new(plan, &index);
         index

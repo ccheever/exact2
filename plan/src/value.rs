@@ -216,6 +216,16 @@ impl Value {
         }
     }
 
+    /// The text's length in bytes, if it is text, without reading it.
+    #[inline]
+    pub fn text_len(&self) -> Option<usize> {
+        match self {
+            Value::HeapStr(s) => Some(s.0.len()),
+            Value::InlineStr(s) => Some(s.len()),
+            _ => None,
+        }
+    }
+
     /// The text, if it is one: the one way text is read (both variants).
     #[inline]
     pub fn as_str(&self) -> Option<&str> {

@@ -534,7 +534,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
         RowValue::BoxShadow(s) => out.push_str(&s.css()),
         RowValue::CornerShape(c) => out.push_str(&c.css()),
         RowValue::RotateAxis(_) | RowValue::SymbolPalette(_) => {}
-        RowValue::Tracks(tracks) => out.push_str(&tracks.css()),
+        RowValue::Tracks(tracks) => out.push_str(tracks.css()),
         RowValue::Placement(placement) => out.push_str(&placement.css()),
         RowValue::Vec2(v) => {
             num_into(out, v.x);

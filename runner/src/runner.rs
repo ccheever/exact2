@@ -288,7 +288,9 @@ struct Timer {
 
 /// One plan, one data source, one kernel.
 pub struct Runner<D: DataSource> {
-    plan: Plan,
+    /// Shared with every runner booted from the same `Arc`: what is worked
+    /// out once per plan ([`crate::instance::SiteIndex`]) is found by it.
+    plan: std::sync::Arc<Plan>,
     /// The plan's string pool, interned once (`vm::intern`).
     strings: Vec<Value>,
     sites: crate::instance::SiteIndex,
@@ -521,7 +523,7 @@ impl<D: DataSource> Runner<D> {
     /// initial state, settle resources (compiled data first, the source
     /// otherwise), realize the tree, and apply the first frame's ops.
     pub fn boot(
-        plan: Plan,
+        plan: impl Into<std::sync::Arc<Plan>>,
         data: D,
         kernel: Kernel,
         viewport: crate::Viewport,
@@ -529,7 +531,7 @@ impl<D: DataSource> Runner<D> {
     ) -> Result<Runner<D>, RunnerError> {
         Runner::boot_inner(
             RunnerLinks::ALL,
-            plan,
+            plan.into(),
             data,
             kernel,
             Seed::Fresh,
@@ -548,7 +550,7 @@ impl<D: DataSource> Runner<D> {
     /// state can never be why a boot fails. Nothing compiled into the plan
     /// is trusted over carried state.
     pub fn boot_carrying(
-        plan: Plan,
+        plan: impl Into<std::sync::Arc<Plan>>,
         data: D,
         kernel: Kernel,
         carried: &Carried,
@@ -557,7 +559,7 @@ impl<D: DataSource> Runner<D> {
     ) -> Result<Runner<D>, RunnerError> {
         Runner::boot_inner(
             RunnerLinks::ALL,
-            plan,
+            plan.into(),
             data,
             kernel,
             Seed::Carried(carried),
@@ -626,7 +628,7 @@ impl<D: DataSource> Runner<D> {
     #[allow(clippy::too_many_arguments)] // the host boot facts
     fn boot_inner(
         links: RunnerLinks,
-        plan: Plan,
+        plan: std::sync::Arc<Plan>,
         mut data: D,
         kernel: Kernel,
         seed: Seed<'_>,
@@ -741,7 +743,7 @@ impl<D: DataSource> Runner<D> {
             None => None,
         };
         let mut runner = Runner {
-            sites: crate::instance::SiteIndex::new(&plan),
+            sites: crate::instance::SiteIndex::of(&plan),
             strings: vm::intern(&plan),
             plan,
             inspection_digest: std::cell::OnceCell::new(),
@@ -1315,6 +1317,7 @@ impl<D: DataSource> Runner<D> {
     fn env<'a>(&'a self, params: &'a [Value], frames: &'a [Frame]) -> Env<'a> {
         Env {
             plan: &self.plan,
+            decoded: self.sites.decoded(),
             strings: &self.strings,
             router: self.router.as_deref(),
             lists: self.links.lists,

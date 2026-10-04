@@ -99,7 +99,7 @@ fn without_a_head_the_title_is_the_apps_and_nothing_else_is_claimed() {
 fn the_checkpoint_never_closes_its_script_or_opens_a_comment() {
     let host = host("component A\n  view\n    text \"a\"\n", Says(""), "/");
     let hostile = "/x</script><!--]]>&";
-    let json = checkpoint(host.runner(), hostile);
+    let json = checkpoint(&host.runner().document_checkpoint(hostile));
     let (lt, gt, amp) = ("\\u003c", "\\u003e", "\\u0026");
     assert_eq!(
         json,
@@ -120,7 +120,7 @@ fn a_checkpoint_reads_back_as_the_runner_wrote_it() {
         Says("</script><!-- & \u{1F4AC}"),
         "/said?q=1",
     );
-    let json = checkpoint(host.runner(), "/said?q=1");
+    let json = checkpoint(&host.runner().document_checkpoint("/said?q=1"));
     assert!(
         !json.contains('<') && !json.contains('>') && !json.contains('&'),
         "{json}"
@@ -179,7 +179,7 @@ fn a_runtime_adopts_the_document_it_would_have_rendered() {
     };
     // What a render at `/` writes into the page.
     let rendered = boot("/");
-    let page = checkpoint(rendered.runner(), "/");
+    let page = checkpoint(&rendered.runner().document_checkpoint("/"));
     let root = rendered.document().unwrap().root;
     let written = digest(&rendered.runner().plan().encode(), "/", &page, &root);
     let open = |launch: &str, page: &str, digest: &str| {
@@ -219,7 +219,7 @@ fn a_runtime_adopts_the_document_it_would_have_rendered() {
         .journal()
         .any(|l| l.contains("document: rendered at /, not /elsewhere?utm=x; rendering fresh")));
     assert!(!adopted(&open("/", &page, &"0".repeat(64)).1));
-    let other = checkpoint(rendered.runner(), "/other");
+    let other = checkpoint(&rendered.runner().document_checkpoint("/other"));
     let digest_other = digest(
         &rendered.runner().plan().encode(),
         "/other",

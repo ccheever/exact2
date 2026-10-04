@@ -201,7 +201,7 @@ fn fonts(out: &mut String, plan: &Plan) -> Result<(), DocumentError> {
     Ok(())
 }
 
-/// The runner's checkpoint (LLP 1048.000 D6) as JSON a script element can
+/// A runner's checkpoint (LLP 1048.000 D6, `Runner::document_checkpoint`) as JSON a script element can
 /// carry: the location, the render's time, the logic that answered, the
 /// answers — each `[name, source, [args…], value]`, the values in
 /// [`push_value`]'s JSON — and what is still pending. `<`, `>` and `&` are
@@ -212,8 +212,7 @@ fn fonts(out: &mut String, plan: &Plan) -> Result<(), DocumentError> {
 /// compression finds the strings its document already shows (titles, names,
 /// dates): on RealWorld's `/` that took about 1.8 KB off the page (brotli,
 /// as sent).
-pub fn checkpoint<D: DataSource>(runner: &Runner<D>, location: &str) -> String {
-    let checkpoint = runner.document_checkpoint(location);
+pub fn checkpoint(checkpoint: &Checkpoint) -> String {
     let mut json = String::from("{\"location\":");
     crate::batch::quote(&checkpoint.location, &mut json);
     let _ = write!(
@@ -248,9 +247,21 @@ pub fn checkpoint<D: DataSource>(runner: &Runner<D>, location: &str) -> String {
         crate::batch::quote(name, &mut json);
     }
     json.push_str("]}");
-    json.replace('<', "\\u003c")
-        .replace('>', "\\u003e")
-        .replace('&', "\\u0026")
+    let mut out = String::with_capacity(json.len());
+    let mut from = 0;
+    for (at, b) in json.bytes().enumerate() {
+        let escape = match b {
+            b'<' => "\\u003c",
+            b'>' => "\\u003e",
+            b'&' => "\\u0026",
+            _ => continue,
+        };
+        out.push_str(&json[from..at]);
+        out.push_str(escape);
+        from = at + 1;
+    }
+    out.push_str(&json[from..]);
+    out
 }
 
 /// A plan value as JSON that reads back to the same value ([`read_value`]):

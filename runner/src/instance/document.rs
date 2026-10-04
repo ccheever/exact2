@@ -107,7 +107,7 @@ impl DocTree {
     pub fn head(&self) -> crate::Head {
         crate::head::head_of(self.roots.clone(), |id| {
             self.node(id)
-                .map(|n| (n.node_type, &n.props, n.children.clone()))
+                .map(|n| (n.node_type, &n.props, n.children.as_slice().into()))
         })
     }
 
@@ -151,6 +151,7 @@ impl Tree {
             sites,
             doc: DocTree::default(),
             shared: vec![None; plan.nodes.len()],
+            recent: vec![Vec::new(); plan.nodes.len()],
         };
         build.doc.roots = roots_of(&self.children);
         build.children(&self.children, None, 0)?;
@@ -165,7 +166,19 @@ struct Build<'p> {
     /// Each plan node's rows when every style binding it has reads nothing:
     /// one allocation for all its instances.
     shared: Vec<Option<Rc<StyleProps>>>,
+    /// Each plan node's last few distinct rows when a binding makes them,
+    /// by the values its style bindings took: an instance whose bindings
+    /// took the same values shares them, unfolded, so neither the rows nor
+    /// a projection's CSS are made again (a list's rows take a handful of
+    /// styles between them).
+    recent: Vec<Vec<Folded>>,
 }
+
+/// A node's style bindings' values, and the rows they made.
+type Folded = (Vec<Option<Value>>, Rc<StyleProps>);
+
+/// How many distinct rows [`Build::recent`] keeps per plan node.
+const RECENT: usize = 4;
 
 impl Build<'_> {
     fn children(
@@ -317,8 +330,31 @@ impl Build<'_> {
         let shared = constant
             .then(|| self.shared[n.node.0 as usize].clone())
             .flatten();
+        let styles = || {
+            row.bindings
+                .iter()
+                .enumerate()
+                .filter(|(_, b)| plan.binding(*b).kind == BindingKind::Style)
+                .map(|(i, _)| n.last[i].as_ref())
+        };
+        let same = |kept: &[Option<Value>]| {
+            kept.len() == styles().count()
+                && kept.iter().zip(styles()).all(|(a, b)| match (a, b) {
+                    (Some(a), Some(b)) => crate::compare::equal(a, b) == Some(true),
+                    (None, None) => true,
+                    _ => false,
+                })
+        };
+        let known = match shared {
+            Some(style) => Some(style),
+            None if !constant => self.recent[n.node.0 as usize]
+                .iter()
+                .find(|(kept, _)| same(kept))
+                .map(|(_, style)| Rc::clone(style)),
+            None => None,
+        };
         let mut props = PropList::new();
-        let mut patch = StyleProps::default();
+        let mut patch = known.is_none().then(StyleProps::default);
         for (i, b) in row.bindings.iter().enumerate() {
             let binding = plan.binding(b);
             let Some(value) = n.last[i].as_ref() else {
@@ -335,11 +371,16 @@ impl Build<'_> {
                     }
                     Err(e) => return Err(DocTreeError::Refused(format!("{e:?}"))),
                 },
-                BindingKind::Style if shared.is_some() => {}
-                // `none` clears the row: unset in a fold from the default.
-                BindingKind::Style if matches!(value, Value::Option(None)) => {}
                 BindingKind::Style => {
-                    match bridge::set_style(&mut patch, binding.id, value, plan.stacks.len()) {
+                    // Known rows, or `none`, which clears the row: unset in
+                    // a fold from the default.
+                    let Some(patch) = patch
+                        .as_mut()
+                        .filter(|_| !matches!(value, Value::Option(None)))
+                    else {
+                        continue;
+                    };
+                    match bridge::set_style(patch, binding.id, value, plan.stacks.len()) {
                         Ok(StyleId::Animation) => {
                             self.sites.keyframes.resolve(&mut patch.animation);
                         }
@@ -356,9 +397,9 @@ impl Build<'_> {
                 }
             }
         }
-        if let Some(style) = shared {
-            return Ok((style, props));
-        }
+        let Some(patch) = patch else {
+            return Ok((known.expect("rows are known or folded"), props));
+        };
         if !patch.relative.is_empty() {
             // The kernel resolves `rem` and `em` against inherited font
             // sizes; the fold doesn't.
@@ -367,10 +408,18 @@ impl Build<'_> {
         patch
             .validate_domain()
             .map_err(|e| DocTreeError::Refused(format!("view {}: {e:?}", n.view)))?;
-        let style = Rc::new(patch);
         if constant {
+            let style = Rc::new(patch);
             self.shared[n.node.0 as usize] = Some(Rc::clone(&style));
+            return Ok((style, props));
         }
+        let style = Rc::new(patch);
+        let kept = styles().map(|v| v.cloned()).collect();
+        let recent = &mut self.recent[n.node.0 as usize];
+        if recent.len() == RECENT {
+            recent.remove(0);
+        }
+        recent.push((kept, Rc::clone(&style)));
         Ok((style, props))
     }
 }

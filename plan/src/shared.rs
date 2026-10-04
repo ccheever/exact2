@@ -145,6 +145,12 @@ impl InlineStr {
         })
     }
 
+    /// The text's length in bytes, without reading it.
+    #[inline]
+    pub(crate) fn len(&self) -> usize {
+        self.len as usize
+    }
+
     /// The text.
     #[inline]
     pub(crate) fn as_str(&self) -> &str {
