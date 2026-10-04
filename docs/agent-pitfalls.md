@@ -27,6 +27,18 @@ guide's rules don't make obvious.
 
 ## Lists and scrolling
 
+- **A tap that changes one row of a long list takes ~80 ms on the web.** Cause: the
+  mutation answers the whole list (10,000 rows), and on the JS target a Rust
+  module's answer crosses into JS as a copy and every row is checked again. Fix:
+  make the list's resource a window (LLP 1027.004: `feed(cursor)` answering at most
+  200 rows, `reachstart`/`reachend` on the `list` moving the cursor) and give the
+  mutation `refreshes feed`: 16–24 ms. (Heavy-list bench against Dioxus, 2026-10-03.)
+- **A bounded list hitches at its first window shift, or its first tap is slow.**
+  Cause: a Rust data source that parses or builds its data on first use does it
+  then; the first window is baked into the plan, so the first query is the first
+  `reachend` (or tap), on the main thread mid-scroll (75 ms for a 7 MB JSON on the
+  web). Fix: do that work in `DataSource::activate`, which runs after first pixel.
+  (Heavy-list bench, 2026-10-04.)
 - **A transcript or feed should open at its newest row.** Writing `scrollTop` to a
   huge number lands short on a virtualized list by the estimate error of the rows
   it has not built (84 pt with `estimated-item-height=52`). Fix:
