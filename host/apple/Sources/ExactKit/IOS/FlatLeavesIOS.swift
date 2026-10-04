@@ -52,8 +52,10 @@ final class FlatLeaves {
     func holdsLeaves(_ parent: UInt32) -> Bool { order[parent]?.isEmpty == false }
     /// Since launch: made flat, and promoted to views (`state`).
     private(set) var made = 0, promoted = 0
+    private(set) var placements = 0
     /// Parents whose flat leaves are laid into layers when the batch ends.
     private var dirty = Set<UInt32>()
+    private var remount = Set<UInt32>()
     private var reconsider = Set<UInt32>()
     /// Each parent's shape layers, one per run of alike adjacent leaves.
     private var runs: [UInt32: [CAShapeLayer]] = [:]
@@ -238,6 +240,7 @@ final class FlatLeaves {
     /// when the batch ends (`flush`). Answers the flat leaves that cannot
     /// stay flat under this parent.
     func place(_ parent: NodeView, _ ids: [UInt32]) -> [UInt32] {
+        placements += 1
         let flat = ids.filter { leaves[$0] != nil }
         guard !flat.isEmpty else {
             if order.removeValue(forKey: parent.id) != nil { dirty.insert(parent.id) }
@@ -250,6 +253,8 @@ final class FlatLeaves {
         dirty.insert(parent.id)
         return []
     }
+
+    func mounted(_ parent: UInt32) { remount.remove(parent) }
 
     /// Every leaf is rank zero; promotion removes other ranks before runs
     /// form. What a run shares: one fill, one radius on all four corners (or none),
@@ -269,6 +274,13 @@ final class FlatLeaves {
     /// layer, each directly above the child before it, or below the first
     /// view when none is before it.
     func flush() {
+        // Promotions create views while ops are applied; each affected
+        // parent's latest child list is mounted once before drawing runs.
+        let mounts = remount
+        remount.removeAll()
+        for id in mounts {
+            if let parent = presenter.views[id], let ids = order[id] { presenter.placeChildren(parent, ids) }
+        }
         let candidates = reconsider
         reconsider.removeAll()
         for id in candidates { demote(id) }
@@ -344,16 +356,14 @@ final class FlatLeaves {
         view.frame = leaf.frame
         view.alpha = CGFloat(leaf.opacity)
         presenter.views[id] = view
-        if let parentID = leaf.parent, let parent = presenter.views[parentID], let ids = order[parentID] {
-            presenter.placeChildren(parent, ids)
-        }
+        if let parentID = leaf.parent { remount.insert(parentID) }
         return view
     }
 
     func reset() {
         for leaf in leaves.values { leaf.layer.removeFromSuperlayer() }
         for run in runs.values.joined() { run.removeFromSuperlayer() }
-        leaves.removeAll(); order.removeAll(); runs.removeAll(); runLeaves.removeAll(); dirty.removeAll(); reconsider.removeAll()
+        leaves.removeAll(); order.removeAll(); runs.removeAll(); runLeaves.removeAll(); dirty.removeAll(); remount.removeAll(); reconsider.removeAll()
     }
 
     /// The layers painting `parent`'s flat leaves, each with the leaves it
@@ -368,6 +378,6 @@ final class FlatLeaves {
     /// The flat leaf whose layer or run paints `id`, for `layout <id> native`.
     func inspectionParent(of id: UInt32) -> UInt32? { leaves[id]?.parent }
 
-    var observation: [String: Any] { ["flatLeaves": leaves.count, "flatMade": made, "flatPromoted": promoted] }
+    var observation: [String: Any] { ["flatLeaves": leaves.count, "flatMade": made, "flatPromoted": promoted, "flatPlacements": placements] }
 }
 #endif

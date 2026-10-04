@@ -938,6 +938,8 @@ final class Presenter {
     /// `parent`'s children, in order: its views as subviews of its container,
     /// then its flat leaves' layers among them (LLP 1068 §6.1).
     func placeChildren(_ parent: NodeView, _ ids: [UInt32]) {
+        // Make any views required by this holder before assembling its list.
+        for id in flats.place(parent, ids) { flats.promote(id) }
         let want = ids.compactMap { views[$0] }
         let container = parent.container
         // An open popover under the agent stays in the top layer.
@@ -953,10 +955,12 @@ final class Presenter {
         let contained = NodeView.keepingGhosts(want.filter { !navigation.ownsContainment(of: $0, under: parent) && !menus.lifted($0) && !isFlying($0) }, in: container)
         current = container.subviews
         for (i, child) in contained.enumerated() where !(i < current.count && current[i] === child) {
+            let wasHere = child.superview === container
             container.insertSubview(child, at: i)
-            current = container.subviews
+            if wasHere { current = container.subviews }
+            else { current.insert(child, at: i) }
         }
-        for id in flats.place(parent, ids) { flats.promote(id) }
+        flats.mounted(parent.id)
     }
 
     /// The views a batch touched and every view above them, as the batch

@@ -10,6 +10,36 @@ import XCTest
 final class FlatLeavesIOSTests: XCTestCase {
     private var window: UIWindow!
 
+    func testTenThousandFlatSiblingsPromotedByOneEditPlaceTheirParentOnce() throws {
+        let ids = Array(2...10_001)
+        var ops: [[String: Any]] = [["op": "create", "id": 1, "kind": "view"]]
+        for id in ids { ops += bar(id, x: Double(id % 100) * 4) }
+        ops += [["op": "children", "id": 1, "ids": ids], ["op": "roots", "ids": [1]],
+                ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 400, "h": 400]]
+        let p = presenter(ops)
+        XCTAssertEqual(p.flats.leaves.count, ids.count)
+        let placements = p.flats.placements
+        // A newly prepended static holder leaks a positioned descendant:
+        // the kernel sends rank 1 for every following sibling (rule b).
+        let edit: [[String: Any]] = [
+            ["op": "create", "id": 10_002, "kind": "view"],
+            ["op": "create", "id": 10_003, "kind": "view", "style": ["position_type": "relative"]],
+            ["op": "children", "id": 10_002, "ids": [10_003]],
+            ["op": "children", "id": 1, "ids": [10_002] + ids],
+            ["op": "rank", "id": 10_003, "rank": 1],
+        ] + ids.map { ["op": "rank", "id": $0, "rank": 1] }
+        let start = CFAbsoluteTimeGetCurrent()
+        p.apply(wireBatch(edit))
+        let count = p.flats.placements - placements
+        print("paint-order: promoted 10000 flat siblings in \((CFAbsoluteTimeGetCurrent() - start) * 1000) ms, \(count) placements")
+        // Two authored children ops, then one remount for the promoted siblings.
+        XCTAssertEqual(count, 3)
+        XCTAssertTrue(p.flats.leaves.isEmpty)
+        let parent = try XCTUnwrap(p.views[1])
+        XCTAssertEqual(parent.subviews.compactMap { ($0 as? NodeView)?.id }, ([10_002] + ids).map(UInt32.init))
+        XCTAssertTrue(ids.allSatisfy { p.views[UInt32($0)]?.paintZPosition == 0.001 })
+    }
+
     private func presenter(_ ops: [[String: Any]]) -> Presenter {
         let p = Presenter()
         window = UIWindow(frame: CGRect(x: 0, y: 0, width: 400, height: 400))
