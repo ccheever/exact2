@@ -345,7 +345,12 @@ nonzero `gap`, main-axis padding, `justify-content` other than `flex-start`, and
 (each row's handle names it with `reorderFor`); the compiler refuses it on any
 other element, where no host could drag. Lists nest one level deep; an inner vertical list needs a literal
 `height` or `max-height`. Do not revive the removed legacy `item-height`
-windowing mechanism.
+windowing mechanism. Rows inserted, removed or resized above what the reader
+sees keep the reader's place, as CSS scroll anchoring does; a list at its start
+stays there, so rows inserted on top show, and one following its end
+(`scrollFollowEnd`) follows it. A row root may move where it paints
+(`translate`, `rotate`, `scale`, a relative `top`/`left`, `z-index`: a lifted
+row being dragged) and keeps its place in the list.
 
 A native button is an explicit `button appearance="auto"` after class merging;
 an ordinary button remains an authored `appearance="none"` pressable. The switch

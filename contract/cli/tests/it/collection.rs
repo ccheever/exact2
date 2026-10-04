@@ -458,3 +458,33 @@ fn duplicate_keys_index_and_copy_on_a_virtualized_list() {
     );
     runner.act("change", vec![Value::Number(2.0)]).unwrap();
 }
+/// A transform, a relative offset and `z-index` paint a row elsewhere and
+/// leave its flow, as in CSS: a dragged row lifts with them (files F14:
+/// the runner refused `translate="0px 0px"` and the list drew no rows).
+#[test]
+fn a_row_lifted_by_translate_and_z_index_keeps_its_place_in_the_index() {
+    let src = r#"component App
+  state lifted = 1
+  resource rows = rows() as shape list<number>
+  action drop
+    lifted = -1
+  view
+    list virtualized=true height=300 estimated-item-height=30
+      each k in rows key=k
+        row height=30 translate=(k == lifted ? "0px 10px" : "0px 0px") rotate=(k == lifted ? 2 : 0) top=(k == lifted ? 4 : 0) position="relative" z-index=(k == lifted ? 2 : 0) press=drop testId=`row-${k}`
+          text `${k}`
+"#;
+    let mut r = Runner::boot(
+        contract::compile(src).unwrap(),
+        Rows { queries: 0 },
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    assert_eq!(r.collections()[0].rows.len(), 16);
+    let lifted = r.kernel().find_by_test_id("row-1")[0];
+    let id = r.kernel().node_by_key(lifted).unwrap().id;
+    r.dispatch(id, Event::Press).unwrap();
+    assert_eq!(r.collections()[0].rows.len(), 16);
+}

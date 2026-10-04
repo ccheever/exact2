@@ -239,10 +239,6 @@ impl Lowerer<'_> {
                 "position" => {
                     matches!(&a.value, Expr::Str(s, _) if s == "relative" || s == "static")
                 }
-                "top" | "bottom" | "left" | "right" | "rotate" => {
-                    numeric_literal(&a.value) == Some(0.0)
-                }
-                "scale" => numeric_literal(&a.value) == Some(1.0),
                 "margin" | "margin-top" | "margin-bottom" => {
                     numeric_literal(&a.value).is_some_and(|v| v >= 0.0)
                 }
