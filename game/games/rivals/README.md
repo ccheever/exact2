@@ -42,6 +42,14 @@ than tracking an attacker behind cover.
 | Move · sprint · jump · slide | WASD · Shift · Space · C (while running) |
 | Fire · aim · reload | left button or F · right button (down sights) · R |
 | Weapons | 1 assault rifle · 2 rocket launcher · 3 knife (or the wheel) |
+| Bandage | hold Q, or hold the health panel's button |
+
+Each life gives you one bandage. Hold for 1.5 seconds to recover up to 40 HP;
+walking slows while you dress the wound. Releasing early, taking damage,
+firing, reloading, switching weapons, jumping, sprinting or sliding interrupts
+the attempt without spending the bandage. It is spent only when healing
+finishes. Full health cannot consume it. Respawning or starting a new round
+gives you a fresh one. Hurt bots can use the same action after reaching cover.
 
 The rifle is hitscan: 20 a hit, ×1.8 to the head (the capsule's top 0.4 m),
 with bloom from sustained fire and movement and a view kick per shot. Rockets
@@ -95,6 +103,11 @@ neither reads enemy world positions. Transcripts and screenshots land under
 exploratory decision tests, not deterministic proofs or measurements of human aim.
 The outcome records each action's simulation duration and trigger times; model
 latency remains in the decision transcript and does not advance the game clock.
+Add `--recovery` for a separate 96-choice drill: ordinary rocket self-splash
+first leaves the player wounded, then Jev chooses whether to bandage and
+continues the target drill using the visible health panel and nameplates.
+The deterministic proof also holds the actual HUD button, cancels early and
+restores a half-finished keyboard hold in a fresh process.
 Without a gateway key, `bun game/games/rivals/proof.mjs web --playtest --motor-check`
 (or `macos`) checks three pointer corrections against the training target.
 

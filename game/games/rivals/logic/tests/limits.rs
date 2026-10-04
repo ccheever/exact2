@@ -6,6 +6,8 @@ use exact_game::{InputEvent, PointerPhase};
 use exact_game_physics::{self as physics, Body, Collider, Shape};
 use rivals_logic::weapons::{self, Rocket};
 use rivals_logic::{Options, Rivals};
+// Wall time belongs only to these ignored measurements, never to game state.
+#[allow(clippy::disallowed_types)]
 use std::time::Instant;
 
 fn quantile(mut v: Vec<f64>, q: f64) -> f64 {
@@ -34,6 +36,7 @@ fn live(mut sim: Sim<Rivals>) -> Sim<Rivals> {
     sim
 }
 /// Per-tick wall time over `ticks` ticks, in microseconds: (mean, p50, p99, max).
+#[allow(clippy::disallowed_types)]
 fn time_ticks(sim: &mut Sim<Rivals>, ticks: u32) -> (f64, f64, f64, f64) {
     let mut samples = Vec::new();
     let mut max = 0.0;
@@ -96,6 +99,7 @@ fn bench_bots() {
 /// of every advance to answer `settle`; the live clock does not. Same fight, both.
 #[test]
 #[ignore]
+#[allow(clippy::disallowed_types)]
 fn bench_seekable_observation() {
     for bots in [7, 23] {
         let mut seek = ffa(bots);
@@ -139,6 +143,7 @@ fn keep_rockets(sim: &mut Sim<Rivals>, n: usize, k: &mut u32) {
 
 #[test]
 #[ignore]
+#[allow(clippy::disallowed_types)]
 fn bench_rockets() {
     for n in [0usize, 50, 200, 500, 1000] {
         let mut sim = live(ffa(7));
@@ -165,6 +170,7 @@ fn bench_rockets() {
 /// the shared query scene, so the obvious loop rebuilds it once per rocket.
 #[test]
 #[ignore]
+#[allow(clippy::disallowed_types)]
 fn bench_query_scene_invalidation() {
     for n in [10usize, 50, 200, 500] {
         let mut sim = ffa(7);

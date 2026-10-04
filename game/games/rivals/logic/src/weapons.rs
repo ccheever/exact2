@@ -135,6 +135,7 @@ pub fn damage(
     }
     let amount = amount.min(f.hp);
     f.hp -= amount;
+    f.bandage_until = 0.0;
     if f.slot != attacker {
         f.last_attacker = attacker;
     }
@@ -163,7 +164,7 @@ pub fn act(w: &mut World, e: Entity, intent: &fighter::Intent, origin: Vec3) -> 
     let mut out = Vec::new();
     let (weapon, yaw, pitch, bloom, slot, moving, aiming) = {
         let mut f = w.require_mut::<Fighter>(e);
-        if !f.alive {
+        if !f.alive || f.bandage_until > 0.0 {
             return out;
         }
         if let Some(next) = intent.switch.filter(|n| *n != f.weapon) {

@@ -315,6 +315,22 @@ pub fn think(w: &World, e: Entity, all: &[Seen], covers: &[Vec3]) -> Intent {
         let dy = exact_game::math::wrap_angle(yaw_to(me.at, me.at + wish) - yaw);
         intent.yaw = dy.clamp(-4.0 * dt, 4.0 * dt);
     }
+    // Dress a wound only after reaching cover, using the player's action and
+    // interruption rules. Holding still also avoids spending the channel moving.
+    if b.plan == Plan::Cover
+        && !b.visible
+        && wish.length_squared() == 0.0
+        && me.hp <= fighter::MAX_HP - fighter::BANDAGE_HEAL
+        && w.require::<Fighter>(e).can_bandage()
+    {
+        intent = Intent {
+            bandage: true,
+            yaw: intent.yaw,
+            pitch: intent.pitch,
+            ..Intent::default()
+        };
+        b.cover_until = b.cover_until.max(now + fighter::BANDAGE_TIME + dt);
+    }
     // Stuck against an edge: hop (crates are jumpable) and flip the strafe.
     let moving = Vec3::new(me.velocity.x, 0.0, me.velocity.z).length();
     if wish.length() > 0.5 && moving < 1.5 {

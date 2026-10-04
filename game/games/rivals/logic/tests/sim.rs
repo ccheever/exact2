@@ -23,6 +23,148 @@ fn fighter(sim: &Sim<Rivals>, name: &str) -> Fighter {
 fn round(sim: &Sim<Rivals>) -> Round {
     sim.world().resource::<Round>().clone()
 }
+
+#[test]
+fn a_bandage_requires_a_full_hold_saves_midway_and_is_spent_once() {
+    use exact_game::Paranoid;
+    for mode in [Paranoid::Off, Paranoid::Save, Paranoid::FreshGame] {
+        let mut sim = range().paranoid(mode);
+        sim.run(100.0);
+        sim.hold("KeyQ", 1700.0);
+        assert!(!fighter(&sim, "player").bandage_used, "full health is free");
+        sim.world().require_mut::<Fighter>("player").hp = 25.0;
+        sim.hold("KeyQ", 600.0);
+        sim.run(20.0);
+        assert_eq!(fighter(&sim, "player").hp, 25.0);
+        assert_eq!(fighter(&sim, "player").bandage_until, 0.0);
+        assert!(!fighter(&sim, "player").bandage_used);
+        sim.key_down("KeyQ");
+        sim.run(700.0);
+        assert!(fighter(&sim, "player").bandage_until > sim.world().seconds() as f32);
+        let saved = sim.save().unwrap();
+        let mut back = range().paranoid(mode);
+        back.restore_bound(&saved).unwrap();
+        for s in [&mut sim, &mut back] {
+            s.run(700.0);
+            assert_eq!(fighter(s, "player").hp, 25.0, "no early healing");
+            s.run(200.0);
+            assert_eq!(fighter(s, "player").hp, 65.0);
+            assert!(fighter(s, "player").bandage_used);
+            s.run(2000.0);
+            assert_eq!(fighter(s, "player").hp, 65.0, "holding cannot reuse it");
+            s.key_up("KeyQ");
+            s.run(20.0);
+        }
+        assert_eq!(sim.save().unwrap(), back.save().unwrap());
+        let player = sim.world().resolve("player").unwrap();
+        rivals_logic::fighter::place(sim.world_mut(), player, [0.0, 18.0]);
+        assert!(!fighter(&sim, "player").bandage_used, "respawn renews it");
+        sim.world().require_mut::<Fighter>("player").hp = 90.0;
+        sim.hold("KeyQ", 1700.0);
+        assert_eq!(fighter(&sim, "player").hp, 100.0, "healing caps at full");
+        assert!(fighter(&sim, "player").bandage_used);
+        rivals_logic::round::next_round(sim.world_mut());
+        assert!(!fighter(&sim, "player").bandage_used, "new round renews it");
+    }
+}
+
+#[test]
+fn damage_and_combat_interrupt_bandages_without_spending_them() {
+    use exact_game::Vec3;
+    use rivals_logic::weapons::{damage, Weapon};
+    for cancel in ["KeyF", "KeyR", "Digit2", "Space", "ShiftLeft", "KeyC"] {
+        let mut sim = range();
+        sim.world().require_mut::<Fighter>("player").hp = 30.0;
+        sim.key_down("KeyQ");
+        sim.run(1000.0);
+        if cancel == "ShiftLeft" {
+            sim.key_down(cancel);
+        } else {
+            sim.tap(cancel);
+        }
+        sim.run(20.0);
+        if cancel == "ShiftLeft" {
+            sim.key_up(cancel);
+        }
+        assert_eq!(fighter(&sim, "player").hp, 30.0, "{cancel}");
+        let until = fighter(&sim, "player").bandage_until;
+        assert!(
+            until == 0.0 || until > sim.world().seconds() as f32 + 1.4,
+            "{cancel}: {until}"
+        );
+        assert!(!fighter(&sim, "player").bandage_used, "{cancel}");
+    }
+    let mut sim = range();
+    let player = sim.world().resolve("player").unwrap();
+    sim.world().require_mut::<Fighter>(player).hp = 60.0;
+    sim.key_down("KeyQ");
+    sim.run(500.0);
+    // A hit at the completion boundary must win over the delayed heal.
+    sim.world().require_mut::<Fighter>(player).bandage_until = sim.world().seconds() as f32;
+    let hit = damage(sim.world(), 2, player, 10.0, false, Weapon::Rifle, Vec3::Z).unwrap();
+    rivals_logic::round::score(sim.world_mut(), vec![hit]);
+    rivals_logic::fighter::bandages(sim.world());
+    assert_eq!(fighter(&sim, "player").hp, 50.0);
+    assert_eq!(fighter(&sim, "player").bandage_until, 0.0);
+    assert!(!fighter(&sim, "player").bandage_used);
+    sim.run(1700.0);
+    assert_eq!(
+        fighter(&sim, "player").hp,
+        90.0,
+        "held input starts a new attempt"
+    );
+    let hit = damage(sim.world(), 2, player, 100.0, false, Weapon::Rifle, Vec3::Z).unwrap();
+    rivals_logic::round::score(sim.world_mut(), vec![hit]);
+    sim.run(1000.0);
+    assert_eq!(fighter(&sim, "player").hp, 0.0, "dead fighters cannot heal");
+}
+
+#[test]
+fn bandaging_slows_movement_and_a_hurt_bot_uses_the_same_action_in_cover() {
+    use exact_game::{Transform, Vec3};
+    use rivals_logic::{
+        bots::{Brain, Plan},
+        fighter::Intent,
+    };
+    let mut sim = range();
+    sim.world().require_mut::<Fighter>("player").hp = 20.0;
+    sim.key_down("KeyQ");
+    sim.hold("KeyD", 700.0);
+    let f = fighter(&sim, "player");
+    assert!(
+        f.bandage_until > 0.0 && f.planar.length() <= rivals_logic::fighter::WALK * 0.35 + 0.001
+    );
+    assert_eq!(f.shots, 0);
+    let bot = sim.world().resolve("bot-1").unwrap();
+    let at = sim.world().require::<Transform>(bot).position;
+    sim.world().require_mut::<Fighter>(bot).hp = 30.0;
+    *sim.world().require_mut::<Brain>(bot) = Brain {
+        plan: Plan::Cover,
+        goal: at,
+        cover_until: 10.0,
+        ..Brain::default()
+    };
+    // No enemies in this local observation: the bot has reached safe cover.
+    let seen = rivals_logic::bots::snapshot(sim.world())
+        .into_iter()
+        .filter(|s| s.entity == bot)
+        .collect::<Vec<_>>();
+    let intent = rivals_logic::bots::think(sim.world(), bot, &seen, &[]);
+    assert!(intent.bandage);
+    assert!(!intent.fire && !intent.reload && !intent.sprint && intent.switch.is_none());
+    assert_eq!(intent.stick, Vec3::ZERO);
+    rivals_logic::fighter::step(sim.world_mut(), bot, &intent);
+    assert!(fighter(&sim, "bot-1").bandage_until > 0.0);
+    rivals_logic::fighter::step(
+        sim.world_mut(),
+        bot,
+        &Intent {
+            fire: true,
+            ..Intent::default()
+        },
+    );
+    assert_eq!(fighter(&sim, "bot-1").bandage_until, 0.0);
+}
 /// A mouse event carrying the device's own motion (a locked pointer: the
 /// position stays put), stamped at `at_ms`.
 fn mouse(sim: &mut Sim<Rivals>, at_ms: f64, phase: PointerPhase, dx: f32, dy: f32, buttons: u32) {

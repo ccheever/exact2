@@ -14,6 +14,8 @@ pub const SLIDE_EYE: f32 = 0.1;
 /// A ray hitting the capsule above this height (from its centre) is a headshot.
 pub const HEAD_FROM: f32 = 0.5;
 pub const MAX_HP: f32 = 100.0;
+pub const BANDAGE_HEAL: f32 = 40.0;
+pub const BANDAGE_TIME: f32 = 1.5;
 /// The view never pitches past this, up or down.
 pub const PITCH_LIMIT: f32 = 1.45;
 pub const WALK: f32 = 7.0;
@@ -40,6 +42,8 @@ pub struct Intent {
     /// Aim down sights: a narrower view, a tighter spread, a slower walk.
     pub aim: bool,
     pub reload: bool,
+    /// Hold to dress a wound; combat and damage interrupt it.
+    pub bandage: bool,
     pub switch: Option<Weapon>,
     /// Look change in radians this tick.
     pub yaw: f32,
@@ -82,6 +86,8 @@ pub struct Fighter {
     pub shots: u32,
     pub hits: u32,
     pub headshots: u32,
+    pub bandage_used: bool,
+    pub bandage_until: f32,
 }
 impl Fighter {
     pub fn bit(&self) -> u32 {
@@ -89,6 +95,9 @@ impl Fighter {
     }
     pub fn sliding(&self, now: f32) -> bool {
         now < self.slide_until
+    }
+    pub fn can_bandage(&self) -> bool {
+        self.alive && !self.bandage_used && self.hp < MAX_HP && self.reload_until == 0.0
     }
     pub fn reset_loadout(&mut self) {
         self.hp = MAX_HP;
@@ -104,6 +113,8 @@ impl Fighter {
         self.planar = Vec3::ZERO;
         self.slide_until = 0.0;
         self.eye = EYE;
+        self.bandage_used = false;
+        self.bandage_until = 0.0;
     }
 }
 
@@ -217,7 +228,27 @@ pub fn step(w: &mut World, e: Entity, intent: &Intent) -> physics::CapsuleStep {
     let (velocity, alive) = {
         let mut f = w.require_mut::<Fighter>(e);
         let mut c = w.require_mut::<CapsuleController>(e);
-        f.aiming = f.alive && intent.aim && f.weapon != Weapon::Knife && !f.sliding(now);
+        if intent.bandage
+            && f.can_bandage()
+            && !f.sliding(now)
+            && !intent.fire
+            && !intent.reload
+            && intent.switch.is_none()
+            && !intent.jump
+            && !intent.sprint
+            && !intent.slide
+        {
+            if f.bandage_until == 0.0 {
+                f.bandage_until = now + BANDAGE_TIME;
+            }
+        } else {
+            f.bandage_until = 0.0;
+        }
+        f.aiming = f.alive
+            && intent.aim
+            && f.weapon != Weapon::Knife
+            && !f.sliding(now)
+            && f.bandage_until == 0.0;
         if f.alive {
             f.yaw = exact_game::math::wrap_angle(f.yaw + intent.yaw);
             f.pitch = (f.pitch + intent.pitch).clamp(-PITCH_LIMIT, PITCH_LIMIT);
@@ -232,7 +263,8 @@ pub fn step(w: &mut World, e: Entity, intent: &Intent) -> physics::CapsuleStep {
         } else {
             WALK
         } * f.weapon.speed()
-            * if f.aiming { 0.65 } else { 1.0 };
+            * if f.aiming { 0.65 } else { 1.0 }
+            * if f.bandage_until > 0.0 { 0.35 } else { 1.0 };
         let mut planar = f.planar;
         if f.alive && c.grounded && intent.slide && now >= f.slide_ready && planar.length() > 5.0 {
             f.slide_dir = planar.normalize();
@@ -296,6 +328,18 @@ pub fn step(w: &mut World, e: Entity, intent: &Intent) -> physics::CapsuleStep {
         result.displacement = Vec3::ZERO;
     }
     result
+}
+
+/// Finish after every shot and explosion, so a hit on the final tick interrupts.
+pub fn bandages(w: &World) {
+    let now = w.seconds() as f32;
+    for (_, f) in w.query::<&mut Fighter>().iter() {
+        if f.alive && f.bandage_until > 0.0 && now >= f.bandage_until {
+            f.hp = (f.hp + BANDAGE_HEAL).min(MAX_HP);
+            f.bandage_until = 0.0;
+            f.bandage_used = true;
+        }
+    }
 }
 
 /// Turn the visible body (a child: the capsule root must stay upright).

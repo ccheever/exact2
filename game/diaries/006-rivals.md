@@ -1267,3 +1267,47 @@ fourteen save files agree between hosts; worlds and saves also match
 `holes-web` before the change. Both descendant audits pass with no recorded
 children left, and both Mayhem five-kill captures were inspected. Artifacts:
 `artifacts/scratch-{web,macos}/`. Gameplay and Jev's policy are unchanged.
+
+## A bandage gives cover a recovery purpose (2026-10-04)
+
+Each life now carries one bandage. Hold Q or the health card's button for
+1.5 seconds to recover up to 40 HP, moving at 35% speed while dressing the
+wound. Releasing, taking damage or starting a combat/mobility action cancels
+without consuming it. It is spent only on completion, never at full health;
+respawn and a new round restore the charge. Shots and explosions are resolved
+before completion, so damage on the final tick still interrupts. Hurt bots
+use the same `Intent` after reaching cover, with the same interruption rules.
+The health card shows availability, remaining time and progress; the weapon
+lowers during the hold. The movement control moves up to clear the taller card.
+
+This uses the existing held actions, saved fighter fields, world clock and
+published HUD. The new tests cover early release, full-health refusal, the
+40 HP limit, reuse refusal, respawn/round reset, held input restored midway in
+Off/Save/FreshGame modes, damage on the completion boundary, combat
+interruptions, slowed movement and a bot choosing the same action in cover.
+All 32 enabled Rivals tests pass (four ignored timings). The first interruption
+test incorrectly tapped sprint, which is held; changing it to a held input
+tests the actual control. Strict all-target Clippy initially refused the old
+timing tests' `Instant`. Narrow allowances on their import and measurement
+functions now keep wall time out of the game while allowing the complete
+Rivals target check to pass. Formatting passes too.
+
+The first Linux candidate has zero failures in 27.944 s, with a passing
+process audit (`artifacts/bandage-linux/`). The added real-host sequence uses
+ordinary rocket self-splash to create a wound, holds and releases the actual
+HUD button, then saves a held Q midway and finishes it in a fresh process.
+Twelve world observations and seventeen saves include that continuation.
+Pins wait for strict cross-host acceptance.
+
+The new Jev recovery drill is fixed before its first run: after that same
+rocket practice, recover to full health, then score in the remaining target
+drill time, capped at 96 decisions. Only visible health/button state and
+nameplates reach the model. Bandaging holds Q for 1.7 seconds; the pointer
+motor and earlier drill/duel/Mayhem policies stay unchanged. Those earlier
+feedback batches remain closed. The new pair will report use, outcome and
+limits rather than repeat until it wins.
+
+Periodic merge `eb6f02c98` includes main through `96f781472` (Windows deploy
+path admission and two draft proposals). The added path suite passes its
+five applicable tests, with three platform skips, in 2.43 s. It changes no
+game or host runtime code. Logs: `/tmp/exact2-bandage-main-paths.log`.

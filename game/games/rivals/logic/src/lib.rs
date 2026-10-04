@@ -66,6 +66,10 @@ pub struct Hud {
     pub ammo: u32,
     pub mag: u32,
     pub reloading: bool,
+    pub bandage_ready: bool,
+    pub bandaging: bool,
+    pub bandage_progress: f32,
+    pub bandage_label: String,
     pub kills: u32,
     pub deaths: u32,
     pub rival_kills: u32,
@@ -180,6 +184,7 @@ pub fn actions() -> Actions {
         .button("fire", &["KeyF", "MouseLeft"])
         .button("aim", &["MouseRight"])
         .button("reload", &["KeyR"])
+        .button("bandage", &["KeyQ"])
         .button("rifle", &["Digit1"])
         .button("rocket", &["Digit2"])
         .button("knife", &["Digit3"])
@@ -372,6 +377,7 @@ pub fn player_intent(w: &World, input: &Input, args: &Options) -> Intent {
         fire: input.held("fire") || input.pressed("fire"),
         aim: input.held("aim"),
         reload: input.pressed("reload"),
+        bandage: input.held("bandage"),
         switch,
         yaw,
         pitch,
@@ -427,6 +433,7 @@ pub fn tick(w: &mut World, input: &Input, args: &Options) {
         training::score(w, &hits, args.bot_count());
     }
     round::score(w, hits);
+    fighter::bandages(w);
     round::respawn(w);
     if !args.range {
         round::check_win(w, args.kills_to_win());
@@ -506,6 +513,9 @@ pub fn camera_follow(w: &mut World, args: &Options) {
         }
         if f.reload_until > 0.0 {
             at.y -= 0.12;
+        }
+        if f.bandage_until > 0.0 {
+            at.y -= 0.25;
         }
         if vm.weapon == Weapon::Knife && swing < 1.0 {
             at +=
@@ -604,6 +614,29 @@ pub fn publish(w: &World, args: &Options, viewport: Vec2) {
         ammo,
         mag,
         reloading: me.reload_until > 0.0,
+        bandage_ready: me.can_bandage() && !me.sliding(now) && !r.over(now) && !drill_done,
+        bandaging: me.bandage_until > 0.0 && !r.over(now) && !drill_done,
+        bandage_progress: if me.bandage_until > 0.0 {
+            (1.0 - (me.bandage_until - now) / fighter::BANDAGE_TIME).clamp(0.0, 1.0)
+        } else {
+            0.0
+        },
+        bandage_label: if !me.alive {
+            "New bandage on respawn".into()
+        } else if me.bandage_used {
+            "Bandage used".into()
+        } else if me.bandage_until > 0.0 && !r.over(now) && !drill_done {
+            format!(
+                "Keep holding · {:.1}s",
+                exact_game::math::ceil((me.bandage_until - now).max(0.0) * 10.0) / 10.0
+            )
+        } else if me.hp >= fighter::MAX_HP {
+            "Full health".into()
+        } else if me.reload_until > 0.0 {
+            "Finish reloading first".into()
+        } else {
+            "Hold Q to bandage".into()
+        },
         kills: me.kills,
         deaths: me.deaths,
         rival_kills: rival.kills,

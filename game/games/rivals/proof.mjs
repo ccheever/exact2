@@ -270,7 +270,57 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await drillBack.world('world').save(resolve(out, 'drill-restored.world'));
   check('drill continuation saves are byte-identical', readFileSync(resolve(out, 'drill-continued.world')).equals(readFileSync(resolve(out, 'drill-restored.world'))));
   await drillBack.close();
+
+  // The rocket's ordinary self-splash supplies a wound without writing state.
+  // Exercise the held HUD action, cancellation, and a saved keyboard hold.
+  const care = await open({fresh:true});
+  await care.tap('range');
+  await rocketPractice(care);
+  const caring = care.world('world');
+  const wounded = Number(text(await care.tree(),'hp'));
+  check('rocket practice leaves a living wound and an enabled bandage', wounded > 0 && wounded < 100 && node(await care.tree(),'bandage')?.props?.disabled === false, wounded);
+  await care.tap('bandage', {down:true});
+  await caring.run(500);
+  check('holding the HUD button starts bandaging', text(await care.tree(),'bandage-status')?.startsWith('Keep holding'));
+  await care.pointer('up');
+  await caring.run(100);
+  check('releasing early cancels without healing or spending the bandage', Number(text(await care.tree(),'hp')) === wounded && text(await care.tree(),'bandage-status') === 'Hold Q to bandage');
+  await caring.key_down('KeyQ');
+  await caring.run(700);
+  await caring.save(resolve(out,'bandaging.world'));
+  if (host !== 'linux') await care.screenshot(resolve(out,'bandaging.png'));
+  const finishBandage = async session => {
+    const g = session.world('world');
+    await g.run(1000);
+    check('the saved hold heals to full and spends one bandage', text(await session.tree(),'hp') === '100' && text(await session.tree(),'bandage-status') === 'Bandage used');
+    await g.run(1700);
+    await g.key_up('KeyQ'); await g.run(100);
+    check('holding longer cannot use a second bandage', text(await session.tree(),'bandage-status') === 'Bandage used' && node(await session.tree(),'bandage')?.props?.disabled === true);
+  };
+  await finishBandage(care);
+  await caring.save(resolve(out,'bandaged.world'));
+  pinSave('bandage',resolve(out,'bandaged.world'));
+  const cared = await caring.snapshot();
+  if (host !== 'linux') await care.screenshot(resolve(out,'bandaged.png'));
+  await care.close();
+  const careBack = await open({fresh:true,world:resolve(out,'bandaging.world')});
+  await careBack.tap('range');
+  await finishBandage(careBack);
+  check('fresh process continues the held bandage identically', JSON.stringify(await careBack.world('world').snapshot()) === JSON.stringify(cared));
+  await careBack.world('world').save(resolve(out,'bandaged-restored.world'));
+  check('bandage continuation saves are byte-identical', readFileSync(resolve(out,'bandaged.world')).equals(readFileSync(resolve(out,'bandaged-restored.world'))));
+  await careBack.close();
 });
+
+async function rocketPractice(session) {
+  const g = session.world('world');
+  await g.run(100);
+  await g.tap('Digit2'); await g.run(300);
+  await g.hold('ArrowDown',800);
+  await g.tap('KeyF'); await g.run(1000);
+  await g.hold('ArrowUp',800);
+  await g.tap('Digit1'); await g.run(300);
+}
 
 async function visible(s) {
   const [tree, layout] = await Promise.all([s.tree(), s.layout()]);
@@ -332,13 +382,15 @@ async function motorCheck({open, out, check}) {
 // neither reads enemy world positions or writes the simulation. This measures
 // decisions, not visual perception or human aim.
 async function playtest({open, out, say}) {
+  const recovery = process.argv.includes('--recovery');
   const mayhem = process.argv.includes('--mayhem');
-  const duel = process.argv.includes('--duel') || mayhem;
-  const mode = mayhem ? 'mayhem' : duel ? 'duel' : 'drill';
+  const duel = !recovery && (process.argv.includes('--duel') || mayhem);
+  const mode = recovery ? 'recovery' : mayhem ? 'mayhem' : duel ? 'duel' : 'drill';
   const s = await open();
-  await s.tap(mayhem ? 'mayhem' : duel ? 'play' : 'range');
+  await s.tap(duel ? mayhem ? 'mayhem' : 'play' : 'range');
   const game = s.world('world');
-  await game.run(100);
+  if (recovery) await rocketPractice(s);
+  else await game.run(100);
   const transcript = resolve(out, `jev-${mode}-decisions.jsonl`);
   writeFileSync(transcript, '');
   const recent = [];
@@ -351,8 +403,10 @@ async function playtest({open, out, say}) {
     if (node(tree, 'drill-done') || node(tree, 'round-over')) break;
     const state = Object.fromEntries(['hp','ammo','weapon-name','you-kills','rival-kills','score-target','drill-clock','drill-score','drill-target','heading','incoming-direction']
       .map(id => [id, text(tree,id) ?? '']));
+    if (recovery) Object.assign(state, {'bandage-hint':text(tree,'bandage-hint'), 'bandage-status':text(tree,'bandage-status')});
     const choices = {wait:'Wait half a second for a respawn, reload, or target to appear'};
     if (!node(tree, 'dead')) {
+      if (recovery && node(tree,'bandage')?.props?.disabled === false) choices.bandage = 'Hold Q for 1.7 seconds to use the one bandage: recover up to 40 HP; damage or combat interrupts it';
       for (const c of contacts) choices[`shoot_${c.id}`] = `Aim at ${c.label} (${c.hp}) and fire up to three shots with the selected weapon`;
       if (/^\d+ \/ \d+$/.test(state.ammo) && Number(state.ammo.split(' / ')[0]) < Number(state.ammo.split(' / ')[1])) choices.reload = 'Reload the selected weapon, waiting two seconds';
       if (duel) Object.assign(choices, {
@@ -374,6 +428,7 @@ async function playtest({open, out, say}) {
     }
     const decision = await decide({state:{...state, contacts, recent, ...(duel ? {blockedActions:[...blocked].filter(([,n])=>n>=2).map(([name])=>name), blindTurnDegrees:Math.round(blindTurn)} : {})}, choices, transcript,
       goal:duel ? `Win the ${mayhem ? 'free-for-all against 24 bots' : 'duel'} while staying alive. Shoot visible opponents, reload when ammunition is low, and use the incoming-hit direction to turn toward attacks. The compass shows where you face. Recent movedMeters is your actual movement: a movement command under 0.3 metres hit an obstacle. Jump or strafe around it; do not repeat blocked steps. If repeated scanning finds nobody, move to a new position instead of spinning in place. The motor aims only at visible nameplates; it cannot see through cover. Avoid unnecessary weapon switching.`
+        : recovery ? 'Recover to full health using your bandage after the rocket practice, then score as highly as possible in the remaining drill time. Shoot the green TARGET named in the HUD, avoiding other dummies to preserve the combo. Reload when needed; the motor aims at your chosen nameplate.'
         : 'Score as highly as possible in the thirty-second drill. Shoot the green TARGET named in the HUD, avoiding other dummies to preserve your combo. Reload when needed and wait if the requested dummy is respawning. The motor aims at your chosen nameplate.'});
     say(`JEV ${mode} ${turn+1}: ${decision.choice} · ${state['drill-score'] || `${state['you-kills']}–${state['rival-kills']} · ${state.hp} HP`}`);
     const started = s.now, triggers = [];
@@ -385,7 +440,8 @@ async function playtest({open, out, say}) {
         await game.tap('KeyF');
         await game.run(180);
       }
-    } else if (decision.choice === 'reload') { await game.tap('KeyR'); await game.run(2300); }
+    } else if (decision.choice === 'bandage') await game.hold('KeyQ',1700);
+    else if (decision.choice === 'reload') { await game.tap('KeyR'); await game.run(2300); }
     else if (decision.choice === 'wait') await game.run(500);
     else if (decision.choice === 'jump_forward') { await game.tap('Space'); await game.hold('KeyW', 500); }
     else if (['rifle','rocket'].includes(decision.choice)) { await game.tap(decision.choice === 'rifle' ? 'Digit1' : 'Digit2'); await game.run(300); }
@@ -407,7 +463,7 @@ async function playtest({open, out, say}) {
   }
   const tree = await s.tree();
   const result = {mode, motor:'pointer', actions, score:text(tree,'drill-score'), done:!!node(tree,'drill-done') || !!node(tree,'round-over'), hp:text(tree,'hp'),
-    playerKills:text(tree,'you-kills'), rivalKills:text(tree,'rival-kills'), target:text(tree,'score-target'), world:await game.snapshot()};
+    playerKills:text(tree,'you-kills'), rivalKills:text(tree,'rival-kills'), target:text(tree,'score-target'), ...(recovery ? {bandage:text(tree,'bandage-status')} : {}), world:await game.snapshot()};
   say(`JEV outcome: ${JSON.stringify({...result,world:undefined,actions:undefined})}`);
   writeFileSync(resolve(out, `jev-${mode}-outcome.json`), JSON.stringify(result,null,2));
   await s.screenshot(resolve(out, `jev-${mode}.png`));
