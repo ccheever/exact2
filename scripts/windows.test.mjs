@@ -8,6 +8,7 @@ import {resolve} from 'node:path';
 import {closeFilesystemReader, filesystem, filesystemErrorCode} from './filesystem.mjs';
 import {packagedBuildChanges, removeBrowserProfile} from './agent-launch.mjs';
 import {browserKey, open} from './agent.mjs';
+import {cdpKey, withHeldModifiers} from './agent-keys.mjs';
 import {runCaps} from './caps.mjs';
 import {binaryenArchive, binaryenVersion} from './exact.mjs';
 import {listPublicFiles, publicFileCards, readStaticFile, readStaticFileAsync, staticFile} from '../host/web/serve.mjs';
@@ -126,6 +127,71 @@ test('browser function keys reach the focused game with their platform key ident
       .toEqual(['keyDown','keyUp'].map(type=>['Input.dispatchKeyEvent',type,key,key,vk]));
   }
 });
+
+test('modifier codes preserve side identity and accepted holds survive later frame failure', async () => {
+  for (const [key, bit, vk] of [['Shift',8,16],['Control',2,17],['Alt',1,18],['Meta',4,91]]) {
+    for (const [side, location] of [['Left',1],['Right',2]]) {
+      expect(cdpKey(key+side)).toMatchObject({code:key+side,key,location,modifiers:bit,vk:key==='Meta'&&side==='Right'?92:vk});
+    }
+    expect(cdpKey(key)).toMatchObject({code:key+'Left',key,location:1,modifiers:bit});
+  }
+  let focus = 0;
+  await assert.rejects(browserKey({id:1,opts:{key:'ControlMiddle'},evaluate:async()=>{focus++;},ask:async()=>{},call:async()=>{},frame:async()=>{}}),/unsupported key/);
+  expect(focus).toBe(0);
+  const held = new Map([['ControlRight',{}]]), sent=[];
+  const call=async(method,event)=>{
+    sent.push(withHeldModifiers(method,event,held));
+    if(event.type==='keyUp') held.delete(event.code); else held.set(event.code,event);
+  };
+  let failed;
+  try {await browserKey({id:1,opts:{key:'ControlLeft',phase:'down'},evaluate:async()=>true,ask:async()=>({ok:true}),call,frame:async()=>{throw Error('frame failed');}});}
+  catch(error){failed=error;}
+  expect(failed.message).toBe('frame failed');
+  expect(held.has('ControlLeft')).toBe(true);
+  await assert.rejects(failed.release(),/frame failed/);
+  expect(held.has('ControlLeft')).toBe(false);
+  expect(sent.at(-1)).toMatchObject({type:'keyUp',code:'ControlLeft',modifiers:2,location:1});
+  expect(withHeldModifiers('Input.dispatchMouseEvent',{type:'mouseMoved'},held).modifiers).toBe(2);
+  held.clear();
+  expect(withHeldModifiers('Input.dispatchMouseEvent',{type:'mouseMoved'},held).modifiers).toBe(0);
+});
+
+test('trusted browser modifier events retain both sides and reach following keys and pointers', async () => {
+  const server=Bun.serve({port:0,fetch(){return new Response(`<div id="exact-root" data-boot-ms="1"><canvas id="world" tabindex="0" style="position:absolute;left:20px;top:30px;width:100px;height:100px"></canvas></div><script>
+    const world=document.getElementById('world'),events=[];let focuses=0;
+    for(const type of ['keydown','keyup','pointerdown','pointerup','contextmenu']) world.addEventListener(type,e=>{e.preventDefault();events.push({type,code:e.code,key:e.key,location:e.location,shift:e.shiftKey,ctrl:e.ctrlKey,alt:e.altKey,meta:e.metaKey,trusted:e.isTrusted});});
+    const agent=async r=>r.op==='tags'?{clock:0}:r.op==='tree'?{nodes:[{id:1,type:'canvas',props:{testId:'world'}}]}:r.op==='layout'?{viewport:{w:420,h:900},nodes:[{id:1,x:20,y:30,w:100,h:100}]}:r.op==='focus'?(focuses++,world.focus(),{ok:true}):r.op==='state'?{events,focuses}:{};
+    window.exact={ready:Promise.resolve(),views:new Map([[1,world]]),gpu:{wantsInput:()=>true},agent,agentSettled:agent};
+    </script>`,{headers:{'content-type':'text/html'}});}});
+  let s;
+  try {
+    s=await open({host:'web',url:server.url.href});
+    const codes=['ShiftLeft','ShiftRight','ControlLeft','ControlRight','AltLeft','AltRight','MetaLeft','MetaRight'];
+    for(const key of codes) await s.type('world',{key});
+    let state=await s.carrier.ask({op:'state'});
+    expect(state.events).toHaveLength(16);
+    for(let i=0;i<codes.length;i++) for(const [offset,type] of [[0,'keydown'],[1,'keyup']]) {
+      const code=codes[i], key=code.replace(/Left|Right/g,''), flag={Shift:'shift',Control:'ctrl',Alt:'alt',Meta:'meta'}[key];
+      expect(state.events[i*2+offset]).toEqual({type,code,key,location:code.endsWith('Left')?1:2,shift:false,ctrl:false,alt:false,meta:false,trusted:true,[flag]:offset===0});
+    }
+    const focuses=state.focuses;
+    await assert.rejects(s.type('world',{key:'ControlMiddle'}),/unsupported key/);
+    expect((await s.carrier.ask({op:'state'})).focuses).toBe(focuses);
+    for(const [key,phase] of [['ControlLeft','down'],['ControlRight','down'],['ControlLeft','up']]) await s.type('world',{key,phase});
+    await s.type('world',{key:'Digit1'});
+    await s.tap('world',{contextmenu:true,at:[50,50]});
+    await s.type('world',{key:'ControlRight',phase:'up'});
+    await s.type('world',{key:'Digit2'});
+    state=await s.carrier.ask({op:'state'});
+    const tail=state.events.slice(16);
+    expect(tail.map(e=>[e.type,e.code??null,e.ctrl])).toEqual([
+      ['keydown','ControlLeft',true],['keydown','ControlRight',true],['keyup','ControlLeft',true],
+      ['keydown','Digit1',true],['keyup','Digit1',true],['pointerdown',null,true],['pointerup',null,true],['contextmenu',null,true],
+      ['keyup','ControlRight',false],['keydown','Digit2',false],['keyup','Digit2',false],
+    ]);
+    expect(tail.every(e=>e.trusted)).toBe(true);
+  } finally {await s?.close();server.stop(true);}
+},60000);
 
 test('public web inventory and owned reads agree on native Windows paths', async () => {
   const root=mkdtempSync(resolve(tmpdir(),'exact static paths '));
