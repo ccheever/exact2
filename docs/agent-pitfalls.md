@@ -157,3 +157,11 @@ guide's rules don't make obvious.
 - **A fixture's nonempty list literal does not compile.** Contract admits `[]`
   only; a nonempty list comes from a source, a shape field, or `map`/`filter`.
   `split` is not a standard function here either. (Paint-order mutation fixture, 2026-10-04.)
+- **A copied Core Animation tree renders blank.** Calling `CALayer(layer:)`
+  directly gives an empty layer: a measured copy had zero bounds and no fill
+  or sublayers. For a capture, copy values into fresh layers and recursively
+  copy children and masks. Keep the live hierarchy intact. (LLP 1083.000, Apple A2.)
+- **A nonempty list literal does not compile.** Contract admits `[]` only; a
+  nonempty list comes from a source, a shape field, or `map`/`filter`, and
+  `split` is not a standard function. For a fixture or a static mount
+  measurement, generate the repeated markup. (LLP 1083.000, web W2 and Apple A2.)

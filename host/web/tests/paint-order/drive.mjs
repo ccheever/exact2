@@ -6,7 +6,7 @@
 // The root sits in a yellow frame with 8 points of padding, found by its
 // colour, so no host's window chrome matters and its padding gives the scale.
 //
-//   bun host/web/tests/paint-order/drive.mjs <web|linux|macos|ios> [name-substring]
+//   bun host/web/tests/paint-order/drive.mjs <web|linux|macos|ios> [name-substring] [--default-capture]
 //
 // Exits 1 on any mismatch, after reporting every one.
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -16,7 +16,9 @@ import { spawnSync } from 'node:child_process';
 import { decodePng } from '../../../../scripts/png.mjs';
 
 const root = resolve(new URL('.', import.meta.url).pathname, '../../../..');
-const [host = 'web', only] = process.argv.slice(2);
+const args = process.argv.slice(2);
+const defaultCapture = args.includes('--default-capture');
+const [host = 'web', only] = args.filter(a => a !== '--default-capture');
 const fixture = resolve(root, 'kernel/tests/it/fixtures/browser_paint_order.tsv');
 const work = mkdtempSync(resolve(tmpdir(), 'exact-paint-order-drive-'));
 
@@ -60,7 +62,7 @@ for (const [name, rootCss, nodesField, probesField, , exactField] of cases) {
   writeFileSync(src, contract(name, rootCss, nodes));
   const built = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', src, '-o', plan], { cwd: root, encoding: 'utf8' });
   if (built.status !== 0) { failures.push(`${name}: the plan did not compile: ${built.stderr.trim().split('\n').pop()}`); continue; }
-  const shotOp = host === 'macos' ? `screenshot ${shot} window` : `screenshot ${shot}`;
+  const shotOp = host === 'macos' && !defaultCapture ? `screenshot ${shot} window` : `screenshot ${shot}`;
   const drove = spawnSync('bun', ['scripts/agent.mjs', host, '--plan', plan, 'clock settle', shotOp], { cwd: root, encoding: 'utf8', env: process.env });
   // A host that cannot run at all fails every case the same way: say it once.
   if (drove.status !== 0) { console.log(`${name}: the ${host} drive failed: ${(drove.stderr || drove.stdout).trim().split('\n').slice(-2).join(' ')}`); process.exit(1); }
