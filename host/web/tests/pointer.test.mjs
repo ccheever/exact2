@@ -24,15 +24,16 @@ const page = `<!doctype html>
   <div id="outer" style="width:200px;height:120px;padding:10px"><button id="inner" style="width:100px;height:60px">i</button></div>
   <div id="wrap" style="width:200px;height:80px;padding:10px"><button id="child" style="width:100px;height:40px">c</button></div>
   <div id="dparent" style="width:200px;height:80px;padding:10px"><div id="dkid" disabled style="width:100px;height:40px">k</div></div>
+  <div id="hoverbox" style="width:200px;height:80px;padding:10px"><div id="tapkid" style="width:100px;height:40px">t</div></div>
 </div>
 <script type="module">
   import { createInputHandlers } from './input-glue.js';
   const root = document.getElementById('exact-root');
   const h = createInputHandlers({ root, views: new Map(), retiredViews: new Set(), ready: () => true, inertAncestor: () => false, dispatch() {} });
   window.log = []; window.records = [];
-  for (const id of ['mic', 'off', 'outer', 'inner', 'wrap', 'dparent', 'dkid']) {
+  for (const id of ['mic', 'off', 'outer', 'inner', 'wrap', 'dparent', 'dkid', 'hoverbox', 'tapkid']) {
     const el = document.getElementById(id);
-    el.exactHandlers = ['pointerdown', 'pointerup', 'press', ...(id === 'mic' ? ['pointermove'] : [])];
+    el.exactHandlers = ['pointerdown', 'pointerup', 'press', ...(id === 'mic' || id === 'hoverbox' ? ['pointermove'] : [])];
     const on = (type, f) => el.addEventListener(type, f);
     let p;
     const own = () => p ??= h.pointer(el, on, (k, r) => { window.log.push(id + (k === 29 ? ' down' : k === 30 ? ' up' : ' move')); window.records.push(r); });
@@ -123,6 +124,11 @@ check('down before the press, up wherever the button lifts, nothing when disable
     await mouse('mousePressed', dkid);
     await mouse('mouseReleased', dkid);
     expect((await log()).filter(l => !l.endsWith('press'))).toEqual(['dparent down', 'dparent up']);
+    // A child hearing only down and up lets a free move by to the ancestor
+    // that hears moves (Astra's batch 2 review, finding 4).
+    await mouse('mouseMoved', await centre('tapkid'), 'none', 0);
+    await frame();
+    expect(await log()).toEqual(['hoverbox move']);
   } finally {
     child.kill();
     server.close();

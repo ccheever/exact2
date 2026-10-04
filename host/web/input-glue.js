@@ -168,11 +168,13 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         if (wants("pointerup") && ready()) fire(30, record(e.type === "blur" ? last : e, true));
       };
       const disabled = () => el.matches(":disabled") || el.hasAttribute("disabled") || inertAncestor(el);
-      // A free pointer over it: the innermost node hearing moves takes them.
+      // A free pointer over it: the innermost node hearing moves takes them;
+      // one that hears only down or up lets them by to an ancestor that
+      // hears them, as pointer.js does.
       on("pointermove", e => {
-        if (e.exactPointerMover) return;
+        if (e.exactPointerMover || !wants("pointermove")) return;
         e.exactPointerMover = el;
-        if (held === null && e.buttons === 0 && wants("pointermove") && !disabled()) moved(e);
+        if (held === null && e.buttons === 0 && !disabled()) moved(e);
       });
       return e => {
         // The innermost enabled pointer node takes it (the event bubbles
