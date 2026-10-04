@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { gameDefaults } from './app/shells.mjs';
 import { pathFrom, patchLines } from '../scripts/app.mjs';
@@ -296,11 +296,10 @@ ${END}
 `;
 }
 
-/** CLAUDE.md is AGENTS.md, as in exact2 itself: a link, or a copy where the
- * filesystem has none (`update` rewrites a copy's block too). */
+/** CLAUDE.md is a copy of AGENTS.md, not exact2's own symlink: a build's
+ * source capture refuses links in an app, and `update` rewrites both blocks. */
 function linkClaude(dir) {
-  try { symlinkSync('AGENTS.md', resolve(dir, 'CLAUDE.md')); }
-  catch { writeFileSync(resolve(dir, 'CLAUDE.md'), readFileSync(resolve(dir, 'AGENTS.md'))); }
+  writeFileSync(resolve(dir, 'CLAUDE.md'), readFileSync(resolve(dir, 'AGENTS.md')));
 }
 
 /** Rewrite the generated block in AGENTS.md and a CLAUDE.md that is a copy,
