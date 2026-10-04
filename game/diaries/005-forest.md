@@ -624,7 +624,23 @@ The engine regression exercises newly spawned, teleported and retargeted followe
 through both restore methods. A second case teleports after an explicit follow
 inside a game tick, then checks the checkpoint and subsequent ticks in Save and
 FreshGame modes against ordinary execution. Engine tests pass (401 enabled,
-seven ignored, including the added case); Forest's 15 tests, Garden's 13 tests and
+seven ignored, including the added case); Forest's 15 tests, Garden's 13 simulation tests and
 Rivals' 23 enabled tests pass. Garden's stale lock needed the prescribed refresh,
 adding two dependency edges without package-version changes. Cross-host app drives
 follow this checkpoint.
+
+The app sweep passes with the fix committed as `b37d46a2c`: Forest web 157.7 s
+and macOS 117.5 s, including rebuilds, with matching source inputs, both existing
+tick pins, six snapshots and nine save digests. Rivals also passes on web
+(122.1 s) and macOS (29.7 s), with matching pins, six snapshots and six saves.
+Garden's full Linux/web collector, release comparison and independent macOS run
+agree too (diary 004). Forest and Garden's optional macOS descendant audits time
+out, while every owned carrier exits; the other audits pass. This closes the
+pending-teleport queue item without a special case in Forest.
+
+Root build, 2,314 enabled tests (nine ignored), clippy, formatting, caps and boot
+pass. The fetched main had put `kernel/src/style.rs` three lines over its source
+cap; shortening comments restores the cap without changing behavior. Engine
+clippy and the edited game package's formatting pass as well. The key lesson is
+that restore is not another setup: pending work must keep its place relative to
+the next game tick, even when initializing it early appears visually convenient.

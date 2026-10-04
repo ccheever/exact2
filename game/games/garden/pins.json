@@ -4,16 +4,16 @@
     "5136": "0x33b4b683a425ddcf"
   },
   "saves": {
-    "continuation": "8ad353c2f3f461ea61d7c7b3e2a80b2e8f380ebedb809b22b859a199a3b7c11d",
-    "market": "1e80964f83d1629fc99341696fc3c3aedc95f0c9803bcadc1f4fb719bacf7b9b"
+    "continuation": "96695633e5e28f982183980d2d54be514805edb027cb35313feeea582d64856e",
+    "market": "5a2dcab705e836e0dd0dff689461ead9918fd8debe6c529aeab544a203d505b1"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "c875ef2e7f3775e153594d8d0e993c69eb3bcebe6f98d799473f74b5dd2ea222",
+  "inputs": "1a436ef77f08487b347a1fcbc77dbd59223c1b29ac9663a34de39bc782c6ac7d",
   "game": "garden",
   "generated": "bun game/prove.mjs garden --repin --hosts 'linux,web'",
-  "at": "533d6f794bab1f355e0be7e481dde3f6aa5527fd",
-  "reason": "Market orders with saved one-time bonuses, current shop availability, and HUD-driven Jev playtests"
+  "at": "b37d46a2c8cbf9f4d566d23cec799c1e8120a4bd",
+  "reason": "Refresh EXSIM v7 baseline after pending follower restore fix and main 39ac858b2"
 }

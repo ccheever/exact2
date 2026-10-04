@@ -506,3 +506,41 @@ build took 62 s. All hosts agree on the new market continuation digest
 `1e80964f…` and the large-garden continuation `8ad353c2…`; accepted inputs are
 `c875ef2e…`. Complete evidence is in
 `games/garden/artifacts/prove/run-jEvdaO/`. No parity threshold was loosened.
+
+## Rechecking the market on the repaired save path (2026-10-04)
+
+Forest's arranged teleport exposed an engine restore bug: pending camera work
+ran before the next game tick after restoring, but after it in the original
+simulation. `b37d46a2c` preserves that work and its saved pose (diary 005), on
+main through `39ac858b2`. Garden's lock refresh adds `serde_json` to Canvas 2D
+and `exact-kernel` to the Windows host, without package-version changes. All
+13 simulation tests and three crop unit tests pass.
+
+The strict collector `artifacts/prove/run-UhwFBt` accepts Garden's refreshed
+EXSIM v7 baseline after Linux and web agree in normal, Save and FreshGame modes,
+plus native release. Both tick hashes stay the same; the two save digests change
+from the older format. All seven runs have zero failures and passing descendant
+audits. The independent macOS run (66.3 s including rebuild) matches their source
+inputs, tick/save pins, four world snapshots and six saves. Its optional `ps`
+audit times out while every owned process exits. The release comparison takes
+75.4 s including its rebuilds. A subsequent ordinary Linux proof reports `PASS`
+against the accepted pins.
+
+Jev replayed the existing two-order objective through the HUD on both hosts.
+Each run chose the same 13 actions and ended at garden time 1:41 with 475¢ and
+the blueberry order visible. Both bought the same unnecessary carrot while
+waiting for strawberries. This is an integration recheck, with no policy change
+or claim about completing the remaining three orders.
+
+| Run | Decisions | Decision p50 / p95 | Input / output tokens | Wall time with build |
+|---|---:|---|---|---:|
+| Web | 13 | 306 / 3,008 ms | 11,237 / 612 | 69.8 s |
+| macOS | 13 | 311 / 589 ms | 11,237 / 612 | 8.2 s |
+
+Both Jev process audits pass. Model wall time does not advance the game clock.
+Artifacts are `artifacts/jev-follow-{web,macos}/`; both screenshots were viewed,
+with readable market rewards, growth times and enabled seed controls. The next
+playtest should go beyond the two-order, same-tile controller: ordinary walking,
+the remaining crop controls, and all five requests. Its evidence should drive
+the next navigation and progression improvements rather than another replay of
+the already-working opening.
