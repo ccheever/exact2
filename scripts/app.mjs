@@ -407,8 +407,8 @@ export function webDist() {
  * with its own runner (`exact new`) is told its own `bun exact.mjs web-build`. */
 export function webBuildCommand(app, dist, flags = '', otherwise = null) {
   const quote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
-  const own = resolve(app.dir, 'exact.mjs');
-  if (process.env.EXACT_APP_DIR && !process.env.EXACT_WEB_DIST && existsSync(own) && !own.startsWith(`${ROOT}/`))
+  const own = app.dir ? resolve(app.dir, 'exact.mjs') : null;
+  if (own && process.env.EXACT_APP_DIR && !process.env.EXACT_WEB_DIST && existsSync(own) && !own.startsWith(`${ROOT}/`))
     return `cd ${quote(app.dir)} && bun exact.mjs web-build${flags}`;
   return otherwise ?? `EXACT_APP_DIR=${quote(app.dir)} EXACT_WEB_DIST=${quote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}${flags}`;
 }

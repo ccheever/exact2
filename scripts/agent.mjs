@@ -1273,17 +1273,20 @@ export function typeArguments(args) {
  * operations use. One session per file; a failed expect names the test, the
  * line, and what was seen. Returns `{ passed, failed, results }`.
  */
-export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch } = {}) {
+export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, storage } = {}) {
   const root = resolve(fileURLToPath(new URL('..', import.meta.url)));
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
   const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
   if (c.status !== 0) throw new Error(c.stderr?.trim() || c.error?.message || 'contract test compiler failed');
   const tests = JSON.parse(c.stdout);
   const results = [];
-  // Every test starts from the first frame: a session of its own.
-  for (const t of tests) {
+  // Every test starts from the first frame: a session of its own, and with
+  // --storage a scratch store of its own, empty, named for this run and test.
+  const run = Date.now().toString(36);
+  for (const [index, t] of tests.entries()) {
     const failures = [];
-    const s = await open({ host, browser, plan, size, env, app, webDist, device, phone, url, seed, locale, timeZone, epoch });
+    const scratch = storage ? `${storage}-${run}-${index}` : undefined;
+    const s = await open({ host, browser, plan, size, env, app, webDist, device, phone, url, seed, locale, timeZone, epoch, storage: scratch });
     try {
       for (const st of t.steps) {
         const at = `${t.name}: line ${st.line}`;
@@ -1338,7 +1341,7 @@ async function main(argv) {
   const browser = flags.browser ?? (host === 'web' ? process.env.EXACT_WEB_BROWSER : undefined);
   if (host && flags.test) {
     if (flags.touch && flags.touch !== 'agent') throw new Error('--test runs its own sessions, without real touches: --touch platform is not supported with --test (LLP 1080.000)');
-    const r = await runTests({ host, browser, file: flags.test, plan: flags.plan, app: flags.app, size: flags.size, device: flags.device, phone: flags.phone, url: flags.url, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch });
+    const r = await runTests({ host, browser, file: flags.test, plan: flags.plan, app: flags.app, size: flags.size, device: flags.device, phone: flags.phone, url: flags.url, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch, storage: flags.storage });
     for (const t of r.results) {
       console.log(`test "${t.name}": ${t.failures.length ? 'FAIL' : 'ok'}`);
       for (const f of t.failures) console.error('  ' + f);

@@ -36,7 +36,7 @@ after first pixel. Production bakes ignore these agent variables.
 Asset names have no fixed per-surface count limit. Web loading still bounds
 concurrent requests and decoded asset bytes; a queued request's timeout begins
 when its fetch starts.
-Weird Castle is the external consumer, with a full-screen Beacons demo in its own
+Weird Castle was the first external consumer, with a full-screen Beacons demo in its own
 engine module; its title sky never loads the engine.
 
 The integration source is Black's `lane/game` at `126daba5` plus its working-tree

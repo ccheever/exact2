@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, dirname, relative, resolve } from 'node:path';
 import { gameDefaults } from './app/shells.mjs';
 import { pathFrom, patchLines } from '../scripts/app.mjs';
@@ -111,7 +111,9 @@ ${patchLines(dir).join('\n')}
     'rust-toolchain.toml': readFileSync(resolve(ROOT, 'rust-toolchain.toml'), 'utf8'),
     'exact.mjs': commandsFor(dir, name),
     '.gitignore': '/target/\n/dist/\n/app.contract.d.ts\n',
+    'AGENTS.md': agentNotes(dir, name),
     'app.json': JSON.stringify({
+      $schema: pathFrom(dir, resolve(ROOT, 'scripts/app.schema.json')),
       name: title, short_name: title, id: `com.example.${name}`, start_url: '/', display: 'standalone',
       app: { id: `com.example.${name}`, name: title },
       host: { ios: { minimumOS: '17.0', deviceFamily: ['iphone', 'ipad'] }, macos: { minimumOS: '14.0', window: { width: 900, height: 700 } }, web: {} },
@@ -234,17 +236,90 @@ exact_web::host!(
     mkdirSync(dirname(resolve(dir, path)), { recursive: true });
     writeFileSync(resolve(dir, path), text);
   }
+  linkClaude(dir);
   writeFileSync(resolve(dir, 'Cargo.lock'), readFileSync(resolve(ROOT, 'Cargo.lock')));
   const deferred = resolveOffline(dir, true);
   const run = `bun ${JSON.stringify(relative(process.cwd(), resolve(dir, 'exact.mjs')) || 'exact.mjs')}`;
   return `Created ${dir}
   ${run} web          the web dev loop
+  ${run} contract types app.contract -o app.contract.d.ts   the types app.ts imports
   ${run} test web     run app.test.contract (web, macos or ios)
   ${run} agent web tree  inspect or drive the app
   ${run} ios --run    build and launch on an iOS simulator
   ${run} mac --run    build and launch on this Mac${deferred ? `
 Cargo.lock is still exact2's: this machine's Cargo cache lacks some of its crates, so the
 first build resolves it, fetching them once (it needs the network then, not now).` : ''}`;
+}
+
+const BEGIN = '<!-- exact:begin (exact new writes this block; bun exact.mjs update rewrites it) -->', END = '<!-- exact:end -->';
+
+/** What an agent in the app's directory can't discover (LLP 1086 D1): where
+ * the guides are, the app's commands, and the loop. Paths are from the app to
+ * this checkout, so \`update\` follows a checkout that moved. */
+function agentNotes(dir, name) {
+  const doc = file => pathFrom(dir, resolve(ROOT, 'docs', file));
+  return `${BEGIN}
+# ${name}: an Exact app
+
+The view is \`app.contract\` (Contract), its data is \`app.ts\` (TypeScript), and
+\`app.json\` is the manifest (its \`$schema\` gives an editor every key). The app uses
+the exact2 checkout at \`${pathFrom(dir, ROOT)}\` by path (\`EXACT2\` overrides it).
+
+Read before writing code:
+
+- ${doc('contract-for-agents.md')}: the working guide. Start here.
+- ${doc('agent-pitfalls.md')}: verified footguns, symptom → cause → fix.
+- ${doc('contract-for-humans.md')}: explanations and complete examples, including the data module.
+- ${doc('contract-grammar.md')}: exact forms, built-in functions, events.
+
+Commands, from this directory:
+
+| | |
+|---|---|
+| \`bun exact.mjs contract types app.contract -o app.contract.d.ts\` | the types \`app.ts\` imports; rerun after changing a source's signature |
+| \`bun exact.mjs contract build app.contract --json\` | compile; \`[]\` or every diagnostic with its range |
+| \`bun exact.mjs contract vocab [name]\` | the tags, attributes and CSS properties Contract accepts |
+| \`bun exact.mjs web\` | the web dev loop, at http://127.0.0.1:8765/ |
+| \`bun exact.mjs test web\` | run \`app.test.contract\` (also \`macos\`, \`ios\`) |
+| \`bun exact.mjs agent web tree "tap <id>" "screenshot out.png"\` | drive the app as a person would |
+| \`bun exact.mjs mac --run\`, \`bun exact.mjs ios --run\` | build and launch natively |
+| \`bun exact.mjs update\` | after exact2 moves or changes its patches |
+
+The loop: generate the types, edit, \`contract build --json\` until it prints \`[]\`,
+\`test web\`, look at it with \`agent web … screenshot\`, then the native hosts.
+\`bun ${pathFrom(dir, resolve(ROOT, 'scripts/exact.mjs'))} setup --check\` names anything this machine is missing.
+
+Generated, so don't edit: the \`[patch.crates-io]\` table in \`Cargo.toml\`,
+\`rust-toolchain.toml\`, \`exact.mjs\`, and this block.
+${END}
+`;
+}
+
+/** CLAUDE.md is AGENTS.md, as in exact2 itself: a link, or a copy where the
+ * filesystem has none (`update` rewrites a copy's block too). */
+function linkClaude(dir) {
+  try { symlinkSync('AGENTS.md', resolve(dir, 'CLAUDE.md')); }
+  catch { writeFileSync(resolve(dir, 'CLAUDE.md'), readFileSync(resolve(dir, 'AGENTS.md'))); }
+}
+
+/** Rewrite the generated block in AGENTS.md and a CLAUDE.md that is a copy,
+ * keeping what an author wrote around it; an app with neither gets both. */
+function updateNotes(dir, name) {
+  const block = agentNotes(dir, name), changed = [];
+  const present = ['AGENTS.md', 'CLAUDE.md'].filter(file => existsSync(resolve(dir, file)) && !lstatSync(resolve(dir, file)).isSymbolicLink());
+  if (!present.length) {
+    writeFileSync(resolve(dir, 'AGENTS.md'), block);
+    if (!existsSync(resolve(dir, 'CLAUDE.md'))) linkClaude(dir);
+    return ['AGENTS.md', 'CLAUDE.md'];
+  }
+  for (const file of present) {
+    const path = resolve(dir, file), text = existsSync(path) ? readFileSync(path, 'utf8') : '';
+    const at = text.indexOf(BEGIN), end = text.indexOf(END, at);
+    const next = at >= 0 && end > at ? text.slice(0, at) + block.trimEnd() + text.slice(end + END.length)
+      : text ? `${text.trimEnd()}\n\n${block}` : block;
+    if (next !== text) { writeFileSync(path, next); changed.push(file); }
+  }
+  return changed;
 }
 
 /** The app's own command runner. EXACT2 names the checkout once (D3); the
@@ -268,6 +343,7 @@ const verbs = {
   ios: ['host/apple/build.mjs', '--ios', '${name}-apple'],
   mac: ['host/apple/build.mjs', '${name}-apple'],
   update: ['scripts/exact.mjs', 'new', import.meta.dir, '--update'],
+  contract: ['scripts/exact.mjs', 'contract'],
 };
 if (!verbs[verb]) {
   console.error(\`Usage: bun exact.mjs <\${Object.keys(verbs).join('|')}> [arguments for that script]\`);
@@ -313,6 +389,13 @@ function updateApp(dir, name) {
     : manifest.replace(section, table => block + (at + table.length < manifest.length ? '\n' : '')));
   writeFileSync(resolve(dir, 'rust-toolchain.toml'), readFileSync(resolve(ROOT, 'rust-toolchain.toml')));
   writeFileSync(resolve(dir, 'exact.mjs'), commandsFor(dir, name));
+  const notes = updateNotes(dir, name);
+  const manifestPath = resolve(dir, 'app.json');
+  if (existsSync(manifestPath)) {
+    const text = readFileSync(manifestPath, 'utf8');
+    const next = text.replace(/("\$schema"\s*:\s*)"[^"]*"/, (_, head) => head + JSON.stringify(pathFrom(dir, resolve(ROOT, 'scripts/app.schema.json'))));
+    if (next !== text) writeFileSync(manifestPath, next);
+  }
   // An older app may predate the generated test command. Preserve authored
   // tests; otherwise start with a boot check that assumes no app-specific IDs.
   const test = resolve(dir, 'app.test.contract');
@@ -332,7 +415,7 @@ test "the app opens"
     if (next !== text) { writeFileSync(path, next); changed.push(file); }
   }
   resolveOffline(dir);
-  return `Updated ${dir}: patches, toolchain, exact.mjs${changed.length ? `, exact2 paths in ${changed.join(', ')}` : ''}`;
+  return `Updated ${dir}: patches, toolchain, exact.mjs${notes.length ? `, ${notes.join(', ')}` : ''}${changed.length ? `, exact2 paths in ${changed.join(', ')}` : ''}`;
 }
 
 if (import.meta.main) {
