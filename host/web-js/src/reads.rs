@@ -64,12 +64,13 @@ pub fn field_mask(code: &str) -> Option<u32> {
 }
 
 /// Whether a key's code reads nothing but `item`, `index` and the runtime's
-/// pure helpers (`x_…`).
+/// pure helpers (`x_…`, budget.js's checked `cc` and `K`).
 pub fn pure_key(code: &str, item: &str, index: &str) -> bool {
     words(code).into_iter().all(|(w, _)| {
         w == item
             || w == index
             || w.starts_with("x_")
+            || matches!(w, "cc" | "K")
             || w.as_bytes()[0].is_ascii_digit()
             || matches!(w, "true" | "false" | "null" | "undefined")
     })
@@ -110,6 +111,7 @@ mod tests {
     fn a_key_is_pure_when_it_reads_only_its_row() {
         assert!(pure_key("i0()[0]", "i0", "x0"));
         assert!(pure_key("\"k\"+x_toString(i0()[0])+x0()", "i0", "x0"));
+        assert!(pure_key("cc(\"k\",x_toString(i0()[0]),3)", "i0", "x0"));
         assert!(!pure_key("i0()[0]+s_3()", "i0", "x0"));
         assert!(!pure_key("i0()[0]+d_1()", "i0", "x0"));
         assert!(!pure_key("i1()[0]", "i0", "x0"));

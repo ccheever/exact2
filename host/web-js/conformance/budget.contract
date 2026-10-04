@@ -1,0 +1,217 @@
+// data: carousel
+// Synthetic conformance plan: the runner's evaluation bounds (LLP 1090 D7)
+// on the wasm runner, the JS target and the Linux runner, on Carousel's
+// sources: `cards(n, _)` answers `n` six-value records, `long(n, c)` is `c`
+// `n` times. Each `case-N` sets `c`, and what `c` names is evaluated in that
+// commit: a step succeeds on every target, or each refuses it with the same
+// reason (`conform.mjs` compares the bound refusals' text). Long strings are
+// built by doubling (`fn d1`…), not asked of a source: the JS target's Rust
+// data seam carries at most 16 MiB a message (MAX_HOST_WORK_BYTES), so a
+// string past MAX_STRING from a source (the LLP's cases 10, 13, 17's first
+// two and 8's one-item join) is tested on the runner and on the JS runtime
+// directly (host/web/tests/js-runtime.test.mjs). The cases, by the LLP's number:
+//  1  65,536 list steps succeed (c 1), 65,537 trap at the `map` (c 2);
+//  2  a nested `map` over 300 traps (90,300 steps) (c 3);
+//  3  two arguments of one resource, 40,000 steps each (c 4);
+//  4  three row keys, two row-state initializers and two handler
+//     arguments, 40,000 steps each (c 5, `both-0`, `type in-0`);
+//  5  derive A maps 40,000, reads derive B (40,000), maps 30,000 more: A's
+//     second `map` traps (c 6);
+//  6  a handler argument and a list edge's argument that trap (`argtrap`,
+//     `edge`);
+//  7  a row key that traps poisons the runner (`poison`, last);
+//  8  `join` takes its steps at its call: 32,768 labels succeed (c 8),
+//     32,769 trap (c 24);
+//  9  doubling "é": 25 times reaches 2^26 bytes and succeeds (c 9), 26
+//     times traps at the last concatenation (c 32);
+// 11  `map` of records of two 2,000-card lists passes 2^24 values on item
+//     699 (c 11);
+// 12  40,000 strings of 2 KiB pass 2^26 bytes on item 32,769 (c 12); 30,000
+//     pass it as an upper bound and succeed on the exact count (c 25);
+// 13  a record of two 32 MiB strings is 2^26 bytes and succeeds (c 33); one
+//     more byte traps (c 13);
+// 14  each encoder one byte past MAX_STRING (c 14, 26), and at it (c 34);
+//     an empty route segment is refused (c 27);
+// 15  a 41 MB list counts twice in one record (c 15);
+// 16  `join` after a `map` in one evaluation: 80,000 steps trap at the join
+//     (c 16), 60,000 succeed (c 29);
+// 17  a trapping argument on a poisoned runner is still a trap (last);
+// 18  a cached 10 MB list three times (30 MB exact, 90 MB as 3 a unit)
+//     succeeds (c 18); seven times traps (c 30).
+routes nav
+  tab home "/"
+
+shape Card
+  id: string
+  n: number
+  label: string
+  width: number
+  color: string
+
+shape Two
+  a: list<Card>
+  b: list<Card>
+
+shape Pair
+  a: string
+  b: string
+
+shape Strs
+  a: list<string>
+  b: list<string>
+
+shape Three
+  a: list<string>
+  b: list<string>
+  c: list<string>
+
+shape Seven
+  a: list<string>
+  b: list<string>
+  c: list<string>
+  d: list<string>
+  e: list<string>
+  f: list<string>
+  g: list<string>
+
+fn d1(x: string): string = x + x
+fn d4(x: string): string = d1(d1(d1(d1(x))))
+fn d24(x: string): string = d4(d4(d4(d4(d4(d4(x))))))
+fn d25(x: string): string = d1(d24(x))
+fn twice(xs: list<string>): number = length(Strs(a=xs, b=xs).a)
+fn thrice(xs: list<string>): number = length(Three(a=xs, b=xs, c=xs).a)
+fn seven(xs: list<string>): number = length(Seven(a=xs, b=xs, c=xs, d=xs, e=xs, f=xs, g=xs).a)
+
+component Budget
+  state c = 0
+  state t = ""
+  state empty = ""
+  state armed = false
+  state edge = false
+  state poison = false
+  derive size = c == 1 ? 65536 : c == 2 ? 65537 : c == 3 ? 300 : c == 8 ? 32768 : c == 24 ? 32769 : c == 11 ? 2000 : c == 15 ? 20000 : c == 18 or c == 30 ? 10000 : c == 25 or c == 29 ? 30000 : c == 4 or c == 5 or c == 6 or c == 12 or c == 16 ? 40000 : 0
+  derive slen = c == 12 or c == 25 or c == 15 ? 2048 : c == 18 or c == 30 ? 1000 : 0
+  resource k = cards(size, 0) as shape list<Card>
+  resource j = cards(c == 6 ? 30000 : 0, 0) as shape list<Card>
+  resource three = cards(c == 5 ? 3 : 0, 0) as shape list<Card>
+  resource big = cards(armed ? 65537 : 0, 0) as shape list<Card>
+  resource keyed = cards(armed ? 3 : 0, 0) as shape list<Card>
+  resource str = long(slen, "a") as shape string
+  resource two = cards(c == 4 ? length(map(k, x => x)) : 0, c == 4 ? length(map(k, x => x)) : 0) as shape list<Card>
+  derive a6 = c == 6 ? length(map(k, x => x)) + b6 + length(map(j, x => x)) : 0
+  derive b6 = c == 6 ? length(map(k, x => x)) : 0
+  derive d1 = c == 1 or c == 2 ? length(map(k, x => x)) : 0
+  derive d3 = c == 3 ? length(map(k, a => map(k, b => b.n))) : 0
+  derive d8 = c == 8 or c == 24 or c == 16 or c == 29 ? length(join(map(k, x => x.label), ",")) : 0
+  derive d9 = c == 9 ? length(d25("é")) : c == 32 ? length(d1(d25("é"))) : 0
+  derive d11 = c == 11 ? length(map(k, x => Two(a=k, b=k))) : 0
+  derive d12 = c == 12 or c == 25 ? length(map(k, x => str)) : 0
+  derive d13 = c == 33 ? length(Pair(a=d25("a"), b=d25("a")).a) : c == 13 ? length(Pair(a=d25("a"), b=d25("a") + "a").a) : 0
+  derive d14 = c == 34 ? length(encodeURIComponent(d24(" ") + d24("a"))) : c == 14 ? length(encodeURIComponent(d24(" ") + d24("a") + "a")) : c == 26 ? length(encodeRouteSegment(d24(" ") + d24("a") + "a")) : c == 27 ? length(encodeRouteSegment(empty)) : 0
+  derive d15 = c == 15 ? twice(map(k, x => str)) : 0
+  derive d18 = c == 18 ? thrice(map(k, x => str)) : c == 30 ? seven(map(k, x => str)) : 0
+  derive same = filter(three, x => true)
+  action go(n: number)
+    c = n
+  action arm
+    armed = true
+  action showEdge
+    edge = true
+  action setN(n: number)
+    t = `${n}`
+  action poisonIt
+    poison = true
+  view
+    column testId="root" gap=4 padding=8
+      row gap=4 flex-wrap="wrap"
+        button press=go(0) testId="case-0"
+          text "0"
+        button press=go(1) testId="case-1"
+          text "1"
+        button press=go(2) testId="case-2"
+          text "2"
+        button press=go(3) testId="case-3"
+          text "3"
+        button press=go(4) testId="case-4"
+          text "4"
+        button press=go(5) testId="case-5"
+          text "5"
+        button press=go(6) testId="case-6"
+          text "6"
+        button press=go(8) testId="case-8"
+          text "8"
+        button press=go(9) testId="case-9"
+          text "9"
+        button press=go(11) testId="case-11"
+          text "11"
+        button press=go(12) testId="case-12"
+          text "12"
+        button press=go(13) testId="case-13"
+          text "13"
+        button press=go(14) testId="case-14"
+          text "14"
+        button press=go(15) testId="case-15"
+          text "15"
+        button press=go(16) testId="case-16"
+          text "16"
+        button press=go(18) testId="case-18"
+          text "18"
+        button press=go(24) testId="case-24"
+          text "24"
+        button press=go(25) testId="case-25"
+          text "25"
+        button press=go(26) testId="case-26"
+          text "26"
+        button press=go(27) testId="case-27"
+          text "27"
+        button press=go(29) testId="case-29"
+          text "29"
+        button press=go(30) testId="case-30"
+          text "30"
+        button press=go(32) testId="case-32"
+          text "32"
+        button press=go(33) testId="case-33"
+          text "33"
+        button press=go(34) testId="case-34"
+          text "34"
+      row gap=4 flex-wrap="wrap"
+        button press=arm testId="arm"
+          text "arm"
+        button press=setN(length(map(big, x => x))) testId="argtrap"
+          text "argtrap"
+        button press=showEdge testId="edge"
+          text "edge"
+        button press=poisonIt testId="poison"
+          text "poison"
+      text `c ${c} size ${size} k ${length(k)} two ${length(two)} str ${length(str)} t ${t}` testId="facts"
+      text `${d1} ${d3} ${a6} ${b6} ${d8} ${d9} ${d11} ${d12} ${d13} ${d14} ${d15} ${d18} ${length(same)}` testId="results"
+      when c == 5
+        column testId="rows"
+          each x in three key=length(map(k, y => y)) * 10 + x.n
+            Row(x=x, big=k)
+          each x in same key=x.id
+            text x.label testId=`same-${x.n}`
+      each x in keyed key=(poison ? length(map(big, y => y)) : x.n)
+        text x.label testId=`key-${x.n}`
+      when edge
+        list virtualized=true reachend=setN(length(map(big, x => x))) estimated-item-height=20 height=200 testId="edges" width="100%" overflow-x="hidden"
+          each x in keyed key=x.id
+            text x.label height=20 testId=`edge-${x.n}`
+
+component Row
+  props
+    x: Card
+    big: list<Card>
+  state a = length(map(big, y => y))
+  state b = length(map(big, y => y))
+  state got = ""
+  action take(v: string)
+    got = v
+  action both(p: number, q: number)
+    got = `${p + q}`
+  view
+    row gap=4 testId=`row-${x.n}`
+      text `${x.label} ${a} ${b} ${got}`
+      button press=both(length(map(big, y => y)), length(map(big, y => y))) testId=`both-${x.n}`
+        text "both"
+      input value=got input=take testId=`in-${x.n}`

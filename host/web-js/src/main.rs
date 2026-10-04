@@ -9,11 +9,12 @@
 //! reuses the host's element and CSS rules (`exact_web::host::template`),
 //! and `exact-web` already depends on `contract`.
 
+#[cfg(test)]
+mod budget_tests;
 mod code;
 mod emit;
 mod faces;
 mod facts;
-mod nested;
 mod paint;
 #[cfg(test)]
 mod paint_tests;
