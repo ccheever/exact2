@@ -17,7 +17,7 @@
 //! `HERMES_INCLUDE_DIR` / `HERMES_LIB_DIR`. On macOS, without a sibling ibex,
 //! the engine and compiler are looked for in the machine's cache,
 //! `~/.cache/exact/hermes-macos/{engine,hermesc}` (`js/bake` looks there too),
-//! when `engine/hermes-input-receipt.json` there names the pin.
+//! whose `engine/hermes-input-receipt.json` must name the pin.
 //!
 //! The pin is vanilla Hermes 260318099.0.0-stable, facebook/hermes
 //! `HERMES_PIN` below, the one place it is written (ibex's
@@ -72,13 +72,14 @@ fn main() {
         println!("cargo:rerun-if-changed={}", bindings.join(file).display());
     }
     // Engine and compiler come from one place: the cache only when there is
-    // no sibling ibex at all, so the two are never mixed, and only a cache
-    // with a receipt, whose pin is checked below as ibex's is.
+    // no sibling ibex at all and no engine named, so the two are never mixed;
+    // a cache selected must carry a receipt naming the pin (checked below).
     let cache =
         PathBuf::from(env::var_os("HOME").unwrap_or_default()).join(".cache/exact/hermes-macos");
     let from_cache = cfg!(target_os = "macos")
+        && env::var_os("EXACT_HERMES_DIR").is_none()
         && !ibex.exists()
-        && cache.join("engine/hermes-input-receipt.json").is_file();
+        && cache.join("engine").is_dir();
     let cached = |sibling: PathBuf, name: &str| {
         if from_cache {
             cache.join(name)
@@ -179,7 +180,7 @@ fn main() {
     let receipt = std::fs::read_to_string(engine.join("hermes-input-receipt.json"));
     assert!(
         receipt.is_ok() || !from_cache,
-        "exact-js: the cached Hermes at {} has no receipt",
+        "exact-js: the cached Hermes at {} has no hermes-input-receipt.json naming its facebook/hermes commit (\"sourceCommit\"); add one, or name an engine with EXACT_HERMES_DIR",
         engine.display()
     );
     if let Ok(receipt) = receipt {

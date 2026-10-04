@@ -24,8 +24,6 @@ import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
-import { rolldown } from 'rolldown';
-import { minifySync } from 'rolldown/experimental';
 import { writeInstallPages } from '../../scripts/install-page.mjs';
 import { authClientMetadata, checkModuleRoster, gpuModules, rustPolicy, webGpuArtifacts, webHostFiles } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
@@ -46,6 +44,8 @@ process.argv = process.argv.filter((a) => a !== '--js' && a !== '--wasm' && a !=
 const renderFlag = process.argv.indexOf('--render');
 const render = renderFlag < 0 ? [] : process.argv.splice(renderFlag, 2);
 const app = resolveApp(process.argv[2]);
+// After resolveApp, which names `bun install` when the packages are missing.
+const [{ rolldown }, { minifySync }] = await Promise.all([import('rolldown'), import('rolldown/experimental')]);
 // A game's web build is the wasm target (Charlie, 2026-09-29: "Game runtime
 // is fine to be on wasm"; LLP 1071 §8). For an app the JS target is the web
 // build, and what it refuses is an error; `--wasm` is internal (below).

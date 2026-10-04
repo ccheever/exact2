@@ -25,7 +25,7 @@ function weatherlightPrerequisite() {
   if (!['linux', 'darwin'].includes(process.platform)) return `the Weatherlight wasm build is not provisioned on ${process.platform}`;
   const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
   // js/build.rs's macOS fallback: the machine's cache, when there is no sibling ibex.
-  const cache = resolve(homedir(), '.cache/exact/hermes-macos'), cached = process.platform === 'darwin' && !existsSync(resolve(ROOT, '../ibex')) && existsSync(resolve(cache, 'engine/hermes-input-receipt.json'));
+  const cache = resolve(homedir(), '.cache/exact/hermes-macos'), cached = process.platform === 'darwin' && !process.env.EXACT_HERMES_DIR && !existsSync(resolve(ROOT, '../ibex')) && existsSync(resolve(cache, 'engine'));
   const engine = process.platform === 'linux' ? resolve(ROOT, '../ibex/linux-vanilla')
     : resolve(process.env.EXACT_HERMES_DIR ?? (cached ? resolve(cache, 'engine') : resolve(ROOT, '../ibex/ios/Frameworks-vanilla')));
   const headers = process.platform === 'linux' ? resolve(process.env.HERMES_INCLUDE_DIR ?? resolve(engine, 'hermes-headers')) : resolve(engine, 'hermes-headers');

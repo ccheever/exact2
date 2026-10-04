@@ -189,7 +189,8 @@ export function lockedMetadata(workspace, noDeps = false, env = process.env) {
   return result;
 }
 
-/** Finding an outside app never changes its lock. Dependency updates are explicit. */
+/** Finding an outside app never changes its lock, except to resolve the copy an offline
+ * `exact new` left (below). Dependency updates are explicit. */
 function checkOutsideLock(workspace) {
   let result = lockedMetadata(workspace);
   // `exact new` offline, without exact2's crates in Cargo's cache, leaves the

@@ -390,8 +390,9 @@ impl Default for Tools {
                         root.join(format!("../ibex/tools/hermes-vanilla/hermesc-macos-{arch}"));
                     let cache = Path::new(&std::env::var_os("HOME").unwrap_or_default())
                         .join(".cache/exact/hermes-macos");
-                    if !root.join("../ibex").exists()
-                        && cache.join("engine/hermes-input-receipt.json").is_file()
+                    if std::env::var_os("EXACT_HERMES_DIR").is_none()
+                        && !root.join("../ibex").exists()
+                        && cache.join("engine").is_dir()
                     {
                         cache.join("hermesc")
                     } else {

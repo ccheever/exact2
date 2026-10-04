@@ -289,7 +289,9 @@ process.exit(result.status ?? 1);
 function resolveOffline(dir, deferrable = false) {
   const lock = spawnSync('cargo', ['metadata', '--offline', '--format-version', '1'], { cwd: dir, stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
   if (lock.status === 0) return false;
-  if (deferrable && /no matching package named|attempting to make an HTTP request|in the offline mode/.test(lock.stderr ?? '')) return true;
+  // Cargo may have rewritten the lock before failing to download; the first
+  // build recognises exact2's bytes, so put them back.
+  if (deferrable && /no matching package named|attempting to make an HTTP request|in the offline mode/.test(lock.stderr ?? '')) return writeFileSync(resolve(dir, 'Cargo.lock'), readFileSync(resolve(ROOT, 'Cargo.lock'))), true;
   throw new Error(`cargo could not resolve ${dir} offline:\n${lock.stderr}`);
 }
 
