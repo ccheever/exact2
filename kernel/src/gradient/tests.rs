@@ -128,9 +128,18 @@ fn what_is_not_drawn_is_refused_by_name() {
     assert!(BackgroundImage::check(&format!("linear-gradient({many})")).is_err());
     // What a computed value's own text already names (studio diary R15).
     for (css, says) in [
-        ("repeating-linear-gradient(0deg,  0 1px, transparent 1px)", Some("repeating-linear")),
-        ("linear-gradient(#000, #fff), url( )", Some("image as a background")),
-        ("REPEATING-RADIAL-GRADIENT(#000,  )", Some("repeating-radial")),
+        (
+            "repeating-linear-gradient(0deg,  0 1px, transparent 1px)",
+            Some("repeating-linear"),
+        ),
+        (
+            "linear-gradient(#000, #fff), url( )",
+            Some("image as a background"),
+        ),
+        (
+            "REPEATING-RADIAL-GRADIENT(#000,  )",
+            Some("repeating-radial"),
+        ),
         ("linear-gradient(#000, #fff)", None),
         ("linear-gradient(#000, a-url(x))", None),
     ] {

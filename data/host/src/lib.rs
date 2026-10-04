@@ -389,15 +389,23 @@ impl<D: DataSource> DataSource for Storage<D> {
             Pending::Early(payload, asked) => {
                 // The checks a send made after activation meets at once.
                 let scope = exact_data::storage::scope(self.grants(), asked.as_deref()).map(|_| ());
-                let configured =
-                    self.directories.is_some() || native::independent_storage(&payload) || self.agent;
+                let configured = self.directories.is_some()
+                    || native::independent_storage(&payload)
+                    || self.agent;
                 let refusal = match (scope, std::str::from_utf8(&payload).is_ok()) {
                     (Err(e), _) => Some((exact_runner::FailureKind::Refused, e)),
-                    (_, false) => Some((exact_runner::FailureKind::Refused, "storage request must be UTF-8".into())),
-                    (Ok(()), true) if !configured => Some((exact_runner::FailureKind::Unsupported, "storage is unavailable in an unconfigured host".into())),
+                    (_, false) => Some((
+                        exact_runner::FailureKind::Refused,
+                        "storage request must be UTF-8".into(),
+                    )),
+                    (Ok(()), true) if !configured => Some((
+                        exact_runner::FailureKind::Unsupported,
+                        "storage is unavailable in an unconfigured host".into(),
+                    )),
                     (Ok(()), true) => {
                         let grants = asked.unwrap_or_else(|| self.grants().into());
-                        self.pending.insert(token, Pending::Storage(payload, grants));
+                        self.pending
+                            .insert(token, Pending::Storage(payload, grants));
                         return self.continuation(token);
                     }
                 };

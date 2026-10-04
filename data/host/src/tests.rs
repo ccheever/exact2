@@ -212,7 +212,10 @@ fn a_send_before_activation_waits_for_storage_and_runs_once_it_is_ready() {
     };
     let token = request.continuation.unwrap();
     assert!(matches!(host.dispatch(token, &store), Dispatch::Held));
-    assert!(host.release(&store).is_empty(), "nothing runs before activation");
+    assert!(
+        host.release(&store).is_empty(),
+        "nothing runs before activation"
+    );
     assert!(!paths.0.exists());
     host.activate().unwrap();
     let mut released = host.release(&store);
@@ -227,14 +230,18 @@ fn a_send_before_activation_waits_for_storage_and_runs_once_it_is_ready() {
     // An early request outside the app's grants fails when it runs.
     let mut host = Storage::new(Fixture::new());
     paths.configure(&mut host);
-    host.source.request = storage::request("fs.writeFile", json!({"path":"app:/cache/x","text":"no"}));
+    host.source.request =
+        storage::request("fs.writeFile", json!({"path":"app:/cache/x","text":"no"}));
     let Answer::Later(request) = host
         .answer_for(Target::Mutation(0), &mut store, "operation", &[])
         .unwrap()
     else {
         panic!("expected a held request")
     };
-    assert!(matches!(host.dispatch(request.continuation.unwrap(), &store), Dispatch::Held));
+    assert!(matches!(
+        host.dispatch(request.continuation.unwrap(), &store),
+        Dispatch::Held
+    ));
     host.activate().unwrap();
     let (_, Dispatch::Run(exact_runner::Work::Now(job))) = host.release(&store).remove(0) else {
         panic!("expected the held work")

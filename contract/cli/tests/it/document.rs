@@ -98,21 +98,41 @@ fn the_innermost_active_head_wins_field_by_field() {
     // the innermost active head's `edited`, which a deeper `false` clears.
     let edited = |src: &str| {
         let plan = contract::compile(src).unwrap();
-        Runner::boot(plan, Posts, Kernel::with_monospace(), Default::default(), "/")
-            .unwrap()
-            .head()
-            .edited
+        Runner::boot(
+            plan,
+            Posts,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap()
+        .head()
+        .edited
     };
-    assert!(edited("component A\n  view\n    column\n      head title=\"plan\" edited=true\n"));
+    assert!(edited(
+        "component A\n  view\n    column\n      head title=\"plan\" edited=true\n"
+    ));
     assert!(!edited(
         "component A\n  view\n    column\n      head edited=true\n      column\n        head edited=false\n"
     ));
-    assert!(!edited("component A\n  view\n    column\n      head title=\"plan\"\n"));
+    assert!(!edited(
+        "component A\n  view\n    column\n      head title=\"plan\"\n"
+    ));
     // Any other element's `title` is HTML's global attribute, its tooltip
     // (studio diary R24), never the document's.
     let tip = contract::compile("component A\n  view\n    column\n      button title=\"Zoom In\" testId=\"z\" width=20 height=20\n").unwrap();
-    let r = Runner::boot(tip, Posts, Kernel::with_monospace(), Default::default(), "/").unwrap();
-    let z = r.kernel().node_by_key(r.kernel().find_by_test_id("z")[0]).unwrap();
+    let r = Runner::boot(
+        tip,
+        Posts,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let z = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("z")[0])
+        .unwrap();
     assert_eq!(z.props.str(PropId::Title), Some("Zoom In"));
     assert_eq!(r.head().title, None);
 }
