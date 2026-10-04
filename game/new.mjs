@@ -55,7 +55,7 @@ export function createGame(destination, directory = import.meta.dir, options = {
   const proof = quote(relative(process.cwd(), resolve(destination, 'proof.mjs')));
   // A game outside this checkout gets what an app does (LLP 1086; the
   // platformer's diary, R1): its exact.mjs verbs, AGENTS.md and the diary.
-  if (!`${destination}/`.startsWith(`${realpathSync(ROOT)}/`)) {
+  if (local && !`${destination}/`.startsWith(`${dirname(directory)}/`)) {
     writeFileSync(resolve(destination, 'exact.mjs'), commandsFor(destination, name, {game:true}));
     writeFileSync(resolve(destination, 'AGENTS.md'), agentNotes(destination, name, {game:true}));
     linkClaude(destination);
