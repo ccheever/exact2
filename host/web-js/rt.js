@@ -1,5 +1,5 @@
 import { renderMarkup, reportPlace } from "./navigation.js";
-import { conforms, eq } from "./shape.js"; import { pointer } from "./pointer.js";
+import { conforms, eq } from "./shape.js"; import { pointer } from "./pointer.js"; import { commands } from "./commands.js";
 import { paintList, paintFacts, paintFlush } from "./paint.js";
 export { conforms, eq }; export { paintOwn } from "./paint.js";
 import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head };
@@ -208,7 +208,7 @@ export function act(fn) { return (...a) => commit(() => fn(...a), "action"); }
 /** The host commands, by name; a loaded piece adds its own (list.js `scrollIntoView`). */
 export const Hosts = {
   focus: id => document.getElementById(id)?.focus(),
-  blur: id => document.getElementById(id)?.blur(),
+  blur: id => document.getElementById(id)?.blur(), ...commands(say), // and commands.js's: selectText, openURL, postMessage, reload, delivery's
   setScheme: s => { document.documentElement.style.colorScheme = s === "system" ? "" : s; },
   copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), // LLP 1077 D14: vibration where the browser has it
 };

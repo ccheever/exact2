@@ -5,6 +5,35 @@
 use super::*;
 
 impl<D: DataSource> Presenter<D> {
+    /// `focus(id)` from an action: the node whose `id` that is, when it is
+    /// focusable, as `element.focus()` takes it on the web; otherwise the
+    /// journal says why, as the web host's does (it had been an unknown
+    /// command here).
+    pub(crate) fn focus_command(&mut self, name: &str) {
+        let kernel = self.host.kernel();
+        let found = kernel
+            .rows(None)
+            .unwrap_or_default()
+            .into_iter()
+            .map(|row| row.id)
+            .find(|&id| {
+                kernel
+                    .node(id)
+                    .is_some_and(|n| n.props.str(PropId::Id) == Some(name))
+            });
+        let reason = match found {
+            None => "no live node with that id",
+            Some(id) if !self.focusable(id) => "not focusable",
+            Some(id) => {
+                if let Some(e) = self.set_focus(Some(id), self.host.now()) {
+                    eprintln!("exact: {e}");
+                }
+                return;
+            }
+        };
+        self.host.log(format!("focus \"{name}\" refused: {reason}"));
+    }
+
     /// Move the focus: `blur` at the node that loses it, then `focus` at the
     /// node that gains it — each at its own handler, since the web's focus
     /// events do not bubble.

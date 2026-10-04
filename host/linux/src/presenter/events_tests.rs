@@ -43,9 +43,12 @@ const APP: &str = r#"component App
     presses = presses + 1
   action keep
     send kept = keep()
+  action goField
+    focus("entry")
   view
     column width=400 height=400
-      input value=text input=edit submit=sent focus=focused blur=blurred key=keyed testId="field" height=32
+      input value=text input=edit submit=sent focus=focused blur=blurred key=keyed testId="field" id="entry" height=32
+      button "Focus" press=goField testId="go-field" height=32
       button "Other" press=pressed testId="other" height=32
       box opacity=0 width=200 height=40
         button "Ghost" press=pressed testId="ghost" width=200 height=40
@@ -108,6 +111,23 @@ fn keys_submit_focus_and_blur_reach_their_handlers() {
         log(&p),
         "1 1 1 Enter 1",
         "a press elsewhere blurs the field"
+    );
+}
+
+#[test]
+fn focus_from_an_action_moves_the_focus() {
+    let mut p = boot();
+    p.tap(id(&p, "go-field")).unwrap();
+    p.run_commands(|| Keeps);
+    assert_eq!(
+        p.focus(),
+        Some(id(&p, "field")),
+        "focus(\"entry\") is the field's"
+    );
+    assert!(
+        log(&p).starts_with("1 0 "),
+        "its focus handler ran: {}",
+        log(&p)
     );
 }
 

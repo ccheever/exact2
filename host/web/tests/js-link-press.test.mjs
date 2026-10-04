@@ -11,7 +11,7 @@ import { resolve } from 'node:path';
 
 const dir = mkdtempSync(resolve(tmpdir(), 'exact-js-press-'));
 copyFileSync(resolve(new URL('../../web-js/rt.js', import.meta.url).pathname), resolve(dir, 'rt.js'));
-for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace'], 'shape.js': ['conforms', 'eq'], 'pointer.js': ['pointer'],
+for (const [file, names] of Object.entries({ 'navigation.js': ['renderMarkup', 'reportPlace'], 'shape.js': ['conforms', 'eq'], 'pointer.js': ['pointer'], 'commands.js': ['commands'],
   'paint.js': ['paintList', 'paintFacts', 'paintFlush', 'paintOwn'], 'document.js': ['Docs', 'Head', 'head', 'markDocument', 'projectRoots'],
   'svg-transform.js': ['svgTransform'], 'dataset.js': ['ds'], 'hooks.js': ['hk'], 'perf.js': ['pf'], 'format.js': ['x_formatTime', 'x_formatDate', 'x_formatNumber'] }))
   writeFileSync(resolve(dir, file), names.map(n => `export const ${n} = () => {};`).join('\n'));

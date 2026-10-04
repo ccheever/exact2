@@ -578,7 +578,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `blur()`, `blur(id)` | [Messages](../apps/messages/app.contract), [keyboard-bar corpus](../contract/corpus/keyboard-bar.contract) |
 | `selectText(...)` | [Messages Legacy](../apps/messages-legacy/app.contract) |
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |
-| `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web/glue.js`](../host/web/glue.js). The JavaScript web target and Linux do not carry it |
+| `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js) |
 | `setScheme(...)` | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |
 | `share(...)` | [share corpus](../contract/corpus/share.contract) |
 | `showPicker(id)`, export `saveFile(...)` | [picker tests](../contract/cli/tests/it/picker.rs), [Fieldnotes](../apps/fieldnotes/app.contract) |
@@ -587,6 +587,14 @@ argument validation. Use the working implementation when selecting arguments:
 | `showSaveFilePicker(id, suggestedName)` | Same corpus |
 | `scrollIntoView(...)` | [collection tests](../contract/cli/tests/it/collection_into_view.rs) |
 | `deliveryCheck`, `deliveryActivate` | [delivery corpus](../contract/corpus/delivery.contract) |
+
+The web (its JS target) and the Apple hosts carry every command. The
+headless Linux host has no browser, clipboard, text selection, editor or dev
+menu: its `openURL`, `copyText`, `selectText`, `format` and `reload` are
+journaled as unsupported there, and `haptic` does nothing. On the web,
+`reload()` is the page's own reload, and `deliveryCheck` and
+`deliveryActivate` find nothing (a web build has no update store; the page is
+the newest root).
 
 Element-targeted commands use `id`, not `testId`. File pickers publish handles
 through the target's `change` event; cancellation uses `cancel`. Permissions,

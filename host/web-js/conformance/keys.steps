@@ -22,3 +22,6 @@ key field Control+s
 # A pressable column: Enter and Space press it.
 key pressable Enter
 key pressable Space
+# `selectText` selects the field's text: the next key replaces it.
+tap rename
+key field y

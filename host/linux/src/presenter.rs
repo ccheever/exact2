@@ -493,6 +493,10 @@ impl<D: DataSource> Presenter<D> {
                         self.blur();
                     }
                 }
+                "focus" => match c.args.first().and_then(exact_plan::Value::as_str) {
+                    Some(name) => self.focus_command(name),
+                    None => eprintln!("exact: focus requires an element id"),
+                },
                 "selectText" => eprintln!("exact: selectText unsupported on the headless/DRM host"),
                 // The inverse of `message=`: text into the named surface's
                 // canvas, stamped now and delivered in order with its input.
@@ -520,6 +524,10 @@ impl<D: DataSource> Presenter<D> {
                 // `cancel`, or held for the agent.
                 name @ ("showOpenFilePicker" | "showDirectoryPicker" | "showSaveFilePicker") => {
                     self.document_picker(name, &c.args)
+                }
+                // No browser, editor or dev menu here: known, and named so.
+                name @ ("openURL" | "format" | "reload") => {
+                    eprintln!("exact: {name} unsupported on the headless/DRM host")
                 }
                 other => eprintln!("exact: unknown command {other}"),
             }
