@@ -228,7 +228,7 @@ export function gameShells(dir, game, workspace) {
       : `exact-runner.workspace = true\nexact-${kind}.workspace = true\n${kind === 'web' ? 'exact-web-capabilities.workspace = true\n' : ''}${dataDependency}\n[build-dependencies]\nexact-game-app.workspace = true\n${dataBuildDependency}`;
     const files = {
       'Cargo.toml': header + dependencies,
-      [['linux', 'windows'].includes(kind) ? 'src/main.rs' : 'src/lib.rs']: kind === 'gpu' ? `exact_game_render::module!(game_logic::${type}${app.game.audio === true ? ", audio" : ""}${app.game.assets === true ? ", assets" : ""}${presentation ? `, hooks = game_presentation::${presentation.type}${presentation.shaders ? `, shaders = game_presentation::${presentation.shaders}` : ''}` : ''});\n` : (kind === 'windows' ? '#![cfg_attr(all(target_os = "windows", not(debug_assertions)), windows_subsystem = "windows")]\n' : '') + 'include!(concat!(env!("OUT_DIR"), "/entry.rs"));\n',
+      [['linux', 'windows'].includes(kind) ? 'src/main.rs' : 'src/lib.rs']: kind === 'gpu' ? `exact_game_render::module!(game_logic::${type}${app.game.audio === true ? ", audio" : ""}${app.game.assets === true ? ", assets" : ""}${presentation ? `, hooks = game_presentation::${presentation.type}${presentation.shaders ? `, shaders = game_presentation::${presentation.shaders}` : ''}` : ''});\n` : (kind === 'windows' ? '#![cfg_attr(\n    all(target_os = "windows", not(debug_assertions)),\n    windows_subsystem = "windows"\n)]\n' : '') + 'include!(concat!(env!("OUT_DIR"), "/entry.rs"));\n',
       'build.rs': kind === 'gpu'
         ? `use exact_game::{Args, Game, Value};
 use std::{env, fs, path::PathBuf};
@@ -238,7 +238,9 @@ fn level_bake_path() -> &'static str {
     ${JSON.stringify(levelBake)}
 }
 fn main() {
-    type Options = <game_logic::${type} as Game>::Args;
+    // A short name, so no line's width (rustfmt's 100) depends on the game's.
+    type Logic = game_logic::${type};
+    type Options = <Logic as Game>::Args;
     let arguments: Vec<_> = Options::FIELDS
         .iter()
         .zip(Options::default().values())
@@ -252,7 +254,7 @@ fn main() {
             serde_json::json!({"name": name, "default": value})
         })
         .collect();
-    let name = <game_logic::${type} as Game>::NAME;
+    let name = <Logic as Game>::NAME;
     let text = serde_json::to_string_pretty(&serde_json::json!({name: arguments})).unwrap() + "\\n";
     let path = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../surfaces.json");
     if fs::read_to_string(&path).ok().as_deref() != Some(&text) {
@@ -260,7 +262,7 @@ fn main() {
         fs::write(&temporary, text).expect("write game surface declaration");
         fs::rename(temporary, &path).expect("publish complete game surface declaration");
     }
-${bakeArt ? `    exact_game_bake::bake_art(${JSON.stringify(relative(shell, appDir))}).expect("bake art");\n` : ''}    bake_files::bake_game_level::<game_logic::${type}>(${JSON.stringify(relative(shell, appDir))}).expect("bake level");
+${bakeArt ? `    exact_game_bake::bake_art(${JSON.stringify(relative(shell, appDir))}).expect("bake art");\n` : ''}    bake_files::bake_game_level::<Logic>(${JSON.stringify(relative(shell, appDir))}).expect("bake level");
     println!("cargo:rerun-if-changed={}", level_bake_path());
     println!("cargo:rerun-if-changed=build.rs");
 }
@@ -295,7 +297,9 @@ const sdkLockFile = source => [resolve(source, 'app/shells.lock'), resolve(gameR
 // while updating only the root Cargo.lock. Those packages are as decided as the
 // SDK lock's: the root lock's registry packages whose names the SDK lock lacks
 // seed a game's resolution and are admitted by version and checksum, so a new
-// game resolves offline before anyone refreshes the SDK lock.
+// game resolves offline before anyone refreshes the SDK lock. A new root crate
+// (00d37ef9f: exact-svg-filter under the kernel) is one too: the root lock's
+// path packages, which carry no source or checksum, seed it the same way.
 export function withRootPins(sdk, root = existsSync(resolve(gameRoot, '../Cargo.lock')) ? readFileSync(resolve(gameRoot, '../Cargo.lock'), 'utf8') : '') {
   // By name and semver series (Cargo's compatibility: 1.x, 0.37.x, 0.0.3): a root's
   // new major of a package the SDK lock holds is a pin too; a compatible one is not.
@@ -303,7 +307,7 @@ export function withRootPins(sdk, root = existsSync(resolve(gameRoot, '../Cargo.
   const held = new Set((Bun.TOML.parse(sdk).package ?? []).map(pkg => `${pkg.name} ${series(pkg.version)}`));
   const id = block => `${/^name = "([^"]+)"/m.exec(block)?.[1]} ${series(/^version = "([^"]+)"/m.exec(block)?.[1])}`;
   const pins = root.split(/\n(?=\[\[package\]\]\n)/).slice(1).map(block => block.trimEnd())
-    .filter(block => /^source = "registry\+/m.test(block) && !held.has(id(block)));
+    .filter(block => (/^source = "registry\+/m.test(block) || !/^source = /m.test(block)) && !held.has(id(block)));
   return pins.length ? `${sdk.trimEnd()}\n\n${pins.join('\n\n')}\n` : sdk;
 }
 const cargoMetadata = (cwd, flags, env) => spawnSync('cargo', ['metadata', ...flags, '--format-version', '1'], {cwd, env, encoding:'utf8', maxBuffer:64 * 1024 * 1024});

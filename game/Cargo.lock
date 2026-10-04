@@ -479,6 +479,7 @@ dependencies = [
 name = "exact-canvas"
 version = "0.1.0"
 dependencies = [
+ "exact-motion",
  "exact-num",
 ]
 
@@ -616,6 +617,7 @@ dependencies = [
  "cssparser",
  "exact-motion",
  "exact-num",
+ "exact-svg-filter",
  "exact-textflow",
  "serde",
  "serde_json",
@@ -667,6 +669,10 @@ dependencies = [
  "exact-route",
  "sha2",
 ]
+
+[[package]]
+name = "exact-svg-filter"
+version = "0.1.0"
 
 [[package]]
 name = "exact-textflow"
