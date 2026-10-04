@@ -5,6 +5,7 @@ mod apply;
 mod browser_cases;
 mod browser_controls;
 mod browser_flex;
+mod browser_paint_order;
 mod browser_position;
 mod browser_ratio;
 mod browser_replaced;

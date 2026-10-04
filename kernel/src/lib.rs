@@ -42,6 +42,7 @@ pub mod kernel;
 pub mod layout;
 pub mod motion;
 pub mod node;
+pub mod paint_order;
 pub mod props;
 pub mod ratio;
 pub mod region;
