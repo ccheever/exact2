@@ -106,6 +106,26 @@ export function exercise(source: string): string {
     const bad=fetch('https://example.invalid/bad',{signal:{aborted:false} as unknown as AbortSignal}).then(()=>'fetched',e=>(e as Error).name);
     return Promise.all([early,late,late.then(()=>controller.signal.reason.message),suppressed,bad]).then(JSON.stringify) as unknown as string;
   }
+  // Intl.NumberFormat as the browser formats it (x2apps stocks #3: Hermes
+  // on macOS printed `9,274,743` for compact): compact in its displays,
+  // currency and percent, each in a few locales.
+  if(source==='intl') {
+    const values=[0,-0,0.5,0.0123,1,12,999,999.9,1000,1234,1250,9999,12345,99999,123456,999999,1e6,1234567,9274743,99999999,543578062292.7,1e12,1.5e13,-2500,-9274743,1e15];
+    const locales=['en-US','de-DE','fr-FR','ja-JP','es-ES','en-GB','pt-BR','it-IT','zh-CN','ko-KR','en-IN','hi-IN'];
+    const out:Record<string,string[]>={};
+    for(const locale of locales) for(const [name,options] of [
+      ['compact',{notation:'compact'}],
+      ['compact2',{notation:'compact',maximumFractionDigits:2}],
+      ['compact-sd',{notation:'compact',maximumSignificantDigits:3}],
+    ] as [string,Intl.NumberFormatOptions][]) out[locale+' '+name]=values.map(v=>new Intl.NumberFormat(locale,options).format(v));
+    out['en-US toLocaleString']=values.map(v=>v.toLocaleString('en-US',{notation:'compact'}));
+    for(const locale of ['en-US','de-DE','fr-FR']) {
+      out[locale+' currency']=[1234.5,-0.41,166.07].map(v=>new Intl.NumberFormat(locale,{style:'currency',currency:'USD'}).format(v));
+      out[locale+' percent']=[0.0041,-0.0041,0.5].map(v=>new Intl.NumberFormat(locale,{style:'percent',minimumFractionDigits:2}).format(v));
+      out[locale+' resolved']=[new Intl.NumberFormat(locale,{notation:'compact'}).resolvedOptions().notation as string];
+    }
+    return JSON.stringify(out);
+  }
   if(source==='base64') {
     const inputs=['','Zg','Zh','Zg==','Zm8','Zm9','Zm9v',' /w==\n','AA=='];
     const rejected=['a','a===','Zg=','%%%%','-w=='].map(s=>{try{atob(s);return false;}catch(e){return (e as Error).name==='InvalidCharacterError';}});
