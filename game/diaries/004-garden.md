@@ -479,3 +479,30 @@ shared app-tool tests, the five root gates, and Linux's full normal proof
 passed. The latter includes both early orders and byte-identical continuation
 from a fresh process saved before the first delivery. Cross-host re-pinning
 and the macOS playtest follow after the fetched Apple build improvements.
+
+### After merging main through `f999c65a6`
+
+The updated dependency graph required another explicit Garden lock refresh.
+All 13 simulation tests and the 2,248 enabled root Rust tests passed; build,
+Clippy and formatting passed too. The combined shared tooling suite passed
+175 tests, with two optional integration tests skipped.
+
+| Jev run | Decisions | Outcome | Decision latency p50 / p95 | Input / output tokens |
+|---|---:|---|---|---|
+| baseline web | 48 (limit) | 4 strawberry harvests, not sold | 317 / 724 ms | 40,110 / 2,333 |
+| market web | 13 | first 2 orders filled, 475¢ | 302 / 679 ms | 11,237 / 612 |
+| market macOS | 13 | first 2 orders filled, 475¢ | 291 / 633 ms | 11,239 / 612 |
+
+The two market runs chose the same unnecessary carrot at different moments.
+Their screenshots were inspected on both hosts. The macOS deterministic proof
+also passed in 8.44 s after the build, matching web and Linux's two world
+pins and both continuation saves. Its broad `ps` descendant audit stalled;
+every explicitly owned host process still closed. Artifacts:
+`games/garden/artifacts/orders-macos/` and `jev-orders-macos/`.
+
+Strict re-pinning then passed on Linux and web in normal, Save and FreshGame
+modes, plus the native release-equivalence run. The release carrier's cold
+build took 62 s. All hosts agree on the new market continuation digest
+`1e80964f…` and the large-garden continuation `8ad353c2…`; accepted inputs are
+`c875ef2e…`. Complete evidence is in
+`games/garden/artifacts/prove/run-jEvdaO/`. No parity threshold was loosened.

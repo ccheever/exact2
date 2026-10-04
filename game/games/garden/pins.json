@@ -1,18 +1,19 @@
 {
   "ticks": {
-    "0": "0x567fb953a3936f0f",
-    "5136": "0x84bdee160cf25b17"
+    "0": "0x9ba4b2757bee48ed",
+    "5136": "0x33b4b683a425ddcf"
   },
   "saves": {
-    "continuation": "d6f7557487094baac139cd7ec3af383da5307c2271c051dc1c732c59e0aff5ba"
+    "continuation": "8ad353c2f3f461ea61d7c7b3e2a80b2e8f380ebedb809b22b859a199a3b7c11d",
+    "market": "1e80964f83d1629fc99341696fc3c3aedc95f0c9803bcadc1f4fb719bacf7b9b"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "e95130e1d5e7bc7d2c434c0df2444241163464ab66524e894cac288ccd17e75e",
+  "inputs": "c875ef2e7f3775e153594d8d0e993c69eb3bcebe6f98d799473f74b5dd2ea222",
   "game": "garden",
   "generated": "bun game/prove.mjs garden --repin --hosts 'linux,web'",
-  "at": "5541429fefcdf057741e1a277924c13de887ace2",
-  "reason": "engine fix lanes merged (roblox/integrate b61db278a): paged world hash and EXGAME v4 saves; commands are postMessage messages; mid-game pin reads a 1,000-plant garden's every page"
+  "at": "533d6f794bab1f355e0be7e481dde3f6aa5527fd",
+  "reason": "Market orders with saved one-time bonuses, current shop availability, and HUD-driven Jev playtests"
 }
