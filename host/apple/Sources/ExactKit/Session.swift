@@ -363,6 +363,10 @@ public final class ExactSession {
     /// Bumped by every reboot; a callback from an older generation is dropped.
     public private(set) var generation = 0
     private var activatedGeneration: Int?
+    /// The generation whose deferred data has activated (or failed to): the
+    /// agent's `clock data` waits for it before a test's first step.
+    private var dataGeneration: Int?
+    var dataActivated: Bool { dataGeneration == generation }
     private var updateToken: UInt64 = 0
 
     let runtime: Runtime
@@ -1081,6 +1085,7 @@ public final class ExactSession {
             }
             AppFiles.learn(runtime) // the roots storage configured
             apply(batch)
+            dataGeneration = drawnGeneration
             if batch.error == nil {
                 presenter.collections.dataReady()
                 app.firstPixel(token)

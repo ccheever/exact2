@@ -112,6 +112,12 @@ impl<D: DataSource> Presenter<D> {
         self.activate_first_pixel();
     }
 
+    /// The deferred data module has yet to activate, and has not failed to:
+    /// the agent's `clock data` waits for it.
+    pub fn data_activating(&self) -> bool {
+        !self.activation_failed && self.host.data_pending()
+    }
+
     /// Wake an idle display while an executable image is loading off-thread.
     pub fn module_pending(&self) -> bool {
         (self.painted && !self.activation_failed && self.host.data_pending())

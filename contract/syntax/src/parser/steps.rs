@@ -127,6 +127,34 @@ impl Parser {
         }
     }
 
+    /// A viewport, `1200x800` (the lexer reads `1200` and then the word
+    /// `x800`), in whole points.
+    fn viewport(&mut self, word: &str) -> R<(f64, f64)> {
+        let width = self.step_number("the viewport's width, as 1200x800")?;
+        let height = match self.peek_kind().clone() {
+            TokenKind::Ident(w) if w.starts_with('x') && w[1..].parse::<u32>().is_ok() => {
+                self.next();
+                w[1..].parse::<u32>().unwrap_or_default() as f64
+            }
+            other => {
+                return self.err(
+                    "syntax-expected-step",
+                    format!(
+                        "`{word}` takes a viewport as 1200x800, found {}",
+                        describe(&other)
+                    ),
+                )
+            }
+        };
+        if width.fract() != 0.0 || width < 1.0 || height < 1.0 {
+            return self.err(
+                "syntax-expected-step",
+                format!("`{word}` takes whole points, as 1200x800"),
+            );
+        }
+        Ok((width, height))
+    }
+
     /// A step's number, a leading `-` included (a drag's offsets).
     fn step_number(&mut self, what: &str) -> R<f64> {
         let negative = self.eat_punct("-");
@@ -149,7 +177,7 @@ impl Parser {
                 return self.err(
                     "syntax-expected-step",
                     format!(
-                    "expected `tap`, `type`, `pick`, `clock`, `reload`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`), found {}",
+                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `before data`), found {}",
                     describe(&other)
                 ),
                 )
@@ -288,9 +316,9 @@ impl Parser {
             }
             "clock" => {
                 let arg = match self.peek_kind().clone() {
-                    TokenKind::Ident(w) if w == "settle" => {
+                    TokenKind::Ident(w) if w == "settle" || w == "data" => {
                         self.next();
-                        "settle".to_string()
+                        w
                     }
                     TokenKind::Punct("+") => {
                         self.next();
@@ -326,7 +354,7 @@ impl Parser {
                         return self.err(
                             "syntax-expected-step",
                             format!(
-                                "`clock` takes `settle`, `+ms`, `+ms real`, or `ms`, found {}",
+                                "`clock` takes `settle`, `data`, `+ms`, `+ms real`, or `ms`, found {}",
                                 describe(&other)
                             ),
                         )
@@ -337,29 +365,18 @@ impl Parser {
             // `size 1200x800`, as the driver's `--size` (the lexer reads
             // `1200` and then the word `x800`).
             "size" => {
-                let width = self.step_number("the viewport's width, as 1200x800")?;
-                let height = match self.peek_kind().clone() {
-                    TokenKind::Ident(w) if w.starts_with('x') && w[1..].parse::<u32>().is_ok() => {
-                        self.next();
-                        w[1..].parse::<u32>().unwrap_or_default() as f64
-                    }
-                    other => {
-                        return self.err(
-                            "syntax-expected-step",
-                            format!(
-                                "`size` takes a viewport as 1200x800, found {}",
-                                describe(&other)
-                            ),
-                        )
-                    }
-                };
-                if width.fract() != 0.0 || width < 1.0 || height < 1.0 {
-                    return self.err(
-                        "syntax-expected-step",
-                        "`size` takes whole points, as 1200x800",
-                    );
-                }
+                let (width, height) = self.viewport("size")?;
                 Step::Size {
+                    width,
+                    height,
+                    span,
+                }
+            }
+            // `resize 800x600`: the window, mid-test (reader: repagination;
+            // the driver's `resize`, a desktop window's or the browser's).
+            "resize" => {
+                let (width, height) = self.viewport("resize")?;
+                Step::Resize {
                     width,
                     height,
                     span,
@@ -406,6 +423,17 @@ impl Parser {
                     );
                 }
                 Step::Seed { seed, span }
+            }
+            // `before data`: the first step does not wait for the app's data.
+            "before" => {
+                if !self.at_ident("data") {
+                    return self.err(
+                        "syntax-expected-step",
+                        "`before` takes `data`: `before data`, the test's first step before the app's data lands",
+                    );
+                }
+                self.next();
+                Step::BeforeData { span }
             }
             "reload" => Step::Reload { span },
             "screenshot" => Step::Screenshot {
@@ -497,7 +525,7 @@ impl Parser {
                 return Err(SyntaxError {
                     id: "syntax-expected-step",
                     message: format!(
-                    "expected `tap`, `type`, `pick`, `clock`, `reload`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`), found `{other}`"
+                    "expected `tap`, `type`, `pick`, `clock`, `resize`, `reload`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `before data`), found `{other}`"
                 ),
                     span,
                 })
@@ -510,7 +538,7 @@ impl Parser {
 
 /// The words of a test's launch lines, which a test file may also write at
 /// its top level for every test in it (habits F7, calendar F13).
-pub(super) const LAUNCH: [&str; 5] = ["size", "epoch", "time-zone", "locale", "seed"];
+pub(super) const LAUNCH: [&str; 6] = ["size", "epoch", "time-zone", "locale", "seed", "before"];
 
 /// A launch line's word, or `""` for any other step.
 pub(super) fn launch_word(step: &Step) -> &'static str {
@@ -520,6 +548,7 @@ pub(super) fn launch_word(step: &Step) -> &'static str {
         Step::TimeZone { .. } => "time-zone",
         Step::Locale { .. } => "locale",
         Step::Seed { .. } => "seed",
+        Step::BeforeData { .. } => "before data",
         _ => "",
     }
 }

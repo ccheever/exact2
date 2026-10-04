@@ -512,6 +512,12 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     s.push_str(&format!(",\"append\":{append}"));
                 }
                 Step::Reload { .. } => s.push_str("{\"op\":\"reload\""),
+                Step::BeforeData { .. } => s.push_str("{\"op\":\"before-data\""),
+                Step::Resize { width, height, .. } => {
+                    s.push_str(&format!(
+                        "{{\"op\":\"resize\",\"width\":{width},\"height\":{height}"
+                    ));
+                }
                 Step::Key { target, key, .. } => {
                     s.push_str("{\"op\":\"key\",\"target\":");
                     q(target, &mut s);

@@ -5,7 +5,7 @@
 import names, { types } from './names.js';
 import { pieces, pageHistory, Head, navigateRoot } from './rt.js';
 import * as perf from './perf.js';
-import { environment, navigation, guestOutline, guestTap, guestType, viewBox, foldEnv, preferFold, typedControl, typeControl, reveal, animationClocks } from './navigation.js';
+import { environment, navigation, unselected, guestOutline, guestTap, guestType, viewBox, foldEnv, preferFold, typedControl, typeControl, reveal, animationClocks } from './navigation.js';
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
 const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-pressed', 'accessibilityPressed'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['placeholder', 'placeholder'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hook', 'hook'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];
@@ -59,10 +59,11 @@ export function install(exact) {
     }
     return n;
   };
+  // `inactive` (the runner's tree): under a route or tab its navigation root has not selected (shop F16).
   const all = () => {
-    const out = [];
-    const walk = (el, d) => { const n = record(el, d); out.push(n); n.children = kids(el).map(c => walk(c, d + 1).id); return n; };
-    kids(document.getElementById('exact-root')).forEach(el => walk(el, 0));
+    const out = [], root = document.getElementById('exact-root'), off = new Set([...root.querySelectorAll('[navigationBack]')].flatMap(unselected));
+    const walk = (el, d, dead) => { const n = record(el, d); out.push(n); if ((dead ||= off.has(el))) n.inactive = true; n.children = kids(el).map(c => walk(c, d + 1, dead).id); return n; };
+    kids(root).forEach(el => walk(el, 0, false));
     return out;
   };
   // The runner's tags (LLP 1035.002 D3): a commit is an epoch; a JS page
@@ -202,7 +203,8 @@ export function install(exact) {
       case 'tree': {
         let nodes = all(), roots = nodes.filter(n => n.depth === 0).map(n => n.id);
         if (req.target != null) {
-          const hit = nodes.find(n => n.id === req.target || n.props.testId === req.target);
+          // A covered screen's copy only when no active one carries the testId, as the runner's.
+          const named = nodes.filter(n => n.props.testId === req.target), hit = nodes.find(n => n.id === req.target) ?? named.find(n => !n.inactive) ?? named[0];
           if (!hit) return { error: `no view matches ${req.target}` };
           nodes = req.shallow ? [hit] : nodes.filter(n => n === hit || views.get(hit.id).contains(views.get(n.id)));
           roots = [hit.id];
@@ -262,6 +264,22 @@ export function install(exact) {
           if (typeof stopped === 'string') { seek(false); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
           seek(false);
           return { clock: exact.clock.now };
+        }
+        // `clock data`: the app's data lands — a Rust module's activation (a resource `waiting`, rt.js) and every
+        // request in flight, each answer's `then` landed — at the clock as it stands, no timer fired. A test's
+        // first step waits for it (habits, pomodoro, kanban: storage opened after the first step).
+        if (req.data) {
+          const end = performance.now() + 20000, busy = () => exact.inflight.n > holds().length, activating = () => exact.resources.some(r => r.waiting);
+          for (let round = 0; round < 16; round++) {
+            while ((busy() || activating()) && performance.now() < end) await new Promise(r => setTimeout(r, 5));
+            if (activating() || busy()) return { clock: exact.clock.now, settled: false, reason: activating() ? 'data' : 'requests' };
+            const stopped = exact.advance(exact.clock.now, false, undefined, false);
+            seek(false);
+            if (typeof stopped === 'string') return { error: `clock: ${stopped}`, clock: exact.clock.now };
+            // A `then` that sent asks again; what it sends lands in the next round.
+            if (!busy()) return { clock: exact.clock.now, settled: true };
+          }
+          return { clock: exact.clock.now, settled: false, reason: 'requests' };
         }
         if (req.settle) {
           // Settled: no request in flight and no commit pending, within 20 s.

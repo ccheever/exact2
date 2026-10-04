@@ -114,6 +114,34 @@ setInterval(() => {}, 1000);`);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 }, 30_000);
 
+// paint, minesweeper, ledger: `update` regenerated exact.mjs and dropped the verbs the app had added to it.
+// The app's own verbs are app.json's `commands`, which the generated file reads and update leaves alone.
+test('the app\'s own verbs live in app.json, so update keeps them', () => {
+  const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  try {
+    const dir = resolve(parent, 'field-log'), sdk = resolve(parent, 'sdk');
+    createApp(dir);
+    mkdirSync(resolve(sdk, 'scripts'), { recursive: true });
+    writeFileSync(resolve(sdk, 'scripts/agent.mjs'), '');
+    const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { verify: ['bun', 'verify.mjs', '--quick'] } }, null, 2));
+    writeFileSync(resolve(dir, 'verify.mjs'), 'console.log(JSON.stringify({cwd:process.cwd(),args:process.argv.slice(2),app:process.env.EXACT_APP_DIR,exact2:process.env.EXACT2})); process.exit(3);');
+    readManifest(dir, 'field-log');
+    const exact = (...args) => spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...args], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
+    createApp(dir, { update: true });
+    const verified = exact('verify', 'web');
+    assert.equal(verified.status, 3, verified.stderr);
+    assert.deepEqual(JSON.parse(verified.stdout), { cwd: realpathSync(dir), args: ['--quick', 'web'], app: realpathSync(dir), exact2: sdk });
+    assert.match(exact('nope').stderr, /Usage: bun exact\.mjs <web\|[^>]*\|verify>/);
+    assert.deepEqual(JSON.parse(readFileSync(resolve(dir, '.exact/commands.jsonl'), 'utf8').trim().split('\n')[0]).verb, 'verify');
+    // A built-in verb's name is the generated file's, and an empty command is no command.
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { test: ['bun', 'verify.mjs'] } }, null, 2));
+    assert.match(exact('test').stderr, /commands\.test: test is one of exact\.mjs's own verbs/);
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ ...manifest, commands: { verify: [] } }, null, 2));
+    assert.throws(() => readManifest(dir, 'field-log'), /commands\.verify: fewer than 1 items/);
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 60_000); // Two offline Cargo resolutions.
+
 test('a new app refuses a name no host crate can carry, and a directory that is not empty', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
   try {

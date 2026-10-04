@@ -299,7 +299,8 @@ launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
               | "epoch" ( STRING | NUMBER ) NL       (* "2026-09-21T12:00:00Z" or Unix ms *)
               | "time-zone" STRING NL                (* an IANA zone, "America/New_York" *)
               | "locale" STRING NL                   (* a BCP 47 tag, "fr-FR" *)
-              | "seed" NUMBER NL ;                   (* 0 through 2^53 - 1 *)
+              | "seed" NUMBER NL                     (* 0 through 2^53 - 1 *)
+              | "before" "data" NL ;                 (* the first step does not wait for data *)
 step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu" | "into" STRING
                   | "modifiers" STRING ] NL
               | "tap" STRING "drag" [ "-" ] NUMBER [ "-" ] NUMBER
@@ -308,7 +309,8 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu" | "into" STR
               | "type" STRING ( STRING [ "append" ] | "key" STRING
                   | "copy" | "cut" | "paste" STRING ) NL
               | "pick" STRING ( STRING { STRING } | "cancel" ) NL
-              | "clock" ( "settle" | [ "+" ] NUMBER [ "real" ] ) NL
+              | "clock" ( "settle" | "data" | [ "+" ] NUMBER [ "real" ] ) NL
+              | "resize" NUMBER "x" NUMBER NL        (* the window, mid-test: 800x600 *)
               | "reload" NL
               | "screenshot" STRING NL
               | "expect" "tree" ( "has" | "missing" ) STRING NL
@@ -323,7 +325,10 @@ launch lines: `size 1200x800`, `epoch "2026-09-21T12:00:00Z"`, `time-zone
 `--epoch`, `--time-zone`, `--locale` and `--seed`, so they lead the test's steps,
 each once. Written at the top of the file they apply to every test that does not
 name its own; either way they override the drive's flags. A file whose
-assertions depend on the date says so in the file. `tap "id" drag dx dy` is the driver's `tap … drag` (from the
+assertions depend on the date says so in the file. Before the first step, and
+after a `reload`, the driver waits for the app's data as `clock data` does (its
+module activated, every request in flight answered and each answer's `then`
+landed, the clock unmoved); `before data` skips the wait. `tap "id" drag dx dy` is the driver's `tap … drag` (from the
 node's middle, or `from x y` in its box, in points; `press`, `over`, `hold` in
 milliseconds; each once). It is a finger where the carrier has one (the web,
 iOS); `mouse` makes it the left button on the web, with the page's pointer
@@ -346,7 +351,8 @@ it takes `true` or `false`. A target out of view is scrolled into view first.
 An input step ends with what it settled (an answer given in the input's turn,
 and its mutation's `then`); otherwise the clock stands still between steps:
 what an input starts (a reply on real time, a transition) lands at a `clock`
-step, as `clock settle`; a timer fires when the clock reaches or passes its time
+step, as `clock settle` (or `clock data`, which lands replies and their `then`s
+without moving the clock); a timer fires when the clock reaches or passes its time
 (`clock +N`), and `clock settle` fires one only if it reaches it while advancing
 to a motion's end.
 `expect text` reads the node's text, else a control's value (a `select`'s chosen

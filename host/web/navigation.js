@@ -26,6 +26,13 @@ const panelsOf = nav => {
   return [];
 };
 const stacksOf = nav => { const panels = panelsOf(nav); return panels.length ? panels.map(routesIn) : [nav ? routesIn(nav) : []]; };
+/** What a navigation root leaves unselected, by `project`'s rule read from attributes: every tabpanel but the one
+ * holding the selected route, and that stack's other routes (the runner's `unselected`; the agent's `inactive`). */
+export function unselected(nav) {
+  const key = nav.getAttribute("navigationKey"), panels = panelsOf(nav), stacks = panels.length ? panels.map(routesIn) : [routesIn(nav)];
+  const at = stacks.findIndex(routes => routes.some(r => r.getAttribute("navigationKey") === key));
+  return at < 0 ? [] : [...panels.filter((_, i) => i !== at), ...stacks[at].filter(r => r.getAttribute("navigationKey") !== key)];
+}
 const routesOf = nav => stacksOf(nav).find(routes => routes.some(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"))) ?? [];
 const selectedRoute = nav => routesOf(nav).find(r => r.getAttribute("navigationKey") === nav.getAttribute("navigationKey"));
 const browserIndex = () => globalThis.navigation?.currentEntry?.index ?? null;

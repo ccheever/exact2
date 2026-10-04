@@ -130,7 +130,8 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
   if (reuse) await reuse.close(); // Chrome reuse is intentionally not crossed with another engine.
   const hosted = await files({ plan, pageURL, app, webDist });
   let browserServer, browser, context, page;
-  const hostLines = [];
+  // Only Chrome keeps a named store's profile between drives (agent.mjs `openWeb`); here it is this drive's own.
+  const hostLines = storage === undefined ? [] : [`${name}: --storage ${storage} is this drive's own profile, emptied when it ends; Chrome keeps a store between drives`];
   const closeFiles = () => {
     hosted.server.close();
     if (hosted.planBuild) rmSync(hosted.planBuild, { recursive: true, force: true });
