@@ -433,6 +433,10 @@ final class Runtime {
             return String(decoding: Data(bytes: exact_out(rt), count: Int(len)), as: UTF8.self)
         }
     }
+    /// Whether `location` names one of the app's declared routes (LLP 1038 §7).
+    func routeMatches(_ location: String) -> Bool {
+        return on(busy: false) { exact_route_matches(rt, write(location)) != 0 }
+    }
     func launch(_ location: String) { on { () -> Void in let n = write(location); _ = exact_set_launch_location(rt, n) } }
     func navigate(_ view: UInt32, _ location: String, now: Double) -> Batch {
         return on {

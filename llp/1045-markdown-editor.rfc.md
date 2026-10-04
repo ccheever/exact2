@@ -232,7 +232,11 @@ Reader navigation accepts parsed `http`, `https`, `mailto`, and `tel` targets.
 Other schemes render as inert labels; their canonical source and editable
 destination stay intact. The web resolves relative links against the document
 base before checking the protocol. Native readers have no document base, so
-relative destinations remain inert there.
+relative destinations remain inert there; an absolute path (`/note/3`) needs
+none and is a location in the app, followed through the navigation root when
+it names a declared route, as the web's same-document link is (LLP 1038 §7;
+amended 2026-10-04 for the notes diary, whose `[Ideas](/note/3)` was inert on
+macOS).
 
 **Landed 2026-09-21 (slice 2, first form).** The kernel carries `markup` and
 `Paragraph.markup`; `exact-markdown::pieces` flattens a source into display

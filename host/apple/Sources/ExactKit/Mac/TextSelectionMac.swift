@@ -206,9 +206,10 @@ final class TextSelection {
             return
         }
         guard !dragged, anchor === node, let url = link(node, at: node.local(event.locationInWindow)) else { return }
-        // The containing app owns navigation (local Markdown, anchors,
-        // browser URLs); no arbitrary URL scheme is launched by the presenter.
-        if let session = presenter?.session { session.delegate?.exactSession(session, command: "openURL", args: [url]) }
+        // A route of this app navigates in it; the containing app owns the
+        // rest (local Markdown, anchors, browser URLs); no arbitrary URL
+        // scheme is launched by the presenter.
+        presenter?.session?.follow(url)
     }
 
     func selectAll() {

@@ -587,6 +587,12 @@ extension Agent {
         // whatever had it (a field, and the keyboard with it) lets go.
         // An SVG element under the finger takes the press (LLP 1055.000 D17).
         let element = (n as? NodeView).flatMap { $0.kind == "svg" && !$0.inert ? presenter.svg.target($0.id, at: $0.local(p)) : nil }
+        // A Markdown run's link under the finger is the press, as `touchesEnded` follows it.
+        if element == nil, let node = n as? NodeView, node.inlineActivationTarget(at: node.local(p)) == nil,
+           let href = node.inlineLink(at: node.local(p)) {
+            presenter.session?.follow(href)
+            return ["tapped": Int(v.id), "at": at, "followed": href]
+        }
         let action = element == nil ? (n as? NodeView)?.activationTarget(at: p) : nil
         var f: UIView? = n
         var took = false

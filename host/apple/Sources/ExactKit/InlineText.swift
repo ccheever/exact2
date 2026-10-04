@@ -171,12 +171,7 @@ extension NodeView {
     func activateInline(_ id: UInt32) -> Bool {
         guard let presenter, presenter.inlineEnabled(id), let run = presenter.inlineText(id) else { return false }
         if run.handlers.contains("press") { presenter.press(id); return true }
-        if let url = run.props["href"], !url.isEmpty, let session = presenter.session {
-            // A path in this app is a location for the navigation root, as the
-            // web's same-document link is; anything else leaves the app.
-            if url.hasPrefix("/") && !url.hasPrefix("//") { return session.navigate(url) }
-            session.delegate?.exactSession(session, command: "openURL", args: [url]); return true
-        }
+        if let url = run.props["href"], !url.isEmpty, let session = presenter.session { return session.follow(url) }
         return false
     }
 }

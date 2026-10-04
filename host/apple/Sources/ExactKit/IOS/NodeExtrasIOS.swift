@@ -11,6 +11,8 @@ import UIKit
 /// row's view is about 500 bytes smaller.
 final class NodeExtras {
     var inlinePressed: UInt32?
+    /// A Markdown link pressed in this text: its target, followed on release over it.
+    var linkPressed: String?
     var svgPressed: UInt32?
     var clipPath: CGPath?
     var clipRule: CGPathFillRule = .winding
@@ -109,6 +111,7 @@ extension NodeView {
         return made
     }
     var inlinePressed: UInt32? { get { extras?.inlinePressed } set { if newValue != nil || extras != nil { more.inlinePressed = newValue } } }
+    var linkPressed: String? { get { extras?.linkPressed } set { if newValue != nil || extras != nil { more.linkPressed = newValue } } }
     var svgPressed: UInt32? { get { extras?.svgPressed } set { if newValue != nil || extras != nil { more.svgPressed = newValue } } }
     var clipPath: CGPath? { get { extras?.clipPath } set { if newValue != nil || extras != nil { more.clipPath = newValue } } }
     var clipRule: CGPathFillRule { get { extras?.clipRule ?? .winding } set { if newValue != .winding || extras != nil { more.clipRule = newValue } } }

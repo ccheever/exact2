@@ -1410,16 +1410,18 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if let touch = touches.first, let run = inlineActivationTarget(at: local(touch.location(in: nil))) {
             inlinePressed = run.id; return
         }
+        // A Markdown run's link has no view of its own (MarkupRuns): its target is the press.
+        if let touch = touches.first, let href = inlineLink(at: local(touch.location(in: nil))) { linkPressed = href; return }
         if handlers.contains("press") { pressed = true } else { super.touchesBegan(touches, with: event) }
     }
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        inlinePressed = nil
+        inlinePressed = nil; linkPressed = nil
         if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "move", source: self, event: event) == true { return }
         if pressed { pressFollows(inside: touches.first.map(pressInside) ?? false) } else { super.touchesMoved(touches, with: event) }
     }
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "up", source: self, event: event) == true { finishPointerPress(); return }
-        guard !disabled else { pressed = false; inlinePressed = nil; svgPressed = nil; return }
+        guard !disabled else { pressed = false; inlinePressed = nil; linkPressed = nil; svgPressed = nil; return }
         if let target = svgPressed {
             svgPressed = nil
             if let touch = touches.first, presenter?.svg.target(id, at: local(touch.location(in: nil))) == target { presenter?.press(target) }
@@ -1428,6 +1430,11 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if let run = inlinePressed {
             inlinePressed = nil
             if let touch = touches.first, inlineActivationTarget(at: local(touch.location(in: nil)))?.id == run { _ = activateInline(run) }
+            return
+        }
+        if let href = linkPressed {
+            linkPressed = nil
+            if let touch = touches.first, inlineLink(at: local(touch.location(in: nil))) == href { presenter?.session?.follow(href) }
             return
         }
         // A press under `retainFocus` leaves the editor its focus, as macOS's
@@ -1442,7 +1449,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if inside, presenter?.views[id] === self { presenter?.press(id, held: KeyCodes.held(event?.modifierFlags ?? [])); finishPointerPress() }
     }
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        inlinePressed = nil; svgPressed = nil
+        inlinePressed = nil; linkPressed = nil; svgPressed = nil
         if ((isSurfaceControl || ownsSurfaceControl) ? inputCanvas?.canvasInput : canvasInput)?.touches(touches, phase: "cancel", source: self, event: event) == true { return }
         if pressed { pressed = false } else { super.touchesCancelled(touches, with: event) }
     }
