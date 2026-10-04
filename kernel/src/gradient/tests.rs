@@ -106,7 +106,7 @@ fn what_is_not_drawn_is_refused_by_name() {
         ("linear-gradient(#000 10px, #fff)", "percentage"),
         ("linear-gradient(#000 -10%, #fff 120%)", "0% to 100%"),
         ("linear-gradient(#000)", "at least two"),
-        ("linear-gradient(red, blue)", "stop's colour"),
+        ("linear-gradient(red, blurple)", "stop's colour"),
         ("linear-gradient(to middle, #000, #fff)", "side or corner"),
         (
             "radial-gradient(circle 20px, #000, #fff)",

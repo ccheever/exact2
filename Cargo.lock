@@ -1136,6 +1136,7 @@ dependencies = [
 name = "exact-canvas"
 version = "0.1.0"
 dependencies = [
+ "exact-motion",
  "exact-num",
 ]
 
