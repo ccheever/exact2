@@ -430,6 +430,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         guard pendingSync else { return }
         pendingSync = false
         sync(Batch(ops: [], timers: false, motion: false, clock: nil, error: nil))
+        presenter.syncModal()
     }
 
     /// Retire only the named owner; a late completion cannot remove its
@@ -657,6 +658,7 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
                 sync(Batch(ops: [], timers: false, motion: false, clock: nil, error: nil))
             }
             presenter.session?.view?.fit()
+            presenter.syncModal()
             // What the settled route shows has pixels (the swipe may have
             // left a band of it unpainted, or a cancelled pop the source).
             presenter.paintVisibleText()

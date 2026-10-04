@@ -300,6 +300,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
                 // the presented route measures again, or it stays refused
                 // until something else lays out (LLP 1057.001 §4).
                 presenter.transformGeometry.changed()
+                presenter.syncModal()
                 drainRetired()
             }
         }
@@ -351,6 +352,7 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
                 // As after a presentation: what the dismissal's transition
                 // covered measures again (a drag in the route left on top).
                 presenter.transformGeometry.changed()
+                presenter.syncModal()
             }
         }
         if layer.alreadyDismissed || layer.controller.presentingViewController == nil { completion() }

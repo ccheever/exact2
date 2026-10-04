@@ -163,44 +163,58 @@ extension Presenter {
         #endif
     }
     #if os(iOS)
-    /// `aria-modal` (LLP 1080.003), after a batch has mounted, attached and
-    /// shown what it will. A view is modal while its prop is true and it is
-    /// exposed: attached, displayed, not hidden, inert or leaving. UIKit then
-    /// hides its siblings from VoiceOver (`accessibilityViewIsModal`), other
-    /// modal views among them, so of siblings only the frontmost is modal.
-    /// When the modal views change, VoiceOver moves into the newest, or back.
+    /// `aria-modal` (LLP 1080.003), after a batch and after a native
+    /// transition settles. A view is modal while its prop is true and it is
+    /// exposed: attached, displayed, not hidden, inert or leaving, with no
+    /// accessibility-hidden ancestor and no visible sibling painted over it (a
+    /// sheet's stack, say). UIKit hides a modal view's siblings
+    /// (`accessibilityViewIsModal`), other modal views among them, so of
+    /// siblings only the frontmost is modal, and one inside a branch another
+    /// modal hides is not. VoiceOver moves into the innermost modal when that
+    /// changes, or back to the screen, once no transition is running.
     func syncModal() {
         let candidates = chrome.ids("accessibilityModal").sorted().compactMap { views[$0] }
-        func displayed(_ view: NodeView) -> Bool {
-            var at: UIView? = view
-            while let current = at {
-                if let node = current as? NodeView, node.style["display"]?.string == "none" { return false }
-                at = current.superview
-            }
-            return true
-        }
-        func inFront(_ a: NodeView, of b: NodeView) -> Bool {
+        func ancestors(_ view: UIView) -> [UIView] { sequence(first: view, next: \.superview).map { $0 } }
+        func inFront(_ a: UIView, of b: UIView) -> Bool {
             if a.layer.zPosition != b.layer.zPosition { return a.layer.zPosition > b.layer.zPosition }
             let order = a.superview?.subviews ?? []
             return (order.firstIndex(of: a) ?? 0) > (order.firstIndex(of: b) ?? 0)
         }
-        var chosen: [NodeView] = []
-        for view in candidates where view.props["accessibilityModal"] == "true" && view.accessibilityVisible
-            && !view.accessibilityElementsHidden && displayed(view) {
-            if let i = chosen.firstIndex(where: { $0.superview === view.superview }) {
-                if inFront(view, of: chosen[i]) { chosen[i] = view }
-            } else { chosen.append(view) }
+        func painted(_ view: UIView) -> Bool {
+            !view.isHidden && view.alpha > 0 && (view as? NodeView)?.style["display"]?.string != "none"
+        }
+        func exposed(_ view: NodeView) -> Bool {
+            guard view.props["accessibilityModal"] == "true", view.accessibilityVisible else { return false }
+            for at in ancestors(view) {
+                if at.accessibilityElementsHidden || (at as? NodeView)?.style["display"]?.string == "none" { return false }
+            }
+            let covers = view.superview?.subviews.contains { $0 !== view && painted($0) && inFront($0, of: view) && $0.frame.intersects(view.frame) }
+            return covers != true
+        }
+        // Shallowest first: a winner's siblings, and every branch they hold, are hidden.
+        var winners: [NodeView] = []
+        for view in candidates.filter(exposed).sorted(by: { ancestors($0).count < ancestors($1).count }) {
+            let above = ancestors(view).dropFirst()
+            if above.contains(where: { a in winners.contains { $0 !== a && $0.superview === a.superview } }) { continue }
+            if let i = winners.firstIndex(where: { $0.superview === view.superview }) {
+                if inFront(view, of: winners[i]) { winners[i] = view }
+            } else { winners.append(view) }
         }
         for view in candidates + modalViews.allObjects {
-            let modal = chosen.contains { $0 === view }
+            let modal = winners.contains { $0 === view }
             if view.accessibilityViewIsModal != modal { view.accessibilityViewIsModal = modal }
         }
         modalViews.removeAllObjects()
-        for view in chosen { modalViews.add(view) }
-        let newest = chosen.max { $0.id < $1.id }
-        guard newest !== announcedModal else { return }
-        announcedModal = newest
-        UIAccessibility.post(notification: .screenChanged, argument: newest)
+        for view in winners { modalViews.add(view) }
+        guard !navigation.inTransition, !modals.inTransition else { return }
+        let innermost = winners.max { (ancestors($0).count, $0.id) < (ancestors($1).count, $1.id) }
+        guard innermost?.id != announcedModal else { return }
+        announcedModal = innermost?.id
+        // VoiceOver focuses an element: the modal's first, or the screen's choice.
+        func first(_ view: UIView) -> UIView? {
+            view.isAccessibilityElement && !view.isHidden ? view : view.subviews.lazy.compactMap(first).first
+        }
+        UIAccessibility.post(notification: .screenChanged, argument: innermost.flatMap(first))
     }
     #endif
 }

@@ -132,7 +132,7 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         XCTAssertEqual((p.axElements(roots: [p.viewport])["modal"] as? [String: Any])?["id"] as? UInt32, 4)
         XCTAssertNil(named(), "a sibling of the aria-modal view is hidden")
         XCTAssertNotNil(element(p.axElements(roots: [p.viewport]), "inside"))
-        XCTAssertTrue(p.announcedModal === box)
+        XCTAssertEqual(p.announcedModal, 4)
         p.apply(wireBatch([["op": "props", "id": 4, "set": ["accessibilityModal": "false"]]]))
         XCTAssertFalse(box.accessibilityViewIsModal)
         XCTAssertNotNil(named())
@@ -153,7 +153,7 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         let front = try XCTUnwrap(p.views[6])
         XCTAssertTrue(front.accessibilityViewIsModal)
         XCTAssertFalse(box.accessibilityViewIsModal)
-        XCTAssertTrue(p.announcedModal === front)
+        XCTAssertEqual(p.announcedModal, 6)
         // A leaving modal hides nothing while it exits.
         p.apply(wireBatch([["op": "exit", "id": 6]]))
         XCTAssertFalse(front.accessibilityViewIsModal)
@@ -161,6 +161,46 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         p.apply(wireBatch([["op": "props", "id": 4, "clear": ["accessibilityModal"]]]))
         XCTAssertFalse(box.accessibilityViewIsModal, "a cleared prop is not modal")
         XCTAssertNotNil(named())
+        XCTAssertNil(p.announcedModal)
+    }
+
+    /// A modal inside a branch another modal hides is not modal; an
+    /// accessibility-hidden ancestor or a destroy ends modality; a sibling
+    /// painted over the modal (a sheet's stack) does too (LLP 1080.003 D2).
+    func testAriaModalFollowsTheHierarchyAndDestroy() throws {
+        let p = try fixture()
+        // A (the box, 4) and B (7) are sibling modals, B in front; C (8) is a newer modal inside A.
+        p.apply(wireBatch([
+            ["op": "props", "id": 4, "set": ["accessibilityModal": "true"]],
+            ["op": "create", "id": 7, "kind": "view", "props": ["testId": "b", "accessibilityModal": "true"]],
+            ["op": "create", "id": 8, "kind": "view", "props": ["testId": "c", "accessibilityModal": "true"]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4, 7]],
+            ["op": "children", "id": 4, "ids": [5, 8]],
+            ["op": "frame", "id": 7, "x": 0.0, "y": 300.0, "w": 400.0, "h": 50.0],
+            ["op": "frame", "id": 8, "x": 0.0, "y": 50.0, "w": 100.0, "h": 40.0],
+        ]))
+        let a = try XCTUnwrap(p.views[4]), b = try XCTUnwrap(p.views[7]), c = try XCTUnwrap(p.views[8])
+        XCTAssertEqual([a.accessibilityViewIsModal, b.accessibilityViewIsModal, c.accessibilityViewIsModal], [false, true, false])
+        XCTAssertEqual(p.announcedModal, 7, "C is inside the branch B hides")
+        // Destroying B makes A modal, and C inside it the innermost.
+        p.apply(wireBatch([["op": "destroy", "id": 7], ["op": "children", "id": 1, "ids": [2, 3, 4]]]))
+        XCTAssertEqual([a.accessibilityViewIsModal, c.accessibilityViewIsModal], [true, true])
+        XCTAssertEqual(p.announcedModal, 8)
+        // An accessibility-hidden ancestor hides both.
+        p.apply(wireBatch([["op": "props", "id": 1, "set": ["accessibilityElementsHidden": "true"]]]))
+        XCTAssertEqual([a.accessibilityViewIsModal, c.accessibilityViewIsModal], [false, false])
+        XCTAssertNil(p.announcedModal)
+        p.apply(wireBatch([["op": "props", "id": 1, "clear": ["accessibilityElementsHidden"]]]))
+        XCTAssertEqual(p.announcedModal, 8)
+        // A visible sibling painted over A (as a sheet's stack is) ends its modality.
+        let sheet = UIView(frame: a.frame)
+        a.superview?.addSubview(sheet)
+        p.syncModal()
+        XCTAssertFalse(a.accessibilityViewIsModal)
+        sheet.removeFromSuperview()
+        // Destroying the only modals moves VoiceOver back.
+        p.apply(wireBatch([["op": "destroy", "id": 4], ["op": "children", "id": 1, "ids": [2, 3]]]))
+        XCTAssertNil(p.announcedModal)
     }
 
     func testATargetScopesTheReplyAndTheWireRefusesWhatD1Refuses() throws {
