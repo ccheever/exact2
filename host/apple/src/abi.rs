@@ -17,7 +17,7 @@
 
 use crate::host::{Host, PlanBytes};
 use crate::measure::{install_fonts, CallbackMeasurer, FontsFn, MeasureFn};
-use crate::store::{endow_for, snapshot_of, Platform};
+use crate::store::{endow_bound, snapshot_of, Platform};
 use exact_kernel::{MonospaceMeasurer, TextMeasurer};
 use exact_runner::{
     DataSource, Event, FailureKind, Outcome, SurfaceOutcome, SurfaceRequest, MAX_HOST_WORK_BYTES,
@@ -460,12 +460,7 @@ impl<D: DataSource> Bridge<D> {
         // bindings for its requests. Build beside any running host: the dev
         // menu may use this fresh-state path to reload the baked plan.
         // A fresh named drive empties leftover secrets before that read.
-        let app_id = data.app_id().to_string();
-        crate::picker::forget_fresh_agent_secrets(&app_id);
-        let (bindings, unbound) = match endow_for(data.grants(), &app_id) {
-            Ok(b) => (Some(b), None),
-            Err(e) => (None, Some(e)),
-        };
+        let (bindings, unbound) = endow_bound(data.grants(), data.app_id(), true);
         let snapshot = snapshot_of(bindings.as_ref());
         let secrets = bindings.as_ref().map(Platform::of);
         let fonts = self.fonts;
@@ -731,14 +726,7 @@ impl<D: DataSource> Bridge<D> {
         // A reload carries the running store (`Carried::store`). A fresh
         // session takes the granted platform snapshot before its first query,
         // just like boot_fresh; neither path releases effects until commit.
-        let app_id = data.app_id().to_string();
-        if carried.is_none() {
-            crate::picker::forget_fresh_agent_secrets(&app_id);
-        }
-        let (bindings, unbound) = match endow_for(data.grants(), &app_id) {
-            Ok(b) => (Some(b), None),
-            Err(e) => (None, Some(e)),
-        };
+        let (bindings, unbound) = endow_bound(data.grants(), data.app_id(), carried.is_none());
         let snapshot = if carried.is_none() {
             snapshot_of(bindings.as_ref())
         } else {

@@ -30,8 +30,7 @@ pub fn endow(grants: &str) -> Result<Bindings, String> {
 }
 
 /// [`endow`] for `app_id`. A named agent drive keeps `secret.keep` in its
-/// scratch tree (files, not the Keychain). On a fresh launch the caller
-/// drops leftover secrets first ([`crate::picker::forget_fresh_agent_secrets`]).
+/// scratch tree (files, not the Keychain).
 pub fn endow_for(grants: &str, app_id: &str) -> Result<Bindings, String> {
     let mut host = Host::new();
     let agent = std::env::var_os("EXACT_AGENT").is_some();
@@ -55,6 +54,18 @@ pub fn endow_for(grants: &str, app_id: &str) -> Result<Bindings, String> {
             .with_kv_store(Box::new(ibex2::kv::MemoryStore::new()));
     }
     endow_in(host, grants)
+}
+
+/// [`endow_for`], wiping a named agent's leftover secrets first when `fresh`.
+/// A reload passes false and keeps what the last drive wrote (platformer R10).
+pub fn endow_bound(grants: &str, app_id: &str, fresh: bool) -> (Option<Bindings>, Option<String>) {
+    if fresh {
+        crate::picker::forget_fresh_agent_secrets(app_id);
+    }
+    match endow_for(grants, app_id) {
+        Ok(b) => (Some(b), None),
+        Err(e) => (None, Some(e)),
+    }
 }
 
 #[cfg(test)]
@@ -256,9 +267,10 @@ mod tests {
         assert!(snapshot_of(Some(&endow_for(grants, "").unwrap())).is_empty());
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "22050");
         std::env::set_var("EXACT_AGENT_STORAGE_FRESH", "1");
-        crate::picker::forget_fresh_agent_secrets(app);
+        let (fresh, err) = endow_bound(grants, app, true);
+        assert!(err.is_none(), "{err:?}");
         assert!(
-            snapshot_of(Some(&launch())).is_empty(),
+            snapshot_of(fresh.as_ref()).is_empty(),
             "a fresh launch reads nothing"
         );
         assert!(!file.exists());

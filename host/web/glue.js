@@ -160,8 +160,7 @@ function moduleCall(op, ptr, len) {
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 const t0 = performance.now();
-const agentMode = AGENT_ADMITTED && new URL(location.href).searchParams.has("agent");
-const agentKeepsStore = !agentMode || new URL(location.href).searchParams.has("storage"); // `--storage` on the page (platformer R10); a nameless drive stays in memory
+const agentMode = AGENT_ADMITTED && new URL(location.href).searchParams.has("agent"), agentKeepsStore = !agentMode || new URL(location.href).searchParams.has("storage"); // `--storage` on the page (platformer R10); a nameless drive stays in memory
 let agentClock = agentMode ? 0 : null, followOnSeek = true;
 // A seek moves drag timelines' sources too (LLP 1057.003 D2): their consumers follow in it.
 const clocks = animationClocks(root), { register, seek: seekAnimations, settle: settleCandidate } = animationClock(() => agentClock, () => ask({ op: "settle" }).settle, () => { if(followOnSeek)motion.followTimelines(); presence.live?.sync(); });
