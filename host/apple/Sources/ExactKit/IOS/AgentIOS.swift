@@ -539,7 +539,7 @@ extension Agent {
             // The web's sign (a positive dy scrolls down), points.
             guard wheel.allSatisfy(\.isFinite) else { return ["error": "wheel deltas must be finite"] }
             // A row a grouped list draws scrolls that list, wherever its
-            // hidden node lies (LLP 1082 D8).
+            // hidden node lies (LLP 1084 D8).
             Agent.scroll(from: presenter.groupedLists.scroller(for: v.id) ?? hit, dx: CGFloat(wheel[0]), dy: CGFloat(wheel[1]))
             if ExactEnv.agentFreezes { presenter.settlePump() }
             return ["tapped": Int(v.id), "wheel": wheel, "at": at]
@@ -614,7 +614,7 @@ extension Agent {
             // A waiting scroll (a closed swipe row's) scrolls as the wheel asks.
             var target: UIScrollView? = cur as? ScrollView
             if let waiting = cur as? NodeView, waiting.scrollDormant { waiting.needScroll(); target = waiting.scroll }
-            // A grouped list's collection view scrolls in its place (LLP 1082 D8).
+            // A grouped list's collection view scrolls in its place (LLP 1084 D8).
             if target == nil, cur is GroupedCollectionView { target = cur as? UIScrollView }
             if let sv = target {
                 let scrollsX = (sv as? ScrollView)?.scrollsX ?? false, scrollsY = (sv as? ScrollView)?.scrollsY ?? true

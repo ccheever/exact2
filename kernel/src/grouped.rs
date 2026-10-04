@@ -1,4 +1,4 @@
-//! A grouped list's sections and rows (LLP 1082 D3, D4), read from its
+//! A grouped list's sections and rows (LLP 1084 D3, D4), read from its
 //! tree as it now stands, for a host that draws the platform's own list.
 //! Contract shaped the tree: the list's children are sections; a section is
 //! an optional `header`, one group whose children are the rows, an optional

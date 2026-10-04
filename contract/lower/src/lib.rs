@@ -678,7 +678,7 @@ impl<'a> Lowerer<'a> {
                 // only the case nothing on the path can bound is refused.
                 // `class=` expands its style's rows first; the node's own
                 // attribute of the same name replaces the style's (LLP 1017 P6).
-                // @ref LLP 1082 D7 — a grouped list's sheet, under its classes.
+                // @ref LLP 1084 D7 — a grouped list's sheet, under its classes.
                 let (mut sheet, unmarked) = grouped::split(attrs);
                 let attrs = unmarked.as_ref().unwrap_or(attrs);
                 let (class_label, mut expanded) = self.class_rows(attrs)?.unzip();
@@ -744,7 +744,7 @@ impl<'a> Lowerer<'a> {
                 controls::check_nesting(tag, parent_tag, *span)?;
                 let numeric = controls::range_attrs(control, expanded);
                 let expanded = numeric.as_deref().unwrap_or(expanded);
-                // @ref LLP 1082 D1, D3 — a grouped list's sheet, before its
+                // @ref LLP 1084 D1, D3 — a grouped list's sheet, before its
                 // author's rows, and its sections' shape.
                 let grouped = grouped::style(tag, expanded)?;
                 let (listed, sections);

@@ -1,13 +1,14 @@
-# Code review: LLP 1082, the native grouped list (origin/main..cc5d28641), 2026-10-03 (astra)
+# Code review: LLP 1084, the native grouped list (origin/main..cc5d28641), 2026-10-03 (astra)
 
 - **Family:** OpenAI — `gpt-6-astra` via `codex exec` (codex-cli 0.157.1), reasoning effort xhigh, read-only sandbox, `-C` a detached worktree at `cc5d28641`.
 - **Method:** one brief (sha256 `542ffb5020084e4a6ebf1434d1bde925b6d1a116ce6a5c9735b10254487b2147`), the same one sent to grok; round 1; blind to the other review. Requested by the coordinator for Charlie. The author (Claude) is not a reviewer.
+- **Renumbered:** LLP 1084 was LLP 1082 while it was reviewed (main had two 1082s). The transcripts below keep the old number and paths.
 - **Transcription:** the run's final message (`--output-last-message`), unedited.
 - **Verdict:** DO NOT LAND.
 - **Disposition:** each finding checked in the source. Ten are fixed in `25a5b053c`; #3 is fixed for the agent and argued for the rest.
   1. *Cached switch target.* Fixed. The switch's action reads the row's current target when it fires (`flip(id, …)`). Tested in `testASwitchFollowsItsControlsStateAndTarget`, where a replaced control is the one flipped.
   2. *Accessory disabled state.* Fixed. `refresh` runs on every `mount` and sets the switch's `isEnabled` from the row and its current control. `detail(_:)` checks the current button's `disabled` and `inert`. Tested: a control disabled and then re-enabled with the row unchanged, and the agent's tap refused while it is disabled.
-  3. *Scroll plumbing.* The agent's wheel now scrolls the collection view (`GroupedCollectionView`, `Agent.scroll`), driven on the simulator: rows below the fold were then tapped. Authored `scrollTop` writes and `scroll` events are argued and declared (LLP 1082 §4). The kernel's content height is the sheet's, not UIKit's, so mirroring one offset onto the other is wrong at both ends. A settings screen needs neither; a consumer that does gets it designed then.
+  3. *Scroll plumbing.* The agent's wheel now scrolls the collection view (`GroupedCollectionView`, `Agent.scroll`), driven on the simulator: rows below the fold were then tapped. Authored `scrollTop` writes and `scroll` events are argued and declared (LLP 1084 §4). The kernel's content height is the sheet's, not UIKit's, so mirroring one offset onto the other is wrong at both ends. A settings screen needs neither; a consumer that does gets it designed then.
   4. *Agent geometry and occlusion.* Fixed. The generic viewport check is skipped for nodes a grouped list draws (`draws`). `activate` resolves the cell, refuses one outside the list's port, and hit-tests the cell's middle through the window. The grouped check now runs before the control host's, so a toggle's tap goes through the same checks. Tested: scrolled away, a row's tap is refused and nothing is pressed.
   5. *Hidden sections and rows.* Fixed. `Kernel::grouped_list` skips `display: none` sections, rows and parts. Tested.
   6. *Nested views as subtitles.* Fixed. The stack must be a flex column. A `row` of two texts stays custom. Tested.
@@ -69,7 +70,7 @@ Verdict: DO NOT LAND
   5. *The subtitle predicate.* Fixed. `text_stack` uses the kernel's accessory rules (symbol, `input`, an info-only button) and reads a `when` at either end. Tested with a conditional checkmark and with a text button.
   6. *A leading `match`.* Fixed. A symbol in first place inside a `match` is not styled as leading, which matches its inset.
   7. *Native button rows.* Fixed. They get only the rows a native button takes, and the kernel reads them as custom. Tested: it compiles and is custom.
-  8. *First section under control flow.* Declared (LLP 1082 §4): only a section written first gets the 35.33-pt gap.
+  8. *First section under control flow.* Declared (LLP 1084 §4): only a section written first gets the 35.33-pt gap.
   9. *Lifecycle coverage.* Added: a row turning custom and back, with its views carried and given back, and a header's text changing.
 
 ---

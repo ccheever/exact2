@@ -544,7 +544,7 @@ macro_rules! host {
             $crate::abi::with_runtime(&EXACT_RUNTIMES, rt, false, |b, _| b.press_face(view), |n| n)
         }
 
-        /// A grouped list's sections and rows (LLP 1082 D4), JSON; returns
+        /// A grouped list's sections and rows (LLP 1084 D4), JSON; returns
         /// its length.
         #[no_mangle]
         pub extern "C" fn exact_grouped_list(rt: u32, view: u32) -> u32 {

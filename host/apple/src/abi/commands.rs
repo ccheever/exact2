@@ -2,7 +2,7 @@
 //! system UI about to run (`share`, LLP 1069.003; `saveFile`, LLP 1069.010),
 //! an auth session's arm and report (LLP 1069.006), a host line into the
 //! runner's journal, a select's options for the menu the presenter
-//! builds (LLP 1069.001 D5), and a grouped list's sections (LLP 1082).
+//! builds (LLP 1069.001 D5), and a grouped list's sections (LLP 1084).
 use super::Bridge;
 use exact_runner::auth::{self, Arm, Browser};
 use exact_runner::DataSource;
@@ -222,7 +222,7 @@ impl<D: DataSource> Bridge<D> {
         self.output.len() as u32
     }
 
-    /// A grouped list's sections and rows (`exact_grouped_list`, LLP 1082
+    /// A grouped list's sections and rows (`exact_grouped_list`, LLP 1084
     /// D4), as JSON in the output buffer: `{"style","sections":[{"view",
     /// "header","footer","rows":[{"view","custom","symbol","title",
     /// "secondary","subtitle","accessory","target","pressable",

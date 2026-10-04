@@ -3,7 +3,7 @@ import UIKit
 import XCTest
 @testable import ExactKit
 
-/// LLP 1082 on UIKit: a grouped list (`listStyle`) is a UICollectionView
+/// LLP 1084 on UIKit: a grouped list (`listStyle`) is a UICollectionView
 /// with a list layout in the list's box over its hidden authored scroll;
 /// its rows are list cells configured from the kernel's model (D5); a tap
 /// selects, highlights and presses; a toggle flips its control; a custom

@@ -1,4 +1,4 @@
-//! LLP 1082: `list appearance="auto"` is a grouped list. Contract checks its
+//! LLP 1084: `list appearance="auto"` is a grouped list. Contract checks its
 //! sections and writes its look as a sheet the author's rows replace; the
 //! kernel reads its sections and rows as a native list draws them.
 

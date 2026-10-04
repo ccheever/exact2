@@ -1,7 +1,8 @@
-# Code review: LLP 1082, the native grouped list (origin/main..cc5d28641), 2026-10-03 (grok)
+# Code review: LLP 1084, the native grouped list (origin/main..cc5d28641), 2026-10-03 (grok)
 
 - **Family:** xAI — `~/.grok/bin/grok -m grok-4.7 --reasoning-effort xhigh --always-approve --no-subagents --output-format plain --prompt-file <brief>`, headless, one fresh session with `--cwd` a detached worktree at `cc5d28641`. `--always-approve` because plan mode cancels shell reads. The brief instructs read-only, and the worktree was clean afterwards.
 - **Method:** the shared brief (sha256 `542ffb5020084e4a6ebf1434d1bde925b6d1a116ce6a5c9735b10254487b2147`); round 1; blind to the other review. The author (Claude) is not a reviewer.
+- **Renumbered:** LLP 1084 was LLP 1082 while it was reviewed (main had two 1082s). The transcripts below keep the old number and paths.
 - **Transcription:** stdout, unedited. The first two sentences are progress narration.
 - **Verdict:** DO NOT LAND.
 - **Disposition:** each checked in the source. Fixed in `25a5b053c` unless noted:
@@ -15,7 +16,7 @@
   8. *Every `column` styled as a subtitle.* Fixed. Only the row's text stack (the shape the kernel reads, `text_stack`) gets the subtitle padding; the fixture's profile card no longer does. Tested.
   9. *The first gap under control flow.* Fixed for `when` and `match` in first place. Under `each` every section shares one body, so none is first, as the comment says.
   10. *One-text labels.* Fixed (the same as astra #10).
-  11. *A custom pressable row takes no cell highlight.* Argued and declared. The carried views keep their own touch handling: a custom row's press, press feedback and nested controls stay the author's, so the escape hatch carries no surprises. LLP 1082 §4 says so.
+  11. *A custom pressable row takes no cell highlight.* Argued and declared. The carried views keep their own touch handling: a custom row's press, press feedback and nested controls stay the author's, so the escape hatch carries no surprises. LLP 1084 §4 says so.
   12. *The agent's tap on a disabled row's toggle.* Fixed by astra #2 and #4: the grouped check runs before the control host's and refuses a disabled switch.
   13. *`match` in `part`.* Fixed.
   14. *Tests.* Added: class precedence, a conditional symbol, a conditional text, plain sections, a `row` of texts, the custom column's padding, hidden parts, one-text labels; on UIKit, a switch's target and enabled state across batches, a scrolled-away tap, three custom rows' order, and the agent's tap on a toggle.
@@ -265,7 +266,7 @@ Verdict: DO NOT LAND
   1. *`display="none"` beyond a direct text.* Fixed: the inset (inside a `when` arm too), the leading position, the line count and the line walk all skip it. Tested with both shapes.
   2. *A `when` hiding a subtitle's first line.* Fixed (as astra #4). Tested in both states.
   3. *A class-made native button row.* Fixed (as astra #2). The snippet compiles, and the kernel reads the row as custom.
-  4. *A class's `display: none`.* Declared (LLP 1082 §4). A class is applied when the part is lowered, after the row's parts are counted.
+  4. *A class's `display: none`.* Declared (LLP 1084 §4). A class is applied when the part is lowered, after the row's parts are counted.
 
 ---
 

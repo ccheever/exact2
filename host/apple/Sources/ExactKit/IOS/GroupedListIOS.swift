@@ -1,4 +1,4 @@
-// @ref LLP 1082 D5 — a grouped list (`list appearance="auto"`) is UIKit's
+// @ref LLP 1084 D5 — a grouped list (`list appearance="auto"`) is UIKit's
 // own list: a UICollectionView with UICollectionLayoutListConfiguration in
 // the list's box, its cells UIListContentConfiguration and cell accessories
 // read from the kernel (`exact_grouped_list`), so separators, highlight,

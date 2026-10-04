@@ -1,4 +1,4 @@
-//! A grouped list (LLP 1082): `list appearance="auto"`. Its children are
+//! A grouped list (LLP 1084): `list appearance="auto"`. Its children are
 //! `section`s; a section's leading `header` and trailing `footer` are its
 //! texts and everything between them its rows. Contract checks that shape
 //! and writes the list's look as a user-agent sheet: rows prepended to the

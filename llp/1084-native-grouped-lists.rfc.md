@@ -1,7 +1,7 @@
-# LLP 1082: A grouped list is UIKit's own list on iOS — `list appearance="auto"`
+# LLP 1084: A grouped list is UIKit's own list on iOS — `list appearance="auto"`
 
 **Type:** RFC
-**Status:** Implemented 2026-10-03 (§6, as built). Charlie approved the direction on 2026-10-03: "A native grouped-list role mapped to UICollectionView list layout." That approval is the human word for the fixture page (`scripts/fixtures/grouped-list.contract`) and for the DEFERRED entry this adds (§5).
+**Status:** Implemented 2026-10-03 (§6, as built). Numbered 1082 until 2026-10-04, when it was renumbered because LLP 1082 (hosting) had landed under the same number. Charlie approved the direction on 2026-10-03: "A native grouped-list role mapped to UICollectionView list layout." That approval is the human word for the fixture page (`scripts/fixtures/grouped-list.contract`) and for the DEFERRED entry this adds (§5).
 **Systems:** Contract (`contract/lower/src/grouped.rs`, new: the shape checks and the sheet; `lib.rs`: the hook; `tags.rs`: `listStyle`), Kernel (`schema.json`: prop 225 `listStyle`, the `info` symbol role; `kernel/src/grouped.rs`, new: `Kernel::grouped_list`), Apple host (`abi/commands.rs`, `abi/exports.rs`, `include/exact.h`: `exact_grouped_list`; `IOS/GroupedListIOS.swift`, new; `PresenterIOS.swift`, `Bridge.swift`, `Session.swift`, `ChromeIndex.swift`, `AgentIOS.swift`, `AgentNativeIOS.swift`: the wiring), web, macOS and Linux (nothing: they draw the sheet)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Implementer:** Claude (Opus 5.5), on `grouped-list`, 2026-10-03

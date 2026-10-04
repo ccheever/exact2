@@ -239,7 +239,7 @@ consumer. Unblocks them with no module. Take: none offered; waived by
 Charlie's approval. No new attribute, no title menu, no bar added by a route.
 **Expanded (Charlie, 2026-10-03: "A native grouped-list role mapped to
 UICollectionView list layout"):** `list appearance="auto"` is a grouped list
-(LLP 1082): sections with a header and footer, rows read by shape, UIKit's
+(LLP 1084): sections with a header and footer, rows read by shape, UIKit's
 own list on iOS and a measured sheet elsewhere; `listStyle` picks
 `inset-grouped`, `grouped` or `plain`. The Signal Clone's settings screens are
 the consumer. Unblocks native cell highlight, separators, dynamic type and

@@ -547,7 +547,7 @@ final class Presenter {
     /// A select's options and the one it shows, read from the kernel.
     var selectOptions: ((UInt32) -> SelectMenu)?
     var buttonFace: ((UInt32) -> ButtonFace)?
-    /// A grouped list's sections and rows (LLP 1082 D4).
+    /// A grouped list's sections and rows (LLP 1084 D4).
     var groupedList: ((UInt32) -> GroupedListModel?)?
 
     /// An event a view reports: sent only while the presenter still has the
