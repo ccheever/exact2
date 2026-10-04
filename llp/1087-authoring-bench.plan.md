@@ -1,521 +1,723 @@
 # LLP 1087: The authoring bench — measure building an app with exact2, then make it cheaper
 
 **Type:** Plan
-**Status:** Draft r2, 2026-10-04. r2 records Charlie's answers to r1's questions (§11) and adds comparison against other frameworks (§9). Nothing built yet.
-**Systems:** None in exact2 until Phase 1 (the bench lives in its own repository, §2); then the authoring diary (`docs/diary.md`, the `exact new` AGENTS.md block in `game/new.mjs`), the generated `exact.mjs` command log (`.exact/commands.jsonl`), `scripts/feedback.mjs`
+**Status:** Draft r3, 2026-10-04.
+- r2 recorded Charlie's answers (§13) and added comparators (§10).
+- r3 folds in the blind reviews by Astra (xhigh) and Grok 4.7 (xhigh). Both are in
+  `llp/reviews/plan-2026-10-04-1087.{astra,grok}.md`, with dispositions in §14.
+- r3 adds §12, the operator's runbook, so a fleet box can be handed this document and
+  run it.
+**Implementer:** a fleet box Charlie assigns ("run this for a week"), following §12
+**Systems:** None in exact2 until Phase 1 (the bench lives in its own repository, §2). Then:
+- the authoring diary: `docs/diary.md`, and `scripts/feedback.mjs` `status` (§6.2)
+- whatever the loop's fixes touch, through the normal lanes (§8)
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
-**Related:** LLP 1086 (what an app author is given; the dice-tray trial that motivated it); `docs/diary.md` (the authoring diary this reuses); LLP 1053 (gaps the list benchmarks found, the precedent for "a bench finds gaps, an RFC disposes them"); `~/.tuft/projects/web-framework-bench` (layout and conventions to copy); `game/diaries/001-beacons-exact*.md` (five builder runs of one brief, the closest thing to a bench run so far); `skills/orchestrate` (fix lanes, blind reviews)
+**Related:**
+- LLP 1086: what an app author is given; the dice-tray trial behind it.
+- `docs/diary.md`: the authoring diary this reuses.
+- `scripts/feedback.mjs` and `game/new.mjs`: the command log and the generated `exact.mjs`.
+- LLP 1053: "a bench finds gaps, an RFC disposes them".
+- `~/.tuft/projects/web-framework-bench`: the layout and conventions to copy.
+- `game/diaries/001-beacons-exact*.md`: five builder runs of one brief.
+- `skills/orchestrate`: lanes and blind reviews.
 
 ## Summary
 
-Charlie asked, 2026-10-04, for a benchmark he can use to optimize authoring. It runs
-an agent through building an app with exact2 and records four things:
+Charlie asked, 2026-10-04, for a benchmark he can use to optimize authoring. Agents
+build apps with exact2, and the bench tracks four things:
 
-1. **Wall-clock time**, from the brief to "done".
+1. **Wall-clock time**, from the brief to an accepted app.
 2. **Tokens**, and what they cost.
-3. **Fidelity**: did the built app match what the author asked for, and how buggy is it.
-4. **Experience**: how good building it was from the authoring agent's side. This is
-   a holistic score out of 100 plus sub-scores out of 100. A grading agent produces it
-   from a very detailed diary.
+3. **Fidelity**: does the app do what the author asked, and how buggy is it.
+4. **Experience**: how building it went, from the agent's side. This is a holistic
+   score out of 100 plus sub-scores out of 100, graded by agents from a very detailed
+   diary and the transcript.
 
-The bench must run across agent harnesses, models, target platforms and machines.
-It should run in a loop that finds problems in the authoring experience, fixes them,
-and shows by re-running that time, tokens and gotchas went down.
+It runs across agent harnesses, builder models, grader models, target platforms and
+machines. It runs in a loop: find what's rough, fix it in exact2, and show with a
+controlled re-run that time, tokens and gotchas went down. Periodically, the same tasks
+are built in other stacks, from UIKit and Compose to Expo, Flutter and the web
+frameworks, for comparison.
 
-The plan:
+The plan in brief:
 
-- **The bench is a separate repository.** It holds tasks, a runner, graders and
-  results, like `web-framework-bench`. exact2 gains no apparatus from it except one
-  detail level for the diary (§6.2), which Charlie approved (§11).
-- **A trial** is one agent building one task, starting from `exact new` in a clean
-  directory, with one harness, model, platform set and machine, at a pinned exact2
-  commit. It produces a run record (§4) plus the diary, transcript, command log and
-  built app.
-- **Time and tokens are measured, not self-reported.** They come from the harness's
-  event stream and `exact.mjs`'s command log. Each is attributed to a phase and a
-  cause: docs reading, build waits, error loops, and diary writing.
-- **Fidelity is graded in three layers.** Hidden scripted checks come first, then a
-  judge agent that drives the built app against the spec on each platform, then a
-  parity diff across platforms.
-- **Experience is graded by a panel of agents** reading the diary *and* the
-  transcript, against an anchored rubric. Claude, Astra and Grok each grade blind.
-  The bench reports the median, the disagreement, and whether any family favours its
-  own builds.
-- **Builders vary too.** Opus, Sonnet, GPT, Grok and Gemini all author, because docs
-  that only work for one model are bad docs.
-- **The loop** runs a batch, clusters the findings across trials, and ranks them by
-  minutes and tokens lost × frequency. It fixes the top ones in exact2 through the
-  usual lanes and re-runs the affected tasks paired against the baseline. A fix lands
-  only if the gain is outside noise and fidelity didn't regress. Held-out tasks guard
-  against tuning to the bench.
-- **Other frameworks** get the same tasks, specs and graders on a slower cadence (§9).
-  The set is UIKit, SwiftUI, Android Views, Jetpack Compose, React, Expo, React Native
-  without Expo, Flutter, Vue, Svelte, Solid, plain HTML+CSS+JS, KMP / Compose
-  Multiplatform, and a few others. Every comparison is reported per platform, and also
-  as the cost of covering all the platforms a task targets.
+- **A separate repository** holds tasks, runner, graders and results. exact2 gains
+  only the diary's detailed level, which Charlie approved.
+- **Headline numbers are raw.** Elapsed time, billed tokens and USD, completion rate,
+  and fidelity come straight from the harness and the platform. Breakdowns by cause
+  are labelled estimates.
+- **Fidelity scores the delivered app** against requirements the builder was told.
+  Bugs count whoever caused them, and who caused a bug is recorded separately.
+- **Experience is an agent-assessed friction proxy.** A multi-family panel grades it
+  from the transcript first and the diary second. It is validated by perturbation
+  tests, not human labels.
+- **A fix lands** only after an interleaved, randomized A/B run and a confirmation
+  batch, on top of exact2's normal checks. "Inconclusive" is an allowed outcome.
+- **Start narrow:** three tasks, one builder, web only, exact2 plus one web
+  comparator. Widen only after one real improvement has been shown end to end.
 
 ## 1. Words
 
-- **Task**: a spec for one app, or a change to an existing app, plus its hidden
-  grading material.
+- **Task**: one app to build, or one change to an existing app, plus its grading
+  material.
+- **Stack**: what the app is built with: `exact2`, or a comparator (§10).
 - **Harness**: the agent product driving the model: Claude Code, Codex CLI, Grok CLI,
-  Cursor's agent, Tuft, Gemini CLI. ("Hosts" in the original ask was an agent's word.
-  In exact2, "host" means a platform host, so this document says *harness* for the
-  agent and *machine* for the box it runs on.)
-- **Stack**: what the app is built with. `exact2`, or one of the comparators in §9.
-- **Platform**: web, iOS, macOS, Linux (later Android, tvOS, Windows).
-- **Cell**: one task × stack × harness × model × platform set × machine × exact2 commit (exact2 cells only).
-- **Trial**: one run of a cell. Each cell runs N ≥ 3 times, because a single agent run
-  is noise.
-- **Batch**: a set of trials run against one exact2 commit, to be compared with
-  another batch.
+  Gemini CLI, Cursor's agent. ("Hosts" in the original ask was an agent's word. In
+  exact2, a host is a platform host.)
+- **Builder**: harness + model. **Grader**: a model scoring a trial.
+- **Platform**: web, iOS, macOS; later Android and Linux.
+- **Cell**: task × stack × builder × platform set × machine × stack revision.
+- **Trial**: one run of a cell.
+- **Batch**: the trials run together under one plan.
+- **Completed**: the builder said DONE inside the ceiling, *and* the app passed the
+  task's acceptance threshold (§5.4).
 
 ## 2. Where it lives
 
-The bench gets its own repository, `~/.tuft/projects/authoring-bench`, for three reasons:
+The bench gets its own repository, `authoring-bench`, on the operator box. Charlie
+says where it is hosted. It lives outside exact2 for three reasons:
 
-- RULES §Agents: agents add no apparatus to exact2 without a human saying so. A
-  runner, graders and result stores are apparatus.
-- The bench must test exact2 the way an outsider meets it: through `exact new`, the
-  generated `AGENTS.md`, and the docs. If the bench lived inside the checkout, every
-  trial would be able to see it.
-- Results accumulate. They belong next to the tasks, not in exact2's history.
+- RULES §Agents forbids adding apparatus to exact2 without a human's yes.
+- Builders must meet exact2 the way an outsider does.
+- Results accumulate there, not in exact2's history.
 
 ```
 authoring-bench/
-  tasks/<id>/            BRIEF.md (what the agent sees), SPEC.md (the author's full intent),
-                         checks/ (hidden scripted checks), reference/ (screenshots, optional),
-                         task.json (tier, platforms, budget, holdout flag)
-  runner/                run.mjs (one trial), batch.mjs (a matrix), harnesses/<name>.mjs
-  graders/               fidelity/ (scripted + judge prompts), experience/ (rubric + prompt)
-  analysis/              aggregate.mjs, compare.mjs (paired A/B), triage prompt
-  results/<batch>/<trial>/   record.json, diary.md, transcript.jsonl, commands.jsonl,
-                             app/ (the built source), shots/, grades/
-  site/                  a static report: matrix, trends, findings
+  tasks/<id>/         BRIEF.md (seen by the builder: every scored requirement, in a person's words)
+                      SPEC.md (graders: weights, test inputs, procedures, allowed variation)
+                      checks/ (hidden scenarios, §5.1), reference/ (screenshots, if any)
+                      task.json (tier, platforms, ceiling, role: dev | regression | audit)
+  runner/             run.mjs (one trial), batch.mjs (a plan → trials), harnesses/<name>.mjs
+  drivers/            web.mjs, ios.mjs, ... (§5.1)
+  graders/            fidelity/, experience/, prompts, rubric, perturbation suite (§6.4)
+  analysis/           aggregate.mjs, ab.mjs (§8.2), triage prompt
+  results/<batch>/<trial>/   record.json, transcript.jsonl, diary.md, commands.jsonl,
+                             app/ (source snapshot), shots/, grades/
+  ledger.jsonl        every spend (dollars) and every landing decision
+  site/               a static report
 ```
+
+**Isolation is enforced, not hoped for.** The builder runs as a separate macOS user,
+`bench`, which can read only:
+
+- its own scratch directory
+- the pinned stack checkout, read-only
+- the caches it is allowed
+
+It cannot read the bench repository, results, other trials or ledger. The pinned exact2
+checkout is a worktree with the folders that hold past diaries and reviews removed
+(`game/diaries/`, `llp/reviews/`, any `DIARY.md`). A real user's copy has no use for
+them, and they would leak earlier trials.
 
 ## 3. Tasks
 
-Tiers are chosen so that each exercises a different stretch of the path. Start with
-six tasks (one per tier) and grow toward 20. Each tier gets one *variant* that is held
-out (§8).
+### 3.1 Tiers
 
 | Tier | Example | Exercises |
 |---|---|---|
-| T1 tiny | dice tray, counter with history | install, `exact new`, first build, dev loop |
-| T2 data | todo list with edit, filter and persistence | `app.ts` data module, durable state, lists |
-| T3 navigation | multi-screen app over a stand-in API (transit times, a feed) | routing, async data, loading and error states |
-| T4 visual match | one screen of a real app against reference shots (Signal's chat list; the shots in `signal-clone-shots/`) | CSS fidelity, native controls, fonts, the web-as-standard rule |
-| T5 capability | needs camera, notifications or haptics | the diary's Needed section; native modules |
-| T6 change | add a feature to an existing mid-size exact2 app the agent didn't write | reading unfamiliar Contract; the most common real job |
+| T1 tiny | tip splitter, counter with history | install, `exact new`, first build, dev loop |
+| T2 data | todo list with edit, filter and persistence | `app.ts`, durable state, lists |
+| T3 navigation | multi-screen app over a stand-in API | routing, async data, loading and error states |
+| T4 visual match | one screen of a real app against reference shots | CSS fidelity, native controls, fonts |
+| T5 capability | needs camera, notifications or haptics | the Needed section; native modules; device fixtures |
+| T6 change | add a feature to an existing mid-size app the builder didn't write | reading unfamiliar code; the most common real job |
 
-What each task carries:
+### 3.2 What the builder is told
 
-- **`BRIEF.md`**: what a person would actually type, from 2 to 15 lines. It is
-  deliberately underspecified in places a person would be.
-- **`SPEC.md`**: the author's full intent. It is a numbered list of requirements,
-  each with a weight and a "how you'd tell", plus explicit non-goals. The agent never
-  sees it. Only the graders, and the optional author persona (§5.4), see it.
-- **`checks/`**: hidden scripted checks that run through platform drivers (§5.1),
-  so the same checks grade every stack. To make them possible without leaking the spec, the brief names a
-  small set of required element ids, as `web-framework-bench`'s SPEC data-testids do.
-  Only checks needing a stable handle use ids; everything else falls to the judge.
-- **`task.json`**: tier, target platforms, a time and token ceiling (the trial is cut
-  off at the ceiling and graded as-is), and the holdout flag.
+The brief is a person's words, but **every scored requirement is in it**. Reviewers
+pointed out that withholding intent turns fidelity into a mind-reading test, and one
+that favours stacks with lucky defaults. What stays hidden:
+
+- the test inputs
+- the procedures
+- the weights
+- the bug hunt
+
+A T4 brief says whether it means "match these pixels" (the reference shots are given)
+or "use appropriate native presentation".
+
+How an agent handles ambiguity is a separate experiment (§5.5), not a hidden cost in
+every trial.
+
+The brief also asks for a few element ids (`data-testid`, `accessibilityIdentifier`,
+`testTag`), for the scripted checks.
+
+### 3.3 Roles: dev, regression and audit
+
+- **Dev tasks**: their findings feed triage, and fixes are measured on them.
+- **Regression tasks**: run every batch to catch breakage. Their findings are
+  reported but not fed to the fix lanes.
+- **Audit tasks**: fresh, run rarely (every two weeks), never seen by the loop. They
+  answer "are the improvements real?" Audit tasks exist before the loop is allowed to
+  fix anything. They are replaced after every use that influenced a decision.
+
+No improvement on an unrelated audit task is not by itself evidence of overfitting. A
+**pattern** of dev gains with flat or worse audits is.
 
 ## 4. A trial, and its record
 
 ### 4.1 Running one
 
-`runner/run.mjs <task> --harness claude-code --model claude-opus-5-5 --platforms web,ios --exact2 <sha>`:
+1. **Pin the stack.** For exact2, that's a worktree at the commit, stripped as in §2,
+   with `bun install --frozen-lockfile` done.
+   - Caches are standardised: **warm**, meaning toolchains, crates and npm present.
+   - A weekly **cold** slice uses an empty `CARGO_HOME` and target directory.
+   - Both kinds are labelled in the record.
+2. **Start from nothing.** The builder gets an empty directory and the brief, plus:
+   "Build it with exact2. It is checked out at `<path>`; its README says how to
+   start." Running `exact new` is part of the measured run, so the setup sub-score
+   watches what actually happened. T6 instead starts from a frozen copy of its
+   starting app.
+3. **The diary is on, and sending is off.** The runner gives the builder:
+   - a private `EXACT_CONFIG_DIR`, where the standing answer is `ask`
+   - `EXACT_FEEDBACK_URL` pointing at a closed port
+   - `EXACT_DIARY=detailed`
 
-1. Make a clean scratch directory on the machine. Pin exact2 at `<sha>` in a dedicated
-   worktree, never the live main (the web-framework-bench convention). Point
-   `EXACT2` at it.
-2. Run `exact new <app>` the way a user would. Set the diary to bench detail (§6.2)
-   and set `feedback` to `never`-send, so nothing leaves the machine. The diary stays
-   on.
-3. Start the harness headless with the brief as its prompt and a fixed preamble ("you
-   are building this for someone; when you're done, say DONE and stop"). Use
-   `claude -p … --output-format stream-json` for Claude Code and `codex exec --json`
-   for Codex. Each `harnesses/<name>.mjs` adapter knows how to start its harness,
-   stream its events to `transcript.jsonl`, and pull token usage out of them. A
-   harness that can't run headless isn't benched until it can.
-4. Stop at DONE, at the ceiling, or at 10 minutes with no tool calls. Record why it
-   stopped.
-5. Snapshot the app source, the diary, `.exact/commands.jsonl` and the transcript,
-   then run the graders (§5, §6) in fresh contexts. Graders never share a context with
-   the builder.
-
-Builders vary as a first-class axis. The nightly matrix includes at least:
-
-- Claude Code with Opus 5.5 (the baseline cell), and with Sonnet 5
-- Codex with `gpt-6-astra`
-- Grok CLI with Grok 4.7
-- one more family when its harness runs headless (Gemini CLI)
-
-The weekly batch adds Fable 5.1, Haiku 4.5 and reasoning-effort variants. A cheap
-model that can finish a task is the strongest test of the docs.
-
-Trials in a batch run in parallel on any fleet machine that is free. A machine runs one iOS trial at a
-time, since simulators and Xcode builds fight. Machines are probed for load before
-dispatch, as `skills/orchestrate` already does.
+   This leaves ordinary users' `never` exactly as it is (§6.2).
+4. **Run the builder headless**, as user `bench`, with a fresh harness config, so no
+   memory, skills, settings or MCP servers leak in. The prompt is the brief plus a
+   fixed note: "I'm not around to answer questions; make reasonable choices and note
+   them; end with DONE when it's finished and checked."
+   - Verified on 2026-10-04 for Claude Code: `claude -p … --output-format
+     stream-json --verbose` with a fresh `CLAUDE_CONFIG_DIR` and
+     `CLAUDE_CODE_OAUTH_TOKEN` set runs clean. The final `result` event carries
+     `total_cost_usd`, `usage` and per-model `modelUsage`.
+   - Codex uses `codex exec --json`, and Grok uses `grok --output-format …`.
+   - Each adapter normalises the stream into usage, tool-use, tool-result, text and
+     result events, timestamped on arrival.
+5. **Stop** at DONE, at the ceiling, or when idle. Idle means no harness output
+   *and* no live child process using CPU for 10 minutes, so a long Xcode build isn't
+   mistaken for a hung agent. Every stop reason is kept. **Failed and capped trials
+   stay in the data.**
+6. **Snapshot** the source, transcript, diary and the app's `.exact/commands.jsonl`
+   into the results, which `bench` cannot write to. Then grade (§5, §6) in fresh
+   contexts.
 
 ### 4.2 The record
 
-`record.json`, one per trial:
-
 ```json
 {
-  "trial": "2026-10-05T03:12Z-t2-todo-cc-opus55-web+ios-mac03-r2",
-  "cell": { "task": "t2-todo", "harness": "claude-code@2.x", "model": "claude-opus-5-5",
-            "platforms": ["web","ios"], "machine": "mac03", "exact2": "3394b5292" },
-  "stop": "done",
+  "trial": "…", "role": "dev",
+  "cell": { "task": "t2-todo", "stack": "exact2", "stack_rev": "3394b5292",
+            "harness": "claude-code@2.1.280", "model": "claude-opus-5-5",
+            "platforms": ["web"], "machine": "…", "cache": "warm", "bench": "<sha>" },
+  "stop": "done | ceiling | idle | error",
+  "completed": true,
   "time": {
-    "wall_s": 1712,
-    "milestones_s": { "first_contract_build_clean": 210, "first_web_render": 260,
-                      "first_ios_launch": 905, "done": 1712 },
-    "by_cause_s": { "model": 640, "tool_exec": 1072, "build": 780, "docs_reading": 95,
-                    "error_loops": 410, "diary": 120 }
+    "elapsed_s": 1712,
+    "spans_s": { "model": 0, "tool_exec": 0 },
+    "tags_s":  { "build": 0, "drive": 0, "docs": 0, "stack_source": 0, "diary": 0, "error_loop": 0 },
+    "milestones_s": { "app_created": 0, "first_compile_ok": 0, "first_render": 0, "done": 0 }
   },
-  "tokens": {
-    "input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "usd": 0,
-    "by_cause": { "docs": 0, "exact2_source": 0, "build_output": 0, "own_code": 0, "diary": 0 }
-  },
-  "fidelity": { "score": 0, "by_platform": { "web": 0, "ios": 0 }, "requirements": [], "bugs": [] },
-  "experience": { "overall": 0, "overall_other_family": 0, "sub": {},
-                  "by_grader": { "claude-opus-5-5": {}, "gpt-6-astra": {}, "grok-4.7": {} }, "spread": 0 },
-  "findings": [ { "id": "", "category": "", "minutes_lost": 0, "tokens_lost": 0, "evidence": "" } ]
+  "tokens": { "input": 0, "output": 0, "reasoning": 0, "cache_read": 0, "cache_write": 0, "usd": 0,
+              "context_est_by_tag": { "docs": 0, "stack_source": 0, "build_output": 0, "own_code": 0, "diary": 0 } },
+  "fidelity": { "by_platform": { "web": { "score": 0, "requirements": [], "bugs": [] } },
+                "attribution": [ { "bug": "", "cause": "author | stack | driver | unknown" } ] },
+  "experience": { "overall": { "median": 0, "other_family_median": 0, "by_grader": {} },
+                  "sub": {}, "spread": 0, "flags": [] },
+  "findings": []
 }
 ```
 
-### 4.3 Where time and tokens come from
+### 4.3 Time and tokens
 
-- **Wall clock** comes from the runner's own timestamps. **Milestones** are the first
-  success of each step, recovered from `commands.jsonl` (which already logs each
-  `exact.mjs` command's exit code and duration) and the transcript.
-- **Time by cause** joins transcript tool calls with the command log:
-  - `build`: the time inside `exact.mjs` build, run and test commands.
-  - `error_loops`: the time between a failing command and the next success of the same
-    command.
-  - `docs_reading`: the time spent on tool calls that read files under exact2's `docs/`.
-  - `diary`: the time spent writing `.exact/diary/`.
-  - `model`: what's left, i.e. time spent generating.
-- **Tokens** come from the harness's usage events. They are attributed to a cause by
-  what each tool result contained: a read of `docs/` counts as `docs`; a read of
-  exact2's source (`kernel/`, `contract/`…) counts as `exact2_source`, which is a
-  docs-gap signal; build and compiler output counts as `build_output`, which is a
-  verbosity signal. USD uses each model's list price at batch time.
-- **The diary's overhead is reported separately and subtracted** from the headline
-  time and token numbers. A very detailed diary is how the experience score is fed,
-  and it must not make every other number look worse. Note that it still perturbs the
-  run: an agent writing notes thinks differently. §8 covers that.
+- **Headlines are raw:** elapsed seconds, billed tokens by category (reasoning
+  separately where the harness reports it) and USD. Token counts are compared **within
+  a model**, because tokenizers differ. Across models, compare dollars.
+- **Spans** are mutually exclusive, and add up to elapsed:
+  - `tool_exec`: from a tool call to its result
+  - `model`: everything else, which includes transport and scheduling
+- **Tags** overlap and are labelled estimates:
+  - `build` and `drive`: from the transcript's Bash commands, with full arguments
+  - `docs`: reads under the stack's docs
+  - `stack_source`: reads of the stack's internals, a docs-gap signal
+  - `diary`: writes to `.exact/diary/`
+  - `error_loop`: from a failing command to the next success of the same command
+
+  The transcript's tool calls are the primary source. `commands.jsonl` corroborates
+  them; it only knows coarse verbs and only logs on return.
+- **Milestones** come from the transcript (the first `exact new` success, the first
+  clean `contract build`) and the drivers (first render).
+- **The diary's cost is measured, not subtracted.** Writing a diary changes how the
+  agent works. Each week, a randomized slice of trials runs with the diary off; those
+  trials get time, tokens and fidelity only. The on/off difference is the diary's
+  cost, and it is reported.
 
 ## 5. Fidelity
 
-Fidelity is scored per platform, 0–100, in three layers. The trial's fidelity is the
-mean over its target platforms, with the per-platform numbers kept.
+### 5.1 Scenarios over platform adapters
 
-### 5.1 Scripted checks (deterministic)
+A truly framework-neutral driver doesn't exist. Test ids, DOM nodes and accessibility
+elements are different interfaces. What does exist: **one scenario per requirement,
+written once, run through a per-platform adapter**. Each adapter supports a fixed set
+of operations:
 
-Checks drive the app through the platform, never through exact2's own tooling, so the
-same check grades every stack (§9):
+- `launch`, `reset`, `find(id)`, `tap`, `type`, `read text`, `screenshot`, `relaunch`
+  (for persistence), `set viewport`, `set color scheme`
 
-- **Web**: Playwright.
-- **iOS and macOS**: the accessibility tree, through XCUITest or idb.
-- **Android**: uiautomator over adb.
-- **Linux**: AT-SPI.
+The adapters:
 
-They find elements by the accessibility identifiers the brief asks for. `data-testid`,
-`accessibilityIdentifier`, `testTag` and `Semantics` all reach the platform's tree.
-exact2 trials are graded by the same drivers. `exact.mjs agent` stays in the builder's
-hands, where its worth shows up in the experience score. Each check maps to a
-requirement in SPEC.md. This layer is cheap, repeatable, and
-catches outright breakage. It covers maybe a third of a spec.
+| Platform | Adapter |
+|---|---|
+| Web | Playwright |
+| iOS | XCUITest or idb, on the accessibility tree |
+| Android | uiautomator |
+| macOS | the AX API |
 
-### 5.2 The judge (an agent with the app and the spec)
+Linux waits: exact2's Linux host has no AT-SPI tree yet (`host/linux/src/agent.rs`,
+"no AT-SPI tree").
 
-A fresh agent gets SPEC.md, the built app (running), the same platform drivers (plus
-screenshots) on each platform, and a budget: 15 minutes and a token cap. It does three things:
+The app runs in its **normal launch mode**. exact2's agent mode replaces native bars
+and menus (`docs/agent-pitfalls.md`), so it is not what a user sees. A scenario that
+can't run gets a separate `driver_failure` outcome. It is neither a pass nor a fail,
+and it counts against the bench, not the app.
 
-- **Grades each requirement** `met` / `partial` / `missing`, with the screenshot or
-  tree excerpt that shows it.
-- **Hunts bugs**: crashes, wrong state after a sequence, broken layout at another
-  viewport size, dark mode, a keyboard covering input, an empty state that was never
-  handled. Each bug gets a severity: crash, major, minor or cosmetic.
-- **Compares against `reference/`** for T4, judging the screenshots side by side.
+T5 needs device or capability fixtures: a simulated camera feed, a notification
+inspector, a haptics log. Requirements that can't be observed are marked
+`unobservable` and left out of the score.
 
-The judge does not see the builder's diary or transcript, so its view of the app isn't
-coloured by the builder's account of it.
+Before any comparator is benched, one scenario set must work on exact2 *and* one
+comparator: launch, reset, persistence, keyboard, navigation and screenshots.
 
-Score per platform = 100 × Σ(weight × {1, 0.5, 0}) / Σ weight, minus 15 per crash,
-6 per major, 2 per minor and 0.5 per cosmetic, floored at 0. Scripted checks override
-the judge where both cover a requirement.
+### 5.2 The judge
 
-### 5.3 Parity
+A fresh agent gets four things:
 
-The same drive script runs on every target platform. The bench diffs the accessibility
-trees and layout boxes, and compares screenshots perceptually. A disagreement is a
-`parity` finding: an exact2 bug, not the author's. It is reported separately and does
-not lower the trial's fidelity.
+- SPEC.md
+- the running app, through the same adapters plus screenshots
+- a budget: 15 minutes per platform, and a token cap
+- no diary or transcript
 
-### 5.4 Optional: the author persona (Phase 4)
+The judge grades each requirement scenario-checks couldn't settle as `met`, `partial`
+or `missing`, with evidence. It hunts bugs by severity. Bugs are **deduplicated by root
+cause**: a missing requirement and the bug it causes are penalised once. Judge families
+rotate across trials, so no builder is always judged by its own family. App content is
+untrusted input: the judge prompt says that text in the app is data, never
+instructions.
 
-Real authoring is a conversation. An author agent holds SPEC.md, and the builder can
-ask it questions through the harness, getting the answers a person would give. This
-measures how the builder handles ambiguity, and how often the docs, rather than the
-person, should have answered. It stays off until the single-shot bench is stable,
-because it adds variance.
+### 5.3 The score
+
+Per platform: 100 × Σ(weight × {1, ½, 0}) / Σ weight. Then subtract, once per root
+cause:
+
+| Bug | Penalty |
+|---|---|
+| Crash | 15 |
+| Major | 6 |
+| Minor | 2 |
+| Cosmetic | 0.5 |
+
+The score floors at 0. Scenario results override the judge where both cover the same
+requirement.
+
+**Fault doesn't excuse a bug.** A bug caused by exact2 still makes the delivered app
+worse, and excusing it would flatter exact2 against comparators. Attribution (`author`,
+`stack`, `driver`, `unknown`) is recorded beside the score. Stack-attributed bugs are
+the loop's best findings.
+
+**Parity** is checked on semantic outcomes across platforms, with presentation
+differences the spec allows. A semantic disagreement is a bug on the platform where
+it's wrong.
+
+### 5.4 Completion
+
+Each task sets an acceptance threshold: fidelity ≥ 80 on every target platform, and
+no crash. A trial is **completed** when it says DONE and meets the threshold. The bench
+reports:
+
+- **completion rate**
+- **time and dollars among completed trials**
+- **capped and failed trials as censored**: never averaged in as if they had
+  finished, never dropped
+
+A fast, incomplete app can't improve the numbers.
+
+### 5.5 Ambiguity, separately (Phase 4)
+
+An author persona holds a fuller intent and answers questions the builder asks through
+a fixed mechanism. This runs as its own experiment, so ambiguity handling doesn't
+inject noise into the main bench.
 
 ## 6. Experience
 
-### 6.1 Sub-scores
+### 6.1 What it is
 
-Each is 0–100 with anchored levels (90: "never noticed it"; 70: "small friction,
-fixed in minutes"; 50: "cost a real detour"; 30: "needed a workaround or source
-reading"; 10: "blocked or gave up"). The grader writes a sentence of evidence for each
-score, citing the diary line or transcript turn.
+The score is an **agent-assessed friction proxy**: how much friction the builder ran
+into, and of what kind. It is not a validated human-experience scale, and the report
+says so.
 
-| Sub-score | What it covers |
+### 6.2 The detailed diary
+
+`docs/diary.md` is embedded in every app's AGENTS.md. It already says to run
+`bun exact.mjs feedback status` at the start. The detailed level is printed by
+`feedback status` only when `EXACT_DIARY=detailed` is set, so ordinary users' context
+doesn't grow. `docs/diary.md` gains one line: "If `feedback status` prints more
+instructions, follow them too."
+
+The detailed level asks for:
+
+- **a timeline**, with times taken from `date`, never estimated
+- **for every error**: the command, the first lines of output, what the agent
+  believed, each attempt, and what worked
+- **every doc read**: what it was looking for, and whether it was there
+- **every guess** where the docs were silent, later marked right or wrong
+- **every workaround** left in the app
+- **a closing self-assessment**, per platform
+
+### 6.3 Sub-scores and grading
+
+Each sub-score is 0–100, against **framework-neutral anchors**:
+
+| Score | Anchor |
 |---|---|
-| Setup | install, `setup --check`, `exact new`, first build |
-| Orientation | finding the right doc; the generated AGENTS.md; knowing what to read next |
-| Docs accuracy | did the docs say what's true; missing or wrong examples |
-| Language ergonomics | writing Contract and `app.ts`; how often intent fit the language |
-| Diagnostics | compiler and runtime errors: did each one say what to do |
-| Dev loop | edit-to-seen speed; reload reliability; stale-build surprises |
-| Platform builds | iOS/macOS/Linux builds: cold time, signing, simulators, failures |
-| Verification | `exact.mjs agent` and `test`: could it see and prove the app works |
-| Capability coverage | the Needed section: what was provided, built by hand, or missing |
-| Predictability | surprises; behaviour that contradicted the docs or CSS |
-| Confidence at done | did it finish sure the app worked, and was it right |
+| 90 | never noticed it |
+| 70 | small friction, fixed in minutes |
+| 50 | a real detour |
+| 30 | needed a workaround or reading the framework's source |
+| 10 | blocked |
 
-**Overall** is graded as its own holistic judgement against its own anchors, not as an
-average. The average is reported beside it, and a large gap between the two is worth
-reading.
+The anchors are phrased around the stack's own documented behaviour, never "follows
+CSS".
 
-### 6.2 The diary at bench detail
+| Sub-score | Covers |
+|---|---|
+| Setup | install, project creation, first build |
+| Orientation | finding what to read; the project's agent instructions |
+| Docs accuracy | the docs said what's true |
+| Language ergonomics | how often intent fit the language |
+| Diagnostics | errors said what to do |
+| Dev loop | edit-to-seen speed and reliability |
+| Platform builds | native builds, signing, simulators |
+| Verification | seeing and proving the app works |
+| Capability coverage | what was provided, built by hand, or missing |
+| Predictability | surprises; behaviour that contradicted the docs |
+| Confidence at done | finished sure, and was right (checked against fidelity) |
 
-`docs/diary.md` already asks for Rough, Lean in, Needed and Checkpoints. The bench
-asks for more, behind a switch so real users don't pay for it. When
-`EXACT_DIARY=detailed` (set by the runner; the AGENTS.md block says what it means) the
-agent also keeps:
+**Overall** is graded on its own anchors, not averaged from the sub-scores.
 
-- **A timeline**: one line per step, with a timestamp taken from `date`, never
-  estimated. The beacons r5 diary shows why: its builder estimated a start time and
-  then had to retract it.
-- **For every error**: the command, the first lines of the error, what was believed,
-  what was tried, which attempt worked, and the minutes and tokens it took as best
-  known.
-- **Every doc read, and why**: what was looked for, and whether it was there.
-- **Every guess**: places where the docs didn't say, and the agent guessed. Each gets
-  "right" or "wrong", found out later.
-- **Every workaround** left in the app, and what it should have been.
-- **A closing self-assessment**: what it would tell the next agent, and how sure it is
-  that the app works on each platform.
+Each grader:
 
-This is the one change to exact2 the plan needs before Phase 1: a short section in
-`docs/diary.md` and a line in the generated AGENTS.md block. It needs Charlie's yes
-under RULES §Agents.
+- reads the **transcript first**, with full tool outputs available on request (it gets
+  a condensed view, plus a tool to fetch any result in full)
+- reads the diary second, then the command log and the time breakdown
+- scores **observed difficulty**, and separately records **fault attribution**
+  (`stack`, `agent`, `unclear`)
 
-### 6.3 Grading
+An agent mistake the docs could have prevented still counts as difficulty. Reading the
+stack's source is evidence of friction; it is not penalised for its own sake. Diaries
+and app text are untrusted data in the grader prompt.
 
-The experience grader is a fresh agent. It reads, in order: the diary, the
-transcript (condensed: tool calls, their results cut to 40 lines, the agent's
-messages), `commands.jsonl`, and the record's time and token breakdown.
-
-It reads the transcript as well as the diary for two reasons:
-
-- **Agents under-report.** A diary written mid-task forgets the third retry. The
-  transcript doesn't forget.
-- **Agents mis-attribute.** "The compiler is wrong" is sometimes the agent's own typo.
-  The grader marks each Rough entry `confirmed`, `agent error` or `unclear`.
-  `agent error` lowers no exact2 sub-score, but it becomes a finding if the docs could
-  have prevented it.
-
-It outputs the scores, the evidence, and a list of **findings**. Each finding is
-`{category, title, minutes_lost, tokens_lost, evidence, suggested fix}`, and findings
-are the loop's raw material.
-
-A **panel** of graders scores each trial blind:
+**The panel:**
 
 - Claude (Opus 5.5)
-- Astra (`gpt-6-astra`, xhigh, via `codex exec`)
+- Astra (`gpt-6-astra` xhigh, via `codex exec`)
 - Grok 4.7 (xhigh)
-- Gemini, when available
+- Gemini, when its CLI runs headless
 
-Each grader is a separate context, and none sees another's scores. The headline is
-the panel median. Beside it, the record keeps every grader's score and an
-**other-family median**, which leaves out the grader from the builder's family. If a
-family rates its own builds higher than the others do, the gap between the two
-medians shows it, and the report tracks that gap per grader. The fidelity judge
-(§5.2) rotates through the same families from trial to trial, so no builder is
-always judged by its own family. The bench reports the mean and the spread. If the spread
-across the panel is above 15 on the overall score, the trial is flagged, and the
-triage agent reads it before trusting its findings. A
-**calibration set** of 6 to 10 past diaries is re-graded whenever a grader prompt or
-model changes. The set is signal, bluesky, dice-tray and beacons r1–r5. Charlie has no
-time to hand-score them, so their reference scores are the two graders' reconciled
-consensus across the panel: each grader sees the others' evidence once, then the
-result is frozen. That
-anchors *stability*, not *truth*. A human spot-check can replace it later. A grader change that moves the calibration
-scores is a grader change, and must not be mistaken for exact2 getting better or worse.
+Graders are blind to each other. The record keeps every grader's scores, the median,
+and the **other-family median**, which leaves out the builder's family. The gap
+between the two medians is a diagnostic, not proof of self-preference. If the panel's
+spread on overall exceeds 15, the trial is flagged.
 
-## 7. The loop
+To save budget, the full panel grades a sample: every audit trial and 25% of the rest.
+The remaining trials get two graders, never including the builder's family.
+
+### 6.4 Validation without human labels
+
+Charlie has no time to hand-score, so the scale is checked by **perturbation**. A
+suite of transcript and diary pairs is edited in known ways, and the bench re-checks
+it whenever a grader prompt or model changes. The suite asserts:
+
+- adding retries or a 10-minute dead end lowers the relevant sub-score
+- making the diary twice as verbose, without new events, doesn't move scores by more
+  than 3
+- swapping the builder's model name doesn't move scores by more than 3
+- removing a Rough entry that the transcript still shows doesn't raise the score
+  (transcript-first holds)
+
+A grader configuration that fails the suite isn't used. The calibration set (signal,
+bluesky, dice-tray, beacons r1–r5) checks **repeatability**: a re-grade within ±5. It
+says nothing about truth.
+
+## 7. Cost
+
+The cap is **$2000 a day**, covering everything:
+
+- builders
+- judges and graders
+- triage
+- fix-lane authors and reviewers
+- failed runs
+
+`batch.mjs` **reserves** each trial's ceiling in `ledger.jsonl` before dispatching it,
+and releases the unspent remainder when the trial ends. Parallel trials therefore
+can't overshoot the cap, and the report marks a batch cut short as partial.
+
+On Claude subscription auth, the dollars are list-price equivalents, and the real
+constraint is the rate limit. The operator watches for 429s and lowers parallelism.
+
+The narrow start (§11 Phase 0–1) costs a fraction of the cap. Phase 0 measures what a
+fully graded trial costs, and that number sizes everything after it. A planning guide,
+until measured:
+
+- **under about $15** per graded trial: three or four exact2 cells at N=6 nightly fit,
+  with half the budget left for fix lanes and A/B
+- **a full 20-stack comparator sweep** runs only when its measured cost fits a single
+  weekend's cap; otherwise it is split across months
+
+## 8. The loop
+
+### 8.1 Shape
 
 ```
-batch(commit A) → grade → aggregate → triage → fix lanes → batch(commit B, affected tasks) → compare → land / revert
+batch → grade → aggregate → triage → fix lane → A/B → confirmation → land → watch
 ```
 
-1. **Batch.** A nightly matrix on the fleet, sized to a budget: all tasks × the two or
-   three main harness/model pairs × web and iOS × N=3. A weekly batch adds the other
-   harnesses, platforms and machines.
-2. **Aggregate.** Medians and IQRs per cell and per tier, trends over commits, and
-   the four metrics side by side. There is no single composite. Charlie reads it as a
-   Pareto picture; a change that saves tokens but loses fidelity is not a win.
-3. **Triage.** An agent clusters the batch's findings across trials ("the iOS build
-   needed `--update-lock`": 7 of 18 trials, about 9 min each). It dedupes them against
-   open items in exact2's `QUEUE.md` and `docs/issues.md`, and ranks them by
-   frequency × (minutes + tokens in minute-equivalents). It outputs a short ranked
-   list. Each item says whether it is a **docs fix**, a **diagnostic fix**, a
-   **tooling fix**, a **bug**, or a **feature**.
-4. **Fix.** Docs, diagnostic and tooling fixes, and bugs with a clear reproduction,
-   go to fix lanes as `skills/orchestrate` runs them, with Charlie's routing (2026-10-04):
-   Opus 5.5 implements, Astra xhigh and Grok 4.7 xhigh review blind, and RULES'
-   three-round limit holds. A fix that passes review and §7.5's comparison is pushed to
-   origin/main without waiting for Charlie. **Features go to Charlie** as an
-   RFC or a QUEUE line and are never auto-built. When a pitfall can't be fixed yet, it
-   goes in `docs/agent-pitfalls.md`, whose own deletion rule removes it later.
-5. **Compare** (§7.5). Re-run the tasks the finding came from, plus one task from every other
-   tier, at the fix commit. Pair each against the baseline (same task, harness, model
-   and machine) with N ≥ 3 each. A fix **lands** if the median improves on the metric
-   it targeted, a bootstrap 90% interval on the paired difference excludes zero, and
-   no task's fidelity median dropped by more than 5. Otherwise it is reverted or
-   rethought, and the loop records that it didn't help.
-6. **Report.** A daily digest to Slack: what the batch found, what landed, what moved,
-   and what's waiting on Charlie.
+1. **Batch**: the nightly plan (§12.3).
+2. **Aggregate**: completion rate, then medians and IQRs of time, dollars, fidelity
+   and experience, per cell. There is no composite score. A change that saves tokens
+   but loses completion or fidelity is not a win.
+3. **Triage**: an agent clusters findings across dev-task trials, dedupes them against
+   exact2's `QUEUE.md` and `docs/issues.md`, and ranks them by frequency × estimated
+   cost. Each finding is classed as a docs, diagnostic, tooling, bug or feature fix.
+4. **Fix lane**: docs, diagnostic and tooling fixes, plus bugs with a reproduction.
+   - Opus 5.5 implements, and Astra xhigh and Grok 4.7 xhigh review blind.
+   - Three rounds at most, then the finding is descoped or escalated.
+   - **Features, language changes, and design go to Charlie**, as a QUEUE line or an
+     RFC.
+   - **Nothing in the lane adds apparatus to exact2** (RULES §Agents).
+   - Pitfalls that can't be fixed yet go in `docs/agent-pitfalls.md`.
+5. **A/B** (§8.2), then **confirmation**, then **land** (§8.3).
 
-### Stopping, and human checkpoints
+### 8.2 The A/B
 
-- The loop never edits tasks, checks, graders or the rubric. Those change only by a
-  human's hand, or with a human's yes, and each such change bumps a bench version.
-  Batches on different bench versions aren't compared.
-- A finding that comes back after its fix landed gets one more round, then escalates.
-- Charlie reviews the ranked list weekly. Anything touching the language, the kernel
-  or a platform host's design is his call.
+The lane's acceptance test is asynchronous; it is not a blocking check (RULES
+§Loop shape).
 
-## 8. Keeping the numbers honest
+- **Before running:** declare the target metric (one of: completion, elapsed time,
+  dollars, or one sub-score), the minimum worthwhile improvement, and the cells. Pick
+  the cells so they **represent** the finding's scope. Use **fresh** baseline runs;
+  never reuse the bad runs that surfaced the finding, which would invite regression to
+  the mean.
+- **Running:** A and B trials are **interleaved and randomized within blocks**: the
+  same machine, the same hour, alternating order. N per arm comes from the measured
+  noise floor (§11 Phase 1), with a minimum of 6.
+- **Deciding:** a stratified bootstrap 90% interval on the B−A difference.
+  - **Win**: the interval clears zero *and* the median beats the declared minimum.
+  - **Inconclusive**: the default outcome, and an allowed one. The fix may still land
+    if it's a plain docs correction with no metric claim, labelled `unmeasured`.
+  - **Loss**: revert or rethink.
+- **Guards, all required:** completion rate doesn't drop; no new crash class; no cell's
+  fidelity median drops by more than 3; and no rise in the share of trials with a
+  critical failure.
+- **Confirmation:** a win is re-run once on fresh cells before landing. Many fixes are
+  tested in a week; the confirmation batch is what keeps the false positives from
+  accumulating.
 
-- **Variance.** Agent runs vary a lot. Every claim compares paired medians with an
-  interval, never two single runs. Phase 1 measures the noise floor: the same cell 10
-  times. That sets N.
-- **Goodhart.** The fix lanes see the visible tasks' findings, never the held-out
-  variants. Each tier keeps one holdout that is run in every batch but whose findings
-  aren't fed to triage. If the visible tasks improve and the holdouts don't, the
-  fixes are tuning to the bench. Tasks rotate each quarter.
-- **Contamination.** A trial's scratch directory is fresh. The builder can read the
-  pinned exact2 checkout (a real user can), but it can't see the bench repository,
-  other trials, or past diaries.
-- **Diary perturbation.** Once a week, a slice of trials runs with the diary off. They
-  get time, tokens and fidelity only. The gap between them and the diary-on trials is
-  the diary's true cost, and it is reported.
-- **Harness drift.** Harness and model versions are recorded per trial. A harness
-  upgrade starts a new baseline for its cells.
-- **Cost.** The cap is $2000 a day across builders, graders and judges, enforced by the
-  runner from live usage. It stops dispatching at the cap, and the report says the
-  batch is partial. The default split:
-  - 60% for the nightly exact2 batch
-  - 25% for fix-lane comparison reruns
-  - 15% held back, which accrues toward comparator runs (§9)
+### 8.3 Landing
 
-  Phase 0 measures the cost of a trial, and that sets N and the matrix size.
+Charlie authorised pushing well-reviewed fixes to origin/main (§13).
 
-## 9. Comparators: the same apps in other stacks
+- Landing is serialized: one integration at a time.
+- Each integration rebases, runs exact2's five checks, verifies the reproduction, and
+  builds and drives the app(s) it touches, as AGENTS.md requires.
+- The async lane then runs per commit as usual.
+- A landed fix that the async lane or the next batch attributes a regression to is
+  reverted.
+- **Two bad landings in a week pause autonomous landing** until Charlie says go.
 
-### 9.1 The set
+### 8.4 What the loop never touches
+
+The loop never touches tasks, scenarios, rubrics, grader prompts or the perturbation
+suite. They change only with a human's yes, and each change bumps the bench version.
+Batches on different bench versions aren't compared.
+
+## 9. Keeping the numbers honest (summary)
+
+| Risk | Defence |
+|---|---|
+| Variance | Paired, interleaved A/B; N from the measured noise floor; intervals, never two single runs (§8.2) |
+| Goodhart | Dev, regression and audit roles; audits replaced after use (§3.3) |
+| Stopping early | Completion and censoring (§5.4) |
+| Contamination | Separate user, stripped checkout, results outside builder-writable storage (§2) |
+| Grader bias | Multi-family panel, other-family median, perturbation suite (§6) |
+| Diary perturbation | Randomized diary-off slice (§4.3) |
+| Drift | Harness and model versions per trial; an upgrade starts a new baseline |
+| Prompt injection | App content and diaries are untrusted data in judge and grader prompts |
+
+## 10. Comparators
+
+### 10.1 The set
 
 | Group | Stacks |
 |---|---|
-| Apple native | UIKit, SwiftUI (iOS; SwiftUI also for macOS tasks) |
+| Apple native | UIKit, SwiftUI |
 | Android native | Android Views, Jetpack Compose |
 | Cross-platform mobile | Expo, React Native without Expo, Flutter, KMP with Compose Multiplatform, .NET MAUI, Ionic/Capacitor, Lynx |
 | Web | React (Vite), Vue, Svelte, Solid, Angular, plain HTML+CSS+JS |
-| Desktop (macOS/Linux tasks) | Tauri, Electron, SwiftUI for macOS |
+| Desktop | Tauri, Electron, SwiftUI for macOS |
 
-Each comparator gets a pinned toolchain and a one-line starter (`npx create-expo-app`,
-`flutter create`, Xcode's template via `xcodegen`, `npm create vite`…), recorded per
-batch. The starter is the one a person would use, with no bench-specific scaffolding.
+Each stack is pinned to a toolchain and starts from the starter a person would use,
+recorded per batch.
 
-### 9.2 What stays the same, and what can't
+### 10.2 What's comparable
 
-- **Same:** the brief, SPEC.md, checks, judge, rubric and grader panel. The same
-  builder pairs are used, one per family, at the monthly cadence.
-- **The diary:** comparator builders get a framework-neutral copy of the bench-detail
-  diary. It has the same sections; its Checkpoints use generic step names (install,
-  new project, dev loop, editing, each platform build, verifying, deploy). exact2
-  trials keep `docs/diary.md`, which has the same shape. The experience rubric scores
-  both alike.
-- **Platform coverage differs.** UIKit covers iOS and nothing else. Results are
-  therefore reported two ways:
-  - **Per platform**: exact2's iOS fidelity, time and tokens beside SwiftUI's, UIKit's,
-    Expo's, Flutter's…
-  - **Cover the task**: for a web+iOS+Android task, exact2 once, against the cheapest
-    native combination (SwiftUI + Compose + React, summed: separate trials, added up),
-    against each cross-platform stack once.
-- **The judge's bug hunt** uses the same budget per platform for every stack.
-- **T6 (change an existing app)** needs the same starting app in each stack. It is
-  built once per comparator by a bench trial, reviewed, frozen, and reused.
+- **Same:** the brief, scenarios, judge, rubric, and grader panel. The same builders
+  are used, and each comparator batch includes **contemporaneous exact2 controls**,
+  with identical builder and judge assignments.
+- **Comparator builders** get a framework-neutral copy of the detailed diary.
+- **Two kinds of experiment, never mixed:**
+  - **Single platform**: an iOS-only task, built in exact2, SwiftUI, UIKit, Expo,
+    Flutter… A joint web+iOS exact2 run is never scored against an iOS-only SwiftUI
+    run.
+  - **Matched platform set**: a web+iOS+Android task. exact2 once, against each
+    cross-platform stack once, and against native per platform (SwiftUI + Compose +
+    React). For the native sets the report gives both **total effort** (the sum) and
+    **delivery elapsed time** (the critical path, if built in parallel).
+- **T6 baselines** are built per stack to a common functionality and quality bar,
+  checked by the same scenarios before they are frozen.
 
-### 9.3 Cadence
+### 10.3 Cadence
 
-Comparators run **monthly**, and on demand when Charlie asks. They use one main
-harness/model pair per sweep, rotating family each month, the visible tasks only, and
-N=3. A full sweep is roughly 20 stacks × 6 tasks × 3, around 360 trials. It is paid for from the 15% held back, and runs over
-a weekend if the cost of one day exceeds the cap. Results go in the same report as a
-separate page, with exact2's median from the same month beside them.
+Comparators run monthly, or on demand. They start with **one web comparator**
+(React), next to exact2 in Phase 2. Further stacks are added in order of value per
+dollar: Expo and SwiftUI, then Compose and Flutter, then the rest. A stack is added
+only once the adapters (§5.1) drive it.
 
-Comparator findings are about the other stacks. They feed exact2's triage only as
-"Lean in" evidence: what another stack made easy that exact2 made hard, with the
-minutes it cost.
+## 11. Phases
 
-## 10. Phases
+**Phase 0: the instrument (2–3 days).**
+- Build: the repository, user isolation, the Claude Code adapter, `run.mjs`, the web
+  adapter, and T1–T3 with their scenarios and the record.
+- Exit when all of these hold:
+  - a trial runs unattended end to end
+  - its time and token numbers match the transcript by hand
+  - the runner's own command log agrees with `commands.jsonl` where they overlap
+  - the per-trial cost is measured
 
-**Phase 0: one trial, by hand (1–2 days).** One harness (Claude Code headless), web
-only, tasks T1 and T2. `run.mjs`, the record, and time and tokens by cause. A person
-scores fidelity and experience by hand, to produce the first calibration entries. Exit
-when one trial runs end to end unattended and its numbers match the transcript.
+**Phase 1: graders and noise (about a week).**
+- Build:
+  - the detailed diary in exact2 (§6.2; the one exact2 change)
+  - the judge and the experience panel
+  - the perturbation suite
+  - the calibration re-grade
+- Run the **noise floor**: one cell × 12. That fixes N, and the minimum worthwhile
+  improvement per metric.
+- Write the **audit tasks** before Phase 2.
+- Exit when the perturbation suite passes and N is set.
 
-**Phase 1: the graders (about a week).** The diary's bench detail lands in exact2
-(§6.2, with Charlie's yes). Scripted checks and the fidelity judge for T1–T3. The
-experience grader with two families, and the calibration set. A noise-floor run: one
-cell × 10. Exit when the graders agree within the spread threshold on the calibration
-set and N is chosen. The platform drivers (§5.1) are built here, since every later
-phase leans on them.
+**Phase 2: the loop, narrow (one to two weeks).**
+- Scope: exact2 on web, T1–T3, one builder (Claude Code with Opus 5.5).
+- Run triage, the fix lanes, the A/B, confirmation and landing.
+- React joins as the first comparator, and gets the scenario-portability proof.
+- Exit when **one fix has been shown to win**, and confirmed, end to end.
 
-**Phase 2: the matrix (about a week).** Codex and one more harness. iOS and macOS.
-`batch.mjs` across the fleet, T4–T6, and the static report. The parity layer. Exit
-when a nightly batch runs unattended within its budget.
+**Phase 3: widen (ongoing).** Add, in this order, each only once the last is stable:
 
-**Phase 3: the loop (ongoing).** Triage, fix lanes, paired comparisons, the daily
-digest, and holdouts. Exit criterion: none. Success is the headline medians going down
-release over release while fidelity holds.
+1. iOS (adapter and simulator capacity)
+2. a second and third builder (Codex with Astra, Grok)
+3. T4–T6
+4. macOS
+5. the weekly cold slice
+6. more comparators
 
-**Phase 3b: comparators.** The neutral drivers from Phase 1 already grade any stack.
-Add the §9 starters, then the first monthly sweep. Web stacks go first (cheapest),
-then Expo, SwiftUI and Compose, then the rest.
+**Phase 4.** The ambiguity experiment (§5.5), Android and Linux when the hosts and
+adapters exist, Windows.
 
-**Phase 4: extensions.** The author persona (§5.4), Linux and Android for exact2 when
-the hosts exist, and Windows.
+## 12. The operator's runbook
 
-## 11. Charlie's answers to r1 (2026-10-04)
+For the agent on the box that Charlie hands this to. The box runs the program; Charlie
+is reached only for the items in §12.5.
 
-1. **"Hosts"** was an agent's word. This document says *harness* and *machine*.
-2. **The diary's bench detail in exact2** (§6.2): yes.
-3. **Budget and machines**: $2000 a day, on any machines that are free.
-4. **Calibration**: no hand-scoring for now. Use the panel's frozen consensus (§6.3).
-5. **Fix autonomy**: yes. Fixes that are well reviewed (Astra xhigh, Grok 4.7 xhigh)
-   go to origin/main. Opus 5.5 authors.
-6. **Comparators**: added as §9.
-7. **Models**: author with a variety of models, and grade with a variety, Claude
-   included (§4.1, §6.3).
+### 12.1 Bootstrap (once)
+
+1. **Check the box:**
+   - macOS with Xcode and simulators (iOS is Phase 3, but check now)
+   - bun, Rust (rustup), Node, Playwright with Chromium
+   - free disk ≥ 200 GB
+   - the exact2 checkout's `bun scripts/exact.mjs setup --check` is clean
+2. **Create the `bench` macOS user** (§2). Builders run as `bench` via
+   `sudo -u bench`.
+3. **Set up the bench repository.** Ask Charlie where it is hosted if that isn't
+   decided. Until then, keep it local and commit there.
+4. **Harness credentials.** The builder needs credentials it can use without a human:
+   - For Claude Code, a long-lived OAuth token in `CLAUDE_CODE_OAUTH_TOKEN`, with a
+     fresh `CLAUDE_CONFIG_DIR` per trial (§4.1).
+   - For Codex and Grok, their CLIs as already configured on the fleet.
+   - Verify each with a one-line prompt before Phase 0 ends.
+5. **Write the ledger:** `ledger.jsonl`, with today's cap of $2000.
+
+### 12.2 Phase work
+
+Work through §11 in order, phase by phase. Commit the bench repository after every
+working step. Each phase's exit criteria are the gate; don't skip ahead.
+
+### 12.3 Daily, once the loop runs (Phase 2 on)
+
+| When (box local) | What |
+|---|---|
+| 00:00 | Nightly batch: dev and regression tasks × the current cells × N, reserved against the ledger |
+| on finish | Grade, aggregate, triage; open fix lanes for the top 1–3 findings |
+| daytime | Fix lanes run; A/B and confirmation batches dispatch as fixes are ready; serialized landings |
+| 18:00 | Digest to Charlie (below) |
+| every 2 weeks | Audit batch |
+| monthly | Comparator batch (§10.3) |
+
+### 12.4 The digest
+
+The digest goes to wherever Charlie says; until then, to the thread that started this.
+It is short, and has five parts:
+
+- **Numbers:** completion rate, median elapsed, median dollars, median fidelity, and
+  median overall experience for the main cell, each against the previous 7 days.
+- **Landed:** each fix, its A/B result (win, inconclusive or unmeasured), and its
+  commit.
+- **Reverted or paused,** and why.
+- **Top 3 open findings,** with frequency and estimated cost.
+- **Needs Charlie:** the list from §12.5, if any.
+
+### 12.5 Stop and ask Charlie
+
+- A finding needs a feature, a language change, a design decision, or new apparatus in
+  exact2.
+- Two bad landings in a week (§8.3).
+- Spend above $2000 in a day, or a rate limit that stops the batch two nights running.
+- A grader configuration fails the perturbation suite, and there's no obvious fix.
+- Any change to tasks, scenarios, rubric or graders: propose it, then wait.
+- A metric hasn't moved in two weeks of landings. The approach needs rethinking, not
+  more fixes.
+
+Otherwise, decide and keep going. Log decisions made without asking in the digest.
+
+## 13. Charlie's answers (2026-10-04)
+
+1. "Hosts" was an agent's word. This document says *harness* and *machine*.
+2. The detailed diary in exact2: yes.
+3. Budget: $2000 a day. Machines: any that are free. This document is handed to a
+   fleet box to run.
+4. No hand-scoring for now. Use §6.4.
+5. Push well-reviewed fixes to origin/main. Opus 5.5 authors; Astra xhigh and Grok
+   4.7 xhigh review.
+6. Comparators: §10.
+7. Build with a variety of models, and grade with a variety, Claude included.
+
+## 14. Review dispositions (r3)
+
+Astra (`gpt-6-astra` xhigh) and Grok 4.7 (xhigh) reviewed r2 (`6271021a8`) blind, from
+the same brief.
+
+| Astra # | Finding | Disposition |
+|---|---|---|
+| 1 | N=3 bootstrap; landing turns noise into commits | Taken: §8.2, with interleaved blocks, a predeclared minimum, fresh baselines, confirmation, inconclusive allowed, completion and critical guards |
+| 2 | Parity exemption flatters exact2 | Taken: §5.3, where fault doesn't excuse a bug and bugs dedupe by root cause |
+| 3 | Hidden spec is mind-reading | Taken: §3.2, where requirements are disclosed and procedures hidden; ambiguity is §5.5 |
+| 4 | A neutral driver is adapters; Linux has no AT-SPI; agent mode differs | Taken: §5.1 |
+| 5 | Consensus is repeatability; transcript should come first | Taken: §6.1, §6.3, §6.4 |
+| 6 | Cause breakdown over-precise; diary subtraction invalid | Taken: §4.3 |
+| 7 | DONE rewards stopping early; setup not observed | Taken: §4.1 step 2, §5.4 |
+| 8 | Holdouts and isolation weak | Taken: §2, §3.3 |
+| 9 | Comparator comparability | Taken: §10.2 |
+| 10 | Landing protocol | Taken: §8.3 |
+| 11 | Budget breadth | Taken: §7, and the narrow start in §11 |
+| 12 | `never` contradiction; command log coarse | Taken: §4.1 step 3, §4.3 |
