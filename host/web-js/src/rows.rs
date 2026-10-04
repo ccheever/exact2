@@ -266,6 +266,23 @@ impl Em<'_> {
                         Some(m) => Some(m.to_string()),
                         None => colors.then(|| system.to_string()),
                     };
+                    // A computed image the native hosts refuse is dropped
+                    // here too, and journaled as they journal it, so the web
+                    // never paints what a Mac drops (studio diary R15).
+                    let map = if matches!(id, StyleId::BackgroundImage | StyleId::MaskImage) {
+                        let names = exact_kernel::gradient::REFUSED
+                            .iter()
+                            .map(|(p, _)| p.trim_end_matches('('))
+                            .collect::<Vec<_>>()
+                            .join("|");
+                        let inner = map.unwrap_or_else(|| "v=>v".into());
+                        Some(format!(
+                            "v=>{{if(v!=null&&/(^|[^a-z0-9-])({names})\\(/i.test(v)){{const x=globalThis.exact;x?.journal?.push(`t=${{x.now?.()??0}} invalid {} value ${{JSON.stringify(String(v))}}; unset`);return null}}return({inner})(v)}}",
+                            id.name().replace('_', "-")
+                        ))
+                    } else {
+                        map
+                    };
                     (w.name, w.unit, map)
                 })
                 .collect(),

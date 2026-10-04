@@ -419,6 +419,28 @@ pub(crate) fn check_style_value(
             Expr::Let { body, .. } => pending.push((body, body.span())),
             _ => {}
         }
+        // A computed gradient is parsed where it is painted: a native host
+        // drops one its parse refuses while a browser paints it (studio
+        // diary R15). The functions a template's own text already names are
+        // refused here, on every target, as a literal's are.
+        if let Expr::Template(parts, _) = value {
+            if rows.contains(&StyleId::BackgroundImage) || rows.contains(&StyleId::MaskImage) {
+                let text: String = parts
+                    .iter()
+                    .map(|p| match p {
+                        contract_syntax::TemplatePart::Text(t) => t.as_str(),
+                        contract_syntax::TemplatePart::Expr(_) => " ",
+                    })
+                    .collect();
+                if let Some(why) = exact_kernel::gradient::refused_function(&text) {
+                    return err(
+                        "lower-attr-value",
+                        format!("`{}=…`: {why} — no host but the browser paints it, so the native ones would drop it", a.name),
+                        span,
+                    );
+                }
+            }
+        }
         // @ref LLP 1043.000 §3 D1 — keep the full wire vocabulary, narrow authoring.
         if let Expr::Str(v, _) = value {
             if rows.contains(&StyleId::Resize)
