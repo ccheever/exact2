@@ -289,35 +289,54 @@ check('layout resizing uses its parents structural isolation without animating i
 check('JS commits keep ghost containment and restore the latest paint decision after the last exit', async () => {
   await fixture('');
   await evaluate(`(async () => {
-    const rt = await import('/js/rt.js');
-    const { h, when, sig, W, act, pr, P, mount, pieces } = rt;
-    window.jsrt = rt;
-    const shown = sig(true), isolated = sig(false);
-    window.jsRemove = act(() => W(shown, false));
-    window.jsIsolation = act(v => W(isolated, v));
+    const { h, when, sig, W, act, pr, mount, pieces, usePaint } = await import('/js/rt.js');
+    const { paintUse } = await import('/js/paint.js');
+    usePaint(paintUse());
+    const shown = sig(true), trapped = sig(false);
+    window.jsShown = act(v => W(shown, v));
+    window.jsIsolation = act(v => W(trapped, v));
     mount(root => {
-      const app = h(root, 'div', 0, {'data-exact-kind':'box','data-exact-root':''}, 0);
-      window.jsHolder = h(app, 'div', 0, {'data-exact-kind':'box'}, 0);
-      P(jsHolder, 'data-exact-own-isolation', () => isolated() ? '' : null);
+      const app = h(root, 'div', 0, {'data-exact-f':'133'}, 0);
+      window.jsHolder = h(app, 'div', 0, {'data-exact-f':'0'}, 0);
       when(jsHolder, shown, p => {
         for (const duration of [1000, 2000]) {
-          const c = h(p, 'div', 0, {'data-exact-kind':'box','data-exact-exit':''}, 0);
+          const c = h(p, 'div', 0, {'data-exact-f':'4'}, 0);
           c.style.cssText = 'width:100px;height:40px;--exact-exit-animation:pulse ' + duration + 'ms linear both';
           pr(c);
         }
       }, () => {});
-      const sibling = h(app, 'div', 0, {'data-exact-kind':'box','data-exact-position':'absolute','data-exact-zi':'1'}, 0);
+      // A live z descendant requires isolation independently of the ghosts.
+      when(jsHolder, trapped, p => {
+        const c = h(p, 'div', 0, {'data-exact-f':'513','data-exact-zi':'2'}, 0);
+        c.style.cssText = 'position:absolute;z-index:2;width:10px;height:10px';
+      }, () => {});
+      const sibling = h(app, 'div', 0, {'data-exact-f':'513','data-exact-zi':'1'}, 0);
       sibling.style.cssText = 'position:absolute;z-index:1;width:100px;height:40px';
     });
-    await pieces(); jsRemove(); seek(0);
+    await pieces();
+    if (!jsHolder.$paint?.own || jsHolder.$paint.own.outside) throw Error('the production paint pass must classify the holder');
   })()`);
-  expect(await evaluate('document.querySelectorAll("[data-exiting]").length')).toBe(2);
-  expect(await evaluate('jsHolder.style.isolation')).toBe('isolate');
-  await evaluate(`jsIsolation(true); jsIsolation(false);
-    import('/js/paint.js').then(paint => { paint.paintFacts(jsHolder); paint.paintFlush(); });`);
-  expect(await evaluate('jsHolder.style.isolation')).toBe('isolate');
-  await evaluate('document.getAnimations().find(a => a.effect.getTiming().duration === 1000).finish(); Promise.resolve()');
-  expect(await evaluate('jsHolder.style.isolation')).toBe('isolate');
-  await evaluate('document.getAnimations().forEach(a => a.finish()); Promise.resolve()');
   expect(await evaluate('jsHolder.style.isolation')).toBe('');
+  for (const required of [true, false]) {
+    await evaluate('jsShown(false); seek(0)');
+    expect(await evaluate('document.querySelectorAll("[data-exiting]").length')).toBe(2);
+    expect(await evaluate('jsHolder.style.isolation')).toBe('isolate');
+    // These actions must commit the production pass themselves: no manual flush.
+    for (const trapped of [true, false, true]) {
+      await evaluate(`jsIsolation(${trapped})`);
+      expect(await evaluate('jsHolder.$paint.isolated')).toBe(trapped);
+      expect(await evaluate('jsHolder.$ghostIsolation.value')).toBe(trapped ? 'isolate' : '');
+      expect(await evaluate('jsHolder.style.isolation')).toBe('isolate');
+    }
+    await evaluate('document.getAnimations().find(a => a.effect.getTiming().duration === 1000).finish(); Promise.resolve()');
+    expect(await evaluate('document.querySelectorAll("[data-exiting]").length')).toBe(1);
+    expect(await evaluate('jsHolder.style.isolation')).toBe('isolate');
+    await evaluate(`jsIsolation(${required})`);
+    expect(await evaluate('jsHolder.$ghostIsolation.value')).toBe(required ? 'isolate' : '');
+    await evaluate(`document.getAnimations().forEach(a => a.${required ? 'finish' : 'cancel'}()); Promise.resolve()`);
+    expect(await evaluate('document.querySelectorAll("[data-exiting]").length')).toBe(0);
+    expect(await evaluate('!!jsHolder.$ghostIsolation')).toBe(false);
+    expect(await evaluate('jsHolder.style.isolation')).toBe(required ? 'isolate' : '');
+    await evaluate('jsIsolation(false); jsShown(true)');
+  }
 });
