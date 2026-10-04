@@ -247,9 +247,16 @@ impl Value {
             (TypeKind::Option, Value::Option(Some(v))) => {
                 row.elem.is_some_and(|e| v.conforms(plan, e))
             }
-            (TypeKind::List, Value::List(items)) => row
-                .elem
-                .is_some_and(|e| items.iter().all(|v| v.conforms(plan, e))),
+            (TypeKind::List, Value::List(items)) => row.elem.is_some_and(|e| {
+                // A list of scalars (a series' points) checks in one loop.
+                match plan.type_(e).kind {
+                    TypeKind::Number => items
+                        .iter()
+                        .all(|v| matches!(v, Value::Number(n) if n.is_finite())),
+                    TypeKind::String => items.iter().all(Value::is_str),
+                    _ => items.iter().all(|v| v.conforms(plan, e)),
+                }
+            }),
             (TypeKind::Record, Value::Record(values)) => {
                 let fields = row.fields;
                 values.len() == fields.len as usize

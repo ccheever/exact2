@@ -124,7 +124,7 @@ impl Catalog {
                     break;
                 };
                 let mut parsed = fontdb::Database::new();
-                let ids = parsed.load_font_source(fontdb::Source::Binary(Arc::new(bytes.to_vec())));
+                let ids = parsed.load_font_source(fontdb::Source::Binary(Arc::new(bytes)));
                 if ids.len() != 1 {
                     failed = true;
                     break;
