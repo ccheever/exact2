@@ -82,7 +82,8 @@ word.
 file          = { declaration } ;
 declaration   = use | shape | function | style | keyframes | font
               | routes | component | test ;
-use           = "use" IDENT "from" STRING NL ;
+use           = "use" use-name { "," use-name } "from" STRING NL ;
+use-name      = IDENT [ "as" IDENT ] ;
 shape         = "shape" IDENT block(field) ;
 field         = FIELD ":" type NL ;
 function      = "fn" IDENT "(" [ typed-params ] ")" ":" type "=" expr NL ;
@@ -111,12 +112,18 @@ Styles accept literal style attributes and explicitly styleable props (currently
 `buttonStyle`), not arbitrary expressions or event props.
 
 A `use` path begins with `./`, stays below its importing file without `..`
-segments, and resolves to a `.contract` file inside the app directory. Imports
-name a component, shape, function, or style. The loader merges the referenced
-file's resolved declarations, not just the named declaration; there is no import
-namespace. Font declarations and loaded files' keyframes come along with loading. A used file
-cannot declare routes. The root file's first component remains the root after
-imports are resolved. Duplicate conflicting declarations and cycles are refused.
+segments, and resolves to a `.contract` file inside the app directory. A file's
+names are its own declarations and the names its `use` lines list, each
+optionally renamed with `as` (LLP 1091): a component, shape, function, style,
+keyframes, or timeline, declared by the used file or named by its own `use`
+lines. A name another file declares and this one does not name is refused
+(`contract-use-missing`). The keyframes an `animation`, `animation-name` or
+`exit-animation` literal names, and a `clock(Name)` literal, resolve in the
+file that writes them; a name computed at run time is matched as written.
+Fonts are app-wide. A used file cannot declare routes. The root file's first
+component remains the root. A name both declared and used
+(`contract-use-shadows`), one name used from two declarations
+(`contract-use-duplicate`), and cycles are refused.
 
 A route pattern is an absolute path with literal or whole `:name` segments.
 Indentation determines its parent. The optional fallback is `notfound` without

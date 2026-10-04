@@ -95,26 +95,39 @@ impl App {
 }
 
 #[test]
-fn a_timeline_is_imported_by_name_and_two_files_of_one_name_are_refused() {
+fn a_timeline_is_imported_by_name_and_two_files_of_one_name_are_two_timelines() {
     let app = App::new("imports");
-    let spinner = "timeline Pending\ncomponent Spinner\n  view\n    text \"…\" animation=\"p 1s infinite\" animation-timeline=Pending\n";
+    let spinner = "timeline Pending\nkeyframes p\n  to opacity=0\ncomponent Spinner\n  view\n    text \"…\" animation=\"p 1s infinite\" animation-timeline=Pending\n";
     app.write("lib/spinner.contract", spinner);
-    app.write(
-        "lib/pulse.contract",
-        "timeline Pending\nfn pulse(): number = 1\n",
-    );
     let one = app.write(
         "one.contract",
-        "use Spinner from \"./lib/spinner.contract\"\nuse Pending from \"./lib/spinner.contract\"\nkeyframes p\n  to opacity=0\ncomponent App\n  view\n    column\n      Spinner()\n      text \"x\" animation=\"p 1s infinite\" animation-timeline=Pending\n",
+        "use Spinner, Pending from \"./lib/spinner.contract\"\nkeyframes q\n  to opacity=0\ncomponent App\n  view\n    column\n      Spinner()\n      text \"x\" animation=\"q 1s infinite\" animation-timeline=Pending\n",
     );
-    contract::compile_path(&one).unwrap();
+    let plan = format!("{:?}", contract::compile_path(&one).unwrap());
+    assert!(plan.contains("clock(Pending)"), "{plan}");
+    assert!(!plan.contains("Pending__"), "{plan}");
+    // The app's own `Pending` and `p` are not the spinner's: each file's
+    // names mean its own declarations, and the spinner's are renamed where
+    // they are written (LLP 1091 D4/D5).
     let two = app.write(
         "two.contract",
-        "use Spinner from \"./lib/spinner.contract\"\nuse pulse from \"./lib/pulse.contract\"\nkeyframes p\n  to opacity=0\ncomponent App\n  view\n    Spinner()\n",
+        "use Spinner from \"./lib/spinner.contract\"\ntimeline Pending\nkeyframes p\n  to opacity=1\ncomponent App\n  view\n    column\n      Spinner()\n      text \"x\" animation=\"p 1s\" animation-timeline=Pending\n",
     );
-    let e = contract::compile_path(&two).unwrap_err();
-    assert_eq!(e.id, "contract-use-duplicate", "{e:?}");
-    assert!(e.message.contains("timeline `Pending`"), "{}", e.message);
+    let plan = format!("{:?}", contract::compile_path(&two).unwrap());
+    for name in [
+        "clock(Pending)",
+        "clock(Pending__spinner)",
+        "p__spinner 1s infinite",
+    ] {
+        assert!(plan.contains(name), "{name}: {plan}");
+    }
+    // A file sees no timeline it does not name.
+    let three = app.write(
+        "three.contract",
+        "use Spinner from \"./lib/spinner.contract\"\ncomponent App\n  view\n    column\n      Spinner()\n      text \"x\" animation=\"p 1s\"\n",
+    );
+    let e = contract::compile_path(&three).unwrap_err();
+    assert_eq!(e.id, "contract-use-missing", "{e:?}");
     let _ = std::fs::remove_dir_all(&app.0);
 }
 

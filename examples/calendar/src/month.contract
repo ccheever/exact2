@@ -1,4 +1,4 @@
-use Month from "./models.contract"
+use Month, monthIn, paletteColor, weekday, Cell, inRange from "./models.contract"
 use TodoMark from "./agenda.contract"
 
 // The month receives swipes from dates and compact item handles alike. Each

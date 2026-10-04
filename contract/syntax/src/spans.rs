@@ -91,7 +91,8 @@ structs! {
     FontFaceDecl { weight, italic, source, span }
     TestDecl { name, steps, span }
     FnDecl { name, params, ret, body, span }
-    UseDecl { name, path, span }
+    UseDecl { names, path, span }
+    UseName { name, alias, span }
     StyleDecl { name, attrs, span }
     ShapeDecl { name, fields, span }
     Field { name, ty, span }

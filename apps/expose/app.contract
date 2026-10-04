@@ -15,7 +15,9 @@
 // All three families are declared here and bound to these bytes (LLP 1019
 // D3): an installed font of the same name is never consulted.
 
-use StatusBar from "./parts.contract"
+use StatusBar, Time, Clock, Weather, Library, Inbox, Conversation from "./parts.contract"
+use Intelligence, Turn, Page, Title, Hairline, Muted, Card, drop from "./parts.contract"
+use settle from "./parts.contract"
 use AppTile from "./parts.contract"
 use DockTile from "./parts.contract"
 use Notice from "./parts.contract"

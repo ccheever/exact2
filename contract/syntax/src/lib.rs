@@ -25,11 +25,12 @@ pub mod idioms;
 pub mod inline;
 pub mod lexer;
 pub mod parser;
+pub mod scope;
 mod share;
 mod spans;
 
 pub use ast::*;
-pub use clock::resolve_clock_timelines;
+pub use clock::{resolve_clock_timelines, resolve_clock_timelines_in};
 pub use inline::{expand, expand_all, expand_mapped, inline, Expanded, Instance, Owner};
 pub use lexer::{Lexer, Token, TokenKind};
 pub use parser::{parse, parse_source, parse_source_all, SyntaxError};

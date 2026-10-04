@@ -403,11 +403,13 @@ sits on that list carries the trade it would take.
   from an expression; `metrics.mjs` printing the inherited-invalidation cost on
   Messages; the reply tags on `tap`/`type`/`clock`/`screenshot`.
 
-- **Two `.contract` files cannot be shared between apps** (2026-09-08): the
-  `Blocks`/`Runs` renderer is copied between `apps/markdown` and `apps/llp`
-  because `use … from` refuses a `..` segment and a path outside the entry
-  file's directory. A third reader is the trigger to widen it; doing so has a
-  compatibility-id consequence (the shared file is an input to the bake).
+- **Contract modules stage 2** ([LLP 1091](llp/1091-contract-modules.rfc.md) D8–D10, Charlie
+  2026-10-04): stage 1 (module scope) landed. Owed: `exact:` built-ins with
+  `exact:motion`'s `Activity` (LLP 1055.002 D8; Lexy moves to it), packages through
+  `node_modules`, and the resolution graph the bake, watchers and deploy capture (r2 §D10).
+  First consumer: the `Blocks`/`Runs` renderer copied between `apps/markdown` and
+  `apps/llp`. Outside this repo, `signal-exact2` needs stage 1's `use` lines for the
+  names it reaches transitively (`contract-use-missing` names each).
 
 - **Intermittent macOS GPU smoke stall** (2026-09-07): a TS Caltrain run sampled
   in drawable acquisition, then passed in 2.1 s on rerun; final `host` smoke

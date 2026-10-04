@@ -5,6 +5,7 @@ use crate::{
     sources::{self, Sources},
     CompileError, RelatedLocation,
 };
+use contract_syntax::scope::Kind;
 use contract_syntax::*;
 use contract_types::{Ref, Scope, Ty, Types};
 use std::{collections::BTreeMap, io::Write, path::Path};
@@ -254,9 +255,16 @@ pub fn symbols_json(path: &Path, name: Option<&str>) -> Result<String, CompileEr
     };
     r.declarations();
     for import in &sources.imports {
-        for kind in ["component", "shape", "style", "fn"] {
+        let kinds: &[&str] = match import.kind {
+            Kind::Component => &["component"],
+            Kind::Call => &["shape", "fn"],
+            Kind::Style => &["style"],
+            Kind::Keyframes => &["keyframes"],
+            Kind::Timeline => &[],
+        };
+        for kind in kinds {
             if let Some(to) = r.graph.find(kind, &import.name, None, None) {
-                r.graph.refer(file.names.name(import.span), to);
+                r.graph.refer(import.span, to);
             }
         }
     }

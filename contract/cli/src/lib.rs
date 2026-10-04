@@ -220,7 +220,8 @@ pub fn compile(src: &str) -> Result<Plan, CompileError> {
             id: "contract-use-unresolved".into(),
             message: format!(
                 "`use {} from \"{}\"` needs this file's own path to resolve: compile it with `contract build <file>` (`compile_path`)",
-                u.name, u.path
+                u.names.iter().map(|n| n.name.as_str()).collect::<Vec<_>>().join(", "),
+                u.path
             ),
             span: u.span,
             file: None,

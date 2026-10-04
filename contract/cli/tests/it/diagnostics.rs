@@ -522,7 +522,9 @@ fn unknown_import_lists_only_target_exports_and_repairs_through_the_cli() {
     assert_eq!(expected.id, "contract-use-unknown");
     assert_eq!(expected.span.line, 3);
     assert_eq!(expected.file.as_deref(), Some(root.as_path()));
-    assert_eq!(expected.message, "`./barrel.contract` declares no component, shape, style, or function `Rwo`; available components: `Wrapper`, `Left`, `Row`, `Badge`, `Right`; shapes: `Item`; styles: `Line`; functions: `label`");
+    // Only what barrel declares or itself names: Row, Item, Line and label
+    // reach it through Left and Right, which do not pass them on (LLP 1091 D1).
+    assert_eq!(expected.message, "`./barrel.contract` declares no component, shape, style, function, keyframes, or timeline `Rwo`; available components: `Left`, `Right`, `Wrapper`");
     let output = app.run(&[root.to_str().unwrap(), "--json", "-o", "out.plan"]);
     let errors = diagnostics(&output, 1);
     assert_eq!(errors.len(), 1);
@@ -534,12 +536,11 @@ fn unknown_import_lists_only_target_exports_and_repairs_through_the_cli() {
         .unwrap()
         .contains(&expected.message));
     // Every offered declaration is actually admitted by this use syntax.
-    for name in [
-        "Wrapper", "Left", "Row", "Badge", "Right", "Item", "Line", "label",
-    ] {
+    let source = source.replace("    Row()\n", "    Wrapper()\n");
+    for name in ["Wrapper", "Left", "Right"] {
         app.write(
             "app.contract",
-            &source.replace("use Rwo from", &format!("use {name} from")),
+            &source.replace("use Rwo from", &format!("use {name} as Chosen from")),
         );
         assert!(diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 0).is_empty());
     }
@@ -565,7 +566,7 @@ fn empty_import_choices_exclude_fonts_and_keep_nested_locations() {
         assert_eq!(expected.id, "contract-use-unknown");
         assert_eq!(expected.file.as_deref(), Some(nested.as_path()));
         assert_eq!(expected.span.line, 1);
-        assert_eq!(expected.message, "`./empty.contract` declares no component, shape, style, or function `Brand`; this file exports no components, shapes, styles, or functions");
+        assert_eq!(expected.message, "`./empty.contract` declares no component, shape, style, function, keyframes, or timeline `Brand`; this file declares nothing that can be used");
         let errors = diagnostics(&app.run(&[root.to_str().unwrap(), "--json"]), 1);
         same_error(&errors[0], &expected);
     }

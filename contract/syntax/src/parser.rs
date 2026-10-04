@@ -403,13 +403,33 @@ impl Parser {
         Ok(true)
     }
 
-    /// `use Name from "./file.contract"` (LLP 1017 P8). Only a `.contract`
-    /// file may be used: no TypeScript, no packages, no behaviours — data
-    /// comes from the app's Rust data source and formatting from the roster
+    /// `use A, B as C from "./file.contract"` (LLP 1017 P8, LLP 1091 D2).
+    /// Only a `.contract` file may be used: no TypeScript, no behaviours —
+    /// data comes from the app's data source and formatting from the roster
     /// or a `fn` (LLP 1004 D4).
     fn use_decl(&mut self) -> R<UseDecl> {
         let span = self.expect_word("use")?;
-        let name = self.named_ident(span)?;
+        let mut names = Vec::new();
+        loop {
+            let (name, name_span) = self.ident()?;
+            if names.is_empty() {
+                self.names.names.insert(span, name_span);
+            }
+            let alias = if self.at_ident("as") {
+                self.next();
+                Some(self.ident()?.0)
+            } else {
+                None
+            };
+            names.push(UseName {
+                name,
+                alias,
+                span: name_span,
+            });
+            if !self.eat_punct(",") {
+                break;
+            }
+        }
         self.expect_word("from")?;
         let path = match self.peek_kind().clone() {
             TokenKind::Str(s) => {
@@ -431,7 +451,7 @@ impl Parser {
             });
         }
         self.newline()?;
-        Ok(UseDecl { name, path, span })
+        Ok(UseDecl { names, path, span })
     }
 
     /// `fn name(param: type, …): type = expr` (LLP 1017 P5).
