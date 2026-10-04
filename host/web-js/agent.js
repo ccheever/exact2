@@ -263,9 +263,10 @@ export function install(exact) {
         // The end of an input (LLP 1012 §2): the `then`s of the answers it
         // settled land, the clock unmoved and no timer fired (Runner::land_then).
         if (req.land) {
+          // The clock is unmoved, so nothing reconciles here: each landed commit registered its animations (exact.After).
           const stopped = exact.advance(exact.clock.now, false, undefined, false);
-          if (typeof stopped === 'string') { seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
-          seek();
+          if (typeof stopped === 'string') { seek(false); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
+          seek(false);
           return { clock: exact.clock.now };
         }
         if (req.settle) {
