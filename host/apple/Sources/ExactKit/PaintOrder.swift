@@ -180,12 +180,16 @@ extension PaintView {
 
 #if os(macOS)
 extension NSView {
-    /// AppKit's hit supplies the bounds/clipping decision and the fallback
-    /// target. Try its child branches in paint order, including negative z.
+    /// AppKit already walked the successful branch. Reuse that result and
+    /// try only branches painting above it, including negative z.
     func raisedHit(_ hit: NSView?, _ point: NSPoint) -> NSView? {
-        guard hit != nil, !isHidden else { return hit }
+        guard let hit, hit !== self, !isHidden else { return hit }
+        var branch = hit
+        while let parent = branch.superview, parent !== self { branch = parent }
+        guard branch.superview === self else { return hit }
         let local = convert(point, from: superview)
         for view in NodeView.hitOrder(subviews) {
+            if view === branch { return hit }
             if let found = view.hitTest(local) { return found }
         }
         return hit

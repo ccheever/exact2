@@ -8,6 +8,28 @@ import XCTest
 @testable import ExactKit
 
 final class PaintOrderIOSTests: XCTestCase {
+    #if os(macOS)
+    private final class HitHolder: NSView {
+        var traversals = 0
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            traversals += 1
+            return raisedHit(super.hitTest(point), point)
+        }
+    }
+
+    func testNestedMacHoldersVisitEachHitBranchOnce() {
+        _ = NSApplication.shared
+        for depth in [8, 16] {
+            let holders = (0..<depth).map { _ in HitHolder(frame: NSRect(x: 0, y: 0, width: 100, height: 100)) }
+            for i in 1..<depth { holders[i - 1].addSubview(holders[i]) }
+            XCTAssertTrue(holders[0].hitTest(NSPoint(x: 20, y: 20)) === holders.last)
+            let traversals = holders.reduce(0) { $0 + $1.traversals }
+            print("paint-order: depth \(depth), \(traversals) hit traversals")
+            XCTAssertEqual(traversals, depth, "AppKit's successful branch is reused at every holder")
+        }
+    }
+    #endif
+
     private func fixture(_ style: [String: Any] = [:]) -> Presenter {
         #if os(macOS)
         _ = NSApplication.shared
