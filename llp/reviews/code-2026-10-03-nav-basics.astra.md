@@ -45,3 +45,16 @@ Verdict: DO NOT LAND
 3. **Nit — [1075.003-native-platform-control-merged.plan.md:1269](/tmp/rv-nav1/llp/1075.003-native-platform-control-merged.plan.md:1269): active-search XCTest coverage is still falsely claimed.** The committed suite contains no search-activation test, consistent with the author’s disposition. **Fix:** describe the simulator verification separately and remove the XCTest claim, or add the actual lifecycle test.
 
 Verdict: LAND WITH FIXES
+## Round 3 (the last), 2026-10-03
+
+- **Method:** `codex exec` as round 1, `-C` a detached worktree at `ff593ecc4`; brief sha256 `95979aaa57139a818dbfba20e7a361d683c3cee51c3de75694e0ba8f412a4f6c` (the fixes `4cd44c10f..ff593ecc4` against this review's round-2 findings and dispositions). Blind to grok's round 3.
+- **Verdict:** LAND WITH FIXES.
+- **Disposition:** fixed in `17ca1be8a`: the in-place `setTabBarHidden` runs only when Exact's own tab container shows its bar (`tabBarShows`, the container being `tabController`), and under the agent `followTablist` writes nothing. No agent-mode XCTest was added (the UIKit tests run without `EXACT_AGENT`); the guard is the same `tabBarShows` the container's other writes use.
+
+---
+
+Round-2 findings are addressed: [destruction invalidation](/tmp/rv-nav1/kernel/src/txn.rs:979), [interactive cancellation test](/tmp/rv-nav1/host/apple/tests/ExactKitTests/NavigationBasicsIOSTests.swift:192), and [search coverage wording](/tmp/rv-nav1/llp/1075.003-native-platform-control-merged.plan.md:1249). Tests were not run during this read-only review.
+
+1. **Should-fix — [NavigationTitleIOS.swift:209](/tmp/rv-nav1/host/apple/Sources/ExactKit/IOS/NavigationTitleIOS.swift:209): in-place tablist changes can expose the native bar under agent mode.** With `EXACT_AGENT=1`, keep a pushed route selected and change its tablist from `display: none` to `flex`. This branch calls `setTabBarHidden(false, …)`, clearing [UIKit’s hidden state](https://developer.apple.com/documentation/uikit/uitabbarcontroller/istabbarhidden) despite the agent’s deliberate hiding at [NavigationTabsIOS.swift:122](/tmp/rv-nav1/host/apple/Sources/ExactKit/IOS/NavigationTabsIOS.swift:122). Both native and authored bars can then appear, while cover reporting still excludes native bars under the agent. **Fix:** gate native tab-bar reconciliation with `tabBarShows` and restrict it to Exact’s tab controller; add an agent-mode regression for this in-place visibility change.
+
+Verdict: LAND WITH FIXES

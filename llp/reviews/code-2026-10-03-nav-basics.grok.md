@@ -69,3 +69,26 @@ Keep `routeShowsBar` as the authored wish. While that route’s search is active
 When a correction changes the flag on the controller that is already on top and no transition is running, apply that visibility then. Do not leave a revealed route’s flag dirty until the next push.
 
 Verdict: LAND WITH FIXES
+
+## Round 3 (the last), 2026-10-03
+
+- **Method:** grok as round 1, `--cwd` a detached worktree at `ff593ecc4`; brief sha256 `522bcaa5439cec4c6ea541f213373229e86294b58502f73a1f615abfa1c1405f` (the fixes `4cd44c10f..ff593ecc4` against this review's round-2 findings and dispositions). Blind to astra's round 3.
+- **Transcription:** stdout, unedited; the first sentences are progress narration.
+- **Verdict:** LAND WITH FIXES.
+- **Disposition:** both fixed in `17ca1be8a`:
+  1. A large title's widest and narrowest insets are sampled only with no transition running, and `didShow` asks for a report at rest. (An inline title's inset is still taken at each settled report: it carries no slack.)
+  2. The search exception is keyed off the route being decided (`searching(c)`: active, being presented or being dismissed), in `showBar`, `reportCovers` and the development check (the top route's).
+
+---
+
+I'll review the round-3 fixes against §9.10 and the two diffs, starting with the plan, the rules, and what changed since `4cd44c10f`.The two dispositions are in the diff. Next I’ll read the bar, cover, and tab-bar paths they touch, plus the rest of the change since `151c5c0a5`.The search and tab-bar edits are in place. I’ll read the cover invalidation and the sync that applies the tab-bar flag, then the tests.The two fixes are in the source. I’ll check whether search still moves covers, whether the tab-bar correction actually runs, and whether the header-destroy path is complete.Both round-2 items hold for the cases they name. `routeShowsBar` is the authored wish again, insets are not sampled while the top search controller's `isActive` is true, and the cover following the safe area during that search matches the amended §9.10. A revealed route's flag is applied with `setTabBarHidden` when that route is already on top and no transition is running (iOS 18); leaving iOS 17 until the next push is the API that exists, and §9.10 says so. Destroying a replaced header restyles its route after the child list is pruned (`kernel/src/txn.rs:979`, `kernel/src/kernel/cover.rs:79`); the new test is the 106 to 44 case. Two holes remain.
+
+1. **Should-fix** — A large title's `scrollCollapsed` is still a lifetime minimum, and it is sampled as soon as the hidden flag matches, which is at the start of the animation. `host/apple/Sources/ExactKit/IOS/NavigationBarIOS.swift:647`, `host/apple/Sources/ExactKit/IOS/NavigationTitleIOS.swift:157`
+
+`showBar` calls `setNavigationBarHidden` from `willShow`, so `isNavigationBarHidden` already equals the route's wish while the bar is still moving. `viewSafeAreaInsetsDidChange` (`host/apple/Sources/ExactKit/IOS/NavigationIOS.swift:36`) then runs `reportCovers`. The large-title arm only lowers `scrollCollapsed` (`NavigationBarIOS.swift:654`). Push a level-1 route with `navigationScroll` (Second's shape) onto a headerless route and pop back: an in-flight top inset smaller than the collapsed title sticks, slack in `applyPendingScroll` (`host/apple/Sources/ExactKit/IOS/NodeViewIOS.swift:930`) stays about that gap, and a scroll-to-end stops short. Inline Chat recovers because both fields are overwritten (`NavigationBarIOS.swift:651`), which is all `testAnInteractivePopFromARouteWithoutABarCancelsAndCompletes` checks. Sample that minimum only when `transitionCoordinator == nil`.
+
+2. **Should-fix** — `searching` is the top controller's `isActive`, then applied to every route and to `showBar` no matter which controller `willShow` passed. `host/apple/Sources/ExactKit/IOS/NavigationTitleIOS.swift:142`, `host/apple/Sources/ExactKit/IOS/NavigationTitleIOS.swift:155`, `host/apple/Sources/ExactKit/IOS/NavigationBarIOS.swift:645`
+
+An edge swipe does not commit the stack: a cancel calls `willShow` again for the source while the coordinator's `.to` is still the destination (`host/apple/Sources/ExactKit/IOS/NavigationIOS.swift:582`), so `topViewController` is still the searching route. `showBar` returns and the revealed route's bar stays hidden for the whole gesture. `reportCovers` forces `settled` from that same flag for every controller in the nav, so the revealed route, now in the window, replaces its cover from the search-shrunk safe area instead of standing. Cancel also clears `isActive` before the bar is back (`NavigationBarIOS.swift:235` blurs on `searchBarTextDidEndEditing`), so the ownership check (`NavigationBarIOS.swift:720`) can log that the bar changed outside Exact, and finding 1's sampler runs on the dismiss inset. Key the exception off the controller being decided: only that route skips `showBar`, the ownership check, and inset sampling, and keep skipping until the dismissal's bar animation has finished.
+
+Verdict: LAND WITH FIXES
