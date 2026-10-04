@@ -53,13 +53,15 @@ const arg = (name, fallback) => { const i = argv.indexOf(name); return i >= 0 ? 
 const buildEnv = {...developmentBuildEnv(),EXACT_UPDATE_TRUST:'development',EXACT_WEB_LINK:'all'};
 let app = resolveApp(arg('--app', undefined));
 const lan = argv.includes('--lan');
-/** The first port from `from` up that `host` can listen on: another app's loop holding 8765 is common. */
+/** The first of 100 ports from `from` up that `host` can listen on: another app's loop holding 8765 is common.
+ * A probe does not reserve it; a loop started at the same moment can still take it, and its listen error says so. */
 async function freePort(from, host) {
-  for (let p = from; p < from + 20; p++) {
+  for (let p = from; p < from + 100; p++) {
     const free = await new Promise((ok) => { const t = createServer(); t.once('error', () => ok(false)); t.listen(p, host, () => t.close(() => ok(true))); });
     if (free) return p;
   }
-  return from; // let the listen below say why
+  console.error(`ports ${from}–${from + 99} are all in use; --port <n> picks another`);
+  process.exit(1);
 }
 // An explicit --port is kept (and fails loudly if taken); the default moves to a free one.
 const port = argv.includes('--port') || argv.includes('--serve-as') ? Number(arg('--port', 8765)) : await freePort(8765, lan ? '0.0.0.0' : '127.0.0.1');
