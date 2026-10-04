@@ -487,8 +487,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // The box's background is the layer's (`applyBoxLayer`), never
         // UIView's: UIKit would reapply its own on a trait change.
         isOpaque = false
-        // A frame change repaints at the new width instead of stretching
-        // stale pixels.
+        // A frame change repaints at the new width instead of stretching stale pixels.
         contentMode = .redraw
         if kind == "canvas" {
             let m = MetalView(frame: .zero)

@@ -109,3 +109,21 @@ Grok round-2 #1: resolved.
 Grok round-2 #2: resolved; the added termination paths introduce findings 1 and 3.
 
 Verdict: LAND WITH FIXES
+
+## Landing, 2026-10-03
+
+The series was rebased onto origin/main's two newer commits before landing, so the hashes cited above are pre-rebase. The patches did not change. Each cited commit's landed hash:
+
+- `49ea63156` → `0cc7f7a3d`
+- `1e51e98ec` → `0a8e6cd29`
+- `63e2bd8c7` → `21299c901`
+- `23ae9ef83` → `acff54ef4`
+- `e132adca9` → `414cd63ff`
+- `7cd8f3ea6` → `1bd2e61e4`
+- `33c20f854` → `bba997e49`
+- `f8377f0ab` → `bad6108cc`
+- `6d251386f` → `d08f8ab40`
+- `4219b1dd9` → `26759c289`
+- `363e9cfd1` → `21257d180`
+- `05b2be7a5` → `8ee7704e3`
+- `4035a9190` → `56ee227b3`
