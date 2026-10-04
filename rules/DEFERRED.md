@@ -277,6 +277,11 @@ waived.
   implementation for the Windows platform, including the game engine" for standalone
   Skirmish (LLP 1015.000). Take: single-player first; multiplayer and general Windows
   app expansion wait behind the working game. The engine remains optional.
+  **Expanded (Charlie, 2026-10-04):** "something simple and app-like that uses a
+  lot of windows native stuff" admits Windows Desk, a bounded text workspace
+  using Contract and an app-local Win32 control presenter. General Windows
+  control parity remains behind these two consumers; no additional showcase
+  or framework is admitted by this example.
 - **Android.** Same.
 
 Every surface multiplies the sweep, the presenter count, and the number of ways one

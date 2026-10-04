@@ -102,7 +102,8 @@ function checks(sha) {
     // Lean project builds with every proof checked (the app proofs among
     // them, over embeddings `difftest apps` checks are current), then the runner against
     // the semantics over the scripted corpus and a fixed random sweep (fixed
-    // seeds, so a divergence is attributed to the commit that made it).
+    // seeds, so a divergence is attributed to the commit that made it), and
+    // the compiler's bytecode on the Lean VM model against the same.
     // A `sorry` fails it: a proof that is not there is not checked. Every
     // part runs whatever the one before it found.
     ['semantics', 'sh', ['-c', [
@@ -113,6 +114,8 @@ function checks(sha) {
       'cargo run -q -p contract-difftest -- corpus || failed=1',
       'cargo run -q -p contract-difftest -- explore contract/corpus apps/*/app.contract || failed=1',
       'cargo run -q -p contract-difftest -- random --seed 1 --count 5000 || failed=1',
+      'cargo run -q -p contract-difftest -- lowering-corpus || failed=1',
+      'cargo run -q -p contract-difftest -- lowering --seed 1 --count 300 || failed=1',
       'cargo run -q -p contract-difftest -- numbers --count 200000 || failed=1',
       'exit $failed',
     ].join('\n')]],

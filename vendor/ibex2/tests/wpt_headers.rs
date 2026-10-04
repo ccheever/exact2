@@ -16,8 +16,9 @@ fn run_file(name: &str) -> Vec<(String, bool, String)> {
         .unwrap_or_else(|e| panic!("vendored {}: {e}", path.display()));
 
     let mut rt = Hermes::new(DynamicCode::Closed).expect("runtime");
-    assert!(rt.install_stdlib(), "stdlib");
-    rt.install_bindings().expect("bindings");
+    let context = ibex2::bindings::Context::new(ibex2::grant::GrantSet::none());
+    rt.install_runtime(ibex2::bindings::Groups::DEFAULT, &context)
+        .expect("bindings");
     rt.install_test_harness().expect("test harness");
     rt.eval("__ibex2_reset_results()").expect("reset");
 

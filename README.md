@@ -589,8 +589,11 @@ else here was admitted because a real app needed it.
 
 ### Not yet, or not at all
 
-- **Windows and Android.** Deferred. A Direct2D host exists in the predecessor, and it
-  gets ported once the loop is proven.
+- **Windows.** An initial native host runs Skirmish with the shared renderer and
+  optional game engine. [Windows Desk](apps/windows-desk/README.md) demonstrates
+  native controls over Contract and the kernel with an app-local Win32 presenter;
+  general Windows control parity and delivery remain unfinished.
+- **Android.** Deferred.
 - **No JSX or React tier.** Nothing runs JavaScript above the data seam. The door stays
   open, but no one is building it.
 - **TypeScript can't import npm packages yet.** `app.ts` imports only its own local

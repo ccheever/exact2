@@ -1,8 +1,11 @@
 // Abort signals hold JavaScript reasons; fetch carries only cancellation to Rust.
 (function (global) {
   "use strict";
+  var brand = global.__ibex2_brand || function (value) { return value; };
   var signals = new WeakMap(), controllers = new WeakMap();
-  var report = global.console.error;
+  var report = global.console && typeof global.console.error === "function"
+    ? global.console.error
+    : function () {};
   function own(signal) {
     var state = signals.get(signal);
     if (!state) throw new TypeError("not an AbortSignal");
@@ -11,7 +14,7 @@
   function create() {
     var signal = Object.create(AbortSignal.prototype);
     signals.set(signal, { aborted: false, reason: undefined, listeners: [], hooks: [], dependents: [], sources: null, onabort: null, onabortEntry: null });
-    return signal;
+    return brand(signal, "AbortSignal");
   }
   function notify(callback, receiver, event) {
     try {
@@ -98,8 +101,11 @@
   AbortSignal.timeout = function (milliseconds) {
     var delay = +milliseconds;
     if (!isFinite(delay) || delay < 0 || delay > Number.MAX_SAFE_INTEGER) throw new TypeError("invalid timeout");
+    if (typeof global.setTimeout !== "function") {
+      throw new DOMException("AbortSignal.timeout requires the TIMERS group", "NotSupportedError");
+    }
     var signal = create();
-    setTimeout(function () { abort(signal, new DOMException("The operation timed out", "TimeoutError")); }, Math.floor(delay));
+    global.setTimeout(function () { abort(signal, new DOMException("The operation timed out", "TimeoutError")); }, Math.floor(delay));
     return signal;
   };
   AbortSignal.any = function (values) {
@@ -130,6 +136,7 @@
   function AbortController() {
     if (!new.target) throw new TypeError("AbortController requires new");
     controllers.set(this, create());
+    brand(this, "AbortController");
   }
   Object.defineProperty(AbortController.prototype, "signal", { get: function () {
     var signal = controllers.get(this);

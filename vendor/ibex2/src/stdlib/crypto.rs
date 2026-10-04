@@ -24,12 +24,22 @@ pub(crate) fn check_length(length: usize) -> Result<(), HostError> {
 /// falls back to a seed, clock, or noncryptographic generator.
 pub fn get_random_values(destination: &mut [u8]) -> Result<(), HostError> {
     check_length(destination.len())?;
-    getrandom::getrandom(destination).map_err(|error| {
-        destination.fill(0);
-        HostError::Failed(format!(
-            "OperationError: OS randomness unavailable: {error}"
-        ))
-    })
+    fill_random(destination)
+}
+
+/// Fill runtime-owned secret material without applying the JavaScript
+/// `getRandomValues` per-call quota. Callers must impose their own allocation
+/// bound before entering this function.
+pub(crate) fn fill_random(destination: &mut [u8]) -> Result<(), HostError> {
+    for chunk in destination.chunks_mut(MAX_RANDOM_BYTES) {
+        if let Err(error) = getrandom::getrandom(chunk) {
+            destination.fill(0);
+            return Err(HostError::Failed(format!(
+                "OperationError: OS randomness unavailable: {error}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// A lowercase UUID v4 with 122 random bits, as `crypto.randomUUID()` returns.

@@ -25,6 +25,7 @@ pub mod engine;
 pub mod esm;
 pub mod grant;
 pub mod host;
+mod host_opcodes;
 pub mod kv;
 pub mod loader;
 pub mod pool;

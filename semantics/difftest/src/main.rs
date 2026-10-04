@@ -7,6 +7,9 @@
 //!   difftest show <seed>                       a random case's program and script
 //!   difftest apps [--write]              the app embeddings under semantics/Apps
 //!                                        are what `contract lean` makes of their source
+//!   difftest lowering [--seed S] [--count N] [--batch B]
+//!   difftest lowering-corpus [<dir|file>…]     the compiler's bytecode against the
+//!                                              Lean VM model and `eval` (semantics/README.md)
 //!
 //! Prints one line per divergence with where its reproduction was kept, then
 //! a summary; exits 1 when anything diverged, a corpus program was refused,
@@ -14,7 +17,8 @@
 //! compiler accepts.
 
 use contract_difftest::{
-    check, corpus, expectations, gen, leanrun, script::Case, shrink, work_dir, Outcome, Verdict,
+    check, corpus, expectations, gen, leanrun, lowering, script::Case, shrink, work_dir, Outcome,
+    Verdict,
 };
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -25,7 +29,9 @@ const USAGE: &str = "usage:
   difftest random [--seed <u64>] [--count <n>] [--batch <n>]
   difftest numbers [--seed <u64>] [--count <n>]
   difftest show <seed>
-  difftest apps [--write]";
+  difftest apps [--write]
+  difftest lowering [--seed <u64>] [--count <n>] [--batch <n>]
+  difftest lowering-corpus [<dir|file>…]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -35,6 +41,8 @@ fn main() -> ExitCode {
         Some("random") => run_random(&args[1..]),
         Some("numbers") => run_numbers(&args[1..]),
         Some("apps") => run_apps(&args[1..]),
+        Some("lowering") => run_lowering(&args[1..]),
+        Some("lowering-corpus") => run_lowering_corpus(&args[1..]),
         Some("show") => match args.get(1).map(|s| s.parse::<u64>()) {
             Some(Ok(seed)) => {
                 let case = gen::case(seed, &gen::Size::default());
@@ -142,6 +150,44 @@ fn run_random(args: &[String]) -> Result<bool, String> {
         .collect();
     let outcomes = check(cases, batch, &format!("random-{seed}"))?;
     report(&outcomes, false, true)
+}
+
+/// Random programs' bytecode against the Lean VM model and the semantics.
+fn run_lowering(args: &[String]) -> Result<bool, String> {
+    let mut seed: u64 = 1;
+    let mut count = 100usize;
+    let mut batch = 25usize;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let mut value = || it.next().ok_or_else(|| format!("{a} needs a value"));
+        match a.as_str() {
+            "--seed" => seed = value()?.parse().map_err(|e| format!("--seed: {e}"))?,
+            "--count" => count = value()?.parse().map_err(|e| format!("--count: {e}"))?,
+            "--batch" => batch = value()?.parse().map_err(|e| format!("--batch: {e}"))?,
+            other => return Err(format!("unknown argument {other}\n{USAGE}")),
+        }
+    }
+    let size = gen::Size::default();
+    let cases: Vec<Case> = (0..count as u64)
+        .map(|i| gen::case(seed.wrapping_add(i), &size))
+        .collect();
+    lowering::run(cases, batch, &format!("lowering-{seed}"))
+}
+
+/// The corpus's programs' bytecode against the Lean VM model and the
+/// semantics.
+fn run_lowering_corpus(args: &[String]) -> Result<bool, String> {
+    let dirs: Vec<PathBuf> = if args.is_empty() {
+        vec![leanrun::project().join("corpus")]
+    } else {
+        args.iter().map(PathBuf::from).collect()
+    };
+    let (scripted, errors) = corpus(&dirs)?;
+    for e in &errors {
+        println!("SCRIPT {e}");
+    }
+    let cases: Vec<Case> = scripted.into_iter().map(|s| s.case).collect();
+    lowering::run(cases, 16, "lowering-corpus")
 }
 
 /// The runner's number printing against the semantics' over random
