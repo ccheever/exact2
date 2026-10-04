@@ -155,10 +155,8 @@ fn execute(
     Ok(fs_value(result))
 }
 /// A filesystem request's operation, its destination, and its bytes.
-fn operation<'a>(
-    op: &str,
-    args: &'a Value,
-) -> Result<(FsOp, Option<&'a str>, Option<Vec<u8>>), String> {
+type Operation<'a> = (FsOp, Option<&'a str>, Option<Vec<u8>>);
+fn operation<'a>(op: &str, args: &'a Value) -> Result<Operation<'a>, String> {
     Ok(match op {
         "fs.readFile" => (FsOp::ReadFile, None, None),
         "fs.writeFile" => (FsOp::WriteFile, None, Some(bytes(args)?)),
