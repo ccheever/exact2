@@ -83,7 +83,7 @@ impl<const WORLD: bool> Game for Trail<WORLD> {
             ),
         );
         if WORLD {
-            w.insert(e, emitter::WorldSpace);
+            w.insert(e, emitter::WorldSpace::default());
         }
     }
     fn tick(w: &mut World, _: &Input, _: &()) {
@@ -116,4 +116,111 @@ fn world_space_particles_stay_where_they_were_born() {
     let mut again = Sim::<Trail<false>>::new(()).unwrap();
     again.run(500.);
     assert_eq!(again.world().hash(), local_hash);
+}
+
+#[test]
+fn a_restored_trail_draws_where_the_continuous_one_does() {
+    let mut a = Sim::<Trail<true>>::new(()).unwrap();
+    a.run(250.);
+    let mut b = Sim::<Trail<true>>::new(()).unwrap();
+    b.restore(&a.save().unwrap()).unwrap();
+    a.run(250.);
+    b.run(250.);
+    let drawn = |s: &Sim<Trail<true>>| {
+        let mut out = Vec::new();
+        s.world()
+            .require::<Emitter>("rocket")
+            .particles(60, 1., |p| out.push(p));
+        out
+    };
+    assert!(!drawn(&a).is_empty());
+    assert_eq!(drawn(&a), drawn(&b));
+    assert_eq!(a.world().hash(), b.world().hash());
+}
+
+#[test]
+fn a_world_space_batch_keeps_the_emitter_scale_it_was_born_at() {
+    struct Scaled;
+    impl Game for Scaled {
+        const ID: &'static str = "scaled";
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            let e = w.spawn_named(
+                "puff",
+                (
+                    Transform::default().with_scale(3.),
+                    Emitter {
+                        speed: 0.,
+                        gravity: Vec3::ZERO,
+                        size: [0.1, 0.1],
+                        ..Emitter::sparks().rate(0.).lifetime(5.).burst(4)
+                    },
+                ),
+            );
+            w.insert(e, emitter::WorldSpace::default());
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            // Born at scale 3 on the first tick; shrunk afterwards.
+            if w.tick() > 5 {
+                w.require_mut::<Transform>("puff").scale = Vec3::ONE;
+            }
+        }
+    }
+    let mut s = Sim::<Scaled>::new(()).unwrap();
+    s.run(500.);
+    let mut out = Vec::new();
+    s.world()
+        .require::<Emitter>("puff")
+        .particles(60, 1., |p| out.push(p));
+    assert_eq!(out.len(), 4);
+    assert!(out.iter().all(|p| (p.size - 0.3).abs() < 1e-5), "{out:?}");
+}
+
+// A child emitter's batch is born at this tick's parent pose, including the
+// tick it is spawned in, and at its scale then.
+struct Exhaust;
+impl Game for Exhaust {
+    const ID: &'static str = "exhaust";
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.spawn_named("ship", Transform::default());
+    }
+    fn tick(w: &mut World, _: &Input, _: &()) {
+        w.require_mut::<Transform>("ship").position.x += 1.;
+        if w.tick() == 10 {
+            let ship = w.named("ship").unwrap();
+            let e = w.spawn_named(
+                "exhaust",
+                (
+                    Transform::at(0., 2., 0.).with_scale(3.),
+                    Parent(ship),
+                    Emitter {
+                        speed: 0.,
+                        gravity: Vec3::ZERO,
+                        size: [0.1, 0.1],
+                        ..Emitter::sparks().rate(0.).lifetime(5.).burst(4)
+                    },
+                ),
+            );
+            w.insert(e, emitter::WorldSpace::default());
+        }
+    }
+}
+#[test]
+fn a_parented_world_space_emitter_is_born_at_its_current_pose_and_scale() {
+    let mut s = Sim::<Exhaust>::new(()).unwrap();
+    s.run(500.);
+    let mut out = Vec::new();
+    s.world()
+        .require::<Emitter>("exhaust")
+        .particles(60, 1., |p| out.push(p));
+    assert_eq!(out.len(), 4);
+    for p in out {
+        // The ship was at x = 11 during tick 10, the exhaust 2 above it.
+        assert!(
+            (p.position - Vec3::new(11., 2., 0.)).length() < 1e-4,
+            "{p:?}"
+        );
+        assert!((p.size - 0.3).abs() < 1e-5, "{p:?}");
+    }
 }

@@ -104,5 +104,17 @@ pub(crate) fn validate_declaration<G: crate::Game>() -> Result<(), String> {
             ));
         }
     }
+    for name in G::STREAMED {
+        if name.ends_with(".sound") {
+            return Err(format!(
+                "streamed asset `{name}`: sounds are not streamed yet; declare it in Game::ASSETS"
+            ));
+        }
+        if names::<G>().any(|declared| declared == *name) {
+            return Err(format!(
+                "asset `{name}` is in both Game::ASSETS and Game::STREAMED; setup either waits for it or does not"
+            ));
+        }
+    }
     Ok(())
 }

@@ -1,4 +1,6 @@
 // Renderer residency verification shared by the asset-backed game proofs.
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 export function checkSteadyResidency(world, check, say, host) {
   if (host === 'linux' && world.device !== true) {
     say('SKIP: no device — after-ready GPU residency');
@@ -25,6 +27,16 @@ export function checkTextureFamily(world, check, say) {
 }
 
 // Fixture-only instrumentation of the real Surface ABI; no production agent verbs.
+/** A game's one baked model texture (`textures/<digest>.tex`), read from its
+ * bake manifest once the bake has run: textures are named by content. */
+export function bakedTexture(dir) {
+  const names = Object.keys(JSON.parse(readFileSync(resolve(dir, '.baked-assets.json'), 'utf8')))
+    .filter(name => /^textures\/[0-9a-f]{16}\.tex$/.test(name));
+  if (names.length !== 1) throw new Error(`${dir}: expected one baked model texture, found ${JSON.stringify(names)}`);
+  return names[0];
+}
+
+/** `texture` is a name, or a function returning it once the bake has run. */
 export function residencyProbe(model, texture, popName) {
   let receive, changedTexture = false;
   if (typeof popName !== 'string' || Buffer.byteLength(popName) !== Buffer.byteLength(model) || popName === model)
@@ -79,7 +91,7 @@ export function residencyProbe(model, texture, popName) {
     async textureResponse(path, file) {
       // The device fetches one family's file for the authored name (x.tex,
       // x.bc.tex or x.astc.tex); change whichever it asked for.
-      const stem = texture.replace(/\.tex$/, '');
+      const stem = (typeof texture === 'function' ? texture() : texture).replace(/\.tex$/, '');
       if(!changedTexture || !['.tex','.bc.tex','.astc.tex'].some(suffix => path === `/assets/${stem}${suffix}`)) return null;
       const bytes = new Uint8Array(await file.arrayBuffer());
       const marker=[109,105,112,115];

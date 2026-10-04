@@ -166,6 +166,12 @@ pub struct Sim<G: Game> {
     // The last tick's pointer motion, for presentation between ticks only.
     last_motion: crate::Vec2,
     paranoid: Option<fn(&mut Self)>,
+    // A paranoid sample deferred while a shown asset was in flight: the next
+    // tick takes it. Skipped samples are counted for the proof's report.
+    paranoid_owed: bool,
+    paranoid_skipped: u64,
+    // An edit through world_mut since the last present: the next advance presents.
+    present_owed: bool,
     game: PhantomData<G>,
 }
 const QUEUE_LIMIT: usize = 1024;
@@ -269,13 +275,36 @@ impl<G: Game> Sim<G> {
     }
     // Presentation runs at a tick boundary and must leave the entity table alone.
     pub(crate) fn present(world: &mut World, args: &G::Args) {
-        let entities = world.entities_revision();
-        G::present(world, args);
-        assert_eq!(
-            entities,
+        // A rebuild by construction: nothing a previous present wrote survives,
+        // so a restored world and a continuous one present the same state.
+        world.clear_presentation();
+        // Every simulation write panics while presenting (World::sim_writes);
+        // these are the records a present could still append to unnoticed.
+        let before = (
             world.entities_revision(),
-            "Game::present spawned or despawned an entity; entities are simulation state, so spawn them in setup or tick"
+            world.journal_next(),
+            world.messages.borrow().len(),
+            world.published_pending.get(),
         );
+        world.presenting.set(true);
+        G::present(world, args);
+        world.presenting.set(false);
+        let after = (
+            world.entities_revision(),
+            world.journal_next(),
+            world.messages.borrow().len(),
+            world.published_pending.get(),
+        );
+        assert_eq!(
+            before, after,
+            "Game::present changed simulation records (entities, journal, messages, publications)"
+        );
+    }
+    /// Under a paranoid mode: samples deferred while a shown asset was in
+    /// flight, and whether one is still owed (the asset never landed).
+    pub fn paranoid_samples(&self) -> Option<(u64, bool)> {
+        self.paranoid
+            .map(|_| (self.paranoid_skipped, self.paranoid_owed))
     }
     /// Whether setup is waiting for declared model bytes.
     pub fn is_loading(&self) -> bool {
@@ -592,6 +621,9 @@ impl<G: Game> Sim<G> {
             lookahead_us_hz: 0,
             last_motion: crate::Vec2::ZERO,
             paranoid: Self::reconstruction(Paranoid::environment()),
+            paranoid_owed: false,
+            paranoid_skipped: 0,
+            present_owed: false,
             game: PhantomData,
         })
     }
@@ -679,6 +711,10 @@ impl<G: Game> Sim<G> {
         self.args = args;
         if changed {
             self.invalidate();
+            // Drawn state follows the arguments it reads at once, paused or not.
+            if !self.setup_pending {
+                Self::present(&mut self.world, &self.args);
+            }
         }
         if G::paused(&self.args) {
             self.flush_paused(self.last_us.unwrap_or(0));
@@ -997,6 +1033,9 @@ impl<G: Game> Sim<G> {
         if self.setup_pending {
             return 0;
         }
+        if std::mem::take(&mut self.present_owed) {
+            Self::present(&mut self.world, &self.args);
+        }
         if self.backwards(now_ms) {
             return 0;
         }
@@ -1106,7 +1145,11 @@ impl<G: Game> Sim<G> {
             // PARANOID_EVERY-th tick inside an advance.
             if let Some(rebuild) = self.paranoid {
                 let tick = self.world.tick();
-                if tick == target || delivered || tick.is_multiple_of(PARANOID_EVERY) {
+                if tick == target
+                    || delivered
+                    || self.paranoid_owed
+                    || tick.is_multiple_of(PARANOID_EVERY)
+                {
                     rebuild(self);
                 }
             }
@@ -1130,6 +1173,16 @@ impl<G: Game> Sim<G> {
         u32::try_from(self.world.tick() - start).unwrap_or(u32::MAX)
     }
     fn paranoid_rebuild(&mut self, mode: Paranoid) {
+        // An asset first shown this tick is still in flight: no save can be
+        // taken until it lands (a model first requested mid-game), so the
+        // sample is owed to the next tick and counted, never dropped silently.
+        if self.assets_unready().is_some() {
+            self.paranoid_owed = true;
+            self.paranoid_skipped += 1;
+            return;
+        }
+        self.paranoid_owed = false;
+        let skipped = self.paranoid_skipped;
         let tick = self.world.tick();
         let hash = self.world.hash();
         // advance_with owns the seek horizon, but EXSIM checkpoints describe a
@@ -1138,13 +1191,6 @@ impl<G: Game> Sim<G> {
         self.world_us = ((tick as u128 * 1_000_000).div_ceil(G::HZ as u128)) as i64;
         let bytes = match self.save() {
             Ok(bytes) => bytes,
-            // An asset first shown this tick is still in flight: no save can be
-            // taken until it lands, so this sample waits for the next one rather
-            // than failing the proof (a model first requested mid-game).
-            Err(error) if error.message.starts_with("save refused: assets are not ready") => {
-                self.world_us = horizon;
-                return;
-            }
             Err(error) => panic!("paranoid {:?} {} tick {tick}: {error}; rerun bun game/games/{}/proof.mjs linux --paranoid", mode, G::ID, G::ID),
         };
         let host = self.last_us;
@@ -1199,6 +1245,7 @@ impl<G: Game> Sim<G> {
             mode, G::ID
         );
         self.world_us = horizon;
+        self.paranoid_skipped = skipped;
         self.last_us = host;
         self.last_ms = last_ms;
         self.live_time = live_time;
@@ -1272,6 +1319,7 @@ impl<G: Game> Sim<G> {
     /// Edit simulation state, for setup tools and tests.
     pub fn world_mut(&mut self) -> &mut World {
         self.invalidate();
+        self.present_owed = true;
         &mut self.world
     }
     /// Take the current public record once after a change, rebuild or load.

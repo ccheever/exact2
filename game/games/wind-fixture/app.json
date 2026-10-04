@@ -1,0 +1,10 @@
+{
+  "game": {
+    "assets": true,
+    "render": {
+      "crate": "wind-fixture-render",
+      "hooks": "Wind",
+      "shaders": "shaders::SHADERS"
+    }
+  }
+}

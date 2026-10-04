@@ -351,8 +351,26 @@ fn sources(path: &Path) -> Result<(Model, ModelSources), String> {
         return Err("model contains no mesh nodes".into());
     }
     model.bounds = [lo.x, lo.y, lo.z, hi.x, hi.y, hi.z];
+    // Name each texture by its content, so identical images are one asset
+    // across models (and within one) and no model's names depend on another's.
+    let mut renamed = std::collections::BTreeMap::new();
+    let mut named = ModelSources::new();
+    for (name, (full, channels)) in textures {
+        let shared = texture_name(&full, channels);
+        renamed.insert(name, shared.clone());
+        named.entry(shared).or_insert((full, channels));
+    }
+    share_textures(&mut model, &renamed);
     model.validate()?;
-    Ok((model, textures))
+    Ok((model, named))
+}
+
+/// `textures/<digest>.tex`: the digest of the full RGBA8 chain, sampler included,
+/// and of the channels the material reads (which choose the block formats).
+fn texture_name(full: &TextureData, channels: compress::Channels) -> String {
+    let mut bytes = exact_game::bin::to_vec(full);
+    bytes.extend(format!("{channels:?}").bytes());
+    format!("textures/{}.tex", &digest(&bytes)[..16])
 }
 
 /// A sprite's authored RGBA8 name and its per-family payloads. Block formats
@@ -494,9 +512,6 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
         return Err("invalid generated-output manifest".into());
     }
     let mut outputs = std::collections::BTreeMap::new();
-    // Identical model textures (the same texels, sampler and channel use) bake
-    // once, under the first model's name in path order; later models sample it.
-    let mut shared = std::collections::HashMap::new();
     for path in files {
         if matches!(
             path.extension().and_then(|v| v.to_str()),
@@ -533,24 +548,18 @@ pub fn bake_art(app: impl AsRef<Path>) -> Result<(), String> {
             }
             continue;
         }
-        let (mut model, textures) =
-            sources(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let (model, textures) = sources(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         let name = format!("{}.model", art_stem(&path)?);
-        let mut renamed = std::collections::BTreeMap::new();
+        // Content-named: a texture another model already baked is the same file.
         for (texture, (full, channels)) in textures {
-            let key = (digest(&exact_game::bin::to_vec(&full)), channels);
-            if let Some(shared) = shared.get(&key) {
-                renamed.insert(texture, String::clone(shared));
+            if outputs.contains_key(&texture) {
                 continue;
             }
             for (name, texture) in compress::variants(&texture, &full, channels, false)? {
                 let bytes = encode(&name, &texture)?;
                 outputs.insert(name, bytes);
             }
-            shared.insert(key, texture);
         }
-        share_textures(&mut model, &renamed);
-        model.validate()?;
         if outputs
             .insert(name.clone(), encode(&name, &model)?)
             .is_some()

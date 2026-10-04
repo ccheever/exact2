@@ -109,6 +109,7 @@ impl World {
     /// are requested as the model's dependencies. The model is drawable once they
     /// arrive; declare them in `Game::ASSETS` to have them before setup.
     pub fn generated_model(&mut self, name: &str, model: Model) -> Result<Mesh, String> {
+        self.sim_writes(format_args!("generated `{name}`"));
         if self.tick() != 0 {
             return Err(format!("generated `{name}`: register during setup"));
         }

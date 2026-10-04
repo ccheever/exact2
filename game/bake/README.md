@@ -37,11 +37,12 @@ ASTC, both only in this crate. Their bytes can differ bit-wise between SIMD
 variants of one machine family and another; tests pin quality (top level above
 40 dB PSNR against RGBA8 on the sampled channels), not encoded bytes.
 
-A model's textures are named after it (`crate/0-srgb-straight.tex`), but the app
-bake ships each distinct texture once: when models carry the same texels, sampler and
-channel use, the first model in path order owns the files and the others' `.model`
-records name them. Nothing is authored for this; a shared palette or material image
-costs one download and one GPU texture however many models use it.
+Model textures are named by their content, `textures/<digest>.tex`: the digest of
+the full RGBA8 chain (texels, sampler, mips) and of the channels the material reads.
+Identical textures are one asset across models and within one, and adding, renaming or
+removing a model never renames another's files. Nothing is authored for this; a shared
+palette or material image costs one download and one GPU texture however many models
+use it.
 
 ## Sprites
 

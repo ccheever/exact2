@@ -87,6 +87,17 @@
             "type": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$" }
           }
         },
+        "render": {
+          "type": "object",
+          "description": "Optional render hooks in the app's render/ crate: the exact_game_render::Hooks type and the reflected shader pack of render/shaders/, both paths in that crate.",
+          "required": ["crate", "hooks"],
+          "additionalProperties": false,
+          "properties": {
+            "crate": { "type": "string", "pattern": "^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-render$" },
+            "hooks": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$" },
+            "shaders": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$" }
+          }
+        },
         "type": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$" }
       }
     },

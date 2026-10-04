@@ -736,10 +736,23 @@ fn a_model_first_requested_mid_game_does_not_break_a_paranoid_save() {
     for mode in [Paranoid::Off, Paranoid::Save, Paranoid::FreshGame] {
         let mut sim = Sim::<Rocket>::new(()).unwrap().paranoid(mode);
         sim.run(100.);
+        // Samples while the model is in flight are owed and counted, not dropped.
+        let off = mode == Paranoid::Off;
+        let samples = sim.paranoid_samples();
+        assert!(
+            off || samples.is_some_and(|(skipped, owed)| skipped > 0 && owed),
+            "{samples:?}"
+        );
         assert_eq!(sim.take_assets(), ["rocket.model"]);
         sim.asset("rocket.model", Some(&bin::to_vec(&asset::Model::default())))
             .unwrap();
         sim.run(100.);
+        // The next tick took the owed sample.
+        let after = sim.paranoid_samples();
+        assert!(
+            off || after.is_some_and(|(skipped, owed)| skipped == samples.unwrap().0 && !owed),
+            "{after:?}"
+        );
         hashes.push(sim.world().hash());
     }
     assert!(hashes.windows(2).all(|h| h[0] == h[1]));
@@ -793,4 +806,32 @@ fn streamed_assets_load_after_setup_without_reaching_the_simulation() {
         state.contains(r#"{"name":"a-later.model","state":"Loaded"}"#),
         "{state}"
     );
+}
+
+#[test]
+fn streamed_declarations_refuse_sounds_and_names_setup_also_waits_for() {
+    struct Sound;
+    impl Game for Sound {
+        const ID: &'static str = "streamed-sound";
+        const STREAMED: &'static [&'static str] = &["boom.sound"];
+        type Args = ();
+        fn setup(_: &mut World, _: &()) {}
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    let error = Sim::<Sound>::new(()).err().unwrap().to_string();
+    assert!(
+        error.contains("`boom.sound`: sounds are not streamed"),
+        "{error}"
+    );
+    struct Both;
+    impl Game for Both {
+        const ID: &'static str = "streamed-twice";
+        const ASSETS: &'static [&'static str] = &["tree.model"];
+        const STREAMED: &'static [&'static str] = &["tree.model"];
+        type Args = ();
+        fn setup(_: &mut World, _: &()) {}
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    let error = Sim::<Both>::new(()).err().unwrap().to_string();
+    assert!(error.contains("`tree.model` is in both"), "{error}");
 }

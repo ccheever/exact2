@@ -2,7 +2,7 @@
 import {checkSteadyResidency} from '../../render/tests/residency.mjs';
 import { proof } from '../../proof.mjs';
 import { decodePng } from '../../../scripts/png.mjs';
-import {residencyProbe, checkResidency, checkTextureFamily} from '../../render/tests/residency.mjs';
+import {residencyProbe, checkResidency, checkTextureFamily, bakedTexture} from '../../render/tests/residency.mjs';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -32,7 +32,7 @@ export function foxScreenshotPixels(image, screen, reply) {
 }
 
 if (import.meta.main) await proof(import.meta, async ({pin, pinSave, open, check, equal, out, say, host}) => {
-  const probe = residencyProbe('fox.model','fox/0-srgb-straight.tex','new.model');
+  const probe = residencyProbe('fox.model',() => bakedTexture(import.meta.dir),'new.model');
   const server = host === 'web' ? Bun.serve({hostname:'127.0.0.1',port:0,async fetch(request) {
     const reply = await probe.fetch(request); if(reply) return reply;
     const path = probe.assetPath(new URL(request.url).pathname);

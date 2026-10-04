@@ -121,15 +121,40 @@ pub struct Emitter {
     /// Saved emission history, independent of renderer residency.
     pub state: EmitterState,
     /// With [`WorldSpace`]: each live birth batch's world pose at birth, by birth
-    /// tick. Presentation only, neither saved nor hashed: after a restore, batches
-    /// born before it draw from the emitter's current pose until they die.
+    /// tick, for derivation. Not saved here: [`WorldSpace`] carries the saved copy,
+    /// and a load restores this from it.
     #[data(skip)]
     pub origins: Vec<(u64, crate::Affine3A)>,
 }
 /// Particles of this entity's [`Emitter`] stay where they were born instead of
-/// moving with it: a rocket's trail is one emitter.
-#[derive(Clone, Copy, Debug, Default, Component)]
-pub struct WorldSpace;
+/// moving with it: a rocket's trail is one emitter. Insert `WorldSpace::default()`;
+/// the emitter records each live batch's birth pose here, so a restored trail
+/// draws where the continuous one does.
+#[derive(Clone, Debug, Default, PartialEq, Component)]
+pub struct WorldSpace {
+    /// Each live batch's birth pose, oldest first.
+    pub origins: Vec<Origin>,
+}
+/// One birth batch's world pose: its birth tick and column-major affine.
+#[derive(Clone, Copy, Debug, Default, PartialEq, crate::Data)]
+pub struct Origin {
+    /// The emitter age the batch was born at.
+    pub tick: u64,
+    /// `Affine3A::to_cols_array` of the emitter's pose that tick.
+    pub pose: [f32; 12],
+}
+/// Restore each world-space emitter's derivation poses from its saved origins.
+pub(crate) fn rehydrate(w: &World) {
+    for (entity, e) in w.query::<&mut Emitter>().iter() {
+        if let Some(space) = w.get::<WorldSpace>(entity) {
+            e.origins = space
+                .origins
+                .iter()
+                .map(|o| (o.tick, crate::Affine3A::from_cols_array(&o.pose)))
+                .collect();
+        }
+    }
+}
 impl Clone for Emitter {
     fn clone(&self) -> Self {
         Self {
@@ -324,7 +349,12 @@ impl Emitter {
                         velocity: pose.transform_vector3(velocity),
                         age: t,
                         lifetime: birth.lifetime,
-                        size,
+                        // The emitter's scale at birth, as a local particle's
+                        // is its current one.
+                        size: size
+                            * math::sqrt(
+                                pose.matrix3.x_axis.length() * pose.matrix3.y_axis.length(),
+                            ),
                         color,
                         world: true,
                     },
@@ -377,7 +407,7 @@ pub fn step(w: &World) {
     }
     let hz = w.hz() as f64;
     let mut alive = 0u32;
-    for (_, e) in w.query::<&mut Emitter>().iter() {
+    for (entity, e) in w.query::<&mut Emitter>().iter() {
         if e.validate().is_err() {
             continue;
         }
@@ -397,6 +427,11 @@ pub fn step(w: &World) {
         let births = &e.state.births;
         e.origins
             .retain(|(tick, _)| births.iter().any(|b| b.tick == *tick));
+        if let Some(mut space) = w.get_mut::<WorldSpace>(entity) {
+            space
+                .origins
+                .retain(|o| births.iter().any(|b| b.tick == o.tick));
+        }
         e.state.alive = e
             .state
             .births
@@ -429,9 +464,17 @@ pub fn step(w: &World) {
                 key: mix(e.seed).wrapping_add(state.stream),
                 lifetime: e.lifetime,
             });
-            if w.has::<WorldSpace>(entity) {
-                let pose = w.global(entity).unwrap_or(crate::Affine3A::IDENTITY);
+            if let Some(mut space) = w.get_mut::<WorldSpace>(entity) {
+                // This tick's pose, including a parent moved this tick and an
+                // emitter spawned this tick (World::global is the last boundary's).
+                let pose = w
+                    .current_global(entity)
+                    .unwrap_or(crate::Affine3A::IDENTITY);
                 e.origins.push((state.age, pose));
+                space.origins.push(Origin {
+                    tick: state.age,
+                    pose: pose.to_cols_array(),
+                });
             }
         }
         state.stream = state.stream.wrapping_add(u64::from(wanted) * 8);

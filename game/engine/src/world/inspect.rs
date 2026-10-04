@@ -43,13 +43,21 @@ impl World {
     /// tick and `salt`: the same each time a boundary is presented, and never
     /// drawn from the world's stream, so visuals cannot change the simulation.
     pub fn presentation_rng(&self, salt: u64) -> Rng {
-        let mut n = self.tick() ^ salt.rotate_left(29) ^ 0x6a09_e667_f3bc_c908;
-        n = (n ^ (n >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
-        n = (n ^ (n >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
-        Rng::new(n ^ (n >> 31))
+        // Each input passes a full splitmix finalizer before the next joins, so
+        // no two (seed, tick, salt) triples share a stream by cancelling bits.
+        fn mix(mut n: u64) -> u64 {
+            n = n.wrapping_add(0x9e37_79b9_7f4a_7c15);
+            n = (n ^ (n >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+            n = (n ^ (n >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+            n ^ (n >> 31)
+        }
+        Rng::new(mix(mix(
+            mix(self.seed() ^ 0x6a09_e667_f3bc_c908) ^ self.tick()
+        ) ^ salt))
     }
     /// Restart the world's random stream from an explicit game argument.
     pub fn reseed(&mut self, seed: u64) {
+        self.sim_writes(format_args!("reseeded the world"));
         self.state.seed = seed;
         self.rng.insert(Rng::new(seed));
     }
