@@ -485,11 +485,13 @@ any gesture has decided, and both sit beside `press`, `pan` and
 `contextmenu` without taking anything from them. On the web a cancel is
 DOM's `pointercancel`. DOM's order holds: down, up, then the click's
 `press`. The innermost enabled node that hears either one takes the pointer, on
-every host (a disabled one passes it to an enabled ancestor), and only the
+every host (a disabled one, a control or any node with `disabled`, passes it to an enabled ancestor), and only the
 primary pointer counts, and its
 up arrives wherever the pointer lifts: heard on the document on the web (a
 pointer capture would also retarget the click and press on a lift
-elsewhere), through AppKit's own mouse-up routing, and with the touch on
+elsewhere), where the pointer leaving the document (out of the window, into
+a frame) or the window losing focus also ends it, and a node the tree has
+removed is never called, through AppKit's own mouse-up routing, and with the touch on
 UIKit.
 - **Web** (`glue.js` with `input-glue.js` `pointer`; the JS target's
   `pointer.js`): the element's own events. The innermost claims the event

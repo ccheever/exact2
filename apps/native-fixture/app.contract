@@ -302,10 +302,13 @@ component NativeFixture
         button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=selectTab("home") testId="tab-home" flex=1 display="flex" flex-direction="column" align-items="center" justify-content="center" gap=2
           image (nav.tab == "home" ? "symbol:home-fill" : "symbol:home") width=22 height=22
           text "Home" font-size=11
-          // A filled pill around a symbol and a text is not a badge (§9.9).
-          row position="absolute" top=0 left=0 opacity=0 background-color="#e5e7eb" testId="pill-home"
-            image "symbol:home" width=8 height=8
+          // Not badges (§9.9): a filled pill around a text and a dot (a flat
+          // leaf), and a count box made transparent.
+          row position="absolute" top=0 left=0 background-color="#e5e7eb" testId="pill-home"
             text "pill" font-size=8
+            box width=4 height=4 background-color="#ef4444"
+          column position="absolute" top=0 right=0 opacity=0 background-color="#ef4444" testId="faded-home"
+            text "9" font-size=8
         button role="tab" aria-controls="panel-second" aria-selected=(nav.tab == "second") press=selectTab("second") testId="tab-second" flex=1 display="flex" flex-direction="column" align-items="center" justify-content="center" gap=2
           image (nav.tab == "second" ? "symbol:person-fill" : "symbol:person") width=22 height=22
           text "Second" font-size=11

@@ -8,20 +8,22 @@ export function pointer(e, kind, f) {
   let s = e.$pointer;
   if (!s) {
     s = e.$pointer = { held: null };
+    // The end: an up or cancel anywhere in the document, or the pointer
+    // leaving it (out of the window, into a frame) or the window losing
+    // focus; never for an element the tree has since removed.
+    const ends = [["pointerup", document], ["pointercancel", document], ["pointerout", document], ["blur", window]];
     const up = ev => {
-      if (ev.pointerId !== s.held) return;
+      if (ev.type === "pointerout" ? ev.relatedTarget && ev.relatedTarget.localName !== "iframe" : ev.type !== "blur" && ev.pointerId !== s.held) return;
       s.held = null;
-      document.removeEventListener("pointerup", up, true);
-      document.removeEventListener("pointercancel", up, true);
-      s.pointerup?.();
+      for (const [type, target] of ends) target.removeEventListener(type, up, true);
+      if (e.isConnected) s.pointerup?.();
     };
     e.addEventListener("pointerdown", ev => {
       // The innermost enabled pointer node takes it, as the web host's does.
-      if (ev.$pointerOwner || !ev.isPrimary || ev.button !== 0 || s.held !== null || e.matches(":disabled") || e.closest("[inert]")) return;
+      if (ev.$pointerOwner || !ev.isPrimary || ev.button !== 0 || s.held !== null || e.matches(":disabled") || e.hasAttribute("disabled") || e.closest("[inert]")) return;
       ev.$pointerOwner = e;
       s.held = ev.pointerId;
-      document.addEventListener("pointerup", up, true);
-      document.addEventListener("pointercancel", up, true);
+      for (const [type, target] of ends) target.addEventListener(type, up, true);
       s.pointerdown?.();
     });
   }

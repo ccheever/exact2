@@ -99,7 +99,7 @@ pub(super) fn resolve(
         }
         let body = subst_stmts(
             &action.body,
-            &mut Subst::new(&map, records),
+            &mut Subst::values(&map, records),
             &BTreeMap::new(),
         );
         let body = cx.apart(&body);
@@ -123,8 +123,11 @@ impl Cx<'_> {
                     self.fresh += 1;
                     let renamed = format!("{name}@b{}", self.fresh);
                     let map = BTreeMap::from([(name, Expr::Ident(renamed.clone(), span))]);
-                    rest =
-                        subst_stmts(&rest, &mut Subst::new(&map, self.records), &BTreeMap::new());
+                    rest = subst_stmts(
+                        &rest,
+                        &mut Subst::values(&map, self.records),
+                        &BTreeMap::new(),
+                    );
                     out.push(Stmt::Let {
                         name: renamed,
                         expr,
@@ -154,7 +157,7 @@ impl Cx<'_> {
                         BTreeMap::from([(some.0.clone(), Expr::Ident(renamed.clone(), span))]);
                     let body = subst_stmts(
                         &some.1,
-                        &mut Subst::new(&map, self.records),
+                        &mut Subst::values(&map, self.records),
                         &BTreeMap::new(),
                     );
                     out.push(Stmt::Match {
@@ -239,7 +242,7 @@ impl Cx<'_> {
             .collect();
         let own = subst_stmts(
             &callee.body,
-            &mut Subst::new(&map, self.records),
+            &mut Subst::values(&map, self.records),
             &BTreeMap::new(),
         );
         let own = self.apart(&own);

@@ -47,6 +47,9 @@ final class FlatLeaves {
     private(set) var leaves: [UInt32: FlatLeaf] = [:]
     /// Each parent's children in order, for parents that hold a flat leaf.
     private var order: [UInt32: [UInt32]] = [:]
+    /// Whether `parent` holds a flat leaf: an authored child that is a
+    /// layer, not a view.
+    func holdsLeaves(_ parent: UInt32) -> Bool { order[parent]?.isEmpty == false }
     /// Since launch: made flat, and promoted to views (`state`).
     private(set) var made = 0, promoted = 0
     /// Parents whose flat leaves are laid into layers when the batch ends.

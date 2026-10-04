@@ -72,6 +72,14 @@ impl<'m, T: SubstitutionValue> Subst<'m, T> {
         }
     }
 
+    /// Renamed values only: a call's head names a function, never these.
+    pub(super) fn values(map: &'m BTreeMap<String, T>, records: &'m BTreeSet<String>) -> Self {
+        Subst {
+            calls: false,
+            ..Self::new(map, records)
+        }
+    }
+
     fn get(&self, name: &str) -> Option<Replacement<'_>> {
         for (bound, spelled) in self.binders.iter().rev() {
             if bound == name {

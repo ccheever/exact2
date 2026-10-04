@@ -318,3 +318,36 @@ component Child
         "the child never had `secret`"
     );
 }
+
+#[test]
+fn renaming_apart_leaves_a_function_call_of_the_same_spelling_alone() {
+    // A caller parameter and a local spelled like a library function: the
+    // call still names the function.
+    let src = r#"component App
+  state seen = ""
+  action report
+    seen = "done"
+  view
+    column
+      Child(done=report)
+      text seen testId="seen"
+
+component Child
+  props
+    done: action
+  state out = ""
+  action go(length: number)
+    let toString = length + 1
+    out = `${toString} ${toString(length)}`
+    done()
+  view
+    column
+      button press=go(4) testId="go"
+        text "go"
+      text out testId="out"
+"#;
+    let mut r = boot(src);
+    press(&mut r, "go");
+    assert_eq!(text_of(&r, "out"), "5 4");
+    assert_eq!(text_of(&r, "seen"), "done");
+}

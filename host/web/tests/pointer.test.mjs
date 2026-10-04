@@ -22,13 +22,14 @@ const page = `<!doctype html>
   <button id="off" disabled style="width:100px;height:50px">d</button>
   <div id="outer" style="width:200px;height:120px;padding:10px"><button id="inner" style="width:100px;height:60px">i</button></div>
   <div id="wrap" style="width:200px;height:80px;padding:10px"><button id="child" style="width:100px;height:40px">c</button></div>
+  <div id="dparent" style="width:200px;height:80px;padding:10px"><div id="dkid" disabled style="width:100px;height:40px">k</div></div>
 </div>
 <script type="module">
   import { createInputHandlers } from './input-glue.js';
   const root = document.getElementById('exact-root');
   const h = createInputHandlers({ root, views: new Map(), retiredViews: new Set(), ready: () => true, inertAncestor: () => false, dispatch() {} });
   window.log = [];
-  for (const id of ['mic', 'off', 'outer', 'inner', 'wrap']) {
+  for (const id of ['mic', 'off', 'outer', 'inner', 'wrap', 'dparent', 'dkid']) {
     const el = document.getElementById(id);
     el.exactHandlers = ['pointerdown', 'pointerup', 'press'];
     const on = (type, f) => el.addEventListener(type, f);
@@ -94,6 +95,11 @@ check('down before the press, up wherever the button lifts, nothing when disable
     await mouse('mousePressed', kid);
     await mouse('mouseReleased', kid);
     expect(await log()).toEqual(['wrap down', 'wrap up', 'child press', 'wrap press']);
+    // A disabled non-control node passes the pointer to its enabled parent.
+    const dkid = await centre('dkid');
+    await mouse('mousePressed', dkid);
+    await mouse('mouseReleased', dkid);
+    expect((await log()).filter(l => !l.endsWith('press'))).toEqual(['dparent down', 'dparent up']);
   } finally {
     child.kill();
     server.close();

@@ -58,14 +58,17 @@ private struct TabFace: Equatable {
         title = label
         disabled = tab.disabled
     }
-    /// A shown box with a visible fill whose only node child is one shown,
-    /// non-empty text: that text. A pill around a symbol and a label is not.
+    /// A shown box with a visible fill whose only child (views and flat
+    /// leaves alike) is one shown, non-empty text: that text. A pill around
+    /// a symbol and a label is not, nor a transparent box or text.
     private static func badgeText(_ box: NodeView) -> String? {
-        guard !box.isParagraph, box.kind != "image", !box.isHidden, box.style["display"]?.string != "none",
-              let fill = box.channels("background_color"), fill[3] > 0 else { return nil }
+        let shown = { (v: NodeView) in !v.isHidden && v.style["display"]?.string != "none" && v.number("opacity", 1) > 0 }
+        guard !box.isParagraph, box.kind != "image", shown(box),
+              let fill = box.channels("background_color"), fill[3] > 0,
+              box.presenter?.flats.holdsLeaves(box.id) != true else { return nil }
         let children = box.container.subviews.compactMap { $0 as? NodeView }
-        guard children.count == 1, let text = children.first, text.isParagraph, !text.isHidden,
-              text.style["display"]?.string != "none", !text.accessibleText.isEmpty else { return nil }
+        guard children.count == 1, let text = children.first, text.isParagraph, shown(text),
+              !text.accessibleText.isEmpty else { return nil }
         return text.accessibleText
     }
 }

@@ -547,7 +547,7 @@ function attach(el, id, handlers) {
     } else if (kind === "heightrelease") {
       motion.attachHeightDrag(el, id, on);
     } else if (kind === "transformrelease") { motion.attachTransformDrag(el,id,on);
-    } else if ((kind === "pointerdown" || kind === "pointerup") && !el.exactPointer) { let p; el.exactPointer = true; on("pointerdown", e => (p ??= inputHandlers?.pointer(el, on, k => send(wasm.exact_dispatch(id, k, 0, now()))))?.(e)); // @ref LLP 1005 §3: DOM's own pointer down/up (input-glue `pointer`)
+    } else if ((kind === "pointerdown" || kind === "pointerup") && !el.exactPointer) { let p; el.exactPointer = true; on("pointerdown", e => (p ??= inputHandlers?.pointer(el, on, k => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, k, 0, now())); }))?.(e)); // @ref LLP 1005 §3: DOM's own pointer down/up (input-glue `pointer`)
     } else if (kind === "contextmenu" || kind === "dblclick") {
       on(kind, (e) => {
         if (el.matches(":disabled") || inertAncestor(el)) return;

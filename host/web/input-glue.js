@@ -118,19 +118,23 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     pointer(el, on, fire) {
       let held = null;
       const wants = kind => el.exactHandlers?.includes(kind);
+      // The end: an up or cancel anywhere in the document, or the pointer
+      // leaving it (out of the window, into a frame) or the window losing
+      // focus, which this document never hears the up from.
+      const ends = [["pointerup", document], ["pointercancel", document], ["pointerout", document], ["blur", window]];
       const up = e => {
-        if (e.pointerId !== held) return;
+        if (e.type === "pointerout" ? e.relatedTarget && e.relatedTarget.localName !== "iframe" : e.type !== "blur" && e.pointerId !== held) return;
         held = null;
-        document.removeEventListener("pointerup", up, true); document.removeEventListener("pointercancel", up, true);
+        for (const [type, target] of ends) target.removeEventListener(type, up, true);
         if (wants("pointerup") && ready()) fire(30);
       };
       return e => {
         // The innermost enabled pointer node takes it (the event bubbles
         // here first from inner ones, which mark it).
-        if (e.exactPointerOwner || !e.isPrimary || e.button !== 0 || held !== null || el.matches(":disabled") || inertAncestor(el)) return;
+        if (e.exactPointerOwner || !e.isPrimary || e.button !== 0 || held !== null || el.matches(":disabled") || el.hasAttribute("disabled") || inertAncestor(el)) return;
         e.exactPointerOwner = el;
         held = e.pointerId;
-        document.addEventListener("pointerup", up, true); document.addEventListener("pointercancel", up, true);
+        for (const [type, target] of ends) target.addEventListener(type, up, true);
         if (wants("pointerdown")) fire(29);
       };
     },
