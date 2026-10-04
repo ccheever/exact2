@@ -235,7 +235,7 @@ reload stream, never the local installer's token.
 ```sh
 bun host/apple/build.mjs --run              # macOS
 bun host/apple/build.mjs --ios --run        # an iOS Simulator (--device --run for a connected iPhone)
-cargo build --release -p caltrain-linux     # Linux: a DRM/KMS console, or headless anywhere
+cargo build --profile host-dev -p caltrain-linux   # Linux: a DRM/KMS console, or headless anywhere (--release to ship)
 ```
 
 A first native build takes a few minutes; later builds reuse it. iOS commands use an

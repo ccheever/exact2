@@ -744,6 +744,16 @@ export function hermesIos(env = process.env) {
   if (env.EXACT_HERMES_IOS_DIR) return { pin, root: resolve(env.EXACT_HERMES_IOS_DIR), cached: false };
   return { pin, root: resolve(env.HOME ?? homedir(), '.cache/exact/hermes', `${pin.slice(0, 12)}-lean-ios`), cached: true };
 }
+/** The profile a development native build compiles with (Cargo.toml): an
+ * Apple app through host/apple/build.mjs, the Linux host by `linuxBuild`.
+ * What ships is baked at `release`. */
+export const HOST_DEV = 'host-dev';
+/** The Linux host an agent drives: the app's development executable, or
+ * another binary of its Linux crate (`<app>-render`). */
+export const linuxBinary = (app, bin = app.crate('linux')) => resolve(app.target, HOST_DEV, bin);
+/** The command that builds it. An app outside this repo gets the root's
+ * profiles on the command line, as its Apple build does (injectedProfiles). */
+export const linuxBuild = (app, bin = null) => ['cargo', 'build', ...injectedProfiles(app), '--profile', HOST_DEV, '-p', app.crate('linux'), ...(bin ? ['--bin', bin] : [])];
 export function bakeTarget(platform) {
   if (platform === 'web') return 'wasm32-unknown-unknown';
   if (platform === 'ios') return 'aarch64-apple-ios';
