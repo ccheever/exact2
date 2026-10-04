@@ -984,3 +984,13 @@ inspected. Web's descendant audit passes; native's optional scan is unavailable
 with every owned carrier closed. Artifacts: `artifacts/main-00d-{web,macos}/`.
 Garden diary 004 records the shared passing gates. No Rivals logic or policy
 changes. Wall times include builds and concurrent verification.
+
+## Main compiler integration during Forest's preparation work (2026-10-04)
+
+Merges `e278ff4b6` and `02ca9c62f` bring main through `e702a02e3`. Rivals'
+full web/macOS proofs pass in 81.0/36.4 s, including builds. Inputs, pins,
+nine world observations and eleven saves agree. Both Mayhem screenshots were
+inspected. Web's process audit passes; native's optional scan is unavailable
+with owned carriers closed. Artifacts: `artifacts/main-e702-{web,macos}/`.
+Forest diary 005 records the shared checks and unavailable Lean oracle.
+No Rivals gameplay or Jev-policy change in this integration.

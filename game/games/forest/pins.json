@@ -1,21 +1,23 @@
 {
   "ticks": {
     "0": "0x5e2768542a522677",
-    "4500": "0x41676955ecbb5d88"
+    "4500": "0x41676955ecbb5d88",
+    "7378": "0x3a3a46cdf1380f23"
   },
   "saves": {
-    "chopping": "5a79c206dfa91c22471bd1bd8a1207b4354814be8fa47b15f36a3cc417b44c2d",
-    "night": "16b56b8dbcdb08ac010c7cf782cfb9eefc6614449ac7d23ea176e05f543f9c3f",
-    "rescue": "9f36964af9511d91b13ddd75edc5a01dded805935ee7f85cea34c88495ae01eb",
-    "supplies": "37cb7e657901c786935e0a9c3dbb73868ad7ce37b999712dbdd3e44a5a308dbd"
+    "chopping": "2af16f4cb1137f5df939436a886f73aaf55735cced1536c5a197612678588342",
+    "night": "9a8f7e91e3261233d616357d0a04eebf10a1a9dd72614efe402382155d36382b",
+    "rescue": "bda77470fb428ef4e3145494c6742aa48d169d3a31208d483ee71f98970e6404",
+    "supplies": "dd5f34a762890be899dc8c3a497b40f5ae7d840e060cf2599a8f3f13e26d0285",
+    "dawn": "875e37ab971b3e54e2beb6bdaf5dcf688bd2573f6bcb2d00fa86dc24ffd3c45f"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "2deb4fbdb531002d72cdee776ce70fd87641291b55de9ec821d5b9c797e3db14",
+  "inputs": "833e32394ab326dad89dcc91e2d362b72cd5fe6132cc6acee0b0e749a9524924",
   "game": "forest",
   "generated": "bun game/prove.mjs forest --repin --hosts 'linux,web'",
-  "at": "53d2d6fb97b69b7163ca9428df28604b559694e2",
-  "reason": "Visible axe progress and recovery, held swings and a mid-swing continuation"
+  "at": "02ca9c62fd6375b27c3a2d160f9327e9292a0dcd",
+  "reason": "Public supplies-to-dawn guidance and a shelter save continuation; unchanged Jev controller"
 }

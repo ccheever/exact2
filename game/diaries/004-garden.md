@@ -922,3 +922,14 @@ The useful engine lesson here is that existing publication, input and save
 seams were enough: give the player the missing spatial fact, then test that
 following it works. Private coordinates in Jev's input would have bypassed
 the defect that a person could encounter too.
+
+## Main compiler integration during Forest's preparation work (2026-10-04)
+
+Merge `e278ff4b6` brings main through `02f53744a`. Garden's full web/macOS
+proofs pass in 94.6/30.9 s, including builds. Inputs, pins, six world
+observations and nine saves agree. Both returned-to-garden screenshots were
+inspected; recovery guidance and planting remain usable. Web's process audit
+passes; native's optional scan is unavailable with owned carriers closed.
+Artifacts: `artifacts/main-02f-{web,macos}/`. The later merge `02ca9c62f` adds
+main `e702a02e3`'s Lean-only changes. Forest diary 005 records the shared gates
+and unavailable Lean advisory check. No Garden gameplay or Jev-policy change.

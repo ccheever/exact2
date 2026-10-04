@@ -851,3 +851,35 @@ Before this work, merge `e278ff4b6` brings eight main commits through
 and boot pass. The compiler/semantics changes trigger the advisory difftest
 against `469740d5e`; it exits 2 because `lake` is absent. Cross-host strict
 acceptance and the other games' integration sweep follow this checkpoint.
+
+### Accepted verification
+
+A second periodic fetch found main `e702a02e3`, a Lean-only change; merge
+`02ca9c62f` brings it in after the running integration checks finish. Caps
+passes, and the new advisory difftest attempt again reports the missing `lake`.
+The compiler and runtime sources remain those of the passing shared checks.
+
+Strict collector `artifacts/prove/run-qRDLfX` accepts this merged revision.
+Linux normal/Save/FreshGame take 39.5/17.8/17.8 s; web takes
+133.7/136.5/151.6 s; native release takes 68.0 s, including builds. All seven
+checks have zero failures and successful descendant audits. The collector also
+restores the ordinary web build (25.9 s). Its candidate child summaries remain
+UNVERIFIED by design; acceptance comes from the successful collector and its
+written pins. A subsequent ordinary Linux proof passes against those pins.
+
+The independent web/macOS proofs (`artifacts/dawn-{web,macos}/`) take
+124.3/174.7 s. All inputs, pins, nine world observations and fifteen saves
+agree with every strict run. Web's process audit passes; native's optional
+scan is unavailable while all recorded carriers close. Both hosts' shelter and
+dawn screenshots were inspected. The old tick pins are unchanged; continuation
+save digests include the new published HUD labels. The new dawn save digest
+is `875e37ab…`, and its world at tick 7378 is `0x3a3a46cdf1380f23`.
+
+Garden's complete proofs pass on web/macOS in 94.6/30.9 s with equal inputs,
+pins, six worlds and nine saves. Rivals passes in 81.0/36.4 s with equal
+inputs, pins, nine worlds and eleven saves. Their recovery and Mayhem captures
+were inspected on both hosts. Both web audits pass; both optional native scans
+are unavailable with owned carriers closed. These integration times include
+builds and concurrent work, not isolated performance measurements. Artifacts:
+Garden `artifacts/main-02f-{web,macos}/`, Rivals
+`artifacts/main-e702-{web,macos}/`. No gameplay or Jev changes in those games.
