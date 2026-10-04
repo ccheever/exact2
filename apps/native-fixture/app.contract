@@ -253,7 +253,7 @@ component NativeFixture
                           when subtitle != "" and not muted
                             text subtitle testId="subtitle-chat" font-size=12 color="#6b7280"
                           when muted
-                            row gap=3 align-items="center" testId="subtitle-glyphs"
+                            row gap=3 align-items="center" testId="subtitle-glyphs" aria-label="Muted, disappearing messages after 1 week"
                               image "symbol:sf/bell.slash" width=12 height=12 object-fit="contain"
                               text "Muted" font-size=12 color="#6b7280"
                               image "symbol:sf/timer" width=12 height=12 object-fit="contain"

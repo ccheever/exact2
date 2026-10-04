@@ -20,6 +20,9 @@ struct HeaderTitle: Equatable {
     /// (a box of symbol images and texts after the heading): Signal's "🔕 Muted
     /// ⏱ 1w". Empty for a plain text subtitle.
     let glyphs: [Glyph]
+    /// What VoiceOver reads for the subtitle: the glyph line's `aria-label`
+    /// when it has one (a timer's "1w" means little alone), else its texts.
+    let spoken: String
     struct Glyph: Equatable { let symbol: String?; let text: String }
     /// The element a tap on the title presses.
     let tap: UInt32?
@@ -32,18 +35,28 @@ struct HeaderTitle: Equatable {
             at = view.superview
         }
         guard let group = tap ?? chain.last(where: { a in !apart.contains { $0.isDescendant(of: a) } }) else { return nil }
-        var avatar: BadgeFace?, subtitle = "", glyphs: [Glyph] = [], passed = false
+        var avatar: BadgeFace?, subtitle = "", glyphs: [Glyph] = [], passed = false, spoken: String?
         func shown(_ node: NodeView) -> [NodeView] {
             node.container.subviews.compactMap { $0 as? NodeView }.filter { $0.style["display"]?.string != "none" }
         }
-        /// A box of symbol images and texts only, one of each at least: a glyph line.
+        /// A passive box: no button, no press, no fill (a pill or badge
+        /// keeps its own look, so it is no line of glyphs).
+        func passive(_ node: NodeView) -> Bool {
+            !node.isButton && !node.actsAsButton && !node.handlers.contains("press") && node.channels("background_color") == nil
+        }
+        /// A passive box of symbol images and texts only, one of each at
+        /// least: a glyph line. A symbol with no name or an empty text adds
+        /// nothing and costs the line nothing; any other child is not one.
         func line(_ node: NodeView) -> [Glyph]? {
-            guard !node.isParagraph else { return nil }
+            guard !node.isParagraph, passive(node) else { return nil }
             var out: [Glyph] = []
             for child in shown(node) {
-                if child.kind == "image", let name = child.props["symbolName"], !name.isEmpty { out.append(Glyph(symbol: name, text: "")) }
-                else if child.isParagraph, !child.accessibleText.isEmpty { out.append(Glyph(symbol: nil, text: child.accessibleText)) }
-                else { return nil }
+                guard passive(child) else { return nil }
+                if child.kind == "image", child.props["imageSource"]?.hasPrefix("symbol:") == true {
+                    if let name = child.props["symbolName"], !name.isEmpty { out.append(Glyph(symbol: name, text: "")) }
+                } else if child.isParagraph {
+                    if !child.accessibleText.isEmpty { out.append(Glyph(symbol: nil, text: child.accessibleText)) }
+                } else { return nil }
             }
             return out.contains { $0.symbol != nil } && out.contains { $0.symbol == nil } ? out : nil
         }
@@ -55,8 +68,13 @@ struct HeaderTitle: Equatable {
                 if passed, subtitle.isEmpty, let pieces = line(child) {
                     glyphs = pieces
                     subtitle = pieces.compactMap { $0.symbol == nil ? $0.text : nil }.joined(separator: "  ")
+                    // What it says, as the author named it, else its texts.
+                    spoken = child.authoredLabel ?? subtitle
                     continue
                 }
+                // A control inside the group is its own (a bar item), not
+                // the title's to read.
+                if child.isButton || child.handlers.contains("press"), !heading.isDescendant(of: child) { continue }
                 walk(child)
             }
         }
@@ -68,11 +86,12 @@ struct HeaderTitle: Equatable {
         self.avatar = avatar
         self.subtitle = subtitle
         self.glyphs = glyphs
+        self.spoken = spoken ?? subtitle
         self.tap = tap?.id
     }
 
     /// Everything the title is drawn from.
-    var source: String { "\(id):\(avatar?.source ?? ""):\(subtitle):\(glyphs.map { "\($0.symbol ?? "")/\($0.text)" }):\(tap ?? 0)" }
+    var source: String { "\(id):\(avatar?.source ?? ""):\(subtitle):\(spoken):\(glyphs.map { "\($0.symbol ?? "")/\($0.text)" }):\(tap ?? 0)" }
     static func == (a: HeaderTitle, b: HeaderTitle) -> Bool { a.source == b.source }
 
     static func holdsHeading(_ node: NodeView) -> Bool {
@@ -129,6 +148,13 @@ final class HeaderTitleView: UIControl {
             stack.centerXAnchor.constraint(equalTo: centerXAnchor), stack.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
         addTarget(self, action: #selector(pressed), for: .touchUpInside)
+        // The subtitle's symbols are sized from its font: rebuild them when
+        // the text size changes (their colour is the run's, already dynamic).
+        registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (view: HeaderTitleView, _: UITraitCollection) in
+            guard let (group, text) = view.shown else { return }
+            view.subtitle.font = .preferredFont(forTextStyle: .footnote, compatibleWith: view.traitCollection)
+            view.update(group, title: text)
+        }
         isAccessibilityElement = true
     }
     required init?(coder: NSCoder) { nil }
@@ -142,24 +168,33 @@ final class HeaderTitleView: UIControl {
     /// The subtitle as drawn: its glyph line's symbols inline at the text's
     /// size and colour, an item two spaces from the next, or its text.
     static func line(_ group: HeaderTitle, font: UIFont, colour: UIColor) -> NSAttributedString {
-        guard !group.glyphs.isEmpty else { return NSAttributedString(string: group.subtitle) }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.baseWritingDirection = .natural
+        paragraph.lineBreakMode = .byTruncatingTail
+        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: colour, .paragraphStyle: paragraph]
+        guard !group.glyphs.isEmpty else { return NSAttributedString(string: group.subtitle, attributes: attributes) }
         let out = NSMutableAttributedString()
-        let attributes: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: colour]
         for (i, glyph) in group.glyphs.enumerated() {
+            if i > 0, group.glyphs[i - 1].symbol == nil { out.append(NSAttributedString(string: "  ", attributes: attributes)) }
             if let name = glyph.symbol {
-                if i > 0, group.glyphs[i - 1].symbol == nil { out.append(NSAttributedString(string: "  ", attributes: attributes)) }
-                guard let image = UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(font: font, scale: .small)) else { continue }
-                out.append(NSAttributedString(attachment: NSTextAttachment(image: image.withTintColor(colour, renderingMode: .alwaysOriginal))))
+                // A template symbol in the run's font: TextKit tints it with
+                // the run's (dynamic) colour, so it follows the appearance.
+                guard let image = UIImage(systemName: name, withConfiguration: UIImage.SymbolConfiguration(font: font))?.withRenderingMode(.alwaysTemplate) else { continue }
+                let symbol = NSMutableAttributedString(attachment: NSTextAttachment(image: image))
+                symbol.addAttributes(attributes, range: NSRange(location: 0, length: symbol.length))
+                out.append(symbol)
                 out.append(NSAttributedString(string: "\u{2009}", attributes: attributes))
             } else {
-                if i > 0, group.glyphs[i - 1].symbol == nil { out.append(NSAttributedString(string: "  ", attributes: attributes)) }
                 out.append(NSAttributedString(string: glyph.text, attributes: attributes))
             }
         }
         return out
     }
 
+    private var shown: (HeaderTitle, String)?
+
     func update(_ group: HeaderTitle, title text: String) {
+        shown = (group, text)
         tap = group.tap
         avatar.image = group.avatar?.image
         avatar.isHidden = group.avatar == nil
@@ -171,7 +206,7 @@ final class HeaderTitleView: UIControl {
         texts.alignment = group.avatar == nil ? .center : .leading
         isEnabled = group.tap != nil
         accessibilityLabel = text
-        accessibilityValue = group.subtitle.isEmpty ? nil : group.subtitle
+        accessibilityValue = group.subtitle.isEmpty ? nil : group.spoken
         accessibilityTraits = group.tap == nil ? .header : .button
         accessibilityIdentifier = group.testId
         invalidateIntrinsicContentSize()

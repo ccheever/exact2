@@ -113,11 +113,17 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertTrue(item.titleView === view)
         // A subtitle that is a line of symbols and texts draws them inline.
         try tapNode(session, "toggle-muted")
-        until("the glyph line") { view.accessibilityValue == "Muted  1w" }
+        until("the glyph line") { view.accessibilityValue == "Muted, disappearing messages after 1 week" }
         let line = try XCTUnwrap(view.subtitle.attributedText)
-        var attachments = 0
-        line.enumerateAttribute(.attachment, in: NSRange(location: 0, length: line.length)) { value, _, _ in if value != nil { attachments += 1 } }
-        XCTAssertEqual(attachments, 2, "bell.slash and timer, inline")
+        var attachments: [NSTextAttachment] = []
+        line.enumerateAttribute(.attachment, in: NSRange(location: 0, length: line.length)) { value, _, _ in
+            if let a = value as? NSTextAttachment { attachments.append(a) }
+        }
+        XCTAssertEqual(attachments.count, 2, "bell.slash and timer, inline")
+        // Template images, tinted by the run's dynamic colour: they follow
+        // the appearance with no rebuild.
+        XCTAssertEqual(attachments.map { $0.image?.renderingMode }, [.alwaysTemplate, .alwaysTemplate])
+        XCTAssertEqual(line.attribute(.foregroundColor, at: 0, effectiveRange: nil) as? UIColor, view.subtitle.textColor)
         XCTAssertTrue(line.string.contains("Muted") && line.string.contains("1w"))
         try tapNode(session, "toggle-muted")
         until("back to the text subtitle") { view.accessibilityValue == "Online" || view.subtitle.isHidden }
