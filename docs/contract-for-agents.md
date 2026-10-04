@@ -798,6 +798,16 @@ slant or smear: LLP 1019 §5). Web and Apple retain the ordered glyph fallback c
 installed family, then uses cosmic-text's platform glyph fallback; it logs
 this declared limitation for a multi-member stack (LLP 1001).
 
+Book typography is CSS's on every host. `text-align="justify"` fills all but
+a paragraph's last line. `text-indent` is a length (`text-indent="1.5em"`,
+`text-indent=24`; negative with the same `padding-left` hangs the first line).
+`hyphens` is `manual` by default: a soft hyphen (U+00AD, written as the character itself or from data) breaks
+and shows a hyphen; `none` ignores it; `auto` also hyphenates by the document's
+language on the web and Apple (Linux has no dictionary and breaks only at soft
+hyphens). `widows`, `orphans`, `break-*` and multi-column (`columns`,
+`column-count`) are refused: nothing fragments a paragraph across boxes, so
+page a fixed-height column by translating it (LLP 1001 §6).
+
 `textarea rows=3` sets its preferred height in lines (default 2); explicit CSS
 height and `field-sizing="content"` override it. `maxlength=80` on text inputs
 and textareas limits user edits in UTF-16 units; authored `value` updates are

@@ -80,6 +80,45 @@ final class TextParityMacTests: XCTestCase {
         XCTAssertEqual(CTLineGetTypographicBounds(p.lines[1], nil, nil, nil) - CTLineGetTrailingWhitespaceWidth(p.lines[1]), 138.828125, accuracy: 1.0 / 64 + 1e-6)
     }
 
+    /// `text-indent: 32px` and `hyphens: auto` (`lang="en"`) in Chrome 154,
+    /// each character's client rect: where each line starts and ends.
+    func testTextIndentAndAutoHyphensBreakAsChromes() {
+        let engine = TextEngine(resolve: { _ in nil })
+        func spec(_ text: String) -> Spec {
+            let run = Run(text: text, size: 16, weight: 400, family: 0, italic: false, lineHeight: 24, letterSpacing: 0)
+            return Spec(runs: [run], align: 0, lineClamp: 0, color: [0, 0, 0, 255], strut: run)
+        }
+        var indented = spec("Indented: It was the best of times, it was the worst of times, it was the age of wisdom.")
+        indented.textIndent = 32
+        let p = engine.paragraph(indented, width: 300)
+        let chrome: [(Int, CGFloat, CGFloat)] = [(39, 32, 290.8125), (42, 0, 290.640625), (7, 0, 60.484375)]
+        XCTAssertEqual(p.lines.count, chrome.count)
+        for (i, (count, left, right)) in chrome.enumerated() where i < p.lines.count {
+            let r = CTLineGetStringRange(p.lines[i])
+            XCTAssertEqual(r.length, count, "line \(i)")
+            let x = p.origin(i, align: 0, width: 300)
+            XCTAssertEqual(x, left, accuracy: 1.0 / 64, "line \(i) starts")
+            // A line's end space hangs: Chrome gives it no width.
+            let hangs = i + 1 < chrome.count ? 1 : 0
+            XCTAssertEqual(x + CTLineGetOffsetForStringIndex(p.lines[i], r.location + r.length - hangs, nil), right, accuracy: 1.0 / 64 + 1e-6, "line \(i) ends")
+        }
+        var auto = spec("Auto: characteristically incomprehensible typographical considerations.")
+        auto.hyphens = 2; auto.language = "en"
+        auto.hyphenateAuto()
+        let q = engine.paragraph(auto, width: 150), text = auto.runs[0].text as NSString
+        let lines = q.lines.map { line -> String in
+            let r = CTLineGetStringRange(line)
+            return text.substring(with: NSRange(location: r.location, length: r.length))
+        }
+        XCTAssertEqual(lines.map { $0.replacingOccurrences(of: "\u{AD}", with: "") },
+                       ["Auto: characteristi", "cally incomprehen", "sible typographical ", "considerations."])
+        XCTAssertTrue(lines[0].hasSuffix("\u{AD}") && lines[1].hasSuffix("\u{AD}"), "broken at the inserted soft hyphens")
+        // The source map takes them back out: the "c" of "cally" is source offset 19.
+        let second = CTLineGetStringRange(q.lines[1]).location
+        XCTAssertEqual(auto.source.source(second), 19)
+        XCTAssertEqual(auto.source.collapsed(19), second)
+    }
+
     func testAnInstalledFamilysItalicAndBoldAreItsOwnFacesAsChromes() throws {
         let installed = CTFontDescriptorCreateMatchingFontDescriptors(
             CTFontDescriptorCreateWithAttributes([kCTFontFamilyNameAttribute: "Georgia"] as CFDictionary),

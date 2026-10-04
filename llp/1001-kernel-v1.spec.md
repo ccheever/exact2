@@ -828,6 +828,26 @@ production path): `LayoutTree` records it, `compute_layout` reports
 
 ## 6. Text (WS-E, WS-I)
 
+**Book typography** (the reader diary, 2026-10-04). `text-align: justify`
+fills every line but a paragraph's last and one before a forced break, on
+every host; a line with no justification opportunity stays at the start, as
+Chrome's does. `text_indent` (bit 176, `f32` points, inherited; a number,
+`rem` or `em`) insets a paragraph's first line from its start edge and takes
+that room from it; a negative value hangs it. A percentage and `hanging`/
+`each-line` are refused. `hyphens` (bit 177, inherited, initial `manual`): a
+soft hyphen (U+00AD) is a break that shows the face's hyphen, which must fit
+the line too; under `none` the kernel's runs carry U+034F in its place (no
+break, the same length in UTF-8 and UTF-16, so no offset moves); `auto` adds
+the document language's hyphenation points (no `lang`: the web page's `en`).
+Declared: **Linux has no hyphenation dictionary**, so `auto` breaks there only
+at soft hyphens, logging it once; Apple hyphenates by the document's language,
+not an element's `lang`; text flowed around exclusions and a content region
+take no `text-indent` and no `auto` points. What needs fragmentation, a
+paragraph continuing from one box into the next, is refused by name: `widows`,
+`orphans`, the `break-*` properties and multi-column layout (`columns`,
+`column-count`, ...); Taffy has no fragmentation and there is no paged
+context, so they could change nothing.
+
 **CSS line height** (LLP 1035.000.000, 2026-09-11). Bit 72 uses the
 `line-height` codec: `Normal` (schema default), `Number(ratio)`, or
 `Length(px)`. The wire tag is 0 for normal, 1 plus f32 for a ratio, 2 plus

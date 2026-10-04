@@ -49,7 +49,9 @@ extension Paragraph {
     func origin(_ index: Int, align: Int, width: CGFloat) -> CGFloat {
         if origins.indices.contains(index) { return origins[index] }
         let flush: CGFloat = align == 1 ? 0.5 : align == 2 ? 1 : 0
-        return CGFloat(CTLineGetPenOffsetForFlush(lines[index], flush, Double(width)))
+        // CSS `text-indent`: the first line aligns in what the indent leaves.
+        let inset: (left: CGFloat, width: CGFloat) = index == 0 && lines.first.map({ CTLineGetStringRange($0).location == 0 }) == true ? firstLineInset : (0, 0)
+        return inset.left + CGFloat(CTLineGetPenOffsetForFlush(lines[index], flush, Double(width - inset.width)))
     }
 
     /// First select the band, then the closest painted fragment in that band.
@@ -110,5 +112,51 @@ extension Paragraph {
               "paint_width": CTLineGetTypographicBounds(lines[i], nil, nil, nil),
               "baseline": baselines[i], "bottom": lineBottoms[i]]
          }]
+    }
+}
+
+extension Spec {
+    /// CSS `hyphens: auto`: a soft hyphen at each of the language's own
+    /// hyphenation points (CoreFoundation's dictionaries, as Safari's), which
+    /// then break and show as authored ones do. Chrome's limits: a word of 5
+    /// letters or more, 2 before a point and 2 after; a word with an authored
+    /// soft hyphen keeps only those. An unknown language is the web page's
+    /// default `lang="en"`; one CoreFoundation cannot hyphenate is left as
+    /// `manual`. The source map takes the inserted characters back out.
+    mutating func hyphenateAuto() {
+        guard hyphens == 2 else { return }
+        let locale = CFLocaleCreate(nil, CFLocaleCreateCanonicalLocaleIdentifierFromString(nil, (language.isEmpty ? "en" : language) as CFString))
+        guard CFStringIsHyphenationAvailableForLocale(locale) else { return }
+        var shaped = 0
+        var inserted: [Int] = []
+        for i in runs.indices {
+            let text = runs[i].text as NSString
+            var points: [Int] = []
+            var at = 0
+            while at < text.length {
+                guard let scalar = UnicodeScalar(text.character(at: at)), CharacterSet.letters.contains(scalar) else { at += 1; continue }
+                var end = at
+                while end < text.length, let s = UnicodeScalar(text.character(at: end)), CharacterSet.letters.contains(s) { end += 1 }
+                let word = CFRange(location: at, length: end - at)
+                if word.length >= 5, text.range(of: "\u{AD}", range: NSRange(location: at, length: end - at)).location == NSNotFound {
+                    var limit = end - 2
+                    while limit > at + 2 {
+                        let point = CFStringGetHyphenationLocationBeforeIndex(text, limit, word, 0, locale, nil)
+                        guard point != kCFNotFound, point >= at + 2, point <= end - 2 else { break }
+                        points.append(point)
+                        limit = point
+                    }
+                }
+                at = end
+            }
+            guard !points.isEmpty else { shaped += text.length; continue }
+            points.sort()
+            let value = NSMutableString(string: text)
+            for p in points.reversed() { value.insert("\u{AD}", at: p) } // last first, so earlier points hold
+            for (k, p) in points.enumerated() { inserted.append(shaped + p + k) }
+            runs[i].text = value as String
+            shaped += value.length
+        }
+        source.inserted = inserted
     }
 }

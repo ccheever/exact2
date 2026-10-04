@@ -55,7 +55,7 @@ final class TextRasterizer {
         let source = paragraph?.shape?.attributed ?? engine.attributed(key.spec)
         return TextRasterJob(source: source.copy() as! NSAttributedString,
                    ranges: geometry.ranges, baselines: geometry.baselines,
-                   flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0, justifies: key.spec.align == 3,
+                   flush: key.spec.align == 1 ? 0.5 : key.spec.align == 2 ? 1 : 0, justifies: key.spec.align == 3, firstLineInset: key.spec.firstLineInset,
                    box: key.box, size: key.size, scale: key.scale, ellipsis: key.spec.ellipsis, clamped: geometry.clamped)
     }
 

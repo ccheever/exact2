@@ -19,6 +19,21 @@ pub(crate) fn unknown_tag(tag: &str, span: Span) -> LowerError {
     }
 }
 
+/// CSS properties exact2 knows and does not implement because they need
+/// fragmentation (CSS Fragmentation 3): a block's content continuing from
+/// one box into the next. The kernel's layout has none, so these are
+/// refused by what they would need, not as misspellings (the reader diary).
+pub(crate) fn fragmentation(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "widows" | "orphans" => "applies only where a paragraph's lines are split across pages, columns or regions (CSS Fragmentation 3); exact2 has no fragmentation context (no paged media, no `columns`), so a paragraph's lines are never split and it would change nothing. An app that pages a column by translating it keeps its own rule",
+        "columns" | "column-count" | "column-width" | "column-fill" | "column-span"
+        | "column-rule" | "column-rule-width" | "column-rule-style" | "column-rule-color" => "is CSS Multi-column Layout, which exact2 does not implement: the kernel's layout has no fragmentation, so one flow cannot continue from one column box into the next on a native host. Page a fixed-height column by translating it, and show two such windows for a spread",
+        "break-before" | "break-after" | "break-inside" | "page-break-before"
+        | "page-break-after" | "page-break-inside" => "controls where content fragments across pages or columns; exact2 has no fragmentation context (no paged media, no `columns`), so there is no break to control",
+        _ => return None,
+    })
+}
+
 pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
     let hint = match tags::renamed(&a.name) {
         Some(new @ ("press" | "change" | "input")) => format!(
@@ -29,6 +44,13 @@ pub(crate) fn unknown_attr(tag: &str, a: &Attr) -> LowerError {
             "; `{}` is spelled `{new}` here, the web's name (LLP 1017 §8.1)",
             a.name
         ),
+        None if fragmentation(&a.name).is_some() => {
+            format!(
+                ": `{}` {}",
+                a.name,
+                fragmentation(&a.name).unwrap_or_default()
+            )
+        }
         None if a.name == "className" => {
             "; `class` names a `style` declared in this file, as in `class=Card`".into()
         }

@@ -822,6 +822,7 @@ fn fingerprint(spec: &Spec) -> u64 {
     std::mem::discriminant(&spec.white_space).hash(&mut h);
     std::mem::discriminant(&spec.direction).hash(&mut h);
     spec.line_clamp.hash(&mut h);
+    spec.text_indent.to_bits().hash(&mut h);
     spec.runs.len().hash(&mut h);
     for run in std::iter::once(&spec.strut).chain(&spec.runs) {
         #[cfg(test)]

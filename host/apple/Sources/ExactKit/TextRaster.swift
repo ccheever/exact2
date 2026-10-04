@@ -36,6 +36,8 @@ struct TextRasterJob {
     let flush: CGFloat
     /// CSS `text-align: justify`, at the box's width (`TextEngine.justified`).
     var justifies = false
+    /// The paragraph's first line's `text-indent` (`Spec.firstLineInset`).
+    var firstLineInset: (left: CGFloat, width: CGFloat) = (0, 0)
     let box: CGRect
     let size: CGSize
     let scale: CGFloat
@@ -76,9 +78,10 @@ struct TextRasterJob {
             lines = reused
         } else {
             let typesetter = CTTypesetterCreateWithAttributedString(source)
-            let justify = justifies ? Double(box.width) : nil
             lines = ranges.map {
-                TextEngine.finishedLine(CTTypesetterCreateLine(typesetter, $0), source: source, range: $0, justify: justify)
+                let inset = $0.location == 0 ? firstLineInset.width : 0
+                return TextEngine.finishedLine(CTTypesetterCreateLine(typesetter, $0), source: source, range: $0,
+                                               justify: justifies ? Double(box.width - inset) : nil)
             }
             if let clamped, !lines.isEmpty {
                 let range = NSRange(location: clamped.location, length: clamped.length)
@@ -86,8 +89,9 @@ struct TextRasterJob {
             }
         }
         let positions = zip(lines, baselines).map { line, baseline in
-            CGPoint(x: box.minX + CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(box.width))),
-                    y: box.minY + baseline.rounded())
+            let inset: (left: CGFloat, width: CGFloat) = CTLineGetStringRange(line).location == 0 ? firstLineInset : (0, 0)
+            return CGPoint(x: box.minX + inset.left + CGFloat(CTLineGetPenOffsetForFlush(line, flush, Double(box.width - inset.width))),
+                           y: box.minY + baseline.rounded())
         }
         if ellipsis {
             lines = lines.map { line in

@@ -88,6 +88,7 @@ mod timelines;
 mod transform_binding;
 mod trim;
 mod typescript;
+mod typography;
 mod r#use;
 mod viewport;
 mod visual;
