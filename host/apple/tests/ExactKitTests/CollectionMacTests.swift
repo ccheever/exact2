@@ -591,7 +591,7 @@ final class CollectionMacTests: XCTestCase {
             ["op": "children", "id": 1, "ids": [5, 4]],
         ]))
         XCTAssertEqual(list.container.subviews.compactMap { ($0 as? NodeView)?.id }, [2, 5, 4])
-        XCTAssertTrue(try XCTUnwrap(p.views[2]).paintGhost)
+        XCTAssertTrue(try XCTUnwrap(list.container.subviews.first as? NodeView).paintGhost, "the leaving row is a paint ghost")
         p.apply(batch([["op": "destroy", "id": 2]]))
         XCTAssertEqual(list.container.subviews.compactMap { ($0 as? NodeView)?.id }, [5, 4])
     }
