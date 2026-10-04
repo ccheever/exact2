@@ -1324,3 +1324,19 @@ test('a mouse drag presses and releases the left button on the web', async () =>
     rmSync(dir, { recursive: true, force: true });
   }
 }, 120000);
+
+// Review A1 delta: a native contact's held left button ends with its lift, its cancel, or a down that failed — an
+// error reply or a request that threw — so a later finger is not sent as a mouse.
+test('a native mouse contact holds the button until it lifts or its down fails', async () => {
+  const { mouseContact } = await import('../../scripts/agent.mjs');
+  const sent = [], c = mouseContact(), send = (reply) => (button) => { sent.push(button.mouse === true); if (reply instanceof Error) throw reply; return reply; };
+  await c.ask('down', { mouse: true }, send({}));
+  await c.ask('move', {}, send({}));
+  await c.ask('up', {}, send({}));
+  await c.ask('down', {}, send({}));
+  expect(sent).toEqual([true, true, true, false]);
+  await expect(c.ask('down', { mouse: true }, send(new Error('the app stopped answering')))).rejects.toThrow('stopped answering');
+  expect(c.held).toBe(false);
+  await c.ask('down', { mouse: true }, send({ error: 'no input under it' }));
+  expect(c.held).toBe(false);
+});

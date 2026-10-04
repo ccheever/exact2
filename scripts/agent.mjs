@@ -45,8 +45,8 @@ import { fileURLToPath } from 'node:url';
 import { openTouches, realTap } from '../host/apple/touches.mjs';
 import { dragTap } from './agent-drag.mjs';
 import { runTests } from './agent-test.mjs';
-import { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, pickedPaths } from './agent-keys.mjs';
-export { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, pickedPaths } from './agent-keys.mjs';
+import { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, pickedPaths, mouseContact } from './agent-keys.mjs';
+export { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, pickedPaths, mouseContact } from './agent-keys.mjs';
 import { appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
 import { crashReports, developmentLaunchEnvironment, phone, phoneBridge, showSimulator, simulator } from '../host/apple/devices.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
@@ -618,7 +618,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
     // The sample host routes by label: the session the caller named, and
     // `s.session = "b"` moves every later request to another.
     const state = { session: session ?? null };
-    let heldMouse = false;
+    const heldButton = mouseContact();
     const ask = (req, session = state.session) => waitAtMost(lines.ask(session ? { ...req, session } : req), device ? 45000 : REPLY_MS, () => {
       const why = device ? `phone ${req.op} did not answer within 45 s; check app health, foreground state and network\n` + hostLines.slice(-20).join('\n')
         : hangup({ what: `${req.op} did not answer within ${REPLY_MS / 1000} s`, pid: child.pid, hostLines });
@@ -636,9 +636,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
         const guest = { selector: opts.selector, x: opts.x, y: opts.y, entity: opts.entity, world: opts.world, under: opts.under, phase: opts.phase };
         const phase = ['down', 'move', 'hold', 'up', 'cancel'].includes(kind);
         // A contact that went down with `mouse` (a drag's) holds the left button through its phases (review A1).
-        if (kind === 'down') heldMouse = !!opts.mouse;
-        const r = phase ? await ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms, ...(heldMouse ? { mouse: true } : {}) }) : ['contextmenu', 'dblclick', 'mouse'].includes(kind) ? await ask({ op: 'tap', id, [kind]: true, ...(['contextmenu', 'mouse'].includes(kind) && opts.at !== undefined ? {at: opts.at} : {}) }) : kind === 'pinch' ? await ask({ op: 'tap', id, pinch: opts.pinch, at: opts.at }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest, ...(opts.modifiers ? { modifiers: opts.modifiers } : {}) }) : await ask({ op: 'type', id, text: opts.text, ...(opts.clipboard ? { clipboard: opts.clipboard } : {}), ...guest });
-        if (kind === 'up' || kind === 'cancel' || (kind === 'down' && r.error)) heldMouse = false;
+        const r = phase ? await heldButton.ask(kind, opts, (button) => ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms, ...button })) : ['contextmenu', 'dblclick', 'mouse'].includes(kind) ? await ask({ op: 'tap', id, [kind]: true, ...(['contextmenu', 'mouse'].includes(kind) && opts.at !== undefined ? {at: opts.at} : {}) }) : kind === 'pinch' ? await ask({ op: 'tap', id, pinch: opts.pinch, at: opts.at }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest, ...(opts.modifiers ? { modifiers: opts.modifiers } : {}) }) : await ask({ op: 'type', id, text: opts.text, ...(opts.clipboard ? { clipboard: opts.clipboard } : {}), ...guest });
         if (r.error) throw new Error(r.error);
         return r;
       },

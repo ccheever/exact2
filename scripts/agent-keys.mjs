@@ -115,6 +115,23 @@ export function heldTicket(pending, target) {
  * path may hold a space), else the CLI's whitespace-separated `type @id a.png b.png`. */
 export const pickedPaths = (value) => { const text = String(value); return text.split(text.includes('\n') ? '\n' : /\s+/).map((p) => p.trim()).filter(Boolean); };
 
+/** A native carrier's held contact: one that went down with `mouse` (a drag's, review A1) says `mouse` on each phase
+ * until it lifts, is cancelled, or its down fails, an error reply or a thrown request alike. `send(button)` asks. */
+export function mouseContact() {
+  let held = false;
+  return {
+    get held() { return held; },
+    async ask(kind, opts, send) {
+      if (kind === 'down') held = !!opts.mouse;
+      let r;
+      try { r = await send(held ? { mouse: true } : {}); }
+      catch (error) { if (kind === 'down') held = false; throw error; }
+      if (kind === 'up' || kind === 'cancel' || (kind === 'down' && r?.error)) held = false;
+      return r;
+    },
+  };
+}
+
 export function typeArguments(args) {
   // The clipboard's events at the target (spreadsheet F6): `copy`, `cut`, `paste <text…>`.
   if (['copy', 'cut'].includes(args[1]) && args.length === 2) return [args[0], {clipboard:args[1]}];
