@@ -1,8 +1,8 @@
 import { renderMarkup, reportPlace } from "./navigation.js"; export { animationClocks } from "./navigation.js"; // synced animations (LLP 1055.002, emit.rs `clocks`)
-import { conforms, eq } from "./shape.js"; import { pointer } from "./pointer.js";
+import { conforms, eq, equal } from "./shape.js"; import { pointer } from "./pointer.js";
 // The compiler installs this optional pass only when a plan can layer boxes.
 let Paint; export function usePaint(pass) { Paint = pass; }
-export { conforms, eq };
+export { conforms, eq, equal };
 import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head };
 // The JS target's runtime: fine-grained DOM signals for a plan compiled ahead by `exact-web-js`. Everything here is imported
 // by name, so an app's bundle carries only what its generated module uses.
@@ -85,7 +85,11 @@ function flush() {
 function untracked(f) { const l = Listener; Listener = null; try { return f(); } finally { Listener = l; } }
 
 /** A slot: a getter, `.n` its node; `t` its declared type (writes conform). */
-export function sig(v, t) { const n = node(null, v); n.t = t; const g = () => read(n); g.n = n; return g; }
+export function sig(v, t) {
+  // An initial value outside the slot's type: the runner refuses the boot, or a row's creation poisons (SlotType).
+  if (t && !conforms(v, t)) throw new Error(`a slot's initial value does not conform to its type: ${v}`);
+  const n = node(null, v); n.t = t; const g = () => read(n); g.n = n; return g;
+}
 const Settle = [];
 /** A derive: lazy, cached, equal results keep their object; settled at
  * every commit before the tree; its value conforms to its type. */
@@ -395,12 +399,13 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
     const forced = r.forced, reread = r.reread, rev = r.rev;
     r.forced = r.reread = r.rev = false;
     // A failure keeps the value for its arguments, asking nothing; `refresh` or new ones ask again (settlement.rs). `fail` follows.
-    if (r.failed && (forced || !eq(a, r.failed))) r.failed = null;
+    if (r.failed && (forced || !equal(a, r.failed))) r.failed = null;
     flag(fail, r.failed);
     if (r.failed) return r.value;
     if (!forced && !reread && !rev) {
-      if (r.settled !== undefined && eq(a, r.settled)) return r.value;
-      if (r.ticket && eq(a, r.ticket.args)) return r.value;
+      // Arguments compare as the runner's do (`equal`: `-0` is `0`, NaN asks again).
+      if (r.settled !== undefined && equal(a, r.settled)) return r.value;
+      if (r.ticket && equal(a, r.ticket.args)) return r.value;
     }
     let ans;
     try { ans = ask(source, a, name); }
@@ -418,7 +423,7 @@ export function res(name, source, args, initial, initialArgs, type, ph) {
     }
     // A declared refresh at a send re-reads: a request is discarded, and one in flight stays.
     if (reread) return r.value;
-    if (ans && ans.req && !forced && !rev && r.ticket?.req && !eq(a, r.ticket.args) && sameReq(ans.req, r.ticket.req)) {
+    if (ans && ans.req && !forced && !rev && r.ticket?.req && !equal(a, r.ticket.args) && sameReq(ans.req, r.ticket.req)) {
       say(`keep request ${r.ticket.id} (${name}): the same request for newer arguments`);
       r.ticket.args = a;
       return r.value;
@@ -1039,6 +1044,9 @@ export function each(p, list, key, row, pure) {
   let rows = new Map(), single = false, order = null;
   effect(() => {
     const items = list(), parent = b?.parentNode ?? p; // rows go where the end anchor is: at an arm's top, `p` is the fragment the arm was built in
+    // A key that reads more than its item and index (a slot) is read tracked: the rows re-key when that changes, as the
+    // runner's do. A pure one is read only where it is needed.
+    const keys = pure ? null : items.map((item, i) => key(() => item, () => i)), keyAt = i => keys ? keys[i] : key(() => items[i], () => i);
     untracked(() => {
       if (b) p = a.parentNode; // Conditional arms leave their build fragment.
       // Rows moving or leaving are adopted rows (a row waiting for its slice
@@ -1050,7 +1058,7 @@ export function each(p, list, key, row, pure) {
         for (; i < items.length; i++) {
           const item = items[i], r = order[i];
           if (r.item.n.v === item) continue;
-          const k = key(() => item, () => i);
+          const k = keyAt(i);
           if (typeof k + ":" + (Object.is(k, -0) ? 0 : k) !== r.k) break;
           writeItem(r.item.n, item);
         }
@@ -1059,7 +1067,9 @@ export function each(p, list, key, row, pure) {
       // A row's place in the last pass is its `at`; repeats count once a key repeats.
       const next = new Map(), seen = new Map();
       items.forEach((item, i) => {
-        let k = key(() => item, () => i);
+        let k = keyAt(i);
+        // A key is a string, a finite number or a bool, or the runner cannot build the rows (`key_text`, InstanceError::KeyKind): it poisons.
+        if (!(typeof k === "string" || typeof k === "boolean" || (typeof k === "number" && isFinite(k)))) throw new Error(`a row key that is not a string, finite number or bool: ${k}`);
         k = typeof k + ":" + (Object.is(k, -0) ? 0 : k);
         if (next.has(k)) { const n = seen.get(k) ?? 1; seen.set(k, n + 1); k = "d" + n + ":" + k; journal.push(`each: repeated key ${k}`); }
         let r = rows.get(k);
@@ -1230,7 +1240,7 @@ export function mount(f) {
   const early = globalThis.exact?.taps?.() ?? [];
   const shown = early.filter(t => t.type !== "click").map(t => [t.target, t.target.value, t.target.checked]);
   AdoptBy = performance.now() + ADOPT_MS;
-  Booting = true; commit(() => { scope(() => f(root)); built = true; }, adopting ? "adopt" : "boot");
+  Booting = true; let booted = commit(() => { scope(() => f(root)); built = true; }, adopting ? "adopt" : "boot");
   Adopt = false; AdoptBy = Infinity;
   if (!built) { Lazy.length = LazyAt = 0; LazyRows.clear(); }
   const adopted = adopting && built;
@@ -1238,9 +1248,11 @@ export function mount(f) {
     // The document isn't this plan's projection: build afresh (and say so).
     say(`adoption abandoned: ${journal.at(-1)}`);
     root.textContent = "";
-    commit(() => { scope(() => f(root)); built = true; }, "boot");
+    booted = commit(() => { scope(() => f(root)); built = true; }, "boot");
   }
-  Booting = false; if (!built) throw new Error("boot refused: " + journal.at(-1));
+  // A boot whose settlement refused (a derive outside its type) is refused whole, as the runner's
+  // `Runner::boot` fails: nothing is shown.
+  Booting = false; if (!built || booted === false) { root.textContent = ""; throw new Error("boot refused: " + journal.at(-1)); }
   say(`boot: ${root.getElementsByTagName("*").length} nodes, epoch ${clock.epoch}`); // the runner's journal line (LLP 1012 logs)
   if (adopted) say("adopted the document");
   // The document's autofocus (LLP 1035.000 D9): once, at boot, the first
@@ -1280,10 +1292,14 @@ const value_ = v => v === null || typeof v !== "object" ? v : Array.isArray(v) ?
 /** A native module's props (LLP 1024 D1): key/value pairs to one JSON
  * object of strings, a none left out (`stdlib::native_props`). */
 export const NP = p => { const o = {}; for (let i = 0; i < p.length; i += 2) if (p[i + 1] != null) o[p[i]] = String(p[i + 1]); return JSON.stringify(o); };
-export const x_now = () => { NowRead = true; return read(Now); };
+// Outside a commit and the tree update (a handler's curried argument, evaluated as the event arrives) it is the
+// clock now, as the runner evaluates the arguments at dispatch: an advance that fired nothing committed no new time.
+export const x_now = () => { NowRead = true; if (!Writes && !Flushing) stamp(); return read(Now); };
 export const x_length = v => v.length;
 export const x_isEmpty = v => v.length === 0;
-export const x_floor = Math.floor, x_max = Math.max, x_min = Math.min;
+export const x_floor = Math.floor;
+// `f64::max`/`min` (runner/src/stdlib.rs): a NaN operand gives the other one.
+export const x_max = (a, b) => a !== a ? b : b !== b ? a : Math.max(a, b), x_min = (a, b) => a !== a ? b : b !== b ? a : Math.min(a, b);
 // Numbers print as JavaScript prints them (`push_number`), `-0` as `0`.
 export const x_toString = v => String(v);
 export const x_includes = (a, b) => a.includes(b), x_startsWith = (a, b) => a.startsWith(b), x_endsWith = (a, b) => a.endsWith(b);

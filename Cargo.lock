@@ -657,6 +657,7 @@ dependencies = [
  "exact-kernel",
  "exact-plan",
  "exact-runner",
+ "serde_json",
 ]
 
 [[package]]

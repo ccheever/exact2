@@ -347,7 +347,7 @@ impl Translator<'_> {
                     if primitive(&a) || primitive(&b) {
                         self.push(format!("({a}{}{b})", if not { "!==" } else { "===" }))
                     } else {
-                        let eq = self.uses.rt("eq");
+                        let eq = self.uses.rt("equal");
                         self.push(format!("{}{eq}({a},{b})", if not { "!" } else { "" }))
                     }
                 }

@@ -24,3 +24,4 @@ contract-types = { path = "../../contract/types" }
 exact-kernel = { path = "../../kernel" }
 exact-plan = { path = "../../plan" }
 exact-runner = { path = "../../runner" }
+serde_json = "1.0"

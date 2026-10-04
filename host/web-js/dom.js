@@ -12,6 +12,9 @@ class Node {
   get parentElement() { return this.parentNode?.nodeType === 1 ? this.parentNode : null; }
   get firstChild() { return this.childNodes[0] ?? null; }
   get nextSibling() { const s = this.parentNode?.childNodes; return s ? s[s.indexOf(this) + 1] ?? null : null; }
+  // rt.js `each` empties a region that is all its parent holds by these: without them every sibling went too.
+  get previousSibling() { const s = this.parentNode?.childNodes; return s ? s[s.indexOf(this) - 1] ?? null : null; }
+  get lastChild() { return this.childNodes.at(-1) ?? null; }
   get isConnected() { let n = this; while (n.parentNode) n = n.parentNode; return n.nodeType === 9; }
   append(...nodes) { for (const n of nodes) this.insertBefore(typeof n === 'string' ? new Text(n) : n, null); }
   // The nodes as one fragment, then before the first child (rt.js `each`'s row fragments).
