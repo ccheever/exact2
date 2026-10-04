@@ -151,7 +151,7 @@ export function install(exact) {
   // A synced animation starts on its clock's boundary (LLP 1055.002).
   const starts = new WeakMap(), held = new WeakSet(), clocks = animationClocks(document);
   const anim = {
-    register(t) { for (const a of document.getAnimations()) if (!starts.has(a)) { starts.set(a, clocks.start(a, t) ?? t); if (a.playState === 'paused') held.add(a); } },
+    register(t) { clocks.commit(); for (const a of document.getAnimations()) if (!starts.has(a)) { starts.set(a, clocks.start(a, t) ?? t); if (a.playState === 'paused') held.add(a); } },
     seek(to, sync = true) {
       for (const a of document.getAnimations()) {
         const timing = a.effect?.getComputedTiming();

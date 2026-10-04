@@ -27,6 +27,7 @@ const page = `<style>@keyframes pulse { from { opacity: 0.4 } to { opacity: 1 } 
     clocks.sync();
   };
   window.sync = () => clocks.sync();
+  window.syncAt = t => clocks.sync(t);
   window.anim = id => document.getElementById(id).getAnimations()[0];
   window.ready = true;
 </script>`;
@@ -101,11 +102,45 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
     const [mover, after] = await evaluate(`[anim('mover').startTime, anim('after').startTime]`);
     expect(Math.abs((after - mover) % 1600)).toBeLessThan(1);
 
+    // A finished one moved to another clock stays finished.
+    await evaluate(`add('done', 'pulse 100ms 1 forwards', 'Done')`);
+    await Bun.sleep(300);
+    await evaluate(`document.getElementById('done').style.setProperty('--exact-animation-clock', 'Elsewhere'); sync()`);
+    expect(await evaluate(`anim('done').playState`)).toBe('finished');
+
+    // Two commits at one time: the second still lets go of a member the
+    // first kept, so a replacement on an idle clock starts now.
+    await evaluate(`add('gone', 'pulse 800ms infinite alternate', 'Same')`);
+    await Bun.sleep(300);
+    const [t, fresh] = await evaluate(`(() => {
+      const t = document.timeline.currentTime;
+      syncAt(t);
+      document.getElementById('gone').remove();
+      const el = document.createElement('div');
+      el.id = 'fresh';
+      el.style.cssText = 'animation:pulse 800ms 1 alternate;--exact-animation-clock:Same;';
+      document.getElementById('exact-root').append(el);
+      syncAt(t);
+      return [t, anim('fresh').startTime];
+    })()`);
+    expect(Math.abs(fresh - t)).toBeLessThan(1);
+
     // A finite one joining late ends on a cycle boundary of the clock.
     await evaluate(`add('three', 'pulse 800ms 3 alternate')`);
     const ends = await evaluate(`(() => { const a = anim('three'), l = anim('lock'); return [(a.startTime - l.startTime) % 1600, a.effect.getComputedTiming().endTime]; })()`);
     expect(Math.abs(ends[0])).toBeLessThan(1);
     expect(ends[1]).toBeCloseTo(2400, 6);
+
+    // The page's last clock taken away and given back: it joins again.
+    await evaluate(`document.getElementById('exact-root').replaceChildren(); add('back', 'pulse 800ms infinite alternate', 'Back')`);
+    await Bun.sleep(200);
+    await evaluate(`document.getElementById('back').style.removeProperty('--exact-animation-clock'); sync()`);
+    await Bun.sleep(200);
+    await evaluate(`document.getElementById('back').style.setProperty('--exact-animation-clock', 'Back'); sync()`);
+    await Bun.sleep(200);
+    await evaluate(`add('back2', 'pulse 800ms infinite alternate', 'Back')`);
+    const [back, back2] = await evaluate(`[anim('back').startTime, anim('back2').startTime]`);
+    expect(Math.abs((back2 - back) % 1600)).toBeLessThan(1);
   } finally {
     child.kill();
     server.close();

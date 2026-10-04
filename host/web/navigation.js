@@ -342,6 +342,7 @@ export function animationClock(now, settled, synced) {
   const starts = new WeakMap(), held = new WeakSet(), clocks = animationClocks(document);
   return {
     register(t) {
+      clocks.commit();
       for (const a of document.getAnimations()) if (!starts.has(a)) { starts.set(a, clocks.start(a, t) ?? t); if (a.playState === 'paused') held.add(a); }
     },
     seek(to) {
@@ -379,21 +380,16 @@ export function animationClock(now, settled, synced) {
 // `startTime` once on the page's timeline. Nothing runs per frame.
 export function animationClocks(root) {
   const origins = new Map(), members = new Map(), paused = new WeakMap(), clocked = new WeakMap();
-  let pruned = null;
   const clockOf = a => a.animationName === undefined ? '' : a.effect?.target?.style?.getPropertyValue('--exact-animation-clock').trim() ?? '';
   const live = a => a.effect?.target?.isConnected && a.playState !== 'idle' && a.playState !== 'finished';
-  // A member whose node left, whose play ended, or that moved to another
-  // clock is let go: it holds no clock busy, and a removed screen's targets
-  // are not kept for the page's lifetime.
-  // Once per commit time, under the agent's clock too (its `register`
-  // calls `start` alone).
-  const prune = now => {
-    if (now === pruned) return;
-    pruned = now;
+  // Each commit (`sync`, or the agent's `register`) first lets go of every
+  // member whose node left, whose play ended, or that moved to another
+  // clock: it holds no clock busy, and a removed screen's targets are not
+  // kept for the page's lifetime.
+  const commit = () => {
     for (const [c, m] of members) { for (const b of m) if (!live(b) || clockOf(b) !== c) m.delete(b); if (!m.size) members.delete(c); }
   };
   function start(a, now) {
-    prune(now);
     const c = clockOf(a);
     if (!c) return null;
     let m = members.get(c);
@@ -410,17 +406,23 @@ export function animationClocks(root) {
   }
   return {
     start,
+    commit,
     sync(now = document.timeline.currentTime) {
-      prune(now);
+      commit();
       if (!root.querySelector('[style*="--exact-animation-clock"]')) return;
       for (const a of document.getAnimations()) {
         const is = a.playState === 'paused', was = paused.get(a), c = clockOf(a), had = clocked.get(a) ?? '';
-        if (was === is && c === had) continue;
+        // On a clock and not its member: new, moved onto it, or let go
+        // while it was off one (its name taken away and given back).
+        const member = !c || members.get(c)?.has(a);
+        if (was === is && c === had && member) continue;
         paused.set(a, is); clocked.set(a, c);
+        // An ended play stays ended: a clock does not restart it.
+        if (a.playState === 'finished' || a.playState === 'idle') continue;
         // A pause keeps its membership: paused, it still holds the clock
-        // busy. A new one, or one moved onto a clock, joins (paused,
-        // without a start, which would unpause it); a resume rejoins.
-        if (is && was !== undefined && c === had) continue;
+        // busy. A new one joins (paused, without a start, which would
+        // unpause it); a resume rejoins.
+        if (is && was !== undefined && c === had && member) continue;
         const s = start(a, now);
         if (s !== null && !is) a.startTime = s;
       }
