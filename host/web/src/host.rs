@@ -982,16 +982,16 @@ impl<D: DataSource> Host<D> {
         }
         // Earlier receipts also read the final tree, whose children can be
         // created by a later receipt in this seek. Attach only after all creates.
-        for t in receipts {
-            for key in t.receipt.created.iter().chain(t.receipt.touched.iter()) {
-                if let Some(node) = self.runner.kernel().node_by_key(*key) {
-                    let (id, parent) = (node.id, node.parent);
-                    self.emit_children(id, batch);
-                    for box_ in std::iter::once(id).chain(parent) {
-                        self.refold(box_, batch);
-                    }
-                }
-            }
+        let mut refold = std::collections::BTreeSet::new();
+        for id in changed {
+            let parent = self.runner.kernel().node(id).and_then(|n| n.parent);
+            self.emit_children(id, batch);
+            refold.extend(std::iter::once(id).chain(parent));
+        }
+        // One parent visit per batch: a theme flip touches every text row,
+        // but their shared parent's fold needs to be decided only once.
+        for id in refold {
+            self.refold(id, batch);
         }
         let roots = self.page_roots();
         if roots != self.roots {
