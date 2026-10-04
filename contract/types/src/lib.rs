@@ -1316,13 +1316,12 @@ fn check_children(file: &File, types: &mut Types, sink: &mut Sink) {
                 .unwrap_or(c.span);
             sink.push(TypeError {
                 id: "type-child-resource",
+                // The rule and the root lead (chess #3): a root written
+                // below its helpers reads as the child.
                 message: format!(
-                    "component `{}` is a child (the root is the root file's first component, `{}`): a resource, mutation, or task lives in the root, and a child may own state, derives, and actions. Move this declaration into `{}` and pass what `{}` needs as props; or, if `{}` is the app, move it above the other components",
-                    c.name,
-                    file.components[0].name,
-                    file.components[0].name,
-                    c.name,
-                    c.name
+                    "only the root, the root file's first component (`{root}`), may declare a `resource`, `mutation`, or `task`; `{child}` is a child, which may own state, derives, and actions. Move this declaration into `{root}` and pass what `{child}` needs as props; or, if `{child}` is the app, move it above `{root}`",
+                    root = file.components[0].name,
+                    child = c.name,
                 ),
                 span,
             });
