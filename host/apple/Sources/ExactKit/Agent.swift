@@ -398,7 +398,14 @@ public final class Agent {
     }
 
     func clock(_ req: [String: Any]) -> [String: Any] {
-        let from = session.clock ?? 0
+        // @ref LLP 1080.000 §12 — platform timing, before any `clock`: the
+        // host has run on the wall's time (motion and holds included) while
+        // the runner's clock stood at 0, where the driver's numbers start.
+        // The first seek starts at the wall, never behind it (a hold begun
+        // behind the motion engine's time is refused, ClockWentBackwards),
+        // and a target keeps its distance from the runner's 0.
+        let shift = session.clock == nil && !ExactEnv.agentFreezes ? session.now() : 0
+        let from = session.clock ?? shift
         let settle = req["settle"] as? Bool == true
         // A request in flight (LLP 1016) is waited for first: its reply
         // commits — and may start motion or ask for more — before the fixed
@@ -411,7 +418,7 @@ public final class Agent {
         // Settle ends motion: every leaf held mid-fling is made (LLP 1068 §5.1).
         if settle { presenter.leaves.settle() }
         waitForImages()
-        var target = req["to"] as? Double
+        var target = (req["to"] as? Double).map { $0 + shift }
         if settle { target = max(from, self.settle() ?? from) }
         guard var to = target, to.isFinite else { return ["error": "clock needs \"to\" (ms) or \"settle\": true"] }
         guard to >= from else { return ["error": "the clock cannot go backwards (\(from) → \(to))"] }
