@@ -5667,6 +5667,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "windows-desk"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "exact-kernel",
+ "exact-plan",
+ "exact-runner",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "windows-future"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
