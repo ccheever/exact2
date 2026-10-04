@@ -87,6 +87,22 @@ pub fn set_lead_scale(scale: f64) {
     );
 }
 
+/// The provisional extent (px along the axis) a list with no port yet
+/// realizes rows for: by default sixteen 32 px rows' worth; a host that knows
+/// its viewport sets it ([`set_bootstrap_extent`]).
+static BOOTSTRAP_EXTENT: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new((BOOTSTRAP_ROWS as f64 * ESTIMATED_HEIGHT).to_bits());
+
+/// How far a new list's first rows reach before its port is reported: a
+/// host passes its viewport's extent, so the rows that can show are built
+/// with the list instead of in a second commit after the first layout (at
+/// most sixteen rows; a list's `initial-item-count` still wins).
+pub fn set_bootstrap_extent(px: f64) {
+    if px.is_finite() && px > 0.0 {
+        BOOTSTRAP_EXTENT.store(px.to_bits(), std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// Candidates from one accepted geometry report. The second edge may run only
 /// after a pure no-op first action. State changes defer it until settlement.
 pub(crate) struct CollectionEdges {
@@ -360,11 +376,12 @@ impl Collection {
             region,
             index: SizeIndex::new(estimated_height).map_err(index_error)?,
             estimated_height,
-            // Keep the original provisional pixel budget, capped at sixteen
-            // rows, unless the list says how many (`initial-item-count`).
+            // The provisional extent ([`set_bootstrap_extent`]), capped at
+            // sixteen rows, unless the list says how many (`initial-item-count`).
             // Actual nested-scrollport feedback determines the real window.
             bootstrap_rows: initial.unwrap_or(
-                ((BOOTSTRAP_ROWS as f64 * ESTIMATED_HEIGHT / estimated_height)
+                ((f64::from_bits(BOOTSTRAP_EXTENT.load(std::sync::atomic::Ordering::Relaxed))
+                    / estimated_height)
                     .ceil()
                     .min(
                         port.filter(|_| in_collection_row(plan, frames))
@@ -1095,8 +1112,10 @@ impl Collection {
             .as_ref()
             .is_none_or(|g| g.cross != feedback.cross);
         // A new port size, width or pin retires every row that left and
-        // builds the whole window: only travel is sliced.
-        if self.geometry.as_ref().is_none_or(|g| {
+        // builds the whole window: only travel is sliced. A list's first
+        // report retires nothing, so a slice there builds what shows and
+        // leaves its lead pending (a tap's response frame, LLP 1072 §5).
+        if self.geometry.as_ref().is_some_and(|g| {
             (
                 g.port_cross,
                 g.port_main,
