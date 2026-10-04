@@ -9,9 +9,12 @@ import { fileURLToPath } from 'node:url';
 import { open } from './agent.mjs';
 import { resolveApp } from './app.mjs';
 
-/** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else its descendants' in order — the web's `textContent`, a button's label — else a field's value. `nodes` is a `tree` reply's, in preorder. */
+/** The text `expect text` reads (kanban F19, shop F15): the node's own `text`, else a control's value (a select's options
+ * are its choices, not its text; LLP 1087 wizard trials), else its descendants' in order — the web's `textContent`, a button's
+ * label — else a field's value. `nodes` is a `tree` reply's, in preorder. */
 export function textOf(nodes, node) {
   if (node.props.text != null) return node.props.text;
+  if (node.type === 'Control' && node.props.value != null) return node.props.value;
   const at = nodes.indexOf(node), runs = [];
   for (let i = at + 1; i < nodes.length && nodes[i].depth > node.depth; i++) if (nodes[i].props.text != null) runs.push(nodes[i].props.text);
   return runs.length ? runs.join('') : node.props.value;
