@@ -265,7 +265,10 @@ impl Gen<'_> {
                     }
                 }
             }
-            Ty::List(elem) => match self.rng.weighted(&[5, 3, if pinned { 1 } else { 0 }, 3]) {
+            Ty::List(elem) => match self
+                .rng
+                .weighted(&[5, 3, if pinned { 1 } else { 0 }, 3, 2, 2])
+            {
                 0 => {
                     let src_ty = self.held(env, false);
                     let src = self.expr(env, &Ty::list(src_ty.clone()), d, false);
@@ -280,9 +283,25 @@ impl Gen<'_> {
                     format!("filter({src}, {head} {body})")
                 }
                 2 => "[]".into(),
-                _ => self.literal(env, elem, pinned, |g, env, t, pinned| {
+                3 => self.literal(env, elem, pinned, |g, env, t, pinned| {
                     g.expr(env, t, d, pinned)
                 }),
+                // LLP 1088 §9.1: the first list says the type; the second
+                // may be `[]`.
+                4 => {
+                    let a = self.expr(env, t, d, pinned);
+                    let b = self.expr(env, t, d, true);
+                    format!("concat({a}, {b})")
+                }
+                _ => {
+                    let l = self.expr(env, t, d, pinned);
+                    let a = self.expr(env, &Ty::Num, d, false);
+                    if self.rng.chance(1, 3) {
+                        format!("slice({l}, {a})")
+                    } else {
+                        format!("slice({l}, {a}, {})", self.expr(env, &Ty::Num, d, false))
+                    }
+                }
             },
             Ty::Rec(i) => {
                 let shape = self.shapes[*i].clone();
@@ -430,6 +449,14 @@ impl Gen<'_> {
                 format!("({op}{})", self.expr(env, &Ty::Bool, d, false))
             }
             4 => format!("isEmpty({})", self.sized(env, d)),
+            // `includes` over a list of strings, numbers or bools, by
+            // SameValueZero (LLP 1088 §9.1), or over text.
+            _ if self.rng.chance(1, 3) => {
+                let t = self.scalar_ty();
+                let l = self.expr(env, &Ty::list(t.clone()), d, false);
+                let x = self.expr(env, &t, d, false);
+                format!("includes({l}, {x})")
+            }
             _ => {
                 let f = *self.rng.pick(&["includes", "startsWith", "endsWith"]);
                 let a = self.expr(env, &Ty::Str, d, false);

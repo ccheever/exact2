@@ -221,6 +221,50 @@ fn step(steps: &mut u32, n: usize, pc: usize) -> Result<(), Trap> {
     Ok(())
 }
 
+/// `concat`, and `slice` and `includes` over a list (LLP 1088 §9.1), on
+/// this evaluation's budget as `join` is: the list steps first — one per
+/// item `concat` and `slice` keep, one per item `includes` scans up to the
+/// match — then a list they build measured as `Opcode::List` measures one
+/// (LLP 1090 D3). `None` for `slice` and `includes` over text.
+fn list_call(
+    f: Stdlib,
+    args: &[Value],
+    steps: &mut u32,
+    extents: &mut Extents,
+    pc: usize,
+) -> Result<Option<Value>, Trap> {
+    let mismatch = Trap::TypeMismatch {
+        pc,
+        op: Opcode::Call,
+    };
+    let items = match (f, args.first()) {
+        (Stdlib::Concat | Stdlib::Slice | Stdlib::Includes, Some(Value::List(items))) => items,
+        (Stdlib::Concat, _) => return Err(mismatch),
+        _ => return Ok(None),
+    };
+    let built = match (f, args.get(1), args.get(2)) {
+        (Stdlib::Concat, Some(Value::List(more)), _) => {
+            step(steps, items.len() + more.len(), pc)?;
+            crate::lists::concat(items, more)
+        }
+        (Stdlib::Slice, Some(Value::Number(a)), Some(Value::Number(b))) => {
+            let kept = crate::lists::slice(items, *a, *b);
+            step(steps, kept.len(), pc)?;
+            kept.to_vec()
+        }
+        (Stdlib::Includes, Some(x), _) => {
+            let at = crate::lists::position(items, x);
+            step(steps, at.map_or(items.len(), |i| i + 1), pc)?;
+            return Ok(Some(Value::Bool(at.is_some())));
+        }
+        _ => return Err(mismatch),
+    };
+    let e = extents.built(&built, pc)?;
+    let v = Value::list(built);
+    extents.remember(&v, e);
+    Ok(Some(v))
+}
+
 impl Callback {
     /// Bind item `self.next` and its index, counting the run.
     fn begin(&mut self, locals: &mut Vec<Value>, steps: &mut u32) -> Result<(), Trap> {
@@ -798,6 +842,8 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
                         Err(stdlib::JoinError::Type) => return Err(Trap::TypeMismatch { pc, op }),
                         Err(stdlib::JoinError::TooLong) => return Err(Trap::StringTooLong { pc }),
                     }
+                } else if let Some(v) = list_call(f, call_args, &mut steps, &mut extents, pc)? {
+                    v
                 } else {
                     stdlib::call(
                         f,

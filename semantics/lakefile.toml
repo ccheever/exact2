@@ -6,6 +6,11 @@ defaultTargets = ["Contract", "Apps"]
 [[lean_lib]]
 name = "Contract"
 precompileModules = true
+# `stdlib`'s equations (`Contract.Eval`) are realized where a proof first
+# unfolds it, under the command line's options — a `set_option` does not
+# reach them — and its match on the roster's names outgrew the default
+# budget when `concat` joined it (LLP 1088 §9.1).
+leanOptions = { maxHeartbeats = 400000 }
 
 # Real apps' embeddings (`contract lean`, kept current by `difftest apps`)
 # and the invariants proved of them.

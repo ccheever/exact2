@@ -59,6 +59,22 @@ def fieldIndex (env : Env) (s field : String) : Option Nat :=
 
 end Env
 
+/-- `includes`: text in text, or by SameValueZero a string, number or bool
+in a list (LLP 1088 §9.1), as JavaScript's `includes` of each. -/
+def includesOf : Value → Value → Result Value
+  | .str a, .str b => .ok (.bool (Str.includes a b))
+  | .list xs, x => .ok (.bool (xs.any (Value.sameValueZero · x)))
+  | _, _ => .error (.type "`includes` of arguments it does not take")
+
+/-- `slice`: text's code units (LLP 1088 D2), or a list's items (§9.1),
+each index clamped as JavaScript's `slice` clamps it. -/
+def sliceOf : Value → F64 → F64 → Result Value
+  | .str s, a, b => .ok (.str (Str.slice s a b))
+  | .list xs, a, b =>
+    let f := Str.clampIndex a xs.length
+    .ok (.list ((xs.drop f).take (Str.clampIndex b xs.length - f)))
+  | _, _, _ => .error (.type "`slice` of arguments it does not take")
+
 /-- A roster entry applied to evaluated arguments. `map` and `filter` are
 not here: their callback is evaluated by `eval`. -/
 def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
@@ -80,7 +96,7 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
     if 0 ≤ j && j < len then
       .ok (match xs[j.toNat]? with | .some v => .some v | .none => .none)
     else .ok .none
-  | "includes", [.str a, .str b] => .ok (.bool (Str.includes a b))
+  | "includes", [a, b] => includesOf a b
   | "startsWith", [.str a, .str b] => .ok (.bool (Str.startsWith a b))
   | "endsWith", [.str a, .str b] => .ok (.bool (Str.endsWith a b))
   | "trim", [.str s] => .ok (.str (Str.trim s))
@@ -118,11 +134,13 @@ def stdlib (env : Env) (f : String) (args : List Value) : Result Value :=
       .ok (.str (sep.intercalate parts))
   -- LLP 1088 D2: over UTF-16 code units, well formed. `toLowerCase` is
   -- left out, as the formats are.
-  | "slice", [.str s, .num a, .num b] => .ok (.str (Str.slice s a b))
+  | "slice", [v, .num a, .num b] => sliceOf v a b
   | "replaceAll", [.str s, .str find, .str w] => .ok (.str (Str.replaceAll s find w))
+  -- LLP 1088 §9.1: JavaScript's `Array.prototype.concat`.
+  | "concat", [.list xs, .list ys] => .ok (.list (xs ++ ys))
   | "length", _ | "isEmpty", _ | "floor", _ | "max", _ | "min", _ | "first", _ | "at", _
   | "includes", _ | "startsWith", _ | "endsWith", _ | "trim", _ | "join", _
-  | "encodeURIComponent", _ | "slice", _ | "replaceAll", _ =>
+  | "encodeURIComponent", _ | "slice", _ | "replaceAll", _ | "concat", _ =>
     .error (.type s!"`{f}` of arguments it does not take")
   | f, _ => .error (.unsupported s!"roster entry `{f}`")
 

@@ -125,7 +125,7 @@ def rosterTy (name : String) (ts : List Ty) : Option Ty :=
     match ts with | [.number, .number] => .some .number | _ => .none
   else if name = "first" then match ts with | [.list a] => .some (.option a) | _ => .none
   else if name = "at" then match ts with | [.list a, .number] => .some (.option a) | _ => .none
-  else if name = "includes" ∨ name = "startsWith" ∨ name = "endsWith" then
+  else if name = "startsWith" ∨ name = "endsWith" then
     match ts with | [.string, .string] => .some .bool | _ => .none
   else if name = "trim" ∨ name = "encodeURIComponent" then
     match ts with | [.string] => .some .string | _ => .none
@@ -135,9 +135,22 @@ def rosterTy (name : String) (ts : List Ty) : Option Ty :=
       if (a.displayable || decide (a = .unknown)) && s.le .string then .some .string else .none
     | _ => .none
   else if name = "slice" then
-    match ts with | [.string, .number, .number] => .some .string | _ => .none
+    match ts with
+    | [.string, .number, .number] => .some .string
+    | [.list a, .number, .number] => .some (.list a)
+    | _ => .none
   else if name = "replaceAll" then
     match ts with | [.string, .string, .string] => .some .string | _ => .none
+  /- LLP 1088 §9.1: `includes` finds text in text or, by SameValueZero, a
+  string, number or bool in a list; `concat` joins two lists of one item
+  type. -/
+  else if name = "includes" then
+    match ts with
+    | [.string, .string] => .some .bool
+    | [.list a, x] => match Ty.unify a x with | .some u => if u.displayable then .some .bool else .none | .none => .none
+    | _ => .none
+  else if name = "concat" then
+    match ts with | [.list a, .list b] => (Ty.unify a b).map .list | _ => .none
   else routerTy name ts
 
 /-- A binary operator's result on operands of these types (`infer`'s

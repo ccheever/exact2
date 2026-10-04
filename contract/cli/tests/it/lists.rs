@@ -427,7 +427,7 @@ fn the_webs_list_idioms_are_refused_with_their_fix() {
         "compute it in the data source",
     );
     for f in [
-        // `slice` and `concat` name LLP 1088 §9's follow-up (`diagnostics.rs`).
+        // `push` names `concat` (`diagnostics.rs`).
         "reduce", "find", "every", "sort", "flatMap",
     ] {
         refused(
@@ -679,9 +679,11 @@ fn shown<D: DataSource>(r: &Runner<D>, id: &str) -> String {
 }
 
 /// LLP 1088 §9.1: `[a, b]` is a list of its items, written across lines
-/// with a trailing comma, its items' types met as a ternary's arms are.
+/// with a trailing comma, its items' types met as a ternary's arms are; a
+/// selection and a set of collapsed ids are kept with `concat`, `slice` and
+/// `includes`, the web's array methods.
 #[test]
-fn a_list_literal_is_its_items() {
+fn a_list_the_screen_keeps_is_built_in_contract() {
     let plan = contract::bake(
         contract::compile(&corpus("list-construction.contract")).unwrap(),
         Rows,
@@ -698,9 +700,145 @@ fn a_list_literal_is_its_items() {
     assert_eq!(shown(&r, "tabs"), "inbox,sent");
     assert_eq!(shown(&r, "scores"), "2");
     assert_eq!(shown(&r, "lengths"), "2,0,2");
+    assert_eq!(
+        shown(&r, "shown"),
+        "a",
+        "`slice(rows, 0, -1)` drops the last"
+    );
     r.act("pick", vec![Value::str("b")]).unwrap();
-    assert_eq!(shown(&r, "picked"), "b");
-    assert_eq!(shown(&r, "lengths"), "2,1,2");
+    r.act("pick", vec![Value::str("a")]).unwrap();
+    assert_eq!(shown(&r, "picked"), "b,a");
+    assert_eq!(shown(&r, "lengths"), "2,2,2");
+    for id in ["a", "b", "a"] {
+        r.act("toggle", vec![Value::str(id)]).unwrap();
+    }
+    assert_eq!(shown(&r, "collapsed"), "b");
     r.act("clear", vec![]).unwrap();
     assert_eq!(shown(&r, "picked"), "");
+}
+
+/// What each takes, refused where the web would answer something else:
+/// `concat` joins two lists of one type, `includes` finds a string, number
+/// or bool in a list (the web compares an object by identity), and `slice`
+/// takes text or a list.
+#[test]
+fn concat_slice_and_includes_are_typed() {
+    let refused = |expr: &str, id: &str, says: &str| {
+        let src = format!(
+            "shape R\n  id: string\ncomponent A\n  resource rs = rs() as shape list<R>\n  state xs = [1, 2]\n  state ws = [\"a\"]\n  view\n    text toString({expr})\n"
+        );
+        let e = contract::compile(&src).unwrap_err();
+        assert_eq!(e.id, id, "{expr}: {e}");
+        assert!(e.message.contains(says), "{expr}: {e}");
+    };
+    refused(
+        "length(concat(xs, ws))",
+        "type-argument",
+        "`concat` joins two lists of one item type, given `list<number>` and `list<string>`",
+    );
+    refused(
+        "length(concat(\"a\", \"b\"))",
+        "type-argument",
+        "text joins with `+` or a template",
+    );
+    refused(
+        "length(concat(xs, 1))",
+        "type-argument",
+        "expects `list<number>`",
+    );
+    refused(
+        "includes(rs, first(rs))",
+        "type-argument",
+        "argument 2 of `includes` expects `R`, given `option<R>`",
+    );
+    refused(
+        "includes(map(rs, r => r), at(rs, 0))",
+        "type-argument",
+        "expects `R`",
+    );
+    refused(
+        "includes(xs, \"1\")",
+        "type-argument",
+        "expects `number`, given `string`",
+    );
+    refused(
+        "includes(\"ab\", 1)",
+        "type-argument",
+        "expects `string`, given `number`",
+    );
+    refused(
+        "length(slice(1, 2))",
+        "type-argument",
+        "expects `string | list`",
+    );
+    refused(
+        "length(slice(xs, \"1\"))",
+        "type-argument",
+        "expects `number`",
+    );
+    refused("length(concat(xs))", "type-arity", "`concat(list, list)`");
+    let e = contract::compile(
+        "shape R\n  id: string\ncomponent A\n  resource rs = rs() as shape list<R>\n  view\n    text toString(includes(rs, R(id=\"a\")))\n",
+    )
+    .unwrap_err();
+    assert!(
+        e.message
+            .contains("`includes` finds a string, number or bool in a list, given `R`"),
+        "{e}"
+    );
+    contract::compile("component A\n  state xs = [1, 2]\n  view\n    text toString(includes(concat(xs, []), 0 / 0))\n").unwrap();
+}
+
+/// `n` rows from `rows(n)`, and a string of `n` bytes from `long(n)`.
+struct Many;
+
+impl DataSource for Many {
+    fn query(&mut self, source: &str, args: &[Value]) -> Result<Value, DataError> {
+        let n = args.first().and_then(Value::as_number).unwrap_or(0.0) as usize;
+        match source {
+            "rows" => Ok(Value::list(
+                (0..n)
+                    .map(|i| Value::record(vec![Value::str(&i.to_string()), Value::str("t")]))
+                    .collect(),
+            )),
+            "long" => Ok(Value::str(&"a".repeat(n))),
+            _ => Err(DataError::UnknownSource(source.into())),
+        }
+    }
+}
+
+/// LLP 1088 §9.1 in LLP 1090 D3's terms: `concat` and `slice` take a list
+/// step for each item they keep, before they build, and `includes` one for
+/// each item it scans up to the match, on the evaluation's one budget; a
+/// list they build is bounded as `List` is (conformance runs the same on the
+/// JS target, `host/web-js/conformance/budget.contract`).
+#[test]
+fn concat_slice_and_includes_take_list_steps_and_build_bounded_lists() {
+    let src = "shape Row\n  id: string\n  title: string\ncomponent A\n  state n = 0\n  state c = 0\n  resource rs = rows(n) as shape list<Row>\n  resource s = long(c) as shape string\n  derive both = length(concat(rs, rs))\n  derive kept = length(slice(rs, 1))\n  derive found = includes(map(rs, r => r.id), \"none\")\n  derive big = c > 0 ? length(concat(map(rs, r => s), map(rs, r => s))) : 0\n  action go(k: number, b: number)\n    n = k\n    c = b\n  view\n    text `${both} ${kept} ${found} ${big}` testId=\"t\"\n";
+    let mut r = Runner::boot(
+        contract::compile(src).unwrap(),
+        Many,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    // 32,768 rows: `concat` keeps 65,536 items, at the bound; `includes`
+    // scans them after `map`'s 32,768 steps, 65,536 in all.
+    r.act("go", vec![Value::Number(32768.0), Value::Number(0.0)])
+        .unwrap();
+    assert_eq!(shown(&r, "t"), "65536 32767 false 0");
+    let trap = |e: &RunnerError| format!("{e:?}");
+    let e = r
+        .act("go", vec![Value::Number(32769.0), Value::Number(0.0)])
+        .unwrap_err();
+    assert!(trap(&e).contains("IterationLimit"), "{e:?}");
+    // 1,024 strings of 32 KiB twice: 64 MiB of bytes is the bound; one
+    // byte a string more is past it, a `ValueTooLarge` at the `concat`.
+    r.act("go", vec![Value::Number(1024.0), Value::Number(32768.0)])
+        .unwrap();
+    let e = r
+        .act("go", vec![Value::Number(1024.0), Value::Number(32769.0)])
+        .unwrap_err();
+    assert!(trap(&e).contains("ValueTooLarge"), "{e:?}");
 }

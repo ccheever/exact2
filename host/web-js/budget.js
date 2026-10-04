@@ -83,6 +83,32 @@ export function K(a, pc) {
   return a;
 }
 
+// ---------------------------------------------------------------- lists (LLP 1088 §9.1)
+// `concat`, and `slice` and `includes` over a list, on the caller's budget as `join` is: each takes the caller's `$s`
+// and traps where the sum passes the bound, before it builds (`vm.rs`, `list_call`), leaving its own steps in `ST`,
+// which the caller adds to its `$s` (code.rs); a list it builds is `K`'s. Over text, `slice` and `includes` take no step.
+/** The list steps the last of them took. */
+export let ST = 0;
+const step = (s, n, pc) => { ST = n; if (s + n > 65536) throw new Trap("IterationLimit", pc); };
+/** `concat(xs, ys)`: one step an item. */
+export function x_concat(a, b, s, pc) { step(s, a.length + b.length, pc); return K(a.concat(b), pc); }
+/** `slice(v, start, end?)`: the compiler writes an omitted `end` as `Number.MAX_VALUE`, which clamps as `undefined`
+ * does; text's result is made well formed once (LLP 1088 D2); a list's takes a step an item it keeps. */
+export function x_slice(v, a, b, s, pc) {
+  if (typeof v === "string") { ST = 0; return v.slice(a, b).toWellFormed(); }
+  const r = v.slice(a, b);
+  step(s, r.length, pc);
+  return K(r, pc);
+}
+/** `includes(v, x)`: a substring of text, or a list's item by SameValueZero (NaN is NaN), a step an item scanned. */
+export function x_includes(v, x, s, pc) {
+  if (typeof v === "string") { ST = 0; return v.includes(x); }
+  let i = 0;
+  while (i < v.length && v[i] !== x && (x === x || v[i] === v[i])) i++;
+  step(s, i < v.length ? i + 1 : v.length, pc);
+  return i < v.length;
+}
+
 // ---------------------------------------------------------------- strings (`Opcode::Concat`, the roster's builders)
 /** `a + b` (`Opcode::Concat`). */
 export function cc(a, b, pc) { return str(a + b, pc); }

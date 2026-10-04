@@ -1415,24 +1415,13 @@ fn refusals_from_the_app_diaries_name_the_fix() {
         refused(&format!("component App\n  state s = \"a\"\n  state xs = []\n  action go\n    xs = {call}\n  view\n    text s\n"))
     };
     for (call, says) in [
-        (
-            "push(xs, s)",
-            "building a list in a view waits on LLP 1088 §9",
-        ),
-        (
-            "concat(xs, xs)",
-            "building a list in a view waits on LLP 1088 §9",
-        ),
-        (
-            "slice(xs, 1)",
-            "building a list in a view waits on LLP 1088 §9",
-        ),
+        ("push(xs, s)", "as in `xs = concat(xs, [x])`"),
         ("split(s, \",\")", "split the text there"),
         (
             "replace(s, \"a\", \"b\")",
             "write `replaceAll(s, find, with)`",
         ),
-        ("indexOf(s, \"a\")", "`includes(s, t)`"),
+        ("indexOf(s, \"a\")", "`includes(xs, x)` or `includes(s, t)`"),
         ("substring(s, 1)", "write `slice(s, start, end)`"),
         ("padStart(s, 2, \"0\")", "LLP 1088 D2 defers it"),
         ("toUpperCase(s)", "`text-transform=\"uppercase\"`"),

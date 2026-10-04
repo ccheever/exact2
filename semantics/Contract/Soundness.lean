@@ -461,13 +461,13 @@ theorem stdlib_good {env : Env} {p : Program} {name : String} {vs : List Value} 
     simp only [stdlib]
     split <;> exact hat _ _
   rw [ite_neg hn] at h
-  by_cases hn : name = "includes" ∨ name = "startsWith" ∨ name = "endsWith"
+  by_cases hn : name = "startsWith" ∨ name = "endsWith"
   · rw [ite_pos hn] at h
     split at h <;> simp at h; subst h
     obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv
     obtain ⟨w', ws', rfl, hw', hws'⟩ := hws.cons_inv; rw [hws'.nil_inv]
     obtain ⟨_, rfl⟩ := hw.str_inv; obtain ⟨_, rfl⟩ := hw'.str_inv
-    rcases hn with rfl | rfl | rfl <;> simp [stdlib, GoodR, ValTy]
+    rcases hn with rfl | rfl <;> simp [stdlib, GoodR, ValTy]
   rw [ite_neg hn] at h
   by_cases hn : name = "trim" ∨ name = "encodeURIComponent"
   · rw [ite_pos hn] at h
@@ -509,12 +509,17 @@ theorem stdlib_good {env : Env} {p : Program} {name : String} {vs : List Value} 
   rw [ite_neg hn] at h
   by_cases hn : name = "slice"
   · subst hn; rw [ite_pos rfl] at h
-    split at h <;> simp at h; subst h
-    obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv
-    obtain ⟨w', ws', rfl, hw', hws'⟩ := hws.cons_inv
-    obtain ⟨w'', ws'', rfl, hw'', hws''⟩ := hws'.cons_inv; rw [hws''.nil_inv]
-    obtain ⟨_, rfl⟩ := hw.str_inv; obtain ⟨_, rfl⟩ := hw'.num_inv; obtain ⟨_, rfl⟩ := hw''.num_inv
-    simp [stdlib, GoodR, ValTy]
+    split at h <;> simp at h <;> subst h
+    all_goals
+      obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv
+      obtain ⟨w', ws', rfl, hw', hws'⟩ := hws.cons_inv
+      obtain ⟨w'', ws'', rfl, hw'', hws''⟩ := hws'.cons_inv; rw [hws''.nil_inv]
+      obtain ⟨_, rfl⟩ := hw'.num_inv; obtain ⟨_, rfl⟩ := hw''.num_inv
+    · obtain ⟨_, rfl⟩ := hw.str_inv
+      simp [stdlib, sliceOf, GoodR, ValTy]
+    · obtain ⟨xs, rfl, hxs⟩ := hw.list_inv
+      simp only [stdlib, sliceOf, GoodR, ValTy]
+      exact ValTys.of_mem fun x hx => hxs.mem x (List.mem_of_mem_drop (List.mem_of_mem_take hx))
   rw [ite_neg hn] at h
   by_cases hn : name = "replaceAll"
   · subst hn; rw [ite_pos rfl] at h
@@ -524,6 +529,40 @@ theorem stdlib_good {env : Env} {p : Program} {name : String} {vs : List Value} 
     obtain ⟨w'', ws'', rfl, hw'', hws''⟩ := hws'.cons_inv; rw [hws''.nil_inv]
     obtain ⟨_, rfl⟩ := hw.str_inv; obtain ⟨_, rfl⟩ := hw'.str_inv; obtain ⟨_, rfl⟩ := hw''.str_inv
     simp [stdlib, GoodR, ValTy]
+  rw [ite_neg hn] at h
+  by_cases hn : name = "includes"
+  · subst hn; rw [ite_pos rfl] at h
+    split at h
+    · simp at h; subst h
+      obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv
+      obtain ⟨w', ws', rfl, hw', hws'⟩ := hws.cons_inv; rw [hws'.nil_inv]
+      obtain ⟨_, rfl⟩ := hw.str_inv; obtain ⟨_, rfl⟩ := hw'.str_inv
+      simp [stdlib, includesOf, GoodR, ValTy]
+    · split at h
+      · split at h <;> simp at h; subst h
+        obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv
+        obtain ⟨w', ws', rfl, hw', hws'⟩ := hws.cons_inv; rw [hws'.nil_inv]
+        obtain ⟨xs, rfl, _⟩ := hw.list_inv
+        simp [stdlib, includesOf, GoodR, ValTy]
+      · simp at h
+    · simp at h
+  rw [ite_neg hn] at h
+  by_cases hn : name = "concat"
+  · subst hn; rw [ite_pos rfl] at h
+    split at h
+    · next a b =>
+      simp only [Option.map_eq_some_iff] at h
+      obtain ⟨u, hu, rfl⟩ := h
+      obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv
+      obtain ⟨w', ws', rfl, hw', hws'⟩ := hws.cons_inv; rw [hws'.nil_inv]
+      obtain ⟨xs, rfl, hxs⟩ := hw.list_inv; obtain ⟨ys, rfl, hys⟩ := hw'.list_inv
+      have hle := Ty.unify_le hu
+      simp only [stdlib, GoodR, ValTy]
+      exact ValTys.of_mem fun x hx => by
+        rcases List.mem_append.mp hx with hx | hx
+        · exact (hxs.mem x hx).mono hle.1
+        · exact (hys.mem x hx).mono hle.2
+    · simp at h
   rw [ite_neg hn] at h
   exact stdlib_router hp hrs hv h
 
@@ -835,6 +874,8 @@ theorem stdlib_notPending (env : Env) (f : String) (args : List Value) : NotPend
        | error e => simp [Functor.map, Except.map]; exact NotPending.err (display_notPending _ e h))
     | (intro e he; repeat' split at he
        all_goals (simp at he; done))
+    | (unfold includesOf; split <;> first | exact NotPending.ok _ | exact NotPending.err (by simp))
+    | (unfold sliceOf; split <;> first | exact NotPending.ok _ | exact NotPending.err (by simp))
     | (split <;> first | exact NotPending.ok _ | exact NotPending.err (by simp))
     | (split
        · exact NotPending.ok _

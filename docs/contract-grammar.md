@@ -393,10 +393,13 @@ Signatures are authored forms; localization's internal lowered signature differs
 | `max(a, b)` | Number |
 | `min(a, b)` | Number |
 | `includes(text, substring)` | Boolean, case-sensitive literal substring |
+| `includes(list<T>, item)` | Boolean; `T` a string, number or bool, compared by SameValueZero (`NaN` is found, `-0` is `0`) |
 | `startsWith(text, prefix)` | Boolean, case-sensitive |
 | `endsWith(text, suffix)` | Boolean, case-sensitive |
 | `trim(text)` | String, JavaScript whitespace/line-terminator trimming |
 | `slice(text, start, end?)` | String; JavaScript's `slice` over UTF-16 code units: fractions truncate, NaN is 0, a negative index counts from the end, an omitted `end` is the end; a cut surrogate half is U+FFFD |
+| `slice(list<T>, start, end?)` | `list<T>`; the items, the indices clamped as text's are |
+| `concat(list<T>, list<T>)` | `list<T>`; both lists' items in order (`[...xs, x]` is `concat(xs, [x])`) |
 | `replaceAll(text, find, with)` | String; every match of the string `find`, left to right; `$$`, `$&`, `` $` ``, `$'` in `with` (`$1` is literal); an empty `find` inserts at every code-unit boundary; no regular expressions |
 | `toLowerCase(text)` | String; Unicode's default lowercase, final sigma kept, no locale (the web core links the case tables by use) |
 | `first(list<T>)` | `option<T>` |
@@ -432,6 +435,12 @@ surrogate half is U+FFFD, since the native runners hold Unicode scalar values.
 A result past the runner's string bound (64 MiB of UTF-8) traps on every
 executor. `toUpperCase`, `padStart`, `split`, `indexOf` and number parsing are
 not in Contract; the refusals say what to write instead.
+
+`concat`, and `slice` and `includes` over a list, take list steps on the
+evaluation's budget as `map` and `join` do (LLP 1090): one for each item
+`concat` or `slice` keeps, taken before the list is built, and one for each
+item `includes` scans up to its match. A list they build is bounded as any
+built value is.
 
 Compiler intrinsics and special forms additionally include:
 

@@ -61,41 +61,24 @@ theorem at_ok {xs : List Value} {c : Prop} [Decidable c] {k : Nat} {v}
     · exact .inl rfl
   · simp at h; exact .inl h.symm
 
-set_option maxHeartbeats 1000000 in
-theorem stdlib_ty {env : Env} {sh f vs ts v} (h : stdlib env f vs = .ok v) (hts : VTys sh vs ts) :
-    VTy sh v (rosterTy f ts) := by
-  unfold stdlib at h
-  split at h <;> simp only [rosterTy] <;> (try simp at h) <;> (try subst h) <;> (try simp [VTy])
-  case h_6 =>
-    obtain ⟨s, rfl⟩ := map_str_ok h; simp [VTy]
-  case h_10 _ _ xs =>
-    rcases ts with _ | ⟨t0, ts⟩
-    · simp [VTys] at hts
-    · simp [VTys] at hts
-      cases t0 <;> simp [VTy.top']
-      have := hts.1
-      cases xs <;> simp_all [VTy, VTyAll]
-  case h_11 _ _ xs _ =>
-    rcases ts with _ | ⟨t0, ts⟩
-    · simp [VTys] at hts
-    · simp [VTys] at hts
-      cases t0 <;> simp [VTy.top']
-      rcases at_ok h with rfl | ⟨w, hw, rfl⟩
-      · simp [VTy]
-      · simp only [VTy]
-        exact VTyAll.get (by simpa [VTy] using hts.1) hw
-  case h_30 =>
-    split at h
-    · obtain rfl := Except.ok.inj h; simp [VTy]
-    · obtain ⟨s, rfl⟩ := bind_str_ok h; simp [VTy]
+theorem VTyAll.mem {sh t} : ∀ {xs : List Value}, VTyAll sh xs t → ∀ x ∈ xs, VTy sh x t
+  | [], _, _, hx => by simp at hx
+  | _ :: xs, h, x, hx => by
+    rcases List.mem_cons.mp hx with rfl | hx
+    · exact h.1
+    · exact VTyAll.mem (xs := xs) h.2 x hx
 
-theorem VTy.not_bot {sh} : ∀ {v}, ¬ VTy sh v .bot := by
-  intro v; cases v <;> simp [VTy]
+theorem VTyAll.of_mem {sh t} : ∀ {xs : List Value}, (∀ x ∈ xs, VTy sh x t) → VTyAll sh xs t
+  | [], _ => trivial
+  | _ :: xs, h => ⟨h _ (by simp), VTyAll.of_mem (xs := xs) fun x hx => h x (by simp [hx])⟩
 
 theorem VTyAll.append {sh t} : ∀ {xs ys : List Value}, VTyAll sh xs t → VTyAll sh ys t →
     VTyAll sh (xs ++ ys) t
   | [], _, _, h => h
   | _ :: xs, _, h₁, h₂ => ⟨h₁.1, VTyAll.append (xs := xs) h₁.2 h₂⟩
+
+theorem VTy.not_bot {sh} : ∀ {v}, ¬ VTy sh v .bot := by
+  intro v; cases v <;> simp [VTy]
 
 theorem VTys.get {sh v t} : ∀ {vs : List Value} {ts : List STy} {i : Nat}, VTys sh vs ts →
     vs[i]? = some v → ts[i]? = some t → VTy sh v t
@@ -228,6 +211,56 @@ theorem VTys.joinAll {sh} : ∀ {vs : List Value} {ts : List STy}, VTys sh vs ts
     rw [VTys.cons_iff] at h
     exact ⟨vty_join_left h.1, VTyAll.imp (fun hv => vty_join_right hv) (VTys.joinAll h.2)⟩
   | [], _ :: _, h | _ :: _, [], h => by simp [VTys] at h
+
+set_option maxHeartbeats 1000000 in
+theorem stdlib_ty {env : Env} {sh f vs ts v} (h : stdlib env f vs = .ok v) (hts : VTys sh vs ts) :
+    VTy sh v (rosterTy f ts) := by
+  unfold stdlib at h
+  split at h <;> simp only [rosterTy] <;> (try simp at h) <;> (try subst h) <;> (try simp [VTy])
+  case h_6 =>
+    obtain ⟨s, rfl⟩ := map_str_ok h; simp [VTy]
+  case h_10 _ _ xs =>
+    rcases ts with _ | ⟨t0, ts⟩
+    · simp [VTys] at hts
+    · simp [VTys] at hts
+      cases t0 <;> simp [VTy.top']
+      have := hts.1
+      cases xs <;> simp_all [VTy, VTyAll]
+  case h_11 _ _ xs _ =>
+    rcases ts with _ | ⟨t0, ts⟩
+    · simp [VTys] at hts
+    · simp [VTys] at hts
+      cases t0 <;> simp [VTy.top']
+      rcases at_ok h with rfl | ⟨w, hw, rfl⟩
+      · simp [VTy]
+      · simp only [VTy]
+        exact VTyAll.get (by simpa [VTy] using hts.1) hw
+  case h_30 =>
+    split at h
+    · obtain rfl := Except.ok.inj h; simp [VTy]
+    · obtain ⟨s, rfl⟩ := bind_str_ok h; simp [VTy]
+  case h_12 =>
+    unfold includesOf at h
+    split at h <;> simp at h <;> subst h <;> simp [VTy]
+  case h_31 _ _ w _ _ =>
+    rcases ts with _ | ⟨t0, ts⟩
+    · simp [VTys] at hts
+    · simp only [VTys] at hts
+      unfold sliceOf at h
+      split at h <;> simp at h <;> subst h
+      · cases t0 <;> simp_all [VTy]
+      · rename_i xs _ _
+        cases t0 <;> simp [VTy] at hts ⊢
+        exact VTyAll.of_mem fun x hx =>
+          hts.1.mem x (List.mem_of_mem_drop (List.mem_of_mem_take hx))
+  case h_33 _ _ xs ys =>
+    rcases ts with _ | ⟨t0, _ | ⟨t1, ts⟩⟩
+    · simp [VTys] at hts
+    · simp [VTys] at hts
+    · simp only [VTys] at hts
+      cases t0 <;> cases t1 <;> simp [VTy] at hts ⊢
+      exact VTyAll.append (VTyAll.imp (fun hv => vty_join_left hv) hts.1)
+        (VTyAll.imp (fun hv => vty_join_right hv) hts.2.1)
 
 /-! ## Strict operators -/
 

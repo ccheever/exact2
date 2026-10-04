@@ -106,7 +106,7 @@ impl Built {
 /// ECMA-262's ToIntegerOrInfinity, then a relative index clamped to
 /// `0..=len` as `slice` clamps it: NaN is 0, a fraction truncates toward
 /// zero, a negative index counts from the end.
-fn clamp(index: f64, len: usize) -> usize {
+pub(crate) fn clamp(index: f64, len: usize) -> usize {
     let len_f = len as f64;
     let i = if index.is_nan() { 0.0 } else { index.trunc() };
     if i < 0.0 {

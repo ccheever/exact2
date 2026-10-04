@@ -1074,9 +1074,9 @@
     },
     {
       "name": "includes",
-      "params": ["string", "string"],
+      "params": ["any", "any"],
       "returns": "bool",
-      "_comment": "The web's `String.prototype.includes(needle)`: a case-sensitive literal substring search; the empty needle matches. The web's optional position argument is not taken."
+      "_comment": "The web's `String.prototype.includes(needle)`: a case-sensitive literal substring search; the empty needle matches. @ref LLP 1088 §9.1: over a list of strings, numbers or bools, `Array.prototype.includes(item)` (SameValueZero: NaN is NaN, -0 is 0), one list step per item scanned up to the match. `any` is the type checker's. The web's optional position argument is not taken."
     },
     {
       "name": "trim",
@@ -1158,10 +1158,10 @@
     },
     {
       "name": "slice",
-      "params": ["string", "number", "number"],
+      "params": ["any", "number", "number"],
       "optional": ["Number.MAX_VALUE"],
-      "returns": "string",
-      "_comment": "@ref LLP 1088 D2: JavaScript's `String.prototype.slice(start, end?)` over UTF-16 code units (ToIntegerOrInfinity: NaN is 0, fractions truncate, a negative index counts from the end, both clamped); an omitted `end` is `Number.MAX_VALUE`, which clamps as `undefined` does (a plan's constants are finite, so not `Infinity`). The result is made well formed: a lone surrogate half becomes U+FFFD."
+      "returns": "any",
+      "_comment": "@ref LLP 1088 D2: JavaScript's `String.prototype.slice(start, end?)` over UTF-16 code units (ToIntegerOrInfinity: NaN is 0, fractions truncate, a negative index counts from the end, both clamped); an omitted `end` is `Number.MAX_VALUE`, which clamps as `undefined` does (a plan's constants are finite, so not `Infinity`). The result is made well formed: a lone surrogate half becomes U+FFFD. @ref LLP 1088 §9.1: over a list, `Array.prototype.slice(start, end?)` by the same clamp, one list step per item kept, the result's extent checked as a `List` is; `any` is `string` or `list<T>` in and the same out (the type checker's)."
     },
     {
       "name": "replaceAll",
@@ -1174,6 +1174,12 @@
       "params": ["string"],
       "returns": "string",
       "_comment": "@ref LLP 1088 D2: JavaScript's `String.prototype.toLowerCase()`: Unicode's default, locale-independent mapping with final sigma. Linked by use: it reaches the kernel's case tables through `text-transform`'s link (capability `text_transform`), bounded by `MAX_STRING`."
+    },
+    {
+      "name": "concat",
+      "params": ["any", "any"],
+      "returns": "any",
+      "_comment": "@ref LLP 1088 §9.1: JavaScript's `Array.prototype.concat(other)` of two lists of one item type, `list<T>, list<T> -> list<T>` (the type checker's): one list step per item of the result, taken before it is built, then its extent checked as a `List` is (LLP 1090 D3)."
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",

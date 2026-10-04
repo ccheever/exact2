@@ -213,17 +213,14 @@ impl<'s> Gen<'s> {
         format!("{prefix}{}", self.next)
     }
 
-    /// Whether a value of `t` holds a string, so a write of it could grow
-    /// without bound across events.
-    pub(crate) fn holds_str(&self, t: &Ty) -> bool {
+    /// Whether a value of `t` holds a string or a list, so a write of it
+    /// could grow without bound across events (`s + s`, `concat(xs, xs)`).
+    pub(crate) fn grows(&self, t: &Ty) -> bool {
         match t {
-            Ty::Str => true,
+            Ty::Str | Ty::List(_) => true,
             Ty::Num | Ty::Bool => false,
-            Ty::Opt(t) | Ty::List(t) => self.holds_str(t),
-            Ty::Rec(i) => self.shapes[*i]
-                .fields
-                .iter()
-                .any(|(_, t)| self.holds_str(t)),
+            Ty::Opt(t) => self.grows(t),
+            Ty::Rec(i) => self.shapes[*i].fields.iter().any(|(_, t)| self.grows(t)),
         }
     }
 

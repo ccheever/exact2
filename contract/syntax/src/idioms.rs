@@ -12,12 +12,13 @@ pub fn method_fix(name: &str) -> String {
         ),
         "join" => "write `join(xs, \", \")`: Contract spells the web's array methods as roster functions (`includes(s, t)` is `s.includes(t)`)".into(),
         "length" => "write `length(xs)`: Contract spells the web's `.length` as a roster function".into(),
-        "includes" => "write `includes(s, t)` for text; `includes` on a list is refused (LLP 1017.003)".into(),
+        "includes" => "write `includes(s, t)` for text, `includes(xs, x)` for a list (LLP 1088 §9.1)".into(),
         "startsWith" | "endsWith" => format!("write `{name}(s, t)`"),
         "toString" => "write `toString(x)`".into(),
         "trim" => "write `trim(s)`".into(),
         "toLowerCase" => "write `toLowerCase(s)`".into(),
-        "slice" => "write `slice(s, start, end)` for text (`end` may be left out); `slice` on a list is not in Contract yet (LLP 1088 §9)".into(),
+        "slice" => "write `slice(s, start, end)` for text or a list (`end` may be left out)".into(),
+        "concat" => "write `concat(xs, ys)`: Contract spells the web's array methods as roster functions".into(),
         "replace" | "replaceAll" => "write `replaceAll(s, find, with)`: the web's `replaceAll` with a string `find`; Contract has no regular expressions".into(),
         "at" => "write `at(xs, i)`: Contract spells the web's `xs.at(i)` as a roster function, `some` of the item or `none`".into(),
         _ => match refusal(name) {
@@ -35,15 +36,15 @@ pub fn refusal(name: &str) -> Option<String> {
     Some(match name {
         "reduce" | "reduceRight" | "find" | "findIndex" | "findLast" | "some" | "every"
         | "sort" | "toSorted" | "flatMap" | "flat" | "forEach" | "reverse" | "toReversed" => format!(
-            "`{name}` is refused (LLP 1017.003: lists have only `map`, `filter` and `join`); compute it in the data source and hand the view the result, as the crypto port keeps `lo` and `hi` beside its series"
+            "`{name}` is refused (LLP 1017.003: lists have `map`, `filter`, `join`, `concat`, `slice` and `includes`); compute it in the data source and hand the view the result, as the crypto port keeps `lo` and `hi` beside its series"
         ),
         // @ref LLP 1088 D7.4 — the web's string and list spellings an agent
         // reaches for first, each with what to write today.
-        "concat" | "slice" | "push" => format!(
-            "`{name}` on a list is not in Contract yet: building a list in a view waits on LLP 1088 §9's follow-up; build it in the data module and hand the view the result"
+        "push" | "append" | "unshift" => format!(
+            "a list is a value in Contract, not changed in place: `{name}` is `concat`, as in `xs = concat(xs, [x])` (LLP 1088 §9.1)"
         ),
         "split" => "`split` is not in Contract: a view takes its lists from the data module, so split the text there and hand the view the list".into(),
-        "indexOf" => "`indexOf` is not in Contract: test text with `includes(s, t)`, `startsWith(s, t)` or `endsWith(s, t)`; a position in a list is the data module's to compute".into(),
+        "indexOf" => "`indexOf` is not in Contract: test membership with `includes(xs, x)` or `includes(s, t)` (or `startsWith`, `endsWith`); a position in a list is the data module's to compute".into(),
         "substring" | "substr" => format!(
             "`{name}` is not in Contract: write `slice(s, start, end)`, the web's `String.prototype.slice` (LLP 1088 D2)"
         ),
@@ -60,7 +61,7 @@ pub fn refusal(name: &str) -> Option<String> {
         ),
         // The roster's substring search under the web's name since
         // 2026-09-28; a hint, not a second spelling: `contains` does not compile.
-        "contains" => "write `includes(s, t)`: the roster's substring search wears the web's name, `String.prototype.includes` (LLP 1006 §Expressions, renamed from `contains` 2026-09-28); `startsWith(s, t)` and `endsWith(s, t)` are the web's too".into(),
+        "contains" => "write `includes(s, t)`, or `includes(xs, x)` for a list: the roster's search wears the web's name, `String.prototype.includes` and `Array.prototype.includes` (LLP 1006 §Expressions, renamed from `contains` 2026-09-28); `startsWith(s, t)` and `endsWith(s, t)` are the web's too".into(),
         "toFixed" | "toPrecision" => format!(
             "`{name}` is refused (LLP 1017.003); round with `floor(v * 100 + 0.5) / 100` and print it with `toString` (or a template), or, for a count, `formatNumber(n, \"compact\")` prints `1.2K` (LLP 1054.000.003)"
         ),

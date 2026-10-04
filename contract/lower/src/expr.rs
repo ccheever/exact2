@@ -353,9 +353,13 @@ pub(crate) fn compile(
                 asm.number(d);
             }
             asm.call(f);
-            match (f, given.first()) {
+            match (f, given.first(), given.get(1)) {
                 // `first(list<T>)` is `option<T>` (LLP 1054.000 C4).
-                (Stdlib::First | Stdlib::At, Some(Ty::List(item))) => Ty::Option(item.clone()),
+                (Stdlib::First | Stdlib::At, Some(Ty::List(item)), _) => Ty::Option(item.clone()),
+                // A list's own type, or text's (LLP 1088 §9.1).
+                (Stdlib::Concat, Some(a), Some(b)) => a.unify(b).unwrap_or(Ty::Unknown),
+                (Stdlib::Slice, Some(t @ (Ty::String | Ty::List(_))), _) => t.clone(),
+                (Stdlib::Concat | Stdlib::Slice, ..) => Ty::Unknown,
                 _ => Ty::from_roster(f.returns()),
             }
         }

@@ -81,6 +81,15 @@ def asList : Value → Result (List Value)
   | .list xs => .ok xs
   | _ => .error (.type "list")
 
+/-- `Array.prototype.includes`'s SameValueZero on what `includes` takes of a
+list's items (LLP 1088 §9.1): numbers by IEEE `==` with NaN equal to NaN
+(`-0` is `0`), strings and bools by value. -/
+def sameValueZero : Value → Value → Bool
+  | .num a, .num b => a == b || (Number.isNaN a && Number.isNaN b)
+  | .str a, .str b => a == b
+  | .bool a, .bool b => a == b
+  | _, _ => false
+
 end Value
 
 namespace Str

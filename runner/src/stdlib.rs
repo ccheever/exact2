@@ -212,8 +212,9 @@ fn call_value(
             _ => return None,
         },
         // @ref LLP 1017.003 D5 — opcodes with a callback body, never a
-        // call; `join` is the VM's, which bounds the string it makes.
-        Stdlib::Map | Stdlib::Filter | Stdlib::Join => return None,
+        // call; `join` is the VM's, which bounds the string it makes, and so
+        // is `concat` (LLP 1088 §9.1), which builds a list.
+        Stdlib::Map | Stdlib::Filter | Stdlib::Join | Stdlib::Concat => return None,
         Stdlib::Floor => Value::Number(num(0)?.floor()),
         Stdlib::Max => Value::Number(num(0)?.max(num(1)?)),
         Stdlib::Min => Value::Number(num(0)?.min(num(1)?)),
