@@ -10,6 +10,7 @@
 //   bun host/apple/build.mjs --device [crate] [--run] [--phone <udid|name>]   iOS, on a phone
 //   bun host/apple/build.mjs --device [crate] --archive <out.ipa>            iOS, an .ipa to distribute
 //   bun host/apple/build.mjs --device [crate] --archive <out.ipa> --unsigned an .ipa a service re-signs
+//   bun host/apple/build.mjs [crate] --bundle --distribution                 macOS, the bundle `exact release` signs
 // Add --url <http(s) app URL> to connect any of these clients to the same
 // address as the browser (LLP 1030.000 §7): with --run it is the launch
 // locator, and a development client (--bundle, --ios, --device) registers
@@ -638,6 +639,21 @@ function assertLinkedSdk(executable, expected) {
   }
 }
 
+/** A distributed executable without its local symbols — 3.6 of Caltrain's
+ * 13.1 MB on the Mac — which are first written beside it as a dSYM, so a
+ * crash report from the field is still symbolicated. `strip` keeps the
+ * image's UUID, which is how the dSYM is matched; a relink without symbols
+ * would be another UUID. Development builds keep theirs. */
+export function stripForDistribution(executable, dsym) {
+  mkdirSync(dirname(dsym), { recursive: true });
+  rmSync(dsym, { recursive: true, force: true });
+  // dsymutil reports each symbol it could not find in an object file on stderr; only a failure is said.
+  run('dsymutil', [executable, '-o', dsym], { stdio: 'ignore' });
+  const before = statSync(executable).size;
+  run('strip', ['-x', executable], { stdio: 'ignore' });
+  return { dsym, saved: before - statSync(executable).size };
+}
+
 /** The macOS `Info.plist` for a bundled build, from the same manifest. */
 export const macInfoPlist = (app, { development = null, icon = {}, reach = null } = {}) => plistFile({
   ...icon,
@@ -671,6 +687,17 @@ export function receipt(app, fields) {
     ...fields,
   }, null, 2) + '\n';
 }
+
+/** The receipt a distributed bundle carries: the same, without the list of
+ * every file the binary was compiled from (3,600 rows with this machine's
+ * paths, 1.4 of the receipt's 1.9 MB), which is the driver's staleness
+ * evidence and nothing an installed app reads, and with each Cargo product
+ * by its name alone. The whole receipt is written beside the artifact. */
+export const shippedReceipt = (text) => {
+  const whole = JSON.parse(text), build = whole.build ?? {};
+  return JSON.stringify({ ...whole, build: { ...build, binary: { sha256: build.binary?.sha256 },
+    products: (build.products ?? []).map((product) => ({ ...product, path: basename(product.path) })) } }, null, 2) + '\n';
+};
 
 // ---------------------------------------------------------------- the lean Hermes an iOS app links
 
@@ -742,6 +769,8 @@ async function main(args) {
   }
   const ipa = args.includes('--archive') ? resolve(process.cwd(), args[args.indexOf('--archive') + 1] ?? '') : null;
   const unsigned = args.includes('--unsigned');
+  // What leaves this machine: an .ipa, or the Mac bundle `exact release` signs and notarises.
+  const distribution = !!ipa || args.includes('--distribution');
   if ((unsigned && !ipa) || ipa && (!device || (!unsigned && (!process.env.EXACT_IDENTITY || !process.env.EXACT_PROFILE)) || args.includes('--run') || args.includes('--host'))) {
     console.error('--archive needs --device and EXACT_IDENTITY and EXACT_PROFILE (or --unsigned, which needs --archive), and takes neither --run nor --host');
     process.exitCode = 1; return;
@@ -830,9 +859,10 @@ async function main(args) {
   // Swift file is a 3-second build and not the whole module again (45 s on an
   // M4; a cold compile is 25 s, not 57). SwiftPM compiles that way only in its
   // debug configuration, so the optimization and the dead-code strip are
-  // asked for on top of it. A production bake and an archive keep the
-  // whole-module build, which is the smaller and faster binary.
-  const swiftWhole = cargoProfile === 'release' || !!ipa;
+  // asked for on top of it. A production bake and what is distributed (an
+  // archive, the Mac bundle `exact release` signs) keep the whole-module
+  // build, which is the smaller and faster binary.
+  const swiftWhole = cargoProfile === 'release' || distribution;
   // One `swift build` per product: given two `--product` flags SwiftPM
   // builds only the last; the second build is incremental and quick.
   const swiftArgs = ['build', '-c', swiftWhole ? 'release' : 'debug', '--scratch-path', swiftBuildRoot, ...(swiftWhole ? [] : ['-Xswiftc', '-O', '-Xlinker', '-dead_strip'])];
@@ -1003,6 +1033,7 @@ async function main(args) {
   // destination waits here (seconds once ExactKit is compiled), and the
   // executable is in this build's private stage before the claim is let go.
   await hostCompile?.done({ repeated: true });
+  let stripped = null;
   mkdirSync(dirname(paths.swiftLock), { recursive: true });
   const releaseSwift = awaitBuildOutput(app, paths.swiftLock, (owner) => console.log(`host/apple: waiting for the Swift build of ${owner} in ${swiftBuildRoot.replace(root + '/', '')}`));
   try {
@@ -1029,6 +1060,7 @@ async function main(args) {
       assertAppleIdentity(app, executable, bakedCompat.id);
       const platform = ios ? 'ios' : 'macos';
       assertLinkedSdk(executable, designCompatible(app, platform) ? COMPATIBLE_SDK[platform] : read('xcrun', ['--sdk', sdkName, '--show-sdk-version']).stdout.trim());
+      if (ipa) stripped = stripForDistribution(executable, `${ipa.replace(/\.ipa$/, '')}.dSYM`);
     }
   } finally { releaseSwift(); }
   const tSwift = Date.now();
@@ -1241,7 +1273,8 @@ async function main(args) {
       verifyBakeFiles(bakedCompat, bakedPlan, listAssets(resources, true));
       writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach, icon: appIcon(app, resources, 'macos') }));
       writeUsageStrings(bakedCompat.reach, resources);
-      copyFileSync(resolve(binDir, 'receipt.json'), resolve(resources, 'receipt.json'));
+      const whole = readFileSync(resolve(binDir, 'receipt.json'), 'utf8');
+      writeFileSync(resolve(resources, 'receipt.json'), distribution ? shippedReceipt(whole) : whole);
       // GPU artifacts were signed before their digests entered the baked receipt.
       // Preserve those exact bytes, as the iOS bundle assembly does below.
       for (const file of [webLoadName, videoLoadName, svgLoadName, ...(canvasGpuBuilt ? [canvasGpuLoadName] : []), ...(modulesBuilt ? [modulesLoadName] : [])]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
@@ -1310,10 +1343,12 @@ async function main(args) {
     writeFileSync(ent, entitlements({ ...app, id }, signingProfile?.team, signingProfile?.dev ?? !unsigned, bakedCompat.reach));
     verifyBakeFiles(bakedCompat, bakedPlan, listAssets(assembled, true));
     assertAppleIdentity(app, resolve(assembled, host ? 'ExactHostIOS' : 'ExactIOS'), bakedCompat.id);
-    writeFileSync(resolve(assembled, 'receipt.json'), receipt(app, { compatibilityId: bakedCompat.id, build: buildReceipt, composition,
+    const whole = receipt(app, { compatibilityId: bakedCompat.id, build: buildReceipt, composition,
       platform: destination, target, sdk, identity: signingIdentity,
       profile: signingProfile ? { name: signingProfile.name, team: signingProfile.team, expires: signingProfile.expires } : null,
-      entitlements: readFileSync(ent, 'utf8'), gpu: hasGpu ? dylib : null, development: host ? null : development }));
+      entitlements: readFileSync(ent, 'utf8'), gpu: hasGpu ? dylib : null, development: host ? null : development });
+    writeFileSync(resolve(assembled, 'receipt.json'), ipa ? shippedReceipt(whole) : whole);
+    if (ipa) { mkdirSync(dirname(ipa), { recursive: true }); writeFileSync(`${ipa.replace(/\.ipa$/, '')}.receipt.json`, whole); }
     if (ipa) for (const [loose, name] of [[webLoadName, 'ExactWeb'], [videoLoadName, 'ExactVideo']]) wrapFramework(resolve(assembled, 'Frameworks'), loose, name, app);
     for (const f of readdirSync(resolve(assembled, 'Frameworks')).filter(f => f !== loadName && !moduleDylibs.some(m => m.load === f))) run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', resolve(assembled, 'Frameworks', f)], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', signingIdentity, '--timestamp=none', ...(device ? ['--entitlements', ent] : []), assembled], { stdio: 'ignore' });
@@ -1327,7 +1362,7 @@ async function main(args) {
     mkdirSync(dirname(ipa), { recursive: true });
     rmSync(ipa, { force: true });
     run('ditto', ['-c', '-k', '--sequesterRsrc', '--keepParent', resolve(payload, 'Payload'), ipa]);
-    console.log(`host/apple: ${ipa} (${prof ? `signed by ${prof.name}` : 'ad-hoc signed, for re-signing'}, ${timing()}${svgFilterBuilt ? '' : '; no SVG filter kernels (no Metal toolchain)'})`);
+    console.log(`host/apple: ${ipa} (${prof ? `signed by ${prof.name}` : 'ad-hoc signed, for re-signing'}, ${timing()}${svgFilterBuilt ? '' : '; no SVG filter kernels (no Metal toolchain)'}); symbols: ${stripped.dsym} (${(stripped.saved / 1048576).toFixed(1)} MB off the executable)`);
     return;
   }
   const dev = device ? ph : simulator(args.includes('--sim') ? args[args.indexOf('--sim') + 1] : undefined, { tv });
