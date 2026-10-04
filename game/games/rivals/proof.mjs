@@ -9,7 +9,8 @@ import { proof, axNames, decide } from "../../proof.mjs";
 const node = (tree, id) => tree.nodes.find(n => n.props?.testId === id);
 const text = (tree, id) => node(tree, id)?.props?.text;
 if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave, say}) => {
-  if (process.argv.includes('--playtest')) return playtest({open, out, say});
+  if (process.argv.includes('--playtest')) return process.argv.includes('--motor-check')
+    ? motorCheck({open, out, check}) : playtest({open, out, say});
   if (process.argv.includes('--screenshot-only')) {
     const s = await open();
     check('screenshot uses web', host === 'web');
@@ -170,7 +171,62 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await drillBack.close();
 });
 
-// An authored keyboard motor aims from rendered nameplate positions. Jev
+async function visible(s) {
+  const [tree, layout] = await Promise.all([s.tree(), s.layout()]);
+  const canvas = layout.nodes.find(n => n.testId === 'world');
+  const contacts = layout.nodes.filter(n => /^target-\d+$/.test(n.testId ?? '')).map(n => {
+    const id = n.testId.slice(7);
+    return {id, label:text(tree, `target-label-${id}`), hp:text(tree, `target-hp-${id}`),
+      x:n.x - canvas.x, y:n.y - canvas.y};
+  });
+  return {tree, canvas, contacts};
+}
+
+// Queue the aim and trigger on one simulation tick. A held contact is a touch
+// on web and a mouse on macOS; neither gets simulation time before KeyF joins it.
+// The explicit trigger therefore makes one shot on either host. Integer points
+// also match AppKit's raw mouse deltas. This is an authored aim assist, not Jev's
+// visual perception or a measurement of a person's mouse flick.
+async function aim(s, id) {
+  const {canvas, contacts} = await visible(s);
+  const c = contacts.find(c => c.id === id);
+  if (!c) return false;
+  const focal = canvas.h / 2 / Math.tan(74 * Math.PI / 360);
+  const x = (c.x - canvas.w / 2) / focal;
+  const y = (canvas.h / 2 - c.y) / focal;
+  const yaw = Math.atan(x), pitch = Math.atan(y / Math.sqrt(1 + x * x));
+  const dx = Math.round(yaw / 0.0025), dy = Math.round(-pitch / 0.0025);
+  if (dx || dy) {
+    await s.tap('world', {down:true, at:[canvas.w / 2, canvas.h / 2]});
+    try { await s.pointer('move', {dx, dy, ms:0}); }
+    finally { await s.pointer('up'); }
+  }
+  return true;
+}
+
+async function motorCheck({open, out, check}) {
+  const s = await open();
+  await s.tap('range');
+  const game = s.world('world');
+  await game.run(100);
+  for (const [index, key, ms] of [[1,'ArrowRight',250], [2,'ArrowLeft',250], [3,'ArrowUp',70]]) {
+    await game.hold(key, ms);
+    const before = await game.get('player','Fighter'), started = s.now;
+    check(`pointer aim ${index} sees the requested target`, await aim(s, '3'));
+    check(`pointer aim ${index} queues without advancing simulation`, s.now === started);
+    await game.tap('KeyF');
+    await game.run(180);
+    const after = await game.get('player','Fighter');
+    check(`pointer aim ${index} fires exactly once`, after.shots === before.shots + 1, [before.shots,after.shots]);
+    check(`pointer aim ${index} lands a headshot`, after.headshots === before.headshots + 1, [before.headshots,after.headshots]);
+  }
+  check('pointer motor clears the first target', text(await s.tree(),'drill-score') === '150 points · ×1 combo · 1 targets');
+  await game.save(resolve(out,'aim.world'));
+  await s.screenshot(resolve(out,'aim.png'));
+  await s.close();
+}
+
+// An authored pointer motor aims from rendered nameplate positions. Jev
 // chooses targets and tactics from the visible HUD and its own movement result;
 // neither reads enemy world positions or writes the simulation. This measures
 // decisions, not visual perception or human aim.
@@ -186,33 +242,10 @@ async function playtest({open, out, say}) {
   const recent = [];
   const blocked = new Map();
   const moves = ['forward','back','left','right','jump_forward'];
+  const actions = [];
   let blindTurn = 0;
-  const visible = async () => {
-    const [tree, layout] = await Promise.all([s.tree(), s.layout()]);
-    const canvas = layout.nodes.find(n => n.testId === 'world');
-    const contacts = layout.nodes.filter(n => /^target-\d+$/.test(n.testId ?? '')).map(n => {
-      const id = n.testId.slice(7);
-      return {id, label:text(tree, `target-label-${id}`), hp:text(tree, `target-hp-${id}`),
-        x:n.x - canvas.x, y:n.y - canvas.y};
-    });
-    return {tree, canvas, contacts};
-  };
-  const aim = async id => {
-    for (let pass = 0; pass < 2; pass++) {
-      const {canvas, contacts} = await visible();
-      const c = contacts.find(c => c.id === id);
-      if (!c) return false;
-      const focal = canvas.h / 2 / Math.tan(74 * Math.PI / 360);
-      const x = (c.x - canvas.w / 2) / focal;
-      const y = (canvas.h / 2 - c.y) / focal;
-      const yaw = Math.atan(x), pitch = Math.atan(y / Math.sqrt(1 + x * x));
-      if (Math.abs(yaw) > 0.009) await game.hold(yaw > 0 ? 'ArrowRight' : 'ArrowLeft', Math.min(250, Math.abs(yaw) / 2.4 * 1000));
-      if (Math.abs(pitch) > 0.006) await game.hold(pitch > 0 ? 'ArrowUp' : 'ArrowDown', Math.min(250, Math.abs(pitch) / 1.44 * 1000));
-    }
-    return true;
-  };
   for (let turn = 0; turn < (duel ? 128 : 96); turn++) {
-    const {tree, contacts} = await visible();
+    const {tree, contacts} = await visible(s);
     if (node(tree, 'drill-done') || node(tree, 'round-over')) break;
     const state = Object.fromEntries(['hp','ammo','weapon-name','you-kills','rival-kills','drill-clock','drill-score','drill-target','heading','incoming-direction']
       .map(id => [id, text(tree,id) ?? '']));
@@ -241,10 +274,12 @@ async function playtest({open, out, say}) {
       goal:duel ? 'Win the duel while staying alive. Shoot visible opponents, reload when ammunition is low, and use the incoming-hit direction to turn toward attacks. The compass shows where you face. Recent movedMeters is your actual movement: a movement command under 0.3 metres hit an obstacle. Jump or strafe around it; do not repeat blocked steps. If repeated scanning finds nobody, move to a new position instead of spinning in place. The motor aims only at visible nameplates; it cannot see through cover. Avoid unnecessary weapon switching.'
         : 'Score as highly as possible in the thirty-second drill. Shoot the green TARGET named in the HUD, avoiding other dummies to preserve your combo. Reload when needed and wait if the requested dummy is respawning. The motor aims at your chosen nameplate.'});
     say(`JEV ${mode} ${turn+1}: ${decision.choice} · ${state['drill-score'] || `${state['you-kills']}–${state['rival-kills']} · ${state.hp} HP`}`);
+    const started = s.now, triggers = [];
     const before = duel ? await game.local_position('player') : null;
     if (decision.choice.startsWith('shoot_')) {
       for (let shot = 0; shot < 3; shot++) {
-        if (!await aim(decision.choice.slice(6))) break;
+        if (!await aim(s, decision.choice.slice(6))) break;
+        triggers.push(s.now - started);
         await game.tap('KeyF');
         await game.run(180);
       }
@@ -254,6 +289,7 @@ async function playtest({open, out, say}) {
     else if (['rifle','rocket'].includes(decision.choice)) { await game.tap(decision.choice === 'rifle' ? 'Digit1' : 'Digit2'); await game.run(300); }
     else await game.hold({forward:'KeyW',left:'KeyA',right:'KeyD',back:'KeyS',scan:'ArrowRight',scan_left:'ArrowLeft',turn_back:'ArrowRight'}[decision.choice], decision.choice === 'turn_back' ? Math.PI / 2.4 * 1000 : decision.choice.startsWith('scan') ? 250 : 500);
     const after = duel ? await game.local_position('player') : null;
+    actions.push({action:decision.choice, milliseconds:s.now-started, triggerMilliseconds:triggers});
     const moved = duel ? Math.round(Math.hypot(after[0]-before[0],after[2]-before[2])*100)/100 : 0;
     if (duel) {
       const turning = decision.choice.startsWith('scan') || decision.choice === 'turn_back';
@@ -268,9 +304,9 @@ async function playtest({open, out, say}) {
     if (turn === 9) await s.screenshot(resolve(out, `jev-${mode}-playing.png`));
   }
   const tree = await s.tree();
-  const result = {mode, score:text(tree,'drill-score'), done:!!node(tree,'drill-done') || !!node(tree,'round-over'), hp:text(tree,'hp'),
+  const result = {mode, motor:'pointer', actions, score:text(tree,'drill-score'), done:!!node(tree,'drill-done') || !!node(tree,'round-over'), hp:text(tree,'hp'),
     playerKills:text(tree,'you-kills'), rivalKills:text(tree,'rival-kills'), world:await game.snapshot()};
-  say(`JEV outcome: ${JSON.stringify({...result,world:undefined})}`);
+  say(`JEV outcome: ${JSON.stringify({...result,world:undefined,actions:undefined})}`);
   writeFileSync(resolve(out, `jev-${mode}-outcome.json`), JSON.stringify(result,null,2));
   await s.screenshot(resolve(out, `jev-${mode}.png`));
   await s.close();

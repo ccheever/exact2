@@ -613,3 +613,72 @@ main revision, before the generator-only corrections. Artifacts:
 `artifacts/direction-final-macos/`. Root checks pass on this main revision, and the
 final root and generated-Rivals formatting checks pass. The checkpoint stays on
 main `3394b5292`; another fetch belongs at the next work boundary.
+
+## Pointer aiming and a passive HUD (2026-10-04)
+
+The next fetch brought sixteen commits through `d6f7daf02`: shared animation
+clocks, an opaque-canvas compositing fast path and the sleeping-display capture
+fix. Merge `b5d6c4f81` preserves both branches' queue entries; that was its only
+conflict. Main updates remain part of each work boundary.
+
+The new motor uses the rendered nameplate's head point, the authored camera FOV
+and sensitivity to calculate an integer pointer correction. It queues that
+correction and KeyF before the next simulation tick. Jev still chooses the target
+and tactics; the navigation policy and bot difficulty are unchanged. This is
+authored aim assistance, not model vision or a human reaction-time claim. Each
+action now records its simulation duration and trigger offsets separately from
+the gateway's wall time.
+
+The first probe hit a JavaScript initialization error: a helper declared below
+the top-level `await` was not initialized when called. Making it a function
+declaration fixed the ordering. The second probe landed all three headshots on
+web, but native aim stayed unchanged. Clicking the crosshair had exposed a host
+bug: macOS never consulted `pointer-events: none` in `NodeView.hitTest`. The HUD
+intercepted the canvas. Native regression tests failed on the passive crosshair,
+surface controls, a native text widget and a placed canvas's fallback box. The
+fix excludes the passive node's own content while preserving a descendant that
+explicitly sets `auto`. A test-fixture correction gave the otherwise zero-sized
+document its actual frame; 29 native input and transform tests then passed.
+
+The third and final motor probe passed on both hosts: left, right and vertical
+corrections each took no simulation time and produced exactly one headshot.
+Both finished with three shots, three hits, three headshots and 150 drill points;
+the final player entities compare exactly. The complete saves differ in pointer
+identity (the browser synthesizes touch contacts; AppKit uses mouse id 1), so
+this is not byte-identical save parity. Artifacts:
+`artifacts/pointer-motor-web-3/`, `artifacts/pointer-motor-macos-3/`.
+Web's descendant audit passed; native's optional audit timed out in `ps`, while
+the carrier still closed its recorded processes.
+
+Another obstacle was a false stale-build rejection after editing `proof.mjs`
+and `pins.json`: proof caching excluded them, but native launch's fallback scan
+did not. Both now use the existing game-input exclusion predicate. The new
+freshness regression also proves that Contract, Rust and assets still invalidate
+the app, ordinary app scripts remain inputs, and a compiler receipt overrides
+the helper exclusion when it actually links one. The native Jev launch reused
+the cached build successfully.
+
+The unchanged-policy Jev duels finished **4–5 on web** (100 decisions) and
+**4–4 at the 128-decision cap on macOS**. Both descendant audits passed.
+Web fired 13 shots for 13 hits and 12 headshots; native fired 13 for 12 hits and
+12 headshots. Every shooting action attempted its first trigger at **0 ms** of
+simulation time, versus the keyboard helper's 434 ms on the previous first
+encounter. That encounter is still decision 24: web now lands two shots and
+ends at 100 HP; native lands three and ends at 64 HP. Previously each ended
+dead without firing. The fixed three-correction probe establishes motor behavior;
+these two different decision sequences are exploratory outcomes, not a controlled
+win-rate comparison or host-parity proof. Native's final jumps and strafes still
+fail to finish the tied round. No further navigation tuning belongs in this
+batch. Artifacts: `artifacts/jev-pointer-web/`, `artifacts/jev-pointer-macos/`.
+
+Gateway decision latency was 335 / 751 ms p50/p95 on web and 338 / 706 ms on
+macOS; usage was 101,704 input / 9,324 output tokens and 130,780 / 12,033
+respectively. Model wall time does not advance the paused simulation clock.
+While inspecting the receipts, I found that the proof wrapper logged contact
+down (`tap`) but omitted the helper's `pointer` moves and releases. It now
+records those existing tap-protocol phases too, so a lost move is inspectable.
+
+Root build, test, clippy, formatting and boot checks pass after this main merge:
+2,285 enabled tests and nine ignored tests across 80 binaries. The focused
+freshness regression and 29 native input/transform tests pass. The normal game
+proof and its current-input baseline are checked next.

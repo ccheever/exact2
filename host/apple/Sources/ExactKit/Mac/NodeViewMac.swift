@@ -638,9 +638,20 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !inert, !isHiddenOrHasHiddenAncestor, placedAncestor?.placementHidden != true, let point = spaceHit(point) else { return nil }
         if let clipPath, !clipPath.contains(convert(point, from: superview), using: clipRule) { return nil }
-        if isSurfaceControl, bounds.contains(convert(point, from: superview)) { return self }
+        let passive = style["pointer_events"]?.string == "none"
+        if isSurfaceControl, !passive, bounds.contains(convert(point, from: superview)) { return self }
         func ordinary() -> NSView? {
             let hit = raisedHit(super.hitTest(point), point)
+            if passive {
+                // The inherited CSS row excludes this box and its native widget,
+                // but an authored descendant can explicitly set `auto` again.
+                var owner = hit
+                while let view = owner, view !== self {
+                    if view is NodeView { return hit }
+                    owner = view.superview
+                }
+                return nil
+            }
             return hit != nil && hit === overlay ? self : hit
         }
         guard let overlay, let sup = superview else { return ordinary() }
@@ -662,7 +673,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             let inOverlay = NSPoint(x: child.frame.minX + p.x, y: child.frame.minY + p.y)
             if let hit = child.hitTest(inOverlay) { return hit }
         }
-        return self
+        return passive ? nil : self
     }
 
     /// The box on screen, through the placement of the placed child this

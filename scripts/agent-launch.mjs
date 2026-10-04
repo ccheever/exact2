@@ -243,7 +243,8 @@ export function receiptChanges(receipt, app) {
   if (!existsSync(receipt)) return [];
   const { build, target } = JSON.parse(readFileSync(receipt, 'utf8')), since = statSync(receipt).mtimeMs;
   const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
-  const own = newerThan(since, [app.dir], path => /\/(apple|linux|web)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path));
+  const notInput = path => Boolean(app.manifest?.game) && gameNonInput(relative(app.dir, path));
+  const own = newerThan(since, [app.dir], path => /\/(apple|linux|web)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path) || notInput(path));
   // The receipt names what the binary links, not what built it: the Rust
   // archive's own dep-info also names its build script's (the compiler, the bake).
   const archive = `lib${app.crate('apple').replace(/-/g, '_')}.d`;
@@ -258,7 +259,7 @@ export function receiptChanges(receipt, app) {
  * and tests able to say which side changed without weakening that rule. */
 /** Whether a path inside a game (relative to its directory) is not a build input:
  * its proof, pins, documents, tests, and helper scripts outside the built trees.
- * The proof's input digest (game/proof.mjs) and the web staleness check share it. */
+ * The proof's input digest (game/proof.mjs) and host staleness checks share it. */
 export function gameNonInput(path) {
   path = path.replaceAll('\\', '/');
   return /(^|\/)(pins\.json|proof\.mjs|[^/]*\.test\.mjs|[^/]*\.md)$/.test(path)

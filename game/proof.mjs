@@ -593,7 +593,7 @@ export async function proof(meta, script) {
     return new Proxy(raw, {get(target, method) {
       if (method === 'close') return close;
       // world(name) runs with the proxy as its receiver: its operations stay recorded.
-      if (!['tap','type','clock','state','tree','layout','logs','screenshot'].includes(method)) return target[method];
+      if (!['tap','pointer','type','clock','state','tree','layout','logs','screenshot'].includes(method)) return target[method];
       return async (...args) => {
         try {
           const reply = await target[method](...args);

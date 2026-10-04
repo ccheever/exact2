@@ -119,6 +119,9 @@ For an external app driven from the exact2 root, set `EXACT_APP_DIR` on both bui
 and drive. A stale
 artifact is a failed verification; rebuild what the driver names. A successful
 Cargo rlib build does not prove a native app launches or behaves correctly.
+For games, editing `proof.mjs`, `pins.json` or a playtest helper does not make the
+app binary stale. Contract, gameplay and asset edits do; compiler-recorded inputs
+still require a rebuild even when their names match a helper.
 
 Use the existing five repository checks for repository changes. Do not add a
 new global check or fixture framework for an ordinary app edit. For documentation,

@@ -8,7 +8,33 @@ if (!Bun.which('cargo', { PATH: process.env.PATH })) throw new Error(`these test
 delete process.env.EXACT_APP_DIR;
 import assert from 'node:assert/strict';
 import { classifyArtifacts, cargoOnPath } from './app.mjs';
-import { chromium } from './agent-launch.mjs';
+import { chromium, receiptChanges } from './agent-launch.mjs';
+
+test('Apple game freshness ignores driver files but retains authored and compiler inputs', () => {
+  const root = realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-game-freshness-')));
+  const dir = resolve(root, 'app'), receipt = resolve(root, 'receipt.json');
+  const files = ['app.contract','logic/src/lib.rs','assets/table.bin','proof.mjs','pins.json','playtest.mjs','README.md'];
+  try {
+    for (const name of files) {
+      const path = resolve(dir,name); mkdirSync(dirname(path),{recursive:true});
+      writeFileSync(path,name); utimesSync(path,2,2);
+    }
+    const app = {dir,target:resolve(root,'target'),manifest:{game:{}},crate:()=> 'fixture-apple'};
+    const writeReceipt = build => {
+      writeFileSync(receipt,JSON.stringify({target:'aarch64-apple-darwin',build}));
+      utimesSync(receipt,1,1);
+    };
+    const changes = () => receiptChanges(receipt,app).map(path => path.startsWith(root) ? relative(dir,path) : path).sort();
+    writeReceipt(undefined);
+    assert.deepEqual(changes(),['app.contract','assets/table.bin','logic/src/lib.rs']);
+    app.manifest = {};
+    assert.deepEqual(changes(),files.filter(name=>!name.endsWith('.md')).sort(), 'ordinary app scripts remain build inputs');
+    app.manifest = {game:{}};
+    writeReceipt({binary:{inputs:[{path:resolve(dir,'proof.mjs'),name:'linked-helper',sha256:'different'}],missing:[],directories:[]}});
+    assert.deepEqual(changes(),['app.contract','assets/table.bin','linked-helper','logic/src/lib.rs'],
+      'a compiler receipt still wins when code actually includes a driver file');
+  } finally { rmSync(root,{recursive:true,force:true}); }
+});
 
 test('SDK setup and builds find cargo-installed tools beside an existing Cargo on PATH', () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-cargo-path-'));
@@ -103,7 +129,7 @@ test.skipIf(!process.env.EXACT_ASSET_BAKE_TEST)('creating optional asset roots r
 
 import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
-import { basename, delimiter, dirname, resolve, sep } from 'node:path';
+import { basename, delimiter, dirname, relative, resolve, sep } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { resolveApp, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
 import { hermesIos } from './app.mjs';

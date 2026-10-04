@@ -73,12 +73,17 @@ fixed rates for the tick-rate experiments.
 With `AI_GATEWAY_API_KEY` in the environment, run
 `bun game/games/rivals/proof.mjs web --playtest` (or `macos`). Add `--duel` for a
 moving opponent. Jev chooses targets and tactics from the visible HUD. An authored
-keyboard motor aims from rendered nameplate positions. The controller also reads
+pointer motor aims from rendered nameplate positions and queues the trigger on
+the same simulation tick. The controller also reads
 the player's own movement distance to recognize blocked steps: after two failures
 it removes that move until position or heading changes, and after a full blind
 turn it requires a new vantage point. Jev chooses from the remaining actions;
 neither reads enemy world positions. Transcripts and screenshots land under
 `artifacts/<host>/`. These are
 exploratory decision tests, not deterministic proofs or measurements of human aim.
+The outcome records each action's simulation duration and trigger times; model
+latency remains in the decision transcript and does not advance the game clock.
+Without a gateway key, `bun game/games/rivals/proof.mjs web --playtest --motor-check`
+(or `macos`) checks three pointer corrections against the training target.
 
 ![A free-for-all in progress](artifacts/web/game.png)

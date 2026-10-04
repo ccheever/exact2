@@ -321,6 +321,49 @@ final class SurfaceControlTests: XCTestCase {
         XCTAssertEqual(m.deliveryClock(fresh,now:300)["now"] as? Double,300)
     }
     #if os(macOS)
+    func testPointerEventsNoneHUDLetsCanvasReceiveContact() {
+        let (s, canvas, button) = fixture(); defer { s.destroy() }
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 200, height: 200), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = s.presenter.viewport
+        s.presenter.root.frame = canvas.frame
+        s.presenter.viewport.layoutSubtreeIfNeeded()
+        button.removeFromSuperview()
+        let hud = NodeView(id: 102, kind: "view", presenter: s.presenter)
+        hud.frame = canvas.bounds; hud.style["pointer_events"] = "none"
+        canvas.overlay!.addSubview(hud)
+        let label = NodeView(id: 103, kind: "text", presenter: s.presenter)
+        label.frame = CGRect(x: 80, y: 80, width: 40, height: 40)
+        label.style["pointer_events"] = "none"; hud.addSubview(label)
+        let point = NSPoint(x: 100, y: 100)
+        XCTAssertTrue(canvas.hitTest(point) === canvas, "the passive crosshair must not intercept the canvas")
+        let event = NSEvent.mouseEvent(with: .leftMouseDown, location: canvas.convert(point, to: nil), modifierFlags: [], timestamp: 1, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)!
+        controlEvents = []
+        XCTAssertTrue(canvas.canvasInput!.pointer(event, phase: "down"))
+        XCTAssertEqual(controlEvents.last?["phase"] as? String, "down")
+        XCTAssertEqual(controlEvents.last?["buttons"] as? Int, 1)
+        canvas.canvasInput!.blur()
+        label.style["pointer_events"] = "auto"
+        XCTAssertTrue(canvas.hitTest(point) === label, "a descendant can opt back into pointer events")
+        withExtendedLifetime(window) {}
+    }
+    func testPointerEventsNoneSkipsNativeControlsAndPlacedCanvasBox() {
+        let (s, canvas, button) = fixture(); defer { s.destroy() }
+        let point = NSPoint(x: 50, y: 50)
+        button.style["pointer_events"] = "none"
+        XCTAssertTrue(canvas.hitTest(point) === canvas, "surface-control shortcut must honor pointer-events")
+        button.removeFromSuperview()
+        let field = NodeView(id: 102, kind: "input", presenter: s.presenter)
+        field.frame = canvas.bounds; field.style["pointer_events"] = "none"
+        field.addSubview(NSTextField(frame: field.bounds)); canvas.addSubview(field)
+        XCTAssertTrue(canvas.hitTest(point) === canvas, "a node's own native widget is passive too")
+        field.removeFromSuperview()
+        canvas.overlay!.addSubview(button)
+        button.placement = [1, 0, 0, 0, 1, 0, 0, 0, 1, 0]
+        canvas.style["pointer_events"] = "none"
+        XCTAssertNil(canvas.hitTest(point), "a placed canvas's fallback box is also passive")
+        button.style["pointer_events"] = "auto"
+        XCTAssertTrue(canvas.hitTest(point) === button)
+    }
     func testAgentDragCarriesDeviceMotionForLockedCanvases() {
         let (s, _, _) = fixture(); defer { s.destroy() }
         let window = ContactEventWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless], backing: .buffered, defer: false)
