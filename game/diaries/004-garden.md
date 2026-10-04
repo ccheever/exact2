@@ -613,3 +613,21 @@ The lesson for agentic development is that an understandable objective also
 needs a usable next action. A richer snapshot would not have fixed random stock
 blocking the market. Fixing the public game loop helped both hosts without an
 agent-only shortcut, and the ordinary proof can now preserve the whole journey.
+
+### Accepted verification
+
+Feature commit `a4dc6b67c` is accepted by the strict collector
+`artifacts/prove/run-1UyQZO`: Linux and web agree in normal, Save and FreshGame
+modes, plus native release. All seven runs have zero failures and passing
+descendant audits. Linux takes 1.2/4.9/4.8 s; web takes 53.3/59.1/60.1 s,
+including its mode-specific builds. The release comparison takes 26.3 s.
+The independent macOS proof takes 18.9 s and matches the same source inputs,
+tick/save pins, four world snapshots and six saves. Its process audit passes.
+The normal proof's web/macOS market screenshots and web offline-growth screen
+were also inspected. A subsequent ordinary Linux proof passes against the
+accepted baseline. Pin changes include the saved plot dependency and the
+longer market continuation, whose digest is now `c7804a76…`.
+
+Root verification: all five gates pass, with 2,315 enabled Rust tests across
+81 binaries and nine ignored tests. Garden's Clippy/format checks pass; the
+shared app-tool suite has 73 passes and two optional integration skips.

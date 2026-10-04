@@ -1,19 +1,19 @@
 {
   "ticks": {
-    "0": "0x9ba4b2757bee48ed",
-    "5136": "0x33b4b683a425ddcf"
+    "0": "0x5dd7e54782e3ead7",
+    "5136": "0x67ff9f238a4d982d"
   },
   "saves": {
-    "continuation": "96695633e5e28f982183980d2d54be514805edb027cb35313feeea582d64856e",
-    "market": "5a2dcab705e836e0dd0dff689461ead9918fd8debe6c529aeab544a203d505b1"
+    "continuation": "b512a54498fe1fa2d459969c91780395fa05438eaa80478045af9141ed73c84d",
+    "market": "c7804a76c9ba6202cf302ff1cb4708094c151f17937d6e5a0b7d2d5c6b4e9f46"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "1a436ef77f08487b347a1fcbc77dbd59223c1b29ac9663a34de39bc782c6ac7d",
+  "inputs": "0459cdebc3d2e7d615a7d358d8af7b2df20c947ca3940be27bfa4c7e2c6be746",
   "game": "garden",
   "generated": "bun game/prove.mjs garden --repin --hosts 'linux,web'",
-  "at": "b37d46a2c8cbf9f4d566d23cec799c1e8120a4bd",
-  "reason": "Refresh EXSIM v7 baseline after pending follower restore fix and main 39ac858b2"
+  "at": "a4dc6b67c8d1a13a54a8d52296600093aec63a44",
+  "reason": "Visible market steps, requested-seed stock and all five orders through ordinary controls"
 }
