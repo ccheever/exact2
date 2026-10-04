@@ -117,3 +117,32 @@ fn a_timeline_is_imported_by_name_and_two_files_of_one_name_are_refused() {
     assert!(e.message.contains("timeline `Pending`"), "{}", e.message);
     let _ = std::fs::remove_dir_all(&app.0);
 }
+
+#[test]
+fn a_local_binding_of_the_name_shadows_the_timeline() {
+    let src = "timeline Pending\nkeyframes p\n  to opacity=0\ncomponent App\n  state Pending = \"--drag\"\n  view\n    column\n      text \"x\" testId=\"x\" animation=\"p 1s\" animation-timeline=Pending\n";
+    let plan = contract::compile(src).unwrap();
+    let r = Runner::boot(
+        Plan::decode(&plan.encode()).unwrap(),
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel();
+    let node = k.node_by_key(k.find_by_test_id("x")[0]).unwrap();
+    let t = &node.style.animation_timeline;
+    assert_eq!((t.clock(), t.name()), (None, Some("--drag")));
+}
+
+#[test]
+fn every_entry_point_sees_the_clock() {
+    let app = App::new("entries");
+    let src = "timeline Pending\nkeyframes p\n  to opacity=0\ncomponent App\n  view\n    text \"x\" animation=\"p 1s infinite\" animation-timeline=Pending\n";
+    let path = app.write("app.contract", src);
+    contract::lean::lean(src, "App").unwrap();
+    contract::lean::lean_path(&path, "App").unwrap();
+    contract::symbols_json(&path, None).unwrap();
+    let _ = std::fs::remove_dir_all(&app.0);
+}

@@ -381,26 +381,38 @@ export function animationClocks(root) {
   const origins = new Map(), members = new Map(), paused = new WeakMap();
   const clockOf = a => a.animationName === undefined ? '' : a.effect?.target?.style?.getPropertyValue('--exact-animation-clock').trim() ?? '';
   const live = a => a.effect?.target?.isConnected && a.playState !== 'idle' && a.playState !== 'finished';
+  // A member whose node left or whose play ended is let go, so a removed
+  // screen's targets are not held for the page's lifetime.
+  const prune = (m) => { for (const b of m) if (!live(b)) m.delete(b); };
   function start(a, now) {
     const c = clockOf(a);
     if (!c) return null;
     let m = members.get(c);
     if (!m) members.set(c, m = new Set());
-    for (const b of m) if (b === a || !live(b)) m.delete(b);
-    if (!m.size) origins.set(c, now);
+    prune(m);
+    // Busy while any member is live, `a` included: a paused or resumed
+    // member keeps the origin, so a resume rejoins its phase (D6).
+    if (!m.size || !origins.has(c)) origins.set(c, now);
     m.add(a);
     const { duration, direction } = a.effect.getComputedTiming(), period = duration * (/alternate/.test(direction) ? 2 : 1);
-    return period > 0 && Number.isFinite(period) ? now - (now - origins.get(c)) % period : now;
+    if (!(period > 0 && Number.isFinite(period))) return now;
+    // On a boundary in float can read a hair before it: that is on it.
+    const into = ((now - origins.get(c)) % period + period) % period;
+    return now - (period - into < 1e-6 ? 0 : into);
   }
   return {
     start,
     sync(now = document.timeline.currentTime) {
+      for (const [c, m] of members) { prune(m); if (!m.size) members.delete(c); }
       if (!root.querySelector('[style*="--exact-animation-clock"]')) return;
       for (const a of document.getAnimations()) {
         const is = a.playState === 'paused', was = paused.get(a);
         if (was === is) continue;
         paused.set(a, is);
-        // Paused, it still holds the clock busy; a start would unpause it.
+        // A pause keeps its membership: paused, it still holds the clock
+        // busy. A new one joins (paused, without a start, which would
+        // unpause it); a resume rejoins.
+        if (is && was !== undefined) continue;
         const s = start(a, now);
         if (s !== null && !is) a.startTime = s;
       }

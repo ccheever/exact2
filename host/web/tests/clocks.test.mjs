@@ -75,6 +75,19 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
     expect(state).toBe('running');
     expect(Math.abs(l2 - e2)).toBeLessThan(1);
 
+    // A lone member keeps its clock busy while paused: a joiner then, and
+    // the member's own resume, both take the phase it started on.
+    await evaluate(`add('solo', 'pulse 800ms infinite alternate', 'Solo')`);
+    const origin = await evaluate(`anim('solo').startTime`);
+    await Bun.sleep(200);
+    await evaluate(`document.getElementById('solo').style.animationPlayState = 'paused'; sync()`);
+    await Bun.sleep(300);
+    await evaluate(`add('late', 'pulse 800ms infinite alternate', 'Solo')`);
+    await evaluate(`document.getElementById('solo').style.animationPlayState = 'running'; sync()`);
+    const [late, solo] = await evaluate(`[anim('late').startTime, anim('solo').startTime]`);
+    expect(Math.abs((late - origin) % 1600)).toBeLessThan(1);
+    expect(Math.abs((solo - origin) % 1600)).toBeLessThan(1);
+
     // A finite one joining late ends on a cycle boundary of the clock.
     await evaluate(`add('three', 'pulse 800ms 3 alternate')`);
     const ends = await evaluate(`(() => { const a = anim('three'), l = anim('lock'); return [(a.startTime - l.startTime) % 1600, a.effect.getComputedTiming().endTime]; })()`);

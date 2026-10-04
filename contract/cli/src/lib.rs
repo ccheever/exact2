@@ -327,9 +327,7 @@ fn compile_path_output(
         file: Some(path.into()),
         related: Box::new([]),
     })?;
-    let (mut file, sources) = sources::load(path, src, &app_root)?;
-    contract_syntax::resolve_clock_timelines(&mut file)
-        .map_err(|e| vec![sources.resolve(e.into())])?;
+    let (file, sources) = sources::load(path, src, &app_root)?;
     native::check(&file, &app_root).map_err(|all| {
         all.into_iter()
             .map(|e| sources.resolve(e))

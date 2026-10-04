@@ -88,6 +88,10 @@ impl Engine {
         if !(period > 0.0 && period.is_finite()) {
             return now;
         }
-        now - (now - origin).rem_euclid(period)
+        // A join on a boundary, in float, can land a hair before it and
+        // take the cycle before: one whole period early, which can end a
+        // finite joiner before it shows. Within a nanosecond is on it.
+        let into = (now - origin).rem_euclid(period);
+        now - if period - into < 1e-9 { 0.0 } else { into }
     }
 }

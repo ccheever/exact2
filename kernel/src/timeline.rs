@@ -80,14 +80,14 @@ pub struct DragTimeline {
     pub axis: Axis,
 }
 
-/// `clock(<ident>)`'s ident: a Contract name, `[A-Za-z_][A-Za-z0-9_]*`.
+/// `clock(<ident>)`'s ident: a Contract name, `[A-Za-z_][A-Za-z0-9_-]*`.
 fn clock_name(token: &str) -> Option<&str> {
     let name = token.strip_prefix("clock(")?.strip_suffix(')')?.trim();
     let mut chars = name.chars();
     (chars
         .next()
         .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_'))
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'))
     .then_some(name)
 }
 
@@ -314,6 +314,9 @@ mod tests {
             ("clock(Pending)", Some("Pending"), None)
         );
         assert_eq!(AnimationTimeline::parse("--a").unwrap().clock(), None);
+        // Contract names may hyphenate.
+        let c = AnimationTimeline::parse("clock(Pending-Work)").unwrap();
+        assert_eq!(c.clock(), Some("Pending-Work"));
         for bad in ["clock()", "clock(--a)", "clock(1a)", "clock(a b)", "clock"] {
             assert_eq!(AnimationTimeline::parse(bad), None, "{bad:?}");
         }

@@ -73,7 +73,11 @@ pub(crate) fn load(
             .map(|e| loader.sources.resolve(e))
             .collect::<Vec<_>>()
     })?;
-    let file = loader.materialize(&exports);
+    let mut file = loader.materialize(&exports);
+    // Every consumer of the merged file (compile, symbols, Lean) sees
+    // `animation-timeline=Name` as its clock (LLP 1055.002 D2).
+    contract_syntax::resolve_clock_timelines(&mut file)
+        .map_err(|e| vec![loader.sources.resolve(e.into())])?;
     Ok((file, loader.sources))
 }
 

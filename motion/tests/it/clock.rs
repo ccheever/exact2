@@ -81,6 +81,21 @@ fn a_finite_joiner_ends_on_a_cycle_boundary() {
 }
 
 #[test]
+fn a_join_on_a_boundary_starts_on_it() {
+    let mut e = Engine::new();
+    for node in [LOCK, ENGINE] {
+        e.set_animation_clock(node, Some("Pending"));
+    }
+    e.set_animations(LOCK, &row("pulse 800ms infinite alternate"))
+        .unwrap();
+    // 4.8 % 1.6 is a hair under 1.6 in f64: the boundary is 4.8, not 3.2.
+    e.advance(4.8).unwrap();
+    e.set_animations(ENGINE, &row("pulse 800ms 1 alternate"))
+        .unwrap();
+    assert_eq!(start(&e, ENGINE), 4.8);
+}
+
+#[test]
 fn a_timeline_left_idle_starts_over() {
     let mut e = Engine::new();
     for node in [LOCK, ENGINE] {
