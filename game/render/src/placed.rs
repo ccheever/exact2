@@ -99,12 +99,13 @@ impl Placements {
             self.stamp.is_none_or(|old| old.1 != next.1),
             self.stamp.is_some_and(|old| old.2 != next.2),
         );
-        quads::feed(
+        quads::feed_poses(
             w,
             &mut self.cameras,
             initial,
             self.stamp.is_none_or(|old| old.1 != next.1),
             self.stamp.is_some_and(|old| old.2 != next.2),
+            false, // Visibility filters presentation, never camera selection.
         );
         attachments(
             &mut self.attachments,
