@@ -907,4 +907,5 @@ and the Linux headless CPU renderer without claiming display frame timing.
   - `backgroundMaterial="glass"` is a glass effect behind an Exact box, not UIKit's glass controls (`UIButton.Configuration.glass()`, glass containers that merge); the app uses native module views for buttons and its composer.
   - A back swipe painted only the part of the incoming route visible as it began; fixed by painting each frame of the transition, but a device report says half the screen still fills in late.
 
-- **Apple paint order after A1 (LLP 1083.000 D4):** iOS flat leaves still ignore the rank op and `Prepared.swift` treats `position_type` as inert; promotion/demotion and flat-layer hit ownership remain for A2. macOS default `AgentMac.swift` capture still uses `cacheDisplay`, which does not compose the new ranks; use `screenshot … window` until its compositor lands.
+
+- **Apple ABI pointer-event fixture fails** (2026-10-04, A2 verification): `abi::tests::dispatch_names_every_kind_and_refuses_unknown_ones` gets `NoHandler { view: 2, event: "pointerdown" }`. Reproduced with `cargo test -p exact-apple --no-fail-fast` on both A2 and `2ab8aca10`; the eight older content-region failures noted above also persist.

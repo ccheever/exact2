@@ -165,3 +165,8 @@ guide's rules don't make obvious.
   nonempty list comes from a source, a shape field, or `map`/`filter`, and
   `split` is not a standard function. For a fixture or a static mount
   measurement, generate the repeated markup. (LLP 1083.000, web W2 and Apple A2.)
+- **An sRGB capture test changes the pixel it reads.** AppKit's
+  `NSBitmapImageRep.colorAt` returns calibrated RGB even when the bitmap is
+  sRGB. Converting that `NSColor` to sRGB again turned measured bytes
+  `[128, 0, 127, 255]` into about 58% red and 57% blue. Compare the bitmap's
+  components or bytes in its declared color space. (Apple A2 capture test.)
