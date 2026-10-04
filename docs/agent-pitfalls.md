@@ -107,6 +107,17 @@ guide's rules don't make obvious.
   safe area. Fix: put `env(safe-area-inset-top)` on the route column, not on each
   authored header. (Signal Clone, build 5.)
 
+## Actions
+
+- **A helper action does not see what its caller just assigned.** `sel = next`
+  then `follow()`, with `follow` reading `sel`, would read the old `sel`: a call
+  is its callee's statements in the caller's one commit, and every statement
+  reads the state the action started with (LLP 1089 D2). The compiler refuses the
+  read (`analyze-call-stale-read`), naming both lines. Fix: pass the value the
+  helper should see, `follow(next)`, or a `let` bound before the assignment for
+  the old one. (Spreadsheet F21 and Files F27 diaries, where a copied block was
+  the workaround.)
+
 ## Input
 
 - **A hold's `pointerup` never arrives.** Cause: the press started on a node that a

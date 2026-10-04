@@ -252,9 +252,46 @@ derive, resource value, or arbitrary record field. Replace a record with a copie
 record. `send` targets a mutation owned by that component.
 
 Permitted statements: assignment, `let`, `send`, `refresh`, known host command,
-`if`/`else`, and option `match`. No loops or general action calls. The compiler
-infers effects from the body; `writes` is a refusal, not an optional annotation.
-Use `symbols` when you need the inferred write set.
+a call of an action, `if`/`else`, and option `match`. No loops. The compiler
+infers effects from the body, through its calls; `writes` is a refusal, not an
+optional annotation. Use `symbols` when you need the inferred write set.
+
+An action calls an action of its own component, an `action` prop or an injected
+action by name, as a statement, anywhere a statement goes (LLP 1089). The call is
+the callee's statements run where it stands, in the same commit: one rollback,
+and the callee reads the state the action started with, as every statement does.
+A name that is a host command stays the command. A call gives no value; compute
+values with `fn`. Write a repeated sequence once and call it:
+
+```contract
+component App
+  state location = "/"
+  state query = ""
+  state sel = 0
+  action arrive(path: string)
+    location = path
+    query = ""
+    sel = 0
+  action openItem(path: string)
+    arrive(path)
+  action goHome
+    arrive("/")
+  view
+    column
+      button press=openItem("/docs") testId="open"
+        text location testId="where"
+      button press=goHome testId="home"
+        text "home"
+```
+
+Because the callee sees the starting state, a slot its caller assigned first
+would be stale behind the call, and the compiler refuses that read
+(`analyze-call-stale-read`): `sel = next` then `follow()`, where `follow` reads
+`sel`. Pass the value it should see instead: `follow(next)` for the new one, or
+a `let` bound before the assignment for the old one. Two calls that each read and
+write one slot (`move(1, 0)` then `move(0, 1)`) are refused the same way: both
+read the starting cell, and the last write wins. Calls in exclusive branches
+(`if k == "ArrowUp" …` then `if k == "ArrowDown" …`) are separate paths.
 
 A derive is not mutable storage, an async effect, or a timer. Derive cycles are
 refused. Avoid unnecessary state that can be calculated from existing values.
@@ -265,6 +302,24 @@ The first component is the root. Each component use is `Name(prop=value, …)`.
 Supply every declared prop exactly once; props have no defaults (pass `none` for
 an option). An `action` prop can receive a reference with
 captured arguments; the eventual event payload is appended at invocation.
+
+A child's action may call its `action` props and injected actions, with the
+arguments after those captured where they were bound: the parent's action runs
+in the same commit, and the child never writes the parent's state itself. A
+swipe that decides, in the child, to tell its parent resets its own state, then
+calls the prop last in an `if` arm:
+
+```text
+component Row
+  props
+    id: string
+    archive: action
+  state dx = 0
+  action release(dy: number)
+    dx = 0
+    if dy > 120
+      archive(id)
+```
 
 Children may hold state, derives, and actions. They cannot declare resources,
 mutations, or tasks. Lift shared data requests to the root and pass values and
@@ -723,7 +778,8 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | `if name` for a string | `if name != ""` |
 | `selected.title` when optional | Exhaustive `match selected` |
 | `press={() => save()}` | `press=save` or `press=save(captured)` |
-| Calling an action from another action | Put the statements there; factor calculations into `fn` |
+| Copying an action's statements into another | Call it: `arrive(path)`; the callee runs in the same commit |
+| A helper that reads a slot its caller just assigned | Pass the value: `follow(next)` (`analyze-call-stale-read`) |
 | Child `resource`, `mutation`, or `task` | Root-owned declaration and props/injections |
 | `fontSize`, `radius`, `resizeMode` | `font-size`, `border-radius`, `object-fit` |
 | `width=20px` | `width=20` or `width="20px"` |

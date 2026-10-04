@@ -5,7 +5,7 @@ use super::{
 };
 use contract_syntax::{
     one_spelling_edit, Attr, Binding, Component, Expr, File, Node, Owner, Span, TemplatePart,
-    TypeExpr,
+    TypeExpr, HOST_COMMANDS,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -737,47 +737,6 @@ fn check_inject_nodes(
     Ok(())
 }
 
-/// The commands a host answers (LLP 1005 §3): every name an action body may
-/// call. The web host's `command` op, the Apple session's queue, and the Linux
-/// presenter's `run_commands` match these by name; any other name would reach
-/// them and be refused there, silently to the author, so it is refused here.
-pub(super) const HOST_COMMANDS: &[&str] = &[
-    "blur",
-    "copyText",
-    "deliveryActivate",
-    "deliveryCheck",
-    "focus",
-    "format",
-    // @ref LLP 1077 D14 — `haptic("success" | "warning" | "error" | …)`.
-    "haptic",
-    "openURL",
-    // `reload()`: the development host boots the app again, as its dev
-    // menu's Reload does; a host without a dev menu refuses it.
-    "reload",
-    "selectText",
-    "setScheme",
-    // @ref LLP 1069.002 D2 — `HTMLInputElement.showPicker()` on a file input.
-    "showPicker",
-    "share",
-    // @ref LLP 1069.010 D3 — export: the host copies an `app:/` file out.
-    "saveFile",
-    // @ref LLP 1069.010 D2 — the File System Access API's pickers.
-    "showOpenFilePicker",
-    "showDirectoryPicker",
-    "showSaveFilePicker",
-    // @ref LLP 1070.000 — a virtualized list's row brought into view, by key.
-    "scrollIntoView",
-    // The inverse of a canvas's `message=`: `postMessage(text, "world")` queues
-    // text into the surface of that name, delivered in order, never coalesced.
-    "postMessage",
-    // `event.preventDefault()` for the `key` event that ran the action: the
-    // host skips the key's default action (docs/contract-grammar.md#events).
-    "preventDefault",
-    // `event.stopPropagation()` for the same event: no ancestor's `key`
-    // handler hears it, and its default still happens (files diary F8).
-    "stopPropagation",
-];
-
 /// The three pickers' positional arguments (LLP 1069.010 D2): an element
 /// id, then `multiple` (a bool) for `showOpenFilePicker` or
 /// `suggestedName` (a string) for `showSaveFilePicker`.
@@ -1023,15 +982,16 @@ pub(super) fn check_command(
     args: &[Expr],
     scope: &Scope,
     shapes: &Shapes,
+    component: &str,
     span: Span,
 ) -> Result<(), TypeError> {
     if !HOST_COMMANDS.contains(&name) {
-        let message = match scope.lookup(name) {
-            Some((Ref::Action(_), Ty::Action(_))) => format!(
-                "`{name}` is an action, not a host command: an action is not callable from an action; put its statements here, or bind it to an element (`press={name}`)"
-            ),
-            Some((Ref::Prop(_), Ty::Action(_))) => format!(
-                "`{name}` is an action prop: an action calls one only as its last statement (its tail call), or binds it to an element (`press={name}`)"
+        // A name some component declares as an action is told where it is
+        // (LLP 1089 D10): this component's own and its action props and
+        // injects are calls, which never reach here.
+        let message = match shapes.actions.get(name) {
+            Some(owner) if owner != component => format!(
+                "`{name}` is an action of `{owner}`, not in `{component}`'s scope; pass it as an `action` prop or `provide` it"
             ),
             _ => format!(
                 "`{name}` is not a host command; the hosts answer {}",

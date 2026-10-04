@@ -580,3 +580,47 @@ fn a_let_is_a_local_for_its_block_and_a_record_names_its_shape_and_fields() {
         assert_eq!(spelling(uses[0]), "done");
     }
 }
+
+#[test]
+fn a_call_refers_to_its_callee_and_the_caller_writes_what_it_writes() {
+    // LLP 1089 D5: `symbols --name enter` answers what Enter touches.
+    let source = r#"component App
+  state sel = 0
+  state seen = 0
+  state log = ""
+  action follow(v: number)
+    seen = v
+  action enter(next: number)
+    log = "enter"
+    follow(next)
+  view
+    column
+      button press=enter(1) testId="enter"
+        text "enter"
+      Row(go=follow)
+
+component Row
+  props
+    go: action
+  state taps = 0
+  action tap
+    go(2)
+    taps = taps + 1
+  view
+    button press=tap testId="tap"
+      text "tap"
+"#;
+    let f = Fixture::new("calls");
+    let graph = f.query(source);
+    let enter = definition(&graph, "action", "enter", None);
+    assert_eq!(enter["writes"], serde_json::json!(["seen", "log"]));
+    let call = at_line(&graph, "follow", line(source, "    follow(next)"));
+    assert_eq!(call.len(), 1);
+    assert_eq!(target(&graph, call[0])["kind"], "action");
+    let prop = at_line(&graph, "go", line(source, "    go(2)"));
+    assert_eq!(prop.len(), 1);
+    assert_eq!(target(&graph, prop[0])["kind"], "prop");
+    // A prop call writes the owner's slots, none of this component's.
+    let tap = definition(&graph, "action", "tap", None);
+    assert_eq!(tap["writes"], serde_json::json!(["taps"]));
+}

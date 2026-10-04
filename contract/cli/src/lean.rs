@@ -417,15 +417,19 @@ impl Emitter<'_> {
     }
 
     fn stmts(&self, body: &[Stmt]) -> Result<String, CompileError> {
-        // A tail call's type check (LLP 1017 §11) runs nothing: lowering
-        // drops it, so the semantics never sees it.
-        let run: Vec<&Stmt> = body
-            .iter()
-            .filter(|s| {
-                !matches!(s, Stmt::Command { name, .. }
-                    if name.starts_with(contract_syntax::inline::tail::CHECK))
-            })
-            .collect();
+        // A call (LLP 1089) is its expanded body, in place: every name in it
+        // renamed apart, so the statements after it read what they read
+        // without it.
+        fn spliced<'b>(body: &'b [Stmt], out: &mut Vec<&'b Stmt>) {
+            for s in body {
+                match s {
+                    Stmt::Call { body, .. } => spliced(body, out),
+                    other => out.push(other),
+                }
+            }
+        }
+        let mut run = Vec::new();
+        spliced(body, &mut run);
         list(&run, |s| self.stmt(s))
     }
 
@@ -462,6 +466,7 @@ impl Emitter<'_> {
                 list(args, |a| self.expr(a))?
             ),
             Stmt::Refresh { target, .. } => format!("(.refresh {})", string(target)),
+            Stmt::Call { .. } => unreachable!("spliced by `stmts`"),
             Stmt::If {
                 cond,
                 then,

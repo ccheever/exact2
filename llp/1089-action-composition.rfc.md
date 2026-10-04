@@ -1,12 +1,12 @@
 # LLP 1089: Action composition
 
 **Type:** RFC
-**Status:** Accepted (r3, by the orchestrator under Charlie's delegation after three rounds; Grok 4.7 only — Codex budget exhausted). Each round was Grok 4.7 (xhigh). r1 had two scopes, semantics (`llp/reviews/1089-r1.grok-a.md`) and implementation (`llp/reviews/1089-r1.grok-b.md`); r2 had a delta review (`llp/reviews/1089-r2.grok.md`). All three were READY WITH CHANGES. r3 is the final edit, with no further round, and resolves every finding of r2. The `rules/DEFERRED.md` waiver is recorded by the orchestrator under Charlie's 2026-10-04 delegation ("make decisions without me").
+**Status:** Accepted (r3, by the orchestrator under Charlie's delegation after three rounds; Grok 4.7 only — Codex budget exhausted). Each round was Grok 4.7 (xhigh). r1 had two scopes, semantics (`llp/reviews/1089-r1.grok-a.md`) and implementation (`llp/reviews/1089-r1.grok-b.md`); r2 had a delta review (`llp/reviews/1089-r2.grok.md`). All three were READY WITH CHANGES. r3 is the final edit, with no further round, and resolves every finding of r2. The `rules/DEFERRED.md` waiver is recorded by the orchestrator under Charlie's 2026-10-04 delegation ("make decisions without me"). Stage 1 is built as of 2026-10-04 (§9, "As built").
 **Systems:** Contract compiler (`contract/{syntax,types,analyze,lower}`, `contract/cli/src/{lean.rs,symbols.rs}`), Lean semantics and difftest (`semantics/`), the JS target's conformance (`host/web-js/conformance`), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
 **Revised:** 2026-10-04 (r2, r3)
-**Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stage 1 on 2026-10-05 and stage 2 on 2026-10-05 (§5)
+**Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stage 1 built 2026-10-04 (planned 2026-10-05) and stage 2 on 2026-10-05 (§5)
 **Amends:** LLP 1017 §11 (the tail call becomes one case of a call); LLP 1006 §2 (statements); `rules/DEFERRED.md` **Actions**
 **Related:** LLP 1017 P4c and §11; LLP 1035.005.000 D1 (effects inferred) and D2 (`let`); LLP 1088 D8 (one send per path); LLP 1016 D5; diaries `~/projects/x2apps/{spreadsheet,files,mail}/DIARY.md`. Research only: LLP 0082 §Actions ("actions may call actions"), LLP 0481 §4.1 (effects compose through calls and callback values; call cycles are rejected from the call graph).
 
@@ -567,3 +567,61 @@ a branch from origin/main. Each commit passes the five checks.
   in `llp/reviews/1089-r1.grok-{a,b}.md`. The DEFERRED waiver is recorded
   in its own commit.
 - **r1** (2026-10-04): first draft.
+
+## 9. As built
+
+**Stage 1, 2026-10-04** (branch `fix/impl1089`). D1–D8 and D10 as decided,
+with these refinements:
+
+- **Three expansion steps** (`contract/syntax/src/inline/calls.rs`).
+  `expand_file` expands same-component calls before `check_children` and
+  again, as a no-op, inside expansion (D7.1). `resolve` expands prop and
+  inject calls after lifting (D7.2), at every position, a callee of the
+  same component's body included. `hygiene` renames each caller's own
+  parameters and binders apart (`@c{k}`, `@b{k}`, drawn in `tail.rs`'s
+  order) after `check_root`. The type pass therefore reads the author's
+  names, so `type-let-duplicate`, `type-let-shadow` and
+  `type-let-before-declaration` still speak in them in a calling action.
+  Each step draws its own letters (`@s`/`@v` before lifting, `@t`/`@u`
+  after), so no step's name spells another's.
+- **A call's body is closed over its caller's names.** Only the arguments,
+  and the parameters' `let`s that bind them, are the caller's expressions.
+  A substitution of the caller's scope stops at the `let`s, and lifting
+  carries the component's own names into the body.
+- **Captures are arguments.** A same-component call in a child passes the
+  instance's captures first and binds them again in the body, so `args` is
+  always the callee's whole parameter list (D9) and the body's leading
+  `let`s are always `args.len()`.
+- **`symbols`** reads each component with its own calls expanded for
+  `writes` (a prop or inject call writes another component's slots). A
+  statement call refers to its callee. The `Call` arm walks the arguments
+  only: an authored tree never holds one, and the body is the callee's own.
+- **D3's message.** For a write in a callee, the advice's line is that of
+  the call, the caller's own statement before which a `let` can stand.
+- **The bound** counts as specified. The first refusal in declaration order
+  is the first action to pass it.
+
+**Census** (`contract build`, base `423e4c4bc` and stage 1). All 33
+in-repo apps and all 32 `~/projects/x2apps` apps build on both, and D3
+refuses none. No in-repo app needed a fix. Same-frame reads after a write
+(§7.1): 85. That is 25 in 8 in-repo apps (messages 10, expose 5, realworld
+3, messages-legacy 2, markdown-stress 2, textflow, reflow and fieldnotes 1
+each) and 60 in 11 x2apps apps (files 15, studio 13, reader 11, spreadsheet
+5, feed 5, flashcards 3, shop, jukebox and calendar 2 each, habits and calc 1
+each). The count gates nothing.
+
+**Plans unchanged.** Byte-identical on base and stage 1: all 33 in-repo
+plans, `VIEWER` (its `dy@c1`) and the curried `note("ada")` fixture, and
+every x2apps plan.
+
+**Expanded sizes** (statement nodes): spreadsheet's largest action is
+`down` at 24 (25 with `commitEdit()`), and its 57 actions total 299 (58
+and 305 with `commitEdit`);
+files' largest is `listKey` at 74, total 372; mail's is `recipientKey` at
+26.
+
+**Driven.** A scratch copy of spreadsheet with "commit the edit" (`down`,
+`openSheet`) as `commitEdit()` passes its 15 web tests through
+`scripts/agent.mjs`, plus one that clicks another cell mid-edit (16 of 16).
+Files' `arrive(path)`, the rest of spreadsheet's copies and the macOS drive
+are the apps' own changes, outside this repo.

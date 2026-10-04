@@ -143,6 +143,14 @@ Sol (ultra) and Grok (xhigh) each saw r2 and the other's sub-LLP, answered §8's
 
 ## 11. The tail call (Charlie, 2026-10-03)
 
+*Amended by LLP 1089 (built 2026-10-04): the tail call is one case of a call,
+which may stand anywhere a statement may and may name an action of the same
+component or an injected action too. `inline/tail.rs` became
+`inline/calls.rs`, the `@check:` statement became `Stmt::Call`,
+`syntax-tail-cycle` and `syntax-tail-call` became `syntax-call-cycle` and
+`syntax-call-target`, and `tail_call.rs` became `calls.rs`. The text below is
+the 2026-10-03 rule.*
+
 P4c had child actions reach their parent only through `action` props bound
 to elements, so a child could not decide, in its own logic, to tell its
 parent. The Signal Clone's photo viewer is the consumer: a drag's release
