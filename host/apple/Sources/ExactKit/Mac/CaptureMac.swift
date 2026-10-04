@@ -1,13 +1,16 @@
-// The agent's default picture follows the same sibling order as input.
+// Agent and canvas pictures follow the same sibling order as input.
 // Copy the layer tree, never reorder the live views (Tab and AX tree order).
 #if os(macOS)
 import AppKit
 
 extension Capture {
-    static func paintOrderBitmap(of view: NSView) -> NSBitmapImageRep? {
+    static func paintOrderBitmap(of view: NSView, scale: CGFloat? = nil) -> NSBitmapImageRep? {
+        // A canvas overlay can be captured before AppKit has installed its
+        // inherited backing layer (its window need not have displayed yet).
+        view.wantsLayer = true
         view.layoutSubtreeIfNeeded()
         view.displayIfNeeded()
-        let scale = view.window?.backingScaleFactor ?? 2
+        let scale = scale ?? view.window?.backingScaleFactor ?? 2
         let width = Int((view.bounds.width * scale).rounded()), height = Int((view.bounds.height * scale).rounded())
         guard let root = view.layer, width > 0, height > 0,
               let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
