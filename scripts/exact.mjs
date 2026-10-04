@@ -390,10 +390,11 @@ export function sdkReport(env = process.env) {
   const rust = output('rustc', [`+${pin.channel}`, '--version']).split(' ')[1];
   rows.push(row('Rust', rust, pin.channel, rust === pin.channel, 'exact setup'));
   const nightlyRoot = output('rustc', [`+${WEB_TOOLCHAIN}`, '--print', 'sysroot']);
-  const nightlySrc = !!nightlyRoot && existsSync(resolve(nightlyRoot, 'lib/rustlib/src/rust/library/Cargo.toml'));
+  const nightly = !!nightlyRoot && existsSync(resolve(nightlyRoot, 'lib/rustlib/src/rust/library/Cargo.toml'));
+  rows.push(row('web nightly', nightlyRoot ? (nightly ? WEB_TOOLCHAIN : 'no rust-src') : '', `${WEB_TOOLCHAIN} + rust-src`, nightly, 'exact setup'));
+  // An app's web build makes its own std (-Zbuild-std); a GPU module's and a --wasm dev build use the prebuilt one.
   const nightlyWasm = !!nightlyRoot && existsSync(resolve(nightlyRoot, 'lib/rustlib/wasm32-unknown-unknown'));
-  const nightly = nightlySrc && nightlyWasm;
-  rows.push(row('web nightly', nightlyRoot ? (nightly ? WEB_TOOLCHAIN : !nightlySrc ? 'no rust-src' : 'no wasm32 target') : '', `${WEB_TOOLCHAIN} + rust-src + wasm32`, nightly, 'exact setup'));
+  rows.push(row('web nightly wasm32', nightlyWasm ? 'installed' : '', `${WEB_TOOLCHAIN} wasm32-unknown-unknown`, nightlyWasm, 'exact setup', 'GPU modules and --wasm builds'));
   const bun = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).packageManager.slice(4);
   rows.push(row('Bun', process.versions.bun, bun, process.versions.bun === bun, `use Bun ${bun} (README, Quick start)`));
   const bindgenHave = output('wasm-bindgen', ['--version']);
