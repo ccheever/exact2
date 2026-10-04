@@ -304,7 +304,8 @@ impl World {
             .register::<Ambient>()
             .register::<Follow>()
             .register::<Glow>()
-            .register::<Lit>();
+            .register::<Lit>()
+            .register::<crate::emitter::WorldSpace>();
     }
     /// Identity of this world instance, excluded from saves and hashes.
     pub fn id(&self) -> WorldId {

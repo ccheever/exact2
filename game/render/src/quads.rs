@@ -5,7 +5,7 @@ use crate::{
 };
 use exact_game::{asset::AlphaMode, Emitter, Entity, Sprite, Transform, Visible, World};
 use exact_gpu::wgpu;
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 use std::{collections::BTreeMap, ops::Range};
 
 #[derive(Clone, Copy)]
@@ -441,7 +441,9 @@ impl Quads {
                 crate::world::scene::interpolate(item.poses, f.alpha),
             );
             let e = &item.value;
+            // World-space particles are not near their emitter: never cull those.
             if cull
+                && e.origins.is_empty()
                 && !crate::cull::sphere_visible(&camera, t.w_axis.truncate(), emitter_reach(e, &t))
             {
                 // Skipped particles still charge the world budget in entity order.
@@ -453,12 +455,18 @@ impl Quads {
                     return;
                 }
                 left -= 1;
-                let position = t.transform_point3(p.position);
+                let (position, scale) = if p.world {
+                    (p.position, Vec2::ONE)
+                } else {
+                    let scale =
+                        Vec2::new(t.x_axis.truncate().length(), t.y_axis.truncate().length());
+                    (t.transform_point3(p.position), scale)
+                };
                 let index = self.particle_data.len();
                 self.particle_data.push(quad(
                     position,
-                    right * p.size * t.x_axis.truncate().length(),
-                    up * p.size * t.y_axis.truncate().length(),
+                    right * p.size * scale.x,
+                    up * p.size * scale.y,
                     p.color,
                     [0., 0., 1., 1.],
                     3.,

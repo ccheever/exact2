@@ -120,15 +120,26 @@ pub struct Emitter {
     pub running: bool,
     /// Saved emission history, independent of renderer residency.
     pub state: EmitterState,
+    /// With [`WorldSpace`]: each live birth batch's world pose at birth, by birth
+    /// tick. Presentation only, neither saved nor hashed: after a restore, batches
+    /// born before it draw from the emitter's current pose until they die.
+    #[data(skip)]
+    pub origins: Vec<(u64, crate::Affine3A)>,
 }
+/// Particles of this entity's [`Emitter`] stay where they were born instead of
+/// moving with it: a rocket's trail is one emitter.
+#[derive(Clone, Copy, Debug, Default, Component)]
+pub struct WorldSpace;
 impl Clone for Emitter {
     fn clone(&self) -> Self {
         Self {
             state: self.state.clone(),
+            origins: self.origins.clone(),
             ..*self
         }
     }
     fn clone_from(&mut self, source: &Self) {
+        self.origins.clone_from(&source.origins);
         self.shape = source.shape;
         self.rate = source.rate;
         self.lifetime = source.lifetime;
@@ -167,6 +178,7 @@ impl Default for Emitter {
             additive: true,
             running: true,
             state: EmitterState::default(),
+            origins: Vec::new(),
         }
     }
 }
@@ -264,6 +276,7 @@ impl Emitter {
             } else {
                 (t, 0.5 * t * t)
             };
+            let birth_pose = self.origins.iter().find(|(tick, _)| *tick == birth.tick);
             let u = self.ease.at((t / birth.lifetime).clamp(0., 1.));
             let size = math::lerp(self.size[0], self.size[1], u);
             let color = std::array::from_fn(|i| math::lerp(self.color[0][i], self.color[1][i], u));
@@ -296,10 +309,20 @@ impl Emitter {
                 let y = 1. - random() * (1. - spread_cos);
                 let r = math::sqrt((1. - y * y).max(0.));
                 let v = Vec3::new(r * math::cos(angle), y, r * math::sin(angle)) * self.speed;
-                visit(Particle {
-                    position: origin + v * travel + self.gravity * gravity,
-                    size,
-                    color,
+                let local = origin + v * travel + self.gravity * gravity;
+                visit(match birth_pose {
+                    Some((_, pose)) => Particle {
+                        position: pose.transform_point3(local),
+                        size,
+                        color,
+                        world: true,
+                    },
+                    None => Particle {
+                        position: local,
+                        size,
+                        color,
+                        world: false,
+                    },
                 });
             }
             remaining -= birth.count.min(remaining);
@@ -314,12 +337,14 @@ fn mix(mut n: u64) -> u64 {
 /// Unsaved output of deterministic derivation, consumed directly by the renderer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Particle {
-    /// Local position.
+    /// Local position, or a world position when `world`.
     pub position: Vec3,
     /// Quad diameter.
     pub size: f32,
     /// Linear straight RGBA.
     pub color: [f32; 4],
+    /// Born in world space ([`WorldSpace`]): `position` is not the emitter's.
+    pub world: bool,
 }
 /// Advance saved emitter state once from Game::tick, to choose its order; the
 /// simulation steps emitters after the tick otherwise, and never twice a tick.
@@ -349,6 +374,9 @@ pub fn step(w: &World) {
             (age.saturating_sub(1) - b.tick.min(age.saturating_sub(1))) as f64 / hz
                 < b.lifetime as f64
         });
+        let births = &e.state.births;
+        e.origins
+            .retain(|(tick, _)| births.iter().any(|b| b.tick == *tick));
         e.state.alive = e
             .state
             .births
@@ -381,6 +409,10 @@ pub fn step(w: &World) {
                 key: mix(e.seed).wrapping_add(state.stream),
                 lifetime: e.lifetime,
             });
+            if w.has::<WorldSpace>(entity) {
+                let pose = w.global(entity).unwrap_or(crate::Affine3A::IDENTITY);
+                e.origins.push((state.age, pose));
+            }
         }
         state.stream = state.stream.wrapping_add(u64::from(wanted) * 8);
         state.alive += count;

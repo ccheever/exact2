@@ -169,7 +169,12 @@ unnecessary.
 the saved local transform. `animation::socket(w, target, joint)` reads the current
 world-space tick endpoint; displayed attachments use the interpolated local chain.
 
-Emitters form local clouds: moving the emitter moves particles already born.
+Emitters form local clouds: moving the emitter moves particles already born. Add
+`emitter::WorldSpace` beside an `Emitter` and each birth batch stays where it was
+born instead (a rocket's trail is one emitter). Those birth poses are
+presentation, not saved or hashed: after a restore, batches born before it draw
+from the emitter's current pose until they die. `Shape::Box(size)` emits over an
+area (rain, snow).
 For sound, `w.sounds([..])` registers synthesized (`Synth`) or sampled (`Sample`)
 definitions in setup; a sample names a `.sound` asset declared in `Game::ASSETS`, and
 registration saves its frames, rate and channels. `w.play("chime").start()` creates
