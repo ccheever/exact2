@@ -39,6 +39,15 @@ impl World {
     pub fn seed(&self) -> u64 {
         self.state.seed
     }
+    /// A random stream for presentation only (`Game::present`), seeded from the
+    /// tick and `salt`: the same each time a boundary is presented, and never
+    /// drawn from the world's stream, so visuals cannot change the simulation.
+    pub fn presentation_rng(&self, salt: u64) -> Rng {
+        let mut n = self.tick() ^ salt.rotate_left(29) ^ 0x6a09_e667_f3bc_c908;
+        n = (n ^ (n >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        n = (n ^ (n >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        Rng::new(n ^ (n >> 31))
+    }
     /// Restart the world's random stream from an explicit game argument.
     pub fn reseed(&mut self, seed: u64) {
         self.state.seed = seed;
@@ -58,8 +67,9 @@ impl World {
             && self.state.busy.borrow().is_empty()
             && !self
                 .components
-                .values()
-                .map(|s| (s, self.storage::<crate::Ambient>()))
+                .iter()
+                .filter(|(name, _)| !self.registry[*name].presentation)
+                .map(|(_, s)| (s, self.storage::<crate::Ambient>()))
                 .chain(
                     self.resources
                         .iter()
@@ -81,6 +91,9 @@ impl World {
             Vec::new()
         };
         for (&name, storage) in &self.components {
+            if self.registry[name].presentation {
+                continue;
+            }
             if reasons.len() == 8 {
                 break;
             }
@@ -131,8 +144,9 @@ impl World {
             return None;
         }
         self.components
-            .values()
-            .map(|s| (s, self.storage::<crate::Ambient>()))
+            .iter()
+            .filter(|(name, _)| !self.registry[*name].presentation)
+            .map(|(_, s)| (s, self.storage::<crate::Ambient>()))
             .chain(
                 self.resources
                     .iter()

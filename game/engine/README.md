@@ -230,6 +230,13 @@ what changed rather than the world (0.1 ms at 216k entities, against ~90 ms).
 The hash is a stream over page digests in type-name and page order; it is the
 same on every host and for a world freshly loaded from the same save.
 
+Visual-only state belongs in `#[derive(Presentation)]` components: they are never
+saved, hashed or observed for rest, so a bob, a flash or a sway phase cannot move a
+pin. `Game::present(w, args)` writes them at every tick boundary (after each tick,
+after setup and after a restore, so a restored world presents the same frame), drawing
+randomness from `w.presentation_rng(salt)`, a stream seeded from the tick and never
+the world's. It may not spawn or despawn; the simulation never reads them back.
+
 Mark cosmetic entities `Ambient`. Declare `ambient_resource::<T>()` and
 `derived_publication(name)` in setup/register when appropriate; these policies
 survive load and must be present in each fresh game. Ambient data still saves and

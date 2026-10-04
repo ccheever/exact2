@@ -54,6 +54,12 @@ pub trait Game: 'static {
     }
     /// One fixed step, called after inputs and before transform propagation.
     fn tick(world: &mut World, input: &Input, args: &Self::Args);
+    /// Rebuild presentation-only state (`#[derive(Presentation)]` components) from
+    /// the simulation at each tick boundary: after every tick, after setup and after
+    /// a restore. Nothing written here is saved or hashed, so visual-only changes
+    /// never move a pin; draw randomness from `world.presentation_rng(salt)`, never
+    /// the world's. It may not spawn or despawn: entities are simulation state.
+    fn present(_world: &mut World, _args: &Self::Args) {}
     /// Fixed steps per second.
     const HZ: u32 = 60;
 }
@@ -258,7 +264,18 @@ impl<G: Game> Sim<G> {
         crate::scene::place_followers(&world);
         world.published_pending.set(true);
         world.propagate();
+        Self::present(&mut world, args);
         world
+    }
+    // Presentation runs at a tick boundary and must leave the entity table alone.
+    pub(crate) fn present(world: &mut World, args: &G::Args) {
+        let entities = world.entities_revision();
+        G::present(world, args);
+        assert_eq!(
+            entities,
+            world.entities_revision(),
+            "Game::present spawned or despawned an entity; entities are simulation state, so spawn them in setup or tick"
+        );
     }
     /// Whether setup is waiting for declared model bytes.
     pub fn is_loading(&self) -> bool {
@@ -1083,6 +1100,7 @@ impl<G: Game> Sim<G> {
             self.world.reap_orphans();
             self.world.propagate();
             self.world.step_clock();
+            Self::present(&mut self.world, &self.args);
             // Paranoid modes round-trip at every point an advance can be observed
             // (its last tick), at every tick that received input, and every
             // PARANOID_EVERY-th tick inside an advance.
