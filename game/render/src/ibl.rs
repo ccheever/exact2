@@ -344,7 +344,11 @@ impl EnvironmentLight {
 
     /// Render the pending prefilter: one small pass per face and mip, and an
     /// authored map's SH projection.
-    pub fn encode(&mut self, encoder: &mut wgpu::CommandEncoder) {
+    pub fn encode(
+        &mut self,
+        encoder: &mut wgpu::CommandEncoder,
+        timestamps: Option<&wgpu::QuerySet>,
+    ) -> bool {
         if std::mem::take(&mut self.sh_pending) {
             let mut pass = encoder.begin_compute_pass(&Default::default());
             pass.set_pipeline(self.sh_pipeline.as_ref().unwrap());
@@ -352,9 +356,12 @@ impl EnvironmentLight {
             pass.dispatch_workgroups(1, 1, 1);
         }
         if !std::mem::take(&mut self.pending) {
-            return;
+            return false;
         }
+        let last = self.faces.len() - 1;
         for (i, face) in self.faces.iter().enumerate() {
+            let timestamp_writes =
+                crate::timing::span(timestamps, crate::timing::ENVIRONMENT, i == 0, i == last);
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("game environment prefilter"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -367,7 +374,7 @@ impl EnvironmentLight {
                     },
                 })],
                 depth_stencil_attachment: None,
-                timestamp_writes: None,
+                timestamp_writes,
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
@@ -376,6 +383,7 @@ impl EnvironmentLight {
             pass.draw(0..3, 0..1);
         }
         self.updates += 1;
+        timestamps.is_some()
     }
 }
 
@@ -707,7 +715,7 @@ mod tests {
         let mut light = EnvironmentLight::new(&gpu.device, directions);
         light.prepare(&gpu.device, &gpu.queue, e, None);
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
-        light.encode(&mut encoder);
+        light.encode(&mut encoder, None);
         gpu.queue.submit([encoder.finish()]);
         light
     }
@@ -883,7 +891,7 @@ mod tests {
             Some(source()),
         );
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
-        light.encode(&mut encoder);
+        light.encode(&mut encoder, None);
         gpu.queue.submit([encoder.finish()]);
         assert!(light.mapped());
         let up = sample(&gpu, &light, 0., &[Vec3::Y, -Vec3::Y]);
@@ -908,7 +916,7 @@ mod tests {
         };
         light.prepare(&gpu.device, &gpu.queue, &sky, Some(source()));
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
-        light.encode(&mut encoder);
+        light.encode(&mut encoder, None);
         gpu.queue.submit([encoder.finish()]);
         assert_eq!(light.updates, updates);
         // An animated intensity scales at sample time: nothing is filtered again.
@@ -922,7 +930,7 @@ mod tests {
             }),
         );
         let mut encoder = gpu.device.create_command_encoder(&Default::default());
-        light.encode(&mut encoder);
+        light.encode(&mut encoder, None);
         gpu.queue.submit([encoder.finish()]);
         assert_eq!((light.updates, light.ambient_scale()), (updates, 2.5));
         // Removing it returns to the procedural sky.
@@ -939,7 +947,7 @@ mod tests {
         let step = |light: &mut EnvironmentLight, e: &Environment| {
             light.prepare(&gpu.device, &gpu.queue, e, None);
             let mut encoder = gpu.device.create_command_encoder(&Default::default());
-            light.encode(&mut encoder);
+            light.encode(&mut encoder, None);
             gpu.queue.submit([encoder.finish()]);
             light.updates
         };

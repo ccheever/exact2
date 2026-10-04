@@ -61,7 +61,8 @@ pub struct WorldSurface<
     hook_poses: crate::hooks::Poses,
     gpu_timing: Option<crate::hooks::gpu_timing::GpuTiming>,
     /// What the last `render` encoded, for timing once the module submits it.
-    encoded: Option<(crate::Needs, bool, (u32, bool))>,
+    // The timestamp pairs the last encoded frame wrote, until it is submitted.
+    encoded: Option<u64>,
     render: Option<(crate::renderer::RendererWithAssets<ASSETS>, Feed)>,
     format: Option<wgpu::TextureFormat>,
     payloads: textures::Payloads,

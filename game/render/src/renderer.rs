@@ -57,6 +57,9 @@ pub struct RendererWithAssets<const ASSETS: bool> {
     pub(crate) cull: crate::cull::Cull,
     pub(crate) environment: crate::ibl::EnvironmentLight,
     pub(crate) lights: crate::lights::Lights,
+    /// Timestamp pairs this frame wrote (`timing::GPU_PASS_NAMES` bits), so a
+    /// readback never reports a pass that did not run.
+    pub(crate) timed: std::cell::Cell<u64>,
     pub(crate) local: Option<crate::local_shadows::LocalMaps>,
     pub(crate) local_plan: crate::local_shadows::Plan,
     pub(crate) local_culls: Vec<local::LocalCull>,
@@ -252,6 +255,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             cull,
             environment,
             lights,
+            timed: std::cell::Cell::new(0),
             local: None,
             local_plan: Default::default(),
             local_culls: Vec::new(),
@@ -663,6 +667,10 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
     }
 
+    /// Record that this frame wrote timestamp pair `pair`.
+    pub(crate) fn mark(&self, pair: u32) {
+        self.timed.set(self.timed.get() | 1 << pair);
+    }
     pub(crate) fn rebind(&mut self) {
         self.scene_binds = scene_binds(
             &self.device,

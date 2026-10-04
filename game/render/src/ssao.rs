@@ -157,6 +157,7 @@ impl Ssao {
         color: &wgpu::TextureView,
         size: (u32, u32),
         split: f32,
+        timestamps: Option<&wgpu::QuerySet>,
     ) {
         let mut words = [0f32; 40];
         words[..16].copy_from_slice(&frame.proj.inverse().to_cols_array());
@@ -169,7 +170,7 @@ impl Ssao {
         ]);
         words[36] = split;
         queue.write_buffer(&self.uniform, 0, bytes(&words));
-        for (view, pipeline, bind, load) in [
+        for (i, (view, pipeline, bind, load)) in [
             (
                 &self.occlusion,
                 &self.ao,
@@ -177,7 +178,10 @@ impl Ssao {
                 wgpu::LoadOp::Clear(wgpu::Color::WHITE),
             ),
             (color, &self.apply, &self.apply_bind, wgpu::LoadOp::Load),
-        ] {
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("game SSAO"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -190,7 +194,12 @@ impl Ssao {
                     },
                 })],
                 depth_stencil_attachment: None,
-                timestamp_writes: None,
+                timestamp_writes: crate::timing::span(
+                    timestamps,
+                    crate::timing::SSAO,
+                    i == 0,
+                    i == 1,
+                ),
                 occlusion_query_set: None,
                 multiview_mask: None,
             });

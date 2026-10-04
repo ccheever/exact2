@@ -365,9 +365,13 @@ impl Skinning {
         }
         self.poses.write(queue, 0, bytes(&self.pose_words));
     }
-    pub fn encode(&self, encoder: &mut wgpu::CommandEncoder, timestamps: Option<&wgpu::QuerySet>) {
+    pub fn encode(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        timestamps: Option<&wgpu::QuerySet>,
+    ) -> bool {
         if self.records.is_empty() {
-            return;
+            return false;
         }
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("game skin local interpolation"),
@@ -380,6 +384,7 @@ impl Skinning {
         pass.set_pipeline(self.pipeline.as_ref().unwrap());
         pass.set_bind_group(0, self.bind.as_ref().unwrap(), &[]);
         pass.dispatch_workgroups(self.records.len() as u32, 1, 1);
+        true
     }
 }
 

@@ -485,9 +485,9 @@ impl Cull {
         encoder: &mut wgpu::CommandEncoder,
         current: usize,
         timestamps: Option<&wgpu::QuerySet>,
-    ) {
+    ) -> bool {
         if self.groups.is_empty() || self.direct {
-            return;
+            return false;
         }
         let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
             label: Some("game cull"),
@@ -508,6 +508,7 @@ impl Cull {
         pass.dispatch_workgroups(groups.0, groups.1, 1);
         pass.set_pipeline(&self.scatter);
         pass.dispatch_workgroups(chunks.0, chunks.1, 1);
+        true
     }
 }
 

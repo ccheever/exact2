@@ -417,3 +417,71 @@ fn particles_stretch_along_their_motion_and_flip_through_an_atlas() {
     assert!(early[0] > 150 && early[1] < 40, "frame 0 red: {early:?}");
     assert!(late[1] > 150 && late[0] < 40, "frame 1 green: {late:?}");
 }
+
+struct Timed;
+impl Game for Timed {
+    const ID: &'static str = "look-timed";
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        w.insert_resource(AmbientOcclusion::default());
+        w.spawn((
+            Transform::at(0., 3., 6.).looking_at(Vec3::ZERO, Vec3::Y),
+            Camera::default(),
+        ));
+        w.spawn((Transform::default(), Mesh::plane(20., 20.)));
+        w.spawn((Transform::at(0., 0.5, 0.), Mesh::cube(1.)));
+        w.spawn((
+            Transform::at(5., 10., 5.).looking_at(Vec3::ZERO, Vec3::Y),
+            DirectionalLight::default(),
+        ));
+        w.spawn((
+            Transform::at(0., 4., 0.).looking_at(Vec3::ZERO, Vec3::Z),
+            SpotLight::default(),
+            LightShadows,
+        ));
+        w.spawn((Transform::at(0., 1., 0.), Emitter::sparks()));
+    }
+    fn tick(w: &mut World, _: &Input, _: &()) {
+        emitter::step(w);
+    }
+}
+
+#[test]
+fn every_pass_reports_gpu_time() {
+    let Some(gpu) = gpu() else { return };
+    if !gpu
+        .device
+        .features()
+        .contains(exact_gpu::wgpu::Features::TIMESTAMP_QUERY)
+    {
+        eprintln!("SKIP: no TIMESTAMP_QUERY");
+        return;
+    }
+    let mut s = WorldSurface::<Timed>::default();
+    s.bind(&[], None).unwrap();
+    s.agent(r#"{"op":"state","perf":true}"#);
+    // The agent's virtual clock (seekable frames) times passes too.
+    let mut f = frame();
+    for _ in 0..12 {
+        f.now_ms += 16.;
+        fixture::render(&gpu, &mut s, &f).unwrap();
+    }
+    let state = s.agent(r#"{"op":"state"}"#).unwrap();
+    let gpu_ms = &state[state.find("\"gpuMs\"").expect("gpuMs")..];
+    eprintln!("{}", &gpu_ms[..gpu_ms.len().min(3000)]);
+    for pass in [
+        "forward + sky",
+        "shadow 0",
+        "local shadows",
+        "ssao",
+        "bloom",
+        "tonemap",
+        "cull",
+    ] {
+        let at = gpu_ms
+            .find(&format!("\"{pass}\":{{"))
+            .unwrap_or_else(|| panic!("{pass} missing"));
+        let ring = &gpu_ms[at..at + gpu_ms[at..].find('}').unwrap()];
+        assert!(!ring.contains("\"count\":0"), "{pass} untimed: {ring}");
+    }
+}

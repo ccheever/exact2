@@ -350,8 +350,14 @@ feed, encode (frame input through submit) and ticks/frame distributions. CPU sam
 rings retain 16,384 values. Seekable renders, agent advances and timed binds make
 no perf clock calls; samples do not enter hashes. Armed perf also reads back, a few
 frames late and asynchronously, `perf.culled` (instances each view drew: `camera`,
-`shadows[0..3]`) and, where timestamps are granted, `world.gpuMs` rings per pass
-(forward, the cascades, `cull`, hook stages). Arming allocates the query set and
+`shadows[0..3]`) and, where timestamps are granted, `world.gpuMs` rings for every
+pass by `GPU_PASS_NAMES`: forward, the cascades, local shadows, `cull`, skin palettes,
+the environment prefilter, SSAO, each bloom level (and `bloom`, first start to last
+end), tonemap, depth resolves and hook stages; the translucent run (particles,
+blended models) and inside-pass hook stages where the device times inside passes.
+A pass the frame did not run is not read. GPU timings also fill under the agent's
+virtual clock (seekable frames), so `state world perf:true` then `clock +ms` times
+an offscreen frame there; CPU frame rings stay live-only. Arming allocates the query set and
 readback buffers; an unarmed canvas creates none. GPU intervals overlap; do not sum
 them. The allocation-free claim covers
 only the `steady_sim_feed_and_frame_inputs_allocate_nothing` moving-cube/camera/light

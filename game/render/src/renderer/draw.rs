@@ -73,6 +73,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         time: crate::HookTime,
         poses: &crate::hooks::Poses,
     ) -> Result<Stats, RenderError> {
+        self.timed.set(0);
         if H::ENABLED && self.hook_metrics.is_none() {
             self.hook_metrics = Some(Box::default());
         }
@@ -161,14 +162,18 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             times,
             draws: 0,
         };
-        self.environment.encode(encoder);
+        if self.environment.encode(encoder, frame.timestamps) {
+            self.mark(timing::ENVIRONMENT);
+        }
         if self.environment.mapped() {
             // The GPU-projected SH replaces the uniform's CPU irradiance.
             encoder.copy_buffer_to_buffer(&self.environment.sh, 0, &self.uniform, 144 * 4, 144);
         }
         if ASSETS {
             if let Some(skin) = &self.models.skinning {
-                skin.encode(encoder, frame.timestamps);
+                if skin.encode(encoder, frame.timestamps) && frame.timestamps.is_some() {
+                    self.mark(16);
+                }
             }
         }
         if H::ENABLED {
@@ -177,13 +182,17 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             hooks
                 .compute(encoder, &view)
                 .map_err(|e| hook_error("compute", e))?;
-            timing::encoder_stamp(&self.device, encoder, frame.timestamps, 17, true);
+            if timing::encoder_stamp(&self.device, encoder, frame.timestamps, 17, true) {
+                self.mark(17);
+            }
             state.times[1] = start.map(|s| s.elapsed());
         }
-        self.cull.encode(encoder, self.current, frame.timestamps);
+        if self.cull.encode(encoder, self.current, frame.timestamps) && frame.timestamps.is_some() {
+            self.mark(timing::CULL);
+        }
         self.encode_local_culls(encoder);
         state.draws += self.encode_shadows(encoder, frame, hooks.materials());
-        state.draws += self.encode_local_shadows(encoder, hooks.materials());
+        state.draws += self.encode_local_shadows(encoder, hooks.materials(), frame.timestamps);
         self.encode_forward(encoder, &mut state, frame, hooks, &view)?;
         if scene_copy {
             self.encode_surface(encoder, &mut state, frame, hooks, &view)?;
@@ -193,6 +202,9 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 self.ssao = Some(crate::ssao::Ssao::new(&self.device, &self.targets));
                 self.texture_creations += 1;
             }
+            if frame.timestamps.is_some() {
+                self.mark(timing::SSAO);
+            }
             self.ssao.as_ref().unwrap().encode(
                 &self.queue,
                 encoder,
@@ -201,6 +213,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 &self.targets.resolved,
                 size,
                 self.depth_split(),
+                frame.timestamps,
             );
             state.draws += 2;
         } else {
