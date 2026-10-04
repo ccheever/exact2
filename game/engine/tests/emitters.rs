@@ -224,3 +224,38 @@ fn a_parented_world_space_emitter_is_born_at_its_current_pose_and_scale() {
         assert!((p.size - 0.3).abs() < 1e-5, "{p:?}");
     }
 }
+
+#[test]
+fn untrusted_world_space_origins_are_checked_and_orphans_dropped() {
+    let mut a = Sim::<Trail<true>>::new(()).unwrap();
+    a.run(250.);
+    let edit = |change: fn(&mut emitter::WorldSpace)| {
+        let mut w = World::new(60, 1);
+        w.register::<Emitter>();
+        w.load(&a.world().save()).unwrap();
+        let e = w.named("rocket").unwrap();
+        change(&mut w.get_mut::<emitter::WorldSpace>(e).unwrap());
+        w.save()
+    };
+    let bad = edit(|s| s.origins[0].pose[0] = f32::NAN);
+    let mut b = World::new(60, 1);
+    b.register::<Emitter>();
+    let error = b.load(&bad).unwrap_err().to_string();
+    assert!(error.contains("not finite"), "{error}");
+    // An orphan and a duplicate are trimmed to one origin per live batch.
+    let noisy = edit(|s| {
+        let first = s.origins[0];
+        s.origins.push(first);
+        s.origins.push(emitter::Origin {
+            tick: 99_999,
+            ..first
+        });
+    });
+    let mut c = World::new(60, 1);
+    c.register::<Emitter>();
+    c.load(&noisy).unwrap();
+    let rocket = c.named("rocket").unwrap();
+    let live = c.require::<Emitter>(rocket).state.births.len();
+    assert_eq!(c.require::<emitter::WorldSpace>(rocket).origins.len(), live);
+    assert_eq!(c.require::<Emitter>(rocket).origins.len(), live);
+}

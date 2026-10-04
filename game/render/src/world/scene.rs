@@ -560,17 +560,30 @@ struct Owner {
     // First valid follower this feed; emits the owner override in item order.
     first_attachment: Option<u32>,
     chain: Vec<History>,
+    // The owner's presentation Offset: its socketed props move with it.
+    offset: History,
+}
+/// An entity's presentation offset, or the identity.
+fn offset_of(w: &World, e: Entity) -> Transform {
+    w.get::<exact_game::Offset>(e)
+        .map_or_else(Transform::default, |o| o.0)
 }
 impl Owner {
     fn new(w: &World, entity: Entity) -> Self {
         let mut owner = Self {
             first_attachment: None,
             chain: Vec::new(),
+            offset: History::new(entity, offset_of(w, entity)),
         };
         owner.update(w, entity, false, true);
         owner
     }
     fn update(&mut self, w: &World, entity: Entity, next_tick: bool, parent_changed: bool) {
+        self.offset.update_to(
+            offset_of(w, entity),
+            next_tick,
+            snap(w, entity, parent_changed),
+        );
         // Keep leaf-to-root history in place; ancestor edits snap the changed chain.
         let mut at = entity;
         let mut length = 0;
@@ -638,6 +651,8 @@ struct Attachment {
     owner: Entity,
     chain: Vec<[Transform; 2]>,
     offset: Transform,
+    // The follower's own presentation Offset, after the socket's.
+    drawn: History,
     model_digest: u64,
 }
 #[derive(Default)]
@@ -752,6 +767,7 @@ impl Attachments {
                         owner: target,
                         chain: vec![],
                         offset: follow.offset,
+                        drawn: History::new(e, offset_of(w, e)),
                         model_digest: self
                             .model_digests
                             .get(name)
@@ -763,6 +779,8 @@ impl Attachments {
             let item = &mut self.items[at];
             item.history
                 .update_to(home, next_tick, snap(w, e, parent_changed));
+            item.drawn
+                .update_to(offset_of(w, e), next_tick, snap(w, e, parent_changed));
             self.owners
                 .entry(target)
                 .or_insert_with(|| Owner::new(w, target))
@@ -831,9 +849,10 @@ impl Attachments {
         item.chain.iter().fold(owner, |m, pair| {
             m * crate::skinning::interpolated_local(*pair, alpha)
         }) * matrix(item.offset)
+            * matrix(item.drawn.at(alpha))
     }
     fn owner_matrix(&self, owner: &Owner, alpha: f32, remaining: usize) -> Mat4 {
-        owner.chain.iter().rev().fold(Mat4::IDENTITY, |m, h| {
+        let chain = owner.chain.iter().rev().fold(Mat4::IDENTITY, |m, h| {
             self.items
                 .binary_search_by_key(&h.entity, |v| v.history.entity)
                 .ok()
@@ -841,7 +860,18 @@ impl Attachments {
                     || m * matrix(h.at(alpha)),
                     |i| self.matrix(i, alpha, remaining - 1),
                 )
-        })
+        });
+        // An owner that is itself a follower already carries its offset.
+        let follower = owner.chain.first().is_some_and(|leaf| {
+            self.items
+                .binary_search_by_key(&leaf.entity, |v| v.history.entity)
+                .is_ok()
+        });
+        if follower {
+            chain
+        } else {
+            chain * matrix(owner.offset.at(alpha))
+        }
     }
     pub fn frame(&mut self, alpha: f32) {
         self.output.clear();

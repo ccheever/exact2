@@ -591,9 +591,11 @@ pub struct ModelLod {
 }
 
 /// A drawn-only pose change: the renderer draws this entity at its pose times
-/// the offset (its children keep their own poses). Presentation state, written by
-/// `Game::present`: a bob, a recoil kick or a sway that never moves the
-/// simulation, its saves or its hash.
+/// the offset. Parented children keep their own poses (offset each one that
+/// should move); props on a rigged entity's sockets do follow its offset.
+/// Picking, layout and physics use the simulated pose, never the offset.
+/// Presentation state, written by `Game::present`: a bob, a recoil kick or a
+/// sway that never moves the simulation, its saves or its hash.
 #[derive(Clone, Copy, Debug, Default, PartialEq, crate::Presentation)]
 pub struct Offset(pub Transform);
 
