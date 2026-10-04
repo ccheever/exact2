@@ -11,6 +11,7 @@ import {closeFilesystemReader, filesystem, filesystemErrorCode} from './filesyst
 import {Cdp, chromium, closeWindowsBrowser, retainCleanupError, packagedBuildChanges, removeBrowserProfile} from './agent-launch.mjs';
 import {browserKey, open} from './agent.mjs';
 import {cdpKey, deliverClipboard, pasteChord, withHeldModifiers} from './agent-keys.mjs';
+import {focusForKey, playwrightPointer, withHeldKeys} from './agent-playwright.mjs';
 import {runCaps} from './caps.mjs';
 import {binaryenArchive, binaryenVersion} from './exact.mjs';
 import {listPublicFiles, publicFileCards, readStaticFile, readStaticFileAsync, staticFile} from '../host/web/serve.mjs';
@@ -394,6 +395,47 @@ test('paste sends the platform chord and a prevented keydown skips the clipboard
     call:async (_method, args) => { released.push(args.type); if (args.type === 'keyDown') throw new Error('down failed'); },
   }), /down failed/);
   expect(released).toEqual(['keyDown']);
+});
+
+test('a firefox or webkit drag is the mouse, a click keeps its modifiers, and an unfocusable key still presses', async () => {
+  const moves = [], waits = [];
+  let down = 0, up = 0;
+  const pointer = playwrightPointer({
+    name: 'firefox',
+    move: async (x, y) => { moves.push([x, y]); },
+    down: async () => { down++; },
+    up: async () => { up++; },
+    wait: async (ms) => { waits.push(ms); },
+  });
+  await assert.rejects(pointer('down', {}, { x: 1, y: 2 }), /firefox down unsupported: Playwright cannot produce trusted phased touches/);
+  expect(down).toBe(0);
+  expect(await pointer('down', { id: 4, mouse: true, x: 10, y: 20 }, { x: 0, y: 0 })).toMatchObject({ phase: 'down', at: [10, 20], delivery: 'platform', pointer: 'mouse', contact: 4 });
+  expect(await pointer('move', { dx: 32, dy: 0, ms: 32 }, {})).toMatchObject({ phase: 'move', at: [42, 20] });
+  expect(moves).toEqual([[10, 20], [26, 20], [42, 20]]);
+  expect(waits).toEqual([16, 16]);
+  waits.length = 0;
+  expect(await pointer('hold', { ms: 50, virtual: true }, {})).toMatchObject({ phase: 'hold', at: [42, 20] });
+  expect(waits).toEqual([]);
+  expect(await pointer('hold', { ms: 40 }, {})).toMatchObject({ phase: 'hold' });
+  expect(waits).toEqual([40]);
+  expect(await pointer('cancel', {}, {})).toMatchObject({ phase: 'cancel', at: [42, 20], delivery: 'platform' });
+  expect(up).toBe(1);
+  await assert.rejects(pointer('up', {}, {}), /firefox up unsupported/);
+
+  const keys = [];
+  const keyboard = { down: async (k) => { keys.push(['down', k]); }, up: async (k) => { keys.push(['up', k]); } };
+  await withHeldKeys(keyboard, 'Shift+Meta', async () => { keys.push('act'); });
+  expect(keys).toEqual([['down', 'Shift'], ['down', 'Meta'], 'act', ['up', 'Meta'], ['up', 'Shift']]);
+  keys.length = 0;
+  await assert.rejects(withHeldKeys(keyboard, 'Shift', async () => { throw new Error('click failed'); }), /click failed/);
+  expect(keys).toEqual([['down', 'Shift'], ['up', 'Shift']]);
+  keys.length = 0;
+  await withHeldKeys(keyboard, '', async () => { keys.push('plain'); });
+  expect(keys).toEqual(['plain']);
+
+  await focusForKey(1, false, async () => ({ ok: false }));
+  await assert.rejects(focusForKey(1, true, async () => ({ ok: false })), /view 1 could not take focus/);
+  await focusForKey(1, true, async () => ({ ok: true }));
 });
 
 test('trusted browser modifier events retain both sides and reach following keys and pointers', async () => {

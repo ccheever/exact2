@@ -123,6 +123,68 @@ const chordKeys = (chord) => {
   return [...held, keyName(rest)];
 };
 
+/** Hold a chord (`Shift`, `Shift+Meta`) around `act` and release it in
+ * reverse, including when `act` throws. Playwright's mouse has no modifier
+ * field; the keys are what make `shiftKey` true (drums R13). */
+export async function withHeldKeys(keyboard, held, act) {
+  const names = String(held ?? '').split('+').filter(Boolean);
+  for (const key of names) await keyboard.down(key);
+  try { return await act(); }
+  finally { for (const key of [...names].reverse()) await keyboard.up(key).catch(() => {}); }
+}
+
+/** A key focuses its target when the target can take it. A button, a link, a
+ * world and a held key require that (Chrome's `browserKey` throws otherwise).
+ * Any other key leaves the focus where it is and still presses
+ * (drums R13; docs/contract-for-agents.md). */
+export async function focusForKey(id, required, focus) {
+  const result = await focus(id);
+  if (required && !result?.ok) throw new Error(result?.error ?? `view ${id} could not take focus`);
+}
+
+/** Mouse phases. `mouse` is named on down only; later phases keep that button.
+ * A touch phase is refused: Playwright has no trusted touch stream, and a
+ * synthetic one is not the same input (drums R13). */
+export function playwrightPointer({ name, move, down, up, wait }) {
+  let contact = null;
+  const refused = (kind) => new Error(`${name} ${kind} unsupported: Playwright cannot produce trusted phased touches; synthetic dispatchEvent input is not equal input`);
+  const phase = async (kind, opts, point) => {
+    const mouse = kind === 'down' ? !!opts.mouse : !!contact;
+    if (!mouse) throw refused(kind);
+    if (kind === 'down') {
+      if (contact) throw new Error('a contact is already down; use `tap up` first');
+      const px = opts.x ?? point?.x, py = opts.y ?? point?.y;
+      await move(px, py);
+      await down();
+      contact = { x: px, y: py };
+      return { contact: opts.id, phase: 'down', at: [px, py], delivery: 'platform', pointer: 'mouse' };
+    }
+    if (!contact) throw new Error('no contact is down');
+    if (kind === 'move') {
+      const to = { x: opts.x ?? contact.x + (opts.dx ?? 0), y: opts.y ?? contact.y + (opts.dy ?? 0) };
+      const ms = Math.max(0, opts.ms ?? 0), steps = Math.max(1, Math.round(ms / 16));
+      for (let i = 1; i <= steps; i++) {
+        const t = i / steps;
+        await move(contact.x + (to.x - contact.x) * t, contact.y + (to.y - contact.y) * t);
+        if (ms && !opts.virtual) await wait(ms / steps);
+      }
+      contact = to;
+      return { phase: 'move', at: [to.x, to.y], delivery: 'platform' };
+    }
+    if (kind === 'hold') {
+      if (opts.ms && !opts.virtual) await wait(opts.ms);
+      return { phase: 'hold', at: [contact.x, contact.y], delivery: 'platform' };
+    }
+    // A mouse has no cancel: the button comes up where it is.
+    const at = [contact.x, contact.y];
+    await up();
+    contact = null;
+    return { phase: kind, at, delivery: 'platform' };
+  };
+  phase.release = async () => { if (!contact) return; await up().catch(() => {}); contact = null; };
+  return phase;
+}
+
 /** Open Firefox or WebKit through Playwright. The page still owns Exact's
  * deterministic runner/motion clock; Playwright carries only browser IO. */
 export async function openPlaywrightWeb({ browser: name, plan, world, size, url: pageURL, app, webDist, onProcess, reuse, storage, facts: givenFacts }) {
@@ -195,19 +257,16 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       if (r.error) throw new Error(r.error);
       return r;
     };
-    const directFocus = async id => {
-      const result = await page.evaluate(id => {
-        const el = globalThis.exact.views.get(id);
-        el?.focus();
-        return { ok: document.activeElement === el };
-      }, id);
-      if (!result.ok) throw new Error(`view ${id} could not take focus`);
-    };
-    const browserKey = async (id, opts) => {
+    const directFocus = (id, required) => focusForKey(id, required, view => page.evaluate(view => {
+      const el = globalThis.exact.views.get(view);
+      el?.focus();
+      return { ok: document.activeElement === el };
+    }, view));
+    const browserKey = async (id, opts, requireFocus) => {
       if (opts.phase != null && !['down', 'up'].includes(opts.phase)) throw new Error(`key: not a phase: ${opts.phase}`);
       const isWorld = await page.evaluate(id => globalThis.exact.gpu?.wantsInput(id) ?? false, id);
       if (isWorld) { const r = await ask({ op: 'focus', id, world: true }); if (r.error || !r.ok) throw new Error(r.error ?? `view ${id} could not take focus`); }
-      else await directFocus(id);
+      else await directFocus(id, requireFocus);
       const keys = chordKeys(opts.key), reply = phase => ({ typed: id, key: opts.key, ...(phase != null ? { phase } : {}), delivery: 'platform' });
       const up = async () => { for (const key of [...keys].reverse()) await page.keyboard.up(key); };
       const release = async () => { await up(); heldKeys.delete(opts.key); await frame(); return reply('up'); };
@@ -220,11 +279,19 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       } catch (error) { if (opts.phase === 'down') error.release = release; throw error; }
       return { ...reply(opts.phase), ...(opts.phase === 'down' ? { release } : {}) };
     };
+    const pointer = playwrightPointer({
+      name,
+      move: (x, y) => page.mouse.move(x, y),
+      down: () => page.mouse.down(),
+      up: () => page.mouse.up(),
+      wait: (ms) => page.waitForTimeout(ms),
+    });
     const carrier = {
       host: 'web', browser: name, phasedTouch: false, boot, hostLines, evaluate, launchFacts: facts,
       async gpuMs() { const ms = await page.locator('#exact-root').getAttribute('data-gpu-ms'); return ms == null ? null : Number(ms); },
       /** A fresh document on this page: its origin's storage emptied, or `keep`ing it (a test's `reload`, mail F19). */
       async reset({ keep = false } = {}) {
+        await pointer.release();
         for (const keys of heldKeys.values()) for (const key of [...keys].reverse()) await page.keyboard.up(key).catch(() => {});
         heldKeys.clear();
         await page.evaluate(async (keep) => { sessionStorage.clear(); if (keep) return; localStorage.clear(); await Promise.all((await indexedDB.databases?.() ?? []).map(x => x.name && new Promise(ok => { const r = indexedDB.deleteDatabase(x.name); r.onsuccess = r.onerror = r.onblocked = ok; }))); }, keep);
@@ -263,15 +330,19 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
           const guest = await ask(request);
           if (guest.guest === true || guest.handled === true) { if (guest.error) throw new Error(guest.error); await frame(); return { ...guest, at: [x, y] }; }
         }
-        if (kind === 'key' && (opts.phase != null || await page.evaluate(id => globalThis.exact.gpu?.wantsInput(id) || globalThis.exact.views.get(id)?.matches('button, a[href], [role="button"], [role="link"]') || false, id))) return browserKey(id, opts);
+        if (kind === 'key' && (opts.phase != null || await page.evaluate(id => globalThis.exact.gpu?.wantsInput(id) || globalThis.exact.views.get(id)?.matches('button, a[href], [role="button"], [role="link"]') || false, id))) return browserKey(id, opts, true);
         if (id != null && ['press', 'contextmenu', 'dblclick'].includes(kind)) {
           const why = await page.evaluate(({ id, x, y }) => { const el = globalThis.exact.views.get(id), hit = document.elementFromPoint(x, y); return !el ? null : !hit ? 'its middle is outside the viewport; scroll it into view first' : el === hit || el.contains(hit) || hit.contains(el) ? null : `${hit.dataset?.view ? `node #${hit.dataset.view}` : hit.tagName.toLowerCase()} covers its middle`; }, { id, x, y });
           if (why) throw new Error(`tap #${id} at (${x}, ${y}): ${why}`);
         }
         let deliveredAt = [x, y];
-        if (['down', 'move', 'hold', 'up', 'cancel'].includes(kind)) throw new Error(`${name} ${kind} unsupported: Playwright cannot produce trusted phased touches; synthetic dispatchEvent input is not equal input`);
+        if (['down', 'move', 'hold', 'up', 'cancel'].includes(kind)) {
+          const reply = await pointer(kind, { ...opts, id }, { x, y });
+          if (kind !== 'hold') await frame();
+          return reply;
+        }
         else if (kind === 'wheel') {
-          await page.mouse.move(x, y); await page.mouse.wheel(opts.wheel[0], opts.wheel[1]); deliveredAt = [x, y];
+          await withHeldKeys(page.keyboard, opts.modifiers, async () => { await page.mouse.move(x, y); await page.mouse.wheel(opts.wheel[0], opts.wheel[1]); }); deliveredAt = [x, y];
           let same = 0, previous = '';
           for (let i = 0; i < 30 && same < 2; i++) {
             await page.evaluate(() => new Promise(requestAnimationFrame));
@@ -282,9 +353,9 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         else if (kind === 'hover') await page.mouse.move(x, y);
         else if (kind === 'contextmenu') await page.mouse.click(x, y, { button: 'right' });
         else if (kind === 'dblclick') await page.mouse.dblclick(x, y);
-        else if (kind === 'press') await page.mouse.click(x, y);
+        else if (kind === 'press') await withHeldKeys(page.keyboard, opts.modifiers, () => page.mouse.click(x, y));
         else if (kind === 'type') { await focus(id); await page.keyboard.insertText(opts.text); }
-        else if (kind === 'key') return browserKey(id, opts);
+        else if (kind === 'key') return browserKey(id, opts, false);
         else if (kind === 'clipboard') {
           // Playwright has no modifier-bit field, so the chord is two keys.
           // A failed `v` releases the modifier; `deliverClipboard` releases both

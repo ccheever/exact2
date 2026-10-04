@@ -1143,7 +1143,11 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     async pointer(phase, opts = {}) {
       if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
       if (!['move', 'hold', 'up', 'cancel'].includes(phase)) throw new Error(`pointer: not a phase: ${phase} (move, hold, up, cancel)`);
-      if (carrier.phasedTouch === false) return carrier.input(null, phase, opts);
+      // No session contact: the carrier says whether it can phase one (a touch
+      // on Firefox/WebKit cannot). A mouse drag it already accepted has a
+      // contact, so that one is booked below — the lift clears it, and a
+      // virtual hold seeks the clock (drums R13, platformer R7).
+      if (carrier.phasedTouch === false && !s.contact) return carrier.input(null, phase, opts);
       if (!s.contact && ['up','cancel'].includes(phase)) {
         const state = await s.state();
         const contacts = (state.world ?? []).flatMap(w => (w.input?.controlContacts ?? []).filter(c=>c.id<4294967292).map(c=>({...c,canvas:w.canvas})));
