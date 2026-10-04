@@ -5,9 +5,19 @@
 // imports it from here. One app.ts builds on every host or on none, refused
 // with the same diagnostics at the same point (calc F2, calendar F9/F11).
 // It reads only captured configuration; the producer owns the stage.
-import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { resolve, relative, dirname, sep, isAbsolute } from 'node:path';
+
+// Rolldown IDs are file paths, not URL or slash-normalized strings. Both
+// producers enforce the same captured-file boundary (LLP 1027 D5).
+export function assertCapturedModule(stage, id) {
+  if (!isAbsolute(id)) throw new Error('module outside captured app: '+id);
+  const root=realpathSync.native(stage), file=realpathSync.native(id), path=relative(root,file);
+  if (!path || isAbsolute(path) || path==='..' || path.startsWith('..'+sep) || resolve(root,path)!==file || !statSync(file).isFile()) {
+    throw new Error('module outside captured app: '+id);
+  }
+}
 
 // The standard library is what every executor runs: the browser, and Hermes
 // natively (js/src/standard.js fills what it lacks of ES2023). ES2024's
