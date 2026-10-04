@@ -236,5 +236,18 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertEqual(heard, ["1:34:a\tb", "1:32:"])
         withExtendedLifetime(w) {}
     }
+    /// Gallery F20: a click's modifiers ride with its press, as the
+    /// `MouseEvent` a press action may take; any other press holds none.
+    func testAPressCarriesTheModifiersHeld() {
+        let (p, w, button, _) = fixture()
+        button.handlers = ["press"]
+        var held: [String] = []
+        p.onPress = { _ in held.append(p.pressHeld) }
+        p.press(button.id, held: KeyCodes.held([.shift, .command]))
+        p.press(button.id)
+        XCTAssertEqual(held, ["Shift+Meta+", ""])
+        XCTAssertEqual(p.pressHeld, "")
+        withExtendedLifetime(w) {}
+    }
 }
 #endif

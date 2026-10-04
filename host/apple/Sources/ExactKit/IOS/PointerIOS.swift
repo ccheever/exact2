@@ -38,8 +38,9 @@ final class PointerRecognizer: UIGestureRecognizer {
         let point = t.location(in: node), box = node.contentBox()
         let type = t.type == .pencil ? "pen" : t.type == .indirectPointer ? "mouse" : "touch"
         let pressure = lifted ? 0 : t.maximumPossibleForce > 0 ? Double(t.force / t.maximumPossibleForce) : 0.5
+        // The keys a hardware keyboard holds, an iPad's ⇧ or ⌘ (gallery F20).
         return PointerSample(x: Double(point.x - box.minX), y: Double(point.y - box.minY), buttons: lifted ? 0 : 1,
-                             pressure: pressure, type: type, id: type == "mouse" ? 1 : touchId)
+                             pressure: pressure, type: type, id: type == "mouse" ? 1 : touchId, held: KeyCodes.held(modifierFlags))
     }
     /// Whether an enabled pointer node between the touched view and this
     /// one takes the touch: the innermost does, as on the web and macOS.

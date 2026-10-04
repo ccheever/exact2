@@ -14,6 +14,7 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
     match attr {
         "pointerdown" | "pointerup" | "pointermove" => Some("PointerEvent"),
         "key" => Some("KeyboardEvent"),
+        "press" => Some("MouseEvent"),
         "copy" | "cut" | "paste" => Some("ClipboardEvent"),
         _ => None,
     }
@@ -50,7 +51,8 @@ pub(super) fn declare(shapes: &mut Shapes) {
         .insert("ClipboardEvent".into(), vec![("text".into(), Ty::String)]);
     // DOM's `PointerEvent`, the subset every host measures, in the order
     // `exact_runner::PointerEvent` writes it: the point from the node's
-    // content box, the buttons' bits, the pressure, the device, its id.
+    // content box, the buttons' bits, the pressure, the device, its id, and
+    // the modifiers held (a `MouseEvent`'s).
     shapes.map.insert(
         "PointerEvent".into(),
         vec![
@@ -60,6 +62,22 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("pressure".into(), Ty::Number),
             ("pointerType".into(), Ty::String),
             ("pointerId".into(), Ty::Number),
+            ("shiftKey".into(), Ty::Bool),
+            ("ctrlKey".into(), Ty::Bool),
+            ("altKey".into(), Ty::Bool),
+            ("metaKey".into(), Ty::Bool),
+        ],
+    );
+    // DOM's `MouseEvent`, the modifiers held, what a `press` action may take
+    // (gallery F20: shift-click range select, ⌘-click), in the order
+    // `exact_runner::KeyModifiers::mouse` writes it.
+    shapes.map.insert(
+        "MouseEvent".into(),
+        vec![
+            ("shiftKey".into(), Ty::Bool),
+            ("ctrlKey".into(), Ty::Bool),
+            ("altKey".into(), Ty::Bool),
+            ("metaKey".into(), Ty::Bool),
         ],
     );
     // One picked file, in the order `exact_runner::Picked` writes it: the

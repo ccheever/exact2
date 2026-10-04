@@ -263,11 +263,37 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     Err(e) => error(&e),
                 };
             }
+            // A click with modifiers held (gallery F20: `tap <id> modifiers Shift`).
+            let held = match field_str(line, "modifiers")
+                .map(|m| exact_runner::KeyModifiers::held(&m))
+            {
+                Some(None) => {
+                    return error("tap: modifiers are Shift, Control, Alt and Meta, joined by +")
+                }
+                Some(Some(held)) => held,
+                None => Default::default(),
+            };
+            let codes = [
+                (held.shift, "ShiftLeft"),
+                (held.ctrl, "ControlLeft"),
+                (held.alt, "AltLeft"),
+                (held.meta, "MetaLeft"),
+            ];
+            for (on, code) in codes {
+                if on {
+                    p.hold_modifier(code, true);
+                }
+            }
             let r = match field_pair(line, "wheel") {
                 Some((dx, dy)) => p.wheel(id, dx as f32, dy as f32),
                 None if field_bool(line, "hover") => p.hover(id),
                 None => p.tap(id),
             };
+            for (on, code) in codes {
+                if on {
+                    p.hold_modifier(code, false);
+                }
+            }
             r.unwrap_or_else(|e| error(&e))
         }
         Some("type") => {

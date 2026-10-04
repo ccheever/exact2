@@ -510,6 +510,7 @@ test "an action uses its computed next value"
 
 This test goes with the complete example above. The steps are `size 1200x800`
 (first, the viewport the test's session opens at), `tap "id" [hover]`,
+`tap "id" modifiers "Shift+Meta"` (a press with keys held),
 `tap "id" drag dx dy [press ms] [over ms] [hold ms]`,
 `type "id" "text"` or `type "id" key "Name"`, `type "id" paste "text"`,
 `type "id" copy`, `type "id" cut`, `clock settle|+ms|ms`,

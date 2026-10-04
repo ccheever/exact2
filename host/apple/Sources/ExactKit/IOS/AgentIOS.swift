@@ -606,8 +606,10 @@ extension Agent {
         // blurs its input on a click anywhere else), and the keyboard goes.
         if !took && !presenter.contextRetainsFocus(n ?? v) { presenter.viewport.endEditing(true) }
         var pressed: Any = NSNull()
-        if let element { presenter.press(element); pressed = Int(element) }
-        if let action, presenter.views[action.id] === action { presenter.press(action.id); action.finishPointerPress(); pressed = Int(action.id) }
+        // An iPad's hardware keys held through the tap (gallery F20).
+        let held = (req["modifiers"] as? String).map { $0.hasSuffix("+") || $0.isEmpty ? $0 : $0 + "+" } ?? ""
+        if let element { presenter.press(element, held: held); pressed = Int(element) }
+        if let action, presenter.views[action.id] === action { presenter.press(action.id, held: held); action.finishPointerPress(); pressed = Int(action.id) }
         return ["tapped": Int(v.id), "at": at, "pressed": pressed]
     }
 

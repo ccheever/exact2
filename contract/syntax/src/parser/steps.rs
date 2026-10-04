@@ -171,9 +171,16 @@ impl Parser {
                 } else {
                     false
                 };
+                let modifiers = if !hover && self.at_ident("modifiers") {
+                    self.next();
+                    self.str_lit("the modifiers held, as \"Shift+Meta\"")?
+                } else {
+                    String::new()
+                };
                 Step::Tap {
                     target,
                     hover,
+                    modifiers,
                     span,
                 }
             }

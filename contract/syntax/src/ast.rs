@@ -138,12 +138,16 @@ pub struct TestDecl {
 /// One step of a `test`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Step {
-    /// `tap "testId"` (`hover` for a pointer over).
+    /// `tap "testId"` (`hover` for a pointer over, `modifiers "Shift"` for
+    /// a press with keys held).
     Tap {
         /// The node, by `testId`.
         target: String,
         /// `hover` instead of a press.
         hover: bool,
+        /// `modifiers "Shift+Meta"`: the keys held through the press
+        /// (empty for none; gallery F20).
+        modifiers: String,
         /// Where.
         span: Span,
     },

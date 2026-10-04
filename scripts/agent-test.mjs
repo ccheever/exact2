@@ -76,7 +76,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
         try {
           switch (st.op) {
             case 'size': break; // the session opened at it
-            case 'tap': delivered(await s.tap(st.target, st.hover ? { hover: true } : undefined)); input = st.line; break;
+            case 'tap': delivered(await s.tap(st.target, st.hover ? { hover: true } : st.modifiers ? { modifiers: st.modifiers } : undefined)); input = st.line; break;
             case 'drag': delivered(await s.tap(st.target, { drag: { dx: st.dx, dy: st.dy, ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) } })); input = st.line; break;
             case 'type': delivered(await s.type(st.target, st.text)); input = st.line; break;
             case 'key': delivered(await s.type(st.target, { key: st.key })); input = st.line; break;

@@ -547,7 +547,9 @@ final class Presenter {
     weak var hovered: NodeView?
     var hoveredInline: UInt32?
 
-    func press(_ id: UInt32) { onPress?(id) }
+    /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
+    private(set) var pressHeld = ""
+    func press(_ id: UInt32, held: String = "") { pressHeld = held; defer { pressHeld = "" }; onPress?(id) }
     func change(_ id: UInt32, _ value: String) { onChange?(id, value) }
     /// A text field typed into since it took the focus: its `change` fires
     /// when the editing ends or Enter commits it, HTML's `change` (LLP

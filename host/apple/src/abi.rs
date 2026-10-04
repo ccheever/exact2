@@ -860,7 +860,13 @@ impl<D: DataSource> Bridge<D> {
         let payload =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
         let event = match kind {
-            0 => Event::Press,
+            // A press, with the modifiers held as a chord prefix (gallery F20).
+            0 => {
+                let Some(event) = Event::press(&payload) else {
+                    return self.emit(r#"{"ops":[],"error":"invalid press modifiers"}"#.into());
+                };
+                event
+            }
             1 => Event::Change(payload.into()),
             // @ref LLP 1069.001 D4 — 23 is a text field's `input`; 24 and 25 a checkbox's `change` and `input`, the payload `true`/`false`.
             // @ref LLP 1069.002 D3, D2 — 26 is a file input's `change`, one picked file per line; 27 its `cancel`.

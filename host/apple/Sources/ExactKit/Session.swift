@@ -667,7 +667,7 @@ public final class ExactSession {
             if batch.ops.isEmpty && batch.error == nil && batch.motion == frames.motion && batch.spatial == frames.spatial && batch.timerDueMs == timerDue && batch.canvasOwed == canvasOwed { return }
             apply(batch)
         }
-        presenter.onPress = { [unowned self] id in apply(runtime.press(id, now: now())) }
+        presenter.onPress = { [unowned self] id in apply(runtime.press(id, held: presenter.pressHeld, now: now())) }
         presenter.onChange = { [unowned self] id, value in apply(runtime.change(id, documentValue(id, value), now: now())) }
         presenter.onInput = { [unowned self] id, value in apply(runtime.input(id, value, now: now())) }
         // @ref LLP 1069.001 D4 — a toggle is HTML's `input` then `change`,

@@ -771,3 +771,40 @@ fn the_clipboard_events_reach_the_nearest_handler() {
     );
     assert!(reply.contains("no cut handler"), "{reply}");
 }
+
+/// Gallery F20: `tap <id> modifiers Shift+Meta` presses with the keys held,
+/// which the action's `MouseEvent` reports; the keys are released after.
+#[test]
+fn a_tap_holds_its_modifiers_for_the_press() {
+    let plan = contract::compile("component App\n  state log = \"\"\n  action pick(e: MouseEvent)\n    log = `${log}${e.shiftKey}${e.metaKey}${e.altKey};`\n  view\n    column width=300\n      button press=pick testId=\"b\" width=50 height=20\n      text log testId=\"log\" height=20\n").unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let id = |p: &Presenter<NoData>, test_id: &str| {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
+    };
+    let (b, log) = (id(&p, "b"), id(&p, "log"));
+    handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","id":{b},"modifiers":"Shift+Meta"}}"#),
+    );
+    handle(&mut p, &format!(r#"{{"op":"tap","id":{b}}}"#));
+    let k = p.host().kernel();
+    assert_eq!(
+        k.node(log).unwrap().props.str(exact_kernel::PropId::Text),
+        Some("truetruefalse;falsefalsefalse;")
+    );
+    let reply = handle(
+        &mut p,
+        &format!(r#"{{"op":"tap","id":{b},"modifiers":"Hyper"}}"#),
+    );
+    assert!(reply.contains("error"), "{reply}");
+}

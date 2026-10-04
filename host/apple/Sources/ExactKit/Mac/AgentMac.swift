@@ -578,12 +578,18 @@ extension Agent {
             win.sendEvent(up)
             return ["tapped": Int(v.id), "at": at, "contextmenu": true, "delivery": "platform"]
         }
+        // The modifiers held through the click (gallery F20: shift-click).
+        var held: NSEvent.ModifierFlags = []
+        for name in (req["modifiers"] as? String ?? "").split(separator: "+") {
+            guard let flag = ["Shift": NSEvent.ModifierFlags.shift, "Control": .control, "Alt": .option, "Meta": .command][String(name)] else { return ["error": "tap: unknown modifier \(name)"] }
+            held.insert(flag)
+        }
         // A double click is two real clicks, the second with clickCount 2.
         for clicks in 1...(req["dblclick"] as? Bool == true ? 2 : 1) {
             let t = ProcessInfo.processInfo.systemUptime
             let eventNumber = AgentMouseRelease.nextEventNumber()
-            guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: clicks, pressure: 1),
-                  let up = NSEvent.mouseEvent(with: .leftMouseUp, location: p, modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: clicks, pressure: 0),
+            guard let down = NSEvent.mouseEvent(with: .leftMouseDown, location: p, modifierFlags: held, timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: clicks, pressure: 1),
+                  let up = NSEvent.mouseEvent(with: .leftMouseUp, location: p, modifierFlags: held, timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: eventNumber, clickCount: clicks, pressure: 0),
                   let release = AgentMouseRelease(up)
             else { return ["error": "no mouse event"] }
             // NSTextView and AVKit controls may track synchronously inside mouseDown.

@@ -204,7 +204,8 @@ final class Runtime {
             return read(exact_fulfill_surface(rt, ticket, kind, n, now))
         }
     }
-    func press(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 0, 0, now)) } }
+    /// A press, with the modifiers held as a chord prefix (`KeyCodes.held`).
+    func press(_ view: UInt32, held: String = "", now: Double) -> Batch { on { read(exact_dispatch(rt, view, 0, write(held), now)) } }
     /// The pointer over the view (`true`) or gone from it.
     func hover(_ view: UInt32, over: Bool, now: Double) -> Batch { on { read(exact_dispatch(rt, view, over ? 2 : 3, 0, now)) } }
     func focus(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 4, 0, now)) } }
@@ -597,5 +598,7 @@ enum PointerKind: UInt32 { case down = 29, up = 30, move = 31 }
 /// (`mouse`, `pen`, `touch`) and its id (the mouse is 1, as browsers number it).
 struct PointerSample {
     var x: Double, y: Double, buttons: Int, pressure: Double, type: String, id: Int
-    var line: String { "\(x),\(y),\(buttons),\(min(1, max(0, pressure))),\(type),\(id)" }
+    /// The modifiers held, a chord prefix (`KeyCodes.held`): a `MouseEvent`'s.
+    var held = ""
+    var line: String { "\(x),\(y),\(buttons),\(min(1, max(0, pressure))),\(type),\(id),\(held)" }
 }

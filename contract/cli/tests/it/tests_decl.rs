@@ -101,7 +101,7 @@ fn a_test_drags_and_opens_at_its_size() {
 #[test]
 fn clipboard_steps_parse_and_print() {
     let tests = contract::tests(
-        "test \"grid\"\n  type \"grid\" paste \"a\\tb\"\n  type \"grid\" copy\n  type \"grid\" cut\n",
+        "test \"grid\"\n  type \"grid\" paste \"a\\tb\"\n  type \"grid\" copy\n  type \"grid\" cut\n  tap \"b3\" modifiers \"Shift\"\n",
     )
     .unwrap();
     let steps = &tests[0].steps;
@@ -115,6 +115,13 @@ fn clipboard_steps_parse_and_print() {
     assert!(
         json.contains(
             "{\"op\":\"clipboard\",\"target\":\"grid\",\"edit\":\"cut\",\"text\":\"\",\"line\":4}"
+        ),
+        "{json}"
+    );
+    // Gallery F20: a press with keys held.
+    assert!(
+        json.contains(
+            "{\"op\":\"tap\",\"target\":\"b3\",\"hover\":false,\"modifiers\":\"Shift\",\"line\":5}"
         ),
         "{json}"
     );

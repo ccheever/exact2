@@ -427,10 +427,19 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                 | Step::ExpectState { span, .. } => span.line,
             };
             match step {
-                Step::Tap { target, hover, .. } => {
+                Step::Tap {
+                    target,
+                    hover,
+                    modifiers,
+                    ..
+                } => {
                     s.push_str("{\"op\":\"tap\",\"target\":");
                     q(target, &mut s);
                     s.push_str(&format!(",\"hover\":{hover}"));
+                    if !modifiers.is_empty() {
+                        s.push_str(",\"modifiers\":");
+                        q(modifiers, &mut s);
+                    }
                 }
                 Step::Drag {
                     target,

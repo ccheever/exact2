@@ -1427,7 +1427,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if let target = svgPressed {
             svgPressed = nil
             // The element has no view of its own: the `svg`'s view stands for it.
-            if !inert, presenter?.svg.target(id, at: local(event.locationInWindow)) == target { presenter?.onPress?(target) }
+            if !inert, presenter?.svg.target(id, at: local(event.locationInWindow)) == target {
+                presenter?.pressHeld = KeyCodes.held(event.modifierFlags); presenter?.onPress?(target); presenter?.pressHeld = ""
+            }
             return
         }
         if let run = inlinePressed {
@@ -1441,7 +1443,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         pressed = false
         if pressInside(event.locationInWindow) {
             let canvas = inputCanvas, ownerWindow = window
-            presenter?.press(id)
+            presenter?.press(id, held: KeyCodes.held(event.modifierFlags))
             finishPress(canvas: canvas, window: ownerWindow, pointer: true)
         }
     }

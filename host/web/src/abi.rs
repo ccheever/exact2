@@ -475,7 +475,13 @@ impl<D: DataSource> Bridge<D> {
         let payload =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
         let event = match kind {
-            0 => Event::Press,
+            // A press, with the modifiers held as a chord prefix (gallery F20).
+            0 => {
+                let Some(event) = Event::press(&payload) else {
+                    return self.emit(r#"{"ops":[],"error":"invalid press modifiers"}"#.into());
+                };
+                event
+            }
             2 => Event::Hover(true),
             3 => Event::Hover(false),
             4 => Event::Focus,

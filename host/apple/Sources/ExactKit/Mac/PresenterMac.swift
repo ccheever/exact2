@@ -726,7 +726,10 @@ final class Presenter {
     weak var hovered: NodeView?
     var hoveredInline: UInt32?
 
-    func press(_ id: UInt32, fromNativeMenu: Bool = false) {
+    /// The modifiers held for the press being sent (its `MouseEvent`'s; gallery F20).
+    var pressHeld = ""
+    func press(_ id: UInt32, fromNativeMenu: Bool = false, held: String = "") {
+        pressHeld = held; defer { pressHeld = "" }
         guard let node = textHost(id), !node.inert, !node.disabled,
               fromNativeMenu || (segments.shown(node) ?? !node.isHiddenOrHasHiddenAncestor) || toolbar.contains(node) else { return }
         let command = dialogs.command(node, fromNativeMenu: fromNativeMenu)

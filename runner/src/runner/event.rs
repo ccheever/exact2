@@ -170,8 +170,12 @@ pub enum Event {
         /// Exact insertion-before key; None denotes the actual logical end.
         before: Option<String>,
     },
-    /// A press on the view.
+    /// A press on the view, no modifier key held.
     Press,
+    /// A press with modifier keys held (gallery F20: shift-click, ⌘-click),
+    /// the `MouseEvent` flags a `press` action may take; dispatched as
+    /// `Press`. [`Event::press`] makes whichever the modifiers call for.
+    PressWith(KeyModifiers),
     /// A control's value moved (HTML's `input`): a text field's every
     /// keystroke, a checkbox's toggle (LLP 1069.001 D4).
     Input(ControlValue),
@@ -302,6 +306,34 @@ pub struct KeyModifiers {
 }
 
 impl KeyModifiers {
+    /// The modifiers a host writes as a chord prefix with no key —
+    /// `Shift+Meta`, `Control+`, or nothing — as [`KeyModifiers::split`]
+    /// names them; `None` for any other word.
+    pub fn held(prefix: &str) -> Option<Self> {
+        let mut held = Self::default();
+        for name in prefix.split('+').filter(|n| !n.is_empty()) {
+            *match name {
+                "Shift" => &mut held.shift,
+                "Control" => &mut held.ctrl,
+                "Alt" => &mut held.alt,
+                "Meta" => &mut held.meta,
+                _ => return None,
+            } = true;
+        }
+        Some(held)
+    }
+
+    /// The `MouseEvent` record `press` offers, its fields in the compiler's
+    /// order (`contract/types/src/selection.rs`).
+    pub fn mouse(&self) -> Value {
+        Value::record(vec![
+            Value::Bool(self.shift),
+            Value::Bool(self.ctrl),
+            Value::Bool(self.alt),
+            Value::Bool(self.meta),
+        ])
+    }
+
     /// A key as a host writes it, split: the modifiers named before it with
     /// any of `Shift+`, `Control+`, `Alt+` and `Meta+`, and the key's name —
     /// the chord syntax of `aria-keyshortcuts` and Playwright
@@ -325,6 +357,17 @@ impl KeyModifiers {
 }
 
 impl Event {
+    /// A press with the modifiers a host held ([`KeyModifiers::held`]):
+    /// `Press` when none is; `None` for a word DOM does not name.
+    pub fn press(held: &str) -> Option<Self> {
+        let held = KeyModifiers::held(held)?;
+        Some(if held == KeyModifiers::default() {
+            Self::Press
+        } else {
+            Self::PressWith(held)
+        })
+    }
+
     /// A key from its chord ([`KeyModifiers::split`]).
     pub fn key(chord: &str) -> Self {
         let (held, key) = KeyModifiers::split(chord);
@@ -334,8 +377,8 @@ impl Event {
     /// The DOM record this event offers its action as an optional last
     /// parameter, its fields in the compiler's order
     /// (`contract_types::event_record`, `contract/types/src/selection.rs`):
-    /// `key`'s `KeyboardEvent`, the pointer's `PointerEvent` and the
-    /// clipboard's `ClipboardEvent`.
+    /// `key`'s `KeyboardEvent`, `press`'s `MouseEvent`, the pointer's
+    /// `PointerEvent` and the clipboard's `ClipboardEvent`.
     pub fn record(&self) -> Option<Value> {
         match self {
             Event::Key(key, held) => Some(Value::record(vec![
@@ -347,6 +390,8 @@ impl Event {
             ])),
             Event::Pointerdown(p) | Event::Pointerup(p) | Event::Pointermove(p) => Some(p.value()),
             Event::Clipboard(_, text) => Some(Value::record(vec![Value::str(text)])),
+            Event::Press => Some(KeyModifiers::default().mouse()),
+            Event::PressWith(held) => Some(held.mouse()),
             _ => None,
         }
     }
@@ -846,7 +891,7 @@ impl<D: DataSource> Runner<D> {
         let mut what = super::lines::event(
             match &event {
                 Event::ReorderDrop { .. } => "reorderdrop",
-                Event::Press => "press",
+                Event::Press | Event::PressWith(_) => "press",
                 Event::Input(_) => "input",
                 Event::Change(_) => "change",
                 Event::Cancel => "cancel",
@@ -918,7 +963,7 @@ impl<D: DataSource> Runner<D> {
         };
         let (kind, payload, name) = match &event {
             Event::ReorderDrop { .. } => (EventKind::Reorderdrop, None, "reorderdrop"),
-            Event::Press => (EventKind::Press, None, "press"),
+            Event::Press | Event::PressWith(_) => (EventKind::Press, None, "press"),
             Event::Input(_) => (EventKind::Input, control, "input"),
             Event::Change(_) => (EventKind::Change, control, "change"),
             Event::Cancel => (EventKind::Cancel, None, "cancel"),
