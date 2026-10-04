@@ -117,7 +117,6 @@ pub fn project(
     let mut kernel: Kernel = template::kernel();
     let mut ops = Vec::new();
     let view = |i: usize| -> ViewId { i as u32 + 1 };
-    let stacks = plan.stacks.len();
     for (i, node) in plan.nodes.iter().enumerate() {
         let node_type = NodeType::from_wire(node.node_type).ok_or("unknown node type")?;
         ops.push(Op::CreateView {
@@ -152,7 +151,7 @@ pub fn project(
                 // `unset`, or `inherit` on an inherited row: no row (feed F1).
                 (BindingKind::Style, Some(v)) if bridge::unsets(row.id, &v) => {}
                 (BindingKind::Style, Some(v)) => {
-                    bridge::set_style(&mut patch, row.id, &v, stacks)
+                    bridge::set_plan_style(&mut patch, row.id, &v, plan)
                         .map_err(|e| format!("node {i}: {e:?}"))?;
                     styled = true;
                 }
@@ -339,21 +338,96 @@ pub struct Write {
     pub map: Option<&'static str>,
 }
 
-/// A row's value `none` (or the keyword `auto`/`normal`) writes nothing, as
-/// A bound value naming one of UIKit's system colours as its `light-dark()`
-/// pair, anywhere in the text (a shorthand's colour part too); the kernel's
-/// table, so literal and bound values agree (LLP 1077 D13).
+/// A bound value naming a colour role (LLP 1095 D2) as the role's CSS: each
+/// whole ident token that is a role's name or its WebKit `-apple-system-*`
+/// alias, so a role inside a gradient, a shadow or a shorthand is one too;
+/// the kernel's table, so literal and bound values agree. A `url()`, a
+/// string, a comment, a hash and a function's name are tokens of their own,
+/// and an ident is matched whole, so `context-fill`, `--exact-label` and
+/// `url(label.png)` stay as written.
 pub static SYSTEM_COLOR_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
-    let pairs: Vec<String> = exact_kernel::style::symbols::SYSTEM_COLORS
-        .iter()
-        .map(|(name, l, d)| format!("[\"{name}\",\"light-dark(#{l:08x}, #{d:08x})\"]"))
-        .collect();
+    use exact_kernel::{ColorValue, COLOR_ROLES};
+    let mut pairs = Vec::new();
+    for (i, r) in COLOR_ROLES.iter().enumerate() {
+        let mut css = String::new();
+        exact_kernel::gradient::color_css(&mut css, ColorValue::Role(i as u8));
+        pairs.push(format!("{:?}:{css:?}", r.name.to_ascii_lowercase()));
+        if !r.alias.is_empty() {
+            pairs.push(format!("{:?}:{css:?}", r.alias));
+        }
+    }
     format!(
-        "v=>typeof v===\"string\"&&/-apple-system-/i.test(v)?[{}].reduce((s,[n,c])=>s.replace(new RegExp(\"(?<![\\\\w#-])\"+n+\"(?![\\\\w-])\",\"gi\"),c),v):v",
+        r#"(M=>v=>typeof v==="string"?v.replace(/url\(\s*(?:"[^"]*"|'[^']*'|[^)]*)\)|"[^"]*"|'[^']*'|\/\*[\s\S]*?\*\/|#[-\w]*|[-\w\\\u0080-\uffff]+\(?/gi,t=>M[t.toLowerCase()]??t):v)({{{}}})"#,
         pairs.join(",")
     )
 });
 
+/// [`SYSTEM_COLOR_MAP`] for a binding of `plan`, gated as the runner's
+/// `set_plan_style` is (LLP 1095 D3): a value with a `platform-color()` is
+/// admitted only as one of the plan's own string literals, and writes what
+/// the literal path writes for each of its functions; any other is refused
+/// (`null`: the row unset).
+pub fn color_map(plan: &Plan) -> String {
+    let admitted: Vec<String> = plan
+        .strings
+        .iter()
+        .filter(|s| s.contains(PLATFORM))
+        .map(|s| {
+            format!(
+                "{}:{}",
+                serde_json::to_string(s).unwrap(),
+                serde_json::to_string(&platform_css(s)).unwrap()
+            )
+        })
+        .collect();
+    if admitted.is_empty() {
+        return SYSTEM_COLOR_MAP.clone();
+    }
+    format!(
+        "(P=>v=>typeof v===\"string\"&&v.includes(\"{PLATFORM}\")?Object.hasOwn(P,v)?({m})(P[v]):null:({m})(v))({{{}}})",
+        admitted.join(","),
+        m = SYSTEM_COLOR_MAP.as_str()
+    )
+}
+
+const PLATFORM: &str = "platform-color(";
+
+/// `text` with each `platform-color()` in it as its CSS (its `web` colour or
+/// its fallback), as the kernel writes a literal's.
+fn platform_css(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(at) = rest.find(PLATFORM) {
+        out.push_str(&rest[..at]);
+        let call = &rest[at..];
+        let mut depth = 0usize;
+        let end = call
+            .char_indices()
+            .find_map(|(i, c)| {
+                match c {
+                    '(' => depth += 1,
+                    ')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            return Some(i + 1);
+                        }
+                    }
+                    _ => {}
+                }
+                None
+            })
+            .unwrap_or(call.len());
+        match exact_kernel::ColorValue::parse_light_dark(&call[..end]) {
+            Some(c) => exact_kernel::gradient::color_css(&mut out, c),
+            None => out.push_str(&call[..end]),
+        }
+        rest = &call[end..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// A row's value `none` (or the keyword `auto`/`normal`) writes nothing, as
 /// css.rs writes no declaration for the row's empty value.
 const NONE: &str = "v=>v==null||/^\\s*none\\s*$/i.test(v)?null:v";
 
@@ -620,4 +694,124 @@ pub fn font_family_table(plan: &Plan) -> Vec<String> {
 /// A marker row's CSS property (css.rs `property`).
 pub fn style_marker(id: StyleId) -> (String, String) {
     (css_property(id), String::new())
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+
+    /// The role's CSS, as the literal path writes it.
+    pub(crate) fn role(name: &str) -> String {
+        let id = exact_kernel::COLOR_ROLES
+            .iter()
+            .position(|r| r.name == name)
+            .unwrap();
+        let mut css = String::new();
+        exact_kernel::gradient::color_css(&mut css, exact_kernel::ColorValue::Role(id as u8));
+        css
+    }
+
+    /// `SYSTEM_COLOR_MAP` run by Bun over each value.
+    fn mapped(values: &[&str]) -> Vec<String> {
+        serde_json::from_value(run(SYSTEM_COLOR_MAP.as_str(), values)).unwrap()
+    }
+
+    /// `map` run by Bun over each value.
+    pub(crate) fn run(map: &str, values: &[&str]) -> serde_json::Value {
+        let script = format!(
+            "console.log(JSON.stringify({}.map({map})))",
+            serde_json::to_string(values).unwrap(),
+        );
+        let out = std::process::Command::new(std::env::var("BUN").unwrap_or_else(|_| "bun".into()))
+            .args(["-e", &script])
+            .output()
+            .expect("bun runs the map (the repo pins it)");
+        assert!(
+            out.status.success(),
+            "{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        serde_json::from_slice(&out.stdout).unwrap()
+    }
+
+    #[test]
+    fn a_bound_role_is_its_css_whole_or_inside_a_composite_value() {
+        let (orange, label, fill) = (role("system-orange"), role("secondary-label"), role("fill"));
+        assert_eq!(
+            mapped(&[
+                " secondary-label ",
+                "System-Orange",
+                "linear-gradient(system-orange, #fff)",
+                "radial-gradient(circle,fill 0%,system-orange 100%)",
+                "0 1px 2px system-orange, inset 0 0 4px -apple-system-secondary-label",
+                "1px -apple-system-orange",
+            ]),
+            [
+                format!(" {label} "),
+                orange.clone(),
+                format!("linear-gradient({orange}, #fff)"),
+                format!("radial-gradient(circle,{fill} 0%,{orange} 100%)"),
+                format!("0 1px 2px {orange}, inset 0 0 4px {label}"),
+                format!("1px {orange}"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_role_name_inside_another_token_stays_as_written() {
+        let values = [
+            "context-fill",
+            "var(--exact-label,#000)",
+            "url(label.png)",
+            "url(\"fill (1).png\"), linear-gradient(red, blue)",
+            "image-set(\"background.png\" 1x)",
+            "url(#fill)",
+            "#label",
+            "fill-rule",
+            "labels",
+            "background2",
+            "fill(1)",
+            "/* label */ red",
+        ];
+        assert_eq!(mapped(&values), values);
+    }
+
+    #[test]
+    fn a_bound_platform_color_is_admitted_only_as_a_plan_literal() {
+        let literal = "platform-color(ios webJsTestColor, #010203)";
+        let gradient =
+            "linear-gradient(platform-color(ios webJsTestColor, #010203), system-orange)";
+        let mut plan = exact_plan::Plan::default();
+        plan.strings.extend([literal.into(), gradient.into()]);
+        let mut css = String::new();
+        exact_kernel::gradient::color_css(
+            &mut css,
+            exact_kernel::ColorValue::parse_light_dark(literal).unwrap(),
+        );
+        assert!(!css.contains("platform-color"), "{css}");
+        let map = color_map(&plan);
+        assert_eq!(
+            run(
+                &map,
+                &[
+                    literal,
+                    gradient,
+                    "platform-color(ios webJsOtherColor, #010203)",
+                    "linear-gradient(platform-color(ios webJsTestColor, #010203), #fff)",
+                    " platform-color(ios webJsTestColor, #010203)",
+                    "secondary-label"
+                ]
+            ),
+            serde_json::json!([
+                css,
+                format!("linear-gradient({css}, {})", role("system-orange")),
+                null,
+                null,
+                null,
+                role("secondary-label"),
+            ])
+        );
+        // A plan without one writes the plain map.
+        assert_eq!(color_map(&exact_plan::Plan::default()), *SYSTEM_COLOR_MAP);
+    }
 }

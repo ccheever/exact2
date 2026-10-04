@@ -9,8 +9,12 @@ struct InlineText {
     private let lightRun: Run
     private let darkColor: [Double]?
     private let darkBackground: [Double]?
+    private let colorRef: BatchValue?
+    private let backgroundRef: BatchValue?
     private let paint: RunPaintRows
     let hasSchemeColor: Bool
+    /// Whether a colour here is the view's tint (LLP 1095 D8).
+    var namesTint: Bool { colorRef?.namesTint == true || backgroundRef?.namesTint == true || paint.namesTint }
     let handlers: Set<String>
     let paints: Bool
     var range: NSRange = NSRange(location: 0, length: 0)
@@ -24,20 +28,27 @@ struct InlineText {
         lightRun = value
         darkColor = style.darkColor
         darkBackground = style.darkBackground
+        colorRef = style.colorRef; backgroundRef = style.backgroundRef
         paint = style.paint
         hasSchemeColor = style.paired || style.paint.paired
         self.handlers = handlers; self.paints = paints
     }
 
     var text: String { lightRun.text }
-    func run(dark: Bool) -> Run {
+    /// The run in its paragraph owner's traits: `contrast` and `elevated`
+    /// as `BatchValue.channels` takes them (LLP 1095 D5).
+    func run(dark: Bool, contrast: Bool? = nil, elevated: Bool = false, tint: PlatformColor? = nil) -> Run {
         var value = lightRun
         if dark { value.color = darkColor; value.background = darkBackground }
-        (value.shadow, value.stroke) = paint.resolve(dark: dark, color: value.color ?? [0, 0, 0, 255])
+        if let colorRef { value.color = colorRef.channels(dark: dark, contrast: contrast, elevated: elevated, tint: tint) }
+        if let backgroundRef { value.background = backgroundRef.channels(dark: dark, contrast: contrast, elevated: elevated, tint: tint) }
+        (value.shadow, value.stroke) = paint.resolve(dark: dark, contrast: contrast, elevated: elevated, tint: tint,
+                                                     color: value.color ?? SystemColor.canvasTextChannels(dark: dark, contrast: contrast))
         return value
     }
 
-    static func run(_ text: String, style: NodeStyle, href: String = "", dark: Bool) -> Run {
+    static func run(_ text: String, style: NodeStyle, href: String = "", dark: Bool, contrast: Bool? = nil, elevated: Bool = false,
+                    tint: PlatformColor? = nil) -> Run {
         func number(_ key: String, _ fallback: Double = 0) -> Double { style[key]?.number ?? fallback }
         let size = Float(number("font_size", 16))
         let height: CGFloat?
@@ -48,9 +59,10 @@ struct InlineText {
                       family: Int(number("font_family")), italic: style["font_style"]?.string == "italic",
                       lineHeight: height, letterSpacing: CGFloat(Float(number("letter_spacing"))),
                       numeric: Int(number("font_variant_numeric")),
-                      color: style["text_color"]?.channels(dark: dark),
+                      color: style["text_color"]?.channels(dark: dark, contrast: contrast, elevated: elevated, tint: tint),
                       decoration: style["text_decoration_line"]?.string ?? "", href: href)
-        (run.shadow, run.stroke) = RunPaintRows(style).resolve(dark: dark, color: run.color ?? [0, 0, 0, 255])
+        (run.shadow, run.stroke) = RunPaintRows(style).resolve(dark: dark, contrast: contrast, elevated: elevated, tint: tint,
+                                                               color: run.color ?? SystemColor.canvasTextChannels(dark: dark, contrast: contrast))
         return run
     }
 }
@@ -60,6 +72,9 @@ struct InlineStyle {
     var run = Run(text: "", size: 16, weight: 400, family: 0, italic: false, lineHeight: nil, letterSpacing: 0)
     var darkColor: [Double]?
     var darkBackground: [Double]?
+    /// A platform colour by name, resolved when the run is read (LLP 1095 D5).
+    var colorRef: BatchValue?
+    var backgroundRef: BatchValue?
     /// `text-shadow` and `-webkit-text-stroke`, computed for the run (LLP 1077).
     var paint = RunPaintRows()
     var paired = false

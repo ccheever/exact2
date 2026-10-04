@@ -10,6 +10,8 @@ pub use exact_svg_filter::{
     CompositeOp, Convolve, Filter, Input, Light, Lighting, Op, Primitive, Transfer, BLEND_MODES,
 };
 
+use crate::gradient::ColorText;
+
 /// One entry of CSS `filter` on an SVG element (Filter Effects 1 §7,
 /// §12): a reference to a `filter`, or a filter function.
 #[derive(Debug, Clone, PartialEq)]
@@ -23,8 +25,9 @@ pub enum FilterFn {
     /// `contrast()`.
     Contrast(f32),
     /// `drop-shadow(<length>{2,3} <color>?)`: dx, dy, blur (px), colour
-    /// (`currentcolor` when none is given).
-    DropShadow(f32, f32, f32, Option<crate::style::Color>),
+    /// (`currentcolor` when none is given), which may be a reference (LLP
+    /// 1095 D1).
+    DropShadow(f32, f32, f32, Option<crate::style::ColorValue>),
     /// `grayscale()`.
     Grayscale(f32),
     /// `hue-rotate(<angle>)`, degrees.
@@ -145,7 +148,12 @@ impl FilterList {
                     for word in split_words(arg) {
                         match px(word) {
                             Some(v) if lengths.len() < 3 => lengths.push(v),
-                            _ if color.is_none() => color = Some(crate::style::Color::parse(word)?),
+                            _ if color.is_none() => {
+                                color =
+                                    Some(crate::style::ColorValue::parse_light_dark(word).or_else(
+                                        || crate::style::Color::parse(word).map(Into::into),
+                                    )?)
+                            }
                             _ => return None,
                         }
                     }
@@ -167,6 +175,15 @@ impl FilterList {
 
     /// The value as CSS reads it.
     pub fn css(&self) -> String {
+        self.text(ColorText::Css)
+    }
+
+    /// The wire form: [`Self::css`], with every reference kept (LLP 1095 D1).
+    pub fn wire(&self) -> String {
+        self.text(ColorText::Wire)
+    }
+
+    fn text(&self, mode: ColorText) -> String {
         if self.0.is_empty() {
             return "none".into();
         }
@@ -185,7 +202,11 @@ impl FilterList {
                 FilterFn::Saturate(v) => format!("saturate({})", n(*v)),
                 FilterFn::Sepia(v) => format!("sepia({})", n(*v)),
                 FilterFn::DropShadow(x, y, b, c) => {
-                    let color = c.map_or(String::new(), |c| format!(" #{:08x}", c.0));
+                    let mut color = String::new();
+                    if let Some(c) = c {
+                        color.push(' ');
+                        crate::gradient::color_text(&mut color, *c, mode);
+                    }
                     format!("drop-shadow({}px {}px {}px{color})", n(*x), n(*y), n(*b))
                 }
             })

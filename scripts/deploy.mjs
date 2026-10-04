@@ -190,19 +190,34 @@ function cargoDependencyRoots(app, exactRoot) {
  * repository, captured beside the app's so a relative link still reaches it.
  * A registry package is not: the captured bun.lock pins its bytes, and the
  * materialized install restores exactly those. */
-function contractPackageRoots(app, exactRoot) {
-  const owned = new Set([repoTop(app.dir, 'app source'), repoTop(exactRoot, 'Exact source')]);
-  const result = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'sources', resolve(app.dir, 'app.contract')], {
+function contractSources(appDir, exactRoot) {
+  const result = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'sources', resolve(appDir, 'app.contract')], {
     cwd: exactRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
   });
   let graph;
   try { graph = JSON.parse(result.stdout); }
-  catch { refuse(`${app.dir}: contract sources did not answer: ${(result.stderr || '').trim()}`); }
-  if (graph.errors?.length) refuse(`${app.dir}/app.contract does not load: ${graph.errors.map((e) => e.message).join('; ')}`);
+  catch { refuse(`${appDir}: contract sources did not answer: ${(result.stderr || '').trim()}`); }
+  if (graph.errors?.length) refuse(`${appDir}/app.contract does not load: ${graph.errors.map((e) => e.message).join('; ')}`);
+  return graph;
+}
+
+function contractPackageRoots(app, exactRoot) {
+  // A library installed by an absolute `file:` path or a `link:` would be
+  // reinstalled from the live tree after capture: only a relative `file:`
+  // path moves with the snapshot.
+  const manifest = resolve(app.workspace ?? app.dir, 'package.json');
+  if (existsSync(manifest)) {
+    const pkg = JSON.parse(readFileSync(manifest, 'utf8'));
+    for (const [name, spec] of Object.entries({ ...pkg.dependencies, ...pkg.devDependencies })) {
+      if (typeof spec === 'string' && (/^file:\//.test(spec) || spec.startsWith('link:')))
+        refuse(`${manifest}: "${name}": "${spec}" would be read live after the snapshot; use a relative \`file:\` path`);
+    }
+  }
+  const owned = new Set([repoTop(app.dir, 'app source'), repoTop(exactRoot, 'Exact source')]);
   const repos = new Set();
-  for (const source of graph.sources) {
-    if (source.origin !== 'package' || /(^|\/)node_modules\//.test(relative(canonicalPath(app.dir), source.root))) continue;
-    const repo = repoTop(source.root, `Contract package ${source.package}`);
+  for (const pkg of contractSources(app.dir, exactRoot).packages) {
+    if (/(^|\/)node_modules\//.test(relative(canonicalPath(app.dir), pkg.root))) continue;
+    const repo = repoTop(pkg.root, `Contract package ${pkg.name}`);
     if (!owned.has(repo)) repos.add(repo);
   }
   return [...repos].sort().map((cwd) => ({ role: 'contract', cwd }));
@@ -530,6 +545,11 @@ export function materializeSnapshot(snapshot, run, app, cache = null) {
       cwd: root, env: sealedSourceEnv(sourceRoot), stdio: ['ignore', 'pipe', 'pipe'], encoding: 'utf8' });
     if (installed.status !== 0) refuse(`${root}: bun install --frozen-lockfile failed in the captured source: ${(installed.stderr || installed.stdout || installed.error?.message || '').trim()}`);
   }
+  // Every Contract file the bake will read is in the captured tree: an
+  // installed library that still leads outside it is live bytes (LLP 1091 D10).
+  const graph = contractSources(dir, ROOT);
+  for (const path of [...graph.sources.map((s) => s.path).filter((p) => p.startsWith('/')), ...graph.consulted])
+    if (!inside(sourceRoot, canonicalPath(path))) refuse(`${path}: a Contract source outside the captured snapshot`);
   return {
     exactRoot, sourceRoot,
     // Identity and policy are deliberately not copied from the launcher's

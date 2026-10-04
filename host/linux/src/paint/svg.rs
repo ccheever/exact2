@@ -71,8 +71,8 @@ impl Painter {
     /// A portable symbol role (LLP 1035.004 D1) as the web draws it: the
     /// role's path in a 24-unit box at the image's font size, placed by
     /// `object-fit`, stroked `1.1 + (weight − 100) / 400` units with round
-    /// caps and joins (a `-fill` role filled even-odd), in its tint or its
-    /// text colour. An `sf/` name stays an empty box (LLP 1035.004.000 D4).
+    /// caps and joins (a `-fill` role filled even-odd), in its tint, which
+    /// starts as `AccentColor`. An `sf/` name stays an empty box (LLP 1035.004.000 D4).
     pub(super) fn symbol(
         &mut self,
         node: &NodeRef<'_>,
@@ -97,7 +97,15 @@ impl Painter {
             return;
         };
         let path = exact_kernel::svg::parse_d(d);
-        let colour = tint.unwrap_or_else(|| rgba(node.text_color().resolve(self.dark)));
+        // An untinted symbol is the row's initial, `AccentColor` (LLP 1095 D8).
+        let colour = tint.unwrap_or_else(|| {
+            rgba(
+                style
+                    .tint_color
+                    .unwrap_or_else(|| node.text_color())
+                    .resolve(self.dark),
+            )
+        });
         let weight = f32::from(style.font_weight).clamp(100.0, 900.0);
         let paint = SvgPaint {
             path: &path,

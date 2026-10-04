@@ -88,8 +88,8 @@ tests are the authority.
 - The rows an image uses: `width`/`height`/`min_*`/`max_*` (its box),
   `aspect_ratio` (the ratio, over the intrinsic one), `object_fit` (how
   the picture fills the content box: `fill | contain | cover | none |
-  scale-down`, default `fill` — paint, not layout), `tint_color` (opaque
-  black initially, not inherited; Apple and web apply it to `symbol:` images
+  scale-down`, default `fill` — paint, not layout), `tint_color` (initially
+  `AccentColor`, the platform's dynamic tint, since LLP 1095 stage 2; not inherited; Apple and web apply it to `symbol:` images
   and, since 2026-09-26, to raster images, including `light-dark()` pairs).
   **A tinted raster is a template:** its alpha is the mask, and every
   opaque pixel takes the tint at that pixel's own alpha; the colours of

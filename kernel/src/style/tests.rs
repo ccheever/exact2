@@ -664,3 +664,27 @@ fn overflow_auto_has_scroll_sizing_and_zero_automatic_minimum() {
         )
     );
 }
+
+#[test]
+fn a_bare_node_s_colour_is_the_platform_s_text_colour_and_its_tint_the_accent() {
+    // LLP 1095 stage 2: CSS's initial `color` is `CanvasText`, a system
+    // colour; a host with it shows the platform's, never a snapshot.
+    let s = StyleProps::default();
+    let canvas_text = roles::role("CanvasText").unwrap();
+    assert_eq!(s.text_color, ColorValue::Role(canvas_text));
+    assert_eq!(roles::role_of(canvas_text).unwrap().ios, "labelColor");
+    // The tint is the platform's accent, which the host keeps dynamic.
+    let accent = roles::role("AccentColor").unwrap();
+    assert_eq!(s.tint_color, Some(ColorValue::Role(accent)));
+    assert_eq!(roles::role_of(accent).unwrap().ios, "@tint");
+    // Everywhere else the role's pair: black on light, white on dark.
+    assert_eq!(
+        s.text_color.resolve(false),
+        Color::parse_hex("#000000").unwrap()
+    );
+    assert_eq!(
+        s.text_color.resolve(true),
+        Color::parse_hex("#ffffff").unwrap()
+    );
+    assert!(s.text_color.is_scheme_aware());
+}

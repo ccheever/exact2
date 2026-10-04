@@ -1974,7 +1974,7 @@
       "default": "none"
     }
   },
-  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points, 3-6 an env(safe-area-inset-top/right/bottom/left) length with the f32 the points added, 7 calc(<percent> \u00b1 <px>) with a second f32 the points, 8-13 an env(viewport-segment-width/height/top/left/bottom/right x y) length with the f32 the points added and then two u8 indices x then y \u2014 LLP 1078 D3; 14-23 viewport vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh with f32 the percentage) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (CSS grid-template grammar Taffy can lay out: none, named lines, px, %, fr, auto, min/max-content, fit-content(), minmax(), and fixed/auto-fill/auto-fit repeat(); canonical CSS text on the wire) | placement (CSS grid placement: auto, nonzero numeric or named lines and positive numeric or named spans; canonical CSS text on the wire) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | drag-timeline, animation-timeline, animation-range, timeline-scope (CSS text: the four timeline rows, LLP 1057.003) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. Every length row (each dimension, line-height, font-size, letter-spacing, the gaps, border widths and radii, shape-margin) also takes CSS `rem` and `em` through `set_dynamic`; the row holds the pixels the kernel resolves at the end of each commit against the host's root font size (LLP 1069.000 D3), so every reader and the wire see pixels. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
+  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points, 3-6 an env(safe-area-inset-top/right/bottom/left) length with the f32 the points added, 7 calc(<percent> \u00b1 <px>) with a second f32 the points, 8-13 an env(viewport-segment-width/height/top/left/bottom/right x y) length with the f32 the points added and then two u8 indices x then y \u2014 LLP 1078 D3; 14-23 viewport vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh with f32 the percentage) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (CSS grid-template grammar Taffy can lay out: none, named lines, px, %, fr, auto, min/max-content, fit-content(), minmax(), and fixed/auto-fill/auto-fit repeat(); canonical CSS text on the wire) | placement (CSS grid placement: auto, nonzero numeric or named lines and positive numeric or named spans; canonical CSS text on the wire) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | drag-timeline, animation-timeline, animation-range, timeline-scope (CSS text: the four timeline rows, LLP 1057.003) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. Every length row (each dimension, line-height, font-size, letter-spacing, the gaps, border widths and radii, shape-margin) also takes CSS `rem` and `em` through `set_dynamic`; the row holds the pixels the kernel resolves at the end of each commit against the host's root font size (LLP 1069.000 D3), so every reader and the wire see pixels. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard). A colour row's default may name a role from `colors` (`\"CanvasText\"`), as CSS's initial `color` is a system colour; a host with the platform's colour shows that, never a snapshot (LLP 1095 stage 2).",
   "styles": [
     {
       "bit": 0,
@@ -2506,7 +2506,8 @@
       "field": "text_color",
       "codec": "color",
       "inherited": true,
-      "default": 255
+      "default": "CanvasText",
+      "_comment": "@ref LLP 1095 stage 2: CSS `color`, initially CSS's `CanvasText` (a browser's own initial): `labelColor` on iOS, `textColor` on macOS, resolved by the platform for appearance and contrast; its fallback pair everywhere else."
     },
     {
       "bit": 76,
@@ -2567,7 +2568,8 @@
       "bit": 86,
       "field": "tint_color",
       "codec": "current-color",
-      "default": 255
+      "default": "AccentColor",
+      "_comment": "@ref LLP 1095 stage 2: a symbol's (and a tinted raster's) colour, initially the platform's tint, `AccentColor`, kept dynamic by the platform (iOS inherits the view hierarchy's `tintColor`; macOS `controlAccentColor`; the web CSS's `AccentColor`), not a snapshot; `currentcolor` paints the node's presented `color`. Without the row a raster paints its own pixels (LLP 1011)."
     },
     {
       "bit": 87,
@@ -3545,5 +3547,50 @@
     ["content-background", "~systemThickMaterial", "contentBackground", "30", "180", "#ffffffe6", "#1e1e1ee6"],
     ["under-window-background", "~systemMaterial", "underWindowBackground", "30", "180", "#ececec99", "#1e1e1e99"],
     ["under-page-background", "~systemMaterial", "underPageBackground", "30", "180", "#e3e3e3b3", "#282828b3"]
+  ],
+  "colors": [
+    ["Canvas", "", "systemBackgroundColor", "textBackgroundColor", "#ffffff", "#000000"],
+    ["CanvasText", "", "labelColor", "textColor", "#000000", "#ffffff"],
+    ["LinkText", "", "linkColor", "linkColor", "#007aff", "#0984ff"],
+    ["GrayText", "", "tertiaryLabelColor", "disabledControlTextColor", "#3c3c434d", "#ebebf54d"],
+    ["Highlight", "", "@tint/0.2", "selectedTextBackgroundColor", "#007aff33", "#0a84ff33"],
+    ["HighlightText", "", "labelColor", "selectedTextColor", "#000000", "#ffffff"],
+    ["AccentColor", "", "@tint", "controlAccentColor", "#007aff", "#0a84ff"],
+    ["AccentColorText", "", "whiteColor", "alternateSelectedControlTextColor", "#ffffff", "#ffffff"],
+    ["Field", "", "secondarySystemBackgroundColor", "textBackgroundColor", "#f2f2f7", "#1c1c1e"],
+    ["FieldText", "", "labelColor", "textColor", "#000000", "#ffffff"],
+    ["ButtonFace", "", "secondarySystemFillColor", "controlColor", "#78788029", "#78788052"],
+    ["ButtonText", "", "linkColor", "controlTextColor", "#007aff", "#0a84ff"],
+    ["label", "-apple-system-label", "labelColor", "labelColor", "#000000", "#ffffff"],
+    ["secondary-label", "-apple-system-secondary-label", "secondaryLabelColor", "secondaryLabelColor", "#3c3c4399", "#ebebf599"],
+    ["tertiary-label", "-apple-system-tertiary-label", "tertiaryLabelColor", "tertiaryLabelColor", "#3c3c434d", "#ebebf54d"],
+    ["quaternary-label", "-apple-system-quaternary-label", "quaternaryLabelColor", "quaternaryLabelColor", "#3c3c432e", "#ebebf529"],
+    ["placeholder", "-apple-system-placeholder-text", "placeholderTextColor", "placeholderTextColor", "#3c3c434d", "#ebebf54d"],
+    ["separator", "-apple-system-separator", "separatorColor", "separatorColor", "#3c3c434a", "#54545899"],
+    ["opaque-separator", "-apple-system-opaque-separator", "opaqueSeparatorColor", "gridColor", "#c6c6c8", "#38383a"],
+    ["link", "", "linkColor", "linkColor", "#007aff", "#0984ff"],
+    ["background", "-apple-system-background", "systemBackgroundColor", "windowBackgroundColor", "#ffffff", "#000000"],
+    ["secondary-background", "-apple-system-secondary-background", "secondarySystemBackgroundColor", "controlBackgroundColor", "#f2f2f7", "#1c1c1e"],
+    ["tertiary-background", "-apple-system-tertiary-background", "tertiarySystemBackgroundColor", "controlBackgroundColor", "#ffffff", "#2c2c2e"],
+    ["grouped-background", "-apple-system-grouped-background", "systemGroupedBackgroundColor", "windowBackgroundColor", "#f2f2f7", "#000000"],
+    ["secondary-grouped-background", "-apple-system-secondary-grouped-background", "secondarySystemGroupedBackgroundColor", "controlBackgroundColor", "#ffffff", "#1c1c1e"],
+    ["tertiary-grouped-background", "-apple-system-tertiary-grouped-background", "tertiarySystemGroupedBackgroundColor", "controlBackgroundColor", "#f2f2f7", "#2c2c2e"],
+    ["fill", "-apple-system-fill", "systemFillColor", "systemFillColor", "#78788033", "#7878805c"],
+    ["secondary-fill", "", "secondarySystemFillColor", "secondarySystemFillColor", "#78788029", "#78788052"],
+    ["tertiary-fill", "-apple-system-tertiary-fill", "tertiarySystemFillColor", "tertiarySystemFillColor", "#7676801f", "#7676803d"],
+    ["quaternary-fill", "-apple-system-quaternary-fill", "quaternarySystemFillColor", "quaternarySystemFillColor", "#74748014", "#7676802e"],
+    ["system-red", "-apple-system-red", "systemRedColor", "systemRedColor", "#ff3b30", "#ff453a"],
+    ["system-orange", "-apple-system-orange", "systemOrangeColor", "systemOrangeColor", "#ff9500", "#ff9f0a"],
+    ["system-yellow", "-apple-system-yellow", "systemYellowColor", "systemYellowColor", "#ffcc00", "#ffd60a"],
+    ["system-green", "-apple-system-green", "systemGreenColor", "systemGreenColor", "#34c759", "#30d158"],
+    ["system-mint", "", "systemMintColor", "systemMintColor", "#00c7be", "#63e6e2"],
+    ["system-teal", "-apple-system-teal", "systemTealColor", "systemTealColor", "#30b0c7", "#40c8e0"],
+    ["system-cyan", "", "systemCyanColor", "systemCyanColor", "#32ade6", "#64d2ff"],
+    ["system-blue", "-apple-system-blue", "systemBlueColor", "systemBlueColor", "#007aff", "#0a84ff"],
+    ["system-indigo", "-apple-system-indigo", "systemIndigoColor", "systemIndigoColor", "#5856d6", "#5e5ce6"],
+    ["system-purple", "-apple-system-purple", "systemPurpleColor", "systemPurpleColor", "#af52de", "#bf5af2"],
+    ["system-pink", "-apple-system-pink", "systemPinkColor", "systemPinkColor", "#ff2d55", "#ff375f"],
+    ["system-brown", "-apple-system-brown", "systemBrownColor", "systemBrownColor", "#a2845e", "#ac8e68"],
+    ["system-gray", "-apple-system-gray", "systemGrayColor", "systemGrayColor", "#8e8e93", "#8e8e93"]
   ]
 }

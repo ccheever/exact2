@@ -52,11 +52,9 @@ fn stamp_of(path: &Path) -> Option<(SystemTime, u64)> {
 /// The files compiling `root` reads besides itself: used files, packages'
 /// files and their `package.json`s, as they are now.
 fn uses(root: &Path) -> Vec<(PathBuf, Option<(SystemTime, u64)>)> {
-    let mut out = Vec::new();
-    for source in contract::source_graph(root).sources.into_iter().skip(1) {
-        if let contract::Origin::Package { manifest, .. } = &source.origin {
-            out.push(manifest.clone());
-        }
+    let graph = contract::source_graph(root);
+    let mut out = graph.consulted;
+    for source in graph.sources.into_iter().skip(1) {
         if source.path.is_absolute() {
             out.push(source.path);
         }

@@ -145,9 +145,26 @@ fn sources(args: &[String]) -> ExitCode {
         .iter()
         .map(|e| serde_json::from_str(&e.to_json()).unwrap_or_default())
         .collect();
+    let packages: Vec<_> = graph
+        .packages
+        .iter()
+        .map(|p| {
+            serde_json::json!({
+                "name": p.name,
+                "version": p.version,
+                "root": p.root.display().to_string(),
+                "manifest": p.manifest.display().to_string(),
+            })
+        })
+        .collect();
+    let consulted: Vec<_> = graph
+        .consulted
+        .iter()
+        .map(|m| m.display().to_string())
+        .collect();
     println!(
         "{}",
-        serde_json::json!({"sources": sources, "errors": errors})
+        serde_json::json!({"sources": sources, "packages": packages, "consulted": consulted, "errors": errors})
     );
     if graph.errors.is_empty() {
         ExitCode::SUCCESS

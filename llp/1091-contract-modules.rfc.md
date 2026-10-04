@@ -1,7 +1,7 @@
 # LLP 1091: Contract modules
 
 **Type:** RFC
-**Status:** Accepted by Charlie (r1, 2026-10-04: "Approve recs" on §7). r2 resolves round 1 (Astra max, Grok 4.7 xhigh: both SOUND WITH CHANGES; §9). Stage 1 landed (7cdf080e2); stage 2 built
+**Status:** Accepted by Charlie (r1, 2026-10-04: "Approve recs" on §7). r2 resolves round 1 (Astra max, Grok 4.7 xhigh: both SOUND WITH CHANGES; §9). Stage 1 landed (7cdf080e2), stage 2 (f0a074f32); r3 records the code review (§10)
 **Systems:** Contract loader (`contract/cli/src/{sources.rs,symbols.rs,map.rs,rust.rs,lean.rs}`), syntax (`contract/syntax`), the TS bake's capture (`js/bake`), the web build's capture (`host/web-js/build.mjs`), the dev loop and `build.rs` rebuild tracking, `exact new` (`game/new.mjs`), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
@@ -436,6 +436,7 @@ stage 1 lands, and stage 2 waits on them.
 - r1 (2026-10-04): Charlie's rulings on §7.
 - r2 (2026-10-04): the round-1 reviews (`llp/reviews/rfc-2026-10-04-1091.{astra,grok}.md`,
   both SOUND WITH CHANGES), disposed below; stage 1 built against this text.
+- r3 (2026-10-04): stage 2 as built (§5) and the code review (§10).
 
 ## 9. Review dispositions (round 1)
 
@@ -450,3 +451,23 @@ stage 1 lands, and stage 2 waits on them.
 | Astra 7 / Grok 3: a hyphenated name is not a Rust identifier | Pre-existing in `contract rust`; recorded in D4, not widened |
 | Astra 8: library fonts have no delivery | Taken: D6 says the app supplies a library's faces in stage 2 |
 | Grok 6: `provide`/`inject` stay one string channel | Taken: said in D11 |
+
+## 10. Code review dispositions (stages 1 and 2)
+
+Astra and Grok reviewed the landed code (`llp/reviews/code-2026-10-04-1091.{astra,grok}.md`), both
+UNSOUND. Every finding is taken, each with a case in `contract/cli/tests/it/scope_review.rs`, and
+every plan in the repository stays byte-identical to stage 2's.
+
+| Finding | Fix |
+|---|---|
+| Astra 4 / Grok 1: every word of an `animation` literal was read as a keyframes name | The rewrite reads the shorthand as CSS does: per comma-separated animation, the first word that is not an animation keyword, a number or a function; in `animation-name`, each item. A computed part glued to a unit is a time |
+| Astra 3: a `clock(Name)` literal inside an inline `match` was not rewritten | `match` arms are rewritten as ternary arms are |
+| Astra 6 / Grok 2: a local action's curried call, a primitive type, or a roster call was resolved as another file's top-level name | The rewrite tracks bindings (members, parameters, `each`/`match`/arrow/`let` binders); primitives and roster calls are never refused; a used file's shape named like a roster function is renamed |
+| Astra 2 / Grok 3: the package was the nearest `package.json` above the file, not the one whose `exports` were read | The package is the directory of the consulted manifest's real path; an exported file that leads out of it is refused |
+| Astra 5: one library installed under two names kept only the first in the graph, so the bake staged one | `SourceGraph::packages` lists every name a package was reached by; the bake stages each |
+| Astra 8: a manifest whose `exports` refused was not watched | `SourceGraph::consulted` lists every `package.json` read; `build.rs`, the wasm session and the JS loop watch them |
+| Astra 7: a generated name (`Helper__ui`) bypassed `use` | Generated names are refused like declared ones |
+| Grok 4: alike fonts on different lines did not merge | Fonts compare by family and faces, not position |
+| Grok 5: an `exports` condition that is not a path hid `default` | Conditions fall through |
+| Astra 1: deploy reinstalled an absolute `file:` or a `link:` from the live tree | Deploy refuses them (a relative `file:` moves with the snapshot) and, after the materialized install, refuses any Contract source outside the captured tree |
+

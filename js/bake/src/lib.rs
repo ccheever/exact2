@@ -537,32 +537,35 @@ fn origin(root: &Path, mounts: &[(String, PathBuf)], name: &Path) -> PathBuf {
 /// where it lives, for mapping diagnostics and the source map back.
 type Packages = (BTreeMap<PathBuf, Vec<u8>>, Vec<(PathBuf, PathBuf)>);
 fn packages(app: &Path) -> Result<Packages, String> {
+    let graph = contract::source_graph(&app.join("app.contract"));
     let mut files = BTreeMap::new();
     let mut roots: Vec<(PathBuf, PathBuf)> = Vec::new();
-    for source in contract::source_graph(&app.join("app.contract")).sources {
-        let contract::Origin::Package {
-            name,
-            root,
-            manifest,
-            ..
-        } = source.origin
-        else {
-            continue;
-        };
-        let staged = Path::new("node_modules").join(&name);
+    // Each name a package was reached by is staged: one directory installed
+    // under two names resolves under both in the stage as it did outside.
+    for package in &graph.packages {
+        let staged = Path::new("node_modules").join(&package.name);
         match roots.iter().find(|(at, _)| *at == staged) {
-            Some((_, other)) if *other != root => {
+            Some((_, other)) if *other != package.root => {
                 return Err(format!(
-                    "two copies of the package `{name}` ({} and {}) are used; the bake stages one",
+                    "two copies of the package `{}` ({} and {}) are used; the bake stages one",
+                    package.name,
                     other.display(),
-                    root.display()
+                    package.root.display()
                 ))
             }
-            Some(_) => {}
-            None => roots.push((staged.clone(), root.clone())),
+            Some(_) => continue,
+            None => roots.push((staged.clone(), package.root.clone())),
         }
-        for path in [&source.path, &manifest] {
-            let relative = path.strip_prefix(&root).map_err(|e| e.to_string())?;
+        let read = graph
+            .sources
+            .iter()
+            .filter(|source| matches!(&source.origin, contract::Origin::Package { root, .. } if *root == package.root))
+            .map(|source| &source.path)
+            .chain([&package.manifest]);
+        for path in read {
+            let relative = path
+                .strip_prefix(&package.root)
+                .map_err(|e| e.to_string())?;
             let bytes = std::fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
             files.insert(staged.join(relative), bytes);
         }
