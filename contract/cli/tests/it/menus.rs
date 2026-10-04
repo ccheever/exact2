@@ -53,7 +53,7 @@ fn refused(body: &str) -> (String, String) {
 #[test]
 fn an_hr_is_a_view_with_the_ua_sheets_rows_and_its_own_win() {
     let mut r = boot(&app(
-        "view width=200\n  hr testId=\"rule\"\n  hr testId=\"flat\" margin=0 border-style=\"solid\" border-color=\"#336699\"",
+        "view width=200\n  hr testId=\"rule\"\n  hr testId=\"flat\" margin=0 border-style=\"solid\" border-color=\"#336699\"\n  hr testId=\"red\" color=\"red\" border-color=\"currentcolor\"",
     ));
     let root = r.kernel().roots()[0];
     r.kernel_mut()
@@ -74,7 +74,8 @@ fn an_hr_is_a_view_with_the_ua_sheets_rows_and_its_own_win() {
     assert_eq!(s.overflow_y, Overflow::Hidden);
     // A block in a block: the parent's width, its two borders tall.
     assert_eq!((rule.frame.width, rule.frame.height), (200.0, 2.0));
-    // `currentcolor` inset paints Chrome's grey pair whatever `color` is.
+    // `currentcolor` inset paints Chrome's grey pair whatever `color` is
+    // (Chrome 154's pixels; its UA sheet gives `hr` no `border-color`).
     let current = rule
         .computed_style(StyleMask::of(StyleId::TextColor))
         .text_color;
@@ -82,6 +83,16 @@ fn an_hr_is_a_view_with_the_ua_sheets_rows_and_its_own_win() {
     let grey = |v| ColorValue::Fixed(Color::rgba(v, v, v, 255));
     assert_eq!(
         s.border_colors(current),
+        [grey(154), grey(238), grey(238), grey(154)]
+    );
+    // Red, and `currentcolor` written: still the grey pair, as Chrome paints.
+    let red = node(&r, "red");
+    let red_current = red
+        .computed_style(StyleMask::of(StyleId::TextColor))
+        .text_color;
+    assert_eq!(red_current, ColorValue::Fixed(Color::rgba(255, 0, 0, 255)));
+    assert_eq!(
+        red.style.border_colors(red_current),
         [grey(154), grey(238), grey(238), grey(154)]
     );
     // The author's rows replace the sheet's.

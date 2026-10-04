@@ -104,7 +104,9 @@ and one tag join the table (LLP 1017 §8.1; every name is the HTML one):
   `inset` border, `color: gray`, `overflow: hidden`), the author's own rows
   winning; children are refused (`lower-void`). `inset` joined the border
   styles for it (LLP 1001 §1, "Border semantics": Chrome's two shades on
-  the native hosts). Like the browser's, an `hr` in a flex column has auto
+  the native hosts). The sheet names no `border-color`, as Chrome's does
+  not; a `currentcolor` inset side paints from `#eeeeee`, so a bare `hr` is
+  `#9a9a9a` over `#eeeeee` whatever its `color` (measured in Chrome 154). Like the browser's, an `hr` in a flex column has auto
   side margins and so no width until the author zeroes them.
 - `aria-checked` on a `button` — the ARIA state, lowered like its three
   siblings at `tags.rs:165`.

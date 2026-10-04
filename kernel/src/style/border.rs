@@ -23,8 +23,12 @@ impl StyleProps {
     /// Border colours after resolving currentColor against this node's
     /// computed colour. An `inset` side is the shade the browser paints: the
     /// top and left darkened, the bottom and right lightened, from the side's
-    /// colour, or from Chrome's `#eeeeee` when the side names none (so a bare
-    /// `hr` is the same grey pair whatever its `color`).
+    /// colour, or from Chrome's `#eeeeee` when the side is `currentcolor` —
+    /// unwritten or written — so a bare `hr` is the same grey pair whatever
+    /// its `color`. Chrome's `getComputedStyle` still reports such a side as
+    /// the resolved `color`; only its paint substitutes the grey (measured:
+    /// Chrome 154, `color` red, gray, `#000040`, black and `#eeeeee` all
+    /// paint `#9a9a9a` over `#eeeeee`).
     pub fn border_colors(&self, current: ColorValue) -> [ColorValue; 4] {
         [
             (self.border_color_top, self.border_style_top, true),
@@ -43,7 +47,8 @@ impl StyleProps {
 }
 
 /// What Chrome draws an `inset` or `outset` side in when its colour is
-/// `currentcolor` (WebKit's `colorIncludingFallback`).
+/// `currentcolor` (WebKit's `colorIncludingFallback`, which Blink keeps: the
+/// shading below starts from this, not from `color`).
 const INSET_CURRENT: Color = Color::rgba(0xee, 0xee, 0xee, 0xff);
 
 /// Each colour of a value shaded, a light/dark pair per appearance.
@@ -137,6 +142,42 @@ mod tests {
 
     fn rgb(r: u8, g: u8, b: u8) -> Color {
         Color::rgba(r, g, b, 0xff)
+    }
+
+    /// Chrome 154's pixels for `border: 4px inset` (top, right, bottom,
+    /// left): a `currentcolor` side, unwritten or `border-color:
+    /// currentcolor`, is the `#eeeeee` pair under any `color`; a written
+    /// colour is shaded itself, whatever `color` is.
+    #[test]
+    fn currentcolor_inset_is_chromes_grey_pair() {
+        let fixed = ColorValue::Fixed;
+        let mut s = StyleProps::default();
+        s.border_style_top = BorderStyle::Inset;
+        s.border_style_right = BorderStyle::Inset;
+        s.border_style_bottom = BorderStyle::Inset;
+        s.border_style_left = BorderStyle::Inset;
+        let pair = [grey(0x9a), grey(0xee), grey(0xee), grey(0x9a)].map(fixed);
+        for current in [
+            rgb(0xff, 0, 0),
+            grey(0x80),
+            rgb(0, 0, 0x40),
+            grey(0),
+            grey(0xee),
+        ] {
+            assert_eq!(s.border_colors(fixed(current)), pair, "{current:?}");
+        }
+        let red = Some(fixed(rgb(0xff, 0, 0)));
+        s.border_color_top = red;
+        s.border_color_right = red;
+        s.border_color_bottom = red;
+        s.border_color_left = red;
+        let reds = [
+            rgb(0xab, 0, 0),
+            rgb(0xff, 0, 0),
+            rgb(0xff, 0, 0),
+            rgb(0xab, 0, 0),
+        ];
+        assert_eq!(s.border_colors(fixed(rgb(0, 0, 0xff))), reds.map(fixed));
     }
 
     /// Each pair Chrome painted for `border: 2px inset <colour>` (top, then

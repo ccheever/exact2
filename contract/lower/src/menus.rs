@@ -9,7 +9,9 @@ use exact_kernel::StyleId;
 
 /// HTML's `hr`: the UA stylesheet's rows (`display: block` is every node's
 /// already): `margin: 0.5em auto; border-style: inset; border-width: 1px;
-/// color: gray; overflow: hidden` (LLP 1021 D1).
+/// color: gray; overflow: hidden` (LLP 1021 D1). Chrome's sheet names no
+/// `border-color`: the sides stay `currentcolor`, which an `inset` side
+/// paints as `#eeeeee`'s pair (`StyleProps::border_colors`).
 pub(crate) const HR: &[(StyleId, &str)] = &[
     (StyleId::MarginTop, "0.5em"),
     (StyleId::MarginBottom, "0.5em"),
