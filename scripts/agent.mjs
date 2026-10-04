@@ -8,7 +8,7 @@
 //   Web defaults to Chrome; EXACT_WEB_BROWSER selects the same option. Install
 //   the other engines with: bunx playwright@1.63.0 install firefox webkit
 //   tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save
-//   tap <target> [wheel <dx> <dy> [gesture] | into <key> [block <v>] [inline <v>] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name>
+//   tap <target> [wheel <dx> <dy> [gesture] | into <key> [block <v>] [inline <v>] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>] | drag <dx> <dy> [from <x> <y>] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …]] | type <target> <text…> | type <target> key <Name>
 //   tap @N <choice> | type @N <value>   (a held device request, by ticket: LLP 1069.007 D4)
 //   clock <ms|+ms|settle> | prefer <media feature or page fact> <value> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>]
 //   bun scripts/agent.mjs trace <file>   (a development session's trace, LLP 1079 D5: no app runs)
@@ -39,7 +39,7 @@ import { contactSheet, decodePng, encodeApng, encodePng } from './png.mjs';
 const FILM_FRAMES = 240, FILM_PIXELS = 64e6;
 import { tmpdir } from 'node:os';
 import { basename, resolve } from 'node:path';
-import { openTouches, realTap } from '../host/apple/touches.mjs';
+import { DRAG_BOUNDS, openTouches, realTap } from '../host/apple/touches.mjs';
 import { appleArtifacts, assertAppleIdentity, bundleId, crashReports, developmentLaunchEnvironment, install, phone, phoneBridge, showSimulator, simulator } from '../host/apple/build.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 import { bakeOutput, resolveApp, webDist as defaultWebDist } from './app.mjs';
@@ -691,6 +691,8 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
         // Under `--touch platform` a press is a real touch or nothing: a guest
         // (iframe) or world press would be dispatched by the host and must
         // never be reported as platform input (LLP 1080.000 D8).
+        // One whole real gesture (LLP 1080.000 §11): only the runner makes one.
+        if (kind === 'drag') return realTap({ ask, touches, id, at: opts.at, drag: opts.drag, abandon: (why) => lines.fail(why) });
         if (touches && kind === 'press') {
           if (Object.values(guest).some((v) => v != null)) throw new Error('unsupported under --touch platform: a press into an iframe guest or a world entity reaches no real touch yet (LLP 1080.000 stage 1)');
           return realTap({ ask, touches, id, abandon: (why) => lines.fail(why) });
@@ -928,7 +930,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
      * injects; it synthesizes no touch (LLP 1008 §9).
      */
     input: host === 'ios' || host === 'host-ios'
-      ? { contact: false, hold: false, delivery: (kind) => (['contextmenu', 'dblclick', 'hover', 'pinch'].includes(kind) ? 'recognized' : ['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'unsupported' : kind === 'press' && carrier.touches ? 'platform' : 'activation') }
+      ? { contact: false, hold: false, delivery: (kind) => (['contextmenu', 'dblclick', 'hover', 'pinch'].includes(kind) ? 'recognized' : ['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'unsupported' : ['press', 'drag'].includes(kind) && carrier.touches ? 'platform' : kind === 'drag' ? 'unsupported' : 'activation') }
       : host === 'linux'
         ? { contact: true, hold: true, delivery: (kind) => (['down', 'move', 'hold', 'up', 'cancel'].includes(kind) ? 'presenter' : 'platform') }
         : { contact: true, hold: true, delivery: () => 'platform' },
@@ -941,6 +943,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       try { node = await s.target(target); }
       catch (error) { throw await tapRefusal(s, target, error); }
       if (node.entity !== undefined) {
+        if (opts.drag) throw new Error(`drag: ${target} is a world entity; a drag starts on a view`);
         const { entity } = await s.op({ op: 'layout', ...node });
         if (entity?.visible?.inFrustum === false || entity?.visible?.behindCamera === true) throw new Error(`${target} is ${entity.visible.behindCamera ? 'hidden (behind the camera)' : 'off screen'}: layout ${target} shows the placed box`);
         const b = entity?.screen;
@@ -970,6 +973,36 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if (opts.into) {
         const r = await s.op({ op: 'tap', id: node.id, into: opts.into });
         return s.tagged({ ...r, tapped: node.id, target, delivery: 'runner', carrier: host, mode: timing });
+      }
+      // @ref LLP 1080.000 §11 — one whole gesture: press, one straight drag, hold, lift.
+      if (opts.drag) {
+        const { dx, dy, from, press = 0, over = 250, hold = 0, during = [] } = opts.drag, drag = { dx, dy, press, over, hold, during };
+        if (![dx, dy, press, over, hold].every(Number.isFinite) || [press, over, hold].some((v) => v < 0)) throw new Error('drag: expected finite dx, dy and non-negative press, over and hold (ms)');
+        const moves = dx !== 0 || dy !== 0;
+        if (moves && over <= 0) throw new Error('drag: a drag that moves needs over > 0');
+        for (const k of ['press', 'over', 'hold']) if (drag[k] > DRAG_BOUNDS[k]) throw new Error(`drag: ${k} ${drag[k]} ms is past its bound, ${DRAG_BOUNDS[k]} ms`);
+        if (press + hold + (moves ? over : 0) > DRAG_BOUNDS.total) throw new Error(`drag: the gesture lasts past ${DRAG_BOUNDS.total} ms`);
+        if (s.contact) throw new Error('a contact is already down; use `tap up` or `tap cancel` first');
+        let at;
+        if (from) { const b = (await s.layout()).nodes.find((n) => n.id === node.id); if (!b) throw new Error(`view ${node.id} has no box on screen`); at = [b.x + from[0], b.y + from[1]]; }
+        if (carrier.touches) {
+          let r;
+          try { r = await carrier.input(node.id, 'drag', { at, drag }); } catch (error) { throw await tapRefusal(s, target, error); }
+          return s.tagged({ ...r, target, carrier: host, mode: timing });
+        }
+        // Elsewhere the carrier's own held contact, phase by phase, refused where it is (iOS without the runner).
+        const down = await s.tap(target, { down: true, at: from });
+        const { phase: _, ...refused } = down;
+        if (down.delivery === 'unsupported') return s.tagged({ ...refused, drag: { dx, dy, press, over, hold }, reason: `${down.reason ?? 'no held contact'}; a real drag is --touch platform's (LLP 1080.000 §11)` });
+        const done = [];
+        try {
+          for (const op of during) done.push(await op());
+          if (press) await s.pointer('hold', { ms: press });
+          if (moves) await s.pointer('move', { dx, dy, ms: over });
+          if (hold) await s.pointer('hold', { ms: hold });
+        } catch (error) { if (s.contact) await s.pointer('cancel').catch(() => {}); throw error; }
+        const up = await s.pointer('up');
+        return s.tagged({ tapped: node.id, target, at: down.at, drag: { dx, dy, press, over, hold }, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing });
       }
       const kind = opts.history !== undefined ? 'history' : opts.pinch !== undefined ? 'pinch' : opts.down ? 'down' : opts.wheel ? 'wheel' : opts.hover ? 'hover' : opts.contextmenu ? 'contextmenu' : opts.dblclick ? 'dblclick' : 'press';
       if (kind === 'down' && s.contact) throw new Error('a contact is already down; use `tap up` or `tap cancel` first');
@@ -1317,7 +1350,7 @@ async function main(argv) {
   // A trace a person's session saved (LLP 1079 D5), read back with no app running.
   if (host === 'trace' && ops.length === 1) { const t = await readTrace(ops[0], traceLocators); console.log(flags.json ? JSON.stringify(t) : renderTrace(t)); return 0; }
   if (!host || !ops.length) {
-    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--browser chrome|firefox|webkit] [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--json] <op> [<op> …]\n  web defaults to chrome; EXACT_WEB_BROWSER selects the same option. Install the other engines outside the repo: bunx playwright@1.63.0 install firefox webkit\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>]] | type <target> <text…> | type <target> key <Name> [for <ms>] | tap @N <choice> | type @N <value> | clock <ms|+ms|settle> | prefer <media feature, page fact, posture folded|continuous, segments <cols>x<rows> [gap <points>]> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>]\n       bun scripts/agent.mjs trace <file>   (a development session\'s trace, LLP 1079 D5)\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
+    console.error('usage: bun scripts/agent.mjs <web|macos|ios|linux|host|host-ios> [--browser chrome|firefox|webkit] [--app <name>] [--plan <file> | --url <url>] [--world <file>] [--device] [--phone <name|udid>] [--session <label>] [--open <document>] [--storage <name>] [--seed <n>] [--locale <tag>] [--time-zone <zone>] [--epoch <ISO|ms>] [--json] <op> [<op> …]\n  web defaults to chrome; EXACT_WEB_BROWSER selects the same option. Install the other engines outside the repo: bunx playwright@1.63.0 install firefox webkit\n  tree | layout | state | logs | screenshot <png> [window] | screenshot <png|apng> over <ms> every <ms> | screenshot <path> <canvas> save | tap <target> [wheel <dx> <dy> [gesture] | hover | history <n> | {"history":n} | contextmenu | dblclick | pinch <scale> [at <x> <y>] | drag <dx> <dy> [from <x> <y>] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …]] | type <target> <text…> | type <target> key <Name> [for <ms>] | tap @N <choice> | type @N <value> | clock <ms|+ms|settle> | prefer <media feature, page fact, posture folded|continuous, segments <cols>x<rows> [gap <points>]> […] | perf [<target>] [during "<op>" …] | perf frames [late <n>]\n       bun scripts/agent.mjs trace <file>   (a development session\'s trace, LLP 1079 D5)\n       bun scripts/agent.mjs <host> --test <file.test.contract>   (LLP 1017 P7: the file\'s `test` blocks, run here)');
     return 2;
   }
   const s = await open({ host, browser, plan: flags.plan, world: flags.world, size: flags.size, app: flags.app, session: flags.session, documents: flags.open, url: flags.url, device: flags.device, phone: flags.phone, timing: flags.timing, touch: flags.touch, storage: flags.storage, seed: flags.seed, locale: flags.locale, timeZone: flags.timeZone, epoch: flags.epoch });
@@ -1351,6 +1384,25 @@ async function main(argv) {
           else if (s.contact && (args[0] === 'up' || args[0] === 'cancel')) r = await s.pointer(args[0]);
           else if (args[1] === 'down') r = await s.tap(args[0], { down: true, at: args[2] === 'at' ? [Number(args[3]), Number(args[4])] : undefined });
           else if (args[1] === 'history') r = await s.tap(args[0], { history: Number(args[2]) });
+          else if (args[1] === 'drag') {
+            // tap <target> drag <dx> <dy> [from <x> <y>] [press <ms>] [over <ms>] [hold <ms>] [during "<op>" …]
+            const drag = { dx: Number(args[2]), dy: Number(args[3]) };
+            for (let i = 4; i < args.length;) {
+              if (args[i] === 'during') {
+                const ops = [...line.slice(line.search(/\sduring\s/)).matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => JSON.parse(`"${m[1]}"`));
+                if (!ops.length) throw new Error('tap … drag … during: quote each op, as during "state" "clock +600"');
+                // Reads and the clock only: a tap would be a second finger.
+                const refused = ops.find((op) => !['tree', 'layout', 'state', 'logs', 'screenshot', 'clock', 'perf'].includes(op.trim().split(/\s+/)[0]));
+                if (refused) throw new Error(`tap … drag … during: ${JSON.stringify(refused)} is not a read or the clock`);
+                drag.during = ops.map((op) => async () => (await step(op))[1]);
+                break;
+              }
+              if (args[i] === 'from') { drag.from = [Number(args[i + 1]), Number(args[i + 2])]; i += 3; }
+              else if (['press', 'over', 'hold'].includes(args[i])) { drag[args[i]] = Number(args[i + 1]); i += 2; }
+              else throw new Error(`tap … drag: unknown option ${args[i]}; from <x> <y>, press <ms>, over <ms>, hold <ms>`);
+            }
+            r = await s.tap(args[0], { drag });
+          }
           else if (args[1] === 'pinch') r = await s.tap(args[0], { pinch: Number(args[2]), ...(args[3] === 'at' ? { at: [Number(args[4]), Number(args[5])] } : {}) });
           else if (args[1]?.startsWith('{')) r = await s.tap(args[0], JSON.parse(args.slice(1).join(' ')));
           else if (args[1] === 'into') {

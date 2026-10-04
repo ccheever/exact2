@@ -172,6 +172,12 @@ final class NavigationTabsIOSTests: XCTestCase {
         until("Second selected") { tabs.selectedIndex == 1 }
         XCTAssertFalse(mayPop(second).contains(true), "Second is a root")
         XCTAssertFalse(mayPop(home).contains(true), "Home's pushed screen is hidden now")
+        // The edge rule judges where the finger landed, not the pan's
+        // translation origin, which leaves out the travel before recognition.
+        for pop in pops(home).compactMap({ $0 as? UIPanGestureRecognizer }) {
+            navigation.notePopTouchDown(pop, at: CGPoint(x: 1, y: 400))
+            XCTAssertEqual(navigation.popStart(pop, in: home.view), CGPoint(x: 1, y: 400))
+        }
     }
 
     func testASheetOverTheTabsIsPresentedByTheContainersParent() throws {

@@ -531,13 +531,31 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
                                            inActiveRoute: { $0 === route || $0.isDescendant(of: route) })
     }
 
+    /// Where each pop recognizer's first touch went down, in its view. A
+    /// pan's translation at `shouldBegin` leaves out the travel before it
+    /// recognized: a real touch from x = 1 read as starting at 30, past the
+    /// 20-point edge, and over a `swiperight` row the pop was refused (LLP
+    /// 1080.000 §11). The edge rule judges where the finger landed.
+    private var popTouchDown: [ObjectIdentifier: CGPoint] = [:]
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        if gestureRecognizer.numberOfTouches == 0 { notePopTouchDown(gestureRecognizer, at: touch.location(in: gestureRecognizer.view)) }
+        return true
+    }
+    func notePopTouchDown(_ gestureRecognizer: UIGestureRecognizer, at point: CGPoint) { popTouchDown[ObjectIdentifier(gestureRecognizer)] = point }
+
+    /// The swipe's start: its first touch's point, else (no touch seen) its translation's origin.
+    func popStart(_ pan: UIPanGestureRecognizer, in view: UIView) -> CGPoint {
+        if let down = popTouchDown[ObjectIdentifier(pan)] { return down }
+        let location = pan.location(in: view), delta = pan.translation(in: view)
+        return CGPoint(x: location.x - delta.x, y: location.y - delta.y)
+    }
+
     func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
         guard let pan = gestureRecognizer as? UIPanGestureRecognizer, let view = pan.view else {
             return popMayBegin(gestureRecognizer, from: nil, in: nil, velocity: .zero)
         }
-        let location = pan.location(in: view), delta = pan.translation(in: view)
-        return popMayBegin(gestureRecognizer, from: CGPoint(x: location.x - delta.x, y: location.y - delta.y),
-                           in: view, velocity: pan.velocity(in: view))
+        return popMayBegin(gestureRecognizer, from: popStart(pan, in: view), in: view, velocity: pan.velocity(in: view))
     }
 
     /// Whether a pop recognizer's swipe, starting at `start` in `view` (a
