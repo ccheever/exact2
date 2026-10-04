@@ -1,7 +1,8 @@
 struct ModelInstance {
     transform: u32, material: u32, geometry: u32, palette: u32,
     local: mat4x4<f32>, normal: mat4x4<f32>,
-    // NodeMaterials: base-colour multiplier and added emission (w unused).
+    // NodeMaterials: base-colour multiplier and added emission; glow.w's bits
+    // are 1 + the first per-part look of a merged draw (0: none).
     tint: vec4<f32>, glow: vec4<f32>,
 }
 @group(3) @binding(0) var<storage, read> instances: array<ModelInstance>;
@@ -58,17 +59,26 @@ fn model_transform(position: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, instan
     let q=qm*inverseSqrt(max(dot(qm,qm),1e-12));
     let s=mix(vec3(prev[i+7u],prev[i+8u],prev[i+9u]),vec3(curr[i+7u],curr[i+8u],curr[i+9u]),a);
     let skin=skinned(draw,vertex,position,normal);
+    var tint=draw.tint;
+    var glow=draw.glow.xyz;
+    let looks=bitcast<u32>(draw.glow.w);
+    if looks!=0u {
+        // A merged part's look, by the part index its vertices carry.
+        let look=instances[looks-1u+skin_vertices[vertex].joints.x];
+        tint*=look.tint;
+        glow+=look.glow.xyz;
+    }
     let local=(draw.local*vec4(skin[0],1.0)).xyz;
     if attached(slot) {
         let affine=attachment_matrices[slot];
         let world=(affine*vec4(local,1.0)).xyz;
         let n=affine_normal(affine,(draw.normal*vec4(skin[1],0.0)).xyz);
-        return ModelVarying(frame.view_proj*vec4(world,1.0),world,n,color,uv,slot,draw.tint,draw.glow.xyz);
+        return ModelVarying(frame.view_proj*vec4(world,1.0),world,n,color,uv,slot,tint,glow);
     }
     let world=p+rotate(q,s*local);
     let safe=select(max(abs(s),vec3(0.000001)),-max(abs(s),vec3(0.000001)),s<vec3(0.0));
     let n=rotate(q,(draw.normal*vec4(skin[1],0.0)).xyz/safe);
-    return ModelVarying(frame.view_proj*vec4(world,1.0),world,n,color,uv,slot,draw.tint,draw.glow.xyz);
+    return ModelVarying(frame.view_proj*vec4(world,1.0),world,n,color,uv,slot,tint,glow);
 }
 @vertex fn model_vs(@location(0) position: vec3<f32>, @location(1) normal: vec3<f32>, @location(2) uv: vec2<f32>, @location(3) color:vec4<f32>, @builtin(instance_index) instance:u32, @builtin(vertex_index) vertex:u32) -> ModelVarying {
     return model_transform(position,normal,uv,instance,vertex,color);

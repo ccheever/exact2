@@ -33,6 +33,9 @@ pub(crate) trait Writes {
         Ok(())
     }
     fn opacity(&mut self, _: &[(u32, f32)]) {}
+    /// Per record, 1 + its first merged part look (0: none), and those looks;
+    /// set before `instances`.
+    fn part_looks(&mut self, _: &[u32], _: &[[f32; 8]]) {}
     fn model_poses(
         &mut self,
         _: &World,
@@ -77,11 +80,14 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
     }
     fn model(&self, name: &str) -> Option<crate::models::Draws<'_>> {
         if ASSETS {
-            self.models
-                .loaded
-                .get(name)
-                .filter(|m| m.active)
-                .map(|m| (m.nodes.as_slice(), m.names.as_slice(), m.merged.as_slice()))
+            self.models.loaded.get(name).filter(|m| m.active).map(|m| {
+                (
+                    m.nodes.as_slice(),
+                    m.names.as_slice(),
+                    m.merged.as_slice(),
+                    m.members.as_slice(),
+                )
+            })
         } else {
             None
         }
@@ -93,6 +99,13 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
         if self.lights.set_opacity(&self.device, &self.queue, values) {
             self.rebind();
         }
+    }
+    fn part_looks(&mut self, bases: &[u32], looks: &[[f32; 8]]) {
+        let part_looks = &mut self.models.part_looks;
+        part_looks.0.clear();
+        part_looks.0.extend_from_slice(bases);
+        part_looks.1.clear();
+        part_looks.1.extend_from_slice(looks);
     }
     fn instances(&mut self, records: &[crate::DrawInstance]) -> Result<(), RenderError> {
         if ASSETS {

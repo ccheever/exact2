@@ -7,6 +7,9 @@ pub(super) struct Assets {
     pub records: Vec<DrawInstance>,
     pub entities: Vec<exact_game::Entity>,
     groups: BTreeMap<GroupKey, Vec<u32>>,
+    // Per record, 1 + its first merged part look (0: none), and those looks.
+    part_bases: Vec<u32>,
+    part_looks: Vec<[f32; 8]>,
 }
 impl Assets {
     pub fn batches(
@@ -18,6 +21,8 @@ impl Assets {
     ) -> Result<(), RenderError> {
         self.records.clear();
         self.entities.clear();
+        self.part_bases.clear();
+        self.part_looks.clear();
         for group in self.groups.values_mut() {
             group.clear();
         }
@@ -41,23 +46,38 @@ impl Assets {
                 if near >= far {
                     continue;
                 }
-                let Some((nodes, names, merged)) = r.model(model) else {
+                let Some((nodes, names, merged, members)) = r.model(model) else {
                     continue;
                 };
-                // Per-node looks need the unmerged parts.
-                let (nodes, names) = match &looks {
-                    Some(l) if !l.0.is_empty() => (nodes, names),
-                    _ if !merged.is_empty() => (merged, &[][..]),
-                    _ => (nodes, names),
+                let (nodes, members) = if merged.is_empty() {
+                    (nodes, None)
+                } else {
+                    (merged, Some(members))
                 };
                 drawn |= !nodes.is_empty();
                 let band = [near.max(0.).to_bits(), far.to_bits()];
                 for (i, &(geometry, material, local, skin)) in nodes.iter().enumerate() {
                     let slot = RENDER_SLOT_BASE + self.records.len() as u32;
-                    let look = looks
-                        .as_ref()
-                        .zip(names.get(i))
-                        .and_then(|(l, node)| l.0.iter().find(|m| m.node == *node));
+                    let parts = members.map_or(std::slice::from_ref(&names[i]), |m| &m[i]);
+                    let find = |node: &String| {
+                        looks
+                            .as_ref()
+                            .and_then(|l| l.0.iter().find(|m| m.node == *node))
+                    };
+                    let mut look = None;
+                    let mut base = 0;
+                    if parts.len() == 1 {
+                        look = find(&parts[0]);
+                    } else if parts.iter().any(|p| find(p).is_some()) {
+                        // A merged draw reads each part's look by its vertices' part.
+                        base = self.part_looks.len() as u32 + 1;
+                        self.part_looks.extend(parts.iter().map(|p| {
+                            let (c, e) =
+                                find(p).map_or(([1.; 4], [0.; 3]), |l| (l.color, l.emissive));
+                            [c[0], c[1], c[2], c[3], e[0], e[1], e[2], 0.]
+                        }));
+                    }
+                    self.part_bases.push(base);
                     self.records.push(DrawInstance {
                         data: 0,
                         transform: entity.index(),
@@ -84,6 +104,7 @@ impl Assets {
                 self.entities.push(entity);
             }
         }
+        r.part_looks(&self.part_bases, &self.part_looks);
         r.instances(&self.records)?;
         for (&(mesh, _, _, viewmodel, band), list) in &self.groups {
             if list.is_empty() {

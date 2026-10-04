@@ -69,6 +69,7 @@ impl Skinning {
             bind_buffers: None,
         }
     }
+    #[cfg(test)]
     pub fn add(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, model: &Model) -> Vec<u32> {
         self.add_merged(device, queue, model, &[])
     }

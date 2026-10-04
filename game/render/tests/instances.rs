@@ -444,7 +444,9 @@ fn node_materials_tint_and_light_named_nodes_of_one_instance() {
     f.environment.fog = None;
     f.environment.bloom = None;
     f.environment.background = Some([0.; 3]);
-    renderer.draw(&texture.create_view(&Default::default()), (128, 64), &f);
+    let stats = renderer.draw(&texture.create_view(&Default::default()), (128, 64), &f);
+    // One merged draw: each part's look follows its vertices.
+    assert_eq!(stats.instances, 1);
     let image = fixture::read(&gpu, &texture).unwrap();
     let (uniform, visor) = (image.at(32, 32), image.at(96, 32));
     assert!(
@@ -485,21 +487,19 @@ fn static_parts_sharing_a_material_draw_once_and_look_the_same() {
     for m in &mut model.materials {
         m.double_sided = false;
     }
-    let render = |looks: bool| {
+    // The reference gives each part its own (equal) material: nothing merges.
+    let mut apart = model.clone();
+    apart.materials = vec![apart.materials[0].clone(); 3];
+    for (i, mesh) in apart.meshes.iter_mut().enumerate() {
+        mesh.material = i as u32;
+    }
+    let render = |separate: bool| {
+        let model = if separate { &apart } else { &model };
         let mut sim = Sim::<Test>::new(()).unwrap();
-        sim.asset("panels.model", Some(&bin::to_vec(&model)))
+        sim.asset("panels.model", Some(&bin::to_vec(model)))
             .unwrap();
-        if looks {
-            // A neutral per-node look needs the parts unmerged.
-            let e = sim.world().named("model").unwrap();
-            let neutral = NodeMaterial {
-                node: "part0".into(),
-                ..Default::default()
-            };
-            sim.world_mut().insert(e, NodeMaterials(vec![neutral]));
-        }
         let mut renderer = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
-        renderer.prepare_model("panels.model", &model).unwrap();
+        renderer.prepare_model("panels.model", model).unwrap();
         let mut feed = Feed::default();
         feed.feed(sim.world(), &mut renderer).unwrap();
         let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
@@ -616,20 +616,25 @@ fn animated_rigid_parts_sharing_a_material_draw_once_and_follow_their_nodes() {
         }],
         ..Default::default()
     }];
-    let render = |looks: bool| {
+    let mut apart = model.clone();
+    apart.materials = vec![apart.materials[0].clone(); 2];
+    apart.meshes[1].material = 1;
+    let render = |separate: bool, looks: bool| {
+        let model = if separate { &apart } else { &model };
         let mut sim = Sim::<Swing>::new(()).unwrap();
-        sim.asset("arm.model", Some(&bin::to_vec(&model))).unwrap();
+        sim.asset("arm.model", Some(&bin::to_vec(model))).unwrap();
         sim.run(100.);
         if looks {
             let e = sim.world().named("model").unwrap();
-            let neutral = NodeMaterial {
-                node: "upper".into(),
+            let blue = NodeMaterial {
+                node: "lower".into(),
+                color: [0.1, 0.4, 1., 1.],
                 ..Default::default()
             };
-            sim.world_mut().insert(e, NodeMaterials(vec![neutral]));
+            sim.world_mut().insert(e, NodeMaterials(vec![blue]));
         }
         let mut renderer = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
-        renderer.prepare_model("arm.model", &model).unwrap();
+        renderer.prepare_model("arm.model", model).unwrap();
         let mut feed = Feed::default();
         feed.feed(sim.world(), &mut renderer).unwrap();
         let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
@@ -660,9 +665,11 @@ fn animated_rigid_parts_sharing_a_material_draw_once_and_follow_their_nodes() {
         let stats = renderer.draw(&texture.create_view(&Default::default()), (128, 128), &f);
         (stats, fixture::read(&gpu, &texture).unwrap())
     };
-    let (merged, a) = render(false);
-    let (parts, b) = render(true);
+    let (merged, a) = render(false, false);
+    let (parts, b) = render(true, false);
     assert_eq!((merged.instances, parts.instances), (1, 2));
+    // A per-part look on the merged, animated draw.
+    let (_, looked) = render(false, true);
     let lit = |p: &fixture::Pixels, x: u32, y: u32| p.at(x, y)[0] > 20;
     // Turned 0.6 rad: the lower panel's centre rises above the bind pose's row.
     let (cx, cy) = (
@@ -689,5 +696,12 @@ fn animated_rigid_parts_sharing_a_material_draw_once_and_follow_their_nodes() {
     assert!(
         differ <= 8,
         "{differ} pixels differ between merged and per-part draws"
+    );
+    let lower = looked.at(cx as u32, cy as u32);
+    assert!(lower[2] > lower[0], "the lower part is blue: {lower:?}");
+    assert_eq!(
+        looked.at(40, 64),
+        a.at(40, 64),
+        "the upper part keeps its look"
     );
 }

@@ -59,9 +59,9 @@ fn vertex(mesh: &MeshData, v: usize, local: Mat4, normal: Mat3) -> Vertex {
 
 impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
     /// The model's draw list with each merged group at its first member's place,
-    /// and the merged meshes; empty when nothing merges. `meshes[i]` is drawn
-    /// node `i`'s mesh; `animated` and `skins` are the animated groups and their
-    /// skin templates.
+    /// each draw's part names, and the merged meshes; empty when nothing merges.
+    /// `meshes[i]` is drawn node `i`'s mesh; `animated` and `skins` are the
+    /// animated groups and their skin templates.
     pub(super) fn merge_static(
         &mut self,
         model: &Model,
@@ -69,7 +69,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         meshes: &[u32],
         animated: &[(u32, Skin)],
         skins: &[u32],
-    ) -> (Vec<ModelNode>, Vec<MeshId>) {
+    ) -> (Vec<ModelNode>, Vec<Vec<String>>, Vec<MeshId>) {
         // Static: unskinned, unanimated nodes sharing a material.
         let mut groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
         for (i, node) in nodes.iter().enumerate() {
@@ -79,23 +79,23 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         }
         groups.retain(|_, members| members.len() > 1);
         if groups.is_empty() && animated.is_empty() {
-            return (Vec::new(), Vec::new());
+            return (Vec::new(), Vec::new(), Vec::new());
         }
         let drawn: Vec<usize> = (0..model.nodes.len())
             .filter(|&n| model.nodes[n].mesh.is_some())
             .collect();
         let mut first = BTreeMap::new();
-        let mut grouped = std::collections::BTreeSet::new();
         let mut merged = Vec::new();
         for members in groups.values() {
-            let (mut vertices, mut indices) = (Vec::new(), Vec::new());
-            for &i in members {
+            let (mut vertices, mut indices, mut parts) = (Vec::new(), Vec::new(), Vec::new());
+            for (part, &i) in members.iter().enumerate() {
                 let local = nodes[i].2;
                 let normal = Mat3::from_mat4(local).inverse().transpose();
                 let mesh = &model.meshes[meshes[i] as usize];
                 let base = vertices.len() as u32;
-                vertices
-                    .extend((0..mesh.positions.len() / 3).map(|v| vertex(mesh, v, local, normal)));
+                let count = mesh.positions.len() / 3;
+                vertices.extend((0..count).map(|v| vertex(mesh, v, local, normal)));
+                parts.extend(std::iter::repeat_n(part as u32, count));
                 // A mirrored node keeps its front faces by reversing its winding.
                 let mirrored = local.determinant() < 0.;
                 for t in mesh.indices.chunks_exact(3) {
@@ -107,11 +107,10 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                     indices.extend(t.map(|i| base + i));
                 }
             }
-            let id = self.add_mesh(&vertices, &indices);
-            self.meshes[id.0].asset = true;
+            let id = self.merged_mesh(&vertices, &indices, &parts);
             merged.push(id);
-            first.insert(members[0], (id, nodes[members[0]].1, Mat4::IDENTITY, None));
-            grouped.extend(members);
+            let draw = (id, nodes[members[0]].1, Mat4::IDENTITY, None);
+            first.insert(members[0], (draw, members.clone()));
         }
         for ((_, skin), &template) in animated.iter().zip(skins) {
             let members: Vec<usize> = skin
@@ -119,43 +118,50 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                 .iter()
                 .map(|&n| drawn.binary_search(&(n as usize)).unwrap())
                 .collect();
-            let (mut vertices, mut indices, mut weights) = (Vec::new(), Vec::new(), Vec::new());
+            let (mut vertices, mut indices, mut parts) = (Vec::new(), Vec::new(), Vec::new());
             for (joint, &i) in members.iter().enumerate() {
                 let mesh = &model.meshes[meshes[i] as usize];
                 let base = vertices.len() as u32;
                 let count = mesh.positions.len() / 3;
                 vertices
                     .extend((0..count).map(|v| vertex(mesh, v, Mat4::IDENTITY, Mat3::IDENTITY)));
+                parts.extend(std::iter::repeat_n(joint as u32, count));
                 indices.extend(mesh.indices.iter().map(|i| base + i));
-                for _ in 0..count {
-                    weights.extend([joint as u32, 0, 0, 0, 1f32.to_bits(), 0, 0, 0]);
-                }
             }
-            let id = self.add_mesh(&vertices, &indices);
-            self.meshes[id.0].asset = true;
-            let start = self.meshes[id.0].base_vertex as u64 * 32;
-            let buffer = &mut self.models.skinning.as_mut().unwrap().weights;
-            self.models.reallocations += u64::from(buffer.grow(
-                &self.device,
-                &self.queue,
-                start + (weights.len() * 4) as u64,
-            ));
-            buffer.write(&self.queue, start, crate::buffers::bytes(&weights));
+            let id = self.merged_mesh(&vertices, &indices, &parts);
             merged.push(id);
-            first.insert(
-                members[0],
-                (id, nodes[members[0]].1, Mat4::IDENTITY, Some(template)),
-            );
-            grouped.extend(members);
+            let draw = (id, nodes[members[0]].1, Mat4::IDENTITY, Some(template));
+            first.insert(members[0], (draw, members));
         }
-        let draws = nodes
+        let grouped: std::collections::BTreeSet<usize> = first
+            .values()
+            .flat_map(|(_, m)| m.iter().copied())
+            .collect();
+        let name = |i: usize| model.nodes[drawn[i]].name.clone();
+        let (draws, parts) = nodes
             .iter()
             .enumerate()
             .filter_map(|(i, &node)| match first.get(&i) {
-                Some(&draw) => Some(draw),
-                None => (!grouped.contains(&i)).then_some(node),
+                Some((draw, members)) => Some((*draw, members.iter().map(|&m| name(m)).collect())),
+                None => (!grouped.contains(&i)).then(|| (node, vec![name(i)])),
             })
+            .unzip();
+        (draws, parts, merged)
+    }
+    /// A merged mesh whose vertices carry their part index as a weight-one joint:
+    /// the skin path follows it, and merged per-part looks read it.
+    fn merged_mesh(&mut self, vertices: &[Vertex], indices: &[u32], parts: &[u32]) -> MeshId {
+        let id = self.add_mesh(vertices, indices);
+        self.meshes[id.0].asset = true;
+        let words: Vec<u32> = parts
+            .iter()
+            .flat_map(|&p| [p, 0, 0, 0, 1f32.to_bits(), 0, 0, 0])
             .collect();
-        (draws, merged)
+        let start = self.meshes[id.0].base_vertex as u64 * 32;
+        let buffer = &mut self.models.skinning.as_mut().unwrap().weights;
+        self.models.reallocations +=
+            u64::from(buffer.grow(&self.device, &self.queue, start + (words.len() * 4) as u64));
+        buffer.write(&self.queue, start, crate::buffers::bytes(&words));
+        id
     }
 }

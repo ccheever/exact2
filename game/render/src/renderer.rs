@@ -541,13 +541,7 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
             .models
             .loaded
             .values()
-            .flat_map(|m| {
-                m.nodes
-                    .iter()
-                    .chain(&m.merged)
-                    .filter(|n| n.3.is_some())
-                    .map(|n| n.0 .0)
-            })
+            .flat_map(|m| m.weighted_meshes())
             .collect();
         let weight_bytes = skinned
             .iter()

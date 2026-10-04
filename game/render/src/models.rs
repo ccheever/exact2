@@ -33,18 +33,38 @@ pub(crate) struct Material {
 /// u32 words per model instance record: header, local, normal, tint, glow.
 pub(crate) const INSTANCE_WORDS: usize = 44;
 pub(crate) type ModelNode = (MeshId, MaterialId, Mat4, Option<u32>);
-pub(crate) type Draws<'a> = (&'a [ModelNode], &'a [String], &'a [ModelNode]);
+/// A loaded model's nodes, their names, its merged draw list and each merged
+/// draw's part names (one for an unmerged node).
+pub(crate) type Draws<'a> = (
+    &'a [ModelNode],
+    &'a [String],
+    &'a [ModelNode],
+    &'a [Vec<String>],
+);
 pub(crate) struct Uploaded {
     pub nodes: Vec<ModelNode>,
     /// Each drawn node's name, for `NodeMaterials`.
     pub names: Vec<String>,
-    /// `nodes` with static parts sharing a material merged; empty when none merge.
+    /// `nodes` with rigid parts sharing a material merged; empty when none merge.
     pub merged: Vec<ModelNode>,
+    /// Each `merged` draw's node names, in vertex part order.
+    pub members: Vec<Vec<String>>,
     pub(crate) digest: u64,
     pub active: bool,
     pub meshes: Vec<MeshId>,
     pub materials: Vec<MaterialId>,
     pub skins: Vec<u32>,
+}
+impl Uploaded {
+    /// Meshes with per-vertex joint words: skinned and rigid-palette nodes, and
+    /// every merged mesh (its part indices).
+    pub(crate) fn weighted_meshes(&self) -> impl Iterator<Item = usize> + '_ {
+        let nodes = self.nodes.iter().filter(|n| n.3.is_some());
+        let merged = (self.merged.iter().zip(&self.members))
+            .filter(|(n, parts)| n.3.is_some() || parts.len() > 1)
+            .map(|(n, _)| n);
+        nodes.chain(merged).map(|n| n.0 .0)
+    }
 }
 mod merge;
 mod textures;
@@ -81,6 +101,9 @@ pub(crate) struct Models {
     bind_buffers: Option<(wgpu::BindGroupLayout, [wgpu::Buffer; 3])>,
     words: Vec<u32>,
     normals: Vec<([u32; 16], [u32; 16])>,
+    /// Per record, 1 + the first of its merged parts' looks (0: none), and
+    /// those looks (tint, then glow), appended after the records.
+    pub(crate) part_looks: (Vec<u32>, Vec<[f32; 8]>),
 }
 impl Models {
     pub fn custom_data(&mut self, queue: &wgpu::Queue, data: impl Fn(u32) -> u32) {
@@ -178,8 +201,11 @@ impl Models {
         let words = &mut self.words;
         words.clear();
         self.normals.resize(records.len(), ([0; 16], [0; 16]));
-        for ((record, cached), &palette) in
-            records.iter().zip(&mut self.normals).zip(&skinning.offsets)
+        for (index, ((record, cached), &palette)) in records
+            .iter()
+            .zip(&mut self.normals)
+            .zip(&skinning.offsets)
+            .enumerate()
         {
             let key = record.local.to_cols_array().map(f32::to_bits);
             if cached.0 != key {
@@ -202,7 +228,16 @@ impl Models {
             words.extend(normal);
             words.extend(record.tint.map(f32::to_bits));
             words.extend(record.glow.map(f32::to_bits));
-            words.push(0);
+            let look = self.part_looks.0.get(index).copied();
+            words.push(
+                look.filter(|&l| l != 0)
+                    .map_or(0, |l| records.len() as u32 + l),
+            );
+        }
+        // A merged part's look is one record-sized entry: its tint and glow.
+        for look in &self.part_looks.1 {
+            words.extend([0; 36]);
+            words.extend(look.map(f32::to_bits));
         }
         if words.len() as u64 * 4 > device.limits().max_storage_buffer_binding_size {
             return Err(RenderError::scene(
@@ -433,16 +468,22 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             .collect::<Vec<ModelNode>>();
         let drawn: Vec<u32> = model.nodes.iter().filter_map(|n| n.mesh).collect();
         let first = skins.len() - animated.len();
-        let (merged, merged_meshes) =
+        let (merged, members, merged_meshes) =
             self.merge_static(model, &nodes, &drawn, &animated, &skins[first..]);
         let mut meshes = meshes;
         meshes.extend(merged_meshes);
+        if !merged.is_empty() {
+            // Parts drawn only through a merged mesh retire with this upload.
+            let drawn: std::collections::BTreeSet<_> = merged.iter().map(|n| n.0).collect();
+            meshes.retain(|id| drawn.contains(id));
+        }
         self.models.loaded.insert(
             name.into(),
             Uploaded {
                 nodes,
                 names,
                 merged,
+                members,
                 digest,
                 active: true,
                 meshes,
@@ -493,13 +534,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                     .loaded
                     .iter()
                     .filter(|(n, m)| m.active && live.contains(*n))
-                    .flat_map(|(_, m)| {
-                        m.nodes
-                            .iter()
-                            .chain(&m.merged)
-                            .filter(|n| n.3.is_some())
-                            .map(|n| n.0 .0)
-                    })
+                    .flat_map(|(_, m)| m.weighted_meshes())
                     .collect::<std::collections::BTreeSet<_>>()
                     .iter()
                     .map(|&i| self.meshes[i].vertex_bytes)
