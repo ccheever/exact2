@@ -8,6 +8,7 @@
 // `scrollIntoView` (LLP 1070.000, into_view.rs) is carried, and Arrange's
 // preview (reorder.rs) by reorder.js, which the motion piece loads for a
 // reorder drag; not carried (refused at build): a dynamic `virtualized`.
+import { inactive } from "./document.js";
 import { sig, effect, scope, end, untracked, write, writeItem, owner, onEnd, viewId, Views, inflight, After, rev, ticket, journal, Resources, Mutations, unadopted, adopting, adoptRow, settled, Refusal, Hosts, exitView, clock } from "./rt.js";
 
 const BOOTSTRAP_ROWS = 16, ESTIMATED = 32, LEAD_SECONDS = 0.25, FAR_VIEWPORTS = 2, KEPT = 4096;
@@ -176,6 +177,7 @@ const Lists = new Map();
 let Controller = null, Loading = null, Published = "";
 const Deferred = []; // [collection, targets]: an end edge waits for the first edge's requests (runner/collection.rs)
 
+const Held = new Set(); // collections whose edge waits for their covered route to show (runner/collection.rs `held_edges`)
 class Collection {
   constructor(el, o, own) {
     this.el = el; this.view = viewId(el); this.axis = o.x ? "x" : "y"; this.own = own; this.o = o;
@@ -738,7 +740,15 @@ function wake() {
     else { const c = d[0]; for (const m of c.mounted) m.epoch = ++c.nextEpoch; c.revision++; }
   }
 }
-After.push(() => { wake(); publish(); });
+// A list whose edge waited under a covered route asks for a report once it
+// shows (runner/collection.rs `release_held_edges`).
+function release() {
+  for (const c of Held) {
+    if (!Lists.has(c.view)) Held.delete(c);
+    else if (!inactive(c.el)) { Held.delete(c); for (const m of c.mounted) m.epoch = ++c.nextEpoch; c.revision++; }
+  }
+}
+After.push(() => { release(); wake(); publish(); });
 function load() {
   if (Loading || typeof requestAnimationFrame !== "function" || globalThis.__exactRender) return;
   inflight.n++;
@@ -768,6 +778,13 @@ function report(bytes, f, fill) {
 }
 function edges(c, edge) {
   let endAfterNoop = edge.endAfterNoop;
+  // @ref LLP 1010 — a list on a route its stack keeps covered is hidden and
+  // inert: its edge waits, armed, for the route to show (runner/collection.rs).
+  if (inactive(c.el)) {
+    c.edgeArmed[edge.first] = true;
+    if (!Held.has(c)) { Held.add(c); journal.push(`t=${clock.now} ${edge.first ? "reachend" : "reachstart"} view ${c.view} waits: its list is on a covered route; it is offered when the route shows`); }
+    return;
+  }
   for (const [position, i] of [[0, edge.first], [1, 1]]) {
     if (position === 1 && (!endAfterNoop || !c.edgeArmed[1])) break;
     if (position === 1) c.edgeArmed[1] = false;

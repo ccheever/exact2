@@ -166,6 +166,25 @@ impl<D: DataSource> Runner<D> {
                 }
             }
         }
+        // @ref LLP 1010 — a list on a route its stack keeps covered (a deep
+        // link's root, a feed under a thread) is hidden and inert: its edge
+        // waits, armed, for the route to show, so nothing is asked for a
+        // screen the reader has not seen (`release_held_edges`).
+        let edge = match edge {
+            Some(edges) if self.inactive(view) => {
+                let tree = self.tree.as_mut().expect("booted");
+                tree.rearm_collection_edge(view, edges.first);
+                if !self.held_edges.contains(&view) {
+                    self.held_edges.push(view);
+                    let name = if edges.first == EventKind::Reachstart { "reachstart" } else { "reachend" };
+                    self.log(format!(
+                        "{name} view {view} waits: its list is on a covered route; it is offered when the route shows"
+                    ));
+                }
+                None
+            }
+            edge => edge,
+        };
         if let Some(edges) = edge {
             let mut end_after_noop = edges.end_after_noop;
             for (position, event) in [edges.first, EventKind::Reachend].into_iter().enumerate() {
@@ -225,6 +244,22 @@ impl<D: DataSource> Runner<D> {
             }
         }
         Ok(result)
+    }
+    /// After an ordinary commit: a list whose edge waited under a covered
+    /// route asks its host for a report once the route shows, which offers
+    /// the edge it reaches then.
+    pub(super) fn release_held_edges(&mut self) -> Result<(), RunnerError> {
+        for view in std::mem::take(&mut self.held_edges) {
+            if !self.tree.as_ref().expect("booted").has_collection(view) {
+                continue;
+            }
+            if self.inactive(view) {
+                self.held_edges.push(view);
+            } else {
+                self.tree.as_mut().expect("booted").wake_collection_edge(view)?;
+            }
+        }
+        Ok(())
     }
     /// Called once per ordinary commit, after settlement. Follow targets across
     /// continuation tickets, discard unmounted owners, and wake each ready edge
