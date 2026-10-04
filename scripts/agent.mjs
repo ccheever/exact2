@@ -1458,11 +1458,25 @@ async function main(argv) {
       }
       return [op, r];
   };
+  // A drive that names no scratch store has no storage, and a source's write fails only in the
+  // journal; say so the first time, beside the op that caused it (authoring bench, LLP 1087).
+  let peek = 0, warned = flags.storage !== undefined;
+  const storageNote = async () => {
+    if (warned) return;
+    const j = await s.op({ op: 'logs', since: peek }).catch(() => null);
+    if (!j) return;
+    peek = j.next;
+    if (j.lines?.some((l) => /unavailable in agent mode/.test(typeof l === 'string' ? l : JSON.stringify(l)))) {
+      warned = true;
+      console.error('note: a data source was refused storage: this drive names no scratch store, so writes do nothing; pass --storage <name> (docs/agent-pitfalls.md)');
+    }
+  };
   try {
     for (const [k, line] of ops.entries()) {
       at = k + 1;
       const [op, r] = await step(line);
       console.log(flags.json ? JSON.stringify(r) : render(op, r));
+      if (['tap', 'type', 'clock'].includes(op)) await storageNote();
     }
     return 0;
   } catch (e) {
