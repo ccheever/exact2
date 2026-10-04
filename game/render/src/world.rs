@@ -80,14 +80,18 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
     }
     fn model(&self, name: &str) -> Option<crate::models::Draws<'_>> {
         if ASSETS {
-            self.models.loaded.get(name).filter(|m| m.active).map(|m| {
-                (
-                    m.nodes.as_slice(),
-                    m.names.as_slice(),
-                    m.merged.as_slice(),
-                    m.members.as_slice(),
-                )
-            })
+            self.models
+                .loaded
+                .get(name)
+                .filter(|m| m.active)
+                .map(|m| crate::models::Draws {
+                    nodes: &m.nodes,
+                    names: &m.names,
+                    merged: &m.merged,
+                    members: &m.members,
+                    materials: &m.materials,
+                    bases: &m.bases,
+                })
         } else {
             None
         }
@@ -246,6 +250,7 @@ struct Versions {
     viewmodel: u64,
     opacity: u64,
     node_materials: u64,
+    material_overrides: u64,
     lod: u64,
     // An animated rig moves its socket followers' subtrees without a Transform write.
     pose: u64,
@@ -254,7 +259,7 @@ struct Versions {
     live: u64,
     membership: u64,
 }
-/// A content digest of every `NodeMaterials` row, by slot.
+/// A content digest of every `NodeMaterials` and `MaterialOverrides` row, by slot.
 fn node_looks_digest(w: &World) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -263,6 +268,14 @@ fn node_looks_digest(w: &World) -> u64 {
         for l in &looks.0 {
             l.node.hash(&mut h);
             l.color.map(f32::to_bits).hash(&mut h);
+            l.emissive.map(f32::to_bits).hash(&mut h);
+        }
+    }
+    for (e, looks) in w.query::<&exact_game::MaterialOverrides>().iter() {
+        e.index().hash(&mut h);
+        for l in &looks.0 {
+            l.material.hash(&mut h);
+            l.color.map(|c| c.map(f32::to_bits)).hash(&mut h);
             l.emissive.map(f32::to_bits).hash(&mut h);
         }
     }
@@ -299,6 +312,7 @@ impl Versions {
             viewmodel: w.revision::<ViewModel>(),
             opacity: w.revision::<exact_game::Opacity>(),
             node_materials: w.revision::<exact_game::NodeMaterials>(),
+            material_overrides: w.revision::<exact_game::MaterialOverrides>(),
             lod: w.revision::<exact_game::ModelLod>(),
             pose: w.revision::<exact_game::Pose>(),
             offset: offsets(w),
@@ -485,10 +499,13 @@ impl Feed {
             || next.glow != old.glow
             || next.membership != old.membership
             || next.mesh != old.mesh;
-        let looks_changed = (initial || next.node_materials != old.node_materials) && {
-            let digest = node_looks_digest(w);
-            std::mem::replace(&mut self.node_looks, digest) != digest || initial
-        };
+        let looks_changed = (initial
+            || next.node_materials != old.node_materials
+            || next.material_overrides != old.material_overrides)
+            && {
+                let digest = node_looks_digest(w);
+                std::mem::replace(&mut self.node_looks, digest) != digest || initial
+            };
         let batches = initial
             || next.assets != old.assets
             || next.mesh != old.mesh

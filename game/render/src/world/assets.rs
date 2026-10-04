@@ -32,6 +32,7 @@ impl Assets {
                 continue;
             }
             let looks = w.get::<exact_game::NodeMaterials>(entity);
+            let overrides = w.get::<exact_game::MaterialOverrides>(entity);
             let viewmodel = w.has::<exact_game::ViewModel>(entity);
             // The entity's own model, then each coarser level, each in its band.
             let lod = w.get::<exact_game::ModelLod>(entity);
@@ -46,13 +47,29 @@ impl Assets {
                 if near >= far {
                     continue;
                 }
-                let Some((nodes, names, merged, members)) = r.model(model) else {
+                let Some(draws) = r.model(model) else {
                     continue;
                 };
-                let (nodes, members) = if merged.is_empty() {
-                    (nodes, None)
+                let names = draws.names;
+                let (nodes, members) = if draws.merged.is_empty() {
+                    (draws.nodes, None)
                 } else {
-                    (merged, Some(members))
+                    (draws.merged, Some(draws.members))
+                };
+                // A material override is one record's tint and glow: every part
+                // of a record shares its material.
+                let material_look = |material: MaterialId| {
+                    let index = draws.materials.iter().position(|&m| m == material)?;
+                    let o = overrides
+                        .as_ref()?
+                        .0
+                        .iter()
+                        .find(|o| o.material as usize == index)?;
+                    let base = draws.bases[index];
+                    let tint = o.color.map_or([1.; 4], |c| {
+                        std::array::from_fn(|i| if base[i] == 0. { 1. } else { c[i] / base[i] })
+                    });
+                    Some((tint, o.emissive))
                 };
                 drawn |= !nodes.is_empty();
                 let band = [near.max(0.).to_bits(), far.to_bits()];
@@ -78,6 +95,12 @@ impl Assets {
                         }));
                     }
                     self.part_bases.push(base);
+                    let (mut tint, mut glow) =
+                        look.map_or(([1.; 4], [0.; 3]), |l| (l.color, l.emissive));
+                    if let Some((t, g)) = material_look(material) {
+                        tint = std::array::from_fn(|i| tint[i] * t[i]);
+                        glow = std::array::from_fn(|i| glow[i] + g[i]);
+                    }
                     self.records.push(DrawInstance {
                         data: 0,
                         transform: entity.index(),
@@ -85,8 +108,8 @@ impl Assets {
                         material,
                         local,
                         skin,
-                        tint: look.map_or([1.; 4], |l| l.color),
-                        glow: look.map_or([0.; 3], |l| l.emissive),
+                        tint,
+                        glow,
                     });
                     self.groups
                         .entry((

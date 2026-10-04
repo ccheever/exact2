@@ -309,6 +309,7 @@ impl World {
             .register::<ViewModel>()
             .register::<Opacity>()
             .register::<NodeMaterials>()
+            .register::<MaterialOverrides>()
             .register::<ModelLod>()
             .register::<crate::ParticleLook>()
             .register::<crate::Offset>()

@@ -548,6 +548,26 @@ impl Default for NodeMaterial {
 #[derive(Clone, Debug, Default, PartialEq, crate::Presentation)]
 pub struct NodeMaterials(pub Vec<NodeMaterial>);
 
+/// One model material's look on one instance: see `MaterialOverrides`.
+#[derive(Clone, Debug, Default, PartialEq, crate::Data)]
+pub struct MaterialOverride {
+    /// The model's material index (the glTF material's index in its file).
+    pub material: u32,
+    /// Replaces the material's base colour factor (linear RGBA; textures still
+    /// multiply it). `None` keeps it. A factor channel of zero cannot be
+    /// replaced: author that channel nonzero.
+    pub color: Option<[f32; 4]>,
+    /// Linear emission added wherever the material draws.
+    pub emissive: [f32; 3],
+}
+/// Per-material looks of a model instance: one soldier model in every team's
+/// armour colour, one crop model in each mutation's look. Every part with that
+/// material changes, merged or not, and instances with different overrides still
+/// draw together. Applies before `NodeMaterials`, under the entity's `Material`.
+/// Presentation state: write it from `Game::present`; never saved or hashed.
+#[derive(Clone, Debug, Default, PartialEq, crate::Presentation)]
+pub struct MaterialOverrides(pub Vec<MaterialOverride>);
+
 /// One coarser level of a model instance: drawn from `distance` metres from the
 /// camera, up to the next level's distance.
 #[derive(Clone, Debug, Default, PartialEq, crate::Data)]

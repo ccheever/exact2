@@ -312,7 +312,10 @@ never saved or hashed) fades any instance, primitive or model: opaque surfaces d
 an ordered 4×4 screen-door dither (depth stays exact, nothing is sorted; model
 shadows fade with it, primitive shadows do not), blended model materials multiply
 their alpha. Custom-material hooks ignore both.
-Present rebuilds both every tick; the feed compares their content, so unchanged
+`MaterialOverrides` replaces a model material's base colour factor (and adds
+emission) on one instance: it becomes that material's records' tint, the base
+divided out, so instances in different colours still share their batches.
+Present rebuilds these every tick; the feed compares their content, so unchanged
 looks neither rebatch nor re-upload fades.
 At load, a model's rigid, non-blended parts that share a material merge into one
 draw: static parts into one mesh pre-transformed into model space (mirrored parts

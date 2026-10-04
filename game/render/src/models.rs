@@ -33,14 +33,18 @@ pub(crate) struct Material {
 /// u32 words per model instance record: header, local, normal, tint, glow.
 pub(crate) const INSTANCE_WORDS: usize = 44;
 pub(crate) type ModelNode = (MeshId, MaterialId, Mat4, Option<u32>);
-/// A loaded model's nodes, their names, its merged draw list and each merged
-/// draw's part names (one for an unmerged node).
-pub(crate) type Draws<'a> = (
-    &'a [ModelNode],
-    &'a [String],
-    &'a [ModelNode],
-    &'a [Vec<String>],
-);
+/// What the feed batches one loaded model from.
+pub(crate) struct Draws<'a> {
+    pub nodes: &'a [ModelNode],
+    /// Each node's name, for `NodeMaterials`.
+    pub names: &'a [String],
+    /// The merged draw list (empty when nothing merges) and each draw's part names.
+    pub merged: &'a [ModelNode],
+    pub members: &'a [Vec<String>],
+    /// Renderer materials and their base colour factors, by model material index.
+    pub materials: &'a [MaterialId],
+    pub bases: &'a [[f32; 4]],
+}
 pub(crate) struct Uploaded {
     pub nodes: Vec<ModelNode>,
     /// Each drawn node's name, for `NodeMaterials`.
@@ -53,6 +57,8 @@ pub(crate) struct Uploaded {
     pub active: bool,
     pub meshes: Vec<MeshId>,
     pub materials: Vec<MaterialId>,
+    /// Each model material's base colour factor, for `MaterialOverrides`.
+    pub bases: Vec<[f32; 4]>,
     pub skins: Vec<u32>,
 }
 impl Uploaded {
@@ -484,6 +490,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                 names,
                 merged,
                 members,
+                bases: model.materials.iter().map(|m| m.base_color).collect(),
                 digest,
                 active: true,
                 meshes,
