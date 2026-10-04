@@ -541,6 +541,46 @@ final class MacShortcutTests: XCTestCase {
         XCTAssertTrue(file.items.first === open)
     }
 
+    /// Studio diary R16: a command's chord places it — Edit's own stand in
+    /// for the host's items, View's join View — and no chord is in the bar
+    /// twice; a host item gets its chord back when the command goes.
+    func testEditAndViewCommandsTakeTheirPlacesAndTheHostsStepAside() {
+        let presenter = Presenter()
+        let window = window(presenter)
+        defer { window.close() }
+        let previousServices = NSApp.servicesMenu
+        let previousWindows = NSApp.windowsMenu
+        defer { NSApp.servicesMenu = previousServices; NSApp.windowsMenu = previousWindows }
+        let undo = button(1, "Undo Move", "Meta+z", in: presenter)
+        _ = button(2, "Duplicate", "Meta+d", in: presenter)
+        _ = button(3, "Zoom In", "Meta+=", in: presenter)
+        _ = button(4, "Close Board", "Meta+w", in: presenter)
+        _ = button(5, "Export", "Meta+e", in: presenter)
+        let bar = DevMenu.makeMenu(shortcuts: presenter.shortcuts, documents: false)
+        let menu = { (title: String) in bar.items.first { $0.submenu?.title == title }!.submenu! }
+        let shown = { (title: String) in menu(title).items.filter { !$0.isHidden && !$0.isSeparatorItem } }
+        for _ in 0..<3 { presenter.shortcuts.sync() }
+        XCTAssertEqual(shown("Edit").first?.title, "Undo Move")
+        XCTAssertEqual(shown("Edit").first?.keyEquivalent, "z")
+        XCTAssertEqual(menu("Edit").items.filter { $0.title == "Undo" }.map(\.isHidden), [true])
+        XCTAssertEqual(shown("Edit").last?.title, "Duplicate")
+        XCTAssertEqual(shown("View").first?.title, "Zoom In")
+        XCTAssertEqual(shown("File").map(\.title).prefix(2), ["Close Board", "Export"])
+        let close = menu("File").items.first { $0.title == "Close Window" }!
+        XCTAssertEqual(close.keyEquivalent, "", "⌘W is the app's Close Board, once")
+        let all: [NSMenuItem] = bar.items.flatMap { (item: NSMenuItem) -> [NSMenuItem] in item.submenu?.items ?? [] }
+        let closers = all.filter { (item: NSMenuItem) -> Bool in item.keyEquivalent == "w" && item.keyEquivalentModifierMask == .command }
+        XCTAssertEqual(closers.map(\.title), ["Close Board"])
+        // A command that goes (a field being edited drops its chord) gives the host's back.
+        undo.removeFromSuperview()
+        presenter.views.removeValue(forKey: undo.id)
+        presenter.shortcuts.sync()
+        XCTAssertEqual(shown("Edit").first?.title, "Undo")
+        XCTAssertEqual(shown("Edit").first?.keyEquivalent, "z")
+        XCTAssertEqual(shown("Edit").last?.title, "Duplicate")
+        XCTAssertEqual(shown("Edit").last?.keyEquivalent, "d")
+    }
+
     func testShortcutsRespectDisabledInertHiddenRepeatedAndWindowOwnership() {
         let presenter = Presenter()
         let window = window(presenter)
@@ -630,6 +670,11 @@ final class MacToolbarTests: XCTestCase {
         XCTAssertEqual(w.title, "Another question")
         p.headTitle(nil)
         XCTAssertEqual(w.title, "Original")
+        // `head edited` (LLP 1069.010 D6): the window's edited mark.
+        p.headEdited(true)
+        XCTAssertTrue(w.isDocumentEdited)
+        p.headEdited(false)
+        XCTAssertFalse(w.isDocumentEdited)
     }
 
     func testRequiresBothExplicitDeclarationAndWindowOwnerAttachment() {

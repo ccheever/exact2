@@ -111,10 +111,16 @@ pub const HOST_COMMANDS: &[&str] = &[
     // The inverse of a canvas's `message=`: `postMessage(text, "world")` queues
     // text into the surface of that name, delivered in order, never coalesced.
     "postMessage",
-    // `event.preventDefault()` for the `key` event that ran the action: the
-    // host skips the key's default action (docs/contract-grammar.md#events).
+    // `event.preventDefault()` for the `key` or `wheel` event that ran the
+    // action: the host skips its default action, the key's or the scroll;
+    // for `beforeunload`, the window stays open (docs/contract-grammar.md#events).
     "preventDefault",
     // `event.stopPropagation()` for the same event: no ancestor's `key`
     // handler hears it, and its default still happens (files diary F8).
     "stopPropagation",
+    // `window.close()` (studio diary R17): the window closes without asking
+    // its `beforeunload` again — what an app calls once its own "Save
+    // changes?" is answered. As every host command keeps its name (LLP 1089
+    // D1), an action prop named `close` is bound, never called.
+    "close",
 ];

@@ -198,7 +198,7 @@ fn prefer_sets_the_display_preferences_by_their_media_names() {
 #[test]
 fn prefer_sets_contrast_scheme_and_the_page_facts() {
     let plan = contract::compile(
-        "shape M\n  prefersContrast: string\n  prefersColorScheme: string\nshape P\n  visibilityState: string\n  onLine: bool\n  canShare: bool\ncomponent App\n  resource m = exactViewport() as shape M\n  resource g = exactPage() as shape P\n  view\n    text `${m.prefersContrast} ${m.prefersColorScheme} ${g.visibilityState} ${g.onLine ? \"online\" : \"offline\"} ${g.canShare ? \"share\" : \"no-share\"}` testId=\"t\"\n",
+        "shape M\n  prefersContrast: string\n  prefersColorScheme: string\nshape P\n  visibilityState: string\n  onLine: bool\n  canShare: bool\n  canOpenFiles: bool\ncomponent App\n  resource m = exactViewport() as shape M\n  resource g = exactPage() as shape P\n  view\n    text `${m.prefersContrast} ${m.prefersColorScheme} ${g.visibilityState} ${g.onLine ? \"online\" : \"offline\"} ${g.canShare ? \"share\" : \"no-share\"} ${g.canOpenFiles ? \"pickers\" : \"no-pickers\"}` testId=\"t\"\n",
     )
     .unwrap();
     let bytes = contract::bake(plan, NoData).unwrap().encode();
@@ -213,20 +213,20 @@ fn prefer_sets_contrast_scheme_and_the_page_facts() {
     .unwrap();
     let text = |p: &mut Presenter<NoData>| handle(p, r#"{"op":"tree"}"#);
     assert!(
-        text(&mut p).contains("no-preference light visible online no-share"),
+        text(&mut p).contains("no-preference light visible online no-share no-pickers"),
         "{}",
         text(&mut p)
     );
     p.app_scheme(Some(false));
     let reply: serde_json::Value = serde_json::from_str(&handle(
         &mut p,
-        r#"{"op":"prefer","media":{"prefers-contrast":"more","prefers-color-scheme":"dark"},"page":{"visibility-state":"hidden","online":false,"can-share":"true"}}"#,
+        r#"{"op":"prefer","media":{"prefers-contrast":"more","prefers-color-scheme":"dark"},"page":{"visibility-state":"hidden","online":false,"can-share":"true","can-open-files":true}}"#,
     ))
     .unwrap();
     assert_eq!(reply["media"]["prefers-contrast"], "more");
     assert_eq!(reply["page"]["online"], false);
     assert!(
-        text(&mut p).contains("more dark hidden offline share"),
+        text(&mut p).contains("more dark hidden offline share pickers"),
         "{}",
         text(&mut p)
     );
@@ -235,6 +235,7 @@ fn prefer_sets_contrast_scheme_and_the_page_facts() {
         serde_json::from_str(&handle(&mut p, r#"{"op":"state"}"#)).unwrap();
     assert_eq!(state["device"]["prefersColorScheme"], "dark");
     assert_eq!(state["device"]["visibilityState"], "hidden");
+    assert_eq!(state["device"]["canOpenFiles"], true);
     let refused = handle(&mut p, r#"{"op":"prefer","page":{"online":"maybe"}}"#);
     assert!(refused.contains("\"error\""), "{refused}");
     // LLP 1069.000 D3: the root font size is layout, not a resource.

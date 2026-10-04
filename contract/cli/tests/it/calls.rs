@@ -67,17 +67,17 @@ const VIEWER: &str = r#"component App
   view
     column
       when open
-        Viewer(close=dismiss)
+        Viewer(hide=dismiss)
       text `${closes} ${last} ${open}` testId="closes"
 
 component Viewer
   props
-    close: action
+    hide: action
   state drags = 0
   action release(dy: number)
     drags = drags + 1
     if dy > 100
-      close("swiped")
+      hide("swiped")
   view
     column
       button press=release(200) testId="far"

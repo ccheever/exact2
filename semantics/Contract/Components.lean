@@ -87,7 +87,8 @@ def hostCommands : List String :=
   ["blur", "copyText", "deliveryActivate", "deliveryCheck", "focus", "format", "haptic", "openURL",
    "reload", "selectText", "setScheme", "showPicker", "share", "showNotification",
    "closeNotification", "saveFile", "showOpenFilePicker", "showDirectoryPicker",
-   "showSaveFilePicker", "scrollIntoView", "postMessage", "preventDefault", "stopPropagation"]
+   "showSaveFilePicker", "scrollIntoView", "postMessage", "preventDefault", "stopPropagation",
+   "close"]
 
 /-- `c`'s statements with every same-component call made a `call` (calls.rs
 `expand_file`, the bodies apart). -/

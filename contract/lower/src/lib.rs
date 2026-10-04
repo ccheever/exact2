@@ -1214,9 +1214,14 @@ impl<'a> Lowerer<'a> {
         surface: &mut Option<exact_plan::SurfacesId>,
         font: &[FontUse],
     ) -> Result<(), LowerError> {
-        let Some(target) = tags::attr(&a.name) else {
+        let Some(mut target) = tags::attr(&a.name) else {
             return Err(unknown_attr(tag, a));
         };
+        // HTML's global `title` on any element but `head`: advisory text, the
+        // platform's tooltip (studio diary R24); `head`'s is the document's.
+        if a.name == "title" && tag != "head" {
+            target = tags::AttrTarget::Prop(exact_kernel::PropId::Title);
+        }
         // @ref LLP 1024 D1 — `load` and `message` are a module's too.
         let module = native::is_module_tag(tag) && a.name != "sandbox";
         if (tag != "iframe"
@@ -1268,7 +1273,8 @@ impl<'a> Lowerer<'a> {
             );
         }
         // @ref LLP 1048.003 D1 — a document's metadata, and nothing else.
-        let head_field = tags::HEAD_FIELDS.contains(&a.name.as_str());
+        let head_field =
+            tags::HEAD_FIELDS.contains(&a.name.as_str()) && !(a.name == "title" && tag != "head");
         if head_field != (tag == "head") {
             return err(
                 "lower-attr-tag",

@@ -369,7 +369,7 @@ export function install(exact) {
         const keyboard = { visible: overlap > 0, overlap: Math.round(overlap * 100) / 100, policy: document.querySelector('[interactiveWidget]')?.getAttribute('interactiveWidget') ?? 'resizes-visual', interactive: false };
         const media = [...document.querySelectorAll('#exact-root video, #exact-root audio')].map(el => ({ id: id(el), state: { currentTime: el.currentTime, duration: Number.isFinite(el.duration) ? el.duration : null, paused: el.paused, muted: el.muted, volume: el.volume, playbackRate: el.playbackRate, readyState: el.readyState, videoWidth: el.videoWidth, videoHeight: el.videoHeight, src: el.currentSrc, error: el.error ? { code: el.error.code, message: el.error.message } : null, renderer: el.constructor.name } }));
         // The active head's fields, `null` where none is set, as the runner's `state.head` (agent.rs).
-        const head = Object.fromEntries(['title', 'description', 'image', 'canonical', 'robots', 'status'].map(k => [k, Head['head' + k[0].toUpperCase() + k.slice(1)] ?? null]));
+        const head = { ...Object.fromEntries(['title', 'description', 'image', 'canonical', 'robots', 'status'].map(k => [k, Head['head' + k[0].toUpperCase() + k.slice(1)] ?? null])), edited: Head.headEdited === 'true' };
         // The drive's app storage (trivia F7): none unless it names a scratch store, as storage-environment.js's `storageKey`.
         const store = new URL(performance.getEntriesByType?.('navigation')[0]?.name ?? location.href).searchParams.get('storage');
         const storage = store == null ? { available: false, code: 'agent', message: 'storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)' } : { available: true, store };

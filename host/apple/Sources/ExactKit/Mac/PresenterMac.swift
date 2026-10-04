@@ -31,7 +31,11 @@ final class Presenter {
     /// Shared elements in flight, by the arriver's id (LLP 1013.000, `FlightsMac.swift`).
     var flights: [UInt32: Flight] = [:]
     /// A view's props were written (`NodeView.props`' own observer).
-    func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props) }
+    func propsChanged(_ view: NodeView) {
+        chrome.note(view.id, props: view.props)
+        // HTML's `title`: the platform's tooltip (studio diary R24).
+        if view.toolTip != view.props["title"] { view.toolTip = view.props["title"] }
+    }
     /// Views carrying an indexed prop, in id order (the passes' old order was
     /// a dictionary's, which is none).
     func carrying(_ key: String) -> [NodeView] {
@@ -89,6 +93,8 @@ final class Presenter {
     /// The head's title goes to the window the app attached, through the
     /// toolbar host that already owns its title (LLP 1048.003 D1).
     func headTitle(_ title: String?) { toolbar.headTitle(title) }
+    /// `head edited` (LLP 1069.010 D6): the window's edited mark.
+    func headEdited(_ edited: Bool) { toolbar.headEdited(edited) }
     /// The first root's `viewportFit` prop (`"cover"` or nothing), as of the
     /// last batch; `onViewportFit` fires when it changes. macOS maps `cover`
     /// to a full-size-content window (the titlebar overlays the viewport;
@@ -616,6 +622,9 @@ final class Presenter {
     var onCommand: ((String, [Any], UInt32?) -> Void)?
     /// A `key` handler called `preventDefault()` (`keyDown(at:_:)`, KeyEvents.swift).
     var defaultPrevented = false
+    /// The last wheel or magnify event and whether a `wheel` handler
+    /// prevented it: every view it passes up asks once (MouseEventsMac.swift).
+    var lastWheel: (NSEvent, Bool)?
     /// A `key` handler called `stopPropagation()` (`keyDown(at:_:)`, KeyEvents.swift).
     var propagationStopped = false
 
@@ -825,6 +834,9 @@ final class Presenter {
     func clipboard(_ id: UInt32, _ kind: UInt32, _ text: String) { send(id) { [self] in onClipboard?(id, kind, text) } }
     func selectionChange(_ id: UInt32, _ text: String, _ start: Int, _ end: Int) { send(id) { [self] in onSelectionChange?(id, text, start, end) } }
     func contextmenu(_ id: UInt32) { send(id) { [self] in onContextmenu?(id) } }
+    /// A `contextmenu` with its point (10), a `wheel` (37) or a `drop` (38)
+    /// with its line (studio diary R22, R3, R19; MouseEventsMac.swift).
+    func mouseEvent(_ id: UInt32, _ kind: UInt32, _ line: String) { send(id) { [self] in onClipboard?(id, kind, line) } }
     func dblclick(_ id: UInt32) { send(id) { [self] in onDblclick?(id) } }
     func pointer(_ id: UInt32, _ kind: PointerKind, _ sample: PointerSample) { send(id) { [self] in onPointer?(id, kind, sample) } }
     func swiperight(_ id: UInt32) { send(id) { [self] in onSwiperight?(id) } }

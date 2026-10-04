@@ -31,6 +31,9 @@ export const commands = say => ({
   // The page's own reload: every web page has one, where a native host
   // needs its dev menu's.
   reload: () => location.reload(),
+  // `window.close()` (studio diary R17): a browser closes only a window a
+  // script opened, and says so in its console otherwise.
+  close: () => window.close(),
   // A JS build links no update store (facts.js `exactDelivery`): the page
   // loaded the newest root, and nothing is ever staged.
   deliveryCheck: () => say("delivery: no update store on the web; the page loaded the newest root"),

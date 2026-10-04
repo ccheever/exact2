@@ -1185,6 +1185,9 @@ impl Em<'_> {
                 | EventKind::Cut
                 | EventKind::Paste
                 | EventKind::Selectionchange
+                | EventKind::Beforeunload
+                | EventKind::Wheel
+                | EventKind::Drop
                 | EventKind::Play
                 | EventKind::Playing
                 | EventKind::Pause

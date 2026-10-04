@@ -616,6 +616,8 @@ final class Presenter {
     func key(_ id: UInt32, _ name: String) { send(id) { [self] in onKey?(id, name) } }
     func clipboard(_ id: UInt32, _ kind: UInt32, _ text: String) { send(id) { [self] in onClipboard?(id, kind, text) } }
     func contextmenu(_ id: UInt32) { send(id) { [self] in onContextmenu?(id) } }
+    /// A `contextmenu` with its point (studio diary R22): kind 10 and its line.
+    func contextmenu(_ id: UInt32, line: String) { send(id) { [self] in onClipboard?(id, 10, line) } }
     func dblclick(_ id: UInt32) { send(id) { [self] in onDblclick?(id) } }
     func pointer(_ id: UInt32, _ kind: PointerKind, _ sample: PointerSample) { send(id) { [self] in onPointer?(id, kind, sample) } }
     func swiperight(_ id: UInt32) { send(id) { [self] in onSwiperight?(id) } }

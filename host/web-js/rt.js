@@ -1,5 +1,5 @@
 import { renderMarkup, reportPlace, onSelection } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; // synced animations (LLP 1055.002, emit.rs `clocks`)
-import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head }; import { conforms, eq, equal } from "./shape.js"; import { pointer } from "./pointer.js"; import { commands } from "./commands.js"; import { media, mediaProp, mediaOn, mediaPiece, MEDIA_EVENTS } from "./media.js";
+import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head }; import { conforms, eq, equal } from "./shape.js"; import { pointer, record } from "./pointer.js"; import { commands } from "./commands.js"; import { media, mediaProp, mediaOn, mediaPiece, MEDIA_EVENTS } from "./media.js";
 let Paint; export function usePaint(pass) { Paint = pass; } export { conforms, eq, equal }; // the compiler installs `Paint` only when a plan can layer boxes
 // The JS target's runtime: fine-grained DOM signals for a plan compiled ahead by `exact-web-js`. Everything here is imported
 // by name, so an app's bundle carries only what its generated module uses.
@@ -218,7 +218,7 @@ export const Hosts = {
   setScheme: s => { document.documentElement.style.colorScheme = s === "system" ? "" : s; },
   copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), /* LLP 1077 D14: vibration where the browser has it */ scrollIntoView: (id, block, inline, behavior) => { const e = document.getElementById(id); if (e) e.scrollIntoView({ block: block ?? "start", inline: inline ?? "nearest", behavior: behavior ?? "auto" }); else say(`scrollIntoView "${id}" refused: no live node with that id`); }, // an element's, by id (minesweeper F3); list.js takes a row's
 };
-let KeyEvent = null; Hosts.preventDefault = () => KeyEvent?.preventDefault(); Hosts.stopPropagation = () => { if (KeyEvent) KeyEvent.$stopped = true; }; // the keydown whose `key` handler is running (`on`): commands run before its commit returns; a stopped one reaches no ancestor's `key` handler, its default still does (files diary F8)
+let KeyEvent = null; Hosts.preventDefault = () => { KeyEvent?.preventDefault(); if (KeyEvent?.type === "beforeunload") KeyEvent.returnValue = ""; }; Hosts.stopPropagation = () => { if (KeyEvent) KeyEvent.$stopped = true; }; // the keydown, wheel or beforeunload whose handler is running (`on`): commands run before its commit returns; a stopped key reaches no ancestor's `key` handler, its default still does (files diary F8); a prevented beforeunload is the browser's "Leave site?" (Safari reads `returnValue`)
 function command(name, args) {
   const f = Hosts[name];
   say(`command ${name}`);
@@ -817,6 +817,8 @@ export function on(e, kind, f) {
     case "change": case "input": return l(kind, ev => { if (ev instanceof CustomEvent) return f(ev.detail); if (e.type !== "checkbox") return f(e.type === "range" ? Number(e.value) : e.value); f(e.checked); if (e.$checked !== undefined && e.checked !== e.$checked) e.checked = e.$checked; });
     case "hover": l("pointerenter", () => f(true)); return l("pointerleave", () => f(false));
     case "key": return l("keydown", ev => { if (ev.$stopped) return; const outer = KeyEvent; KeyEvent = ev; try { f(ev.key, [ev.key, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { KeyEvent = outer; } }); // it bubbles to every ancestor's handler; an action taking one more parameter hears the KeyboardEvent record too (contract/types selection.rs's order)
+    // The window's, heard by every connected element that declares it (studio diary R17).
+    case "beforeunload": return addEventListener("beforeunload", ev => { if (!e.isConnected) return; const outer = KeyEvent; KeyEvent = ev; try { f(); } finally { KeyEvent = outer; } });
     case "submit": return l("keydown", ev => { if (ev.key === "Enter" && !ev.isComposing && !ev.$submit) { ev.$submit = true; addEventListener("keydown", w => { if (w === ev && !ev.defaultPrevented) setTimeout(f); }, { once: true }); } }); // Enter's default: after every `key` handler on the path (the window's listener is last), unless one prevented it, and after the browser's own default, HTML's `change` on Enter (gallery F26)
     // Only from the origin of the src the app committed (glue.js
     // `guestMessageAuthorized`, LLP 1020 D2): a guest that navigated away is
@@ -826,7 +828,13 @@ export function on(e, kind, f) {
     case "scroll": return l(kind, () => { if (e.$bootScroll) { e.$bootScroll = false; return; } f(e.scrollLeft, e.scrollTop, [e.scrollLeft, e.scrollTop, e.scrollWidth, e.scrollHeight, e.clientWidth, e.clientHeight]); });
     // Pull to refresh is a native port's; the web has none (`glue.js` attaches nothing).
     case "refresh": return;
-    case "contextmenu": case "dblclick": return l(kind, ev => { ev.preventDefault(); f(); }); case "pointerdown": case "pointerup": case "pointermove": return pointer(e, kind, f); // pointer.js (LLP 1005 §Events, 1056 §3)
+    case "dblclick": return l(kind, ev => { ev.preventDefault(); f(); }); case "pointerdown": case "pointerup": case "pointermove": return pointer(e, kind, f); // pointer.js (LLP 1005 §Events, 1056 §3)
+    // UI Events' `contextmenu` is a PointerEvent: where the secondary click was (studio diary R22).
+    case "contextmenu": return l(kind, ev => { ev.preventDefault(); f(record(e, ev)); });
+    // DOM's own, bubbling to every ancestor's handler; one that calls `preventDefault()` keeps the scroll (a pinch is a Control-held wheel) from happening (studio diary R3).
+    case "wheel": return e.addEventListener("wheel", ev => { const outer = KeyEvent; KeyEvent = ev; try { f([...record(e, ev).slice(0, 2), ev.deltaX, ev.deltaY, ev.deltaMode, ev.shiftKey, ev.ctrlKey, ev.altKey, ev.metaKey]); } finally { KeyEvent = outer; } }, { passive: false });
+    // Files dropped from outside, each a `doc:` handle (files.js, documents-glue.js; studio diary R19).
+    case "drop": return OnHooks.drop?.(e, f);
     // Chrome blurs an element it is removing (still connected); a retired view's blur is dropped (glue.js).
     case "blur": return l(kind, () => queueMicrotask(() => e.isConnected && f())); case "copy": case "cut": case "paste": return l(kind, ev => { ev.stopPropagation(); f([ev.clipboardData?.getData("text/plain") ?? ""]); }); // the nearest handler hears the ClipboardEvent record; the default (a field's own paste) proceeds
     case "selectionchange": return onSelection(e, (text, a, b) => f([text, a, b])); // its part of the page's selection, the `Selection` record (navigation.js)

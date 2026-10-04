@@ -1084,7 +1084,14 @@ pub(super) fn check_command(
     if name == "preventDefault" && !args.is_empty() {
         return err(
             "type-prevent-default",
-            "`preventDefault()` takes no arguments: it prevents the default action of the key event that ran this action",
+            "`preventDefault()` takes no arguments: it prevents the default action of the event that ran this action (a key's, a wheel's scroll, a `beforeunload`'s close)",
+            span,
+        );
+    }
+    if name == "close" && !args.is_empty() {
+        return err(
+            "type-close",
+            "`close()` takes no arguments: it closes the window this session shows, without asking its `beforeunload` again",
             span,
         );
     }

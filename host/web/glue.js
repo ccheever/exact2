@@ -539,13 +539,10 @@ function attach(el, id, handlers) {
       onSelection(el, (text, a, b) => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, 35, writeIn(`${a},${b},${text}`), now())); });
     } else if (kind === "copy" || kind === "cut" || kind === "paste") { // the clipboard's events at the focused node, the nearest handler's (spreadsheet F4); a field's own paste proceeds
       on(kind, e => { e.stopPropagation(); send(wasm.exact_dispatch(id, 32 + ["copy", "cut", "paste"].indexOf(kind), writeIn(e.clipboardData?.getData("text/plain") ?? ""), now())); });
-    } else if (kind === "contextmenu" || kind === "dblclick") {
-      on(kind, (e) => {
-        if (el.matches(":disabled") || inertAncestor(el)) return;
-        if (e.target.closest("input,textarea,[contenteditable]")) return;
-        e.preventDefault(); e.stopPropagation();
-        send(wasm.exact_dispatch(id, kind === "contextmenu" ? 10 : 11, 0, now()));
-      });
+    } else if (["contextmenu", "dblclick", "wheel", "drop", "beforeunload"].includes(kind)) { // with their records (input-glue `mouse`; studio diary R22, R3, R19, R17); a running wheel or beforeunload is the event its `preventDefault()` prevents
+      const go = (k, e) => inputHandlers?.mouse(el, k, e, (n, line) => { if (views.get(id) !== el || retiredViews.has(el)) return; const outer = keyEvent; keyEvent = e; try { send(wasm.exact_dispatch(id, n, writeIn(line), now())); } finally { keyEvent = outer; } });
+      if (kind === "beforeunload") addEventListener(kind, e => go(kind, e)); else on(kind, e => go(kind, e));
+      if (kind === "drop") on("dragover", e => go("dragover", e));
     } else if ((kind === "change" || kind === "cancel") && el.type === "file") { // a picker's files, or its dismissal (LLP 1069.002 D2, D3)
       on(kind, () => { const p = picker().then(m => kind === "change" ? m.change(el, id) : m.cancel(id)); inflight.add(p); p.finally(() => inflight.delete(p)); });
     } else if ((kind === "input" || kind === "change") && el.type === "checkbox") {
@@ -766,7 +763,7 @@ function apply(batch) {
         // the web. `light`/`dark` are the property's own values.
         if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "light dark" : s; } else if (op.name === "haptic") navigator.vibrate?.(op.args?.[0] === "selection" ? 5 : 12); // LLP 1077 D14
         else if (op.name === "focus" || op.name === "selectText" || op.name === "blur" || op.name === "scrollIntoView") focusCommands.push({ name: op.name, args: op.args }); // an element's scrollIntoView (a list row's is the runner's)
-        else if (op.name === "preventDefault") keyEvent?.preventDefault();
+        else if (op.name === "preventDefault") { keyEvent?.preventDefault(); if (keyEvent?.type === "beforeunload") keyEvent.returnValue = ""; } else if (op.name === "close") window.close(); // studio diary R17
         else if (op.name === "stopPropagation") { if (keyEvent) keyEvent.exactStopped = true; } // no ancestor's `key` handler hears it; its default still happens
         else if (op.name === "postMessage") { // the inverse of `message=`: text into the named surface, every one in order
           const text = String(op.args?.[0] ?? ""), name = String(op.args?.[1] ?? ""), at = now();
@@ -809,7 +806,7 @@ function apply(batch) {
         else if (op.name === "saveFile") { const [id, from, suggestedName] = op.args ?? [], r = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify({ command: "saveFile", id, from, suggestedName, agent: agentMode }))))), chosen = r.present && typeof showSaveFilePicker === "function" ? showSaveFilePicker({ suggestedName: r.suggestedName }) : null; // LLP 1069.010 D3: the runner rules; the save picker starts inside the press's activation, else a download
           if (r.present || r.view != null) { chosen?.catch(() => {}); const p = picker().then(m => m.save(r, chosen)); inflight.add(p); p.finally(() => inflight.delete(p)); } }
         else if (/^show(OpenFile|Directory|SaveFile)Picker$/.test(op.name)) { // LLP 1069.010 D2: the runner rules; a browser without the picker refuses
-          const [id, second] = op.args ?? [], r = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify({ command: op.name, id, multiple: second === true, suggestedName: typeof second === "string" ? second : undefined, agent: agentMode, available: typeof globalThis[op.name] === "function" }))))); if (r.present || r.view != null) { const p = documentsGlue().then(m => m.show(r, op.name)); inflight.add(p); p.finally(() => inflight.delete(p)); } }
+          const [id, second] = op.args ?? [], r = JSON.parse(readOut(wasm.exact_command(writeIn(JSON.stringify({ command: op.name, id, multiple: second === true, suggestedName: typeof second === "string" ? second : undefined, agent: agentMode, available: op.name === "showSaveFilePicker" || typeof globalThis[op.name] === "function" }))))); if (r.present || r.view != null) { const p = documentsGlue().then(m => m.show(r, op.name)); inflight.add(p); p.finally(() => inflight.delete(p)); } }
         else if (op.name === "share") {
           // LLP 1069.003: the runner rules (refused, or held for the agent, D6);
           // else the browser's sheet, started inside the input dispatch while
@@ -1476,7 +1473,7 @@ async function main() {
     loadAfterPaint('./input-glue.js', 'createInputHandlers').then(create => {
       inputHandlers = create({ root, views, retiredViews, agentMode, ready: () => inputReady, inertAncestor,
         dispatch: (id, payload) => send(wasm.exact_dispatch(id, 20, writeIn(payload), now())),
-        release: (id, payload) => send(wasm.exact_dispatch(id, 28, writeIn(payload), now())), velocity: motion.pan, log });
+        release: (id, payload) => send(wasm.exact_dispatch(id, 28, writeIn(payload), now())), velocity: motion.pan, log, documents: () => documentsGlue() });
     }).catch(console.error);
     try {
       const module = await (prepared ?? realm());

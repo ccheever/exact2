@@ -590,7 +590,12 @@ main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow displa
   1038 D11), which calls the root's `navigate`.
 
 A `head` node supplies document metadata. The innermost active value wins for
-each field. `scroll document` declares page scrolling. Route `render`/`activate`
+each field. `head edited=dirty` marks a document with unsaved changes (the dot in
+a Mac window's close button; nothing elsewhere). Before a window closes or the app
+quits, every element with a `beforeunload` handler hears it, DOM's event: an action
+that calls `preventDefault()` keeps the window open — the browser asks "Leave
+site?", a Mac app asks its own question — and `close()` closes the window once
+it is answered (studio diary R17). Any other element's `title` is HTML's tooltip. `scroll document` declares page scrolling. Route `render`/`activate`
 policy belongs to the site's renderer/build pipeline; follow
 [the document fixture](../contract/corpus/document.contract) and
 [LLP 1048.003](../llp/1048.003-documents-in-contract.spec.md). Do not claim SEO,
@@ -625,7 +630,12 @@ they do not admit arbitrary frame callbacks or a second app-state graph.
 For drawing and pointer-tracking, `pointerdown`, `pointermove` and `pointerup`
 hand an action that takes it a `PointerEvent` (`offsetX`/`offsetY` from the
 node's content box, `buttons`, `pressure`, `pointerType`, `pointerId`), on any
-node, a canvas included; set `touch-action="none"` on a drawing surface. See
+node, a canvas included; set `touch-action="none"` on a drawing surface. Any
+button goes down (`buttons` 2 is a right-click's), and a `contextmenu` action may
+take the same record, where the click was. `wheel` hands a `WheelEvent` (deltas,
+modifiers; a trackpad pinch is a Control-held wheel) and `preventDefault()` keeps
+the scroll from happening; `drop` hands a `DragEvent` whose `files` are `doc:`
+handles of the types `file_handlers` declares. See
 [Pointer](contract-grammar.md#pointer).
 
 `frame(id)` and `measure("literal-id")` are action-only geometry reads returning
@@ -695,7 +705,8 @@ primary mouse click on web, Windows, and Linux. `{contextmenu:true, at:[x,y]}`
 sends a right-click. Coordinates are relative to the target's top-left; omit
 `at` for its center. Both refuse invalid, covered, or offscreen points and held
 contacts. The CLI forms are `tap world mouse` and `tap world contextmenu`, or use
-a JSON options object for coordinates. Plain canvas taps and held contacts are
+a JSON options object for coordinates. `tap stage wheel 0 -20 modifiers Control`
+is a pinch's wheel; `tap world drop a.board` drags a file in (web, macOS). Plain canvas taps and held contacts are
 fingers, so their platform pointer identity and retained press history can differ
 from a mouse's; use the intended physical input when comparing game saves.
 

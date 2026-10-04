@@ -842,7 +842,13 @@ and wrapping; color and gradients; transforms, shadows, filters, and animation;
 and SVG presentation properties. The actual declaration inventory is
 [`kernel/tables/schema.json`](../kernel/tables/schema.json), with authored names
 and shorthands resolved by [`tags.rs`](../contract/lower/src/tags.rs). Use those
-instead of assuming every CSS property or unit exists.
+instead of assuming every CSS property or unit exists. A value is held to one
+grammar on every host, a computed one too: `background-image` takes
+`linear-`, `radial-` and `conic-gradient()` with percentage stops, so a
+template naming `repeating-linear-gradient(` or `url(` fails the build, and a
+computed value that is refused at run time is dropped and journaled on the web
+as on a Mac (`invalid background-image value …; unset`), never painted by the
+browser alone.
 
 Bound scroll containers. A typical full-height column gives its scroller
 `flex=1 min-height=0`; an isolated scroller can use a numeric height. A scrolling
@@ -918,7 +924,10 @@ A file `input` needs a literal `accept`; types other than images and video must
 be listed in `app.json`'s `file_handlers`. `showPicker` delivers a `list<Picked>`
 to the addressed element's `change` handler, while `showOpenFilePicker`,
 `showDirectoryPicker` and `showSaveFilePicker` deliver `doc:` handle strings;
-cancellation uses `cancel`. File content, durable storage, and permissions belong
+cancellation uses `cancel`. Where a browser has no open pickers (Firefox,
+Safari) they refuse with `cancel` too: read `exactPage().canOpenFiles` to tell
+that from a person's dismissal and offer an import instead. A save there still
+works: what the app writes to its handle downloads under the suggested name. File content, durable storage, and permissions belong
 in the data module. See [file-picker syntax](../contract/corpus/file-pickers.contract).
 
 ### Choosing a native button

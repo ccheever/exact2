@@ -879,6 +879,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::TabIndex => "tabindex",
             PropId::AccessibilityRequired => "aria-required",
             PropId::AccessibilityHasPopup => "aria-haspopup",
+            // HTML's global `title`: the browser's own tooltip (studio diary R24).
+            PropId::Title => "title",
             // SVG 2 attributes by their exact (case-sensitive) names (LLP 1055 D1).
             PropId::ViewBox => "viewBox",
             PropId::PreserveAspectRatio => "preserveAspectRatio",

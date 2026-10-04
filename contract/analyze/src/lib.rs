@@ -308,7 +308,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 47] = [
+pub const HANDLERS: [&str; 50] = [
     "press",
     "change",
     "input",
@@ -339,6 +339,15 @@ pub const HANDLERS: [&str; 47] = [
     // The part of the reader's text selection inside a paragraph (the
     // reader diary); its action may take a `Selection`.
     "selectionchange",
+    // DOM's `beforeunload` (studio diary R17): the window closing or the app
+    // quitting; an action calling `preventDefault()` keeps it open.
+    "beforeunload",
+    // DOM's `wheel` (studio diary R3): a wheel's or a trackpad's scroll, and
+    // a pinch as a Control-held wheel; it may hand its action a `WheelEvent`.
+    "wheel",
+    // DOM's `drop` of files from outside (studio diary R19): each a `doc:`
+    // handle in the `DragEvent` its action may take.
+    "drop",
     "swiperight",
     "refresh",
     "scroll",

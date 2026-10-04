@@ -7,7 +7,15 @@ const pressesByKey = el => !el.matches("button, a[href], input, select, textarea
 const shortcutKeys = new Set(["Enter", "Tab", "Escape", "Backspace", "Delete", "Insert", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"]);
 /** The modifiers an event holds, as a chord prefix (a pointer record's last field; glue.js's press writes the same). */
 const modifiers = e => (e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "");
-export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false, log = () => {} }) {
+/** The `PointerEvent` line of `e` at `el`: the point from its content box in its own CSS px (a scale undone), the buttons, pressure, device, id and modifiers. */
+function pointerLine(el, e, lifted = false) {
+  const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+  const sx = el.offsetWidth ? r.width / el.offsetWidth : 1, sy = el.offsetHeight ? r.height / el.offsetHeight : 1;
+  const left = parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft), top = parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop);
+  const type = e.pointerType === "pen" || e.pointerType === "touch" ? e.pointerType : "mouse";
+  return `${(e.clientX - r.left) / (sx || 1) - left},${(e.clientY - r.top) / (sy || 1) - top},${lifted ? 0 : e.buttons},${lifted ? 0 : Math.min(1, Math.max(0, e.pressure || 0))},${type},${e.pointerId ?? 1},${modifiers(e)}`;
+}
+export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false, log = () => {}, documents = null }) {
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document: a link with its own `press` navigates by
   // it; any other goes to the root's `navigate` handler, as popstate does.
@@ -154,13 +162,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     pointer(el, on, fire) {
       let held = null, last = null, move = null, frame = 0;
       const wants = kind => el.exactHandlers?.includes(kind);
-      const record = (e, lifted = false) => {
-        const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
-        const sx = el.offsetWidth ? r.width / el.offsetWidth : 1, sy = el.offsetHeight ? r.height / el.offsetHeight : 1;
-        const left = parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft), top = parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop);
-        const type = e.pointerType === "pen" || e.pointerType === "touch" ? e.pointerType : "mouse";
-        return `${(e.clientX - r.left) / (sx || 1) - left},${(e.clientY - r.top) / (sy || 1) - top},${lifted ? 0 : e.buttons},${lifted ? 0 : Math.min(1, Math.max(0, e.pressure || 0))},${type},${e.pointerId},${modifiers(e)}`;
-      };
+      const record = (e, lifted = false) => pointerLine(el, e, lifted);
       const flush = () => {
         cancelAnimationFrame(frame); frame = 0;
         const m = move; move = null;
@@ -192,7 +194,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       return e => {
         // The innermost enabled pointer node takes it (the event bubbles
         // here first from inner ones, which mark it).
-        if (e.exactPointerOwner || !e.isPrimary || e.button !== 0 || held !== null || disabled()) return;
+        // Any button, as the DOM's (studio diary R22); `buttons` says which.
+        if (e.exactPointerOwner || !e.isPrimary || held !== null || disabled()) return;
         e.exactPointerOwner = el;
         held = e.pointerId; last = e;
         for (const [type, target] of ends) target.addEventListener(type, up, target === document);
@@ -200,6 +203,32 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         flush();
         if (wants("pointerdown") && ready()) fire(29, record(e));
       };
+    },
+    // Studio diary R22, R3, R19, R17: a `contextmenu` with its point (10),
+    // `dblclick` (11), a `wheel` (37, its record; a prevented one does not
+    // scroll), files dropped from outside (38, each minted a `doc:` handle,
+    // documents-glue.js) and the window's `beforeunload` (36), as the JS
+    // target's rt.js and files.js hear them. `fire(kind, line)` dispatches.
+    mouse(el, kind, e, fire) {
+      if (!ready()) return;
+      if (kind === "beforeunload") return el.isConnected && fire(36, "");
+      if (el.matches(":disabled") || inertAncestor(el)) return;
+      if (kind === "wheel") return fire(37, `${pointerLine(el, e).split(",").slice(0, 2)},${e.deltaX},${e.deltaY},${e.deltaMode},${modifiers(e)}`);
+      if (kind === "dragover") { if (e.dataTransfer?.types?.includes("Files")) { e.preventDefault(); e.dataTransfer.dropEffect = "copy"; } return; }
+      if (kind === "drop") {
+        const dt = e.dataTransfer;
+        if (!dt?.files?.length) return;
+        e.preventDefault(); e.stopPropagation();
+        const at = `${pointerLine(el, e).split(",").slice(0, 2)},${modifiers(e)}`, files = [...dt.files];
+        const handles = [...dt.items].filter(i => i.kind === "file").map(i => i.getAsFileSystemHandle?.().catch(() => null) ?? null);
+        return documents?.().then(async (glue) => {
+          const found = await glue.dropped(await Promise.all(handles), files);
+          if (found.length) fire(38, `${at}\n${found.join("\n")}`); else log("drop: refused: no file of a type this app declares");
+        });
+      }
+      if (e.target.closest("input,textarea,[contenteditable]")) return;
+      e.preventDefault(); e.stopPropagation();
+      fire(kind === "contextmenu" ? 10 : 11, kind === "contextmenu" ? pointerLine(el, e) : "");
     },
     pan(el, id, on) {
       // @ref LLP 1043.000 §3 D8: one coalesced action per display frame.

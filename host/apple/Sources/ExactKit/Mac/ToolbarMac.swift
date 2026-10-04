@@ -24,6 +24,8 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
     /// projected toolbar heading, and its absence gives the app's back.
     private var headTitle: String?
     private var ownTitle: String?
+    /// `head edited` (LLP 1069.010 D6): the dot in the window's close button.
+    private var headEdited = false
     private var refusal: String?
     var onChange: (() -> Void)?
     /// LLP 1075.003.000 §3.7: the app module's `toolbar` hook, once a
@@ -44,6 +46,7 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         self.window = window
         sync()
         if headTitle != nil { applyTitle() }
+        if headEdited { window.isDocumentEdited = true }
         return true
     }
 
@@ -51,6 +54,11 @@ final class WindowToolbarHost: NSObject, NSToolbarDelegate, NSToolbarItemValidat
         guard title != headTitle else { return }
         headTitle = title
         applyTitle()
+    }
+
+    func headEdited(_ edited: Bool) {
+        headEdited = edited
+        if let window, window.isDocumentEdited != edited { window.isDocumentEdited = edited }
     }
 
     private func applyTitle() {

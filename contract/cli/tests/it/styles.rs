@@ -514,6 +514,21 @@ fn background_image_takes_one_gradient_and_refuses_the_rest_by_name() {
     let e =
         refused("background-image=(true ? \"none\" : \"repeating-conic-gradient(#000, #fff)\")");
     assert!(e.message.contains("conic"), "{e}");
+    // A computed value's own text (studio diary R15: a grid the web painted
+    // and the Mac dropped): the function it names is refused on every target.
+    let e = refused(
+        "background-image=`repeating-linear-gradient(0deg, #0001 0 1px, transparent 1px ${10}px)`",
+    );
+    assert_eq!(e.id, "lower-attr-value", "{e}");
+    assert!(
+        e.message
+            .contains("repeating-linear-gradient() is not implemented"),
+        "{e}"
+    );
+    let e = refused("mask-image=(true ? `url(${\"a\"}.png)` : \"none\")");
+    assert!(e.message.contains("image as a background"), "{e}");
+    let fine = boot("component App\n  state stop = 40\n  view\n    view background-image=`linear-gradient(#000, #fff ${stop}%)` testId=\"a\"\n");
+    assert!(style_of(&fine, "a").background_image.gradient().is_some());
 }
 
 #[test]
