@@ -190,7 +190,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     // A Chrome that dies at launch says why only on its stderr; the pipe just closes.
     const { targetInfos } = await cdp.send('Target.getTargets').catch(async (error) => {
       await waitAtMost(stdioClosed, 1000);
-      const said = launchTail.slice(-6).map(l => '  chrome: ' + l).join('\n');
+      const said = [...launchTail, ...(partial ? [partial] : [])].slice(-6).map(l => '  chrome: ' + l).join('\n'); // and an unterminated last line
       const alive = child.exitCode === null && child.signalCode === null;
       throw new Error(`Chrome ${alive ? 'did not answer' : 'did not start'} (${error.message}); CHROME=${chrome}\n${said || '  (it printed nothing)'}${alive ? '' : '\nSet CHROME to a browser that runs here.'}`);
     });
