@@ -1468,6 +1468,7 @@ pub fn with_entry<D: DataSource>(
 }
 
 mod exports;
+mod group;
 mod preferences;
 pub(crate) mod segments;
 

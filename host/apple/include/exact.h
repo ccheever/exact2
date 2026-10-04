@@ -367,6 +367,25 @@ uint32_t exact_transform_motion(uint32_t rt, uint32_t len);
 uint32_t exact_reorder_begin(ExactRuntime rt, uint32_t handle, double scroll_top, double now_ms);
 uint32_t exact_reorder_move(ExactRuntime rt, uint64_t token, double dy, double scroll_top, uint32_t inside, double now_ms);
 uint32_t exact_reorder_end(ExactRuntime rt, uint64_t token, uint32_t drop, double dy, double scroll_top, uint32_t inside, double velocity, double now_ms);
+/* Dropping across lists (reorderGroup, LLP 1094 D5-D9). A grouped grip lifts
+ * with group_begin: ghost nonzero when the host draws the row in its top
+ * layer (the runner then hides the row itself until group_finish); zero for
+ * a key's or custom action's session. move_into hands the ghost centre's y in
+ * target's (a grouped list view) content, at target_scroll_top as its
+ * collection feedback reports it; inside zero (the centre in no grouped
+ * port) keeps the certified gap. step: 1 earlier, 2 later, 3 the previous
+ * grouped list, 4 the next. group_end drops into the session's target
+ * (nonzero) or cancels; a holding drop ignores a cancel. Every reply, and
+ * every later batch that changes it, carries {"op":"reorder","group":true,
+ * "token","list","wrapper","phase":"active"|"holding"|"cancelling"|
+ * "settling"|"finished"|"refused","dispatched","ending":null|"landed"|"gone"|
+ * "timeout","target","row"}: row is the wrapper that holds the dragged row
+ * now, where a ghost lands. A new lift is refused until group_finish. */
+uint32_t exact_reorder_group_begin(ExactRuntime rt, uint32_t handle, double scroll_top, uint32_t ghost, double now_ms);
+uint32_t exact_reorder_move_into(ExactRuntime rt, uint64_t token, uint32_t target, double content_y, double target_scroll_top, uint32_t inside, double now_ms);
+uint32_t exact_reorder_step(ExactRuntime rt, uint64_t token, uint32_t step, double now_ms);
+uint32_t exact_reorder_group_end(ExactRuntime rt, uint64_t token, uint32_t drop, double now_ms);
+uint32_t exact_reorder_group_finish(ExactRuntime rt, uint64_t token, double now_ms);
 uint32_t exact_hold_begin(ExactRuntime rt, uint32_t view, uint32_t property, double now_ms);
 uint32_t exact_has_hold(ExactRuntime rt, uint64_t token);
 uint32_t exact_hold_update(ExactRuntime rt, uint64_t token, double x, double y, double now_ms);

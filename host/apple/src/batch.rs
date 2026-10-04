@@ -188,6 +188,10 @@ impl Batch {
     /// One Arrange contact's state (LLP 1041 §8.5): its reorder serial as a
     /// decimal string, the List and lifted wrapper views (0 once gone), and
     /// `active`, `settling`, `finished` or `refused`.
+    /// A grouped session's `reorder` op, built whole (`arrange_group.rs`).
+    pub(crate) fn push_op(&mut self, op: String) {
+        self.ops.push(op);
+    }
     pub(crate) fn reorder(&mut self, token: u64, ids: (u32, u32), phase: &str, dispatched: bool) {
         self.ops.push(format!("{{\"op\":\"reorder\",\"token\":\"{token}\",\"list\":{},\"wrapper\":{},\"phase\":\"{phase}\",\"dispatched\":{dispatched}}}", ids.0, ids.1));
     }
