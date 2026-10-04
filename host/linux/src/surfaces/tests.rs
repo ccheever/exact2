@@ -2,6 +2,56 @@ use super::*;
 use exact_runner::Request;
 use sha2::{Digest, Sha256};
 
+#[test]
+fn surface_messages_without_listeners_are_discarded_and_listeners_still_receive_them() {
+    struct Empty;
+    impl DataSource for Empty {
+        fn query(
+            &mut self,
+            name: &str,
+            _: &[exact_runner::Value],
+        ) -> Result<exact_runner::Value, exact_runner::DataError> {
+            Err(exact_runner::DataError::UnknownSource(name.into()))
+        }
+    }
+    let source = r#"component App
+  state last = ""
+  action receive(value: string)
+    last = value
+  view
+    column
+      canvas testId="silent"
+      canvas testId="listening" message=receive
+      text last testId="last"
+"#;
+    let (mut host, error) = Host::boot(
+        &contract::compile(source).unwrap().encode(),
+        Empty,
+        Box::new(exact_kernel::MonospaceMeasurer::default()),
+        400.,
+        500.,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let find = |host: &Host<Empty>, name: &str| {
+        let kernel = host.kernel();
+        kernel
+            .node_by_key(kernel.find_by_test_id(name)[0])
+            .unwrap()
+            .id
+    };
+    let silent = find(&host, "silent");
+    let listening = find(&host, "listening");
+    assert!(Surfaces::dispatch_message(&mut host, silent, "rescued".into()).is_none());
+    assert!(Surfaces::dispatch_message(&mut host, listening, "rescued".into()).is_none());
+    assert!(Surfaces::dispatch_message(&mut host, listening, "exact:audio".into()).is_none());
+    let text = host.kernel().node(find(&host, "last")).unwrap();
+    assert_eq!(text.props.str(exact_kernel::PropId::Text), Some("rescued"));
+    assert!(Surfaces::dispatch_message(&mut host, listening, "dawn".into()).is_none());
+    let text = host.kernel().node(find(&host, "last")).unwrap();
+    assert_eq!(text.props.str(exact_kernel::PropId::Text), Some("dawn"));
+}
+
 fn compile_fixture(source: &std::path::Path, path: &std::path::Path) {
     #[cfg(not(windows))]
     let mut command = {

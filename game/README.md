@@ -359,6 +359,9 @@ For a `prove.mjs` web build, set `EXACT_WEB_DIST` to the printed artifact direct
 every resource's value. In a proof, `session.world('world').snapshot({all:true})`
 reads every page at one tick and `resources()` the resources.
 `clock settle` advances the owned clock and explains remaining work instead of sleeping.
+Inspected `Data` enums are objects keyed by variant: Forest's food item has
+`kind: {Food: {}}`. Test it with `Object.hasOwn(item.kind, 'Food')`; variants with
+payloads keep those fields under the same key.
 
 In a proof, `session.world('world')` supplies `hold`, `run`, `settle`, `get`,
 `layout`, `snapshot` and `save`. A held key is released on the same carrier even

@@ -625,15 +625,10 @@ impl Surfaces {
             if let Some(bytes) = abi.read(b"gpu_messages", c.id) {
                 if let Ok(messages) = serde_json::from_slice::<Vec<String>>(&bytes) {
                     for message in messages {
-                        // Headless Linux has no audio session or lifecycle to deliver.
-                        if message == "exact:audio" {
-                            continue;
-                        }
-                        self.error = self.error.take().or(host.dispatch_at(
-                            view,
-                            Event::Message(message),
-                            host.now(),
-                        ));
+                        self.error = self
+                            .error
+                            .take()
+                            .or(Self::dispatch_message(host, view, message));
                         changed = true;
                     }
                 }
@@ -709,12 +704,11 @@ impl Surfaces {
                 }
                 if let Some(bytes) = abi.read(b"gpu_messages", id) {
                     if let Ok(messages) = serde_json::from_slice::<Vec<String>>(&bytes) {
-                        for message in messages.into_iter().filter(|m| m != "exact:audio") {
-                            self.error = self.error.take().or(host.dispatch_at(
-                                view,
-                                Event::Message(message),
-                                host.now(),
-                            ));
+                        for message in messages {
+                            self.error = self
+                                .error
+                                .take()
+                                .or(Self::dispatch_message(host, view, message));
                             changed = true;
                         }
                     }
@@ -833,6 +827,24 @@ impl Surfaces {
             }
         }
         result
+    }
+
+    /// Like the browser's messageViews guard: an unobserved surface event is
+    /// discarded. Headless Linux has no audio session to notify either.
+    fn dispatch_message<D: DataSource>(
+        host: &mut Host<D>,
+        view: u32,
+        message: String,
+    ) -> Option<String> {
+        if message == "exact:audio"
+            || !host
+                .runner()
+                .handlers_of(view)
+                .contains(&exact_plan::EventKind::Message)
+        {
+            return None;
+        }
+        host.dispatch_at(view, Event::Message(message), host.now())
     }
 
     /// `postMessage(text, name)`: one message event for the live canvas of that

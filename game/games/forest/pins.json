@@ -4,15 +4,16 @@
     "4500": "0x1297ea42b0978dee"
   },
   "saves": {
-    "night": "b87f97baea97c9cf3d4c571691d06a84b20342eba2048843685fe83d7bd0e9a1"
+    "night": "be903a2897f0f37df2e21085f02d235b43945010817b63cf33267551bd838b62",
+    "rescue": "d776ce0978d614600b306a3f472ed6f2780430032d3e8b35b2bbfd2170b72eb8"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "a4ee4aa870a0e8a022a0395c11f57ec5d3285940df154910c736e780771740a4",
+  "inputs": "e1d34b64d5afe2d812215c7803139e734e217b99dae1de7688504f6da92fa6a6",
   "game": "forest",
   "generated": "bun game/prove.mjs forest --repin --hosts 'linux,web'",
-  "at": "4ce76010da98f91f783889f4f9474bbb429d01dc",
-  "reason": "the fix-lane engine (paged hash, EXGAME v4, EXPHYS v3 holes) and the game's adaptation: no marker entity, a moon fill, a shadowed spot flashlight and campfire, Visible written on change"
+  "at": "2395fefd21a52edde09077ec05ad47657568013b",
+  "reason": "Rescue compass and camp supplies, saved escort continuation, and listener-aware Linux surface messages"
 }

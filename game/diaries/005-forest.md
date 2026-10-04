@@ -466,5 +466,26 @@ Linux returned `NoHandler { event: "message" }` when the rescue emitted its
 notification into a canvas without a Contract message handler. All three Linux
 modes reached that same event; web's three modes completed the rescue. The web
 glue explicitly checks `messageViews` before dispatch, whereas Linux dispatched
-every string and turned the missing handler into a clock error. The fix belongs
-in host delivery; adding a dummy handler to Forest would conceal it.
+every string and turned the missing handler into a clock error. Fixed both the
+ordinary tick and restore delivery paths in `host/linux/src/surfaces.rs`: dispatch
+only to an authored Message handler. Registered handlers still receive every
+message, and the internal audio notification is still ignored on the headless
+host. The 42 surface tests pass, including a new listening/unlistening regression;
+the complete Linux rescue script then passed in 8.43 s including the warm build.
+No dummy message handler was added to Forest.
+
+Main was fetched again and merged through `c7bb6ab9d` after the first verification
+run finished. This avoids invalidating an in-flight baseline with a different
+source tree while still following the fast-moving input/compiler work.
+The root gates and 103 driver tests pass after that merge. The updated macOS
+build and scripted run also pass (146.8 s including rebuild); its optional `ps`
+descendant audit timed out, while every owned carrier handle exited normally.
+
+The final repin succeeded: Linux and web agree in normal, Save and FreshGame
+modes, and the native release profile agrees too. macOS's independently driven
+run matches the accepted pins and save digests. Evidence is under
+`artifacts/prove/run-3AZz51`; tick pins stayed unchanged, while the serialized HUD
+changed the night save and the new rescue save adds coverage. The ordinary Linux
+proof now reports `PASS` against those accepted pins. The next campaign batch
+should exercise Garden's economy and Rivals' combat with the same decision seam,
+then feed their observed problems back into gameplay and the engine.
