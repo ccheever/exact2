@@ -115,7 +115,7 @@ def semEnv (p : Program) (c : Config) : Contract.Env :=
 
 /-- An argument of each type, two ways. -/
 partial def sample (p : Program) (k : Nat) : Ty → Value
-  | .number => .num (if k == 0 then 0 else 2.5)
+  | .number => .num (if k == 0 then 0 else F64.ofBits 0x4004000000000000) -- 2.5
   | .bool => .bool (k != 0)
   | .string => .str (if k == 0 then "" else "ab")
   | .unit => .unit

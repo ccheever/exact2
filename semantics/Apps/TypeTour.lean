@@ -2,8 +2,10 @@ import Contract
 
 def typeTour : Contract.Program := {
   shapes := [{ name := "Geometry", fields := [{ name := "x", ty := .number }, { name := "y", ty := .number }, { name := "width", ty := .number }, { name := "height", ty := .number }, { name := "provisional", ty := .bool }, { name := "unavailable", ty := .bool }] },
+    { name := "KeyboardEvent", fields := [{ name := "key", ty := .string }, { name := "shiftKey", ty := .bool }, { name := "ctrlKey", ty := .bool }, { name := "altKey", ty := .bool }, { name := "metaKey", ty := .bool }] },
     { name := "MarkdownSelection", fields := [{ name := "formats", ty := .string }, { name := "mixed", ty := .bool }, { name := "link", ty := .string }, { name := "unavailable", ty := .string }] },
-    { name := "Picked", fields := [{ name := "path", ty := .string }, { name := "name", ty := .string }, { name := "type", ty := .string }, { name := "size", ty := .number }, { name := "width", ty := (.option .number) }, { name := "height", ty := (.option .number) }, { name := "duration", ty := (.option .number) }] }],
+    { name := "Picked", fields := [{ name := "path", ty := .string }, { name := "name", ty := .string }, { name := "type", ty := .string }, { name := "size", ty := .number }, { name := "width", ty := (.option .number) }, { name := "height", ty := (.option .number) }, { name := "duration", ty := (.option .number) }] },
+    { name := "PointerEvent", fields := [{ name := "offsetX", ty := .number }, { name := "offsetY", ty := .number }, { name := "buttons", ty := .number }, { name := "pressure", ty := .number }, { name := "pointerType", ty := .string }, { name := "pointerId", ty := .number }] }],
   fns := [],
   states := [{ name := "screen", ty := .string, init := (.str "lock"), owner := .none, late := false },
     { name := "thread", ty := .string, init := (.str ""), owner := .none, late := false },

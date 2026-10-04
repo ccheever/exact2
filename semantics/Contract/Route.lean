@@ -523,7 +523,7 @@ def launch (t : Table) (location : String) : Verb := «open» t {} location
 /-- A number the runner reads as an id: an integer in `[0, 2^53 - 1]`. -/
 def integer : Value → Option Nat
   | .num f =>
-    if 0 ≤ f && f ≤ 9007199254740991.0 && f.floor == f then .some f.toUInt64.toNat else .none
+    if 0 ≤ f && f ≤ F64.ofNat 9007199254740991 && f.floor == f then .some f.toNat else .none
   | _ => .none
 
 def str? : Value → Option String
@@ -565,12 +565,12 @@ def paramsValue (t : Table) (ps : Params) : Value :=
   .record "Params" ((paramNames t).map fun n => .str ((Params.get ps n).getD ""))
 
 def entryValue (t : Table) (e : Entry) : Value :=
-  .record "Entry" [.num (Float.ofNat e.id), .str e.name, .str e.url, .str e.tab, paramsValue t e.params]
+  .record "Entry" [.num (F64.ofNat e.id), .str e.name, .str e.url, .str e.tab, paramsValue t e.params]
 
 def routerValue (t : Table) (r : Router) : Value :=
   .record "Router" [.str r.tab,
     .list (r.tabs.map fun tb => .record "Tab" [.str tb.name, .list (tb.stack.map (entryValue t))]),
-    .num (Float.ofNat r.next)]
+    .num (F64.ofNat r.next)]
 
 /-- A verb on a router value: a refusal answers the input value itself.
 A value of the shape `Router` that is not a valid router (a source can

@@ -10,6 +10,8 @@
 //!     each of the three with `--js`: also the web JS target against the
 //!     runner (src/js.rs); `--js-only`: the runner and the JS target alone
 //!   difftest numbers [--seed S] [--count N]   number printing alone
+//!   difftest arith [--seed S] [--count N]     the binary64 model's operations
+//!                                             against this machine's f64
 //!   difftest types [--seed S] [--count N]     the Lean type checker against the Rust one
 //!   difftest show <seed>                       a random case's program and script
 //!   difftest apps [--write]              the app embeddings under semantics/Apps
@@ -37,6 +39,7 @@ const USAGE: &str = "usage:
   difftest quick [--base <rev>]
   difftest random [--seed <u64>] [--count <n>] [--batch <n>] [--js|--js-only]
   difftest numbers [--seed <u64>] [--count <n>]
+  difftest arith [--seed <u64>] [--count <n>]
   difftest types [--seed <u64>] [--count <n>]
   difftest show <seed>
   difftest apps [--write]
@@ -52,6 +55,7 @@ fn main() -> ExitCode {
         Some("quick") => contract_difftest::quick::run(&args[1..]),
         Some("random") => run_random(&args[1..]),
         Some("numbers") => run_numbers(&args[1..]),
+        Some("arith") => run_arith(&args[1..]),
         Some("types") => run_types(&args[1..]),
         Some("apps") => run_apps(&args[1..]),
         Some("lowering") => run_lowering(&args[1..]),
@@ -366,6 +370,24 @@ fn run_numbers(args: &[String]) -> Result<bool, String> {
         values.len()
     );
     Ok(bad == 0 && lean.len() == values.len())
+}
+
+/// `difftest arith`: `Contract.Binary64` against `f64`
+/// (`contract_difftest::arith`).
+fn run_arith(args: &[String]) -> Result<bool, String> {
+    let mut seed: u64 = 1;
+    let mut count = 1_000_000usize;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let mut value = || it.next().ok_or_else(|| format!("{a} needs a value"));
+        match a.as_str() {
+            "--seed" => seed = value()?.parse().map_err(|e| format!("--seed: {e}"))?,
+            "--count" => count = value()?.parse().map_err(|e| format!("--count: {e}"))?,
+            other => return Err(format!("unknown argument {other}\n{USAGE}")),
+        }
+    }
+    leanrun::build()?;
+    contract_difftest::arith::run(seed, count, &work_dir())
 }
 
 /// The apps whose embeddings `semantics/Apps/` keeps, proved about under

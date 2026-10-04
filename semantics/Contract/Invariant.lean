@@ -240,7 +240,7 @@ theorem advance_go {p o due finish} (J : Config → Prop) (A : List String)
       · exact hA y hy
       · exact htm
     dsimp only
-    generalize (if tm.once = true then (1.0 : Float) / 0.0 else tm.next + tm.interval) = x
+    generalize (if tm.once = true then F64.posInf else tm.next + tm.interval) = x
     generalize hr : runAction p o { c with timers := c.timers.set i { tm with next := x }, now := tm.next }
       tm.action [] [] = r
     have hJ' := hclock c _ tm.next hJ (hset x)
@@ -448,7 +448,7 @@ theorem boot_slots_origin {p o c out} (h : boot p o = (c, out)) :
 /-- What a host can do to a configuration. -/
 inductive Event where
   | dispatch (target event : String) (payload : Option Value)
-  | advance (t : Float)
+  | advance (t : F64)
 
 def Event.step (p : Program) (o : Oracle) (c : Config) : Event → Config × Outcome
   | .dispatch target event payload => Contract.dispatch p o c target event payload
@@ -551,7 +551,7 @@ into a statement about values. -/
   ⟨fun h => by cases h; rfl, fun h => h ▸ .str⟩
 @[simp] theorem EvalR.bool_iff {env inFn ls b v} : EvalR env inFn ls (.bool b) v ↔ v = .bool b :=
   ⟨fun h => by cases h; rfl, fun h => h ▸ .bool⟩
-@[simp] theorem EvalR.num_iff {env inFn ls b v} : EvalR env inFn ls (.num b) v ↔ v = .num (Float.ofBits b) :=
+@[simp] theorem EvalR.num_iff {env inFn ls b v} : EvalR env inFn ls (.num b) v ↔ v = .num (F64.ofBits b) :=
   ⟨fun h => by cases h; rfl, fun h => h ▸ .num⟩
 @[simp] theorem EvalR.none_iff {env inFn ls v} : EvalR env inFn ls .none v ↔ v = .none :=
   ⟨fun h => by cases h; rfl, fun h => h ▸ .none⟩

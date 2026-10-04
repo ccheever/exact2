@@ -24,8 +24,8 @@ def RefOk (env : Contract.Env) (inFn : Bool) (ls : Locals) (venv : Vm.Env) (L : 
   | .param j, t => ∃ v, lookup x ls = some v ∧ venv.params[j]? = some v ∧ VTy env.prog.shapes v t
   | .item d, t => ∃ v, lookup x ls = some v ∧ (venv.frames[d]?.bind (·.item)) = some v ∧
       VTy env.prog.shapes v t
-  | .index d, t => ∃ k, lookup x ls = some (.num (Float.ofNat k)) ∧
-      (venv.frames[d]?.bind (·.index)) = some k ∧ VTy env.prog.shapes (.num (Float.ofNat k)) t
+  | .index d, t => ∃ k, lookup x ls = some (.num (F64.ofNat k)) ∧
+      (venv.frames[d]?.bind (·.index)) = some k ∧ VTy env.prog.shapes (.num (F64.ofNat k)) t
   | .bound d, t => ∃ v, lookup x ls = some v ∧ (venv.frames[d]?.bind (·.bound)) = some v ∧
       VTy env.prog.shapes v t
   | .slot j, t => lookup x ls = none ∧ inFn = false ∧
@@ -89,16 +89,16 @@ theorem Agree.nil {env inFn ls venv L} : Agree env inFn ls venv L [] := by
 /-- A callback's parameters. -/
 theorem Agree.bind {env inFn ls venv L sc ps x i item} (h : Agree env inFn ls venv L sc)
     (hx : VTy env.prog.shapes x item) :
-    Agree env inFn (bindParams ps x i ls) venv (L ++ [x, .num (Float.ofNat i)])
+    Agree env inFn (bindParams ps x i ls) venv (L ++ [x, .num (F64.ofNat i)])
       (bindScope ps L.length item sc) := by
   match ps with
   | [] => exact h.append _
   | [p] =>
-    have := (h.push (x := p) hx).append [.num (Float.ofNat i)]
+    have := (h.push (x := p) hx).append [.num (F64.ofNat i)]
     simpa [bindParams, bindScope] using this
   | p :: q :: _ =>
     have h1 := h.push (x := p) hx
-    have h2 := h1.push (x := q) (w := .num (Float.ofNat i)) (t := .number) (by simp [VTy])
+    have h2 := h1.push (x := q) (w := .num (F64.ofNat i)) (t := .number) (by simp [VTy])
     simpa [bindParams, bindScope, Nat.add_comm] using h2
 
 /-- A `fn`'s parameters, bound from the locals after `L`. -/

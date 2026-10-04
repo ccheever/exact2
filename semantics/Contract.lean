@@ -1,4 +1,6 @@
 import Contract.Syntax
+import Contract.Binary64
+import Contract.Binary64Facts
 import Contract.Number
 import Contract.Value
 import Contract.Route

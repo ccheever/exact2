@@ -25,6 +25,17 @@ guide's rules don't make obvious.
   `overlays-content` with a `role="toolbar" toolbarPlacement="keyboard"` for a
   toolbar that rides the keyboard without relayout (LLP 1008 §9.1). (Signal Clone.)
 
+- **A raised `z-index` leaves a dragged card under the next column.** A card at
+  `position="relative" z-index=10`, dragged over a neighbouring column, paints
+  beneath it. Cause: `z-index` orders siblings, not a whole stacking context as in
+  CSS (a declared deviation, [LLP 1001](../llp/1001-kernel-v1.spec.md) "`z-index`
+  orders siblings"), and on the web a box that follows a positioned or stacked box
+  becomes a paint group (`isolation: isolate`). A child cannot rise above its
+  parent's later siblings. Fix: raise the ancestor that is a sibling of the others
+  (the card's column, while it holds the dragged card), or draw the dragged card in
+  an overlay at the board level. (Authoring bench, LLP 1087, t4-kanban: two builders,
+  5 and 10 minutes, 2026-10-04.)
+
 ## Lists and scrolling
 
 - **A tap that changes one row of a long list takes ~80 ms on the web.** Cause: the
@@ -114,6 +125,23 @@ guide's rules don't make obvious.
   Clone, build 11: the photo viewer lacked `overflow="hidden"` and
   `box-sizing`.) **Candidate diagnostic:** the compiler or a development log
   could name the failed condition.
+
+- **A text field shows an edit its action refused.** A field bound with
+  `value=text input=edit`, where `edit` ignores a blank value, shows the blank while
+  `text` keeps the old value, and the next keystroke builds on what is shown. Cause: on
+  the web (both targets) a text field is re-set only when its bound value changes, so
+  an unchanged binding does not overwrite the edit. Fix: bind the field to draft state that `edit` always writes, and on commit
+  (`change`, Enter, `blur`) write the accepted value or reset the draft to it, which
+  changes the bound value and redraws the field. (Authoring bench, LLP 1087, t2-todo:
+  two builders, about 10 minutes each, 2026-10-04.)
+
+- **A `pan` hears nothing from a finger on the web.** A drag with
+  `tap <id> drag dx dy` (or a real touch) moves nothing and logs nothing. Cause:
+  without `touch-action="none"` on the pan's box the browser takes the touch for
+  scrolling and the pointer events are cancelled. Fix: `touch-action="none"` on the
+  dragged box (only that box, so the page still scrolls from elsewhere). (Authoring
+  bench, LLP 1087, t4-kanban: about 15 minutes, 2026-10-04.) **Candidate
+  diagnostic:** the compiler could warn on a `pan` without `touch-action`.
 
 ## Driving and testing
 

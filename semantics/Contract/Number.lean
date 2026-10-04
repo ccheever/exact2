@@ -1,11 +1,14 @@
 /-
 Numbers: IEEE-754 binary64, exactly.
 
-Arithmetic is the hardware's (`Float` is a C `double`); what a C `double`
-does not give — `%` as fmod, `max`/`min` with the runner's NaN and signed
-zero rules, and JavaScript's `Number.prototype.toString` — is defined here
-over exact rationals, with `Nat` bignums, so nothing rounds by accident.
+A number is an `F64` (`Contract.Binary64`): its bits, with arithmetic
+modelled over `Nat` and `Int` and proved correctly rounded
+(`Contract.Binary64Facts`). Here: `max`/`min` with the runner's NaN and
+signed zero rules, and JavaScript's `Number.prototype.toString`, over exact
+rationals, so nothing rounds by accident.
 -/
+import Contract.Binary64
+
 namespace Contract.Number
 
 /-- The parts of a finite double: sign, significand `m`, and exponent `e`
@@ -16,16 +19,16 @@ structure Parts where
   e : Int
   deriving Repr
 
-def bits (x : Float) : UInt64 := x.toBits
+def bits (x : F64) : UInt64 := x.toBits
 
-def isNaN (x : Float) : Bool := x != x
+def isNaN (x : F64) : Bool := x.isNaN
 
-def isFinite (x : Float) : Bool := !isNaN x && x - x == 0
+def isFinite (x : F64) : Bool := x.isFinite
 
-def signBit (x : Float) : Bool := (bits x >>> 63) == 1
+def signBit (x : F64) : Bool := x.sign
 
 /-- Decompose a finite double. -/
-def parts (x : Float) : Parts :=
+def parts (x : F64) : Parts :=
   let b := bits x
   let neg := (b >>> 63) == 1
   let ex := ((b >>> 52) &&& 0x7ff).toNat
@@ -124,7 +127,7 @@ def shortest (p : Parts) : Nat × Int :=
 def digitsOf (s : Nat) : String := toString s
 
 /-- JavaScript's `Number::toString(10)` (ECMA-262 §6.1.6.1.20). -/
-def jsToString (x : Float) : String :=
+def jsToString (x : F64) : String :=
   if isNaN x then "NaN"
   else if x == 0 then "0"
   else if !isFinite x then (if x < 0 then "-Infinity" else "Infinity")
@@ -149,48 +152,31 @@ def jsToString (x : Float) : String :=
         mant ++ "e" ++ es
     sign ++ body
 
-/-- A finite double from an exact `±m * 2^e` that is representable. -/
-def ofParts (neg : Bool) (m : Nat) (e : Int) : Float :=
-  let mag := (Float.ofNat m).scaleB e
-  if neg then -mag else mag
-
 /-- `a % b` as C's `fmod` (Rust's `%` on `f64`): exact, the sign of `a`. -/
-def fmod (a b : Float) : Float :=
-  if isNaN a || isNaN b || !isFinite a || b == 0 then 0.0 / 0.0
-  else if !isFinite b then a
-  else if a == 0 then a
-  else
-    let pa := parts a
-    let pb := parts b
-    -- Bring both to the smaller exponent and take integer remainders.
-    let e := min pa.e pb.e
-    let ma := pa.m * 2 ^ (pa.e - e).toNat
-    let mb := pb.m * 2 ^ (pb.e - e).toNat
-    let r := ma % mb
-    if r == 0 then (if pa.neg then -0.0 else 0.0) else ofParts pa.neg r e
+def fmod (a b : F64) : F64 := F64.fmod a b
 
 /-- Rust's `f64::max` on aarch64 (`fmaxnm`): a NaN yields the other
 argument; `+0` is above `-0`. -/
-def fmax (a b : Float) : Float :=
+def fmax (a b : F64) : F64 :=
   if isNaN a then b else if isNaN b then a
   else if a > b then a else if b > a then b
   else if a == 0 && b == 0 then (if signBit a then b else a)
   else a
 
 /-- Rust's `f64::min` on aarch64 (`fminnm`). -/
-def fmin (a b : Float) : Float :=
+def fmin (a b : F64) : F64 :=
   if isNaN a then b else if isNaN b then a
   else if a < b then a else if b < a then b
   else if a == 0 && b == 0 then (if signBit a then a else b)
   else a
 
 /-- `Math.trunc` toward zero, exact. -/
-def trunc (x : Float) : Float :=
+def trunc (x : F64) : F64 :=
   if isNaN x || !isFinite x then x
   else if x < 0 then -((-x).floor) else x.floor
 
 /-- The canonical bits of a number in an observation: every NaN is one. -/
-def canonicalBits (x : Float) : UInt64 :=
+def canonicalBits (x : F64) : UInt64 :=
   if isNaN x then 0x7ff8000000000000 else bits x
 
 end Contract.Number

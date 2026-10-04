@@ -105,7 +105,11 @@ After compiling, build and drive the actual app. From an `exact new` app:
 ```sh
 bun exact.mjs test web                          # app.test.contract; builds a stale web app first
 bun exact.mjs agent web tree "tap add" state logs "screenshot out.png"
+bun exact.mjs agent web --size 390x844 "screenshot phone.png"   # a phone-sized viewport
 ```
+
+The web carrier opens at 420×900; `--size <w>x<h>` (before the operations) opens
+another viewport, and a test's first step `size <w>x<h>` does the same for that test.
 
 Inside the exact2 checkout, for Caltrain:
 
