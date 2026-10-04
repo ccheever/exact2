@@ -171,7 +171,16 @@ Standard events: loadedmetadata, canplay, play, playing, pause, ended, waiting,
 seeking, seeked, ratechange and volumechange (no action payload).
 `timeupdate(seconds)` and `durationchange(seconds)` carry finite seconds;
 unknown/indefinite duration is null in agent state and has no numeric action
-payload. `error(message)` carries a string. Native events are useful playback
+payload; after a seek `currentTime` and the next `timeupdate` are the seek's
+target, as HTML's official playback position is (AVPlayer reports its old time
+until the seek lands; jukebox F20). `error(code)` carries a stable code, never
+the engine's text (jukebox F6, 2026-10-04): MediaError's `aborted`, `network`,
+`decode` and `src-not-supported` (any failure before metadata, as HTML's
+dedicated media source failure), `not-allowed` for a `play()` the browser
+refused, `invalid-value` for a number out of range. A play interrupted by a
+pause or a new load (AbortError) is not an error. The text is in `state.media`.
+A node the tree removed reports nothing more on any host, a late rejected play
+or `timeupdate` included. Native events are useful playback
 observations, not an assertion that AVFoundation reproduces HTML's complete
 network-state/event ordering algorithm.
 

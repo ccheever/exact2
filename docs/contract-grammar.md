@@ -424,6 +424,12 @@ working fixture, not inferred from JavaScript's Event interface.
 | Special: zero or one location string, no captured args | `navigate` |
 | None | `press`, `cancel`, `focus`, `blur`, `submit`, `load`, `contextmenu`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
 
+A `video`'s `error` appends a stable code, never the engine's text: MediaError's
+`aborted`, `network`, `decode` and `src-not-supported` (a source that never loaded),
+`not-allowed` (the browser refused to start playing) or `invalid-value` (a number out
+of range). A play interrupted by a pause or a new source is no error. A `video` the
+tree removed reports nothing more, on every host
+([LLP 1042](../llp/1042-video.spec.md) §3).
 `scroll` appends left then top offsets; `panrelease` appends x/y release velocity;
 `heightrelease` appends height and velocity. A `pan` hears a drag that starts
 anywhere inside it, a nested `button` or `press` node included: past the slop
