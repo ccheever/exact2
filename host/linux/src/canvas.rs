@@ -1050,8 +1050,12 @@ impl<D: DataSource + Default> CanvasHost<D> {
             let _s = Section::begin(c"exact surfaces");
             // GPU canvases follow the tree (made, bound, given their
             // assets) outside a scroll's frame, as the Linux loop does.
-            if self.borrowed {
-                // On the booting thread: the canvases come with the next frame.
+            // `lead` turns on at the frame after the first paint.
+            if self.borrowed || !self.lead {
+                // On a booting thread, or the first frame: the canvases come
+                // with the next frame (made then, as a picture arrives after
+                // first content, not before it).
+                self.owed_surfaces = true;
             } else {
                 self.owed_surfaces = false;
                 if !self.scrolled {
