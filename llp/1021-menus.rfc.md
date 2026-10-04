@@ -390,8 +390,29 @@ never fetches. `UIAlertAction` has no public image, so sheet rows show no icon.
 writes `role="menu"` on a column: there is no `menu` tag, and `hr` (D1) is not
 yet in the schema. The fixture's `open-in` (a menu) and `open-in-sheet` (a
 sheet), with rows from its `providers()` source, are the evidence. Placement
-beyond D2's rule (`position-area`), macOS parity for confirmations, and the
-keyboard contract stay where §5 puts them.
+beyond D2's rule (`position-area`) and the keyboard contract stay where §5
+puts them.
+
+**The chooser on macOS (Claude, 2026-10-04):** the same shape, by the same
+rules and with the same refusal lines, is an `NSMenu` popped up below its
+invoker (`popUp(positioning:at:in:)`), as a button menu already was; it had
+been painted in the top layer. One item per action: its title, its image (as
+iOS's menu rows), `.on` for `aria-checked`, dimmed when disabled, red when
+`destructive`. A chooser is headed by its `aria-label` as a section header
+(`NSMenuItem.sectionHeader`): a pop-up `NSMenu` never shows its own title,
+and the HIG's way to label a menu's items is a header above them. A
+confirmation's text rows are disabled lines at the top, wrapped at 260
+points, then a separator, and no heading. The cancel has no item: Escape
+and a click outside end a menu and dispatch nothing, as UIKit drops the
+cancel from a sheet shown as a popover. A chosen item presses its row by
+view id once, after the owner checks above; a batch that changes a row's
+title or enablement, a reset or an unmount ends the menu. A refused shape
+is logged and keeps its painted presentation, which macOS, unlike iOS, has.
+A menu-shaped popover is headed by its `aria-label` the same way, and a
+row of an `img` and text is menu-shaped, its item showing the bitmap fitted
+to 16 points. Under the agent (D4) every popover stays painted, so the
+agent's taps need no host activation here. `ChooserMacTests` is the
+evidence; `<dialog>` stays the session's modal top layer on macOS.
 
 **D3 — menu-shaped popovers may present natively.** A popover whose
 children are exclusively `button` rows (each with optional
