@@ -100,10 +100,11 @@ check('down before the press, up wherever the button lifts, nothing when disable
     await frame();
     expect(await log()).toEqual(['mic move']);
     expect((await records())[0].slice(2, 5)).toEqual(['0', '0', 'mouse']);
-    // The secondary button is not the pointer's.
+    // The secondary button's too, as the DOM's (studio diary R22): `buttons` says which.
     await mouse('mousePressed', mic, 'right');
     await mouse('mouseReleased', mic, 'right');
-    expect((await log()).filter(l => !l.endsWith('press'))).toEqual([]);
+    expect((await log()).filter(l => !l.endsWith('press'))).toEqual(['mic down', 'mic up']);
+    expect((await records())[0][2]).toBe('2');
     // A disabled node hears nothing.
     const off = await centre('off');
     await mouse('mousePressed', off);

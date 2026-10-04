@@ -15,7 +15,7 @@ function pointerLine(el, e, lifted = false) {
   const type = e.pointerType === "pen" || e.pointerType === "touch" ? e.pointerType : "mouse";
   return `${(e.clientX - r.left) / (sx || 1) - left},${(e.clientY - r.top) / (sy || 1) - top},${lifted ? 0 : e.buttons},${lifted ? 0 : Math.min(1, Math.max(0, e.pressure || 0))},${type},${e.pointerId ?? 1},${modifiers(e)}`;
 }
-export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false, log = () => {} }) {
+export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false, log = () => {}, documents = null }) {
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document: a link with its own `press` navigates by
   // it; any other goes to the root's `navigate` handler, as popstate does.
@@ -221,8 +221,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         e.preventDefault(); e.stopPropagation();
         const at = `${pointerLine(el, e).split(",").slice(0, 2)},${modifiers(e)}`, files = [...dt.files];
         const handles = [...dt.items].filter(i => i.kind === "file").map(i => i.getAsFileSystemHandle?.().catch(() => null) ?? null);
-        return import(new URL("./documents-glue.js", import.meta.url).href).then(async () => {
-          const found = await globalThis.exact.documents.install({ dispatch() {}, log, openFile: () => false }).dropped(await Promise.all(handles), files);
+        return documents?.().then(async (glue) => {
+          const found = await glue.dropped(await Promise.all(handles), files);
           if (found.length) fire(37, `${at}\n${found.join("\n")}`); else log("drop: refused: no file of a type this app declares");
         });
       }
