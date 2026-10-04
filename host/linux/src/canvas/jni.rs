@@ -219,13 +219,26 @@ macro_rules! canvas_jni {
                 })
             }
 
-            /// The collection pass a scroll left: rows mount after the frame.
+            /// The collection pass a scroll left: rows mount after the frame. With
+            /// `limit` >= 0, a slice: at most that many rows past what shows per
+            /// list, the scrolled list leading toward `velocity` (px/s). Bit 0: a
+            /// paint is wanted; bit 1: rows are left for another slice.
             #[no_mangle]
             pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_refine(
                 _env: *mut JNIEnv,
                 _class: jclass,
-            ) -> jboolean {
-                flag(with(|h| h.refine()).unwrap_or(false))
+                limit: jint,
+                velocity: jfloat,
+            ) -> jint {
+                with(|h| {
+                    let scale = h.scale();
+                    let wanted = h.refine_slice(
+                        (limit >= 0).then_some(limit as u32),
+                        f64::from(velocity / scale),
+                    );
+                    i32::from(wanted) | i32::from(h.refine_pending()) << 1
+                })
+                .unwrap_or(0)
             }
 
             /// Whether a moved paint owes a paint once scrolling pauses.

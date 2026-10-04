@@ -2,7 +2,9 @@
 //! the runner owns membership, estimates and anchors. No recursive frame/layout.
 use super::*;
 use exact_kernel::{Dimension, Kernel, NodeKey};
-use exact_runner::{CollectionFeedback, CollectionSnapshot, ListAxis, RowMeasurement};
+use exact_runner::{
+    CollectionFeedback, CollectionFill, CollectionSnapshot, ListAxis, RowMeasurement,
+};
 use std::collections::{BTreeSet, VecDeque};
 
 const PASSES: usize = 2;
@@ -30,6 +32,14 @@ pub(super) struct State {
     /// While set (by such a host, for the frame a scroll draws), passes wait
     /// for [`Presenter::refine_deferred`].
     pub(super) hold: bool,
+    /// Slices (LLP 1050.000 §6): a host that fills between frames builds at
+    /// most this many rows past what shows per report, and sends one report
+    /// per list per pass; the rest is the list's `pending`. `None` builds the
+    /// whole window at once.
+    pub(super) limit: Option<u32>,
+    /// The scrolled list and its velocity (logical px/s along its axis): its
+    /// window leads that way and builds that side first.
+    pub(super) velocity: Option<(ViewId, f64)>,
 }
 #[derive(Default)]
 struct Cursor {
@@ -683,6 +693,20 @@ impl<D: DataSource> Presenter<D> {
         self.dirty
     }
 
+    /// Slice the next passes ([`State::limit`]) with the scrolled list's
+    /// velocity, or build whole windows (`None`).
+    #[cfg(target_os = "android")]
+    pub(crate) fn slice_collections(&mut self, limit: Option<u32>, velocity: f64) {
+        self.collection.limit = limit;
+        self.collection.velocity = self.last_wheel.map(|v| (v, velocity));
+    }
+
+    /// Whether any list owes another report (a slice left rows unbuilt).
+    #[cfg(target_os = "android")]
+    pub(crate) fn collections_pending(&self) -> bool {
+        self.collection.pending()
+    }
+
     /// Hold collection passes (a frame a scroll draws) or let them run.
     #[cfg(target_os = "android")]
     pub(crate) fn hold_collections(&mut self, hold: bool) {
@@ -706,10 +730,17 @@ impl<D: DataSource> Presenter<D> {
             return None;
         }
         let mut error = None;
+        // A sliced pass reports each list once: its pending rest waits for
+        // the host's next pass, in the next frame's idle time.
+        let mut sliced = BTreeSet::new();
         for _ in 0..PASSES {
             let Some(view) = self.collection.queue.pop_front() else {
                 break;
             };
+            if self.collection.limit.is_some() && !sliced.insert(view) {
+                self.collection.queue.push_front(view);
+                break;
+            }
             let snapshots = self.host.collections();
             let Some(snapshot) = snapshots.iter().find(|s| s.view == view) else {
                 self.collection.cursors.remove(&view);
@@ -832,11 +863,21 @@ impl<D: DataSource> Presenter<D> {
                         == Some(view)
                 }),
             };
-            if cursor.sent.as_ref() == Some(&feedback) {
+            // Unchanged facts are news only to a list a slice left pending.
+            if cursor.sent.as_ref() == Some(&feedback) && !snapshot.pending {
                 continue;
             }
             cursor.sent = Some(feedback.clone());
-            match self.host.collection_feedback(feedback) {
+            let fill = CollectionFill {
+                velocity: self
+                    .collection
+                    .velocity
+                    .filter(|(v, _)| *v == view)
+                    .map_or(0.0, |(_, v)| v),
+                limit: self.collection.limit,
+                ..CollectionFill::default()
+            };
+            match self.host.collection_feedback_filled(feedback, fill) {
                 Ok(true) => {
                     let after = self.sync_commit();
                     error = error.or(after);
