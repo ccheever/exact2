@@ -597,7 +597,7 @@ mod tests {
     use exact_plan::Stdlib;
 
     /// Every roster entry an `Opcode::Call` can name has its `x_` export in
-    /// rt.js (or roster.js, which it re-exports); `at`, `formatDate` and `formatNumber` compiled and then failed
+    /// rt.js (or roster.js and router.js, which it re-exports); `at`, `formatDate` and `formatNumber` compiled and then failed
     /// the bundle for want of one (an app's diary, 2026-10-04). `map` and
     /// `filter` are opcodes with a callback body, never a call.
     #[test]
@@ -605,6 +605,7 @@ mod tests {
         let rt = [
             include_str!("../rt.js"),
             include_str!("../roster.js"),
+            include_str!("../router.js"),
             include_str!("../format.js"),
         ]
         .concat();
