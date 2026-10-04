@@ -546,7 +546,8 @@ hardware keyboard, Linux):
   Control or Meta held is a shortcut: it types nothing.
 - **Then the default.** After the handlers, the key does what it would have:
   a character is typed into the focused field, Backspace deletes, Enter
-  submits an input (`submit`), breaks a textarea's line (a textarea has no
+  commits an input (its `change`, when its value changed, as HTML's does)
+  and then submits it (`submit`), breaks a textarea's line (a textarea has no
   `submit`, as in HTML) or presses a button, Space presses a button (Enter
   and Space press any element with a `press` handler as they do a button,
   Enter alone a `role="link"`; give it `role="button"` to be announced as one),
