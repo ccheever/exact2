@@ -296,6 +296,10 @@ final class ModalHost: NSObject, UIAdaptivePresentationControllerDelegate {
                     fit()
                     presenter.navigation.modalDidDismiss()
                 }
+                // The transition's transforms are gone: a transform drag in
+                // the presented route measures again, or it stays refused
+                // until something else lays out (LLP 1057.001 §4).
+                presenter.transformGeometry.changed()
                 drainRetired()
             }
         }

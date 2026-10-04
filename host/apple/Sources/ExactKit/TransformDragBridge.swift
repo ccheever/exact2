@@ -48,10 +48,16 @@ struct TransformDragReply {
 }
 
 extension Runtime {
+    /// One paired packet, as an owner job like every other call (LLP 1072
+    /// T1/T2): the runtimes live in the owner thread's registry, and a call
+    /// from main found none ("no such runtime"), so every transform drag
+    /// was refused at its first geometry report.
     func transformMotion(_ packet: TransformDragPacket) -> TransformDragReply? {
         guard !destroyed, let bytes = packet.encoded() else { return nil }
-        let length = write(bytes)
-        let count = exact_transform_motion(rt, UInt32(length))
-        return TransformDragReply(Data(bytes: exact_out(rt), count: Int(count)))
+        return on(busy: nil) {
+            let length = write(bytes)
+            let count = exact_transform_motion(rt, UInt32(length))
+            return TransformDragReply(Data(bytes: exact_out(rt), count: Int(count)))
+        }
     }
 }
