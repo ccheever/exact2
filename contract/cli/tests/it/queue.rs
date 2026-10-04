@@ -530,3 +530,31 @@ fn a_shaped_failure_is_an_answer_and_runs_then() {
     assert_eq!(slot(&r, "log"), " offline");
     assert_eq!(r.data().asks, ["save:a", "save:b"]);
 }
+
+/// LLP 1092 D3, D8: a `next` whose answer makes a task's key no key is
+/// refused by the gate step, not by its ask: the head is kept and the
+/// queue stalls until a standing commit changes the state.
+#[test]
+fn a_next_refused_by_a_task_key_keeps_its_head_and_stalls() {
+    let src = APP.replace(
+        "  view\n",
+        "  action twoRec\n    send rec = save(\"ok\")\n    send rec = save(\"nan\")\n  task watch key=recd == \"nan\" ? 0 / 0 : 1\n    after(100000, bump)\n  view\n",
+    );
+    let mut r = boot_with(&src, Desk::default());
+    r.act("twoRec", vec![]).unwrap();
+    assert!(matches!(
+        r.advance(0.0),
+        Err(RunnerError::TaskKey { task }) if task == "watch"
+    ));
+    assert!(r
+        .journal()
+        .any(|l| l.contains("rec next refused (TaskKey") && l.ends_with("waits for a change")));
+    assert_eq!(r.queued(), [("rec".to_string(), 1)]);
+    assert_eq!(r.derive("recd"), Some(&Value::str("ok")));
+    assert_eq!(r.timer_due_ms(), Some(100_000.0), "only the task is due");
+    // A change asks it again; it is refused the same way and waits again.
+    r.act("bump", vec![]).unwrap();
+    assert!(r.advance(0.0).is_err());
+    assert_eq!(r.data().asks, ["save:ok", "save:nan", "save:nan"]);
+    assert_eq!(r.queued(), [("rec".to_string(), 1)]);
+}

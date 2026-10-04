@@ -905,6 +905,7 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
         );
     }
     s.push(']');
+    schedule::tasks(runner, &mut s);
     schedule::queued(runner, &mut s);
     // Notifications posted under the agent, where none reaches the system.
     s.push_str(",\"notifications\":[");

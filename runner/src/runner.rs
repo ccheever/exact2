@@ -40,6 +40,7 @@ pub use device::{Hold, HoldAnswer};
 pub use device_links::{AuthLinks, DeviceLinks, PickerLinks};
 pub mod picker;
 pub use picker::{Picked, PickerRequest, PICKED};
+mod gates;
 mod into_view;
 mod kept;
 #[cfg(test)]
@@ -179,6 +180,10 @@ pub enum RunnerError {
     QueueFull {
         mutation: String,
     },
+    /// A gated task's `key=` is no key (a non-finite number; LLP 1092 D8).
+    TaskKey {
+        task: String,
+    },
     /// A region sits at the plan root; v1 requires one root node.
     RootRegion,
     /// A slot initializer or write does not conform to the slot's declared type.
@@ -287,10 +292,16 @@ impl PendingReq {
     }
 }
 
+#[derive(Clone)]
 struct Timer {
-    /// The next due time; infinite once a one-shot timer has fired; a frame
-    /// task's next virtual frame (LLP 1073 D3), `virtual_frame(base, k)`.
+    /// The next due time; infinite once a one-shot timer has fired, and
+    /// while a gated task is idle (LLP 1092 D8); a frame task's next
+    /// virtual frame (LLP 1073 D3), `virtual_frame(base, k)`.
     next_ms: f64,
+    /// Whether the task's gate holds (always, for `mount`).
+    armed: bool,
+    /// The key it was armed with (`key=`), as `each` compares keys.
+    key: Option<String>,
     /// A frame task's last presented frame (or mount) …
     base: f64,
     /// … and which virtual frame after it is next.
@@ -938,20 +949,27 @@ impl<D: DataSource> Runner<D> {
         runner.settle(carried.is_none())?;
         runner.init_late_slots(carried)?;
         let now = runner.now_ms;
+        // A gated task starts idle; the gate step arms the ones whose gate
+        // holds, over the settled state (LLP 1092 D8).
         runner.timers = runner
             .plan
             .timers
             .iter()
             .map(|t| Timer {
-                next_ms: if t.frame {
+                next_ms: if t.gated || t.keyed {
+                    f64::INFINITY
+                } else if t.frame {
                     virtual_frame(now, 1)
                 } else {
                     now + t.interval_ms as f64
                 },
+                armed: !(t.gated || t.keyed),
+                key: None,
                 base: now,
                 k: 1,
             })
             .collect();
+        runner.gate_step()?;
         // First frame.
         let mut ids = std::mem::take(&mut runner.ids);
         let (tree, ops, surfaces, notes) = {
@@ -1225,7 +1243,12 @@ impl<D: DataSource> Runner<D> {
     /// Whether the plan has a frame task (LLP 1073 D4): a host keeps its
     /// frame source running and calls [`Runner::frame`] each frame.
     pub fn wants_frames(&self) -> bool {
-        self.plan.timers.iter().any(|t| t.frame)
+        // An idle gated frame task keeps no frame source running (LLP 1092 D10).
+        self.plan
+            .timers
+            .iter()
+            .zip(&self.timers)
+            .any(|(t, s)| t.frame && s.armed)
     }
 
     /// Soonest timer deadline in this runner's clock domain; no host polling.

@@ -48,7 +48,29 @@ impl Parser {
     pub(super) fn task(&mut self) -> R<Task> {
         let span = self.expect_word("task")?;
         let name = self.named_ident(span)?;
-        self.expect_word("mount")?;
+        // @ref LLP 1092 D7 — `mount`, or a gate: `when cond [key=expr]`, or
+        // `key=expr` alone (`when true`), spelled as `each` spells its key.
+        let (mut gate, mut key) = (None, None);
+        if self.at_ident("when") {
+            self.next();
+            gate = Some(self.expr()?);
+            if self.at_ident("key") {
+                self.next();
+                self.expect_punct("=")?;
+                key = Some(self.expr()?);
+            }
+        } else if self.at_ident("key") {
+            self.next();
+            self.expect_punct("=")?;
+            key = Some(self.expr()?);
+        } else if !self.at_ident("mount") {
+            return self.err(
+                "syntax-task-start",
+                format!("`task {name}` starts at `mount`, or while a condition holds: `when cond`, `when cond key=expr` or `key=expr`"),
+            );
+        } else {
+            self.next();
+        }
         self.newline()?;
         let mut timer = None;
         self.block(|p| {
@@ -99,6 +121,8 @@ impl Parser {
         Ok(Task {
             name,
             kind,
+            gate,
+            key,
             timer,
             span,
         })

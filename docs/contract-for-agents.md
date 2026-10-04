@@ -172,7 +172,7 @@ compile complete examples, parse authored tests, and check local links.
 | `resource name = source(args) as shape T` | Root component | Reactive data request |
 | `mutation name as shape T [queue]` | Root component | Optional reply slot for explicit sends |
 | `action name(args)` | Component | Event transaction; effects inferred |
-| `task name mount` | Root component | One timer/frame schedule |
+| `task name mount` / `task name when cond [key=expr]` | Root component | One timer/frame schedule, always or while `cond` holds |
 | `view` | Component | UI tree |
 
 Top-level declarations begin in column 1. Indent with spaces. Comments use `//`.
@@ -379,6 +379,7 @@ Choose the mechanism from its lifetime:
 | Refresh reads around a mutation | `mutation … refreshes resourceA, resourceB` |
 | React once to a settled mutation | `mutation … then actionName` |
 | Writes that must all land, in order | `mutation … queue`: one in flight, later sends wait their turn |
+| A timer while something shows | `task … when cond`, restarted by `key=` |
 | Pending indicator | `pending(resourceOrMutationName)` |
 | Resource request failed without an answer | `failed(resourceName)` |
 | Initial resource fallback | `else empty(field=constant)`, or `else source(values)` answered once at build |
@@ -631,6 +632,21 @@ A root task has one `every(ms, action)`, `after(ms, action)`, or
 are whole-number literals of at least 1. The frame form has no delta-time argument and does not
 catch up missed display frames. For deterministic tests, use the driver's clock.
 
+`task hide when toast != "" key=toastUntil` with `after(5000, expire)` has its
+timer only while the gate holds, as a `when` arm has its nodes, and a new key
+restarts it, as a new `each` key makes a new row
+([LLP 1092](../llp/1092-sends-that-queue-and-timers-that-wait.rfc.md)). Nothing
+runs when the gate changes: turning true arms the timer from that commit's time,
+turning false drops it, and an idle task keeps no host awake and commits
+nothing at rest. `key=expr` alone means `when true key=expr`. An `after` fires
+at its deadline exactly, so its action sees `now()` equal to the deadline: clear
+without re-testing the time (a strict `now() > until` does nothing there). The
+gate is a bool and the key a string, number or bool; neither may read `now()`
+(`analyze-task-gate-clock`): gate on state and let the timer measure time. A
+toast, a debounce (`when draft != saved key=draft` with `after(800, save)`), a
+round's tick (`when screen == "play"`) and a flight's frames
+(`when flying` with `every(frame, step)`) are each one gated task.
+
 `now()` is the runner's clock in milliseconds since boot (the driver's clock under
 the agent), not a date. For the date, read the reserved `exactTime` source and add
 `time.epochAtZero + now()`. A read does not itself schedule a future render. Use a timer if a displayed value must keep changing without other
@@ -849,7 +865,8 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | `state item = none` with no usable type | Supply a typed use/write or rethink whether it is mutable state |
 | Read a slot after writing it to get the new value | Compute `let next` before the assignments |
 | Dynamic navigation template | `path("route", args…)` |
-| Unconditional per-frame app work | CSS/presentation motion where possible; bounded root frame task where needed |
+| Unconditional per-frame app work | CSS/presentation motion where possible; a frame task gated on the state that needs it (`task fly when flying`) |
+| An always-on `every` that checks whether a toast expired | `task hide when toast != "" key=toastUntil` with `after(ms, clear)` |
 | Add a function because it exists in JavaScript | Check the roster or put the operation in the data module; `len`, `split`, `push(xs, x)` and their kind are refused naming what to write |
 | `background-color: "#fff"` in a `style` | `background-color="#fff"` |
 | `change=flip(t.id)` on a checkbox, `action flip(id: string)` | The event appends its payload: `action flip(id: string, checked: bool)` (the refusal spells it) |

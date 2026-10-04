@@ -14,6 +14,7 @@
 
 mod arity;
 mod calls;
+mod gates;
 mod payload;
 mod sends;
 
@@ -212,6 +213,7 @@ pub fn check_all(checked: &Checked<'_>) -> Result<Analysis, Vec<AnalyzeError>> {
         errors.extend(sends::check(scoped));
         if ci == 0 {
             errors.extend(calls::check(scoped));
+            errors.extend(gates::check(scoped, &file.fns));
         }
         let view = View {
             file,

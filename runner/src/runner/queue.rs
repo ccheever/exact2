@@ -257,7 +257,11 @@ impl<D: DataSource> Runner<D> {
         // An asked send reads again what its mutation declares it changes,
         // with the arguments of this commit (D4).
         self.reread_next = self.declared_refreshes(m);
-        if let Err(e) = self.router_change().and_then(|_| self.settle(false)) {
+        if let Err(e) = self
+            .router_change()
+            .and_then(|_| self.settle(false))
+            .and_then(|_| self.gate_step())
+        {
             if let Some(request) = &later {
                 self.discard_request(request);
             }

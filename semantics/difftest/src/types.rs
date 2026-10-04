@@ -71,7 +71,11 @@ fn walk_file(file: &mut File, f: &mut dyn FnMut(&mut Expr, Role) -> bool) -> boo
             .chain(c.provides.iter_mut())
             .map(|b| &mut b.expr)
             .chain(c.resources.iter_mut().flat_map(|r| r.args.iter_mut()))
-            .chain(c.tasks.iter_mut().map(|t| &mut t.timer.0));
+            .chain(c.tasks.iter_mut().flat_map(|t| {
+                std::iter::once(&mut t.timer.0)
+                    .chain(t.gate.iter_mut())
+                    .chain(t.key.iter_mut())
+            }));
         for e in exprs {
             if walk_expr(e, Role::Plain, f) {
                 return true;

@@ -156,7 +156,8 @@ mutation      = "mutation" IDENT "as" "shape" type [ "queue" ]
 action        = "action" IDENT [ "(" [ action-params ] ")" ] block(statement) ;
 action-params = action-param { "," action-param } [ "," ] ;
 action-param  = IDENT [ ":" type ] ;
-task          = "task" IDENT "mount" block(schedule) ;
+task          = "task" IDENT ( "mount" | gate ) block(schedule) ;
+gate          = "when" expr [ "key" "=" expr ] | "key" "=" expr ;
 schedule      = "every" "(" ( expr | "frame" ) "," IDENT ")" NL
               | "after" "(" expr "," IDENT ")" NL ;
 statement     = IDENT "=" expr NL
@@ -174,7 +175,12 @@ source-call   = IDENT "(" [ arguments ] ")" ;
 
 There is one `props`, `inject`, `provide`, `slot`, and `view` section at most in
 a component. Only the root may own resources, mutations, and tasks. A task's
-body has exactly one schedule. The named timer action takes no parameters;
+body has exactly one schedule. A gated task (`when cond`, LLP 1092) has its
+timer only while `cond` holds, armed from the commit that made it true; `key=`
+re-arms it from the commit that changed the key (compared as an `each` key),
+and `key=` alone is `when true key=…`. The gate is a bool (`type-task-gate`), the
+key a string, number or bool (`type-task-key`), and neither reads `now()`,
+directly or through a derive or a `fn` (`analyze-task-gate-clock`). The named timer action takes no parameters;
 a millisecond interval is a literal whole number of at least 1.
 
 Both option-match arms are required exactly once. Actions have no loops, returns,

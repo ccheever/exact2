@@ -812,14 +812,20 @@ impl Stmt {
     }
 }
 
-/// `task name mount` with `every(ms, action)`, `every(frame, action)` or
-/// `after(ms, action)`.
+/// `task name mount` (or `when cond [key=expr]`, or `key=expr`) with
+/// `every(ms, action)`, `every(frame, action)` or `after(ms, action)`.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Task {
     /// Name.
     pub name: String,
     /// Whether the timer repeats or fires once.
     pub kind: TaskKind,
+    /// `when cond`: the timer exists while `cond` holds (LLP 1092 D7);
+    /// `None` for `mount` and for `key=` alone (`when true`).
+    pub gate: Option<Expr>,
+    /// `key=expr`: a new key restarts the timer, as a new `each` key makes
+    /// a new row (LLP 1092 D7).
+    pub key: Option<Expr>,
     /// `(ms, action)` and the entry's span.
     pub timer: (Expr, String, Span),
     /// Where.

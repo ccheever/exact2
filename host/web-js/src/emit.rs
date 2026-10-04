@@ -22,6 +22,8 @@ mod motion;
 mod regions;
 #[path = "rows.rs"]
 mod rows;
+#[path = "timers.rs"]
+mod timers;
 use regions::root_slot;
 
 #[derive(Clone, Copy, Debug)]
@@ -555,20 +557,7 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
         let queues = em.uses.rt("queues");
         let _ = write!(body, "{queues}($state);");
     }
-    for t in plan.timers.iter() {
-        if t.frame {
-            // LLP 1073: once per presented frame, virtual frames on a seek.
-            let frames = em.uses.rt("frames");
-            let _ = write!(body, "{frames}(a_{});", t.action.0);
-            continue;
-        }
-        let every = em.uses.rt("every");
-        let _ = write!(
-            body,
-            "{every}({},a_{},{});",
-            t.interval_ms, t.action.0, t.once as u8
-        );
-    }
+    timers::timers(&mut em, &mut body)?;
     let viewport = em.parts[sites.root as usize].as_ref().and_then(|p| {
         let fit = p.props.get("viewportFit");
         let widget = p.props.get("interactiveWidget");

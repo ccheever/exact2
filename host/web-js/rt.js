@@ -163,6 +163,7 @@ export function commit(f, what = "commit") {
     settle();
     // A store write re-asks the resources that read the store, until quiet.
     for (let k = 0; Store.dirty && k < 4; k++) { Store.dirty = false; for (const r of Resources) if (r.store) r.revise(undo); settle(); }
+    Sched?.gates(); // gated tasks over the settled state, inside the rollback (LLP 1092 D8)
   } catch (e) {
     ok = false;
     for (const [n, v] of undo.reverse()) write(n, v);
@@ -261,9 +262,10 @@ function tick() { if (Now.v !== clock.now) { Now.v = clock.now; for (const o of 
 // A release build never enters agent mode (LLP 1069.007 D2): its build
 // writes this false, as the wasm host's files are gated.
 const AGENT_ADMITTED = true;
-/** A timer: `every(ms, action, once)`, due from mount. */
-export function every(ms, action, once) {
-  clock.timers.push({ due: clock.now + ms, ms, action, once });
+/** A timer: `every(ms, action, once)`, due from mount; `i` its plan order, which breaks ties (schedule.js inserts by it). */
+let Order = 0; export const order = () => Order++, Tasks = []; // every task, for the agent's `state.tasks`
+export function every(ms, action, once, name) {
+  clock.timers.push({ due: clock.now + ms, ms, action, once, name, i: Order++ }); Tasks.push(clock.timers.at(-1));
   if (!clock.agent) drive();
 }
 // A frame task (LLP 1073): once per presented frame, never caught up; on the
@@ -272,8 +274,8 @@ export function every(ms, action, once) {
 // `virtual_frame`: sixty frames are exactly a second.
 const vf = (base, k) => base + k * 1000 / 60;
 /** `every(frame, action)`. */
-export function frames(action) {
-  clock.timers.push({ due: vf(clock.now, 1), base: clock.now, k: 1, frame: true, action });
+export function frames(action, name) {
+  clock.timers.push({ due: vf(clock.now, 1), base: clock.now, k: 1, frame: true, action, name, i: Order++ }); Tasks.push(clock.timers.at(-1));
   if (!clock.agent) paint();
 }
 /** Move the clock to `to`, firing each due timer and armed `then` at its own time, in order; a seek fires frame
@@ -320,7 +322,7 @@ export function drive() {
 }
 // Presented frames: before each paint, timers due by the frame's time, then
 // every frame task once at it (Runner::frame).
-function paint() {
+export function paint() {
   if (painting || typeof requestAnimationFrame !== "function") return;
   painting = requestAnimationFrame(function frame(ts) {
     painting = 0;
@@ -329,7 +331,8 @@ function paint() {
     advance(Math.max(clock.now, ts - start), true);
     const at = clock.now, rev = Rev, ticket = Ticket;
     NowRead = false;
-    for (const t of clock.timers) if (t.frame) { t.base = at; t.k = 1; t.due = vf(at, 1); fire(t.action); }
+    // A frame task's commit may arm or drop one (a gate, LLP 1092 D10): each armed at the frame's start fires once.
+    for (const t of clock.timers.filter(t => t.frame)) if (clock.timers.includes(t)) { t.base = at; t.k = 1; t.due = vf(at, 1); fire(t.action); }
     // Frames whose tasks changed nothing and read no clock would change
     // nothing again until state does: the loop parks until a commit writes
     // (skipping a frame that would commit nothing is unobservable).
@@ -1407,4 +1410,4 @@ export function language(slot) {
   effect(() => { const t = table(slot()) ?? Texts[0]; document.documentElement.lang = t[0]; document.documentElement.dir = t[1] ? "rtl" : "ltr"; });
 }
 export * from "./router.js"; import { routerValid } from "./router.js"; // the router (LLP 1038), its own file
-export { queues } from "./schedule.js"; // queued sends (LLP 1092), their own file
+export { queues, gated } from "./schedule.js"; // queued sends and gated tasks (LLP 1092), their own file

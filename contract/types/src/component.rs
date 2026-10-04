@@ -344,17 +344,7 @@ pub(crate) fn check_component(
         }
     }
     check_view(&c.view, &scope, shapes, sink);
-    for t in &c.tasks {
-        match infer(&t.timer.0, &scope, shapes) {
-            Ok(Ty::Number) => {}
-            Ok(_) => sink.push(TypeError {
-                id: "type-timer",
-                message: "a task needs a number of milliseconds".into(),
-                span: t.timer.2,
-            }),
-            Err(e) => sink.push(e),
-        }
-    }
+    super::tasks::check_tasks(c, &scope, shapes, sink);
     ct
 }
 

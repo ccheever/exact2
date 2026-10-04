@@ -27,7 +27,22 @@ pub(super) struct Checkpoint {
     reread_next: Vec<usize>,
     pending: Vec<PendingReq>,
     queues: super::queue::Saved,
+    timers: Vec<super::Timer>,
+    published: Option<Box<Published>>,
     commands: usize,
+}
+
+/// What a settlement publishes that a refusal after it — the gate step
+/// (LLP 1092 D8) — must put back; taken only for a plan with a gated task,
+/// the one refusal that follows a settlement that stood.
+pub(super) struct Published {
+    settled: Option<super::settlement::Settled>,
+    derives: Vec<Option<Value>>,
+    derive_store_dependent: Vec<bool>,
+    resource_values: Vec<Option<crate::held::Held>>,
+    resources: Vec<Option<ResourceState>>,
+    awaiting: Vec<bool>,
+    requests: usize,
 }
 
 impl<D: DataSource> Runner<D> {
@@ -48,6 +63,23 @@ impl<D: DataSource> Runner<D> {
             reread_next: self.reread_next.clone(),
             pending: self.pending.clone(),
             queues: self.queues.save(),
+            timers: self.timers.clone(),
+            published: self
+                .plan
+                .timers
+                .iter()
+                .any(|t| t.gated || t.keyed)
+                .then(|| {
+                    Box::new(Published {
+                        settled: self.settled.clone(),
+                        derives: self.derives.clone(),
+                        derive_store_dependent: self.derive_store_dependent.clone(),
+                        resource_values: self.resource_values.clone(),
+                        resources: self.resources.clone(),
+                        awaiting: self.awaiting.clone(),
+                        requests: self.requests.len(),
+                    })
+                }),
             commands: self.commands.len(),
         }
     }
@@ -80,6 +112,21 @@ impl<D: DataSource> Runner<D> {
                 self.reread_next = c.reread_next;
                 self.pending = c.pending;
                 self.queues.restore(c.queues);
+                self.timers = c.timers;
+                if let Some(p) = c.published {
+                    self.settled = p.settled;
+                    self.derives = p.derives;
+                    self.derive_store_dependent = p.derive_store_dependent;
+                    self.resource_values = p.resource_values;
+                    self.resources = p.resources;
+                    self.awaiting = p.awaiting;
+                    // A resource request the settlement handed out goes
+                    // with it: never taken, its continuation is let go.
+                    let dropped: Vec<RequestOut> = self.requests.drain(p.requests..).collect();
+                    for r in &dropped {
+                        self.discard_request(&r.request);
+                    }
+                }
                 self.sync_pending_flags();
                 self.commands.truncate(c.commands);
             }
@@ -168,7 +215,8 @@ impl<D: DataSource> Runner<D> {
         }
         let at = self.now_ms;
         for i in 0..self.plan.timers.len() {
-            if !self.plan.timers[i].frame {
+            // An idle gated frame task is skipped (LLP 1092 D10).
+            if !self.plan.timers[i].frame || !self.timers[i].armed {
                 continue;
             }
             self.timers[i].base = at;
@@ -632,8 +680,14 @@ impl<D: DataSource> Runner<D> {
             .flat_map(|m| self.declared_refreshes(*m))
             .collect();
         // A refusal from here is put back by the checkpoint (run_action);
-        // row slots live in the tree, so they are undone here.
-        if let Err(e) = self.router_change().and_then(|_| self.settle(false)) {
+        // row slots live in the tree, so they are undone here. The gate
+        // step joins this path (LLP 1092 D8): before `enqueue` and
+        // `into_view`, which a refusal there must not leave applied.
+        if let Err(e) = self
+            .router_change()
+            .and_then(|_| self.settle(false))
+            .and_then(|_| self.gate_step())
+        {
             self.discard_later(&later);
             for (rows, slot, old) in row_undo.into_iter().rev() {
                 match old {
@@ -1120,7 +1174,9 @@ impl<D: DataSource> Runner<D> {
                 }
             }
         }
-        self.router_change().and_then(|_| self.settle(false))?;
+        self.router_change()
+            .and_then(|_| self.settle(false))
+            .and_then(|_| self.gate_step())?;
         self.update()
     }
 }

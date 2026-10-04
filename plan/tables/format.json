@@ -335,6 +335,31 @@
         {
           "name": "frame",
           "codec": "bool"
+        },
+        {
+          "name": "name",
+          "codec": "str",
+          "_comment": "The task's name, for the agent's `state.tasks` (LLP 1092 D10)."
+        },
+        {
+          "name": "gated",
+          "codec": "bool",
+          "_comment": "@ref LLP 1092 D7, D8: `task t when cond`: the timer is armed while `gate` is true and idle (an infinite deadline) while it is false. False: `mount`, armed from boot."
+        },
+        {
+          "name": "gate",
+          "codec": "code",
+          "_comment": "@ref LLP 1092 D9: the gate, a bool, evaluated at each commit after its settlement; the constant `true` for an ungated task."
+        },
+        {
+          "name": "keyed",
+          "codec": "bool",
+          "_comment": "@ref LLP 1092 D7, D8: `key=expr`: a changed key (compared as an `each` key is) re-arms the timer from the commit's time."
+        },
+        {
+          "name": "key",
+          "codec": "code",
+          "_comment": "@ref LLP 1092 D9: the key, a string, number or bool; the constant `true` when not keyed."
         }
       ]
     },

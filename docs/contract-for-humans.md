@@ -1095,6 +1095,30 @@ fires once, `ms` after boot. Intervals are whole-number literals of at least 1.
 frames. Each task body contains one schedule. Tasks are root-owned, not child
 lifecycle hooks.
 
+A task can wait for state instead of starting at mount:
+
+```contract
+component Undo
+  state toast = ""
+  state toastUntil = 0
+  action deleted
+    toast = "Deleted"
+    toastUntil = now() + 5000
+  action hideToast
+    toast = ""
+  task hide when toast != "" key=toastUntil
+    after(5000, hideToast)
+  view
+    text toast testId="toast"
+```
+
+The timer exists while `toast != ""` holds, as a `when` arm's nodes do, and a new
+`toastUntil` restarts it, as a new key makes a new `each` row: a replaced toast
+gets its whole five seconds. Nothing runs when the gate changes, and an idle task
+keeps no host awake. The action runs at the deadline exactly, so it clears the
+toast without testing the time again. Gates and keys read state, never `now()`
+(LLP 1092).
+
 `now()` reads milliseconds since boot on the runner's clock (the driver's clock
 under the agent); it is not a date. For the date, read the reserved `exactTime`
 source and add `time.epochAtZero + now()`. Advancing the clock alone does not
