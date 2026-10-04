@@ -394,10 +394,12 @@ use jni_sys::{jobject, JNIEnv};
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicU8, Ordering};
 
-/// An app's allocator: mimalloc, without a lock per call, where Android's
-/// hardened allocator took half of a cold boot's CPU (LLP 1076); the system's
-/// with `EXACT_MALLOC=system`, to compare. Chosen once, at the first
-/// allocation, so every block is freed by the allocator that made it.
+/// An app's allocator: the system's, or mimalloc (2.x) with
+/// `EXACT_MALLOC=mimalloc`, which spends less per call than Android's scudo
+/// (half of a cold boot's CPU, LLP 1076) but showed more variable launches,
+/// ~25 MB more PSS, and (its 3.x) a crash in a new thread's first allocation.
+/// Chosen once, at the first allocation, so every block is freed by the
+/// allocator that made it.
 pub struct Allocator;
 
 static CHOSEN: AtomicU8 = AtomicU8::new(0);
@@ -408,10 +410,10 @@ fn mimalloc_chosen() -> bool {
         2 => false,
         _ => {
             // getenv does not allocate.
-            let system = unsafe { libc_getenv(c"EXACT_MALLOC".as_ptr()) };
-            let use_system = !system.is_null()
-                && unsafe { std::ffi::CStr::from_ptr(system) }.to_bytes() == b"system";
-            let chosen = if use_system { 2 } else { 1 };
+            let chosen_name = unsafe { libc_getenv(c"EXACT_MALLOC".as_ptr()) };
+            let use_mimalloc = !chosen_name.is_null()
+                && unsafe { std::ffi::CStr::from_ptr(chosen_name) }.to_bytes() == b"mimalloc";
+            let chosen = if use_mimalloc { 1 } else { 2 };
             // Two threads' first allocations agree on one choice.
             match CHOSEN.compare_exchange(0, chosen, Ordering::Relaxed, Ordering::Relaxed) {
                 Ok(_) => chosen == 1,
