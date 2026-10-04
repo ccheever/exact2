@@ -169,12 +169,15 @@ impl Emitter<'_> {
         let owners = &self.checked.expanded.owners;
         let mut states = Vec::new();
         for (i, s) in root.states.iter().enumerate() {
-            let owner = match owners.get(i).copied().flatten() {
-                Some(tag) => format!(".some {tag}"),
-                None => ".none".into(),
+            let (owner, late) = match owners.get(i).copied() {
+                Some(contract_syntax::Owner::Arm { tag, arm }) => {
+                    (format!(".some ({tag}, {arm})"), false)
+                }
+                Some(contract_syntax::Owner::Instance) => (".none".into(), true),
+                Some(contract_syntax::Owner::Root) | None => (".none".into(), false),
             };
             states.push(format!(
-                "{{ name := {}, ty := {}, init := {}, owner := {owner} }}",
+                "{{ name := {}, ty := {}, init := {}, owner := {owner}, late := {late} }}",
                 string(&s.name),
                 ty(&ct.slots[i]),
                 self.expr(&s.expr)?
@@ -314,6 +317,15 @@ impl Emitter<'_> {
                 format!("(.call {} {})", string(name), list(args, |a| self.expr(a))?)
             }
             Expr::NamedArg(n, v, _) => format!("(.named {} {})", string(n), self.expr(v)?),
+            Expr::Typed(e, t, _) => {
+                let t = self
+                    .checked
+                    .types
+                    .shapes
+                    .resolve(t)
+                    .map_or_else(|_| ".unknown".to_string(), |t| ty(&t));
+                format!("(.typed {} {t})", self.expr(e)?)
+            }
             Expr::Unary(op, inner, _) => {
                 let op = match op {
                     UnOp::Neg => ".neg",
@@ -479,12 +491,13 @@ impl Emitter<'_> {
                 )
             }
             Node::When {
+                tag,
                 cond,
                 then,
                 otherwise,
                 ..
             } => format!(
-                "(.when {} {} {})",
+                "(.when {tag} {} {} {})",
                 self.expr(cond)?,
                 self.nodes(then)?,
                 self.nodes(otherwise)?
@@ -509,12 +522,13 @@ impl Emitter<'_> {
                 self.nodes(body)?
             ),
             Node::Match {
+                tag,
                 subject,
                 some,
                 none,
                 ..
             } => format!(
-                "(.matchN {} {} {} {})",
+                "(.matchN {tag} {} {} {} {})",
                 self.expr(subject)?,
                 string(&some.0),
                 self.nodes(&some.1)?,

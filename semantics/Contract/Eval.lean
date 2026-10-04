@@ -259,6 +259,7 @@ def eval : Nat → Env → Bool → Locals → Expr → Result Value
     let w ← eval fuel env inFn ls v
     eval fuel env inFn ((x, w) :: ls) body
   | .named _ _ => .error (.type "a named argument outside a record or command")
+  | .typed e _ => eval fuel env inFn ls e
 
 def evalList : Nat → Env → Bool → Locals → List Expr → Result (List Value)
   | 0, _, _, _, _ => .error outOfFuel

@@ -9,7 +9,7 @@
 //! `when`/`match`/`each` over closures that build an arm or a row. Timers
 //! last. Everything reactive is lazy, so declaration order is free.
 
-use crate::code::{self, Frame, Scope, Uses};
+use crate::code::{self, Scope, Uses};
 use crate::style;
 use exact_kernel::{NodeType, PropId, StyleId};
 use exact_plan::{BindingKind, EventKind, Plan, RegionKind, Value};
@@ -18,8 +18,11 @@ use std::fmt::Write as _;
 
 #[path = "motion.rs"]
 mod motion;
+#[path = "regions.rs"]
+mod regions;
 #[path = "rows.rs"]
 mod rows;
+use regions::root_slot;
 
 #[derive(Clone, Copy, Debug)]
 pub enum Site {
@@ -355,25 +358,13 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     // Slots, in order: an initializer reads only earlier slots.
     for (i, r) in plan.slots.iter().enumerate() {
         if r.owner.is_some()
+            || r.late
             || plan.router == Some(exact_plan::SlotsId(i as u32))
             || plan.locale == Some(exact_plan::SlotsId(i as u32))
         {
-            continue; // a row slot lives on its row; the router and locale are above
+            continue; // an owned slot lives on its instance; a late one, the router and locale elsewhere
         }
-        let init = code::expression(plan, plan.code(r.init), &top, &mut em.uses)
-            .map_err(|e| format!("slot {}: {e}", plan.str(r.name)))?;
-        let ty = serde_json::to_string(&type_code(plan, r.ty)).unwrap();
-        if dev_reload {
-            let _ = write!(
-                body,
-                "const s_{i}=$devSig({},{init},{ty},{});",
-                serde_json::to_string(plan.str(r.name)).unwrap(),
-                type_json(plan, r.ty)
-            );
-        } else {
-            let sig = em.uses.rt("sig");
-            let _ = write!(body, "const s_{i}={sig}({init},{ty});");
-        }
+        root_slot(plan, i, &top, dev_reload, &mut em.uses, &mut body)?;
     }
     for (i, r) in plan.derives.iter().enumerate() {
         let f = code::function(plan, plan.code(r.body), &top, 0, &mut em.uses)
@@ -457,6 +448,13 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
             refreshes.join(","),
             serde_json::to_string(&type_code(plan, m.ty)).unwrap()
         );
+    }
+    // A child's state used outside every region: initialized as the root
+    // instance renders, after the derives and resources (LLP 1017 P4c).
+    for (i, r) in plan.slots.iter().enumerate() {
+        if r.late {
+            root_slot(plan, i, &top, dev_reload, &mut em.uses, &mut body)?;
+        }
     }
     for (i, r) in plan.actions.iter().enumerate() {
         // An action that touches row slots takes the row in force first.
@@ -1360,130 +1358,6 @@ impl Em<'_> {
             edges[0],
             edges[1]
         ))
-    }
-
-    fn region(&mut self, r: u32, parent: &str, scope: &Scope) -> Result<(), String> {
-        let plan = self.plan;
-        let row = &plan.regions[r as usize];
-        let subject = self
-            .f(row.subject, scope)
-            .map_err(|x| format!("region {r}: {x}"))?;
-        let arms: Vec<u32> = row.arms.iter().map(|a| a.0).collect();
-        match row.kind {
-            RegionKind::When | RegionKind::Match => {
-                let bound = (row.kind == RegionKind::Match).then(|| format!("b{r}"));
-                let mut inner = scope.clone();
-                inner.frames.push(Frame {
-                    bound: bound.clone(),
-                    ..Frame::default()
-                });
-                let mut bodies = Vec::new();
-                for (k, arm) in arms.iter().enumerate() {
-                    let saved = std::mem::take(&mut self.out);
-                    // `match`'s none arm holds no binding.
-                    let sc = if k == 0 {
-                        inner.clone()
-                    } else {
-                        let mut s = scope.clone();
-                        s.frames.push(Frame::default());
-                        s
-                    };
-                    self.children(self.sites.of_arm(*arm), "p", &sc)?;
-                    let built = std::mem::replace(&mut self.out, saved);
-                    let params = match (&bound, k) {
-                        (Some(b), 0) => format!("(p,{b})"),
-                        _ => "p".into(),
-                    };
-                    bodies.push(format!("{params}=>{{{built}}}"));
-                }
-                while bodies.len() < 2 {
-                    bodies.push("0".into());
-                }
-                let f = self.uses.rt(if row.kind == RegionKind::When {
-                    "when"
-                } else {
-                    "match"
-                });
-                let _ = write!(
-                    self.out,
-                    "{f}({parent},{subject},{},{});",
-                    bodies[0], bodies[1]
-                );
-            }
-            RegionKind::Each => self.each(r, parent, scope, None)?,
-        }
-        Ok(())
-    }
-
-    /// An `each`, or a virtualized list's rows when `list` carries the
-    /// list's options (list.js `vl`).
-    fn each(
-        &mut self,
-        r: u32,
-        parent: &str,
-        scope: &Scope,
-        list: Option<String>,
-    ) -> Result<(), String> {
-        let plan = self.plan;
-        let row = &plan.regions[r as usize];
-        let subject = self
-            .f(row.subject, scope)
-            .map_err(|x| format!("region {r}: {x}"))?;
-        let arms: Vec<u32> = row.arms.iter().map(|a| a.0).collect();
-        let (item, index) = (format!("i{r}"), format!("x{r}"));
-        let mut inner = scope.clone();
-        inner.frames.push(Frame {
-            item: Some(item.clone()),
-            index: Some(index.clone()),
-            bound: None,
-        });
-        let key = code::expression(plan, plan.code(row.key), &inner, &mut self.uses)
-            .map_err(|x| format!("region {r} key: {x}"))?;
-        // The row's own slots, started from their initializers when
-        // the row is created and kept with its key (LLP 1017 P4c).
-        let mut own = Vec::new();
-        for (k, slot) in plan.slots.iter().enumerate() {
-            if slot.owner.map(|o| o.0) == Some(r) {
-                let init = code::expression(plan, plan.code(slot.init), &inner, &mut self.uses)
-                    .map_err(|x| format!("row slot {}: {x}", plan.str(slot.name)))?;
-                let sig = self.uses.rt("sig");
-                own.push(format!("{k}:{sig}({init})"));
-            }
-        }
-        let mut rows_decl = String::new();
-        if !own.is_empty() {
-            let name = format!("$r{r}");
-            rows_decl = match &scope.rows {
-                Some(outer) => format!("const {name}={{...{outer},{}}};", own.join(",")),
-                None => format!("const {name}={{{}}};", own.join(",")),
-            };
-            inner.rows = Some(name);
-        }
-        let saved = std::mem::take(&mut self.out);
-        self.out.push_str(&rows_decl);
-        self.children(self.sites.of_arm(arms[0]), "p", &inner)?;
-        let built = std::mem::replace(&mut self.out, saved);
-        match list {
-            Some(opts) => {
-                let _ = write!(
-                    self.out,
-                    "$vl({parent},{subject},({item},{index})=>{key},(p,{item},{index})=>{{{built}}},{opts});"
-                );
-            }
-            None => {
-                let each = self.uses.rt("each");
-                let pure = if crate::reads::pure_key(&key, &item, &index) {
-                    ",1"
-                } else {
-                    ""
-                };
-                let _ = write!(
-                    self.out,
-                    "{each}({parent},{subject},({item},{index})=>{key},(p,{item},{index})=>{{{built}}}{pure});"
-                );
-            }
-        }
-        Ok(())
     }
 }
 

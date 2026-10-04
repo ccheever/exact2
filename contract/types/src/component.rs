@@ -6,7 +6,7 @@ use super::{
     checks::{check_view, infer_owned_state_initializers},
     err, infer, record_source, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError, Types,
 };
-use contract_syntax::{Component, Expr, Node, Span, TemplatePart};
+use contract_syntax::{Component, Expr, Node, Owner, Span, TemplatePart};
 use std::{collections::BTreeMap, sync::Arc};
 
 /// Check one component, recording each refusal in `sink` and carrying on
@@ -16,7 +16,7 @@ use std::{collections::BTreeMap, sync::Arc};
 pub(crate) fn check_component(
     c: &Component,
     types: &Types,
-    owners: Option<&[Option<u32>]>,
+    owners: Option<&[Owner]>,
     sink: &mut Sink,
 ) -> ComponentTypes {
     let shapes = &types.shapes;
@@ -110,8 +110,11 @@ pub(crate) fn check_component(
                 Ty::Record("Router".into())
             } else if owners
                 .and_then(|owners| owners.get(i))
-                .is_some_and(Option::is_some)
+                .is_some_and(|o| *o != Owner::Root)
             {
+                // A child's state, typed in its use site's scope once the
+                // derives and resources it may read are
+                // (`infer_owned_state_initializers`).
                 Ty::Unknown
             } else {
                 sink.keep(infer(&s.expr, &scope, shapes))
@@ -133,30 +136,15 @@ pub(crate) fn check_component(
         }
         ct.actions.push(params);
     }
-    // Derives: iterate to a fixpoint so order does not matter and `?` fills.
-    // Each is inferred after the derives it reads, and its type enters the
-    // scope at once, so a set without a cycle settles in one round (and one
-    // to confirm) rather than one round per link of a chain.
+    // Derives, then the slots action writes type, until neither changes: a
+    // state `none` or `[]` declares is typed by its first write, and what
+    // reads it (a derive, a view head, a handler's or a resource's
+    // argument) must see that type, whatever the declaration order.
     ct.derives = vec![Ty::Unknown; c.derives.len()];
-    // Every declaration now has a type entry before constructing a full scope.
-    let first_derive = c.props.len() + c.injects.len() + c.states.len();
-    let mut scope = types.component_scope(c, &ct);
     let order = derive_order(c);
-    for _round in 0..(c.derives.len() + 2) {
-        let mut changed = false;
-        for &i in &order {
-            // An expression over a derive not yet typed (`current.ok` while
-            // `current` is still `?`) waits for a later round; the strict
-            // pass below reports what never types.
-            if let Ok(t) = infer(&c.derives[i].expr, &scope, shapes) {
-                if t != ct.derives[i] {
-                    scope.retype(first_derive + i, t.clone());
-                    ct.derives[i] = t;
-                    changed = true;
-                }
-            }
-        }
-        if !changed {
+    for _round in 0..(c.states.len() + 2) {
+        settle_derives(c, &mut ct, types, &order);
+        if ct.slots.iter().all(Ty::is_complete) || !probe_writes(c, &mut ct, types) {
             break;
         }
     }
@@ -367,11 +355,71 @@ impl Scope {
     pub(crate) fn retype(&mut self, index: usize, ty: Ty) {
         Arc::make_mut(&mut self.frames[0]).names[index].2 = ty;
     }
+}
 
-    pub(crate) fn frames_reset(&mut self, names: &[(String, Ref, Ty)]) {
-        self.frames.clear();
-        self.push(names.to_vec());
+/// Derives to a fixpoint, so order does not matter and `?` fills. Each is
+/// inferred after the derives it reads, and its type enters the scope at
+/// once, so a set without a cycle settles in one round (and one to confirm)
+/// rather than one round per link of a chain.
+fn settle_derives(c: &Component, ct: &mut ComponentTypes, types: &Types, order: &[usize]) {
+    let first_derive = c.props.len() + c.injects.len() + c.states.len();
+    let mut scope = types.component_scope(c, ct);
+    for _round in 0..(c.derives.len() + 2) {
+        let mut changed = false;
+        for &i in order {
+            // An expression over a derive not yet typed (`current.ok` while
+            // `current` is still `?`) waits for a later round; the strict
+            // pass reports what never types.
+            if let Ok(t) = infer(&c.derives[i].expr, &scope, &types.shapes) {
+                if t != ct.derives[i] {
+                    scope.retype(first_derive + i, t.clone());
+                    ct.derives[i] = t;
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            break;
+        }
     }
+}
+
+/// Check every action body against a copy of the types, its findings
+/// dropped, and keep only what its writes say about the slots; whether a
+/// slot changed. The bodies are checked for real once everything is typed.
+fn probe_writes(c: &Component, ct: &mut ComponentTypes, types: &Types) -> bool {
+    let mut probe = ct.clone();
+    let mut scratch = Sink::default();
+    for (ai, a) in c.actions.iter().enumerate() {
+        let mut scope = types.component_scope(c, &probe);
+        scope.push(
+            a.params
+                .iter()
+                .enumerate()
+                .map(|(i, p)| {
+                    (
+                        p.name.clone(),
+                        Ref::Param(i as u32),
+                        probe.actions[ai][i].clone(),
+                    )
+                })
+                .collect(),
+        );
+        scope.enter_action();
+        let lifted = a.name.contains('#');
+        crate::actions::check_body(
+            &a.body,
+            &scope,
+            lifted,
+            c,
+            &mut probe,
+            &types.shapes,
+            &mut scratch,
+        );
+    }
+    let changed = probe.slots != ct.slots;
+    ct.slots = probe.slots;
+    changed
 }
 
 fn refine_params_from_view(
@@ -585,7 +633,8 @@ fn derive_order(c: &Component) -> Vec<usize> {
             Expr::Some(x, _)
             | Expr::Unary(_, x, _)
             | Expr::Member(x, _, _)
-            | Expr::NamedArg(_, x, _) => names(x, out),
+            | Expr::NamedArg(_, x, _)
+            | Expr::Typed(x, _, _) => names(x, out),
             Expr::Binary(_, a, b, _) => {
                 names(a, out);
                 names(b, out);
@@ -668,6 +717,7 @@ fn empty_list_in(e: &Expr) -> Option<Span> {
         Expr::Some(x, _)
         | Expr::Member(x, _, _)
         | Expr::NamedArg(_, x, _)
+        | Expr::Typed(x, _, _)
         | Expr::Unary(_, x, _) => empty_list_in(x),
         Expr::Call(_, args, _) => args.iter().find_map(empty_list_in),
         Expr::Binary(_, a, b, _) => empty_list_in(a).or_else(|| empty_list_in(b)),
@@ -712,6 +762,7 @@ fn reads_state(e: &Expr, scope: &Scope) -> Option<(String, Span)> {
             Expr::Some(x, _)
             | Expr::Member(x, _, _)
             | Expr::NamedArg(_, x, _)
+            | Expr::Typed(x, _, _)
             | Expr::Unary(_, x, _) => walk(x, scope, bound),
             Expr::Call(_, args, _) => args.iter().find_map(|a| walk(a, scope, bound)),
             Expr::Binary(_, a, b, _) => walk(a, scope, bound).or_else(|| walk(b, scope, bound)),

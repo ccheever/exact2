@@ -202,8 +202,11 @@ and `toString` (§5).
 **Instances** (LLP 1017 P4c, 2026-08-30): a child may own `state`, `derive`,
 and `action` (never a resource, mutation, or task — `type-child-resource`);
 `expand` lifts them into the root per use, renamed apart, a derive as a
-substituted expression, and a use under an `each` makes its states row slots
-(`slots.owner`), one value per keyed row on the runner. The "only the root
+substituted expression, and a use under a region makes its states slots of
+that region's arm (`slots.owner`: one value per keyed row or shown
+`when`/`match` arm on the runner, initialized when the instance is created,
+after settlement); a use outside every region makes them `late` root slots,
+initialized at the boot render (LLP 1017.000, child state). The "only the root
 holds state" rule of §2 and §7 is gone. **Composition** (LLP 1017 P4a/b, 2026-08-30): a component may declare `inject`
 (typed names, like `props`) that a use site does not pass, and a `provide`
 section beside them (LLP 1035.005.000 D9, 2026-10-02), one binding per line:

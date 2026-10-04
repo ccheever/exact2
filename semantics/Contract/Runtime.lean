@@ -294,15 +294,15 @@ def render : Nat → RenderCx → Locals → List Node → RowStore → Result (
           else Option.none
         pure ([{ tag, testId, text, handlers := hs, locals := ls, rows := cx.rows,
                  control, children := kids : VNode }], live)
-      | .when c thn els => do
+      | .when tag c thn els => do
         match ← eval fuel cx.env false ls c with
-        | .bool true => render fuel cx ls thn live
-        | .bool false => render fuel cx ls els live
+        | .bool true => renderArm fuel cx ls tag 0 thn live
+        | .bool false => renderArm fuel cx ls tag 1 els live
         | _ => .error (.type "`when` on a value that is not a bool")
-      | .matchN s x sm nn => do
+      | .matchN tag s x sm nn => do
         match ← eval fuel cx.env false ls s with
-        | .some v => render fuel cx ((x, v) :: ls) sm live
-        | .none => render fuel cx ls nn live
+        | .some v => renderArm fuel cx ((x, v) :: ls) tag 0 sm live
+        | .none => renderArm fuel cx ls tag 1 nn live
         | _ => .error (.type "`match` on a value that is not an option")
       | .each tag x ix list key body => do
         let items ← (← eval fuel cx.env false ls list).asList
@@ -310,6 +310,31 @@ def render : Nat → RenderCx → Locals → List Node → RowStore → Result (
     let (more, live) ← render fuel cx ls rest live
     pure (here ++ more, live)
 where
+  /-- The slots an arm instance owns: kept from `store`, or initialized in
+  the arm's scope now (an initializer may read the item or binding). -/
+  armSlots : Nat → RenderCx → Locals → RowId → Nat × Nat → Result (List (String × Value))
+    | fuel, cx, ls, id, owner =>
+      match cx.store.find id with
+      | .some s => .ok s
+      | .none => do
+        let mut s : List (String × Value) := []
+        for st in cx.env.prog.states do
+          if st.owner == Option.some owner then
+            let env := { cx.env with rows := s ++ cx.env.rows }
+            let v ← eval fuel env false ls st.init
+            if !conforms cx.env.prog v st.ty then
+              throw (.refused s!"slot `{st.name}` initialized with a value of the wrong type")
+            s := s ++ [(st.name, v)]
+        pure s
+  /-- A `when` or `match` arm: an instance of its own, named by the arm. -/
+  renderArm : Nat → RenderCx → Locals → Nat → Nat → List Node → RowStore →
+      Result (List VNode × RowStore)
+    | 0, _, _, _, _, _, _ => .error outOfFuel
+    | fuel + 1, cx, ls, tag, arm, body, live => do
+      let id : RowId := (cx.rows.head?.getD []) ++ [(tag, Value.num (Float.ofNat arm), 0)]
+      let slots ← armSlots fuel cx ls id (tag, arm)
+      let cx' : RenderCx := { cx with env := { cx.env with rows := slots ++ cx.env.rows }, rows := id :: cx.rows }
+      render fuel cx' ls body (live ++ [(id, slots)])
   /-- The rows of an `each`, in list order. `seen` holds the keys of the
   rows before this one, for `dup`. -/
   renderRows : Nat → RenderCx → Locals → Nat → String → Option String → Expr → List Node →
@@ -326,18 +351,7 @@ where
       let id : RowId := (cx.rows.head?.getD []) ++ [(tag, k, dup)]
       -- The row's slots: kept, or initialized from their initializers in
       -- the row's own scope (an initializer may read the item).
-      let slots ← match cx.store.find id with
-        | .some s => pure s
-        | .none => do
-          let mut s : List (String × Value) := []
-          for st in cx.env.prog.states do
-            if st.owner == Option.some tag then
-              let env := { cx.env with rows := s ++ cx.env.rows }
-              let v ← eval fuel env false ls' st.init
-              if !conforms cx.env.prog v st.ty then
-                throw (.refused s!"row slot `{st.name}` initialized with a value of the wrong type")
-              s := s ++ [(st.name, v)]
-          pure s
+      let slots ← armSlots fuel cx ls' id (tag, 0)
       let cx' : RenderCx := { cx with env := { cx.env with rows := slots ++ cx.env.rows }, rows := id :: cx.rows }
       let (vs, live) ← render fuel cx' ls' body (live ++ [(id, slots)])
       let (more, live) ← renderRows fuel cx ls tag x ix key body items (i + 1) (seen ++ [k]) live
@@ -383,7 +397,7 @@ owns the slot. -/
 def applyRowWrites (p : Program) (store : RowStore) (rows : List RowId)
     (ws : List (String × Value)) : RowStore :=
   ws.foldl (fun store (x, v) =>
-    let owner := (p.states.find? (·.name == x)).bind (·.owner)
+    let owner := ((p.states.find? (·.name == x)).bind (·.owner)).map (·.1)
     match rows.find? (fun id => (id.getLast?.map (·.1)) == owner) with
     | .some id => store.map fun (i, s) =>
         if (RowStore.find [(i, s)] id).isSome then (i, setSlot s x v) else (i, s)
@@ -447,6 +461,9 @@ def boot (p : Program) (o : Oracle) : Config × Outcome :=
   let empty : Config := { slots := [], settled := {}, store := [], view := [], now := 0, timers := [] }
   let init : Result (List (String × Value)) := p.states.foldlM (fun slots st => do
       if st.owner.isSome then return slots
+      -- A late slot holds `()` until boot settlement is done (the runner's
+      -- slots start as unit).
+      if st.late then return slots ++ [(st.name, Value.unit)]
       let env : Env := { prog := p, slots, now := 0 }
       let v ← eval fuel env false [] st.init
       if !conforms p v st.ty then throw (.refused s!"slot `{st.name}` initialized with the wrong type")
@@ -464,13 +481,26 @@ def boot (p : Program) (o : Oracle) : Config × Outcome :=
     | .error e => (empty, .refused e)
     | .ok timers =>
       if p.mutations.any (·.andThen.isSome) then (empty, .refused (.unsupported "`then`")) else
-      match update p o slots [] 0 with
+      match settle p o slots 0 with
       | .error e => (empty, .refused e)
-      | .ok (st, .ok (view, live)) =>
+      | .ok st =>
+      -- The late slots, in declaration order, against the settled values.
+      let late : Result (List (String × Value)) := p.states.foldlM (fun slots decl => do
+          if !decl.late || decl.owner.isSome then return slots
+          let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now := 0 }
+          let v ← eval fuel env false [] decl.init
+          if !conforms p v decl.ty then throw (.refused s!"slot `{decl.name}` initialized with the wrong type")
+          pure (setSlot slots decl.name v)) slots
+      match late with
+      | .error e => (empty, .refused e)
+      | .ok slots =>
+      let env : Env := { prog := p, slots, derives := st.derives, resources := st.resources, now := 0 }
+      match render fuel { env, store := [] } [] p.view [] with
+      | .ok (view, live) =>
         ({ slots, settled := st, store := live, view, now := 0, timers }, .ok)
       -- A view that fails to render at boot fails the boot: there is no
       -- runner to poison.
-      | .ok (_, .error e) => (empty, .refused e)
+      | .error e => (empty, .refused e)
 
 /-! ## Events -/
 

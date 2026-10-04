@@ -135,8 +135,8 @@ record_variants! {
     Node {
         Element { tag, positional, attrs, children, span, instance }, Use { name, args, children, span },
         Children { span },
-        When { cond, then, otherwise, span }, Each { tag, var, index, list, key, body, span },
-        Match { subject, some, none, span },
+        When { tag, cond, then, otherwise, span }, Each { tag, var, index, list, key, body, span },
+        Match { tag, subject, some, none, span },
     }
 }
 impl VisitSpans for TypeExpr {
@@ -172,6 +172,7 @@ impl VisitSpans for Expr {
                 visit(span);
             }
             Self::NamedArg(_, inner, span)
+            | Self::Typed(inner, _, span)
             | Self::Some(inner, span)
             | Self::Member(inner, _, span)
             | Self::Unary(_, inner, span) => {

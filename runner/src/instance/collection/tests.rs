@@ -73,10 +73,10 @@ fn plan_with(n: usize, row_state: bool, follow: bool, smooth: bool) -> Plan {
     let key = code(&mut b, |a| {
         a.load_item(0).load_slot(key_dep).op(Opcode::Add, &[]);
     });
-    let (region, arms) = b.region(RegionKind::Each, Some(root), None, 0, subject, key, 1);
+    let (_, arms) = b.region(RegionKind::Each, Some(root), None, 0, subject, key, 1);
     let state = if row_state {
         let slot = b.slot("counter", num, zero);
-        b.set_slot_owner(slot, region);
+        b.set_slot_owner(slot, arms[0]);
         slot
     } else {
         body

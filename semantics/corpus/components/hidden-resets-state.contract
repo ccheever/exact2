@@ -1,5 +1,6 @@
-// A child used outside any `each` owns root slots: hiding it under a
-// `when` and showing it again keeps its state (unlike a row's).
+// A child's state lives as long as its instance: the `when` arm owns it,
+// so hiding the child and showing it again starts it fresh, as a removed
+// and re-added row does.
 component App
   state open = true
   action toggle
@@ -18,11 +19,13 @@ component Counter
     button "inc" press=inc testId="inc"
       text `${n}` testId="n"
 
-test "hide and show keeps the count"
+test "hide and show resets the count"
   tap "inc"
   tap "inc"
   tap "toggle"
   expect tree missing "n"
   tap "inc"
   tap "toggle"
-  expect text "n" == "2"
+  expect text "n" == "0"
+  tap "inc"
+  expect text "n" == "1"

@@ -116,6 +116,8 @@ inductive EvalR (env : Env) : Bool → Locals → Expr → Value → Prop
       EvalR env inFn ls (.matchOpt s x a b) v
   | matchNone : EvalR env inFn ls s .none → EvalR env inFn ls b v → EvalR env inFn ls (.matchOpt s x a b) v
   | letE : EvalR env inFn ls e w → EvalR env inFn ((x, w) :: ls) body v → EvalR env inFn ls (.letE x e body) v
+  /-- A type ascription is its expression's value. -/
+  | typed : EvalR env inFn ls e v → EvalR env inFn ls (.typed e ty) v
 
 /-- A list of expressions, left to right. -/
 inductive ListR (env : Env) : Bool → Locals → List Expr → List Value → Prop
@@ -361,6 +363,9 @@ theorem sound_aux : ∀ n,
         obtain ⟨w, h1, h2⟩ := h
         exact .letE (ihE h1) (ihE h2)
       | named => simp [eval] at h
+      | typed e ty =>
+        simp only [eval] at h
+        exact .typed (ihE h)
     · intro env inFn ls es vs h
       cases es with
       | nil => simp [evalList] at h; subst h; exact .nil
@@ -515,6 +520,9 @@ theorem mono_aux : ∀ n,
         simp only [eval, Except.bind_ok_iff] at h ⊢
         obtain ⟨w, h1, h2⟩ := h
         exact ⟨w, ihE hm h1, ihE hm h2⟩
+      | typed e ty =>
+        simp only [eval] at h ⊢
+        exact ihE hm h
     · intro m env inFn ls es vs hm h
       obtain ⟨m, rfl⟩ : ∃ m', m = m' + 1 := ⟨m - 1, by omega⟩
       have hm : n ≤ m := by omega
@@ -678,6 +686,9 @@ theorem EvalR.complete {env inFn ls e v} :
     obtain ⟨n1, h1⟩ := h1.complete
     obtain ⟨n2, h2⟩ := h2.complete
     exact ⟨max n1 n2 + 1, by simp only [eval, Except.bind_ok_iff]; exact ⟨_, lift h1, lift h2⟩⟩
+  | .typed h => by
+    obtain ⟨n, h⟩ := h.complete
+    exact ⟨n + 1, by simp only [eval]; exact h⟩
   | .binop h1 h2 h3 => by
     obtain ⟨n1, h1⟩ := h1.complete
     obtain ⟨n2, h2⟩ := h2.complete

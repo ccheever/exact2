@@ -736,6 +736,7 @@ impl<'a> Resolver<'a> {
                     some,
                     none,
                     span,
+                    ..
                 } => {
                     self.expr(subject);
                     let ty = match self.infer(subject) {
@@ -791,9 +792,10 @@ impl<'a> Resolver<'a> {
                     }
                 }
             }
-            Expr::NamedArg(_, inner, _) | Expr::Some(inner, _) | Expr::Unary(_, inner, _) => {
-                self.expr(inner)
-            }
+            Expr::NamedArg(_, inner, _)
+            | Expr::Typed(inner, _, _)
+            | Expr::Some(inner, _)
+            | Expr::Unary(_, inner, _) => self.expr(inner),
             Expr::Ident(name, span) => self.name(name, *span),
             Expr::Member(base, field, span) => {
                 self.expr(base);

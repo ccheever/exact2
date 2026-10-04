@@ -67,6 +67,9 @@ inductive Expr where
   | letE (x : String) (value body : Expr)
   /-- An authored named argument (`share(title: …)`), outside a record. -/
   | named (name : String) (e : Expr)
+  /-- `e` read at a declared type (the expander's, for a prop's argument):
+  a type ascription, with no effect on the value. -/
+  | typed (e : Expr) (ty : Ty)
   deriving Repr, Inhabited
 
 /-- A statement in an action body. -/
@@ -85,9 +88,12 @@ inductive Stmt where
 inductive Node where
   | element (tag : String) (positional : List Expr) (props : List (String × Expr))
       (handlers : List (String × String × List Expr)) (children : List Node)
-  | when (c : Expr) (thn els : List Node)
+  /-- `tag` names the region, as an `each`'s does: its arms (0 then, 1
+  else) own the state of the children used in them. -/
+  | when (tag : Nat) (c : Expr) (thn els : List Node)
   | each (tag : Nat) (x : String) (index : Option String) (list key : Expr) (body : List Node)
-  | matchN (subject : Expr) (x : String) (some none : List Node)
+  /-- Arm 0 is `some`, arm 1 is `none`. -/
+  | matchN (tag : Nat) (subject : Expr) (x : String) (some none : List Node)
   deriving Repr, Inhabited
 
 structure Field where
@@ -107,13 +113,18 @@ structure FnDecl where
   body : Expr
   deriving Repr, Inhabited
 
-/-- A `state`. `owner` is the tag of the `each` whose rows each hold one
-(a lifted child's state under an `each`), `none` for a root slot. -/
+/-- A `state`. A child component's state lives exactly as long as its
+instance: `owner` is the region arm that owns it — (tag, arm) of the
+innermost `each` row (arm 0), `when` arm or `match` arm around its use —
+one value per arm instance; `none` for a root slot. A root slot that
+holds a child used outside every region is `late`: initialized after boot
+settlement, so it may read derives and resources. -/
 structure StateDecl where
   name : String
   ty : Ty
   init : Expr
-  owner : Option Nat := .none
+  owner : Option (Nat × Nat) := .none
+  late : Bool := false
   deriving Repr, Inhabited
 
 structure DeriveDecl where

@@ -643,8 +643,11 @@ pub enum Node {
         /// Where.
         span: Span,
     },
-    /// `when cond … else …`.
+    /// `when cond … else …`. `tag` is the inliner's, as on `Each`: its
+    /// arms own the state of the children used in them; 0 as parsed.
     When {
+        /// The inliner's tag.
+        tag: u32,
         /// Condition.
         cond: Expr,
         /// Then-branch.
@@ -656,8 +659,9 @@ pub enum Node {
     },
     /// `each x in list key=expr`, or `each x, i in list key=expr` binding
     /// the item's position too (LLP 1062 D8). `tag` is the inliner's: unique
-    /// per `each` in the expanded root, so a row slot can name the `each`
-    /// that owns it before regions exist (LLP 1017 P4c); 0 as parsed.
+    /// per region (`each`, `when`, `match`) in the expanded root, so a
+    /// lifted slot can name the region that owns it before regions exist
+    /// (LLP 1017 P4c); 0 as parsed.
     Each {
         /// The inliner's tag.
         tag: u32,
@@ -674,8 +678,11 @@ pub enum Node {
         /// Where.
         span: Span,
     },
-    /// `match subject` with `case some(x)` and `case none` arms.
+    /// `match subject` with `case some(x)` and `case none` arms; `tag` as
+    /// on `When`.
     Match {
+        /// The inliner's tag.
+        tag: u32,
         /// The subject.
         subject: Expr,
         /// The bound name and body of `case some(x)`.
@@ -918,6 +925,11 @@ pub enum Expr {
         /// Where.
         span: Span,
     },
+    /// `value` as the declared type it fills. Compiler-only: no surface
+    /// syntax spells it. Expansion wraps a use's argument that holds a
+    /// `none` or a `[]` in the prop's declared type, so `C(o=none)` for
+    /// `o: option<number>` is an `option<number>` wherever the child reads it.
+    Typed(Box<Expr>, TypeExpr, Span),
 }
 
 /// One part of a template string.
@@ -949,7 +961,8 @@ impl Expr {
             | Expr::Ternary(_, _, _, s)
             | Expr::Match { span: s, .. }
             | Expr::Arrow { span: s, .. }
-            | Expr::Let { span: s, .. } => *s,
+            | Expr::Let { span: s, .. }
+            | Expr::Typed(_, _, s) => *s,
         }
     }
 }

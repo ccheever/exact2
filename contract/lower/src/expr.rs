@@ -468,6 +468,14 @@ pub(crate) fn compile(
             asm.drop_local();
             ty
         }
+        Expr::Typed(value, ty, span) => {
+            let t = compile(l, asm, value, scope, locals)?;
+            contract_types::ascribe(&t, ty, &l.types.shapes, *span).map_err(|e| LowerError {
+                id: e.id,
+                message: e.message,
+                span: e.span,
+            })?
+        }
         Expr::Arrow { span, .. } => {
             return err(
                 "lower-arrow-position",

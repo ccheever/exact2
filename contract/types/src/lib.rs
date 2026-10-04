@@ -638,6 +638,20 @@ pub(crate) fn source_argument(
     )
 }
 
+/// `t`, a use's argument, as the declared type of the prop it fills
+/// ([`Expr::Typed`]): `none`'s `option<?>` becomes the declared option.
+pub fn ascribe(t: &Ty, declared: &TypeExpr, shapes: &Shapes, span: Span) -> Result<Ty, TypeError> {
+    let declared = shapes.resolve(declared)?;
+    match declared.unify(t) {
+        Some(u) => Ok(u),
+        None => err(
+            "type-prop",
+            format!("this argument is `{t}`, where the prop is declared `{declared}`"),
+            span,
+        ),
+    }
+}
+
 /// Infer an expression's type in `scope`.
 pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> {
     Ok(match e {
@@ -960,6 +974,10 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
             let mut inner = scope.clone();
             inner.push(vec![(name.clone(), Ref::Local(0), t)]);
             infer(body, &inner, shapes)?
+        }
+        Expr::Typed(value, ty, span) => {
+            let t = infer(value, scope, shapes)?;
+            ascribe(&t, ty, shapes, *span)?
         }
         Expr::Arrow { span, .. } => {
             return err(

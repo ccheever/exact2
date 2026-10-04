@@ -49,13 +49,15 @@ const FAR_VIEWPORTS: f64 = 2.0;
 /// 1070), whose first rows are bounded by its own literal size.
 fn in_collection_row(plan: &Plan, frames: &[Frame]) -> bool {
     frames.iter().filter_map(|f| f.region).any(|region| {
-        plan.region(RegionsId(region)).parent.is_some_and(|node| {
-            plan.node(node)
-                .bindings
-                .iter()
-                .map(|b| plan.binding(b))
-                .any(|b| b.kind == BindingKind::Prop && b.id == PropId::Virtualized as u16)
-        })
+        let region = plan.region(RegionsId(region));
+        region.kind == RegionKind::Each
+            && region.parent.is_some_and(|node| {
+                plan.node(node)
+                    .bindings
+                    .iter()
+                    .map(|b| plan.binding(b))
+                    .any(|b| b.kind == BindingKind::Prop && b.id == PropId::Virtualized as u16)
+            })
     })
 }
 
@@ -987,8 +989,9 @@ impl Collection {
         };
         let mut inner = frames.to_vec();
         inner.push(frame.clone());
+        let arm = plan.region(self.region).arms.iter().next();
         for (i, s) in plan.slots.iter().enumerate() {
-            if s.owner == Some(self.region) {
+            if s.owner.is_some() && s.owner == arm {
                 let value = u.eval(s.init, &inner)?;
                 if !value.conforms(plan, s.ty) {
                     return Err(InstanceError::SlotType {
