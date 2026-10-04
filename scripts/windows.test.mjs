@@ -6,9 +6,20 @@ import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {closeFilesystemReader, filesystem, filesystemErrorCode} from './filesystem.mjs';
 import {packagedBuildChanges} from './agent-launch.mjs';
+import {browserKey} from './agent.mjs';
 import {runCaps} from './caps.mjs';
 import {binaryenArchive, binaryenVersion} from './exact.mjs';
 import {listPublicFiles, publicFileCards, readStaticFile, readStaticFileAsync, staticFile} from '../host/web/serve.mjs';
+
+test('browser function keys reach the focused game with their platform key identity', async () => {
+  for(const [key,vk] of [['F1',112],['F2',113],['F12',123],['F24',135]]) {
+    const calls=[];
+    await browserKey({id:17,opts:{key},evaluate:async()=>true,ask:async()=>({ok:true}),
+      call:async(method,args)=>calls.push([method,args]),frame:async()=>{}});
+    expect(calls.map(([method,args])=>[method,args.type,args.code,args.key,args.windowsVirtualKeyCode]))
+      .toEqual(['keyDown','keyUp'].map(type=>['Input.dispatchKeyEvent',type,key,key,vk]));
+  }
+});
 
 test('public web inventory and owned reads agree on native Windows paths', async () => {
   const root=mkdtempSync(resolve(tmpdir(),'exact static paths '));
