@@ -617,6 +617,9 @@ struct Walk<'a, 'b> {
     text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
     skip: Option<exact_kernel::NodeKey>,
     replay: Option<&'b region::Replay<'b>>,
+    /// Each node's rank among its siblings (LLP 1083.000 §2.4), twice its
+    /// value, from the kernel's one definition.
+    ranks: Rc<BTreeMap<ViewId, i64>>,
 }
 
 impl Painter {
@@ -837,6 +840,14 @@ impl Painter {
             text: BTreeMap::new(),
             skip,
             replay,
+            ranks: Rc::new(
+                scene
+                    .kernel
+                    .paint_order()
+                    .into_iter()
+                    .map(|(id, p)| (id, p.rank))
+                    .collect(),
+            ),
         };
         for root in scene.roots {
             self.node(&mut walk, *root, Transform::identity(), scene.page, None);
@@ -1247,34 +1258,28 @@ impl Painter {
         // A native button's children are its face, painted above (LLP 1069.011 D5).
         let native =
             node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("button");
-        let mut children: Vec<_> = node
+        let children: Vec<_> = node
             .children()
             .into_iter()
             .filter(|id| Some(*id) != lift && !native)
             .collect();
-        // @ref LLP 1083 D6 — siblings paint by their used `z-index`, as
-        // Apple's layers stack by it (`usedZIndex`): a positioned box's, or
-        // a flex or grid item's; tree order among equals.
-        let grid = matches!(node.style.display, Display::Flex | Display::Grid);
-        let z = |id: &ViewId| {
-            walk.scene.kernel.node(*id).map_or(0, |n| {
-                let positioned = n.style.position_type != exact_kernel::PositionType::Static;
-                if positioned || grid {
-                    n.style.z_index
-                } else {
-                    0
+        // @ref LLP 1083.000 D5 — a canvas's placed children first, by
+        // projective depth, as the web gives them negative indices by
+        // depth; then every other child by its rank, then tree order.
+        let order: Vec<(ViewId, usize)> = children.iter().copied().zip(0..).collect();
+        let mut order = order;
+        order.sort_by(
+            |(a, i), (b, j)| match (self.placements.get(a), self.placements.get(b)) {
+                (Some(a), Some(b)) => a.depth().total_cmp(&b.depth()).then(i.cmp(j)),
+                (Some(_), None) => std::cmp::Ordering::Less,
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                _ => {
+                    let rank = |id: &ViewId| walk.ranks.get(id).copied().unwrap_or(0);
+                    rank(a).cmp(&rank(b)).then(i.cmp(j))
                 }
-            })
-        };
-        children.sort_by(|a, b| {
-            z(a).cmp(&z(b))
-                .then_with(|| match (self.placements.get(a), self.placements.get(b)) {
-                    (Some(a), Some(b)) => a.depth().total_cmp(&b.depth()),
-                    (Some(_), None) => std::cmp::Ordering::Less,
-                    (None, Some(_)) => std::cmp::Ordering::Greater,
-                    _ => std::cmp::Ordering::Equal,
-                })
-        });
+            },
+        );
+        let children: Vec<ViewId> = order.into_iter().map(|(id, _)| id).collect();
         for child in children {
             self.node(walk, child, ts, child_offset, child_rect);
         }
