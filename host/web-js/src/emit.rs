@@ -1239,7 +1239,7 @@ impl Em<'_> {
             let handler = if args.is_empty() {
                 format!("a_{}", h.action.0)
             } else {
-                format!("(...v)=>a_{}.t(()=>[{}],v)", h.action.0, args.join(","))
+                format!("a_{}.t(()=>[{}])", h.action.0, args.join(","))
             };
             // The motion and input pieces' events (rt.js), only where used.
             let piece = match h.event {

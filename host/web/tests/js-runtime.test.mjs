@@ -85,14 +85,14 @@ test('an argument or a write past MAX_STRING is refused by name, and a trapping 
   const long = 'a'.repeat(2 ** 26 + 1), euro = '€'.repeat(22369622); // 67,108,866 bytes in fewer than 2^26 units
   put(long);
   expect(last()).toBe('refused action: StringTooLong { name: "v" }');
-  put.t(() => [euro], []);
+  put.t(() => [euro])();
   expect(last()).toBe('refused action: StringTooLong { name: "v" }');
-  row.t(() => [{}, long], []); // a row action's `$r` is not a parameter
+  row.t(() => [{}, long])(); // a row action's `$r` is not a parameter
   expect(last()).toBe('refused action: StringTooLong { name: "v" }');
   act(() => W(t, euro))();
   expect(last()).toBe('refused action: StringTooLong { name: "t" }');
   expect(t()).toBe('');
-  put.t(() => { throw new Trap('IterationLimit', 17); }, []);
+  put.t(() => { throw new Trap('IterationLimit', 17); })();
   expect(last()).toBe('refused action: Trap(IterationLimit { pc: 17 })');
   // A trap while the tree updates poisons, as the runner's InstanceError; an argument still traps first.
   const n = sig(0, 'n');
@@ -100,8 +100,8 @@ test('an argument or a write past MAX_STRING is refused by name, and a trapping 
   act(() => W(n, 1))();
   globalThis.heldTail?.(); // a view transition (shared.js, above) holds the tree update
   expect(last()).toBe('poisoned: Instance(Trap(IterationLimit { pc: 9 }))');
-  put.t(() => { throw new Trap('IterationLimit', 17); }, []);
+  put.t(() => { throw new Trap('IterationLimit', 17); })();
   expect(last()).toBe('refused action: Trap(IterationLimit { pc: 17 })');
-  put.t(() => ['x'], []);
+  put.t(() => ['x'])();
   expect(last()).toBe('refused action: the runner is poisoned; reload');
 });

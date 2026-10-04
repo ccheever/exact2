@@ -76,10 +76,10 @@ fn each_reset_point_is_its_own_evaluation() {
     assert_eq!(decl(&js, "r_1").matches("let $s=0").count(), 2, "{js}");
     assert!(js.contains("on(e"), "{js}");
     let press = js.split("\"press\",").nth(1).expect("a press handler");
-    assert!(press.starts_with("(...v)=>a_0.t(()=>["), "{press}");
+    assert!(press.starts_with("a_0.t(()=>["), "{press}");
     assert_eq!(
         press
-            .split(",v)")
+            .split("]));")
             .next()
             .unwrap()
             .matches("let $s=0")

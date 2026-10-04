@@ -212,9 +212,9 @@ function drain() {
 }
 /** An action: each call is one commit. Its arguments conform to its parameters' types (`types`, after `skip` leading
  * arguments: a row action's row), each then within MAX_STRING when `names` names it a string's, or it is refused before
- * its body runs, as the runner's ArgumentType and StringTooLong. `.t(f, v)` takes a handler's arguments as `f`, evaluated
- * inside the commit (a trap refuses it, LLP 1090 D1), then `v`, the event's; on a poisoned runner `f` still runs first,
- * as the runner evaluates them before its poisoned check. */
+ * its body runs, as the runner's ArgumentType and StringTooLong. `.t(f)` is a handler whose arguments `f` makes inside
+ * the commit (a trap refuses it, LLP 1090 D1), then the event's; on a poisoned runner `f` still runs first, as the
+ * runner evaluates them before its poisoned check. */
 export function act(fn, types, skip = 0, names) {
   const go = a => {
     for (let i = 0; types && i < types.length; i++) {
@@ -224,7 +224,7 @@ export function act(fn, types, skip = 0, names) {
     fn(...a);
   };
   const a = (...x) => commit(() => go(x), "action");
-  a.t = (f, v) => {
+  a.t = f => (...v) => {
     if (Poisoned) try { f(); } catch (e) { return say(`refused action: ${e.message}`); }
     return commit(() => go([...f(), ...v]), "action");
   };
