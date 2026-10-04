@@ -19,6 +19,10 @@ pub(crate) const RECORD_WORDS: usize = 16;
 
 pub(crate) struct Lights {
     pub buffer: Buffer,
+    /// Per-slot screen-door fade (`1 - Opacity`), zero past the end; read beside
+    /// the lights by the same fragment shaders (`faded` in lights.wgsl).
+    pub opacity: Buffer,
+    opacity_words: Vec<f32>,
     words: Vec<u32>,
     counts: Vec<u32>,
     // Per light: tile x, y and slice ranges (inclusive), or None when culled.
@@ -32,11 +36,45 @@ impl Lights {
     pub fn new(device: &wgpu::Device) -> Self {
         Self {
             buffer: Buffer::new(device, 64, wgpu::BufferUsages::STORAGE, "game lights"),
+            opacity: Buffer::new(device, 16, wgpu::BufferUsages::STORAGE, "game opacity"),
+            opacity_words: Vec::new(),
             words: Vec::new(),
             counts: Vec::new(),
             spans: Vec::new(),
             info: [0.; 4],
         }
+    }
+
+    /// Replace the per-slot opacities; true when the buffer was replaced and the
+    /// scene groups must rebind. The table holds `1 - opacity`, so zeroed and
+    /// unwritten slots draw opaque; it never shrinks, so a cleared fade is rewritten.
+    pub fn set_opacity(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        values: &[(u32, f32)],
+    ) -> bool {
+        let needed = values
+            .iter()
+            .map(|&(slot, _)| slot as usize + 1)
+            .max()
+            .unwrap_or(0);
+        let len = self.opacity_words.len().max(needed);
+        self.opacity_words.clear();
+        self.opacity_words.resize(len, 0.);
+        for &(slot, value) in values {
+            let opacity = if value.is_nan() {
+                1.
+            } else {
+                value.clamp(0., 1.)
+            };
+            self.opacity_words[slot as usize] = 1. - opacity;
+        }
+        let grew = self
+            .opacity
+            .grow(device, queue, (self.opacity_words.len().max(1) * 4) as u64);
+        self.opacity.write(queue, 0, bytes(&self.opacity_words));
+        grew
     }
 
     /// Pack this frame's lights and their clusters; true when the buffer was

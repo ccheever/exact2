@@ -296,6 +296,8 @@ impl World {
             .register::<SpotLight>()
             .register::<LightShadows>()
             .register::<ViewModel>()
+            .register::<Opacity>()
+            .register::<NodeMaterials>()
             .register::<MouseLook>()
             .register::<Visible>()
             .register::<Ambient>()

@@ -732,6 +732,7 @@ fn scene_binds(
             wgpu::BindingResource::TextureView(&environment.view),
             wgpu::BindingResource::Sampler(&environment.sampler),
             lights.buffer.raw.as_entire_binding(),
+            lights.opacity.raw.as_entire_binding(),
         ];
         let entries = resources.map({
             let mut binding = 0;

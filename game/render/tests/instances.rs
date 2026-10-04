@@ -376,3 +376,83 @@ fn blended_viewmodel_parts_draw_in_front_of_walls() {
         "the viewmodel panel shows: {marked:?}"
     );
 }
+
+#[test]
+fn node_materials_tint_and_light_named_nodes_of_one_instance() {
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
+    let mut model = Model {
+        meshes: vec![panel(0), panel(0)],
+        materials: vec![material([1., 1., 1., 1.], AlphaMode::Opaque)],
+        bounds: [-1.8, -0.8, 0., 1.8, 0.8, 0.],
+        ..Default::default()
+    };
+    for (i, (name, x)) in [("uniform", -1.), ("visor", 1.)].into_iter().enumerate() {
+        model.nodes.push(Node {
+            name: name.into(),
+            mesh: Some(i as u32),
+            transform: glam::Mat4::from_translation(Vec3::new(x, 0., 0.)).to_cols_array(),
+            ..Default::default()
+        });
+    }
+    let mut sim = Sim::<Test>::new(()).unwrap();
+    sim.asset("panels.model", Some(&bin::to_vec(&model)))
+        .unwrap();
+    let e = sim.world().named("model").unwrap();
+    sim.world_mut().insert(
+        e,
+        NodeMaterials(vec![
+            NodeMaterial {
+                node: "uniform".into(),
+                color: [1., 0.1, 0.1, 1.],
+                ..Default::default()
+            },
+            NodeMaterial {
+                node: "visor".into(),
+                emissive: [0., 0., 4.],
+                ..Default::default()
+            },
+        ]),
+    );
+    let mut renderer = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+    renderer.prepare_model("panels.model", &model).unwrap();
+    let mut feed = Feed::default();
+    feed.feed(sim.world(), &mut renderer).unwrap();
+    let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: None,
+        size: wgpu::Extent3d {
+            width: 128,
+            height: 64,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8Unorm,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    let eye = Vec3::new(0., 0., 5.);
+    let mut f = exact_game_render::FrameInput {
+        view: view::look_at_mat4(eye, Vec3::ZERO, Vec3::Y),
+        proj: directx::orthographic(-2., 2., -1., 1., 0.1, 20.),
+        camera_position: eye,
+        sun: None,
+        ..Default::default()
+    };
+    f.environment.fog = None;
+    f.environment.bloom = None;
+    f.environment.background = Some([0.; 3]);
+    renderer.draw(&texture.create_view(&Default::default()), (128, 64), &f);
+    let image = fixture::read(&gpu, &texture).unwrap();
+    let (uniform, visor) = (image.at(32, 32), image.at(96, 32));
+    assert!(
+        uniform[0] > 2 * uniform[1].max(1),
+        "uniform tinted red: {uniform:?}"
+    );
+    assert!(
+        visor[2] > 200 && visor[2] > visor[0] + 40,
+        "visor glows blue: {visor:?}"
+    );
+}

@@ -120,6 +120,10 @@ pub struct DrawInstance {
     pub local: Mat4,
     /// Renderer-owned skin template; absent for unskinned nodes.
     pub skin: Option<u32>,
+    /// This node's base-colour multiplier (`NodeMaterials`); `[1; 4]` keeps it.
+    pub tint: [f32; 4],
+    /// Linear emission added to this node; zero adds none.
+    pub glow: [f32; 3],
 }
 
 /// One tightly packed, 48-byte mesh vertex.

@@ -30,9 +30,13 @@ pub(crate) struct Material {
     data: MaterialData,
     names: [Option<String>; 5],
 }
+/// u32 words per model instance record: header, local, normal, tint, glow.
+pub(crate) const INSTANCE_WORDS: usize = 44;
 pub(crate) type ModelNode = (MeshId, MaterialId, Mat4, Option<u32>);
 pub(crate) struct Uploaded {
     pub nodes: Vec<ModelNode>,
+    /// Each drawn node's name, for `NodeMaterials`.
+    pub names: Vec<String>,
     pub(crate) digest: u64,
     pub active: bool,
     pub meshes: Vec<MeshId>,
@@ -81,7 +85,7 @@ impl Models {
             let value = data(record.transform);
             if record.data != value {
                 record.data = value;
-                self.words[i * 36 + 2] = value;
+                self.words[i * INSTANCE_WORDS + 2] = value;
                 changed = true;
             }
         }
@@ -192,6 +196,9 @@ impl Models {
             ]);
             words.extend(record.local.to_cols_array().map(f32::to_bits));
             words.extend(normal);
+            words.extend(record.tint.map(f32::to_bits));
+            words.extend(record.glow.map(f32::to_bits));
+            words.push(0);
         }
         if words.len() as u64 * 4 > device.limits().max_storage_buffer_binding_size {
             return Err(RenderError::scene(
@@ -390,6 +397,12 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             self.models.skinning.as_mut().unwrap().mark_fresh(&skins);
         }
         let mut rigid = skins.iter().skip(model.skins.len());
+        let names = model
+            .nodes
+            .iter()
+            .filter(|n| n.mesh.is_some())
+            .map(|n| n.name.clone())
+            .collect();
         let nodes = model
             .nodes
             .iter()
@@ -417,6 +430,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             name.into(),
             Uploaded {
                 nodes,
+                names,
                 digest,
                 active: true,
                 meshes,
@@ -945,6 +959,8 @@ mod arrival_tests {
                 material: MaterialId(0),
                 local: Mat4::from_translation(glam::Vec3::new(x as f32, 0., 0.)),
                 skin: None,
+                tint: [1.; 4],
+                glow: [0.; 3],
             }];
             renderer
                 .models
@@ -1053,6 +1069,8 @@ mod retirement_regressions {
                     data: 0,
                     transform,
                     skin: None,
+                    tint: [1.; 4],
+                    glow: [0.; 3],
                     ..records[0]
                 })
                 .collect();
@@ -1309,6 +1327,8 @@ mod retirement_regressions {
             material: node.1,
             local: node.2,
             skin: None,
+            tint: [1.; 4],
+            glow: [0.; 3],
         };
         renderer
             .set_draw_instances(std::slice::from_ref(&record))

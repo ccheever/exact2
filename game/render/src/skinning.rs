@@ -469,6 +469,8 @@ pub(crate) mod tests {
                 material: draw.1,
                 local: draw.2,
                 skin: draw.3,
+                tint: [1.; 4],
+                glow: [0.; 3],
             }],
         )
         .unwrap();
@@ -507,6 +509,8 @@ pub(crate) mod tests {
             material: crate::MaterialId(0),
             local: Mat4::IDENTITY,
             skin: Some(template),
+            tint: [1.; 4],
+            glow: [0.; 3],
         }];
         skin.set(&gpu.device, &gpu.queue, &uniform, &records)
             .unwrap();
@@ -695,6 +699,8 @@ pub(crate) mod tests {
                     material: crate::MaterialId(0),
                     local: Mat4::IDENTITY,
                     skin: Some(template),
+                    tint: [1.; 4],
+                    glow: [0.; 3],
                 }],
             )
             .unwrap();
@@ -824,6 +830,8 @@ pub(crate) mod tests {
                 material: crate::MaterialId(0),
                 local: Mat4::IDENTITY,
                 skin: Some(template),
+                tint: [1.; 4],
+                glow: [0.; 3],
             }],
         )
         .unwrap();
@@ -962,6 +970,8 @@ pub(crate) mod tests {
                 material: crate::MaterialId(0),
                 local: Mat4::IDENTITY,
                 skin: Some(template),
+                tint: [1.; 4],
+                glow: [0.; 3],
             })
             .collect();
         let uniform = gpu.device.create_buffer(&wgpu::BufferDescriptor {
@@ -1028,7 +1038,7 @@ mod normal_tests {
             .split("struct BakedMaterial")
             .next()
             .unwrap();
-        let source = format!("{skin}\n@group(0) @binding(0) var<storage,read_write> output:array<vec4<f32>>;\n@compute @workgroup_size(1) fn test_normal() {{ let z=mat4x4<f32>(); let draw=ModelInstance(0u,0u,0u,0u,z,z); output[0]=vec4(normalize(skinned(draw,0u,vec3(0.0),normalize(vec3(1.0,1.0,1.0)))[1]),0.0); }}");
+        let source = format!("{skin}\n@group(0) @binding(0) var<storage,read_write> output:array<vec4<f32>>;\n@compute @workgroup_size(1) fn test_normal() {{ let z=mat4x4<f32>(); let draw=ModelInstance(0u,0u,0u,0u,z,z,vec4(1.0),vec4(0.0)); output[0]=vec4(normalize(skinned(draw,0u,vec3(0.0),normalize(vec3(1.0,1.0,1.0)))[1]),0.0); }}");
         let shader = gpu
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {

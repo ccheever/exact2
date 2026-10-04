@@ -21,7 +21,10 @@ impl Assets {
         }
         for (entity, (mesh, _)) in w.query::<(&Mesh, &Transform)>().iter() {
             let Mesh::Asset(name) = mesh else { continue };
-            let Some(nodes) = r.model(name) else { continue };
+            let Some((nodes, names)) = r.model(name) else {
+                continue;
+            };
+            let looks = w.get::<exact_game::NodeMaterials>(entity);
             if w.get::<Visible>(entity).is_some_and(|v| !v.0) {
                 continue;
             }
@@ -29,8 +32,11 @@ impl Assets {
                 self.entities.push(entity);
             }
             let viewmodel = w.has::<exact_game::ViewModel>(entity);
-            for &(geometry, material, local, skin) in nodes {
+            for (&(geometry, material, local, skin), node) in nodes.iter().zip(names) {
                 let slot = RENDER_SLOT_BASE + self.records.len() as u32;
+                let look = looks
+                    .as_ref()
+                    .and_then(|l| l.0.iter().find(|m| m.node == *node));
                 self.records.push(DrawInstance {
                     data: 0,
                     transform: entity.index(),
@@ -38,6 +44,8 @@ impl Assets {
                     material,
                     local,
                     skin,
+                    tint: look.map_or([1.; 4], |l| l.color),
+                    glow: look.map_or([0.; 3], |l| l.emissive),
                 });
                 self.groups
                     .entry((geometry, material, local.determinant() < 0., viewmodel))

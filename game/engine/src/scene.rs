@@ -508,6 +508,44 @@ impl Default for SpotLight {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Component)]
 pub struct ViewModel;
 
+/// Screen-door opacity in [0, 1] for this entity's draws, primitive or model:
+/// opaque surfaces drop pixels in an ordered 4 × 4 dither (no sorting, depth
+/// stays exact) and blended model materials multiply their alpha. Model shadows
+/// fade with it. 1 or absent draws as before. Fades occluders, such as a crown
+/// between the camera and the player, without a pop.
+#[derive(Clone, Copy, Debug, PartialEq, Component)]
+pub struct Opacity(pub f32);
+impl Default for Opacity {
+    fn default() -> Self {
+        Self(1.0)
+    }
+}
+
+/// One model node's look on one instance: see `NodeMaterials`.
+#[derive(Clone, Debug, PartialEq, crate::Data)]
+pub struct NodeMaterial {
+    /// The model node's name.
+    pub node: String,
+    /// Linear RGBA multiplying the node's base colour (alpha for blended nodes).
+    pub color: [f32; 4],
+    /// Linear emission added to the node.
+    pub emissive: [f32; 3],
+}
+impl Default for NodeMaterial {
+    fn default() -> Self {
+        Self {
+            node: String::new(),
+            color: [1.0; 4],
+            emissive: [0.0; 3],
+        }
+    }
+}
+/// Per-node looks of a model instance, on top of the entity's `Material` (which
+/// tints and lights every node): a team colour on a soldier's uniform but not
+/// its visor, a mutation glow on one fruit part. Nodes not named keep theirs.
+#[derive(Clone, Debug, Default, PartialEq, Component)]
+pub struct NodeMaterials(pub Vec<NodeMaterial>);
+
 /// Explicit visibility; absent visibility is interpreted as visible.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Component)]
 pub struct Visible(pub bool);

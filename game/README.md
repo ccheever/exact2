@@ -181,6 +181,8 @@ The dev compiler retains its last good plan on an error.
 | A flashlight | `SpotLight { inner, outer, range, intensity, .. }` along the entity's −Z; intensity in candela, as `PointLight`'s |
 | Shadows from a lamp | Add `LightShadows` to a `SpotLight` or `PointLight`; the renderer shadows the nearest few |
 | A moon | A second `DirectionalLight` (in entity order) is an unshadowed fill |
+| Team colours, mutation looks | A `Material` on a model entity tints every node and adds emission; `NodeMaterials` per named node |
+| Fade a tree between camera and player | `Opacity(0.3)` on the entity: a dithered fade, no sorting |
 | A first-person weapon | Add `ViewModel` to each part; it draws in front of the world and casts no shadow |
 | Contact shadows in creases | `w.insert_resource(AmbientOcclusion::default())` turns on SSAO (off by default) |
 | Lighting from a photographed sky | `w.insert_resource(EnvironmentMap::new("sky.tex"))` with the equirect in `Game::ASSETS` |

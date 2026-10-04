@@ -297,7 +297,13 @@ both layers; SSAO skips viewmodel pixels and never samples them as occluders.
 Opaque batches stay retained. Only transparent draws are sorted each displayed
 frame, back-to-front in camera depth, using retained tick poses and local centers.
 They keep depth testing, disable depth writes, and do not cast shadows. A model's
-own materials are multiplied by entity base colour and have entity emission added.
+own materials are multiplied by entity base colour and have entity emission added:
+one model serves every team colour or mutation look. `NodeMaterials` adds a tint and
+emission per named node of one instance (stored in that node's instance record).
+`Opacity(o)` fades any instance, primitive or model: opaque surfaces drop pixels in
+an ordered 4×4 screen-door dither (depth stays exact, nothing is sorted; model
+shadows fade with it, primitive shadows do not), blended model materials multiply
+their alpha. Custom-material hooks ignore both.
 `Glow(Tween)` also multiplies the model's baked emissive factor and texture,
 including on entities without a `Material` component. Removing `Glow` restores
 authored emission. The model-only multiplier uses material slot 9 (primitive

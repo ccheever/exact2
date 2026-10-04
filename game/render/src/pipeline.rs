@@ -150,6 +150,8 @@ impl Pipelines {
                 sampler(7, wgpu::SamplerBindingType::Filtering),
                 // Clustered local lights (lights.wgsl).
                 storage(8, wgpu::ShaderStages::FRAGMENT),
+                // Per-slot screen-door fade (lights.wgsl `faded`).
+                storage(9, wgpu::ShaderStages::FRAGMENT),
             ],
         );
         let tone_layout = layout(

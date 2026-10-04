@@ -21,7 +21,7 @@ pub(crate) trait Writes {
         _: bool,
     ) {
     }
-    fn model(&self, _: &str) -> Option<&[crate::models::ModelNode]> {
+    fn model(&self, _: &str) -> Option<(&[crate::models::ModelNode], &[String])> {
         None
     }
     fn assets_revision(&self) -> u64 {
@@ -30,6 +30,7 @@ pub(crate) trait Writes {
     fn instances(&mut self, _: &[crate::DrawInstance]) -> Result<(), RenderError> {
         Ok(())
     }
+    fn opacity(&mut self, _: &[(u32, f32)]) {}
     fn model_poses(
         &mut self,
         _: &World,
@@ -72,19 +73,24 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
             a.feed(w, initial, tick, parent, models);
         }
     }
-    fn model(&self, name: &str) -> Option<&[crate::models::ModelNode]> {
+    fn model(&self, name: &str) -> Option<(&[crate::models::ModelNode], &[String])> {
         if ASSETS {
             self.models
                 .loaded
                 .get(name)
                 .filter(|m| m.active)
-                .map(|m| m.nodes.as_slice())
+                .map(|m| (m.nodes.as_slice(), m.names.as_slice()))
         } else {
             None
         }
     }
     fn assets_revision(&self) -> u64 {
         self.models.revision
+    }
+    fn opacity(&mut self, values: &[(u32, f32)]) {
+        if self.lights.set_opacity(&self.device, &self.queue, values) {
+            self.rebind();
+        }
     }
     fn instances(&mut self, records: &[crate::DrawInstance]) -> Result<(), RenderError> {
         if ASSETS {
@@ -218,6 +224,8 @@ struct Versions {
     mesh: u64,
     visible: u64,
     viewmodel: u64,
+    opacity: u64,
+    node_materials: u64,
     // An animated rig moves its socket followers' subtrees without a Transform write.
     pose: u64,
     live: u64,
@@ -234,6 +242,8 @@ impl Versions {
             mesh: w.revision::<Mesh>(),
             visible: w.revision::<Visible>(),
             viewmodel: w.revision::<ViewModel>(),
+            opacity: w.revision::<exact_game::Opacity>(),
+            node_materials: w.revision::<exact_game::NodeMaterials>(),
             pose: w.revision::<exact_game::Pose>(),
             live: w.entities_revision(),
             membership: w.membership::<Transform>(),
@@ -277,6 +287,7 @@ pub struct Feed {
     // Scratch: entity-index blocks whose poses changed since a cursor.
     changed_blocks: Vec<u32>,
     changed_pages: Vec<usize>,
+    fades: Vec<(u32, f32)>,
     scene: Scene,
     glows: Vec<crate::GlowInput>,
 }
@@ -307,6 +318,7 @@ impl Default for Feed {
             model_cursor: None,
             changed_blocks: Vec::new(),
             changed_pages: Vec::new(),
+            fades: Vec::new(),
             scene: Scene::default(),
             glows: Vec::new(),
         }
@@ -414,6 +426,7 @@ impl Feed {
             || next.mesh != old.mesh
             || next.visible != old.visible
             || next.viewmodel != old.viewmodel
+            || next.node_materials != old.node_materials
             || next.live != old.live
             || next.membership != old.membership;
         // Validate live slots before any history swap. A last partial page is clipped
@@ -740,6 +753,13 @@ impl Feed {
                 }
             };
             r.model_poses(w, &self.assets.entities, initial || parent_changed, moved);
+        }
+        if initial || next.opacity != old.opacity || next.live != old.live {
+            self.fades.clear();
+            for (e, o) in w.query::<&exact_game::Opacity>().iter() {
+                self.fades.push((e.index(), o.0));
+            }
+            r.opacity(&self.fades);
         }
         r.quads(w, initial, self.tick != w.tick(), parent_changed)?;
         r.attachments(
