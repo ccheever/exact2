@@ -713,6 +713,16 @@ Mac and elsewhere. The driver presses chords in Playwright's spelling (`type
   inside it hear their chords, and Enter or Space with the focus on a
   control they activate (a button, a pressable, a checkbox) is that
   control's, whatever button declares it. Linux carries no shortcuts.
+- **The Mac's menu bar.** Every button whose chord holds ⌘ is also a menu
+  item, titled by its `aria-label` (or its text), placed by its chord as
+  Apple's HIG places one: ⌘, is Settings…; ⌘[ ⌘] and a `tablist`'s tabs are
+  Go; ⌘Z ⇧⌘Z ⌘X ⌘C ⌘V ⌘A ⌘D ⌘F ⌘G ⇧⌘G are Edit; ⌘= ⌘+ ⌘- ⌘0 and any ⌃⌘
+  chord are View; the rest are File. One whose chord is the host's own Edit
+  item's (Undo, Redo, Cut, Copy, Paste, Select All) takes that item's place,
+  so Edit ▸ Undo is the app's "Undo Move"; any other host item whose chord a
+  button declares keeps its place without the chord (File ▸ Close Window
+  beside the app's ⌘W). Drop the chord while a field is being edited and the
+  host's text Undo, Cut, Copy and Paste come back (studio diary R16).
 
 ## Host commands
 

@@ -394,7 +394,7 @@ Agent.hostState = {
         "recent": ExactDocuments.recent,
         "openRecentMenu": DevMenu.openRecentTitles,
         "footprint": footprint(),
-    ] as [String: Any]]
+    ] as [String: Any], "menus": DevMenu.menuBar]
 }
 
 final class Delegate: NSObject, NSApplicationDelegate {
