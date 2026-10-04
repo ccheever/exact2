@@ -89,6 +89,9 @@ pub fn lint(file: &File) -> Vec<LowerError> {
                                     &Ty::Unknown,
                                     &[],
                                 ),
+                                Some(tags::AttrTarget::Shorthand) => {
+                                    super::shorthands::component(&a.value, &a.name, 0).map(|_| ())
+                                }
                                 Some(_) => Ok(()),
                             };
                             errors.extend(checked.err());

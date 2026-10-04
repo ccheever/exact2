@@ -555,3 +555,23 @@ where needed; iOS/tvOS/Linux ignore the hint (LLP 1001). URLs are refused.
 and Apple retain the ordered glyph fallback cascade. Linux selects the first
 installed family, then uses cosmic-text's platform glyph fallback; it logs
 this declared limitation for a multi-member stack (LLP 1001).
+
+`textarea rows=3` sets its preferred height in lines (default 2); explicit CSS
+height and `field-sizing="content"` override it. `maxlength=80` on text inputs
+and textareas limits user edits in UTF-16 units; authored `value` updates are
+not truncated. It does not apply to `input type="number"`.
+
+`resize="none"` disables browser resize handles. Other CSS resize values are
+refused with a native geometry explanation. `user-select="none"` prevents
+ordinary text selection; `auto` is the default. Text/all/contain need iOS and
+Linux selection executors and are refused precisely. These rows take literals
+or choices of literals, so unsupported runtime values cannot bypass the check.
+
+`border`, `border-top/right/bottom/left` take CSS width/style/color in any order,
+resetting omitted components to medium/none/currentcolor. Widths are px/pt,
+unitless zero, or thin/medium/thick (1/3/5 px); styles are none/hidden/solid.
+Other CSS border styles are diagnosed as native painter gaps. `text-decoration`
+takes none, underline, line-through, or both lines; solid/currentcolor/auto
+components retain the supported defaults. Color/style/thickness extensions are
+refused by name. Linux paints solid lines with UA metrics and diagnoses its
+missing underline skip-ink behavior in the driver log.

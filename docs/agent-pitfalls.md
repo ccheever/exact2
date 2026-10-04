@@ -137,3 +137,9 @@ guide's rules don't make obvious.
   Defer follows to the end of the drag or deceleration, and apply anchoring and
   estimate corrections as relative adjustments in the same layout pass (Signal
   Clone evening of 2026-10-02; `32805146`, `c03685dc`).
+- **An iOS app builds, but its driver cannot find `simctl`.** Cause: `xcode-select`
+  points at Command Line Tools; the Apple builder supplies Xcode's
+  `DEVELOPER_DIR` for its own subprocesses, while the separate driver inherits
+  the shell. Fix: set `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`
+  when running `test ios` or `agent ios`. (CSS diary-fix scratch app, 2026-10-04;
+  reproduced with `xcrun simctl list` in the origin/main source copy.)

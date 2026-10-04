@@ -777,6 +777,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         f.isEditable = true
         f.isSelectable = true
         f.delegate = self
+        f.formatter = TextInputFormatter(self)
         f.cell?.isScrollable = true
         f.cell?.wraps = false
         f.cell?.usesSingleLineMode = true

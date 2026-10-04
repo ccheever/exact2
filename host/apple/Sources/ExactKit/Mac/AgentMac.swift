@@ -699,11 +699,11 @@ extension Agent {
             if !win.isKeyWindow { win.makeKey() }
             win.makeFirstResponder(f)
             f.selectAll(nil)
-            f.insertText(req["text"] as? String ?? "", replacementRange: f.selectedRange())
+            f.insertText(TextInputLimit.prefix(req["text"] as? String ?? "", props: v.props), replacementRange: f.selectedRange())
             return ["typed": Int(v.id), "value": f.string]
         }
         guard let f = v.field else { return ["error": "view \(v.id) is not an input"] }
-        let text = req["text"] as? String ?? ""
+        let text = TextInputLimit.prefix(req["text"] as? String ?? "", props: v.props)
         // The field editor needs a key window; an accessory app's is not
         // one until asked (and asking does not activate the app).
         if !win.isKeyWindow { win.makeKey() }

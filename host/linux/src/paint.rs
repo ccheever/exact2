@@ -42,6 +42,7 @@ mod shadow;
 mod space;
 mod svg;
 mod text_clip;
+mod text_decoration;
 mod text_shadow;
 mod text_stroke;
 use inline::{presented_color, presented_text_colors, text_backgrounds, text_palette};
@@ -592,6 +593,7 @@ pub struct Painter {
     damage: damage::Retained,
     /// `backgroundMaterial` names the schema lacks, and those not yet logged.
     materials: (std::collections::BTreeSet<String>, Vec<String>),
+    decoration_warning: bool,
     /// The node a 3D island paints flat, its own transform being the warp's
     /// (LLP 1077 D8).
     pub(crate) flatten: Option<ViewId>,
@@ -667,6 +669,7 @@ impl Painter {
             region_frame: None,
             damage: Default::default(),
             materials: Default::default(),
+            decoration_warning: false,
             placements: BTreeMap::new(),
             canvases: BTreeMap::new(),
             viewport: (0., 0.),
@@ -1085,6 +1088,7 @@ impl Painter {
                         );
                     }
                     let kernel = walk.scene.kernel;
+                    self.text_decorations(kernel, &shown, &palette, (content.0, content.1), ts);
                     self.text_paint(
                         node,
                         kernel,

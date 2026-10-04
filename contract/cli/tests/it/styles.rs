@@ -1283,3 +1283,70 @@ fn css_font_fallback_lists_keep_every_member_in_order() {
     assert_eq!(plan.str(family.name), "Inter");
     assert_eq!(family.faces.len, 0, "a local family needs no bundled asset");
 }
+
+#[test]
+fn css_border_and_decoration_shorthands_reset_and_preserve_choices() {
+    let source = r##"style Card
+  border="2px solid #123456"
+component App
+  state done = false
+  action finish
+    done = true
+  view
+    column
+      button "Finish" press=finish testId="finish"
+      text "Card" class=Card border-top="thick #abcdef" border-bottom="solid" text-decoration=(done ? "underline line-through" : "none") testId="card"
+"##;
+    let plan = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
+    let mut runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let card = runner.kernel().find_by_test_id("card")[0];
+    let style = runner.kernel().node_by_key(card).unwrap().style;
+    assert_eq!(style.border_width_top, 5.0);
+    assert_eq!(style.border_style_top, exact_kernel::BorderStyle::None);
+    assert_eq!(style.border_width_right, 2.0);
+    assert_eq!(style.border_style_right, exact_kernel::BorderStyle::Solid);
+    assert_eq!(style.border_width_bottom, 3.0);
+    assert_eq!(
+        style.border_color_bottom, None,
+        "omitted color resets to currentcolor"
+    );
+    let button = runner.kernel().find_by_test_id("finish")[0];
+    runner
+        .dispatch(
+            runner.kernel().node_by_key(button).unwrap().id,
+            exact_runner::Event::Press,
+        )
+        .unwrap();
+    assert_eq!(
+        runner
+            .kernel()
+            .node_by_key(card)
+            .unwrap()
+            .style
+            .text_decoration_line,
+        exact_kernel::TextDecorationLine::UnderlineLineThrough
+    );
+}
+
+#[test]
+fn css_native_interaction_gaps_are_named_precisely() {
+    for (name, value, reason) in [
+        ("resize", "vertical", "user-controlled box geometry"),
+        ("user-select", "all", "selection ownership"),
+        ("border", "1px dashed red", "native painters"),
+        ("text-decoration", "underline wavy", "native text painters"),
+    ] {
+        let source = format!("component App\n  view\n    text \"x\" {name}=\"{value}\"\n");
+        let error = contract::compile(&source).unwrap_err().to_string();
+        assert!(error.contains(reason), "{error}");
+        assert!(!error.contains("unknown attribute"), "{error}");
+    }
+    contract::compile("component App\n  view\n    textarea rows=3 maxlength=5 resize=\"none\" user-select=\"none\"\n").unwrap();
+}

@@ -709,7 +709,7 @@ extension Agent {
                 else { return ["error": "unsupported textarea key \(key)"] }
             } else {
                 f.selectAll(nil)
-                f.insertText(req["text"] as? String ?? "")
+                f.insertText(TextInputLimit.prefix(req["text"] as? String ?? "", props: v.props))
             }
             // UITextView reveals an insertion asynchronously, including
             // when UIView animations are disabled. Observe it; never seek it.
@@ -734,7 +734,7 @@ extension Agent {
             return ["typed": Int(v.id), "key": key, "value": v.field?.text ?? ""]
         }
         guard let f = v.field else { return ["error": "view \(v.id) is not an input"] }
-        let text = req["text"] as? String ?? ""
+        let text = TextInputLimit.prefix(req["text"] as? String ?? "", props: v.props)
         f.becomeFirstResponder()
         f.selectAll(nil)
         f.insertText(text)

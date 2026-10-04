@@ -363,7 +363,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             if EmojiSelection.accepts(string) { presenter?.typed(id, string, input: handlers.contains("input")) }
             return false
         }
-        return true
+        return TextInputLimit.allows(textField.text ?? "", range: range, replacement: string, props: props)
     }
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {

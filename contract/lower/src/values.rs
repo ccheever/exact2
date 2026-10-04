@@ -344,6 +344,12 @@ pub(crate) fn check_style_value(
     ty: &Ty,
     fonts: &[FontUse],
 ) -> Result<(), LowerError> {
+    if rows
+        .iter()
+        .any(|r| matches!(r, StyleId::Resize | StyleId::UserSelect))
+    {
+        super::shorthands::portable_literal(&a.value, &a.name)?;
+    }
     if rows == BORDER_COLORS {
         if let Some(sides) = border_color_sides(&a.value)? {
             for (row, value) in BORDER_COLORS.iter().zip(sides) {
@@ -375,6 +381,19 @@ pub(crate) fn check_style_value(
         }
         // @ref LLP 1043.000 §3 D1 — keep the full wire vocabulary, narrow authoring.
         if let Expr::Str(v, _) = value {
+            if rows.contains(&StyleId::Resize)
+                && matches!(
+                    v.as_str(),
+                    "both" | "horizontal" | "vertical" | "block" | "inline"
+                )
+            {
+                return err("lower-css-resize", "CSS resize handles are not implemented by the native layout presenters; only `resize=\"none\"` is portable. Other values require user-controlled box geometry, not a different property name", span);
+            }
+            if rows.contains(&StyleId::UserSelect)
+                && matches!(v.as_str(), "text" | "all" | "contain")
+            {
+                return err("lower-css-user-select", "CSS user-select text/all/contain require selectable text and selection ownership on iOS and Linux; those presenters do not implement it. Supported portable values are auto and none", span);
+            }
             if rows.contains(&StyleId::WrapFlow) && !matches!(v.as_str(), "auto" | "both") {
                 return err("lower-attr-value", "unsupported `wrap-flow` value: CSS Exclusions defines it; exact2 v1 implements `both` (or `auto`)", span);
             }

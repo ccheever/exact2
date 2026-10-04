@@ -786,6 +786,8 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::Sandbox => "sandbox",
             PropId::SemanticTag => continue,
             PropId::Checked => "checked",
+            PropId::Rows => "rows",
+            PropId::Maxlength => "maxlength",
             // The Popover API by identity (LLP 1021 D5): the browser owns
             // the top layer, light dismiss, and Escape once these land on
             // the real elements.

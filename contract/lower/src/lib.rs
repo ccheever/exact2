@@ -31,6 +31,7 @@ mod lint;
 mod media;
 mod native;
 mod routes;
+mod shorthands;
 mod sites;
 mod stmts;
 mod strings;
@@ -272,7 +273,7 @@ fn lower_with_sites(
     for s in &file.styles {
         for a in &s.attrs {
             match tags::attr(&a.name) {
-                Some(tags::AttrTarget::Styles(_)) | Some(tags::AttrTarget::Flex) => {}
+                Some(tags::AttrTarget::Styles(_) | tags::AttrTarget::Flex | tags::AttrTarget::Shorthand) => {}
                 Some(tags::AttrTarget::Prop(p)) if p.styleable() => {} // LLP 1069.011 D12
                 Some(_) => l.errors.push(LowerError {
                     id: "lower-style-attr",
@@ -1264,6 +1265,7 @@ impl<'a> Lowerer<'a> {
             );
         }
         match target {
+            tags::AttrTarget::Shorthand => self.bind_shorthand(a, scope, locals, font, bindings)?,
             tags::AttrTarget::Flex => {
                 for (index, row) in [StyleId::FlexGrow, StyleId::FlexShrink, StyleId::FlexBasis]
                     .into_iter()

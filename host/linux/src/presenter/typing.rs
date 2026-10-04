@@ -46,14 +46,15 @@ impl<D: DataSource> Presenter<D> {
         if node.props.bool(PropId::EmojiPicker) == Some(true) {
             return Err("emoji selection is not supported on the Linux host".into());
         }
+        let text = exact_kernel::control::limit_text(node.props, text).to_string();
         let now = self.host.now();
         if let Some(e) = self.set_focus(Some(id), now) {
             return Err(e);
         }
         let mut error = None;
         for (event, kind) in [
-            (Event::Input(text.into()), EventKind::Input),
-            (Event::Change(text.into()), EventKind::Change),
+            (Event::Input(text.clone().into()), EventKind::Input),
+            (Event::Change(text.clone().into()), EventKind::Change),
         ] {
             if self.host.runner().handlers_of(id).contains(&kind) {
                 error = error.or(self.host.dispatch_at(id, event, now));
@@ -239,6 +240,18 @@ impl<D: DataSource> Presenter<D> {
             }
             s if s.chars().count() == 1 => value.push_str(s),
             _ => return,
+        }
+        if exact_kernel::control::text_maxlength(node.props).is_some_and(|limit| {
+            value.encode_utf16().count() > limit
+                && value.encode_utf16().count()
+                    > node
+                        .props
+                        .str(PropId::Value)
+                        .unwrap_or("")
+                        .encode_utf16()
+                        .count()
+        }) {
+            return;
         }
         self.edited = Some(id);
         if self

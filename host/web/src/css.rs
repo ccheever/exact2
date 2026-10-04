@@ -212,6 +212,9 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     });
                 }
             }
+            (StyleId::TextDecorationLine, RowValue::Enum("underline-line-through")) => {
+                out.push_str("text-decoration-line:underline line-through;")
+            }
             (StyleId::LineClamp, RowValue::Number(n)) => {
                 if *n > 0.0 {
                     // The legacy clamp requires an old flex box and clipping. It

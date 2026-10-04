@@ -1053,3 +1053,17 @@ Linux matches the first available family, with its existing cosmic-text
 glyph fallback. It logs `font-stack-fallback` for a multi-member list: an
 authored per-glyph cascade needs a shaping API beyond cosmic-text's one
 `Attrs.family`, and remains owed rather than silently claimed as CSS parity.
+
+CSS form and text vocabulary (app diaries kanban F11, ledger F1/F4,
+minesweeper F4, pomodoro F2): `rows` is HTML intrinsic line count and maxlength
+limits user UTF-16 edits, leaving authored values intact. Native interactive
+CSS resize handles are not implemented; Contract admits none and diagnoses
+other CSS values. Portable user-select admits auto/none: macOS selection omits
+none subtrees; iOS/Linux have no ordinary selectable text executor, so
+text/all/contain are diagnosed at compile time. Border shorthands reset and
+lower to existing side rows. Native border painters support none/hidden/solid;
+other line styles are diagnosed. Text-decoration lowers solid currentcolor
+underline/line-through to the existing line row; other color/style/thickness
+components are diagnosed. Linux draws its UA lines from font size and glyph
+advances; underline skip-ink:auto is not implemented and its driver log names
+that deviation once. Web and Apple use their text systems' decoration metrics.
