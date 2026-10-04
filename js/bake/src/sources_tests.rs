@@ -50,6 +50,8 @@ fn captures_fonts_and_complete_static_trees_without_following_links() {
         std::fs::write(path, bytes).unwrap();
     }
     std::fs::write(app.0.join("private.bin"), b"not an app asset").unwrap();
+    // The driver's test file is no build's input (trivia F8).
+    std::fs::write(app.0.join("app.test.contract"), b"test \"t\"\n").unwrap();
     let captured = sources(&app.0).unwrap();
     assert_eq!(captured.len(), inputs.len());
     for (name, bytes) in inputs {
