@@ -680,5 +680,22 @@ records those existing tap-protocol phases too, so a lost move is inspectable.
 
 Root build, test, clippy, formatting and boot checks pass after this main merge:
 2,285 enabled tests and nine ignored tests across 80 binaries. The focused
-freshness regression and 29 native input/transform tests pass. The normal game
-proof and its current-input baseline are checked next.
+freshness regression and 29 native input/transform tests pass.
+
+The normal macOS proof passes in **16.4 s** and matches Linux's input digest,
+all six world observations, every pin and all six save files. Its optional
+descendant audit times out; the earlier Jev run on this same host source passed
+that audit. The full collector (`artifacts/prove/run-ccf18X/`) passes normal,
+Save and FreshGame modes on Linux and web, restores the ordinary web build and
+checks the native release profile. Every collector audit is available and
+passes. Both world pins and both continuation-save pins stay unchanged; only
+their input provenance advances to `f7adbe2b9`. Native and web receipts now both
+contain the pointer move and release.
+
+The game's 23 enabled tests pass (four timing experiments remain ignored).
+All 99 proof-tooling tests pass, including the Beacons and skinned-fixture
+fast-profile/release comparisons. Those rebuilds make the tooling run **238 s**;
+the collector's web modes and native release each take **61–80 s** including
+their builds. These are the slower verification lane, not an under-one-minute
+edit-loop claim. The native HUD screenshot remains darker than the web capture;
+input parity did not fix that separate queued rendering issue.
