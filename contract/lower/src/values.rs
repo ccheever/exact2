@@ -888,10 +888,11 @@ pub(crate) fn flex_longhands(value: &Expr) -> Option<(f64, f64, String)> {
 }
 
 /// Whether a `flex` bounds its box on the main axis by itself: a positive
-/// grow (it takes the container's free space), or a definite, non-zero
-/// basis. `none`, `initial`, `"0"` (grow 0 over a zero basis) and a zero
-/// grow over `auto` or content are not (Grok's batch 2 review). A computed
-/// value is left to the bake's lint.
+/// grow (it takes the container's free space), or a definite length basis,
+/// zero included (`flex="0 0 0px"` is an empty scrollport, as `height=0`
+/// is). `none`, `initial`, `"0"` (grow 0 over a `0%` basis) and a zero grow
+/// over `auto`, content or a zero percentage are not (Grok's batch 2
+/// reviews). A computed value is left to the bake's lint.
 pub(crate) fn flex_bounds(value: &Expr) -> bool {
     let Some((grow, _, basis)) = flex_longhands(value) else {
         return true;
@@ -901,11 +902,10 @@ pub(crate) fn flex_bounds(value: &Expr) -> bool {
         basis,
         "auto" | "content" | "min-content" | "max-content" | "fit-content"
     );
-    let zero = basis
-        .trim_end_matches(|c: char| c.is_ascii_alphabetic() || c == '%')
-        .parse::<f64>()
-        .is_ok_and(|n| n == 0.0);
-    grow > 0.0 || !(intrinsic || zero)
+    let zero_percent = basis
+        .strip_suffix('%')
+        .is_some_and(|n| n.trim().parse::<f64>().is_ok_and(|n| n == 0.0));
+    grow > 0.0 || !(intrinsic || zero_percent)
 }
 
 /// A shrinking flex item with a zero minimum fits a bounded flex column.
