@@ -912,43 +912,46 @@ component Calendar
             row height=30 flex-shrink=0 justify-content="center" align-items="center" touch-action="none" pan=panSheet panrelease=releaseSheet testId="date-sheet-handle"
               box width=36 height=5 border-radius=3 background-color=themeBorder
             button "Close" press=closeDate testId="close-date" aria-label="Close selected date" align-self="flex-end" margin-right=16 border-width=0 background-color="#ffffff00" color=themeMuted
-          column flex-shrink=0 padding-left=20 padding-right=16 padding-top=12 padding-bottom=10 gap=3
-            text (clockReady ? agenda.label : "") testId="inspector-date" font-size=19 font-weight=700 letter-spacing=-0.3 color=themeInk white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
-            text `${itemCount} ${itemCount == 1 ? "item" : "items"}` testId="inspector-count" font-size=12 color=themeMuted
-          box height=1 flex-shrink=0 margin-left=12 margin-right=12 background-color=themeBorder
-          scroll id="agenda-list" testId="agenda-list" flex=1 min-height=0 overflow-x="hidden" overscroll-behavior="contain"
-            column padding=8 gap=2
-              each item in agenda.items key=item.id
-                AgendaRow(id=item.id, title=item.title, color=item.color, rangeLabel=item.rangeLabel, kind=item.kind, completed=item.completed, hidden=(dragId == item.id), disabled=(busy or modalOpen or (dragging and (not held or dragId != item.id))), hot=(hovered == `row-${item.id}`), ink=themeInk, muted=themeMuted, fill=themeHover, toggle=toggleTodo, edit=openItem, command=itemCommand, remove=deleteItem, hover=hoverOn)
-              when agenda.stickerId != ""
-                StickerAgendaRow(day=agenda.day, date=agenda.date, stickerId=agenda.stickerId, hidden=(dragId == `sticker-day:${agenda.day}:${agenda.stickerId}`), disabled=(busy or modalOpen or (dragging and (not held or dragId != `sticker-day:${agenda.day}:${agenda.stickerId}`))), hot=(hovered == "row-sticker"), ink=themeInk, muted=themeMuted, fill=themeHover, edit=showPalette, command=stickerCommand, remove=clearSticker, hover=hoverOn)
-          when busy or (error != "" and not editorOpen)
-            text (busy ? "Saving…" : error) testId="inspector-status" aria-live="polite" flex-shrink=0 padding-left=20 padding-right=20 padding-top=6 padding-bottom=8 font-size=12 color=(error != "" and not busy ? "#b74238" : themeMuted)
-          column testId="sticker-palette" flex-shrink=0 border-style="solid" border-top-width=1 border-right-width=0 border-bottom-width=0 border-left-width=0 border-color=themeBorder padding-bottom=(stickerPaletteOpen ? 14 : 4)
-            button press=toggleStickerPalette hover=hoverOn("palette") testId="sticker-palette-toggle" aria-label=(stickerPaletteOpen ? "Hide stickers" : "Show stickers") aria-expanded=stickerPaletteOpen disabled=dragging height=40 box-sizing="border-box" padding-left=20 padding-right=16 border-width=0 background-color=(hovered == "palette" ? themeHover : "#ffffff00") display="flex" flex-direction="row" align-items="center" justify-content="space-between"
-              text "Stickers" font-size=13 font-weight=600 color=themeInk
-              svg width=12 height=12 viewBox="0 0 12 12" rotate=(stickerPaletteOpen ? 0 : -90) transition=(viewport.prefersReducedMotion ? "none" : "rotate 160ms ease-out") aria-hidden=true
-                path d="M 2.5 4.5 L 6 8 L 9.5 4.5" fill="none" stroke=themeMuted stroke-width=1.6 stroke-linecap="round" stroke-linejoin="round"
-            when stickerPaletteOpen
-              column padding-left=14 padding-right=14 gap=6
-                row gap=6
-                  StickerChip(value="sunshine", title="Sunshine", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-sunshine"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
-                  StickerChip(value="coffee", title="Coffee", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-coffee"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
-                  StickerChip(value="cake", title="Cake", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-cake"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
-                  StickerChip(value="heart", title="Heart", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-heart"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
-                  StickerChip(value="sparkle", title="Sparkle", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-sparkle"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
-                row gap=6
-                  StickerChip(value="flower", title="Flower", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-flower"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
-                  StickerChip(value="book", title="Book", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-book"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
-                  StickerChip(value="workout", title="Workout", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-workout"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
-                  StickerChip(value="travel", title="Travel", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-travel"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
-                  StickerChip(value="rest", title="Rest", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-rest"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
-                row gap=6
-                  StickerChip(value="bunny", title="Bunny", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-bunny"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
-                  StickerChip(value="paris", title="Paris", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-paris"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
-                  StickerChip(value="daisy", title="Daisy", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-daisy"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
-                  StickerChip(value="moon", title="Moon", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-moon"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
-                  StickerChip(value="picnic", title="Picnic", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-picnic"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+          // A compact sheet scrolls as one body, including the sticker palette.
+          scroll testId="date-content" flex=1 min-height=0 overflow-x="hidden" overflow-y=(compact ? "auto" : "hidden") overscroll-behavior="contain"
+            column height=(compact ? "auto" : "100%") min-height="100%"
+              column flex-shrink=0 padding-left=20 padding-right=16 padding-top=12 padding-bottom=10 gap=3
+                text (clockReady ? agenda.label : "") testId="inspector-date" font-size=19 font-weight=700 letter-spacing=-0.3 color=themeInk white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+                text `${itemCount} ${itemCount == 1 ? "item" : "items"}` testId="inspector-count" font-size=12 color=themeMuted
+              box height=1 flex-shrink=0 margin-left=12 margin-right=12 background-color=themeBorder
+              scroll id="agenda-list" testId="agenda-list" flex=(compact ? "none" : "1") min-height=0 overflow-x=(compact ? "visible" : "hidden") overflow-y=(compact ? "visible" : "auto") overscroll-behavior="contain"
+                column padding=8 gap=2
+                  each item in agenda.items key=item.id
+                    AgendaRow(id=item.id, title=item.title, color=item.color, rangeLabel=item.rangeLabel, kind=item.kind, completed=item.completed, hidden=(dragId == item.id), disabled=(busy or modalOpen or (dragging and (not held or dragId != item.id))), hot=(hovered == `row-${item.id}`), ink=themeInk, muted=themeMuted, fill=themeHover, toggle=toggleTodo, edit=openItem, command=itemCommand, remove=deleteItem, hover=hoverOn)
+                  when agenda.stickerId != ""
+                    StickerAgendaRow(day=agenda.day, date=agenda.date, stickerId=agenda.stickerId, hidden=(dragId == `sticker-day:${agenda.day}:${agenda.stickerId}`), disabled=(busy or modalOpen or (dragging and (not held or dragId != `sticker-day:${agenda.day}:${agenda.stickerId}`))), hot=(hovered == "row-sticker"), ink=themeInk, muted=themeMuted, fill=themeHover, edit=showPalette, command=stickerCommand, remove=clearSticker, hover=hoverOn)
+              when busy or (error != "" and not editorOpen)
+                text (busy ? "Saving…" : error) testId="inspector-status" aria-live="polite" flex-shrink=0 padding-left=20 padding-right=20 padding-top=6 padding-bottom=8 font-size=12 color=(error != "" and not busy ? "#b74238" : themeMuted)
+              column testId="sticker-palette" flex-shrink=0 margin-top=(compact ? "auto" : 0) border-style="solid" border-top-width=1 border-right-width=0 border-bottom-width=0 border-left-width=0 border-color=themeBorder padding-bottom=(stickerPaletteOpen ? 14 : 4)
+                button press=toggleStickerPalette hover=hoverOn("palette") testId="sticker-palette-toggle" aria-label=(stickerPaletteOpen ? "Hide stickers" : "Show stickers") aria-expanded=stickerPaletteOpen disabled=dragging height=40 box-sizing="border-box" padding-left=20 padding-right=16 border-width=0 background-color=(hovered == "palette" ? themeHover : "#ffffff00") display="flex" flex-direction="row" align-items="center" justify-content="space-between"
+                  text "Stickers" font-size=13 font-weight=600 color=themeInk
+                  svg width=12 height=12 viewBox="0 0 12 12" rotate=(stickerPaletteOpen ? 0 : -90) transition=(viewport.prefersReducedMotion ? "none" : "rotate 160ms ease-out") aria-hidden=true
+                    path d="M 2.5 4.5 L 6 8 L 9.5 4.5" fill="none" stroke=themeMuted stroke-width=1.6 stroke-linecap="round" stroke-linejoin="round"
+                when stickerPaletteOpen
+                  column padding-left=14 padding-right=14 gap=6
+                    row gap=6
+                      StickerChip(value="sunshine", title="Sunshine", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-sunshine"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                      StickerChip(value="coffee", title="Coffee", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-coffee"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                      StickerChip(value="cake", title="Cake", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-cake"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                      StickerChip(value="heart", title="Heart", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-heart"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                      StickerChip(value="sparkle", title="Sparkle", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-sparkle"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                    row gap=6
+                      StickerChip(value="flower", title="Flower", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-flower"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                      StickerChip(value="book", title="Book", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-book"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                      StickerChip(value="workout", title="Workout", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-workout"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                      StickerChip(value="travel", title="Travel", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-travel"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                      StickerChip(value="rest", title="Rest", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-rest"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                    row gap=6
+                      StickerChip(value="bunny", title="Bunny", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-bunny"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                      StickerChip(value="paris", title="Paris", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-paris"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                      StickerChip(value="daisy", title="Daisy", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-daisy"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                      StickerChip(value="moon", title="Moon", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-moon"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                      StickerChip(value="picnic", title="Picnic", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-picnic"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
       when compact and not editorOpen and not themeOpen and not popupOpen and not dragging
         button "+" press=openPicker testId="new-item" aria-label="Add Event" position="absolute" right=20 bottom="calc(env(safe-area-inset-bottom) + 24px)" width=56 height=56 border-radius=28 border-width=0 background-color=themeAccent color="#ffffff" font-size=30 display="flex" align-items="center" justify-content="center" z-index=10
       when compact and pickerOpen

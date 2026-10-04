@@ -332,8 +332,8 @@ fn compact_gestures_page_snap_dismiss_and_cancel_on_resize() {
     let root = Root::new();
     let mut app = App::open(&root);
     app.resize(402.0, 874.0);
-    app.event("date-2026-09-2026-09-16", Event::Pan(-80.0, 0.0));
-    app.event("date-2026-09-2026-09-16", Event::PanRelease(0.0, 0.0));
+    app.event("month-2026-09", Event::Pan(-80.0, 0.0));
+    app.event("month-2026-09", Event::PanRelease(0.0, 0.0));
     app.finish_motion();
     assert!(app.mounted("month-scroll-2026-10"));
     app.press("date-2026-10-2026-10-16");
@@ -343,8 +343,58 @@ fn compact_gestures_page_snap_dismiss_and_cancel_on_resize() {
     app.event("date-sheet-handle", Event::Pan(0.0, 140.0));
     app.event("date-sheet-handle", Event::PanRelease(0.0, 0.0));
     assert!(!app.mounted("date-popup"));
-    app.event("date-2026-10-2026-10-16", Event::Pan(60.0, 0.0));
+    app.event("month-2026-10", Event::Pan(60.0, 0.0));
     app.resize(1180.0, 800.0);
     assert_eq!(app.state("monthPan"), &Value::Number(0.0));
     assert!(app.mounted("month-scroll-2026-10"));
+}
+
+#[test]
+fn compact_event_segments_select_the_date_under_each_segment() {
+    let root = Root::new();
+    let mut app = App::open(&root);
+    let id = app.agenda_id("City workshop");
+    app.resize(402.0, 874.0);
+    let first = bar_handle(&app, "2026-09", &id);
+    let second = first.replace("-2026-09-01", "-2026-09-02");
+    for (handle, date, expected) in [
+        (first, "2026-09-01", day(0)),
+        (second, "2026-09-02", day(1)),
+    ] {
+        let hit = app.frame(&handle);
+        let cell = app.frame(&format!("date-2026-09-{date}"));
+        assert!(hit.x >= cell.x && hit.x + hit.width <= cell.x + cell.width + 0.01);
+        app.press(&handle);
+        assert_eq!(app.derived("day"), &expected);
+        assert!(app.mounted("date-popup"));
+        assert!(app.agenda_ids().contains(&id));
+        app.press("close-date");
+    }
+}
+
+#[test]
+fn compact_sheet_keeps_agenda_height_at_small_snaps_and_short_viewports() {
+    let root = Root::new();
+    let mut app = App::open(&root);
+    for height in [874.0, 480.0] {
+        app.resize(402.0, height);
+        app.press("date-2026-09-2026-09-01");
+        for collapsed in [false, true] {
+            if collapsed {
+                app.event("date-sheet-handle", Event::Pan(0.0, 85.0));
+                app.event("date-sheet-handle", Event::PanRelease(0.0, 0.0));
+                assert_eq!(app.state("sheetSnap"), &Value::Number(0.0));
+            }
+            let content = app.frame("date-content");
+            let sheet = app.frame("date-popup");
+            assert!(content.height > 0.0 && content.height < sheet.height);
+            assert!(content.y + content.height <= sheet.y + sheet.height + 0.01);
+            assert!(app.frame("agenda-list").height > 30.0);
+            assert!(app.frame("sticker-pick-picnic").height > 0.0);
+        }
+        // Restore the initial snap before trying the next viewport.
+        app.event("date-sheet-handle", Event::Pan(0.0, -85.0));
+        app.event("date-sheet-handle", Event::PanRelease(0.0, 0.0));
+        app.press("close-date");
+    }
 }

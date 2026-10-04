@@ -1,9 +1,9 @@
 use Month from "./models.contract"
 use TodoMark from "./agenda.contract"
 
-// Date buttons select dates and receive month swipes directly. Compact item
-// handles sit above them for item dragging and native context menus. The Mac
-// hit-tests in tree order, so the date buttons follow the visual bars.
+// The month receives swipes from dates and compact item handles alike. Each
+// handle covers one date so a tap selects the cell under it. The Mac hit-tests
+// in tree order, so the date buttons follow the visual bars.
 component MonthPage
   props
     compact: bool
@@ -40,7 +40,7 @@ component MonthPage
     hover: action
   derive minimumWeek = max(76, height / max(1, length(page.weeks)))
   view
-    column id=`month-${page.month}` testId=`month-${page.id}` width=width height="100%" flex-shrink=0 min-height=0 position="absolute" left=left top=0 overflow="hidden" animation=(reduceMotion ? "none" : "monthIn 160ms ease-out")
+    column id=`month-${page.month}` testId=`month-${page.id}` pan=panMonth panrelease=releaseMonth touch-action="pan-y" width=width height="100%" flex-shrink=0 min-height=0 position="absolute" left=left top=0 overflow="hidden" animation=(reduceMotion ? "none" : "monthIn 160ms ease-out")
       scroll id=`month-scroll-${page.month}` scrollTop=scrollTop scroll=scrolled(page.month) testId=`month-scroll-${page.id}` width="100%" flex=1 min-height=0 overflow-x="hidden" overscroll-behavior="contain" scrollbar-width="none" touch-action="pan-y"
         column width="100%" box-sizing="border-box"
           each week in page.weeks key=week.id
@@ -64,10 +64,11 @@ component MonthPage
                 when cell.stickerId != ""
                   image `assets/stickers/${cell.stickerId}.png` testId=`sticker-${page.id}-${cell.date}` position="absolute" left=`calc(${(weekday(cell.day) + 1) * 100 / 7}% - 36px)` bottom=4 width=32 height=32 object-fit="contain" aria-hidden=true opacity=(activeDragId == `sticker-day:${cell.day}:${cell.stickerId}` ? 0 : 1)
               each cell in week.cells key=`hit-${cell.id}`
-                button id=`day-${page.month}-${cell.day}` testId=`date-${page.id}-${cell.date}` press=choose(cell.day) pan=panMonth panrelease=releaseMonth touch-action="pan-y" dblclick=create("event", cell.day, cell.date) key=move(cell.day) hover=hover(`day-${cell.day}`) disabled=blocked aria-label=cell.date aria-selected=(selected == cell.day) position="absolute" left=`${weekday(cell.day) * 100 / 7}%` top=0 width="14.285714%" height="100%" padding=0 border-width=0 background-color="#ffffff00"
+                button id=`day-${page.month}-${cell.day}` testId=`date-${page.id}-${cell.date}` press=choose(cell.day) touch-action="pan-y" dblclick=create("event", cell.day, cell.date) key=move(cell.day) hover=hover(`day-${cell.day}`) disabled=blocked aria-label=cell.date aria-selected=(selected == cell.day) position="absolute" left=`${weekday(cell.day) * 100 / 7}%` top=0 width="14.285714%" height="100%" padding=0 border-width=0 background-color="#ffffff00"
               when compact
                 each bar in week.bars key=`handle-${bar.id}`
-                  calendar-drag-handle testId=`bar-handle-${page.id}-${bar.id}` event-id=bar.eventId menu-kind=bar.kind message=command(bar.eventId, bar.kind, bar.completed) completed=(bar.completed ? "true" : "false") enabled=(blocked ? "false" : "true") press=choose(match first(week.cells) { case some(firstCell) => firstCell.day + bar.startCol, case none => page.firstDay }) aria-label=bar.title position="absolute" left=`calc(${bar.startCol * 100 / 7}% + 2px)` top=(34 + bar.lane * 24) width=`calc(${(bar.kind == "todo" ? 1 : bar.span) * 100 / 7}% - 4px)` height=20
+                  each cell in filter(week.cells, (cell) => weekday(cell.day) >= bar.startCol and weekday(cell.day) < bar.startCol + (bar.kind == "todo" ? 1 : bar.span)) key=cell.id
+                    calendar-drag-handle testId=`bar-handle-${page.id}-${bar.id}-${cell.date}` event-id=bar.eventId menu-kind=bar.kind message=command(bar.eventId, bar.kind, bar.completed) completed=(bar.completed ? "true" : "false") enabled=(blocked ? "false" : "true") press=choose(cell.day) aria-label=bar.title position="absolute" left=`calc(${weekday(cell.day) * 100 / 7}% + 2px)` top=(34 + bar.lane * 24) width=`calc(${100 / 7}% - 4px)` height=20
                 each cell in week.cells key=`sticker-handle-${cell.id}`
                   when cell.stickerId != ""
                     calendar-drag-handle testId=`sticker-cell-${page.id}-${cell.date}` event-id=`sticker-day:${cell.day}:${cell.stickerId}` enabled=(blocked ? "false" : "true") press=choose(cell.day) aria-label=`${cell.stickerId} sticker on ${cell.date}` position="absolute" left=`calc(${(weekday(cell.day) + 1) * 100 / 7}% - 36px)` bottom=4 width=32 height=32

@@ -367,9 +367,19 @@ fn bar_handle(app: &App, month_id: &str, event_id: &str) -> String {
         .unwrap_or_else(|| panic!("{month_id} is not paged in"));
     items(&fields(page)[3])
         .iter()
-        .flat_map(|week| items(&fields(week)[2]))
-        .find(|bar| fields(bar)[1].as_str() == Some(event_id))
-        .map(|bar| format!("bar-handle-{month_id}-{}", fields(bar)[0].as_str().unwrap()))
+        .find_map(|week| {
+            items(&fields(week)[2])
+                .iter()
+                .find(|bar| fields(bar)[1].as_str() == Some(event_id))
+                .map(|bar| {
+                    let cell = &items(&fields(week)[1])[fields(bar)[4].as_number().unwrap() as usize];
+                    format!(
+                        "bar-handle-{month_id}-{}-{}",
+                        fields(bar)[0].as_str().unwrap(),
+                        fields(cell)[2].as_str().unwrap()
+                    )
+                })
+        })
         .unwrap_or_else(|| panic!("{month_id} has no bar for {event_id}"))
 }
 

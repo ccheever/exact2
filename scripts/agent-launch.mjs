@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { bakeOutput, linuxBinary, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
+import { bakeOutput, linuxBinary, moduleDirectory, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
@@ -244,9 +244,13 @@ export function receiptChanges(receipt, app) {
   const { build, target } = JSON.parse(readFileSync(receipt, 'utf8')), since = statSync(receipt).mtimeMs;
   const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
   const own = newerThan(since, [app.dir], path => /\/(apple|ios|macos|linux|web)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path));
+  // Platform-local modules live under the host crate directory skipped above,
+  // but their separate dylib's sources are absent from the binary receipt.
+  const platform = target.includes('-ios') ? 'ios' : 'macos';
+  own.push(...newerThan(since, [moduleDirectory(app.dir, platform)], ignored));
   // The receipt names what the binary links, not what built it: the Rust
   // archive's own dep-info also names its build script's (the compiler, the bake).
-  const archive = `lib${app.crate(target.includes('-ios') ? 'ios' : 'macos').replace(/-/g, '_')}.d`;
+  const archive = `lib${app.crate(platform).replace(/-/g, '_')}.d`;
   let infos = []; try { infos = readdirSync(resolve(app.target, target)).map(p => resolve(app.target, target, p, archive)).filter(existsSync); } catch {}
   const info = infos.sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
   const tools = info ? depInfoNewer(since, null, info) : [];

@@ -1162,6 +1162,21 @@ test.each(['notes', 'planner'])('OS-specific folders resolve for %s without app-
     assert.deepEqual(app.modulesFor('ios').apple, [resolve(dir, 'ios/modules/Input.swift')]);
     assert.deepEqual(app.modulesFor('macos').apple, [resolve(dir, 'macos/modules/Input.swift')]);
     assert.equal(app.modules.web, resolve(dir, 'web/modules/index.js'));
+    const { receiptChanges, refuseStale } = await import('./agent-launch.mjs');
+    const { utimesSync } = await import('node:fs');
+    const receipt = resolve(dir, 'target/receipt.json');
+    const built = new Date(Date.now() + 10000), edited = new Date(+built + 10000);
+    for (const platform of ['ios', 'macos']) {
+      write('target/receipt.json', JSON.stringify({target: platform === 'ios' ? 'aarch64-apple-ios-sim' : 'aarch64-apple-darwin'}));
+      utimesSync(receipt, built, built);
+      assert.deepEqual(receiptChanges(receipt, app), []);
+      const source = resolve(dir, `${platform}/modules/Input.swift`);
+      utimesSync(source, edited, edited);
+      const changed = receiptChanges(receipt, app);
+      assert.deepEqual(changed, [source]);
+      assert.throws(() => refuseStale(platform, receipt, changed, 'rebuild'), /build is stale:.*Input.swift/);
+      utimesSync(source, built, built);
+    }
     rmSync(resolve(dir, 'ios'), {recursive:true}); rmSync(resolve(dir, 'macos'), {recursive:true});
     write('modules/apple/Input.swift');
     const shared = resolveApp(name);
