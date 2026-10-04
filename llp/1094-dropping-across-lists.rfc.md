@@ -1,4 +1,4 @@
-# LLP 1091: Dropping across lists
+# LLP 1094: Dropping across lists
 
 **Type:** RFC
 **Status:** Draft (r1)
@@ -301,7 +301,7 @@ a row list, the cards a list in each column's row.
 
 Stage 1 adds under **Motion**, beside the `panrelease` and pointer entries:
 
-> **Expanded (LLP 1091):** a reorder spanning lists that share a
+> **Expanded (LLP 1094):** a reorder spanning lists that share a
 > `reorderGroup`, on vertical and row virtualized lists and one level of
 > nesting, with a top-layer ghost, a drop hold, keyboard and custom-action
 > moves, and the action read `elementFromPoint`. Consumers: the two kanban
@@ -393,4 +393,4 @@ branch from origin/main. Each commit passes the five checks.
 
 ## 9. Revisions
 
-- **r1** (2026-10-05): first draft.
+- **r1** (2026-10-05): first draft. Pushed first as `llp/1091-…` (42bc4e658), a number LLP 1091 (Contract modules) already held; renumbered 1094, since 1092 and 1093 are other lanes'.
