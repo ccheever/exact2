@@ -221,9 +221,7 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         }
         Some("layout") => p.layout_json(id(), field_bool(line, "plan")),
         Some("tap") => {
-            // LLP 1041 §8: optional input variant, never a ninth operation.
-            // Parse this bounded pair strictly; the legacy wheel pair reader
-            // intentionally accepts a smaller flat-request vocabulary.
+            // Bounded input variants use the full JSON parser, never the legacy wheel reader.
             let request: serde_json::Value = match serde_json::from_str(line) {
                 Ok(request) => request,
                 Err(_) => return error("unreadable tap request"),
@@ -232,8 +230,22 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 return resize(p, &request);
             }
             if field_bool(line, "contextmenu") {
+                let at = match request.get("at") {
+                    None => None,
+                    Some(value) => match value.as_array().map(Vec::as_slice) {
+                        Some([x, y]) => match (x.as_f64(), y.as_f64()) {
+                            (Some(x), Some(y))
+                                if (x as f32).is_finite() && (y as f32).is_finite() =>
+                            {
+                                Some((x as f32, y as f32))
+                            }
+                            _ => return error("contextmenu at needs two finite numbers"),
+                        },
+                        _ => return error("contextmenu at needs two finite numbers"),
+                    },
+                };
                 return match id() {
-                    Some(id) => p.contextmenu(id).unwrap_or_else(|e| error(&e)),
+                    Some(id) => p.contextmenu(id, at).unwrap_or_else(|e| error(&e)),
                     None => error("contextmenu needs an id"),
                 };
             }

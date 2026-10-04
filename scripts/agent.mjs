@@ -312,7 +312,8 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
         }
         const r = id == null ? null : (await ask({ op: 'layout' })).nodes.find((n) => n.id === id);
         if (id != null && (!r || (r.w === 0 && r.h === 0))) throw new Error(`view ${id} has no box on screen`);
-        const x = r ? r.x + r.w / 2 : contact?.x, y = r ? r.y + r.h / 2 : contact?.y;
+        const point = kind === 'contextmenu' ? opts.at : null;
+        const x = r ? r.x + (point?.[0] ?? r.w / 2) : contact?.x, y = r ? r.y + (point?.[1] ?? r.h / 2) : contact?.y;
         if (kind === 'press' || kind === 'key' || kind === 'type') {
           const request = kind === 'press'
             ? { op: 'tap', id, selector: opts.selector, x: opts.x, y: opts.y }
@@ -590,7 +591,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
         }
         const guest = { selector: opts.selector, x: opts.x, y: opts.y, entity: opts.entity, world: opts.world, under: opts.under, phase: opts.phase };
         const phase = ['down', 'move', 'hold', 'up', 'cancel'].includes(kind);
-        const r = phase ? await ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms }) : kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true }) : kind === 'pinch' ? await ask({ op: 'tap', id, pinch: opts.pinch, at: opts.at }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
+        const r = phase ? await ask({ op: 'tap', phase: kind, ...(id != null ? { id } : {}), x: opts.x, y: opts.y, dx: opts.dx, dy: opts.dy, ms: opts.ms }) : kind === 'contextmenu' || kind === 'dblclick' ? await ask({ op: 'tap', id, [kind]: true, ...(kind === 'contextmenu' && opts.at !== undefined ? {at: opts.at} : {}) }) : kind === 'pinch' ? await ask({ op: 'tap', id, pinch: opts.pinch, at: opts.at }) : kind === 'wheel' ? await ask({ op: 'tap', id, wheel: opts.wheel, ...(opts.gesture ? { gesture: true } : {}) }) : kind === 'hover' ? await ask({ op: 'tap', id, hover: true }) : kind === 'press' ? await ask({ op: 'tap', id, ...guest }) : await ask({ op: 'type', id, text: opts.text, ...guest });
         if (r.error) throw new Error(r.error);
         return r;
       },
@@ -996,6 +997,14 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       // not (LLP 0382 — fail closed, loudly).
       if (opts.gesture && !(host === 'macos' || host === 'mac')) throw new Error(`${host} cannot phase a wheel; \`gesture\` is the AppKit carrier's`);
       if ((opts.contextmenu || opts.dblclick) && !['web', 'ios', 'macos', 'mac', ...(opts.dblclick ? [] : ['linux', 'windows'])].includes(host)) throw new Error(`${host} does not carry contextmenu/dblclick input`);
+      if (opts.contextmenu && s.contact) throw new Error('contextmenu requires the held contact to be released');
+      if (opts.contextmenu && opts.at !== undefined) {
+        if (!['web', 'linux', 'windows'].includes(host)) throw new Error(`${host} does not carry contextmenu at an explicit point`);
+        if (!Array.isArray(opts.at) || opts.at.length !== 2 || !opts.at.every(Number.isFinite)) throw new Error('contextmenu at needs two finite numbers');
+        const layout = await s.layout(), b = layout.nodes.find(n => n.id === node.id), [x, y] = opts.at;
+        if (!b || x < 0 || y < 0 || x >= b.w || y >= b.h) throw new Error('contextmenu at must be inside the target box');
+        if (layout.viewport && (b.x + x < 0 || b.y + y < 0 || b.x + x >= layout.viewport.w || b.y + y >= layout.viewport.h)) throw new Error('contextmenu at is outside the viewport');
+      }
       if (opts.pinch !== undefined && !(opts.pinch > 0 && Number.isFinite(opts.pinch))) throw new Error('pinch: expected a positive finite scale');
       if (opts.pinch !== undefined && !['web', 'ios', 'macos', 'mac'].includes(host)) return s.tagged({ tapped: node.id, target, pinch: opts.pinch, delivery: 'unsupported', reason: `${host} has no pinch (LLP 1057.001 §4)`, carrier: host, mode: timing });
       // @ref LLP 1070.000 §5 — a virtualized list's row brought into view by

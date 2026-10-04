@@ -134,7 +134,7 @@ impl<D: DataSource> Presenter<D> {
     /// The agent's hover (`tap … hover`, LLP 1012): the pointer to the node's
     /// projected center, as a mouse moved there — never a press.
     pub fn hover(&mut self, id: ViewId) -> Result<String, String> {
-        let (x, y) = self.pointer_target(id)?;
+        let (x, y) = self.pointer_target(id, None)?;
         self.set_pointer(Some((x, y)));
         if let Some(error) = self.hover_at(Some((x, y)), self.host.now()) {
             return Err(error);
@@ -146,11 +146,15 @@ impl<D: DataSource> Presenter<D> {
 
     /// A secondary mouse click on a canvas, through the device input path.
     /// Other native context menus remain unsupported, never a primary press.
-    pub(crate) fn contextmenu(&mut self, id: ViewId) -> Result<String, String> {
+    pub(crate) fn contextmenu(
+        &mut self,
+        id: ViewId,
+        at: Option<(f32, f32)>,
+    ) -> Result<String, String> {
         if self.contact_position().is_some() {
             return Err("contextmenu requires the held contact to be released".into());
         }
-        let (x, y) = self.pointer_target(id)?;
+        let (x, y) = self.pointer_target(id, at)?;
         let canvas = self.hover_canvas(x, y);
         if canvas.is_none() || canvas != self.input_surface(id) {
             return Err(format!("view {id} does not carry canvas contextmenu input"));
@@ -167,7 +171,7 @@ impl<D: DataSource> Presenter<D> {
         ))
     }
 
-    fn pointer_target(&mut self, id: ViewId) -> Result<(f32, f32), String> {
+    fn pointer_target(&mut self, id: ViewId, at: Option<(f32, f32)>) -> Result<(f32, f32), String> {
         self.boxes();
         if self.host.route_visibility(id).1 || self.placement_hidden(id) {
             return Err(format!("view {id} is hidden or inert"));
@@ -175,14 +179,34 @@ impl<D: DataSource> Presenter<D> {
         let b = self
             .box_of(id)
             .ok_or_else(|| format!("no view {id} on screen"))?;
-        let (x, y) = b.center();
+        let (x, y) = match at {
+            Some((x, y))
+                if x.is_finite()
+                    && y.is_finite()
+                    && x >= 0.
+                    && y >= 0.
+                    && x < b.rect.2
+                    && y < b.rect.3 =>
+            {
+                (b.rect.0 + x, b.rect.1 + y)
+            }
+            Some(_) => {
+                return Err(format!(
+                    "view {id}: contextmenu at must be a finite point inside its box"
+                ))
+            }
+            None => b.center(),
+        };
+        if x < 0. || y < 0. || x >= self.viewport.0 || y >= self.viewport.1 {
+            return Err(format!("view {id}: pointer point is outside the viewport"));
+        }
         let mut hit = self.hit(x, y);
         while hit.is_some() && hit != Some(id) {
             hit = hit.and_then(|n| self.host.kernel().node(n).and_then(|n| n.parent));
         }
         if hit != Some(id) {
             return Err(format!(
-                "view {id} is covered or not hit at its projected center"
+                "view {id} is covered or not hit at the requested point"
             ));
         }
         Ok((x, y))
