@@ -65,14 +65,20 @@ fn main() -> ExitCode {
     // The dev loop watches every package the Contract reads (LLP 1091 D10),
     // even when this compile fails: the fix may be in the library.
     if dev_reload && !input.ends_with(".plan") {
-        let roots: Vec<String> = contract::source_graph(path)
-            .sources
+        let graph = contract::source_graph(path);
+        let mut roots: Vec<String> = graph
+            .packages
             .iter()
-            .filter_map(|source| match &source.origin {
-                contract::Origin::Package { root, .. } => Some(root.display().to_string()),
-                _ => None,
-            })
+            .map(|package| package.root.display().to_string())
+            .chain(
+                graph
+                    .consulted
+                    .iter()
+                    .filter_map(|manifest| manifest.parent().map(|dir| dir.display().to_string())),
+            )
             .collect();
+        roots.sort();
+        roots.dedup();
         let json = format!(
             "{{\"packages\":[{}]}}\n",
             roots

@@ -37,7 +37,7 @@ pub use manifest::Manifest;
 pub use map::{plan_digest, SourceMap};
 pub use resolve::Origin;
 pub use rust::rust;
-pub use sources::{Source, SourceGraph};
+pub use sources::{Package, Source, SourceGraph};
 pub use symbols::symbols_json;
 pub use typescript::typescript;
 
@@ -320,6 +320,8 @@ pub fn compile_path_source_mapped(
 pub fn source_graph(path: &Path) -> SourceGraph {
     let refused = |message: String| SourceGraph {
         sources: Vec::new(),
+        packages: Vec::new(),
+        consulted: Vec::new(),
         errors: vec![CompileError {
             pass: "use",
             id: "contract-use-unreadable".into(),
@@ -349,13 +351,14 @@ pub fn source_graph(path: &Path) -> SourceGraph {
 /// the root.
 pub fn rerun_if_changed(path: &Path) {
     println!("cargo:rerun-if-changed={}", path.display());
-    for source in source_graph(path).sources {
+    let graph = source_graph(path);
+    for source in &graph.sources {
         if source.path.is_absolute() {
             println!("cargo:rerun-if-changed={}", source.path.display());
         }
-        if let Origin::Package { manifest, .. } = &source.origin {
-            println!("cargo:rerun-if-changed={}", manifest.display());
-        }
+    }
+    for manifest in graph.consulted {
+        println!("cargo:rerun-if-changed={}", manifest.display());
     }
 }
 

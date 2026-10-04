@@ -52,11 +52,14 @@ pub(crate) struct Resolved {
 pub(crate) type Refusal = (&'static str, String);
 
 /// Resolve `spec`, written in a file in `dir` whose origin is `from`.
+/// Every `package.json` a resolution reads is pushed to `consulted`, even
+/// when it then refuses: a watcher must see the manifest a fix will edit.
 pub(crate) fn resolve(
     spec: &str,
     dir: &Path,
     from: &Origin,
     app_root: &Path,
+    consulted: &mut Vec<PathBuf>,
 ) -> Result<Resolved, Refusal> {
     if spec.starts_with("exact:") {
         return BUILTINS
@@ -103,7 +106,7 @@ pub(crate) fn resolve(
             format!("a built-in module uses only built-ins, not `{spec}`"),
         ));
     }
-    package(spec, dir)
+    package(spec, dir, consulted)
 }
 
 fn relative(spec: &str, dir: &Path, from: &Origin, app_root: &Path) -> Result<Resolved, Refusal> {
@@ -158,7 +161,7 @@ fn contract_file(spec: &str, key: &Path) -> Result<(), Refusal> {
 
 /// `@scope/name[/sub]` or `name[/sub]`, found in the nearest `node_modules`
 /// above `dir` that has it, then mapped through its `package.json`.
-fn package(spec: &str, dir: &Path) -> Result<Resolved, Refusal> {
+fn package(spec: &str, dir: &Path, consulted: &mut Vec<PathBuf>) -> Result<Resolved, Refusal> {
     let parts: Vec<&str> = spec.split('/').collect();
     let scoped = spec.starts_with('@');
     let take = if scoped { 2 } else { 1 };
@@ -187,7 +190,17 @@ fn package(spec: &str, dir: &Path) -> Result<Resolved, Refusal> {
                 ),
             )
         })?;
-    let manifest = found.join("package.json");
+    // The manifest is the package's, where it really is: a linked directory,
+    // or Bun's `file:` install of per-file links, leads to the library's
+    // own `package.json`, and the package is the directory that holds it.
+    let manifest = found.join("package.json").canonicalize().map_err(|e| {
+        (
+            "contract-use-unreadable",
+            format!("{}: {e}", found.display()),
+        )
+    })?;
+    consulted.push(manifest.clone());
+    let root = manifest.parent().map(Path::to_path_buf).unwrap_or_default();
     let text = std::fs::read_to_string(&manifest).map_err(|e| {
         (
             "contract-use-unreadable",
@@ -233,24 +246,14 @@ fn package(spec: &str, dir: &Path) -> Result<Resolved, Refusal> {
             format!("`{spec}`: {}: {e}", target.display()),
         )
     })?;
-    // The package is where its files really are, as Node's realpath finds
-    // it: a linked or `file:` install (Bun links each file) lives in the
-    // library's own directory, and its relative uses stay inside that.
-    let root = key
-        .ancestors()
-        .skip(1)
-        .find(|dir| dir.join("package.json").is_file())
-        .map(Path::to_path_buf)
-        .ok_or_else(|| {
-            (
-                "contract-use-package",
-                format!(
-                    "`{spec}` resolves to {}, which no `package.json` encloses",
-                    key.display()
-                ),
-            )
-        })?;
-    let manifest = root.join("package.json");
+    // An exported file that leads out of the package (a link into another)
+    // is not the package's to offer.
+    if !key.starts_with(&root) {
+        return Err((
+            "contract-use-path",
+            format!("`{spec}` leaves the package `{name}`"),
+        ));
+    }
     contract_file(spec, &key)?;
     Ok(Resolved {
         key,
@@ -286,8 +289,8 @@ fn condition(target: &serde_json::Value) -> Option<String> {
         serde_json::Value::String(s) => Some(s.clone()),
         serde_json::Value::Object(map) => ["contract", "default"]
             .iter()
-            .find_map(|c| map.get(*c))
-            .and_then(condition),
+            .filter_map(|c| map.get(*c))
+            .find_map(condition),
         _ => None,
     }
 }
