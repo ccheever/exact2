@@ -389,10 +389,16 @@ restrictions. This document does not duplicate their changing property tables.
 CSS hyphens are part of the authored name. `testId` and admitted host-specific
 props retain their declared spelling.
 
-A `button` is a pressable `display: flex; flex-direction: column` box, not
-Chrome's `inline-block` `<button>` that centres its content (declared in
-[LLP 1001](../llp/1001-kernel-v1.spec.md)): write `align-items="center"
-justify-content="center"` to centre it, and `flex-direction="row"` for a row.
+A `button` is Chrome's `<button>` with Exact's reset ([LLP
+1001](../llp/1001-kernel-v1.spec.md) §1): a block that shrinks to fit, whose
+content is centred in its height (safely: content taller than the button
+starts at the top) and whose text is `text-align: center`. `align-items`,
+`justify-content` and `gap` do nothing on it, as on any block. Write
+`display="flex"` (a row, CSS's default) or `display="grid"` to lay its
+children out yourself; Chrome does not centre a flex or grid button's content.
+Write `text-align="start"` for a row- or card-like button whose text reads
+from the left. Declared: it is block-level, not `inline-block`, so buttons in
+a block parent stack (put them in a `row` to set them side by side).
 
 `button appearance="auto"` selects a native control; the literal switch is
 resolved after class merging. Default/`none` keeps the authored pressable.

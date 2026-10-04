@@ -52,13 +52,24 @@ margin stays inside it. On the web a root is an element inside
 `#exact-root`, where that margin would collapse through to the page, so the
 web host lowers a block root to `display: flow-root` (2026-09-23; a root at
 y 0 with its child at 30, where the page had both at 30).
-Declared: a `button` is a `display: flex; flex-direction: column` box
-(Charlie, 2026-09-23: "One native button, flex column"; LLP 1006 §3), where
-Chrome's `<button>` is `inline-block` and centres its content in an anonymous
-box. The kernel has no anonymous button box, and a column lays the button out
-the same on every host; an author centres it with `align-items` and
-`justify-content`, and an authored `display: flex` keeps the column, as a
-UA sheet's `flex-direction` stays in CSS (kanban diary F16).
+A `button` is Chrome's `<button>` under the web reset (`all: unset;
+display: block`; Charlie, 2026-10-04, reversing 2026-09-23's "One native
+button, flex column", which three app diaries hit: kanban F16, onboarding F3,
+recipes F5, about 25 buttons written around it). Its automatic width shrinks
+to fit, as HTML sizes a button (`item_is_table`, Taffy patch 21). A block
+button's content lies in HTML's anonymous button content box, a flow-root
+centred safely in the block axis, which no `align-content` moves (Chrome 154:
+a 20px child at 40 in 100px, two at 30 and 50, a 150px one at 0); the kernel
+lays its children out with block `align-content: safe center` (`style.rs`
+`taffy_style`; patch 26 moves absolute children's static positions with
+them). The UA sheet's `text-align: center` is a fixed row. An authored `display:
+flex` or `grid` makes an ordinary container, a row unless `flex-direction`
+says otherwise, which Chrome does not centre. Literal Chrome cases:
+`browser_cases::a_button_lays_out_its_content_as_chrome_does`.
+Declared: its outer display is the reset's `block`, not the UA's
+`inline-block`. The kernel has no inline formatting context, so in a block
+parent two buttons stack where Chrome sets them on one line box; in a flex or
+grid parent the two displays are the same (an item is blockified).
 
 **Native tab-bar projection (LLP 1059; Charlie, 2026-09-27):** an iOS
 symbol-and-label tablist can report its native control size through the host

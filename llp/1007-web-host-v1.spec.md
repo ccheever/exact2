@@ -56,12 +56,13 @@ inline run, `ScrollView`→`div[data-scroll]`, `TextInput`→`input`,
 by `semanticTag` (`main`, `header`, `nav`, `section`, `footer`, `article`,
 `aside`, `dialog`). A text block with `aria-level` 1–6 and no other role is
 `h1`–`h6` (deeper: a `div` with `role="heading"`); a `Pressable` is a
-`<button type="button">` (an `a` with an `href`). Contract's `button` is a
-flex column (LLP 1006 §3; Charlie, 2026-09-23: "One native button, flex
-column"): a block `<button>` centers its content in an anonymous box whatever
-`all: unset`, `display: flow-root` or `align-content` say (Chrome 153 puts a
-20 px child at 40 in a 100 px button), and a flex one lays out as the kernel
-does (`kernel/tests/it/browser_cases.rs`). A button holds only phrasing
+`<button type="button">` (an `a` with an `href`). Contract's `button` is
+Chrome's `<button>` (LLP 1001 §1; Charlie, 2026-10-04, reversing 2026-09-23's
+flex column): `index.html` resets it to a block (`all: unset; display:
+block`), the browser centres a block button's content in its anonymous box,
+the kernel does the same for native hosts, and the compiler's fixed
+`text-align: center` row restores the UA sheet's centred text that `all:
+unset` removes. A button holds only phrasing
 content, so there a container — a box, a paragraph, a heading, a landmark —
 is a `<span>` with the same style, a block unless a row says otherwise; a
 button inside a button stays a document refusal. `index.html` resets the
