@@ -42,3 +42,30 @@ Draw into `clamp(authored width, 20, 40)` and size the image view to that side.
 `intrinsicContentSize` returns the stack’s fitted width and a hardcoded height of 44. Headline plus footnote at the default size fits; with larger text the labels set `adjustsFontForContentSizeCategory` and draw outside that 44-point box, and the bar clips them. Use the fitted height (the bar already grows for its own subtitle on iOS 26).
 
 Verdict: LAND WITH FIXES
+
+## Round 2, 2026-10-03
+
+- **Method:** grok as round 1, `--cwd` a detached worktree at `4cd44c10f`; brief sha256 `7f23525a3ac848fb4553baa53dd90f8751ede6911b337a4ed6d6202b114c01f6` (the fixes `b7d195a0d..4cd44c10f` against this review's round-1 findings and dispositions). Blind to astra's round 2.
+- **Transcription:** stdout, unedited; the first sentences are progress narration.
+- **Verdict:** LAND WITH FIXES.
+- **Disposition:** both fixed in `ff593ecc4`, #1 partly argued:
+  1. *Active search and `settled`.* `routeShowsBar` is the authored wish again; `searching(nav)` makes `showBar` and the development check leave the bar to UIKit, and `reportCovers` samples no title inset while it is active. Argued: the cover keeps following the safe area during a search, because UIKit's own content moves up with the search field (seen on the simulator); §9.10's "last cover stands" is about route transitions.
+  2. *A mixed batch's guessed flag.* When the route on top gets a new flag with no transition running (a revealed guess, or the tablist changing under it), the tab bar follows at once with `setTabBarHidden` (iOS 18; iOS 17 waits for the next push, declared).
+
+---
+
+I'll review the dispositions against §9.10 and the diff from `b7d195a0d` to `4cd44c10f`, then check the whole change for anything round 1 missed.The inset sampler and the tab-bar flag are the two places the dispositions claim a behavior change. I’ll read those paths in full before judging them.Round-1 items 1, 2, and 5 are fixed for the cases they named, and 3 matches the amended spec. Two holes remain in the fixes.
+
+1. **Should-fix** — Active search makes the new “settled” guard always true, so a large title’s `scrollCollapsed` still latches and a route with no under-bar scroller reflows for the whole search. `host/apple/Sources/ExactKit/IOS/NavigationTitleIOS.swift:138`, `host/apple/Sources/ExactKit/IOS/NavigationBarIOS.swift:643`
+
+`routeShowsBar` answers “should the bar be shown?” and `settled` is `isNavigationBarHidden != routeShowsBar`, which is true only when the bar already matches that wish. While search is active the function instead returns `isNavigationBarHidden == false`, so `settled` is true for the entire presentation. `HeaderSearch` sets `hidesNavigationBarDuringPresentation` (`NavigationBarIOS.swift:223`), the safe-area change calls `reportCovers` (`NavigationIOS.swift:36`, `:390`), and the large-title arm only ever lowers `scrollCollapsed` (`NavigationBarIOS.swift:649`). A level-1 route with `navigationScroll` (Second’s shape plus Home’s search field) hides the bar on focus; the inset falls below the collapsed-title inset and stays there after cancel. Slack in `applyPendingScroll` (`NodeViewIOS.swift:930`) is then about one bar too large, and a scroll-to-end stops short. The same guard is what freezes the cover: on Home, which has search and no scroller, the cover tracks the shrinking safe area, so the content moves when search opens and moves back when it closes. §9.10 says that while the bar is not as the route wants it, the last cover stands so the route does not move. `NavigationBasicsIOSTests` never activates the search controller, though the plan lists that case (`llp/1075.003-native-platform-control-merged.plan.md:1269`).
+
+Keep `routeShowsBar` as the authored wish. While that route’s search is active, `showBar` and the ownership check should leave the bar alone; `reportCovers` should keep treating the hidden bar as unsettled, so the cover stands and the inset is not sampled.
+
+2. **Should-fix** — A mixed batch stamps the top route’s tab-bar flag onto every route under it, and a system Back reads that flag before it can be corrected. `host/apple/Sources/ExactKit/IOS/NavigationTitleIOS.swift:198`
+
+`followTablist` writes the current `display: none` onto every not-yet-flagged route up through the selected key. That is right for a cold `[Home, Chat, Photo]`, where both pushed routes want the bar gone. The fixture’s tablist is hidden only for Chat and Photo (`app.contract:344`) and shown for Detail. A single install of `[Home, Detail, Chat]` therefore sets `hidesBottomBarWhenPushed` on Detail too. UIKit’s back button and edge swipe pop first and only then press Back (`NavigationIOS.swift:649`); `didShow` runs with Detail’s flag still true, so the tab bar stays hidden. The following sync corrects `tablistHidden` only after `viewControllers` already match (`NavigationIOS.swift:310`), and it does not start a transition, so UIKit never re-reads the flag. Detail sits there with its tablist authored `display: flex` and the tab bar still gone. One-at-a-time pushes still work, which is all `testARoutePushedWhileTheTablistIsHiddenHidesTheTabBar` does.
+
+When a correction changes the flag on the controller that is already on top and no transition is running, apply that visibility then. Do not leave a revealed route’s flag dirty until the next push.
+
+Verdict: LAND WITH FIXES

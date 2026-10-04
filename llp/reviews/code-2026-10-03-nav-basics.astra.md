@@ -27,3 +27,21 @@
 6. **Should-fix — [1075.003-native-platform-control-merged.plan.md:1259](/tmp/rv-nav1/llp/1075.003-native-platform-control-merged.plan.md:1259): the claimed UIKit tests are absent.** `NavigationBasicsIOSTests.swift` is neither in this worktree nor in commit `b7d195a0d`; no existing UIKit test exercises the new Chat/Photo routes. Passing the existing suite therefore does not establish the documented title, tab-hiding or cancelled-pop coverage. **Fix:** commit the claimed tests and exercise a real interactive transition/cancellation, including restored geometry and scroll mapping.
 
 Verdict: DO NOT LAND
+## Round 2, 2026-10-03
+
+- **Method:** `codex exec` as round 1, `-C` a detached worktree at `4cd44c10f`; brief sha256 `4df2ed648b8683738f6a33c2b11b6cc10c43894e17c3cb5385d79f3bcce9073e` (the fixes `b7d195a0d..4cd44c10f` against this review's round-1 findings and dispositions). Blind to grok's round 2.
+- **Verdict:** LAND WITH FIXES.
+- **Disposition:** all three fixed in `ff593ecc4`:
+  1. *Direct `DestroyView`.* `Detach::flush` rederives each surviving parent's cover after pruning; test `a_replaced_header_destroyed_outright_leaves_no_inset`.
+  2. *Cancellation coverage.* `testAnInteractivePopFromARouteWithoutABarCancelsAndCompletes` drives a percent-driven pop from Photo under UIKit's coordinator: the bar shows mid-pop, hides on the cancel, and after the completed pop Chat's insets, its zero slack and its scroll end are as before.
+  3. *Search claim.* §9.10 now says the active search was driven on the simulator, not in XCTest.
+
+---
+
+1. **Must-fix — [kernel/src/txn.rs:977](/tmp/rv-nav1/kernel/src/txn.rs:977): round-1 #3 remains partly unfixed.** Direct `DestroyView` prunes and synchronizes the surviving parent without rederiving its cover-dependent padding. Destroying header 3 in the 106-point covered-route fixture therefore leaves content at 106 instead of 44. Detaching first is a runner convention, not a kernel requirement; direct destruction is explicitly tested elsewhere. **Fix:** call `cover_children_changed` from `Detach::flush` after pruning, and add a direct-destruction regression test.
+
+2. **Should-fix — [NavigationBasicsIOSTests.swift:174](/tmp/rv-nav1/host/apple/tests/ExactKitTests/NavigationBasicsIOSTests.swift:174): round-1 #6’s cancellation coverage remains missing.** Calling `willShow` twice with `animated: false` creates no transition coordinator, interactive progress or cancellation. It cannot verify cover preservation or restored scroll mapping. The stated automation limitation does not prevent this: [NavigationBarIOSTests.swift:202](/tmp/rv-nav1/host/apple/tests/ExactKitTests/NavigationBarIOSTests.swift:202) already drives and cancels a real `UIPercentDrivenInteractiveTransition`. **Fix:** adapt that harness to Photo → Chat; assert visibility, content geometry and scroll-to-end mapping after cancellation and completion.
+
+3. **Nit — [1075.003-native-platform-control-merged.plan.md:1269](/tmp/rv-nav1/llp/1075.003-native-platform-control-merged.plan.md:1269): active-search XCTest coverage is still falsely claimed.** The committed suite contains no search-activation test, consistent with the author’s disposition. **Fix:** describe the simulator verification separately and remove the XCTest claim, or add the actual lifecycle test.
+
+Verdict: LAND WITH FIXES
