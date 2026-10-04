@@ -587,3 +587,18 @@ digests also match the independent macOS drive. Web's three modes take 84.1,
 The new `supplies` continuation pin records collecting fuel, returning home and
 feeding the fire through the visible compass controls. This completes the supply
 feature checkpoint; the two-night Jev objective remains unfinished.
+
+At that clean checkpoint, main had advanced another 88 commits through
+`6cfb736a8`. Merge `72722721f` retains main's visible-overflow hit testing and
+this branch's passive surface-control guard. The queue conflict keeps both lanes'
+entries. Sources stayed fixed through the preceding collector; fetching and
+merging happen between verification batches.
+
+The rebuilt normal Forest proofs pass on this merge: web 148.4 s and macOS
+141.3 s, including their rebuilds. Their input digests, both tick pins, six world
+snapshots and nine saves agree. Web's process audit passes; macOS again reports
+the optional descendant audit unavailable while every owned carrier exits.
+The new macOS supply screenshot shows the forest through the HUD panels after
+main's capture fix. Root build, 2,313 enabled tests (nine ignored), clippy,
+formatting, caps and boot pass; 34 focused native input/transform/capture tests
+also pass. The pending camera-follow checkpoint investigation remains queued.

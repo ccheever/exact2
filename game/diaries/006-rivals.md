@@ -699,3 +699,35 @@ the collector's web modes and native release each take **61–80 s** including
 their builds. These are the slower verification lane, not an under-one-minute
 edit-loop claim. The native HUD screenshot remains darker than the web capture;
 input parity did not fix that separate queued rendering issue.
+
+## Main integration and the capture fix (2026-10-04)
+
+After Forest's supply baseline was accepted, main brought 88 more commits through
+`6cfb736a8`. Merge `72722721f` combines main's visible-overflow hit testing with
+the passive surface-control guard from this branch. Both sets of queue entries
+survive the merge. Main also fixes macOS capture painting a translucent box twice.
+
+The complete Rivals proof passes on web in 98.5 s and macOS in 40.2 s, including
+rebuilds. Both hosts agree on source inputs, tick/save pins, all six world
+snapshots and six saves. Both descendant audits pass. Evidence is in
+`artifacts/main-6cf-{web,macos}/`.
+
+The separate pointer motor checks pass too: each of three corrections advances
+zero simulation time, fires once and lands a headshot on each host. They take
+11.0 s web and 3.1 s macOS, with successful process audits; artifacts are
+`main-6cf-motor-{web,macos}/`. These focused checks report `UNVERIFIED` because
+they do not exercise the whole baseline; the complete proofs above report `PASS`.
+No further Jev policy tuning was done in this integration batch.
+
+Viewed both new `drill.png` captures: the macOS panels and full-screen results
+shade now visually match the web's, closing the darker-HUD queue item. The
+upstream translucent-fill and translucent-image regressions pass alongside our
+passive-HUD/control tests: 34 focused Swift tests, zero failures.
+
+Two manual test invocations failed before the successful third: this Mac's
+selected Command Line Tools do not provide XCTest, and the app archive lives
+under `target/aarch64-apple-darwin/host-dev`, not `target/host-dev`. The working
+invocation sets `DEVELOPER_DIR` to Xcode and `EXACT_LIB_DIR` to the built archive's
+actual directory. These were invocation errors; the normal app builder already
+selects Xcode and its captured archive. Root's five checks pass on the merge,
+including 2,313 enabled tests with nine ignored.
