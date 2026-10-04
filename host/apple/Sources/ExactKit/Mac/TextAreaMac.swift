@@ -233,10 +233,13 @@ extension NodeView {
 /// edits it), as the web fires it, not at its first edit
 /// (`controlTextDidBeginEditing`; jukebox F23). `blur` is
 /// `controlTextDidEndEditing`, which AppKit sends whenever the editor leaves.
+/// Its cell serves the node's ARIA attributes (`FieldCell`, Accessibility.swift).
 final class Field: NSTextField {
+    override class var cellClass: AnyClass? { get { FieldCell.self } set {} }
     override func becomeFirstResponder() -> Bool { focused(super.becomeFirstResponder(), delegate) }
 }
 final class SecureField: NSSecureTextField {
+    override class var cellClass: AnyClass? { get { SecureFieldCell.self } set {} }
     override func becomeFirstResponder() -> Bool { focused(super.becomeFirstResponder(), delegate) }
 }
 private func focused(_ ok: Bool, _ delegate: NSTextFieldDelegate?) -> Bool {

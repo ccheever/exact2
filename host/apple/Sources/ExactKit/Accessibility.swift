@@ -130,8 +130,6 @@ final class SecureFieldCell: NSSecureTextFieldCell {
         (controlView?.superview as? NodeView)?.ariaAttribute(attribute.rawValue) ?? super.accessibilityAttributeValue(attribute)
     }
 }
-final class Field: NSTextField { override class var cellClass: AnyClass? { get { FieldCell.self } set {} } }
-final class SecureField: NSSecureTextField { override class var cellClass: AnyClass? { get { SecureFieldCell.self } set {} } }
 
 extension NSView {
     /// Core-AAM's toggle button: `AXCheckBox`, subrole `AXToggle`, value 0, 1
