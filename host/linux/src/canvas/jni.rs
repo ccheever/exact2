@@ -410,6 +410,20 @@ macro_rules! canvas_jni {
                 arr
             }
 
+            /// Run the calling thread on the cores outside the slowest cluster
+            /// (a reader's own exact2 thread); whether it was set.
+            #[no_mangle]
+            pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_fastCores(
+                _env: *mut JNIEnv,
+                _class: jclass,
+            ) -> jboolean {
+                if $crate::android::fast_cores() {
+                    JNI_TRUE
+                } else {
+                    JNI_FALSE
+                }
+            }
+
             /// The scroller `scroll` moves (its group's id in the stream), or 0.
             #[no_mangle]
             pub unsafe extern "system" fn Java_dev_exact_bench_exactcanvas_Native_feed(

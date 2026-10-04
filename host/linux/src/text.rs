@@ -1001,6 +1001,20 @@ impl TextMeasurer for Measurer {
     ) -> TextMetrics {
         self.0.borrow_mut().measure_identified(stamp, request)
     }
+    fn height_free(&self) -> bool {
+        true
+    }
+    fn measure_known(
+        &mut self,
+        stamp: &ParagraphStamp,
+        width: AxisOffer,
+        _height: AxisOffer,
+    ) -> Option<TextMetrics> {
+        // Offers here are width-only: height never changes a paragraph.
+        let mut engine = self.0.borrow_mut();
+        let (key, spec) = engine.paragraphs.identified(stamp)?;
+        Some(engine.measure_for(&spec, width, key))
+    }
     fn measure(&mut self, request: &TextMeasureRequest<'_>) -> TextMetrics {
         let spec = Spec::from_request(request);
         let mut engine = self.0.borrow_mut();

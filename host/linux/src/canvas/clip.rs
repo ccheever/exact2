@@ -137,6 +137,20 @@ impl Recorder {
             .any(|c| c.page.is_some_and(|(r, _)| !overlaps(b, r)))
     }
 
+    /// Whether the clips leave nothing at all (two of them do not meet: a
+    /// scroller moved out of its page's view).
+    pub(super) fn clipped_out(&self) -> bool {
+        let mut left: Option<Rect4> = None;
+        for (r, _) in self.clips.iter().filter_map(|c| c.page) {
+            let meet = left.map_or(r, |l| intersect(l, r));
+            if meet.2 <= 0.0 || meet.3 <= 0.0 {
+                return true;
+            }
+            left = Some(meet);
+        }
+        false
+    }
+
     /// Before drawing within `bounds` (page space; `None` when unknown):
     /// write the pending clips the drawing needs.
     pub(super) fn need(&mut self, bounds: Option<Rect4>) {

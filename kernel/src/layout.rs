@@ -851,6 +851,7 @@ impl LayoutTree {
         let pass = self.pass;
         let mut runs: Vec<TextRun<'_>> = Vec::new();
         let mut invalid_metrics = None;
+        let height_free = measurer.height_free();
         let mut measure = |inputs: LayoutInput,
                            _node,
                            context: Option<&mut MeasureContext>,
@@ -942,40 +943,51 @@ impl LayoutTree {
                     let metrics = if let Some(cached) = context
                         .measurements
                         .iter()
-                        .find(|m| m.width == width && m.height == height)
+                        .find(|m| m.width == width && (height_free || m.height == height))
                     {
                         cached.metrics
                     } else {
-                        runs.clear();
-                        arena.text_runs(slot, &mut runs);
-                        if runs.is_empty() {
-                            return Size::ZERO;
-                        }
-                        // Direction and alignment inherit (a paragraph inside a
-                        // centred column centres, as in CSS); the rest are its own.
-                        let paragraph = arena.paragraph(slot);
-                        // @ref LLP 1043.000 §8 — an admitted auto-height leaf is
-                        // measured around its settled shapes, in content space as
-                        // the painters flow it. Intrinsic probes stay unobstructed:
-                        // a context's width never depends on what flows inside.
-                        let shapes: Vec<_> = match width {
-                            AxisOffer::Definite(_) => context
-                                .flow
-                                .iter()
-                                .map(|s| s.translate(-inset.left, -inset.top))
-                                .collect(),
-                            _ => Vec::new(),
-                        };
-                        let request = TextMeasureRequest {
-                            exclusions: &shapes,
-                            runs: &runs,
-                            paragraph,
-                            width,
-                            height,
-                        };
-                        let metrics = match arena.paragraph_stamp(slot) {
-                            Some(stamp) => measurer.measure_identified(&stamp, &request),
-                            None => measurer.measure(&request),
+                        let stamp = arena.paragraph_stamp(slot); // held: no runs to flatten
+                        let known = stamp
+                            .as_ref()
+                            .filter(|_| {
+                                context.flow.is_empty() || !matches!(width, AxisOffer::Definite(_))
+                            })
+                            .and_then(|stamp| measurer.measure_known(stamp, width, height));
+                        let metrics = if let Some(metrics) = known {
+                            metrics
+                        } else {
+                            runs.clear();
+                            arena.text_runs(slot, &mut runs);
+                            if runs.is_empty() {
+                                return Size::ZERO;
+                            }
+                            // Direction and alignment inherit (a paragraph inside a
+                            // centred column centres, as in CSS); the rest are its own.
+                            let paragraph = arena.paragraph(slot);
+                            // @ref LLP 1043.000 §8 — an admitted auto-height leaf is
+                            // measured around its settled shapes, in content space as
+                            // the painters flow it. Intrinsic probes stay unobstructed:
+                            // a context's width never depends on what flows inside.
+                            let shapes: Vec<_> = match width {
+                                AxisOffer::Definite(_) => context
+                                    .flow
+                                    .iter()
+                                    .map(|s| s.translate(-inset.left, -inset.top))
+                                    .collect(),
+                                _ => Vec::new(),
+                            };
+                            let request = TextMeasureRequest {
+                                exclusions: &shapes,
+                                runs: &runs,
+                                paragraph,
+                                width,
+                                height,
+                            };
+                            match &stamp {
+                                Some(stamp) => measurer.measure_identified(stamp, &request),
+                                None => measurer.measure(&request),
+                            }
                         };
                         if !metrics.is_valid() {
                             invalid_metrics.get_or_insert_with(|| arena.local_id(slot));

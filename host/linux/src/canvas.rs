@@ -777,7 +777,12 @@ impl Backend for Recorder {
     }
 
     fn row_culled(&self, bounds: Rect4) -> bool {
-        self.group.is_none() && self.culled(Some(bounds))
+        // A scroller's rows all draw so a move needs no paint, unless its
+        // clips leave nothing (a page out of view): no move shows them.
+        match self.group {
+            None => self.culled(Some(bounds)),
+            Some(_) => self.clipped_out(),
+        }
     }
 
     fn group_begin(&mut self, id: ViewId, scroll: (f32, f32)) {
@@ -927,8 +932,12 @@ pub struct CanvasHost<D: DataSource> {
     tracks: HashMap<u32, Vec<u32>>,
     /// The scroller [`CanvasHost::scroll`] moves.
     feed: Option<ViewId>,
-    /// Whether the windows' lead is back after the first frame.
+    /// Whether the windows' lead is back after the first frame (and after
+    /// a touch's response).
     lead: bool,
+    /// A touch came: until its frame is out, collection passes build only
+    /// the rows that show (a slice of 0); the lead follows that frame.
+    responding: bool,
     tracks_epoch: u64,
 }
 
@@ -968,6 +977,9 @@ impl<D: DataSource + Default> CanvasHost<D> {
         // The first frame realizes only the rows that show; the window's lead
         // follows once it is out ([`CanvasHost::frame`]).
         exact_runner::set_lead_scale(0.0);
+        // A new list builds the rows the view can show before its first
+        // layout, not in a second commit after it.
+        exact_runner::set_bootstrap_extent(size.1.max(size.0) as f64 / scale as f64);
         #[cfg(target_os = "android")]
         crate::surfaces::prepare_gpu(compat);
         let mut config = crate::app::Config::from_env_static(plan, compat);
@@ -1007,6 +1019,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             feed: None,
             tracks_epoch: 0,
             lead: false,
+            responding: false,
         })
     }
 
@@ -1032,7 +1045,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// changed. `Some` is the new op stream (valid until the next call).
     pub fn frame(&mut self) -> Option<Vec<u32>> {
         // After the first frame: the windows' lead, realized off the frame.
-        if self.painted.is_some() && !self.lead {
+        if self.painted.is_some() && !self.lead && !self.responding {
             self.lead = true;
             exact_runner::set_lead_scale(1.0);
             self.p.refine_deferred(true);
@@ -1043,6 +1056,9 @@ impl<D: DataSource + Default> CanvasHost<D> {
         p.hold_collections(self.scrolled);
         let frame = self.frame_held(now);
         self.p.hold_collections(false);
+        if std::mem::take(&mut self.responding) {
+            self.p.slice_collections(None, 0.0);
+        }
         // Every attached GPU canvas (none: at once); a canvas with nothing
         // new draws nothing.
         #[cfg(target_os = "android")]
@@ -1366,7 +1382,13 @@ impl<D: DataSource + Default> CanvasHost<D> {
 
     /// A touch (0 down, 1 up, 2 move, 3 cancel) at pixels.
     pub fn touch(&mut self, action: i32, x: f32, y: f32) {
+        let _s = Section::begin(c"exact touch");
         self.force |= action != 2;
+        if action != 2 && self.painted.is_some() {
+            self.p.slice_collections(Some(0), 0.0);
+            self.responding = true;
+            self.lead = false;
+        }
         let now = self.now();
         let (x, y) = (x / self.scale, y / self.scale);
         let r = match action {
