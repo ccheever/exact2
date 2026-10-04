@@ -21,6 +21,14 @@
  *
  * --branch (default origin/main) checks another line of history; the
  * worktree is the script's own and is checked out with --force.
+ *
+ * --tier 2 is the second lane: the platforms that ride on another host's
+ * code (tvOS on the UIKit presenter; Charlie, 2026-10-03), in its own
+ * worktree (<repo>-async2) and state, hourly by default. It checks only the
+ * newest pending commit, so a failure it files names the range since the
+ * last commit it checked, never one commit.
+ *
+ *   bun scripts/async.mjs --tier 2        watch the second lane
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, openSync, closeSync, readFileSync, writeFileSync } from 'node:fs';
@@ -30,7 +38,9 @@ import { main as issue } from './issue.mjs';
 
 const ROOT = resolve(new URL('..', import.meta.url).pathname);
 const option = (name, fallback) => process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : fallback;
-const WT = resolve(option('--worktree', resolve(ROOT, '..', `${basename(ROOT)}-async`)));
+const TIER = Number(option('--tier', 1));
+if (TIER !== 1 && TIER !== 2) throw new Error(`--tier ${TIER}: the lanes are 1 and 2`);
+const WT = resolve(option('--worktree', resolve(ROOT, '..', `${basename(ROOT)}-async${TIER === 2 ? '2' : ''}`)));
 const STATE_DIR = resolve(WT, 'target/async');
 const STATE = resolve(STATE_DIR, 'state.json');
 const BRANCH = option('--branch', 'origin/main');
@@ -48,7 +58,13 @@ function laneTests() {
 
 const workspace = ['--workspace'];
 const WEB_APPS = ['realworld', 'weatherlight', 'completion-storm', 'video-player', 'caltrain', 'typetour', 'carousel', 'sparkline', 'svg-gallery', 'spark', 'markdown-stress', 'reflow', 'textflow', 'canvas-gallery', 'duo-lab', 'update-lab', 'native-fixture', 'photo-editor', 'recorder', 'fieldnotes', 'markdown', 'messages', 'interaction-gallery', 'motion-gallery'];
+// The second lane: each platform built for its simulator, Caltrain as the app
+// (its TypeScript-free build needs no Hermes for the platform).
+const TIER_2 = [
+  ['tvos', 'env', ['EXACT_JS_ENGINE=stub', 'bun', 'host/apple/build.mjs', '--tvos']],
+];
 function checks(sha) {
+  if (TIER === 2) return TIER_2;
   const lane = laneTests();
   const apple = git(['diff', '--name-only', `${sha}^`, sha, '--', 'host/apple'], WT) !== '';
   const glue = [...new Bun.Glob('host/web/**/*.test.mjs').scanSync({ cwd: WT, onlyFiles: true })].sort().map(file => `./${file}`);
@@ -101,6 +117,8 @@ function failures(name, log, status) {
   // metrics rows: a VIOLATION, or a measurement whose build FAILED.
   if (name === 'metrics') for (const m of log.matchAll(/^[ \t]+(\S[^\n]*?)[ \t]{2,}(?:FAILED\b|[^\n]*\bVIOLATION\b)/gm)) found.add(`${name}: ${m[1]} ${/\bVIOLATION\b/.test(m[0]) ? 'VIOLATION' : 'FAILED'}`);
   for (const m of log.matchAll(/Test Case '-\[(\S+) (\S+)\]' failed/g)) found.add(`${name}: ${m[1]} ${m[2]} failed`);
+  // Swift diagnostics by file and message: line numbers move with every edit.
+  for (const m of log.replace(/\x1b\[[0-9;]*m/g, '').matchAll(/(?:^|\/)Sources\/(\S+?\.swift):\d+:\d+: error: (.+)$/gm)) found.add(`${name}: ${m[1]}: ${m[2].trim()}`);
   for (const m of log.matchAll(/^Diff in (\S+?):\d+:/gm)) found.add(`${name}: ${m[1].replace(WT + '/', '')} is not formatted`);
   // conform --strict: a failing step by target and step (the what varies run to run).
   for (const m of log.matchAll(/^FAIL (\S+) ([^:\n]+):/gm)) found.add(`${name}: ${m[1]} ${m[2]}`);
@@ -163,14 +181,15 @@ async function check(sha) {
   return result;
 }
 
-function file(result, fresh) {
+function file(result, fresh, since) {
   const short = result.sha.slice(0, 8);
   const timing = Object.entries(result.checks).map(([n, c]) => `${n} ${c.seconds.toFixed(0)} s (exit ${c.status}, load ${c.load.toFixed(0)})`).join(' · ');
-  const body = [`The async lane found ${fresh.length} failure(s) that ${short}'s parent did not have:`, '',
+  const what = since ? `that ${since.slice(0, 8)} (the last commit it checked) did not have, from a commit in ${since.slice(0, 8)}..${short}` : `that ${short}'s parent did not have`;
+  const body = [`The tier ${TIER} async lane found ${fresh.length} failure(s) ${what}:`, '',
     ...fresh.map(f => `- ${f}`), '', `Commit: ${short} ${result.subject}`, `Checks: ${timing}`,
     `Logs: ${resolve(STATE_DIR, result.sha.slice(0, 12))}/`].join('\n');
-  issue(['new', `Async lane: ${fresh.length} new failure(s) at ${short}`, '--systems', 'async lane',
-    '--slug', `async-${short}`, '--author', 'async lane (scripts/async.mjs)', '--body', body, '--quiet'], ROOT);
+  issue(['new', `Async lane${TIER === 2 ? ' (tier 2)' : ''}: ${fresh.length} new failure(s) at ${short}`, '--systems', 'async lane',
+    '--slug', `async${TIER === 2 ? '2' : ''}-${short}`, '--author', 'async lane (scripts/async.mjs)', '--body', body, '--quiet'], ROOT);
 }
 
 async function once(state) {
@@ -179,7 +198,9 @@ async function once(state) {
   const pending = state.last
     ? git(['rev-list', '--first-parent', '--reverse', `${state.last}..${tip}`]).split('\n').filter(Boolean)
     : [tip];
-  for (const sha of pending) {
+  // The second lane coalesces: only the newest commit is checked.
+  for (const sha of TIER === 2 ? pending.slice(-1) : pending) {
+    const since = TIER === 2 && pending.length > 1 ? state.last : null;
     const result = await check(sha);
     // A commit outside host/apple runs no iOS tests: the last ones stand.
     if (!result.checks.ios) result.failures.push(...(state.failures ?? []).filter(f => f.startsWith('ios: ')));
@@ -189,7 +210,7 @@ async function once(state) {
     const before = new Set(state.failures ?? []);
     const fresh = result.failures.filter(f => !before.has(f));
     console.log(`${sha.slice(0, 8)} ${result.subject}: ${result.failures.length} failure(s), ${baseline ? 'baseline' : `${fresh.length} new`}`);
-    if (fresh.length && !baseline) file(result, fresh);
+    if (fresh.length && !baseline) file(result, fresh, since);
     Object.assign(state, { last: sha, failures: result.failures });
     writeFileSync(STATE, JSON.stringify(state, null, 2));
   }
@@ -199,7 +220,7 @@ if (!existsSync(WT)) git(['worktree', 'add', '--detach', WT, BRANCH]);
 mkdirSync(STATE_DIR, { recursive: true });
 const state = existsSync(STATE) ? JSON.parse(readFileSync(STATE, 'utf8')) : {};
 if (option('--from')) state.last = git(['rev-parse', option('--from')]);
-const interval = Number(option('--interval', 300)) * 1000;
+const interval = Number(option('--interval', TIER === 2 ? 3600 : 300)) * 1000;
 for (;;) {
   await once(state);
   if (process.argv.includes('--once')) break;

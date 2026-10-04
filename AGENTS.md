@@ -39,7 +39,8 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   the web JS target's conformance run (`host/web-js/conform.mjs --strict`) and its
   Chrome-oracle Firefox/WebKit steps (`conform-firefox`, `conform-webkit`),
   the UIKit XCTests for commits under `host/apple` (`build.mjs --test --ios`), then
-  `metrics.mjs --long`. Building
+  `metrics.mjs --long`. A second, hourly tier (`bun scripts/async.mjs --tier 2`) builds
+  the platforms that ride on another host's code: tvOS on the UIKit presenter. Building
   `--all-targets` resolves features as `cargo test` does, so the two share artifacts.
 - A green `--workspace` build proves the apps compile, not that they work: their Apple
   crates are rlibs to Cargo, and the archive an app links is built only by
@@ -70,6 +71,7 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   (`--long` adds the macOS build and boot, and the loop's own budgets: the
   warm gate, touch one line, test what you changed). macOS: `bun host/apple/build.mjs --run`;
   iOS: `bun host/apple/build.mjs --ios --run` (a simulator; `--sim` or `EXACT_SIM` picks one);
+  tvOS: `bun host/apple/build.mjs --tvos --run` (an Apple TV simulator; LLP 1008 §9);
   `--device --run` on a connected iPhone (signed with a team profile on this Mac);
   `--host` also builds the sample host (LLP 1031 D10), the native app that embeds two
   sessions, which `bun scripts/smoke.mjs host` drives and `scripts/agent.mjs host
