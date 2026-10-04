@@ -197,8 +197,12 @@ extension Presenter {
     func hoverMoved(_ id: UInt32, _ sample: PointerSample) {
         if let i = hoverMoves.firstIndex(where: { $0.0 == id }) { hoverMoves[i].1 = sample } else { hoverMoves.append((id, sample)) }
         guard hoverLink == nil else { return }
-        hoverTarget.fire = { [weak self] _ in self?.flushHoverMove() }
         let link = viewport.displayLink(target: hoverTarget, selector: #selector(PumpTarget.tick(_:)))
+        // A presenter released with a move pending leaves no link firing.
+        hoverTarget.fire = { [weak self, weak link] _ in
+            guard let self else { link?.invalidate(); return }
+            self.flushHoverMove()
+        }
         link.add(to: .main, forMode: .common)
         hoverLink = link
     }

@@ -119,6 +119,22 @@ final class GesturePrecedenceMacTests: XCTestCase {
         XCTAssertEqual(log, ["move 1 105", "move 2 100"])
     }
 
+    /// A presenter released with a move pending leaves no display link
+    /// running (Grok's batch 2 delta review).
+    func testAReleasedPresenterStopsItsHoverLink() {
+        weak var link: CADisplayLink?
+        autoreleasepool {
+            var p: Presenter? = Presenter()
+            p!.viewport.frame = NSRect(x: 0, y: 0, width: 100, height: 100)
+            p!.hoverMoved(1, PointerSample(x: 0, y: 0, buttons: 0, pressure: 0, type: "mouse", id: 1))
+            link = p!.hoverLink
+            XCTAssertNotNil(link)
+            p = nil
+        }
+        RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.1))
+        XCTAssertNil(link, "invalidated, the run loop lets it go")
+    }
+
     func testDoubleClickPressesTwiceThenDoubleClicks() {
         let p = host([
             ["op": "create", "id": 1, "kind": "view", "handlers": ["press", "dblclick"]],

@@ -137,6 +137,7 @@ final class Presenter {
     deinit {
         if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
         pumpLink?.invalidate()
+        hoverLink?.invalidate()
     }
 
     /// How far past its visible part a paragraph's text is painted, and how
