@@ -1,4 +1,4 @@
-# cosmic-text 0.19.0 — three local patches
+# cosmic-text 0.19.0 — four local patches
 
 Complete crates.io archive, including upstream MIT/Apache licenses and
 .cargo_vcs_info.json. No source downloader, feature change or dependency upgrade.
@@ -54,3 +54,14 @@ first-strong heuristic is `unicode-bidi: plaintext`. With the level given,
 passes `Some(true)` for every line of an `rtl` paragraph and `None` otherwise
 (`host/linux/src/text/shaping.rs`; LLP 1001 §1 declares the `ltr` case); the
 regression is in `host/linux/src/text/sharing_tests.rs`.
+
+The external-shaping delta (LLP 1076, 2026-10-04, Claude Opus 5.5) adds
+`ShapeLine::segment` and `ShapeLine::from_words` in `src/shape.rs` and changes
+nothing else. `segment` returns the bidi level runs and words `build_with_base`
+would shape (same `adjust_levels`, UAX #14 opportunities and whitespace words;
+not the font probe that keeps a coding ligature such as `!=` whole);
+`from_words` assembles a line from glyphs a caller shaped for those words,
+applying `build_with_base`'s own word/glyph reversal, tab stops and ellipsis
+span. The Android Canvas host's `EXACT_TEXT=platform` path measures with
+Minikin and builds its lines with them (`host/linux/src/text/platform.rs`);
+the regressions are in `host/linux/src/text/platform_tests.rs`.

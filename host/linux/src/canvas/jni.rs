@@ -81,6 +81,7 @@ macro_rules! canvas_jni {
                 std::env::set_var("EXACT_FONTS", "/system/fonts");
                 std::env::set_var("EXACT_FONT", "Roboto");
                 std::env::set_var("BENCH_LIVE", if live == JNI_TRUE { "1" } else { "0" });
+                $crate::canvas::text::install(env);
                 match Host::boot(PLAN, COMPAT, (width as u32, height as u32), scale) {
                     Ok(h) => {
                         HOST.with(|slot| *slot.borrow_mut() = Some(h));
@@ -130,6 +131,7 @@ macro_rules! canvas_jni {
                 std::env::set_var("EXACT_FONTS", "/system/fonts");
                 std::env::set_var("EXACT_FONT", "Roboto");
                 std::env::set_var("BENCH_LIVE", if live == JNI_TRUE { "1" } else { "0" });
+                $crate::canvas::text::install(env);
                 std::thread::Builder::new()
                     .name("exact-boot".into())
                     .spawn(move || {
@@ -144,6 +146,7 @@ macro_rules! canvas_jni {
                         });
                         *BOOTED.lock().unwrap_or_else(|e| e.into_inner()) = Some(booted);
                         READY.notify_all();
+                        $crate::canvas::text::detach();
                     })
                     .expect("boot thread");
             }

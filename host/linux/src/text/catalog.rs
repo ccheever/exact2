@@ -16,10 +16,25 @@ pub(super) struct Catalog {
     pub(super) families: Vec<FamilyChoice>,
     pub(super) declared_faces: HashMap<(u16, u16, bool), fontdb::ID>,
     pub(super) sans: String,
+    /// The platform's text stack, when it measures (`EXACT_TEXT=platform`).
+    pub(super) platform: Option<super::platform::Platform>,
 }
 
 impl Catalog {
     pub(super) fn new() -> Self {
+        Self::new_with(super::platform::chosen())
+    }
+    /// With the platform's text stack, no faces are read: the platform
+    /// matches and falls back over its own.
+    pub(super) fn new_with(platform: Option<&'static dyn super::platform::Shaper>) -> Self {
+        if let Some(shaper) = platform {
+            let mut catalog = Self::with_fonts(FontSystem::new_with_locale_and_db(
+                "en-US".into(),
+                fontdb::Database::new(),
+            ));
+            catalog.platform = Some(super::platform::Platform::new(shaper));
+            return catalog;
+        }
         let mut catalog = Self::with_fonts(FontSystem::new());
         let fonts = &mut catalog.fonts;
         if let Ok(dir) = std::env::var("EXACT_FONTS") {
@@ -87,10 +102,18 @@ impl Catalog {
                 FamilyChoice::SansSerif,
             ],
             declared_faces: HashMap::new(),
+            platform: None,
         }
     }
     pub(super) fn for_assets(plan: &Plan, assets: &Assets) -> Self {
-        let mut next = Self::new();
+        Self::for_assets_with(plan, assets, super::platform::chosen())
+    }
+    pub(super) fn for_assets_with(
+        plan: &Plan,
+        assets: &Assets,
+        platform: Option<&'static dyn super::platform::Shaper>,
+    ) -> Self {
+        let mut next = Self::new_with(platform);
         next.families = Vec::with_capacity(plan.stacks.len());
         next.families
             .extend(plan.stacks.iter().enumerate().map(|(i, _)| {
@@ -113,6 +136,27 @@ impl Catalog {
             }
             let family_id = member.family.expect("validated family member");
             let family = plan.familie(family_id);
+            if let Some(platform) = next.platform.as_mut() {
+                let faces: Option<Vec<(String, u16, bool)>> = family
+                    .faces
+                    .iter()
+                    .map(|face_id| {
+                        let face = plan.face(face_id);
+                        let path = super::platform::asset_file(assets, plan.str(face.source))?;
+                        Some((path, face.weight, face.italic))
+                    })
+                    .collect();
+                if faces.is_some_and(|faces| platform.declare(stack_index as u16, &faces)) {
+                    next.families[stack_index] =
+                        FamilyChoice::Declared(format!("ExactPlanStack{stack_index}"));
+                } else {
+                    eprintln!(
+                        "[Fonts] font.registration.failed: stack={stack_index} family={}",
+                        family_id.0
+                    );
+                }
+                continue;
+            }
             let alias = format!("ExactPlanStack{stack_index}");
             let mut staged = Vec::new();
             let mut failed = false;
@@ -205,6 +249,10 @@ impl Catalog {
     /// bytes. Asking for the family's own weight keeps the family first,
     /// the browser's rule (family, then weight).
     pub(super) fn snap_weight(&mut self, family: u16, weight: u16, italic: bool) -> u16 {
+        // The platform's own font matching picks the face for a weight.
+        if self.platform.is_some() {
+            return weight;
+        }
         let key = (family, weight, italic);
         if let Some(w) = self.weights.get(&key) {
             return *w;
@@ -279,6 +327,9 @@ impl Catalog {
         ascent + descent + leading
     }
     pub(super) fn font_metrics(&mut self, run: &Run) -> FontMetrics {
+        if let Some(platform) = self.platform.as_mut() {
+            return platform.font_metrics(&self.families, run);
+        }
         let key = (run.family, run.size.to_bits(), run.weight, run.italic);
         if let Some(h) = self.normal.get(&key) {
             return *h;
@@ -312,6 +363,26 @@ impl Catalog {
         }
         self.normal.insert(key, height);
         height
+    }
+    /// A shaped glyph's font's ascent, descent and line gap, unscaled: a
+    /// platform glyph's metrics entry (per em), else the face's own.
+    pub(super) fn raw_metrics(
+        &mut self,
+        id: fontdb::ID,
+        weight: Weight,
+    ) -> Option<super::shaping::RawFontMetrics> {
+        if let Some(platform) = &self.platform {
+            return platform.raw_metrics(id);
+        }
+        self.fonts.get_font(id, weight).map(|font| {
+            let m = font.metrics();
+            super::shaping::RawFontMetrics {
+                units_per_em: m.units_per_em,
+                ascent: m.ascent,
+                descent: m.descent,
+                leading: m.leading,
+            }
+        })
     }
     pub(super) fn line_height(&mut self, run: &Run) -> f32 {
         run.line_height

@@ -55,6 +55,18 @@ impl LastFontMetrics {
         self.last = Some(((id, weight), metrics));
         metrics
     }
+    /// [`Self::get`], or a platform glyph's metrics entry.
+    pub(super) fn get_in(
+        &mut self,
+        catalog: &mut catalog::Catalog,
+        id: fontdb::ID,
+        weight: Weight,
+    ) -> Option<RawFontMetrics> {
+        match &catalog.platform {
+            Some(platform) => platform.raw_metrics(id),
+            None => self.get(&mut catalog.fonts, id, weight),
+        }
+    }
 }
 
 struct Line {
@@ -75,6 +87,8 @@ pub(super) struct ShapeData {
     metrics: Metrics,
     strut: (f32, f32),
     pub(super) run_metrics: Vec<FontMetrics>,
+    /// Each run's platform style key; empty when cosmic-text shaped.
+    pub(super) styles: Vec<u32>,
 }
 impl ShapedSource {
     pub(super) fn flow_box<'a>(&self, glyphs: impl Iterator<Item = &'a LayoutGlyph>) -> (f32, f32) {
@@ -157,33 +171,52 @@ impl ShapedSource {
             .map(|((r, w), family)| catalog::Catalog::attrs(r, *w, family.cosmic()))
             .unwrap_or_else(Attrs::new);
         buffer.set_rich_text(spans, &default, Shaping::Advanced, align);
-        let lines = buffer
-            .lines
-            .into_iter()
-            .map(|line| {
-                #[cfg(test)]
-                SHAPE_LINES.with(|n| n.set(n.get() + 1));
-                // `direction: rtl` makes the base direction right-to-left, as
-                // CSS does (LLP 1053; vendor/cosmic-text/EXACT-PATCHES.md).
-                // Under `ltr` the first strong character still decides
-                // (declared in LLP 1001 §1): the text-flow walker cannot yet
-                // break an RTL run inside an LTR paragraph.
-                let shape = ShapeLine::new_with_base(
-                    &mut catalog.fonts,
-                    line.text(),
-                    line.attrs_list(),
-                    Shaping::Advanced,
-                    8,
-                    (spec.direction == exact_kernel::Direction::Rtl).then_some(true),
-                );
-                let align = line.align();
-                Line {
-                    text: line.into_text(),
-                    shape,
-                    align,
-                }
-            })
-            .collect();
+        let (lines, styles) = if catalog.platform.is_some() {
+            let (shapes, styles) = super::platform::shape(&mut catalog, &spec, &buffer.lines);
+            let lines = buffer
+                .lines
+                .into_iter()
+                .zip(shapes)
+                .map(|(line, shape)| {
+                    let align = line.align();
+                    Line {
+                        text: line.into_text(),
+                        shape,
+                        align,
+                    }
+                })
+                .collect();
+            (lines, styles)
+        } else {
+            let lines = buffer
+                .lines
+                .into_iter()
+                .map(|line| {
+                    #[cfg(test)]
+                    SHAPE_LINES.with(|n| n.set(n.get() + 1));
+                    // `direction: rtl` makes the base direction right-to-left, as
+                    // CSS does (LLP 1053; vendor/cosmic-text/EXACT-PATCHES.md).
+                    // Under `ltr` the first strong character still decides
+                    // (declared in LLP 1001 §1): the text-flow walker cannot yet
+                    // break an RTL run inside an LTR paragraph.
+                    let shape = ShapeLine::new_with_base(
+                        &mut catalog.fonts,
+                        line.text(),
+                        line.attrs_list(),
+                        Shaping::Advanced,
+                        8,
+                        (spec.direction == exact_kernel::Direction::Rtl).then_some(true),
+                    );
+                    let align = line.align();
+                    Line {
+                        text: line.into_text(),
+                        shape,
+                        align,
+                    }
+                })
+                .collect();
+            (lines, Vec::new())
+        };
         drop(catalog);
         let mut source = Self {
             spec,
@@ -193,6 +226,7 @@ impl ShapedSource {
                 metrics,
                 strut,
                 run_metrics,
+                styles,
             }),
             accessible_capacity_bytes: 0,
             flow: RefCell::new(None),
@@ -339,7 +373,7 @@ impl ShapedSource {
             let mut below_explicit = above_explicit;
             for glyph in run.glyphs {
                 if let Some(m) =
-                    last_font_metrics.get(&mut catalog.fonts, glyph.font_id, glyph.font_weight)
+                    last_font_metrics.get_in(&mut catalog, glyph.font_id, glyph.font_weight)
                 {
                     let scale = glyph.font_size / m.units_per_em as f32;
                     // Explicit lengths size the authored inline box; only
@@ -498,8 +532,7 @@ fn line_box<'a>(
     let mut above_explicit = spec.strut.line_height.is_some();
     let mut below_explicit = above_explicit;
     for glyph in glyphs {
-        if let Some(font) = catalog.fonts.get_font(glyph.font_id, glyph.font_weight) {
-            let m = font.metrics();
+        if let Some(m) = catalog.raw_metrics(glyph.font_id, glyph.font_weight) {
             let scale = glyph.font_size / m.units_per_em as f32;
             // Explicit lengths size the authored inline box; only
             // normal expands to the actual fallback glyph font.

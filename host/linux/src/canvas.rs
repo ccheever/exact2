@@ -23,6 +23,7 @@
 //! - `8 IMAGE id x y w h`
 //! - `9 GLYPHS font size color skew n (glyph x y)×n`
 //! - `10 FONT key index weight len utf8-path(padded to 4)` — once per face
+//! - `34 TEXT style size color flags x y n (utf16 pairs)×⌈n/2⌉` — a platform text fragment ([`TEXT`])
 //! - `11 IMAGE_DEF id w h` — fetch its pixels with [`CanvasHost::image`]
 //! - `12 IMAGE_FREE id`
 //! - `13 STROKE color width cap join n (tag coords…)×n` — caps/joins as SVG (0 butt/miter, 1 round, 2 square/bevel)
@@ -71,6 +72,10 @@ const IMAGE_DEF: u32 = 11;
 const IMAGE_FREE: u32 = 12;
 const STROKE: u32 = 13;
 const IMAGE_RRECT: u32 = 14;
+/// A platform paragraph's line fragment (`EXACT_TEXT=platform`): the
+/// reader's style key, size, color, flags (1: right-to-left), left x,
+/// baseline y, then the UTF-16 count and units (two per word).
+const TEXT: u32 = 34;
 /// The next STROKE's dash: phase, count, lengths.
 const DASH: u32 = 25;
 /// A picture's animated file: id, length, path.
@@ -135,6 +140,8 @@ pub use jni_sys;
 mod picture;
 #[path = "canvas/shadow.rs"]
 mod shadow;
+#[path = "canvas/text.rs"]
+pub mod text;
 pub use picture::Picture;
 use picture::WeakPicture;
 
@@ -591,6 +598,25 @@ impl Backend for Recorder {
         }
         self.need(bounds);
         self.transform(ts.pre_translate(origin.0, origin.1));
+        if let Some(fragments) = text.platform_fragments(paragraph, palette) {
+            for f in fragments {
+                if f.paint.color[3] == 0 {
+                    continue;
+                }
+                self.ops.extend([TEXT, f.style]);
+                self.f(f.size);
+                self.ops.push(Self::color(f.paint.color));
+                self.ops.push(u32::from(f.rtl));
+                self.f(f.x);
+                self.f(f.y);
+                self.ops.push(f.text.len() as u32);
+                for pair in f.text.chunks(2) {
+                    let hi = pair.get(1).copied().unwrap_or(0);
+                    self.ops.push(u32::from(pair[0]) | (u32::from(hi) << 16));
+                }
+            }
+            return;
+        }
         for run in text.glyph_runs(paragraph, palette) {
             if run.paint.color[3] == 0 {
                 continue;
@@ -1103,6 +1129,17 @@ impl<D: DataSource + Default> CanvasHost<D> {
         p.display_complete(&frame);
         if p.module_pending() {
             p.first_pixel();
+        }
+        if self.painted.is_none() {
+            let t = p.text().borrow();
+            eprintln!(
+                "exact: first frame text: fonts {:.1} ms, {} measures ({} cached), {} shapes, {:.1} ms shaping",
+                p.fonts_ms,
+                t.measures,
+                t.hits,
+                t.shape_calls,
+                t.shaping.as_secs_f64() * 1000.0
+            );
         }
         self.painted = p.still().map(|still| Painted {
             still,

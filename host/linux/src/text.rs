@@ -21,6 +21,7 @@ mod flow;
 #[cfg(test)]
 mod flow_tests;
 mod font_cache;
+pub mod platform;
 mod shaping;
 #[allow(dead_code)] // Private transfer proof; controller integration is a separate increment.
 pub(crate) mod transfer;
@@ -362,7 +363,8 @@ pub(crate) fn canvas_font_system(
     plan: &Plan,
     assets: &Assets,
 ) -> (FontSystem, Vec<(String, FamilyChoice)>) {
-    let c = catalog::Catalog::for_assets(plan, assets);
+    // Canvas 2D draws glyphs itself: always the Rust catalog.
+    let c = catalog::Catalog::for_assets_with(plan, assets, None);
     let mut names: Vec<(String, FamilyChoice)> = [
         ("sans-serif", FamilyChoice::SansSerif),
         ("system-ui", FamilyChoice::SansSerif),
@@ -918,6 +920,10 @@ impl TextEngine {
     /// points from the paragraph's top-left, the same numbers the raster
     /// path snaps to pixels.
     pub fn glyph_runs(&mut self, paragraph: &Paragraph, palette: &[RunPaint]) -> Vec<GlyphRun> {
+        // A platform paragraph's glyphs are clusters, not a face's glyphs.
+        if !paragraph.source.data.styles.is_empty() {
+            return Vec::new();
+        }
         type Key = (fontdb::ID, u16, u32, usize, bool);
         type Runs = Vec<(Key, Vec<(u32, f32, f32)>)>;
         let mut runs: Runs = Vec::new();
@@ -958,6 +964,118 @@ impl TextEngine {
     }
 }
 
+/// A line fragment of a platform paragraph, for the platform to draw: its
+/// text in one style and direction, at its left edge on its baseline.
+pub struct TextFragment {
+    /// The run's platform style key.
+    pub style: u32,
+    /// Points.
+    pub size: f32,
+    /// Resolved ink and logical source identity.
+    pub paint: RunPaint,
+    /// Left edge, points from the paragraph's top-left.
+    pub x: f32,
+    /// Baseline, points from the paragraph's top-left.
+    pub y: f32,
+    /// Right-to-left.
+    pub rtl: bool,
+    /// The text, UTF-16.
+    pub text: Vec<u16>,
+}
+
+impl TextEngine {
+    /// A paragraph the platform measured, as the fragments it draws: each
+    /// line's glyphs joined while they are one run's adjacent text in one
+    /// direction (justified text: word by word, its spaces having grown).
+    /// `None` for a paragraph cosmic-text shaped.
+    pub fn platform_fragments(
+        &self,
+        paragraph: &Paragraph,
+        palette: &[RunPaint],
+    ) -> Option<Vec<TextFragment>> {
+        let styles = &paragraph.source.data.styles;
+        if styles.is_empty() {
+            return None;
+        }
+        let spec = &paragraph.source.spec;
+        let justified = spec.align == TextAlign::Justify;
+        let mut out = Vec::new();
+        // (run, rtl, ellipsis, start, end, left, right, baseline)
+        type Open = (usize, bool, bool, usize, usize, f32, f32, f32);
+        let flush = |out: &mut Vec<TextFragment>, open: Open, text: &str| {
+            let (run, rtl, ellipsis, start, end, left, _, baseline) = open;
+            let s = if ellipsis {
+                "\u{2026}"
+            } else {
+                &text[start..end]
+            };
+            if s.trim().is_empty() && !ellipsis {
+                return;
+            }
+            out.push(TextFragment {
+                style: styles[run],
+                size: spec.runs.get(run).map_or(16.0, |r| r.size.max(0.5)),
+                paint: palette[run],
+                x: left,
+                y: baseline,
+                rtl,
+                text: s.encode_utf16().collect(),
+            });
+        };
+        for (line, baseline) in self_runs(paragraph) {
+            let mut open: Option<Open> = None;
+            for g in line.glyphs {
+                let rtl = g.level.is_rtl();
+                let ellipsis = g.glyph_id == platform::ELLIPSIS;
+                let blank = justified
+                    && line
+                        .text
+                        .get(g.start..g.end)
+                        .is_some_and(|t| t.trim().is_empty());
+                if let Some(o) = open.as_mut() {
+                    let adjacent = o.0 == g.metadata
+                        && o.1 == rtl
+                        && !o.2
+                        && !ellipsis
+                        && !blank
+                        && (g.x - o.6).abs() < 0.01
+                        && if rtl { g.end == o.3 } else { g.start == o.4 };
+                    if adjacent {
+                        if rtl {
+                            o.3 = g.start;
+                        } else {
+                            o.4 = g.end;
+                        }
+                        o.6 = g.x + g.w;
+                        continue;
+                    }
+                    flush(&mut out, *o, line.text);
+                }
+                open = (!blank).then_some((
+                    g.metadata,
+                    rtl,
+                    ellipsis,
+                    g.start,
+                    g.end,
+                    g.x,
+                    g.x + g.w,
+                    baseline,
+                ));
+            }
+            if let Some(o) = open {
+                flush(&mut out, o, line.text);
+            }
+        }
+        Some(out)
+    }
+}
+
+fn self_runs(paragraph: &Paragraph) -> impl Iterator<Item = (cosmic_text::LayoutRun<'_>, f32)> {
+    paragraph
+        .layout_runs()
+        .zip(paragraph.baselines.iter().copied())
+}
+
 fn paragraph_metrics(p: &Paragraph) -> TextMetrics {
     TextMetrics {
         width: p.width,
@@ -989,6 +1107,7 @@ impl TextMeasurer for Measurer {
         next.families = catalog.families.clone();
         next.declared_faces = catalog.declared_faces.clone();
         next.sans = catalog.sans.clone();
+        next.platform = catalog.platform.clone();
         drop(catalog);
         engine.catalog = Rc::new(RefCell::new(next));
         engine.paragraphs = cache::Cache::default();
@@ -1080,3 +1199,7 @@ mod span_capacity_tests;
 #[cfg(test)]
 #[path = "text/css_tests.rs"]
 mod css_tests;
+
+#[cfg(test)]
+#[path = "text/platform_tests.rs"]
+mod platform_tests;

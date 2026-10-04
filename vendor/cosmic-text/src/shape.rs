@@ -1487,6 +1487,139 @@ impl ShapeLine {
         font_system.shape_buffer.spans = cached_spans;
     }
 
+    /// EXACT PATCH (LLP 1076): the words [`Self::build_with_base`] would
+    /// shape, for a shaper outside this crate: whether the line is
+    /// right-to-left, then each bidi level run's level and its words (byte
+    /// range in `line`, and whether the word is blank), in logical order. The
+    /// same level runs and break opportunities, without the font probe that
+    /// keeps a coding ligature (`!=`) whole.
+    #[allow(clippy::type_complexity)]
+    pub fn segment(
+        line: &str,
+        base_rtl: Option<bool>,
+    ) -> (bool, Vec<(unicode_bidi::Level, Vec<(Range<usize>, bool)>)>) {
+        let base = base_rtl.map(|rtl| {
+            if rtl {
+                unicode_bidi::Level::rtl()
+            } else {
+                unicode_bidi::Level::ltr()
+            }
+        });
+        let bidi = unicode_bidi::BidiInfo::new(line, base);
+        let rtl = bidi.paragraphs.first().is_some_and(|p| p.level.is_rtl());
+        let mut spans = Vec::new();
+        let mut words_of = |range: Range<usize>, level| {
+            let span = &line[range.clone()];
+            let mut words = Vec::new();
+            let mut start_word = 0;
+            for (end_lb, _) in unicode_linebreak::linebreaks(span) {
+                let mut start_lb = end_lb;
+                for (i, c) in span[start_word..end_lb].char_indices().rev() {
+                    if c.is_whitespace() {
+                        start_lb = start_word + i;
+                    } else {
+                        break;
+                    }
+                }
+                if start_word < start_lb {
+                    words.push(((range.start + start_word)..(range.start + start_lb), false));
+                }
+                for (i, c) in span[start_lb..end_lb].char_indices() {
+                    let at = range.start + start_lb + i;
+                    words.push((at..at + c.len_utf8(), true));
+                }
+                start_word = end_lb;
+            }
+            spans.push((level, words));
+        };
+        for para_info in &bidi.paragraphs {
+            let line_range = para_info.range.clone();
+            let levels = Self::adjust_levels(&unicode_bidi::Paragraph::new(&bidi, para_info));
+            let mut start = line_range.start;
+            let mut run_level = levels[start];
+            for (i, &new_level) in levels
+                .iter()
+                .enumerate()
+                .take(line_range.end)
+                .skip(start + 1)
+            {
+                if new_level != run_level {
+                    words_of(start..i, run_level);
+                    start = i;
+                    run_level = new_level;
+                }
+            }
+            words_of(start..line_range.end, run_level);
+        }
+        (rtl, spans)
+    }
+
+    /// EXACT PATCH (LLP 1076): a line from [`Self::segment`]'s words, each
+    /// shaped outside this crate (glyphs in a shaper's output order: visual
+    /// for a right-to-left level), and the ellipsis glyphs, ordered and
+    /// tab-adjusted as [`Self::build_with_base`] orders its own.
+    pub fn from_words(
+        line: &str,
+        rtl: bool,
+        spans: Vec<(unicode_bidi::Level, Vec<ShapeWord>)>,
+        metrics_opt: Option<Metrics>,
+        mut ellipsis: Vec<ShapeGlyph>,
+        tab_width: u16,
+    ) -> Self {
+        let mut spans: Vec<ShapeSpan> = spans
+            .into_iter()
+            .map(|(level, mut words)| {
+                if rtl {
+                    for word in &mut words {
+                        word.glyphs.reverse();
+                    }
+                }
+                if rtl != level.is_rtl() {
+                    words.reverse();
+                }
+                ShapeSpan {
+                    level,
+                    words,
+                    decoration_spans: Vec::new(),
+                }
+            })
+            .collect();
+        let mut x = 0.0;
+        for span in &mut spans {
+            for word in &mut span.words {
+                for glyph in &mut word.glyphs {
+                    if line.get(glyph.start..glyph.end) == Some("\t") {
+                        let tab_x_advance = f32::from(tab_width) * glyph.x_advance;
+                        let tab_stop = (math::floorf(x / tab_x_advance) + 1.0) * tab_x_advance;
+                        glyph.x_advance = tab_stop - x;
+                    }
+                    x += glyph.x_advance;
+                }
+            }
+        }
+        if rtl {
+            ellipsis.reverse();
+        }
+        let level = if rtl {
+            unicode_bidi::Level::rtl()
+        } else {
+            unicode_bidi::Level::ltr()
+        };
+        Self {
+            rtl,
+            spans,
+            metrics_opt,
+            ellipsis_span: Some(ShapeSpan {
+                level,
+                words: vec![ShapeWord {
+                    blank: false,
+                    glyphs: ellipsis,
+                }],
+                decoration_spans: Vec::new(),
+            }),
+        }
+    }
+
     // A modified version of first part of unicode_bidi::bidi_info::visual_run
     fn adjust_levels(para: &unicode_bidi::Paragraph) -> Vec<unicode_bidi::Level> {
         use unicode_bidi::BidiClass::{B, BN, FSI, LRE, LRI, LRO, PDF, PDI, RLE, RLI, RLO, S, WS};
