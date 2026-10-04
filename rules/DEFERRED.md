@@ -437,8 +437,8 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   §Events). The Signal Clone's hold-to-record mic is the consumer: recording
   starts the moment the finger lands. Unblocks hold-to-act controls. Take:
   none offered; waived by Charlie's approval. Still no multi-touch.
-  **Built (2026-10-04, LLP 1056 §8.6; awaiting Charlie's confirmation of the
-  widening):** stage 3's pointer coordinates, which Canvas 2D's acceptance
+  **Built (2026-10-04, LLP 1056 §8.6; the widening confirmed by Charlie the
+  same day):** stage 3's pointer coordinates, which Canvas 2D's acceptance
   admitted for a canvas's handlers, as a `PointerEvent` record (DOM's
   offset, buttons, pressure, type and id) on these two and a new
   `pointermove`, on any node. The paint app's diary (F1) is the consumer.
