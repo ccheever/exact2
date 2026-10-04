@@ -1233,3 +1233,15 @@ descendant audits pass with no recorded children left. Both Mayhem
 five-second captures were inspected; nameplates remain separated and
 readable. Artifacts: `artifacts/inline-{web,macos}/`. No gameplay or
 Jev-policy changes.
+
+## Contract modules integration from main (2026-10-04)
+
+Merge `887ee2b78` brings main through `a73a3ae4a`, including Contract
+module resolution and source-graph watching. Garden diary 004 records the
+passing root checks and their 123.3 s budget miss. Rivals passes complete
+web/macOS proofs in 96.3/60.8 s, including builds. Both hosts agree on
+source inputs, all pins, ten world observations and fourteen saves; worlds
+and saves also match `inline-macos` before the integration. Both descendant
+audits pass with no recorded children left, and both Mayhem five-second
+captures were inspected. Artifacts: `artifacts/modules-{web,macos}/`.
+No gameplay or Jev-policy changes.

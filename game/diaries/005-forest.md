@@ -990,3 +990,15 @@ the change. Both descendant audits pass with no recorded children left.
 Both shelter captures were inspected: supply guidance and countdown remain
 readable. Artifacts: `artifacts/inline-{web,macos}/`. The speed measurement
 is the isolated alternating diagnostic above, not these proof wall times.
+
+## Contract modules integration from main (2026-10-04)
+
+Merge `887ee2b78` brings main through `a73a3ae4a`, including Contract
+module resolution and source-graph watching. Garden diary 004 records the
+passing root checks and their 123.3 s budget miss. Forest passes complete
+web/macOS proofs in 110.5/170.1 s, including builds. Both hosts agree on
+source inputs, all pins, nine world observations and fifteen saves; worlds
+and saves also match `inline-macos` before the integration. Both descendant
+audits pass with no recorded children left, and both shelter captures were
+inspected. Artifacts: `artifacts/modules-{web,macos}/`. No gameplay or
+Jev-policy changes.

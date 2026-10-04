@@ -1223,3 +1223,22 @@ The accepted watering continuation is `07f23e64d7494044…`; the other pins
 move with the saved fields and barrel scene, as expected. An ordinary Linux
 proof against the accepted pins passes in 1.950 s, with zero failures and
 a passing cleanup audit (`artifacts/water-accepted-linux/`).
+
+## Contract modules integration from main (2026-10-04)
+
+Periodic merge `887ee2b78` brings main through `a73a3ae4a`, including
+Contract module resolution and source-graph watching. The frozen Bun install
+succeeds. All five root checks pass in 123.304 s: build 19.532, tests 82.358
+(2,357 passed in 81 binaries, nine ignored), Clippy 19.255, formatting
+2.058, caps 0.086 and boot 0.015 s. This exceeds the 60 s target and is
+recorded in QUEUE; no game proof ran concurrently with the checks. Logs:
+`/tmp/exact2-modules-main-*.log`. The first temporary command wrapper used
+an unsupported Bun stdio option and exited before running any check; the
+corrected wrapper uses one log descriptor for both output streams.
+
+The rebuilt Garden passes complete web/macOS proofs in 101.5/42.9 s.
+Inputs, all pins, eight world observations and twelve saves agree between
+hosts; worlds and saves also match `water-hit-web` before this integration.
+Both descendant audits pass with no recorded children left, and both
+watering captures were inspected. Artifacts: `artifacts/modules-{web,macos}/`.
+No gameplay or Jev-policy changes.
