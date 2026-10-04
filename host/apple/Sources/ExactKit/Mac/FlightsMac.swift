@@ -97,6 +97,8 @@ extension Presenter {
     func landFlight(_ f: Flight) {
         flights.removeValue(forKey: f.id)
         guard let view = f.view, let slot = f.slot, let parent = slot.superview else {
+            // Its place went (a roots change): it gets its own look back.
+            if let view = f.view { view.flightLook = nil; if let s = f.saved { view.layer?.cornerRadius = s.radius; view.layer?.masksToBounds = s.clips } }
             f.slot?.removeFromSuperview(); f.container.map(Self.dropEmptyLayer); return
         }
         view.flightLook = nil
@@ -136,9 +138,17 @@ extension Presenter {
     }
 
     private func liftFlight(_ f: Flight) {
-        guard let view = views[f.id], let parent = view.superview, let content = view.window?.contentView, !f.source.rect.isNull,
-              !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else { flights.removeValue(forKey: f.id); return }
+        // A document root is placed by `roots`, not by a parent: it lands in place.
+        guard let view = views[f.id], let parent = view.superview, parent !== root, let content = view.window?.contentView, !f.source.rect.isNull,
+              !DisplayPreferences.reducedMotion else {
+            flights.removeValue(forKey: f.id)
+            // Not flying (reduced motion, nothing captured): its place still
+            // comes into view (D5).
+            if let view = views[f.id], view.window != nil { afterBatch { [weak self, weak view] in if let view { self?.scrollIntoView(view) } } }
+            return
+        }
         let slot = FlightSlot(frame: view.frame)
+        slot.wantsLayer = true
         slot.isHidden = true
         parent.addSubview(slot, positioned: .below, relativeTo: view)
         // Once the batch is done: a virtualized list hears a scroll made
@@ -151,6 +161,7 @@ extension Presenter {
         }
         let layer = content.subviews.last as? FlightLayer ?? {
             let l = FlightLayer(frame: content.bounds)
+            l.wantsLayer = true
             l.autoresizingMask = [.width, .height]
             content.addSubview(l)
             return l
@@ -168,8 +179,9 @@ extension Presenter {
     private func showFlight(_ f: Flight) {
         guard let view = f.view, let slot = f.slot, let layer = f.container, let content = layer.superview else { return }
         let p = f.progress
-        let from = layer.convert(f.source.rect, from: content)
-        let to = slot.convert(slot.bounds, to: layer)
+        // Through the layers, as the source was: ancestors' transforms count.
+        let from = layer.layer.flatMap { l in content.layer.map { l.convert(f.source.rect, from: $0) } } ?? layer.convert(f.source.rect, from: content)
+        let to = slot.layer.flatMap { s in layer.layer.map { s.convert(s.bounds, to: $0) } } ?? slot.convert(slot.bounds, to: layer)
         func mix(_ a: CGFloat, _ b: CGFloat) -> CGFloat { a + (b - a) * p }
         let shown = NSRect(x: mix(from.minX, to.minX), y: mix(from.minY, to.minY),
                            width: max(0, mix(from.width, to.width)), height: max(0, mix(from.height, to.height)))

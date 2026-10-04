@@ -98,17 +98,15 @@ extension Presenter {
     func landFlight(_ f: Flight) {
         flights.removeValue(forKey: f.id)
         guard let view = f.view, let slot = f.slot, let parent = slot.superview else {
+            // Its place went (a roots change): the view is wherever that put
+            // it; it gets its own look, input and accessibility back.
+            if let view = f.view { restore(view, f) }
             f.slot?.removeFromSuperview(); f.container.map(Self.dropEmptyLayer); return
         }
         view.flightLook = nil
         parent.insertSubview(view, aboveSubview: slot)
         slot.removeFromSuperview()
-        if let s = f.saved {
-            view.layer.cornerRadius = s.radius
-            view.layer.masksToBounds = s.clips
-            view.isUserInteractionEnabled = s.interaction
-            view.accessibilityElementsHidden = s.hidden
-        }
+        restore(view, f)
         let op = f.geometry ?? {
             var op = BatchOp(op: .frame, nodeID: f.id)
             op.x = slot.frame.minX; op.y = slot.frame.minY; op.w = slot.frame.width; op.h = slot.frame.height
@@ -118,6 +116,16 @@ extension Presenter {
         view.setNeedsLayout()
         if view.kind == "image" { view.applyImageLayer() }
         f.container.map(Self.dropEmptyLayer)
+    }
+
+    private func restore(_ view: NodeView, _ f: Flight) {
+        view.flightLook = nil
+        if let s = f.saved {
+            view.layer.cornerRadius = s.radius
+            view.layer.masksToBounds = s.clips
+            view.isUserInteractionEnabled = s.interaction
+            view.accessibilityElementsHidden = s.hidden
+        }
     }
 
     /// A destroyed arriver's flight ends with it.
@@ -143,8 +151,15 @@ extension Presenter {
     }
 
     private func liftFlight(_ f: Flight) {
-        guard let view = views[f.id], let parent = view.superview, view.window != nil, !f.source.rect.isNull,
-              !UIAccessibility.isReduceMotionEnabled else { flights.removeValue(forKey: f.id); return }
+        // A document root is placed by `roots`, not by a parent: it lands in place.
+        guard let view = views[f.id], let parent = view.superview, parent !== root, view.window != nil, !f.source.rect.isNull,
+              !DisplayPreferences.reducedMotion else {
+            flights.removeValue(forKey: f.id)
+            // Not flying (reduced motion, nothing captured): its place still
+            // comes into view (D5).
+            if let view = views[f.id], view.window != nil { afterBatch { [weak self, weak view] in if let view { self?.scrollIntoView(view) } } }
+            return
+        }
         let size = view.bounds.size
         let origin = CGPoint(x: view.layer.position.x - view.layer.anchorPoint.x * size.width,
                              y: view.layer.position.y - view.layer.anchorPoint.y * size.height)

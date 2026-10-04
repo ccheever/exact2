@@ -180,7 +180,7 @@ export function commit(f, what = "commit") {
     for (const m of landed) if (m.then) { m.due = clock.now; if (!clock.agent) drive(); }
     return true;
   };
-  return Sh ? Sh.commit(tail, Queue, inflight, After) : tail();
+  return Sh && ok ? Sh.commit(tail, Queue, inflight, After) : tail();
 }
 /** What runs after each commit's tree update (a loaded piece's publication),
  * and before it (the text flow piece puts flowed paragraphs back). */

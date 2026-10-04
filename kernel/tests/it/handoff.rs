@@ -184,3 +184,22 @@ fn a_node_created_and_destroyed_in_one_commit_hands_off_nothing() {
         .unwrap();
     assert!(r.handoffs.is_empty());
 }
+
+#[test]
+fn two_leavers_of_one_name_pair_nothing() {
+    let mut k = kernel(true);
+    k.apply(
+        0,
+        2,
+        &[
+            view(6),
+            name(6, "photo"),
+            Op::SetChildren {
+                id: 2,
+                children: vec![3, 6],
+            },
+        ],
+    )
+    .unwrap();
+    assert!(open(&mut k, true).handoffs.is_empty());
+}

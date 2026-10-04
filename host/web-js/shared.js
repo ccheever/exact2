@@ -93,15 +93,13 @@ export function commit(tail, queue, inflight, after) {
   if (!old.size) return tail();
   const before = new Set(document.querySelectorAll(NAME)); // an arriver is new
   if (running) { running.skipTransition(); running = null; }
-  const names = new Map(); // name → ident
-  const curves = new Map(); // ident → the leaver's curve
-  const count = new Map();
-  for (const name of old.values()) count.set(name, (count.get(name) ?? 0) + 1);
-  for (const [el, name] of old) {
-    if (count.get(name) > 1) { names.set(name, null); continue; } // two leavers: no pair, and not captured
+  // Every candidate is captured under its own name; which ones left, and
+  // whether a name left once and arrived once, is known after the flush.
+  const ids = new Map(), curves = new Map(); // element → ident, its curve
+  for (const el of old.keys()) {
     const id = ident();
-    names.set(name, id);
-    curves.set(id, curve(el));
+    ids.set(el, id);
+    curves.set(el, curve(el));
     el.style.viewTransitionName = id;
   }
   // Only the pairs move: the root and unpaired leavers are not shown.
@@ -115,17 +113,26 @@ export function commit(tail, queue, inflight, after) {
     const tails = pending;
     pending = null;
     result = tails.map(f => f())[0];
+    // A leaver is gone, or kept only as an exit ghost (its own or an
+    // ancestor's): it has left. One that stayed keeps its name and moves.
+    const gone = new Map(); // name → the leavers that left
     for (const [el, name] of old) {
-      const id = names.get(name);
-      if (!id) { el.style.viewTransitionName = ''; continue; }
-      // Stayed: it moves. A leaver kept as an exit ghost has left.
-      const exiting = el.hasAttribute('data-exiting');
-      if (el.isConnected && !exiting && el.getAttribute('data-shared-element') === name) continue;
+      const ghost = el.isConnected ? el.closest('[data-exiting]') : null;
+      // Stayed: shown as it is, not moved on the browser's own curve (its
+      // own layout transition, if any, moves it).
+      if (el.isConnected && !ghost && el.getAttribute('data-shared-element') === name) { rules.push(`::view-transition-group(${ids.get(el)}),::view-transition-old(${ids.get(el)}),::view-transition-new(${ids.get(el)}){animation:none}`); continue; }
+      gone.set(name, [...(gone.get(name) ?? []), [el, ghost]]);
+    }
+    for (const [name, left] of gone) {
       const arrivers = [...document.querySelectorAll(`[data-shared-element="${CSS.escape(name)}"]`)].filter(e => !before.has(e));
-      const to = arrivers.length === 1 ? arrivers[0] : null;
-      const c = to && (curve(to) ?? curves.get(id));
-      if (!c) { rules.push(`::view-transition-group(${id}){display:none}`); continue; }
-      if (exiting) el.remove(); // the transition is its exit (D7)
+      const to = left.length === 1 && arrivers.length === 1 ? arrivers[0] : null;
+      const [el, ghost] = left[0];
+      const c = to && (curve(to) ?? curves.get(el));
+      if (!c) { for (const [e] of left) rules.push(`::view-transition-group(${ids.get(e)}){display:none}`); continue; }
+      // The transition is its exit (D7): a ghost of its own goes; inside an
+      // ancestor's, it is hidden and the rest leaves as it would.
+      if (ghost === el) el.remove(); else if (ghost) el.style.visibility = 'hidden';
+      const id = ids.get(el);
       to.style.viewTransitionName = id;
       named.push(to);
       to.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
@@ -137,15 +144,17 @@ export function commit(tail, queue, inflight, after) {
   running = t;
   // Its own names only: a transition skipped by the next must not clear the
   // names the next just gave.
-  const ids = new Set(names.values());
+  const own = new Set(ids.values());
   const clean = () => {
     if (running === t) running = null;
-    for (const el of named) if (ids.has(el.style.viewTransitionName)) el.style.viewTransitionName = '';
+    for (const el of named) if (own.has(el.style.viewTransitionName)) el.style.viewTransitionName = '';
   };
   t.updateCallbackDone.then(() => { if (!paired) t.skipTransition(); }, () => {});
   // Its animations exist once it is ready: what runs after a commit's tree
-  // (the agent's clock registers and seeks them) runs again then.
-  t.ready.then(() => { for (const f of after ?? []) f(); }, () => {}).finally(() => inflight.n--);
+  // (the agent's clock registers and seeks them) runs again then. The agent
+  // waits for that before it moves the clock (agent.js).
+  const ready = t.ready.then(() => { for (const f of after ?? []) f(); }, () => {}).finally(() => inflight.n--);
+  (globalThis.exact ??= {}).viewTransition = () => ready;
   t.finished.then(clean, clean);
   return result;
 }

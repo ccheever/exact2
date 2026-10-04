@@ -1181,8 +1181,10 @@ impl<D: DataSource> Host<D> {
         .then(|| self.runner.handlers());
         for t in receipts {
             let r = &t.receipt;
-            self.begin_exits(r, &mut batch);
+            // Flights capture their leavers before an exit takes them
+            // out of the presenter's maps (LLP 1013.000 D4.1).
             self.begin_flights(r, &mut batch);
+            self.begin_exits(r, &mut batch);
             for key in &r.destroyed {
                 if let Some(id) = self.keys.remove(key) {
                     self.paint.runs.remove(&id);
