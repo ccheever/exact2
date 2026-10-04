@@ -75,6 +75,12 @@ guide's rules don't make obvious.
   is dropped and the host becomes the first path segment (`location_of`, LLP 1038
   D8). Fix: match on the path (`startsWith(location, "/connect?")`), not the URL.
   (Signal Clone, phone path.)
+- **VoiceOver reads the screen behind a full-screen overlay.** A call screen
+  or menu drawn as a root child above the bars hides the chat list from sight,
+  not from VoiceOver: it still reached the rows and the native tab bar behind.
+  Fix: `role="dialog" aria-modal=true` (or `role="alertdialog"`) on the
+  overlay's root (LLP 1080.003); on iOS its siblings, the tab container and its
+  bars among them, are then skipped while it shows. (Signal Clone, build 13.)
 - **With `viewport-fit="cover"`, route content goes under the native bar.** Cause:
   the bar's cover is added to the route's padding, but a cover-fit root has no top
   safe area. Fix: put `env(safe-area-inset-top)` on the route column, not on each
