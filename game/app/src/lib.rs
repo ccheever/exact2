@@ -98,6 +98,10 @@ fn bake_source<D: contract::DataSource>(
     } else {
         String::new()
     };
+    let windows = format!(
+        "fn main() {{ std::process::exit(exact_windows::run::<AppData>({:?}, PLAN, COMPAT)); }}",
+        manifest.name
+    );
     let host = match platform {
         "web" => "exact_web::host!(AppData, PLAN, COMPAT, app_data);",
         "macos" | "ios" => {
@@ -107,7 +111,7 @@ fn bake_source<D: contract::DataSource>(
             "fn main() { std::process::exit(exact_linux::run::<AppData>(PLAN, COMPAT)); }"
         }
         "linux" => "fn main() { std::process::exit(exact_linux::app::run_empty(PLAN, COMPAT)); }",
-        "windows" => "fn main() { std::process::exit(exact_windows::run::<AppData>(PLAN, COMPAT)); }",
+        "windows" => &windows,
         _ => panic!("unsupported game app platform: {platform}"),
     };
     fs::write(

@@ -6,15 +6,19 @@
 #[cfg(windows)]
 mod window;
 
-/// Run a Windows app with its baked plan and product identity.
-pub fn run<D: exact_runner::DataSource + Default + 'static>(plan: &[u8], compat: &str) -> i32 {
+/// Run a Windows app with its display name, baked plan and product identity.
+pub fn run<D: exact_runner::DataSource + Default + 'static>(
+    name: &str,
+    plan: &[u8],
+    compat: &str,
+) -> i32 {
     #[cfg(windows)]
     {
-        window::run::<D>(plan, compat)
+        window::run::<D>(name, plan, compat)
     }
     #[cfg(not(windows))]
     {
-        let _ = (plan, compat);
+        let _ = (name, plan, compat);
         eprintln!("exact-windows requires a Windows target");
         1
     }
