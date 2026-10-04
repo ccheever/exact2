@@ -1,7 +1,7 @@
 # LLP 1086: What an app author is given
 
 **Type:** RFC
-**Status:** Draft r2, 2026-10-04. Reviewed blind by Astra (max) and Grok (xhigh): both SOUND WITH CHANGES; §6 lists what r2 changed. Charlie asked for it to be implemented after review (2026-10-04); his request is the approval RULES asks for the build script (D3) and the DEFERRED bullet (D9).
+**Status:** Draft r2, 2026-10-04; implemented the same day (§3 as built). Reviewed blind by Astra (max) and Grok (xhigh): both SOUND WITH CHANGES; §6 lists what r2 changed. Charlie asked for it to be implemented after review (2026-10-04); his request is the approval RULES asks for the build script (D3) and the DEFERRED bullet (D9).
 **Systems:** Scaffolding (`game/new.mjs`: the files `exact new` writes and `--update` rewrites), the app's command runner (the generated `exact.mjs`), setup (`scripts/exact.mjs` `setup`), the app manifest schema (`scripts/app.schema.json`, `scripts/app.mjs` validation), the Contract CLI (`contract/cli`: a `vocab` command), the author docs (`docs/contract-for-humans.md`, `docs/contract-for-agents.md`, `docs/contract-grammar.md`, `docs/reference.md`), `README.md`, `AGENTS.md`/`CLAUDE.md`, `rules/DEFERRED.md`, LLP 1000
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
@@ -126,8 +126,11 @@ The section also states the rules an author otherwise learns by failing:
 - **How to verify it.** Generate the types, build, then drive with
   `--storage <name>`, which an ordinary agent drive refuses
   (`host/web/storage-environment.js`). Without that flag a drive exercises
-  only the storage-unavailable path. Then drive a second time to show the data
-  persisted.
+  only the storage-unavailable path. Authored tests took no `--storage` at all
+  (`runTests` dropped it); as built, `agent.mjs --test … --storage <name>` gives
+  each test its own empty scratch store. On the web, every drive starts a new
+  browser profile, so persistence across launches is shown in the dev loop or on
+  a native host, not by a second drive.
 
 `docs/contract-for-agents.md` gains the same example in condensed form under
 "Data requests and side effects".
@@ -310,7 +313,9 @@ Their names already say what they are.
   `game/README.md`.
 - LLP 1000's map gains `host/web-js` (LLP 1071) and `host/render`, the render
   host (LLP 1048). Its web dev-loop description is brought up to date: the JS
-  target is the default build, and the ~20 ms resident loop is `--wasm`.
+  target is the default build, and the ~20 ms resident loop is `--wasm`. Its
+  "`apps/caltrain/gpu` is … the line map" is corrected: the map left the GPU
+  module for Canvas 2D (`apps/caltrain/gpu/src/lib.rs:1-3`).
 
 ### D9. The docs under `docs/` are part of the product
 
@@ -425,7 +430,9 @@ returned SOUND WITH CHANGES. Their findings are in
 - **D2:** continues the README's todo example. **D10:** README fences labeled,
   TypeScript taken from the docs, scope against DEFERRED stated. (Astra;
   Grok.)
-- **D8:** dropped a misread "line map is Canvas 2D" correction. Caltrain's GPU
-  module does draw the line map. (Grok.)
+- **D8:** Grok's #5 said the "line map is Canvas 2D" correction was a misread.
+  It was checked and kept: `apps/caltrain/gpu/src/lib.rs:1-3` says the map
+  left the GPU module for Canvas 2D (LLP 1056). Grok's `game/README.md` find
+  is taken.
 - **D11:** not a gate. (Astra.)
 - **D5:** `$schema` is already admitted. (Astra.)
