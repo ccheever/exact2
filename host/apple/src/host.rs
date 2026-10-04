@@ -62,11 +62,11 @@ use height_drag::{HeightDrag, HeightHandle};
 mod box_motion_tests;
 #[path = "layout.rs"]
 mod layout;
+#[path = "resize.rs"]
+mod resize;
 #[cfg(test)]
 #[path = "storage_tests.rs"]
 mod storage_tests;
-#[path = "resize.rs"]
-mod resize;
 #[path = "svg.rs"]
 mod svg;
 #[path = "svg_lower.rs"]

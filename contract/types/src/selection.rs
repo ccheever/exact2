@@ -153,9 +153,11 @@ pub(super) fn declare(shapes: &mut Shapes) {
     // and top, the content box's place in the padding box).
     shapes.map.insert(
         "DOMRectReadOnly".into(),
-        ["x", "y", "width", "height", "top", "right", "bottom", "left"]
-            .map(|f| (f.into(), Ty::Number))
-            .to_vec(),
+        [
+            "x", "y", "width", "height", "top", "right", "bottom", "left",
+        ]
+        .map(|f| (f.into(), Ty::Number))
+        .to_vec(),
     );
     // One picked file, in the order `exact_runner::Picked` writes it: the
     // `app:/tmp/picked/…` path, the original name, the MIME type and size

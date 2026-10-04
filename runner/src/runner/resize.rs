@@ -55,7 +55,9 @@ impl ResizeRect {
     /// Host kind 39's payload: `x,y,width,height`, finite, the size not
     /// negative.
     pub fn parse(payload: &str) -> Option<ResizeRect> {
-        let mut n = payload.split(',').map(|p| exact_num::parse_f64(p.trim()).ok());
+        let mut n = payload
+            .split(',')
+            .map(|p| exact_num::parse_f64(p.trim()).ok());
         let rect = ResizeRect {
             x: n.next()??,
             y: n.next()??,
@@ -84,7 +86,12 @@ impl<D: DataSource> Runner<D> {
                 .iter()
                 .any(|h| self.plan.handler(h).event == EventKind::Resize)
         };
-        if !self.plan.handlers.iter().any(|h| h.event == EventKind::Resize) {
+        if !self
+            .plan
+            .handlers
+            .iter()
+            .any(|h| h.event == EventKind::Resize)
+        {
             return Vec::new();
         }
         let arena = self.kernel.arena();
@@ -113,7 +120,11 @@ impl<D: DataSource> Runner<D> {
                             height: height.into(),
                         }
                     });
-                let last = self.resized.iter().find(|(k, _)| *k == key).map(|(_, r)| *r);
+                let last = self
+                    .resized
+                    .iter()
+                    .find(|(k, _)| *k == key)
+                    .map(|(_, r)| *r);
                 (d >= depth && last != Some(rect)).then_some((view, rect, d))
             })
             .collect();
@@ -126,7 +137,8 @@ impl<D: DataSource> Runner<D> {
     /// it out until its box changes again.
     pub fn resize_delivered(&mut self, view: ViewId, rect: ResizeRect) {
         let arena = self.kernel.arena();
-        self.resized.retain(|(key, _)| arena.resolve(*key).is_some());
+        self.resized
+            .retain(|(key, _)| arena.resolve(*key).is_some());
         let Some(key) = arena.key_of(view) else {
             return;
         };

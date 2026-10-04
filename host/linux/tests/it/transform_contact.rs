@@ -402,7 +402,11 @@ fn a_resize_handler_hears_its_content_box_after_layout_and_cannot_spin() {
     assert_eq!(text(&p, "seen"), "200x50 at 4,2 right 204");
     assert_eq!(text(&p, "calls"), "1");
     press(&mut p, "other");
-    assert_eq!(text(&p, "calls"), "1", "a commit that leaves the box says nothing");
+    assert_eq!(
+        text(&p, "calls"),
+        "1",
+        "a commit that leaves the box says nothing"
+    );
     press(&mut p, "widen");
     assert_eq!(text(&p, "seen"), "300x50 at 4,2 right 304");
     assert_eq!(text(&p, "calls"), "2");

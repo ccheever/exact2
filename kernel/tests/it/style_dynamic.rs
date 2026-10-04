@@ -33,10 +33,7 @@ fn translate_text_is_a_narrow_css_pixel_subset_with_atomic_refusal() {
             (s.translate, s.translate_percent),
             (
                 exact_kernel::Vec2 { x: px.0, y: px.1 },
-                exact_kernel::Vec2 {
-                    x: pct.0,
-                    y: pct.1
-                }
+                exact_kernel::Vec2 { x: pct.0, y: pct.1 }
             ),
             "{text}"
         );

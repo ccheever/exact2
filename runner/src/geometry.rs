@@ -283,7 +283,12 @@ fn client_rect(
     let corners = [(0.0, 0.0), (w, 0.0), (0.0, h), (w, h)]
         .map(|(x, y)| (m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]));
     let (x0, y0, x1, y1) = corners.iter().fold(
-        (f64::INFINITY, f64::INFINITY, f64::NEG_INFINITY, f64::NEG_INFINITY),
+        (
+            f64::INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::NEG_INFINITY,
+        ),
         |(a, b, c, d), (x, y)| (a.min(*x), b.min(*y), c.max(*x), d.max(*y)),
     );
     if !(x0.is_finite() && y0.is_finite() && x1.is_finite() && y1.is_finite()) {
