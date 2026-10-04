@@ -36,18 +36,18 @@ import { startSweep } from './sweep.mjs';
 import { installProblems } from './install-page.mjs';
 import { gameDefaults, lintGame, prepareGame } from '../game/app/shells.mjs';
 
-/** rustup puts cargo in `~/.cargo/bin` and a login profile puts that on PATH;
- * a non-interactive shell (an agent's, a launchd job's) often skips the
- * profile, and every cargo spawn below then fails as ENOENT. Every script that
- * builds resolves its app here, so this is the one place to add it back.
- * Children inherit the repaired PATH. */
+/** rustup puts cargo and cargo-installed tools in `~/.cargo/bin`;
+ * a non-interactive shell (an agent's, a launchd job's) often skips profiles.
+ * Even when Homebrew provides cargo,
+ * wasm-bindgen may only exist here. Append the directory to preserve explicit
+ * PATH choices, and let setup/build children inherit it. */
 export function cargoOnPath(env = process.env, home = homedir()) {
   const dirs = (env.PATH ?? '').split(delimiter).filter(Boolean);
-  if (dirs.some(dir => existsSync(resolve(dir, 'cargo')))) return true;
   const rustup = resolve(env.CARGO_HOME ?? resolve(home, '.cargo'), 'bin');
-  if (!existsSync(resolve(rustup, 'cargo'))) return false;
-  env.PATH = [rustup, ...dirs].join(delimiter);
-  return true;
+  if (existsSync(rustup) && !dirs.includes(rustup)) dirs.push(rustup);
+  env.PATH = dirs.join(delimiter);
+  const cargo = process.platform === 'win32' ? 'cargo.exe' : 'cargo';
+  return dirs.some(dir => existsSync(resolve(dir, cargo)));
 }
 cargoOnPath();
 

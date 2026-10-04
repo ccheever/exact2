@@ -419,3 +419,63 @@ proof parsed the purse from `accessibleName`, which web did not report for a
 labelled `text` before the host fix, so `Number(undefined)`. The game's value
 was right (`379392554 sheckles`, `379M¢` on web and Linux). The scale run now
 checks that the purse after "sell all" is finite and positive.
+
+## Agent-directed market play (2026-10-04)
+
+Started this batch by merging main through `880ae483b`. Forest's shared
+`decide` helper now also drives Garden: Jev sees the HUD text, the first three
+shop rows and enabled buttons, and chooses a button, E, or a 20-second wait.
+It cannot write the world or use the stress controls. The world snapshot is
+saved after the run for diagnosis, never passed into the decision request.
+
+The baseline web run exposed a real progression bug. At decision 23 Jev sold
+three carrots for 67¢. At decision 25 the shop had four strawberries at 50¢,
+but its buy button was still disabled. The published shop also offered to
+equip a carrot already planted. Jev waited six 20-second turns for the next
+restock to refresh the record before it could buy the strawberry. The run
+ended at the 48-decision limit with four strawberry harvests still unsold.
+Some wasted turns were the policy's own decisions, not engine faults.
+Evidence: `games/garden/artifacts/jev-baseline-web/jev-decisions.jsonl`.
+
+Fixed the stale dependencies: planting refreshes seed ownership; selling,
+equipping, expanding and successful HUD commands refresh shop availability.
+Successful commands now leave visible feedback, including the bought seed.
+A malformed `sell` command also refuses instead of accidentally selling the
+whole backpack. The scripted host proof checks the state immediately after
+these actions, before a restock can hide a missed publication.
+
+Added five market orders (carrot → strawberry → blueberry → tomato → corn).
+Each consumes its requested quantity, leaves unrelated fruit, and pays full
+fruit value plus a bonus once. `Farm.orders` is both progress and the saved
+receipt; there is no second reward ledger. The visible order gives a reason
+to plant another crop, and shop rows now explain first-fruit and regrowth
+times. The existing freeform farming, mutations and scale controls remain.
+
+On the next web run, Jev completed the first two orders in 13 decisions,
+ending at garden time 1:41 with 475¢ and the blueberry order visible. It
+still bought an unnecessary carrot while waiting for strawberries, an honest
+policy weakness. This is not a controlled timing comparison: the objective
+and game both changed. Evidence: `games/garden/artifacts/jev-orders-web/`.
+The screenshot has readable order, reward, growth times and enabled shop
+controls. These are strategic decisions on a seekable clock, not vision,
+physical input or frame-latency measurements.
+
+The SDK tool-path rough edge from the Forest diary is fixed too. `cargoOnPath`
+used to return as soon as it found Homebrew's Cargo, leaving `~/.cargo/bin`
+off PATH and hiding the already-installed wasm-bindgen. It now appends the
+Cargo installation directory while preserving explicit PATH precedence and
+`CARGO_HOME`. Binaryen's private pin already had shared lookup. `exact setup
+--check` and the new web build both succeeded without a manual PATH override;
+the regression also checks repeated calls and a custom Cargo home.
+
+The development lesson: an inspectable state is only useful if it describes
+the controls the player can actually use. Reading Farm's purse and invoking
+`shop::buy` directly would have hidden the disabled-button bug completely.
+The visible-state policy plus normal host input found it without a special
+agent-only gameplay API. Keep that boundary when adding Rivals' playtest.
+
+Validation before the next main merge: 13 simulation tests, all 72 enabled
+shared app-tool tests, the five root gates, and Linux's full normal proof
+passed. The latter includes both early orders and byte-identical continuation
+from a fresh process saved before the first delivery. Cross-host re-pinning
+and the macOS playtest follow after the fetched Apple build improvements.

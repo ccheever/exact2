@@ -11,6 +11,15 @@ pub const START_SIZE: u16 = 6;
 pub const MAX_SIZE: u16 = 256;
 pub const START_SHECKLES: u64 = 20;
 
+/// A short ladder of market requests: crop, quantity, bonus on top of value.
+pub const ORDERS: &[(u8, u32, u64)] = &[
+    (0, 1, 30),
+    (1, 4, 400),
+    (2, 5, 600),
+    (3, 4, 1300),
+    (4, 3, 2400),
+];
+
 #[derive(Default, Resource)]
 pub struct Farm {
     pub sheckles: u64,
@@ -27,6 +36,8 @@ pub struct Farm {
     pub tiles: Vec<Option<Entity>>,
     pub harvested: u64,
     pub earned: u64,
+    /// The next market request; also the saved receipt for each paid bonus.
+    pub orders: u32,
     pub last: String,
     pub away: String,
     pub overview: bool,
@@ -98,6 +109,7 @@ pub fn plant_held(w: &mut World, tile: [u16; 2]) -> Result<Entity, String> {
         farm.held = (0..CROPS.len() as u8).find(|&k| farm.seeds[k as usize] > 0);
     }
     farm.last = format!("Planted {}", crop(kind).name);
+    farm.shop_dirty = true;
     Ok(e)
 }
 
@@ -166,8 +178,40 @@ pub fn sell(w: &World, id: Option<u32>) -> u64 {
     if !sold.is_empty() {
         farm.last = format!("Sold {} for {}¢", sold.len(), total);
         farm.bag_dirty = true;
+        farm.shop_dirty = true;
     }
     total
+}
+
+/// Deliver one whole request, retaining unrelated fruit. Every fruit still
+/// earns its full weight/mutation value; the request adds its one-time bonus.
+pub fn deliver(w: &World) -> Result<String, String> {
+    let mut farm = w.resource_mut::<Farm>();
+    let &(kind, count, bonus) = ORDERS
+        .get(farm.orders as usize)
+        .ok_or("All market orders filled")?;
+    if farm.bag.iter().filter(|i| i.kind == kind).count() < count as usize {
+        return Err(format!("Bring {count} {} to the market", crop(kind).name));
+    }
+    let mut remaining = count;
+    let mut paid = bonus;
+    farm.bag.retain(|i| {
+        if i.kind != kind || remaining == 0 {
+            return true;
+        }
+        remaining -= 1;
+        paid += i.value();
+        false
+    });
+    farm.orders += 1;
+    farm.sheckles += paid;
+    farm.earned += paid;
+    farm.shop_dirty = true;
+    farm.bag_dirty = true;
+    Ok(format!(
+        "Delivered {count} {} · {paid}¢ including {bonus}¢ bonus",
+        crop(kind).name
+    ))
 }
 
 /// Grows the garden to `size` tiles per side, keeping every plant's tile.
@@ -307,11 +351,14 @@ pub fn command(w: &mut World, cmd: &str) {
             }
             _ => Err(format!("No {arg} seeds")),
         },
-        "sell" => {
-            let id = arg.parse().ok();
-            let total = sell(w, if arg == "all" { None } else { id });
-            Ok(format!("Sold for {total}¢"))
-        }
+        "sell" => match arg {
+            "all" => Ok(format!("Sold for {}¢", sell(w, None))),
+            id => id
+                .parse()
+                .map_err(|_| "Sell needs a fruit id or all".into())
+                .map(|id| format!("Sold for {}¢", sell(w, Some(id)))),
+        },
+        "deliver" => deliver(w),
         "harvest" => Ok(format!("Harvested {}", harvest_all(w))),
         "page" => {
             let mut farm = w.resource_mut::<Farm>();
@@ -350,7 +397,12 @@ pub fn command(w: &mut World, cmd: &str) {
         _ => Err(format!("Unknown command {cmd}")),
     };
     match result {
-        Ok(line) => w.log(format!("{cmd}: {line}")),
+        Ok(line) => {
+            w.log(format!("{cmd}: {line}"));
+            let mut farm = w.resource_mut::<Farm>();
+            farm.last = line;
+            farm.shop_dirty = true;
+        }
         Err(why) => {
             w.log(format!("{cmd}: refused: {why}"));
             w.resource_mut::<Farm>().last = why;

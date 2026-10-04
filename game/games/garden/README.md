@@ -30,6 +30,20 @@ Rainbow (0.1%, ×50), and the weather's — Rain makes it Wet (×2), Snow Chille
 (×2) or Frozen (×10), a Thunderstorm Wet and Shocked (×100). Value is
 `base × (weight/base weight)² × variant × (1 + Σ(environment − 1))`.
 
+Five market orders guide the early garden through carrots, strawberries,
+blueberries, tomatoes and corn. Harvest the requested quantity into your
+backpack and press **Deliver order**. Each delivery pays the fruit's full
+weight/mutation value plus a one-time bonus; unrelated fruit stays in the bag.
+The next order and reward are always visible, and completed orders survive saves.
+The shop shows first-harvest and regrowth times.
+
+`AI_GATEWAY_API_KEY=… bun proof.mjs web --playtest` (or `macos`) lets Jev try
+the first two orders through the HUD and E key. It gets visible text and
+enabled controls, with up to 48 decisions; it cannot use stress tools or
+write the world. `artifacts/<host>/jev-*` holds the transcript, outcome and
+screenshot. This is exploratory play on the agent clock, not deterministic
+proof or a claim about visual perception or real-time input latency.
+
 ## How it is built
 
 - **Garden time** is world time plus every span the garden spent away
@@ -43,8 +57,8 @@ Rainbow (0.1%, ×50), and the weather's — Rain makes it Wet (×2), Snow Chille
   `exactTime().epochAtZero` as the live `epoch` argument; a world restored in a
   later session whose epoch is ahead of where its own clock says it is grows by
   the difference. The proof restores the same save an hour later (`--epoch`).
-- **Commands** (buy, sell, harvest, expand, fill, away) are messages:
-  Contract's `postMessage("world", "buy carrot")`, read once each, in order,
+- **Commands** (buy, sell, deliver, harvest, expand, fill, away) are messages:
+  Contract's `postMessage("buy carrot", "world")`, read once each, in order,
   from `input.messages()`.
 - **The HUD** is three published records — status, shop, backpack — each
   republished only when it changes (status at most once a garden second).
@@ -60,6 +74,6 @@ Rainbow (0.1%, ×50), and the weather's — Rain makes it Wet (×2), Snow Chille
 | `logic/tests/sim.rs` | the hostless game tests |
 | `logic/tests/scale.rs` | ignored measurements (`--ignored --nocapture`, release) |
 | `app.contract` | title, top bar, shop, backpack, tools, prompts, touch controls |
-| `proof.mjs` | the real-host proof, and `--scale` |
+| `proof.mjs` | the real-host proof, `--scale` and Jev's `--playtest` |
 
 ![The garden in play](artifacts/web/game.png)

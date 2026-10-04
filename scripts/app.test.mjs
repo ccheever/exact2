@@ -7,8 +7,28 @@ if (!Bun.which('cargo', { PATH: process.env.PATH })) throw new Error(`these test
 // The fixtures name their apps; a caller's EXACT_APP_DIR would redirect every one.
 delete process.env.EXACT_APP_DIR;
 import assert from 'node:assert/strict';
-import { classifyArtifacts } from './app.mjs';
+import { classifyArtifacts, cargoOnPath } from './app.mjs';
 import { chromium } from './agent-launch.mjs';
+
+test('SDK setup and builds find cargo-installed tools beside an existing Cargo on PATH', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-cargo-path-'));
+  try {
+    const system = resolve(dir, 'system'), rustup = resolve(dir, '.cargo/bin');
+    mkdirSync(system, {recursive:true});
+    mkdirSync(rustup, {recursive:true});
+    const cargo = process.platform === 'win32' ? 'cargo.exe' : 'cargo';
+    writeFileSync(resolve(system, cargo), '');
+    const env = {PATH:system};
+    assert.equal(cargoOnPath(env, dir), true);
+    assert.equal(env.PATH, [system, rustup].join(delimiter));
+    cargoOnPath(env, dir);
+    assert.equal(env.PATH, [system, rustup].join(delimiter));
+    const custom = {PATH:system, CARGO_HOME:resolve(dir, 'custom')};
+    mkdirSync(resolve(custom.CARGO_HOME, 'bin'), {recursive:true});
+    cargoOnPath(custom, dir);
+    assert.equal(custom.PATH, [system, resolve(custom.CARGO_HOME, 'bin')].join(delimiter));
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
 
 test('Windows browser discovery accepts an installed Chrome and explicit executable paths with spaces', () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact browser paths-'));

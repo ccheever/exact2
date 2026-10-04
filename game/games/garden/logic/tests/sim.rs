@@ -282,3 +282,80 @@ fn schedule_stays_bounded() {
     );
     assert_eq!(CROPS.len(), 14);
 }
+
+#[test]
+fn market_delivers_the_requested_fruit_once_and_preserves_its_full_value() {
+    use garden_logic::garden::Item;
+    let mut game = new(7);
+    send(&mut game, "deliver");
+    assert_eq!(sheckles(&game), 20);
+    assert_eq!(game.world().resource::<Farm>().orders, 0);
+    let carrot = Item {
+        id: 0,
+        kind: 0,
+        weight: 0.5,
+        muts: 0,
+    };
+    let extra = Item {
+        id: 1,
+        kind: 2,
+        weight: 0.18,
+        muts: 0,
+    };
+    let value = carrot.value();
+    game.world_mut().resource_mut::<Farm>().bag = vec![extra, carrot];
+    let saved = game.save().unwrap();
+    send(&mut game, "deliver");
+    assert_eq!(sheckles(&game), 20 + value + 30);
+    assert_eq!(game.world().resource::<Farm>().orders, 1);
+    assert_eq!(game.world().resource::<Farm>().bag.len(), 1);
+    assert_eq!(game.world().resource::<Farm>().bag[0].kind, 2);
+    assert!(game
+        .world()
+        .published("order")
+        .unwrap()
+        .text()
+        .contains("4 Strawberry"));
+    send(&mut game, "deliver");
+    assert_eq!(sheckles(&game), 20 + value + 30);
+    let mut restored = new(7);
+    restored.restore_bound(&saved).unwrap();
+    send(&mut restored, "deliver");
+    send(&mut restored, "deliver");
+    assert_eq!(restored.save().unwrap(), game.save().unwrap());
+    // A malformed sell request must not silently mean sell everything.
+    send(&mut game, "sell typo");
+    assert_eq!(game.world().resource::<Farm>().bag.len(), 1);
+    assert_eq!(sheckles(&game), 20 + value + 30);
+}
+
+#[test]
+fn market_bonus_stops_after_the_last_request() {
+    use garden_logic::farm::ORDERS;
+    use garden_logic::garden::Item;
+    let mut game = new(7);
+    for &(kind, count, bonus) in ORDERS {
+        let before = sheckles(&game);
+        let item = Item {
+            id: 0,
+            kind,
+            weight: CROPS[kind as usize].weight,
+            muts: 0,
+        };
+        let value = item.value();
+        game.world_mut().resource_mut::<Farm>().bag = vec![item; count as usize];
+        send(&mut game, "deliver");
+        assert_eq!(sheckles(&game), before + value * count as u64 + bonus);
+        assert!(game.world().resource::<Farm>().bag.is_empty());
+    }
+    let before = sheckles(&game);
+    send(&mut game, "deliver");
+    assert_eq!(sheckles(&game), before);
+    assert_eq!(game.world().resource::<Farm>().orders, ORDERS.len() as u32);
+    assert!(game
+        .world()
+        .published("order")
+        .unwrap()
+        .text()
+        .contains("all 5 orders filled"));
+}

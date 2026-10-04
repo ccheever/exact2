@@ -8,6 +8,7 @@ shape ShopRow
   owned: number
   affordable: bool
   held: bool
+  growth: string
 
 shape BagRow
   id: string
@@ -37,6 +38,10 @@ shape Hud
   garden_time: string
   events: number
   queued: number
+  order: string
+  order_detail: string
+  order_ready: bool
+  orders: number
   shop: list<ShopRow>
   bag: list<BagRow>
   bag_count: number
@@ -145,13 +150,19 @@ component Garden
                   button press=toggleSmooth testId="smooth" aria-label=(smooth ? "Stepped growth" : "Smooth growth") padding=8 border-radius=8 background-color=(smooth ? "#7c3aed" : "#334155")
                     text (smooth ? "Smooth" : "Stepped")
                 text `${hud.events} events run · ${hud.queued} queued` font-size=12 color="#94a3b8" testId="events"
+          column testId="market" position="absolute" top=72 right=12 width=300 padding=12 gap=6 border-radius=12 background-color="#14532de6"
+            text hud.order testId="objective" font-size=16 font-weight=700 color="#bef264"
+            text hud.order_detail testId="order-detail" font-size=13
+            when hud.orders < 5
+              button press=run("deliver") testId="deliver" aria-label="Deliver market order" disabled=(not hud.order_ready) padding=8 border-radius=8 background-color=(hud.order_ready ? "#ca8a04" : "#334155")
+                text (hud.order_ready ? "Deliver order" : "Harvest into your backpack") font-weight=700
           when paused
             column testId="paused" position="absolute" top=72 right=12 padding=12 gap=8 border-radius=12 background-color="#0f172ae6"
               text "Paused" font-size=20 font-weight=700
               button press=restart testId="restart" aria-label="Restart" padding=10 border-radius=8 background-color="#334155"
                 text "Restart"
           when hud.away != ""
-            text hud.away testId="away" position="absolute" top=72 right=12 max-width=320 padding=10 border-radius=10 background-color="#7c2d12e6" font-size=13
+            text hud.away testId="away" position="absolute" top=240 right=12 max-width=320 padding=10 border-radius=10 background-color="#7c2d12e6" font-size=13
           column position="absolute" left=150 right=150 bottom=24 align-items="center" gap=6
             when hud.prompt != ""
               text hud.prompt testId="prompt" aria-live="polite" padding=10 border-radius=10 background-color="#0f172ad9" font-size=16
@@ -168,6 +179,7 @@ component Garden
           column width="100%" max-width=380 align-items="center" gap=6
             text "Walk with WASD · E plants and harvests" width="100%" text-align="center"
             text "Buy seeds, sell fruit, expand the garden" width="100%" text-align="center"
+            text "Fill market orders for a bonus on your harvest" width="100%" text-align="center" color="#bef264"
             text "Rain, snow and storms mutate ripening fruit" width="100%" text-align="center" color="#cbd5e1"
             text "It keeps growing while you are away" width="100%" text-align="center" color="#cbd5e1"
           button press=play autofocus aria-label="Play" testId="play" padding=16 border-radius=12 background-color="#65a30d"
@@ -183,6 +195,7 @@ component ShopItem
       column flex=1 gap=2
         text s.name font-weight=700
         text `${s.rarity} · ${s.price}¢ · stock ${s.stock}` font-size=12 color=s.color
+        text s.growth font-size=11 color="#cbd5e1"
       when s.owned > 0
         button press=equip testId=`equip-${s.id}` aria-label=`Hold ${s.name}, ${s.owned} owned` padding=6 border-radius=6 background-color="#334155"
           text `×${s.owned}` font-size=13

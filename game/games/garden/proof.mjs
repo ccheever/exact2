@@ -4,8 +4,8 @@
 // same save restored an hour later grows offline. `--scale` adds the
 // measurements in the diary (entity ramp, long seeks, save sizes).
 import {resolve} from 'node:path';
-import {readFileSync, statSync} from 'node:fs';
-import { proof, axNames } from '../../proof.mjs';
+import {readFileSync, statSync, writeFileSync} from 'node:fs';
+import { proof, axNames, decide } from '../../proof.mjs';
 
 const EPOCH = Date.parse('2026-10-01T12:00:00Z');
 const node = (tree, id) => tree.nodes.find(n => n.props?.testId === id);
@@ -25,6 +25,7 @@ const purseOf = tree => Number(node(tree, 'sheckles')?.props?.accessibilityLabel
 
 if (import.meta.main) await proof(import.meta, async ({open, check, out, host, pin, pinSave, say}) => {
   const log = say ?? console.log;
+  if (process.argv.includes('--playtest')) return playtest({open, out, log});
   if (process.argv.includes('--screenshot-only')) {
     check('screenshot uses web', host === 'web');
     const s = await open({epoch:EPOCH});
@@ -72,6 +73,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   check('E plants the carrot', /^Carrot growing · 0:(19|20)$/.test(text(t, 'prompt')), text(t, 'prompt'));
   check('census counts it', text(t, 'census') === '1 plants · 0/0 ripe · 0 mutated', text(t, 'census'));
   check('held seeds run out', text(t, 'held') === 'No seeds in hand', text(t, 'held'));
+  check('planted seeds disappear from shop inventory immediately', !node(t, 'equip-carrot'));
   await game.run(10_000);
   check('the countdown counts down', /^Carrot growing · 0:(09|10)$/.test(text(await s.tree(), 'prompt')), text(await s.tree(), 'prompt'));
   const stage = (await game.snapshot()).entities.find(e => e.components?.Plant)?.components.Plant.stage;
@@ -159,7 +161,120 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   check('the virtualized backpack builds only the rows near the port', rows > 0 && rows < ripe, [rows, ripe]);
   if (host === 'web') await later.screenshot(resolve(out, 'away.png'));
   await later.close();
+
+  // A market bonus unlocks the next crop immediately, without waiting for a
+  // restock. Save before delivery and repeat the journey in a fresh process.
+  const market = await open({fresh:true, epoch:EPOCH});
+  await market.tap('play');
+  const mg = market.world('world');
+  await mg.run(100);
+  check('the market names its first crop', text(await market.tree(), 'objective') === 'Market order 1 · 1 Carrot');
+  check('an unfilled order is disabled', node(await market.tree(), 'deliver')?.props?.disabled === true);
+  await mg.tap('KeyE');
+  await mg.run(20_100);
+  await mg.tap('KeyE');
+  await mg.run(100);
+  await mg.save(resolve(out, 'market.world'));
+  const deliverAndGrow = async session => {
+    const g = session.world('world');
+    const before = purseOf(await session.tree());
+    await session.tap('deliver');
+    await g.run(100);
+    let tree = await session.tree();
+    check('delivery advances the order and pays fruit plus bonus', text(tree, 'objective') === 'Market order 2 · 4 Strawberry' && purseOf(tree) > before + 30);
+    check('bonus immediately enables strawberry purchase', node(tree, 'buy-strawberry')?.props?.disabled === false);
+    await session.tap('buy-strawberry');
+    await g.run(100);
+    check('purchase feedback names the seed', text(await session.tree(), 'last') === 'Bought Strawberry seed');
+    await g.tap('KeyE');
+    await g.run(70_100);
+    await g.tap('KeyE');
+    await g.run(100);
+    await session.tap('deliver');
+    await g.run(100);
+    tree = await session.tree();
+    check('the second delivery funds blueberry', text(tree, 'objective') === 'Market order 3 · 5 Blueberry' && purseOf(tree) >= 400 && node(tree,'buy-blueberry')?.props?.disabled === false);
+    check('delivered fruit leaves the backpack', label(tree, 'bag-tab') === 'Backpack 0');
+  };
+  await deliverAndGrow(market);
+  const marketEnd = await mg.snapshot();
+  await mg.save(resolve(out, 'market-continued.world'));
+  pinSave('market', resolve(out, 'market-continued.world'));
+  if (host !== 'linux') await market.screenshot(resolve(out, 'market.png'));
+  await market.close();
+  const marketBack = await open({fresh:true, world:resolve(out, 'market.world'), epoch:EPOCH});
+  await marketBack.tap('play');
+  await deliverAndGrow(marketBack);
+  check('fresh process continues market rewards identically', JSON.stringify(await marketBack.world('world').snapshot()) === JSON.stringify(marketEnd));
+  await marketBack.world('world').save(resolve(out, 'market-restored.world'));
+  check('market continuation saves are byte-identical', readFileSync(resolve(out, 'market-continued.world')).equals(readFileSync(resolve(out, 'market-restored.world'))));
+  await marketBack.close();
 });
+
+// Jev sees the player's text and enabled controls, and acts through those
+// controls. It does not inspect the farm, inject money or use the stress tools.
+async function playtest({open, out, log}) {
+  const s = await open({epoch:EPOCH});
+  await s.tap('play');
+  const game = s.world('world');
+  await game.run(100);
+  const transcript = resolve(out, 'jev-decisions.jsonl');
+  writeFileSync(transcript, '');
+  const recent = [];
+  let strawberryHarvests = 0;
+  for (let turn = 0; turn < 48; turn++) {
+    const tree = await s.tree();
+    const state = Object.fromEntries(['sheckles','prompt','held','census','last','weather','restock','objective','order-detail']
+      .map(id => [id, text(tree, id) ?? '']));
+    state.backpack = label(tree, 'bag-tab');
+    state.shop = ['carrot','strawberry','blueberry'].map(id => {
+      const row = node(tree, `shop-${id}`);
+      const descendants = new Set(row ? [row.id] : []);
+      for (const n of tree.nodes) if (descendants.has(n.parent)) descendants.add(n.id);
+      return tree.nodes.filter(n => descendants.has(n.id) && n.props?.text).map(n => n.props.text).join(' · ');
+    }).filter(Boolean);
+    const choices = {wait:'Wait 20 seconds for growth or shop restock'};
+    const buttons = {};
+    for (const [id, description] of Object.entries({
+      'shop-tab':'Open the seed shop', 'bag-tab':'Open the backpack',
+      'buy-carrot':'Buy one carrot seed', 'buy-strawberry':'Buy one strawberry seed',
+      'buy-blueberry':'Buy one blueberry seed', 'equip-carrot':'Hold a carrot seed',
+      'equip-strawberry':'Hold a strawberry seed', 'equip-blueberry':'Hold a blueberry seed',
+      'sell-all':`Sell the backpack: ${label(tree, 'sell-all') ?? ''}`,
+      deliver:'Deliver the market order for full fruit value plus its bonus',
+    })) {
+      const n = node(tree, id);
+      if (!n || n.props?.disabled || (id === 'shop-tab' && node(tree, 'shop'))
+        || (id === 'bag-tab' && node(tree, 'bag')) || (id === 'sell-all' && state.backpack === 'Backpack 0')) continue;
+      const action = id.replaceAll('-', '_');
+      choices[action] = description;
+      buttons[action] = id;
+    }
+    if (state.prompt.startsWith('E:')) choices.act = `Press E: ${state.prompt}`;
+    const decision = await decide({state:{...state, strawberryHarvests, recent}, choices, transcript,
+      goal:'Fill the first two market orders: carrot, then strawberry. Deliver requested fruit using the market button to earn its bonus. Buy and plant the requested crop, wait for it to ripen, then harvest with E and deliver. Use your current tile. Sell only extra fruit not needed for the order. The shop tells you growth times. Avoid buying excess seeds you cannot plant. Waiting advances time without spending money.'});
+    log(`JEV ${turn + 1}: ${decision.choice} · ${state.sheckles} · ${state.prompt}`);
+    recent.push({action:decision.choice, prompt:state.prompt, purse:state.sheckles});
+    if (recent.length > 6) recent.shift();
+    if (decision.choice === 'wait') await game.run(20_000);
+    else if (decision.choice === 'act') {
+      if (/^E: harvest \d+ Strawberry$/.test(state.prompt)) strawberryHarvests++;
+      await game.tap('KeyE');
+      await game.run(100);
+    } else {
+      await s.tap(buttons[decision.choice]);
+      await game.run(100);
+    }
+    if (text(await s.tree(), 'objective')?.startsWith('Market order 3')) break;
+  }
+  const tree = await s.tree();
+  const outcome = {strawberryHarvests, purse:purseOf(tree), census:text(tree,'census'),
+    objective:text(tree,'objective'), prompt:text(tree,'prompt'), last:text(tree,'last'), world:await game.snapshot()};
+  writeFileSync(resolve(out, 'jev-outcome.json'), JSON.stringify(outcome, null, 2));
+  log(`JEV outcome: ${strawberryHarvests} strawberry harvests · ${outcome.purse}¢ · ${outcome.census}`);
+  await s.screenshot(resolve(out, 'jev-playtest.png'));
+  await s.close();
+}
 
 // The measurements. Each step reports host wall time for the operation.
 async function scale({open, check, out, log}) {
@@ -225,4 +340,3 @@ async function scale({open, check, out, log}) {
   check('the ramp completed', true);
   await away.close();
 }
-

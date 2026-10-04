@@ -28,6 +28,10 @@ pub struct Status {
     pub garden_time: String,
     pub events: f64,
     pub queued: u32,
+    pub order: String,
+    pub order_detail: String,
+    pub order_ready: bool,
+    pub orders: u32,
 }
 
 #[derive(Default, Data)]
@@ -41,6 +45,7 @@ pub struct ShopRow {
     pub owned: u32,
     pub affordable: bool,
     pub held: bool,
+    pub growth: String,
 }
 
 #[derive(Default, Data)]
@@ -98,6 +103,15 @@ pub fn publish(w: &World, prompt: String, force: bool) {
                 owned: farm.seeds[k],
                 affordable: farm.sheckles >= c.price,
                 held: farm.held == Some(k as u8),
+                growth: if c.regrows {
+                    format!(
+                        "{}s to first fruit · regrows every {}s",
+                        c.grow_s + c.fruit_s,
+                        c.fruit_s
+                    )
+                } else {
+                    format!("{}s to harvest · one harvest", c.grow_s)
+                },
             })
             .collect();
         w.publish_record(&ShopHud { shop: rows });
@@ -132,6 +146,10 @@ pub fn publish(w: &World, prompt: String, force: bool) {
     let weather = w.resource::<Weather>();
     let shop = w.resource::<Shop>();
     let schedule = w.resource::<Schedule>();
+    let order = crate::farm::ORDERS.get(farm.orders as usize);
+    let carried = order
+        .map(|&(kind, _, _)| farm.bag.iter().filter(|i| i.kind == kind).count() as u32)
+        .unwrap_or(0);
     w.publish_record(&Status {
         sheckles: compact(farm.sheckles),
         sheckles_n: farm.sheckles as f64,
@@ -158,5 +176,21 @@ pub fn publish(w: &World, prompt: String, force: bool) {
         garden_time: crops::clock(now),
         events: schedule.processed as f64,
         queued: schedule.heap.len() as u32,
+        order: order
+            .map(|&(kind, count, _)| {
+                format!(
+                    "Market order {} · {count} {}",
+                    farm.orders + 1,
+                    crop(kind).name
+                )
+            })
+            .unwrap_or_else(|| "Market regular · all 5 orders filled!".into()),
+        order_detail: order
+            .map(|&(_, count, bonus)| {
+                format!("{carried}/{count} in backpack · full value + {bonus}¢ bonus")
+            })
+            .unwrap_or_else(|| "Keep growing, find mutations, expand your garden".into()),
+        order_ready: order.is_some_and(|&(_, count, _)| carried >= count),
+        orders: farm.orders,
     });
 }
