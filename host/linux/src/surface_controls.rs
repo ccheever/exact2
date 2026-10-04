@@ -468,6 +468,10 @@ impl<D: DataSource> Presenter<D> {
     /// responder. What tap, `autofocus` and `focus()` may focus; Tab takes
     /// only the `tabbable` ones.
     pub(crate) fn focusable(&self, id: ViewId) -> bool {
+        // A grouped list's grip takes the keys that move its row (LLP 1094 D9).
+        if self.group_grip(id).is_some() {
+            return true;
+        }
         self.host.kernel().node(id).is_some_and(|n| {
             n.props.bool(PropId::Disabled) != Some(true)
                 && (n.props.get(PropId::TabIndex).is_some()

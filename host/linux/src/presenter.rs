@@ -40,6 +40,7 @@ mod control;
 mod delivery;
 mod display_frame;
 mod events;
+mod group;
 mod pan_release;
 mod picker;
 mod pointer;
@@ -150,6 +151,7 @@ pub struct Presenter<D: DataSource> {
     contact: Option<contact::Contact>,
     retained_motion: Option<retained_action::MotionPermit>,
     arrange: Option<arrange::State>,
+    group: Option<group::State>,
     transform_geometry: transform_geometry::State,
     /// The update store, once the app opened one (LLP 1026 D9; `app.rs`).
     updates: Option<Box<dyn crate::delivery::Store>>,
@@ -395,6 +397,7 @@ impl<D: DataSource> Presenter<D> {
             retained_motion: None,
             transform_geometry: Default::default(),
             arrange: None,
+            group: None,
             brush: Painter::new(text.clone(), scale, backend),
             text,
             viewport,
@@ -603,7 +606,8 @@ impl<D: DataSource> Presenter<D> {
         self.retained_motion = None;
         self.transform_geometry = Default::default();
         self.arrange = None;
-        self.brush.arrange_lift = None;
+        self.group = None;
+        self.brush.lift = Default::default();
         self.page = (0.0, 0.0);
         self.images.reset();
         self.restore_focus(kept);

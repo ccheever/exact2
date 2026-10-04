@@ -250,6 +250,7 @@ impl Painter {
             skip: None,
             replay: None,
             ranks: Rc::clone(&walk.ranks),
+            reveal: walk.reveal,
         };
         let f = node.frame;
         painter.node(

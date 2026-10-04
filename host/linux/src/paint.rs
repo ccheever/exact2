@@ -34,7 +34,9 @@ pub(crate) mod control;
 pub(crate) mod damage;
 pub mod gradient;
 pub use gradient::GradientPaint;
+pub(crate) use lift::{Ghost, Lift};
 mod inline;
+mod lift;
 mod placed;
 mod presented;
 mod region;
@@ -599,8 +601,8 @@ pub struct Painter {
     pub(crate) canvases: BTreeMap<ViewId, crate::canvas2d::CanvasPaint>,
     viewport: (f32, f32),
     cpu_ms: Option<f64>,
-    // One generational source, lifted only inside its existing List clip.
-    pub(crate) arrange_lift: Option<(exact_kernel::NodeKey, exact_kernel::NodeKey)>,
+    /// What a reorder lifts: a row in its list, or a ghost over everything.
+    pub(crate) lift: Lift,
     // One lease per actually accepted owner, not one global width per string.
     // Retained while a subsequent backend frame fails.
     accepted_text: BTreeMap<exact_kernel::NodeKey, Rc<Paragraph>>,
@@ -634,6 +636,8 @@ struct Walk<'a, 'b> {
     /// Each node's rank among its siblings (LLP 1083.000 §2.4), twice its
     /// value, from the kernel's one definition.
     ranks: Rc<BTreeMap<ViewId, i64>>,
+    /// Painting a ghost: what `visibility` hides there shows (`lift.rs`).
+    reveal: bool,
 }
 
 impl Painter {
@@ -687,7 +691,7 @@ impl Painter {
             paint_epoch: None,
             ranks: Rc::default(),
             accepted_text: BTreeMap::new(),
-            arrange_lift: None,
+            lift: Lift::default(),
             region_picture: None,
             region_frame: None,
             damage: Default::default(),
@@ -874,10 +878,12 @@ impl Painter {
             skip,
             replay,
             ranks: self.ranks.clone(),
+            reveal: false,
         };
         for root in scene.roots {
             self.node(&mut walk, *root, Transform::identity(), scene.page, None);
         }
+        self.paint_ghost(&mut walk);
         if let Some(menu) = &scene.menu {
             self.menu(menu);
         }
@@ -981,10 +987,13 @@ impl Painter {
             let (ox, oy) = effective_overflow(&node);
             ox != Overflow::Visible || oy != Overflow::Visible
         };
+        // CSS `visibility` (inherited) hides a box from paint and from hits;
+        // a descendant's own `visible` is not honoured under a hidden one.
+        let inherited = node.computed_style(StyleMask::INHERITED);
+        let visible = walk.reveal || inherited.visibility == exact_kernel::Visibility::Visible;
         walk.boxes.push(PaintedBox {
             id,
-            pointer_hit: node.computed_style(StyleMask::INHERITED).pointer_events
-                != exact_kernel::PointerEvents::None,
+            pointer_hit: inherited.pointer_events != exact_kernel::PointerEvents::None && visible,
             projective: None,
             affine: Some((ts, (x, y, w, h))),
             press: p.press,
@@ -995,8 +1004,8 @@ impl Painter {
         let opacity = p.opacity.clamp(0.0, 1.0);
         // CSS opacity is paint only: a transparent subtree is still hit (the
         // walk records its boxes) and draws through a backend that draws nothing.
-        let drawn =
-            (opacity <= 0.0).then(|| std::mem::replace(&mut self.backend, Box::new(Unpainted)));
+        let drawn = (opacity <= 0.0 || !visible)
+            .then(|| std::mem::replace(&mut self.backend, Box::new(Unpainted)));
         if drawn.is_none() && opacity < 1.0 {
             self.backend.push_opacity(opacity);
         }
@@ -1275,43 +1284,7 @@ impl Painter {
         } else {
             offset
         };
-        let lift = self
-            .arrange_lift
-            .filter(|(list, _)| *list == node.key)
-            .and_then(|(_, key)| walk.scene.kernel.node_by_key(key))
-            .filter(|source| source.parent == Some(node.id))
-            .map(|source| source.id);
-        // A native button's children are its face, painted above (LLP 1069.011 D5).
-        let native =
-            node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("button");
-        let children: Vec<_> = node
-            .children()
-            .into_iter()
-            .filter(|id| Some(*id) != lift && !native)
-            .collect();
-        // @ref LLP 1083.000 D5 — a canvas's placed children first, by
-        // projective depth, as the web gives them negative indices by
-        // depth; then every other child by its rank, then tree order.
-        let order: Vec<(ViewId, usize)> = children.iter().copied().zip(0..).collect();
-        let mut order = order;
-        order.sort_by(
-            |(a, i), (b, j)| match (self.placements.get(a), self.placements.get(b)) {
-                (Some(a), Some(b)) => a.depth().total_cmp(&b.depth()).then(i.cmp(j)),
-                (Some(_), None) => std::cmp::Ordering::Less,
-                (None, Some(_)) => std::cmp::Ordering::Greater,
-                _ => {
-                    let rank = |id: &ViewId| walk.ranks.get(id).copied().unwrap_or(0);
-                    rank(a).cmp(&rank(b)).then(i.cmp(j))
-                }
-            },
-        );
-        let children: Vec<ViewId> = order.into_iter().map(|(id, _)| id).collect();
-        for child in children {
-            self.node(walk, child, ts, child_offset, child_rect);
-        }
-        if let Some(child) = lift {
-            self.node(walk, child, ts, child_offset, child_rect);
-        }
+        self.children(walk, node, ts, child_offset, child_rect);
         if clips {
             self.backend.pop_clip();
         }
