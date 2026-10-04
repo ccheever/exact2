@@ -557,7 +557,11 @@ final class NavigationHost: NSObject, UINavigationControllerDelegate, UIGestureR
         guard let pan = gestureRecognizer as? UIPanGestureRecognizer, let view = pan.view else {
             return popMayBegin(gestureRecognizer, from: nil, in: nil, velocity: .zero)
         }
-        return popMayBegin(gestureRecognizer, from: popStart(pan, in: view), in: view, velocity: pan.velocity(in: view))
+        return popShouldBegin(pan, in: view, velocity: pan.velocity(in: view))
+    }
+    /// `shouldBegin` for a pan at `velocity`: from where its finger landed.
+    func popShouldBegin(_ pan: UIPanGestureRecognizer, in view: UIView, velocity: CGPoint) -> Bool {
+        popMayBegin(pan, from: popStart(pan, in: view), in: view, velocity: velocity)
     }
 
     /// Whether a pop recognizer's swipe, starting at `start` in `view` (a

@@ -801,20 +801,33 @@ async function dragTap({ s, carrier, node, target, host, timing }, opts) {
     catch (error) { throw await tapRefusal(s, target, error); }
     return s.tagged({ ...r, ...(r.during ? { during: r.during[0] } : {}), target, carrier: host, mode: timing });
   }
-  const down = await s.tap(target, { down: true, at: from });
-  const { phase: _, ...refused } = down;
-  if (down.delivery === 'unsupported') return s.tagged({ ...refused, drag: said, reason: `${down.reason ?? 'no held contact'}; a real drag is --touch platform's (LLP 1080.000 §11)` });
-  let done = [], up;
+  // The carrier's phases, each reply checked: an error or a refusal releases the contact and throws.
+  let down, done = [], up;
+  const phase = async (name, opts) => {
+    const r = await s.pointer(name, opts);
+    if (r.error || r.delivery === 'unsupported') throw new Error(`drag: ${name}: ${r.error ?? r.reason ?? 'unsupported'}`);
+    return r;
+  };
   try {
+    down = await s.tap(target, { down: true, at: from });
+    if (down.error) throw new Error(`drag: down: ${down.error}`);
+    if (down.delivery === 'unsupported') {
+      const { phase: _, ...refused } = down;
+      return s.tagged({ ...refused, drag: said, reason: `${down.reason ?? 'no held contact'}; a real drag is --touch platform's (LLP 1080.000 §11)` });
+    }
     if (during.length) done = await held(during)();
-    if (press) await s.pointer('hold', { ms: press });
-    if (moves) await s.pointer('move', { dx, dy, ms: over });
-    if (hold) await s.pointer('hold', { ms: hold });
-    up = await s.pointer('up');
+    if (press) await phase('hold', { ms: press });
+    if (moves) await phase('move', { dx, dy, ms: over });
+    if (hold) await phase('hold', { ms: hold });
+    up = await phase('up');
   } catch (error) {
-    // Never leave the finger down: cancel, else lift (AppKit has no cancel), else forget it.
-    for (const phase of ['cancel', 'up']) if (s.contact) { const r = await s.pointer(phase).catch(() => null); if (r?.delivery === 'unsupported') continue; }
-    s.contact = null;
+    // Never leave the finger down: cancel, else lift (AppKit has no cancel). If neither is confirmed the contact stays recorded, and says so.
+    for (const name of ['cancel', 'up']) {
+      if (!s.contact) break;
+      const r = await s.pointer(name).catch(() => null);
+      if (r && !r.error && r.delivery !== 'unsupported') s.contact = null;
+    }
+    if (s.contact) error.message += '; the contact could not be released (tap cancel, or close the session)';
     throw error;
   }
   return s.tagged({ tapped: node.id, target, at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing });
@@ -1054,6 +1067,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
      * a contact answers `delivery: "unsupported"` rather than faking one.
      */
     async pointer(phase, opts = {}) {
+      if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
       if (!['move', 'hold', 'up', 'cancel'].includes(phase)) throw new Error(`pointer: not a phase: ${phase} (move, hold, up, cancel)`);
       if (carrier.phasedTouch === false) return carrier.input(null, phase, opts);
       if (!s.contact && ['up','cancel'].includes(phase)) {
@@ -1087,6 +1101,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     },
     /** Answer held device request `@N` (LLP 1069.007 D4), resolved before any view: `tap @N <choice>` (`cancel`, or a choice the capability declares) or `type @N <value>` (a fixture path, a URL, JSON). The hold is consumed once; a stale ticket is refused by name. The reply says `delivery: "substituted"`. */
     async answer(op, target, value) {
+      if (s.held) throw new Error(`a drag's finger is down (${s.held}): only reads and the clock until it lifts`);
       const ticket = ticketOf(target);
       if (value == null || value === '') throw new Error(`${op} ${target}: expected ${op === 'tap' ? 'a choice (cancel, …)' : 'a value'}; state shows the hold under pending`);
       if (op === 'tap') return s.op({ op, ticket, choice: String(value) });
@@ -1419,7 +1434,7 @@ async function main(argv) {
             for (let i = 4; i < args.length;) {
               if (args[i] === 'during') {
                 // The rest of the line is quoted ops and nothing else; reads and the clock only (a tap would be a second finger).
-                const rest = line.slice(line.search(/\sduring\s/) + ' during '.length);
+                const after = line.indexOf(' drag ') + 1, rest = line.slice(after + line.slice(after).search(/\sduring\s+"/) + ' during '.length);
                 const ops = [...rest.matchAll(/"((?:[^"\\]|\\.)*)"/g)].map((m) => JSON.parse(`"${m[1]}"`));
                 if (!ops.length || rest.replace(/"((?:[^"\\]|\\.)*)"/g, '').trim()) throw new Error('tap … drag … during: the last option, each op quoted, as during "state" "clock +600"');
                 const refused = ops.find((op) => !['tree', 'layout', 'state', 'logs', 'screenshot', 'clock'].includes(op.trim().split(/\s+/)[0]));

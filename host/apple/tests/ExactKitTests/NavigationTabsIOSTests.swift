@@ -171,12 +171,13 @@ final class NavigationTabsIOSTests: XCTestCase {
         let detail = try node(session, "route-detail")
         detail.handlers.insert("swiperight")
         defer { detail.handlers.remove("swiperight") }
+        // (A test cannot place a `UITouch`, so `shouldReceive`'s first-finger
+        // gate is proved by the live drive, LLP 1080.000 §11.)
         for pop in pops(home).compactMap({ $0 as? UIPanGestureRecognizer }) {
-            XCTAssertFalse(navigation.popMayBegin(pop, from: CGPoint(x: 30, y: 400), in: home.view, velocity: right), "past the edge, the row's swipe")
-            pop.setTranslation(CGPoint(x: -29, y: 0), in: home.view)
+            navigation.notePopTouchDown(pop, at: CGPoint(x: 30, y: 400))
+            XCTAssertFalse(navigation.popShouldBegin(pop, in: home.view, velocity: right), "landed past the edge: the row's swipe")
             navigation.notePopTouchDown(pop, at: CGPoint(x: 1, y: 400))
-            XCTAssertEqual(navigation.popStart(pop, in: home.view), CGPoint(x: 1, y: 400))
-            XCTAssertTrue(navigation.popMayBegin(pop, from: navigation.popStart(pop, in: home.view), in: home.view, velocity: right), "from the edge, the pop")
+            XCTAssertTrue(navigation.popShouldBegin(pop, in: home.view, velocity: right), "landed at the edge: the pop")
         }
         XCTAssertFalse(mayPop(home, velocity: CGPoint(x: 20, y: 600)).contains(true), "a vertical pan is the content's")
         XCTAssertFalse(mayPop(second).contains(true), "a hidden tab's stack does not pop")

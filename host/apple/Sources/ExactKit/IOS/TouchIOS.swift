@@ -169,6 +169,7 @@ extension Agent {
             "point": [Agent.r2(s.x), Agent.r2(s.y)], "node": Int(v.id),
             "at": [Agent.r2(local.x), Agent.r2(local.y)], // the viewport point, as `tap` replies it
             "window": [Agent.r2(p.x), Agent.r2(p.y)], // the window point, as the dispatch log records touches
+            "viewport": [Agent.r2(vp.bounds.width), Agent.r2(vp.bounds.height)], // where a drag must end
             // The Exact node the window's hit test finds there: where the dispatch log must see the touch land.
             "hit": TouchLog.landing(seen)["node"] ?? NSNull(),
         ] as [String: Any]]
