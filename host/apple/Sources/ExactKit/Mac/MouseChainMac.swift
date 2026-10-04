@@ -117,6 +117,7 @@ extension NodeView {
     /// `pointermove`; it is held until the button comes up, wherever that is,
     /// and its drags are that node's moves (LLP 1056 §3 stage 3).
     func pointerPressed(_ event: NSEvent?) {
+        presenter?.flushHoverMove()
         guard let presenter, presenter.pointerHeld == nil else { return }
         var next: NSView? = self
         while let view = next {
@@ -130,6 +131,7 @@ extension NodeView {
     }
     /// `pointerup` for the node the button went down on.
     func pointerReleased(_ event: NSEvent?) {
+        presenter?.flushHoverMove()
         guard let presenter, let held = presenter.pointerHeld else { return }
         presenter.pointerHeld = nil
         if let node = presenter.views[held], node.handlers.contains("pointerup") { presenter.pointer(held, .up, node.pointerSample(event, lifted: true)) }
@@ -144,7 +146,9 @@ extension NodeView {
         presenter.pointer(held, .move, node.pointerSample(event))
     }
     /// A free pointer moving over this node: its `pointermove`, when no
-    /// node under it nearer hears one (every tracking area's owner is told).
+    /// node under it nearer hears one (every tracking area's owner is told),
+    /// at most one a display frame, the latest, as the web host sends it
+    /// (`input-glue.js`; LLP 1056 §3). A mouse can report several a frame.
     func pointerHovered(_ event: NSEvent) {
         guard let presenter, presenter.pointerHeld == nil, handlers.contains("pointermove"), !disabled,
               let content = window?.contentView,
@@ -155,7 +159,7 @@ extension NodeView {
             view = v.superview
         }
         guard view === self else { return }
-        presenter.pointer(id, .move, pointerSample(event))
+        presenter.hoverMoved(id, pointerSample(event))
     }
     var wantsPointer: Bool { handlers.contains("pointerdown") || handlers.contains("pointerup") || handlers.contains("pointermove") }
     /// The record of `event` (the current one when nil) as this node sees it:
@@ -184,6 +188,26 @@ extension NodeView {
     func dispatchDblclick(_ node: NodeView?) {
         guard let node, let presenter = node.presenter, presenter.views[node.id] === node, !node.disabled else { return }
         presenter.dblclick(node.id)
+    }
+}
+extension Presenter {
+    /// Keep the latest free move and send it at the next display frame.
+    func hoverMoved(_ id: UInt32, _ sample: PointerSample) {
+        hoverMove = (id, sample)
+        guard hoverLink == nil else { return }
+        hoverTarget.fire = { [weak self] _ in self?.flushHoverMove() }
+        let link = viewport.displayLink(target: hoverTarget, selector: #selector(PumpTarget.tick(_:)))
+        link.add(to: .main, forMode: .common)
+        hoverLink = link
+    }
+    /// The pending free move, now: at its frame, before a down or an up, and
+    /// when the agent moved the pointer (it reads the state right after).
+    func flushHoverMove() {
+        hoverLink?.invalidate()
+        hoverLink = nil
+        guard let (id, sample) = hoverMove else { return }
+        hoverMove = nil
+        if views[id] != nil { pointer(id, .move, sample) }
     }
 }
 #endif

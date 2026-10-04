@@ -475,6 +475,7 @@ extension Agent {
             if let node = win.contentView?.hitTest(p) as? NodeView, node.canvasInput != nil,
                let event = NSEvent.mouseEvent(with: .mouseMoved, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) {
                 node.mouseMoved(with: event)
+                presenter.flushHoverMove()
                 return ["tapped": Int(v.id), "hover": true, "at": at, "delivery": "platform"]
             }
             // The pointer moved onto the target: the node with a hover
@@ -485,6 +486,7 @@ extension Agent {
             while let cur = mover, !((cur as? NodeView)?.handlers.contains("pointermove") ?? false) { mover = cur.superview }
             if let node = mover as? NodeView, let event = NSEvent.mouseEvent(with: .mouseMoved, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) {
                 node.pointerHovered(event)
+                presenter.flushHoverMove()
             }
             var n: NSView? = win.contentView?.hitTest(p) ?? v
             while let cur = n, !((cur as? NodeView)?.handlers.contains("hover") ?? false) { n = cur.superview }

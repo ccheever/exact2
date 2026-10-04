@@ -69,6 +69,33 @@ final class GesturePrecedenceMacTests: XCTestCase {
         XCTAssertNil(p.pointerHeld)
     }
 
+    /// LLP 1056 §3: a free pointer's moves are one a display frame, the
+    /// latest, as the web host sends them; a pending one goes before a down
+    /// (Grok's batch 2 review). AppKit can report several `mouseMoved` a frame.
+    func testFreeMovesAreOneAFrameAndGoBeforeADown() {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["pointerdown", "pointermove"]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0]
+        ])
+        window!.orderFront(nil)
+        var log: [String] = []
+        var xs: [Double] = []
+        p.onPointer = { id, kind, sample in log.append("\(kind == .down ? "down" : kind == .up ? "up" : "move") \(id)"); xs.append(sample.x) }
+        let node = p.views[1]!
+        for right in [0.0, 5.0, 10.0] { node.mouseMoved(with: event(.mouseMoved, node, right: right)) }
+        XCTAssertEqual(log, [], "nothing until the frame")
+        let frame = expectation(description: "a display frame")
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { frame.fulfill() }
+        wait(for: [frame], timeout: 2)
+        XCTAssertEqual(log, ["move 1"], "one move a frame")
+        XCTAssertEqual(xs.last, 110, "the latest")
+        node.mouseMoved(with: event(.mouseMoved, node, right: 20))
+        node.mouseDown(with: event(.leftMouseDown, node))
+        XCTAssertEqual(log, ["move 1", "move 1", "down 1"], "the pending move before the down")
+        node.mouseUp(with: event(.leftMouseUp, node))
+    }
+
     func testDoubleClickPressesTwiceThenDoubleClicks() {
         let p = host([
             ["op": "create", "id": 1, "kind": "view", "handlers": ["press", "dblclick"]],

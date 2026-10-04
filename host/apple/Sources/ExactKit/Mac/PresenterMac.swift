@@ -668,6 +668,11 @@ final class Presenter {
     var pointerHeld: UInt32?
     /// The drag last delivered as a `pointermove` (LLP 1056 §3 stage 3).
     weak var pointerDrag: NSEvent?
+    /// A free pointer's latest move, sent at the next display frame or
+    /// before a button goes down or up (`hoverMoved`).
+    var hoverMove: (UInt32, PointerSample)?
+    var hoverLink: CADisplayLink?
+    let hoverTarget = PumpTarget()
     var onSwiperight: ((UInt32) -> Void)?
     /// Pull-to-refresh is UIKit's; AppKit has no such control, so this never fires.
     var onRefresh: ((UInt32) -> Void)?
