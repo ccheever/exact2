@@ -82,8 +82,13 @@ const listed = changed => changed.slice(0, 3).join(', ') + (changed.length > 3 ?
 
 /** Throws when `changed` names anything: what, since which build, and the command that rebuilds it. */
 export function refuseStale(what, built, changed, command) {
-  if (changed.length) throw new Error(`${what} build is stale: ${listed(changed)} changed since ${shown(built)} was built; run ${command}`);
+  if (changed.length) throw staleError(`${what} build is stale: ${listed(changed)} changed since ${shown(built)} was built; run ${command}`);
 }
+
+/** A refusal that a rebuild answers: the driver exits 3 for it, so an app's
+ * `exact.mjs` can build and drive again (LLP 1012.001.000: the driver itself
+ * never builds). */
+export const staleError = message => Object.assign(new Error(message), { stale: true });
 
 /** Says, without refusing, what a coarse rule found or what was not checked. */
 export function warnStale(what, built, changed, command) {

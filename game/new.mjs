@@ -274,10 +274,18 @@ if (!verbs[verb]) {
   process.exit(2);
 }
 const [script, ...args] = verbs[verb];
-const result = spawnSync(process.execPath, [resolve(EXACT2, script), ...args, ...rest], {
+const run = (script, args) => spawnSync(process.execPath, [resolve(EXACT2, script), ...args], {
   stdio: 'inherit',
   env: { ...process.env, EXACT_APP_DIR: import.meta.dir },
 });
+let result = run(script, [...args, ...rest]);
+// The driver refuses a stale web build with 3; build it, as \`cargo test\` would, and drive again.
+if (result.status === 3 && (verb === 'test' || verb === 'agent') && host === 'web') {
+  console.error('exact.mjs: building the web app, then running again');
+  const [build, ...buildArgs] = verbs['web-build'];
+  const built = run(build, buildArgs);
+  if (built.status === 0) result = run(script, [...args, ...rest]);
+}
 process.exit(result.status ?? 1);
 `;
 }
