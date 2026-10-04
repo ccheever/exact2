@@ -968,11 +968,11 @@ impl Em<'_> {
                 kinds.iter().map(|k| k.name()).collect::<Vec<_>>().join(" "),
             ));
         }
-        if kinds
+        // A pressable is focusable too, as natively (chat F14; input-glue.js).
+        let on = kinds
             .iter()
-            .any(|k| matches!(k, EventKind::Focus | EventKind::Blur | EventKind::Key))
-            && !matches!(element, "input" | "button")
-        {
+            .any(|k| matches!(k.name(), "focus" | "blur" | "key" | "press"));
+        if on && !["input", "button", "select", "textarea", "a", "summary"].contains(&element) {
             attrs.push(("tabindex".into(), "0".into()));
         }
         // A `symbol`'s content is drawn as `use`'s clones, which Chrome

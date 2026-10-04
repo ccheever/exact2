@@ -690,8 +690,9 @@ function inputFixture() {
   // `page` is a built document being adopted (LLP 1048.000 D6); this page was not built.
   const f = vm.createContext({ inputReady: false, inputHandlers: null, page: null,
     views: new Map([[7, el]]), retiredViews: new WeakSet(), frames, sent, captured, el,
-    root: { querySelectorAll: () => buttons, addEventListener() {} }, // press feedback's listener: press.test.mjs drives it
-    document: { addEventListener(kind, fn) { if (kind === 'keydown') f.keydown = fn; }, activeElement: { closest: () => null } },
+    root: { querySelectorAll: () => buttons, addEventListener() {}, contains: () => true }, // press feedback's listener: press.test.mjs drives it
+    // The shortcuts' keydown listens in the capture phase, a pressable's activation in the bubble phase.
+    document: { addEventListener(kind, fn, capture) { if (kind === 'keydown') f[capture ? 'keydown' : 'keyActivate'] = fn; }, activeElement: { closest: () => null } },
     HTMLIFrameElement: class {}, HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLButtonElement: class {},
     inertAncestor: node => node.inert, getComputedStyle: () => ({ visibility: 'visible' }),
     requestAnimationFrame(fn) { frames.set(++serial, fn); return serial; },
@@ -783,6 +784,22 @@ test('moved keyboard shortcuts preserve modifiers, readiness, repeat and modal g
   expect(clicks).toBe(1);
   expect(h.key({ key: 'Escape', metaKey: false }).prevented).toBe(true);
   expect(clicks).toBe(2);
+});
+
+// chat F14: a pressable that is no button takes Enter, or Space unless it is
+// a link, as a click, after the key's handlers and unless one prevented it.
+test('a pressable that is no button activates by Enter or Space', () => {
+  const h = inputFixture(); h.load(); let clicks = 0;
+  const pressable = (tag, role = null) => ({ dataset: { exactOn: 'press' }, matches: s => s.split(', ').includes(tag), getAttribute: () => role, click() { clicks++; } });
+  const key = (target, extra) => { const e = { key: 'Enter', target, preventDefault() { this.prevented = true; }, ...extra }; h.f.keyActivate(e); return e; };
+  expect(key(pressable('div')).prevented).toBe(true);
+  expect(key(pressable('div'), { key: ' ' }).prevented).toBe(true);
+  expect(clicks).toBe(2);
+  for (const [target, extra] of [[pressable('div'), { defaultPrevented: true }], [pressable('div'), { repeat: true }], [pressable('div'), { metaKey: true }],
+    [pressable('div', 'link'), { key: ' ' }], [pressable('button'), {}], [pressable('div'), { key: 'a' }]]) expect(key(target, extra).prevented).toBeUndefined();
+  expect(clicks).toBe(2);
+  expect(key(pressable('div', 'link')).prevented).toBe(true);
+  expect(clicks).toBe(3);
 });
 
 // @ref LLP 1043.000 §3 D7/D8 — optional host code cannot gate data readiness.

@@ -444,8 +444,9 @@ bindings are required as a pair. See
 hardware keyboard, Linux):
 
 - **Where.** The key goes to the focused element: a field or textarea being
-  edited, a `button`, or any element with a `focus`, `blur` or `key` handler
-  (such an element takes the focus, as `tabindex="0"` gives it). It then bubbles: the
+  edited, a `button`, or any element with a `press`, `focus`, `blur` or `key`
+  handler (such an element takes the focus, as `tabindex="0"` gives it, and
+  is in the Tab order). It then bubbles: the
   focused element's handler hears it first, then every ancestor's, innermost
   first. With nothing focused, only `aria-keyshortcuts` buttons hear keys.
 - **What.** The payload is `KeyboardEvent.key`: the character typed, Shift's
@@ -462,7 +463,9 @@ hardware keyboard, Linux):
 - **Then the default.** After the handlers, the key does what it would have:
   a character is typed into the focused field, Backspace deletes, Enter
   submits an input (`submit`), breaks a textarea's line (a textarea has no
-  `submit`, as in HTML) or presses a button, Space presses a button,
+  `submit`, as in HTML) or presses a button, Space presses a button (Enter
+  and Space press any element with a `press` handler as they do a button,
+  Enter alone a `role="link"`; give it `role="button"` to be announced as one),
   Tab moves the focus, arrows move the caret; on the web arrows, Space and
   the page keys also scroll the page or the focus's scroller (a native
   scroller does not scroll by key, so there is nothing there to prevent).

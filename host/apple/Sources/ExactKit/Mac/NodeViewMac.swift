@@ -327,14 +327,14 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return super.accessibilityAttributeValue(attribute)
     }
     override func accessibilityChildren() -> [Any]? {
-        kind == "button" ? nil : textAccessibilityChildren() ?? super.accessibilityChildren()
+        actsAsButton ? nil : textAccessibilityChildren() ?? super.accessibilityChildren()
     }
     /// What VoiceOver reaches, as the web's accessibility tree and iOS's
     /// traits have it: a pressable is a button — a link when its role says
     /// so — and a labelled image an image. Headings are paragraphs
     /// (`updateTextAccessibility`); names come from `syncAccessibility`.
     func updateRoleAccessibility() {
-        if kind == "button" {
+        if actsAsButton {
             setAccessibilityElement(true)
             setAccessibilityToggle(pressedState, else: props["accessibilityRole"] == "link" ? .link : .button)
             setAccessibilitySelected(props["accessibilitySelected"] == "true")

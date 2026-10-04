@@ -478,7 +478,13 @@ impl<D: DataSource> Presenter<D> {
                         .runner()
                         .handlers_of(id)
                         .iter()
-                        .any(|k| matches!(k, EventKind::Focus | EventKind::Blur | EventKind::Key)))
+                        // A pressable is a tab stop, as on every host (chat F14).
+                        .any(|k| {
+                            matches!(
+                                k,
+                                EventKind::Focus | EventKind::Blur | EventKind::Key | EventKind::Press
+                            )
+                        }))
         })
     }
 

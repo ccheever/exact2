@@ -1052,9 +1052,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         accessibilityIdentifier = props["testId"]
         accessibilityLabel = props["accessibilityLabel"]
         updateTextAccessibility()
-        if kind == "button" {
+        if actsAsButton {
             isAccessibilityElement = true
-            accessibilityTraits.insert(.button)
+            accessibilityTraits.insert(kind == "view" && props["accessibilityRole"] == "link" ? .link : .button)
             if props["accessibilitySelected"] == "true" { accessibilityTraits.insert(.selected) } else { accessibilityTraits.remove(.selected) }
             setAccessibilityToggle(pressedState)
             if #available(iOS 18, tvOS 18, *) {

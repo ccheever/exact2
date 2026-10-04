@@ -15,3 +15,6 @@ key area b
 key area Enter
 key grid Meta+s
 key field Control+s
+# A pressable column: Enter and Space press it.
+key pressable Enter
+key pressable Space

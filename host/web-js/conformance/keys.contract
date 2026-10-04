@@ -5,6 +5,8 @@
 // Space, so the scroller around it does not move (minesweeper F7). An action
 // taking the `KeyboardEvent` reads its modifiers: a textarea's Enter sends
 // and Shift+Enter breaks the line (chat F2), and ⌘S/Ctrl+S saves (kanban F27).
+// A pressable that is no button takes the focus and Enter or Space presses
+// it, as natively (chat F14).
 component Keys
   state text = ""
   state heard = ""
@@ -12,6 +14,7 @@ component Keys
   state draft = ""
   state sent = ""
   state saved = 0
+  state pressed = 0
   action typed(v: string)
     text = v
   action field(k: string)
@@ -30,6 +33,8 @@ component Keys
     if k == " "
       cursor = 0
       preventDefault()
+  action hit
+    pressed = pressed + 1
   action write(v: string)
     draft = v
   action compose(k: string, e: KeyboardEvent)
@@ -43,5 +48,7 @@ component Keys
       text heard testId="heard"
       textarea value=draft input=write key=compose testId="area" height=60
       text sent testId="sent"
+      column press=hit testId="pressable" padding=8
+        text `pressed ${pressed}`
       column key=grid testId="grid" height=900 background-color="#eeeeee"
         text `${cursor}` testId="cursor"
