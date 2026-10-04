@@ -1036,7 +1036,7 @@ export function each(p, list, key, row, pure) {
   let [a, b] = range(p), own = Owner;
   let rows = new Map(), single = false, order = null;
   effect(() => {
-    const items = list();
+    const items = list(), parent = b?.parentNode ?? p; // rows go where the end anchor is: at an arm's top, `p` is the fragment the arm was built in
     untracked(() => {
       // Rows moving or leaving are adopted rows (a row waiting for its slice
       // shows its rendered values until then, and adopts at the current ones).
@@ -1101,8 +1101,8 @@ export function each(p, list, key, row, pure) {
       // Every row goes and the region is all its parent holds: emptied at once.
       if (rows.size && b && !Leave && list.every(r => r.frag) && !a.previousSibling && !b.nextSibling) {
         endAll(rows);
-        p.textContent = "";
-        p.append(a, b);
+        parent.textContent = "";
+        parent.append(a, b);
       }
       else if (rows.size) { endAll(rows); for (const r of rows.values()) { let n = r.start; while (n) { const m = n.nextSibling; Leave ? Leave(n, b) : n.remove(); if (n === r.end) break; n = m; } } }
       // Order, from the last row back: kept rows on the longest run already in
@@ -1111,7 +1111,7 @@ export function each(p, list, key, row, pure) {
       if (b) {
         const stay = inOrder(list);
         let anchor = b, batch = null, first = null;
-        const flush = () => { if (batch) { p.insertBefore(batch, anchor); anchor = first; batch = null; } };
+        const flush = () => { if (batch) { parent.insertBefore(batch, anchor); anchor = first; batch = null; } };
         for (let i = list.length - 1; i >= 0; i--) {
           const r = list[i];
           if (r.frag) { if (batch) batch.prepend(r.frag); else batch = r.frag; first = r.start; r.frag = null; continue; }
@@ -1119,13 +1119,13 @@ export function each(p, list, key, row, pure) {
           if (!stay.has(i)) {
             const f = document.createDocumentFragment();
             let n = r.start; while (n) { const m = n.nextSibling; f.append(n); if (n === r.end) break; n = m; }
-            p.insertBefore(f, anchor);
+            parent.insertBefore(f, anchor);
           }
           anchor = r.start;
         }
         flush();
       }
-      rows = next; paintList(p);
+      rows = next; paintList(parent);
       b ??= mark(p);
     });
   });
