@@ -715,3 +715,115 @@ pub(crate) fn check_glass_group(tag: &tags::Tag, attrs: &[Attr]) -> Result<(), L
     }
     Ok(())
 }
+
+/// CSS flex shorthand, projected into the three longhands before bytecode.
+pub(crate) fn flex_component(value: &Expr, index: usize) -> Result<Expr, LowerError> {
+    let mut out = value.clone();
+    match &mut out {
+        Expr::Ternary(_, yes, no, _) => {
+            **yes = flex_component(yes, index)?;
+            **no = flex_component(no, index)?;
+        }
+        Expr::Match { some, none, .. } => {
+            **some = flex_component(some, index)?;
+            **none = flex_component(none, index)?;
+        }
+        Expr::Let { body, .. } => **body = flex_component(body, index)?,
+        Expr::Str(text, span) => {
+            let number = |s: &str| s.parse::<f64>().ok().filter(|n| n.is_finite() && *n >= 0.0);
+            let (grow, shrink, basis) = match text.trim() {
+                "none" => (0.0, 0.0, "auto"),
+                "auto" => (1.0, 1.0, "auto"),
+                "initial" => (0.0, 1.0, "auto"),
+                text => {
+                    let mut depth = 0;
+                    let words: Vec<_> = text
+                        .split(|c: char| {
+                            if c == '(' {
+                                depth += 1;
+                            }
+                            if c == ')' {
+                                depth -= 1;
+                            }
+                            c.is_ascii_whitespace() && depth == 0
+                        })
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    let mut factors = Vec::new();
+                    let mut basis = None;
+                    for word in words {
+                        if let Some(n) = number(word) {
+                            factors.push(n);
+                        } else if basis.replace(word).is_some() {
+                            return err(
+                                "lower-attr-value",
+                                "`flex` expects none, auto, or <grow> [<shrink>] [<basis>]",
+                                *span,
+                            );
+                        }
+                    }
+                    // A third unitless zero is a zero length, not a factor.
+                    if factors.len() == 3 && factors[2] == 0.0 && basis.is_none() {
+                        factors.pop();
+                        basis = Some("0px");
+                    }
+                    if factors.len() > 2 || (factors.is_empty() && basis.is_none()) || depth != 0 {
+                        return err(
+                            "lower-attr-value",
+                            "`flex` expects none, auto, or <grow> [<shrink>] [<basis>]",
+                            *span,
+                        );
+                    }
+                    (
+                        factors.first().copied().unwrap_or(1.0),
+                        factors.get(1).copied().unwrap_or(1.0),
+                        basis.unwrap_or("0%"),
+                    )
+                }
+            };
+            out = match index {
+                0 => Expr::Number(grow, *span),
+                1 => Expr::Number(shrink, *span),
+                _ => Expr::Str(basis.into(), *span),
+            };
+        }
+        _ if index == 1 => out = Expr::Number(1.0, value.span()),
+        _ if index == 2 => out = Expr::Str("0%".into(), value.span()),
+        _ => {}
+    }
+    Ok(out)
+}
+
+/// A shrinking flex item with a zero minimum fits a bounded flex column.
+pub(crate) fn shrinking_scroll(attrs: &[Attr], bounded_column: bool) -> bool {
+    bounded_column
+        && attrs
+            .iter()
+            .any(|a| a.name == "min-height" && numeric_literal(&a.value) == Some(0.0))
+        && attrs
+            .iter()
+            .find(|a| a.name == "flex-shrink")
+            .is_none_or(|a| numeric_literal(&a.value).is_none_or(|n| n > 0.0))
+}
+
+pub(crate) fn bounded_column(tag: &str, attrs: &[Attr], inherited: bool) -> bool {
+    let word = |name: &str| {
+        attrs
+            .iter()
+            .rev()
+            .find(|a| a.name == name)
+            .and_then(|a| match &a.value {
+                Expr::Str(s, _) => Some(s.as_str()),
+                _ => None,
+            })
+    };
+    let column = word("display").map_or(tag == "column" || tag == "button", |v| v == "flex")
+        && word("flex-direction").map_or(tag == "column" || tag == "button", |v| {
+            v.starts_with("column")
+        });
+    column
+        && (attrs.iter().any(|a| {
+            matches!(a.name.as_str(), "height" | "max-height")
+                && !matches!(&a.value, Expr::Str(s, _) if s == "auto")
+        }) || shrinking_scroll(attrs, inherited))
+}

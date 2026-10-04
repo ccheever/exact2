@@ -26,7 +26,7 @@ component Styles
       row testId="row" justify-content=(on ? "flex-end" : "flex-start") gap=(on ? 12 : 4)
         text "left" color=(on ? "#264653" : "#000000") font-size=(on ? 20 : 14)
         text "right" font-weight=(on ? 700 : 400)
-      view testId="auto" width=(on ? "auto" : 200) height=20 background-color="#999999"
+      view flex=(on ? "none" : "0 1 auto") testId="auto" width=(on ? "auto" : 200) height=20 background-color="#999999"
       view testId="ellipse" width=160 height=80 background-color="#2468ac" border-radius="50%"
       input testId="title" value=title readonly=on input=titleInput
       textarea testId="body" value=body readonly=(on or width > 300) input=bodyInput

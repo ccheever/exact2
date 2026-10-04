@@ -1157,3 +1157,47 @@ fn overflow_auto_is_a_scroll_container_on_either_axis() {
         ));
     }
 }
+
+#[test]
+fn css_flex_shorthands_lower_in_order_to_the_longhands() {
+    for (value, grow, shrink, basis) in [
+        ("none", 0.0, 0.0, Dimension::Auto),
+        ("auto", 1.0, 1.0, Dimension::Auto),
+        ("0 1 auto", 0.0, 1.0, Dimension::Auto),
+        ("2", 2.0, 1.0, Dimension::Percent(0.0)),
+        ("2 3", 2.0, 3.0, Dimension::Percent(0.0)),
+        ("2 3 40px", 2.0, 3.0, Dimension::Points(40.0)),
+        ("25%", 1.0, 1.0, Dimension::Percent(25.0)),
+        ("40px 2 3", 2.0, 3.0, Dimension::Points(40.0)),
+        ("1 1 0", 1.0, 1.0, Dimension::Points(0.0)),
+    ] {
+        let r = boot(&format!(
+            "component App\n  view\n    column\n      box testId=\"item\" flex=\"{value}\"\n"
+        ));
+        let s = style_of(&r, "item");
+        assert_eq!(
+            (s.flex_grow, s.flex_shrink, s.flex_basis),
+            (grow, shrink, basis),
+            "{value}"
+        );
+    }
+    let r = boot("component App\n  state on = true\n  view\n    column\n      box testId=\"item\" flex=(on ? \"none\" : \"2 3 40px\") flex-shrink=4\n");
+    assert_eq!(style_of(&r, "item").flex_shrink, 4.0);
+    for value in ["-1", "1 -2 auto", "1 2 3px garbage", "1 2 3"] {
+        assert_eq!(refused(&format!("flex=\"{value}\"")).id, "lower-attr-value");
+    }
+}
+
+#[test]
+fn a_zero_minimum_scroller_can_shrink_under_a_bounded_column() {
+    for bound in ["height=200", "max-height=200", "max-height=\"100%\""] {
+        contract::compile(&format!("component App\n  view\n    column {bound}\n      scroll flex-shrink=1 min-height=0\n        box height=1000\n")).unwrap();
+    }
+    for parent in ["column", "box height=200"] {
+        let e = contract::compile(&format!(
+            "component App\n  view\n    {parent}\n      scroll flex-shrink=1 min-height=0\n"
+        ))
+        .unwrap_err();
+        assert_eq!(e.id, "lower-scroll-unbounded");
+    }
+}

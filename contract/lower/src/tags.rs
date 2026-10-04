@@ -26,7 +26,7 @@ pub enum AttrTarget {
     InvertedBoolProp(PropId),
     /// A handler for the named event.
     Handler(&'static str),
-    /// CSS `flex: <n>` — grow, shrink, and basis together.
+    /// CSS `flex` shorthand — grow, shrink, and basis together.
     Flex,
     /// A canvas's surface binding: `surface=name(args)` (LLP 1009 D3).
     Surface,

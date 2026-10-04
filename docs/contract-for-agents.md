@@ -526,3 +526,8 @@ of JavaScript, React Native, or the predecessor's Contract language.
 CSS overflow accepts `visible`, `hidden`, `scroll`, and `auto`. `auto` clips and
 permits scrolling, with indicators shown only when content overflows. A visible
 axis beside hidden/scroll/auto computes to auto, as on the web.
+
+`flex` accepts CSS `none`, `auto`, a basis, or `<grow> [<shrink>] [<basis>]`
+(including `flex="0 1 auto"`). Numeric bindings keep the `n 1 0%` meaning.
+Shorthands may be literal choices; computed strings are refused. A scroller
+with `min-height=0` and positive shrink fits under a bounded flex column.
