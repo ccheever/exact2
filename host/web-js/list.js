@@ -701,7 +701,8 @@ function intoView(list, key, block, inline, row, view) {
   }
   settled();
 }
-Hosts.scrollIntoView = (list, key, block, inline, behavior, row) => intoView(list, key, block ?? "start", inline ?? "nearest", row);
+const element = Hosts.scrollIntoView; // an element's, by id: four arguments, the row form's six (rt.js)
+Hosts.scrollIntoView = (...a) => a.length !== 6 ? element(...a) : intoView(a[0], a[1], a[2] ?? "start", a[3] ?? "nearest", a[5]);
 /** `state.scrollIntoView`: each list's latest request, then refusals. */
 const intoViewState = () => [...[...Lists.values()].filter(c => c.status).map(c => ({ list: c.view, key: c.status[0], status: c.status[1] })), ...Refused];
 function publish() {

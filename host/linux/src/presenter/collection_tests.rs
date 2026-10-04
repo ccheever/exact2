@@ -1027,3 +1027,44 @@ fn overflow_auto_accepts_reader_scrolling() {
     p.wheel(port, 0., 120.).unwrap();
     assert_eq!(p.scroll_of(port).1, 120.);
 }
+
+/// An app's `scrollIntoView("element-id", …)` on any element (minesweeper
+/// F3): the scroller above it aligns it by CSSOM View's rules.
+#[test]
+fn scroll_into_view_aligns_any_element_in_its_scroller() {
+    let cells: String = (0..20)
+        .map(|i| format!("        box id=\"cell-{i}\" height=50 width=200\n"))
+        .collect();
+    let mut p = boot_source(&format!(
+        r#"component App
+  action nearest
+    scrollIntoView("cell-9", block="nearest")
+  action start
+    scrollIntoView("cell-3")
+  action center
+    scrollIntoView("cell-10", block="center")
+  view
+    column
+      button "nearest" press=nearest testId="nearest"
+      button "start" press=start testId="start"
+      button "center" press=center testId="center"
+      scroll testId="port" width=200 height=100
+        column
+{cells}"#
+    ));
+    settle(&mut p);
+    let port = named(&p, "port");
+    // Below the port, `nearest` aligns its end; above it (from the centred
+    // cell-10), its start.
+    for (button, top) in [
+        ("nearest", 400.),
+        ("start", 150.),
+        ("center", 475.),
+        ("nearest", 450.),
+    ] {
+        p.tap(named(&p, button)).unwrap();
+        p.run_commands(Rows::default);
+        settle(&mut p);
+        assert_eq!(p.scroll_of(port).1, top, "{button}");
+    }
+}

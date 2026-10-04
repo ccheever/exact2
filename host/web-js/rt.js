@@ -210,7 +210,7 @@ export const Hosts = {
   focus: id => document.getElementById(id)?.focus(),
   blur: id => document.getElementById(id)?.blur(),
   setScheme: s => { document.documentElement.style.colorScheme = s === "system" ? "" : s; },
-  copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), // LLP 1077 D14: vibration where the browser has it
+  copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), /* LLP 1077 D14: vibration where the browser has it */ scrollIntoView: (id, block, inline, behavior) => { const e = document.getElementById(id); if (e) e.scrollIntoView({ block: block ?? "start", inline: inline ?? "nearest", behavior: behavior ?? "auto" }); else say(`scrollIntoView "${id}" refused: no live node with that id`); }, // an element's, by id (minesweeper F3); list.js takes a row's
 };
 let KeyEvent = null; Hosts.preventDefault = () => KeyEvent?.preventDefault(); // the keydown whose `key` handler is running (`on`): commands run before its commit returns
 function command(name, args) {

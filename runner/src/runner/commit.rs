@@ -617,11 +617,13 @@ impl<D: DataSource> Runner<D> {
                 s
             })
             .collect();
-        // `scrollIntoView` is the runner's own (LLP 1070.000): it runs in
-        // this commit, after the update, and never reaches a host.
+        // `scrollIntoView` of a list's row is the runner's own (LLP
+        // 1070.000): it runs in this commit, after the update, and never
+        // reaches a host. An element's (its id and three options, not the
+        // row form's six arguments) is the host's, as `focus` is.
         let stated: Vec<Command> = self.commands.drain(first_command..).collect();
         for command in stated {
-            if command.name != "scrollIntoView" {
+            if command.name != "scrollIntoView" || command.args.len() != 6 {
                 self.commands.push(command);
                 continue;
             }

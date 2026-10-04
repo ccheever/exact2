@@ -1003,6 +1003,10 @@ public final class ExactSession {
                     app.deliver { [weak self] in self?.presenter.blurElement(args) }
                     continue
                 }
+                if name == "scrollIntoView" {
+                    app.deliver { [weak self] in self?.presenter.scrollElementIntoView(args) }
+                    continue
+                }
                 if name == "showPicker" {
                     app.deliver { [weak self] in self?.picker.show(args) }
                     continue
