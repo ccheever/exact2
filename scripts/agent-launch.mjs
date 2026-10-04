@@ -262,7 +262,7 @@ export function receiptChanges(receipt, app) {
 export function gameNonInput(path) {
   path = path.replaceAll('\\', '/');
   return /(^|\/)(pins\.json|proof\.mjs|[^/]*\.test\.mjs|[^/]*\.md)$/.test(path)
-    || (/\.m?js$/.test(path) && !/^(logic|data|gpu|art|assets|deck)\//.test(path));
+    || (/\.m?js$/.test(path) && !/^(logic|data|gpu|presentation|art|assets|deck)\//.test(path));
 }
 export function webChanges(dist, app) {
   const marker = resolve(dist, '.exact-build.json');
