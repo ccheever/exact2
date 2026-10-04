@@ -547,7 +547,7 @@ export function readManifest(dir, name) {
   // LLP 1069.008 D4: a device's usage text is derived from its grant, never hand-written.
   const problems = validate(parsed, schema(), '', schema()).map((p) => /^host\.(ios|macos)\.permissions: /.test(p)
     ? `${p.split(':')[0]}: deleted (LLP 1069.008); declare the device in the source's grants as \`device.<name> <strings key>\` (e.g. \`device.microphone purpose.microphone\`) and put the text in strings/<locale>.json` : p);
-  if (!problems.length) problems.push(...installProblems(parsed), ...gpuModuleProblems(parsed), ...documentTypeProblems(parsed));
+  if (!problems.length) problems.push(...installProblems(parsed), ...gpuModuleProblems(parsed), ...documentTypeProblems(parsed), ...appleIconProblems(parsed, dir));
   if (problems.length) throw new Error(`${path} does not conform to scripts/app.schema.json:\n  ${problems.join('\n  ')}`);
   return { host: {}, deploy: {}, ...parsed };
 }
@@ -578,6 +578,14 @@ export const DOCUMENT_UTIS = {
   'image/svg+xml': 'public.svg-image',
   'inode/directory': 'public.folder',
 };
+
+// The icon the Apple bundles are drawn from (host/apple/build.mjs
+// `appIcon`): the first square one of at least 512 px, which must be there;
+// refused when any build reads the manifest, as the file types are.
+function appleIconProblems(manifest, dir) {
+  const icon = (manifest.icons ?? []).find((i) => { const m = /^(\d+)x(\d+)$/.exec(i.sizes ?? ''); return m && m[1] === m[2] && Number(m[1]) >= 512; });
+  return icon && !existsSync(resolve(dir, icon.src)) ? [`icons: ${icon.src}, the square icon the Apple bundles are drawn from, does not exist`] : [];
+}
 
 function documentTypeProblems(manifest) {
   return (manifest.file_handlers ?? []).flatMap((handler, i) => Object.keys(handler.accept)

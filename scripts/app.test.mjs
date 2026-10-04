@@ -1099,6 +1099,11 @@ test('the launch handler bakes `ExactLaunchMode` with or without documents (LLP 
     assert.throws(() => readManifest(dir, 'types'), /file_handlers\[0\]\.accept: text\/x-unknown names no type the Apple hosts map \(they map .*text\/csv/);
     write({ 'application/octet-stream': ['.bin', '.dat'] });
     assert.deepEqual(documentTypes(app(readManifest(dir, 'types')))[0].LSItemContentTypes, ['public.data']);
+    // So are a launch colour iOS cannot draw and the Apple icon's missing file.
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Types', app: { id: 'com.example.types', name: 'Types' }, background_color: 'white', icons: [{ src: 'icon.png', sizes: '1024x1024' }] }));
+    assert.throws(() => readManifest(dir, 'types'), /background_color: "white" does not match/);
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Types', app: { id: 'com.example.types', name: 'Types' }, background_color: '#fff', icons: [{ src: 'icon.png', sizes: '1024x1024' }] }));
+    assert.throws(() => readManifest(dir, 'types'), /icons: icon\.png, the square icon the Apple bundles are drawn from, does not exist/);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
