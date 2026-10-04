@@ -144,16 +144,36 @@ pub struct Origin {
     pub pose: [f32; 12],
 }
 /// Restore each world-space emitter's derivation poses from its saved origins.
-pub(crate) fn rehydrate(w: &World) {
+/// Saves are untrusted: a non-finite pose refuses the load, and origins naming
+/// no live batch (or repeating one) are dropped, so at most one per batch remains.
+pub(crate) fn rehydrate(w: &World) -> Result<(), crate::DataError> {
     for (entity, e) in w.query::<&mut Emitter>().iter() {
-        if let Some(space) = w.get::<WorldSpace>(entity) {
-            e.origins = space
-                .origins
-                .iter()
-                .map(|o| (o.tick, crate::Affine3A::from_cols_array(&o.pose)))
-                .collect();
+        let Some(mut space) = w.get_mut::<WorldSpace>(entity) else {
+            continue;
+        };
+        if let Some(bad) = space
+            .origins
+            .iter()
+            .find(|o| !o.pose.iter().all(|v| v.is_finite()))
+        {
+            return Err(crate::DataError::new(format!(
+                "WorldSpace origin at tick {} of #{} is not finite",
+                bad.tick,
+                entity.index()
+            )));
         }
+        let births = &e.state.births;
+        let mut seen = std::collections::BTreeSet::new();
+        space
+            .origins
+            .retain(|o| births.iter().any(|b| b.tick == o.tick) && seen.insert(o.tick));
+        e.origins = space
+            .origins
+            .iter()
+            .map(|o| (o.tick, crate::Affine3A::from_cols_array(&o.pose)))
+            .collect();
     }
+    Ok(())
 }
 impl Clone for Emitter {
     fn clone(&self) -> Self {
@@ -387,7 +407,7 @@ pub fn step(w: &World) {
     }
     let hz = w.hz() as f64;
     let mut alive = 0u32;
-    for (entity, e) in w.query::<&mut Emitter>().iter() {
+    for (_, e) in w.query::<&mut Emitter>().iter() {
         if e.validate().is_err() {
             continue;
         }
@@ -407,11 +427,6 @@ pub fn step(w: &World) {
         let births = &e.state.births;
         e.origins
             .retain(|(tick, _)| births.iter().any(|b| b.tick == *tick));
-        if let Some(mut space) = w.get_mut::<WorldSpace>(entity) {
-            space
-                .origins
-                .retain(|o| births.iter().any(|b| b.tick == o.tick));
-        }
         e.state.alive = e
             .state
             .births
@@ -444,7 +459,14 @@ pub fn step(w: &World) {
                 key: mix(e.seed).wrapping_add(state.stream),
                 lifetime: e.lifetime,
             });
-            if let Some(mut space) = w.get_mut::<WorldSpace>(entity) {
+        }
+        // One lookup: retire dead batches' origins and record a new birth's.
+        if let Some(mut space) = w.get_mut::<WorldSpace>(entity) {
+            let births = &state.births;
+            space
+                .origins
+                .retain(|o| births.iter().any(|b| b.tick == o.tick));
+            if count > 0 {
                 // This tick's pose, including a parent moved this tick and an
                 // emitter spawned this tick (World::global is the last boundary's).
                 let pose = w

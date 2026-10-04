@@ -1164,7 +1164,7 @@ impl World {
         next.read(&mut r).map_err(|e| e.at("World"))?;
         r.finish()?;
         next.validate_hierarchy(&mut r)?;
-        crate::emitter::rehydrate(&next);
+        crate::emitter::rehydrate(&next).map_err(|e| e.at("World"))?;
         next.presentation_generation = self
             .presentation_generation
             .checked_add(1)
