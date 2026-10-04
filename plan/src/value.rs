@@ -360,6 +360,17 @@ impl Value {
                 pool.stack.reserve(n.min(crate::bytes::RESERVE));
                 let mut unique = false;
                 for _ in 0..n {
+                    // A number item (a series' points) decodes here: what
+                    // `decode_depth` does for one, without the call.
+                    if r.peek() == Some(0) && depth < 64 {
+                        r.u8()?;
+                        let n = r.f64()?;
+                        if !n.is_finite() {
+                            return Err(PlanError::NonFiniteValue);
+                        }
+                        pool.stack.push(Value::Number(n));
+                        continue;
+                    }
                     let item = Self::decode_depth(r, depth + 1, pool)?;
                     pool.stack.push(item);
                     unique |= pool.unique;
