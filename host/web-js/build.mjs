@@ -15,7 +15,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, normalize, relative, resolve } from 'node:path';
+import { dirname, posix, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { transformSync } from 'rolldown/utils';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants } from './module.mjs';
@@ -258,7 +258,7 @@ for (const f of ['navigation.js', 'names.js']) cpSync(resolve(gen, f), resolve(g
 writeFileSync(resolve(gen, 'agent.js'), readFileSync(resolve(gen, 'agent.js'), 'utf8').replace("from './names.js'", "from './agent-names.js'").replace("from './navigation.js'", "from './agent-navigation.js'"));
 // A source granted `auth.session` signs in through the system browser (auth.js, LLP 1069.006).
 const auth = /^\s*auth\.session\s/m.test(grants);
-if (ts) writeFileSync(resolve(gen, 'ts-data.js'), readFileSync(resolve(here, 'ts-data.js'), 'utf8').replace('__APP_TS__', resolve(appDir, 'app.ts'))
+if (ts) writeFileSync(resolve(gen, 'ts-data.js'), readFileSync(resolve(here, 'ts-data.js'), 'utf8').replace("'__APP_TS__'", JSON.stringify(resolve(appDir, 'app.ts')))
   .replace('__AUTH_IMPORT__', auth ? "import { install as signIn } from './auth.js';" : '')
   .replace('__AUTH_INSTALL__', auth ? `signIn(${JSON.stringify(grants)}, () => asking);` : ''));
 for (const f of ['auth-glue.js', 'storage-environment.js', 'http-body.js', 'grant-admission.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
@@ -414,7 +414,7 @@ if (existsSync(resolve(gen, 'flow.flag'))) cpSync(buildFlow(), resolve(out, 'tex
 // dep-info, module.mjs `fresh`): the bindings and wasm-opt with it.
 const literalModuleURLs = code => [...code.matchAll(/new\s+URL\(\s*['"]([^'":/#][^'"]*)['"]\s*,\s*import\.meta\.url\s*\)/g)].map(match => match[1]);
 const moduleImports = code => new Bun.Transpiler({ loader: 'js' }).scanImports(code).map(entry => entry.path).filter(path => path.startsWith('.'));
-const publicDependency = (from, specifier) => normalize(resolve('/', dirname(from), specifier)).replace(/^\//, '');
+const publicDependency = (from, specifier) => posix.resolve('/', posix.dirname(from), specifier).slice(1);
 async function copyLazyModules(roots) {
   const { webHostFiles } = await import('../../scripts/app.mjs');
   const inventory = webHostFiles(), queue = roots.map(name => ({ name, source: inventory[name] })), copied = new Set();
