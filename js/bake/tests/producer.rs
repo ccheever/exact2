@@ -666,6 +666,7 @@ fn resident_maps_name_original_imports_and_bake_refusals_after_capture() {
     assert!(!error.contains(".exact-js-bake-"), "{error}");
 }
 
+#[cfg(unix)]
 #[test]
 fn resident_compilation_refusals_are_drained_before_the_next_request() {
     if !exact_js::ENGINE_LINKED {

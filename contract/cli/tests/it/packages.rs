@@ -1,6 +1,8 @@
 //! LLP 1091 D8/D9: `exact:` built-ins and packages through `node_modules`.
 
-use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::path::Path;
+use std::path::PathBuf;
 
 struct Dir(PathBuf);
 impl Dir {

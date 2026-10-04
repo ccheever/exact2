@@ -144,6 +144,7 @@ fn the_package_is_the_manifest_whose_exports_were_read() {
 }
 
 #[test]
+#[cfg(unix)]
 fn one_library_under_two_names_is_both_in_the_graph() {
     let dir = Dir::new("aliases");
     ui_package(

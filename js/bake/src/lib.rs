@@ -1047,11 +1047,12 @@ fn compile_once(stage: &Path, tools: &Tools) -> Result<(), String> {
     std::fs::write(
         stage.join("__exact_bundle.mjs"),
         r#"
+import { assertCapturedModule } from './__exact_config.mjs';
 export default {
   input: '__exact_entry.ts',
   tsconfig: '__exact_tsconfig.json',
   plugins: [{ name: 'captured-sources', load(id) {
-    if (!id.startsWith(process.cwd() + '/')) throw new Error('module outside captured app: ' + id);
+    assertCapturedModule(process.cwd(), id);
     return null;
   }}],
 };
