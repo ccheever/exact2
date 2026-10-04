@@ -406,13 +406,10 @@ sits on that list carries the trade it would take.
   from an expression; `metrics.mjs` printing the inherited-invalidation cost on
   Messages; the reply tags on `tap`/`type`/`clock`/`screenshot`.
 
-- **Contract modules stage 2** ([LLP 1091](llp/1091-contract-modules.rfc.md) D8–D10, Charlie
-  2026-10-04): stage 1 (module scope) landed. Owed: `exact:` built-ins with
-  `exact:motion`'s `Activity` (LLP 1055.002 D8; Lexy moves to it), packages through
-  `node_modules`, and the resolution graph the bake, watchers and deploy capture (r2 §D10).
-  First consumer: the `Blocks`/`Runs` renderer copied between `apps/markdown` and
-  `apps/llp`. Outside this repo, `signal-exact2` needs stage 1's `use` lines for the
-  names it reaches transitively (`contract-use-missing` names each).
+- **Contract modules, after stage 2** ([LLP 1091](llp/1091-contract-modules.rfc.md), Charlie
+  2026-10-04): both stages landed. Outside this repo, Lexy can drop its own
+  `timeline Activity` for `use Activity from "exact:motion"`. The TS bake stages one
+  copy per package name; two versions of one package in an app are refused there.
 
 - **Intermittent macOS GPU smoke stall** (2026-09-07): a TS Caltrain run sampled
   in drawable acquisition, then passed in 2.1 s on rerun; final `host` smoke
@@ -625,7 +622,7 @@ when SwiftPM leaves a host SDKROOT in the environment. Nothing from 1025 is open
   the pipeline cache after" beside LLP 1009 §5's — Charlie's to write.
 - **The app's name** (`rules/DEFERRED.md` opens with it; the recommendation is
   Caltrain and Caltrain is what exists).
-- **Contract, started over** — LLP 1017 (RFC, **Accepted** 2026-08-30 evening; **all nine landed on main the same night: P1, P9, P2, P6, P8, P4a/b, then P5 `fn`, P7 `test` beside the app, P4c per-instance state** — LLP 1017.000 transcribes each; owed with P8: the dev loop watches the app file only, so an edit to a `use`d file needs a save of the app file — §8: literal CSS names, commands stay the framework's, all nine proposals in one lane in the order P1+P9 → P2 → P6+P8 → P4 → P5 → P7, no instance reload carry, Coterie rerun deferred; in `llp/current/`;
+- **Contract, started over** — LLP 1017 (RFC, **Accepted** 2026-08-30 evening; **all nine landed on main the same night: P1, P9, P2, P6, P8, P4a/b, then P5 `fn`, P7 `test` beside the app, P4c per-instance state** — LLP 1017.000 transcribes each — §8: literal CSS names, commands stay the framework's, all nine proposals in one lane in the order P1+P9 → P2 → P6+P8 → P4 → P5 → P7, no instance reload carry, Coterie rerun deferred; in `llp/current/`;
   sub-LLPs 1017.001 grok and 1017.002 codex answered the same brief blind; a one-round panel — `llp/reviews/1017-contract-restart.{codex,grok}.md`, §10 — settled every fork but the CSS spelling, which is Charlie's): the seven Coterie diaries and exact1's record read
   for what consistently cost authors time, and nine proposals in order of leverage — kernel
   rows as the compiler's value checker plus a layout lint at bake, `if`/`match` in actions,

@@ -1,5 +1,5 @@
 fn main() {
-    println!("cargo:rerun-if-changed=app.contract");
+    contract::rerun_if_changed(std::path::Path::new("app.contract"));
     let plan = contract::compile_path(std::path::Path::new("app.contract"))
         .unwrap_or_else(|error| panic!("app.contract: {error}"));
     let out = std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap());

@@ -185,6 +185,29 @@ function cargoDependencyRoots(app, exactRoot) {
   return [...repos].sort().map((cwd) => ({ role: 'cargo', cwd }));
 }
 
+/** Contract packages linked from outside the app and Exact repositories
+ * (`"file:../ui"`, `bun link`; LLP 1091 D10) are source too: their whole
+ * repository, captured beside the app's so a relative link still reaches it.
+ * A registry package is not: the captured bun.lock pins its bytes, and the
+ * materialized install restores exactly those. */
+function contractPackageRoots(app, exactRoot) {
+  const owned = new Set([repoTop(app.dir, 'app source'), repoTop(exactRoot, 'Exact source')]);
+  const result = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'sources', resolve(app.dir, 'app.contract')], {
+    cwd: exactRoot, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+  });
+  let graph;
+  try { graph = JSON.parse(result.stdout); }
+  catch { refuse(`${app.dir}: contract sources did not answer: ${(result.stderr || '').trim()}`); }
+  if (graph.errors?.length) refuse(`${app.dir}/app.contract does not load: ${graph.errors.map((e) => e.message).join('; ')}`);
+  const repos = new Set();
+  for (const source of graph.sources) {
+    if (source.origin !== 'package' || /(^|\/)node_modules\//.test(relative(canonicalPath(app.dir), source.root))) continue;
+    const repo = repoTop(source.root, `Contract package ${source.package}`);
+    if (!owned.has(repo)) repos.add(repo);
+  }
+  return [...repos].sort().map((cwd) => ({ role: 'contract', cwd }));
+}
+
 function parseTreeEntries(repo, env, tree) {
   const listed = gitText(repo, ['ls-tree', '-rz', '-l', '--full-tree', tree], `could not inventory captured tree ${tree}`, { env });
   return listed.split('\0').filter(Boolean).map((line) => {
@@ -333,6 +356,7 @@ export function snapshotOf(app, opts, exactRoot = ROOT) {
   };
   discover(sourceRoots);
   discover(cargoDependencyRoots(app, exactRoot));
+  discover(contractPackageRoots(app, exactRoot));
   const sourceList = [...repos.values()].map((source) => ({ ...source,
     roles: [...source.roles].sort() }));
   const common = commonParent(sourceList.map((source) => source.repo));

@@ -62,6 +62,28 @@ fn main() -> ExitCode {
     // linked, as the render host links them (LLP 1047 D7).
     exact_web::link(exact_web_capabilities::ALL);
     let path = std::path::Path::new(input);
+    // The dev loop watches every package the Contract reads (LLP 1091 D10),
+    // even when this compile fails: the fix may be in the library.
+    if dev_reload && !input.ends_with(".plan") {
+        let roots: Vec<String> = contract::source_graph(path)
+            .sources
+            .iter()
+            .filter_map(|source| match &source.origin {
+                contract::Origin::Package { root, .. } => Some(root.display().to_string()),
+                _ => None,
+            })
+            .collect();
+        let json = format!(
+            "{{\"packages\":[{}]}}\n",
+            roots
+                .iter()
+                .map(|r| format!("{r:?}"))
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+        let _ = std::fs::create_dir_all(out);
+        let _ = std::fs::write(std::path::Path::new(out).join("dev-sources.json"), json);
+    }
     let mut map = None;
     let plan = if input.ends_with(".plan") {
         let bytes = match std::fs::read(path) {
