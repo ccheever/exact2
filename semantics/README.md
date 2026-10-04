@@ -15,6 +15,10 @@ tested against it, differentially and at random.
 | `Contract/Axiomatic.lean` | An axiomatic semantics: a Hoare logic for action bodies, proved sound against the operational semantics, plus the transaction laws (a refused action changes nothing, reads see the pre-state, the last write wins). |
 | `Contract/Invariant.lean` | Invariants of runs: the configurations a program reaches from boot by any events (`Reachable`), and the rules that prove a property of all of them (`Reachable.invariant`, `Reachable.slotIn`). |
 | `Contract/Observe.lean` | The canonical observation a differential run compares. |
+| `Contract/Vm.lean` | A model of the expression VM (`runner/src/vm.rs`) for the opcodes expressions and action bodies use, over instructions with symbolic operands, and a decoder from the plan's bytes (`plan/tables/format.json`, `opcodes`). |
+| `Contract/Lower.lean` | A compiler from the semantics' expressions and statements to VM code, mirroring `contract/lower` (`expr.rs`, `stmts.rs`) instruction for instruction. |
+| `Contract/VmFacts.lean`, `Lower{Types,Sim,Spec,Proof,Lists,Calls,Correct,Stmt}.lean` | Its correctness proof (below). |
+| `Contract/LowerCheck.lean` | The Lean half of `difftest lowering`. |
 | `difftest/` | The differential tester (Rust crate `contract-difftest`). |
 | `corpus/` | Scripted programs: `test` blocks whose steps both sides run. |
 | `Apps/` | Real apps' embeddings (generated, checked current by `difftest apps`) and, under `Apps/Proofs/`, invariants proved of them. |
@@ -122,12 +126,68 @@ proved, by app:
 | Video Player | `VideoPlayer.toggle_flips` | A committed `toggle` negates `paused`. |
 | Video Player | `VideoPlayer.done_focuses` | A committed `done` writes nothing and issues `focus("done")`. |
 
+## The lowering
+
+**The VM model.** `Contract.Vm` steps as the runner's loop does: at a
+`Map`/`Filter` body's end it collects what the run left and starts the next
+item or pushes the list, else it runs the instruction at `pc`; every trap is
+an error. Operands stay symbolic (slot, derive, resource and mutation
+indices; a string is the pool's string; a `Record` is its shape's name and
+field count; a `Call` is the roster entry's name and arity), and a jump is a
+forward instruction offset: the decoder checks what `Plan::check_code`
+checks of what the model reads (framing, pool operands, forward and aligned
+jumps, a final `Return`) and refuses the rest. A `Call` means
+`Contract.stdlib`.
+
+**The compiler.** `Contract.Lower.compile` resolves names through a scope
+as `contract/lower` does through `Scope` and emits its instruction choices:
+`and`/`or` through `BindLocal`/`LoadLocal`/`JumpIfFalse`/`DropLocal`,
+`match` through `JumpIfNone`/`Unwrap`/`BindLocal`, templates through
+`toString` and `Concat` (one `Str` when every part is literal), records with
+a base bound as a local, a `fn` expanded inline with its arguments as
+locals, `map`/`filter` with the callback inline after the opcode, and blocks
+whose `let`s are dropped where the block ends. It carries static types of
+its own (`STy`), proved sound, and refuses where it cannot know (`+` of an
+operand not known to be a number or a string, a member of one not known to
+be a record) or where the semantics differs (a tail call's `@check:`).
+
+**The theorems** (`Contract.LowerStmt`). In a machine state that
+corresponds to the semantics' environment (`Ctx`: every name the scope
+resolves reads, on the VM, what `eval` reads for it, of its static type;
+nothing in flight; the same clock) — `compileBody_correct`: the compiled
+code of a derive, slot initializer or resource argument returns `v` exactly
+when `eval` answers `v`, and returns at all exactly when `eval` has a value;
+`compileAction_correct`: with `writes` admitting the body's writes
+(`Writes`), an action's code returns exactly the effects `exec` records,
+names resolved as the plan did (`lowerFx`), and returns at all exactly when
+`exec` has an outcome. Both rest on `allOk`/`blockOk`, one induction on the
+compiler's fuel proving, for every construct, that its code takes the VM
+from the state before it to `eval`'s value on top (forward), and that a run
+through it that returns had a value (backward); `map`/`filter` by induction
+on the items through the VM's callback loop.
+
+**Translation validation.** `difftest lowering` checks the real pipeline:
+for each generated program it takes the plan `contract::compile` made, and
+in one Lean process per batch decodes every derive, root slot initializer,
+resource argument and action body, runs it on the VM model in every
+configuration the semantics reaches along the script (actions with sample
+arguments, inside a row instance) and compares the result with `eval`'s (or
+`exec`'s effects); and compares the body with `Contract.Lower`'s,
+instruction for instruction. A divergence or an undecodable body fails the
+run and keeps the program under `target/difftest/failures/`; a structural
+difference or a body `Contract.Lower` refuses is reported by category.
+
+```
+cargo run -p contract-difftest -- lowering --seed 7 --count 500
+cargo run -p contract-difftest -- lowering-corpus             # semantics/corpus
+```
+
 ## Lean
 
 The Lean toolchain is pinned in `lean-toolchain`. To install it:
 `curl -sSfL https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh | sh -s -- -y`.
 Build and check every proof with `lake build`. The library has no
-dependencies, so the build takes seconds.
+dependencies.
 
 ## What the semantics leaves out
 

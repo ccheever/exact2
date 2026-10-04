@@ -408,7 +408,16 @@ impl Emitter<'_> {
     }
 
     fn stmts(&self, body: &[Stmt]) -> Result<String, CompileError> {
-        list(body, |s| self.stmt(s))
+        // A tail call's type check (LLP 1017 §11) runs nothing: lowering
+        // drops it, so the semantics never sees it.
+        let run: Vec<&Stmt> = body
+            .iter()
+            .filter(|s| {
+                !matches!(s, Stmt::Command { name, .. }
+                    if name.starts_with(contract_syntax::inline::tail::CHECK))
+            })
+            .collect();
+        list(&run, |s| self.stmt(s))
     }
 
     fn stmt(&self, s: &Stmt) -> Result<String, CompileError> {
