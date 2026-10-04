@@ -90,7 +90,9 @@ exit status: 0 success, 1 compilation/I/O failure, 2 invalid invocation. Read al
 diagnostics, including related locations, before making the next repair.
 
 Formatting is explicit. `fmt --stdout` previews, `fmt --check` checks, and plain
-`fmt` writes. Avoid formatting unrelated files. `symbols` reports definitions
+`fmt` writes. Formatting changes spacing and breaks only: a result that would
+parse to a different program is refused (`fmt-tree-change`) and nothing is
+written. Avoid formatting unrelated files. `symbols` reports definitions
 and references, with component interfaces and inferred action effects. Search
 by exact name with `symbols file.contract --name name`.
 
