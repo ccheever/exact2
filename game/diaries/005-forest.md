@@ -644,3 +644,84 @@ cap; shortening comments restores the cap without changing behavior. Engine
 clippy and the edited game package's formatting pass as well. The key lesson is
 that restore is not another setup: pending work must keep its place relative to
 the next game tick, even when initializing it early appears visually convenient.
+
+## Axe feedback and the size of an interaction (2026-10-04)
+
+Started by merging 51 main commits through `85bd9ba9b` as `6250a2856`. The queue
+conflict preserves both lanes; the style conflict keeps main's extraction of
+touch-action into its own module. This includes new Apple paint ranks and shared
+host-module caching. Garden's unchanged five-order proofs pass on web/macOS
+(88.9/42.0 s including rebuilds); the native optional descendant audit times out
+while its owned carriers close, and web's audit passes.
+
+The unchanged Forest policy again spent many decisions on interactions: 34 on
+web, 60 on macOS, including 14/40 axe presses. The game rejects E during the
+350 ms swing recovery but continued showing “E: chop”. A regression establishes
+that a second press 100 ms later leaves two hits, then fails on that misleading
+label. Its initial test-only borrow error was corrected before this behavioral
+failure was recorded.
+
+Revision A makes the prompt derive readiness and remaining hits from the saved
+Player cooldown and Grove hit points. Recovery rounds up to tenths of a second;
+the prompt does not offer E until it works. Jev receives the same label and can
+wait its displayed duration. Across the two runs, all 25 observations of recovery
+lead to waiting (21) or walking (4), with no E option offered during recovery.
+No new engine state, event channel or agent-only command is needed.
+
+The final revision makes **holding E repeat axe swings** at the existing cadence.
+The hint says “Hold E: chop”; pickups, feeding and rescue require a fresh press.
+This gives people a continuous chopping action and lets Jev use a one-second
+hold through the ordinary input API. It does not collect the dropped logs.
+The engine's saved held-input state already supports resuming midway through a
+hold: a regression exercises that and the cooldown with both Rapier and the
+game's grid collision, then compares continuation bytes.
+
+| Run (128 decisions each) | Game seconds | Axe decisions | Health / hunger | Fire | Decision p50 / p95 |
+|---|---:|---:|---|---:|---|
+| Baseline web | 78.1 | 14 presses | 93 / 96 | 80% | 367 / 706 ms |
+| Baseline macOS | 58.9 | 40 presses | 100 / 98 | 95% | 354 / 828 ms |
+| Recovery web | 80.0 | 12 presses | 100 / 65 | 97% | 291 / 588 ms |
+| Recovery macOS | 76.7 | 13 presses | 100 / 99 | 97% | 329 / 641 ms |
+| Hold web | 88.7 | 5 holds | 100 / 61 | 100% | 317 / 515 ms |
+| Hold macOS | 88.6 | 7 holds | 100 / 61 | 92% | 307 / 481 ms |
+
+Every run rescues both children; none reaches even the first dawn before its
+decision limit, so the two-night objective remains unfinished. The final
+screenshots show five/seven trees felled, agreeing with five/seven hold decisions.
+They also show readable night HUDs, and the supply policy still gathers fuel
+with a nearly full fire. Late repeated E presses on web were productive food
+pickups, not axe cooldown failures. The baseline and two interaction revisions
+close this batch's three-round loop. Further survival work should examine the
+public post-rescue objective and milestones, rather than continue this tuning.
+
+Artifacts: `artifacts/jev-cooldown-baseline-{web,macos}/`,
+`jev-cooldown-{web,macos}/`, and `jev-hold-{web,macos}/`. Input/output tokens,
+in that order: 103,941/9,594; 105,110/9,685; 103,336/8,735; 105,304/9,425;
+102,600/8,769; 102,421/8,728. Wall times including rebuilds: 111.3/113.4 s,
+100.2/91.0 s, 81.7/86.1 s. Model wall time does not advance the game clock.
+Baseline and final macOS runs report the optional descendant scan unavailable
+while every owned carrier closes; the other four audits pass. The final web and
+macOS screenshots and recovery macOS screenshot were inspected.
+
+One diagnostic limitation surfaced: these post-playtest JSON files use the
+default, paginated world snapshot. In Forest that page ends among the trees,
+before Player, so it cannot answer how many swings were accepted. Tick/hash and
+the visible HUD outcomes remain valid. Named component reads or a full snapshot
+after the loop are queued; no hidden world state should enter Jev's observations.
+
+The normal host proof now saves after the first swing, checks an ignored rapid
+press, then holds E to finish the tree without collecting its logs. A fresh
+process repeats from that recovery checkpoint with equal snapshots and save
+bytes. The existing night, rescue and supply journeys remain. All 17 simulation
+tests, determinism lint and game Clippy pass. Clippy also caught an existing
+indexed tree-rotation loop; iterating its turns directly keeps its order intact.
+
+The native sweep caught an older capture fixture missed by main's paint-rank
+change: `BoxPaintMacTests` still supplied only a style's z-index, but native now
+consumes the kernel's explicit rank. Adding that production wire message keeps
+the same pixel, animation and restoration assertions; all 38 selected capture,
+input and transform tests then pass. No capture implementation change was needed.
+
+Root build, 2,316 enabled tests across 81 binaries (nine ignored), Clippy,
+formatting and boot pass. The shared app-tool suite passes 73 tests with two
+optional integration skips. Cross-host acceptance follows this checkpoint.

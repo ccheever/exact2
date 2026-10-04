@@ -14,10 +14,12 @@ bun game/app/shells.mjs game/games/forest --test
 
 ## Playing
 
-WASD moves. **E** chops the tree in reach (three blows; it drops two logs), picks up
-a log, scrap or food (five at most, stacked on your back), feeds the fire when you
-stand at it, or takes a lost child by the hand. **Q** eats. **F** toggles the
-flashlight. Days are 80 s and nights 50 s.
+WASD moves. **Hold E** to chop the tree in reach (three blows; it drops two logs).
+The prompt shows the remaining hits and the axe's 350 ms recovery between swings.
+**Tap E** to pick up a log, scrap or food (five at most, stacked on your back),
+feed the fire when you stand at it, or take a lost child by the hand. Holding
+the axe does not collect the logs after the tree falls. **Q** eats. **F** toggles
+the flashlight. Days are 80 s and nights 50 s.
 
 The fire burns its fuel; its light and the safe radius shrink with it (4 m plus
 0.2 m per fuel point). At night the Deer comes out at the edge of the light. It
@@ -41,7 +43,9 @@ The nights-survived score stops when you die.
 Add `--survival` to the Jev playtest to attempt two nights after rescuing both
 children, with a 128-decision limit. It reads the same HUD, uses the compass
 buttons and follows their bearings with normal keys. Cardinal detours are offered
-after two strides fail to reduce the visible distance. Outcomes remain exploratory;
+after two strides fail to reduce the visible distance. Chopping uses a one-second
+E hold; a recovery prompt offers its displayed wait instead of an unusable press.
+Outcomes remain exploratory;
 reaching the decision limit does not prove the survival goal was completed.
 
 The title chooses the size of the forest (1k–250k trees; the world grows to keep

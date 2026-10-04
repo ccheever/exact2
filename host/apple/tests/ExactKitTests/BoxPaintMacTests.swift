@@ -136,6 +136,9 @@ final class BoxPaintMacTests: XCTestCase {
             ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 100.0, "h": 40.0],
             ["op": "frame", "id": 3, "x": 0.0, "y": 20.0, "w": 100.0, "h": 40.0],
             ["op": "frame", "id": 4, "x": 0.0, "y": 60.0, "w": 100.0, "h": 40.0],
+            // The kernel now sends the sibling rank; styling z-index alone
+            // no longer asks the native view to decide CSS paint order.
+            ["op": "rank", "id": 2, "rank": 1],
             // Held at its middle, as the agent's clock holds it: 50 % black over white.
             ["op": "animations", "id": 4, "specs": [["id": "fade#0#opacity", "k": "opacity", "s": 0.0, "dl": 0.0, "d": 1.0, "n": 1.0,
                                                      "t": [0.0, 1.0], "v": [1.0, 0.0], "c": [], "fill": 3.0, "h": 0.5]]],

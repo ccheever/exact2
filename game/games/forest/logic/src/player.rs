@@ -263,14 +263,33 @@ pub enum Action {
     Chop(u32),
 }
 impl Action {
-    pub fn prompt(self) -> String {
-        match self {
-            Action::None => String::new(),
-            Action::Feed => "E: feed the fire".into(),
-            Action::Take(_, kind) => format!("E: pick up {}", kind.label()),
-            Action::Rescue(_) => "E: take the child".into(),
-            Action::Chop(_) => "E: chop".into(),
+    pub fn prompt(self, w: &World) -> String {
+        let player = w.require::<Player>("player");
+        if player.dead {
+            return String::new();
         }
+        let mut label = if player.cooldown > 0.0 {
+            // Round up to tenths: the displayed wait must never end before E
+            // is usable, and the label need not change on every fixed tick.
+            let tenths = math::ceil(player.cooldown * 10.0) as u32;
+            format!("Axe recovering · {}.{} s", tenths / 10, tenths % 10)
+        } else {
+            match self {
+                Action::None => String::new(),
+                Action::Feed => "E: feed the fire".into(),
+                Action::Take(_, kind) => format!("E: pick up {}", kind.label()),
+                Action::Rescue(_) => "E: take the child".into(),
+                Action::Chop(_) => "Hold E: chop".into(),
+            }
+        };
+        if let Action::Chop(cell) = self {
+            let hits = w.resource::<Grove>().hp[cell as usize];
+            label.push_str(&format!(
+                " · {hits} hit{} left",
+                if hits == 1 { "" } else { "s" }
+            ));
+        }
+        label
     }
 }
 

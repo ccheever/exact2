@@ -44,8 +44,10 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
       const rescued = state.children === 'Children 2 of 2 rescued';
       if (node(tree, 'dead') || (rescued && (!survival || Number(state.survived.match(/\d+/)?.[0]) >= 2))) break;
       const heading = state.objective.match(/· (N|NE|E|SE|S|SW|W|NW) ·/u)?.[1];
-      const wait = survival && rescued ? 10_000 : 1000;
-      const choices = {wait:`Stay still for ${wait / 1000} seconds, allowing time to pass and followers to catch up`};
+      const recovery = state.prompt.match(/^Axe recovering · (\d+\.\d) s/u);
+      const wait = recovery ? Number(recovery[1]) * 1000 : survival && rescued ? 10_000 : 1000;
+      const choices = {wait:recovery ? `Wait ${recovery[1]} seconds for the axe to recover`
+        : `Stay still for ${wait / 1000} seconds, allowing time to pass and followers to catch up`};
       if (survival) {
         // Cardinal detours remain available when the visible distance shows
         // that two compass strides made no progress, instead of competing
@@ -60,7 +62,8 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
         }
       }
       if (heading) choices.follow = 'Walk toward the visible compass objective for up to one second';
-      if (state.prompt) choices.interact = `Press E now: ${state.prompt}`;
+      if (state.prompt.startsWith('Hold E:')) choices.interact = `Hold E for one second: ${state.prompt}`;
+      else if (state.prompt.startsWith('E:')) choices.interact = `Press E now: ${state.prompt}`;
       if (!state.pack.includes('0 food')) choices.eat = 'Eat one carried food to restore hunger';
       if (state.battery.startsWith('Flashlight on') || Number(state.battery.match(/(\d+)%/)?.[1]) > 5) {
         choices.flashlight = 'Toggle the flashlight; it protects against creatures but uses battery';
@@ -84,7 +87,8 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
         stalled = 0;
       }
       else {
-        await game.tap({interact:'KeyE', eat:'KeyQ', flashlight:'KeyF'}[decision.choice]);
+        if (decision.choice === 'interact' && state.prompt.startsWith('Hold E:')) await game.hold('KeyE', 1000);
+        else await game.tap({interact:'KeyE', eat:'KeyQ', flashlight:'KeyF'}[decision.choice]);
         await game.run(100);
       }
     }
@@ -132,9 +136,31 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   const tree = trees.map(e => e.components.Transform.position).sort((a, b) => Math.hypot(a[0], a[2]) - Math.hypot(b[0], b[2]))[0];
   check('walk to the nearest tree', await walkTo(s, [tree[0], 0, tree[2] + 1.2], 0.5), await game.local_position('player'));
   await game.run(300);
-  check('a tree in reach offers a chop', await text('prompt') === 'E: chop', await text('prompt'));
-  for (let i = 0; i < 3; i++) { await game.tap('KeyE'); await game.run(450); }
-  check('three blows fell it', await text('census') === '1999 trees · 8 wolves', await text('census'));
+  check('a tree in reach names the blows needed', await text('prompt') === 'Hold E: chop · 3 hits left', await text('prompt'));
+  await game.tap('KeyE'); await game.run(100);
+  check('the first blow shows recovery and progress', /^Axe recovering · 0\.[1-4] s · 2 hits left$/.test(await text('prompt')), await text('prompt'));
+  if (host !== 'linux') await s.screenshot(resolve(out, 'chopping.png'));
+  await game.save(resolve(out, 'chopping.world'));
+  const choppingCheckpoint = await game.snapshot();
+  const finishChopping = async session => {
+    const g = session.world('world');
+    const prompt = async () => node(await session.tree(), 'prompt')?.props?.text;
+    // A press during recovery is still refused; the visible label tells why.
+    await g.tap('KeyE'); await g.run(100);
+    check('a rapid second press leaves two blows to go', (await prompt())?.endsWith('2 hits left'), await prompt());
+    await g.run(250);
+    check('the next swing is offered when recovery ends', await prompt() === 'Hold E: chop · 2 hits left', await prompt());
+    await g.key_down('KeyE'); await g.run(100);
+    check('the second blow leaves one', (await prompt())?.endsWith('1 hit left'), await prompt());
+    await g.run(750);
+    await g.key_up('KeyE'); await g.run(50);
+    check('three accepted blows fell it', node(await session.tree(), 'census')?.props?.text === '1999 trees · 8 wolves');
+    check('holding the axe does not pick up the dropped logs', node(await session.tree(), 'pack')?.props?.text === 'Carrying 0 logs · 0 scrap · 0 food');
+    return await g.snapshot();
+  };
+  const chopped = await finishChopping(s);
+  await game.save(resolve(out, 'chopped.world'));
+  pinSave('chopping', resolve(out, 'chopped.world'));
   // Its two logs fall either side of the stump.
   for (const dx of [-0.7, 0.7]) {
     await walkTo(s, [tree[0] + dx, 0, tree[2] + 0.9], 0.45);
@@ -209,6 +235,14 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await loaded.save(resolve(out, 'restored.world'));
   check('continuation saves are byte-identical', readFileSync(resolve(out, 'continued.world')).equals(readFileSync(resolve(out, 'restored.world'))));
   await r.close();
+
+  const choppingBack = await open({fresh:true, world:resolve(out, 'chopping.world')});
+  await choppingBack.tap('play');
+  check('a fresh process restores mid-swing', JSON.stringify(await choppingBack.world('world').snapshot()) === JSON.stringify(choppingCheckpoint));
+  check('the resumed swings continue identically', JSON.stringify(await finishChopping(choppingBack)) === JSON.stringify(chopped));
+  await choppingBack.world('world').save(resolve(out, 'chopped-restored.world'));
+  check('chopping continuation saves are byte-identical', readFileSync(resolve(out, 'chopped.world')).equals(readFileSync(resolve(out, 'chopped-restored.world'))));
+  await choppingBack.close();
 
   // Rescue through real movement, then resume the escort in a fresh process.
   const rescue = await open({fresh:true});

@@ -127,6 +127,96 @@ fn chop_carry_and_feed_the_fire() {
 }
 
 #[test]
+fn chopping_reports_progress_and_recovery_across_a_checkpoint() {
+    for lite in [false, true] {
+        let mut sim = game(800, lite);
+        sim.run(100.0);
+        let (cell, tree) = nearest_tree(&sim);
+        place(
+            &mut sim,
+            "player",
+            Vec3::new(tree.x, tree.y + 0.95, tree.z + 1.0),
+        );
+        sim.run(100.0);
+        sim.tap("KeyE");
+        sim.run(100.0);
+        sim.tap("KeyE");
+        sim.run(100.0);
+        assert_eq!(sim.world().resource::<Grove>().hp[cell as usize], 2);
+        assert!(player(&sim).cooldown > 0.0);
+        let prompt = sim.world().published("prompt").unwrap().text().to_owned();
+        assert!(prompt.starts_with("Axe recovering"), "{prompt}");
+        assert!(prompt.ends_with("2 hits left"), "{prompt}");
+        let saved = sim.save().unwrap();
+        let mut restored = game(800, lite);
+        restored.restore(&saved).unwrap();
+        for game in [&mut sim, &mut restored] {
+            game.run(300.0);
+            assert_eq!(
+                game.world().published("prompt").unwrap().text(),
+                "Hold E: chop · 2 hits left"
+            );
+            game.tap("KeyE");
+            game.run(400.0);
+            assert_eq!(
+                game.world().published("prompt").unwrap().text(),
+                "Hold E: chop · 1 hit left"
+            );
+            game.tap("KeyE");
+            game.run(100.0);
+            assert_eq!(game.world().resource::<Grove>().hp[cell as usize], 0);
+            assert!(game
+                .world()
+                .published("prompt")
+                .unwrap()
+                .text()
+                .starts_with("Axe recovering"));
+            game.run(300.0);
+            assert_eq!(
+                game.world().published("prompt").unwrap().text(),
+                "E: pick up log"
+            );
+        }
+        assert!(sim.save().unwrap() == restored.save().unwrap());
+    }
+}
+
+#[test]
+fn a_held_axe_resumes_its_cadence_without_collecting_the_logs() {
+    for lite in [false, true] {
+        let mut sim = game(800, lite);
+        sim.run(100.0);
+        let (cell, tree) = nearest_tree(&sim);
+        place(
+            &mut sim,
+            "player",
+            Vec3::new(tree.x, tree.y + 0.95, tree.z + 1.0),
+        );
+        sim.run(100.0);
+        sim.key_down("KeyE");
+        sim.run(100.0);
+        assert_eq!(sim.world().resource::<Grove>().hp[cell as usize], 2);
+        let saved = sim.save().unwrap();
+        let mut restored = game(800, lite);
+        restored.restore(&saved).unwrap();
+        for game in [&mut sim, &mut restored] {
+            // Save while the key is down, then let two more swings finish.
+            game.run(900.0);
+            game.key_up("KeyE");
+            game.run(100.0);
+            assert_eq!(game.world().resource::<Grove>().hp[cell as usize], 0);
+            assert_eq!(player(game).chopped, 1);
+            assert!(player(game).pack.is_empty(), "holding E must not collect");
+            assert_eq!(
+                game.world().published("prompt").unwrap().text(),
+                "E: pick up log"
+            );
+        }
+        assert!(sim.save().unwrap() == restored.save().unwrap());
+    }
+}
+
+#[test]
 fn hunger_drains_and_food_restores_it() {
     let mut sim = game(500, true);
     sim.run(20_000.0);

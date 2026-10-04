@@ -127,7 +127,7 @@ component Forest
         column width="100%" height="100%" box-sizing="border-box" padding=24 align-items="center" justify-content="center" gap=20
           text "99 Nights in the Forest" font-size=44 font-weight=800
           column width="100%" max-width=420 align-items="center" gap=6
-            text "WASD moves · E chops, picks up, feeds the fire" width="100%" text-align="center"
+            text "WASD moves · Hold E to chop · Tap E to interact" width="100%" text-align="center"
             text "F flashlight · Q eats" width="100%" text-align="center"
             text "Keep the fire lit. The Deer hunts outside its light." width="100%" text-align="center" color="#a7b0a3"
             text "Follow the compass to lost children. Escort them home for supplies." width="100%" text-align="center" color="#a8d9ff"

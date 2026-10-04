@@ -220,14 +220,14 @@ pub fn grow(w: &mut World, trees: u32, primitives: bool, colliders: bool) {
         grove.standing += 1;
         turns[c] = w.rand(0.0..std::f32::consts::TAU);
     }
-    for c in 0..n {
+    for (c, &turn) in turns.iter().enumerate() {
         if grove.hp[c] == 0 {
             continue;
         }
         let s = grove.scale[c];
         let pose = Transform {
             position: grove.at(c as u32),
-            rotation: Quat::from_rotation_y(turns[c]),
+            rotation: Quat::from_rotation_y(turn),
             scale: Vec3::splat(s),
         };
         let tree = Tree { cell: c as u32 };

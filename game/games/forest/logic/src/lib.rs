@@ -116,12 +116,12 @@ impl Game for Forest {
         let at = w.require::<Transform>("player").position;
         let act = player::action(w, at);
         let ready = w.require::<Player>("player").cooldown <= 0.0;
-        if input.pressed("use") && ready || input.pressed("eat") {
-            let act = if input.pressed("use") && ready {
-                act
-            } else {
-                Action::None
-            };
+        // Holding E repeats axe swings at their normal cadence. Picking up,
+        // rescuing and feeding still require a fresh press.
+        let use_action =
+            ready && (input.pressed("use") || input.held("use") && matches!(act, Action::Chop(_)));
+        if use_action || input.pressed("eat") {
+            let act = if use_action { act } else { Action::None };
             player::interact(w, act, input.pressed("eat"));
         }
         let safe = w.resource::<Fire>().radius();
@@ -195,7 +195,7 @@ fn hud(w: &World, act: Action, rescued: u32, chasing: u32) {
         logs: count(Kind::Log),
         scrap: count(Kind::Scrap),
         food: count(Kind::Food),
-        prompt: act.prompt(),
+        prompt: act.prompt(w),
         rescued,
         children: w.count::<Child>(|_| true),
         dead: p.dead,
