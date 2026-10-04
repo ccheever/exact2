@@ -201,7 +201,9 @@ fn presents(change: fn(&mut World)) -> String {
 #[test]
 fn present_cannot_change_simulation_state() {
     type Change = fn(&mut World);
-    let cases: [(Change, &str); 8] = [
+    let cases: [(Change, &str); 9] = [
+        // Busy reasons are saved and hashed simulation state.
+        (|w| w.busy("drawing"), "reported busy `drawing`"),
         (
             |w| w.require_mut::<Transform>("crate").position.x += 1.,
             "wrote component `Transform`",
