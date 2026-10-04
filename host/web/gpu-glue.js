@@ -94,10 +94,12 @@ async function settled() {
   while ((recoveringDevice || recoveryTimer) && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 0));
   if (recoveringDevice || recoveryTimer) return pendingRecovery();
   const pending = await delivery.settled(() => surfaces.values());
-  // Presentation gets its own budget from the moment every asset is in: a
-  // world declaring hundreds of models (garden's 202) can spend the shared
-  // wait on delivery and leave its first frame's preparation none.
-  const presented = performance.now() + 5000;
+  // Presentation keeps at least the 2.5 s it has when nothing is delivered,
+  // counted from the moment every asset is in: a world declaring hundreds of
+  // models (garden's 202) can spend the shared wait on delivery and leave its
+  // first frame's preparation none. A recovery that begins while presenting
+  // is waited for within the same budget.
+  const presented = Math.max(deadline, performance.now() + 2500);
   if (!pending.length) {
       // Agent operations return after presentation reaches the committed clock,
       // including a child-text update published by the rendered world.
