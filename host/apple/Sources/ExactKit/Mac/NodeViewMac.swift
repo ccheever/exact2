@@ -1020,7 +1020,13 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // Scrolling and clipping come from the effective overflow the host
         // wrote in (never from the node's kind): `scroll` on an axis makes a
         // scroll container that scrolls that axis; `hidden` clips.
-        let ox = s["overflow_x"]?.string ?? "visible", oy = s["overflow_y"]?.string ?? "visible"
+        // A paragraph paints its own text and has no child views for a
+        // scroll view to hold; one there (CSS computes `overflow-x: hidden`'s
+        // other axis to `auto`, an ellipsis's usual pair) only took the
+        // clicks a button around the label should hear (files diary F15).
+        // Its overflow clips instead, as the box it paints in.
+        let paragraph = kind == "text"
+        let ox = paragraph ? "visible" : s["overflow_x"]?.string ?? "visible", oy = paragraph ? "visible" : s["overflow_y"]?.string ?? "visible"
         if ((ox == "scroll" || ox == "auto") || (oy == "scroll" || oy == "auto")) && scroll == nil {
             let sv = ChainingScrollView(frame: bounds)
             sv.collectionWillScroll = { [weak self] in
@@ -1065,7 +1071,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // `overflow: hidden` clips the children, to the box's rounded corners
         // as the web and UIKit do (LLP 1054 P2). One radius rides the layer;
         // differing radii clip to the bounds, as UIKit's layer path does.
-        let clips = ox == "hidden" || oy == "hidden"
+        let clips = ox == "hidden" || oy == "hidden" || (paragraph && [s["overflow_x"]?.string, s["overflow_y"]?.string].contains { ($0 ?? "visible") != "visible" })
         // CSS's line-clamp implies `overflow: hidden`: a clamped paragraph's
         // one over-wide word must not paint over its neighbour (LLP 1054 P3).
         let clamped = kind == "text" && number("line_clamp") > 0
