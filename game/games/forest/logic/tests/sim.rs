@@ -592,7 +592,7 @@ fn a_prepared_camp_shelters_through_dawn_in_both_collision_modes() {
             let mut sim = game(500, lite);
             sim.world_mut().resource_mut::<Cycle>().t = time;
             let cycle = *sim.world().resource::<Cycle>();
-            sim.world_mut().resource_mut::<Fire>().fuel = cycle.dawn_fuel() + 0.25;
+            sim.world_mut().resource_mut::<Fire>().fuel = cycle.dawn_fuel(Fire::default()) + 0.25;
             sim.world_mut().require_mut::<Player>("player").hunger =
                 cycle.until_dawn() * 0.45 + 11.0;
             for child in ["child-1", "child-2"] {
@@ -718,4 +718,164 @@ fn food_readiness_counts_carried_meals_and_prompts_eating_before_starvation() {
     sim.run(remaining as f64 * 1000.0 + TICK);
     assert_eq!(sim.world().resource::<Cycle>().survived, 1);
     assert!(!player(&sim).dead && player(&sim).hunger > 10.0);
+}
+
+fn carry(sim: &mut Sim<Forest>, kind: Kind) -> exact_game::Entity {
+    let e = player::drop_item(sim.world_mut(), kind, 8.0, 0.0);
+    player::interact(sim.world_mut(), player::Action::Take(e, kind), false);
+    e
+}
+
+#[test]
+fn windbreak_build_is_atomic_one_time_and_saved_with_its_appearance() {
+    for lite in [false, true] {
+        let mut sim = game(500, lite);
+        let food = carry(&mut sim, Kind::Food);
+        carry(&mut sim, Kind::Log);
+        carry(&mut sim, Kind::Log);
+        let before = sim.save().unwrap();
+        player::build_windbreak(sim.world_mut());
+        assert!(
+            sim.save().unwrap() == before,
+            "missing scrap must not spend logs"
+        );
+        carry(&mut sim, Kind::Scrap);
+        let spare = carry(&mut sim, Kind::Scrap);
+        place(&mut sim, "player", Vec3::new(8.0, 0.95, 0.0));
+        sim.tap("KeyR");
+        sim.run(TICK);
+        assert!(!sim.world().resource::<Fire>().windbreak);
+        assert_eq!(
+            player(&sim).pack.len(),
+            5,
+            "building away from camp refuses"
+        );
+        place(&mut sim, "player", Vec3::new(0.0, 0.95, 3.0));
+        sim.world_mut().require_mut::<Player>("player").dead = true;
+        let before = sim.save().unwrap();
+        player::build_windbreak(sim.world_mut());
+        assert!(sim.save().unwrap() == before, "dead players cannot build");
+        sim.world_mut().require_mut::<Player>("player").dead = false;
+        sim.run(TICK);
+        assert!(matches!(
+            sim.world().published("build_ready"),
+            Some(exact_game::Value::Bool(true))
+        ));
+        let fuel = sim.world().resource::<Fire>().fuel;
+        sim.tap("KeyR");
+        sim.run(TICK);
+        assert!(sim.world().resource::<Fire>().windbreak);
+        assert_eq!(player(&sim).pack, vec![food, spare]);
+        assert!(
+            (sim.world().resource::<Fire>().fuel - fuel).abs() < 0.02,
+            "building must not also feed the fire"
+        );
+        let screen = sim.world().resolve("windbreak").unwrap();
+        assert!(sim.world().has::<exact_game::Mesh>(screen));
+        assert_eq!(
+            sim.world()
+                .query::<&exact_game::Parent>()
+                .iter()
+                .filter(|(_, p)| p.0 == screen)
+                .count(),
+            2,
+            "both wooden posts exist"
+        );
+        assert_eq!(
+            sim.world().published("build_hint").unwrap().text(),
+            "Built · Fire uses half the fuel"
+        );
+        let saved = sim.save().unwrap();
+        let mut restored = game(500, lite);
+        restored.restore(&saved).unwrap();
+        let count = sim.world().len();
+        for sim in [&mut sim, &mut restored] {
+            sim.post("build windbreak");
+            sim.run(1000.0);
+            assert_eq!(sim.world().len(), count, "repeated build adds nothing");
+            assert_eq!(player(sim).pack, vec![food, spare]);
+            assert!(!player::can_build(sim.world()));
+        }
+        assert!(sim.save().unwrap() == restored.save().unwrap());
+    }
+}
+
+#[test]
+fn windbreak_halves_burn_but_preserves_the_dawn_reserve() {
+    for lite in [false, true] {
+        for time in [8.0, DAY - 1.0, DAY + 1.0, PERIOD - 0.25] {
+            let mut sim = game(500, lite);
+            for kind in [Kind::Log, Kind::Log, Kind::Scrap] {
+                carry(&mut sim, kind);
+            }
+            sim.post("build windbreak");
+            sim.run(TICK);
+            assert!(sim.world().resource::<Fire>().windbreak);
+            sim.world_mut().resource_mut::<Cycle>().t = time;
+            let cycle = *sim.world().resource::<Cycle>();
+            let need = cycle.dawn_fuel(*sim.world().resource::<Fire>());
+            assert!((need - 10.0 - (cycle.dawn_fuel(Fire::default()) - 10.0) * 0.5).abs() < 0.001);
+            sim.world_mut().resource_mut::<Fire>().fuel = need + 0.25;
+            for child in ["child-1", "child-2"] {
+                sim.world_mut().require_mut::<Child>(child).fate = Fate::Rescued;
+            }
+            sim.run(TICK);
+            assert_eq!(
+                player::preparation(sim.world(), true).1,
+                "To dawn: fire ready · food ready"
+            );
+            let saved = sim.save().unwrap();
+            let mut restored = game(500, lite);
+            restored.restore(&saved).unwrap();
+            for sim in [&mut sim, &mut restored] {
+                sim.run(cycle.until_dawn() as f64 * 1000.0);
+                let fuel = sim.world().resource::<Fire>().fuel;
+                assert!(
+                    (10.0..10.3).contains(&fuel),
+                    "lite={lite}, time={time}: fuel={fuel}"
+                );
+                assert_eq!(sim.world().resource::<Cycle>().survived, 1);
+                assert!(!player(sim).dead && player(sim).health == 100.0);
+            }
+            assert!(sim.save().unwrap() == restored.save().unwrap());
+        }
+    }
+}
+
+#[test]
+fn material_compasses_choose_the_requested_kind_and_restore_the_landmark() {
+    let mut sim = game(500, true);
+    for (kind, command) in [(Kind::Log, "track logs"), (Kind::Scrap, "track scrap")] {
+        sim.post(command);
+        sim.run(TICK);
+        let trail = *sim.world().resource::<Trail>();
+        let target = trail.target.unwrap();
+        assert_eq!(sim.world().require::<Item>(target).kind, kind);
+        let saved = sim.save().unwrap();
+        let mut restored = game(500, true);
+        restored.restore(&saved).unwrap();
+        assert_eq!(*restored.world().resource::<Trail>(), trail);
+        player::interact(sim.world_mut(), player::Action::Take(target, kind), false);
+        player::update_trail(sim.world_mut(), true);
+        let next = sim.world().resource::<Trail>().target.unwrap();
+        assert_ne!(target, next);
+        assert_eq!(sim.world().require::<Item>(next).kind, kind);
+    }
+    let logs: Vec<_> = sim
+        .world()
+        .query::<&Item>()
+        .iter()
+        .filter(|(_, i)| i.kind == Kind::Log && !i.carried)
+        .map(|(e, _)| e)
+        .collect();
+    for e in logs {
+        sim.world_mut().despawn(e);
+    }
+    sim.post("track logs");
+    sim.run(TICK);
+    let target = sim.world().resource::<Trail>().target.unwrap();
+    assert!(
+        sim.world().has::<forest_logic::forest::Tree>(target),
+        "logs fall back to a standing tree"
+    );
 }

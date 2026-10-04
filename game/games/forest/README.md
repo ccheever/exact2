@@ -40,6 +40,15 @@ fuel points home. The campfire's bearing is always visible, and newly supplied
 food refreshes an empty search. Logs add 12 fuel, scrap 20, and food 35 hunger.
 The nights-survived score stops when you die.
 
+Build a **camp windbreak** with **R** or its HUD button while standing by the
+fire with **two logs and one scrap**. It permanently halves the fire's fuel
+consumption in day and night, and appears as a metal screen on two wooden posts.
+The materials are consumed instead of being burned for immediate fuel; extra
+items stay in your pack. **Find logs** and **Find scrap** select those materials
+on the same saved compass. The build button shows readiness, and the supply
+budget includes the lower burn rate once it is built. Saving preserves the
+upgrade, materials and its appearance.
+
 The camp plan budgets supplies through the next dawn, including ten fuel and
 ten hunger in reserve. Fuel must be in the fire; carried food counts if you eat
 it. It names what is missing, reminds you to eat at 35 hunger or below, and tells
@@ -56,6 +65,13 @@ Outcomes remain exploratory;
 reaching the decision limit does not prove the survival goal was completed.
 The final outcome includes a named Player read and position for diagnostics,
 after the decision loop; these hidden observations are never supplied to Jev.
+
+`--playtest --build-camp` is a separate 96-decision scenario: build the
+windbreak and reach the first dawn alive. Jev reads its visible recipe and
+build status, chooses the same material compasses, and can press the enabled
+build button. After building, its wait action advances ten seconds. This is
+an exploratory feature playtest; it leaves the earlier survival goal and
+decision limit unchanged.
 
 The title chooses the size of the forest (1k–250k trees; the world grows to keep
 the density), the wolf count, extra torch lights, Rapier or grid collision against

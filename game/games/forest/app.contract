@@ -21,6 +21,9 @@ shape Hud
   camp_bearing: string
   night_plan: string
   night_supplies: string
+  windbreak: bool
+  build_ready: bool
+  build_hint: string
   deer: string
   chasing: number
   trees: number
@@ -72,6 +75,9 @@ component Forest
   action track(kind: string)
     postMessage(`track ${kind}`, "world")
 
+  action build
+    postMessage("build windbreak", "world")
+
   view
     main width="100%" height="100%" background-color="#070b0a" color="#eef2e8"
       when playing
@@ -109,6 +115,19 @@ component Forest
             text "Rescue supplies: +20 fire fuel and 2 food" font-size=12 color="#a7b0a3"
             text "Logs +12 fuel · Scrap +20 fuel · Food +35 hunger" font-size=12 color="#a7b0a3"
             text "Compass: W north · D east · S south · A west" font-size=12 color="#a7b0a3"
+          column position="absolute" right=16 top=132 width=264 gap=8 padding=12 border-radius=12 background-color="#070b0acc"
+            text "Camp windbreak" font-size=16 font-weight=700 color="#a8d9ff"
+            text hud.build_hint testId="build-status" font-size=13 color="#f6d77a"
+            when not hud.windbreak
+              text "Permanent upgrade · Halves fuel use" font-size=12 color="#a7b0a3"
+              text `${hud.logs}/2 logs · ${hud.scrap}/1 scrap` testId="build-cost" font-size=14
+              row gap=6
+                button press=track("logs") aria-label="Track logs" aria-pressed=(hud.tracking == "logs") testId="track-logs" padding=8 border-radius=8 background-color=(hud.tracking == "logs" ? "#52667a" : "#2d3a33")
+                  text "Find logs"
+                button press=track("scrap") aria-label="Track scrap" aria-pressed=(hud.tracking == "scrap") testId="track-scrap" padding=8 border-radius=8 background-color=(hud.tracking == "scrap" ? "#52667a" : "#2d3a33")
+                  text "Find scrap"
+            button press=build disabled=(not hud.build_ready) aria-label="Build windbreak" testId="build-windbreak" padding=10 border-radius=8 background-color=(hud.build_ready ? "#865c2e" : "#2d3a33")
+              text (hud.windbreak ? "Windbreak built" : "R Build windbreak")
           column testId="vitals" position="absolute" left=16 bottom=16 gap=4 padding=12 border-radius=12 background-color="#070b0acc"
             text `Health ${hud.health}` testId="health" color=(hud.health < 30 ? "#ff7a59" : "#eef2e8")
             text `Hunger ${hud.hunger}` testId="hunger" color=(hud.hunger < 25 ? "#ff7a59" : "#eef2e8")
@@ -133,6 +152,7 @@ component Forest
           column width="100%" max-width=420 align-items="center" gap=6
             text "WASD moves · Hold E to chop · Tap E to interact" width="100%" text-align="center"
             text "F flashlight · Q eats" width="100%" text-align="center"
+            text "R builds a windbreak · 2 logs + 1 scrap · Half the fuel use" width="100%" text-align="center" color="#f6d77a"
             text "Keep the fire lit. The Deer hunts outside its light." width="100%" text-align="center" color="#a7b0a3"
             text "Follow the compass to lost children. Escort them home for supplies." width="100%" text-align="center" color="#a8d9ff"
           row gap=8 align-items="center"

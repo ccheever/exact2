@@ -69,6 +69,9 @@ pub struct Hud {
     pub camp_bearing: String,
     pub night_plan: String,
     pub night_supplies: String,
+    pub windbreak: bool,
+    pub build_ready: bool,
+    pub build_hint: String,
     pub deer: String,
     pub chasing: u32,
     pub trees: u32,
@@ -86,6 +89,7 @@ impl Game for Forest {
             .button("use", &["KeyE"])
             .button("eat", &["KeyQ"])
             .button("light", &["KeyF"])
+            .button("build", &["KeyR"])
     }
     fn register(w: &mut World, _: &std::collections::BTreeMap<&str, Value>) {
         physics::register(w);
@@ -110,8 +114,16 @@ impl Game for Forest {
         args.paused
     }
     fn tick(w: &mut World, input: &Input, args: &Options) {
+        let mut build = input.pressed("build");
         for command in input.messages() {
-            player::track(w, command);
+            if command == "build windbreak" {
+                build = true;
+            } else {
+                player::track(w, command);
+            }
+        }
+        if build {
+            player::build_windbreak(w);
         }
         let colliders = !args.lite;
         let was_dead = w.require::<Player>("player").dead;
@@ -165,7 +177,10 @@ impl Game for Forest {
             w.emit("died");
         }
         let rescued = player::children(w, at, scene.safe);
-        player::update_trail(w, dawned || input.pressed("use") || input.pressed("eat"));
+        player::update_trail(
+            w,
+            dawned || build || input.pressed("use") || input.pressed("eat"),
+        );
         emitter::step(w);
         let act = player::action(w, w.require::<Transform>("player").position);
         hud(w, act, rescued, outcome.chasing);
@@ -208,6 +223,9 @@ fn hud(w: &World, act: Action, rescued: u32, chasing: u32) {
         camp_bearing: player::camp_bearing(w),
         night_plan,
         night_supplies,
+        windbreak: f.windbreak,
+        build_ready: player::can_build(w),
+        build_hint: player::build_hint(w).into(),
         deer: format!("{deer:?}"),
         chasing,
         trees: w.resource::<Grove>().standing,

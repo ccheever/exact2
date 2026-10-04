@@ -27,8 +27,10 @@ impl Cycle {
         PERIOD - self.t
     }
     /// Fuel consumed before dawn, plus a ten-point reserve (a 6 m safe radius).
-    pub fn dawn_fuel(&self) -> f32 {
-        (DAY - self.t).max(0.0) * DAY_BURN + (PERIOD - self.t.max(DAY)) * NIGHT_BURN + 10.0
+    pub fn dawn_fuel(&self, fire: Fire) -> f32 {
+        ((DAY - self.t).max(0.0) * DAY_BURN + (PERIOD - self.t.max(DAY)) * NIGHT_BURN)
+            * fire.burn_rate()
+            + 10.0
     }
     pub fn night(&self) -> bool {
         self.t >= DAY
@@ -71,9 +73,17 @@ impl Cycle {
 pub struct Fire {
     pub fuel: f32,
     pub fed: u32,
+    pub windbreak: bool,
 }
 
 impl Fire {
+    pub fn burn_rate(&self) -> f32 {
+        if self.windbreak {
+            0.5
+        } else {
+            1.0
+        }
+    }
     pub fn radius(&self) -> f32 {
         if self.fuel <= 0.0 {
             0.0
@@ -125,7 +135,10 @@ pub fn build(w: &mut World) {
         t: DAWN,
         survived: 0,
     });
-    w.insert_resource(Fire { fuel: 60.0, fed: 0 });
+    w.insert_resource(Fire {
+        fuel: 60.0,
+        ..Fire::default()
+    });
     w.insert_resource(environment(0.0));
     w.spawn_named(
         "sun",
@@ -209,6 +222,26 @@ pub fn build(w: &mut World) {
     }
 }
 
+/// A built camp upgrade: two posts hold a metal screen behind the flame.
+pub fn windbreak(w: &mut World) {
+    let screen = w.spawn_named(
+        "windbreak",
+        (
+            Transform::at(0.0, 0.65, -1.5),
+            Mesh::cuboid(Vec3::new(2.4, 1.1, 0.08)),
+            Material::rgb(0.32, 0.38, 0.4).metallic(0.8).rough(0.5),
+        ),
+    );
+    for x in [-1.1, 1.1] {
+        w.spawn((
+            Parent(screen),
+            Transform::at(x, 0.1, 0.0),
+            Mesh::cylinder(0.12, 1.5),
+            Material::rgb(0.3, 0.18, 0.09),
+        ));
+    }
+}
+
 /// Torches on poles along a spiral out from the fire, each a point light.
 pub fn torches(w: &mut World, count: u32) {
     for k in 0..count {
@@ -261,7 +294,8 @@ pub fn step(w: &mut World, player: Vec3) -> bool {
     };
     let radius = {
         let mut f = w.resource_mut::<Fire>();
-        f.fuel = (f.fuel - dt * if night { NIGHT_BURN } else { DAY_BURN }).max(0.0);
+        let burn = if night { NIGHT_BURN } else { DAY_BURN } * f.burn_rate();
+        f.fuel = (f.fuel - dt * burn).max(0.0);
         f.radius()
     };
     // The sky only changes at dusk and dawn; equal writes would still re-light it.

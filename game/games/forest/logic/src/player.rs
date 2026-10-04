@@ -70,6 +70,8 @@ pub enum TrailKind {
     Fuel,
     Food,
     Camp,
+    Logs,
+    Scrap,
 }
 impl TrailKind {
     pub fn label(self) -> &'static str {
@@ -78,6 +80,17 @@ impl TrailKind {
             Self::Fuel => "fuel",
             Self::Food => "food",
             Self::Camp => "camp",
+            Self::Logs => "logs",
+            Self::Scrap => "scrap",
+        }
+    }
+    fn wants(self, kind: Kind) -> bool {
+        match self {
+            Self::Fuel => kind != Kind::Food,
+            Self::Food => kind == Kind::Food,
+            Self::Logs => kind == Kind::Log,
+            Self::Scrap => kind == Kind::Scrap,
+            _ => false,
         }
     }
 }
@@ -96,6 +109,8 @@ pub fn track(w: &mut World, command: &str) {
         "track fuel" => TrailKind::Fuel,
         "track food" => TrailKind::Food,
         "track camp" => TrailKind::Camp,
+        "track logs" => TrailKind::Logs,
+        "track scrap" => TrailKind::Scrap,
         _ => return,
     };
     *w.resource_mut::<Trail>() = Trail { kind, target: None };
@@ -104,20 +119,22 @@ pub fn track(w: &mut World, command: &str) {
 
 pub fn update_trail(w: &mut World, refresh: bool) {
     let trail = *w.resource::<Trail>();
-    if !matches!(trail.kind, TrailKind::Fuel | TrailKind::Food) {
+    if matches!(trail.kind, TrailKind::Rescue | TrailKind::Camp) {
         return;
     }
     let valid = trail.target.is_some_and(|e| {
-        w.get::<Item>(e).is_some_and(|i| !i.carried) || w.get::<forest::Tree>(e).is_some()
+        w.get::<Item>(e)
+            .is_some_and(|i| !i.carried && trail.kind.wants(i.kind))
+            || matches!(trail.kind, TrailKind::Fuel | TrailKind::Logs)
+                && w.get::<forest::Tree>(e).is_some()
     });
     if !refresh && (valid || trail.target.is_none()) {
         return;
     }
     let radius = w.resource::<Grove>().half * 3.0;
-    let mut target = w.nearest_xz_where::<Item>("player", radius, |i| {
-        !i.carried && (i.kind == Kind::Food) == (trail.kind == TrailKind::Food)
-    });
-    if target.is_none() && trail.kind == TrailKind::Fuel {
+    let mut target =
+        w.nearest_xz_where::<Item>("player", radius, |i| !i.carried && trail.kind.wants(i.kind));
+    if target.is_none() && matches!(trail.kind, TrailKind::Fuel | TrailKind::Logs) {
         let at = w.require::<Transform>("player").position;
         let grove = w.resource::<Grove>();
         target = (0..grove.hp.len())
@@ -330,6 +347,64 @@ fn restack(w: &mut World) {
         t.rotation = Quat::from_rotation_y(std::f32::consts::FRAC_PI_2)
             * Quat::from_rotation_z(std::f32::consts::FRAC_PI_2);
     }
+}
+
+/// A separate action from feeding: choose long-term shelter or immediate fuel.
+pub fn can_build(w: &World) -> bool {
+    let p = w.require::<Player>("player");
+    if p.dead
+        || w.resource::<Fire>().windbreak
+        || w.require::<Transform>("player")
+            .position
+            .with_y(0.0)
+            .length()
+            >= FIRE_REACH
+    {
+        return false;
+    }
+    let count = |kind| {
+        p.pack
+            .iter()
+            .filter(|&&e| w.require::<Item>(e).kind == kind)
+            .count()
+    };
+    count(Kind::Log) >= 2 && count(Kind::Scrap) >= 1
+}
+
+pub fn build_hint(w: &World) -> &'static str {
+    if w.resource::<Fire>().windbreak {
+        "Built · Fire uses half the fuel"
+    } else if can_build(w) {
+        "Ready · R builds instead of feeding"
+    } else {
+        "Bring 2 logs and 1 scrap to the fire"
+    }
+}
+
+pub fn build_windbreak(w: &mut World) {
+    if !can_build(w) {
+        return;
+    }
+    let pack = w.require::<Player>("player").pack.clone();
+    let mut used = Vec::new();
+    for (kind, count) in [(Kind::Log, 2), (Kind::Scrap, 1)] {
+        used.extend(
+            pack.iter()
+                .copied()
+                .filter(|&e| w.require::<Item>(e).kind == kind)
+                .take(count),
+        );
+    }
+    w.require_mut::<Player>("player")
+        .pack
+        .retain(|e| !used.contains(e));
+    for e in used {
+        w.despawn(e);
+    }
+    restack(w);
+    w.resource_mut::<Fire>().windbreak = true;
+    crate::camp::windbreak(w);
+    w.log("Built a windbreak: fire uses half the fuel");
 }
 
 pub fn interact(w: &mut World, act: Action, eat: bool) {
@@ -549,7 +624,7 @@ pub fn guidance(w: &World) -> String {
     if trail.kind == TrailKind::Camp {
         return format!("Return to camp · {}", bearing(-at));
     }
-    if matches!(trail.kind, TrailKind::Food | TrailKind::Fuel) {
+    if !matches!(trail.kind, TrailKind::Rescue | TrailKind::Camp) {
         let p = w.require::<Player>("player");
         if p.pack.len() >= PACK {
             let fuel = p
@@ -557,7 +632,12 @@ pub fn guidance(w: &World) -> String {
                 .iter()
                 .any(|&e| w.require::<Item>(e).kind != Kind::Food);
             return if fuel {
-                format!("Pack full · Feed the fire · {}", bearing(-at))
+                let purpose = if matches!(trail.kind, TrailKind::Logs | TrailKind::Scrap) {
+                    "Build or feed at camp"
+                } else {
+                    "Feed the fire"
+                };
+                format!("Pack full · {purpose} · {}", bearing(-at))
             } else {
                 "Pack full of food · Q eats when hungry".into()
             };
@@ -574,11 +654,12 @@ pub fn guidance(w: &World) -> String {
                 );
             }
         }
-        return if trail.kind == TrailKind::Food {
-            "No food found · More arrives at dawn".into()
-        } else {
-            "No fuel found · Return to camp".into()
-        };
+        return match trail.kind {
+            TrailKind::Food => "No food found · More arrives at dawn",
+            TrailKind::Scrap => "No scrap found · Return to camp",
+            _ => "No fuel found · Return to camp",
+        }
+        .into();
     }
     rescue_guidance(w)
 }
@@ -601,7 +682,7 @@ pub fn preparation(w: &World, children_safe: bool) -> (String, String) {
         .iter()
         .filter(|&&e| w.require::<Item>(e).kind == Kind::Food)
         .count();
-    let fuel_short = (c.dawn_fuel() - fire.fuel).max(0.0);
+    let fuel_short = (c.dawn_fuel(fire) - fire.fuel).max(0.0);
     let food_short = math::ceil(
         ((c.until_dawn() * HUNGER_DRAIN + 10.0 - p.hunger) / FOOD_HUNGER - food as f32).max(0.0),
     ) as u32;

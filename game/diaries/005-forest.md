@@ -1055,3 +1055,35 @@ Both descendant audits pass with no recorded children left, and both
 shelter captures were inspected. Artifacts: `artifacts/holes-{web,macos}/`.
 These proof wall times include builds and carrier work; the performance
 claim is the isolated alternating measurement above.
+
+## Build a lasting camp windbreak (2026-10-04)
+
+Scrap previously had only one use: burn it for 20 fuel. The new windbreak
+spends two logs and one scrap at camp to halve day and night fuel use
+permanently. Those materials would otherwise yield 44 immediate fuel, so
+the upgrade trades immediate safety for later nights. A metal screen on
+two wooden posts appears behind the flame. R and the HUD button perform
+the same validated action; the card shows the recipe, carried counts and
+readiness. Separate log and scrap compasses keep chosen landmarks across
+saves; the log search falls back to standing trees. The existing dawn
+budget uses the reduced burn rate while retaining its ten-fuel reserve.
+
+This uses the existing engine's resources, item entities, parented meshes,
+surface fields and commands. The recipe consumes exactly its three items,
+restacks any extras and records the upgrade once. No separate persistence
+code, new agent operation or engine feature is needed. The new tests cover
+missing ingredients, distance and death refusals, exact consumption,
+duplicate commands, appearance and save continuation, material targeting,
+and daylight/dusk/night/dawn budgets in both collision modes. All 23
+simulation tests, Clippy and formatting pass. The first Linux candidate
+has zero failures in 23.2 s including its build, with a passing descendant
+audit (`artifacts/windbreak-linux/`). Eleven world observations and eighteen
+saves now include gathering the recipe through the public compasses and
+repeating the return/build/burn sequence in a fresh process. Pins remain
+unaccepted until strict host/mode agreement.
+
+The new Jev scenario is fixed before its first run: build the windbreak
+and reach the first dawn alive within 96 choices. It sees only the visible
+HUD and enabled controls. Its compass motor is unchanged; after building,
+waiting advances ten seconds, as the earlier survival mode does after
+rescue. The earlier two-night survival feedback batch stays closed.

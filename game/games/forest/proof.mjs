@@ -35,17 +35,20 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
     const transcript = resolve(out, 'jev-decisions.jsonl');
     writeFileSync(transcript, '');
     const recent = [];
-    const survival = process.argv.includes('--survival');
+    const crafting = process.argv.includes('--build-camp');
+    const survival = crafting || process.argv.includes('--survival');
     let stalled = 0;
-    for (let turn = 0; turn < (survival ? 128 : 48); turn++) {
+    for (let turn = 0; turn < (crafting ? 96 : survival ? 128 : 48); turn++) {
       const tree = await s.tree();
-      const state = Object.fromEntries(['objective','prompt','health','hunger','pack','fuel','battery','day','left','children','survived','camp-bearing','night-plan','night-supplies']
+      const state = Object.fromEntries(['objective','prompt','health','hunger','pack','fuel','battery','day','left','children','survived','camp-bearing','night-plan','night-supplies','build-status','build-cost']
         .map(id => [id, node(tree, id)?.props?.text ?? '']));
       const rescued = state.children === 'Children 2 of 2 rescued';
-      if (node(tree, 'dead') || (rescued && (!survival || Number(state.survived.match(/\d+/)?.[0]) >= 2))) break;
+      const built = state['build-status'].startsWith('Built');
+      const nights = Number(state.survived.match(/\d+/)?.[0]);
+      if (node(tree, 'dead') || (crafting ? built && nights >= 1 : rescued && (!survival || nights >= 2))) break;
       const heading = state.objective.match(/· (N|NE|E|SE|S|SW|W|NW) ·/u)?.[1];
       const recovery = state.prompt.match(/^Axe recovering · (\d+\.\d) s/u);
-      const wait = recovery ? Number(recovery[1]) * 1000 : survival && rescued ? 10_000 : 1000;
+      const wait = recovery ? Number(recovery[1]) * 1000 : survival && (rescued || crafting && built) ? 10_000 : 1000;
       const choices = {wait:recovery ? `Wait ${recovery[1]} seconds for the axe to recover`
         : `Stay still for ${wait / 1000} seconds, allowing time to pass and followers to catch up`};
       if (survival) {
@@ -54,9 +57,9 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
         // with the near-target motor and repeatedly overshooting camp.
         if (stalled >= 2) Object.assign(choices, {north:'Detour north for one second around an obstacle',east:'Detour east for one second around an obstacle',
           south:'Detour south for one second around an obstacle',west:'Detour west for one second around an obstacle'});
-        for (const id of ['track-rescue','track-fuel','track-food','track-camp']) {
+        for (const id of ['track-rescue','track-fuel','track-food','track-camp','track-logs','track-scrap']) {
           const control = node(tree, id);
-          if (control && control.props?.disabled !== 'true' && control.props?.accessibilityPressed !== 'true') {
+          if (control && !control.props?.disabled && control.props?.accessibilityPressed !== 'true') {
             choices[id] = `Choose the ${id.slice(6)} compass target`;
           }
         }
@@ -65,11 +68,15 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
       if (state.prompt.startsWith('Hold E:')) choices.interact = `Hold E for one second: ${state.prompt}`;
       else if (state.prompt.startsWith('E:')) choices.interact = `Press E now: ${state.prompt}`;
       if (!state.pack.includes('0 food')) choices.eat = 'Eat one carried food to restore hunger';
+      if (node(tree,'build-windbreak')?.props?.disabled === false) {
+        choices.build = 'Build the camp windbreak: spend two carried logs and one scrap to halve fuel consumption permanently';
+      }
       if (state.battery.startsWith('Flashlight on') || Number(state.battery.match(/(\d+)%/)?.[1]) > 5) {
         choices.flashlight = 'Toggle the flashlight; it protects against creatures but uses battery';
       }
       const decision = await decide({state:{...state, recent, stalledFollowSteps:stalled}, choices, transcript,
-        goal:survival ? 'Rescue both children and survive two nights. Keep the campfire fueled, gather food and eat when hunger is low. After the children are safe, prepare supplies in daylight and shelter at camp at night. Use the visible compass and prompts; directions are W north, D east, S south, A west.'
+        goal:crafting ? 'Build a camp windbreak and survive until the first dawn. Gather two logs and one scrap using their compass buttons, return to camp and build instead of feeding those materials. Once built, keep the fire supplied and eat when hungry, then shelter at camp until dawn. Use only the visible compass and prompts.'
+          : survival ? 'Rescue both children and survive two nights. Keep the campfire fueled, gather food and eat when hunger is low. After the children are safe, prepare supplies in daylight and shelter at camp at night. Use the visible compass and prompts; directions are W north, D east, S south, A west.'
           : 'Rescue both children and survive. Prefer taking a child in reach, otherwise follow the compass. Escort followers home for supplies. Eat when hungry. Daylight is limited.'});
       say(`JEV ${turn + 1}: ${decision.choice} · ${state.objective}`);
       recent.push({action:decision.choice, objective:state.objective, prompt:state.prompt});
@@ -81,6 +88,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
         stalled = after.split(' · ')[0] === state.objective.split(' · ')[0] && distance(after) >= distance(state.objective)
           ? stalled + 1 : 0;
       } else if (decision.choice === 'wait') await game.run(wait);
+      else if (decision.choice === 'build') { await s.tap('build-windbreak'); await game.run(100); }
       else if (decision.choice.startsWith('track-')) { await s.tap(decision.choice); await game.run(100); stalled = 0; }
       else if (['north','east','south','west'].includes(decision.choice)) {
         await game.hold({north:'KeyW',east:'KeyD',south:'KeyS',west:'KeyA'}[decision.choice],1000);
@@ -100,6 +108,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
       objective:node(tree, 'objective')?.props?.text, survived:node(tree,'survived')?.props?.text,
       fuel:node(tree,'fuel')?.props?.text, hunger:node(tree,'hunger')?.props?.text, world:await game.snapshot(),
       nightPlan:node(tree,'night-plan')?.props?.text, nightSupplies:node(tree,'night-supplies')?.props?.text,
+      windbreak:node(tree,'build-status')?.props?.text,
       player:await game.get('player','Player'), position:await game.local_position('player'),
     }, null, 2));
     await s.screenshot(resolve(out, 'jev-playtest.png'));
@@ -375,6 +384,63 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await shelterBack.world('world').save(resolve(out,'dawn-restored.world'));
   check('dawn continuation saves are byte-identical', readFileSync(resolve(out,'dawn.world')).equals(readFileSync(resolve(out,'dawn-restored.world'))));
   await shelterBack.close();
+
+  // Collect the recipe through visible material compasses, then save before
+  // returning to camp. A fresh process repeats the trip, build and fuel burn.
+  const craft = await open({fresh:true});
+  await craft.tap('trees-1k'); await craft.tap('play');
+  const reachCraft = async (session, ready) => {
+    for (let i = 0; i < 40; i++) {
+      const tree = await session.tree();
+      if (ready(tree)) return true;
+      if (!await followCompass(session,node(tree,'objective')?.props?.text ?? '')) return false;
+    }
+    return false;
+  };
+  for (const kind of ['logs','logs','scrap']) {
+    await craft.tap(`track-${kind}`); await craft.world('world').run(100);
+    const label = kind === 'logs' ? 'log' : 'scrap';
+    check(`the ${kind} compass reaches its material`, await reachCraft(craft,
+      tree => node(tree,'prompt')?.props?.text === `E: pick up ${label}`));
+    await craft.world('world').tap('KeyE'); await craft.world('world').run(100);
+  }
+  check('the windbreak recipe is carried', node(await craft.tree(),'pack')?.props?.text === 'Carrying 2 logs · 1 scrap · 0 food');
+  check('building away from camp is disabled', node(await craft.tree(),'build-windbreak')?.props?.disabled === true);
+  await craft.world('world').tap('KeyR'); await craft.world('world').run(100);
+  check('an away build attempt keeps the materials', node(await craft.tree(),'pack')?.props?.text === 'Carrying 2 logs · 1 scrap · 0 food');
+  await craft.world('world').save(resolve(out,'craft.world'));
+  const buildCamp = async session => {
+    const world = session.world('world');
+    await session.tap('track-camp'); await world.run(100);
+    check('returning to camp enables building', await reachCraft(session,
+      tree => node(tree,'build-windbreak')?.props?.disabled === false));
+    await session.tap('build-windbreak'); await world.run(100);
+    const built = await session.tree();
+    check('building consumes the recipe and reports the permanent benefit',
+      node(built,'pack')?.props?.text === 'Carrying 0 logs · 0 scrap · 0 food'
+      && node(built,'build-status')?.props?.text === 'Built · Fire uses half the fuel'
+      && node(built,'build-windbreak')?.props?.disabled === true);
+    const before = Number(node(built,'fuel')?.props?.text.match(/\d+/)?.[0]);
+    await world.tap('KeyR'); await world.run(20_000);
+    const after = await session.tree();
+    const spent = before - Number(node(after,'fuel')?.props?.text.match(/\d+/)?.[0]);
+    check('the windbreak halves visible fuel consumption through twenty seconds', spent >= 3 && spent <= 7, spent);
+    check('repeated building keeps the upgrade and empty pack',
+      node(after,'build-status')?.props?.text === 'Built · Fire uses half the fuel'
+      && node(after,'pack')?.props?.text === 'Carrying 0 logs · 0 scrap · 0 food');
+    return await world.snapshot();
+  };
+  const crafted = await buildCamp(craft);
+  await craft.world('world').save(resolve(out,'windbreak.world'));
+  pinSave('windbreak',resolve(out,'windbreak.world'));
+  if (host !== 'linux') await craft.screenshot(resolve(out,'windbreak.png'));
+  await craft.close();
+  const craftBack = await open({fresh:true,world:resolve(out,'craft.world')});
+  await craftBack.tap('trees-1k'); await craftBack.tap('play');
+  check('saved materials build the same camp in a fresh process', JSON.stringify(await buildCamp(craftBack)) === JSON.stringify(crafted));
+  await craftBack.world('world').save(resolve(out,'windbreak-restored.world'));
+  check('built camp continuation saves are byte-identical', readFileSync(resolve(out,'windbreak.world')).equals(readFileSync(resolve(out,'windbreak-restored.world'))));
+  await craftBack.close();
 });
 
 async function followCompass(session, objective) {
