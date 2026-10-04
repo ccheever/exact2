@@ -26,58 +26,105 @@ fn own(style: &StyleProps) -> paint_order::Own {
     })
 }
 
+// The low bits match the server's paint summary. The higher bits are
+// independent inputs: OR-ing a static fact and bound facts cannot clear a
+// different row's contribution. paint.js reads this one compact vocabulary.
+const POSITION: u32 = 1;
+const STACK: u32 = 2;
+const POLICY: u32 = 4;
+const OUTSIDE: u32 = 8;
+const ISOLATION: u32 = 64;
+const ROOT: u32 = 128;
+const LAYOUT: u32 = 256;
+const ABSOLUTE: u32 = 512;
+const WRAP: u32 = 1024;
+const TEXT: u32 = 2048;
+const FLEX: u32 = 4096;
+const CONTROL: u32 = 8192;
+const BUTTON: u32 = 16384;
+const GLASS: u32 = 32768;
+const DISABLED: u32 = 65536;
+const DIM: u32 = 131072;
+
 pub fn attributes(node: &NodeFacts<'_>, attrs: &mut SortedMap<String, String>) {
     let s = node.style;
     let mut authored = s.clone();
     for row in MOTION.into_iter().chain([StyleId::ZIndex]) {
         authored.mask.clear(row);
     }
-    authored.position_type = exact_kernel::PositionType::Static;
-    let mut motion = s.clone();
-    motion.mask = exact_kernel::StyleMask::EMPTY;
-    for row in MOTION {
+    let mut policy = StyleProps::default();
+    for row in MOTION.into_iter().chain([StyleId::TintColor]) {
         if s.mask.has(row) {
-            motion.mask.set(row);
+            policy.mask.set(row);
         }
     }
-    motion.position_type = exact_kernel::PositionType::Static;
-    motion.mix_blend_mode = exact_kernel::MixBlendMode::Normal;
-    motion.isolation = exact_kernel::Isolation::Auto;
-    for (name, yes) in [
-        ("stack", own(&authored).stacks),
-        ("motion", own(&motion).policy),
+    policy.transition = s.transition.clone();
+    policy.animation = s.animation.clone();
+    let host = paint_order::own_from(paint_order::Facts {
+        style: &policy,
+        props: node.props,
+        // A control's policy depends on three independently bound props.
+        kind: if node.node_type == NodeType::Control {
+            NodeType::View
+        } else {
+            node.node_type
+        },
+        root: node.is_root,
+        parent_display: None,
+        beside_exclusion: false,
+        holds_layout_transition: false,
+    });
+    let button_style = node.props.str(PropId::ButtonStyle).unwrap_or("bordered");
+    let mut bits = 0;
+    for (bit, yes) in [
         (
-            "own-isolation",
-            s.isolation == exact_kernel::Isolation::Isolate,
+            POSITION,
+            node.is_root || s.position_type != exact_kernel::PositionType::Static,
         ),
-        ("root", node.is_root),
+        (STACK, own(&authored).stacks),
+        (POLICY, host.policy),
+        (OUTSIDE, host.outside),
+        (ISOLATION, s.isolation == exact_kernel::Isolation::Isolate),
+        (ROOT, node.is_root),
+        (LAYOUT, s.mask.has(StyleId::LayoutTransition)),
         (
-            "outside",
-            node.node_type.is_svg_element() || node.node_type.is_metadata(),
+            ABSOLUTE,
+            s.position_type == exact_kernel::PositionType::Absolute,
         ),
+        (WRAP, s.wrap_flow == exact_kernel::WrapFlow::Both),
+        (TEXT, node.node_type == NodeType::Text),
         (
-            "flex",
+            FLEX,
             matches!(
                 s.display,
                 exact_kernel::Display::Flex | exact_kernel::Display::Grid
             ),
         ),
-        ("layout", s.mask.has(StyleId::LayoutTransition)),
-        ("wrap", s.wrap_flow == exact_kernel::WrapFlow::Both),
-        ("tint", s.mask.has(StyleId::TintColor)),
+        (CONTROL, node.node_type == NodeType::Control),
+        (
+            BUTTON,
+            node.node_type == NodeType::Control && node.props.str(PropId::Type) == Some("button"),
+        ),
+        (
+            GLASS,
+            node.node_type == NodeType::Control && button_style.ends_with("glass"),
+        ),
+        (
+            DISABLED,
+            node.node_type == NodeType::Control && node.props.bool(PropId::Disabled) == Some(true),
+        ),
+        (
+            DIM,
+            node.node_type == NodeType::Control && !matches!(button_style, "bordered" | "gray"),
+        ),
     ] {
         if yes {
-            attrs.insert(format!("data-exact-{name}"), String::new());
+            bits |= bit;
         }
     }
-    let position = match s.position_type {
-        exact_kernel::PositionType::Static => None,
-        exact_kernel::PositionType::Relative => Some("relative"),
-        exact_kernel::PositionType::Absolute => Some("absolute"),
-        exact_kernel::PositionType::Sticky => Some("sticky"),
-    };
-    if let Some(position) = position {
-        attrs.insert("data-exact-position".into(), position.into());
+    attrs.insert("data-exact-f".into(), bits.to_string());
+    if bits & ISOLATION != 0 {
+        attrs.insert("data-exact-own-isolation".into(), String::new());
     }
     if s.mask.has(StyleId::ZIndex) {
         attrs.insert(
@@ -87,62 +134,66 @@ pub fn attributes(node: &NodeFacts<'_>, attrs: &mut SortedMap<String, String>) {
                 .to_string(),
         );
     }
-    let kind = match node.node_type {
-        NodeType::Canvas => "canvas",
-        NodeType::Image => "image",
-        NodeType::Control => "control",
-        NodeType::Text => "text",
-        _ => "box",
-    };
-    attrs.insert("data-exact-kind".into(), kind.into());
-    for (prop, name) in PROPS {
-        if let Some(v) = node.props.str(prop) {
-            attrs.insert(format!("data-exact-{name}"), v.into());
-        }
-    }
-    if node.props.bool(PropId::Disabled) == Some(true) {
-        attrs.insert("data-exact-disabled".into(), "true".into());
-    }
 }
 
-const PROPS: [(PropId, &str); 8] = [
-    (PropId::Type, "type"),
-    (PropId::ButtonStyle, "button-style"),
-    (PropId::ImageSource, "source"),
-    (PropId::BackgroundMaterial, "material"),
-    (PropId::NavigationPresentation, "navigation"),
-    (PropId::SemanticTag, "semantic"),
-    (PropId::Popover, "popover"),
-    (PropId::Disabled, "disabled"),
-];
+/// A pass is needed only when a non-root box can introduce a layer. Static
+/// layers count: region arms and repeated copies still need instance decisions.
+pub fn needed(plan: &Plan, parts: &[Option<exact_web::host::template::Parts>]) -> bool {
+    parts.iter().enumerate().any(|(i, p)| {
+        let Some(p) = p else { return false };
+        let bits: u32 = p.props.get("data-exact-f").unwrap().parse().unwrap();
+        if bits & OUTSIDE != 0 {
+            return false;
+        }
+        (bits & ROOT == 0
+            && (bits & (POSITION | STACK | POLICY | CONTROL | WRAP) != 0
+                || p.props.contains_key("data-exact-zi")))
+            || plan.nodes[i]
+                .bindings
+                .iter()
+                .map(|b| plan.binding(b))
+                .any(|b| {
+                    crate::style::literal(plan, plan.code(b.expr)).is_none()
+                        && binding(
+                            plan,
+                            NodeType::from_wire(plan.nodes[i].node_type).unwrap(),
+                            b,
+                        )
+                        .is_some()
+                })
+    })
+}
 
 /// The attribute and its value expression, with `v` the binding's value.
 /// The tests are own_from's value tests, in the row's authored vocabulary.
-pub fn binding(plan: &Plan, b: &BindingsRow) -> Option<(String, String)> {
+pub fn binding(plan: &Plan, kind: NodeType, b: &BindingsRow) -> Option<(String, String)> {
+    let bits = |value: String| Some((format!("data-exact-f-{}-{}", b.kind as u8, b.id), value));
+    let flag = |bit: u32, test: &str| bits(format!("({test})?{bit}:0"));
     if b.kind == BindingKind::Prop {
-        let id = PropId::from_wire(b.id)?;
-        return PROPS
-            .iter()
-            .find(|(p, _)| *p == id)
-            .map(|(_, n)| (format!("data-exact-{n}"), "v".into()));
+        return match PropId::from_wire(b.id)? {
+            PropId::Type if kind == NodeType::Control => flag(BUTTON, "v===\"button\""),
+            PropId::ButtonStyle if kind == NodeType::Control => bits(format!(
+                "(String(v??\"bordered\").endsWith(\"glass\")?{GLASS}:0)|(![\"bordered\",\"gray\"].includes(String(v??\"bordered\"))?{DIM}:0)")),
+            PropId::Disabled if kind == NodeType::Control => flag(DISABLED, "v===true"),
+            PropId::ImageSource if kind == NodeType::Image => flag(POLICY, "v!=null&&String(v).startsWith(\"symbol:\")"),
+            PropId::BackgroundMaterial => flag(POLICY, "v!=null"),
+            PropId::NavigationPresentation => flag(POLICY, "v===\"modal\""),
+            PropId::SemanticTag => flag(OUTSIDE, "v===\"dialog\""),
+            PropId::Popover => flag(OUTSIDE, "v!=null"),
+            _ => None,
+        };
     }
     let id = StyleId::from_bit(b.id as u32)?;
-    let boolean = |name: String, test: &str| Some((name, format!("({test})?\"\":null")));
-    let fact = |name: &str, test: &str| boolean(format!("data-exact-{name}"), test);
     let test = match id {
-        StyleId::PositionType => {
-            return Some((
-                "data-exact-position".into(),
-                "v!=null&&v!==\"static\"?v:null".into(),
-            ))
-        }
-        StyleId::Display => return fact("flex", "v===\"flex\"||v===\"grid\""),
+        StyleId::PositionType => return bits(format!(
+            "v==null||v===\"static\"?0:{POSITION}|(v===\"sticky\"?{STACK}:0)|(v===\"absolute\"?{ABSOLUTE}:0)")),
+        StyleId::Display => return flag(FLEX, "v===\"flex\"||v===\"grid\""),
         StyleId::ZIndex => return Some(("data-exact-zi".into(), format!("({Z_INDEX})(v)"))),
-        StyleId::WrapFlow => return fact("wrap", "v===\"both\""),
-        StyleId::TintColor => return fact("tint", "v!=null"),
-        StyleId::Isolation => return fact("own-isolation", "v===\"isolate\""),
-        StyleId::LayoutTransition => return fact("layout", "v!=null"),
-        StyleId::ExitAnimation => return fact("exit", "v!=null"),
+        StyleId::WrapFlow => return flag(WRAP, "v===\"both\""),
+        StyleId::TintColor if kind == NodeType::Image => return flag(POLICY, "v!=null"),
+        StyleId::Isolation => return flag(ISOLATION | STACK, "v===\"isolate\""),
+        StyleId::LayoutTransition => return flag(LAYOUT | POLICY, "v!=null"),
+        StyleId::ExitAnimation => return flag(POLICY, "v!=null"),
         StyleId::Transition => {
             let properties: Vec<_> = exact_motion::Property::ALL
                 .iter()
@@ -150,8 +201,8 @@ pub fn binding(plan: &Plan, b: &BindingsRow) -> Option<(String, String)> {
                 .chain(["all", "border-color"])
                 .collect();
             let names = serde_json::to_string(&properties).unwrap();
-            return boolean(
-                format!("data-exact-motion-{}", b.id),
+            return flag(
+                POLICY,
                 &format!(
                     r#"v!=null&&String(v).split(/,(?![^(]*\))/).some(t=>{{const words=t.trim().split(/\s+(?![^(]*\))/);const p=words.find(w=>{names}.includes(w));return p?["all","opacity","translate","scale","rotate"].includes(p):words.every(w=>/^(?:[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?m?s|linear|ease(?:-in(?:-out)?|-out)?|step-start|step-end|(?:cubic-bezier|steps|spring)\(.+\))$/.test(w))}})"#
                 ),
@@ -179,8 +230,8 @@ pub fn binding(plan: &Plan, b: &BindingsRow) -> Option<(String, String)> {
                 })
                 .map(|k| plan.str(k.name))
                 .collect();
-            return boolean(
-                format!("data-exact-motion-{}", b.id),
+            return flag(
+                POLICY,
                 &format!(
                     "v!=null&&String(v).split(/[\\s,]+/).some(n=>{}.includes(n))",
                     serde_json::to_string(&names).unwrap()
@@ -200,28 +251,30 @@ pub fn binding(plan: &Plan, b: &BindingsRow) -> Option<(String, String)> {
         StyleId::MixBlendMode => "v!=null&&v!==\"normal\"",
         _ => return None,
     };
-    boolean(format!("data-exact-stack-{}", b.id), test)
+    flag(STACK, test)
 }
 
-pub fn may_layer<'a>(
-    plan: &Plan,
-    node: &NodeFacts<'_>,
-    bindings: impl Iterator<Item = &'a BindingsRow>,
-) -> bool {
-    let p = paint_order::own_from(paint_order::Facts {
-        style: node.style,
-        props: node.props,
-        kind: node.node_type,
-        root: node.is_root,
-        parent_display: None,
-        beside_exclusion: false,
-        holds_layout_transition: false,
-    });
-    p.positioned
-        || p.stacks
-        || node.style.mask.has(StyleId::ZIndex)
-        || bindings.into_iter().any(|b| {
-            crate::style::literal(plan, plan.code(b.expr)).is_none() && binding(plan, b).is_some()
-        })
-        || node.node_type == NodeType::Text
+/// Specialize the mirror to the facts this plan can produce, including
+/// bindings whose values are not known until a particular instance mounts.
+pub fn runtime(plan: &Plan) -> String {
+    let style = |id: StyleId| {
+        plan.nodes
+            .iter()
+            .flat_map(|n| n.bindings.iter())
+            .map(|b| plan.binding(b))
+            .any(|b| b.kind == BindingKind::Style && b.id == id as u16)
+    };
+    let button = plan
+        .nodes
+        .iter()
+        .any(|n| NodeType::from_wire(n.node_type) == Some(NodeType::Control));
+    include_str!("../paint.js").replace(
+        "const Z = true, FLOW = true, LAYOUT = true, BUTTON = true;",
+        &format!(
+            "const Z = {}, FLOW = {}, LAYOUT = {}, BUTTON = {button};",
+            style(StyleId::ZIndex),
+            style(StyleId::WrapFlow),
+            style(StyleId::LayoutTransition)
+        ),
+    )
 }

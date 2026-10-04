@@ -248,14 +248,10 @@ pub fn project(
     }
     // Arms and each copies share templates. Only candidacy is static;
     // paint.js decides isolation from the actual instance's descendants.
-    let follows = can_follow(plan, sites, &kernel, &tree);
     for (i, parts) in out.iter_mut().enumerate() {
         let Some(parts) = parts else { continue };
         let node = kernel.node(view(i)).expect("template node");
         crate::paint::attributes(&node.facts(), &mut parts.props);
-        if follows[i] {
-            parts.props.insert("data-exact-box".into(), "".into());
-        }
     }
     Ok(out)
 }
@@ -290,62 +286,6 @@ fn each_rows(plan: &Plan, sites: &crate::emit::Sites) -> Vec<usize> {
         }
     }
     rows
-}
-
-/// Which nodes can follow, among their parent's children, a node that paints
-/// with the positioned or holds one: a sibling before it in any arm, or, for
-/// a row of an `each`, its own earlier copy.
-fn can_follow(
-    plan: &Plan,
-    sites: &crate::emit::Sites,
-    kernel: &Kernel,
-    tree: &[Vec<u32>],
-) -> Vec<bool> {
-    let n = plan.nodes.len();
-    let layered = |i: usize| {
-        let Some(node) = kernel.node(i as ViewId + 1) else {
-            return false;
-        };
-        crate::paint::may_layer(
-            plan,
-            &node.facts(),
-            plan.nodes[i].bindings.iter().map(|b| plan.binding(b)),
-        )
-    };
-    // Whether a node's subtree can paint with the positioned, children first.
-    let mut holds = vec![None; n];
-    fn hold(
-        i: usize,
-        tree: &[Vec<u32>],
-        layered: &dyn Fn(usize) -> bool,
-        holds: &mut Vec<Option<bool>>,
-    ) -> bool {
-        if let Some(h) = holds[i] {
-            return h;
-        }
-        let h = layered(i)
-            | tree[i]
-                .iter()
-                .fold(false, |a, c| hold(*c as usize, tree, layered, holds) | a);
-        holds[i] = Some(h);
-        h
-    }
-    let rows = each_rows(plan, sites);
-    let mut follows = vec![false; n];
-    for children in tree {
-        let mut before = false;
-        for c in children {
-            let c = *c as usize;
-            let h = hold(c, tree, &layered, &mut holds);
-            follows[c] = before
-                || (h && rows.contains(&c))
-                || tree[c]
-                    .iter()
-                    .any(|d| hold(*d as usize, tree, &layered, &mut holds));
-            before |= h;
-        }
-    }
-    follows
 }
 
 /// The DOM prop name the live host gives `prop` on a node of `node_type`,

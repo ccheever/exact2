@@ -60,6 +60,28 @@ fn fixture_plan(root: &str, nodes: &str) -> Plan {
 }
 
 #[test]
+fn plain_plans_omit_the_mirror_but_keep_root_isolation() {
+    for (style, needed) in [
+        ("", false),
+        ("opacity=1", false),
+        ("opacity=(changed ? 0.5 : 1)", true),
+        ("position=\"relative\"", true),
+        ("z-index=(changed ? 2 : 0)", true),
+    ] {
+        let plan = contract::compile(&format!(
+            "component Paint\n  state changed = false\n  view\n    box\n      box {style}\n"
+        ))
+        .unwrap();
+        let out = crate::emit::emit(&plan, false, false).unwrap();
+        assert_eq!(out.js.contains("from\"./paint.js\""), needed, "{style}");
+        if !needed {
+            assert!(out.css.contains("isolation:isolate"));
+            assert!(!out.js.contains("data-exact-f"));
+        }
+    }
+}
+
+#[test]
 fn server_client_and_adopted_paint_agree_on_the_chrome_corpus() {
     exact_web::link(exact_web_capabilities::ALL);
     let dir = std::env::temp_dir().join(format!("exact-js-paint-{}", std::process::id()));
@@ -85,6 +107,7 @@ component Paint
   view
     box testId="root"
       button "Toggle" testId="toggle" press=toggle
+      button "Native style" testId="native-button" appearance="auto" disabled=true buttonStyle=(changed ? "plain" : "glass")
       box testId="position" position=(changed ? "static" : "relative")
       box testId="holder"
         box testId="fade" opacity=(changed ? 0.5 : 1)
@@ -166,6 +189,7 @@ fn write_case(dir: &std::path::Path, plan: &Plan, steps: &[&str]) {
     assert_eq!(document.root, host.document().unwrap().root);
     for (name, value) in [
         ("app.js", emitted.js),
+        ("paint.js", emitted.paint),
         ("app.css", emitted.css),
         ("names.js", emitted.names),
         ("rust.html", document.root),
@@ -268,6 +292,7 @@ fn bound_transition_stacking_matches_kernel() {
     let plan = fixture_plan("", "2>1>");
     let (_, expression) = crate::paint::binding(
         &plan,
+        NodeType::View,
         &BindingsRow {
             kind: BindingKind::Style,
             id: StyleId::Transition as u16,
@@ -276,7 +301,7 @@ fn bound_transition_stacking_matches_kernel() {
     )
     .unwrap();
     let script = format!(
-        "const values={};console.log(JSON.stringify(values.map(v=>({expression})!==null)));",
+        "const values={};console.log(JSON.stringify(values.map(v=>({expression})!==0)));",
         serde_json::to_string(&values).unwrap()
     );
     let output = std::process::Command::new("bun")

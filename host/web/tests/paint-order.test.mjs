@@ -8,8 +8,15 @@ function tree() {
   const doc = createDocument();
   const add = (p, kind = 'box', facts = {}) => {
     const e = doc.createElement('div');
-    e.setAttribute('data-exact-kind', kind);
-    for (const [k, v] of Object.entries(facts)) e.setAttribute('data-exact-' + k, v);
+    e.setAttribute('data-exact-f', { box: 0, text: 2048, canvas: 4, image: 0, control: 8192 }[kind]);
+    for (const [k, v] of Object.entries(facts)) {
+      if (k === 'zi') e.setAttribute('data-exact-zi', v);
+      else e.setAttribute('data-exact-f-' + k, {
+        root: 133, layout: 260, position: v === 'absolute' ? 513 : 1, wrap: 1024,
+        flex: 4096, type: 16384, 'button-style': 131072, disabled: 65536,
+        source: 4, semantic: 8,
+      }[k]);
+    }
     p.append(e); paintList(e);
     return e;
   };
@@ -49,12 +56,12 @@ test('applicability keeps authored z and responds to parent display and position
   const { root, add } = tree();
   const holder = add(root), item = add(holder, 'box', { zi: '-4' });
   paintFlush(); expect(holder.style.isolation).toBe('');
-  holder.setAttribute('data-exact-flex', ''); paintFacts(holder); paintFlush();
+  holder.setAttribute('data-exact-f-flex', '4096'); paintFacts(holder); paintFlush();
   expect(holder.style.isolation).toBe('isolate');
-  holder.removeAttribute('data-exact-flex'); paintFacts(holder); paintFlush();
+  holder.removeAttribute('data-exact-f-flex'); paintFacts(holder); paintFlush();
   expect(holder.style.isolation).toBe('');
   expect(item.getAttribute('data-exact-zi')).toBe('-4');
-  item.setAttribute('data-exact-position', 'relative'); paintFacts(item); paintFlush();
+  item.setAttribute('data-exact-f-position', '1'); paintFacts(item); paintFlush();
   expect(holder.style.isolation).toBe('isolate');
 });
 
@@ -69,9 +76,9 @@ test('host policy is separate from authored isolation and outside boxes contribu
     expect(e.hasAttribute('data-exact-own-isolation')).toBe(false);
   }
   expect(holder.style.isolation).toBe('');
-  button.setAttribute('data-exact-button-style', 'gray'); paintFacts(button);
-  image.removeAttribute('data-exact-source'); paintFacts(image);
-  dialog.removeAttribute('data-exact-semantic'); paintFacts(dialog); paintFlush();
+  button.setAttribute('data-exact-f-button-style', '0'); paintFacts(button);
+  image.removeAttribute('data-exact-f-source'); paintFacts(image);
+  dialog.removeAttribute('data-exact-f-semantic'); paintFacts(dialog); paintFlush();
   expect(button.style.isolation).toBe('');
   expect(image.style.isolation).toBe('');
   expect(holder.style.isolation).toBe('isolate');
@@ -85,7 +92,7 @@ test('waiting server rows retain layout and exclusion facts for their adopted re
   try { paintFlush(); } finally { delete globalThis.__exactRender; }
   paintWait(waiting);
   // The Rust document has the paint summary before template attributes arrive.
-  for (const fact of ['layout', 'position', 'wrap', 'kind']) waiting.removeAttribute('data-exact-' + fact);
+  for (const fact of ['layout', 'position', 'wrap']) waiting.removeAttribute('data-exact-f-' + fact);
   paintFacts(holder); paintFlush();
   expect(holder.style.isolation).toBe('isolate');
   expect(paragraph.style.isolation).toBe('isolate');

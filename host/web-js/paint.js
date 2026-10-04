@@ -1,25 +1,30 @@
 // Mirrors kernel/src/paint_order.rs (LLP 1083.000): own facts, potentials,
 // left-to-right decisions, then contributions. Templates supply facts only;
 // every region arm and each copy is decided on its actual instance tree.
+export function paintUse() { return { list: paintList, facts: paintFacts, flush: paintFlush, wait: paintWait }; }
+// The compiler replaces these constants; unused branches leave the bundle.
+const Z = true, FLOW = true, LAYOUT = true, BUTTON = true;
 const dirty = new Set();
-const has = (e, n) => e.hasAttribute("data-exact-" + n);
 const get = (e, n) => e.getAttribute("data-exact-" + n);
-const fact = (e, n) => e.getAttributeNames().some(k => k === "data-exact-" + n || k.startsWith("data-exact-" + n + "-"));
 const record = e => e.$paint ??= { z: false, level0: false, isolated: false, cz: false, c0: false };
+// src/paint.rs folds literals and emits only each binding's contribution.
+// A row clearing its flag never clears another row's stacking contribution.
+const facts = e => e.$paintFacts ??= e.getAttributeNames().reduce((bits, k) =>
+  k === "data-exact-f" || k.startsWith("data-exact-f-") ? bits | Number(e.getAttribute(k)) : bits, 0);
 
 /** Keep the server's own facts and descendant potentials for a row whose
  * bindings wait for an adoption slice. Both server renderers write these. */
 export function paintWait(e) {
   const [bits, z] = JSON.parse(get(e, "paint"));
-  Object.assign(record(e), { z: !!(bits & 16), level0: !!(bits & 32), own: {
+  Object.assign(record(e), { z: Z && !!(bits & 16), level0: !!(bits & 32), own: {
     positioned: !!(bits & 1), stacks: !!(bits & 2), policy: !!(bits & 4), outside: !!(bits & 8),
     isolation: !!(bits & 64), root: !!(bits & 128), z,
-  }, layout: !!(bits & 256), exclusion: !!(bits & 512) });
+  }, layout: LAYOUT && !!(bits & 256), exclusion: FLOW && !!(bits & 512) });
   e.$paintWaiting = true;
 }
 
-const layout = e => e.$paintWaiting ? record(e).layout : has(e, "layout");
-const excludes = e => e.$paintWaiting ? record(e).exclusion : get(e, "position") === "absolute" && has(e, "wrap");
+const layout = e => LAYOUT && (e.$paintWaiting ? record(e).layout : !!(facts(e) & 256));
+const excludes = e => FLOW && (e.$paintWaiting ? record(e).exclusion : (facts(e) & 1536) === 1536);
 
 /** A structural edit can change both a list and its holder's policy. */
 export function paintList(p) {
@@ -28,24 +33,19 @@ export function paintList(p) {
   if (p.parentElement && p.id !== "exact-root") dirty.add(p.parentElement);
 }
 /** Position, stacking rows, z-index and display all affect the two lists. */
-export function paintFacts(e) { paintList(e); }
+export function paintFacts(e) { e.$paintFacts = null; paintList(e); }
 
 function own(e, parent, exclusion) {
   if (e.$paintWaiting) return record(e).own;
-  const root = has(e, "root"), position = get(e, "position");
-  const positioned = root || position !== null;
-  const zi = get(e, "zi"), z = zi !== null && (positioned || has(parent, "flex")) ? Number(zi) : null;
-  const authored = fact(e, "stack") || has(e, "own-isolation") || position === "sticky" || z !== null;
-  const kind = get(e, "kind"), button = kind === "control" && get(e, "type") === "button";
-  const style = get(e, "button-style") ?? "bordered";
-  const policy = root || kind === "canvas"
-    || (kind === "image" && (has(e, "tint") || get(e, "source")?.startsWith("symbol:")))
-    || (button && (style.endsWith("glass") || (get(e, "disabled") === "true" && !["bordered", "gray"].includes(style))))
-    || has(e, "material") || get(e, "navigation") === "modal"
-    || fact(e, "motion") || has(e, "layout") || has(e, "exit")
-    || (kind === "text" && exclusion) || Array.from(e.children).some(c => !c.hasAttribute("data-exiting") && layout(c));
+  const bits = facts(e), root = !!(bits & 128), positioned = !!(bits & 1);
+  const zi = Z ? get(e, "zi") : null, z = zi !== null && (positioned || (facts(parent) & 4096)) ? Number(zi) : null;
+  const authored = !!(bits & 2) || z !== null;
+  const policy = !!(bits & 4)
+    || (BUTTON && (bits & 24576) === 24576 && ((bits & 32768) || (bits & 196608) === 196608))
+    || (FLOW && (bits & 2048) && exclusion)
+    || (LAYOUT && Array.from(e.children).some(c => !c.hasAttribute("data-exiting") && layout(c)));
   return { positioned, stacks: authored || !!policy, policy: !!policy && !authored, z,
-    isolation: has(e, "own-isolation"), outside: !kind || has(e, "outside") || get(e, "semantic") === "dialog" || has(e, "popover"), root };
+    isolation: !!(bits & 64), outside: !e.hasAttribute("data-exact-f") || !!(bits & 8), root };
 }
 
 export function paintFlush() {
@@ -68,7 +68,7 @@ export function paintFlush() {
     let layered = false, leaked = false, z = false, level0 = false, changed = false;
     for (const c of children) {
       const r = record(c), o = own(c, p, exclusion), free = !o.stacks, stat = !o.positioned;
-      const isolated = !o.root && !o.outside && free && (r.z || (stat && r.level0 && (layered || leaked)) || (stat && leaked));
+      const isolated = !o.root && !o.outside && free && ((Z && r.z) || (stat && r.level0 && (layered || leaked)) || (stat && leaked));
       const leaks = stat && free && !isolated && r.level0;
       if (!o.outside) { layered ||= o.positioned || o.stacks || isolated || leaks; leaked ||= leaks; }
       c.toggleAttribute("data-exact-policy", o.policy);
@@ -78,8 +78,8 @@ export function paintFlush() {
       if (c.$ghostIsolation) Object.assign(c.$ghostIsolation, { value: iso ? "isolate" : "", priority: "", released: false });
       if (iso || c.$ghostIsolation) { if (c.style.isolation !== "isolate") c.style.isolation = "isolate"; }
       else if (c.style.isolation === "isolate") c.style.removeProperty("isolation");
-      const open = !o.stacks && !isolated, nonzero = o.z !== null && o.z !== 0;
-      const cz = !o.outside && (nonzero || (open && r.z));
+      const open = !o.stacks && !isolated, nonzero = Z && o.z !== null && o.z !== 0;
+      const cz = Z && !o.outside && (nonzero || (open && r.z));
       const c0 = !o.outside && (((o.positioned || o.stacks) && !nonzero) || isolated || (open && stat && r.level0));
       changed ||= r.isolated !== isolated || r.policy !== o.policy || r.cz !== cz || r.c0 !== c0;
       Object.assign(r, { own: o, isolated, policy: o.policy, cz, c0 });

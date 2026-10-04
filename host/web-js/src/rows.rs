@@ -55,13 +55,21 @@ impl Em<'_> {
         }
     }
 
+    pub(super) fn f(
+        &mut self,
+        code: exact_plan::Code,
+        scope: &crate::code::Scope,
+    ) -> Result<String, String> {
+        crate::code::function(self.plan, self.plan.code(code), scope, 0, &mut self.uses)
+    }
+
     /// A bound paint fact for the CSS sibling-order rule. The expression is
     /// pure; the same effect scope as its style owns this attribute.
     pub(super) fn paint_binding(&mut self, kind: NodeType, b: &BindingsRow, e: &str, f: &str) {
-        if kind.is_svg_element() || kind.is_metadata() {
+        if !self.paint || kind.is_svg_element() || kind.is_metadata() {
             return;
         }
-        if let Some((name, value)) = crate::paint::binding(self.plan, b) {
+        if let Some((name, value)) = crate::paint::binding(self.plan, kind, b) {
             let p = self.uses.rt("P");
             let _ = write!(
                 self.out,
