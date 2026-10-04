@@ -1215,7 +1215,7 @@ impl<'a> Lowerer<'a> {
         surface: &mut Option<exact_plan::SurfacesId>,
         font: &[FontUse],
     ) -> Result<(), LowerError> {
-        let Some(mut target) = tags::attr(&a.name) else {
+        let Some(mut target) = tags::attr_valued(&a.name, &a.value) else {
             return Err(unknown_attr(tag, a));
         };
         // HTML's global `title` on any element but `head`: advisory text, the

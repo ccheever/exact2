@@ -586,7 +586,7 @@ impl Emitter<'_> {
         let mut props = Vec::new();
         let mut handlers = Vec::new();
         for a in attrs {
-            match contract_lower::tags::attr(&a.name) {
+            match contract_lower::tags::attr_valued(&a.name, &a.value) {
                 Some(contract_lower::tags::AttrTarget::Handler(event)) => {
                     let (action, args): (&str, &[Expr]) = match &a.value {
                         Expr::Ident(action, _) => (action, &[]),

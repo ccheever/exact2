@@ -97,7 +97,8 @@ pub use runner::{
     DrawReply, DrawRequest, Drawn, DropEvent, Event, FormatLink, Geometry, GeometryLink, Hold,
     HoldAnswer, InFlight, Interrupt, KeyModifiers, Limits, ListTextPosition, Native, NativeCall,
     NativeHandler, Picked, PickerLinks, PickerRequest, PointerEvent, RouterChange, RouterLink,
-    Routing, Runner, RunnerError, RunnerLinks, ScrollEvent, StreamCount, SurfaceAnswer, Target,
+    ResizeRect, Routing, Runner, RunnerError, RunnerLinks, ScrollEvent, StreamCount,
+    SurfaceAnswer, Target, RESIZE_UNDELIVERED,
     Timed, WheelEvent, JOURNAL_RING, MAX_CLOCK_MS, PICKED, TIMER_FIRE_LIMIT, VIRTUAL_FRAME_MS,
 };
 pub use store::{Store, StoreError, StoreWrite};

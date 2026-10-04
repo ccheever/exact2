@@ -981,6 +981,18 @@ export function wf(e, f) {
     .then(m => { Fl = m; Before.push(() => Fl.before()); After.push(() => Fl.after()); (globalThis.exact ??= {}).flowSettle = () => Fl.settle(); Fl.after(); })
     .catch(err => say(`text flow: ${err.message}`)).finally(() => inflight.n--);
 }
+/** `resize=action`, the element resize event: the browser's ResizeObserver
+ * (the web host's own resize-glue.js, fetched after first paint by a plan
+ * with one), the action hearing the content box's width and height, then
+ * its `DOMRectReadOnly` record. */
+let Resizes = null;
+export function onResize(e, f) {
+  if (typeof ResizeObserver !== "function" || globalThis.__exactRender) return;
+  inflight.n++;
+  (Resizes ??= new Promise(r => requestAnimationFrame(() => r())).then(() => import("./resize-glue.js")))
+    .then(m => m.observeResize(e, r => { if (e.isConnected) f(r.width, r.height, [r.x, r.y, r.width, r.height, r.top, r.right, r.bottom, r.left]); }))
+    .catch(err => say(`resize: ${err.message}`)).finally(() => inflight.n--);
+}
 /** `frame(id)` and `measure(id)` (LLP 1051.000): the page's answers, from
  * the web host's own geometry-glue.js, fetched after first paint by a plan
  * whose actions read geometry (`geo`); unavailable until it is (D5). The

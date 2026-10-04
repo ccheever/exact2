@@ -65,6 +65,8 @@ mod layout;
 #[cfg(test)]
 #[path = "storage_tests.rs"]
 mod storage_tests;
+#[path = "resize.rs"]
+mod resize;
 #[path = "svg.rs"]
 mod svg;
 #[path = "svg_lower.rs"]
@@ -496,6 +498,7 @@ impl<D: DataSource> Host<D> {
         // point on a dev reload.
         host.emit_transform_drags(&mut batch);
         host.present(&mut batch, true);
+        let (mut batch, _) = host.resize_rounds(batch, None);
         let timers = host.runner.timer_due_ms();
         let motion = !host.engine.quiescent();
         batch.spatial = host.engine.spatial();
@@ -1128,7 +1131,13 @@ impl<D: DataSource> Host<D> {
         }
     }
 
-    fn finish(&self, mut batch: Batch, error: Option<String>) -> String {
+    fn finish(&mut self, batch: Batch, error: Option<String>) -> String {
+        let (batch, error) = self.resize_rounds(batch, error);
+        self.refused(batch, error)
+    }
+
+    /// [`Host::finish`] for a batch that commits nothing, a refusal's.
+    fn refused(&self, mut batch: Batch, error: Option<String>) -> String {
         batch.spatial = self.engine.spatial();
         batch.frames = self.runner.wants_frames();
         batch.seq = self.runner.seq_range();
@@ -1458,7 +1467,9 @@ fn props_for(node: &NodeRef<'_>) -> BTreeMap<String, String> {
 
 fn handler_name(e: EventKind) -> Option<&'static str> {
     match e {
-        EventKind::Reachstart | EventKind::Reachend => None,
+        // The runner raises these itself, after collection feedback and
+        // after layout: nothing for the presenter to listen for.
+        EventKind::Reachstart | EventKind::Reachend | EventKind::Resize => None,
         _ => Some(e.name()),
     }
 }

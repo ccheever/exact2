@@ -350,6 +350,17 @@ pub fn style(name: &str) -> bool {
         Some(AttrTarget::Styles(_) | AttrTarget::Flex | AttrTarget::Shorthand)
     )
 }
+/// Look up an attribute as written, routed by its value where one name is
+/// two things: `resize` is CSS's property for a string, and given an action
+/// (an `Ident` or a `Call`, never valid CSS there) the element resize event,
+/// ResizeObserver's (x2apps backlog: decided, route by value).
+pub fn attr_valued(name: &str, value: &contract_syntax::Expr) -> Option<AttrTarget> {
+    use contract_syntax::Expr;
+    if name == "resize" && matches!(value, Expr::Ident(..) | Expr::Call(..)) {
+        return Some(AttrTarget::Handler("resize"));
+    }
+    attr(name)
+}
 /// Look up an attribute.
 pub fn attr(name: &str) -> Option<AttrTarget> {
     let styles = |rows: &'static [StyleId]| AttrTarget::Styles(rows);

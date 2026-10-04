@@ -646,7 +646,7 @@ impl Lowerer<'_> {
                 },
                 _ => {}
             }
-            match crate::tags::attr(name) {
+            match crate::tags::attr_valued(name, &a.value) {
                 Some(crate::tags::AttrTarget::Styles(rows)) => {
                     if rows.iter().any(|r| !NATIVE_ROWS.contains(r)) {
                         return refuse(

@@ -23,6 +23,7 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         "press" => Some("MouseEvent"),
         "copy" | "cut" | "paste" => Some("ClipboardEvent"),
         "selectionchange" => Some("Selection"),
+        "resize" => Some("DOMRectReadOnly"),
         _ => None,
     }
 }
@@ -144,6 +145,17 @@ pub(super) fn declare(shapes: &mut Shapes) {
         ]
         .map(|f| (f.into(), Ty::Number))
         .to_vec(),
+    );
+    // What a `resize` handler's action hears after the content box's width
+    // and height when it takes one more parameter, in the order
+    // `exact_runner::ResizeRect` writes it: ResizeObserverEntry's
+    // `contentRect`, DOM's `DOMRectReadOnly` (x and y are the padding's left
+    // and top, the content box's place in the padding box).
+    shapes.map.insert(
+        "DOMRectReadOnly".into(),
+        ["x", "y", "width", "height", "top", "right", "bottom", "left"]
+            .map(|f| (f.into(), Ty::Number))
+            .to_vec(),
     );
     // One picked file, in the order `exact_runner::Picked` writes it: the
     // `app:/tmp/picked/…` path, the original name, the MIME type and size

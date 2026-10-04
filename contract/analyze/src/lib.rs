@@ -308,7 +308,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 50] = [
+pub const HANDLERS: [&str; 51] = [
     "press",
     "change",
     "input",
@@ -375,7 +375,18 @@ pub const HANDLERS: [&str; 50] = [
     "reorderdrop",
     "reachstart",
     "reachend",
+    // The element resize event, ResizeObserver's: an action given to
+    // `resize`, whose string is CSS's property ([`is_handler`]).
+    "resize",
 ];
+
+/// Whether `name=value` is a handler: one of [`HANDLERS`], except `resize`
+/// with anything but an action (an `Ident` or a `Call`, never valid CSS
+/// there), which is CSS's `resize` property.
+pub fn is_handler(name: &str, value: &Expr) -> bool {
+    HANDLERS.contains(&name)
+        && (name != "resize" || matches!(value, Expr::Ident(..) | Expr::Call(..)))
+}
 
 /// What a handler's event carries as its action's last argument: `input`
 /// and `change` the new value (a text field's text, a checkbox's checked
@@ -404,7 +415,7 @@ pub fn handler_arity(attr: &str, given: usize) -> Option<std::ops::RangeInclusiv
     let payload = match attr {
         "transformgeometry" => 4,
         "transformrelease" => 6,
-        "scroll" | "pan" | "panrelease" | "heightrelease" | "reorderdrop" => 2,
+        "scroll" | "pan" | "panrelease" | "heightrelease" | "reorderdrop" | "resize" => 2,
         _ => usize::from(handler_payload(attr).is_some()),
     };
     // Then the event's record, the action's to take or leave.
@@ -455,7 +466,7 @@ fn check_view(nodes: &[Node], scope: &Scope, view: &View<'_>) -> Result<(), Anal
             } => {
                 let control = contract_syntax::input_control(tag, attrs);
                 for a in attrs {
-                    if HANDLERS.contains(&a.name.as_str()) {
+                    if is_handler(&a.name, &a.value) {
                         check_handler(&a.name, &a.value, scope, a.span, control, view)?;
                     }
                 }

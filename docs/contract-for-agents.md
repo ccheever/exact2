@@ -936,7 +936,12 @@ and textareas limits user edits in UTF-16 units; authored `value` updates are
 not truncated. It does not apply to `input type="number"`.
 
 `resize="none"` disables browser resize handles. Other CSS resize values are
-refused with a native geometry explanation. `user-select="none"` prevents
+refused with a native geometry explanation. Given an action instead,
+`resize=fit` is the element resize event, `ResizeObserver`'s: `fit` hears the
+content box's width and height after the first layout and whenever they change
+(one more parameter: its `DOMRectReadOnly`), on every host
+([Events](contract-grammar.md#events)); read other boxes there with `frame(id)`
+rather than polling with a timer. `user-select="none"` prevents
 ordinary text selection; `auto` is the default. Text/all/contain need iOS and
 Linux selection executors and are refused precisely. These rows take literals
 or choices of literals, so unsupported runtime values cannot bypass the check.
