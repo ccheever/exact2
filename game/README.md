@@ -471,6 +471,11 @@ Put models, sprite PNGs and WAV or Ogg Vorbis sounds under `art/`;
 each texture as RGBA8, BC and ASTC files of which a device fetches one
 ([texture payloads](bake/README.md#texture-payloads)). Name the authored `x.tex`
 everywhere. Declare simulation dependencies in `Game::ASSETS`; setup waits for them.
+Put everything else the game shows in `Game::STREAMED`: those are fetched from the
+start, after `ASSETS`, but Play does not wait for them; each draws as it lands and
+stays resident. Simulation cannot read a streamed asset (`w.model` is None), so
+load order never reaches the hash; a save refuses only while a shown one is in
+flight. A model a tick animates or reads belongs in `ASSETS`.
 Models and sprites need the asset-capable module; sounds and untextured emitters do
 not. See [the audio executor](audio/README.md) and
 [the audio fixture](games/audio-fixture/logic/src/lib.rs) for sampled sounds.

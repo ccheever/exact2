@@ -88,10 +88,10 @@ pub(crate) fn names<G: crate::Game>() -> impl Iterator<Item = &'static str> {
 }
 
 pub(crate) fn validate_declaration<G: crate::Game>() -> Result<(), String> {
-    if G::ASSETS.is_empty() && G::LEVEL.is_none() {
+    if G::ASSETS.is_empty() && G::LEVEL.is_none() && G::STREAMED.is_empty() {
         return Ok(());
     }
-    for name in names::<G>() {
+    for name in names::<G>().chain(G::STREAMED.iter().copied()) {
         if !super::asset_name(name)
             || !(if G::LEVEL.is_some_and(|level| level.name == name) {
                 name.ends_with(".level.json")

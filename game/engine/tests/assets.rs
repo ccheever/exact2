@@ -751,3 +751,53 @@ fn a_model_first_requested_mid_game_does_not_break_a_paranoid_save() {
     }
     assert!(hashes.windows(2).all(|h| h[0] == h[1]));
 }
+
+// Grow a Garden declared all 202 models and Play waited for every one
+// (0.4 s -> 1.8 s). Streamed assets are fetched from the start, after what
+// setup needs, but never awaited, and simulation cannot read them.
+#[test]
+fn streamed_assets_load_after_setup_without_reaching_the_simulation() {
+    struct Streaming;
+    impl Game for Streaming {
+        const ID: &'static str = "streaming";
+        const ASSETS: &'static [&'static str] = &["first.model"];
+        const STREAMED: &'static [&'static str] = &["a-later.model", "z-later.model"];
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            w.spawn_named("first", (Transform::default(), Mesh::asset("first.model")));
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    let model = bin::to_vec(&asset::Model::default());
+    let mut sim = Sim::<Streaming>::new(()).unwrap();
+    assert!(sim.is_loading());
+    // What setup waits for is asked first; streamed names follow.
+    assert_eq!(
+        sim.take_assets(),
+        ["first.model", "a-later.model", "z-later.model"]
+    );
+    sim.asset("first.model", Some(&model)).unwrap();
+    assert!(!sim.is_loading(), "setup does not wait for streamed assets");
+    let hash = sim.world().hash();
+    assert!(
+        sim.save().is_ok(),
+        "an unshown streamed asset never gates a save"
+    );
+    sim.asset("a-later.model", Some(&model)).unwrap();
+    assert!(
+        sim.world().model("a-later.model").is_none(),
+        "simulation cannot read it"
+    );
+    assert_eq!(sim.world().hash(), hash);
+    sim.run(100.);
+    assert!(sim.take_assets().is_empty());
+    assert!(
+        sim.take_retired_assets().is_empty(),
+        "streamed assets stay resident"
+    );
+    let state = sim.agent(r#"{"op":"state"}"#);
+    assert!(
+        state.contains(r#"{"name":"a-later.model","state":"Loaded"}"#),
+        "{state}"
+    );
+}

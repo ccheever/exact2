@@ -26,6 +26,11 @@ pub trait Game: 'static {
     const ID: &'static str;
     /// Models and textures required before setup. Later mesh references load on sight.
     const ASSETS: &'static [&'static str] = &[];
+    /// Models and textures fetched from the start but not awaited: setup and the
+    /// first frames run without them and they draw as they land. Like any
+    /// undeclared asset, simulation cannot read them (`World::model` is None), so
+    /// load order never reaches the hash; once loaded they stay resident.
+    const STREAMED: &'static [&'static str] = &[];
     /// One typed JSON value required before setup; declares its own asset name.
     const LEVEL: Option<crate::asset::Level> = None;
     /// Canvas argument declarations in positional order; also declares exact arity.
@@ -266,6 +271,11 @@ impl<G: Game> Sim<G> {
         if self.setup_pending && !self.assets_pending() {
             return Vec::new();
         }
+        for name in G::STREAMED {
+            if self.shown.insert((*name).to_owned()) {
+                self.world.assets.request(name);
+            }
+        }
         let revision = self.world.revision::<crate::Mesh>();
         let sprites_changed =
             crate::sprite::texture_names_changed(&self.world, &mut self.asset_sprite_names);
@@ -294,6 +304,7 @@ impl<G: Game> Sim<G> {
             // the screen and returns is still Loaded, so a save never refuses for
             // it. Only unreferenced requests still in flight (or failed) retire.
             roots.extend(G::ASSETS.iter().map(|n| (*n).to_owned()));
+            roots.extend(G::STREAMED.iter().map(|n| (*n).to_owned()));
             let assets = &self.world.assets;
             roots.extend(assets.declared.iter().cloned());
             self.shown.extend(roots.iter().cloned());
@@ -321,7 +332,7 @@ impl<G: Game> Sim<G> {
             self.asset_mesh_revision = revision;
         }
         let assets = &mut *self.world.assets;
-        let names: Vec<_> = assets
+        let mut names: Vec<_> = assets
             .states
             .iter()
             .filter(|(n, s)| {
@@ -330,6 +341,13 @@ impl<G: Game> Sim<G> {
             })
             .map(|(n, _)| n.clone())
             .collect();
+        // What setup and the first frame wait for goes first; streamed names last.
+        names.sort_by_key(|n| {
+            (
+                G::STREAMED.contains(&n.as_str()),
+                !assets.required.contains(n),
+            )
+        });
         assets.requested.extend(names.iter().cloned());
         names
     }
