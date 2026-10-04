@@ -85,6 +85,10 @@ pub struct Host<D: DataSource> {
     lowering: bool,
     lowered: std::collections::HashMap<u64, u8>,
     lowered_epoch: u64,
+    played: std::collections::HashMap<
+        u64,
+        Vec<(exact_motion::Property, exact_motion::PlayedTransition)>,
+    >,
     router_op: Option<exact_runner::RouterChange>,
     navigation: crate::navigation::Navigation,
     presence: presence::Presence,
@@ -193,6 +197,7 @@ impl<D: DataSource> Host<D> {
             lowering: false,
             lowered: Default::default(),
             lowered_epoch: 0,
+            played: Default::default(),
             router_op: None,
             navigation: Default::default(),
             presence: Default::default(),
@@ -1116,6 +1121,8 @@ impl<D: DataSource> Host<D> {
         };
         self.observe_layout();
         paint |= layout.as_ref().copied().unwrap_or(true);
+        // Transitions the reader plays leave the engine before it presents.
+        self.play_transitions();
         // Consume the final sample even when the seek has made motion quiescent.
         paint |= self.present();
         (error.or(layout.err()), paint)

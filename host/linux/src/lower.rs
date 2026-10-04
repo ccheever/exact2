@@ -21,9 +21,9 @@ use crate::paint::Presented;
 use exact_kernel::motion::MotionSync;
 use exact_kernel::svg::Paint;
 use exact_kernel::{Dimension, NodeKey, NodeType};
-use exact_motion::Property;
 #[cfg(target_os = "android")]
 use exact_motion::{Easing, StepPosition, Value};
+use exact_motion::{PlayedCurve, PlayedTransition, Property};
 use exact_runner::DataSource;
 
 /// The properties a reader plays.
@@ -88,7 +88,7 @@ impl<D: DataSource> Host<D> {
             return;
         }
         for node in &sync.removed {
-            if self.lowered.remove(node).is_some() {
+            if self.lowered.remove(node).is_some() | self.played.remove(node).is_some() {
                 self.lowered_epoch += 1;
             }
         }
@@ -126,10 +126,62 @@ impl<D: DataSource> Host<D> {
 
     /// The [`Presented::lowered`] bits of a node: what its reader plays.
     pub(crate) fn lowered_mask(&self, key: NodeKey) -> u8 {
-        if !self.lowering || self.lowered.is_empty() {
+        if !self.lowering || (self.lowered.is_empty() && self.played.is_empty()) {
             return 0;
         }
-        self.lowered.get(&node_u64(key)).copied().unwrap_or(0)
+        let node = node_u64(key);
+        let played = self
+            .played
+            .get(&node)
+            .map_or(0, |t| mask(&t.iter().map(|(p, _)| *p).collect::<Vec<_>>()));
+        self.lowered.get(&node).copied().unwrap_or(0) | played
+    }
+
+    /// Hand the reader every transition it can play (opacity, translate,
+    /// scale, rotate of a node it can layer): the engine presents their
+    /// targets from now on and the reader moves the layer. Before the
+    /// commit's presentation, so the painter draws the target. Ended ones go.
+    pub(super) fn play_transitions(&mut self) {
+        if !self.lowering {
+            return;
+        }
+        let now = self.engine.now();
+        let before = self.played.len();
+        self.played.retain(|_, t| {
+            t.retain(|(_, p)| p.start + played_seconds(p) > now);
+            !t.is_empty()
+        });
+        let mut changed = before != self.played.len();
+        let keys: Vec<(u64, Property)> = self
+            .engine
+            .running_transitions()
+            .filter(|(_, p)| {
+                matches!(
+                    p,
+                    Property::Opacity | Property::Translate | Property::Scale | Property::Rotate
+                )
+            })
+            .collect();
+        for (node, property) in keys {
+            let key = exact_kernel::motion::node_key(node);
+            let layered = self
+                .runner
+                .kernel()
+                .node_by_key(key)
+                .is_some_and(|n| playable(&n, &[property]));
+            if !layered {
+                continue;
+            }
+            if let Some(t) = self.engine.play_transition(node, property) {
+                let list = self.played.entry(node).or_default();
+                list.retain(|(p, _)| *p != property);
+                list.push((property, t));
+                changed = true;
+            }
+        }
+        if changed {
+            self.lowered_epoch += 1;
+        }
     }
 
     /// Bumped whenever a lowered node's plays may have changed: the reader's
@@ -210,7 +262,58 @@ impl<D: DataSource> Host<D> {
                 }
             }
         }
+        // Transitions after animations: CSS's cascade puts them above.
+        for (p, t) in self.played.get(&node_u64(key)).into_iter().flatten() {
+            let axes: &[(u32, usize)] = match p {
+                Property::Opacity => &[(OPACITY, 0)],
+                Property::Translate => &[(TX, 0), (TY, 1)],
+                Property::Scale => &[(SCALE, 0)],
+                Property::Rotate => &[(ROTATE, 0)],
+                _ => continue,
+            };
+            let axis = |v: &Value, a: usize| if a == 1 { v.y } else { v.x };
+            for &(code, a) in axes {
+                out.push(code);
+                f(&mut out, t.start);
+                out.push(0);
+                f(&mut out, 0.0);
+                f(&mut out, 0.0);
+                f(&mut out, played_seconds(t));
+                f(&mut out, 1.0);
+                out.push(0);
+                // Backwards: during its delay it shows where it starts.
+                out.push(2);
+                match &t.curve {
+                    PlayedCurve::Easing { easing: e, .. } => {
+                        easing(&mut out, Some(e));
+                        out.push(2);
+                        for (offset, v) in [(0.0, &t.from), (1.0, &t.to)] {
+                            f(&mut out, offset);
+                            f(&mut out, axis(v, a));
+                            out.push(0);
+                        }
+                    }
+                    PlayedCurve::Frames { values, .. } => {
+                        easing(&mut out, Some(&Easing::Linear));
+                        out.push(values.len() as u32);
+                        let last = values.len().saturating_sub(1).max(1) as f64;
+                        for (i, v) in values.iter().enumerate() {
+                            f(&mut out, i as f64 / last);
+                            f(&mut out, axis(v, a));
+                            out.push(0);
+                        }
+                    }
+                }
+            }
+        }
         out
+    }
+}
+
+/// A played transition's length, seconds.
+fn played_seconds(t: &PlayedTransition) -> f64 {
+    match &t.curve {
+        PlayedCurve::Easing { duration, .. } | PlayedCurve::Frames { duration, .. } => *duration,
     }
 }
 

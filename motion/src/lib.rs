@@ -54,7 +54,7 @@ pub use animation::{
 pub use easing::{Easing, EasingError, LinearStop, StepPosition};
 pub use engine::{
     AnimationPlay, Change, Engine, EngineError, HoldEnd, HoldStart, HoldToken, NamedTimeline,
-    Presentation, SpringDescriptor, SpringFrames, TransformHold,
+    PlayedCurve, PlayedTransition, Presentation, SpringDescriptor, SpringFrames, TransformHold,
 };
 pub use parse::ParseError;
 pub use property::{Property, Value};

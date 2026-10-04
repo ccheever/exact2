@@ -22,6 +22,8 @@ use std::hash::{BuildHasherDefault, Hasher};
 
 mod animate;
 mod hold;
+mod played;
+pub use played::{PlayedCurve, PlayedTransition};
 mod timeline;
 pub use animate::AnimationPlay;
 pub use hold::{HoldEnd, HoldStart, HoldToken, TransformHold};
@@ -241,6 +243,9 @@ pub struct Engine {
     // Observed targets provide CSS's before-change style, but only live curves
     // need a clock. Holds and settled slots never enter this index.
     running: BTreeSet<(u64, Property)>,
+    // Transitions a host plays itself (`play_transition`): kept for a
+    // reversal's arithmetic, never sampled, dropped once ended.
+    played: BTreeSet<(u64, Property)>,
     dirty: HashSet<(u64, Property), BuildHasherDefault<SlotHasher>>,
     // CSS animations per node (LLP 1055 D5), and the nodes a sampling host
     // must still advance: some animation running and not yet ended.
@@ -405,6 +410,9 @@ impl Engine {
         };
 
         let after = change.value;
+        // A played transition comes back to be sampled (or played again):
+        // a retarget measures from its curve, as for a running one.
+        self.played.remove(&key);
         if matches!(slot.owner(), Some(Owner::Held(_))) {
             slot.set_target(after);
             return Ok(());
@@ -504,6 +512,7 @@ impl Engine {
             self.dirty.insert(*key);
             !sample.done
         });
+        self.retire_played(now);
         self.advance_animations();
         Ok(())
     }
