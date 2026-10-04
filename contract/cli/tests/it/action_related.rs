@@ -215,7 +215,7 @@ fn related_import_locations_resolve_independently_and_cli_prints_them() {
     let child = app.write("button.contract", BUTTON).canonicalize().unwrap();
     let error = contract::compile_path(&root).unwrap_err();
     assert_eq!(error.id, "analyze-action-arity");
-    assert_eq!(error.file.as_ref(), Some(&child));
+    assert_eq!(error.file.as_deref(), Some(child.as_path()));
     assert_eq!(error.related[0].file.as_ref(), Some(&child));
     assert_eq!(error.related[1].file.as_ref(), Some(&root));
     assert_eq!(

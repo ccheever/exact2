@@ -31,7 +31,7 @@ pub fn lean_path(path: &Path, name: &str) -> Result<String, CompileError> {
         id: "contract-unreadable".into(),
         message: format!("{}: {e}", path.display()),
         span: Span::default(),
-        file: Some(path.to_path_buf()),
+        file: Some(path.into()),
         related: Box::new([]),
     })?;
     crate::compile_path_source(path, &src)?;
@@ -44,7 +44,7 @@ pub fn lean_path(path: &Path, name: &str) -> Result<String, CompileError> {
         id: "contract-use-unreadable".into(),
         message: format!("{}: {e}", root.display()),
         span: Span::default(),
-        file: Some(path.to_path_buf()),
+        file: Some(path.into()),
         related: Box::new([]),
     })?;
     let (file, _) =
