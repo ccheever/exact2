@@ -78,6 +78,16 @@ fn main() -> ExitCode {
         // Every refusal, each naming its own file (LLP 1054 L9), as `contract build` prints them.
         match contract::compile_path_all(path, sites) {
             Ok((p, m)) => {
+                // The native bake's refusals, here too: this build bakes
+                // nothing, and a plan every native build refuses must not
+                // pass the web loop (files diary F13).
+                if let Err(e) = contract::check(&p) {
+                    match &m {
+                        Some(m) => eprintln!("{}", m.bake_error(&e)),
+                        None => eprintln!("{input}: {e}"),
+                    }
+                    return ExitCode::from(1);
+                }
                 map = m;
                 p
             }

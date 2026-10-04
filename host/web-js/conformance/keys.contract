@@ -8,6 +8,10 @@
 // modifiers: a textarea's Enter sends and Shift+Enter breaks the line (chat
 // F2), and ⌘S/Ctrl+S saves (kanban F27). A pressable that is no button takes
 // the focus and Enter or Space presses it, as natively (chat F14).
+// `selectText` focuses a field with its text selected, so the next key
+// replaces it (files diary F5: the JS target did not carry it). A field's
+// handler that calls `stopPropagation()` is the last to hear its key, and
+// the key's default still happens: Enter submits (files diary F8).
 component Keys
   state text = ""
   state heard = ""
@@ -25,6 +29,8 @@ component Keys
     heard = `${heard}f${k}`
     if k == "x"
       preventDefault()
+    if k == "Escape" or (k == "Enter" and text == "go")
+      stopPropagation()
   action outer(k: string, e: KeyboardEvent)
     heard = `${heard}o${k}`
     if k == "Enter" and text == ""
@@ -41,6 +47,9 @@ component Keys
       preventDefault()
   action hit
     pressed = pressed + 1
+  action rename
+    text = "report.txt"
+    selectText("field")
   action write(v: string)
     draft = v
   action compose(k: string, e: KeyboardEvent)
@@ -50,7 +59,8 @@ component Keys
       preventDefault()
   view
     column testId="page" key=outer height=320 overflow-y="scroll" gap=8 padding=8
-      input value=text input=typed key=field submit=submitted testId="field" padding=8
+      input value=text input=typed key=field submit=submitted testId="field" id="field" padding=8
+      button "Rename" press=rename testId="rename"
       text heard testId="heard"
       textarea value=draft input=write key=compose testId="area" height=60
       text sent testId="sent"

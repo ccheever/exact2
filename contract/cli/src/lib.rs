@@ -446,6 +446,8 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     target,
                     dx,
                     dy,
+                    from,
+                    mouse,
                     press,
                     over,
                     hold,
@@ -454,6 +456,12 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     s.push_str("{\"op\":\"drag\",\"target\":");
                     q(target, &mut s);
                     s.push_str(&format!(",\"dx\":{dx},\"dy\":{dy}"));
+                    if let Some((x, y)) = from {
+                        s.push_str(&format!(",\"from\":[{x},{y}]"));
+                    }
+                    if *mouse {
+                        s.push_str(",\"mouse\":true");
+                    }
                     for (name, ms) in [("press", press), ("over", over), ("hold", hold)] {
                         if let Some(ms) = ms {
                             s.push_str(&format!(",\"{name}\":{ms}"));
@@ -618,29 +626,7 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
     if plan.app_id.is_empty() {
         plan.app_id = data.app_id().to_string();
     }
-    use exact_runner::{delivery, page, viewport};
-    fact_shape(
-        &plan,
-        delivery::SOURCE,
-        &delivery::FIELDS,
-        "bake-delivery-field",
-    )?;
-    fact_shape(
-        &plan,
-        viewport::SOURCE,
-        viewport::FIELDS,
-        "bake-viewport-field",
-    )?;
-    fact_shape(&plan, page::SOURCE, page::FIELDS, "bake-page-field")?;
-    surface::shape(&plan)?;
-    let mut runner = Runner::boot(
-        plan.clone(),
-        data,
-        Kernel::with_monospace(),
-        exact_runner::Viewport::sized(LINT_VIEWPORT.0 as f64, LINT_VIEWPORT.1 as f64),
-        "/",
-    )?;
-    lint(&mut runner)?;
+    let runner = first_frame(&plan, data, true)?;
     let mut b = PlanBuilder::from_plan(plan);
     let pending: Vec<String> = runner.pending().into_iter().map(|(n, _)| n).collect();
     for i in 0..runner.plan().resources.len() {
@@ -682,6 +668,71 @@ pub fn bake<D: DataSource>(mut plan: Plan, data: D) -> Result<Plan, BakeError> {
     }
     b.finish()
         .map_err(|e| BakeError::Runner(RunnerError::Plan(e)))
+}
+
+/// The bake's refusals for a build that does not bake — the web's JS target
+/// (LLP 1071), whose page asks its data module after it boots: the same
+/// shape checks and the same layout lint, at the same point, so the web
+/// loop fails where a native bake would (files diary F13). The frame linted
+/// is the one that page shows first — every app source not yet answering,
+/// each resource at its placeholder. What only an answer shows is the
+/// native bake's alone, and a boot that needs an answer to finish (an
+/// `else source()` row) is not refused here: the page's own boot reports it.
+pub fn check(plan: &Plan) -> Result<(), BakeError> {
+    struct Unanswered;
+    impl DataSource for Unanswered {
+        fn ready(&self) -> bool {
+            false
+        }
+        fn query(
+            &mut self,
+            source: &str,
+            _: &[exact_plan::Value],
+        ) -> Result<exact_plan::Value, exact_runner::DataError> {
+            Err(exact_runner::DataError::Unavailable(format!(
+                "{source} answers in the page, not at build"
+            )))
+        }
+    }
+    match first_frame(plan, Unanswered, false) {
+        Err(BakeError::Runner(_)) | Ok(_) => Ok(()),
+        Err(lint) => Err(lint),
+    }
+}
+
+/// The checks every build runs before it uses a plan, ending at the first
+/// frame laid out and linted: the runner, booted on `data`, for the bake.
+/// `answered` is false for [`check`]'s frame, whose placeholders say
+/// nothing about the content a layout verdict may rest on.
+fn first_frame<D: DataSource>(
+    plan: &Plan,
+    data: D,
+    answered: bool,
+) -> Result<Runner<D>, BakeError> {
+    use exact_runner::{delivery, page, viewport};
+    fact_shape(
+        plan,
+        delivery::SOURCE,
+        &delivery::FIELDS,
+        "bake-delivery-field",
+    )?;
+    fact_shape(
+        plan,
+        viewport::SOURCE,
+        viewport::FIELDS,
+        "bake-viewport-field",
+    )?;
+    fact_shape(plan, page::SOURCE, page::FIELDS, "bake-page-field")?;
+    surface::shape(plan)?;
+    let mut runner = Runner::boot(
+        plan.clone(),
+        data,
+        Kernel::with_monospace(),
+        exact_runner::Viewport::sized(LINT_VIEWPORT.0 as f64, LINT_VIEWPORT.1 as f64),
+        "/",
+    )?;
+    lint(&mut runner, answered)?;
+    Ok(runner)
 }
 
 /// The runner's own sources (LLP 1030 D7 delivery; LLP 1039 D1 viewport;
@@ -735,7 +786,14 @@ fn fact_shape(
 /// nothing bounding it (it grows, and never scrolls — 0102, 0103), and a
 /// pressable with zero area (nothing can press it — valet 0003). A pressable
 /// holding an image or a canvas is exempt: their size is the host's.
-fn lint<D: DataSource>(runner: &mut Runner<D>) -> Result<(), BakeError> {
+///
+/// Unanswered (`answered` false, [`check`]), a verdict that could rest on a
+/// placeholder is not given: an empty list's `scroll`, or a button whose
+/// label is a resource's empty zero. What stays is a pressable whose zero
+/// area is its own style's — `display: none` on it or an ancestor, a zero
+/// `width` or `height` — which no answer changes (files diary F13: a hidden
+/// shortcut button).
+fn lint<D: DataSource>(runner: &mut Runner<D>, answered: bool) -> Result<(), BakeError> {
     let (w, h) = LINT_VIEWPORT;
     let roots = runner.roots();
     for root in &roots {
@@ -763,7 +821,7 @@ fn lint<D: DataSource>(runner: &mut Runner<D>) -> Result<(), BakeError> {
             None => format!("`{}` #{}", node.node_type.name(), node.id),
         };
         match node.node_type {
-            NodeType::ScrollView | NodeType::List => {
+            NodeType::ScrollView | NodeType::List if answered => {
                 if node.node_type == NodeType::List
                     && !node.props.iter().any(|(id, value)| {
                         id == exact_kernel::PropId::Virtualized
@@ -808,6 +866,9 @@ fn lint<D: DataSource>(runner: &mut Runner<D>) -> Result<(), BakeError> {
                 if node.frame.width > 0.0 && node.frame.height > 0.0 {
                     continue;
                 }
+                if !answered && !styled_out(kernel, node) {
+                    continue;
+                }
                 let mut stack = node.children();
                 let mut replaced = false;
                 while let Some(id) = stack.pop() {
@@ -834,4 +895,21 @@ fn lint<D: DataSource>(runner: &mut Runner<D>) -> Result<(), BakeError> {
         }
     }
     Ok(())
+}
+
+/// Whether a node's zero area is its style's: `display: none` on it or an
+/// ancestor, or a zero `width` or `height` of its own.
+fn styled_out(kernel: &Kernel, node: exact_kernel::NodeRef<'_>) -> bool {
+    let zero = |d: Dimension| matches!(d, Dimension::Points(p) if p == 0.0);
+    if zero(node.style.width) || zero(node.style.height) {
+        return true;
+    }
+    let mut at = Some(node);
+    while let Some(n) = at {
+        if matches!(n.style.display, exact_kernel::Display::None) {
+            return true;
+        }
+        at = n.parent.and_then(|p| kernel.node(p));
+    }
+    false
 }

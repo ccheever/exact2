@@ -146,6 +146,9 @@ extension NodeView {
             let v = gesture.velocity(in: presenter.viewport)
             presenter.panRelease(id, Double(v.x), Double(v.y))
         } else if [.cancelled, .failed].contains(gesture.state) {
+            // UIKit took the contact (a system gesture, a scroll view's pan):
+            // the journal says so, as the web's does (files diary F10).
+            if gesture.state == .cancelled { presenter.session?.log("pan cancelled: UIKit took the contact (a system gesture or a scroll view's pan)") }
             presenter.panRelease(id, 0, 0)
         }
     }

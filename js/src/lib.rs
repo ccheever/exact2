@@ -1286,6 +1286,26 @@ impl DataSource for Module {
         )
     }
 
+    /// A `Later` answer the runner dropped before handing it out — a refused
+    /// pass, or a re-read whose reply's refresh asks again — is dropped here
+    /// too. Left parked, a deferred call shares its key with the call still
+    /// in flight, and `resume`, which finds a call by key, gave it that
+    /// call's storage step: the read's turn never ended, and every answer
+    /// held behind it waited forever (files diary F18: a mutation refreshing
+    /// a folder's preview mid-walk, behind a composer, whose `forgotten`
+    /// cannot name a dispatched call's token).
+    fn discard(&mut self, token: u64) {
+        let Some(at) = self.parked.iter().position(|(_, p)| p.call == token) else {
+            return;
+        };
+        let (_, parked) = self.parked.remove(at);
+        self.held.retain(|held| *held != token);
+        self.waiters.retain(|waiter| *waiter != token);
+        if parked.ticket != DEFERRED {
+            self.forget_calls(vec![parked.call]);
+        }
+    }
+
     /// Calls whose requests the runner let go are dropped, here and in the
     /// prelude with the fetches they wait on (LLP 1016 D5).
     /// A re-ask with equal arguments (a `refresh`) shares its key with the

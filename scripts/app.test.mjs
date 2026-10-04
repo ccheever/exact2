@@ -1076,7 +1076,8 @@ test('locked metadata fetches a missing git checkout without rewriting the lock'
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
 
-test('the launch handler bakes `ExactLaunchMode` with or without documents (LLP 1069.010 D4)', () => {
+test('the launch handler bakes `ExactLaunchMode` with or without documents (LLP 1069.010 D4)', async () => {
+  const { readManifest } = await import('./app.mjs');
   const app = (manifest) => ({ id: 'com.example.fixture', displayName: 'Fixture', name: 'fixture', manifest: { host: {}, ...manifest } });
   // An app that opens nothing still gets File ▸ New Window from `navigate-new`.
   const windows = macInfoPlist(app({ launch_handler: { client_mode: 'navigate-new' } }));
@@ -1096,7 +1097,21 @@ test('the launch handler bakes `ExactLaunchMode` with or without documents (LLP 
   const every = app({ file_handlers: [{ action: '/', accept: Object.fromEntries(Object.keys(common).map(m => [m, []])) }] });
   assert.deepEqual(documentTypes(every)[0].LSItemContentTypes, Object.values(common));
   assert.deepEqual(importedTypes(every).map(t => t.UTTypeIdentifier), ['net.daringfireball.markdown']);
-  assert.throws(() => documentTypes(app({ file_handlers: [{ action: '/', accept: { 'text/x-unknown': ['.x'] } }] })), /text\/x-unknown, which names no Apple type this host maps \(it maps .*text\/csv/);
+  // An unmapped type is refused when any build reads the manifest, the
+  // web's included (files diary F12); IANA's generic binary is mapped.
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-types-'));
+  try {
+    const write = (accept) => writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Types', app: { id: 'com.example.types', name: 'Types' }, file_handlers: [{ action: '/', accept }] }));
+    write({ 'text/x-unknown': ['.x'] });
+    assert.throws(() => readManifest(dir, 'types'), /file_handlers\[0\]\.accept: text\/x-unknown names no type the Apple hosts map \(they map .*text\/csv/);
+    write({ 'application/octet-stream': ['.bin', '.dat'] });
+    assert.deepEqual(documentTypes(app(readManifest(dir, 'types')))[0].LSItemContentTypes, ['public.data']);
+    // So are a launch colour iOS cannot draw and the Apple icon's missing file.
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Types', app: { id: 'com.example.types', name: 'Types' }, background_color: 'white', icons: [{ src: 'icon.png', sizes: '1024x1024' }] }));
+    assert.throws(() => readManifest(dir, 'types'), /background_color: "white" does not match/);
+    writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Types', app: { id: 'com.example.types', name: 'Types' }, background_color: '#fff', icons: [{ src: 'icon.png', sizes: '1024x1024' }] }));
+    assert.throws(() => readManifest(dir, 'types'), /icons: icon\.png, the square icon the Apple bundles are drawn from, does not exist/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
 test('an Apple app records the SDK it is built with unless its manifest keeps the design before 26', async () => {

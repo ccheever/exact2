@@ -158,8 +158,10 @@ pub enum Step {
         /// Where.
         span: Span,
     },
-    /// `tap "testId" drag dx dy [press ms] [over ms] [hold ms]`: one whole
-    /// drag from the node's middle, the driver's `tap … drag` (kanban F18).
+    /// `tap "testId" drag dx dy [from x y] [mouse] [press ms] [over ms]
+    /// [hold ms]`: one whole drag from the node's middle, or from `from` in
+    /// its box, a finger's or the left button's; the driver's `tap … drag`
+    /// (kanban F18, files diary F10).
     Drag {
         /// The node, by `testId`.
         target: String,
@@ -167,6 +169,11 @@ pub enum Step {
         dx: f64,
         /// Points down.
         dy: f64,
+        /// Where it starts, an offset from the node's top left; its middle
+        /// when `None`.
+        from: Option<(f64, f64)>,
+        /// The left button rather than a finger, where a carrier has both.
+        mouse: bool,
         /// Milliseconds held before the move.
         press: Option<f64>,
         /// Milliseconds the move takes.

@@ -286,7 +286,8 @@ launch        = "size" NUMBER "x" NUMBER NL          (* written 1200x800 *)
               | "seed" NUMBER NL ;                   (* 0 through 2^53 - 1 *)
 step          = "tap" STRING [ "hover" ] NL
               | "tap" STRING "drag" [ "-" ] NUMBER [ "-" ] NUMBER
-                  { ( "press" | "over" | "hold" ) NUMBER } NL
+                  { ( "press" | "over" | "hold" ) NUMBER
+                  | "from" NUMBER NUMBER | "mouse" } NL
               | "type" STRING ( STRING | "key" STRING ) NL
               | "clock" ( "settle" | [ "+" ] NUMBER ) NL
               | "screenshot" STRING NL
@@ -303,7 +304,13 @@ launch lines: `size 1200x800`, `epoch "2026-09-21T12:00:00Z"`, `time-zone
 each once. Written at the top of the file they apply to every test that does not
 name its own; either way they override the drive's flags. A file whose
 assertions depend on the date says so in the file. `tap "id" drag dx dy` is the driver's `tap … drag` (from the
-node's middle, in points; `press`, `over`, `hold` in milliseconds, each once).
+node's middle, or `from x y` in its box, in points; `press`, `over`, `hold` in
+milliseconds; each once). It is a finger where the carrier has one (the web,
+iOS); `mouse` makes it the left button on the web, with the page's pointer
+`fine`, so a desktop path is what runs (iOS refuses it; macOS and Linux drag
+with the mouse anyway). A finger's drag the browser takes to scroll an
+ancestor ends in `panrelease` and a `pan cancelled` journal line naming the
+`touch-action` that keeps it.
 `type` on a `select` chooses an enabled option by value, else by its one label;
 on a date, time or range input it sets the value in HTML's format; on a checkbox
 it takes `true` or `false`. A target out of view is scrolled into view first.
@@ -607,7 +614,11 @@ hardware keyboard, Linux):
 - **Claiming a key.** An action run by a `key` event that calls the host
   command `preventDefault()` is the handler's `event.preventDefault()`: that
   default does not happen. Ancestors' handlers still hear the key, as they do
-  on the web. Call it only for the keys you handle, so typing still works:
+  on the web, unless the action also calls `stopPropagation()`, the handler's
+  `event.stopPropagation()`: no ancestor's `key` handler hears it, and its
+  default still happens (an inline rename field's Enter submits without the
+  list around it opening the selection). Call either only for the keys you
+  handle, so typing still works:
 
 ```text
 action move(k: string)
@@ -647,7 +658,8 @@ The current command name inventory is:
 `blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `focus`, `format`,
 `openURL`, `selectText`, `setScheme`, `showPicker`, `share`, `saveFile`,
 `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`,
-`haptic`, `postMessage`, `reload`, `preventDefault` ([keys](#keys)).
+`haptic`, `postMessage`, `reload`, `preventDefault` and `stopPropagation`
+([keys](#keys)).
 
 These appear only as action statements. They are not ordinary value-returning
 functions. Some have dedicated compiler checks while others also rely on host
@@ -659,7 +671,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `blur()`, `blur(id)` | [Messages](../apps/messages/app.contract), [keyboard-bar corpus](../contract/corpus/keyboard-bar.contract) |
 | `selectText(...)` | [Messages Legacy](../apps/messages-legacy/app.contract) |
 | `copyText(text)` | [Messages](../apps/messages/app.contract) |
-| `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web/glue.js`](../host/web/glue.js). The JavaScript web target and Linux do not carry it |
+| `openURL(url)` | No Contract fixture; the hosts' dispatch, such as [`host/web-js/commands.js`](../host/web-js/commands.js) |
 | `setScheme(...)` | [Caltrain](../apps/caltrain/app.contract), [Markdown](../apps/markdown/app.contract) |
 | `share(...)` | [share corpus](../contract/corpus/share.contract) |
 | `showPicker(id)`, export `saveFile(...)` | [picker tests](../contract/cli/tests/it/picker.rs), [Fieldnotes](../apps/fieldnotes/app.contract) |
@@ -668,6 +680,14 @@ argument validation. Use the working implementation when selecting arguments:
 | `showSaveFilePicker(id, suggestedName)` | Same corpus |
 | `scrollIntoView(id, block=, inline=, behavior=)`: `Element.scrollIntoView()` on any element by its `id` (a string, dynamic as `focus`'s): every scroll container above it, innermost first, then the page, align it by the web's `ScrollIntoViewOptions` (`block` default `start`, `inline` `nearest`). `scrollIntoView("list-id", key, …, row=)`: a virtualized list's row by key, built and measured first (LLP 1070.000). Native hosts land `smooth` at once on the element form | [collection tests](../contract/cli/tests/it/collection_into_view.rs) |
 | `deliveryCheck`, `deliveryActivate` | [delivery corpus](../contract/corpus/delivery.contract) |
+
+The web (its JS target) and the Apple hosts carry every command. The
+headless Linux host has no browser, clipboard, text selection, editor or dev
+menu: its `openURL`, `copyText`, `selectText`, `format` and `reload` are
+journaled as unsupported there, and `haptic` does nothing. On the web,
+`reload()` is the page's own reload, and `deliveryCheck` and
+`deliveryActivate` find nothing (a web build has no update store; the page is
+the newest root).
 
 Element-targeted commands use `id`, not `testId`. File pickers publish handles
 through the target's `change` event; cancellation uses `cancel`. Permissions,

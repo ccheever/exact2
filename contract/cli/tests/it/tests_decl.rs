@@ -66,7 +66,7 @@ fn the_apps_tests_parse() {
 fn a_test_drags_and_opens_at_its_size() {
     // kanban F18, paint F5: a drag, as the driver's `tap … drag`, and the
     // viewport a test's session opens at, as its `--size`.
-    let src = "test \"board\"\n  size 1280x800\n  tap \"card\" drag 300 -60 hold 100\n  tap \"card\" drag -4.5 0\n";
+    let src = "test \"board\"\n  size 1280x800\n  tap \"card\" drag 300 -60 hold 100\n  tap \"card\" drag -4.5 0\n  tap \"row\" drag 0 -100 from 12 8 mouse over 300\n";
     let tests = contract::tests(src).unwrap();
     let t = &tests[0];
     assert!(
@@ -76,6 +76,10 @@ fn a_test_drags_and_opens_at_its_size() {
         matches!(&t.steps[1], Step::Drag { dx, dy, hold: Some(h), press: None, .. } if *dx == 300.0 && *dy == -60.0 && *h == 100.0)
     );
     assert!(matches!(&t.steps[2], Step::Drag { dx, .. } if *dx == -4.5));
+    // Where in the node it starts, and the left button (files diary F10).
+    assert!(
+        matches!(&t.steps[3], Step::Drag { from: Some((x, y)), mouse: true, over: Some(o), .. } if *x == 12.0 && *y == 8.0 && *o == 300.0)
+    );
     let json = contract::tests_json(&tests);
     assert!(
         json.contains("{\"op\":\"size\",\"width\":1280,\"height\":800,\"line\":2}"),
@@ -87,11 +91,19 @@ fn a_test_drags_and_opens_at_its_size() {
         ),
         "{json}"
     );
+    assert!(
+        json.contains(
+            "{\"op\":\"drag\",\"target\":\"row\",\"dx\":0,\"dy\":-100,\"from\":[12,8],\"mouse\":true,\"over\":300,\"line\":5}"
+        ),
+        "{json}"
+    );
     // The session opens at its size: a later `size` is refused, as is an
     // option given twice, or a size not written as the driver's flag is.
     let e = contract::tests("test \"t\"\n  tap \"a\"\n  size 800x600\n").unwrap_err();
     assert_eq!((e.id.as_str(), e.span.line), ("syntax-expected-step", 3));
     let e = contract::tests("test \"t\"\n  tap \"a\" drag 1 2 over 10 over 20\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected-step");
+    let e = contract::tests("test \"t\"\n  tap \"a\" drag 1 2 mouse mouse\n").unwrap_err();
     assert_eq!(e.id, "syntax-expected-step");
     let e = contract::tests("test \"t\"\n  size 800 600\n").unwrap_err();
     assert_eq!(e.id, "syntax-expected-step");

@@ -41,7 +41,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { homedir, tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { closeSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { HOST_DEV, checkModuleRoster, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesIos, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
+import { DOCUMENT_UTIS, HOST_DEV, checkModuleRoster, copyShaders, appleCargoClaims, awaitBuildOutput, cargoLibraryTarget, claimBuildOutput, appSourceKey, bakeOutput, buildBake, contractLast, bakeTarget, developmentBuildEnv, developmentURLScheme, gpuModules, hermesIos, injectedProfiles, resolveApp, verifyBakeFiles } from '../../scripts/app.mjs';
 import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
 import { writeDataKeys } from './data-keys.mjs';
@@ -446,29 +446,6 @@ export function distributionKeys() {
   };
 }
 
-// The UTI each MIME type names on Apple platforms. `inode/directory` is the
-// one deviation from IANA's registry — freedesktop's spelling for a folder,
-// because the web has no MIME type for one and an app that opens a directory
-// (the LLP reader) must be able to say so. An unmapped type fails the bake
-// rather than guessing `public.data` (LLP 0382: fail closed, loudly), and
-// before anything is compiled (`main`): the common document and image types
-// are here (ledger diary F9).
-const UTIS = {
-  'text/markdown': 'net.daringfireball.markdown',
-  'text/plain': 'public.plain-text',
-  'text/html': 'public.html',
-  'text/csv': 'public.comma-separated-values-text',
-  'text/tab-separated-values': 'public.tab-separated-values-text',
-  'application/json': 'public.json',
-  'application/pdf': 'com.adobe.pdf',
-  'application/zip': 'public.zip-archive',
-  'image/png': 'public.png',
-  'image/jpeg': 'public.jpeg',
-  'image/gif': 'com.compuserve.gif',
-  'image/webp': 'org.webmproject.webp',
-  'image/svg+xml': 'public.svg-image',
-  'inode/directory': 'public.folder',
-};
 // The types iOS does not declare itself, which the bundle imports.
 const IMPORTED = new Set(['net.daringfireball.markdown']);
 
@@ -477,11 +454,8 @@ const IMPORTED = new Set(['net.daringfireball.markdown']);
  *  takes it away from whatever already owns it. */
 export function documentTypes(app) {
   return (app.manifest.file_handlers ?? []).map((handler) => {
-    const types = Object.keys(handler.accept).map((mime) => {
-      const uti = UTIS[mime];
-      if (!uti) throw new Error(`host/apple: ${app.name}'s file_handlers accepts ${mime}, which names no Apple type this host maps (it maps ${Object.keys(UTIS).join(', ')})`);
-      return uti;
-    });
+    // readManifest refused an unmapped type, on every host (DOCUMENT_UTIS).
+    const types = Object.keys(handler.accept).map((mime) => DOCUMENT_UTIS[mime]);
     const extensions = [...new Set(Object.values(handler.accept).flat().map((e) => e.replace(/^\./, '')).filter(Boolean))];
     return {
       CFBundleTypeName: handler.name ?? `${app.displayName} document`,
@@ -498,9 +472,9 @@ export function documentTypes(app) {
  *  its extensions and MIME type, conforming to plain text. */
 export function importedTypes(app) {
   return (app.manifest.file_handlers ?? []).flatMap((handler) => Object.entries(handler.accept)
-    .filter(([mime]) => IMPORTED.has(UTIS[mime]))
+    .filter(([mime]) => IMPORTED.has(DOCUMENT_UTIS[mime]))
     .map(([mime, extensions]) => ({
-      UTTypeIdentifier: UTIS[mime],
+      UTTypeIdentifier: DOCUMENT_UTIS[mime],
       UTTypeDescription: handler.name ?? mime,
       UTTypeConformsTo: ['public.plain-text'],
       UTTypeTagSpecification: { 'public.filename-extension': extensions.map((e) => e.replace(/^\./, '')), 'public.mime-type': [mime] },
@@ -702,7 +676,6 @@ async function main(args) {
     process.exitCode = 1; return;
   }
   const app = resolveApp(args.find((a, i) => !a.startsWith('--') && !['--sim', '--phone', '--url', '--archive'].includes(args[i - 1])));
-  documentTypes(app); // an unmapped `file_handlers` type is refused before a long build
   const release = appleBuildLock(app);
   const cleanup = [], beside = []; // what to remove, and the steps started beside the build, when it ends
   try {

@@ -133,6 +133,13 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     }
     return {text: out.join("\n")};
   }
+  // A long read (files F18: a folder's preview walking its tree), one
+  // storage step after another in one answer.
+  if (op === "walk") {
+    let steps = 0;
+    for (let i = 0; i < 24; i++) { await storage.fs.readdir(storage.fs.directories.data); steps++; }
+    return {text: value + ":" + steps};
+  }
   // An independent read, on no chain (minesweeper F10).
   if (op === "peek") {
     try { return {text: value + ":" + String.fromCharCode(...new Uint8Array(await storage.fs.readFile(storage.fs.directories.data + "/note")))}; }

@@ -37,6 +37,30 @@ final class ClipMacTests: XCTestCase {
         XCTAssertEqual(n.layer?.cornerRadius, 0)
     }
 
+    /// An ellipsized label (`overflow-x: hidden`, whose other axis CSS
+    /// computes to `auto`) clips its own text and holds no scroll view: one
+    /// took the clicks its button should hear (files diary F15).
+    func testAnEllipsizedLabelClipsAndLeavesItsButtonTheClick() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        p.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 400)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "button", "handlers": ["press"], "style": ["display": "flex"]],
+            ["op": "create", "id": 2, "kind": "text", "props": ["text": "A rather long label that clips"],
+             "style": ["overflow_x": "hidden", "overflow_y": "auto", "text_overflow": "ellipsis", "white_space": "nowrap"]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 28.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 200.0, "h": 28.0],
+        ]))
+        let button = try XCTUnwrap(p.views[1]), label = try XCTUnwrap(p.views[2])
+        XCTAssertNil(label.scroll, "a paragraph has nothing a scroll view would hold")
+        XCTAssertTrue(label.clipsToBounds, "its overflow clips")
+        let hit = button.hitTest(button.superview!.convert(NSPoint(x: 100, y: 14), from: button))
+        XCTAssertTrue(hit === label, "the label is hit, and hands its press to the button: \(String(describing: hit))")
+        XCTAssertTrue(label.hasPressableAncestor)
+    }
+
     /// Visible overflow is hit where it paints, as CSS hit-tests it: a
     /// popup positioned beyond its parent's box takes the click (ledger
     /// F13), and a raised sibling's overflow is hit over the content after

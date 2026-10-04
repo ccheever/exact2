@@ -470,8 +470,8 @@ impl<D: DataSource> Presenter<D> {
                 "copyText" => eprintln!("exact: copyText unsupported on the headless/DRM host"),
                 // No haptic engine here (LLP 1077 D14): nothing to feel.
                 "haptic" => {}
-                // Outside a `key` event (`key_event` takes a key's), nothing to prevent.
-                "preventDefault" => {}
+                // Outside a `key` event (`key_event` takes a key's), nothing to prevent or stop.
+                "preventDefault" | "stopPropagation" => {}
                 // No share sheet here: refused into the journal, or held for
                 // the agent like every host (LLP 1069.003 D6).
                 "share" => {
@@ -493,6 +493,10 @@ impl<D: DataSource> Presenter<D> {
                         self.blur();
                     }
                 }
+                "focus" => match c.args.first().and_then(exact_plan::Value::as_str) {
+                    Some(name) => self.focus_command(name),
+                    None => eprintln!("exact: focus requires an element id"),
+                },
                 "selectText" => eprintln!("exact: selectText unsupported on the headless/DRM host"),
                 // An element's, by its id (minesweeper F3); a row's is the runner's.
                 "scrollIntoView" => self.scroll_element_into_view(&c.args),
@@ -522,6 +526,10 @@ impl<D: DataSource> Presenter<D> {
                 // `cancel`, or held for the agent.
                 name @ ("showOpenFilePicker" | "showDirectoryPicker" | "showSaveFilePicker") => {
                     self.document_picker(name, &c.args)
+                }
+                // No browser, editor or dev menu here: known, and named so.
+                name @ ("openURL" | "format" | "reload") => {
+                    eprintln!("exact: {name} unsupported on the headless/DRM host")
                 }
                 other => eprintln!("exact: unknown command {other}"),
             }

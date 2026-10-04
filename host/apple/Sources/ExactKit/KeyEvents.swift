@@ -23,8 +23,9 @@ extension KeyCodes {
 extension Presenter {
     /// The `key` handlers at `target` and above it hear `name` with the
     /// modifiers `held` (a chord prefix, `KeyCodes.held`), the path fixed
-    /// before the first runs, as the DOM fixes an event's. True when one
-    /// called `preventDefault()`: the caller skips the default action.
+    /// before the first runs, as the DOM fixes an event's; one that called
+    /// `stopPropagation()` is the last. True when one called
+    /// `preventDefault()`: the caller skips the default action.
     func keyDown(at target: NodeView?, _ name: String, held: String = "") -> Bool {
         var path: [UInt32] = []
         var next: KeyPlatformView? = target
@@ -37,10 +38,14 @@ extension Presenter {
         var prevented = false
         for id in path {
             defaultPrevented = false
+            propagationStopped = false
             key(id, held + name)
             prevented = prevented || defaultPrevented
+            // `stopPropagation()`: no ancestor hears it (files diary F8).
+            if propagationStopped { break }
         }
         defaultPrevented = false
+        propagationStopped = false
         return prevented
     }
 }

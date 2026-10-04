@@ -164,7 +164,31 @@ impl Parser {
                     let dx = self.step_number("the drag's dx in points")?;
                     let dy = self.step_number("the drag's dy in points")?;
                     let (mut press, mut over, mut hold) = (None, None, None);
+                    let (mut from, mut mouse) = (None, false);
                     while let TokenKind::Ident(w) = self.peek_kind().clone() {
+                        let twice = match w.as_str() {
+                            "from" => from.is_some(),
+                            "mouse" => mouse,
+                            _ => false,
+                        };
+                        if twice {
+                            return self.err(
+                                "syntax-expected-step",
+                                format!("`{w}` is given twice in one drag"),
+                            );
+                        }
+                        if w == "mouse" {
+                            self.next();
+                            mouse = true;
+                            continue;
+                        }
+                        if w == "from" {
+                            self.next();
+                            let x = self.step_number("the start's x in the node's box")?;
+                            let y = self.step_number("the start's y in the node's box")?;
+                            from = Some((x, y));
+                            continue;
+                        }
                         let slot = match w.as_str() {
                             "press" => &mut press,
                             "over" => &mut over,
@@ -185,6 +209,8 @@ impl Parser {
                         target,
                         dx,
                         dy,
+                        from,
+                        mouse,
                         press,
                         over,
                         hold,
