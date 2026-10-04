@@ -1120,3 +1120,14 @@ carriers closed. Artifacts: `artifacts/main-e097-web-recheck/` and
 I passed a mistyped Chrome executable path; the corrected run is the evidence
 above. Garden diary 004 records the shared passing gates. No Rivals gameplay
 or Jev-policy changes; timings include builds and concurrent verification.
+
+## Shared descendant-audit correction (2026-10-04)
+
+Garden diary 004 records the shared `ps` failure and delayed-event fixes.
+Rivals passes complete web/macOS proofs in 59.1/57.6 s with successful
+descendant audits and no remaining recorded children. Inputs, all pins,
+ten world observations and fourteen saves match `main-e097-macos` on both
+hosts. Both five-kill Mayhem captures were inspected; the round remains
+live with its 25-kill target. Artifacts: `artifacts/audit-{web,macos}/`.
+No gameplay or Jev-policy changes; timings include builds and concurrent
+verification.

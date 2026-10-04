@@ -917,3 +917,13 @@ were inspected. Both optional descendant scans are unavailable while every
 owned carrier closes. Artifacts: `artifacts/main-e097-{web,macos}/`. Garden
 diary 004 records the shared gates. No Forest gameplay or Jev-policy changes;
 timings include builds and concurrent verification.
+
+## Shared descendant-audit correction (2026-10-04)
+
+Garden diary 004 records the shared `ps` failure and delayed-event fixes.
+Forest passes complete web/macOS proofs in 64.2/164.5 s with successful
+descendant audits and no remaining recorded children. Inputs, all pins,
+nine world observations and fifteen saves match `main-e097-macos` on both
+hosts. Both shelter captures were inspected. Artifacts:
+`artifacts/audit-{web,macos}/`. No gameplay or Jev-policy changes; timings
+include builds and concurrent verification.

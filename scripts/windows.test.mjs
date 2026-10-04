@@ -13,6 +13,7 @@ import {runCaps} from './caps.mjs';
 import {binaryenArchive, binaryenVersion} from './exact.mjs';
 import {listPublicFiles, publicFileCards, readStaticFile, readStaticFileAsync, staticFile} from '../host/web/serve.mjs';
 import {gameShells} from '../game/app/shells.mjs';
+import {artifactDigest, buildInputHash} from '../game/proof.mjs';
 
 test.skipIf(process.platform !== 'win32')('owned Chrome refusal preserves live process/profile and bounded shutdown evidence', async () => {
   const profile=mkdtempSync(resolve(tmpdir(),'exact-close-refusal-'));
@@ -339,4 +340,20 @@ test('packaged native freshness verifies executable-relative shader bytes', () =
     writeFileSync(shader,'edited'); expect(packagedBuildChanges(receipt,root)).toEqual([shader]);
     rmSync(shader); expect(packagedBuildChanges(receipt,root)).toEqual([shader]);
   } finally { rmSync(root,{recursive:true,force:true}); }
+});
+
+test('Windows receipts bind the executable, GPU DLL, packaged assets and build profile', () => {
+  const dir=mkdtempSync(resolve(tmpdir(),'game-windows-receipt-'));
+  const artifacts={binary:resolve(dir,'game.exe'),module:resolve(dir,'game_gpu.dll')};
+  try {
+    expect(artifactDigest('windows',dir,artifacts)).toBe(null);
+    writeFileSync(artifacts.binary,'exe'); writeFileSync(artifacts.module,'gpu');
+    const first=artifactDigest('windows',dir,artifacts);
+    mkdirSync(resolve(dir,'assets')); writeFileSync(resolve(dir,'assets/terrain.tex'),'terrain');
+    expect(artifactDigest('windows',dir,artifacts)).not.toBe(first);
+    rmSync(artifacts.module);
+    expect(artifactDigest('windows',dir,artifacts)).toBe(null);
+    expect(buildInputHash('windows','target','0','release').digest('hex'))
+      .not.toBe(buildInputHash('windows','target','0','gpu-dev').digest('hex'));
+  } finally {rmSync(dir,{recursive:true,force:true});}
 });

@@ -1054,3 +1054,42 @@ gameplay evidence rather than tune this successful controller batch further.
 A final ordinary Linux proof checks the accepted pins and reports PASS in
 1.475 s, with a successful process audit (`artifacts/empty-accepted-linux/`).
 Caps passes after staging the pins and all three diary updates.
+
+## Process-audit correctness after the guidance batch (2026-10-04)
+
+Repeated optional native audit skips expose two shared proof defects. A
+nonzero `ps` exit returns no rows without marking the audit unavailable, so
+a failed scan can look like an empty successful one. Separately, synchronous
+work can delay an already successful child's events past the 200 ms watchdog.
+A real `ps` normally finishes in about 27 ms; blocking the caller for 400 ms
+reproduces the false timeout immediately before its queued exit-zero event.
+This is an audit-coverage fix, not an explanation for long game proof times.
+
+`processInventory` now waits through `close`, including stdout drainage.
+The existing deadline requests termination of that invocation's owned child;
+an additional bounded grace handles a child that never closes. Exit zero
+still succeeds if delivery was delayed. Spawn errors, nonzero exits, empty
+or incomplete output missing the proof process, and genuine timeouts report
+an unavailable audit with their specific reason in `process-cleanup.json`.
+PID/start-time matching and the final recorded-child leak check are unchanged.
+
+The real 400 ms blocked-caller reproduction now reads all 973 live rows;
+an owned sleeping subprocess is killed and reported unavailable in 206 ms.
+A regression covers stdout after exit, failed and empty scans, spawn errors,
+delayed success, real termination and an uninterruptible child. The focused
+checks pass, followed by all 117 shared proof/decision/Windows tests (four
+platform skips, 204.8 s including fixture builds). To keep the proof test
+under 1,500 lines, its existing Windows receipt case moves unchanged to
+`scripts/windows.test.mjs`, and redundant blank spacers are removed. No
+new test runner or script is added.
+
+All six full game runs pass with successful descendant audits and no remaining
+recorded children. Garden web/macOS take 67.1/29.5 s, Forest 64.2/164.5 s,
+and Rivals 59.1/57.6 s. Every input digest, pin, world observation and save
+matches the corresponding accepted pre-change baseline. Garden retains six
+worlds and nine saves. All six representative screenshots were inspected;
+the planting hint remains readable on both hosts. Artifacts for each game:
+`artifacts/audit-{web,macos}/`; tooling log:
+`/tmp/exact2-process-inventory-tools.log`. These are concurrent verification
+times including builds, not isolated performance measurements. No gameplay
+or Jev-policy changes are part of this batch.

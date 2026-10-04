@@ -111,22 +111,6 @@ test('inventory failure clears the timer before unconditional session cleanup', 
   expect(calls).toEqual(['first','session cleanup','second']);
 });
 
-test('Windows receipts bind the executable, GPU DLL, packaged assets and build profile', () => {
-  const dir=mkdtempSync(resolve(tmpdir(),'game-windows-receipt-'));
-  const artifacts={binary:resolve(dir,'game.exe'),module:resolve(dir,'game_gpu.dll')};
-  try {
-    expect(artifactDigest('windows',dir,artifacts)).toBe(null);
-    writeFileSync(artifacts.binary,'exe'); writeFileSync(artifacts.module,'gpu');
-    const first=artifactDigest('windows',dir,artifacts);
-    mkdirSync(resolve(dir,'assets')); writeFileSync(resolve(dir,'assets/terrain.tex'),'terrain');
-    expect(artifactDigest('windows',dir,artifacts)).not.toBe(first);
-    rmSync(artifacts.module);
-    expect(artifactDigest('windows',dir,artifacts)).toBe(null);
-    expect(buildInputHash('windows','target','0','release').digest('hex'))
-      .not.toBe(buildInputHash('windows','target','0','gpu-dev').digest('hex'));
-  } finally {rmSync(dir,{recursive:true,force:true});}
-});
-
 for (const fails of [false, true]) test(`browser held key release survives canvas removal (clock failure=${fails})`, async () => {
   let canvas = true, down = false;
   const carrier = {input: async (id, _, opts) => browserKey({id, opts,
@@ -254,7 +238,6 @@ test('proof equality compares complete nested objects independently of key order
   expect(equal([null,true,{a:[]}], [null,true,{a:[]}])).toBe(true);
 });
 
-
 test('world convenience keeps simulation fields only and dispatches the existing operations', async () => {
   const calls = [], entities = [{name:'player', components:{Transform:{position:[0,0.9,0]}}}];
   let clock=0, epoch=1, incarnation=1;
@@ -322,7 +305,6 @@ test('a complete world snapshot reads every page at one tick and hash', async ()
   };
   await expect(w.snapshot({all:true})).rejects.toThrow(/world changed while paging/);
 });
-
 
  test('world get translates only the named missing-entity refusal', async () => {
    for (const error of ['no view matches arena', 'no entity named `other`', 'device lost']) {
@@ -424,7 +406,6 @@ test('KeyP forbids texture uploads and pipeline creation as well as requiring ne
   }
 });
 
-
 test('local and global position helpers preserve parent-space distinction', async () => {
   const w = worldView({
     async state() { return {entity:{components:{Transform:{position:[1,2,3]}}}}; },
@@ -523,7 +504,6 @@ test('tap diagnostics never manufacture a missing-entity refusal for a UI-only t
   expect(queried).toBe(0);
 });
 
-
 test('layout CLI names behind-camera and unavailable projection without undefined coordinates', () => {
   const text=render('layout',{entity:{name:'sign',screen:{unavailable:true},visible:{behindCamera:true,inFrustum:false}}});
   expect(text).toContain('behindCamera'); expect(text).toContain('screen unavailable'); expect(text).not.toContain('undefined');
@@ -537,7 +517,6 @@ test('facility use must succeed and answer the relevant refusal', () => {
   expect(facilityReport([{method:'tap',error:'assets pending'},{method:'state',args:['world:player'],reply:{}}]).join(' ')).toContain('state unused');
   expect(facilityReport([{method:'clock',reply:{settled:true}}])).toEqual(['no recorded stalls or refusals']);
 });
-
 
 test('stale-build repair command names the rejected web dist', async () => {
   const dist=mkdtempSync(resolve(tmpdir(),'r8b-dist-'));
@@ -559,7 +538,6 @@ test('repin derives manifests and shells without writing an authored file', asyn
     expect(readdirSync(resolve(dir,'logic'))).toEqual(['src']);
   } finally { if(before===undefined) delete process.env.EXACT_PROOF_REPIN; else process.env.EXACT_PROOF_REPIN=before; rmSync(dir,{recursive:true,force:true}); }
 });
-
 
 test('direct placement comparison rejects two hosts passing a two-pixel oracle', () => {
   const a={initial:{tick:0,x:0,y:0,w:10,h:10},moving:{tick:60,x:5,y:5,w:10,h:10}}, b=structuredClone(a);
@@ -697,7 +675,6 @@ for (const scenario of ['report','repin','external-repin', ...['ordinary','repea
   } finally { rmSync(directory ?? app,{recursive:true,force:true}); }
 });
 
-
 test('clock settle diagnostic names busy, held input, and logs on a real unsettled reply', async () => {
   const source=readFileSync(resolve(import.meta.dir,'../scripts/agent.mjs'),'utf8');
   const a=source.indexOf("    async clock(spec = 'settle') {"), b=source.indexOf('\n    /** Pixels as PNG',a);
@@ -766,7 +743,6 @@ test('paranoid placement pins the reconstructed endpoint with the same half pixe
   }
 });
 
-
 test('forty-child capture does not mislabel painter timing as CPU cost', async () => {
   const source=readFileSync(resolve(import.meta.dir,'games/placement-fixture/proof.mjs'),'utf8');
   const a=source.indexOf("  if(process.argv.includes('--capture40')) {"),b=source.indexOf('  const start=',a);
@@ -778,7 +754,6 @@ test('forty-child capture does not mislabel painter timing as CPU cost', async (
     {argv:['--capture40']},async()=>session,resolve,'/tmp','linux',s=>messages.push(s),(name,ok)=>expect(ok).toBe(true));
   expect(messages.join(' ')).toContain('no CPU-cost claim');
 });
-
 
 test('report does not count diagnostics from another session or infer geometry from asset names', () => {
   expect(facilityReport([{session:1,method:'tap',args:['play'],error:'restore refused: asset hidden.model pending'}]).join(' ')).not.toContain('layout');
@@ -830,7 +805,6 @@ test('Fox predicate crops reported bounds and requires varied fur at the declare
   expect(foxPixels(image,{x:80,y:10,w:40,h:20},[160,90]).ok).toBe(false);
   expect(foxPixels(image,{x:10,y:10,w:40,h:20},[90,160]).ok).toBe(false);
 });
-
 
 test('R12 proof inputs from game include host code and exclude other games', async () => {
   const {proofInputFiles}=await import('./proof.mjs');
@@ -910,7 +884,6 @@ test('shared residency probe takes the authored replacement model name', async (
   expect(() => residencyProbe('sample.model', 'texture.tex', 'longer.model-name')).toThrow('same byte length');
 });
 
-
 test('R13 output names nested in logic remain proof inputs and change the hash', async () => {
   const {proofInputExcluded, proofInputFiles}=await import('./proof.mjs');
   for(const name of ['target','.shells','dist','dist.previous','artifacts']) {
@@ -964,14 +937,12 @@ test('engine test sources are not bake inputs: editing one leaves the proof inpu
   } finally { rmSync(root, {recursive:true,force:true}); }
 });
 
-
 test('E10 Linux proof profile changes invalidate the build receipt, native paranoid mode does not', () => {
   expect(buildInputHash('linux', 'target', '0', 'gpu-dev').digest('hex'))
     .not.toBe(buildInputHash('linux', 'target', '0', 'release').digest('hex'));
   expect(buildInputHash('linux', 'target', '1', 'gpu-dev').digest('hex'))
     .toBe(buildInputHash('linux', 'target', '0', 'gpu-dev').digest('hex'));
 });
-
 
 test('E10 snapshot-only proof records the same world observation as state', async () => {
   const observations=new Map();
@@ -986,7 +957,6 @@ test('E10 snapshot-only proof records the same world observation as state', asyn
   observations.clear(); await session.state();
   expect([...observations.values()]).toEqual(snapshot);
 });
-
 
 test('E10 browser buttons retain UA keyboard focus and hover feedback', async () => {
   const {spawn}=await import('node:child_process');
@@ -1071,7 +1041,6 @@ test('E10 Beacons and skinned Linux proof hashes match release under the fast pr
 // Each authored game owns its compiler intermediates, including on the first
 // cold run. This is a hash-equivalence check, not a build-latency assertion.
 },1200000);
-
 
 test('proof commands quote the actual script and every argument', async () => {
   const dir=mkdtempSync(resolve(tmpdir(), "proof command's workspace-"));
@@ -1159,7 +1128,6 @@ test('R15 semantic drift fixture is rejected by the release gate',async()=>{
     expect(()=>agreePins(rows,rows[0].pins,['linux'], '.')).toThrow('release');
   } finally {rmSync(dir,{recursive:true,force:true});}
 },60000);
-
 
 test('concurrent prove runs keep their save artifacts and web builds separate', async () => {
   const dir=mkdtempSync(resolve(tmpdir(),'proof-isolation-')), app=resolve(dir,'game'), children=[];
@@ -1445,7 +1413,6 @@ test('offline world diff CLI reports differences and refuses invalid captures wi
   } finally { rmSync(dir,{recursive:true,force:true}); }
 });
 
-
 test('game proof outputs do not invalidate host freshness, but game sources do', async () => {
   const { newerThan } = await import('../scripts/agent-launch.mjs');
   const dir = mkdtempSync(resolve(tmpdir(), 'game-freshness-'));
@@ -1459,7 +1426,6 @@ test('game proof outputs do not invalidate host freshness, but game sources do',
     expect(changed[0].endsWith('/logic/changed')).toBe(true);
   } finally { rmSync(dir, {recursive:true, force:true}); }
 });
-
 
 test('repin provenance distinguishes commit-less games from broken Git repositories', () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'repin-revision-'));
@@ -1492,4 +1458,31 @@ test('a split clock grows at most 4x a step and never past ten world minutes', a
     span = clockSpan(span, measured);
   }
   expect(worst).toBeLessThanOrEqual(4500 + 1e-6);
+});
+
+test('process inventory drains stdout and reports failed or incomplete scans', async () => {
+  const {processInventory} = await import('./proof.mjs'), {EventEmitter} = await import('node:events');
+  const row = `${process.pid} 1 S Sun Oct  4 12:34:56 2026 /proof\n`;
+  for (const mode of ['ok','failed','empty','error','late-success','killed','uninterruptible']) {
+    const child = new EventEmitter(); child.stdout = new EventEmitter();
+    let killed = 0, destroyed = false, unref = false;
+    child.stdout.destroy = () => { destroyed = true; }; child.unref = () => { unref = true; };
+    child.kill = signal => {
+      expect(signal).toBe('SIGKILL'); killed++;
+      if (mode === 'late-success') queueMicrotask(() => child.emit('close',0));
+      if (mode === 'killed') queueMicrotask(() => child.emit('close',null,'SIGKILL'));
+    };
+    const pending = processInventory({start:() => child, timeout:5});
+    if (mode === 'ok') { child.emit('exit',0); child.stdout.emit('data',row); child.emit('close',0); }
+    else if (mode === 'failed') child.emit('close',2);
+    else if (mode === 'empty') child.emit('close',0);
+    else if (mode === 'error') child.emit('error',Object.assign(new Error('missing'),{code:'ENOENT'}));
+    else if (mode === 'late-success') child.stdout.emit('data',row);
+    const result = await pending;
+    if (['ok','late-success'].includes(mode)) {
+      expect(result.error).toBeNull(); expect(result.rows[0].pid).toBe(process.pid);
+    } else { expect(result.rows).toBeNull(); expect(result.error).toBeTruthy(); }
+    expect(killed).toBe(['late-success','killed','uninterruptible'].includes(mode) ? 1 : 0);
+    expect(destroyed && unref).toBe(mode === 'uninterruptible');
+  }
 });

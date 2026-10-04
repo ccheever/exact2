@@ -182,6 +182,41 @@ export function parseInventoryLine(line) {
   return m && !m[3].startsWith('Z') ? {pid:Number(m[1]), parent:Number(m[2]), stamp:m[4], command:m[5]} : null;
 }
 
+/** A deadline requests termination; only the child's exit tells us whether it
+ * timed out. Synchronous build work can delay an already successful ps's
+ * events beyond that deadline. Read through close so stdout has also drained. */
+export function processInventory({start = spawn, timeout = 200} = {}) {
+  return new Promise(resolve => {
+    let child, output = '', done = false, timedOut = false, timer;
+    const finish = (rows, error = null) => {
+      if (done) return;
+      done = true; clearTimeout(timer); resolve({rows, error});
+    };
+    try { child = start('ps', ['-axo', 'pid=,ppid=,stat=,lstart=,comm='], {stdio:['ignore','pipe','ignore']}); }
+    catch (error) { finish(null, `ps could not start: ${error.code ?? error.message}`); return; }
+    timer = setTimeout(() => {
+      timedOut = true;
+      // Bound even an uninterruptible ps. Kill only this invocation's handle.
+      timer = setTimeout(() => {
+        child.stdout.destroy(); child.unref();
+        finish(null, `ps did not close after its ${timeout} ms deadline and termination grace`);
+      }, timeout);
+      child.kill('SIGKILL');
+    }, timeout);
+    child.stdout.on('data', data => output += data);
+    child.on('error', error => finish(null, `ps could not start: ${error.code ?? error.message}`));
+    child.on('close', (code, signal) => {
+      if (code !== 0) {
+        finish(null, timedOut ? `ps timed out after ${timeout} ms` : `ps exited ${signal ?? code}`);
+        return;
+      }
+      const rows = output.trim().split('\n').map(parseInventoryLine).filter(Boolean);
+      finish(rows.some(row => row.pid === process.pid) ? rows : null,
+        rows.some(row => row.pid === process.pid) ? null : 'ps omitted the proof process');
+    });
+  });
+}
+
 export function artifactDigest(host, dist, artifacts) {
   try {
     const manifest = [];
@@ -526,21 +561,12 @@ export async function proof(meta, script) {
   // headless gameplay verification.
   const children = [], recorded = new Map();
   const onProcess = child => { children.push(child); recorded.set(child.pid, 'carrier'); };
-  let auditUnavailable = false, inventoryPending;
-  const inventory = () => new Promise(resolve => {
-    const child = spawn('ps', ['-axo', 'pid=,ppid=,stat=,lstart=,comm='], {stdio:['ignore','pipe','ignore']});
-    let output = '', done = false;
-    const finish = rows => { if (done) return; done = true; clearTimeout(timer); resolve(rows); };
-    const timer = setTimeout(() => {
-      auditUnavailable = true;
-      child.kill('SIGKILL'); // This invocation's recorded ps, never a name/pattern.
-      child.stdout.destroy(); child.unref(); finish(null);
-    }, 200);
-    child.stdout.on('data', data => output += data);
-    child.on('error', () => { auditUnavailable = true; finish(null); });
-    // A zombie is dead: killed with its group, not yet reaped by launchd.
-    child.on('exit', code => finish(code === 0 ? output.trim().split('\n').map(parseInventoryLine).filter(Boolean) : null));
-  });
+  let auditUnavailable = false, auditError, inventoryPending;
+  const inventory = async () => {
+    const {rows, error} = await processInventory();
+    if (error) { auditUnavailable = true; auditError ??= error; }
+    return rows;
+  };
   const sample = () => {
     if (host === 'linux' || host === 'windows' || host === 'ios' || auditUnavailable || inventoryPending) return;
     inventoryPending = inventory().then(rows => {
@@ -672,7 +698,7 @@ export async function proof(meta, script) {
       for (const deadline = Date.now() + 2000; rows.length && Date.now() < deadline; rows = await stale()) await new Promise(r => setTimeout(r, 100));
       remaining.push(...rows);
     }
-    if (auditUnavailable) say('SKIP descendant process audit: ps stalled; carrier close still awaited every recorded host process.');
+    if (auditUnavailable) say(`SKIP descendant process audit: ${auditError}; carrier close still awaited every recorded host process.`);
     check('all recorded children exited', remaining.length === 0, remaining);
     if (compareParanoid) {
       finalWorlds.sort((a,b) => a.session - b.session);
@@ -686,7 +712,7 @@ export async function proof(meta, script) {
           matches, finalWorlds.map(({session, tick, hash}) => ({session, tick, hash})));
       }
     }
-    writeFileSync(resolve(out,'process-cleanup.json'),JSON.stringify({recorded:[...recorded],remaining,auditUnavailable},null,2)+'\n');
+    writeFileSync(resolve(out,'process-cleanup.json'),JSON.stringify({recorded:[...recorded],remaining,auditUnavailable, ...(auditError ? {auditError} : {})},null,2)+'\n');
     const saves = [...new Set(replies.filter(r => r.method === 'screenshot' && r.args[2] === 'save' && !r.error).map(r => r.args[0]))].sort().map(path => {
       const name = basename(path), bytes = readFileSync(path);
       return {name, bytes:bytes.length, sha256:createHash('sha256').update(bytes).digest('hex')};
