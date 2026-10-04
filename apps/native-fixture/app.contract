@@ -381,6 +381,26 @@ component NativeFixture
                     column padding=12 gap=8
                       text ("composed " + toString(composed)) testId="composed-detail"
                       column testId="tall" height=1600 background-color="#f3f4f6"
+                // An "Open in…" at the foot of a card (LLP 1021 §5): its
+                // chooser above it, centred on it (`top span-all`), as a menu
+                // and as a sheet. Below the Detail screen's scroll, so it stays at
+                // the foot whatever the screen's height.
+                when e.name == "detail"
+                  row testId="open-above-card" gap=6 padding=12 flex-shrink=0 justify-content="center"
+                    button press=refreshProviders popovertarget="open-above" testId="open-above" padding=6 background-color="#e5e7eb"
+                      text "Open in (above)"
+                    button press=refreshProviders popovertarget="open-above-sheet" testId="open-above-sheet" padding=6 background-color="#e5e7eb"
+                      text "Open in (sheet above)"
+                    column id="open-above" testId="open-above-menu" popover="auto" position="absolute" position-area="top span-all" role="menu" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
+                      each p in providerItems key=p.id
+                        button press=openIn(p.id) aria-checked=(p.id == remembered) popovertarget="open-above" popovertargetaction="hide" role="menuitemradio" testId=`open-above-${p.id}` height=44
+                          text p.name
+                    column id="open-above-sheet" popover="auto" position="absolute" position-area="top span-all" role="alertdialog" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
+                      each p in providerItems key=p.id
+                        button press=openIn(p.id) popovertarget="open-above-sheet" popovertargetaction="hide" testId=`open-above-sheet-${p.id}` height=44
+                          text p.name
+                      button popovertarget="open-above-sheet" popovertargetaction="hide" testId="open-above-sheet-cancel" height=44
+                        text "Cancel"
                 when e.name == "chat"
                   scroll id="list-chat" testId="list-chat" flex=1 min-height=0
                     column padding=12 gap=8

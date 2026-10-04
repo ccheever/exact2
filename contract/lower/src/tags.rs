@@ -878,6 +878,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         | "border-left" => AttrTarget::Shorthand,
         "resize" => styles(&[StyleId::Resize]),
         "user-select" => styles(&[StyleId::UserSelect]),
+        // @ref LLP 1021 §5 — on a popover, its implicit anchor the invoker.
+        "position-area" => styles(&[StyleId::PositionArea]),
         "text-decoration-line" => styles(&[StyleId::TextDecorationLine]),
         // @ref LLP 1064 D5
         "text-transform" => styles(&[StyleId::TextTransform]),

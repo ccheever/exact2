@@ -231,8 +231,7 @@ final class MenuHost: NSObject {
             entry.layer.frame = presenter.viewport.bounds
             let anchor = source.convert(source.bounds, to: entry.layer)
             var box = entry.frame
-            box.origin.x = max(0, min(anchor.minX, entry.layer.bounds.width - box.width))
-            box.origin.y = max(0, min(anchor.maxY, entry.layer.bounds.height - box.height))
+            box.origin = PositionArea.origin(PositionArea.of(entry.popover), anchor: anchor, size: box.size, in: entry.layer.bounds)
             if entry.popover.frame != box { entry.popover.frame = box }
         }
     }

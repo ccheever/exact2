@@ -415,6 +415,36 @@ fn builds_platform_color(e: &Expr) -> bool {
     }
 }
 
+/// The `position-area` values every host places (LLP 1021 §5), as CSS
+/// spells them; the row's enum, by name.
+const POSITION_AREAS: [&str; 8] = [
+    "none",
+    "bottom span-right",
+    "bottom",
+    "bottom span-all",
+    "top span-right",
+    "top",
+    "top span-all",
+    "center",
+];
+
+/// `position-area` places a popover against the invoker that opens it (its
+/// implicit anchor, LLP 1021 §5): there is no `anchor-name`, so on any other
+/// node it would name nothing to place against.
+pub(crate) fn check_position_area(attrs: &[Attr]) -> Result<(), LowerError> {
+    let Some(a) = attrs.iter().find(|a| a.name == "position-area") else {
+        return Ok(());
+    };
+    if attrs.iter().any(|a| a.name == "popover") {
+        return Ok(());
+    }
+    err(
+        "lower-css-position-area",
+        "`position-area` is admitted on a `popover` only: its anchor is the button whose `popovertarget` opens it. `anchor-name` and `position-anchor` are not implemented",
+        a.span,
+    )
+}
+
 pub(crate) fn check_style_value(
     a: &Attr,
     rows: &[StyleId],
@@ -480,6 +510,9 @@ pub(crate) fn check_style_value(
                 && matches!(v.as_str(), "text" | "all" | "contain")
             {
                 return err("lower-css-user-select", "CSS user-select text/all/contain require selectable text and selection ownership on iOS and Linux; those presenters do not implement it. Supported portable values are auto and none", span);
+            }
+            if rows.contains(&StyleId::PositionArea) && !POSITION_AREAS.contains(&v.trim()) {
+                return err("lower-css-position-area", format!("`position-area=\"{v}\"`: exact2 places an invoker's popover in a subset of CSS `position-area`: {}. Other areas (left, right, a corner, span-left, logical keywords) are not implemented by the native top layers; a flip is `position-try`, also not implemented", POSITION_AREAS.join(", ")), span);
             }
             if rows.contains(&StyleId::WrapFlow) && !matches!(v.as_str(), "auto" | "both") {
                 return err("lower-attr-value", "unsupported `wrap-flow` value: CSS Exclusions defines it; exact2 v1 implements `both` (or `auto`)", span);
