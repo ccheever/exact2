@@ -782,12 +782,17 @@ fn an_unawaited_fetch_is_sent_while_another_answer_is_in_flight() {
     assert_eq!(item[0].request.url, "https://api.castle.xyz/item/8863");
     r.dispatch(view_of(&r, "save"), Event::Press).unwrap();
     let saved = r.take_requests();
-    assert_eq!(saved.len(), 1, "the unawaited POST is handed out: {saved:?}");
+    assert_eq!(
+        saved.len(),
+        1,
+        "the unawaited POST is handed out: {saved:?}"
+    );
     assert_eq!(saved[0].request.url, "https://api.castle.xyz/save/8863");
     assert_eq!(saved[0].request.method, "POST");
     r.fulfill(saved[0].ticket, response(200, "")).unwrap();
     assert_eq!(text_of(&r, "saved").as_deref(), Some("saved"));
-    r.fulfill(item[0].ticket, response(200, "the story")).unwrap();
+    r.fulfill(item[0].ticket, response(200, "the story"))
+        .unwrap();
     assert_eq!(text_of(&r, "detail").as_deref(), Some("the story"));
     assert!(!r.has_pending());
     assert_eq!(r.data().in_flight(), 0);
