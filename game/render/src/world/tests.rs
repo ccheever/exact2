@@ -1227,3 +1227,57 @@ fn a_socket_followers_child_in_another_block_draws_at_its_tick_end_global() {
         "the child moves: {xs:?}"
     );
 }
+
+#[test]
+fn rewriting_the_same_offsets_is_not_a_pose_change() {
+    // Game::present rewrites every Offset row each tick; only content counts.
+    let mut w = World::new(60, 1);
+    let e = w.spawn(Transform::default());
+    w.insert(e, exact_game::Offset(Transform::at(1., 0., 0.)));
+    let before = offsets(&w);
+    w.remove::<exact_game::Offset>(e);
+    w.insert(e, exact_game::Offset(Transform::at(1., 0., 0.)));
+    assert_eq!(offsets(&w), before);
+    w.insert(e, exact_game::Offset(Transform::at(1.5, 0., 0.)));
+    assert_ne!(offsets(&w), before);
+}
+
+// Present rewrites every Offset row each tick; with nothing moving, the feed
+// writes no transform page after the first, parented ones included.
+struct Bobbing;
+impl Game for Bobbing {
+    type Args = ();
+    const ID: &'static str = "feed-offset";
+    fn setup(w: &mut World, _: &Self::Args) {
+        let root = w.spawn_named("root", (Transform::default(), Mesh::cube(1.0)));
+        w.spawn((
+            Transform::at(0., 2., 0.),
+            exact_game::Parent(root),
+            Mesh::cube(1.0),
+        ));
+    }
+    fn tick(_: &mut World, _: &Input, _: &Self::Args) {}
+    fn present(w: &mut World, _: &Self::Args) {
+        let root = w.named("root").unwrap();
+        w.insert(root, exact_game::Offset(Transform::at(0., 0.5, 0.)));
+    }
+}
+#[test]
+fn a_static_offset_writes_no_pages_per_tick() {
+    let mut sim = Sim::<Bobbing>::new(()).unwrap();
+    let mut f = Feed::default();
+    let mut r = Recording::default();
+    sim.advance(0., Clock::Seekable);
+    f.feed_to(sim.world(), &mut r).unwrap();
+    let root = sim.world().named("root").unwrap();
+    assert_eq!(r.position(root, false).y, 0.5, "the offset is drawn");
+    // Two ticks settle the history buffers; later ticks write nothing.
+    sim.advance_with(34., Clock::Seekable, |w, _| f.feed_to(w, &mut r).unwrap());
+    r.calls.clear();
+    sim.advance_with(500., Clock::Seekable, |w, _| f.feed_to(w, &mut r).unwrap());
+    assert!(
+        !r.calls.iter().any(|c| matches!(c, Call::Transform(..))),
+        "{:?}",
+        r.calls
+    );
+}

@@ -268,6 +268,24 @@ fn node_looks_digest(w: &World) -> u64 {
     }
     h.finish()
 }
+/// Content of every presentation offset: present rewrites the rows each tick,
+/// so their revision moves even when no offset changed.
+fn offsets(w: &World) -> u64 {
+    let mut h = 0xcbf2_9ce4_8422_2325u64;
+    for (e, o) in w.query::<&exact_game::Offset>().iter() {
+        let t = o.0;
+        let words = [t.position.to_array(), t.scale.to_array()]
+            .into_iter()
+            .flatten()
+            .chain(t.rotation.to_array())
+            .map(f32::to_bits)
+            .chain([e.index(), e.generation()]);
+        for word in words {
+            h = (h ^ u64::from(word)).wrapping_mul(0x100_0000_01b3);
+        }
+    }
+    h
+}
 impl Versions {
     fn of(w: &World, assets: u64) -> Self {
         Self {
@@ -283,7 +301,7 @@ impl Versions {
             node_materials: w.revision::<exact_game::NodeMaterials>(),
             lod: w.revision::<exact_game::ModelLod>(),
             pose: w.revision::<exact_game::Pose>(),
-            offset: w.revision::<exact_game::Offset>(),
+            offset: offsets(w),
             live: w.entities_revision(),
             membership: w.membership::<Transform>(),
         }

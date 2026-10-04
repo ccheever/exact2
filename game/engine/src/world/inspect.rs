@@ -63,6 +63,7 @@ impl World {
     }
     /// Keep clock settle running. Reasons expire at the start of the next tick.
     pub fn busy(&self, reason: &'static str) {
+        self.sim_writes(format_args!("reported busy `{reason}`"));
         self.mutated();
         self.state.busy.borrow_mut().push(reason.into());
     }

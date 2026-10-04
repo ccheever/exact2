@@ -213,6 +213,8 @@ pub(crate) trait Erased {
     fn any_mut(&mut self) -> &mut dyn Any;
     fn len(&self) -> usize;
     fn remove(&mut self, index: usize);
+    /// Erase every row.
+    fn clear(&mut self);
     /// The save representation: columnar rows, or a resource's value.
     fn write_save(&self, w: &mut dyn Writer);
     fn read_save(
@@ -245,6 +247,9 @@ impl<C: Data> Erased for Storage<C> {
     }
     fn remove(&mut self, index: usize) {
         self.raw.erase(index);
+    }
+    fn clear(&mut self) {
+        self.raw.erase_all();
     }
     fn write_one(&self, index: usize, w: &mut dyn Writer) -> bool {
         self.raw.write_one(index, w)

@@ -643,17 +643,12 @@ impl World {
     /// Erase every presentation row, so `Game::present` rebuilds them all.
     pub(crate) fn clear_presentation(&mut self) {
         self.leases.restructure();
-        let slots = self.state.slots.len();
         for (name, registration) in &self.registry {
             if !registration.presentation {
                 continue;
             }
             if let Some(storage) = self.components.get_mut(name) {
-                for index in 0..slots {
-                    if storage.has(index) {
-                        storage.remove(index);
-                    }
-                }
+                storage.clear();
             }
         }
     }
