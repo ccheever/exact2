@@ -195,18 +195,22 @@ pub fn binding(plan: &Plan, kind: NodeType, b: &BindingsRow) -> Option<(String, 
         StyleId::LayoutTransition => return flag(LAYOUT | POLICY, "v!=null"),
         StyleId::ExitAnimation => return flag(POLICY, "v!=null"),
         StyleId::Transition => {
-            let properties: Vec<_> = exact_motion::Property::ALL
+            let properties: std::collections::BTreeMap<_, _> = exact_motion::Property::ALL
                 .iter()
-                .map(|p| p.css_name())
+                .flat_map(|p| [p.name(), p.css_name()])
                 .chain(["all", "border-color"])
+                .filter_map(|name| {
+                    let transition = exact_motion::Transitions::parse(name).ok()?;
+                    let mut style = StyleProps { transition, ..Default::default() };
+                    style.mask.set(StyleId::Transition);
+                    Some((name, own(&style).policy))
+                })
                 .collect();
-            let names = serde_json::to_string(&properties).unwrap();
-            return flag(
-                POLICY,
-                &format!(
-                    r#"v!=null&&String(v).split(/,(?![^(]*\))/).some(t=>{{const words=t.trim().split(/\s+(?![^(]*\))/);const p=words.find(w=>{names}.includes(w));return p?["all","opacity","translate","scale","rotate"].includes(p):words.every(w=>/^(?:[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?m?s|linear|ease(?:-in(?:-out)?|-out)?|step-start|step-end|(?:cubic-bezier|steps|spring)\(.+\))$/.test(w))}})"#
-                ),
-            );
+            let predicate = include_str!("../transition-paint.js")
+                .replace("PROPERTIES", &serde_json::to_string(&properties).unwrap())
+                .replace("MAX_TRANSITIONS", &exact_motion::MAX_TRANSITIONS.to_string())
+                .replace("MAX_LINEAR_STOPS", &exact_motion::easing::MAX_LINEAR_STOPS.to_string());
+            return flag(POLICY, &format!("({predicate})(v)"));
         }
         StyleId::Animation => {
             let names: Vec<_> = plan

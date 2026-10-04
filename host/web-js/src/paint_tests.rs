@@ -271,7 +271,9 @@ impl exact_runner::DataSource for Items {
 
 #[test]
 fn bound_transition_stacking_matches_kernel() {
-    let values = [
+    let mut values: Vec<String> = [
+        "200ms linear(0, 1)",
+        "width 1s, opacity 1s",
         "width 1s",
         "margin 1s",
         "transform 200ms",
@@ -288,7 +290,101 @@ fn bound_transition_stacking_matches_kernel() {
         "200ms",
         "200ms ease-in",
         "color 1s, opacity 200ms",
+        "opacity",
+        "all",
+        "ease",
+        "spring()",
+        "linear(0, 1)",
+        "opacity scale 1s",
+        "opacity 1s ease linear",
+        "opacity 1s 2s 3s",
+        "opacity -1s",
+        "opacity 1s -2s",
+        "opacity 1e309s",
+        "opacity NaNs",
+        "opacity 0x1s",
+        "opacity 1\ns",
+        "opacity \u{feff}1s",
+        "opacity \u{85}1s",
+        "opacity +.1E+2ms",
+        "opacity\t1s",
+        " opacity 1s ",
+        "opacity 1s,",
+        ",opacity 1s",
+        "none, opacity 1s",
+        "opacity 1s (",
+        "opacity 1s)",
+        "opacity 1s cubic-bezier(0, 0, 1, 1))",
+        "layout 1s",
+        "tint-color 1s",
+        "--exact-tint 1s",
+        "--exact-shadow-color 1s",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
+    // Every authorable property, including aliases, and every easing branch.
+    let properties = exact_motion::Property::ALL
+        .into_iter()
+        .flat_map(|p| [p.name(), p.css_name()])
+        .chain(["all", "border-color", "width", "", "opacity scale"]);
+    let easings = [
+        "linear",
+        "ease",
+        "ease-in",
+        "ease-out",
+        "ease-in-out",
+        "step-start",
+        "step-end",
+        "cubic-bezier(0, -2, 1, 3)",
+        "cubic-bezier(-.1, 0, 1, 1)",
+        "cubic-bezier(0, 0, 1)",
+        "cubic-bezier(0, NaN, 1, 1)",
+        "steps(1)",
+        "steps(+2, start)",
+        "steps(2, end)",
+        "steps(2, jump-start)",
+        "steps(2, jump-end)",
+        "steps(2, jump-none)",
+        "steps(2, jump-both)",
+        "steps(0)",
+        "steps(1, jump-none)",
+        "steps(65535)",
+        "steps(65536)",
+        "steps(1.0)",
+        "steps(2, invalid)",
+        "steps(2, end, ignored)",
+        "linear(0, 1)",
+        "linear(0, .5, 1)",
+        "linear(0 0% 20%, 1 80% 100%)",
+        "linear(0 80%, .5 20%, 1)",
+        "linear(0 0% 100%)",
+        "linear(0)",
+        "linear()",
+        "linear(0 -1%, 1)",
+        "linear(0, 1 101%)",
+        "linear(0, NaN)",
+        "spring()",
+        "spring(300, 30, 1)",
+        "spring(0, 30, 1)",
+        "spring(300, -1, 1)",
+        "spring(300, 30, 0)",
+        "spring(300, 30)",
+        "spring(300, 30, 1e309)",
     ];
+    for property in properties {
+        for easing in easings {
+            for times in ["", "200ms", "0s 100ms", "0s -100ms"] {
+                values.push(format!("{property} {times} {easing}"));
+            }
+        }
+    }
+    for count in [8, 9] {
+        values.push(vec!["opacity 1s"; count].join(", "));
+    }
+    for count in [64, 65] {
+        values.push(format!("200ms linear({})", vec!["0"; count].join(",")));
+    }
     let plan = fixture_plan("", "2>1>");
     let (_, expression) = crate::paint::binding(
         &plan,
@@ -304,21 +400,34 @@ fn bound_transition_stacking_matches_kernel() {
         "const values={};console.log(JSON.stringify(values.map(v=>({expression})!==0)));",
         serde_json::to_string(&values).unwrap()
     );
-    let output = std::process::Command::new("bun")
-        .args(["-e", &script])
-        .output()
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = std::process::Command::new("bun")
+        .arg("-")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(script.as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
     assert!(
         output.status.success(),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
     let actual: Vec<bool> = serde_json::from_slice(&output.stdout).unwrap();
+    let mut disagreements = Vec::new();
     for (value, actual) in values.into_iter().zip(actual) {
         let mut style = exact_kernel::StyleProps::default();
         let _ = style.set_dynamic(
             StyleId::Transition,
-            &exact_kernel::StyleValue::Text(value.into()),
+            &exact_kernel::StyleValue::Text(value.clone()),
         );
         let own = exact_kernel::paint_order::own_from(exact_kernel::paint_order::Facts {
             style: &style,
@@ -329,8 +438,16 @@ fn bound_transition_stacking_matches_kernel() {
             beside_exclusion: false,
             holds_layout_transition: false,
         });
-        assert_eq!(actual, own.policy, "transition: {value}");
+        if actual != own.policy {
+            disagreements.push(format!("{value:?}: JS {actual}, kernel {}", own.policy));
+        }
     }
+    assert!(
+        disagreements.is_empty(),
+        "{} disagreements:\n{}",
+        disagreements.len(),
+        disagreements.join("\n")
+    );
 }
 
 struct ManyItems;
