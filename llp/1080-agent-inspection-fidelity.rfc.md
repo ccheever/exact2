@@ -85,8 +85,11 @@ implementation starts (`llp/reviews/1080*.astra.md`).
 
 ## 5. From the Signal clone
 
-LLP 1080.000 §10 records what the Signal clone needs from these stages, in its
-order of need: native chrome in screenshots, `layout` and `tree --ax` (stage
-3, ideally ahead of the native aim); D4's native kinds for the search
-controller, title-view segment, bar button menus and tab badge; and a
-proposed whole-gesture `drag` form of `tap`, which P3's failure does not block.
+LLP 1080.000 §10 records what the Signal clone needs, in its order of need:
+the native shell under the agent (stage 3's presentation flip, ideally ahead
+of the native aim, and two targets D4 does not name: the search controller's
+field and the title-view segment); the shell in `tree --ax` and `layout`
+(1080.002 D3's iOS chrome roots, not built and not listed as owed, plus the
+tab bar and its badges); and a proposed whole-gesture `drag` form of `tap` for
+the edge swipe, swipe-to-reply, the viewer's dismiss drag and the mic's
+press-and-hold, none of which needs a read while the finger is down.
