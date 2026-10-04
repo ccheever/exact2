@@ -11,7 +11,7 @@ if (!Bun.which('cargo', { PATH: process.env.PATH })) throw new Error(`these test
 delete process.env.EXACT_APP_DIR;
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname, relative, resolve } from 'node:path';
@@ -21,6 +21,7 @@ import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMa
 import { assertWebDistApp, jsonLines } from './agent.mjs';
 import { verifyBakeFiles, pendingBuildInputs } from './app.mjs';
 import { newerThan, notBuildInput } from './agent-launch.mjs';
+import { storeBase, sweepTestStores } from './agent-test.mjs';
 import { copyAppleStaticTrees } from '../host/apple/build.mjs';
 import { developmentLaunchEnvironment, deviceLaunchArgs } from '../host/apple/devices.mjs';
 import { classify, publishRoot, webRelease } from './deploy.mjs';
@@ -628,6 +629,17 @@ for (const [name, html, files, expectCode, expect] of [
   result('the staleness walk skips what an agent leaves in an app, never what a build reads',
     JSON.stringify(inside)===want&&JSON.stringify(outside)===want.replace('"modules/web/index.js",','"modules/web/index.js","scratch/out.bin",'),JSON.stringify({inside,outside}));
   rmSync(dir,{recursive:true,force:true});
+}
+{
+  // A killed authored-test run's stores are swept; a live run's, another name's and a plain store stay.
+  const base=mkdtempSync(join(tmpdir(),'exact-test-stores-'));
+  for(const name of ['test.r999999-ab12.t0','test.r999999-ab12.t1',`test.r${process.pid}-cd34.t0`,'test','test.t0','mine.r999999-ab12.t0','tests.r999999-ab12.t0']) mkdirSync(join(base,name));
+  sweepTestStores(base,'test');
+  const left=readdirSync(base).sort();
+  rmSync(base,{recursive:true,force:true});
+  result('authored-test stores: a dead run\'s are swept, a live run\'s and other names stay',
+    JSON.stringify(left)===JSON.stringify(['mine.r999999-ab12.t0','test','test.r'+process.pid+'-cd34.t0','test.t0','tests.r999999-ab12.t0'].sort()),JSON.stringify(left));
+  result('authored-test stores live where the hosts keep them',storeBase('com.x','mac',{},'/h')==='/h/Library/Caches/exact/com.x/agent'&&storeBase('com.x','linux',{XDG_CACHE_HOME:'/c'},'/h')==='/c/exact/com.x/agent'&&storeBase('com.x','linux',{XDG_CACHE_HOME:'rel'},'/h')==='/h/.cache/exact/com.x/agent'&&storeBase('com.x','ios')===null);
 }
 // A matching hand-written exact.json is not build identity. The agent must
 // consume the complete private marker verifier before it drives a dist.

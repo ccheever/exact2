@@ -60,3 +60,38 @@ fn the_apps_tests_parse() {
     let tests = contract::tests(&src).unwrap();
     assert_eq!(tests.len(), 3);
 }
+
+#[test]
+fn a_test_drags_and_opens_at_its_size() {
+    // kanban F18, paint F5: a drag, as the driver's `tap … drag`, and the
+    // viewport a test's session opens at, as its `--size`.
+    let src = "test \"board\"\n  size 1280x800\n  tap \"card\" drag 300 -60 hold 100\n  tap \"card\" drag -4.5 0\n";
+    let tests = contract::tests(src).unwrap();
+    let t = &tests[0];
+    assert!(
+        matches!(&t.steps[0], Step::Size { width, height, .. } if *width == 1280.0 && *height == 800.0)
+    );
+    assert!(
+        matches!(&t.steps[1], Step::Drag { dx, dy, hold: Some(h), press: None, .. } if *dx == 300.0 && *dy == -60.0 && *h == 100.0)
+    );
+    assert!(matches!(&t.steps[2], Step::Drag { dx, .. } if *dx == -4.5));
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains("{\"op\":\"size\",\"width\":1280,\"height\":800,\"line\":2}"),
+        "{json}"
+    );
+    assert!(
+        json.contains(
+            "{\"op\":\"drag\",\"target\":\"card\",\"dx\":300,\"dy\":-60,\"hold\":100,\"line\":3}"
+        ),
+        "{json}"
+    );
+    // The session opens at its size: a later `size` is refused, as is an
+    // option given twice, or a size not written as the driver's flag is.
+    let e = contract::tests("test \"t\"\n  tap \"a\"\n  size 800x600\n").unwrap_err();
+    assert_eq!((e.id.as_str(), e.span.line), ("syntax-expected-step", 3));
+    let e = contract::tests("test \"t\"\n  tap \"a\" drag 1 2 over 10 over 20\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected-step");
+    let e = contract::tests("test \"t\"\n  size 800 600\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected-step");
+}

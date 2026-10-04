@@ -89,19 +89,62 @@ impl<D: DataSource> Presenter<D> {
         if node.props.bool(PropId::Disabled) == Some(true) {
             return Err(format!("view {id} is disabled"));
         }
+        // A checkbox (or `switch`) takes `true` or `false`, and is toggled
+        // when that differs, as a click does (the web host's typeControl).
+        if matches!(
+            exact_kernel::ControlKind::of(node.node_type, node.props),
+            Some(exact_kernel::ControlKind::Checkbox | exact_kernel::ControlKind::Switch)
+        ) {
+            let on = match value {
+                "true" => true,
+                "false" => false,
+                _ => return Err(format!("checkbox {id} takes true or false, not {value:?}")),
+            };
+            let checked = |p: &mut Self| {
+                let bound = p
+                    .host
+                    .kernel()
+                    .node(id)
+                    .and_then(|n| n.props.bool(PropId::Checked));
+                bound
+                    .or_else(|| p.controls.get(&id).copied())
+                    .unwrap_or(false)
+            };
+            if checked(self) != on {
+                let now = self.host.now();
+                self.toggle_control(id, now);
+            }
+            return Ok(format!(
+                "{{\"typed\":{id},\"checked\":{},\"delivery\":\"recognized\"}}",
+                checked(self)
+            ));
+        }
+        // A select takes an enabled option's value, else its one label
+        // (Playwright's `selectOption`; kanban F17, shop F10).
+        let mut value = value.to_owned();
         if node.props.str(PropId::Type) == Some("select") {
             let choices = self.host.kernel().select_choices(id);
-            if !choices.iter().any(|c| c.value == value && !c.disabled) {
+            let enabled: Vec<_> = choices.iter().filter(|c| !c.disabled).collect();
+            let labelled: Vec<_> = enabled.iter().filter(|c| c.label == value.trim()).collect();
+            if !enabled.iter().any(|c| c.value == value) && labelled.len() == 1 {
+                value = labelled[0].value.clone();
+            } else if !enabled.iter().any(|c| c.value == value) {
                 return Err(format!(
-                    "select {id} has no enabled option {value:?} (options: {})",
-                    choices
+                    "select {id} has no enabled option {value:?}{} (options: {})",
+                    if labelled.len() > 1 {
+                        " (that label is on more than one option: choose by value)"
+                    } else {
+                        ""
+                    },
+                    enabled
                         .iter()
-                        .map(|c| format!("{:?}", c.value))
+                        .map(|c| format!("{:?} {:?}", c.value, c.label))
                         .collect::<Vec<_>>()
                         .join(", ")
                 ));
             }
         }
+        let value = value.as_str();
         self.menu = None;
         let now = self.host.now();
         let mut error = None;

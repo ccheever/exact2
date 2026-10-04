@@ -161,13 +161,14 @@
     var work = nativeStorage && nativeStorage.work;
     if (!call || call.status !== "pending" || typeof work !== "function") return promise;
     call.storage++;
+    storing.add(call);
     return work(promise).then(function (value) {
       currentCall = call;
-      call.storage--;
+      unstore(call);
       return value;
     }, function (error) {
       currentCall = call;
-      call.storage--;
+      unstore(call);
       throw error;
     });
   }
@@ -403,8 +404,34 @@
 
   // --- fetch: a request the host runs; a Promise for its reply -------------
   var nextTicket = 1;
-  var pending = new Map();   // ticket -> { resolve, reject, call }
+  // ticket -> { resolve, reject, call, claimed, stream, signal, release }:
+  // `claimed` once a settle has handed the executor its request, `release`
+  // ends its watch on `signal`.
+  var pending = new Map();
   var currentCall = null;    // the answer a fetch belongs to
+  // A fetch's `signal` is watched through Ibex's own abort hooks natively,
+  // which run before any listener and so cannot be stopped by one; a
+  // browser realm's signal is the browser's, watched by a listener, and
+  // checked again when the reply lands. Either watch ends with the fetch.
+  // Calls with storage steps in flight, settled or not: a step a settled
+  // call left behind is still the module's work (see `settle`).
+  var storing = new Set();
+  function unstore(call) {
+    call.storage--;
+    if (!call.storage) storing.delete(call);
+  }
+  var abortHooks = global.__ibex2_abort;
+  delete global.__ibex2_abort;
+  function watchAbort(signal, aborted) {
+    if (abortHooks) return abortHooks.subscribe(signal, aborted);
+    signal.addEventListener("abort", aborted);
+    return function () { signal.removeEventListener("abort", aborted); };
+  }
+  function settled(ticket) {
+    var p = pending.get(ticket);
+    if (p) { pending.delete(ticket); p.release(); }
+    return p;
+  }
 
   function Headers(init) {
     this._h = [];
@@ -451,7 +478,9 @@
   global.Response = Response;
   global.fetch = function (url, init) {
     var call = currentCall;
-    if (!call || call.replied) {
+    // A continuation running as an answer already given still fetches: the
+    // next answer to settle claims the request (see `settle`).
+    if (!call) {
       var refused = new Error("fetch() called outside an answer: it was never run. Start a fetch inside an answer");
       if (global.console) global.console.error(refused.message);
       return Promise.reject(refused);
@@ -480,6 +509,10 @@
     // The web's `signal`: an aborted fetch rejects with its reason at once.
     // The host's request still runs; its reply is dropped (`__exact_fulfill`).
     var signal = init ? init.signal : undefined;
+    if (signal != null && abortHooks) {
+      try { abortHooks.subscribe(signal, function () {})(); }
+      catch (e) { return Promise.reject(new TypeError("fetch: init.signal is not an AbortSignal")); }
+    }
     if (signal && signal.aborted) return Promise.reject(signal.reason);
     var ticket = nextTicket++;
     var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, max_response_bytes: ceiling, stream: stream ? true : undefined }));
@@ -487,10 +520,9 @@
     call.tickets.push(ticket);
     if (stream) call.stream = stream;
     return new Promise(function (resolve, reject) {
-      pending.set(ticket, { resolve: resolve, reject: reject, call: call });
-      if (signal) signal.addEventListener("abort", function () {
-        if (pending.delete(ticket)) reject(signal.reason);
-      }, { once: true });
+      var p = { resolve: resolve, reject: reject, call: call, claimed: false, stream: !!stream, signal: signal, release: function () {} };
+      pending.set(ticket, p);
+      if (signal) p.release = watchAbort(signal, function () { if (settled(ticket)) reject(signal.reason); });
     });
   };
 
@@ -587,16 +619,17 @@
     catch (e) { refused = "bake"; } // no filesystem or database effects during bake
     if (refused) return Promise.reject(storageError(REFUSED[refused], refused));
     call.storage++;
+    storing.add(call);
     var promise;
     try { promise = receiver[method].apply(receiver, args); }
     catch (e) { promise = Promise.reject(e); }
     return promise.then(function (value) {
       currentCall = call;
-      call.storage--;
+      unstore(call);
       return convert ? convert(value) : value;
     }, function (error) {
       currentCall = call;
-      call.storage--;
+      unstore(call);
       if (!error || !error.kind) throw storageError(error && error.message || String(error), error && error.code);
       if (!error.code) try { error.code = storageCode(String(error.message)); } catch (_) { /* a frozen error keeps its own */ }
       throw error;
@@ -682,16 +715,26 @@
   // is outstanding, and the executor asks again after each one lands. The
   // web's module realm (module-glue.js, the wasm target's) runs one answer
   // at a time and keeps the per-answer rule.
+  //
+  // A continuation runs as the answer whose reply settled the promise it
+  // awaited, so a fetch an answer makes after awaiting another's lands among
+  // that other's tickets (hn-reader F7, review finding 1). A fetch no settle
+  // has handed the executor yet, or a storage step a settled answer left in
+  // flight, is the module's: the next answer to settle without work of its
+  // own claims it and waits on it, so no request is left behind.
   var moduleWide = bytesDoor !== undefined;
-  function outstanding() {
-    if (pending.size) return true;
-    var any = false;
-    calls.forEach(function (c) { if (c.storage > 0) any = true; });
-    return any;
+  function claim(call, ticket) {
+    var p = pending.get(ticket);
+    p.claimed = true;
+    if (p.call !== call) { p.call = call; call.tickets.push(ticket); }
+    return JSON.stringify({ tag: 1, call: call.id, ticket: ticket });
   }
   // Whether an answer still has a fetch or storage step of its own in flight.
   function owes(call) {
-    for (var i = 0; i < call.tickets.length; i++) if (pending.has(call.tickets[i])) return true;
+    for (var i = 0; i < call.tickets.length; i++) {
+      var p = pending.get(call.tickets[i]);
+      if (p && p.call === call) return true;
+    }
     return call.storage > 0 && !call.lost;
   }
   // The answer is given once the work it started has landed, awaited or not:
@@ -705,11 +748,35 @@
     return text;
   }
   function settle(call, final) {
-    for (var i = 0; i < call.tickets.length; i++) if (pending.has(call.tickets[i])) return JSON.stringify({ tag: 1, call: call.id, ticket: call.tickets[i] });
+    // Its own work first, awaited or not: a fetch it made that no settle
+    // has handed out, then its storage steps. A finished answer leaves an
+    // unclaimed fetch to another answer still in flight, which may be the
+    // one whose continuation made it (review r4a, finding 1); with none,
+    // it waits for the fetch itself, so nothing is left behind.
+    var finished = call.status === "done" || call.status === "failed", others = false;
+    if (finished && moduleWide) calls.forEach(function (c) { if (c !== call && !c.letGo && c.status === "pending") others = true; });
+    for (var i = 0; i < call.tickets.length; i++) {
+      var own = pending.get(call.tickets[i]);
+      if (own && !own.claimed && own.call === call && !others) return claim(call, call.tickets[i]);
+    }
     if (call.storage > 0 && !call.lost) return JSON.stringify({ tag:1, call:call.id, ticket:0 });
-    if (call.status === "done") return reply(call, ok(call.value));
-    if (call.status === "failed") return reply(call, fail(call.error));
-    if (moduleWide && !final && outstanding()) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
+    if (finished) {
+      // A fetch of its own already handed out and still in flight: asked
+      // again once it lands (natively; the module realm runs one at a time).
+      var inFlight = false;
+      pending.forEach(function (p) { if (p.call === call && p.claimed) inFlight = true; });
+      if (moduleWide && inFlight) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
+      return reply(call, call.status === "done" ? ok(call.value) : fail(call.error));
+    }
+    if (moduleWide) {
+      var unclaimed;
+      pending.forEach(function (p, ticket) { if (unclaimed === undefined && !p.claimed && !p.stream) unclaimed = ticket; });
+      if (unclaimed !== undefined) return claim(call, unclaimed);
+      var left = false;
+      storing.forEach(function (c) { if (!calls.has(c.id)) left = true; });
+      if (left) return JSON.stringify({ tag:1, call:call.id, ticket:0 });
+      if (!final && (pending.size || storing.size)) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
+    }
     call.replied = true;
     calls.delete(call.id);
     if (moduleWide) return fail(new Error("the answer is pending on nothing: it awaits a promise that no fetch or storage step " +
@@ -818,7 +885,11 @@
   global.__exact_forget = function (id) {
     var call = calls.get(Number(id));
     if (!call) return "";
-    for (var i = 0; i < call.tickets.length; i++) pending.delete(call.tickets[i]);
+    // Not a fetch another answer has since claimed: that one waits on it.
+    for (var i = 0; i < call.tickets.length; i++) {
+      var p = pending.get(call.tickets[i]);
+      if (p && p.call === call) settled(call.tickets[i]);
+    }
     if (call.storage > 0 && !call.lost) { call.letGo = true; return "storage"; }
     call.replied = true;
     calls.delete(call.id);
@@ -828,7 +899,7 @@
     var owed = false;
     calls.forEach(function (c) {
       if (!c.letGo) return;
-      if (failed) c.lost = true;
+      if (failed) { c.lost = true; storing.delete(c); }
       if (c.storage > 0 && !c.lost) owed = true;
       else { c.replied = true; calls.delete(c.id); }
     });
@@ -856,17 +927,19 @@
   global.__exact_storage_failed = function (id, outcomeJson) {
     var call = calls.get(Number(id));
     // Its storage steps will not land: refuse the answer without them.
-    if (call) { call.status = "failed"; call.lost = true; call.error = storageError(JSON.parse(outcomeJson).failed.message, "failed"); }
+    if (call) { call.status = "failed"; call.lost = true; storing.delete(call); call.error = storageError(JSON.parse(outcomeJson).failed.message, "failed"); }
   };
   global.__exact_fulfill = function (ticket, outcomeJson) {
-    var p = pending.get(Number(ticket));
+    var p = settled(Number(ticket));
     if (!p) return;
-    pending.delete(Number(ticket));
     var o = JSON.parse(outcomeJson);
     // The continuation runs in the drain that follows, and a fetch it
     // makes belongs to this call.
     currentCall = p.call;
-    if (o.failed) p.reject(new FetchError(o.failed));
+    // A browser realm's abort listener can be stopped by an earlier one;
+    // the signal itself still says so.
+    if (p.signal && p.signal.aborted) p.reject(p.signal.reason);
+    else if (o.failed) p.reject(new FetchError(o.failed));
     else p.resolve(new Response(o.response));
   };
 })(globalThis);

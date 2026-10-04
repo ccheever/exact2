@@ -81,6 +81,31 @@ final class DialogMacTests: XCTestCase {
         XCTAssertEqual(presses, [5], "the confirmation action is dispatched once before closing")
         XCTAssertNil(p.dialogs.active)
     }
+    /// The web's order (docs/contract-grammar.md#keys): a field's `key`
+    /// handlers hear Escape and Tab before the dialog's defaults, and one that
+    /// calls `preventDefault()` keeps the dialog open and the focus put.
+    func testKeyHandlersHearEscapeAndTabBeforeTheDialogAndCanKeepThem() throws {
+        let p = fixture()
+        let opener = p.views[2]!, node = p.views[4]!, field = try XCTUnwrap(node.field)
+        node.handlers.insert("key")
+        var heard: [String] = [], prevent = true
+        p.onKey = { id, name in heard.append("\(id) \(name)"); if prevent { p.defaultPrevented = true } }
+        window.makeFirstResponder(opener)
+        click(opener)
+        XCTAssertTrue(field.currentEditor() === window.firstResponder)
+        XCTAssertTrue(p.routeKey(key(53, character: "\u{1b}"), focused: true))
+        XCTAssertTrue(p.routeKey(key(48, character: "\t"), focused: true))
+        XCTAssertEqual(heard, ["4 Escape", "4 Tab"])
+        XCTAssertNotNil(p.dialogs.active, "a prevented Escape leaves the dialog open")
+        XCTAssertTrue(field.currentEditor() === window.firstResponder, "a prevented Tab leaves the focus")
+        prevent = false
+        XCTAssertTrue(p.routeKey(key(48, character: "\t"), focused: true))
+        XCTAssertTrue(window.firstResponder === p.views[5], "an unprevented Tab is the dialog's")
+        window.makeFirstResponder(field)
+        XCTAssertTrue(p.routeKey(key(53, character: "\u{1b}"), focused: true))
+        XCTAssertEqual(heard, ["4 Escape", "4 Tab", "4 Tab", "4 Escape"])
+        XCTAssertNil(p.dialogs.active, "an unprevented Escape closes it")
+    }
     func testDismissalPoliciesAndBackgroundPointerBlocking() {
         let p = fixture()
         let modal = p.views[3]!

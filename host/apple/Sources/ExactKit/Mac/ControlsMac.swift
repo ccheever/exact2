@@ -20,7 +20,7 @@ final class ControlHost: NSObject {
 
     init(_ presenter: Presenter) { self.presenter = presenter }
 
-    private func isOn(_ control: NSControl) -> Bool {
+    func isOn(_ control: NSControl) -> Bool {
         ((control as? NSSwitch)?.state ?? (control as? NSButton)?.state) == .on
     }
 

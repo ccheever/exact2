@@ -227,6 +227,39 @@ fn disabled_controls_refuse_pointer_and_text_input() {
     );
 }
 
+/// A keydown bubbles to every ancestor's `key` handler, innermost first, and
+/// a handler's `preventDefault()` keeps its character out of the field
+/// (docs/contract-grammar.md#keys; calc F3, minesweeper F7).
+#[test]
+fn a_key_bubbles_and_prevent_default_keeps_its_character_out() {
+    let source = r#"component Keys
+  state text = ""
+  state heard = ""
+  action typed(v: string)
+    text = v
+  action field(k: string)
+    heard = `${heard}f${k}`
+    if k == "x"
+      preventDefault()
+  action outer(k: string)
+    heard = `${heard}o${k}`
+  view
+    column key=outer
+      input value=text input=typed key=field testId="field"
+"#;
+    let plan = contract::compile(source).unwrap();
+    let (mut p, error) =
+        Presenter::boot(&plan.encode(), NoData, (390.0, 844.0), 1.0, assets()).unwrap();
+    assert!(error.is_none());
+    let field = view(&p, "field");
+    for key in ["7", "x"] {
+        p.type_key(field, key, key, true, false).unwrap();
+    }
+    let slot = |p: &Presenter<NoData>, name: &str| p.host().runner().slot(name).cloned();
+    assert_eq!(slot(&p, "text"), Some(Value::str("7")), "x was prevented");
+    assert_eq!(slot(&p, "heard"), Some(Value::str("f7o7fxox")));
+}
+
 #[test]
 fn unsupported_emoji_picker_does_not_dispatch_a_fake_selection() {
     let plan = contract::compile(

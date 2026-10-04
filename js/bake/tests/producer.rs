@@ -781,6 +781,10 @@ fn every_build_takes_one_typescript_configuration_and_refuses_alike() {
         }
     };
     web().unwrap();
+    // The output sits inside the app here; the capture leaves it out
+    // rather than copying its own stage into itself (review r4a 2).
+    let stage = f.0.join("web-out/.gen/typescript");
+    assert!(stage.join("logic.ts").exists() && !stage.join("web-out").exists());
     assert!(
         f.0.join("app.contract.d.ts").exists(),
         "a development build writes the declarations beside app.ts"

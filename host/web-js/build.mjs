@@ -148,6 +148,9 @@ async function typecheck() {
   // The bake's capture (js/bake/src/lib.rs `sources`): the app's TypeScript
   // and JSON, and each `typescript.sources` mount under its name.
   const stage = resolve(gen, 'typescript');
+  // This build's own output may sit inside the app (`--out <app>/web-out`):
+  // it is no source, and the stage is inside it (review r4a 2).
+  const output = realpathSync(out);
   const mounts = Object.entries(manifest.typescript?.sources ?? {}).map(([name, path]) => [name, realpathSync(resolve(appDir, path))]);
   const capture = (from, to, top) => {
     for (const entry of readdirSync(from, { withFileTypes: true })) {
@@ -155,7 +158,7 @@ async function typecheck() {
       if (['.git', 'node_modules', 'target', 'dist'].includes(name) || name.startsWith('.exact-js-bake-') || (top && name === 'app.contract.d.ts')) continue;
       if (top && mounts.some(([mount]) => mount === name)) continue;
       if (entry.isSymbolicLink()) throw new Error(`source links are not captured: ${path}`);
-      if (entry.isDirectory()) capture(path, resolve(to, name), false);
+      if (entry.isDirectory()) { if (realpathSync(path) !== output) capture(path, resolve(to, name), false); }
       else if (/\.(ts|json)$/.test(name)) { mkdirSync(to, { recursive: true }); cpSync(path, resolve(to, name)); }
     }
   };

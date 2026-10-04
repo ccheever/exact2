@@ -200,7 +200,8 @@ function drain() {
     if (e.$jump) e.$jump(name, at);
     else if (e[name] !== at) { if (Booting) e.$bootScroll = true; if (clock.agent && e.style.scrollBehavior === "smooth") e.scrollTo({ [name === "scrollTop" ? "top" : "left"]: at, behavior: "instant" }); else e[name] = at; }
   }
-  Scrolls.clear(); for (const e of Selects) if (!e.isConnected) Selects.delete(e); else { const o = [...e.options].map(o => o.value).join("\0"); if (e.$set || e.$options !== o) { e.$set = false; e.$options = o; if (e.value !== e.$value) e.value = e.$value; } }
+  // Options compare as nodes and values: a branch that replaces them with equal values still resets the pick.
+  Scrolls.clear(); for (const e of Selects) if (!e.isConnected) Selects.delete(e); else { const o = [...e.options], v = o.map(x => x.value); if (e.$set || o.length !== e.$options?.length || o.some((x, i) => x !== e.$options[i] || v[i] !== e.$values[i])) { e.$set = false; e.$options = o; e.$values = v; if (e.value !== e.$value) e.value = e.$value; } }
 }
 /** An action: each call is one commit. */
 export function act(fn) { return (...a) => commit(() => fn(...a), "action"); }
@@ -211,6 +212,7 @@ export const Hosts = {
   setScheme: s => { document.documentElement.style.colorScheme = s === "system" ? "" : s; },
   copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), // LLP 1077 D14: vibration where the browser has it
 };
+let KeyEvent = null; Hosts.preventDefault = () => KeyEvent?.preventDefault(); // the keydown whose `key` handler is running (`on`): commands run before its commit returns
 function command(name, args) {
   const f = Hosts[name];
   say(`command ${name}`);
@@ -775,11 +777,11 @@ export function on(e, kind, f) {
     // A checkbox's value is whether it is checked; the platform flips the
     // box at once, and an action that refuses snaps it back (glue.js). A
     // host's change carries its own text (files.js: a picker's lines, which
-    // an input's value would flatten).
-    case "change": case "input": return l(kind, ev => { if (ev instanceof CustomEvent) return f(ev.detail); if (e.type !== "checkbox") return f(e.value); f(e.checked); if (e.$checked !== undefined && e.checked !== e.$checked) e.checked = e.$checked; });
+    // an input's value would flatten). A range's is a number (the events table).
+    case "change": case "input": return l(kind, ev => { if (ev instanceof CustomEvent) return f(ev.detail); if (e.type !== "checkbox") return f(e.type === "range" ? Number(e.value) : e.value); f(e.checked); if (e.$checked !== undefined && e.checked !== e.$checked) e.checked = e.$checked; });
     case "hover": l("pointerenter", () => f(true)); return l("pointerleave", () => f(false));
-    case "key": return l("keydown", ev => f(ev.key));
-    case "submit": return l("keydown", ev => { if (ev.key === "Enter" && !ev.isComposing) { ev.preventDefault(); f(); } });
+    case "key": return l("keydown", ev => { const outer = KeyEvent; KeyEvent = ev; try { f(ev.key); } finally { KeyEvent = outer; } }); // it bubbles to every ancestor's handler
+    case "submit": return l("keydown", ev => { if (ev.key === "Enter" && !ev.isComposing && !ev.$submit) { ev.$submit = true; addEventListener("keydown", w => { if (w === ev && !ev.defaultPrevented) { ev.preventDefault(); f(); } }, { once: true }); } }); // Enter's default: after every `key` handler on the path (the window's listener is last), unless one prevented it
     // Only from the origin of the src the app committed (glue.js
     // `guestMessageAuthorized`, LLP 1020 D2): a guest that navigated away is
     // not heard; an opaque sandbox's origin is "null".
@@ -1273,7 +1275,6 @@ export function checkpoint() {
 /** A checkpoint value (`push_value`, host/web/src/page.rs) as a runtime value:
  * lists and records are arrays, unit and `none` null, `some(v)` v. */
 const value_ = v => v === null || typeof v !== "object" ? v : Array.isArray(v) ? v.map(value_) : "r" in v ? v.r.map(value_) : "s" in v ? value_(v.s) : "n" in v ? Number(v.n) : null;
-
 // ---------------------------------------------------------------- the roster (runner/src/stdlib.rs)
 /** A native module's props (LLP 1024 D1): key/value pairs to one JSON
  * object of strings, a none left out (`stdlib::native_props`). */

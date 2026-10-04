@@ -1,5 +1,25 @@
 // The same utility corpus runs in Hermes and Chrome. Returning JSON keeps the
 // Contract signature small; the separate transfer corpus also uses Bun's JSON.
+// What an object says of itself never steers a copy (review r4a 5, 9, 10):
+// its own `constructor`, getters and tags, a key named `__proto__`, holes.
+function steered() {
+  const proto=structuredClone(JSON.parse('{"__proto__":{"admin":true},"ok":1}'));
+  const bytes=new Uint8Array([1,2]);
+  Object.defineProperty(bytes,'constructor',{value:function(){return new Uint8Array([99,99]);}});
+  Object.defineProperty(bytes,'buffer',{get(){return new ArrayBuffer(8);}});
+  const bytesCopy=structuredClone(bytes), sortedBytes=bytes.toSorted(), withBytes=bytes.with(0,7);
+  const date=new Date(5); Object.defineProperty(date,'getTime',{value:()=>9});
+  const fake={[Symbol.toStringTag]:'Date',n:1};
+  const map=new Map([[1,2]]); Object.defineProperty(map,'forEach',{value:()=>{}});
+  const re=/a/g; Object.defineProperty(re,'flags',{value:'i'}); Object.defineProperty(re,'global',{value:false});
+  let visits=0;
+  const holes=[2,,1].toSorted(); holes.map(()=>visits++);
+  return {proto:[Object.keys(proto),Object.getPrototypeOf(proto)===Object.prototype,'admin' in proto,JSON.stringify(proto)],
+    bytes:[Array.from(bytesCopy),Object.getPrototypeOf(bytesCopy)===Uint8Array.prototype,bytesCopy.buffer.byteLength,Array.from(sortedBytes),Object.getPrototypeOf(sortedBytes)===Uint8Array.prototype,Array.from(withBytes)],
+    date:structuredClone(date).getTime(), fake:[Object.keys(structuredClone(fake)),typeof (structuredClone(fake) as any).getTime],
+    map:[...structuredClone(map)], re:[structuredClone(re).flags,structuredClone(re).source],
+    holes:[holes.length,0 in holes,1 in holes,2 in holes,visits]};
+}
 export function exercise(source: string): string {
   const encoder = new TextEncoder();
   if(source==='text') {
@@ -58,6 +78,7 @@ export function exercise(source: string): string {
       sorted:[[3,1,2].toSorted(),[3,1,2].toSorted((a,b)=>b-a),Array.prototype.toSorted.call({length:2,0:'b',1:'a'})],
       typed:[Array.from(new Int8Array([1,-2,3]).toReversed()),Array.from(new Int8Array([3,-2,1]).toSorted()),Array.from(new Int8Array([1,2,3]).with(-1,9))],
       newer:[[1,2,3].at(-1),[1,2,3].findLast(n=>n<3),Object.groupBy([1,2,3],n=>n%2?'odd':'even'),'a.b'.replaceAll('.','/'),typeof Promise.withResolvers],
+      ...steered(),
     });
   }
   if(source==='microtask') {
@@ -76,7 +97,14 @@ export function exercise(source: string): string {
     const controller=new AbortController();
     const late=fetch('https://example.invalid/late',{signal:controller.signal}).then(()=>'fetched',e=>(e as Error).name);
     controller.abort(new Error('mine'));
-    return Promise.all([early,late,late.then(()=>controller.signal.reason.message)]).then(JSON.stringify) as unknown as string;
+    // An abort listener the app added first cannot stop the fetch's own
+    // (review r4a 8); a signal that is no AbortSignal is a TypeError.
+    const quiet=new AbortController();
+    quiet.signal.addEventListener('abort',e=>e.stopImmediatePropagation());
+    const suppressed=fetch('https://example.invalid/quiet',{signal:quiet.signal}).then(()=>'fetched',e=>(e as Error).name);
+    quiet.abort();
+    const bad=fetch('https://example.invalid/bad',{signal:{aborted:false} as unknown as AbortSignal}).then(()=>'fetched',e=>(e as Error).name);
+    return Promise.all([early,late,late.then(()=>controller.signal.reason.message),suppressed,bad]).then(JSON.stringify) as unknown as string;
   }
   if(source==='base64') {
     const inputs=['','Zg','Zh','Zg==','Zm8','Zm9','Zm9v',' /w==\n','AA=='];
