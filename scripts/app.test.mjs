@@ -1257,3 +1257,30 @@ test.each(['notes', 'planner'])('OS-specific folders resolve for %s without app-
     rmSync(dir, {recursive:true,force:true});
   }
 });
+
+// Grow a Garden: a `git checkout` that rewrote unchanged files made the next
+// drive refuse (`web build is stale`) though the proof's receipt (by content)
+// was fresh. The staleness check now compares content digests.
+test('rewriting an input with its own bytes does not make a web build stale', async () => {
+  const { webChanges, webInputDigests } = await import('./agent-launch.mjs');
+  const { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync } = await import('node:fs');
+  const { resolve } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const dir = mkdtempSync(resolve(tmpdir(), 'web-freshness-'));
+  try {
+    const app = { dir: resolve(dir, 'app'), manifest: { game: {} } };
+    const dist = resolve(dir, 'dist');
+    mkdirSync(resolve(app.dir, 'logic/src'), { recursive: true });
+    mkdirSync(dist);
+    const source = resolve(app.dir, 'logic/src/lib.rs');
+    writeFileSync(source, 'fn tick() {}\n');
+    const marker = resolve(dist, '.exact-build.json');
+    writeFileSync(marker, JSON.stringify({ exactBuild: 1, inputs: webInputDigests(app, false) }));
+    const past = new Date(Date.now() - 60_000);
+    utimesSync(marker, past, past);
+    writeFileSync(source, 'fn tick() {}\n');
+    assert.deepEqual(webChanges(dist, app).app, []);
+    writeFileSync(source, 'fn tick() { edited(); }\n');
+    assert.deepEqual(webChanges(dist, app).app, [source]);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+}, 60000);

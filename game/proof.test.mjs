@@ -5,7 +5,7 @@ import {createHash} from 'node:crypto';
 import {spawnSync} from 'node:child_process';
 import {checkSteadyResidency} from './render/tests/residency.mjs';
 import {test, expect} from 'bun:test';
-import {mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, symlinkSync, utimesSync} from 'node:fs';
+import {mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, readdirSync, symlinkSync} from 'node:fs';
 import {resolve, dirname} from 'node:path';
 import {tmpdir} from 'node:os';
 import {agreePins, nativeProofHost, webUnavailable, pinRecorder, proofStatus, facilityReport, artifactDigest, closeSessions, equal, paranoidRuns, buildInputHash, ensureBuildReceipt, proofInputFiles} from './proof.mjs';
@@ -1490,27 +1490,3 @@ test('a split clock grows at most 4x a step and never past ten world minutes', a
   }
   expect(worst).toBeLessThanOrEqual(4500 + 1e-6);
 });
-
-// Grow a Garden: a `git checkout` that rewrote unchanged files made the next
-// drive refuse (`web build is stale`) though the proof's receipt (by content)
-// was fresh. The staleness check now compares content digests.
-test('rewriting an input with its own bytes does not make a web build stale', async () => {
-  const { webChanges, webInputDigests } = await import('../scripts/agent-launch.mjs');
-  const dir = mkdtempSync(resolve(tmpdir(), 'web-freshness-'));
-  try {
-    const app = { dir: resolve(dir, 'app'), manifest: { game: {} } };
-    const dist = resolve(dir, 'dist');
-    mkdirSync(resolve(app.dir, 'logic/src'), { recursive: true });
-    mkdirSync(dist);
-    const source = resolve(app.dir, 'logic/src/lib.rs');
-    writeFileSync(source, 'fn tick() {}\n');
-    const marker = resolve(dist, '.exact-build.json');
-    writeFileSync(marker, JSON.stringify({ exactBuild: 1, inputs: webInputDigests(app, false) }));
-    const past = new Date(Date.now() - 60_000);
-    utimesSync(marker, past, past);
-    writeFileSync(source, 'fn tick() {}\n');
-    expect(webChanges(dist, app).app).toEqual([]);
-    writeFileSync(source, 'fn tick() { edited(); }\n');
-    expect(webChanges(dist, app).app).toEqual([source]);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
-}, 60000);
