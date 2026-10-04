@@ -149,7 +149,7 @@ impl Parser {
                 return self.err(
                     "syntax-expected-step",
                     format!(
-                    "expected `tap`, `type`, `pick`, `clock`, `reload`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`), found {}",
+                    "expected `tap`, `type`, `pick`, `clock`, `reload`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `before data`), found {}",
                     describe(&other)
                 ),
                 )
@@ -288,9 +288,9 @@ impl Parser {
             }
             "clock" => {
                 let arg = match self.peek_kind().clone() {
-                    TokenKind::Ident(w) if w == "settle" => {
+                    TokenKind::Ident(w) if w == "settle" || w == "data" => {
                         self.next();
-                        "settle".to_string()
+                        w
                     }
                     TokenKind::Punct("+") => {
                         self.next();
@@ -326,7 +326,7 @@ impl Parser {
                         return self.err(
                             "syntax-expected-step",
                             format!(
-                                "`clock` takes `settle`, `+ms`, `+ms real`, or `ms`, found {}",
+                                "`clock` takes `settle`, `data`, `+ms`, `+ms real`, or `ms`, found {}",
                                 describe(&other)
                             ),
                         )
@@ -406,6 +406,17 @@ impl Parser {
                     );
                 }
                 Step::Seed { seed, span }
+            }
+            // `before data`: the first step does not wait for the app's data.
+            "before" => {
+                if !self.at_ident("data") {
+                    return self.err(
+                        "syntax-expected-step",
+                        "`before` takes `data`: `before data`, the test's first step before the app's data lands",
+                    );
+                }
+                self.next();
+                Step::BeforeData { span }
             }
             "reload" => Step::Reload { span },
             "screenshot" => Step::Screenshot {
@@ -497,7 +508,7 @@ impl Parser {
                 return Err(SyntaxError {
                     id: "syntax-expected-step",
                     message: format!(
-                    "expected `tap`, `type`, `pick`, `clock`, `reload`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`), found `{other}`"
+                    "expected `tap`, `type`, `pick`, `clock`, `reload`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`, `before data`), found `{other}`"
                 ),
                     span,
                 })
@@ -510,7 +521,7 @@ impl Parser {
 
 /// The words of a test's launch lines, which a test file may also write at
 /// its top level for every test in it (habits F7, calendar F13).
-pub(super) const LAUNCH: [&str; 5] = ["size", "epoch", "time-zone", "locale", "seed"];
+pub(super) const LAUNCH: [&str; 6] = ["size", "epoch", "time-zone", "locale", "seed", "before"];
 
 /// A launch line's word, or `""` for any other step.
 pub(super) fn launch_word(step: &Step) -> &'static str {
@@ -520,6 +531,7 @@ pub(super) fn launch_word(step: &Step) -> &'static str {
         Step::TimeZone { .. } => "time-zone",
         Step::Locale { .. } => "locale",
         Step::Seed { .. } => "seed",
+        Step::BeforeData { .. } => "before data",
         _ => "",
     }
 }

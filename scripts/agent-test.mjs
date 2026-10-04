@@ -49,7 +49,8 @@ const LAUNCH = { epoch: 'epoch', 'time-zone': 'timeZone', locale: 'locale', seed
  * a scratch store `<storage>.r<pid>-<tag>.t<n>` of this run's, emptied at
  * launch and removed after the test (with any a killed run left), so an app
  * that keeps its data in storage loads and no test, concurrent run or
- * earlier run sees another's writes. A failed expect names the test, the line, and what
+ * earlier run sees another's writes. The app's data lands before the first step (and after a `reload`), unless
+ * the test says `before data`. A failed expect names the test, the line, and what
  * was seen. Returns `{ passed, failed, results }`.
  */
 export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, storage = 'test' } = {}) {
@@ -72,8 +73,10 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     // A test's launch lines lead its steps and override the drive's flags (habits F7).
     const facts = { size, seed, locale, timeZone, epoch };
     const lines = [];
+    let beforeData = false;
     for (const st of t.steps) {
-      if (st.op === 'size') facts.size = [st.width, st.height];
+      if (st.op === 'before-data') beforeData = true;
+      else if (st.op === 'size') facts.size = [st.width, st.height];
       else if (LAUNCH[st.op]) facts[LAUNCH[st.op]] = st.value;
       else break;
       lines.push(st.line);
@@ -85,6 +88,11 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     }
     const launch = (environment) => open({ host, browser, plan, ...facts, env: environment, app, webDist, device, phone, url, storage: store });
     let s = await launch(fresh);
+    // The app's data lands before the first step, as `clock data` lands it: activation and every request in flight,
+    // the clock unmoved and no timer fired (habits, pomodoro, kanban: a store opened at launch raced the first step).
+    // `before data` does not wait (what has landed then is the host's: a native app ran on real time before the
+    // driver connected). An unsettled wait leaves the expects to name what is still in flight.
+    const data = async () => { if (!beforeData) await s.clock('data'); };
     // `reload`: the app restarts on the store it had (mail F19, kanban F25): the web page loads again in its
     // profile, keeping what the origin stored; a native app relaunches on the same scratch store, not emptied.
     const reload = async () => {
@@ -105,11 +113,12 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
       failures.push(pending.length ? `${message} (${pending.length} request${pending.length === 1 ? '' : 's'} still in flight: ${pending.join(', ')}; a reply lands at a \`clock\` step, as \`clock settle\`)` : message);
     };
     try {
-      for (const st of t.steps) {
+      try { await data(); } catch (e) { failures.push(`${t.name}: waiting for the app's data before the first step: ${e.message}`); }
+      for (const st of failures.length ? [] : t.steps) {
         const at = `${t.name}: line ${st.line}`;
         try {
           switch (st.op) {
-            case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': break; // the session opened with it
+            case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': case 'before-data': break; // the session opened with it
             // The driver's `tap` forms (feed F10): `into` brings a virtualized list's row into view by its key.
             case 'tap': delivered(await s.tap(st.target, st.form === 'into' ? { into: { key: st.key } } : st.form !== 'press' ? { [st.form]: true } : st.modifiers ? { modifiers: st.modifiers } : undefined)); input = st.line; break;
             case 'drag': delivered(await s.tap(st.target, { drag: { dx: st.dx, dy: st.dy, ...(st.from ? { from: st.from } : {}), ...(st.mouse ? { mouse: true } : {}), ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) } })); input = st.line; break;
@@ -123,7 +132,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
               }
               delivered(await s.type(st.target, text)); input = st.line; break;
             }
-            case 'reload': await reload(); input = null; break;
+            case 'reload': await reload(); await data(); input = null; break;
             case 'key': delivered(await s.type(st.target, { key: st.key })); input = st.line; break;
             // A held picker, by the node its answer arrives at or its capability (files F11); paths are the test file's.
             case 'pick': delivered(st.paths.length ? await s.type(`@${st.target}`, st.paths.map((p) => resolve(dirname(resolve(file)), p)).join('\n') + '\n') : await s.tap(`@${st.target}`, { choice: 'cancel' })); input = st.line; break;

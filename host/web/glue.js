@@ -1218,8 +1218,10 @@ function tagged(reply) {
 // awaits it.
 async function clock(request) {
   // The end of an input (LLP 1012 §2): the `then`s of the answers it settled
-  // land, the clock unmoved and no timer fired (Runner::land_then).
-  if (request.land) { const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(agentClock, 2)))); return batch.error ? { error: `clock: ${batch.error}`, clock: agentClock } : { clock: agentClock }; }
+  // land, the clock unmoved and no timer fired (Runner::land_then). `clock data` (web-js agent.js) first
+  // waits for activation and every request in flight, landing until a landing sends nothing (a test's first step).
+  if (request.land || request.data) { if (request.data) await moduleReady; const deadline = performance.now() + SETTLE_DEADLINE_MS, unsettled = { clock: agentClock, settled: false, reason: "requests" };
+    for (let round = 0; round < 16; round++) { if (request.data && !(await waitForInflight(deadline))) return unsettled; const { batch } = applyBatch(JSON.parse(readOut(wasm.exact_advance(agentClock, 2)))); if (batch.error) return { error: `clock: ${batch.error}`, clock: agentClock }; if (!request.data) return { clock: agentClock }; if (!waiting().length) return { clock: agentClock, settled: true }; } return unsettled; }
   const settle = !!request.settle; if (imageHold) await (await imageHold).ready(); // an animated image starts on the clock it lands at
   const deadline = performance.now() + SETTLE_DEADLINE_MS;
   let world = {};

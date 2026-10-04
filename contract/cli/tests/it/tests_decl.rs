@@ -137,6 +137,40 @@ fn a_file_and_a_test_carry_their_launch_facts() {
 }
 
 #[test]
+fn a_test_waits_for_the_apps_data_unless_it_says_before_data() {
+    // habits, pomodoro, kanban: every test's first step waits for the app's
+    // data, as `clock data` does; `before data` does not wait, and
+    // `clock data` lands what a step started without moving the clock.
+    let src = "before data\n\ntest \"a\"\n  expect text \"x\" == \"Opening…\"\n  clock data\n\ntest \"b\"\n  before data\n  size 420x900\n  tap \"y\"\n";
+    let tests = contract::tests(src).unwrap();
+    assert!(matches!(&tests[0].steps[0], Step::BeforeData { .. }));
+    assert!(matches!(&tests[0].steps[2], Step::Clock { arg, .. } if arg == "data"));
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.starts_with("[{\"name\":\"a\",\"steps\":[{\"op\":\"before-data\",\"line\":1},"),
+        "{json}"
+    );
+    assert!(
+        json.contains("{\"op\":\"clock\",\"arg\":\"data\",\"line\":5}"),
+        "{json}"
+    );
+    assert!(
+        json.contains(
+            "{\"name\":\"b\",\"steps\":[{\"op\":\"before-data\",\"line\":8},{\"op\":\"size\""
+        ),
+        "{json}"
+    );
+    for (src, line) in [
+        ("test \"t\"\n  tap \"a\"\n  before data\n", 3),
+        ("test \"t\"\n  before \"a\"\n", 2),
+        ("before data\nbefore data\n", 2),
+    ] {
+        let e = contract::tests(src).unwrap_err();
+        assert_eq!(e.span.line, line, "{src}: {e}");
+    }
+}
+
+#[test]
 fn a_test_answers_a_held_picker_by_its_node() {
     // files F11: a picker's hold is answered by the node its answer
     // arrives at, never by a ticket a test cannot predict.

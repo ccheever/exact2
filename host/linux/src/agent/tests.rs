@@ -289,6 +289,36 @@ impl DataSource for Slow {
     }
 }
 
+/// habits, pomodoro, kanban: `clock data` lands what launch started (a
+/// store's open, a fetch) before a test's first step, the clock unmoved and
+/// no timer fired, where `clock settle` would have moved the clock.
+#[test]
+fn clock_data_lands_the_replies_without_moving_the_clock() {
+    let plan = contract::compile(
+        "component App\n  state count = 0\n  resource item = item() as shape number else fallback()\n  action tock\n    count = count + 1\n  task tocks mount\n    every(300, tock)\n  view\n    text `${count} ${item}` testId=\"log\" height=20\n",
+    )
+    .unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        Slow,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let json = |s: String| -> serde_json::Value { serde_json::from_str(&s).unwrap() };
+    let state = json(handle(&mut p, r#"{"op":"state"}"#));
+    assert_eq!(state["resources"]["item"], 0, "in flight: {state}");
+    let reply = json(handle(&mut p, r#"{"op":"clock","data":true}"#));
+    assert_eq!(reply["settled"], true, "{reply}");
+    assert_eq!(reply["clock"], 0.0, "{reply}");
+    let state = json(handle(&mut p, r#"{"op":"state"}"#));
+    assert_eq!(state["resources"]["item"], 1, "the reply landed: {state}");
+    assert_eq!(state["slots"]["count"], 0, "no timer fired: {state}");
+}
+
 /// LLP 1069.007 §5 item 4, with a synthetic capability standing in for
 /// the first real one: a held device request, a due app timer and an
 /// unfinished fetch together. `clock +N` fires the timer without waiting

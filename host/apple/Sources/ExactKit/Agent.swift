@@ -427,6 +427,7 @@ public final class Agent {
             if let e = batch.error { return ["error": "clock: \(e)", "clock": from] }
             return ["clock": from]
         }
+        if req["data"] as? Bool == true { return landData(at: from) }
         let settle = req["settle"] as? Bool == true
         // A request in flight (LLP 1016) is waited for first: its reply
         // commits — and may start motion or ask for more — before the fixed
@@ -568,6 +569,27 @@ public final class Agent {
             if loading == 0 || Date() >= end { return loading }
             waitForImages(until: end)
         }
+    }
+
+    /// `clock data`: the app's data lands — its deferred module activated
+    /// (the turn after first draw) and every request in flight answered,
+    /// each answer's `then` landed — at the clock as it stands, no timer
+    /// fired. A test's first step waits for it (habits, pomodoro, kanban:
+    /// storage opened after the first step, which then read the placeholder).
+    func landData(at from: Double) -> [String: Any] {
+        let deadline = Date(timeIntervalSinceNow: Agent.settleBound)
+        for _ in 0..<16 {
+            while !session.dataActivated && Date() < deadline { RunLoop.main.run(until: Date(timeIntervalSinceNow: 0.02)) }
+            if !session.dataActivated { return ["clock": from, "settled": false, "reason": "data"] }
+            if !waitForReplies(until: deadline) { return ["clock": from, "settled": false, "reason": "requests"] }
+            let batch = session.runtime.landThen()
+            session.apply(batch)
+            session.apply(session.runtime.tick(now: from))
+            if let e = batch.error { return ["error": "clock: \(e)", "clock": from] }
+            // A `then` that sent asks again; what it sends lands in the next round.
+            if pendingCount() == 0 { return ["clock": from, "settled": true] }
+        }
+        return ["clock": from, "settled": false, "reason": "requests"]
     }
 
     /// How many requests the runner has in flight (`state.pending`).

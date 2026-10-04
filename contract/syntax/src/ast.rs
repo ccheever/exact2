@@ -48,7 +48,7 @@ pub struct File {
     /// their own beside the app, `app.test.contract`.
     pub tests: Vec<TestDecl>,
     /// A test file's launch lines (`size`, `epoch`, `time-zone`, `locale`,
-    /// `seed`), which every test in the file opens with unless it names its
+    /// `seed`, `before data`), which every test in the file opens with unless it names its
     /// own (habits F7, calendar F13).
     pub launch: Vec<Step>,
     /// `component` declarations, in order. The first is the root.
@@ -215,6 +215,15 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `before data`: the test's first step does not wait for the app's
+    /// data. Without it the driver waits, as `clock data` does, so a store
+    /// opened at launch is open before the first step (habits, pomodoro).
+    /// What has landed without the wait is the host's: a native app runs on
+    /// real time before the driver connects, the web page on the agent's.
+    BeforeData {
+        /// Where.
+        span: Span,
+    },
     /// `seed 7`: the session's `exactTime().seed`, `--seed`.
     Seed {
         /// A whole number from 0 through 2^53 − 1.
@@ -266,7 +275,7 @@ pub enum Step {
         /// Where.
         span: Span,
     },
-    /// `clock settle`, `clock +ms`, `clock +ms real`, `clock ms`.
+    /// `clock settle`, `clock data`, `clock +ms`, `clock +ms real`, `clock ms`.
     Clock {
         /// The argument as the agent takes it.
         arg: String,
@@ -1088,6 +1097,7 @@ impl Step {
             | Step::TimeZone { span, .. }
             | Step::Locale { span, .. }
             | Step::Seed { span, .. }
+            | Step::BeforeData { span }
             | Step::Type { span, .. }
             | Step::Key { span, .. }
             | Step::Pick { span, .. }

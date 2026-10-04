@@ -263,6 +263,22 @@ export function install(exact) {
           seek(false);
           return { clock: exact.clock.now };
         }
+        // `clock data`: the app's data lands — a Rust module's activation (a resource `waiting`, rt.js) and every
+        // request in flight, each answer's `then` landed — at the clock as it stands, no timer fired. A test's
+        // first step waits for it (habits, pomodoro, kanban: storage opened after the first step).
+        if (req.data) {
+          const end = performance.now() + 20000, busy = () => exact.inflight.n > holds().length, activating = () => exact.resources.some(r => r.waiting);
+          for (let round = 0; round < 16; round++) {
+            while ((busy() || activating()) && performance.now() < end) await new Promise(r => setTimeout(r, 5));
+            if (activating() || busy()) return { clock: exact.clock.now, settled: false, reason: activating() ? 'data' : 'requests' };
+            const stopped = exact.advance(exact.clock.now, false, undefined, false);
+            seek(false);
+            if (typeof stopped === 'string') return { error: `clock: ${stopped}`, clock: exact.clock.now };
+            // A `then` that sent asks again; what it sends lands in the next round.
+            if (!busy()) return { clock: exact.clock.now, settled: true };
+          }
+          return { clock: exact.clock.now, settled: false, reason: 'requests' };
+        }
         if (req.settle) {
           // Settled: no request in flight and no commit pending, within 20 s.
           // Virtualized lists report until a round sends nothing, reading
