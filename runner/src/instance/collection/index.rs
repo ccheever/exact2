@@ -113,21 +113,40 @@ impl SizeIndex {
         })
     }
 
-    /// Transactional membership rebuild. Surviving keys retain heights and tokens;
-    /// same-key content changes must separately call `invalidate_row`/`invalidate_all`.
-    /// Deleted and later reinserted keys always receive new measurement generations.
+    /// [`Self::replace_keys_indexed`] of keys checked unique here.
+    #[cfg(test)]
     pub(crate) fn replace_keys(&mut self, keys: Vec<Rc<str>>) -> Result<(), IndexError> {
         if self.order.as_ref() == keys.as_slice() {
             return Ok(());
         }
         let mut positions = HashMap::with_capacity(keys.len());
-        let mut rows = Vec::with_capacity(keys.len());
-        let mut generation = self.next_generation;
         for (i, key) in keys.iter().enumerate() {
             if positions.insert(key.clone(), i).is_some() {
                 return Err(IndexError::DuplicateKey(key.to_string()));
             }
-            let row = if let Some(&old) = self.positions.get(key) {
+        }
+        self.replace_keys_indexed(keys, positions)
+    }
+
+    /// Transactional membership rebuild from keys the caller already holds
+    /// unique, with each one's position (`positions[keys[i]] == i`).
+    /// Surviving keys retain heights and tokens; same-key content changes
+    /// must separately call `invalidate_row`/`invalidate_all`. Deleted and
+    /// later reinserted keys always receive new measurement generations.
+    pub(crate) fn replace_keys_indexed(
+        &mut self,
+        keys: Vec<Rc<str>>,
+        positions: HashMap<Rc<str>, usize>,
+    ) -> Result<(), IndexError> {
+        debug_assert_eq!(positions.len(), keys.len());
+        if self.order.as_ref() == keys.as_slice() {
+            return Ok(());
+        }
+        let mut rows = Vec::with_capacity(keys.len());
+        let mut generation = self.next_generation;
+        let fresh = self.positions.is_empty();
+        for key in keys.iter() {
+            let row = if let Some(&old) = self.positions.get(key).filter(|_| !fresh) {
                 self.rows[old]
             } else {
                 generation = next_generation(generation)?;

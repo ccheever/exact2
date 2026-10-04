@@ -559,7 +559,8 @@ impl Collection {
         }
         // Membership only: hashed, and holding the identities the index
         // keeps (no copy of each key's text).
-        let mut unique: std::collections::HashSet<Rc<str>> = std::collections::HashSet::new();
+        // Each identity's position: the index takes it as its key map.
+        let mut unique: std::collections::HashMap<Rc<str>, usize> = Default::default();
         if changed {
             unique.reserve(items.len());
         }
@@ -591,7 +592,7 @@ impl Collection {
                 unique.reserve(items.len());
                 for prefix in 0..position {
                     let text = self.index.shared_key(prefix).unwrap().clone();
-                    unique.insert(text.clone());
+                    unique.insert(text.clone(), prefix);
                     text_keys.push(text);
                     keys.push(self.keys[prefix].clone());
                 }
@@ -607,9 +608,9 @@ impl Collection {
             // A repeated key is the data's error: the repeat takes the
             // next identity in order (as an `each` does).
             let mut dup = 0;
-            let ident: Rc<str> = if unique.contains(text.as_str()) {
+            let ident: Rc<str> = if unique.contains_key(text.as_str()) {
                 let mut ident = text.clone();
-                while unique.contains(ident.as_str()) {
+                while unique.contains_key(ident.as_str()) {
                     dup += 1;
                     ident = super::disambiguate(text.clone(), dup);
                 }
@@ -617,7 +618,7 @@ impl Collection {
             } else {
                 Rc::from(text.as_str())
             };
-            unique.insert(ident.clone());
+            unique.insert(ident.clone(), position);
             if dup > 0 {
                 dups.insert(position, dup);
             }
@@ -625,7 +626,9 @@ impl Collection {
             text_keys.push(ident);
         }
         if changed {
-            self.index.replace_keys(text_keys).map_err(index_error)?;
+            self.index
+                .replace_keys_indexed(text_keys, unique)
+                .map_err(index_error)?;
             self.string_keys = keys.iter().all(|key| key.as_str().is_some());
             self.keys = keys;
             self.dups = dups;
