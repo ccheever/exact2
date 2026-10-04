@@ -86,25 +86,32 @@ impl World {
     /// retain its content identity, never vertices; changed generators refuse by name.
     /// Repeating an identical registration reuses the existing shared allocation.
     pub fn generated(&mut self, name: &str, mesh: MeshData) -> Result<Mesh, String> {
+        self.generated_model(
+            name,
+            Model {
+                bounds: mesh.bounds,
+                meshes: vec![mesh],
+                materials: vec![MaterialData {
+                    metallic: 0.,
+                    ..Default::default()
+                }],
+                nodes: vec![Node {
+                    mesh: Some(0),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            },
+        )
+    }
+    /// Register a whole generated model (nodes, skins, clips) under the same rules
+    /// as [`World::generated`]; a procedural rig ([`crate::rig`]) produces one.
+    pub fn generated_model(&mut self, name: &str, model: Model) -> Result<Mesh, String> {
         if self.tick() != 0 {
             return Err(format!("generated `{name}`: register during setup"));
         }
         if !super::asset_name(name) || !name.ends_with(".model") {
             return Err(format!("generated `{name}`: expected a .model asset name"));
         }
-        let model = Model {
-            bounds: mesh.bounds,
-            meshes: vec![mesh],
-            materials: vec![MaterialData {
-                metallic: 0.,
-                ..Default::default()
-            }],
-            nodes: vec![Node {
-                mesh: Some(0),
-                ..Default::default()
-            }],
-            ..Default::default()
-        };
         model
             .validate()
             .map_err(|e| format!("generated `{name}`: {e}"))?;

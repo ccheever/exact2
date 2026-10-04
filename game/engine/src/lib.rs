@@ -18,6 +18,7 @@ mod input;
 pub mod math;
 pub mod motion;
 mod placed;
+pub mod rig;
 mod rng;
 pub mod scene;
 mod sim;
