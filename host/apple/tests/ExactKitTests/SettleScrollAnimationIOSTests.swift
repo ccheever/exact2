@@ -38,7 +38,8 @@ final class SettleScrollAnimationIOSTests: XCTestCase {
         XCTAssertFalse(agent.nativeInFlight())
         // The list follows its end smoothly: settle waits while it runs.
         p.apply(wireBatch([collections(revision: 2, correction: ["scrollSequence": "0", "offset": 1700, "smooth": true])]))
-        guard p.collections.animating.contains(1) else { throw XCTSkip("this host animates no scroll (frozen agent timing)") }
+        if ExactEnv.agentFreezes { throw XCTSkip("frozen agent timing sets a correction at once") }
+        XCTAssertTrue(p.collections.animating.contains(1), "the host animates the correction")
         XCTAssertTrue(agent.nativeInFlight(), "a running end-follow keeps settle waiting")
         // Its end (UIKit's display link may not run in a unit test's window).
         scroll.setContentOffset(CGPoint(x: 0, y: 1700), animated: false)
