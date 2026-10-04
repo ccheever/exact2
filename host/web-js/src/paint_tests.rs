@@ -227,3 +227,66 @@ impl exact_runner::DataSource for Items {
         ))
     }
 }
+
+#[test]
+fn bound_transition_stacking_matches_kernel() {
+    let values = [
+        "width 1s",
+        "margin 1s",
+        "transform 200ms",
+        "none",
+        "",
+        "color 1s",
+        "border-color 200ms",
+        "all 1s",
+        "opacity 1s",
+        "1s opacity",
+        "translate 1s",
+        "scale 1s",
+        "rotate 1s",
+        "200ms",
+        "200ms ease-in",
+        "color 1s, opacity 200ms",
+    ];
+    let plan = fixture_plan("", "2>1>");
+    let (_, expression) = crate::paint::binding(
+        &plan,
+        &BindingsRow {
+            kind: BindingKind::Style,
+            id: StyleId::Transition as u16,
+            expr: Default::default(),
+        },
+    )
+    .unwrap();
+    let script = format!(
+        "const values={};console.log(JSON.stringify(values.map(v=>({expression})!==null)));",
+        serde_json::to_string(&values).unwrap()
+    );
+    let output = std::process::Command::new("bun")
+        .args(["-e", &script])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let actual: Vec<bool> = serde_json::from_slice(&output.stdout).unwrap();
+    for (value, actual) in values.into_iter().zip(actual) {
+        let mut style = exact_kernel::StyleProps::default();
+        let _ = style.set_dynamic(
+            StyleId::Transition,
+            &exact_kernel::StyleValue::Text(value.into()),
+        );
+        let own = exact_kernel::paint_order::own_from(exact_kernel::paint_order::Facts {
+            style: &style,
+            props: &Default::default(),
+            kind: NodeType::View,
+            root: false,
+            parent_display: None,
+            beside_exclusion: false,
+            holds_layout_transition: false,
+        });
+        assert_eq!(actual, own.policy, "transition: {value}");
+    }
+}

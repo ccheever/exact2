@@ -153,7 +153,7 @@ pub fn binding(plan: &Plan, b: &BindingsRow) -> Option<(String, String)> {
             return boolean(
                 format!("data-exact-motion-{}", b.id),
                 &format!(
-                    r#"v!=null&&String(v).split(/,(?![^(]*\))/).some(t=>{{const words=t.trim().split(/\s+(?![^(]*\))/);const p=words.find(w=>{names}.includes(w));return p?["all","opacity","translate","scale","rotate"].includes(p):t.trim()!==""&&t.trim()!=="none"}})"#
+                    r#"v!=null&&String(v).split(/,(?![^(]*\))/).some(t=>{{const words=t.trim().split(/\s+(?![^(]*\))/);const p=words.find(w=>{names}.includes(w));return p?["all","opacity","translate","scale","rotate"].includes(p):words.every(w=>/^(?:[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?m?s|linear|ease(?:-in(?:-out)?|-out)?|step-start|step-end|(?:cubic-bezier|steps|spring)\(.+\))$/.test(w))}})"#
                 ),
             );
         }
