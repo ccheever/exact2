@@ -58,8 +58,9 @@ fn the_app_compiles_deterministically_and_bakes_its_first_frame() {
     // `exactDelivery` (LLP 1030 D7), read by the update banner — and
     // `viewport`, whose `pointer` says a TV.
     assert_eq!(a.resources.len(), 9);
-    // …and `activateUpdate`, the banner's `deliveryActivate`.
-    assert_eq!(a.actions.len(), 18);
+    // …and `activateUpdate`, the banner's `deliveryActivate`, and
+    // `reloadApp`, the header's Reload.
+    assert_eq!(a.actions.len(), 19);
     assert_eq!(a.timers.len(), 1);
     assert!(
         a.resources.iter().all(|r| r.initial.len == 0),

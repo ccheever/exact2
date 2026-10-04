@@ -87,6 +87,8 @@ component Caltrain
     nowMs = nowMs + 1000
   action activateUpdate
     deliveryActivate()
+  action reloadApp
+    reload()
   action openStations
     screen = "stations"
   action openDeck
@@ -146,10 +148,10 @@ component Caltrain
     // the home indicator (the web's rule): the sky's dark, or white.
     // Text is sized in em from this root: 16 on a phone or a desktop, 24 on
     // a TV (pointer none), read across a room.
-    main testId="caltrain-main" width="100%" height="100%" font-size=(tv ? 24 : 16) background-color=canvasColor
+    main testId="caltrain-main" viewport-fit="cover" width="100%" height="100%" font-size=(tv ? 24 : 16) background-color=canvasColor
       // @ref LLP 1020 D6 — the iframe screen is outside the live canvas.
       when screen == "web-deck"
-        section role="region" aria-label="Deck fixture" testId="deck-screen" padding=20 gap=12
+        section role="region" aria-label="Deck fixture" testId="deck-screen" padding-top="calc(env(safe-area-inset-top) + 20px)" padding-right="calc(env(safe-area-inset-right) + 20px)" padding-bottom="calc(env(safe-area-inset-bottom) + 20px)" padding-left="calc(env(safe-area-inset-left) + 20px)" gap=12
           row align-items="center" justify-content="space-between"
             text "Web deck" font-size="1.25em" font-weight=700 color="#ffffff"
             button press=goHome aria-label="Back" aria-keyshortcuts="Escape" testId="deck-back" padding=8 background-color="#ffffff"
@@ -163,7 +165,7 @@ component Caltrain
         // The sky or the plain page around the same content, written once:
         // `Sky` declares a slot and the content is what is indented under it.
         Sky(on=skyOn, material=material, selectedId=selectedId, dim=tv)
-          Content(tv=tv, station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, hoverId=hoverId, hoverOn=hoverOn, searchFocused=searchFocused, lastKey=lastKey, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, delivery=delivery, openStations=openStations, openDeck=openDeck, setScheme=setScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome, hoverStation=hoverStation, focusSearch=focusSearch, blurSearch=blurSearch, searchKey=searchKey, activateUpdate=activateUpdate)
+          Content(tv=tv, station=station, selectedId=selectedId, screen=screen, material=material, deck=deck, focus=focus, nowMs=nowMs, query=query, sky=skyOn, hoverId=hoverId, hoverOn=hoverOn, searchFocused=searchFocused, lastKey=lastKey, northBoard=northBoard, southBoard=southBoard, nearby=nearby, allStations=allStations, matches=matches, delivery=delivery, openStations=openStations, openDeck=openDeck, setScheme=setScheme, setMaterial=setMaterial, toggleDeck=toggleDeck, toggleSky=toggleSky, focusDeparture=focusDeparture, selectStation=selectStation, setQuery=setQuery, goHome=goHome, hoverStation=hoverStation, focusSearch=focusSearch, blurSearch=blurSearch, searchKey=searchKey, activateUpdate=activateUpdate, reloadApp=reloadApp)
       // @ref LLP 1048.003 D1 — a link preview's summary; the title stays the app's.
       head description="The next Caltrain departures, north and south, from the station nearest you."
 
@@ -179,12 +181,14 @@ component Sky
     // the aurora canvas — captured through its surface, the shader every
     // frame — or in a plain scroll, to see what each costs on a phone.
     // Dimmed on a TV, where the full aurora is too bright across a room.
+    // It fills the screen (`viewport-fit="cover"`); the content keeps to the
+    // safe area: a phone's status bar and home indicator, a TV's overscan.
     when on
       canvas surface=glass(material, selectedId) width="100%" height="100%" testId="sky"
-        scroll width="100%" height="100%" background-color=(dim ? "#05081a99" : "#05081a00")
+        scroll width="100%" height="100%" background-color=(dim ? "#05081a99" : "#05081a00") padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" padding-left="env(safe-area-inset-left)" box-sizing="border-box"
           children
     else
-      scroll width="100%" height="100%"
+      scroll width="100%" height="100%" padding-top="env(safe-area-inset-top)" padding-right="env(safe-area-inset-right)" padding-bottom="env(safe-area-inset-bottom)" padding-left="env(safe-area-inset-left)" box-sizing="border-box"
         children
 
 component Content
@@ -226,6 +230,7 @@ component Content
     blurSearch: action
     searchKey: action
     activateUpdate: action
+    reloadApp: action
   view
     // One column on a phone; on a TV, two halves: the station and its map
     // on the left, the departures (or the station list) on the right.
@@ -246,6 +251,9 @@ component Content
               text station.name font-size="1.5em" font-weight=700 testId="station-name" aria-level=1
               text `${distanceText(station.distance)} · ${walkText(station.distance)}` font-size="0.75em" color="#666666"
             column gap=6 align-items="flex-end"
+              // The development host's Reload, as its dev menu has it.
+              button press=reloadApp aria-label="Reload" testId="reload" padding=8 border-radius=8 background-color="#eeeeee"
+                text "Reload" font-size="0.75em" font-weight=600
               button press=openStations aria-label="Change station" testId="change-station" padding=8 border-radius=8 background-color="#eeeeee"
                 text "Change station" font-size="0.8125em" font-weight=600
               button press=openDeck aria-label="Open web deck" testId="open-deck" padding=8 border-radius=8 background-color="#eeeeee"
@@ -274,9 +282,9 @@ component Content
         when screen == "home"
           column padding=20 gap=4 height=220 box-sizing="border-box" justify-content="flex-end" testId="aurora"
             when material == "glass"
-              text "Next stop" font-size="0.75em" font-weight=700 letter-spacing=1.2 color="#9ad8ff"
-              text station.name font-size="2.125em" font-weight=800 color="#ffffff" testId="aurora-title"
-              text `${distanceText(station.distance)} · ${walkText(station.distance)} · the whole app laid out by the kernel, painted by CoreText, refracted by the aurora` font-size="0.75em" color="#d0e4ff"
+              text "Next stop" font-size="0.75em" font-weight=700 letter-spacing=1.2 color=(sky ? "#9ad8ff" : "#2a6f9e")
+              text station.name font-size="2.125em" font-weight=800 color=(sky ? "#ffffff" : "#111111") testId="aurora-title"
+              text `${distanceText(station.distance)} · ${walkText(station.distance)} · the whole app laid out by the kernel, painted by CoreText, refracted by the aurora` font-size="0.75em" color=(sky ? "#d0e4ff" : "#555555")
             else
               text "Next stop" font-size="0.75em" font-weight=700 letter-spacing=1.2 color="#8a5a2b"
               text station.name font-size="2.125em" font-weight=800 color="#2a1f14" testId="aurora-title"
