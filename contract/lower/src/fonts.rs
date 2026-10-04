@@ -208,13 +208,20 @@ impl Lowerer<'_> {
     fn replace_arms(&mut self, e: &mut Expr) -> Result<(), LowerError> {
         match e {
             Expr::Str(name, span) => {
-                let stack = if let Some(stack) = self.font_stacks.get(name.as_str()) {
+                // A quoted comma belongs to one family, not a cached list.
+                let cache_key = format!("\0{name}");
+                let stack = if let Some(stack) = self.font_stacks.get(&cache_key) {
                     *stack
                 } else {
                     let names = family_names(name, *span)?;
                     let mut members = Vec::new();
+                    let mut single_stack = None;
                     for name in names {
-                        let single = if let Some(stack) = self.font_stacks.get(&name) {
+                        let single = if let Some((_, stack)) = self
+                            .font_stacks
+                            .iter()
+                            .find(|(key, _)| key.eq_ignore_ascii_case(&name))
+                        {
                             *stack
                         } else {
                             let family = self.b.font_family(name.trim_matches('"'), &[]);
@@ -224,13 +231,18 @@ impl Lowerer<'_> {
                             self.font_stacks.insert(name, stack);
                             stack
                         };
+                        single_stack = Some(single);
                         let plan = self.b.plan();
                         let member =
                             plan.stack_member(plan.stack(single).members.iter().next().unwrap());
                         members.push((member.kind, member.family));
                     }
-                    let stack = self.b.font_stack(&members);
-                    self.font_stacks.insert(name.clone(), stack);
+                    let stack = if members.len() == 1 {
+                        single_stack.unwrap()
+                    } else {
+                        self.b.font_stack(&members)
+                    };
+                    self.font_stacks.insert(cache_key, stack);
                     stack
                 };
                 *e = Expr::Number(stack.0 as f64, *span);
@@ -338,6 +350,12 @@ fn family_names(value: &str, span: Span) -> Result<Vec<String>, LowerError> {
                     "font-family expects nonempty CSS family names separated by commas",
                     span,
                 );
+            }
+            if !quoted && ["cursive", "fantasy", "math", "emoji", "fangsong"].contains(&name.to_ascii_lowercase().as_str()) {
+                return err("lower-font-family-generic", format!("CSS generic family `{name}` has no native mapping in exact2; supported generics are system-ui, ui-sans-serif, sans-serif, ui-serif, serif, ui-monospace, monospace and ui-rounded"), span);
+            }
+            if !quoted && ["inherit", "initial", "unset", "revert", "revert-layer"].contains(&name.to_ascii_lowercase().as_str()) {
+                return err("lower-font-family-wide", format!("CSS-wide font-family value `{name}` is not represented by plan stack ids; omit the row for normal inheritance, or name an explicit family list"), span);
             }
             let generic = [
                 "system-ui",

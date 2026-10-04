@@ -1073,3 +1073,8 @@ with the factors adjacent as CSS requires. Intrinsic flex-basis keywords
 content/min-content/max-content/fit-content are not represented by v1 dimension
 rows; the compiler names their intrinsic sizing requirement and refuses them,
 rather than describing valid CSS as a malformed shorthand.
+
+Font-family's other CSS generics (cursive/fantasy/math/emoji/fangsong) have no
+native mapping in the current catalog, and CSS-wide values are not represented
+by plan stack ids. Contract diagnoses both limits; quoted names are local
+families even when their spelling is a CSS generic.

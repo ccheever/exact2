@@ -251,3 +251,42 @@ fn a_family_choice_keeps_the_declared_face_checks() {
     .compile()
     .unwrap();
 }
+
+#[test]
+fn unsupported_css_generics_are_diagnosed_and_quoted_names_stay_local() {
+    for name in ["cursive", "fantasy", "math", "emoji", "fangsong"] {
+        let error = contract::compile(&format!(
+            "component App\n  view\n    text \"x\" font-family=\"{name}, sans-serif\"\n"
+        ))
+        .unwrap_err()
+        .to_string();
+        assert!(
+            error.contains("CSS generic family") && error.contains("no native mapping"),
+            "{error}"
+        );
+        contract::compile(&format!(
+            "component App\n  view\n    text \"x\" font-family=\"'{name}', sans-serif\"\n"
+        ))
+        .unwrap();
+    }
+}
+
+#[test]
+fn css_quoted_commas_do_not_alias_lists_and_family_matching_ignores_case() {
+    let plan = contract::compile("component App\n  view\n    column\n      text \"a\" font-family=\"'Comma, Family'\"\n      text \"b\" font-family=\"Comma, Family\"\n      text \"c\" font-family=\"Inter\"\n      text \"d\" font-family=\"inter\"\n").unwrap();
+    assert_eq!(
+        plan.families
+            .iter()
+            .filter(|f| plan.str(f.name) == "Inter")
+            .count(),
+        1
+    );
+    assert!(plan.stacks.iter().any(|s| s.members.len == 2
+        && s.members
+            .iter()
+            .all(|id| plan.stack_member(id).kind == exact_plan::StackMemberKind::Family)));
+    assert!(plan
+        .families
+        .iter()
+        .any(|f| plan.str(f.name) == "Comma, Family"));
+}

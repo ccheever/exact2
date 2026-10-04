@@ -580,3 +580,9 @@ A flex shorthand's grow/shrink factors must be adjacent. Intrinsic flex-basis
 keywords (content/min-content/max-content/fit-content) are CSS values, but the
 current dimension representation cannot size that mode; the diagnostic names
 this limit. `auto` takes the basis from the authored main-size property.
+
+Font lists distinguish quoted local names from unquoted CSS generics. The eight
+mapped generics are system-ui, ui-sans-serif, sans-serif, ui-serif, serif,
+ui-monospace, monospace and ui-rounded. Other CSS generics and CSS-wide
+font-family values are refused with the native mapping/stack representation
+reason, rather than being silently treated as local family names.
