@@ -39,7 +39,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
     let stalled = 0;
     for (let turn = 0; turn < (survival ? 128 : 48); turn++) {
       const tree = await s.tree();
-      const state = Object.fromEntries(['objective','prompt','health','hunger','pack','fuel','battery','day','left','children','survived','camp-bearing']
+      const state = Object.fromEntries(['objective','prompt','health','hunger','pack','fuel','battery','day','left','children','survived','camp-bearing','night-plan','night-supplies']
         .map(id => [id, node(tree, id)?.props?.text ?? '']));
       const rescued = state.children === 'Children 2 of 2 rescued';
       if (node(tree, 'dead') || (rescued && (!survival || Number(state.survived.match(/\d+/)?.[0]) >= 2))) break;
@@ -99,6 +99,8 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
       children:node(tree, 'children')?.props?.text, health:node(tree, 'health')?.props?.text,
       objective:node(tree, 'objective')?.props?.text, survived:node(tree,'survived')?.props?.text,
       fuel:node(tree,'fuel')?.props?.text, hunger:node(tree,'hunger')?.props?.text, world:await game.snapshot(),
+      nightPlan:node(tree,'night-plan')?.props?.text, nightSupplies:node(tree,'night-supplies')?.props?.text,
+      player:await game.get('player','Player'), position:await game.local_position('player'),
     }, null, 2));
     await s.screenshot(resolve(out, 'jev-playtest.png'));
     await s.close();
@@ -336,6 +338,43 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await supplyBack.world('world').save(resolve(out,'trail-restored.world'));
   check('supply continuation saves are byte-identical', readFileSync(resolve(out,'trail-continued.world')).equals(readFileSync(resolve(out,'trail-restored.world'))));
   await supplyBack.close();
+
+  // Finish the rescue, then follow the public preparation advice through dawn.
+  // Keep this separate so the earlier rescue/supply continuations stay pinned.
+  const shelter = await open({fresh:true,world:resolve(out,'rescued.world')});
+  await shelter.tap('trees-1k'); await shelter.tap('play');
+  const camp = shelter.world('world');
+  check('walk to the second child', await walkTo(shelter, await camp.local_position('child-2'), 1.6));
+  await camp.tap('KeyE'); await camp.run(100);
+  check('escort the second child home', await walkTo(shelter,[0,0,2.5],0.5));
+  await camp.run(2000);
+  check('both children are safe', node(await shelter.tree(),'children')?.props?.text === 'Children 2 of 2 rescued');
+  check('the public supply budget reports ready', node(await shelter.tree(),'night-supplies')?.props?.text === 'To dawn: fire ready · food ready');
+  await camp.save(resolve(out,'shelter.world'));
+  const untilDawn = async session => {
+    const tree = await session.tree();
+    const plan = node(tree,'night-plan')?.props?.text ?? '';
+    check('prepared campers are told when the next milestone arrives', /^Shelter by the fire until dawn · \d+ s$/.test(plan), plan);
+    await session.world('world').run(Number(plan.match(/(\d+) s$/)?.[1]) * 1000 + 100);
+    const dawn = await session.tree();
+    check('sheltering reaches the first dawn alive', node(dawn,'survived')?.props?.text === 'Nights survived: 1'
+      && node(dawn,'health')?.props?.text === 'Health 100' && !node(dawn,'dead'));
+    check('a new dawn asks for the next night’s supplies', node(dawn,'night-plan')?.props?.text === 'Gather fuel for the next dawn');
+    return await session.world('world').snapshot();
+  };
+  if (host !== 'linux') await shelter.screenshot(resolve(out,'shelter.png'));
+  const dawn = await untilDawn(shelter);
+  pin(dawn.tick, dawn);
+  await camp.save(resolve(out,'dawn.world'));
+  pinSave('dawn',resolve(out,'dawn.world'));
+  if (host !== 'linux') await shelter.screenshot(resolve(out,'dawn.png'));
+  await shelter.close();
+  const shelterBack = await open({fresh:true,world:resolve(out,'shelter.world')});
+  await shelterBack.tap('trees-1k'); await shelterBack.tap('play');
+  check('sheltering continues identically in a fresh process', JSON.stringify(await untilDawn(shelterBack)) === JSON.stringify(dawn));
+  await shelterBack.world('world').save(resolve(out,'dawn-restored.world'));
+  check('dawn continuation saves are byte-identical', readFileSync(resolve(out,'dawn.world')).equals(readFileSync(resolve(out,'dawn-restored.world'))));
+  await shelterBack.close();
 });
 
 async function followCompass(session, objective) {

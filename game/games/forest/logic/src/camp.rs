@@ -9,6 +9,8 @@ pub const PERIOD: f32 = DAY + NIGHT;
 const DUSK: f32 = 10.0;
 const DAWN: f32 = 8.0;
 pub const MAX_FUEL: f32 = 100.0;
+const DAY_BURN: f32 = 0.4;
+const NIGHT_BURN: f32 = 0.6;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Resource)]
 pub struct Cycle {
@@ -21,6 +23,13 @@ pub struct Cycle {
 }
 
 impl Cycle {
+    pub fn until_dawn(&self) -> f32 {
+        PERIOD - self.t
+    }
+    /// Fuel consumed before dawn, plus a ten-point reserve (a 6 m safe radius).
+    pub fn dawn_fuel(&self) -> f32 {
+        (DAY - self.t).max(0.0) * DAY_BURN + (PERIOD - self.t.max(DAY)) * NIGHT_BURN + 10.0
+    }
     pub fn night(&self) -> bool {
         self.t >= DAY
     }
@@ -252,7 +261,7 @@ pub fn step(w: &mut World, player: Vec3) -> bool {
     };
     let radius = {
         let mut f = w.resource_mut::<Fire>();
-        f.fuel = (f.fuel - dt * if night { 0.6 } else { 0.4 }).max(0.0);
+        f.fuel = (f.fuel - dt * if night { NIGHT_BURN } else { DAY_BURN }).max(0.0);
         f.radius()
     };
     // The sky only changes at dusk and dawn; equal writes would still re-light it.

@@ -19,6 +19,8 @@ shape Hud
   objective: string
   tracking: string
   camp_bearing: string
+  night_plan: string
+  night_supplies: string
   deer: string
   chasing: number
   trees: number
@@ -102,6 +104,8 @@ component Forest
                 text "Food"
               button press=track("camp") aria-label="Track campfire" aria-pressed=(hud.tracking == "camp") testId="track-camp" padding=8 border-radius=8 background-color=(hud.tracking == "camp" ? "#52667a" : "#2d3a33")
                 text "Camp"
+            text hud.night_plan testId="night-plan" font-size=14 color="#f6d77a"
+            text hud.night_supplies testId="night-supplies" font-size=13 color="#a7b0a3"
             text "Rescue supplies: +20 fire fuel and 2 food" font-size=12 color="#a7b0a3"
             text "Logs +12 fuel · Scrap +20 fuel · Food +35 hunger" font-size=12 color="#a7b0a3"
             text "Compass: W north · D east · S south · A west" font-size=12 color="#a7b0a3"

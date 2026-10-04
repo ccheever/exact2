@@ -799,3 +799,55 @@ every pin stays unchanged. Both chopping captures were inspected. Web's
 descendant audit passes; native's optional scan is unavailable with every
 owned carrier closed. Artifacts: `artifacts/main-00d-{web,macos}/`. Garden
 diary 004 records the shared passing gates. No Forest logic or policy changes.
+
+## Knowing when camp is prepared (2026-10-04)
+
+The last hold-to-chop runs rescued both children and finished with 100%/92%
+fire, yet neither reached a dawn within 128 choices. Their public objective
+said only “Keep the fire burning.” We left the compass and axe batches closed
+and addressed that missing survival milestone in the game.
+
+Two HUD lines now budget supplies to the next dawn and name the next task.
+The calculation uses the same day/night burn and hunger drain as the simulation,
+with ten fuel and ten hunger in reserve. Carried fuel still needs feeding;
+carried food counts toward the budget, with an eating reminder at 35 hunger.
+Once prepared, campers are told to return home and shelter until a visible
+countdown ends. Dawn budgets the next night. The chosen compass stays under
+player control. No economy, movement, clock, creature or reward changes.
+
+Jev receives the two new visible labels. Its goal, 128-choice limit, compass
+motor, legal actions and ten-second wait are unchanged. One run per host:
+
+| Host | Decisions | Game seconds | Nights | Health / hunger | Fire | Decision p50 / p95 |
+|---|---:|---:|---:|---|---:|---|
+| Web | 128 (limit) | 150.7 | 1 | 100 / 56 | 97% | 291 / 507 ms |
+| macOS | 122 | 255.2 | 2 | 100 / 55 | 50% | 295 / 608 ms |
+
+Both rescue both children. Native waits at camp and completes the goal; web
+reaches its first dawn, then spends its remaining decisions on more supplies,
+ending 24 m from camp with three logs and two food. The first dawn is visible
+at decisions 82/55; the runs make seven/nineteen wait choices. This is evidence
+that the public feedback helps this task, not an estimated policy success rate.
+No further controller or HUD tuning follows these outcomes; this batch is closed.
+
+Artifacts: `artifacts/jev-dawn-{web,macos}/`. Input/output tokens are
+107,995/9,178 and 102,026/8,519. Wall times including builds are 65.3/82.2 s;
+both descendant audits pass. Both final screenshots were inspected and show
+readable camp plans. The outcome JSON now reads the named Player component
+and position after the loop, so the paginated tree-heavy snapshot no longer
+hides accepted chops (five/three) or the final location. Those private diagnostic
+reads never enter the decision inputs.
+
+Twenty simulation tests pass, including sheltering through dawn at four
+day/night boundaries in both collision modes, byte-identical fresh-save
+continuation, feeding vs carrying fuel, new-dawn re-budgeting and consuming
+reserved food. Game determinism Clippy and formatting pass. The host proof
+adds a second rescue, a shelter checkpoint, the first dawn at full health,
+and an identical fresh-process continuation.
+
+Before this work, merge `e278ff4b6` brings eight main commits through
+`02f53744a`. Both sides of the queue conflict are preserved. Root build,
+2,348 enabled tests across 81 binaries (nine ignored), Clippy, formatting
+and boot pass. The compiler/semantics changes trigger the advisory difftest
+against `469740d5e`; it exits 2 because `lake` is absent. Cross-host strict
+acceptance and the other games' integration sweep follow this checkpoint.

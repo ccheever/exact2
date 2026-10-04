@@ -1,5 +1,5 @@
 //! The player's body and needs, the things they carry, and the lost children.
-use crate::camp::{Fire, MAX_FUEL};
+use crate::camp::{Cycle, Fire, MAX_FUEL};
 use crate::forest::{self, height, Grove};
 use exact_game::motion::{Gravity, Move};
 use exact_game::*;
@@ -10,6 +10,8 @@ const CHOP_REACH: f32 = 1.4;
 const PICK_REACH: f32 = 1.8;
 const FIRE_REACH: f32 = 3.6;
 const FLASH_RANGE: f32 = 18.0;
+const HUNGER_DRAIN: f32 = 0.45;
+const FOOD_HUNGER: f32 = 35.0;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Data)]
 pub enum Kind {
@@ -399,7 +401,7 @@ pub fn interact(w: &mut World, act: Action, eat: bool) {
             {
                 let mut p = w.require_mut::<Player>(player);
                 p.pack.retain(|&x| x != e);
-                p.hunger = (p.hunger + 35.0).min(100.0);
+                p.hunger = (p.hunger + FOOD_HUNGER).min(100.0);
             }
             w.despawn(e);
             restack(w);
@@ -452,7 +454,7 @@ pub fn walk(w: &mut World, wish: Vec3, colliders: bool, safe: f32) {
     if p.dead {
         return;
     }
-    p.hunger = (p.hunger - dt * 0.45).max(0.0);
+    p.hunger = (p.hunger - dt * HUNGER_DRAIN).max(0.0);
     let warm = Vec3::new(at.x, 0.0, at.z).length() < safe;
     if p.hunger <= 0.0 {
         p.health -= dt * 2.0;
@@ -586,6 +588,58 @@ pub fn camp_bearing(w: &World) -> String {
         "Campfire · {}",
         bearing(-w.require::<Transform>("player").position)
     )
+}
+
+/// A public supply budget for the next dawn. Carried food counts as a reserve;
+/// carried fuel still needs feeding. This never changes the selected compass.
+pub fn preparation(w: &World, children_safe: bool) -> (String, String) {
+    let c = *w.resource::<Cycle>();
+    let fire = *w.resource::<Fire>();
+    let p = w.require::<Player>("player");
+    let food = p
+        .pack
+        .iter()
+        .filter(|&&e| w.require::<Item>(e).kind == Kind::Food)
+        .count();
+    let fuel_short = (c.dawn_fuel() - fire.fuel).max(0.0);
+    let food_short = math::ceil(
+        ((c.until_dawn() * HUNGER_DRAIN + 10.0 - p.hunger) / FOOD_HUNGER - food as f32).max(0.0),
+    ) as u32;
+    let fuel_status = if fuel_short > 0.0 {
+        format!("+{} fire fuel", math::ceil(fuel_short) as u32)
+    } else {
+        "fire ready".into()
+    };
+    let food_status = if food_short > 0 {
+        format!("{food_short} food needed")
+    } else {
+        "food ready".into()
+    };
+    let supplies = format!("To dawn: {fuel_status} · {food_status}");
+    let at = w.require::<Transform>("player").position.with_y(0.0);
+    let plan = if p.dead {
+        "The next dawn will wait for another attempt".into()
+    } else if p.hunger <= FOOD_HUNGER && food > 0 {
+        "Q: eat a carried meal before sheltering".into()
+    } else if !children_safe {
+        "Bring the children home for rescue supplies".into()
+    } else if fuel_short > 0.0 {
+        if food < p.pack.len() {
+            "Feed your carried fuel into the campfire".into()
+        } else {
+            "Gather fuel for the next dawn".into()
+        }
+    } else if food_short > 0 {
+        "Gather food for the next dawn".into()
+    } else if at.length() >= FIRE_REACH {
+        "Supplies ready · Return to camp to shelter".into()
+    } else {
+        format!(
+            "Shelter by the fire until dawn · {} s",
+            math::ceil(c.until_dawn()) as u32
+        )
+    };
+    (plan, supplies)
 }
 
 fn rescue_guidance(w: &World) -> String {

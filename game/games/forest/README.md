@@ -40,6 +40,13 @@ fuel points home. The campfire's bearing is always visible, and newly supplied
 food refreshes an empty search. Logs add 12 fuel, scrap 20, and food 35 hunger.
 The nights-survived score stops when you die.
 
+The camp plan budgets supplies through the next dawn, including ten fuel and
+ten hunger in reserve. Fuel must be in the fire; carried food counts if you eat
+it. It names what is missing, reminds you to eat at 35 hunger or below, and tells
+prepared campers to shelter near the fire until the displayed dawn countdown
+ends. At dawn it budgets the next night. This guidance leaves your chosen
+compass target alone, so you can still gather extra supplies or explore.
+
 Add `--survival` to the Jev playtest to attempt two nights after rescuing both
 children, with a 128-decision limit. It reads the same HUD, uses the compass
 buttons and follows their bearings with normal keys. Cardinal detours are offered
@@ -47,6 +54,8 @@ after two strides fail to reduce the visible distance. Chopping uses a one-secon
 E hold; a recovery prompt offers its displayed wait instead of an unusable press.
 Outcomes remain exploratory;
 reaching the decision limit does not prove the survival goal was completed.
+The final outcome includes a named Player read and position for diagnostics,
+after the decision loop; these hidden observations are never supplied to Jev.
 
 The title chooses the size of the forest (1k–250k trees; the world grows to keep
 the density), the wolf count, extra torch lights, Rapier or grid collision against
