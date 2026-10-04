@@ -5,7 +5,7 @@
 //! in the first column, so one run reports each declaration's first error.
 
 use crate::ast::*;
-use crate::lexer::{template_expr_end, LexError, Lexer, Token, TokenKind};
+use crate::lexer::{escaped, template_expr_end, LexError, Lexer, Token, TokenKind};
 use crate::Span;
 
 mod expr;
