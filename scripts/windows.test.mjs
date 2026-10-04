@@ -6,13 +6,76 @@ import {existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync}
 import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {closeFilesystemReader, filesystem, filesystemErrorCode} from './filesystem.mjs';
-import {packagedBuildChanges, removeBrowserProfile} from './agent-launch.mjs';
+import {Cdp, chromium, closeWindowsBrowser, packagedBuildChanges, removeBrowserProfile} from './agent-launch.mjs';
 import {browserKey, open} from './agent.mjs';
 import {cdpKey, withHeldModifiers} from './agent-keys.mjs';
 import {runCaps} from './caps.mjs';
 import {binaryenArchive, binaryenVersion} from './exact.mjs';
 import {listPublicFiles, publicFileCards, readStaticFile, readStaticFileAsync, staticFile} from '../host/web/serve.mjs';
 import {gameShells} from '../game/app/shells.mjs';
+
+test.skipIf(process.platform !== 'win32')('owned Chrome refusal preserves live process/profile and bounded shutdown evidence', async () => {
+  const profile=mkdtempSync(resolve(tmpdir(),'exact-close-refusal-'));
+  const marker=resolve(profile,'owned-marker'); writeFileSync(marker,'keep');
+  const child=spawn(chromium().executable,['--headless=new','--remote-debugging-pipe',`--user-data-dir=${profile}`,
+    '--no-sandbox','--no-first-run','--disable-background-networking','about:blank'],
+    {detached:true,windowsHide:true,stdio:['ignore','ignore','pipe','pipe','pipe']});
+  child.stderr.on('data',()=>{});
+  const cdp=new Cdp(child.stdio[3],child.stdio[4]);
+  const exited=new Promise(resolve=>child.once('exit',resolve));
+  child.on('exit',()=>cdp.fail('owned Chrome exited'));
+  try {
+    await cdp.send('Browser.getVersion');
+    let calls=0;
+    const refused={send:async method=>{expect(method).toBe('Browser.close');throw new Error('fixture close rejected');}};
+    const began=performance.now();
+    await assert.rejects(closeWindowsBrowser(child,refused,exited,profile,pid=>{
+      expect(pid).toBe(child.pid); calls++;
+      return {status:5,signal:null,error:new Error('fixture helper denied'),stdout:'x'.repeat(5000),stderr:'permission denied'};
+    }),error=>{
+      expect(error.message).toContain(`Chrome ${child.pid} did not exit; owned profile retained at ${profile}`);
+      const detail=JSON.parse(error.message.split('; shutdown ')[1]);
+      expect(detail.cdp.error).toBe('fixture close rejected');
+      expect(detail.taskkill.status).toBe(5);
+      expect(detail.taskkill.error).toBe('fixture helper denied');
+      expect(detail.taskkill.stdout.length).toBe(2048);
+      expect(detail.taskkill.stderr).toBe('permission denied');
+      expect(detail.exitCode).toBeNull(); expect(detail.signalCode).toBeNull();
+      expect(detail.totalMs).toBeGreaterThanOrEqual(3900);
+      return true;
+    });
+    expect(performance.now()-began).toBeLessThan(10000);
+    expect(calls).toBe(1);
+    expect(readFileSync(marker,'utf8')).toBe('keep');
+    expect((await cdp.send('Browser.getVersion')).product).toContain('Chrome');
+    // A failed helper is not a successful exit. A subsequent real graceful
+    // close may clean this owned process, without erasing the refusal above.
+    await closeWindowsBrowser(child,cdp,exited,profile);
+    expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
+  } finally {
+    if(child.exitCode===null && child.signalCode===null) await closeWindowsBrowser(child,cdp,exited,profile);
+    await removeBrowserProfile(profile);
+  }
+},30000);
+
+test.skipIf(process.platform !== 'win32')('owned Chrome forced close requires the recorded child exit', async () => {
+  const profile=mkdtempSync(resolve(tmpdir(),'exact-close-forced-'));
+  const child=spawn(chromium().executable,['--headless=new','--remote-debugging-pipe',`--user-data-dir=${profile}`,
+    '--no-sandbox','--no-first-run','--disable-background-networking','about:blank'],
+    {detached:true,windowsHide:true,stdio:['ignore','ignore','pipe','pipe','pipe']});
+  child.stderr.on('data',()=>{});
+  const cdp=new Cdp(child.stdio[3],child.stdio[4]);
+  const exited=new Promise(resolve=>child.once('exit',resolve));
+  child.on('exit',()=>cdp.fail('owned Chrome exited'));
+  try {
+    await cdp.send('Browser.getVersion');
+    await closeWindowsBrowser(child,{send:async()=>{throw new Error('fixture withholds graceful close');}},exited,profile);
+    expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
+  } finally {
+    if(child.exitCode===null && child.signalCode===null) await closeWindowsBrowser(child,cdp,exited,profile);
+    await removeBrowserProfile(profile);
+  }
+},30000);
 
 test.skipIf(process.platform !== 'win32')('owned browser profile cleanup retries a real sharing lock and refuses a persistent one', async () => {
   const root=mkdtempSync(resolve(tmpdir(),'exact-browser-cleanup-'));
