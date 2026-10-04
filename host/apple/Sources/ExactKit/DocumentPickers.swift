@@ -65,7 +65,7 @@ extension ExactSession {
             return
         }
         guard let doc = mintDocument(url) else { log("open-file: refused: \(url.lastPathComponent) is not a file"); return }
-        if !change(testId: "open-file", value: doc) { log("open-file: refused: this app has no `open-file` field") }
+        if !change(testId: "open-file", value: doc) { log("open-file: refused: \(changeRefusal ?? "nothing took it")") }
     }
 }
 #endif

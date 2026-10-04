@@ -1227,13 +1227,21 @@ public final class ExactSession {
     /// Deliver an embedder's value through a declared change handler. The
     /// selector must name exactly one live node; file contents stay data.
     @discardableResult public func change(testId: String, value: String) -> Bool {
-        guard state != .destroyed, booted else { return false }
+        changeRefusal = nil
+        guard state != .destroyed, booted else { changeRefusal = "it has not started"; return false }
         let matches = presenter.views.values.filter { $0.props["testId"] == testId && $0.handlers.contains("change") }
-        guard matches.count == 1, let node = matches.first else { return false }
+        guard matches.count == 1, let node = matches.first else {
+            changeRefusal = matches.isEmpty ? "it has no `\(testId)` field with a `change` handler" : "it has \(matches.count) `\(testId)` fields"
+            return false
+        }
         let batch = runtime.change(node.id, documentValue(node.id, value), now: now())
         apply(batch)
+        if let error = batch.error { changeRefusal = "its `change` was refused: \(error)" }
         return batch.error == nil
     }
+    /// Why the last `change(testId:value:)` delivered nothing: the app has
+    /// no such field, or its action refused the value (studio diary R14).
+    public private(set) var changeRefusal: String?
     /// Deliver toolbar facts only when the authored editor has a select handler.
     func selection(node: UInt32, json: String) {
         guard booted, state != .destroyed,

@@ -126,7 +126,9 @@ public enum ExactDocuments {
         var delivered = true
         for path in paths where !path.isEmpty {
             if !session.change(testId: testId, value: path) {
-                FileHandle.standardError.write(Data("exact: \(ExactEnv.appName) has no `\(testId)` field to open \(path) with\n".utf8))
+                let why = session.changeRefusal ?? "it delivered nothing"
+                FileHandle.standardError.write(Data("exact: \(ExactEnv.appName) did not open \(path): \(why)\n".utf8))
+                session.log("open-file: refused: \(why)")
                 delivered = false
             } else if FileManager.default.fileExists(atPath: path) {
                 noteRecent(path)

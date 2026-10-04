@@ -210,7 +210,11 @@ A file chosen in the app's own picker (`showOpenFilePicker`,
 `showSaveFilePicker`) joins File ▸ Open Recent — a save once it is written —
 and becomes the window's document, as a routed one does. A path from the command line, from Finder, from ⌘O, or from a link inside
 a document all arrive at the same place: the app's `open-file` node
-(LLP 1033 D3). `exact uninstall <app>` takes both halves away.
+(LLP 1033 D3). One handed over at launch arrives before first pixel, before
+app storage is ready: a send its `change` makes waits for storage and then runs,
+rather than being refused (studio diary R14). When nothing takes the path, the
+host says why — no `open-file` field, or the `change` the app refused, and the
+refusal — on stderr and in the journal. `exact uninstall <app>` takes both halves away.
 
 Apple products live under the resolved app's target directory, scoped by
 canonical source directory, manifest id, destination, composition and trust
