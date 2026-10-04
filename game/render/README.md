@@ -321,10 +321,13 @@ At load, a model's rigid, non-blended parts that share a material merge into one
 draw: static parts into one mesh pre-transformed into model space (mirrored parts
 rewound), parts a clip animates into one mesh skinned with weight one to each
 part's node, through the palette rigid parts already use. A many-part prop or a
-rigid-limbed character is one draw per material. Each merged vertex carries its
-part index (a weight-one joint), so `NodeMaterials` still colours parts one by one:
-an instance's per-part looks follow its records in the instance buffer, and the
-record's last word points at them. The parts' own meshes retire.
+rigid-limbed character is one draw per material. `NodeMaterials` still colours
+parts one by one: an instance's per-part looks follow its records in the instance
+buffer, each with its part's first vertex, and the record's last word points at
+them; the vertex shader takes the last part starting at or before its vertex.
+Static merges add no per-vertex data. The parts' own meshes retire. Merging moves
+static vertices into model space on the CPU, so their pixels can differ from the
+unmerged draw by float rounding (an intended change, under 8 pixels in the tests).
 `ModelLod { levels, hide }` swaps an instance's model by camera distance. Each
 frame the renderer picks one level per entity from its displayed position, with a
 5% hysteresis band (presentation only), falling back to the nearest resident level

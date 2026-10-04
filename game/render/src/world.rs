@@ -92,6 +92,7 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
                     names: &m.names,
                     merged: &m.merged,
                     members: &m.members,
+                    starts: &m.starts,
                     materials: &m.materials,
                     bases: &m.bases,
                 })
@@ -108,7 +109,7 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
         }
     }
     fn part_looks(&mut self, bases: &[u32], looks: &[[f32; 8]]) {
-        let part_looks = &mut self.models.part_looks;
+        let part_looks = &mut self.models.pending_looks;
         part_looks.0.clear();
         part_looks.0.extend_from_slice(bases);
         part_looks.1.clear();

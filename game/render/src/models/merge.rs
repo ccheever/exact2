@@ -57,6 +57,10 @@ fn vertex(mesh: &MeshData, v: usize, local: Mat4, normal: Mat3) -> Vertex {
     }
 }
 
+/// A model's draw list, each draw's part names and part first vertices, and the
+/// merged meshes.
+pub(super) type Merged = (Vec<ModelNode>, Vec<Vec<String>>, Vec<Vec<u32>>, Vec<MeshId>);
+
 impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
     /// The model's draw list with each merged group at its first member's place,
     /// each draw's part names, and the merged meshes; empty when nothing merges.
@@ -69,7 +73,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         meshes: &[u32],
         animated: &[(u32, Skin)],
         skins: &[u32],
-    ) -> (Vec<ModelNode>, Vec<Vec<String>>, Vec<MeshId>) {
+    ) -> Merged {
         // Static: unskinned, unanimated nodes sharing a material.
         let mut groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
         for (i, node) in nodes.iter().enumerate() {
@@ -79,7 +83,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         }
         groups.retain(|_, members| members.len() > 1);
         if groups.is_empty() && animated.is_empty() {
-            return (Vec::new(), Vec::new(), Vec::new());
+            return (Vec::new(), Vec::new(), Vec::new(), Vec::new());
         }
         let drawn: Vec<usize> = (0..model.nodes.len())
             .filter(|&n| model.nodes[n].mesh.is_some())
@@ -87,15 +91,15 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         let mut first = BTreeMap::new();
         let mut merged = Vec::new();
         for members in groups.values() {
-            let (mut vertices, mut indices, mut parts) = (Vec::new(), Vec::new(), Vec::new());
-            for (part, &i) in members.iter().enumerate() {
+            let (mut vertices, mut indices, mut starts) = (Vec::new(), Vec::new(), Vec::new());
+            for &i in members {
                 let local = nodes[i].2;
                 let normal = Mat3::from_mat4(local).inverse().transpose();
                 let mesh = &model.meshes[meshes[i] as usize];
                 let base = vertices.len() as u32;
+                starts.push(base);
                 let count = mesh.positions.len() / 3;
                 vertices.extend((0..count).map(|v| vertex(mesh, v, local, normal)));
-                parts.extend(std::iter::repeat_n(part as u32, count));
                 // A mirrored node keeps its front faces by reversing its winding.
                 let mirrored = local.determinant() < 0.;
                 for t in mesh.indices.chunks_exact(3) {
@@ -107,10 +111,12 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                     indices.extend(t.map(|i| base + i));
                 }
             }
-            let id = self.merged_mesh(&vertices, &indices, &parts);
+            // Static parts carry no per-vertex part: looks find it by vertex range.
+            let id = self.add_mesh(&vertices, &indices);
+            self.meshes[id.0].asset = true;
             merged.push(id);
             let draw = (id, nodes[members[0]].1, Mat4::IDENTITY, None);
-            first.insert(members[0], (draw, members.clone()));
+            first.insert(members[0], (draw, members.clone(), starts));
         }
         for ((_, skin), &template) in animated.iter().zip(skins) {
             let members: Vec<usize> = skin
@@ -119,9 +125,11 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                 .map(|&n| drawn.binary_search(&(n as usize)).unwrap())
                 .collect();
             let (mut vertices, mut indices, mut parts) = (Vec::new(), Vec::new(), Vec::new());
+            let mut starts = Vec::new();
             for (joint, &i) in members.iter().enumerate() {
                 let mesh = &model.meshes[meshes[i] as usize];
                 let base = vertices.len() as u32;
+                starts.push(base);
                 let count = mesh.positions.len() / 3;
                 vertices
                     .extend((0..count).map(|v| vertex(mesh, v, Mat4::IDENTITY, Mat3::IDENTITY)));
@@ -131,25 +139,29 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             let id = self.merged_mesh(&vertices, &indices, &parts);
             merged.push(id);
             let draw = (id, nodes[members[0]].1, Mat4::IDENTITY, Some(template));
-            first.insert(members[0], (draw, members));
+            first.insert(members[0], (draw, members, starts));
         }
         let grouped: std::collections::BTreeSet<usize> = first
             .values()
-            .flat_map(|(_, m)| m.iter().copied())
+            .flat_map(|(_, m, _)| m.iter().copied())
             .collect();
         let name = |i: usize| model.nodes[drawn[i]].name.clone();
-        let (draws, parts) = nodes
-            .iter()
-            .enumerate()
-            .filter_map(|(i, &node)| match first.get(&i) {
-                Some((draw, members)) => Some((*draw, members.iter().map(|&m| name(m)).collect())),
-                None => (!grouped.contains(&i)).then(|| (node, vec![name(i)])),
-            })
-            .unzip();
-        (draws, parts, merged)
+        let (mut draws, mut parts, mut ranges) = (Vec::new(), Vec::new(), Vec::new());
+        for (i, &node) in nodes.iter().enumerate() {
+            if let Some((draw, members, starts)) = first.get(&i) {
+                draws.push(*draw);
+                parts.push(members.iter().map(|&m| name(m)).collect());
+                ranges.push(starts.clone());
+            } else if !grouped.contains(&i) {
+                draws.push(node);
+                parts.push(vec![name(i)]);
+                ranges.push(vec![0]);
+            }
+        }
+        (draws, parts, ranges, merged)
     }
-    /// A merged mesh whose vertices carry their part index as a weight-one joint:
-    /// the skin path follows it, and merged per-part looks read it.
+    /// An animated merged mesh: each vertex follows its part's node as a
+    /// weight-one joint.
     fn merged_mesh(&mut self, vertices: &[Vertex], indices: &[u32], parts: &[u32]) -> MeshId {
         let id = self.add_mesh(vertices, indices);
         self.meshes[id.0].asset = true;
@@ -163,5 +175,52 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             u64::from(buffer.grow(&self.device, &self.queue, start + (words.len() * 4) as u64));
         buffer.write(&self.queue, start, crate::buffers::bytes(&words));
         id
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use exact_game::asset::{MaterialData, MeshData, Model, Node};
+    #[test]
+    fn static_merges_add_nothing_to_the_skin_weight_buffer() {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
+        // A large static prop: 64 parts of 4,096 vertices sharing one material.
+        let part = MeshData {
+            positions: (0..4096).flat_map(|i| [i as f32 * 1e-3, 0., 0.]).collect(),
+            normals: [0., 0., 1.].repeat(4096),
+            uvs: [0.; 2].repeat(4096),
+            indices: (0..4095).flat_map(|i| [0, i, i + 1]).collect(),
+            bounds: [0., 0., 0., 4.1, 0., 0.],
+            ..Default::default()
+        };
+        let model = Model {
+            meshes: vec![part; 64],
+            materials: vec![MaterialData::default()],
+            nodes: (0..64)
+                .map(|i| Node {
+                    mesh: Some(i),
+                    ..Default::default()
+                })
+                .collect(),
+            bounds: [0., 0., 0., 4.1, 0., 0.],
+            ..Default::default()
+        };
+        let mut renderer = crate::Renderer::new(
+            &gpu.device,
+            &gpu.queue,
+            exact_gpu::wgpu::TextureFormat::Rgba8Unorm,
+        );
+        renderer.prepare_model("prop.model", &model).unwrap();
+        let loaded = &renderer.models.loaded["prop.model"];
+        assert_eq!(loaded.merged.len(), 1, "one merged draw");
+        assert_eq!(loaded.starts[0].len(), 64);
+        let weights = &renderer.models.skinning.as_ref().unwrap().weights;
+        assert!(
+            weights.raw.size() <= 64,
+            "{} weight bytes",
+            weights.raw.size()
+        );
     }
 }

@@ -62,7 +62,7 @@ impl Assets {
                 let (nodes, members) = if draws.merged.is_empty() {
                     (draws.nodes, None)
                 } else {
-                    (draws.merged, Some(draws.members))
+                    (draws.merged, Some((draws.members, draws.starts)))
                 };
                 // A material override is one record's tint and glow: every part
                 // of a record shares its material.
@@ -85,7 +85,7 @@ impl Assets {
                 }
                 for (i, &(geometry, material, local, skin)) in nodes.iter().enumerate() {
                     let slot = RENDER_SLOT_BASE + self.records.len() as u32;
-                    let parts = members.map_or(std::slice::from_ref(&names[i]), |m| &m[i]);
+                    let parts = members.map_or(std::slice::from_ref(&names[i]), |m| &m.0[i]);
                     let find = |node: &String| {
                         looks
                             .as_ref()
@@ -96,13 +96,27 @@ impl Assets {
                     if parts.len() == 1 {
                         look = find(&parts[0]);
                     } else if parts.iter().any(|p| find(p).is_some()) {
-                        // A merged draw reads each part's look by its vertices' part.
+                        // A merged draw finds each vertex's part by its vertex range.
+                        let starts = &members.unwrap().1[i];
                         base = self.part_looks.len() as u32 + 1;
-                        self.part_looks.extend(parts.iter().map(|p| {
-                            let (c, e) =
-                                find(p).map_or(([1.; 4], [0.; 3]), |l| (l.color, l.emissive));
-                            [c[0], c[1], c[2], c[3], e[0], e[1], e[2], 0.]
-                        }));
+                        self.part_looks
+                            .extend(parts.iter().zip(starts).map(|(p, &start)| {
+                                let (c, e) =
+                                    find(p).map_or(([1.; 4], [0.; 3]), |l| (l.color, l.emissive));
+                                [
+                                    c[0],
+                                    c[1],
+                                    c[2],
+                                    c[3],
+                                    e[0],
+                                    e[1],
+                                    e[2],
+                                    f32::from_bits(start),
+                                ]
+                            }));
+                        let mut end = [0.; 8];
+                        end[7] = f32::from_bits(u32::MAX);
+                        self.part_looks.push(end);
                     }
                     self.part_bases.push(base);
                     self.levels.push(level as u8);

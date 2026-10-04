@@ -2,7 +2,8 @@ struct ModelInstance {
     transform: u32, material: u32, geometry: u32, palette: u32,
     local: mat4x4<f32>, normal: mat4x4<f32>,
     // NodeMaterials: base-colour multiplier and added emission; glow.w's bits
-    // are 1 + the first per-part look of a merged draw (0: none).
+    // are 1 + the first per-part look of a merged draw (0: none). In a part
+    // look entry, glow.w's bits are the part's first vertex.
     tint: vec4<f32>, glow: vec4<f32>,
 }
 @group(3) @binding(0) var<storage, read> instances: array<ModelInstance>;
@@ -63,8 +64,11 @@ fn model_transform(position: vec3<f32>, normal: vec3<f32>, uv: vec2<f32>, instan
     var glow=draw.glow.xyz;
     let looks=bitcast<u32>(draw.glow.w);
     if looks!=0u {
-        // A merged part's look, by the part index its vertices carry.
-        let look=instances[looks-1u+skin_vertices[vertex].joints.x];
+        // A merged part's look: the last part starting at or before this vertex
+        // (a run ends at a u32::MAX start).
+        var at=looks-1u;
+        while bitcast<u32>(instances[at+1u].glow.w)<=vertex { at+=1u; }
+        let look=instances[at];
         tint*=look.tint;
         glow+=look.glow.xyz;
     }

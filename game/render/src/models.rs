@@ -41,6 +41,7 @@ pub(crate) struct Draws<'a> {
     /// The merged draw list (empty when nothing merges) and each draw's part names.
     pub merged: &'a [ModelNode],
     pub members: &'a [Vec<String>],
+    pub starts: &'a [Vec<u32>],
     /// Renderer materials and their base colour factors, by model material index.
     pub materials: &'a [MaterialId],
     pub bases: &'a [[f32; 4]],
@@ -51,8 +52,10 @@ pub(crate) struct Uploaded {
     pub names: Vec<String>,
     /// `nodes` with rigid parts sharing a material merged; empty when none merge.
     pub merged: Vec<ModelNode>,
-    /// Each `merged` draw's node names, in vertex part order.
+    /// Each `merged` draw's node names, in vertex part order, and where each
+    /// part's vertices start in its mesh.
     pub members: Vec<Vec<String>>,
+    pub starts: Vec<Vec<u32>>,
     pub(crate) digest: u64,
     pub active: bool,
     pub meshes: Vec<MeshId>,
@@ -63,13 +66,11 @@ pub(crate) struct Uploaded {
 }
 impl Uploaded {
     /// Meshes with per-vertex joint words: skinned and rigid-palette nodes, and
-    /// every merged mesh (its part indices).
+    /// animated merged meshes.
     pub(crate) fn weighted_meshes(&self) -> impl Iterator<Item = usize> + '_ {
-        let nodes = self.nodes.iter().filter(|n| n.3.is_some());
-        let merged = (self.merged.iter().zip(&self.members))
-            .filter(|(n, parts)| n.3.is_some() || parts.len() > 1)
-            .map(|(n, _)| n);
-        nodes.chain(merged).map(|n| n.0 .0)
+        (self.nodes.iter().chain(&self.merged))
+            .filter(|n| n.3.is_some())
+            .map(|n| n.0 .0)
     }
 }
 mod merge;
@@ -108,8 +109,11 @@ pub(crate) struct Models {
     words: Vec<u32>,
     normals: Vec<([u32; 16], [u32; 16])>,
     /// Per record, 1 + the first of its merged parts' looks (0: none), and
-    /// those looks (tint, then glow), appended after the records.
+    /// those looks (tint, glow, then the part's first vertex as bits; a
+    /// `u32::MAX` start ends each record's run), appended after the records.
     pub(crate) part_looks: (Vec<u32>, Vec<[f32; 8]>),
+    /// The feed's looks for the next `set_draw_instances`, part starts relative.
+    pub(crate) pending_looks: (Vec<u32>, Vec<[f32; 8]>),
 }
 impl Models {
     pub fn custom_data(&mut self, queue: &wgpu::Queue, data: impl Fn(u32) -> u32) {
@@ -474,7 +478,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             .collect::<Vec<ModelNode>>();
         let drawn: Vec<u32> = model.nodes.iter().filter_map(|n| n.mesh).collect();
         let first = skins.len() - animated.len();
-        let (merged, members, merged_meshes) =
+        let (merged, members, starts, merged_meshes) =
             self.merge_static(model, &nodes, &drawn, &animated, &skins[first..]);
         let mut meshes = meshes;
         meshes.extend(merged_meshes);
@@ -490,6 +494,7 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                 names,
                 merged,
                 members,
+                starts,
                 bases: model.materials.iter().map(|m| m.base_color).collect(),
                 digest,
                 active: true,
@@ -722,6 +727,22 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             assert!(records.is_empty(), "model instances need prepared assets");
             return Ok(());
         };
+        // Part starts become absolute vertices; direct callers bring no looks.
+        let (bases, mut looks) = std::mem::take(&mut self.models.pending_looks);
+        for (record, &base) in records.iter().zip(&bases) {
+            if base == 0 {
+                continue;
+            }
+            let first = self.meshes[record.geometry.0].base_vertex as u32;
+            for look in &mut looks[base as usize - 1..] {
+                let start = look[7].to_bits();
+                if start == u32::MAX {
+                    break;
+                }
+                look[7] = f32::from_bits(first + start);
+            }
+        }
+        self.models.part_looks = (bases, looks);
         self.models.set(
             &self.device,
             &self.queue,
