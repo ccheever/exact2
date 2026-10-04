@@ -391,12 +391,13 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
         for id in &meshes {
             self.meshes[id.0].asset = true;
         }
-        let skins = self
-            .models
-            .skinning
-            .as_mut()
-            .unwrap()
-            .add(&self.device, &self.queue, model);
+        let animated = merge::animated_groups(model);
+        let skins = self.models.skinning.as_mut().unwrap().add_merged(
+            &self.device,
+            &self.queue,
+            model,
+            &animated.iter().map(|(_, s)| s.clone()).collect::<Vec<_>>(),
+        );
         if replaced {
             self.models.skinning.as_mut().unwrap().mark_fresh(&skins);
         }
@@ -431,7 +432,9 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             })
             .collect::<Vec<ModelNode>>();
         let drawn: Vec<u32> = model.nodes.iter().filter_map(|n| n.mesh).collect();
-        let (merged, merged_meshes) = self.merge_static(model, &nodes, &drawn);
+        let first = skins.len() - animated.len();
+        let (merged, merged_meshes) =
+            self.merge_static(model, &nodes, &drawn, &animated, &skins[first..]);
         let mut meshes = meshes;
         meshes.extend(merged_meshes);
         self.models.loaded.insert(
@@ -490,7 +493,13 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
                     .loaded
                     .iter()
                     .filter(|(n, m)| m.active && live.contains(*n))
-                    .flat_map(|(_, m)| m.nodes.iter().filter(|n| n.3.is_some()).map(|n| n.0 .0))
+                    .flat_map(|(_, m)| {
+                        m.nodes
+                            .iter()
+                            .chain(&m.merged)
+                            .filter(|n| n.3.is_some())
+                            .map(|n| n.0 .0)
+                    })
                     .collect::<std::collections::BTreeSet<_>>()
                     .iter()
                     .map(|&i| self.meshes[i].vertex_bytes)

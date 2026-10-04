@@ -70,6 +70,17 @@ impl Skinning {
         }
     }
     pub fn add(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, model: &Model) -> Vec<u32> {
+        self.add_merged(device, queue, model, &[])
+    }
+    /// `add`, then one more template per `merged` skin: animated rigid parts
+    /// drawn as one mesh whose vertices each follow one of its joints.
+    pub fn add_merged(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        model: &Model,
+        merged: &[exact_game::asset::Skin],
+    ) -> Vec<u32> {
         if model.skins.is_empty() && model.clips.is_empty() {
             return vec![];
         }
@@ -138,7 +149,7 @@ impl Skinning {
                 ..Default::default()
             })
             .collect();
-        for (index, skin) in model.skins.iter().chain(&rigid).enumerate() {
+        for (index, skin) in model.skins.iter().chain(&rigid).chain(merged).enumerate() {
             ids.push(self.templates.len() as u32);
             self.templates.push(Template {
                 meta: self.metadata.len() as u32,
@@ -146,7 +157,7 @@ impl Skinning {
                 words: 4 + model.nodes.len() * 2 + skin.joints.len() + skin.inverse_binds.len(),
                 rest: rest.clone(),
                 joints: skin.joints.len(),
-                rigid: index >= model.skins.len(),
+                rigid: index >= model.skins.len() && index < model.skins.len() + rigid.len(),
             });
             self.metadata
                 .extend([model.nodes.len() as u32, skin.joints.len() as u32, 0, 0]);

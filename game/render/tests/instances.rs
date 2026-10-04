@@ -556,3 +556,126 @@ fn static_parts_sharing_a_material_draw_once_and_look_the_same() {
         "{differ} pixels differ between merged and per-part draws"
     );
 }
+
+struct Swing;
+impl Game for Swing {
+    const ID: &'static str = "instances-swing";
+    const ASSETS: &'static [&'static str] = &["arm.model"];
+    type Args = ();
+    fn setup(w: &mut World, _: &()) {
+        let mut clip = Animation::play("swing").speed(0.);
+        clip.time = 0.5;
+        w.spawn_named("model", (Transform::default(), Mesh::asset("arm.model"), clip));
+    }
+    fn tick(w: &mut World, _: &Input, _: &()) {
+        animation::step(w);
+    }
+}
+
+#[test]
+fn animated_rigid_parts_sharing_a_material_draw_once_and_follow_their_nodes() {
+    use exact_game::asset::{Clip, Track, TrackPath};
+    let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+        return;
+    };
+    // An arm: the root panel turns about Z, its child panel 1.8 m along it.
+    let mut model = Model {
+        meshes: vec![panel(0), panel(0)],
+        materials: vec![material([0.9, 0.6, 0.3, 1.], AlphaMode::Opaque)],
+        bounds: [-3., -3., 0., 3., 3., 0.],
+        ..Default::default()
+    };
+    model.nodes.push(Node {
+        name: "upper".into(),
+        mesh: Some(0),
+        transform: glam::Mat4::from_translation(Vec3::new(-0.9, 0., 0.)).to_cols_array(),
+        ..Default::default()
+    });
+    model.nodes.push(Node {
+        name: "lower".into(),
+        parent: Some(0),
+        mesh: Some(1),
+        transform: glam::Mat4::from_translation(Vec3::new(1.8, 0., 0.)).to_cols_array(),
+        ..Default::default()
+    });
+    model.clips = vec![Clip {
+        name: "swing".into(),
+        tracks: vec![Track {
+            node: 0,
+            path: TrackPath::Rotation,
+            times: vec![0., 1.],
+            values: [
+                glam::Quat::IDENTITY.to_array(),
+                glam::Quat::from_rotation_z(1.2).to_array(),
+            ]
+            .concat(),
+            ..Default::default()
+        }],
+        ..Default::default()
+    }];
+    let render = |looks: bool| {
+        let mut sim = Sim::<Swing>::new(()).unwrap();
+        sim.asset("arm.model", Some(&bin::to_vec(&model))).unwrap();
+        sim.run(100.);
+        if looks {
+            let e = sim.world().named("model").unwrap();
+            let neutral = NodeMaterial {
+                node: "upper".into(),
+                ..Default::default()
+            };
+            sim.world_mut().insert(e, NodeMaterials(vec![neutral]));
+        }
+        let mut renderer = Renderer::new(&gpu.device, &gpu.queue, wgpu::TextureFormat::Rgba8Unorm);
+        renderer.prepare_model("arm.model", &model).unwrap();
+        let mut feed = Feed::default();
+        feed.feed(sim.world(), &mut renderer).unwrap();
+        let texture = gpu.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 128,
+                height: 128,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8Unorm,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let eye = Vec3::new(0., 0., 5.);
+        let mut f = exact_game_render::FrameInput {
+            view: view::look_at_mat4(eye, Vec3::ZERO, Vec3::Y),
+            proj: directx::orthographic(-3., 3., -3., 3., 0.1, 20.),
+            camera_position: eye,
+            alpha: 1.,
+            ..Default::default()
+        };
+        f.environment.fog = None;
+        f.environment.bloom = None;
+        f.environment.background = Some([0.; 3]);
+        let stats = renderer.draw(&texture.create_view(&Default::default()), (128, 128), &f);
+        (stats, fixture::read(&gpu, &texture).unwrap())
+    };
+    let (merged, a) = render(false);
+    let (parts, b) = render(true);
+    assert_eq!((merged.instances, parts.instances), (1, 2));
+    let lit = |p: &fixture::Pixels, x: u32, y: u32| p.at(x, y)[0] > 20;
+    // Turned 0.6 rad: the lower panel's centre rises above the bind pose's row.
+    let (cx, cy) = (
+        64. + (-0.9 + 1.8 * 0.6f32.cos()) / 6. * 128.,
+        64. - 1.8 * 0.6f32.sin() / 6. * 128.,
+    );
+    assert!(lit(&a, cx as u32, cy as u32), "the lower part follows its node");
+    assert!(!lit(&a, 64 + 19, 64), "nothing left at the bind pose's lower part");
+    let mut differ = 0;
+    for y in 0..128 {
+        for x in 0..128 {
+            let (p, q) = (a.at(x, y), b.at(x, y));
+            if (0..3).any(|c| p[c].abs_diff(q[c]) > 2) {
+                differ += 1;
+            }
+        }
+    }
+    assert!(differ <= 8, "{differ} pixels differ between merged and per-part draws");
+}
