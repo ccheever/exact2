@@ -86,7 +86,7 @@ fn presentation_is_rebuilt_at_every_boundary_from_the_tick() {
 }
 
 #[test]
-#[should_panic(expected = "Game::present spawned or despawned an entity")]
+#[should_panic(expected = "Game::present changed simulation state (spawned an entity)")]
 fn presenting_cannot_spawn() {
     struct Spawns;
     impl Game for Spawns {
@@ -169,4 +169,73 @@ fn present_rebuilds_from_nothing_so_a_stateful_present_cannot_drift() {
     let mut b = Sim::<Counts>::new(()).unwrap();
     b.restore(&a.save().unwrap()).unwrap();
     assert_eq!(b.world().require::<Count>("crate").0, 1);
+}
+
+/// A game whose present makes one simulation change; the panic names it.
+fn presents(change: fn(&mut World)) -> String {
+    thread_local!(static CHANGE: std::cell::Cell<Option<fn(&mut World)>> = const { std::cell::Cell::new(None) });
+    struct Meddles;
+    impl Game for Meddles {
+        const ID: &'static str = "meddles";
+        type Args = ();
+        fn setup(w: &mut World, a: &()) {
+            Plain::setup(w, a);
+        }
+        fn tick(w: &mut World, i: &Input, a: &()) {
+            Plain::tick(w, i, a);
+        }
+        fn present(w: &mut World, _: &()) {
+            if w.tick() > 0 {
+                CHANGE.with(|c| c.get().unwrap())(w);
+            }
+        }
+    }
+    CHANGE.with(|c| c.set(Some(change)));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        Sim::<Meddles>::new(()).unwrap().run(100.);
+    }));
+    let error = result.expect_err("present's simulation change must panic");
+    error.downcast_ref::<String>().cloned().unwrap_or_default()
+}
+
+#[test]
+fn present_cannot_change_simulation_state() {
+    let cases: [(fn(&mut World), &str); 8] = [
+        (
+            |w| w.require_mut::<Transform>("crate").position.x += 1.,
+            "wrote component `Transform`",
+        ),
+        (
+            |w| {
+                let e = w.named("crate").unwrap();
+                w.insert(e, Crate { hp: 9 });
+            },
+            "inserted component `Crate`",
+        ),
+        (
+            |w| {
+                for (_, t) in w.query::<&mut Transform>().iter() {
+                    t.position.y = 1.;
+                }
+            },
+            "queried `Transform` mutably",
+        ),
+        (
+            |w| {
+                w.rand(0..3u32);
+            },
+            "drew from World::rng",
+        ),
+        (|w| w.emit("hello"), "emitted a message"),
+        (|w| w.log("note"), "journaled `note`"),
+        (|w| w.publish("score", 3.0), "published `score`"),
+        (|w| emitter::step(w), "queried `Emitter` mutably"),
+    ];
+    for (change, named) in cases {
+        let message = presents(change);
+        assert!(
+            message.contains("Game::present changed simulation state") && message.contains(named),
+            "{named}: {message}"
+        );
+    }
 }

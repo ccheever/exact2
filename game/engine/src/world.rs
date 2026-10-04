@@ -212,6 +212,8 @@ pub struct World {
     pub(crate) followed: std::cell::Cell<bool>,
     // Whether this tick's emitters have stepped (emitter::step or the Sim's own).
     pub(crate) emitted: std::cell::Cell<bool>,
+    // Inside Game::present: only presentation components may change.
+    pub(crate) presenting: std::cell::Cell<bool>,
     pub(crate) attachments: Option<Attachments>,
     pub(crate) detach: Option<fn(&World, Entity)>,
     state: State,
@@ -258,6 +260,7 @@ impl World {
             observation: ObservationState::Unknown,
             in_tick: false,
             followed: std::cell::Cell::new(false),
+            presenting: std::cell::Cell::new(false),
             emitted: std::cell::Cell::new(false),
             attachments: None,
             detach: None,
@@ -362,6 +365,7 @@ impl World {
         self.spawn_inner(Some(name.as_ref().into()), bundle)
     }
     fn spawn_inner(&mut self, name: Option<String>, bundle: impl Bundle) -> Entity {
+        self.sim_writes(format_args!("spawned an entity"));
         self.mutated();
         let index = if self.state.free.0.is_empty() {
             let i = u32::try_from(self.state.slots.len()).expect("entity slots exhausted");
@@ -395,6 +399,7 @@ impl World {
     /// Remove this entity only; descendants leave at the end of the tick.
     /// A panicking component destructor leaves the slot alive until a later retry.
     pub fn despawn(&mut self, e: Entity) -> bool {
+        self.sim_writes(format_args!("despawned #{}", e.index));
         if !self.contains(e) {
             return false;
         }
@@ -549,6 +554,9 @@ impl World {
     /// Insert or replace a component, returning false if the entity is gone.
     pub fn insert<C: Component>(&mut self, e: Entity, c: C) -> bool {
         self.sim_reads::<C>();
+        if !C::PRESENTATION {
+            self.sim_writes(format_args!("inserted component `{}`", C::NAME));
+        }
         if !self.contains(e) {
             return false;
         }
@@ -597,6 +605,9 @@ impl World {
     /// Remove storage only when replacing a controller while preserving its sampled Pose.
     pub(crate) fn remove_component<C: Component>(&mut self, e: Entity) -> Option<C> {
         self.sim_reads::<C>();
+        if !C::PRESENTATION {
+            self.sim_writes(format_args!("removed component `{}`", C::NAME));
+        }
         if !self.contains(e) {
             return None;
         }
@@ -641,6 +652,15 @@ impl World {
             }
         }
     }
+    /// Game::present writes presentation components only; anything else it
+    /// changed would be simulation state a restore runs it over again.
+    #[inline]
+    pub(crate) fn sim_writes(&self, what: std::fmt::Arguments<'_>) {
+        if self.presenting.get() {
+            self.presenting.set(false);
+            panic!("Game::present changed simulation state ({what}); present may only insert, change or remove presentation components");
+        }
+    }
     /// A tick never sees presentation state: `Game::present` rebuilds it after
     /// the tick, so a value read there would differ after a restore.
     #[inline]
@@ -668,6 +688,9 @@ impl World {
         at: At,
     ) -> Option<RefMut<'_, C>> {
         self.sim_reads::<C>();
+        if !C::PRESENTATION {
+            self.sim_writes(format_args!("wrote component `{}`", C::NAME));
+        }
         let e = target.entity(self)?;
         if !self.contains(e) {
             return None;
@@ -920,6 +943,7 @@ impl World {
     }
     /// Insert or replace named singleton state.
     pub fn insert_resource<R: Resource>(&mut self, r: R) {
+        self.sim_writes(format_args!("inserted resource `{}`", R::NAME));
         self.register_resource::<R>();
         self.resources
             .entry(R::NAME)
@@ -953,6 +977,7 @@ impl World {
     /// Borrow a resource exclusively; absence panics with its name.
     #[track_caller]
     pub fn resource_mut<R: Resource>(&self) -> RefMut<'_, R> {
+        self.sim_writes(format_args!("wrote resource `{}`", R::NAME));
         let at = Location::caller();
         self.resource_storage::<R>().get_mut(at).unwrap()
     }
@@ -982,6 +1007,7 @@ impl World {
     /// The world's only source of simulation randomness.
     #[track_caller]
     pub fn rng(&self) -> RefMut<'_, Rng> {
+        self.sim_writes(format_args!("drew from World::rng; use presentation_rng"));
         self.rng.get_mut(Location::caller()).unwrap()
     }
     /// Draw one value and release the random column before returning.
@@ -1006,6 +1032,7 @@ impl World {
         self.log_args(format_args!("{line}"));
     }
     fn log_args(&self, line: std::fmt::Arguments<'_>) {
+        self.sim_writes(format_args!("journaled `{line}`"));
         let mut j = self.journal.borrow_mut();
         if j.len() == 4096 {
             j.pop_front();
@@ -1032,6 +1059,7 @@ impl World {
         self.publish_value(key, value.into().0);
     }
     pub(crate) fn publish_value(&self, key: &str, value: crate::values::Incoming<'_>) {
+        self.sim_writes(format_args!("published `{key}`"));
         let mut p = self.published.borrow_mut();
         let stored = p.get_mut(key);
         if stored
@@ -1061,6 +1089,7 @@ impl World {
     }
     /// Queue a string event for the canvas's `message=` handler, in order, once.
     pub fn emit(&self, text: impl Into<String>) {
+        self.sim_writes(format_args!("emitted a message"));
         self.messages.borrow_mut().push(text.into());
     }
     /// Last scalar, list or positional Contract value published under a key.

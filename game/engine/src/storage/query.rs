@@ -92,6 +92,9 @@ impl<'w, C: Component, const M: bool, const O: bool> ComponentBorrow<'w, C, M, O
             .unwrap_or_else(|| panic!("query exceeds 8 terms at {}", C::NAME));
         *slot = Some(id);
         let storage = world.storage::<C>();
+        if M && !C::PRESENTATION {
+            world.sim_writes(format_args!("queried `{}` mutably", C::NAME));
+        }
         if M {
             // A mutable query is a write generation from construction, as before.
             storage.inspect(|s| s.edited());

@@ -272,12 +272,26 @@ impl<G: Game> Sim<G> {
         // A rebuild by construction: nothing a previous present wrote survives,
         // so a restored world and a continuous one present the same state.
         world.clear_presentation();
-        let entities = world.entities_revision();
-        G::present(world, args);
-        assert_eq!(
-            entities,
+        // Every simulation write panics while presenting (World::sim_writes);
+        // these are the records a present could still append to unnoticed.
+        let before = (
             world.entities_revision(),
-            "Game::present spawned or despawned an entity; entities are simulation state, so spawn them in setup or tick"
+            world.journal_next(),
+            world.messages.borrow().len(),
+            world.published_pending.get(),
+        );
+        world.presenting.set(true);
+        G::present(world, args);
+        world.presenting.set(false);
+        let after = (
+            world.entities_revision(),
+            world.journal_next(),
+            world.messages.borrow().len(),
+            world.published_pending.get(),
+        );
+        assert_eq!(
+            before, after,
+            "Game::present changed simulation records (entities, journal, messages, publications)"
         );
     }
     /// Whether setup is waiting for declared model bytes.

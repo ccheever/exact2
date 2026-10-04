@@ -50,6 +50,7 @@ impl World {
     }
     /// Restart the world's random stream from an explicit game argument.
     pub fn reseed(&mut self, seed: u64) {
+        self.sim_writes(format_args!("reseeded the world"));
         self.state.seed = seed;
         self.rng.insert(Rng::new(seed));
     }
