@@ -191,7 +191,7 @@ export const After = [], Before = [];
 const Scrolls = new Map(), Selects = new Set();
 /** What a commit does once its tree is in place: authored scrolls, then the
  * loaded pieces' publications (also after a list's report, list.js). */
-export function settled() { drain(); Present?.(); markDocument(); paintFlush(); for (const f of After) f(); }
+export function settled() { drain(); markDocument(); paintFlush(); Present?.(); for (const f of After) f(); }
 let Booting = false; // the boot's own offsets are no reader's scroll (the web host hears none: its input opens after them): `scroll` skips one
 function drain() {
   for (const [e, o] of Scrolls) for (const name in o) {

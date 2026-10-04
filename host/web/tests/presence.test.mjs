@@ -2,7 +2,7 @@
 // clocks, including the host's resize entry and child reconciliation.
 import { beforeAll, afterAll, test, expect } from 'bun:test';
 import { spawn } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, existsSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
@@ -88,7 +88,9 @@ beforeAll(async () => {
   server = createServer((req, res) => {
     if (req.url === '/favicon.ico') { res.writeHead(204); res.end(); return; }
     res.writeHead(200, { 'content-type': req.url === '/' ? 'text/html' : 'text/javascript' });
-    res.end(req.url === '/' ? page : readFileSync(resolve(WEB, req.url.slice(1))));
+    const path = req.url.startsWith('/js/') ? req.url.slice(4) : req.url.slice(1);
+    const js = resolve(WEB, '../web-js', path);
+    res.end(req.url === '/' ? page : readFileSync(req.url.startsWith('/js/') && existsSync(js) ? js : resolve(WEB, path))); 
   });
   await new Promise(ok => server.listen(0, '127.0.0.1', ok));
   profile = mkdtempSync(resolve(tmpdir(), 'exact-presence-'));
@@ -282,4 +284,40 @@ check('layout resizing uses its parents structural isolation without animating i
   expect(await evaluate('surface().getBoundingClientRect().height')).toBeCloseTo(90, 2);
   expect(await evaluate('document.getElementById("holder").getAnimations().length')).toBe(0);
   expect(await evaluate('document.getElementById("holder").style.isolation')).toBe('isolate');
+});
+
+check('JS commits keep ghost containment and restore the latest paint decision after the last exit', async () => {
+  await fixture('');
+  await evaluate(`(async () => {
+    const rt = await import('/js/rt.js');
+    const { h, when, sig, W, act, pr, P, mount, pieces } = rt;
+    window.jsrt = rt;
+    const shown = sig(true), isolated = sig(false);
+    window.jsRemove = act(() => W(shown, false));
+    window.jsIsolation = act(v => W(isolated, v));
+    mount(root => {
+      const app = h(root, 'div', 0, {'data-exact-kind':'box','data-exact-root':''}, 0);
+      window.jsHolder = h(app, 'div', 0, {'data-exact-kind':'box'}, 0);
+      P(jsHolder, 'data-exact-own-isolation', () => isolated() ? '' : null);
+      when(jsHolder, shown, p => {
+        for (const duration of [1000, 2000]) {
+          const c = h(p, 'div', 0, {'data-exact-kind':'box','data-exact-exit':''}, 0);
+          c.style.cssText = 'width:100px;height:40px;--exact-exit-animation:pulse ' + duration + 'ms linear both';
+          pr(c);
+        }
+      }, () => {});
+      const sibling = h(app, 'div', 0, {'data-exact-kind':'box','data-exact-position':'absolute','data-exact-zi':'1'}, 0);
+      sibling.style.cssText = 'position:absolute;z-index:1;width:100px;height:40px';
+    });
+    await pieces(); jsRemove(); seek(0);
+  })()`);
+  expect(await evaluate('document.querySelectorAll("[data-exiting]").length')).toBe(2);
+  expect(await evaluate('jsHolder.style.isolation')).toBe('isolate');
+  await evaluate(`jsIsolation(true); jsIsolation(false);
+    import('/js/paint.js').then(paint => { paint.paintFacts(jsHolder); paint.paintFlush(); });`);
+  expect(await evaluate('jsHolder.style.isolation')).toBe('isolate');
+  await evaluate('document.getAnimations().find(a => a.effect.getTiming().duration === 1000).finish(); Promise.resolve()');
+  expect(await evaluate('jsHolder.style.isolation')).toBe('isolate');
+  await evaluate('document.getAnimations().forEach(a => a.finish()); Promise.resolve()');
+  expect(await evaluate('jsHolder.style.isolation')).toBe('');
 });

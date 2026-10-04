@@ -317,6 +317,7 @@ function createPresence(root) {
       if (!held) {
         held = { count: 0, value: parent.style.getPropertyValue('isolation'), priority: parent.style.getPropertyPriority('isolation'), released: false };
         ghostParents.set(parent, held);
+        parent.$ghostIsolation = held; // paint.js updates the underlying decision during a ghost.
       }
       held.count++;
       if (!held.released) parent.style.setProperty('isolation', 'isolate');
@@ -330,6 +331,7 @@ function createPresence(root) {
         if (--held.count === 0) {
           restoreIsolation(parent, held);
           ghostParents.delete(parent);
+          delete parent.$ghostIsolation;
         }
       };
       Promise.all(leaving.map(a => a.finished)).then(done, done);

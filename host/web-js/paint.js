@@ -28,7 +28,7 @@ function own(e, parent, exclusion) {
     || (button && (style.endsWith("glass") || (get(e, "disabled") === "true" && !["bordered", "gray"].includes(style))))
     || has(e, "material") || get(e, "navigation") === "modal"
     || fact(e, "motion") || has(e, "layout") || has(e, "exit")
-    || (kind === "text" && exclusion) || Array.from(e.children).some(c => has(c, "layout"));
+    || (kind === "text" && exclusion) || Array.from(e.children).some(c => !c.hasAttribute("data-exiting") && has(c, "layout"));
   return { positioned, stacks: authored || !!policy, policy: !!policy && !authored, z,
     outside: !kind || has(e, "outside") || get(e, "semantic") === "dialog" || has(e, "popover"), root };
 }
@@ -48,7 +48,7 @@ export function paintFlush() {
   while (buckets.length) {
     const list = buckets.at(-1);
     if (!list?.length) { buckets.pop(); continue; }
-    const p = list.pop(), children = Array.from(p.children);
+    const p = list.pop(), children = Array.from(p.children).filter(c => !c.hasAttribute("data-exiting"));
     const exclusion = children.some(c => get(c, "position") === "absolute" && has(c, "wrap"));
     let layered = false, leaked = false, z = false, level0 = false, changed = false;
     for (const c of children) {
@@ -58,7 +58,10 @@ export function paintFlush() {
       if (!o.outside) { layered ||= o.positioned || o.stacks || isolated || leaks; leaked ||= leaks; }
       c.toggleAttribute("data-exact-policy", o.policy);
       const iso = isolated || o.policy || has(c, "own-isolation");
-      if (iso) { if (c.style.isolation !== "isolate") c.style.isolation = "isolate"; }
+      // Presence restores this current decision after the last ghost. A
+      // sliced adoption may flush without a presence before/after pair.
+      if (c.$ghostIsolation) Object.assign(c.$ghostIsolation, { value: iso ? "isolate" : "", priority: "", released: false });
+      if (iso || c.$ghostIsolation) { if (c.style.isolation !== "isolate") c.style.isolation = "isolate"; }
       else if (c.style.isolation === "isolate") c.style.removeProperty("isolation");
       const open = !o.stacks && !isolated, nonzero = o.z !== null && o.z !== 0;
       const cz = !o.outside && (nonzero || (open && r.z));
