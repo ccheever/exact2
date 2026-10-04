@@ -970,7 +970,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         exact_runner::set_lead_scale(0.0);
         #[cfg(target_os = "android")]
         crate::surfaces::prepare_gpu(compat);
-        let mut config = crate::app::Config::from_env(plan, compat);
+        let mut config = crate::app::Config::from_env_static(plan, compat);
         config.scale = scale;
         let (p, error) = crate::app::boot_presenter::<D>(&mut config, viewport)?;
         if let Some(e) = error {

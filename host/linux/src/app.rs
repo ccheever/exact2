@@ -35,6 +35,7 @@
 //! baked one; an entry refused at boot boots the baked plan in the same run.
 
 use crate::delivery::Store;
+use crate::host::PlanBytes;
 use crate::image::AssetResolver;
 use crate::presenter::Presenter;
 use exact_runner::DataSource;
@@ -82,8 +83,9 @@ pub struct Config {
     pub content_region: Option<crate::content_region::ContentRegionRegistration>,
     /// The first location-bearing argument, canonicalized by exact-route.
     pub launch: String,
-    /// The plan to boot.
-    pub plan: Vec<u8>,
+    /// The plan to boot: the binary's own bytes, borrowed, unless another
+    /// plan was selected.
+    pub plan: std::borrow::Cow<'static, [u8]>,
     /// The binary's plan, only when `plan` came from a URL. A hash-valid
     /// network payload can still fail the format/schema/app gates at boot.
     pub fallback_plan: Option<Vec<u8>>,
@@ -130,6 +132,17 @@ impl Config {
     /// Read the environment; `baked` is the plan compiled into the binary
     /// and `compat` its `compat.json` (LLP 1030 D3a).
     pub fn from_env(baked: &[u8], compat: &str) -> Config {
+        Self::from_env_lent(baked, None, compat)
+    }
+
+    /// [`Config::from_env`] of a plan linked into the binary: booting it
+    /// copies none of it (its data pool, a baked app's largest part, is
+    /// read in place).
+    pub fn from_env_static(baked: &'static [u8], compat: &str) -> Config {
+        Self::from_env_lent(baked, Some(baked), compat)
+    }
+
+    fn from_env_lent(baked: &[u8], lent: Option<&'static [u8]>, compat: &str) -> Config {
         // A production bake never enters agent mode (LLP 1069.007 D2, ruled):
         // the agent's variables are dropped before anything reads them —
         // this config, the zone and seed, storage, the update store.
@@ -192,11 +205,13 @@ impl Config {
         let dev_identity = from_url
             .as_ref()
             .map(|generation| generation.identity.clone());
-        let plan = from_url
-            .map(|generation| generation.plan)
-            .or(named)
-            .or(dev)
-            .unwrap_or_else(|| baked.to_vec());
+        let plan = match from_url.map(|generation| generation.plan).or(named).or(dev) {
+            Some(plan) => std::borrow::Cow::Owned(plan),
+            None => lent.map_or_else(
+                || std::borrow::Cow::Owned(baked.to_vec()),
+                std::borrow::Cow::Borrowed,
+            ),
+        };
         let size = env("EXACT_SIZE")
             .and_then(|s| {
                 let (w, h) = s.split_once('x')?;
@@ -244,7 +259,7 @@ impl Config {
     pub fn use_updates(&mut self, mut updates: Box<dyn Store>, baked: &[u8]) {
         if !self.explicit {
             if let Some(prepared) = updates.prepare_selected() {
-                self.plan = prepared.plan.to_vec();
+                self.plan = prepared.plan.to_vec().into();
                 self.fallback_plan = Some(baked.to_vec());
                 self.entry = prepared.entry;
                 self.selected_assets = Some(prepared.assets);
@@ -349,7 +364,10 @@ pub fn boot_presenter<D: DataSource + Default>(
         .map_err(crate::host::HostError::Asset)
         .and_then(|data| {
             Presenter::boot_selected(
-                &config.plan,
+                match &config.plan {
+                    std::borrow::Cow::Borrowed(lent) => PlanBytes::Static(lent),
+                    std::borrow::Cow::Owned(plan) => PlanBytes::Copied(plan),
+                },
                 data,
                 viewport,
                 config.scale,
@@ -385,7 +403,7 @@ pub fn boot_presenter<D: DataSource + Default>(
             config.entry = None;
             config.selected_assets = None;
             Presenter::boot_selected(
-                baked,
+                PlanBytes::Copied(baked),
                 D::default(),
                 viewport,
                 config.scale,

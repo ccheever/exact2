@@ -58,6 +58,24 @@ impl std::fmt::Display for HostError {
     }
 }
 
+/// Plan bytes to boot: a copy of the caller's, or bytes that live as long as
+/// the program (a plan linked into it), whose data pool the decoded plan
+/// then keeps in place.
+#[derive(Clone, Copy)]
+pub(crate) enum PlanBytes<'a> {
+    Copied(&'a [u8]),
+    Static(&'static [u8]),
+}
+
+impl PlanBytes<'_> {
+    pub(crate) fn decode(self) -> Result<Plan, exact_plan::PlanError> {
+        match self {
+            PlanBytes::Copied(bytes) => Plan::decode(bytes),
+            PlanBytes::Static(bytes) => Plan::decode_static(bytes),
+        }
+    }
+}
+
 /// One runner, one painter.
 pub struct Host<D: DataSource> {
     runner: Runner<D>,
@@ -159,6 +177,25 @@ impl<D: DataSource> Host<D> {
         region: Option<crate::content_region::ContentRegionRegistration>,
     ) -> Result<(Host<D>, Option<String>), HostError> {
         let plan = Plan::decode(plan_bytes).map_err(HostError::Plan)?;
+        Self::boot_decoded(
+            plan, data, measurer, width, height, carried, delivery, launch, region,
+        )
+    }
+
+    /// [`Host::boot_at_with_region`] of a plan already decoded (the
+    /// presenter decodes once, for its fonts and then for this).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn boot_decoded(
+        plan: Plan,
+        data: D,
+        measurer: Box<dyn TextMeasurer>,
+        width: f32,
+        height: f32,
+        carried: Option<&Carried>,
+        delivery: Option<exact_runner::Delivery>,
+        launch: &str,
+        region: Option<crate::content_region::ContentRegionRegistration>,
+    ) -> Result<(Host<D>, Option<String>), HostError> {
         // Native hosts link every row's grammar (LLP 1053.000 §2).
         exact_kernel::style::link_backdrop_filter();
         exact_kernel::timeline::link();

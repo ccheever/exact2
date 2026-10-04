@@ -12,7 +12,7 @@
 //! takes in a browser. A wheel goes to the innermost scroll container under
 //! the point that can take its dominant axis, else to the page.
 use crate::gpu::Gpu;
-use crate::host::{Host, HostError};
+use crate::host::{Host, HostError, PlanBytes};
 use crate::image::AssetResolver;
 use crate::image::{Assets, Images};
 use crate::paint::{
@@ -299,7 +299,7 @@ impl<D: DataSource> Presenter<D> {
         choice: PainterChoice,
     ) -> Result<(Presenter<D>, Option<String>), HostError> {
         Self::boot_with_assets(
-            plan,
+            PlanBytes::Copied(plan),
             data,
             viewport,
             scale,
@@ -315,7 +315,7 @@ impl<D: DataSource> Presenter<D> {
     /// roster is complete: absent names cannot fall through to `root`.
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn boot_selected(
-        plan: &[u8],
+        plan: PlanBytes<'_>,
         data: D,
         viewport: (f32, f32),
         scale: f32,
@@ -346,7 +346,7 @@ impl<D: DataSource> Presenter<D> {
 
     #[allow(clippy::too_many_arguments)]
     fn boot_with_assets(
-        plan: &[u8],
+        plan: PlanBytes<'_>,
         data: D,
         viewport: (f32, f32),
         scale: f32,
@@ -366,15 +366,15 @@ impl<D: DataSource> Presenter<D> {
                 .map_err(|e| HostError::Painter(format!("content raster context: {e:?}")))?;
         }
         let t = std::time::Instant::now();
-        let decoded = Plan::decode(plan).map_err(HostError::Plan)?;
+        let decoded = plan.decode().map_err(HostError::Plan)?;
         let text = TextEngine::shared_for_assets(&decoded, &assets);
         if let Some(reason) = assets.take_refusal() {
             return Err(HostError::Asset(reason));
         }
         let fonts_ms = t.elapsed().as_secs_f64() * 1000.0;
         let (backend, painter) = open_backend(choice).map_err(HostError::Painter)?;
-        let (mut host, error) = Host::boot_at_with_region(
-            plan,
+        let (mut host, error) = Host::boot_decoded(
+            decoded,
             data,
             Box::new(Measurer(text.clone())),
             viewport.0,

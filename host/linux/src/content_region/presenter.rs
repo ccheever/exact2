@@ -13,7 +13,7 @@ impl<D: DataSource> Presenter<D> {
         region: crate::content_region::ContentRegionRegistration,
     ) -> Result<(Self, Option<String>), HostError> {
         Self::boot_with_assets(
-            plan,
+            crate::host::PlanBytes::Copied(plan),
             data,
             viewport,
             scale,
