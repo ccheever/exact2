@@ -1,4 +1,4 @@
-//! @ref LLP 1086 D8 (flashcards F4) — a mutation keeps one reply: a second
+//! @ref LLP 1088 D8 (flashcards F4) — a mutation keeps one reply: a second
 //! send forgets the first's in-flight reply (LLP 1016 D5), so two sends to
 //! one mutation on one path through an action are refused, not warned of.
 //!

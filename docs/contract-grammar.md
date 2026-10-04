@@ -58,7 +58,7 @@ a `keyframes` or `font` block, and a component need at least one entry.
 
 The lexer reserves no separate keyword token kind. Sixteen words are reserved,
 and only where a name is bound ([`names.rs`](../contract/syntax/src/parser/names.rs),
-LLP 1086 D5): `when`, `if`, `else`, `each`, `in`, `match`, `case`, `as`, `fn`,
+LLP 1088 D5): `when`, `if`, `else`, `each`, `in`, `match`, `case`, `as`, `fn`,
 `and`, `or`, `not`, `true`, `false`, `none`, `some`. A binder is a component's
 props, injects and provided names; states, derives, resources, mutations and actions; action and
 `fn` parameters and `fn` names; `let`, an `each` item and index, `case some(x)`,
@@ -399,7 +399,7 @@ its unknown attributes, and an SVG element's own props, pass to the module as on
 object. A known attribute binds to the module's box, and the box takes only layout,
 box and paint rows, handlers, `testId`, `id`, `class`, `data-*`, `role`, ARIA,
 `disabled` and `inert`; any other known name (`color`, `value`, `command`, `href`)
-is `lower-native-attr` (LLP 1024 D1, LLP 1086 D7.2). A capitalized name is a component use, not a
+is `lower-native-attr` (LLP 1024 D1, LLP 1088 D7.2). A capitalized name is a component use, not a
 built-in tag. Platform support can further restrict an admitted tag, notably
 native `foreignObject`.
 
@@ -617,11 +617,11 @@ Syntax is only the first layer. In particular:
 - A `then` handler takes no parameters and must not send its own mutation.
 - A state's initializer reads only props, injects and the states above it; a
   resource, derive, mutation, action or later state it names is
-  `type-initializer-scope` (LLP 1086 D4).
+  `type-initializer-scope` (LLP 1088 D4).
 - An action sends one mutation at most once on any path: a second send forgets
   the first's reply (LLP 1016 D5), so it is `analyze-send-twice`. Exclusive
   `if`/`match` arms, and sequential `if`s testing one unchanged name against
-  different literals, are separate paths (LLP 1086 D8). The walk reads the root's
+  different literals, are separate paths (LLP 1088 D8). The walk reads the root's
   actions after tail calls are inlined, where a caller and its callee are one commit.
   `pending`/`failed` operate on declarations, not arbitrary values.
 - View roots cannot be conditional/repeated regions. Tags, attributes, and

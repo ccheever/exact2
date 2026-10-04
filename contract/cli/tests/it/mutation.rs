@@ -1102,7 +1102,7 @@ fn two_answers_before_advance_currently_coalesce_into_one_then() {
     assert_eq!(r.timer_due_ms(), None);
 }
 
-/// LLP 1086 D8 (flashcards F4): two sends to one mutation on one path are
+/// LLP 1088 D8 (flashcards F4): two sends to one mutation on one path are
 /// refused — the second forgets the first's reply (LLP 1016 D5). Exclusive
 /// arms pass, and so do sequential `if`s that test one unchanged name
 /// against different literals; an arm's send and another in the common
@@ -1145,7 +1145,7 @@ fn two_sends_to_one_mutation_on_one_path_are_refused() {
     }
 }
 
-/// LLP 1086 D8 on the inlined body: a child's action that tail-calls a root
+/// LLP 1088 D8 on the inlined body: a child's action that tail-calls a root
 /// action runs that action's sends in its own commit, so the walk reads the
 /// root after tail calls are inlined — the callee's double send is refused
 /// once, and a single send through the call compiles.

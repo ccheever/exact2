@@ -280,7 +280,7 @@ fn state_initializers_keep_earlier_bindings_after_local_shadowing() {
 #[test]
 fn state_initializers_refuse_later_names_and_leaked_locals() {
     for (declarations, id, line) in [
-        // LLP 1086 D4: a later state is named as one.
+        // LLP 1088 D4: a later state is named as one.
         (
             "  state next = later\n  state later = 1\n",
             "type-initializer-scope",
@@ -563,7 +563,7 @@ fn a_module_tag_keeps_its_props_and_refuses_a_rows_name() {
         ("placeholder=\"x\"", "a form control's prop"),
         ("autofocus=true", "a form control's prop"),
         ("color=\"#fff\"", "a text row"),
-        // LLP 1086 D7.2: an allow-list — paint F7's `command` set a host
+        // LLP 1088 D7.2: an allow-list — paint F7's `command` set a host
         // command the module never saw.
         ("command=\"zoom\"", "another element's attribute"),
         ("href=\"/x\"", "another element's attribute"),
@@ -601,7 +601,7 @@ fn a_module_tag_keeps_its_props_and_refuses_a_rows_name() {
     );
     assert_eq!(node.style.width, Dimension::Points(320.0));
     // `disabled` and `inert` are the box's (the module's interaction
-    // suppression reads them, LLP 1086 D7.2), never a module prop.
+    // suppression reads them, LLP 1088 D7.2), never a module prop.
     let src = "component A\n  view\n    ghostty-terminal testId=\"term\" mode=\"x\" disabled=true inert=true\n";
     let r = Runner::boot(
         contract::compile(src).unwrap_or_else(|e| panic!("{e}")),

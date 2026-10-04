@@ -701,7 +701,7 @@ fn a_row_owned_state_reaches_the_rows_of_the_uses_own_each() {
     }
 }
 
-/// LLP 1086 D6's two compiler repros, by one ordered pass and not its
+/// LLP 1088 D6's two compiler repros, by one ordered pass and not its
 /// (deferred) fixed point: a row's state is typed from its initializer
 /// before the derives that read it (shop F3), and an `each` over a list a
 /// later write types (`state items = []`) no longer stops the row scopes

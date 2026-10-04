@@ -2,7 +2,7 @@
 
 - **Family:** xAI — `grok-4.7` via `grok -p`, reasoning effort xhigh, told to modify nothing (the tree was clean after each run).
 - **Method:** three runs — A (language and input), B (runtime and hosts), each blind to Astra's; then a delta round over the twelve fix commits. The author (Claude, Opus 5.5, orchestrating) is not a reviewer.
-- **Transcription:** each run's final message, unedited (progress narration before the findings dropped).
+- **Transcription:** each run's final message, unedited (progress narration before the findings dropped), but for one number: run A cited the diaries LLP as 1086, renumbered 1088 when origin/main took 1086 and 1087, and says 1088 here.
 - **Verdicts:** A LAND WITH FIXES · B LAND WITH FIXES · delta LAND WITH FIXES.
 - **Disposition:** A and B's six findings fixed with tests (ece9c6143, bdd4c030e, 9d803896d, fde2b0c76, b18b7fbd5, 6d9ff6204); the delta's three should-fixes fixed with tests (e98d3ce9f, 4972f7429, a4748def4).
 
@@ -36,7 +36,7 @@ Fix: coalesce hover the way `input-glue.js` does, and flush the pending sample b
 
 ## Checked, no defect
 
-LLP 1086 stage 1 matches the as-built notes. D4 refuses resources, derives, mutations, actions, self, and later state in an initializer. D5 reserves the sixteen words only at binders. D7.1's optional `KeyboardEvent` and `PointerEvent` counts match `Event::record` and `selection.rs`. D7.2 leaves `tabindex` for stage 2. D8's sequential `if k == "…"` widening holds; the missing `else` negation only adds false refusals.
+LLP 1088 stage 1 matches the as-built notes. D4 refuses resources, derives, mutations, actions, self, and later state in an initializer. D5 reserves the sixteen words only at binders. D7.1's optional `KeyboardEvent` and `PointerEvent` counts match `Event::record` and `selection.rs`. D7.2 leaves `tabindex` for stage 2. D8's sequential `if k == "…"` widening holds; the missing `else` negation only adds false refusals.
 
 `flex: 1` lowers to `1 1 0%`, matching Chrome. Border omitted parts reset to medium / none / currentcolor; `thin`/`medium`/`thick` are 1/3/5px; `1pt` is 4/3px. `overflow: auto` is distinct from `scroll`, and a visible axis beside a non-visible one becomes a scrollport. Viewport units pass through to CSS on the web. Cursor is in the inherited style mask Apple sends to child views. `offsetX`/`offsetY` are the content box on every host, which LLP 1056 declares on purpose. Textarea `submit` is refused in the compiler and skipped on the hosts. External `http(s)` and scheme-relative links open in a new context unless `target` is set.
 

@@ -144,7 +144,7 @@ pub(crate) fn check_component(
     // reads it (a derive, a view head, a handler's or a resource's
     // argument) must see that type, whatever the declaration order.
     ct.derives = vec![Ty::Unknown; c.derives.len()];
-    // One ordered pass first, not a fixed point (LLP 1086 D6 is deferred): a
+    // One ordered pass first, not a fixed point (LLP 1088 D6 is deferred): a
     // row's state is typed from its initializer before the derives that read
     // it (shop F3's `derive chosen = at(…, pick)` over a row's `state pick =
     // 0`). Its refusals are made where the same pass runs again below, once
@@ -760,7 +760,7 @@ fn reads_state(e: &Expr, scope: &Scope) -> Option<(String, Span)> {
     first_free(e, &|_| false, &|name| scope.lookup(name).is_some())
 }
 
-/// @ref LLP 1086 D4 — a state's initializer runs before any resource
+/// @ref LLP 1088 D4 — a state's initializer runs before any resource
 /// answers and before any derive, so it reads only props, injects and the
 /// states declared above it. A name it reads that the component declares
 /// otherwise is refused as what it is; an unknown name keeps its

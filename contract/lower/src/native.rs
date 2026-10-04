@@ -71,7 +71,7 @@ pub(crate) fn leftover(tag: &str, a: &Attr) -> bool {
 /// binds to its box, and the box uses only what any leaf box uses: layout,
 /// box and paint rows, the handlers, `testId`, `id`, `role`, ARIA,
 /// `disabled` and `inert` (the module's interaction suppression reads them)
-/// — an allow-list (@ref LLP 1086 D7.2, paint F7: `command` set a host
+/// — an allow-list (@ref LLP 1088 D7.2, paint F7: `command` set a host
 /// command the module never saw). Every other known word is refused, naming
 /// what it is: a text row (`color`), a form control's row (`appearance`)
 /// or prop (`value`), or another element's attribute (`command`, `href`).

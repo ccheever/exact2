@@ -1,4 +1,4 @@
-//! Which words a name may be (@ref LLP 1086 D5).
+//! Which words a name may be (@ref LLP 1088 D5).
 //!
 //! Sixteen words are reserved, and only where a name is bound: a later
 //! expression reads or calls what a binder names, and each of these words

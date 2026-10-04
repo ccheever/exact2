@@ -103,7 +103,7 @@ component Row
     }
 }
 
-/// LLP 1086 D4 reads an initializer's call targets as `infer` resolves
+/// LLP 1088 D4 reads an initializer's call targets as `infer` resolves
 /// them: a roster call or a file `fn` that shares a state's name is not
 /// that state, and a state named like the roster call it starts from
 /// compiles (Astra's batch 2 review). An action called there is still

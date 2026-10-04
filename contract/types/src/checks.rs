@@ -395,7 +395,7 @@ fn visit_shape(
 /// subject types now, and whether every region's subject typed. A region
 /// over a list a later write completes (`state items = []`) is skipped,
 /// with all it holds: the view check refuses a list that never types
-/// (@ref LLP 1086 D6's two repros, without its fixed point).
+/// (@ref LLP 1088 D6's two repros, without its fixed point).
 fn owner_scopes(
     c: &Component,
     ct: &ComponentTypes,

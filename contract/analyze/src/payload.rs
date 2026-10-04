@@ -1,5 +1,5 @@
 //! The refusal of a handler whose action takes the wrong number of
-//! parameters spells the declaration that fits (@ref LLP 1086 D7.1,
+//! parameters spells the declaration that fits (@ref LLP 1088 D7.1,
 //! pomodoro F1): what the call site passes, then what the event appends,
 //! each payload named after the DOM property it carries and typed by the
 //! element. Analysis and lowering print it through this one function.

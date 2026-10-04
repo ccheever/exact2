@@ -87,7 +87,7 @@ component Messages
   state showContacts = false
   mutation change as shape Change
   // A draft saved on the way to a new message: its own mutation, so the
-  // message's send does not forget its reply (LLP 1086 D8).
+  // message's send does not forget its reply (LLP 1088 D8).
   mutation draftSaved as shape Change
   derive revision = match change { case some(c) => c.revision, case none => 0 }
   derive pendingReplies = match change { case some(c) => c.pending, case none => false }

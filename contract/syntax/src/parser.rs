@@ -479,7 +479,7 @@ impl Parser {
             let (aname, aspan) = match (self.peek_kind().clone(), self.peek2().clone()) {
                 (TokenKind::Ident(n), TokenKind::Punct("=")) => (n, self.next().span),
                 // CSS's `background-color: "…"` (ledger F3): the row it meant,
-                // rewritten (LLP 1086 D7.4).
+                // rewritten (LLP 1088 D7.4).
                 (TokenKind::Ident(n), TokenKind::Punct(":")) => {
                     let value = match &self.tokens[(self.pos + 2).min(self.tokens.len() - 1)].kind {
                         TokenKind::Str(v) => format!("{v:?}"),
@@ -932,7 +932,7 @@ impl Parser {
             });
         }
         // `refresh` starts a statement only before a name, as `send` and
-        // `let` do (LLP 1086 D5): `refresh = x` assigns a state so named.
+        // `let` do (LLP 1088 D5): `refresh = x` assigns a state so named.
         if self.at_ident("refresh") && matches!(self.peek2(), TokenKind::Ident(_)) {
             let span = self.expect_word("refresh")?;
             let target = self.named_ident(span)?;

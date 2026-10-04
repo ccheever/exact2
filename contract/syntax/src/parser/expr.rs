@@ -171,14 +171,14 @@ impl Parser {
                     return self.err(
                         "syntax-expected",
                         format!(
-                            "expected `]`, found {}; `[]` is the empty list, and Contract has no list literal with items yet (LLP 1086 §9's follow-up): a list comes from the data module, a shape field, or `map`/`filter`",
+                            "expected `]`, found {}; `[]` is the empty list, and Contract has no list literal with items yet (LLP 1088 §9's follow-up): a list comes from the data module, a shape field, or `map`/`filter`",
                             describe(self.peek_kind())
                         ),
                     );
                 }
                 Ok(Expr::EmptyList(span))
             }
-            // `none(value=1)`: a reserved word names no shape (LLP 1086 D5).
+            // `none(value=1)`: a reserved word names no shape (LLP 1088 D5).
             TokenKind::Ident(w)
                 if matches!(w.as_str(), "true" | "false" | "none") && self.at_punct("(") =>
             {
@@ -241,7 +241,7 @@ impl Parser {
                     })
                 }
                 // A contextual keyword (`state`, `key`, `refresh`) reads as the
-                // name it is here; a reserved one is never a value (LLP 1086 D5).
+                // name it is here; a reserved one is never a value (LLP 1088 D5).
                 _ if super::names::is_reserved(&w) => Err(SyntaxError {
                     id: "syntax-keyword-as-value",
                     message: format!(

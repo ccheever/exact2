@@ -1,7 +1,7 @@
-# LLP 1086: What the app diaries ask of Contract
+# LLP 1088: What the app diaries ask of Contract
 
 **Type:** RFC
-**Status:** Accepted (stages 1–3 as descoped), r5, 2026-10-04. Accepted by the orchestrator for Charlie under the three-round rule (`rules/RULES.md`, "Fix loops get 3 rounds") after Astra's r3; D6 deferred. Stage 1 is built as of 2026-10-04, without D6's fixed point (§10, "As built"); stages 2 and 3 are not. All three review rounds were one family (Astra, `gpt-6-astra`, max; Grok was unavailable): r1 NOT READY (7 MATERIAL, 6 MINOR); r2 NOT READY (4 new MATERIAL, 3 new MINOR); r3 NOT READY on one MATERIAL (D6's convergence) and three MINORs. The reviewer stated that only D6 blocked stage 1. r4 is a final edit with no further review: D6 moves to §9 with the requirement a follow-up must meet, and r3's MINORs are folded in. A second family, Grok 4.7 (xhigh), then reviewed r4 (truncated); r5 folds its findings into the decisions with no new round. Renumbered from 1085 (origin/main took that number). §8 lists each revision.
+**Status:** Accepted (stages 1–3 as descoped), r5, 2026-10-04. Accepted by the orchestrator for Charlie under the three-round rule (`rules/RULES.md`, "Fix loops get 3 rounds") after Astra's r3; D6 deferred. Stage 1 is built as of 2026-10-04, without D6's fixed point (§10, "As built"); stages 2 and 3 are not. All three review rounds were one family (Astra, `gpt-6-astra`, max; Grok was unavailable): r1 NOT READY (7 MATERIAL, 6 MINOR); r2 NOT READY (4 new MATERIAL, 3 new MINOR); r3 NOT READY on one MATERIAL (D6's convergence) and three MINORs. The reviewer stated that only D6 blocked stage 1. r4 is a final edit with no further review: D6 moves to §9 with the requirement a follow-up must meet, and r3's MINORs are folded in. A second family, Grok 4.7 (xhigh), then reviewed r4 (truncated); r5 folds its findings into the decisions with no new round. Renumbered from 1085, then from 1086 (origin/main took 1085, then 1086 and 1087). §8 lists each revision.
 **Systems:** Contract compiler (`contract/{syntax,types,analyze,lower}`, `contract/cli/src/lean.rs`), Plan (`plan/tables/format.json` `stdlib`), Runner (`vm.rs`, `stdlib.rs`, `uses.rs`), JS target (`host/web-js`), web host (`host/web`), Apple hosts (`host/apple`), Linux host, Lean semantics and difftest (`semantics/`), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
@@ -9,7 +9,7 @@
 **Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stage 1 on 2026-10-04, stages 2 and 3 on 2026-10-05 (§5)
 **Base:** `gaps/papercuts`, which carries `host/web-js/format.js`, `x_at`/`x_formatDate`/`x_formatNumber` and the `x_` export test (`host/web-js/src/code.rs:595`)
 **Amends:** LLP 1006 §2 (the language); LLP 1024 D1 (which known attributes bind to a module tag's box)
-**Related:** LLP 1016 D5 (a send forgets the in-flight reply); LLP 1017 P5 and §8; LLP 1017.003; LLP 1035.005.000 D7b; LLP 1047 D2/D6 (linked by use); LLP 1054.000.005 (`trim`); LLP 1071 (the JS target); diaries `~/projects/x2apps/<app>/DIARY.md`; reviews `llp/reviews/1086-r1.astra.md`, `llp/reviews/1086-r2.astra.md`, `llp/reviews/1086-r3.astra.md`, `llp/reviews/1086-r4.grok.md`. Web: ECMA-262 `IsLessThan`, `String.prototype.{slice,replaceAll,toLowerCase,toWellFormed}`, `GetSubstitution`, `StringPad`; HTML `tabindex` (focusable areas, sequential focus navigation).
+**Related:** LLP 1016 D5 (a send forgets the in-flight reply); LLP 1017 P5 and §8; LLP 1017.003; LLP 1035.005.000 D7b; LLP 1047 D2/D6 (linked by use); LLP 1054.000.005 (`trim`); LLP 1071 (the JS target); diaries `~/projects/x2apps/<app>/DIARY.md`; reviews `llp/reviews/1088-r1.astra.md`, `llp/reviews/1088-r2.astra.md`, `llp/reviews/1088-r3.astra.md`, `llp/reviews/1088-r4.grok.md`. Web: ECMA-262 `IsLessThan`, `String.prototype.{slice,replaceAll,toLowerCase,toWellFormed}`, `GetSubstitution`, `StringPad`; HTML `tabindex` (focusable areas, sequential focus navigation).
 
 ## Summary
 
@@ -547,9 +547,9 @@ Implementer: Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever, on
 ## 8. Revisions
 
 - **r2** (Astra's r1 review): every finding was checked against the code and
-  each held. Dispositions are in `llp/reviews/1086-r1.astra.md`.
+  each held. Dispositions are in `llp/reviews/1088-r1.astra.md`.
 - **r3** (Astra's r2 delta review, round 2 of 3; dispositions in
-  `llp/reviews/1086-r2.astra.md`):
+  `llp/reviews/1088-r2.astra.md`):
   - D3 moved out to §9. Both of its MATERIAL findings concern the JS target's
     budget, and that budget is a design of its own.
   - D2 is restated as string-bounded only.
@@ -560,7 +560,7 @@ Implementer: Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever, on
   - Shape names are binders. `inert` is allow-listed.
   - D8 has a path-sensitive walk and a rollout.
 - **r4** (Astra's r3 review, the third and last round; dispositions in
-  `llp/reviews/1086-r3.astra.md`). This is a final edit with no new review
+  `llp/reviews/1088-r3.astra.md`). This is a final edit with no new review
   round, and the RFC is accepted as descoped.
   - D6 moves to §9.2, with the requirement a follow-up must meet.
   - D2's counter carries a pending high surrogate across segments and counts
@@ -570,7 +570,7 @@ Implementer: Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever, on
     focused element.
   - Stage 1 is D4, D5, D7 (except D7.3) and D8.
 - **r5** (Grok 4.7, xhigh, the second family, on r4; its run was cut off
-  mid-way by a process kill. Dispositions in `llp/reviews/1086-r4.grok.md`.)
+  mid-way by a process kill. Dispositions in `llp/reviews/1088-r4.grok.md`.)
   This is an edit to the decisions with no new review round. The document is
   renumbered from 1085 to 1086, because origin/main took 1085.
   - D7.3 now specifies the real web binding: `props_of` maps the prop to
@@ -587,6 +587,12 @@ Implementer: Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever, on
   - Two items are recorded for the stage-1 lane, which is already building
     them: D5's binder check runs at each binder site, `provide` included; and
     D8 walks the post-`tail::resolve` body.
+
+- **Renumbered 1088** (2026-10-04, merging origin/main into batch 2): origin/main
+  took 1086 (`llp/1086-building-with-exact2.rfc.md`) and 1087
+  (`llp/1087-authoring-bench.plan.md`), so this document, its reviews
+  (`llp/reviews/1088-*.md`) and every reference stage 1 added say 1088. No
+  decision changed.
 
 ## 9. Deferred to follow-ups
 
@@ -700,7 +706,7 @@ pitfall in stage 1.
 
 ## 10. As built
 
-### Stage 1, 2026-10-04 (branch `impl/1085-s1`)
+### Stage 1, 2026-10-04 (branch `impl/1085-s1`, named for this LLP's first number)
 
 Astra's r3 review, the last round, found D6's convergence unsound: a join
 grows `derive d = some(d)` from `?` to `option<?>` without bound, and

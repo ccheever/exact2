@@ -1,6 +1,6 @@
 //! A keyword that only structures a file is still a name where the grammar
 //! expects one, and a reserved word is refused only where a name is bound
-//! (LLP 1086 D5).
+//! (LLP 1088 D5).
 
 #[test]
 fn state_and_key_name_fields_props_members_and_arguments() {
@@ -30,7 +30,7 @@ component Mark
     assert!(plan.is_ok(), "{plan:?}");
 }
 
-/// LLP 1086 D5: the 23 contextual keywords are names at every binder —
+/// LLP 1088 D5: the 23 contextual keywords are names at every binder —
 /// a prop, a state, a derive, an action and its parameters, a `fn` and its
 /// parameters, a `let`, an `each` item and index, a `match` binding, an
 /// arrow parameter — and read as names in expressions; `refresh` starts a

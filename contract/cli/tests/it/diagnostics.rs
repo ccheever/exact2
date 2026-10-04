@@ -1348,7 +1348,7 @@ fn scroll_payload_arity_is_a_diagnostic() {
     }
 }
 
-/// LLP 1086 D4, D7.1, D7.4: refusals that name the fix, each asserted whole.
+/// LLP 1088 D4, D7.1, D7.4: refusals that name the fix, each asserted whole.
 #[test]
 fn refusals_from_the_app_diaries_name_the_fix() {
     let refused = |src: &str| {
@@ -1414,15 +1414,15 @@ fn refusals_from_the_app_diaries_name_the_fix() {
     for (call, says) in [
         (
             "push(xs, s)",
-            "building a list in a view waits on LLP 1086 §9",
+            "building a list in a view waits on LLP 1088 §9",
         ),
         (
             "concat(xs, xs)",
-            "building a list in a view waits on LLP 1086 §9",
+            "building a list in a view waits on LLP 1088 §9",
         ),
         (
             "slice(xs, 1)",
-            "building a list in a view waits on LLP 1086 §9",
+            "building a list in a view waits on LLP 1088 §9",
         ),
         ("split(s, \",\")", "split the text there"),
         (
@@ -1431,7 +1431,7 @@ fn refusals_from_the_app_diaries_name_the_fix() {
         ),
         ("indexOf(s, \"a\")", "`includes(s, t)`"),
         ("substring(s, 1)", "cut the text in the data module"),
-        ("padStart(s, 2, \"0\")", "LLP 1086 D2 defers it"),
+        ("padStart(s, 2, \"0\")", "LLP 1088 D2 defers it"),
         ("toUpperCase(s)", "`text-transform=\"uppercase\"`"),
         ("parseInt(s)", "Contract does not parse numbers from text"),
         ("Number(s)", "Contract does not parse numbers from text"),
@@ -1442,5 +1442,5 @@ fn refusals_from_the_app_diaries_name_the_fix() {
     }
     let e = contract::compile("component App\n  view\n    text toString(length([1, 2]))\n")
         .unwrap_err();
-    assert!(e.message.contains("LLP 1086 §9's follow-up"), "{e}");
+    assert!(e.message.contains("LLP 1088 §9's follow-up"), "{e}");
 }
