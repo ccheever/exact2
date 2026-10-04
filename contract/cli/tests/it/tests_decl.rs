@@ -171,6 +171,25 @@ fn a_test_waits_for_the_apps_data_unless_it_says_before_data() {
 }
 
 #[test]
+fn a_test_resizes_the_window_mid_test() {
+    // reader: repagination on resize is driven, not polled for by hand.
+    let tests =
+        contract::tests("test \"t\"\n  size 1200x800\n  tap \"a\"\n  resize 800x600\n").unwrap();
+    assert!(
+        matches!(&tests[0].steps[2], Step::Resize { width, height, .. } if *width == 800.0 && *height == 600.0)
+    );
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains("{\"op\":\"resize\",\"width\":800,\"height\":600,\"line\":4}"),
+        "{json}"
+    );
+    for src in ["test \"t\"\n  resize 800\n", "test \"t\"\n  resize 0x600\n"] {
+        let e = contract::tests(src).unwrap_err();
+        assert!(e.message.starts_with("`resize` takes"), "{e}");
+    }
+}
+
+#[test]
 fn a_test_answers_a_held_picker_by_its_node() {
     // files F11: a picker's hold is answered by the node its answer
     // arrives at, never by a ticket a test cannot predict.

@@ -116,6 +116,9 @@ bun exact.mjs agent web --size 390x844 "screenshot phone.png"   # a phone-sized 
 
 The web carrier opens at 420×900; `--size <w>x<h>` (before the operations) opens
 another viewport, and a test's first step `size <w>x<h>` does the same for that test.
+`resize <w>x<h>`, an operation and a test step, resizes it mid-drive as a person
+dragging the window's edge would: the browser's viewport, a macOS window, the
+Linux presenter. An iOS app's viewport is the device's screen, so iOS refuses it.
 
 Inside the exact2 checkout, for Caltrain:
 
@@ -688,7 +691,8 @@ the tree shows, as typing after a prefill), or `type "id" key "Name"`,
 `type "id" paste "text"`, `type "id" copy`, `type "id" cut`, `pick "id" "path"…` or
 `pick "id" cancel` (a held picker or export, by its node or capability as
 above; paths are the test file's), `clock settle|data|+ms|+ms real|ms` (`data`:
-what is in flight lands, with each answer's `then`, the clock unmoved), `reload`
+what is in flight lands, with each answer's `then`, the clock unmoved), `resize
+800x600` (the window, mid-test), `reload`
 (the app restarts on the store it had, its state and clock starting over, so a
 test shows what persists),
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`

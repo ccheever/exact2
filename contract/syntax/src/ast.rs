@@ -282,6 +282,16 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `resize 800x600`: the window (a desktop's, the browser's), mid-test,
+    /// as the driver's `resize` (reader: repagination on resize).
+    Resize {
+        /// Points.
+        width: f64,
+        /// Points.
+        height: f64,
+        /// Where.
+        span: Span,
+    },
     /// `screenshot "file.png"`.
     Screenshot {
         /// The file.
@@ -1104,6 +1114,7 @@ impl Step {
             | Step::Clipboard { span, .. }
             | Step::Clock { span, .. }
             | Step::Reload { span, .. }
+            | Step::Resize { span, .. }
             | Step::Screenshot { span, .. }
             | Step::ExpectTree { span, .. }
             | Step::ExpectText { span, .. }

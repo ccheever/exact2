@@ -294,6 +294,7 @@ step          = "tap" STRING [ "hover" | "dblclick" | "contextmenu" | "into" STR
                   | "copy" | "cut" | "paste" STRING ) NL
               | "pick" STRING ( STRING { STRING } | "cancel" ) NL
               | "clock" ( "settle" | "data" | [ "+" ] NUMBER [ "real" ] ) NL
+              | "resize" NUMBER "x" NUMBER NL        (* the window, mid-test: 800x600 *)
               | "reload" NL
               | "screenshot" STRING NL
               | "expect" "tree" ( "has" | "missing" ) STRING NL

@@ -184,7 +184,8 @@ public final class Agent {
                 #if os(macOS)
                 r = resizeWindow(size)
                 #else
-                r = ["error": "unsupported: resize input requires a macOS window or Linux presenter"]
+                // The device sets an iOS app's viewport: there is no window to resize.
+                r = ["error": "unsupported: an iOS app's viewport is the device's screen; resize drives a macOS window, the Linux presenter or the browser"]
                 #endif
             } else if let into = req["into"] as? [String: Any] {
                 r = intoView(req, into)

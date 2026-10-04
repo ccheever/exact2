@@ -930,3 +930,4 @@ and the Linux headless CPU renderer without claiming display frame timing.
 
 - **Apple ABI pointer-event fixture fails** (2026-10-04, A2 verification): `abi::tests::dispatch_names_every_kind_and_refuses_unknown_ones` gets `NoHandler { view: 2, event: "pointerdown" }`. Reproduced with `cargo test -p exact-apple --no-fail-fast` on both A2 and `2ab8aca10`; the eight older content-region failures noted above also persist.
 - The active head (`runner/src/head.rs` `head_of`, web-js `document.js`) skips covered routes but not an unselected tab's screens (LLP 1075.003 §3.7): a head on another tab's top screen can win. `unselected` (head.rs) is the rule `inactive` now uses.
+- macOS: after `resize`, an app whose root overflows (content-box `width="100%"` plus padding) reads `exactViewport` 17 pt narrower and shorter (783x583 for 800x600: the scroll view's legacy scrollbars), where at launch it read the window's size (1000x700), as the web's does.
