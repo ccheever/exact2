@@ -3,6 +3,21 @@
 //! pointer's (LLP 1056 §3 stage 3) and `key`'s optional `KeyboardEvent`.
 use super::{Shapes, Ty};
 
+/// The DOM event record a handler's event offers its action as an optional
+/// last parameter, after whatever the event always carries (`key`'s name):
+/// the action takes it by declaring one more parameter, or leaves it. One
+/// rule for every such event (LLP 1056 §3 stage 3; chat F2, kanban F27):
+/// analysis counts it (`contract_analyze::handler_arity`), the view's
+/// handlers type it here, the runner appends it (`Event::record`), and the
+/// JS target passes it as a trailing argument a shorter action ignores.
+pub fn event_record(attr: &str) -> Option<&'static str> {
+    match attr {
+        "pointerdown" | "pointerup" | "pointermove" => Some("PointerEvent"),
+        "key" => Some("KeyboardEvent"),
+        _ => None,
+    }
+}
+
 pub(super) fn declare(shapes: &mut Shapes) {
     shapes.map.insert(
         "MarkdownSelection".into(),
@@ -26,10 +41,6 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("metaKey".into(), Ty::Bool),
         ],
     );
-    // One picked file, in the order `exact_runner::Picked` writes it: the
-    // `app:/tmp/picked/…` path, the original name, the MIME type and size
-    // of what is at the path, and for media the pixel size (orientation
-    // applied) and a video's duration in seconds, `none` when unread.
     // DOM's `PointerEvent`, the subset every host measures, in the order
     // `exact_runner::PointerEvent` writes it: the point from the node's
     // content box, the buttons' bits, the pressure, the device, its id.
@@ -44,6 +55,10 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("pointerId".into(), Ty::Number),
         ],
     );
+    // One picked file, in the order `exact_runner::Picked` writes it: the
+    // `app:/tmp/picked/…` path, the original name, the MIME type and size
+    // of what is at the path, and for media the pixel size (orientation
+    // applied) and a video's duration in seconds, `none` when unread.
     let maybe = || Ty::Option(Box::new(Ty::Number));
     shapes.map.insert(
         "Picked".into(),

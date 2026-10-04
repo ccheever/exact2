@@ -1448,21 +1448,7 @@ impl<'a> Lowerer<'a> {
                         format!(
                             "`{name}` takes {params} parameter(s); `{event}=` supplies {}{}",
                             args.len(),
-                            match event {
-                                "hover" => " plus whether the pointer is over",
-                                "key" => " plus the key's name, and optionally its `KeyboardEvent`",
-                                "change" | "input" => " plus the new value",
-                                "message" => " plus the message",
-                                "scroll" => " plus scrollLeft and scrollTop",
-                                "heightrelease" => " plus height and velocity",
-                                "panrelease" => " plus vx and vy",
-                                "pointerdown" | "pointerup" | "pointermove" => {
-                                    " and may take a PointerEvent"
-                                }
-                                "transformgeometry" => " plus four geometry numbers",
-                                "transformrelease" => " plus six transform release numbers",
-                                _ => "",
-                            }
+                            contract_analyze::handler_supplies(event)
                         ),
                         a.span,
                     );

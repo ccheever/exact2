@@ -28,6 +28,7 @@ mod posts;
 pub mod records;
 pub mod routes;
 mod selection;
+pub use selection::event_record;
 /// The strings call and the tables it is checked against (LLP 1060).
 pub mod strings;
 mod uses;

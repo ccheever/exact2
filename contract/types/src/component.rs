@@ -535,16 +535,12 @@ fn refine_params_from_view(
                             // Event payloads: change/input/key/message are
                             // strings (a checkbox's are bools); hover is
                             // whether the pointer is over.
-                            let payload = match a.name.as_str() {
+                            let mut payload = match a.name.as_str() {
                                 "change" | "input" if bound_type => vec![],
                                 "change" | "input" if checkbox => vec![Ty::Bool],
                                 "change" | "input" if range => vec![Ty::Number],
                                 "change" | "input" if file => {
                                     vec![Ty::List(Box::new(Ty::Record("Picked".into())))]
-                                }
-                                // `key`'s action may take the `KeyboardEvent` too.
-                                "key" if ct.actions[ai].len() == args.len() + 2 => {
-                                    vec![Ty::String, Ty::Record("KeyboardEvent".into())]
                                 }
                                 "change" | "input" | "key" | "message" | "navigate" | "error" => {
                                     vec![Ty::String]
@@ -553,13 +549,15 @@ fn refine_params_from_view(
                                 "hover" => vec![Ty::Bool],
                                 "select" => vec![Ty::Record("MarkdownSelection".into())],
                                 "scroll" | "panrelease" => vec![Ty::Number, Ty::Number],
-                                // Optional: an action that leaves it takes
-                                // only its bound arguments (LLP 1056 §3).
-                                "pointerdown" | "pointerup" | "pointermove" => {
-                                    vec![Ty::Record("PointerEvent".into())]
-                                }
                                 _ => vec![],
                             };
+                            // Then the event's record, when the action
+                            // declares one more parameter (`event_record`).
+                            if let Some(record) = crate::event_record(&a.name) {
+                                if ct.actions[ai].len() == args.len() + payload.len() + 1 {
+                                    payload.push(Ty::Record(record.into()));
+                                }
+                            }
                             let start = ct.actions[ai].len().saturating_sub(payload.len());
                             for (offset, ty) in payload.into_iter().enumerate() {
                                 let last = start + offset;

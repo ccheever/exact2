@@ -337,8 +337,8 @@ pub const HANDLERS: [&str; 43] = [
 /// What a handler's event carries as its action's last argument: `input`
 /// and `change` the new value (a text field's text, a checkbox's checked
 /// state: LLP 1069.001 D4), `hover` whether the pointer is over, `key` the
-/// key's name (and, to an action taking one more, its `KeyboardEvent`:
-/// [`handler_arity`]), `message` the posted string; the others nothing.
+/// key's name, `message` the posted string; the others nothing. An event
+/// may then offer its record ([`contract_types::event_record`]).
 pub fn handler_payload(attr: &str) -> Option<&'static str> {
     match attr {
         "change" | "input" | "key" | "message" | "navigate" | "error" => Some("string"),
@@ -358,23 +358,36 @@ pub fn handler_arity(attr: &str, given: usize) -> Option<std::ops::RangeInclusiv
     if attr == "navigate" {
         return (given == 0).then_some(0..=1);
     }
-    // The pointer's record is the action's to take or leave, as navigate's
-    // location is (LLP 1056 §3 stage 3).
-    if matches!(attr, "pointerdown" | "pointerup" | "pointermove") {
-        return Some(given..=given + 1);
-    }
-    // The key's name, then optionally the whole `KeyboardEvent` (its
-    // modifiers: chat F2, kanban F27).
-    if attr == "key" {
-        return Some(given + 1..=given + 2);
-    }
     let payload = match attr {
         "transformgeometry" => 4,
         "transformrelease" => 6,
         "scroll" | "pan" | "panrelease" | "heightrelease" | "reorderdrop" => 2,
         _ => usize::from(handler_payload(attr).is_some()),
     };
-    Some(given + payload..=given + payload)
+    // Then the event's record, the action's to take or leave.
+    let record = usize::from(contract_types::event_record(attr).is_some());
+    Some(given + payload..=given + payload + record)
+}
+
+/// What `attr=` supplies after its bound arguments, for an arity refusal
+/// (analysis and lowering say it alike).
+pub fn handler_supplies(attr: &str) -> String {
+    let payload = match attr {
+        "hover" => " plus whether the pointer is over",
+        "key" => " plus the key's name",
+        "message" => " plus the message",
+        "scroll" => " plus scrollLeft and scrollTop",
+        "heightrelease" => " plus height and velocity",
+        "panrelease" => " plus vx and vy",
+        "transformgeometry" => " plus four geometry numbers",
+        "transformrelease" => " plus six transform release numbers",
+        _ if handler_payload(attr).is_some() => " plus the new value",
+        _ => "",
+    };
+    match contract_types::event_record(attr) {
+        Some(record) => format!("{payload}, and optionally its `{record}`"),
+        None => payload.into(),
+    }
 }
 
 fn check_view(nodes: &[Node], scope: &Scope, file: &File) -> Result<(), AnalyzeError> {
@@ -493,21 +506,7 @@ fn check_handler(attr: &str, value: &Expr, scope: &Scope, span: Span) -> Result<
                 format!(
                     "`{name}` takes {} parameter(s); `{attr}=` supplies {given}{}",
                     params.len(),
-                    match handler_payload(attr) {
-                        Some("bool") => " plus whether the pointer is over",
-                        Some(_) if attr == "key" => {
-                            " plus the key's name, and optionally its `KeyboardEvent`"
-                        }
-                        Some(_) if attr == "message" => " plus the message",
-                        Some(_) => " plus the new value",
-                        None if attr == "scroll" => " plus scrollLeft and scrollTop",
-                        None if attr == "heightrelease" => " plus height and velocity",
-                        None if attr == "panrelease" => " plus vx and vy",
-                        None if attr.starts_with("pointer") => " and may take a PointerEvent",
-                        None if attr == "transformgeometry" => " plus four geometry numbers",
-                        None if attr == "transformrelease" => " plus six transform release numbers",
-                        None => "",
-                    }
+                    handler_supplies(attr)
                 ),
                 span,
             );

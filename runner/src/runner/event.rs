@@ -326,6 +326,24 @@ impl Event {
         Self::Key(key.into(), held)
     }
 
+    /// The DOM record this event offers its action as an optional last
+    /// parameter, its fields in the compiler's order
+    /// (`contract_types::event_record`, `contract/types/src/selection.rs`):
+    /// `key`'s `KeyboardEvent` and the pointer's `PointerEvent`.
+    pub fn record(&self) -> Option<Value> {
+        match self {
+            Event::Key(key, held) => Some(Value::record(vec![
+                Value::str(key),
+                Value::Bool(held.shift),
+                Value::Bool(held.ctrl),
+                Value::Bool(held.alt),
+                Value::Bool(held.meta),
+            ])),
+            Event::Pointerdown(p) | Event::Pointerup(p) | Event::Pointermove(p) => Some(p.value()),
+            _ => None,
+        }
+    }
+
     /// Decode host kind 21: formats, mixed (0/1), unavailable, then the link
     /// remainder, separated by newlines. Token lists never contain newlines;
     /// a target may, so the final remainder is kept verbatim.
@@ -909,9 +927,9 @@ impl<D: DataSource> Runner<D> {
             Event::Message(message) => (EventKind::Message, Some(Value::str(message)), "message"),
             Event::Contextmenu => (EventKind::Contextmenu, None, "contextmenu"),
             Event::Dblclick => (EventKind::Dblclick, None, "dblclick"),
-            Event::Pointerdown(p) => (EventKind::Pointerdown, Some(p.value()), "pointerdown"),
-            Event::Pointerup(p) => (EventKind::Pointerup, Some(p.value()), "pointerup"),
-            Event::Pointermove(p) => (EventKind::Pointermove, Some(p.value()), "pointermove"),
+            Event::Pointerdown(_) => (EventKind::Pointerdown, None, "pointerdown"),
+            Event::Pointerup(_) => (EventKind::Pointerup, None, "pointerup"),
+            Event::Pointermove(_) => (EventKind::Pointermove, None, "pointermove"),
             Event::Swiperight => (EventKind::Swiperight, None, "swiperight"),
             Event::Refresh => (EventKind::Refresh, None, "refresh"),
             Event::Scroll(_, _) => (EventKind::Scroll, None, "scroll"),
@@ -953,19 +971,14 @@ impl<D: DataSource> Runner<D> {
             args.push(self.eval(code, &[], &frames)?);
         }
         if let Some(p) = payload {
-            // A navigate action may deliberately ignore its location (D8),
-            // and a pointer action its record (LLP 1056 §3 stage 3).
-            let optional = matches!(
-                kind,
-                EventKind::Navigate
-                    | EventKind::Pointerdown
-                    | EventKind::Pointerup
-                    | EventKind::Pointermove
-            );
-            if !optional || self.plan.action(handler.action).params.len as usize > args.len() {
+            // A navigate action may deliberately ignore its location (D8).
+            if kind != EventKind::Navigate || !self.plan.action(handler.action).params.is_empty() {
                 args.push(p);
             }
         }
+        // The event's record, after what it always carries, to an action
+        // that declares one more parameter (`contract_types::event_record`).
+        let record = event.record();
         match event {
             Event::ReorderDrop { item, before } => {
                 args.push(Value::str(&item));
@@ -976,20 +989,6 @@ impl<D: DataSource> Runner<D> {
             }
             Event::HeightRelease { height, velocity } => {
                 args.extend([Value::Number(height), Value::Number(velocity)]);
-            }
-            // An action that takes one more parameter hears the whole
-            // `KeyboardEvent` too, in its declared field order
-            // (`contract/types/src/selection.rs`).
-            Event::Key(key, held)
-                if self.plan.action(handler.action).params.len == handler.args.len + 2 =>
-            {
-                args.push(Value::record(vec![
-                    Value::str(&key),
-                    Value::Bool(held.shift),
-                    Value::Bool(held.ctrl),
-                    Value::Bool(held.alt),
-                    Value::Bool(held.meta),
-                ]));
             }
             Event::TransformGeometry {
                 box_width,
@@ -1010,6 +1009,11 @@ impl<D: DataSource> Runner<D> {
                 args.extend([x, y, scale, vx, vy, vscale].map(Value::Number));
             }
             _ => {}
+        }
+        if let Some(record) = record {
+            if self.plan.action(handler.action).params.len as usize > args.len() {
+                args.push(record);
+            }
         }
         super::lines::ran(what, self.plan.str(self.plan.action(handler.action).name));
         self.run_action(handler.action, args, &frames)
