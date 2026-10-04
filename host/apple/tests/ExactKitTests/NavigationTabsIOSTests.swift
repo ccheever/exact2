@@ -81,9 +81,9 @@ final class NavigationTabsIOSTests: XCTestCase {
         // The container paints where the panels are among the root's
         // children: under the tablist after them, as CSS paints a later
         // sibling over an earlier one (shop F21, recipes F23).
-        let root = try node(session, "navigation"), list = try node(session, "tabs")
+        let root = try node(session, "navigation"), tablist = try node(session, "tabs")
         let order = root.subviews.map { ObjectIdentifier($0) }
-        XCTAssertLessThan(try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(tabs.view))), try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(list))), "the tablist after the panels paints over the container")
+        XCTAssertLessThan(try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(tabs.view))), try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(tablist))), "the tablist after the panels paints over the container")
         XCTAssertGreaterThan(try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(tabs.view))), try XCTUnwrap(order.firstIndex(of: ObjectIdentifier(try node(session, "panels")))), "the container paints over the panels' box")
         // The tablist's `accent-color` is the bar's tint (recipes F20, shop F28).
         let tint = try XCTUnwrap(tabs.tabBar.tintColor).resolvedColor(with: UITraitCollection(userInterfaceStyle: .light))
