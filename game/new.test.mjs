@@ -641,3 +641,27 @@ test('a game whose type would shadow an engine export or a template item is refu
   for (const name of ['world','camera','beacon']) assert.throws(()=>createGame(resolve(tmpdir(),`zz-${process.pid}`,name)),/would collide/);
   assert.ok(!taken.has('Garden'));
 });
+
+test('game.render names the hooks and shader pack the generated GPU shell exports', async () => {
+  const {gameDefaults, gameShells} = await import('./app/shells.mjs');
+  const {shaderRoots} = await import('../scripts/app.mjs');
+  const root=realpathSync(mkdtempSync(resolve(tmpdir(),'render-hooks-'))), app=resolve(root,'my-game');
+  try {
+    createGame(app);
+    const render={crate:'my-game-render',hooks:'Wind',shaders:'shaders::SHADERS'};
+    writeFileSync(resolve(app,'app.json'),JSON.stringify({game:{assets:true,render}}));
+    assert.throws(()=>gameShells(app,gameDefaults(app).game,import.meta.dir),/requires .*render\/Cargo.toml/);
+    mkdirSync(resolve(app,'render/src'),{recursive:true});
+    writeFileSync(resolve(app,'render/Cargo.toml'),'[package]\nname = "my-game-render"\nworkspace = "../.shells"\n');
+    gameShells(app,gameDefaults(app).game,import.meta.dir);
+    const gpu=resolve(app,'.shells/gpu');
+    assert.equal(readFileSync(resolve(gpu,'src/lib.rs'),'utf8'),
+      'exact_game_render::module!(game_logic::MyGame, assets, hooks = game_render::Wind, shaders = game_render::shaders::SHADERS);\n');
+    assert.match(readFileSync(resolve(gpu,'Cargo.toml'),'utf8'),/^game-render = \{ package = "my-game-render", path = "..\/..\/render" \}$/m);
+    assert.ok(Bun.TOML.parse(readFileSync(resolve(app,'.shells/Cargo.toml'),'utf8')).workspace.members.includes('../render'));
+    assert.deepEqual(shaderRoots({dir:app,manifest:{game:{render}}}),[resolve(app,'render/shaders')]);
+    assert.deepEqual(shaderRoots({dir:app,manifest:{game:{}}}),[]);
+    writeFileSync(resolve(app,'app.json'),JSON.stringify({game:{render:{...render,hooks:'not a path'}}}));
+    assert.throws(()=>gameShells(app,gameDefaults(app).game,import.meta.dir),/game.render must contain/);
+  } finally {rmSync(root,{recursive:true,force:true});}
+});

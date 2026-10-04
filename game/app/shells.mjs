@@ -73,16 +73,16 @@ export function gameShells(dir, game, workspace) {
   dir = realpathSync(dir);
   // Only this app is materialized. Each bake owns a generated Cargo workspace.
   const app = {game, ...gameDefaults(dir)};
-  const {crate, type, data} = app.game, name = crate.slice(0, -'-logic'.length);
+  const {crate, type, data, render} = app.game, name = crate.slice(0, -'-logic'.length);
   const root = resolve(dir, '.shells');
   const source = existsSync(resolve(workspace, 'Cargo.toml')) ? workspace : gameRoot;
   const cargo = Bun.TOML.parse(readFileSync(resolve(source, 'Cargo.toml'), 'utf8'));
   const authoredLogic = existsSync(resolve(dir, 'logic/Cargo.toml'));
-  cargo.workspace.members = ['gpu','web','apple','linux', authoredLogic ? '../logic' : 'logic', ...(data ? ['../data'] : [])];
+  cargo.workspace.members = ['gpu','web','apple','linux', authoredLogic ? '../logic' : 'logic', ...(data ? ['../data'] : []), ...(render ? ['../render'] : [])];
   delete cargo.workspace.exclude;
   // Engine crates are dependencies here: the wildcard already optimizes them.
   // Retain member overrides and any settings distinct from that wildcard.
-  const members = new Set([crate, data?.crate, ...['gpu','web','apple','linux'].map(kind => `${name}-${kind}`)].filter(Boolean));
+  const members = new Set([crate, data?.crate, render?.crate, ...['gpu','web','apple','linux'].map(kind => `${name}-${kind}`)].filter(Boolean));
   for (const profile of Object.values(cargo.profile ?? {})) {
     const defaults = profile.package?.['*'];
     if (defaults) for (const [name, settings] of Object.entries(profile.package)) {
@@ -145,6 +145,23 @@ export function gameShells(dir, game, workspace) {
       throw new Error(`${dataManifest}: set package.workspace = "../.shells" so the app owns its data`);
     }
   }
+  let renderDir;
+  if (render !== undefined) {
+    const path = /^[A-Za-z_][A-Za-z0-9_]*(?:::[A-Za-z_][A-Za-z0-9_]*)*$/;
+    if (!render || typeof render !== 'object' || Array.isArray(render)
+        || Object.keys(render).some(key => !['crate', 'hooks', 'shaders'].includes(key))
+        || typeof render.crate !== 'string' || !/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*-render$/.test(render.crate)
+        || typeof render.hooks !== 'string' || !path.test(render.hooks)
+        || (render.shaders !== undefined && (typeof render.shaders !== 'string' || !path.test(render.shaders)))) {
+      throw new Error('game.render must contain only a <name>-render crate, its Hooks type and optionally its shaders constant');
+    }
+    renderDir = resolve(appDir, 'render');
+    const renderManifest = resolve(renderDir, 'Cargo.toml');
+    if (!existsSync(renderManifest)) throw new Error(`game.render.crate ${render.crate} requires ${renderManifest}`);
+    const declared = Bun.TOML.parse(readFileSync(renderManifest, 'utf8')).package;
+    if (declared?.name !== render.crate) throw new Error(`game.render.crate ${render.crate} must name the package in ${renderDir}`);
+    if (declared.workspace !== '../.shells') throw new Error(`${renderManifest}: set package.workspace = "../.shells" so the app owns its render hooks`);
+  }
   if (app.game.audio !== undefined && typeof app.game.audio !== "boolean") throw new Error("game.audio must be a boolean");
   if (app.game.assets !== undefined && typeof app.game.assets !== "boolean") throw new Error("game.assets must be a boolean");
   // Resolve validates manifest syntax; Rust checks this path's exported type
@@ -165,11 +182,11 @@ export function gameShells(dir, game, workspace) {
     const dataDependency = data ? `exact-data-host.workspace = true\napp-data = { package = "${data.crate}", path = ${JSON.stringify(relative(shell, dataDir))} }\n` : '';
     const dataBuildDependency = data ? `app-data = { package = "${data.crate}", path = ${JSON.stringify(relative(shell, dataDir))} }\n` : '';
     const dependencies = kind === 'gpu'
-      ? `exact-game-render.workspace = true\n${app.game.audio === true ? "exact-game-audio.workspace = true\n" : ""}game-logic = { package = "${crate}", path = ${JSON.stringify(relative(shell, logicDir))} }\n\n[target.'cfg(target_arch = "wasm32")'.dependencies]\nwasm-bindgen.workspace = true\nwasm-bindgen-futures.workspace = true\nweb-sys.workspace = true\n\n[build-dependencies]\nexact-game.workspace = true\nserde_json = "1"\ngame-logic = { package = "${crate}", path = ${JSON.stringify(relative(shell, logicDir))} }\n${bakeArt ? 'exact-game-bake.workspace = true\n' : ''}`
+      ? `exact-game-render.workspace = true\n${app.game.audio === true ? "exact-game-audio.workspace = true\n" : ""}game-logic = { package = "${crate}", path = ${JSON.stringify(relative(shell, logicDir))} }\n${render ? `game-render = { package = "${render.crate}", path = ${JSON.stringify(relative(shell, renderDir))} }\n` : ''}\n[target.'cfg(target_arch = "wasm32")'.dependencies]\nwasm-bindgen.workspace = true\nwasm-bindgen-futures.workspace = true\nweb-sys.workspace = true\n\n[build-dependencies]\nexact-game.workspace = true\nserde_json = "1"\ngame-logic = { package = "${crate}", path = ${JSON.stringify(relative(shell, logicDir))} }\n${bakeArt ? 'exact-game-bake.workspace = true\n' : ''}`
       : `exact-runner.workspace = true\nexact-${kind}.workspace = true\n${kind === 'web' ? 'exact-web-capabilities.workspace = true\n' : ''}${dataDependency}\n[build-dependencies]\nexact-game-app.workspace = true\n${dataBuildDependency}`;
     const files = {
       'Cargo.toml': header + dependencies,
-      [kind === 'linux' ? 'src/main.rs' : 'src/lib.rs']: kind === 'gpu' ? `exact_game_render::module!(game_logic::${type}${app.game.audio === true ? ", audio" : ""}${app.game.assets === true ? ", assets" : ""});\n` : 'include!(concat!(env!("OUT_DIR"), "/entry.rs"));\n',
+      [kind === 'linux' ? 'src/main.rs' : 'src/lib.rs']: kind === 'gpu' ? `exact_game_render::module!(game_logic::${type}${app.game.audio === true ? ", audio" : ""}${app.game.assets === true ? ", assets" : ""}${render ? `, hooks = game_render::${render.hooks}${render.shaders ? `, shaders = game_render::${render.shaders}` : ''}` : ''});\n` : 'include!(concat!(env!("OUT_DIR"), "/entry.rs"));\n',
       'build.rs': kind === 'gpu'
         ? `use exact_game::{Args, Game, Value};
 use std::{env, fs, path::PathBuf};
@@ -276,7 +293,7 @@ function lockedMetadata(root, flags, env) {
   if (result.status === 0) writeFileSync(cache, JSON.stringify({key:key(JSON.parse(result.stdout)), text:result.stdout}));
   return result;
 }
-const shellMembers = (game, name) => new Set([game.crate, game.data?.crate, ...['gpu','web','apple','linux'].map(kind => `${name}-${kind}`)].filter(Boolean));
+const shellMembers = (game, name) => new Set([game.crate, game.data?.crate, game.render?.crate, ...['gpu','web','apple','linux'].map(kind => `${name}-${kind}`)].filter(Boolean));
 
 // Every ordinary bake is locked; dependency edits require an explicit update,
 // never a publisher's cache choice.
@@ -365,7 +382,7 @@ if (import.meta.main) {
         }
         try { lintGame(dir, game, {env}); } catch (error) { console.error(error.message); failed = true; }
         // The author's crates only: generated adapters are products, built by bakes.
-        const result=spawnSync('cargo',['test',...[game.crate, game.data?.crate].filter(Boolean).flatMap(crate => ['-p', crate]),'--locked','--offline','--no-fail-fast'], {
+        const result=spawnSync('cargo',['test',...[game.crate, game.data?.crate, game.render?.crate].filter(Boolean).flatMap(crate => ['-p', crate]),'--locked','--offline','--no-fail-fast'], {
           cwd:resolve(dir,'.shells'),env,stdio:'inherit',
         });
         failed ||= result.status !== 0;

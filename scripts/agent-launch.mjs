@@ -192,7 +192,7 @@ export function receiptChanges(receipt, app) {
  * The proof's input digest (game/proof.mjs) and the web staleness check share it. */
 export function gameNonInput(path) {
   return /(^|\/)(pins\.json|proof\.mjs|[^/]*\.test\.mjs|[^/]*\.md)$/.test(path)
-    || (/\.m?js$/.test(path) && !/^(logic|data|gpu|art|assets|deck)\//.test(path));
+    || (/\.m?js$/.test(path) && !/^(logic|data|render|gpu|art|assets|deck)\//.test(path));
 }
 /** What a web build of `app` reads, modified after `since` (every file by default):
  * the app's own files and the shared host/runtime roots, as shown paths. */

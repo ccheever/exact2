@@ -35,6 +35,8 @@ CPU timing belongs to the caller; `draw` makes no performance clock calls.
 `WorldSurface<G, P, ASSETS, H>` accepts `H: Hooks`; `()` preserves the standard
 frame. `module!(Game, hooks = Effects, shaders = SHADERS)` exports a hooked canvas;
 add `assets` for engine-drawn custom model materials, and `audio` for audio support.
+A game names its hooks and shader pack in `app.json`'s `game.render` and the bake
+writes that line ([game README](../README.md#exact2-integration)).
 See LLP 1046.006.000 and `tests/hooks.rs` for the independent public fixture.
 
 Hooks borrow `RenderWorld` for immutable extraction and `FrameView` for the exact

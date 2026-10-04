@@ -854,6 +854,8 @@ dependencies = [
  "exact-game-derive",
  "exact-game-physics",
  "exact-game-render",
+ "exact-gpu",
+ "exact-gpu-reflect",
  "exact-linux",
  "exact-runner",
  "exact-web",

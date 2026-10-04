@@ -71,7 +71,7 @@ generate its hosts, Cargo workspace and lock, ignored, under `.shells/`.
 | `app.contract` | Menus, HUD, layout, accessibility and app actions |
 | `proof.mjs`, `logic/tests/*.rs` | Real-host assertions and hostless simulation tests |
 | `pins.json` | Verified tick/save baselines, written by `prove.mjs` |
-| `app.json` (optional) | Authored keys only: a title, bundle id, `game.audio`, `game.assets`, a data crate |
+| `app.json` (optional) | Authored keys only: a title, bundle id, `game.audio`, `game.assets`, a data crate, render hooks |
 | `logic/Cargo.toml`, `Cargo.lock` (optional) | Only when the game adds dependencies ([below](#exact2-integration)) |
 
 The crate is `<Game::ID>-logic` and the bundle id `com.exact.<Game::ID>`; the title
@@ -416,6 +416,25 @@ The type implements `DataSource + Default`; the generated hosts supply the exist
 `Storage<D>` adapter. Return synchronous resource placeholders before `activate`;
 storage work starts after first pixel. This linked composition uses `rust: false`.
 Games without `game.data` add no data-source dependency.
+
+For custom shaders, name render hooks (`exact_game_render::Hooks`, see
+[the renderer](render/README.md#game-render-hooks)) the same way:
+
+```json
+"game": {
+  "assets": true,
+  "render": { "crate": "my-game-render", "hooks": "Wind", "shaders": "shaders::SHADERS" }
+}
+```
+
+Own the crate under `render/` (`package.workspace = "../.shells"`); only the GPU
+shell links it, as `module!(MyGame, assets, hooks = game_render::Wind, shaders =
+game_render::shaders::SHADERS)`. `render/shaders/*.wgsl` is the game's shader pack:
+its `build.rs` reflects it with `exact_gpu_reflect::generate` (the result is
+`shaders`), the bake ships the text as assets, and an edit reloads live. A custom
+material composed with the engine's `MATERIAL_WGSL` prelude is not standalone WGSL,
+so it stays compiled into the crate. [wind-fixture](games/wind-fixture/README.md)
+sways reeds in a vertex material and paints its own sky.
 [Tennis](games/tennis/README.md) uses one for HTTP: the world publishes a numbered
 question, `resource plan = jev(hud.ask)` posts it, and the answer returns as a
 `#[live]` string argument that the tick applies only when its id matches.

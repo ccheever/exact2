@@ -38,7 +38,8 @@ import { gameDefaults, lintGame, prepareGame } from '../game/app/shells.mjs';
 // @ref llp/1046.006.000-render-hooks.rfc.md#d5-shaders-that-live-with-the-game
 /** Explicit source roots, relative to app.json. Only packaged names reach a host. */
 export function shaderRoots(app) {
-  return [...(app.manifest.game ? [] : ['gpu/shaders']), ...(shaderConfig(app).shaderRoots ?? [])]
+  // A game's shader pack sits beside its render hooks (game.render).
+  return [...(app.manifest.game ? (app.manifest.game.render ? ['render/shaders'] : []) : ['gpu/shaders']), ...(shaderConfig(app).shaderRoots ?? [])]
     .map(path => shaderPath(app,path));
 }
 function shaderConfig(app) {
@@ -65,7 +66,7 @@ export function shaderWatchRoots(app) {
 export function shaderFiles(app) {
   const files = new Map();
   for (const root of shaderRoots(app)) {
-    const tree = filesystem({op:'tree', root, optionalRoot: root === resolve(app.dir,'gpu/shaders')});
+    const tree = filesystem({op:'tree', root, optionalRoot: [resolve(app.dir,'gpu/shaders'), resolve(app.dir,'render/shaders')].includes(root)});
     for (const [name, base64] of Object.entries(tree ?? {})) {
       if (!/^[A-Za-z_][A-Za-z0-9_]*\.wgsl$/.test(name)) throw new Error(`shader pack ${root}: expected a flat WGSL filename, got ${name}`);
       if (files.has(name)) throw new Error(`duplicate shader ${name} across declared roots`);

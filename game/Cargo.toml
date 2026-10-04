@@ -19,6 +19,9 @@ exact-game-render = { path = "render" }
 exact-game-physics = { path = "physics" }
 exact-game-audio = { path = "audio" }
 exact-game-app = { path = "app" }
+# A game's render/ crate (game.render in app.json) and its reflected shader pack.
+exact-gpu = { path = "../gpu" }
+exact-gpu-reflect = { path = "../gpu/reflect" }
 exact-data-host = { path = "../data/host" }
 exact-web = { path = "../host/web" }
 exact-web-capabilities = { path = "../host/web-capabilities" }
