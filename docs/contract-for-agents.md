@@ -420,6 +420,7 @@ binding, since a sound that ends pauses itself. Asking an ended sound to play
 again starts it over, on every host:
 
 ```contract
+component Ding
   state hush = true
   action ding
     hush = false
@@ -479,7 +480,7 @@ Tabs with a stack each have one layout that works on web, macOS and iOS
 ([the tabs fixture](../contract/corpus/tabs.contract), driven by
 `host/web-js/conformance/tabs.steps`):
 
-```contract
+```text
 main navigationKey=`${top(nav).id}` navigationBack="back" navigate=follow display="flex" flex-direction="column" height="100%"
   column flex=1 min-height=0 position="relative"
     each t in nav.tabs key=t.name
