@@ -127,7 +127,7 @@ def roster : List String :=
    "replace", "back", "select", "go", "stack", "top", "depth", "params", "searchParam",
    "encodeURIComponent", "encodeRouteSegment", "includes", "trim", "first", "t", "map",
    "filter", "join", "formatDate", "formatNumber", "frame", "measure", "at", "startsWith",
-   "endsWith", "slice", "replaceAll", "toLowerCase"]
+   "endsWith", "slice", "replaceAll", "toLowerCase", "elementFromPoint"]
 
 /-- A roster entry's result type. -/
 def rosterTy (f : String) (args : List STy) : STy :=
@@ -135,6 +135,7 @@ def rosterTy (f : String) (args : List STy) : STy :=
   else if f = "isEmpty" ∨ f = "includes" ∨ f = "startsWith" ∨ f = "endsWith" then .bool
   else if f = "toString" ∨ f = "trim" ∨ f = "encodeURIComponent" ∨ f = "join" ∨ f = "slice"
     ∨ f = "replaceAll" ∨ f = "toLowerCase" then .string
+  else if f = "elementFromPoint" then .option .string
   else if f = "first" ∨ f = "at" then
     match args with
     | .list t :: _ => .option t

@@ -1174,6 +1174,12 @@
       "params": ["string"],
       "returns": "string",
       "_comment": "@ref LLP 1088 D2: JavaScript's `String.prototype.toLowerCase()`: Unicode's default, locale-independent mapping with final sigma. Linked by use: it reaches the kernel's case tables through `text-transform`'s link (capability `text_transform`), bounded by `MAX_STRING`."
+    },
+    {
+      "name": "elementFromPoint",
+      "params": ["number", "number"],
+      "returns": "option<string>",
+      "_comment": "@ref LLP 1094 D10: DOM's `document.elementFromPoint(x, y)?.closest(\"[id]\")?.id` over `frame`'s boxes: the `id` of the front-most laid-out box at the viewport point (every scroll applied, no transforms; ancestors' overflow clips; `pointer-events: none`, `display: none` and `visibility: hidden` skipped; LLP 1083.000's paint order), or of its nearest ancestor with one; `none` where no box or ancestor has one. Actions only."
     }
   ],
   "_sources": "LLP 1027 D2: the data seam's signatures. One row per data-source name the app's `resource` and `send` declarations use, with the parameter types and the result type every use agrees on (the compiler refuses a disagreement by name). An executor that marshals by shape \u2014 the TypeScript module's \u2014 reads this table at bind; a Rust crate ignores it. formatVersion 3.",

@@ -130,6 +130,9 @@ theorem stdlib_unsupported {env : Env} {p : Program} {name : String} {vs : List 
   by_cases hn : name = "toLowerCase"
   · subst hn; simp [stdlib, GoodR, Legit]
   rw [ite_neg hn] at h
+  by_cases hn : name = "elementFromPoint"
+  · subst hn; simp [stdlib, GoodR, Legit]
+  rw [ite_neg hn] at h
   simp at h
 
 /-! ## The router's values -/

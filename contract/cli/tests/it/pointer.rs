@@ -207,7 +207,8 @@ fn a_board_hears_its_menu_point_its_wheel_its_drop_and_its_unload() {
         .unwrap()
         .id;
     let event = |kind: u32, payload: &str| Event::of_host_kind(kind, payload).unwrap();
-    r.dispatch(world, event(10, "40,8,2,0.5,mouse,1,40,8")).unwrap();
+    r.dispatch(world, event(10, "40,8,2,0.5,mouse,1,40,8"))
+        .unwrap();
     assert_eq!(r.slot("menu"), Some(&Value::str("40,8,2")));
     // A keyboard's menu key: no point, DOM's record at the origin.
     r.dispatch(world, Event::Contextmenu).unwrap();

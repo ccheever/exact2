@@ -417,6 +417,7 @@ Signatures are authored forms; localization's internal lowered signature differs
 | `t("key", name=value, …)` | Localized string; validates tables/placeholders |
 | `frame(id)` | `Geometry`, actions only; last layout where the viewer sees it: in the viewport, every scroll offset applied, transforms not |
 | `measure("id")` | `Geometry`, actions only; literal id, height-auto measurement |
+| `elementFromPoint(x, y)` | `option<string>`, actions only; the `id` of the front-most of `frame`'s boxes at the viewport point, or of its nearest ancestor with one (DOM's `elementFromPoint(x, y)?.closest("[id]")?.id`): ancestors' overflow clips apply, `pointer-events: none` and hidden boxes are passed over |
 
 The router functions (`open` through `searchParam`) and `encodeRouteSegment`
 exist only in an app with a `routes` declaration.

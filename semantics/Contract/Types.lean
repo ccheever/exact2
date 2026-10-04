@@ -82,6 +82,8 @@ def unsupportedTy (name : String) (ts : List Ty) : Option Ty :=
   else if name = "frame" ∨ name = "measure" then
     match ts with | [.string] => .some (.record "Geometry") | _ => .none
   else if name = "toLowerCase" then match ts with | [.string] => .some .string | _ => .none
+  else if name = "elementFromPoint" then
+    match ts with | [.number, .number] => .some (.option .string) | _ => .none
   else .none
 
 /-- The router's verbs and reads (LLP 1038, `Contract.Route`), at the

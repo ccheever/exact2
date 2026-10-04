@@ -205,7 +205,7 @@ if (bakeOnly) planBytes = readFileSync(resolve(buildEnv.EXACT_BAKE_OUTPUT, 'web-
 else {
 wasm = readFileSync(out);
 const unbooted = () => { throw new Error('app logic ran while extracting baked bytes'); };
-const { instance } = await WebAssembly.instantiate(wasm, { exact_grants: grantOrigins(() => instance.exports.memory), exact_js: { call: unbooted }, exact_rust: { load: unbooted, call: unbooted, read: unbooted, drop: unbooted }, exact_data: { random: unbooted, agent_seed: unbooted }, exact_geometry: { read: unbooted } });
+const { instance } = await WebAssembly.instantiate(wasm, { exact_grants: grantOrigins(() => instance.exports.memory), exact_js: { call: unbooted }, exact_rust: { load: unbooted, call: unbooted, read: unbooted, drop: unbooted }, exact_data: { random: unbooted, agent_seed: unbooted }, exact_geometry: { read: unbooted, point: unbooted } });
 exports = instance.exports;
 if (typeof exports.exact_plan !== 'function' || typeof exports.exact_out !== 'function' || !(exports.memory instanceof WebAssembly.Memory)) {
   throw new Error('the web wasm does not export exact_plan, exact_out, and memory');

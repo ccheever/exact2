@@ -140,6 +140,7 @@ impl Ty {
             "Router" | "Entry" | "Geometry" => Ty::Record(spec.into()),
             "list<Entry>" => Ty::List(Box::new(Ty::Record("Entry".into()))),
             "list<string>" => Ty::List(Box::new(Ty::String)),
+            "option<string>" => Ty::Option(Box::new(Ty::String)),
             _ => Ty::Unknown,
         }
     }

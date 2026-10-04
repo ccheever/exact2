@@ -105,7 +105,52 @@ function createGeometry(root) {
       || (document.fonts && document.fonts.status !== 'loaded');
   };
 
+  // `elementFromPoint(x, y)` (LLP 1094 D10): the front-most element whose
+  // `frame` box holds the viewport point, as the runner's kernel walk finds
+  // it natively: children front to back (LLP 1083.000's rank from the
+  // computed style, then tree order) before their parent, an overflow clip
+  // cutting descendants to the padding box, `pointer-events: none` and a
+  // hidden `visibility` passed over, `display: none` and a leaving node's
+  // subtree skipped. A row wrapper only positions its row: its children are
+  // placed in the list content, as `frame` places them.
+  const point = (x, y) => {
+    const box = layoutBoxes(), page = root.getBoundingClientRect(), placed = new Map([[root, [page.left, page.top, page.width, page.height]]]);
+    const at = el => {
+      if (placed.has(el)) return placed.get(el);
+      const parent = el.parentElement?.hasAttribute('data-listitemkey') ? el.parentElement.parentElement : el.parentElement;
+      const b = parent && box(el, parent), q = b && at(parent);
+      const p = q ? [q[0] + b[0] - parent.scrollLeft, q[1] + b[1] - parent.scrollTop, b[2], b[3]] : null;
+      placed.set(el, p);
+      return p;
+    };
+    const inside = b => b[0] <= x && x < b[2] && b[1] <= y && y < b[3];
+    const rank = (cs, item) => {
+      const positioned = cs.position !== 'static', z = (positioned || item) && cs.zIndex !== 'auto' ? parseInt(cs.zIndex) : null;
+      if (z) return 2 * z;
+      return positioned || z === 0 || cs.isolation === 'isolate' || +cs.opacity < 1 || cs.filter !== 'none'
+        || ['transform', 'translate', 'scale', 'rotate'].some(p => cs[p] !== 'none') ? 1 : 0;
+    };
+    const hit = (el, clip) => {
+      const cs = getComputedStyle(el);
+      if (cs.display === 'none' || el.hasAttribute('data-exiting')) return null;
+      const wrapper = el.hasAttribute('data-listitemkey'), b = wrapper || cs.display === 'contents' ? null : at(el);
+      let inner = clip;
+      if (b && (cs.overflowX !== 'visible' || cs.overflowY !== 'visible')) {
+        const pad = [b[0] + parseFloat(cs.borderLeftWidth), b[1] + parseFloat(cs.borderTopWidth),
+          b[0] + b[2] - parseFloat(cs.borderRightWidth), b[1] + b[3] - parseFloat(cs.borderBottomWidth)];
+        inner = clip ? [Math.max(clip[0], pad[0]), Math.max(clip[1], pad[1]), Math.min(clip[2], pad[2]), Math.min(clip[3], pad[3])] : pad;
+      }
+      const item = /flex|grid/.test(cs.display);
+      const kids = [...el.children].map((c, i) => [rank(getComputedStyle(c), item), i, c]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+      for (let i = kids.length - 1; i >= 0; i--) { const h = hit(kids[i][2], inner); if (h) return h; }
+      return b && inside([b[0], b[1], b[0] + b[2], b[1] + b[3]]) && (!clip || inside(clip))
+        && cs.pointerEvents !== 'none' && cs.visibility === 'visible' ? el : null;
+    };
+    return hit(root, null);
+  };
+
   return {
+    point,
     read(op, el, out) {
       if (!el?.isConnected || !root.contains(el)) return 0;
       const box = frame(el);

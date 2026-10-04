@@ -504,7 +504,10 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
     let _ = write!(body, "{mount}($R=>{{{view}}});");
     // A plan whose actions read geometry fetches the page's reader after
     // first paint, as the wasm host does for an artifact that imports it.
-    if em.uses.names.contains("x_frame") || em.uses.names.contains("x_measure") {
+    if ["x_frame", "x_measure", "x_elementFromPoint"]
+        .iter()
+        .any(|name| em.uses.names.contains(*name))
+    {
         let geo = em.uses.rt("geo");
         let _ = write!(body, "{geo}();");
     }

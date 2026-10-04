@@ -658,6 +658,11 @@ scroll offset above it (the page's too) applied, but untransformed, so a drop ta
 needs no scroll bookkeeping; `measure` reads an auto-height hypothetical layout at
 the same origin.
 Neither is a computed style binding to run every render.
+`elementFromPoint(x, y)` names the front-most of the same boxes at a viewport
+point by its nearest `id` (`option<string>`). For a drag still built by hand,
+test the dragged node's visual centre (`frame(id)` plus the pan delta the
+action stored plus half the box), not the pointer: the box under a lifted card
+is the card.
 
 SVG uses SVG names. `foreignObject` compiles and renders on the web; native hosts
 refuse it at run time, so position a box over the `svg` there. Canvas 2D calls
