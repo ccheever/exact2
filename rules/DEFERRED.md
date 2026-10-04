@@ -457,6 +457,15 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   offset, buttons, pressure, type and id) on these two and a new
   `pointermove`, on any node. The paint app's diary (F1) is the consumer.
   Take: none offered.
+  **Expanded (LLP 1094; waived by the orchestrator under Charlie's
+  2026-10-04 delegation, "make decisions without me"):** a reorder spanning
+  vertical virtualized lists that share a `reorderGroup`, in one session,
+  with a host-drawn top-layer ghost, a drop hold, keyboard and
+  custom-action moves, the action read `elementFromPoint`, and
+  `PointerEvent`'s `clientX`/`clientY`. Consumers: the two kanban builds
+  (F4). Unblocks moving cards on a board without a hand-built drag. Take:
+  none offered. Still out: reorder on row and nested lists (LLP 1094 §7),
+  drags into or out of the app, multi-item drags, grids, a gesture arena.
   **Expanded (Charlie, 2026-09-29: "Yeah add the every frame task"; take
   waived, none offered; waiver confirmed by Charlie 2026-09-30):** one root task form, `every(frame, action)`
   (LLP 1073): the action once per presented frame, never caught up, and on
