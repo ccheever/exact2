@@ -873,6 +873,7 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::AccessibilityElementsHidden => "aria-hidden",
             PropId::AccessibilityInvalid => "aria-invalid",
             PropId::AccessibilityDescribedBy => "aria-describedby",
+            PropId::AccessibilityLabelledBy => "aria-labelledby",
             PropId::AccessibilityRequired => "aria-required",
             PropId::AccessibilityHasPopup => "aria-haspopup",
             // SVG 2 attributes by their exact (case-sensitive) names (LLP 1055 D1).

@@ -715,6 +715,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-hidden" => AttrTarget::Prop(p("accessibilityElementsHidden")),
         "aria-invalid" => AttrTarget::Prop(p("accessibilityInvalid")), // onboarding F22, spreadsheet F20
         "aria-describedby" => AttrTarget::Prop(p("accessibilityDescribedBy")),
+        // ARIA's name by reference (ledger2 Rough 3): the ids, space-separated,
+        // of the elements whose text names this one, before `aria-label`.
+        "aria-labelledby" => AttrTarget::Prop(p("accessibilityLabelledBy")),
         "aria-required" => AttrTarget::Prop(p("accessibilityRequired")),
         "aria-haspopup" => AttrTarget::Prop(p("accessibilityHasPopup")),
         // SVG 2 attributes CSS cannot set (LLP 1055 D1/D2), by their SVG names.
