@@ -782,9 +782,10 @@ the driver's 2026-01-01 UTC. The steps are `tap "id" [hover|dblclick|contextmenu
 so the next step can tap a row outside the rendered window),
 `tap "id" pinch <scale> [at x y]` (two fingers; `scale` greater than 0),
 `tap "id" drag dx dy [from x y] [mouse] [press ms] [over ms] [hold ms] [during "op" …]`
-(`during` is last: quoted reads or `clock` while the finger is down, after the
-move and before the hold; `press` and `hold` advance the virtual clock, except
-under `--timing platform`),
+(a finger, `pointerType` touch, where the carrier has one, unless `mouse` names the left button; `during`
+is last: quoted reads or `clock` while that contact is down, after the move and
+before the hold; `press` and `hold` advance the virtual clock, except under
+`--timing platform`),
 `type "id" "text"` (sets the value), `type "id" "text" append` (after the value
 the tree shows, as typing after a prefill), or `type "id" key "Name"`
 (`down`, `up`, or `for <ms>` on the virtual clock),
