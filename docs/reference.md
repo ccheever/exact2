@@ -327,6 +327,16 @@ same browser origin, subject to browser storage retention and quota policies.
 An open database exclusively locks its file; conflicting opens or filesystem
 mutations return `Unavailable` with a busy message. Agent mode skips storage.
 
+In `app.ts`, a storage refusal is an `Error` with `kind: 'Unavailable'`, a `code` and a
+`message`. The code is the same on every host; the message says more and may
+differ. Storage itself is unavailable: `'bake'` (the build compiles no answer
+that reads storage; show a placeholder), `'agent'` (a scripted drive that names
+no scratch store, `--storage <name>`), `'unsupported'` (a host with no app
+storage). The operation was refused: `'denied'` (the grants do not cover it),
+the filesystem's POSIX name (`'ENOENT'`, `'EEXIST'`, `'ENOTDIR'`, `'EISDIR'`,
+`'ENOTEMPTY'`, `'EBUSY'`), else `'failed'`. Branch on the code, never the
+message: `catch (e) { if (e.code === 'ENOENT') return empty; throw e; }`.
+
 An answer's storage and `fetch` steps run whether or not it awaits them: a save
 started and not awaited (queued behind the module's own promise chain, say)
 lands on every host. In the browser the answer is given at once and the save

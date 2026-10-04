@@ -135,21 +135,36 @@ const native = Object.freeze({
 // the app's grants and its page's store key — none under the agent unless
 // the drive names a scratch store (`storageKey`). Only where the grants
 // name `fs.` or `sqlite.`.
+// A refusal is `{kind: 'Unavailable', code, message}`, with Hermes's codes
+// (js/src/prelude.js `storageCode`; kanban F28): 'agent' for a drive with no
+// scratch store, 'denied' past the grants, the filesystem's POSIX name, else
+// 'failed'.
+const coded = e => {
+  const error = e instanceof Error ? e : new Error(String(e?.message ?? e));
+  error.kind ??= 'Unavailable';
+  error.code ??= /^denied: /.test(error.message) ? 'denied' : /\bbusy\b|database is locked/.test(error.message) ? 'EBUSY' : 'failed';
+  throw error;
+};
 function storageOf(grants) {
   if (!['fs-read', 'fs-write', 'sqlite-open'].some(kind => hasGrant(grants, kind))) return undefined;
   let fs, sqlite;
   const key = () => import('./storage-environment.js').then(({ storageKey, agentStorageRefusal }) => {
     const k = source.appId ? storageKey(source.appId, location.href) : null;
-    if (k == null) throw Object.assign(new Error(agentStorageRefusal), { kind: 'Unavailable' });
+    if (k == null) throw Object.assign(new Error(agentStorageRefusal), { kind: 'Unavailable', code: 'agent' });
     return k;
   });
   const files = () => fs ??= key().then(k => import(new URL('./storage-fs.js', import.meta.url).href).then(m => m.createFileSystem(k, grants)));
   const databases = () => sqlite ??= key().then(k => import(new URL('./storage-sqlite.js', import.meta.url).href).then(m => m.createSqlite(k, grants)));
+  // A database's and a statement's methods refuse as storage's do.
+  const wrap = (o, convert) => Object.freeze(Object.fromEntries(Object.entries(convert).map(([m, then]) =>
+    [m, (...args) => Promise.resolve().then(() => o[m](...args)).then(then, coded)])));
+  const statement = s => wrap(s, { execute: null, query: null, close: null });
+  const database = d => wrap(d, { execute: null, query: null, prepare: statement, transaction: null, close: null });
   const methods = ['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath'];
   return Object.freeze({
     fs: Object.freeze({ directories: Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' }),
-      ...Object.fromEntries(methods.map(m => [m, (...args) => files().then(f => f[m](...structuredClone(args)))])) }),
-    sqlite: Object.freeze({ open: path => databases().then(d => d.open(path)) }),
+      ...Object.fromEntries(methods.map(m => [m, (...args) => files().then(f => f[m](...structuredClone(args))).catch(coded)])) }),
+    sqlite: Object.freeze({ open: path => databases().then(d => d.open(path)).then(database, coded) }),
     work: promise => Promise.resolve(promise),
   });
 }

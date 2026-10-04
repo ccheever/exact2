@@ -532,9 +532,30 @@
     delete global.__exact_storage;
     delete global.__exact_install_storage;
   };
-  function storageError(message) {
+  // A storage refusal is `{kind: "Unavailable", code, message}`, the code
+  // the same on every host (kanban F28; host/web-js/ts-data.js `coded`):
+  // storage itself is unavailable ("bake", "agent", "unsupported"), the
+  // grants do not cover the operation ("denied"), the filesystem's POSIX
+  // name ("ENOENT", "EEXIST", "ENOTDIR", "EISDIR", "ENOTEMPTY", "EBUSY"),
+  // else "failed". The message says more and differs by host.
+  var REFUSED = {
+    bake: "storage is unavailable during bake",
+    agent: "storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)",
+    unsupported: "storage is unsupported by this host",
+  };
+  // Rust's `io::Error` ends with its errno; these are the same on Darwin and
+  // Linux but ENOTEMPTY (66, 39).
+  var ERRNO = { 2: "ENOENT", 16: "EBUSY", 17: "EEXIST", 20: "ENOTDIR", 21: "EISDIR", 39: "ENOTEMPTY", 66: "ENOTEMPTY" };
+  function storageCode(message) {
+    if (/^denied: /.test(message)) return "denied";
+    var errno = /\(os error (\d+)\)$/.exec(message);
+    if (errno && ERRNO[errno[1]]) return ERRNO[errno[1]];
+    return /\bbusy\b|database is locked/.test(message) ? "EBUSY" : "failed";
+  }
+  function storageError(message, code) {
     var error = new Error(message);
     error.kind = "Unavailable";
+    error.code = code || storageCode(String(message));
     return error;
   }
   function storageCall(receiver, method, args, convert) {
@@ -547,10 +568,10 @@
       if (global.console) global.console.error(refused.message);
       return Promise.reject(refused);
     }
-    try {
-      host(5, "", ""); // no filesystem or database effects during bake
-      if (!receiver) throw storageError("storage is unsupported by this host");
-    } catch (e) { return Promise.reject(storageError(e.message || String(e))); }
+    var refused;
+    try { refused = host(5, "", "") || (receiver ? undefined : "unsupported"); }
+    catch (e) { refused = "bake"; } // no filesystem or database effects during bake
+    if (refused) return Promise.reject(storageError(REFUSED[refused], refused));
     call.storage++;
     var promise;
     try { promise = receiver[method].apply(receiver, args); }
@@ -562,7 +583,9 @@
     }, function (error) {
       currentCall = call;
       call.storage--;
-      throw error && error.kind ? error : storageError(error.message || String(error));
+      if (!error || !error.kind) throw storageError(error && error.message || String(error), error && error.code);
+      if (!error.code) try { error.code = storageCode(String(error.message)); } catch (_) { /* a frozen error keeps its own */ }
+      throw error;
     });
   }
   function statement(raw) {
@@ -819,7 +842,7 @@
   global.__exact_storage_failed = function (id, outcomeJson) {
     var call = calls.get(Number(id));
     // Its storage steps will not land: refuse the answer without them.
-    if (call) { call.status = "failed"; call.lost = true; call.error = storageError(JSON.parse(outcomeJson).failed.message); }
+    if (call) { call.status = "failed"; call.lost = true; call.error = storageError(JSON.parse(outcomeJson).failed.message, "failed"); }
   };
   global.__exact_fulfill = function (ticket, outcomeJson) {
     var p = pending.get(Number(ticket));

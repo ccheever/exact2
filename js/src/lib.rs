@@ -171,6 +171,8 @@ struct HostState {
     keys: Vec<exact_data::crypto::EcKey>,
     /// `authCallback()`: this native build's, from the grants (LLP 1069.006).
     auth_callback: Option<String>,
+    /// The engine has app storage: the host configured directories.
+    storage: bool,
 }
 
 /// A TypeScript data source: bytecode, its bake-time identity, and the
@@ -270,12 +272,22 @@ unsafe extern "C" fn host_door(
                 .map_err(|e| format!("store.forget: {e:?}")),
             None => Err("store.forget: no store at bake".into()),
         },
+        // Storage's availability, as the prelude's refusal code (kanban
+        // F28): none at bake; none for a drive that names no scratch store;
+        // none where the host configured no directories.
         5 => {
             if let Some(store) = state.store {
                 (*store).observe_external_read();
-                Ok(None)
+                Ok((!state.storage).then(|| {
+                    if state.agent.is_some() {
+                        "agent"
+                    } else {
+                        "unsupported"
+                    }
+                    .into()
+                }))
             } else {
-                Err("storage is unavailable during bake".into())
+                Err("bake".into())
             }
         }
         6 => {
@@ -399,6 +411,7 @@ impl Module {
             directories: None,
             host: Box::new(HostState {
                 auth_callback,
+                storage: false,
                 ..HostState::default()
             }),
             native_factory: None,
@@ -586,6 +599,7 @@ impl Module {
         engine
             .load(PRELUDE)
             .map_err(|e| format!("exact-js: the prelude did not load: {e}"))?;
+        self.host.storage = self.directories.is_some();
         if let Some(paths) = &self.directories {
             if let Some(factory) = self.native_factory {
                 let mut native = factory(&self.grants);

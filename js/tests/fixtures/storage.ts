@@ -91,6 +91,21 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
     try { return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(path)))}; }
     catch (_) { return {text:"empty"}; }
   }
+  // Refusals carry a stable code beside their message (kanban F28).
+  if (op === "codes") {
+    const data = storage.fs.directories.data, out: string[] = [];
+    const steps: (() => Promise<unknown>)[] = [
+      () => storage.fs.readFile(data + "/absent"),
+      () => storage.fs.writeFile("app:/cache/no", new Uint8Array([1])),
+      () => storage.fs.readdir(data + "/note"),
+      () => storage.fs.mkdir(data + "/full").then(() => storage.fs.writeFile(data + "/full/x", new Uint8Array([1]))).then(() => storage.fs.rm(data + "/full")),
+      () => storage.sqlite.open("app:/data/other.db"),
+    ];
+    for (const step of steps) {
+      try { await step(); out.push("ok"); } catch (e:any) { out.push(e.kind + " " + e.code + " " + e.message); }
+    }
+    return {text: out.join("\n")};
+  }
   if (op === "read-at") return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(storage.fs.directories.data + "/" + value)))};
   if (op === "read") return {text:String.fromCharCode(...new Uint8Array(await storage.fs.readFile(path)))};
   if (op === "refused") {
@@ -100,7 +115,7 @@ async function work(_source:string, args:unknown[], store:Store, storage:Storage
   }
   if (op === "bake") {
     try { await storage.fs.readFile(path); }
-    catch (e:any) { return {text:e.kind + ":" + e.message}; }
+    catch (e:any) { return {text:e.kind + ":" + e.code + ":" + e.message}; }
     return {text:"read at bake"};
   }
   if (op === "fetch") {

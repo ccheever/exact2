@@ -484,17 +484,20 @@ const answers = {
   kind: { days: 'none', note: null },
   dropped: { days: [day({ id: 'a', amount: 1, later: undefined, f() {} })], note: 'n' },
 };
-export function answer(name, args) { return name === 'later' ? Promise.resolve(answers.spread) : answers[args[0]]; }
+export function answer(name, args, store, storage) {
+  if (name === 'read') return storage.fs.readFile('app:/data/x').then(() => 'read', e => e.kind + ' ' + e.code + ' ' + e.message);
+  return name === 'later' ? Promise.resolve(answers.spread) : answers[args[0]];
+}
 `);
   writeFileSync(resolve(dir, 'ts-data.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-data.js'), 'utf8')
     .replace('__APP_TS__', pathToFileURL(app).href).replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', '')
     .replace("from './rt.js'", "from './rt-stub.js'"));
   writeFileSync(resolve(dir, 'rt-stub.js'), `export const clock={agent:false,now:0},journal=[],Resources=[];export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};export const painted=()=>Promise.resolve();\n`);
   const ledger = '{"days":["[",{"id":"s","transactions":["[",{"id":"s","amount":"n"}]}],"note":["?","s"]}';
-  writeFileSync(resolve(dir, 'names.js'), `export const sourceTypes={ledger:[["s"],${ledger}],later:[[],${ledger}]};\n`);
+  writeFileSync(resolve(dir, 'names.js'), `export const sourceTypes={ledger:[["s"],${ledger}],later:[[],${ledger}],read:[[],"s"]};\n`);
   writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'"));
-  writeFileSync(resolve(dir, 'admission-data.js'), `import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(${JSON.stringify(normalized(''))});\n`);
-  for (const name of ['grant-admission.js', 'navigation.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+  writeFileSync(resolve(dir, 'admission-data.js'), `import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(${JSON.stringify(normalized('fs.read app:/data'))});\n`);
+  for (const name of ['grant-admission.js', 'navigation.js', 'storage-environment.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
   try {
     const ts = await import(`${pathToFileURL(resolve(dir, 'ts-data.js')).href}?shape=${Date.now()}`), data = { q: [] };
     ts.install(data);
@@ -508,7 +511,11 @@ export function answer(name, args) { return name === 'later' ? Promise.resolve(a
     // What `JSON.stringify` leaves out is not there for Hermes either.
     expect(data.answer('ledger', ['dropped'], new Map()).v).toEqual([[['d', [['a', 1]]]], 'n']);
     await expect(data.answer('later', [], new Map()).promise).rejects.toThrow('`later` answered outside its shape: field `days`: field `transactions`: field `cents` is not in the shape');
+    // A storage refusal's code is Hermes's (kanban F28): a drive with no scratch store.
+    globalThis.location = { href: 'http://localhost/?agent' };
+    expect(await data.answer('read', [], new Map()).promise).toBe('Unavailable agent storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)');
   } finally {
+    delete globalThis.location;
     rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -279,12 +279,26 @@ fn storage_refuses_during_bake_even_if_a_host_configured_it() {
     let mut m = root.module();
     m.activate().unwrap();
     let value = m.query("work", &args("bake", "")).unwrap();
-    assert!(text(value).contains("storage is unavailable during bake"));
+    assert_eq!(
+        text(value),
+        "Unavailable:bake:storage is unavailable during bake"
+    );
     assert_eq!(std::fs::read_dir(root.0.join("data")).unwrap().count(), 0);
     let mut unconfigured = Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap();
     unconfigured.bind(&plan());
     let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
-    assert!(call(&mut unconfigured, &mut s, "bake", "").contains("unsupported by this host"));
+    assert_eq!(
+        call(&mut unconfigured, &mut s, "bake", ""),
+        "Unavailable:unsupported:storage is unsupported by this host"
+    );
+    // A drive that names no scratch store: the web's refusal, word for word.
+    let mut agent = Module::new(HBC.to_vec(), APP, GRANTS).with_agent_seed(Some(1));
+    agent.bind(&plan());
+    agent.activate().unwrap();
+    assert_eq!(
+        call(&mut agent, &mut s, "bake", ""),
+        "Unavailable:agent:storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)"
+    );
 }
 
 #[test]
@@ -941,4 +955,29 @@ component App
         .filter(|l| l.contains("pending on nothing") || l.contains("failed"))
         .collect();
     assert!(refusals.is_empty(), "{refusals:#?}");
+}
+
+/// Each refusal names its reason as a code the web's adapters use too
+/// (kanban F28); the message beside it may differ by host.
+#[test]
+fn storage_refusals_carry_a_stable_code() {
+    let root = Root::new();
+    let mut m = root.module();
+    m.activate().unwrap();
+    let mut s = Store::new(GRANTS, Vec::<(String, String)>::new());
+    assert_eq!(call(&mut m, &mut s, "file", "x"), "x");
+    let codes: Vec<String> = call(&mut m, &mut s, "codes", "")
+        .lines()
+        .map(|l| l.split(' ').take(2).collect::<Vec<_>>().join(" "))
+        .collect();
+    assert_eq!(
+        codes,
+        [
+            "Unavailable ENOENT",
+            "Unavailable denied",
+            "Unavailable ENOTDIR",
+            "ok",
+            "Unavailable denied"
+        ]
+    );
 }
