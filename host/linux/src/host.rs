@@ -85,6 +85,8 @@ pub struct Host<D: DataSource> {
     lowering: bool,
     lowered: std::collections::HashMap<u64, u8>,
     lowered_epoch: u64,
+    /// The epoch each lowered node's plays last changed at.
+    lowered_changed: std::collections::HashMap<u64, u64>,
     played: std::collections::HashMap<
         u64,
         Vec<(exact_motion::Property, exact_motion::PlayedTransition)>,
@@ -197,6 +199,7 @@ impl<D: DataSource> Host<D> {
             lowering: false,
             lowered: Default::default(),
             lowered_epoch: 0,
+            lowered_changed: Default::default(),
             played: Default::default(),
             router_op: None,
             navigation: Default::default(),
@@ -412,6 +415,17 @@ impl<D: DataSource> Host<D> {
     /// Mounted collection metadata; no record keys or unmounted rows cross here.
     pub fn collections(&self) -> Vec<exact_runner::CollectionSnapshot> {
         self.runner.collections()
+    }
+
+    /// One list's entry of [`Host::collections`].
+    pub fn collection(&self, view: ViewId) -> Option<exact_runner::CollectionSnapshot> {
+        self.runner.collection(view)
+    }
+
+    /// [`Host::collections`] with only each list's first mounted row: views,
+    /// sequences and port geometry, not every row's record.
+    pub fn collections_shallow(&self) -> Vec<exact_runner::CollectionSnapshot> {
+        self.runner.collections_shallow()
     }
 
     /// Commit viewport geometry and any edge action, retaining commits on refusal.
@@ -1148,11 +1162,18 @@ impl<D: DataSource> Host<D> {
         }
         // Only stacks and popovers matter to it: the walk keeps those, in
         // preorder, not every node of every mounted row.
+        // None at all (most apps, most commits): no walk.
         let kernel = self.runner.kernel();
-        let navigation = kernel.preorder_where(&self.runner.roots(), |_, props| {
-            props.str(exact_kernel::PropId::NavigationBack).is_some()
-                || props.str(exact_kernel::PropId::Popover).is_some()
-        });
+        let navigation = if kernel.has_prop(exact_kernel::PropId::NavigationBack)
+            || kernel.has_prop(exact_kernel::PropId::Popover)
+        {
+            kernel.preorder_where(&self.runner.roots(), |_, props| {
+                props.str(exact_kernel::PropId::NavigationBack).is_some()
+                    || props.str(exact_kernel::PropId::Popover).is_some()
+            })
+        } else {
+            Vec::new()
+        };
         for line in self.navigation.sync(self.runner.kernel(), &navigation) {
             self.runner.log(line);
         }

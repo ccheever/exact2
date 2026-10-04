@@ -818,20 +818,22 @@ impl<D: DataSource> Presenter<D> {
         self.retire_pointer();
         self.arrange_settled();
         self.dirty |= error.is_some();
-        let live: std::collections::BTreeSet<_> = self
-            .host
-            .kernel()
-            .rows(None)
-            .unwrap_or_default()
-            .iter()
-            .map(|r| r.id)
-            .collect();
-        self.autofocus_processed.retain(|id| live.contains(id));
+        // Only autofocus nodes matter: a walk that keeps those, in
+        // preorder, not an export row per node of every mounted row.
+        let kernel = self.host.kernel();
+        if !self.autofocus_processed.is_empty() {
+            self.autofocus_processed.retain(|id| attached(kernel, *id));
+        }
+        let candidates = if kernel.has_prop(PropId::Autofocus) {
+            kernel.preorder_where(&kernel.roots(), |_, props| {
+                props.bool(PropId::Autofocus) == Some(true)
+            })
+        } else {
+            Vec::new()
+        };
         {
-            for id in live {
-                let node = self.host.kernel().node(id).unwrap();
+            for id in candidates {
                 if self.autofocus_processed.contains(&id)
-                    || node.props.bool(PropId::Autofocus) != Some(true)
                     || !self.focusable(id)
                     || self.host.route_visibility(id).1
                 {
@@ -1414,4 +1416,16 @@ impl<D: DataSource> Presenter<D> {
     pub fn node_count(&self) -> usize {
         self.host.kernel().live_count()
     }
+}
+
+/// Whether `id` is live and reachable from a root (in [`Kernel::rows`]).
+fn attached(kernel: &exact_kernel::Kernel, id: ViewId) -> bool {
+    let mut at = kernel.node(id);
+    while let Some(node) = at {
+        if node.is_root {
+            return true;
+        }
+        at = node.parent.and_then(|p| kernel.node(p));
+    }
+    false
 }

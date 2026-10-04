@@ -1133,12 +1133,16 @@ impl<D: DataSource + Default> CanvasHost<D> {
             ]);
         }
         self.tracks.retain(|id, _| alive.iter().any(|a| a.0 == *id));
-        // Plays change only in a sync: until one, only new layers' tracks.
+        // Plays change only in a sync: until one, only new layers' tracks;
+        // after one, the layers of the nodes it changed.
         let epoch = self.p.host().lowered_epoch();
-        let all = epoch != self.tracks_epoch;
+        let since = self.tracks_epoch;
         self.tracks_epoch = epoch;
         for (id, key, base) in alive {
-            if !all && self.tracks.contains_key(&id) {
+            let key = exact_kernel::motion::node_key(key);
+            if self.tracks.contains_key(&id)
+                && (epoch == since || !self.p.host().lowered_changed_after(key, since))
+            {
                 continue;
             }
             let mut p = crate::paint::Presented::IDENTITY;
@@ -1146,10 +1150,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
             p.scale = base[2];
             p.rotate = base[3];
             p.opacity = base[4];
-            let words = self
-                .p
-                .host()
-                .layer_tracks(exact_kernel::motion::node_key(key), &p);
+            let words = self.p.host().layer_tracks(key, &p);
             if self.tracks.get(&id) != Some(&words) {
                 ops.extend([layer::TRACKS, id, words.len() as u32]);
                 ops.extend(&words);

@@ -4,6 +4,7 @@ use super::*;
 #[cfg(any(target_os = "linux", target_os = "android", test))]
 use crate::paint::Presentation;
 use crate::paint::ScrollBounds;
+use exact_kernel::id::IdMap;
 use exact_kernel::{Kernel, NodeKey};
 #[cfg(any(target_os = "linux", target_os = "android", test))]
 use std::cell::RefCell;
@@ -21,15 +22,21 @@ struct Identity {
 }
 struct Witness {
     origin: Rc<()>,
-    keys: BTreeMap<ViewId, NodeKey>,
-    scroll: BTreeMap<ViewId, ScrollBounds>,
-    parents: BTreeMap<ViewId, Option<ViewId>>,
+    /// Each painted node's key, parent and (a box's) scroll bounds: one
+    /// table, sized once per paint.
+    nodes: IdMap<ViewId, Seen>,
     document: (f32, f32),
     viewport: (f32, f32),
     #[cfg(any(target_os = "linux", target_os = "android", test))]
     scale: u32,
     #[cfg(any(target_os = "linux", target_os = "android", test))]
     model_scroll: BTreeMap<ViewId, collection::ModelScroll>,
+}
+/// What a picture showed of one node.
+struct Seen {
+    key: NodeKey,
+    parent: Option<ViewId>,
+    scroll: Option<ScrollBounds>,
 }
 #[cfg(any(target_os = "linux", target_os = "android", test))]
 struct Picture {
@@ -104,8 +111,9 @@ impl State {
             let Some(node) = kernel.node(id) else {
                 return false;
             };
-            if a.keys.get(&id) != Some(&node.key)
-                || a.parents.get(&id).copied() != Some(node.parent)
+            let seen = a.nodes.get(&id);
+            if seen.map(|s| s.key) != Some(node.key)
+                || seen.map(|s| s.parent) != Some(node.parent)
                 || node.style.display == exact_kernel::Display::None
             {
                 return false;
@@ -121,7 +129,7 @@ impl State {
         Some(
             self.witness()
                 .filter(|_| self.allows(kernel, id))
-                .and_then(|a| a.scroll.get(&id).copied())
+                .and_then(|a| a.nodes.get(&id).and_then(|s| s.scroll))
                 .unwrap_or(ScrollBounds {
                     axes: (Overflow::Hidden, Overflow::Hidden),
                     max: (0., 0.),
@@ -134,7 +142,7 @@ impl State {
         }
         self.witness()
             .filter(|_| self.allows(kernel, id))
-            .and_then(|a| a.parents.get(&id).copied().flatten())
+            .and_then(|a| a.nodes.get(&id).and_then(|s| s.parent))
             .filter(|parent| self.allows(kernel, *parent))
     }
     pub(super) fn document(&self) -> Option<(f32, f32)> {
@@ -187,33 +195,35 @@ impl<D: DataSource> Presenter<D> {
         let kernel = self.host.kernel();
         let mut witness = Witness {
             origin: self.display.origin.clone(),
-            keys: BTreeMap::new(),
-            scroll: BTreeMap::new(),
-            parents: BTreeMap::new(),
+            nodes: IdMap::default(),
             document: self.live_document(),
             viewport: self.viewport,
             scale: self.brush.scale.to_bits(),
             model_scroll: self.painted_collection_scroll(&self.boxes),
         };
         if self.last_frame_succeeded {
+            witness.nodes.reserve(self.boxes.len());
             for b in &self.boxes {
                 if let Some(n) = kernel.node(b.id) {
-                    witness.keys.insert(b.id, n.key);
-                    witness.parents.insert(b.id, n.parent);
+                    let scroll = Some(self.brush.scroll_bounds(
+                        kernel,
+                        self.host.content_region(),
+                        &n,
+                        limits.get(&b.id).copied(),
+                    ));
+                    witness.nodes.insert(
+                        b.id,
+                        Seen {
+                            key: n.key,
+                            parent: n.parent,
+                            scroll,
+                        },
+                    );
                     // An `svg`'s elements paint inside its box and are hit
                     // there (`svg_hit`), with no boxes of their own.
                     if n.node_type == NodeType::Svg {
                         witness_svg(kernel, &n, &mut witness);
                     }
-                    witness.scroll.insert(
-                        b.id,
-                        self.brush.scroll_bounds(
-                            kernel,
-                            self.host.content_region(),
-                            &n,
-                            limits.get(&b.id).copied(),
-                        ),
-                    );
                 }
             }
         }
@@ -318,8 +328,14 @@ mod tests;
 fn witness_svg(kernel: &Kernel, node: &exact_kernel::NodeRef<'_>, witness: &mut Witness) {
     for id in node.children() {
         if let Some(child) = kernel.node(id) {
-            witness.keys.insert(id, child.key);
-            witness.parents.insert(id, child.parent);
+            // A box's own scroll bounds stay (an element that is also a box).
+            let seen = witness.nodes.entry(id).or_insert(Seen {
+                key: child.key,
+                parent: child.parent,
+                scroll: None,
+            });
+            seen.key = child.key;
+            seen.parent = child.parent;
             witness_svg(kernel, &child, witness);
         }
     }

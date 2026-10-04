@@ -344,18 +344,32 @@ impl<D: DataSource> Presenter<D> {
         if !enabled {
             return;
         }
-        let collections: BTreeSet<_> = self.host.collections().iter().map(|s| s.view).collect();
+        let collections: BTreeSet<_> = self
+            .host
+            .collections_shallow()
+            .iter()
+            .map(|s| s.view)
+            .collect();
         let mut live = BTreeSet::new();
         // Only nodes with a scroll binding prop can be bound (most of a list's
         // nodes have none): the walk keeps those.
-        let bound = self
-            .host
-            .kernel()
-            .preorder_where(&self.host.roots(), |_, props| {
+        let kernel = self.host.kernel();
+        let bound = if [
+            PropId::ScrollTop,
+            PropId::ScrollLeft,
+            PropId::ScrollFollowEnd,
+        ]
+        .into_iter()
+        .any(|id| kernel.has_prop(id))
+        {
+            kernel.preorder_where(&self.host.roots(), |_, props| {
                 props.get(PropId::ScrollTop).is_some()
                     || props.get(PropId::ScrollLeft).is_some()
                     || props.get(PropId::ScrollFollowEnd).is_some()
-            });
+            })
+        } else {
+            Vec::new()
+        };
         for view in bound {
             if collections.contains(&view) {
                 continue;
@@ -580,7 +594,7 @@ impl<D: DataSource> Presenter<D> {
 
     pub(super) fn collection_scroll_limits(&self) -> BTreeMap<ViewId, f32> {
         self.host
-            .collections()
+            .collections_shallow()
             .iter()
             .filter_map(|snapshot| {
                 geometry(self.host.kernel(), snapshot, self.viewport.0 as f64)
@@ -597,7 +611,7 @@ impl<D: DataSource> Presenter<D> {
         }) {
             self.collection.interaction = None;
         }
-        self.collection.schedule(&self.host.collections());
+        self.collection.schedule(&self.host.collections_shallow());
         // A host that runs a scroll's pass itself (`defer`) is not woken for it.
         if self.collection.pending() && !self.collection.defer {
             // GUI poll observes this FD. Headless advances on existing pump/frame
@@ -751,11 +765,13 @@ impl<D: DataSource> Presenter<D> {
                 self.collection.queue.push_front(view);
                 break;
             }
-            let snapshots = self.host.collections();
-            let Some(snapshot) = snapshots.iter().find(|s| s.view == view) else {
+            // This list's snapshot; every list's only to find a pin's owner.
+            let Some(snapshot) = self.host.collection(view) else {
                 self.collection.cursors.remove(&view);
                 continue;
             };
+            let snapshot = &snapshot;
+            let all = std::cell::OnceCell::new();
             let retained_pin = self.arrange_pin();
             let cursor = self.collection.cursors.get_mut(&view).unwrap();
             cursor.queued = false;
@@ -861,14 +877,16 @@ impl<D: DataSource> Presenter<D> {
                     })
                     .collect(),
                 focus_view: self.focus.filter(|_| {
-                    pin_owner(self.host.kernel(), &snapshots, self.focus) == Some(view)
+                    let snapshots = all.get_or_init(|| self.host.collections());
+                    pin_owner(self.host.kernel(), snapshots, self.focus) == Some(view)
                 }),
                 interaction_view: self.collection.interaction.filter(|_| {
                     retained_pin
                         .filter(|(pin, _)| Some(*pin) == self.collection.interaction)
                         .map(|p| p.1)
                         .or_else(|| {
-                            pin_owner(self.host.kernel(), &snapshots, self.collection.interaction)
+                            let snapshots = all.get_or_init(|| self.host.collections());
+                            pin_owner(self.host.kernel(), snapshots, self.collection.interaction)
                         })
                         == Some(view)
                 }),
@@ -891,7 +909,7 @@ impl<D: DataSource> Presenter<D> {
                 Ok(true) => {
                     let after = self.sync_commit();
                     error = error.or(after);
-                    self.collection.schedule(&self.host.collections());
+                    self.collection.schedule(&self.host.collections_shallow());
                 }
                 Ok(false) => {}
                 Err(why) => {
@@ -900,7 +918,7 @@ impl<D: DataSource> Presenter<D> {
                     let after = self.sync_commit();
                     error = error.or(Some(why));
                     error = error.or(after);
-                    self.collection.schedule(&self.host.collections());
+                    self.collection.schedule(&self.host.collections_shallow());
                 }
             }
         }
