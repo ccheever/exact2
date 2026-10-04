@@ -41,6 +41,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, resolve } from 'node:path';
 import { openTouches, realTap } from '../host/apple/touches.mjs';
 import { dragTap } from './agent-drag.mjs';
+import { runTests } from './agent-test.mjs';
 import { appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
 import { crashReports, developmentLaunchEnvironment, phone, phoneBridge, showSimulator, simulator } from '../host/apple/devices.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
@@ -1252,76 +1253,8 @@ export function typeArguments(args) {
   return [args[0], {key:args[2], ...(args[3] != null ? {phase:args[3]} : {})}];
 }
 
-/**
- * Run a `test "…"` file (LLP 1017 P7) against a host: `contract test <file>`
- * turns the blocks into steps — the eight operations, plus `expect` lines
- * over their replies — and this drives them through the same session the
- * operations use. One session per file; a failed expect names the test, the
- * line, and what was seen. Returns `{ passed, failed, results }`.
- */
-/** Authored tests (LLP 1017 P7). Each test is a session of its own from the first frame, with app storage
- * of its own: a fresh scratch store, named `<storage>-<run>-<n>` where a store outlives its drive (native),
- * so an app that keeps its data in storage loads, and no test sees another's or an earlier run's writes. */
-export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, storage = 'test' } = {}) {
-  const root = resolve(new URL('..', import.meta.url).pathname);
-  // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
-  const c = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'test', resolve(file)], { cwd: root, encoding: 'utf8' });
-  if (c.status !== 0) throw new Error(c.stderr?.trim() || c.error?.message || 'contract test compiler failed');
-  const tests = JSON.parse(c.stdout);
-  const results = [];
-  // Every test starts from the first frame: a session of its own.
-  const run = `${process.pid.toString(36)}${Date.now().toString(36)}`;
-  for (const [n, t] of tests.entries()) {
-    const failures = [];
-    const store = host === 'web' ? storage : `${storage}-${run}-${n}`;
-    const s = await open({ host, browser, plan, size, env, app, webDist, device, phone, url, seed, locale, timeZone, epoch, storage: store });
-    try {
-      for (const st of t.steps) {
-        const at = `${t.name}: line ${st.line}`;
-        try {
-          switch (st.op) {
-            case 'tap': await s.tap(st.target, st.hover ? { hover: true } : undefined); break;
-            case 'type': await s.type(st.target, st.text); break;
-            case 'key': await s.type(st.target, { key: st.key }); break;
-            case 'clock': await s.clock(st.arg); break;
-            case 'screenshot': await s.screenshot(st.path); break;
-            case 'expect-tree': {
-              const tree = await s.tree();
-              const found = tree.nodes.some((n) => n.props.testId === st.target);
-              if (found !== st.present) failures.push(`${at}: expected testId "${st.target}" ${st.present ? 'present' : 'absent'}, it was ${found ? 'present' : 'absent'}`);
-              break;
-            }
-            case 'expect-text': {
-              const tree = await s.tree();
-              const n = tree.nodes.find((n) => n.props.testId === st.target);
-              const got = n?.props.text;
-              if (got !== st.value) failures.push(`${at}: text of "${st.target}" is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
-              break;
-            }
-            case 'expect-state': {
-              const state = await s.state();
-              const bag = { ...(state.resources ?? {}), ...(state.derives ?? {}), ...(state.slots ?? {}) };
-              if (!(st.name in bag)) { failures.push(`${at}: no state named "${st.name}"`); break; }
-              const got = bag[st.name];
-              const same = JSON.stringify(got) === JSON.stringify(st.value);
-              if (!same) failures.push(`${at}: ${st.name} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
-              break;
-            }
-            default: failures.push(`${at}: unknown step ${st.op}`);
-          }
-        } catch (e) {
-          failures.push(`${at}: ${e.message}`);
-          break;
-        }
-      }
-    } finally {
-      await s.close();
-    }
-    results.push({ name: t.name, failures });
-  }
-  const failed = results.filter((r) => r.failures.length).length;
-  return { passed: results.length - failed, failed, results };
-}
+// Authored tests (LLP 1017 P7): agent-test.mjs drives a file's `test` blocks through `open`.
+export { runTests, textOf } from './agent-test.mjs';
 
 async function main(argv) {
   const { flags, rest } = parseFlags(argv);
