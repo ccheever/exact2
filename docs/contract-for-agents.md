@@ -516,7 +516,7 @@ nearest scroll containers, then the page) and say so in the reply's `scrolled`.
 `tap <target> drag <dx> <dy> … during "<op>" …` runs the quoted reads after the
 move, with the finger still down. `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires
-first); its reply says what is still in flight, and `clock settle` lands it.
+first); its reply says what is still in flight (`inflight`, on every host), and `clock settle` lands it.
 A playing `video` or `audio` is on real time too: the clock never seeks or holds it, so
 between operations it moves only as far as the drive took. `clock +N real` lets
 N ms of real time pass with the clock moving beside it, a step at a time: a
@@ -534,12 +534,20 @@ test "an action uses its computed next value"
 ```
 
 This test goes with the complete example above. The steps are `size 1200x800`
-(first, the viewport the test's session opens at), `tap "id" [hover]`,
+(first, the viewport the test's session opens at), `tap "id" [hover|dblclick|contextmenu]`,
+`tap "list" into "key"` (a virtualized list's row brought into view by its key,
+so the next step can tap a row outside the rendered window),
 `tap "id" drag dx dy [press ms] [over ms] [hold ms]`,
-`type "id" "text"` or `type "id" key "Name"`, `clock settle|+ms|+ms real|ms`,
+`type "id" "text"` (sets the value), `type "id" "text" append` (after the value
+the tree shows, as typing after a prefill), or `type "id" key "Name"`,
+`clock settle|+ms|+ms real|ms`, `reload` (the app restarts on the store it had,
+its state and clock starting over, so a test shows what persists),
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
 (the node's text, else its descendants' — a button's label — else a field's
-value), and `expect state name == <number|string|bool|none|[]>`. An input
+value), and `expect state name == <number|string|bool|none|[]>`, where `name`
+may go on into a record's fields (`board.active.present`). A failed expect with
+no input before it names the requests still in flight (the boot's own, or what
+a `clock +N` left on real time). An input
 step ends with what it settled: an answer the data module gave in the input's
 turn, and its mutation's `then`, are there for the next step. Otherwise the
 clock stands still between steps: a reply on real time (a store's, the

@@ -67,7 +67,7 @@ macro_rules! leaves {
         }
     )* };
 }
-leaves!(String, bool, f64, u16, u32, usize, BinOp, UnOp, TaskKind);
+leaves!(String, bool, f64, u16, u32, usize, BinOp, UnOp, TaskKind, TapForm);
 
 macro_rules! structs {
     ($($ty:ident { $($field:ident),* $(,)? })*) => { $(
@@ -119,9 +119,9 @@ macro_rules! record_variants {
 }
 record_variants! {
     Step {
-        Tap { target, hover, span }, Drag { target, dx, dy, press, over, hold, span },
-        Size { width, height, span }, Type { target, text, span }, Key { target, key, span },
-        Clock { arg, span }, Screenshot { path, span }, ExpectTree { target, present, span },
+        Tap { target, form, span }, Drag { target, dx, dy, press, over, hold, span },
+        Size { width, height, span }, Type { target, text, append, span }, Key { target, key, span },
+        Clock { arg, span }, Reload { span }, Screenshot { path, span }, ExpectTree { target, present, span },
         ExpectText { target, value, span }, ExpectState { name, value, span },
     }
 }

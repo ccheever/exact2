@@ -123,7 +123,7 @@ impl Parser {
                 return self.err(
                     "syntax-expected-step",
                     format!(
-                    "expected `tap`, `type`, `clock`, `screenshot`, `size`, or `expect`, found {}",
+                    "expected `tap`, `type`, `clock`, `reload`, `screenshot`, `size`, or `expect`, found {}",
                     describe(&other)
                 ),
                 )
@@ -165,17 +165,19 @@ impl Parser {
                         span,
                     });
                 }
-                let hover = if self.at_ident("hover") {
-                    self.next();
-                    true
-                } else {
-                    false
+                let form = match self.peek_kind().clone() {
+                    TokenKind::Ident(w) if w == "hover" || w == "dblclick" || w == "contextmenu" || w == "into" => {
+                        self.next();
+                        match w.as_str() {
+                            "hover" => TapForm::Hover,
+                            "dblclick" => TapForm::Dblclick,
+                            "contextmenu" => TapForm::Contextmenu,
+                            _ => TapForm::Into(self.str_lit("the row's key")?),
+                        }
+                    }
+                    _ => TapForm::Press,
                 };
-                Step::Tap {
-                    target,
-                    hover,
-                    span,
-                }
+                Step::Tap { target, form, span }
             }
             "type" => {
                 let target = self.str_lit("a testId")?;
@@ -185,7 +187,16 @@ impl Parser {
                     Step::Key { target, key, span }
                 } else {
                     let text = self.str_lit("the text")?;
-                    Step::Type { target, text, span }
+                    let append = self.at_ident("append");
+                    if append {
+                        self.next();
+                    }
+                    Step::Type {
+                        target,
+                        text,
+                        append,
+                        span,
+                    }
                 }
             }
             "clock" => {
@@ -267,6 +278,7 @@ impl Parser {
                     span,
                 }
             }
+            "reload" => Step::Reload { span },
             "screenshot" => Step::Screenshot {
                 path: self.str_lit("a file name")?,
                 span,
@@ -320,7 +332,12 @@ impl Parser {
                         }
                     }
                     "state" => {
-                        let (name, _) = self.ident()?;
+                        let (mut name, _) = self.ident()?;
+                        // A field of a record, at any depth (feed F10).
+                        while self.eat_punct(".") {
+                            name.push('.');
+                            name.push_str(&self.ident()?.0);
+                        }
                         self.expect_punct("==")?;
                         let value = self.expr()?;
                         if !matches!(
@@ -351,7 +368,7 @@ impl Parser {
                 return Err(SyntaxError {
                     id: "syntax-expected-step",
                     message: format!(
-                    "expected `tap`, `type`, `clock`, `screenshot`, `size`, or `expect`, found `{other}`"
+                    "expected `tap`, `type`, `clock`, `reload`, `screenshot`, `size`, or `expect`, found `{other}`"
                 ),
                     span,
                 })

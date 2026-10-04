@@ -1,7 +1,7 @@
 //! LLP 1017 P7: `test` blocks parse to the agent's steps and print as JSON
 //! the driver reads (`scripts/agent.mjs --test`).
 
-use contract_syntax::Step;
+use contract_syntax::{Step, TapForm};
 
 #[test]
 fn a_test_block_parses_to_the_eight_operations_and_expects() {
@@ -11,7 +11,9 @@ fn a_test_block_parses_to_the_eight_operations_and_expects() {
     let t = &tests[0];
     assert_eq!(t.name, "login");
     assert_eq!(t.steps.len(), 15);
-    assert!(matches!(&t.steps[0], Step::Tap { target, hover: false, .. } if target == "title"));
+    assert!(
+        matches!(&t.steps[0], Step::Tap { target, form: TapForm::Press, .. } if target == "title")
+    );
     assert!(matches!(&t.steps[2], Step::Key { key, .. } if key == "Enter"));
     assert!(matches!(&t.steps[4], Step::Clock { arg, .. } if arg == "+500"));
     assert!(matches!(&t.steps[5], Step::Clock { arg, .. } if arg == "+250 real"));
@@ -21,7 +23,7 @@ fn a_test_block_parses_to_the_eight_operations_and_expects() {
     ));
     assert!(matches!(&t.steps[9], Step::ExpectText { .. }));
     let json = contract::tests_json(&tests);
-    assert!(json.starts_with("[{\"name\":\"login\",\"steps\":[{\"op\":\"tap\",\"target\":\"title\",\"hover\":false,\"line\":2}"), "{json}");
+    assert!(json.starts_with("[{\"name\":\"login\",\"steps\":[{\"op\":\"tap\",\"target\":\"title\",\"form\":\"press\",\"line\":2}"), "{json}");
     assert!(
         json.contains("{\"op\":\"expect-state\",\"name\":\"attempt\",\"value\":1,\"line\":13}"),
         "{json}"
@@ -95,4 +97,53 @@ fn a_test_drags_and_opens_at_its_size() {
     assert_eq!(e.id, "syntax-expected-step");
     let e = contract::tests("test \"t\"\n  size 800 600\n").unwrap_err();
     assert_eq!(e.id, "syntax-expected-step");
+}
+
+#[test]
+fn a_test_double_clicks_scrolls_a_list_appends_reloads_and_reads_a_field() {
+    // feed F8/F10, mail F19, kanban F25: the driver's `tap` forms, a list
+    // brought to a row by its key, typing after a prefill, a restart on the
+    // same store, and a field of a record.
+    let src = "test \"feed\"\n  tap \"post-1\" dblclick\n  tap \"post-1\" contextmenu\n  tap \"post-1\" hover\n  tap \"timeline\" into \"s2981\"\n  type \"reply\" \"agree\" append\n  reload\n  expect state s.queued == 1\n  expect state feed.page.next == \"b\"\n";
+    let tests = contract::tests(src).unwrap();
+    let t = &tests[0];
+    assert!(matches!(
+        &t.steps[0],
+        Step::Tap {
+            form: TapForm::Dblclick,
+            ..
+        }
+    ));
+    assert!(matches!(
+        &t.steps[1],
+        Step::Tap {
+            form: TapForm::Contextmenu,
+            ..
+        }
+    ));
+    assert!(matches!(
+        &t.steps[2],
+        Step::Tap {
+            form: TapForm::Hover,
+            ..
+        }
+    ));
+    assert!(matches!(&t.steps[3], Step::Tap { form: TapForm::Into(key), .. } if key == "s2981"));
+    assert!(matches!(&t.steps[4], Step::Type { append: true, .. }));
+    assert!(matches!(&t.steps[5], Step::Reload { .. }));
+    assert!(matches!(&t.steps[6], Step::ExpectState { name, .. } if name == "s.queued"));
+    let json = contract::tests_json(&tests);
+    for want in [
+        "{\"op\":\"tap\",\"target\":\"post-1\",\"form\":\"dblclick\",\"line\":2}",
+        "{\"op\":\"tap\",\"target\":\"timeline\",\"form\":\"into\",\"key\":\"s2981\",\"line\":5}",
+        "{\"op\":\"type\",\"target\":\"reply\",\"text\":\"agree\",\"append\":true,\"line\":6}",
+        "{\"op\":\"reload\",\"line\":7}",
+        "{\"op\":\"expect-state\",\"name\":\"feed.page.next\",\"value\":\"b\",\"line\":9}",
+    ] {
+        assert!(json.contains(want), "{want} in {json}");
+    }
+    // `into` names its key; a path ends on a field name.
+    let e = contract::tests("test \"t\"\n  tap \"list\" into\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected-string");
+    assert!(contract::tests("test \"t\"\n  expect state a. == 1\n").is_err());
 }

@@ -277,15 +277,16 @@ special typing; it is not a source-language type annotation.
 ```ebnf
 test          = "test" STRING block(step) ;
 step          = "size" NUMBER "x" NUMBER NL          (* first step only; written 1200x800 *)
-              | "tap" STRING [ "hover" ] NL
+              | "tap" STRING [ "hover" | "dblclick" | "contextmenu" | "into" STRING ] NL
               | "tap" STRING "drag" [ "-" ] NUMBER [ "-" ] NUMBER
                   { ( "press" | "over" | "hold" ) NUMBER } NL
-              | "type" STRING ( STRING | "key" STRING ) NL
-              | "clock" ( "settle" | [ "+" ] NUMBER ) NL
+              | "type" STRING ( STRING [ "append" ] | "key" STRING ) NL
+              | "clock" ( "settle" | [ "+" ] NUMBER [ "real" ] ) NL
+              | "reload" NL
               | "screenshot" STRING NL
               | "expect" "tree" ( "has" | "missing" ) STRING NL
               | "expect" "text" STRING "==" STRING NL
-              | "expect" "state" IDENT "==" test-value NL ;
+              | "expect" "state" IDENT { "." IDENT } "==" test-value NL ;
 test-value    = NUMBER | STRING | "true" | "false" | "none" | "[" "]" ;
 ```
 
@@ -293,6 +294,15 @@ Targets are driver test ids. Each test is a session of its own: `size 1200x800`,
 the driver's `--size`, is the viewport that session opens at, so it can only be
 the first step. `tap "id" drag dx dy` is the driver's `tap … drag` (from the
 node's middle, in points; `press`, `over`, `hold` in milliseconds, each once).
+`tap "id" dblclick` and `contextmenu` are the driver's forms of the same names
+(no Linux carrier double-clicks). `tap "list" into "key"` brings a virtualized
+list's row into view by its key, so a row outside the rendered window can be
+tapped by its own id on the next step. `type "id" "text"` sets the field's
+value, as Playwright's `fill`; `append` adds the text after the value the tree
+shows (a prefilled reply). `reload` restarts the app on the store it had: the
+web page loads again in the same profile, a native app relaunches on the same
+scratch store. Its state starts over and the clock is 0 again; what the app
+stored is what it reads, so persistence is testable.
 `type` on a `select` chooses an enabled option by value, else by its one label;
 on a date, time or range input it sets the value in HTML's format; on a checkbox
 it takes `true` or `false`. A target out of view is scrolled into view first.
@@ -301,7 +311,8 @@ and its mutation's `then`); otherwise the clock stands still between steps:
 what an input starts (a reply on real time, a timer, a transition) lands at a
 `clock` step, as `clock settle`.
 `expect text` reads the node's text, else its descendants' text in order (a
-button's label), else a field's value. `expect state` is deliberately restricted to the
+button's label), else a field's value. `expect state name.field` reads a field of
+a record at any depth; a missing field fails naming the fields there. `expect state` is deliberately restricted to the
 parser's literal cases, not arbitrary expressions or record comparisons. The
 parser currently treats unary minus as an expression rather than a number
 literal in this particular form. Use the interactive state inspection when a

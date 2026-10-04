@@ -50,7 +50,7 @@ pub fn strings_tables(app_root: &Path) -> Result<Option<std::sync::Arc<Strings>>
     })
 }
 
-use contract_syntax::{Expr, File, Span, Step, TestDecl};
+use contract_syntax::{Expr, File, Span, Step, TapForm, TestDecl};
 use exact_kernel::{Dimension, Kernel, NodeType, Offer, PropValue};
 use exact_plan::builder::PlanBuilder;
 use exact_plan::{Plan, ResourcesId};
@@ -420,16 +420,27 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                 | Step::Type { span, .. }
                 | Step::Key { span, .. }
                 | Step::Clock { span, .. }
+                | Step::Reload { span }
                 | Step::Screenshot { span, .. }
                 | Step::ExpectTree { span, .. }
                 | Step::ExpectText { span, .. }
                 | Step::ExpectState { span, .. } => span.line,
             };
             match step {
-                Step::Tap { target, hover, .. } => {
+                Step::Tap { target, form, .. } => {
                     s.push_str("{\"op\":\"tap\",\"target\":");
                     q(target, &mut s);
-                    s.push_str(&format!(",\"hover\":{hover}"));
+                    s.push_str(",\"form\":");
+                    match form {
+                        TapForm::Press => s.push_str("\"press\""),
+                        TapForm::Hover => s.push_str("\"hover\""),
+                        TapForm::Dblclick => s.push_str("\"dblclick\""),
+                        TapForm::Contextmenu => s.push_str("\"contextmenu\""),
+                        TapForm::Into(key) => {
+                            s.push_str("\"into\",\"key\":");
+                            q(key, &mut s);
+                        }
+                    }
                 }
                 Step::Drag {
                     target,
@@ -454,12 +465,19 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                         "{{\"op\":\"size\",\"width\":{width},\"height\":{height}"
                     ));
                 }
-                Step::Type { target, text, .. } => {
+                Step::Type {
+                    target,
+                    text,
+                    append,
+                    ..
+                } => {
                     s.push_str("{\"op\":\"type\",\"target\":");
                     q(target, &mut s);
                     s.push_str(",\"text\":");
                     q(text, &mut s);
+                    s.push_str(&format!(",\"append\":{append}"));
                 }
+                Step::Reload { .. } => s.push_str("{\"op\":\"reload\""),
                 Step::Key { target, key, .. } => {
                     s.push_str("{\"op\":\"key\",\"target\":");
                     q(target, &mut s);

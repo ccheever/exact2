@@ -62,7 +62,14 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     const failures = [];
     const store = host === 'web' ? storage : `${storage}${tag}.t${n}`, fresh = host === 'web' ? env : { ...(env ?? {}), EXACT_AGENT_STORAGE_FRESH: '1' };
     const own = t.steps[0]?.op === 'size' ? [t.steps[0].width, t.steps[0].height] : size;
-    const s = await open({ host, browser, plan, size: own, env: fresh, app, webDist, device, phone, url, seed, locale, timeZone, epoch, storage: store });
+    const launch = (environment) => open({ host, browser, plan, size: own, env: environment, app, webDist, device, phone, url, seed, locale, timeZone, epoch, storage: store });
+    let s = await launch(fresh);
+    // `reload`: the app restarts on the store it had (mail F19, kanban F25): the web page loads again in its
+    // profile, keeping what the origin stored; a native app relaunches on the same scratch store, not emptied.
+    const reload = async () => {
+      if (s.host === 'web') { await s.carrier.reset({ keep: true }); s.now = 0; s.logCursor = 0; return; }
+      await s.close(); s = await launch(env);
+    };
     // The clock stands still between steps: what an input started (a reply,
     // a mutation's `then`, a timer, a transition) lands at a clock step. A
     // failed expect after an input with none says so (kanban F19).
@@ -82,9 +89,20 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
         try {
           switch (st.op) {
             case 'size': break; // the session opened at it
-            case 'tap': delivered(await s.tap(st.target, st.hover ? { hover: true } : undefined)); input = st.line; break;
+            // The driver's `tap` forms (feed F10): `into` brings a virtualized list's row into view by its key.
+            case 'tap': delivered(await s.tap(st.target, st.form === 'into' ? { into: { key: st.key } } : st.form === 'press' ? undefined : { [st.form]: true })); input = st.line; break;
             case 'drag': delivered(await s.tap(st.target, { drag: { dx: st.dx, dy: st.dy, ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) } })); input = st.line; break;
-            case 'type': delivered(await s.type(st.target, st.text)); input = st.line; break;
+            case 'type': {
+              // `append`: after the field's value as the tree shows it, the text a keyboard would add (feed F8).
+              let text = st.text;
+              if (st.append) {
+                const { nodes } = await s.tree(), field = nodes.find((n) => n.props.testId === st.target && !n.inactive) ?? nodes.find((n) => n.props.testId === st.target);
+                if (field && typeof field.props.value !== 'string') throw new Error(`type … append: "${st.target}" shows no text value to append to`);
+                text = (field?.props.value ?? '') + text;
+              }
+              delivered(await s.type(st.target, text)); input = st.line; break;
+            }
+            case 'reload': await reload(); input = null; break;
             case 'key': delivered(await s.type(st.target, { key: st.key })); input = st.line; break;
             case 'clock': await s.clock(st.arg); input = null; break;
             case 'screenshot': await s.screenshot(st.path); break;
@@ -105,8 +123,15 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             case 'expect-state': {
               const state = await s.state();
               const bag = { ...(state.resources ?? {}), ...(state.derives ?? {}), ...(state.slots ?? {}) };
-              if (!(st.name in bag)) { failures.push(`${at}: no state named "${st.name}"`); break; }
-              const got = bag[st.name];
+              // A field of a record at any depth, `name.field` (feed F10).
+              const [name, ...fields] = st.name.split('.');
+              if (!(name in bag)) { failures.push(`${at}: no state named "${name}"`); break; }
+              let got = bag[name], path = name, missing = null;
+              for (const field of fields) {
+                if (got === null || typeof got !== 'object' || !(field in got)) { missing = field; break; }
+                got = got[field]; path += `.${field}`;
+              }
+              if (missing != null) { failures.push(`${at}: ${path} has no field "${missing}" (${got !== null && typeof got === 'object' && !Array.isArray(got) ? `its fields: ${Object.keys(got).join(', ')}` : `it is ${JSON.stringify(got).slice(0, 200)}`})`); break; }
               if (JSON.stringify(got) !== JSON.stringify(st.value)) await fail(`${at}: ${st.name} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
               break;
             }
