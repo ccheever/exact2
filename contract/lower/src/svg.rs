@@ -785,11 +785,13 @@ impl Lowerer<'_> {
 }
 
 /// Whether a node's animations follow a named timeline: any
-/// `animation-timeline` but a literal `auto`.
+/// `animation-timeline` but a literal `auto` or a clock timeline, which
+/// keeps them on the clock (LLP 1055.002).
 fn timeline_bound(attrs: &[Attr]) -> bool {
     attrs.iter().any(|a| {
         a.name == "animation-timeline"
-            && !matches!(&a.value, Expr::Str(v, _) if v.trim().eq_ignore_ascii_case("auto"))
+            && !matches!(&a.value, Expr::Str(v, _)
+                if v.trim().eq_ignore_ascii_case("auto") || v.trim().starts_with("clock("))
     })
 }
 

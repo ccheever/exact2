@@ -542,14 +542,20 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             with("--exact-accent", "v=>v==null?v:/^\\s*auto\\s*$/i.test(v)?\"AccentColor\":v"),
         ],
         StyleId::DragTimeline => vec![with("--exact-drag-timeline", NONE)],
+        // @ref LLP 1055.002 — `clock(Name)` is css.rs's clock property and
+        // leaves the play state alone; a drag timeline pauses.
         StyleId::AnimationTimeline => vec![
             with(
                 "--exact-animation-timeline",
-                "v=>v==null||/^\\s*auto\\s*$/i.test(v)?null:v",
+                "v=>v==null||/^\\s*(auto|clock\\(.*\\))\\s*$/i.test(v)?null:v",
+            ),
+            with(
+                "--exact-animation-clock",
+                "v=>v==null?v:/^\\s*clock\\(\\s*([^)\\s]+)\\s*\\)\\s*$/i.exec(v)?.[1]??null",
             ),
             with(
                 "animation-play-state",
-                "v=>v==null||/^\\s*auto\\s*$/i.test(v)?null:\"paused\"",
+                "v=>v==null||/^\\s*(auto|clock\\(.*\\))\\s*$/i.test(v)?null:\"paused\"",
             ),
         ],
         StyleId::AnimationRange => vec![with(

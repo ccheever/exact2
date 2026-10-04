@@ -94,6 +94,8 @@ impl Engine {
                         }
                     }
                 }
+                // Onto a clock timeline: in its phase (LLP 1055.002).
+                self.join_clock_node(node);
             }
             (None, None) => {}
         }

@@ -414,6 +414,15 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   and fills the resulting box. The former overflow deviation is removed
   (`issues/closed/20260927-tab-bar-height-to-layout.md`).
 
+**Clock timelines (2026-10-03, [LLP 1055.002](1055.002-synced-animations.rfc.md)
+D2; not reviewed).** `animation-timeline` takes a third value, `clock(<ident>)`,
+which CSS has no form of. Its animations stay on the clock (it is `auto` to
+every other reader, the name lookup included) and each starts at the last
+cycle boundary of the timeline it names, so every animation on one timeline is
+in phase. The reason: indicators that appear at different moments (two pending
+commands, skeletons) should pulse together, and CSS can only do that with a
+script setting each animation's `startTime`; the web host does exactly that.
+
 **Drag timelines (2026-09-27, [LLP 1057.003](1057.003-gesture-timelines.rfc.md)
 D1, accepted by Charlie).** `drag-timeline`, bit 150, is not CSS. CSS names a
 timeline on a scroller (`scroll-timeline`) or on a box's visibility

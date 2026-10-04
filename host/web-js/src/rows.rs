@@ -32,6 +32,29 @@ impl Em<'_> {
         (bound || app || parts.props.contains_key("data-symbol-path")).then_some(bound)
     }
 
+    /// @ref LLP 1055.002 — a synced animation: the web host's clocks
+    /// (navigation.js `animationClocks`, through rt.js), made once, set a
+    /// joined animation's start after each commit; under the agent its
+    /// register does (agent.js).
+    pub(super) fn clocks(&mut self) {
+        let (clocks, after, clock) = (
+            self.uses.rt("animationClocks"),
+            self.uses.rt("After"),
+            self.uses.rt("clock"),
+        );
+        let _ = write!(
+            self.out,
+            "if(!globalThis.__exactClocks&&typeof requestAnimationFrame==\"function\"&&!globalThis.__exactRender){{const c=globalThis.__exactClocks={clocks}(document);{after}.push(()=>{clock}.agent||c.sync());}}"
+        );
+    }
+
+    /// [`Self::clocks`] when a static declaration puts the node on a clock.
+    pub(super) fn clocks_in(&mut self, declarations: &str) {
+        if declarations.contains("--exact-animation-clock:") {
+            self.clocks();
+        }
+    }
+
     /// A bound paint fact for the CSS sibling-order rule. The expression is
     /// pure; the same effect scope as its style owns this attribute.
     pub(super) fn paint_binding(&mut self, kind: NodeType, b: &BindingsRow, e: &str, f: &str) {
@@ -100,7 +123,11 @@ impl Em<'_> {
                 .map(|b| plan.binding(b))
                 .find(|b| b.kind == BindingKind::Style && b.id == id as u16)
         };
-        let timeline = binding(StyleId::AnimationTimeline).is_some();
+        // A clock (LLP 1055.002) plays on the page's timeline: only a drag
+        // timeline's consumer is paused for the drag to seek.
+        let clock = |s: &str| s.trim_start().starts_with("clock(");
+        let timeline = binding(StyleId::AnimationTimeline)
+            .is_some_and(|t| style::can_be(plan, plan.code(t.expr), &|s| !clock(s)));
         let id = StyleId::from_bit(b.id as u32).ok_or("unknown style row")?;
         if matches!(
             id,
@@ -112,6 +139,9 @@ impl Em<'_> {
                 | StyleId::JustifyItems
         ) {
             self.uses.rt("gridValue");
+        }
+        if id == StyleId::AnimationTimeline && style::can_be(plan, plan.code(b.expr), &clock) {
+            self.clocks();
         }
         let refuse = |why: &str| Err(format!("node {i}: {why} is not in the JS target"));
         // (name, unit, map): a map is JavaScript of the value (`null` writes none).
@@ -420,6 +450,8 @@ pub(super) fn presence_decls(css: &mut String) -> String {
             "--exact-exit-animation:",
             "--exact-drag-timeline:",
             "--exact-animation-timeline:",
+            // A synced animation's clock (LLP 1055.002), read the same way.
+            "--exact-animation-clock:",
             "--exact-animation-range:",
             "--exact-timeline-scope:",
             // The press feedback's factor (LLP 1061), which input-glue.js

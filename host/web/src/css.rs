@@ -101,8 +101,13 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     push_text!(&mut out, "--exact-drag-timeline:{};", d.css());
                 }
             }
+            // @ref LLP 1055.002 — a clock is no CSS timeline either: the
+            // animations play on the page's, and the glue sets their start
+            // (navigation.js `animationClocks`).
             (StyleId::AnimationTimeline, RowValue::AnimationTimeline(t)) => {
-                if t.0.is_some() {
+                if let Some(clock) = t.clock() {
+                    push_text!(&mut out, "--exact-animation-clock:{};", clock);
+                } else if t.0.is_some() {
                     push_text!(
                         &mut out,
                         "--exact-animation-timeline:{};animation-play-state:paused;",

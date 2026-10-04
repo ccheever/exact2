@@ -21,6 +21,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
 
 mod animate;
+mod clock;
 mod hold;
 mod timeline;
 pub use animate::AnimationPlay;
@@ -265,6 +266,8 @@ pub struct Engine {
     node_dark: BTreeMap<u64, bool>,
     // Drag timelines (LLP 1057.003): sources and bound consumers.
     timelines: timeline::Timelines,
+    // Clock timelines (LLP 1055.002): each node's, and each one's origin.
+    clocks: clock::Clocks,
 }
 
 impl Engine {
@@ -333,6 +336,7 @@ impl Engine {
         self.animating.remove(&node);
         self.forced.remove(&node);
         self.forget_timelines(node);
+        self.forget_clock(node);
         // Removing a list must not scan every other node once per row, nor
         // probe every table once per property: a list row's retirement
         // removes a node per box. Its running curves are one range of the

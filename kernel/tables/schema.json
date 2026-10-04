@@ -2939,7 +2939,7 @@
       "bit": 148,
       "field": "animation_timeline",
       "codec": "animation-timeline",
-      "_comment": "@ref LLP 1057.003 D1: CSS `animation-timeline`, `auto | <dashed-ident>`: the node's animations are held at the named drag timeline's progress, never played on the clock."
+      "_comment": "@ref LLP 1057.003 D1: CSS `animation-timeline`, `auto | <dashed-ident>`: the node's animations are held at the named drag timeline's progress, never played on the clock. @ref LLP 1055.002 D2: a third value, `clock(<ident>)`, keeps them on the clock from a start every animation on that clock timeline shares, a deviation LLP 1001 declares."
     },
     {
       "bit": 149,
