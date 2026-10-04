@@ -142,7 +142,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     }
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
         if CanvasInput.owns(touch.view) { return false }
-        if stopsAtPress(gestureRecognizer), pressBoundary(touch) { return false } // LLP 1057.001 rule 3
+        if stopsAtPress(gestureRecognizer), pressBoundary(touch, presses: gestureRecognizer !== layoutPanRecognizer) { return false } // LLP 1057.001 rule 3
         // A nested editor owns its selection gestures, including read-only
         // text. A containing bubble's reply/Tapback recognizers must yield.
         var hit = touch.view

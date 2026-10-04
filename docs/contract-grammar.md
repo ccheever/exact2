@@ -407,7 +407,12 @@ working fixture, not inferred from JavaScript's Event interface.
 | None | `press`, `cancel`, `focus`, `blur`, `submit`, `load`, `contextmenu`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
 
 `scroll` appends left then top offsets; `panrelease` appends x/y release velocity;
-`heightrelease` appends height and velocity. The compiler validates arity and
+`heightrelease` appends height and velocity. A `pan` hears a drag that starts
+anywhere inside it, a nested `button` or `press` node included: past the slop
+the pan takes the contact and the press does not fire, while a tap still
+presses. A nested text input or control keeps its own drags, and the innermost
+recognizer wins ([LLP 1057.001](../llp/1057.001-gesture-precedence-and-pinch.spec.md) §1).
+The compiler validates arity and
 available payload types; tags and hosts constrain where events make sense.
 `navigate` belongs on the first root element, outside any region, which must
 also carry `navigationKey` and `navigationBack`. Transform geometry/release
