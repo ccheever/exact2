@@ -180,7 +180,8 @@ fn level_bake_path() -> &'static str {
     ${JSON.stringify(levelBake)}
 }
 fn main() {
-    type Options = <game_logic::${type} as Game>::Args;
+    type App = game_logic::${type};
+    type Options = <App as Game>::Args;
     let arguments: Vec<_> = Options::FIELDS
         .iter()
         .zip(Options::default().values())
@@ -194,7 +195,7 @@ fn main() {
             serde_json::json!({"name": name, "default": value})
         })
         .collect();
-    let name = <game_logic::${type} as Game>::NAME;
+    let name = <App as Game>::NAME;
     let text = serde_json::to_string_pretty(&serde_json::json!({name: arguments})).unwrap() + "\\n";
     let path = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("../surfaces.json");
     if fs::read_to_string(&path).ok().as_deref() != Some(&text) {
@@ -202,7 +203,7 @@ fn main() {
         fs::write(&temporary, text).expect("write game surface declaration");
         fs::rename(temporary, &path).expect("publish complete game surface declaration");
     }
-${bakeArt ? `    exact_game_bake::bake_art(${JSON.stringify(relative(shell, appDir))}).expect("bake art");\n` : ''}    bake_files::bake_game_level::<game_logic::${type}>(${JSON.stringify(relative(shell, appDir))}).expect("bake level");
+${bakeArt ? `    exact_game_bake::bake_art(${JSON.stringify(relative(shell, appDir))}).expect("bake art");\n` : ''}    bake_files::bake_game_level::<App>(${JSON.stringify(relative(shell, appDir))}).expect("bake level");
     println!("cargo:rerun-if-changed={}", level_bake_path());
     println!("cargo:rerun-if-changed=build.rs");
 }

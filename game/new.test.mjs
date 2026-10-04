@@ -493,7 +493,7 @@ test('a new game names its Rust type after the game, everywhere the template doe
     assert.equal(gameDefaults(app).game.type,'My2dGame');
     const files=readdirSync(app,{recursive:true}).filter(file=>statSync(resolve(app,file)).isFile());
     for(const file of files) assert.doesNotMatch(readFileSync(resolve(app,file),'utf8'),/SmallGame|small[-_]game|Small game/,file);
-    assert.match(readFileSync(resolve(app,'logic/tests/sim.rs'),'utf8'),/use my_2d_game_logic::\{Beacon, Options, My2dGame\};/);
+    assert.match(readFileSync(resolve(app,'logic/tests/sim.rs'),'utf8'),/Sim::<My2dGame>::new/);
     assert.match(readFileSync(resolve(app,'app.contract'),'utf8'),/^component My2dGame$/m);
   } finally {rmSync(parent,{recursive:true,force:true});}
 });

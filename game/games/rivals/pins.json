@@ -11,9 +11,9 @@
     "linux",
     "web"
   ],
-  "inputs": "41dd4363013392062279851b2d5946e8098770a613fdf31b0317f201e8848bc9",
+  "inputs": "e5aec6588666e49a11a48c5076408747477a0cc9316aa71a59b31c2e30a1d523",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "c5f2a95d19dc2894a639edc543e9b7a8e6f2b8e1",
-  "reason": "Compass and saved incoming-hit origins; timed drill and combat replay after main 82b76214e"
+  "at": "a63eb690e16fa6b17d20ded3bc8270d85a5f7255",
+  "reason": "Compass and saved hit origins verified after main 3394b5292 and formatted Windows shell generation"
 }

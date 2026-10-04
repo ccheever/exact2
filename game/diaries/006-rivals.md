@@ -556,15 +556,16 @@ removed and no process-name kill was used. Artifacts are under
 
 The final batch merged main through `82b76214e` (merge `c5f2a95d1`), including
 the shared-element work, before rebuilding the hosts. The five root checks pass:
-2,264 enabled tests, 9 ignored; build, Clippy, formatting, caps and boot all pass.
+2,261 enabled tests, 9 ignored; build, Clippy, formatting, caps and boot all pass
+(counting each test binary once, excluding nested subprocess result lines).
 The Linux/web collector agrees in normal, Save and FreshGame modes and with the
 native release build. All four pins changed with the new saved round data; the
 collector accepted them after comparing hosts and modes, with every descendant
 audit available and passing. Artifacts: `artifacts/prove/run-IFmcq9/`.
 All 23 game tests pass again, as does formatting for `rivals-logic`. Formatting
 the entire generated shell workspace finds one unrelated failure in the Windows
-entry's one-line `cfg_attr`; it is queued against the generator, not hidden by
-editing generated Rust.
+entry's one-line `cfg_attr`. The next batch fixes the generator's Rust string;
+regenerating the Rivals shells then passes the whole workspace formatting check.
 
 The separate macOS drive passes every gameplay check and exactly matches the
 collected Linux/web input digest, world snapshots, four pins and all six save
@@ -574,3 +575,23 @@ macOS Jev run did pass that audit. The final web and native screenshots both sho
 readable compass and incoming-hit text and the same arrow position. The older
 translucent-panel darkness difference remains visible in native captures and is
 still queued. Artifacts: `artifacts/direction-macos/`.
+
+The next fetch found six more main commits, through `3394b5292`; they merged
+cleanly as `ae28668c6`. The new explicit mouse-click path and Apple build scheduling
+now form part of this branch, rather than a future integration task. The rebuilt
+native drive passes again in **25.5 s**, including the descendant audit this time,
+and matches the new Linux collection's inputs, pins, world states and saves.
+Artifacts: `artifacts/direction-refresh-macos/`.
+
+The broader proof/scaffolding run passed 144 tests and skipped two Windows-only
+cases, but found three failures. The formatting case first exposed the Windows
+attribute, then a renamed game's imports and a long generic bake call. The
+template now imports its own types together, and the generated build script uses
+one short `App` alias. The existing short/long-path formatting, type naming and
+dependency-graph tests pass. The SDK lock needed only dependency edges refreshed
+for main's host changes, with no package-version changes; its test also passes.
+The remaining profile-proof failure is a Beacons continuation pin still from
+EXSIM v6: main's pointer-origin work explicitly changed saves to v7, while its
+world hashes stayed fixed. Refreshing that baseline requires the full cross-host
+collector, not copying the failed assertion's hash. The 33 Linux surface-control
+tests, including main's new explicit primary-mouse path, pass.

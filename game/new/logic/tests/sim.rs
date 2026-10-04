@@ -1,5 +1,5 @@
 use exact_game::{Sim, Transform};
-use small_game_logic::{Beacon, Options, SmallGame};
+use small_game_logic::*;
 
 #[test]
 fn movement_and_light() {
