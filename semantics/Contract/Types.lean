@@ -74,14 +74,22 @@ def Ty.lePrefix : List Ty → List Ty → Bool
   | _ :: _, [] => false
 
 /-- The roster entries the semantics refuses as unsupported (formats,
-routes, geometry), at the types the roster spells. -/
+geometry), at the types the roster spells. -/
 def unsupportedTy (name : String) (ts : List Ty) : Option Ty :=
   if name = "formatTime" ∨ name = "formatDate" then
     match ts with | [.number, .number, .string] => .some .string | _ => .none
   else if name = "formatNumber" then match ts with | [.number, .string] => .some .string | _ => .none
-  else if name = "encodeRouteSegment" then match ts with | [.string] => .some .string | _ => .none
-  else if name = "open" ∨ name = "push" ∨ name = "replace" ∨ name = "select" ∨ name = "go" then
-    match ts with | [.record r, .string] => if r = "Router" then .some (.record "Router") else .none | _ => .none
+  else if name = "frame" ∨ name = "measure" then
+    match ts with | [.string] => .some (.record "Geometry") | _ => .none
+  else .none
+
+/-- The router's verbs and reads (LLP 1038, `Contract.Route`), at the
+roster's types. -/
+def routerTy (name : String) (ts : List Ty) : Option Ty :=
+  if name = "open" ∨ name = "push" ∨ name = "replace" ∨ name = "select" ∨ name = "go" then
+    match ts with
+    | [.record r, .string] => if r = "Router" then .some (.record "Router") else .none
+    | _ => .none
   else if name = "back" then
     match ts with | [.record r] => if r = "Router" then .some (.record "Router") else .none | _ => .none
   else if name = "stack" then
@@ -91,19 +99,20 @@ def unsupportedTy (name : String) (ts : List Ty) : Option Ty :=
   else if name = "depth" then
     match ts with | [.record r] => if r = "Router" then .some .number else .none | _ => .none
   else if name = "params" then
-    match ts with | [.record r, .string] => if r = "Router" then .some (.list .string) else .none | _ => .none
+    match ts with
+    | [.record r, .string] => if r = "Router" then .some (.list .string) else .none
+    | _ => .none
   else if name = "searchParam" then
     match ts with | [.record r, .string] => if r = "Entry" then .some .string else .none | _ => .none
-  else if name = "frame" ∨ name = "measure" then
-    match ts with | [.string] => .some (.record "Geometry") | _ => .none
-  else .none
+  else if name = "encodeRouteSegment" then match ts with | [.string] => .some .string | _ => .none
+  else unsupportedTy name ts
 
 /-- The roster (plan/tables/format.json `stdlib`) as types: the result of a
 call with arguments of these types, or `none` when the call is refused.
 `any` is held to what the runner reads (`roster_accepts`). The entries the
 semantics refuses as unsupported (formats, routes, geometry) are typed as
 the roster spells them: their calls never produce a value here. `map`,
-`filter`, `pending` and `failed` are not values of the roster. -/
+`filter`, `pending`, `failed` and `path` are typed by rules of their own. -/
 def rosterTy (name : String) (ts : List Ty) : Option Ty :=
   if name = "now" then match ts with | [] => .some .number | _ => .none
   else if name = "length" then match ts with | [.string] | [.list _] => .some .number | _ => .none
@@ -124,7 +133,7 @@ def rosterTy (name : String) (ts : List Ty) : Option Ty :=
     | [.list a, s] =>
       if (a.displayable || decide (a = .unknown)) && s.le .string then .some .string else .none
     | _ => .none
-  else unsupportedTy name ts
+  else routerTy name ts
 
 /-- A binary operator's result on operands of these types (`infer`'s
 `Binary`): `+` on numbers or strings, arithmetic and comparisons on
@@ -139,6 +148,38 @@ def binTy (op : BinOp) (a b : Ty) : Option Ty :=
   | .lt | .le | .gt | .ge => if nums then .some .bool else .none
   | .eq | .ne => if a.compat b then .some .bool else .none
   | .and | .or => if a.le .bool && b.le .bool then .some .bool else .none
+
+/-- A shape's field types, by name. -/
+def shapeTys (p : Program) (s : String) : Option (List Ty) :=
+  (p.shapes.find? (·.name == s)).map (·.fields.map (·.ty))
+
+/-- The compiler's router shapes, when the program has them (a program
+without routes may declare an `Entry` of its own), are the
+values `Contract.Route` builds: `Router(tab, tabs, next)`, `Tab(name,
+stack)`, `Entry(id, name, url, tab, params)`, and `Params` with a string
+per parameter of the table (`Route.paramNames`). -/
+def routeShapesOK (p : Program) : Bool :=
+  !(shapeTys p "Router").isSome ||
+    (decide (shapeTys p "Router" = .some [.string, .list (.record "Tab"), .number]) &&
+     decide (shapeTys p "Tab" = .some [.string, .list (.record "Entry")]) &&
+     decide (shapeTys p "Entry" = .some [.number, .string, .string, .string, .record "Params"]) &&
+     decide (shapeTys p "Params" = .some ((Route.paramNames p.routes).map fun _ => .string)))
+
+/-- The router slot, when the program has one, is a state of type `Router`
+(boot starts it at the launch of `/`, never its initializer). -/
+def routerSlotOK (p : Program) : Bool :=
+  match p.router with
+  | .none => true
+  | .some x => p.states.any (fun s => s.name == x && decide (s.ty = .record "Router") && s.owner.isNone && !s.late) &&
+      (shapeTys p "Router").isSome
+
+/-- The route `path(name, …)` names: a declared row, not the notfound one. -/
+def pathRoute (p : Program) (name : String) : Option RouteDecl :=
+  p.routes.find? (fun r => r.name == name && !r.notfound)
+
+/-- How many parameters a pattern has. -/
+def patternParams (pattern : String) : Nat :=
+  ((Route.split pattern '/').filter (Route.startsWith · ':')).length
 
 /-- No name twice. -/
 def distinct : List String → Bool
@@ -193,6 +234,12 @@ inductive HasTy (p : Program) (G : Scope) : Scope → Expr → Ty → Prop
       HasTy p G Γ (.call "failed" [.var x]) .bool
   | roster : p.fns.find? (·.name == name) = .none → ListTy p G Γ args ts → rosterTy name ts = .some t →
       HasTy p G Γ (.call name args) t
+  /-- `path("route", args…)` (as the compiler expands it): a declared
+  route, one argument per parameter, each a string or a number. -/
+  | path : p.fns.find? (·.name == "path") = .none → pathRoute p rn = .some route →
+      ListTy p G Γ args ts → (∀ t ∈ ts, (t.le .string || t.le .number) = true) →
+      args.length = patternParams route.pattern →
+      HasTy p G Γ (.call "path" (.str rn :: args)) .string
   /-- `Shape(field=value, …)`: every field written. -/
   | record : p.shapes.find? (·.name == s) = .some sh → NamedTy p G Γ written wts →
       fieldsOk sh.fields wts false = true → namesOk sh.fields wts = true →
@@ -282,8 +329,8 @@ def NodesTy (p : Program) (G : Scope) : Scope → List Node → Prop
 
 /-! ## Programs -/
 
-/-- What a root initializer sees at boot: the root states before it that
-are initialized at boot (a late slot holds `()` until boot settlement is
+/-- What a root initializer sees at boot (the router slot's is never
+evaluated): the root states before it that are initialized at boot (a late slot holds `()` until boot settlement is
 done, so it is not readable yet). -/
 def rootScope (p : Program) (i : Nat) : Scope :=
   ((p.states.take i).filter fun s => s.owner.isNone && !s.late).map fun s => (s.name, s.ty)
@@ -315,8 +362,12 @@ structure WellTyped (p : Program) : Prop where
   params : ∀ a ∈ p.actions, ∀ q ∈ a.params, q.2.complete = true
   /-- A `fn` body sees its parameters alone. -/
   fns : ∀ fd ∈ p.fns, ∃ t, HasTy p [] fd.params.reverse fd.body t ∧ t.le fd.ret = true
+  /-- The router shapes are `Contract.Route`'s, and the router slot a
+  `Router` state. -/
+  routeShapes : routeShapesOK p = true
+  routerSlot : routerSlotOK p = true
   rootInits : ∀ i st, p.states[i]? = .some st → st.owner = .none → st.late = false →
-    ∃ t, HasTy p (rootScope p i) [] st.init t ∧ t.le st.ty = true
+    p.router ≠ .some st.name → ∃ t, HasTy p (rootScope p i) [] st.init t ∧ t.le st.ty = true
   lateInits : ∀ i st, p.states[i]? = .some st → st.owner = .none → st.late = true →
     ∃ t, HasTy p (lateScope p i) [] st.init t ∧ t.le st.ty = true
   derives : ∀ d ∈ p.derives, ∃ t, HasTy p (compScope p) [] d.body t ∧ t.le d.ty = true

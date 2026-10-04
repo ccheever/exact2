@@ -15,16 +15,21 @@ slot. Finiteness of numbers is likewise the runtime check's (a refusal), not
 typing's: `ValTy` admits NaN, `conforms` does not, and the invariant is
 stated with `conforms`, so it says slots hold finite numbers.
 -/
-import Contract.Axiomatic
-import Contract.Observe
-import Contract.Types
+import Contract.Invariant
+import Contract.Soundness
 
 namespace Contract
 
+/-- The router slot holding a router `Contract.Route` built (its boot
+value, the launch of `/`, which no `conforms` check sees). -/
+def RouterAt (p : Program) (x : String) (v : Value) : Prop :=
+  p.router = .some x ∧ ∃ r, v = Route.routerValue p.routes r
+
 /-- Every root slot is a declared state or mutation, holding a value the
-runtime check admits at its declared type. -/
+runtime check admits at its declared type, or the router slot holding a
+router value. -/
 def SlotsOK (p : Program) (slots : List (String × Value)) : Prop :=
-  ∀ x v, (x, v) ∈ slots → isSlot p x = true ∧ conforms p v (slotTy p x) = true
+  ∀ x v, (x, v) ∈ slots → isSlot p x = true ∧ (conforms p v (slotTy p x) = true ∨ RouterAt p x v)
 
 theorem SlotsOK.nil {p : Program} : SlotsOK p [] := by simp [SlotsOK]
 
@@ -38,7 +43,7 @@ theorem SlotsOK.setSlot {p : Program} {slots x v} (h : SlotsOK p slots)
     obtain ⟨rfl, rfl⟩ := heq
     simp only [beq_iff_eq] at hxy
     subst hxy
-    exact ⟨(h _ _ hmem).1, hv⟩
+    exact ⟨(h _ _ hmem).1, .inl hv⟩
   · simp only [hxy] at heq
     simp only [Bool.false_eq_true, ite_false, Prod.mk.injEq] at heq
     obtain ⟨rfl, rfl⟩ := heq
@@ -177,18 +182,6 @@ theorem ExecR.sends {p : Program} {env ls ss fx fx'} (h : ExecR env ls ss fx fx'
 
 /-! ## Commits keep the invariant -/
 
-theorem mapM_mem {α β ε} {f : α → Except ε β} : ∀ {l : List α} {r : List β}, l.mapM f = .ok r →
-    ∀ b ∈ r, ∃ a ∈ l, f a = .ok b
-  | [], r, h, b, hb => by simp at h; subst h; simp at hb
-  | a :: l, r, h, b, hb => by
-    simp only [List.mapM_cons, Except.bind_ok_iff, Except.pure_ok_iff] at h
-    obtain ⟨b', hb', rs, hrs, rfl⟩ := h
-    simp only [List.mem_cons] at hb
-    rcases hb with rfl | hb
-    · exact ⟨a, by simp, hb'⟩
-    · obtain ⟨a', ha', hf⟩ := mapM_mem hrs b hb
-      exact ⟨a', by simp [ha'], hf⟩
-
 /-- The parts of `WellTyped` the invariant uses. -/
 structure SlotTyped (p : Program) : Prop where
   names : distinct (compNames p) = true
@@ -242,49 +235,21 @@ theorem runAction_slotsOK {p : Program} {o c name args rows c' out} (hp : SlotTy
       exact hw w (List.mem_append_left _ hw')
   split at h
   · exact keep h
+  split at h
+  · exact keep h
   · simp only [Prod.mk.injEq] at h; rw [← h.1]; exact hok
   · simp only [Prod.mk.injEq] at h; rw [← h.1]; exact hok
-
-theorem dispatch_slotsOK {p : Program} {o c target event payload} (hp : SlotTyped p)
-    (hc : SlotsOK p c.slots) : SlotsOK p (dispatch p o c target event payload).1.slots := by
-  simp only [dispatch]
-  repeat' split
-  all_goals first | exact hc | exact runAction_slotsOK hp hc (Prod.mk.eta.symm.trans rfl) | skip
-  all_goals exact runAction_slotsOK hp hc rfl
-
-theorem advance_slotsOK {p : Program} {o c t} (hp : SlotTyped p)
-    (hc : SlotsOK p c.slots) : SlotsOK p (advance p o c t).1.slots := by
-  simp only [advance]
-  split
-  · exact hc
-  · rename_i hlt
-    clear hlt
-    generalize timerFireLimit = n
-    induction n generalizing c with
-    | zero =>
-      simp only [advance.go]
-      split <;> exact hc
-    | succ n ih =>
-      simp only [advance.go]
-      split
-      · exact hc
-      split
-      · exact hc
-      next tm i _ =>
-      split
-      next c' h' => exact ih (runAction_slotsOK hp (by exact hc) h')
-      next c' out h1 h' => exact runAction_slotsOK hp (by exact hc) h'
 
 /-! ## Boot -/
 
-theorem foldlM_inv {α β ε} {f : β → α → Except ε β} (I : List α → β → Prop)
+theorem foldlM_inv_rest {α β ε} {f : β → α → Except ε β} (I : List α → β → Prop)
     (step : ∀ a l b b', I (a :: l) b → f b a = .ok b' → I l b') :
     ∀ {l : List α} {b r : β}, I l b → l.foldlM f b = .ok r → I [] r
   | [], b, r, hb, h => by simp at h; subst h; exact hb
   | a :: l, b, r, hb, h => by
     simp only [List.foldlM_cons, Except.bind_ok_iff] at h
     obtain ⟨b', h1, h2⟩ := h
-    exact foldlM_inv I step (step a l b b' hb h1) h2
+    exact foldlM_inv_rest I step (step a l b b' hb h1) h2
 
 /-- The names of the late root states among `l`. -/
 def lateNames (l : List StateDecl) : List String :=
@@ -294,7 +259,7 @@ theorem isSlot_of_state {p : Program} {st : StateDecl} (h : st ∈ p.states) : i
   simp only [isSlot, Bool.or_eq_true, List.any_eq_true, beq_iff_eq]
   exact .inl ⟨st, h, rfl⟩
 
-theorem mem_setSlot {slots : List (String × Value)} {x y : String} {w v : Value}
+theorem mem_setSlot' {slots : List (String × Value)} {x y : String} {w v : Value}
     (h : (x, w) ∈ setSlot slots y v) : ∃ u, (x, u) ∈ slots ∧ ((y = x ∧ w = v) ∨ (y ≠ x ∧ w = u)) := by
   simp only [setSlot, List.mem_map] at h
   obtain ⟨⟨x', u⟩, hmem, heq⟩ := h
@@ -317,93 +282,25 @@ theorem lateNames_mem {l : List StateDecl} {x : String} (h : x ∈ lateNames l) 
   obtain ⟨a, ⟨ha, _⟩, rfl⟩ := h
   exact ⟨a, ha, rfl⟩
 
+/-- A slot during boot: of its type, the router at its launch, or a late
+slot in `L` still holding `()`. -/
+def BootOK (p : Program) (L : List String) (x : String) (v : Value) : Prop :=
+  isSlot p x = true ∧ (conforms p v (slotTy p x) = true ∨ RouterAt p x v ∨ x ∈ L)
+
 theorem boot_slotsOK {p : Program} {o} (hp : SlotTyped p) : SlotsOK p (boot p o).1.slots := by
-  -- After the boot initializers: every slot conforms, or is a late slot
-  -- holding `()` until settlement.
-  let I₁ : List StateDecl → List (String × Value) → Prop := fun rest slots =>
-    (∀ a ∈ rest, a ∈ p.states) ∧ ∀ x w, (x, w) ∈ slots → isSlot p x = true ∧
-      (conforms p w (slotTy p x) = true ∨ x ∈ lateNames p.states)
-  -- During the late initializers: every slot conforms, or is a late slot
-  -- still to come.
-  let I₂ : List StateDecl → List (String × Value) → Prop := fun rest slots =>
-    (∀ a ∈ rest, a ∈ p.states) ∧ ∀ x w, (x, w) ∈ slots → isSlot p x = true ∧
-      (conforms p w (slotTy p x) = true ∨ x ∈ lateNames rest)
-  simp only [boot]
-  repeat' split
-  all_goals first | exact SlotsOK.nil | skip
-  rename_i _ _ init hinit _ _ _ _ _ _ _ _ late hlate _ _ _ _
-  have h₁ : I₁ [] init := by
-    refine foldlM_inv I₁ ?_ (l := p.states) (b := []) ⟨fun a ha => ha, by simp⟩ hinit
-    intro a l b b' ⟨hl, hb⟩ hf
-    have ha : a ∈ p.states := hl a (by simp)
-    refine ⟨fun a' ha' => hl a' (by simp [ha']), ?_⟩
-    split at hf
-    · simp only [Except.pure_ok_iff] at hf; subst hf; exact hb
-    split at hf
-    · next hlate =>
-      simp only [Except.pure_ok_iff] at hf; subst hf
-      intro x w hx
-      simp only [List.mem_append, List.mem_singleton, Prod.mk.injEq] at hx
-      rcases hx with hx | ⟨rfl, rfl⟩
-      · exact hb x w hx
-      · next hown =>
-        refine ⟨isSlot_of_state ha, .inr ?_⟩
-        simp only [lateNames, List.mem_map, List.mem_filter, Bool.and_eq_true]
-        exact ⟨a, ⟨ha, hlate, by simpa using hown⟩, rfl⟩
-    · simp only [Except.bind_ok_iff] at hf
-      obtain ⟨v, -, hf⟩ := hf
-      split at hf
-      · obtain ⟨_, h', _⟩ := Except.bind_ok_iff.mp hf; cases h'
-      · next hconf =>
-        simp only [Except.pure_ok_iff] at hf; subst hf
-        intro x w hx
-        simp only [List.mem_append, List.mem_singleton, Prod.mk.injEq] at hx
-        rcases hx with hx | ⟨rfl, rfl⟩
-        · exact hb x w hx
-        · refine ⟨isSlot_of_state ha, .inl ?_⟩
-          rw [slotTy_state hp.names ha]
-          simpa using hconf
-  have h₂ : I₂ [] late := by
-    refine foldlM_inv I₂ ?_ (l := p.states) ⟨fun a ha => ha, fun x w hx => ?_⟩ hlate
-    · intro a l b b' ⟨hl, hb⟩ hf
-      have ha : a ∈ p.states := hl a (by simp)
-      refine ⟨fun a' ha' => hl a' (by simp [ha']), ?_⟩
-      split at hf
-      · next hskip =>
-        simp only [Except.pure_ok_iff] at hf; subst hf
-        intro x w hx
-        obtain ⟨hs, hc⟩ := hb x w hx
-        refine ⟨hs, ?_⟩
-        rw [lateNames_cons] at hc
-        have : (a.late && a.owner.isNone) = false := by
-          cases hl' : a.late <;> cases ho : a.owner <;> simp_all
-        simpa [this] using hc
-      · next hset =>
-        simp only [Except.bind_ok_iff] at hf
-        obtain ⟨v, -, hf⟩ := hf
-        split at hf
-        · obtain ⟨_, h', _⟩ := Except.bind_ok_iff.mp hf; cases h'
-        · next hconf =>
-          simp only [Except.pure_ok_iff] at hf; subst hf
-          intro x w hx
-          obtain ⟨u, hu, hcase⟩ := mem_setSlot hx
-          obtain ⟨hs, hc⟩ := hb x u hu
-          refine ⟨hs, ?_⟩
-          rcases hcase with ⟨rfl, rfl⟩ | ⟨hne, rfl⟩
-          · left; rw [slotTy_state hp.names ha]; simpa using hconf
-          · rcases hc with hc | hc
-            · exact .inl hc
-            · right
-              rw [lateNames_cons] at hc
-              have : (a.late && a.owner.isNone) = true := by
-                cases hl' : a.late <;> cases ho : a.owner <;> simp_all
-              simp only [this, ite_true, List.mem_cons] at hc
-              rcases hc with hc | hc
-              · exact absurd hc.symm hne
-              · exact hc
-    · simp only [List.mem_append, List.mem_map] at hx
+  rcases boot_cases (o := o) (out := (boot p o).2) (c := (boot p o).1) rfl with h | ⟨s₀, _, st, _, hi, -, hl, -, -⟩
+  · rw [h]; exact SlotsOK.nil
+  -- After the boot initializers.
+  have h₁ : ∀ x w, (x, w) ∈ s₀ → BootOK p (lateNames p.states) x w := by
+    simp only [initSlots, Except.bind_ok_iff, Except.pure_ok_iff] at hi
+    obtain ⟨s, hs, rfl⟩ := hi
+    let I₁ : List StateDecl → List (String × Value) → Prop := fun rest slots =>
+      (∀ a ∈ rest, a ∈ p.states) ∧ ∀ x w, (x, w) ∈ slots → BootOK p (lateNames p.states) x w
+    have hI := foldlM_inv_rest I₁ ?_ (l := p.states) (b := []) ⟨fun a ha => ha, by simp⟩ hs
+    · intro x w hx
+      simp only [List.mem_append, List.mem_map] at hx
       rcases hx with hx | ⟨m, hm, heq⟩
-      · exact h₁.2 x w hx
+      · exact hI.2 x w hx
       · simp only [Prod.mk.injEq] at heq
         obtain ⟨rfl, rfl⟩ := heq
         have hmut : isMutation p m.name = true := by
@@ -411,46 +308,129 @@ theorem boot_slotsOK {p : Program} {o} (hp : SlotTyped p) : SlotsOK p (boot p o)
         refine ⟨by simp [isSlot, hmut], .inl ?_⟩
         rw [(slotTy_mutation hp.names hmut).1]
         simp [conforms]
+    intro a l b b' ⟨hl', hb⟩ hf
+    have ha : a ∈ p.states := hl' a (by simp)
+    refine ⟨fun a' ha' => hl' a' (by simp [ha']), ?_⟩
+    split at hf
+    · simp only [Except.pure_ok_iff] at hf; subst hf; exact hb
+    split at hf
+    · next hown hlate =>
+      simp only [Except.pure_ok_iff] at hf; subst hf
+      intro x w hx
+      simp only [List.mem_append, List.mem_singleton, Prod.mk.injEq] at hx
+      rcases hx with hx | ⟨rfl, rfl⟩
+      · exact hb x w hx
+      · refine ⟨isSlot_of_state ha, .inr (.inr ?_)⟩
+        simp only [lateNames, List.mem_map, List.mem_filter, Bool.and_eq_true]
+        exact ⟨a, ⟨ha, hlate, by simpa using hown⟩, rfl⟩
+    split at hf
+    · next hrouter =>
+      split at hf
+      · next r hr =>
+        simp only [Except.pure_ok_iff] at hf; subst hf
+        intro x w hx
+        simp only [List.mem_append, List.mem_singleton, Prod.mk.injEq] at hx
+        rcases hx with hx | ⟨rfl, rfl⟩
+        · exact hb x w hx
+        · exact ⟨isSlot_of_state ha, .inr (.inl ⟨by simpa using hrouter, r, rfl⟩)⟩
+      · simp [throw, throwThe, MonadExceptOf.throw] at hf
+    simp only [Except.bind_ok_iff] at hf
+    obtain ⟨v, -, hf⟩ := hf
+    split at hf
+    · obtain ⟨_, h', _⟩ := Except.bind_ok_iff.mp hf; cases h'
+    · next hconf =>
+      simp only [Except.pure_ok_iff] at hf; subst hf
+      intro x w hx
+      simp only [List.mem_append, List.mem_singleton, Prod.mk.injEq] at hx
+      rcases hx with hx | ⟨rfl, rfl⟩
+      · exact hb x w hx
+      · refine ⟨isSlot_of_state ha, .inl ?_⟩
+        rw [slotTy_state hp.names ha]
+        simpa using hconf
+  -- During the late initializers.
+  let I₂ : List StateDecl → List (String × Value) → Prop := fun rest slots =>
+    (∀ a ∈ rest, a ∈ p.states) ∧ ∀ x w, (x, w) ∈ slots → BootOK p (lateNames rest) x w
+  have h₂ : I₂ [] (boot p o).1.slots := by
+    refine foldlM_inv_rest I₂ ?_ (l := p.states) ⟨fun a ha => ha, h₁⟩ hl
+    intro a l b b' ⟨hl', hb⟩ hf
+    have ha : a ∈ p.states := hl' a (by simp)
+    refine ⟨fun a' ha' => hl' a' (by simp [ha']), ?_⟩
+    split at hf
+    · next hskip =>
+      simp only [Except.pure_ok_iff] at hf; subst hf
+      intro x w hx
+      obtain ⟨hs, hc⟩ := hb x w hx
+      refine ⟨hs, ?_⟩
+      rw [lateNames_cons] at hc
+      have : (a.late && a.owner.isNone) = false := by
+        cases hl'' : a.late <;> cases ho : a.owner <;> simp_all
+      simpa [this] using hc
+    · simp only [Except.bind_ok_iff] at hf
+      obtain ⟨v, -, hf⟩ := hf
+      split at hf
+      · obtain ⟨_, h', _⟩ := Except.bind_ok_iff.mp hf; cases h'
+      · next hset hconf =>
+        simp only [Except.pure_ok_iff] at hf; subst hf
+        intro x w hx
+        obtain ⟨u, hu, hcase⟩ := mem_setSlot' hx
+        obtain ⟨hs, hc⟩ := hb x u hu
+        refine ⟨hs, ?_⟩
+        rcases hcase with ⟨rfl, rfl⟩ | ⟨hne, rfl⟩
+        · left; rw [slotTy_state hp.names ha]; simpa using hconf
+        · rcases hc with hc | hc | hc
+          · exact .inl hc
+          · exact .inr (.inl hc)
+          · right; right
+            rw [lateNames_cons] at hc
+            have : (a.late && a.owner.isNone) = true := by
+              cases hl'' : a.late <;> cases ho : a.owner <;> simp_all
+            simp only [this, ite_true, List.mem_cons] at hc
+            rcases hc with hc | hc
+            · exact absurd hc.symm hne
+            · exact hc
   intro x w hx
   obtain ⟨hs, hc⟩ := h₂.2 x w hx
   refine ⟨hs, ?_⟩
-  rcases hc with hc | hc
-  · exact hc
+  rcases hc with hc | hc | hc
+  · exact .inl hc
+  · exact .inr hc
   · simp [lateNames] at hc
 
 /-! ## Every reachable configuration -/
 
-/-- The configurations a program reaches: boot, then any events. -/
-inductive Reachable (p : Program) (o : Oracle) : Config → Prop
-  | boot : Reachable p o (boot p o).1
-  | step : Reachable p o c → Reachable p o (Observe.step p o c ev).1
-
-theorem step_slotsOK {p : Program} {o c} (hp : SlotTyped p) (hc : SlotsOK p c.slots) (ev : Observe.Event) :
-    SlotsOK p (Observe.step p o c ev).1.slots := by
-  cases ev <;> simp only [Observe.step]
-  all_goals first | exact dispatch_slotsOK hp hc | exact advance_slotsOK hp hc
-
 /-- **The slot invariant.** In every configuration a well-typed program
-reaches, each root slot is a declared state or mutation holding a value
+reaches (`Contract.Reachable`: boot, then any events, whatever the sources
+answer), each root slot is a declared state or mutation holding a value
 the runtime check admits at its declared type (`conforms`: of the type,
-numbers finite). -/
-theorem reachable_slotsOK {p : Program} {o c} (hp : WellTyped p) (h : Reachable p o c) : SlotsOK p c.slots := by
-  induction h with
-  | boot => exact boot_slotsOK hp.slotTyped
-  | step _ ih => exact step_slotsOK hp.slotTyped ih _
+numbers finite), or is the router slot holding a router `Contract.Route`
+built. -/
+theorem reachable_slotsOK {p : Program} {c} (hp : WellTyped p) (h : Reachable p c) : SlotsOK p c.slots :=
+  Reachable.invariant (fun c => SlotsOK p c.slots)
+    (fun _ => boot_slotsOK hp.slotTyped)
+    (fun _ _ _ hc => hc)
+    (fun _ _ _ _ _ _ _ _ _ _ _ _ hc _ _ hr => runAction_slotsOK hp.slotTyped hc hr)
+    (fun _ _ _ _ _ _ hc hr => runAction_slotsOK hp.slotTyped hc hr) c h
 
-/-- The same as types: each root slot holds a value of its declared type. -/
-theorem reachable_valTy {p : Program} {o c} (hp : WellTyped p) (h : Reachable p o c) :
+/-- The same as types: each root slot holds a value of its declared type
+(the router slot's boot value too: `Route.routerValue` builds one). -/
+theorem reachable_valTy {p : Program} {c} (hp : WellTyped p) (h : Reachable p c) :
     ∀ x v, (x, v) ∈ c.slots → ValTy p v (slotTy p x) := by
   intro x v hx
   obtain ⟨hs, hc⟩ := reachable_slotsOK hp h x v hx
-  refine conforms_valTy hp.shapes v hc ?_
-  simp only [isSlot, Bool.or_eq_true, List.any_eq_true, beq_iff_eq] at hs
-  rcases hs with ⟨st, hst, rfl⟩ | hm
-  · rw [slotTy_state hp.names hst]; exact hp.states st hst
-  · have hm' : isMutation p x = true := by simpa [isMutation] using hm
-    obtain ⟨hty, md, hmd⟩ := slotTy_mutation hp.names hm'
-    rw [hty, hmd]
-    exact hp.mutations md (List.mem_of_find?_eq_some hmd)
+  rcases hc with hc | ⟨hrx, r, rfl⟩
+  · refine conforms_valTy hp.shapes v hc ?_
+    simp only [isSlot, Bool.or_eq_true, List.any_eq_true, beq_iff_eq] at hs
+    rcases hs with ⟨st, hst, rfl⟩ | hm
+    · rw [slotTy_state hp.names hst]; exact hp.states st hst
+    · have hm' : isMutation p x = true := by simpa [isMutation] using hm
+      obtain ⟨hty, md, hmd⟩ := slotTy_mutation hp.names hm'
+      rw [hty, hmd]
+      exact hp.mutations md (List.mem_of_find?_eq_some hmd)
+  · have hslot := hp.routerSlot
+    simp only [routerSlotOK, hrx, Bool.and_eq_true, List.any_eq_true, decide_eq_true_eq,
+      beq_iff_eq] at hslot
+    obtain ⟨⟨st, hst, ⟨⟨⟨rfl, hty⟩, -⟩, -⟩⟩, hshape⟩ := hslot
+    rw [slotTy_state hp.names hst, hty]
+    exact routerValue_ty (RouteShapes.of hp.routeShapes hshape) r
 
 end Contract

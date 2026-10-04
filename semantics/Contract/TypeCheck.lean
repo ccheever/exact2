@@ -13,6 +13,17 @@ import Contract.Types
 
 namespace Contract
 
+/-- `path("route", args…)`, given the arguments' types. -/
+def pathTy (p : Program) (args : List Expr) (ts? : Option (List Ty)) : Option Ty :=
+  match args, ts? with
+  | .str rn :: rest, .some (_ :: ts) =>
+    match pathRoute p rn with
+    | .some route =>
+      if ts.all (fun t => t.le .string || t.le .number) && rest.length == patternParams route.pattern
+      then .some .string else .none
+    | .none => .none
+  | _, _ => .none
+
 mutual
 
 /-- The type of `e`, or `none` when the judgments give it none. -/
@@ -154,9 +165,11 @@ def inferCall (p : Program) (G : Scope) : Scope → String → List Expr → Opt
           | .some ts => rosterTy name ts
           | .none => .none
       | _ =>
-        match ts? with
-        | .some ts => rosterTy name ts
-        | .none => .none
+        if name = "path" then pathTy p args ts?
+        else
+          match ts? with
+          | .some ts => rosterTy name ts
+          | .none => .none
 
 def inferList (p : Program) (G : Scope) : Scope → List Expr → Option (List Ty)
   | _, [] => .some []
@@ -266,7 +279,7 @@ def checkState (p : Program) (i : Nat) : Bool :=
   match p.states[i]? with
   | .some st =>
     match st.owner, st.late with
-    | .none, false => inferLe p (rootScope p i) [] st.init st.ty
+    | .none, false => decide (p.router = .some st.name) || inferLe p (rootScope p i) [] st.init st.ty
     | .none, true => inferLe p (lateScope p i) [] st.init st.ty
     | .some _, _ => true
   | .none => true
@@ -278,14 +291,16 @@ def checkTask (p : Program) (t : TaskDecl) : Bool := inferLe p (compScope p) [] 
 
 /-- The checker: every part well typed. -/
 def check (p : Program) : Bool :=
-  checkShapes p && distinct (compNames p) && checkTypes p && p.fns.all (checkFn p) &&
+  checkShapes p && distinct (compNames p) && checkTypes p && routeShapesOK p && routerSlotOK p &&
+    p.fns.all (checkFn p) &&
     (List.range p.states.length).all (checkState p) && p.derives.all (checkDerive p) &&
     p.resources.all (checkResource p) && p.actions.all (checkAction p) && p.tasks.all (checkTask p) &&
     checkNodes p (compScope p) [] p.view
 
 /-- Each part of a program and the checker's verdict on it. -/
 def checkParts (p : Program) : List (String × Bool) :=
-  [("shapes", checkShapes p), ("names", distinct (compNames p)), ("types", checkTypes p)] ++
+  [("shapes", checkShapes p), ("names", distinct (compNames p)), ("types", checkTypes p),
+   ("route shapes", routeShapesOK p), ("router slot", routerSlotOK p)] ++
   p.fns.map (fun fd => (s!"fn {fd.name}", checkFn p fd)) ++
   (List.range p.states.length).map (fun i =>
     (s!"state {((p.states[i]?).map (·.name)).getD ""}", checkState p i)) ++
@@ -336,8 +351,26 @@ theorem inferCall_rest {p : Program} {G Γ : Scope} {name : String} {args : List
             · next ts => exact .roster hfd (hts ts rfl) h
             · simp at h
       · split at h
-        · next ts => exact .roster hfd (hts ts rfl) h
-        · simp at h
+        · next hn =>
+          subst hn
+          simp only [pathTy] at h
+          split at h
+          · next rn rest t0 ts =>
+            split at h
+            · next route hr =>
+              split at h
+              · next hok =>
+                simp only [Bool.and_eq_true, List.all_eq_true, beq_iff_eq] at hok
+                simp at h; subst h
+                have hl := hts _ rfl
+                cases hl with
+                | cons _ hrest => exact .path hfd hr hrest hok.1 hok.2
+              · simp at h
+            · simp at h
+          · simp at h
+        · split at h
+          · next ts => exact .roster hfd (hts ts rfl) h
+          · simp at h
 
 mutual
 
@@ -672,13 +705,14 @@ theorem checkNodes_sound {p : Program} {G : Scope} : ∀ {Γ : Scope} (ns : List
 /-- **The checker is sound**: a program it accepts is well typed. -/
 theorem check_sound {p : Program} (h : check p = true) : WellTyped p := by
   simp only [check, Bool.and_eq_true, List.all_eq_true] at h
-  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨hsh, hnames⟩, htypes⟩, hfns⟩, hstates⟩, hderives⟩, hres⟩, hacts⟩, htasks⟩, hview⟩ := h
+  obtain ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hsh, hnames⟩, htypes⟩, hrs⟩, hrslot⟩, hfns⟩, hstates⟩, hderives⟩, hres⟩, hacts⟩,
+    htasks⟩, hview⟩ := h
   simp only [checkTypes, Bool.and_eq_true, List.all_eq_true] at htypes
   obtain ⟨⟨⟨⟨hst, hdt⟩, hrt⟩, hmt⟩, hat⟩ := htypes
   have hstate : ∀ i st, p.states[i]? = .some st → checkState p i = true := fun i st hi =>
     hstates i (List.mem_range.mpr (List.getElem?_eq_some_iff.mp hi).1)
   refine {
-    shapes := ?_, names := hnames, states := hst, derivesComplete := hdt, resourcesComplete := hrt,
+    shapes := ?_, names := hnames, routeShapes := hrs, routerSlot := hrslot, states := hst, derivesComplete := hdt, resourcesComplete := hrt,
     mutations := hmt, params := ?_, fns := ?_, rootInits := ?_, lateInits := ?_, derives := ?_,
     resources := ?_, actions := ?_, tasks := ?_, view := checkNodes_sound _ hview }
   · intro sh hs f hf
@@ -687,9 +721,9 @@ theorem check_sound {p : Program} (h : check p = true) : WellTyped p := by
   · intro a ha q hq
     exact hat a ha q hq
   · intro fd hfd; exact inferLe_sound (hfns fd hfd)
-  · intro i st hi ho hl
+  · intro i st hi ho hl hr
     have := hstate i st hi
-    simp only [checkState, hi, ho, hl] at this
+    simp only [checkState, hi, ho, hl, hr, decide_false, Bool.false_or] at this
     exact inferLe_sound this
   · intro i st hi ho hl
     have := hstate i st hi

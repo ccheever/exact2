@@ -77,8 +77,7 @@ theorem mapM_good {α β} {f : α → Result β} : ∀ {xs : List α},
 theorem ite_pos {α} {c : Prop} [Decidable c] {a b : α} (h : c) : (if c then a else b) = a := by simp [h]
 theorem ite_neg {α} {c : Prop} [Decidable c] {a b : α} (h : ¬ c) : (if c then a else b) = b := by simp [h]
 
-/-- A roster call on arguments of the types `rosterTy` takes answers a
-value of the type it gives, or is unsupported; never a type error. -/
+/-- The entries the semantics leaves out are refused as unsupported. -/
 theorem stdlib_unsupported {env : Env} {p : Program} {name : String} {vs : List Value} {t : Ty}
     {ts : List Ty} (h : unsupportedTy name ts = .some t) : GoodR (ValTy p · t) (stdlib env name vs) := by
   delta unsupportedTy at h
@@ -88,39 +87,258 @@ theorem stdlib_unsupported {env : Env} {p : Program} {name : String} {vs : List 
   by_cases hn : name = "formatNumber"
   · subst hn; simp [stdlib, GoodR, Legit]
   rw [ite_neg hn] at h
-  by_cases hn : name = "encodeRouteSegment"
-  · subst hn; simp [stdlib, GoodR, Legit]
-  rw [ite_neg hn] at h
-  by_cases hn : name = "open" ∨ name = "push" ∨ name = "replace" ∨ name = "select" ∨ name = "go"
-  · rcases hn with rfl | rfl | rfl | rfl | rfl <;> simp [stdlib, GoodR, Legit]
-  rw [ite_neg hn] at h
-  by_cases hn : name = "back"
-  · subst hn; simp [stdlib, GoodR, Legit]
-  rw [ite_neg hn] at h
-  by_cases hn : name = "stack"
-  · subst hn; simp [stdlib, GoodR, Legit]
-  rw [ite_neg hn] at h
-  by_cases hn : name = "top"
-  · subst hn; simp [stdlib, GoodR, Legit]
-  rw [ite_neg hn] at h
-  by_cases hn : name = "depth"
-  · subst hn; simp [stdlib, GoodR, Legit]
-  rw [ite_neg hn] at h
-  by_cases hn : name = "params"
-  · subst hn; simp [stdlib, GoodR, Legit]
-  rw [ite_neg hn] at h
-  by_cases hn : name = "searchParam"
-  · subst hn; simp [stdlib, GoodR, Legit]
-  rw [ite_neg hn] at h
   by_cases hn : name = "frame" ∨ name = "measure"
   · rcases hn with rfl | rfl <;> simp [stdlib, GoodR, Legit]
   rw [ite_neg hn] at h
   simp at h
 
+/-! ## The router's values -/
+
+theorem fieldsTy_of_tys {p : Program} : ∀ {vs : List Value} {fs : List Field},
+    ValTyL p vs (fs.map (·.ty)) → FieldsTy p vs fs
+  | [], [], _ => trivial
+  | v :: vs, f :: fs, h => by
+    simp only [List.map_cons, ValTyL] at h
+    exact ⟨h.1, fieldsTy_of_tys h.2⟩
+  | [], _ :: _, h | _ :: _, [], h => by simp [ValTyL] at h
+
+theorem recordTy_of {p : Program} {s : String} {vs : List Value} {ts : List Ty}
+    (hs : shapeTys p s = .some ts) (hv : ValTyL p vs ts) : ValTy p (.record s vs) (.record s) := by
+  simp only [shapeTys, Option.map_eq_some_iff] at hs
+  obtain ⟨sh, hsh, rfl⟩ := hs
+  exact ⟨rfl, sh, hsh, fieldsTy_of_tys hv⟩
+
+theorem shapeTys_of_valTy {p : Program} {v : Value} {s : String} (h : ValTy p v (.record s)) :
+    (shapeTys p s).isSome = true := by
+  obtain ⟨_, sh, _, hsh, _⟩ := h.record_inv
+  simp [shapeTys, hsh]
+
+/-- The router shapes, as `routeShapesOK` says they are. -/
+structure RouteShapes (p : Program) : Prop where
+  router : shapeTys p "Router" = .some [.string, .list (.record "Tab"), .number]
+  tab : shapeTys p "Tab" = .some [.string, .list (.record "Entry")]
+  entry : shapeTys p "Entry" = .some [.number, .string, .string, .string, .record "Params"]
+  params : shapeTys p "Params" = .some ((Route.paramNames p.routes).map fun _ => .string)
+
+theorem RouteShapes.of {p : Program} (hr : routeShapesOK p = true)
+    (hpres : (shapeTys p "Router").isSome = true) : RouteShapes p := by
+  simp only [routeShapesOK, Bool.or_eq_true, Bool.not_eq_true', Bool.and_eq_true, decide_eq_true_eq] at hr
+  rcases hr with hr | ⟨⟨⟨h1, h2⟩, h3⟩, h4⟩
+  · simp_all
+  · exact ⟨h1, h2, h3, h4⟩
+
+theorem paramsValue_ty {p : Program} (H : RouteShapes p) (ps : Route.Params) :
+    ValTy p (Route.paramsValue p.routes ps) (.record "Params") := by
+  refine recordTy_of H.params ?_
+  generalize Route.paramNames p.routes = names
+  induction names with
+  | nil => trivial
+  | cons n ns ih => exact ⟨by simp [ValTy], ih⟩
+
+theorem entryValue_ty {p : Program} (H : RouteShapes p) (e : Route.Entry) :
+    ValTy p (Route.entryValue p.routes e) (.record "Entry") :=
+  recordTy_of H.entry ⟨trivial, trivial, trivial, trivial, paramsValue_ty H _, trivial⟩
+
+theorem entries_ty {p : Program} (H : RouteShapes p) : ∀ (es : List Route.Entry),
+    ValTys p (es.map (Route.entryValue p.routes)) (.record "Entry")
+  | [] => trivial
+  | e :: es => ⟨entryValue_ty H e, entries_ty H es⟩
+
+theorem routerValue_ty {p : Program} (H : RouteShapes p) (r : Route.Router) :
+    ValTy p (Route.routerValue p.routes r) (.record "Router") := by
+  refine recordTy_of H.router ⟨trivial, ?_, trivial, trivial⟩
+  simp only [ValTy]
+  generalize r.tabs = tabs
+  induction tabs with
+  | nil => trivial
+  | cons tb tbs ih =>
+    exact ⟨recordTy_of H.tab ⟨trivial, entries_ty H tb.stack, trivial⟩, ih⟩
+
+theorem verb_good {p : Program} {v : Value} {f : Route.Router → Route.Verb} (H : RouteShapes p)
+    (hv : ValTy p v (.record "Router")) :
+    GoodR (ValTy p · (.record "Router")) (Route.verb p.routes v f) := by
+  unfold Route.verb
+  split
+  · next r _ =>
+    split
+    · exact routerValue_ty H _
+    · exact hv
+  · trivial
+
+theorem read_good {p : Program} {v : Value} {f : Route.Router → Option Value} {t : Ty}
+    (hf : ∀ r w, f r = .some w → ValTy p w t) : GoodR (ValTy p · t) (Route.read p.routes v f) := by
+  unfold Route.read
+  split
+  · next w hw =>
+    simp only [Option.bind_eq_some_iff] at hw
+    obtain ⟨r, -, hr⟩ := hw
+    exact hf r w hr
+  · trivial
+
+/-- The router's verbs and reads on values of their types: a value of the
+type `routerTy` gives, or a refusal (a value of the shape `Router` that is
+not a valid router traps). -/
+theorem stdlib_router {env : Env} {p : Program} {name : String} {vs : List Value} {ts : List Ty} {t : Ty}
+    (hp : env.prog = p) (hr : routeShapesOK p = true) (hv : ValTyL p vs ts) (h : routerTy name ts = .some t) :
+    GoodR (ValTy p · t) (stdlib env name vs) := by
+  delta routerTy at h
+  have hshape : ∀ {w : Value}, ValTy p w (.record "Router") → RouteShapes p :=
+    fun hw => RouteShapes.of hr (shapeTys_of_valTy hw)
+  by_cases hn : name = "open" ∨ name = "push" ∨ name = "replace" ∨ name = "select" ∨ name = "go"
+  · rw [ite_pos hn] at h
+    split at h <;> simp at h
+    next r =>
+    obtain ⟨rfl, rfl⟩ := h
+    obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv
+    obtain ⟨w', ws', rfl, hw', hws'⟩ := hws.cons_inv; rw [hws'.nil_inv]
+    obtain ⟨_, rfl⟩ := hw'.str_inv
+    have H := hshape hw
+    subst hp
+    rcases hn with rfl | rfl | rfl | rfl | rfl <;> simp only [stdlib] <;> exact verb_good H hw
+  rw [ite_neg hn] at h
+  by_cases hn : name = "back"
+  · subst hn; rw [ite_pos rfl] at h
+    split at h <;> simp at h
+    next r =>
+    obtain ⟨rfl, rfl⟩ := h
+    obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv; rw [hws.nil_inv]
+    have H := hshape hw
+    subst hp
+    simp only [stdlib]; exact verb_good H hw
+  rw [ite_neg hn] at h
+  by_cases hn : name = "stack"
+  · subst hn; rw [ite_pos rfl] at h
+    split at h <;> simp at h
+    next r =>
+    obtain ⟨rfl, rfl⟩ := h
+    obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv; rw [hws.nil_inv]
+    have H := hshape hw
+    subst hp
+    simp only [stdlib]
+    exact read_good fun r w hw' => by simp at hw'; subst hw'; exact entries_ty H _
+  rw [ite_neg hn] at h
+  by_cases hn : name = "top"
+  · subst hn; rw [ite_pos rfl] at h
+    split at h <;> simp at h
+    next r =>
+    obtain ⟨rfl, rfl⟩ := h
+    obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv; rw [hws.nil_inv]
+    have H := hshape hw
+    subst hp
+    simp only [stdlib]
+    exact read_good fun r w hw' => by
+      simp only [Option.map_eq_some_iff] at hw'
+      obtain ⟨e, -, rfl⟩ := hw'
+      exact entryValue_ty H e
+  rw [ite_neg hn] at h
+  by_cases hn : name = "depth"
+  · subst hn; rw [ite_pos rfl] at h
+    split at h <;> simp at h
+    next r =>
+    obtain ⟨rfl, rfl⟩ := h
+    obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv; rw [hws.nil_inv]
+    subst hp
+    simp only [stdlib]
+    exact read_good fun r w hw' => by simp at hw'; subst hw'; simp [ValTy]
+  rw [ite_neg hn] at h
+  by_cases hn : name = "params"
+  · subst hn; rw [ite_pos rfl] at h
+    split at h <;> simp at h
+    next r =>
+    obtain ⟨rfl, rfl⟩ := h
+    obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv
+    obtain ⟨w', ws', rfl, hw', hws'⟩ := hws.cons_inv; rw [hws'.nil_inv]
+    obtain ⟨_, rfl⟩ := hw'.str_inv
+    subst hp
+    simp only [stdlib]
+    refine read_good fun r w hw' => ?_
+    simp at hw'; subst hw'
+    simp only [ValTy]
+    exact ValTys.of_mem fun x hx => by
+      simp only [List.mem_map] at hx
+      obtain ⟨_, -, rfl⟩ := hx
+      simp [ValTy]
+  rw [ite_neg hn] at h
+  by_cases hn : name = "searchParam"
+  · subst hn; rw [ite_pos rfl] at h
+    split at h <;> simp at h
+    next r =>
+    obtain ⟨rfl, rfl⟩ := h
+    obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv
+    obtain ⟨w', ws', rfl, hw', hws'⟩ := hws.cons_inv; rw [hws'.nil_inv]
+    obtain ⟨_, rfl⟩ := hw'.str_inv
+    simp only [stdlib]
+    split <;> simp [GoodR, ValTy, Legit]
+  rw [ite_neg hn] at h
+  by_cases hn : name = "encodeRouteSegment"
+  · subst hn; rw [ite_pos rfl] at h
+    split at h <;> simp at h
+    subst h
+    obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv; rw [hws.nil_inv]
+    obtain ⟨_, rfl⟩ := hw.str_inv
+    simp only [stdlib]
+    split <;> simp [GoodR, ValTy, Legit]
+  rw [ite_neg hn] at h
+  exact stdlib_unsupported h
+
+theorem mapM_len_good {α β} {f : α → Result β} : ∀ {xs : List α}, (∀ x ∈ xs, ∃ y, f x = .ok y) →
+    GoodR (fun ys => ys.length = xs.length) (xs.mapM f)
+  | [], _ => rfl
+  | x :: xs, h => by
+    obtain ⟨y, hy⟩ := h x (by simp)
+    simp only [List.mapM_cons, hy]
+    exact GoodR.bind (P := fun _ => True) trivial fun _ _ =>
+      GoodR.bind (mapM_len_good fun z hz => h z (by simp [hz])) fun ys hys => by
+        simp [GoodR, pure, Except.pure, hys]
+
+/-- `path("route", args…)` of a declared route, one string or number per
+parameter: a string, or a refusal (a parameter that is empty, `.` or
+`..`). -/
+theorem pathValue_good {t : Route.Table} {name : String} {route : RouteDecl} {vs : List Value}
+    (hroute : t.find? (fun r => r.name == name && !r.notfound) = .some route)
+    (hvs : ∀ v ∈ vs, (∃ s, v = .str s) ∨ (∃ f, v = .num f))
+    (hlen : vs.length = patternParams route.pattern) :
+    GoodR (fun v => ∃ s, v = Value.str s) (Route.pathValue t name vs) := by
+  have go : ∀ (segs : List String) (first : Bool) (xs : List String),
+      (segs.filter (Route.startsWith · ':')).length ≤ xs.length →
+      GoodR (fun _ => True) (Route.pathValue.go first segs xs) := by
+    intro segs
+    induction segs with
+    | nil => intro first xs _; simp [Route.pathValue.go, GoodR]
+    | cons seg segs ih =>
+      intro first xs hle
+      simp only [Route.pathValue.go]
+      by_cases hc : Route.startsWith seg ':' = true
+      · simp only [List.filter_cons, hc, ite_true, List.length_cons] at hle
+        cases xs with
+        | nil => simp at hle
+        | cons x xs =>
+          simp only [List.length_cons] at hle
+          simp only [hc, ite_true]
+          split
+          · exact GoodR.bind (P := fun pv => pv.2 = xs) (by simp only [pure, Except.pure, GoodR])
+              fun pv hpv => by
+                rw [hpv]; exact GoodR.bind (ih false xs (by omega)) fun _ _ => trivial
+          · exact GoodR.bind (P := fun _ => False) (by simp [GoodR, Legit]) fun _ h => h.elim
+      · simp only [List.filter_cons, hc, Bool.false_eq_true, ite_false] at hle
+        simp only [hc, Bool.false_eq_true, ite_false]
+        exact GoodR.bind (P := fun pv => pv.2 = xs) (by simp only [pure, Except.pure, GoodR])
+          fun pv hpv => by rw [hpv]; exact GoodR.bind (ih false xs hle) fun _ _ => trivial
+  unfold Route.pathValue
+  simp only [hroute]
+  refine GoodR.bind (P := fun ss => ss.length = vs.length) (mapM_len_good fun v hv => ?_) ?_
+  · rcases hvs v hv with ⟨s, rfl⟩ | ⟨f, rfl⟩ <;> exact ⟨_, rfl⟩
+  intro ss hl
+  have hg := go (Route.split route.pattern '/') true ss (by simp only [patternParams] at hlen; omega)
+  revert hg
+  cases Route.pathValue.go true (Route.split route.pattern '/') ss with
+  | ok s => intro _; exact ⟨s, rfl⟩
+  | error e => intro hg; exact hg
+
 /-- A roster call on arguments of the types `rosterTy` takes answers a
 value of the type it gives, or is unsupported; never a type error. -/
 theorem stdlib_good {env : Env} {p : Program} {name : String} {vs : List Value} {ts : List Ty} {t : Ty}
-    (hv : ValTyL p vs ts) (h : rosterTy name ts = .some t) : GoodR (ValTy p · t) (stdlib env name vs) := by
+    (hp : env.prog = p) (hrs : routeShapesOK p = true) (hv : ValTyL p vs ts) (h : rosterTy name ts = .some t) : GoodR (ValTy p · t) (stdlib env name vs) := by
   delta rosterTy at h
   by_cases hn : name = "now"
   · subst hn; rw [ite_pos rfl] at h
@@ -238,7 +456,7 @@ theorem stdlib_good {env : Env} {p : Program} {name : String} {vs : List Value} 
       · exact absurd hw' ValTy.unknown
     next => simp at h
   rw [ite_neg hn] at h
-  exact stdlib_unsupported h
+  exact stdlib_router hp hrs hv h
 
 /-! ## Scopes and environments -/
 
@@ -255,9 +473,12 @@ def LocalsOK (p : Program) (Γ : Scope) (ls : Locals) : Prop :=
     | .none, .none => True
     | _, _ => False
 
-/-- Every `fn` body has its declared type in a scope of its parameters. -/
-def FnsOK (p : Program) : Prop :=
-  ∀ fd ∈ p.fns, ∃ t, HasTy p [] fd.params.reverse fd.body t ∧ t.le fd.ret = true
+/-- What evaluation needs of the program itself: every `fn` body has its
+declared type in a scope of its parameters, and the router shapes are
+`Contract.Route`'s. -/
+def ProgOK (p : Program) : Prop :=
+  (∀ fd ∈ p.fns, ∃ t, HasTy p [] fd.params.reverse fd.body t ∧ t.le fd.ret = true) ∧
+    routeShapesOK p = true
 
 /-- Where an evaluation runs: names and locals of their types; a `fn`
 body (`inFn`) reads no component name. -/
@@ -392,7 +613,42 @@ theorem binop_good {p : Program} {op : BinOp} {va vb : Value} {ta tb t : Ty}
       simp [binop, ValTy, GoodR]
     · simp at h
 
-theorem ty_sound_aux {p : Program} (hfn : FnsOK p) : ∀ n,
+theorem ListTy.length {p : Program} {G Γ} : ∀ {es ts}, ListTy p G Γ es ts → es.length = ts.length
+  | _, _, .nil => rfl
+  | _, _, .cons _ h => by simp [ListTy.length h]
+
+theorem ValTyL.length {p : Program} : ∀ {vs : List Value} {ts : List Ty}, ValTyL p vs ts → vs.length = ts.length
+  | [], [], _ => rfl
+  | _ :: _, _ :: _, h => by simp only [ValTyL] at h; simp [ValTyL.length h.2]
+  | [], _ :: _, h | _ :: _, [], h => by simp [ValTyL] at h
+
+theorem ValTyL.mem {p : Program} : ∀ {vs : List Value} {ts : List Ty} {P : Ty → Prop},
+    ValTyL p vs ts → (∀ t ∈ ts, P t) → ∀ v ∈ vs, ∃ t, P t ∧ ValTy p v t
+  | [], _, _, _, _, _, hv => by simp at hv
+  | v :: vs, t :: ts, P, h, hP, w, hw => by
+    simp only [ValTyL] at h
+    simp only [List.mem_cons] at hw
+    rcases hw with rfl | hw
+    · exact ⟨t, hP t (by simp), h.1⟩
+    · exact ValTyL.mem h.2 (fun u hu => hP u (by simp [hu])) w hw
+  | _ :: _, [], _, h, _, _, _ => by simp [ValTyL] at h
+
+/-- `path("route", args…)` on arguments of its types. -/
+theorem stdlib_path {env : Env} {p : Program} {rn : String} {route : RouteDecl}
+    {vs : List Value} {ts : List Ty} (hp : env.prog = p)
+    (hr : pathRoute p rn = .some route) (hv : ValTyL p vs ts)
+    (hts : ∀ t ∈ ts, (t.le .string || t.le .number) = true) (hlen : vs.length = patternParams route.pattern) :
+    GoodR (ValTy p · .string) (stdlib env "path" (.str rn :: vs)) := by
+  simp only [stdlib, hp]
+  refine (pathValue_good (route := route) hr ?_ hlen).mono fun w ⟨s, hs⟩ => by subst hs; simp [ValTy]
+  intro v hv'
+  obtain ⟨t, ht, hvt⟩ := ValTyL.mem hv hts v hv'
+  simp only [Bool.or_eq_true] at ht
+  rcases ht with ht | ht
+  · exact .inl (hvt.mono ht).str_inv
+  · exact .inr (hvt.mono ht).num_inv
+
+theorem ty_sound_aux {p : Program} (hfn : ProgOK p) : ∀ n,
     (∀ {G env inFn Γ ls e t}, Ctx p G env inFn Γ ls → HasTy p G Γ e t →
       GoodR (ValTy p · t) (eval n env inFn ls e)) ∧
     (∀ {G env inFn Γ ls es ts}, Ctx p G env inFn Γ ls → ListTy p G Γ es ts →
@@ -445,7 +701,7 @@ theorem ty_sound_aux {p : Program} (hfn : FnsOK p) : ∀ n,
       | fn hfd hargs hle =>
         simp only [eval, hp, hfd]
         refine GoodR.bind (ihL hc hargs) fun vs hvs => ?_
-        obtain ⟨tb, hb, hbl⟩ := hfn _ (List.mem_of_find?_eq_some hfd)
+        obtain ⟨tb, hb, hbl⟩ := hfn.1 _ (List.mem_of_find?_eq_some hfd)
         have hloc := (Agree.params hvs hle).reverse.localsOK
         exact (ihE ⟨⟨hp, fun x t h => by simp [lookupTy] at h⟩, fun _ => rfl, hloc⟩ hb).mono
           fun v hv => hv.mono hbl
@@ -479,10 +735,27 @@ theorem ty_sound_aux {p : Program} (hfn : FnsOK p) : ∀ n,
         · cases hargs with | cons _ h2 => cases h2 with | cons h3 _ => cases h3
         · cases hargs with | cons _ h2 => cases h2 with | cons h3 _ => cases h3
         · cases hargs with | cons _ h2 => cases h2 with | nil =>
-            delta rosterTy unsupportedTy at hr; simp at hr
+            delta rosterTy routerTy unsupportedTy at hr; simp at hr
         · cases hargs with | cons _ h2 => cases h2 with | nil =>
-            delta rosterTy unsupportedTy at hr; simp at hr
-        · exact GoodR.bind (ihL hc hargs) fun vs hvs => stdlib_good hvs hr
+            delta rosterTy routerTy unsupportedTy at hr; simp at hr
+        · exact GoodR.bind (ihL hc hargs) fun vs hvs => stdlib_good hp hfn.2 hvs hr
+      | path hfd hr hargs hts hlen =>
+        rename_i rn route args ts
+        simp only [eval, hp, hfd]
+        split
+        all_goals try (simp_all; done)
+        have hv0 := ihL (es := .str rn :: args) hc (.cons .str hargs)
+        cases hres : evalList n env inFn ls (.str rn :: args) with
+        | error e => simp only [hres] at hv0 ⊢; exact hv0
+        | ok vs =>
+          rw [hres] at hv0
+          cases evalList_sound hres with
+          | cons hE _ =>
+            cases hE
+            have hv1 : ValTyL p _ _ := hv0
+            simp only [ValTyL] at hv1
+            exact stdlib_path hp hr hv1.2 hts
+              (by rw [ValTyL.length hv1.2, ← ListTy.length hargs, hlen])
       | record hs hw hok _ =>
         simp only [eval]
         refine GoodR.bind (P := fun b => b = Option.none) rfl fun b hb => ?_
@@ -628,12 +901,12 @@ theorem ty_sound_aux {p : Program} (hfn : FnsOK p) : ∀ n,
 expression evaluated where its names and locals hold values of their types
 has a value of its type, or fails legitimately: never a type error, never
 an unbound name. -/
-theorem eval_sound_ty {p : Program} (hfn : FnsOK p) {n G env Γ ls e t}
+theorem eval_sound_ty {p : Program} (hfn : ProgOK p) {n G env Γ ls e t}
     (henv : EnvOK p G env) (hl : LocalsOK p Γ ls) (h : HasTy p G Γ e t) :
     GoodR (ValTy p · t) (eval n env false ls e) :=
   (ty_sound_aux hfn n).1 ⟨henv, by simp, hl⟩ h
 
-theorem evalList_sound_ty {p : Program} (hfn : FnsOK p) {n G env Γ ls es ts}
+theorem evalList_sound_ty {p : Program} (hfn : ProgOK p) {n G env Γ ls es ts}
     (henv : EnvOK p G env) (hl : LocalsOK p Γ ls) (h : ListTy p G Γ es ts) :
     GoodR (ValTyL p · ts) (evalList n env false ls es) :=
   (ty_sound_aux hfn n).2.1 ⟨henv, by simp, hl⟩ h
@@ -657,7 +930,7 @@ theorem isSlot_cases {p : Program} {x : String} (h : isSlot p x = true) :
     | some o => exact .inr ⟨s, hs, rfl, by simp [ho]⟩
   · exact .inl (.inr ⟨m, hm, rfl⟩)
 
-theorem exec_sound_aux {p : Program} (hfn : FnsOK p) {G : Scope} : ∀ n {env Γ ls ss fx},
+theorem exec_sound_aux {p : Program} (hfn : ProgOK p) {G : Scope} : ∀ n {env Γ ls ss fx},
     EnvOK p G env → LocalsOK p Γ ls → StmtsTy p G Γ ss → FxOK p fx →
     GoodR (FxOK p) (exec n env ls ss fx)
   | 0, _, _, _, _, _, _, _, _, _ => by simp [exec, GoodR, outOfFuel, Legit]
@@ -748,7 +1021,7 @@ theorem exec_sound_aux {p : Program} (hfn : FnsOK p) {G : Scope} : ∀ n {env Γ
 locals hold values of their types asks only for writes of values of the
 target slots' types (root and row writes alike) and sends to mutations, or
 fails legitimately: never a type error, never an unbound name. -/
-theorem exec_sound_ty {p : Program} (hfn : FnsOK p) {n G env Γ ls ss}
+theorem exec_sound_ty {p : Program} (hfn : ProgOK p) {n G env Γ ls ss}
     (henv : EnvOK p G env) (hl : LocalsOK p Γ ls) (h : StmtsTy p G Γ ss) :
     GoodR (FxOK p) (exec n env ls ss {}) :=
   exec_sound_aux hfn n henv hl h FxOK.empty
