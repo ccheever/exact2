@@ -1395,6 +1395,14 @@ impl<D: DataSource + Default> CanvasHost<D> {
     }
 }
 
+/// The pictures announced and not yet fetched: id, width, height.
+pub fn pending_pictures() -> Vec<[u32; 3]> {
+    pending()
+        .iter()
+        .map(|(id, p)| [*id, p.width(), p.height()])
+        .collect()
+}
+
 /// A picture announced by `IMAGE_DEF`, once (premultiplied RGBA rows).
 fn image(id: u32) -> Option<Picture> {
     pending().remove(&id)
