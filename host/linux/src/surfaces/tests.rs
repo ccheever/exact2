@@ -195,11 +195,12 @@ uint32_t test_input_count(void) { return event_count; }
 uint32_t gpu_input(uint32_t id, const unsigned char *text, size_t len) {
   if(len>=sizeof(event)) return 1; memcpy(previous_event,event,sizeof(event)); memcpy(event,text,len);event[len]=0;
   event_id=id; event_count++;
+  if (id == 97 && strstr(event,"wheel")) return 1;
   if (strstr(event,"RejectKey")) return 1;
   if (strstr(event,"cancel") || strstr(event,"blur")) cancels++;
   return strstr(event,"control") && !strstr(event,"jump") ? 1 : 0;
 }
-uint32_t gpu_wants_input(void) { return 1; }
+uint32_t gpu_wants_input(uint32_t id) { return id != 98; }
 uint32_t gpu_assets(void) { return 0; }
 bool gpu_asset(void) { return true; }
 uint32_t gpu_published(void) { return 268435457; }
