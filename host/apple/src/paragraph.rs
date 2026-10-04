@@ -34,13 +34,16 @@ impl<D: DataSource> Host<D> {
     /// with a fill and authored width and height in points. Its points go as
     /// `faceBoxSize` `"WxH"`, because a header the bar replaces is laid out
     /// as `display: none`, so no frame tells the host the size the author
-    /// gave it. The test reads the node alone, never its ancestors or its
-    /// children: a box moved into or out of a header needs no
-    /// recomputation, and initials beside a status dot are still a face.
+    /// gave it. The test reads the node alone, never its ancestors, and of
+    /// its children only that there are some: a box moved into or out of a
+    /// header needs no recomputation, and initials beside a status dot are
+    /// still a face.
     fn face_box_size(&self, id: ViewId) -> Option<String> {
         let kernel = self.runner.kernel();
         let node = kernel.node(id)?;
-        if node.node_type != NodeType::View {
+        // A childless box is decoration (a dot), not a face, and stays a
+        // flat leaf (`FlatLeavesIOS` admits no props but `dataset`).
+        if node.node_type != NodeType::View || kernel.arena().children(node.key.index).is_empty() {
             return None;
         }
         let (exact_kernel::Dimension::Points(w), exact_kernel::Dimension::Points(h)) =
