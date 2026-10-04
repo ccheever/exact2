@@ -84,6 +84,10 @@ pub struct Bridge<D: DataSource> {
     pub(crate) pan: crate::pan_velocity::PanVelocity,
     /// Canvas draws in a turn of their own (LLP 1072 §8.5), in each host booted.
     canvas_deferred: bool,
+    /// The display preferences last told (`set_preferences`), kept across
+    /// boots: a runner booted later lays out its first frame with them, not
+    /// with a mouse's defaults and then again.
+    preferences: exact_runner::Preferences,
     input: Vec<u8>,
     output: Vec<u8>,
 }
@@ -120,6 +124,7 @@ impl<D: DataSource> Bridge<D> {
             app_call: None,
             pan: crate::pan_velocity::PanVelocity::new(),
             canvas_deferred: false,
+            preferences: exact_runner::Preferences::NONE,
             input: Vec::new(),
             output: Vec::new(),
         }
@@ -206,6 +211,14 @@ impl<D: DataSource> Bridge<D> {
     pub fn refuse_analysis(&mut self) -> Option<u32> {
         let why = exact_runner::delivery::refuse_analysis(self.compat?).err()?;
         Some(self.refuse_preparation(why))
+    }
+
+    /// A boot's first viewport: the size, and the preferences last told.
+    fn boot_viewport(&self, width: f32, height: f32) -> exact_runner::Viewport {
+        exact_runner::Viewport {
+            preferences: self.preferences,
+            ..exact_runner::Viewport::sized(width as f64, height as f64)
+        }
     }
 
     fn emit(&mut self, mut s: String) -> u32 {
@@ -466,8 +479,7 @@ impl<D: DataSource> Bridge<D> {
             plan,
             data,
             measurer,
-            width,
-            height,
+            self.boot_viewport(width, height),
             None,
             snapshot,
             secrets,
@@ -740,8 +752,7 @@ impl<D: DataSource> Bridge<D> {
             PlanBytes::Copied(&plan),
             data,
             measurer,
-            width,
-            height,
+            self.boot_viewport(width, height),
             carried.as_ref(),
             snapshot,
             secrets,
@@ -1131,6 +1142,7 @@ impl<D: DataSource> Bridge<D> {
     /// system.
     pub fn set_preferences(&mut self, bits: u32) -> u32 {
         let preferences = exact_runner::Preferences::from_bits(bits);
+        self.preferences = preferences;
         let out = self
             .host
             .as_mut()

@@ -252,8 +252,7 @@ impl<D: DataSource> Host<D> {
             PlanBytes::Copied(plan_bytes),
             data,
             measurer,
-            width,
-            height,
+            exact_runner::Viewport::sized(width as f64, height as f64),
             carried,
             snapshot,
             secrets,
@@ -276,8 +275,7 @@ impl<D: DataSource> Host<D> {
         plan_bytes: PlanBytes<'_>,
         data: D,
         measurer: Box<dyn TextMeasurer>,
-        width: f32,
-        height: f32,
+        viewport: exact_runner::Viewport,
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
         secrets: Option<Platform>,
@@ -292,8 +290,7 @@ impl<D: DataSource> Host<D> {
             plan_bytes,
             data,
             measurer,
-            width,
-            height,
+            viewport,
             carried,
             snapshot,
             secrets,
@@ -312,8 +309,7 @@ impl<D: DataSource> Host<D> {
         plan_bytes: PlanBytes<'_>,
         data: D,
         measurer: Box<dyn TextMeasurer>,
-        width: f32,
-        height: f32,
+        viewport: exact_runner::Viewport,
         carried: Option<&Carried>,
         snapshot: Vec<(String, String)>,
         secrets: Option<Platform>,
@@ -350,14 +346,7 @@ impl<D: DataSource> Host<D> {
             facts
         });
         let mut runner = Runner::boot_with_delivery(
-            plan,
-            data,
-            kernel,
-            carried,
-            snapshot,
-            facts,
-            exact_runner::Viewport::sized(width as f64, height as f64),
-            launch,
+            plan, data, kernel, carried, snapshot, facts, viewport, launch,
         )
         .map_err(HostError::Runner)?;
         // @ref LLP 1079 D1 — a development build measures its work.
@@ -431,7 +420,7 @@ impl<D: DataSource> Host<D> {
             height_target_passes: 0,
             #[cfg(test)]
             layout_calls: 0,
-            viewport: (width, height),
+            viewport: (viewport.width as f32, viewport.height as f32),
             now_ms: 0.0,
             data_activated: false,
             secrets,

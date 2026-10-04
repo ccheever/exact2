@@ -733,6 +733,7 @@ public final class ExactSession {
     @discardableResult
     public func boot(size: CGSize) -> Batch {
         let t = CACurrentMediaTime()
+        primePreferences()
         if let bytes = app.lastPlan {
             // A selected launch can crash in runner/font/asset preparation.
             // Record the attempt first; an integrity refusal clears it below.
@@ -757,6 +758,7 @@ public final class ExactSession {
     @discardableResult
     public func boot(plan bytes: Data, size: CGSize) -> Batch {
         let t = CACurrentMediaTime()
+        primePreferences()
         let cp = text.checkpoint()
         let batch = runtime.bootPlan(bytes, width: size.width, height: size.height)
         if batch.error == nil { updateToken = 0; app.invalidateDevGeneration() }
@@ -1134,6 +1136,16 @@ public final class ExactSession {
     /// frame on screen already reads the user's preferences.
     func tellPreferences() {
         guard booted, state != .destroyed else { return }
+        apply(runtime.setPreferences(preferenceBits()))
+    }
+    /// Before a first boot the runtime keeps them, so the first frame is laid
+    /// out with the device's preferences rather than a mouse's and then again
+    /// (`pointer: none` on tvOS sets a different layout).
+    private func primePreferences() {
+        guard !booted, state != .destroyed else { return }
+        _ = runtime.setPreferences(preferenceBits())
+    }
+    private func preferenceBits() -> UInt32 {
         #if os(iOS) || os(tvOS)
         // The scene owns system appearance; a window's app override does not.
         if let scene = view?.window?.windowScene {
@@ -1143,7 +1155,7 @@ public final class ExactSession {
         #else
         let dark = DisplayPreferences.systemDark
         #endif
-        apply(runtime.setPreferences(DisplayPreferences.bits(systemDark: dark)))
+        return DisplayPreferences.bits(systemDark: dark)
     }
     /// @ref LLP 1069.000 D2 — told after every boot and on each change; a
     /// change while iOS suspends the process lands with the foreground
