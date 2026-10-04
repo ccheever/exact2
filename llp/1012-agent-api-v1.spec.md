@@ -190,7 +190,9 @@ responses; the public operations are unchanged.
 
 Public: what `scripts/agent.mjs` exposes as a session (`open({host, plan,
 size})`), and what the CLI runs one per argument. A target is a `testId`
-(first in preorder) or a view id; the driver resolves it through `tree`, so a
+(first in preorder on a selected route of a selected tab; a covered screen's or
+an unselected tab's copy only when no active one carries it, flagged `inactive`
+in `tree`) or a view id; the driver resolves it through `tree`, so a
 host input path only ever sees a view id. LLP 1038 D5/D11: on native, `--url` with an
 app scheme or path supplies the cold launch location; HTTP(S) retains the
 development-plan locator form only and never supplies a launch location. Apple uses the
@@ -198,7 +200,7 @@ same pre-boot fact as the OS callbacks; Linux receives the URL as argv.
 
 `tree <target>` (library `tree(target)`) returns the target and its descendants.
 The wire request adds `target`, a numeric view id or string `testId`; repeated
-`testId`s select the first node in live structural preorder. Missing, retired,
+`testId`s select the first active node in live structural preorder. Missing, retired,
 and malformed targets are refused. `roots` names the selected node; node fields,
 including the real parent and absolute tree depth, match the full response.
 The text renderer removes only the common leading indentation. Without a target,

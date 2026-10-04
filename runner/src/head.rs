@@ -72,8 +72,9 @@ impl<D: DataSource> Runner<D> {
     }
 
     /// Whether `id` lies under a route its navigation root has not selected:
-    /// a screen a stack keeps mounted under its top, which every host hides
-    /// and makes inert, so nothing there is pressed or read.
+    /// a screen a stack keeps mounted under its top, or any screen of a tab
+    /// that is not the selected one (LLP 1075.003 §3.7; shop F16), which
+    /// every host hides and makes inert, so nothing there is pressed or read.
     pub fn inactive(&self, id: ViewId) -> bool {
         let kernel = self.kernel();
         let node = |id: ViewId| {
@@ -81,14 +82,15 @@ impl<D: DataSource> Runner<D> {
                 .node(id)
                 .map(|n| (n.node_type, n.props, n.children()))
         };
-        let mut child = id;
+        let mut path = vec![id];
         let mut parent = kernel.node(id).and_then(|node| node.parent);
         while let Some(at) = parent.and_then(|id| kernel.node(id)) {
-            let selected = node(at.id).and_then(|n| selected_route(&node, &n));
-            if covered(&node, selected, child) {
-                return true;
+            if let Some(n) = node(at.id) {
+                if unselected(&node, &n).iter().any(|off| path.contains(off)) {
+                    return true;
+                }
             }
-            child = at.id;
+            path.push(at.id);
             parent = at.parent;
         }
         false
@@ -172,4 +174,94 @@ fn covered<'a>(
             .and_then(|(_, c, _)| c.str(PropId::NavigationKey))
             .is_some_and(|route| route != key)
     })
+}
+
+/// What a navigation root leaves unselected, as every host's projection
+/// hides it (LLP 1075.003 §3.7, host/web/navigation.js `project`): with
+/// tabs — the tabpanels its own tablist's tabs name with `aria-controls` —
+/// every panel but the one whose routes hold the selected key, and that
+/// panel's other routes; without, its other direct routes. Empty for any
+/// other node, and where the key names no route.
+fn unselected<'a>(
+    node: &impl Fn(ViewId) -> Option<HeadNode<'a>>,
+    at: &HeadNode<'a>,
+) -> Vec<ViewId> {
+    let Some(key) =
+        at.1.str(PropId::NavigationBack)
+            .and(at.1.str(PropId::NavigationKey))
+    else {
+        return Vec::new();
+    };
+    let key_of = |id: ViewId| node(id).and_then(|(_, p, _)| p.str(PropId::NavigationKey));
+    let routes = |ids: &[ViewId]| -> Vec<ViewId> {
+        ids.iter()
+            .copied()
+            .filter(|r| key_of(*r).is_some())
+            .collect()
+    };
+    let panels = tab_panels(node, &at.2);
+    let stacks: Vec<Vec<ViewId>> = if panels.is_empty() {
+        vec![routes(&at.2)]
+    } else {
+        panels
+            .iter()
+            .map(|p| node(*p).map(|(_, _, c)| routes(&c)).unwrap_or_default())
+            .collect()
+    };
+    let Some(selected) = stacks
+        .iter()
+        .position(|rs| rs.iter().any(|r| key_of(*r) == Some(key)))
+    else {
+        return Vec::new();
+    };
+    let mut off: Vec<ViewId> = panels
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != selected)
+        .map(|(_, p)| *p)
+        .collect();
+    off.extend(stacks[selected].iter().filter(|r| key_of(**r) != Some(key)));
+    off
+}
+
+/// A navigation root's tabpanels, in tab order: those its own tablist's
+/// tabs name with `aria-controls` (the browser's `panelsOf`; the Linux
+/// host's `tab_panels`). A tablist inside a route is that route's.
+fn tab_panels<'a>(
+    node: &impl Fn(ViewId) -> Option<HeadNode<'a>>,
+    children: &[ViewId],
+) -> Vec<ViewId> {
+    let (mut lists, mut panels, mut stack) = (Vec::new(), Vec::new(), children.to_vec());
+    stack.reverse();
+    while let Some(id) = stack.pop() {
+        let Some((_, props, kids)) = node(id) else {
+            continue;
+        };
+        let role = props.str(PropId::AccessibilityRole);
+        match role {
+            Some("tabpanel") => panels.push((id, props.str(PropId::Id))),
+            Some("tablist") => lists.push(kids.clone()),
+            _ => {}
+        }
+        if props.str(PropId::NavigationKey).is_none() && role != Some("tablist") {
+            stack.extend(kids.iter().rev());
+        }
+    }
+    lists
+        .iter()
+        .map(|tabs| -> Vec<ViewId> {
+            tabs.iter()
+                .filter_map(|t| node(*t))
+                .filter(|(_, p, _)| p.str(PropId::AccessibilityRole) == Some("tab"))
+                .filter_map(|(_, p, _)| p.str(PropId::AccessibilityControls))
+                .filter_map(|name| {
+                    panels
+                        .iter()
+                        .find(|(_, id)| *id == Some(name))
+                        .map(|(p, _)| *p)
+                })
+                .collect()
+        })
+        .find(|named| !named.is_empty())
+        .unwrap_or_default()
 }
