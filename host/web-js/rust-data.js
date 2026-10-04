@@ -1,6 +1,6 @@
 import { admitsSecret, createRequestExecutor, fetchHostAsset, sameGrantDeclaration, setAppGrantSet } from './admission.js';
 import { rustGrantSet, tsGrantSet } from './admission-data.js';
-import { boundedHttpBody } from './http-body.js';
+import { boundedHttpBody, streamed } from './http-body.js';
 // A Rust data module on the JS runtime (LLP 1029.000's seam, ABI 3,
 // `logic/abi/src/lib.rs`): the app's importless module wasm and its plan's
 // declarations (`app.bind.plan`, the plan without the bake's answers),
@@ -119,6 +119,8 @@ export async function install(data, sources, load = p => fetchHostAsset(p).then(
       w.u32(pairs.length); for (const [k, v] of pairs) { w.str(k); w.str(v); }
       if (outcome) {
         if (outcome.storage) { w.u8(5); w.bytes(outcome.storage); }
+        // One message of a stream (LLP 1016.000), the ABI's tag 8.
+        else if (outcome.streamed) { const m = outcome.streamed; w.u8(8); w.str(m.event); w.str(m.id); w.str(m.data); w.u32(m.coalesced); }
         else if (outcome.failed) { w.u8(outcome.failed); w.str(outcome.message); }
         else { w.u8(0); w.u16(outcome.status); w.u32(outcome.headers.length); for (const [k, v] of outcome.headers) { w.str(k); w.str(v); } w.bytes(outcome.body); }
       }
@@ -138,7 +140,12 @@ export async function install(data, sources, load = p => fetchHostAsset(p).then(
   data.parse = (source, args, outcome, store) => callWith(4, source, args, store, outcome);
   // The host runs the request under this child's own authority. An absent
   // request scope is therefore the Rust child set, not the mixed-app union.
-  data.fetch = createRequestExecutor(data.appId ?? meta[0], rustGrantSet, boundedHttpBody);
+  // A stream (`Answer::stream`, LLP 1016.000) is the web host's own reader, under the same authority;
+  // its end is the outcome a single request's would be.
+  const run = createRequestExecutor(data.appId ?? meta[0], rustGrantSet, boundedHttpBody);
+  data.fetch = (req, message, controller) => !req.stream ? run(req) : streamed(req, rustGrantSet, message, controller).then(o => o.kind
+    ? { failed: o.kind, message: text.decode(o.body) }
+    : { status: o.status, headers: o.headers ? o.headers.split('\n').map(l => [l.slice(0, l.indexOf(': ')), l.slice(l.indexOf(': ') + 2)]) : [], body: o.body });
   // What a loaded capability needs of the module (canvas2d.js's draws).
   data.logic = { exports: e, session, writer, reader, encode, ABI };
   data.appId ??= meta[0];

@@ -8,6 +8,7 @@
 import * as source from '__APP_TS__';
 import { createSecretFacade, hasGrant, setAppGrantSet } from './admission.js';
 import { tsGrantSet } from './admission-data.js';
+import { answering } from './ts-fetch.js';
 import { sourceTypes } from './names.js';
 import { checkpoint, clock, commit, journal, painted, R, Resources } from './rt.js';
 __AUTH_IMPORT__
@@ -180,6 +181,25 @@ function storageOf(grants) {
     work: promise => Promise.resolve(promise),
   });
 }
+// A stream (LLP 1016.000; ts-fetch.js): the web host's reader (http-body.js,
+// loaded on first use) opens it under the module's grants, and the source's
+// `exactStream` maps each message, and the end, to the answer now, with the
+// event Hermes gives it (js/src/prelude.js `__exact_message`).
+const KINDS = ['Response', 'Network', 'Refused', 'Unsupported', 'Aborted'], said = new TextDecoder();
+const opener = ({ req, map }, conv) => (deliver, controller) => {
+  const value = event => {
+    try {
+      const v = map(event);
+      if (v && typeof v.then === 'function') throw new Error('exactStream answers each event now; it cannot await');
+      return { v: conv(v) };
+    } catch (e) { return { error: String(e?.message ?? e) }; }
+  };
+  return import('./http-body.js').then(({ streamed }) => streamed(req, tsGrantSet,
+    m => deliver({ ...value({ type: m.event || 'message', data: m.data, lastEventId: m.id, coalesced: m.coalesced }), coalesced: m.coalesced }), controller))
+    .then(o => value(o.kind
+      ? { type: 'error', data: '', lastEventId: '', coalesced: 0, kind: KINDS[o.kind], message: said.decode(o.body), status: 0 }
+      : { type: 'error', data: said.decode(o.body), lastEventId: '', coalesced: 0, kind: 'Response', message: `HTTP ${o.status}`, status: o.status }));
+};
 export function install(data, mixed = false, modules = null) {
   data.appId = source.appId;
   data.grants = setAppGrantSet(tsGrantSet);
@@ -210,10 +230,12 @@ export function install(data, mixed = false, modules = null) {
     // The store as the module sees it (LLP 1018): a read marks the answer.
     const seen = createSecretFacade(store, tsGrantSet, kept);
     asking = target ?? name; watching = name;
+    const call = answering.call = { stream: null };
     let r;
-    try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, storage, modules ? native : null); } finally { asking = ''; watching = null; }
+    try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, storage, modules ? native : null); } finally { asking = ''; watching = null; answering.call = null; }
     const target_ = target ?? name;
     const shaped = types ? v => checked(name, v, result) : v => v;
+    if (call.stream) return { stream: opener(call.stream, v => conv(shaped(v), result, target_)), store: seen.read };
     if (r && typeof r.then === 'function') return { promise: r.then(v => conv(shaped(v), result, target_)), store: seen.read };
     return { v: conv(shaped(r), result, target_), store: seen.read };
   };

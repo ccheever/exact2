@@ -37,6 +37,33 @@ test('a baked answer shows until the source is ready, then is asked; a settled o
   expect(asked).toEqual(['stamp', 'stamp']);
 });
 
+// An answer that keeps coming (LLP 1016.000): each message settles the
+// resource and keeps its ticket; it is pending, and in flight for `clock
+// settle`, only until its first message; new arguments let the ticket go, and
+// the stream closes once that commit stands; its end lets the ticket go.
+test('a stream answer settles per message, keeps its ticket, and closes when let go', async () => {
+  const { res, data, commit, sig, W, inflight, journal } = await import(resolve(dir, 'rt.js'));
+  const opened = [];
+  data.answer = (source, args) => ({ stream: (deliver, controller) => new Promise(end => opened.push({ args, deliver, end, controller })) });
+  const wave = sig(1);
+  let feed;
+  commit(() => { feed = res('feed', 'feed', () => [wave()], undefined, undefined, 'n', 0); feed(); });
+  expect([opened.length, feed.p(), inflight.n]).toEqual([1, true, 1]);
+  opened[0].deliver({ v: 7, coalesced: 0 });
+  expect([feed(), feed.p(), inflight.n]).toEqual([7, false, 0]);
+  opened[0].deliver({ v: 9, coalesced: 2 });
+  const t = feed.r.ticket;
+  expect([feed(), t.messages, t.coalesced, t.closed]).toEqual([9, 2, 2, undefined]);
+  commit(() => W(wave, 2));
+  expect([t.closed, opened[0].controller.signal.aborted, opened.length, opened[1].args]).toEqual([true, true, 2, [2]]);
+  expect(journal.some(l => l.endsWith(`close stream ${t.id}: its ticket was let go`))).toBe(true);
+  opened[0].deliver({ v: 100, coalesced: 0 }); // a closed stream's late message is nobody's
+  expect([feed(), feed.p()]).toEqual([9, true]);
+  opened[1].end({ v: -1 });
+  await new Promise(r => setTimeout(r, 0));
+  expect([feed(), feed.p(), feed.r.ticket, inflight.n]).toEqual([-1, false, null, 0]);
+});
+
 test('a key handler stops and prevents its event while a view transition holds the tree update', async () => {
   globalThis.requestAnimationFrame = f => setTimeout(f, 0);
   globalThis.document = { getElementById: () => ({}) };

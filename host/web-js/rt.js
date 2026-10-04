@@ -179,7 +179,7 @@ export function commit(f, what = "commit") {
     try { flush(); } catch (e) { Poisoned = true; say(`poisoned: ${e.message}`); console.error(e); return false; }
     settled(); if (!ok) return false;
     clock.epoch++; Store.persist();
-    for (const go of out) go(); for (const c of cmds) command(...c);
+    for (const go of out) go(); if (Open.size) closeLetGo(); for (const c of cmds) command(...c);
     // An answer's `then` is armed, due now, once however many land: the next advance runs it as its own commit (LLP 1016.001 D3).
     for (const m of landed) if (m.then) { m.due = clock.now; if (!clock.agent) drive(); }
     return true;
@@ -341,15 +341,36 @@ const sameReq = (a, b) => a && b && a.storage === b.storage && a.method === b.me
 export const inflight = { n: 0 };
 function send(t, land) {
   Out.push(() => {
-    inflight.n++;
+    inflight.n++; t.waiting = true;
     const started = performance.now();
-    const done = o => {
-      inflight.n--; t.elapsed = Math.max(0, Math.round(performance.now() - started));
-      say(`reply ${t.id}; wall ${t.elapsed} ms`); land(o);
+    // A stream's message (`more`) keeps its ticket; anything else ends it.
+    const done = (o, more) => {
+      if (t.closed) return;
+      if (t.waiting) { t.waiting = false; inflight.n--; }
+      t.elapsed = Math.max(0, Math.round(performance.now() - started));
+      if (more) { t.messages++; t.coalesced += (o.streamed ?? o).coalesced ?? 0; o.more = true; } else Open.delete(t);
+      say(`${more ? "message" : "reply"} ${t.id}; wall ${t.elapsed} ms`); land(o);
     };
-    if (t.req) data.fetch(t.req).then(done, e => done({ failed: 1, message: String(e?.message ?? e) }));
+    const failed = e => done({ failed: 1, message: String(e?.message ?? e) });
+    // An answer that keeps coming (LLP 1016.000): a Rust source's streamed request, or a TypeScript
+    // source's `exactStream` (ts-data.js). It is in flight until its first message (D5), then open
+    // until its end or until its ticket is let go (`Open`, after each commit).
+    if (t.stream || t.req?.stream) {
+      t.ctl = new AbortController(); t.messages = t.coalesced = 0; Open.add(t);
+      (t.stream ? t.stream(o => done(o, true), t.ctl) : data.fetch(t.req, m => done({ streamed: m }, true), t.ctl)).then(done, failed);
+    } else if (t.req) data.fetch(t.req).then(done, failed);
     else t.promise.then(v => done({ v }), e => done({ error: String(e?.message ?? e) }));
   });
+}
+/** Open streams: one whose ticket its resource or mutation let go (new arguments, `refresh`, a failure,
+ * its region ended) is closed once the commit that let it go stands, as the runner's forget path (D2). */
+const Open = new Set();
+function closeLetGo() {
+  for (const t of Open) if (!t.held() || t.r?.gone) {
+    Open.delete(t); t.closed = true; t.ctl.abort();
+    if (t.waiting) { t.waiting = false; inflight.n--; }
+    say(`close stream ${t.id}: its ticket was let go`);
+  }
 }
 function ask(source, args, name) {
   const a = data.reserved?.[source] ? { v: data.reserved[source](source, args, name) } : data.answer(source, args, Store, name);
@@ -359,14 +380,15 @@ function ask(source, args, name) {
  * promise's value, or the parse of the outcome). A data or shape refusal there (no answer, or one outside its shape) lets
  * the ticket go in a commit of its own, as the runner's `release_failed` (admission.rs): `gone` takes it out of pending. */
 function reply(t, name, source, held, f, next, gone) {
+  t.held = held;
   return o => {
     if (commit(() => {
       if (!held()) return say(`dropped reply for ${name}: ticket ${t.id} is no longer held`);
       let p;
       try { if (o.error !== undefined) throw new Failed(o.error); p = o.v !== undefined ? { v: o.v } : data.parse(source, t.args, o, Store); }
       catch (e) { throw e instanceof Failed ? e : new Failed(String(e?.message ?? e)); }
-      f(p);
-    }, `reply ${name}; wall ${t.elapsed} ms`) !== false || !(Refused instanceof Failed) || !held()) return;
+      f(p, o);
+    }, `${o.more ? "message" : "reply"} ${name}; wall ${t.elapsed} ms`) !== false || !(Refused instanceof Failed) || !held()) return;
     say(`request ${t.id} (${name}) failed and is no longer pending: ${next}`);
     gone(); commit(() => {}, "a failed request");
   };
@@ -392,9 +414,11 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     r.value = v; r.settled = a;
   };
   // A reply the source cannot take leaves the value, failed for its arguments (`r.failed`, the runner's `failed_args`).
-  const land = t => reply(t, name, source, () => r.ticket === t, p => {
-    if (p.req) { t.req = p.req; t.id = ++Ticket; send(t, land(t)); return; }
-    if (t.baked) say(revalidated(name, eq(p.v, r.value))); take(p.v, t.args); r.ticket = r.failed = null;
+  // A stream's message (`o.more`) is a settlement that keeps the ticket (LLP 1016.000 D1); a message
+  // that re-asks (a cursor across a gap) is a new ticket, the old one closed with the commit (`Open`).
+  const land = t => reply(t, name, source, () => r.ticket === t, (p, o) => {
+    if (p.req) { if (o.more) { const n = { id: ++Ticket, args: t.args, req: p.req, r }; r.ticket = n; send(n, land(n)); } else { t.req = p.req; t.id = ++Ticket; send(t, land(t)); } return; }
+    if (t.baked) say(revalidated(name, eq(p.v, r.value))); t.baked = false; take(p.v, t.args); r.failed = null; if (!o.more) r.ticket = null;
     W(pend, false); W(fail, null); W(ver, ver.n.v + 1);
   }, "it keeps its last value", () => { r.ticket = null; r.failed = t.args; write(pend.n, false); write(fail.n, t.args); });
   const m = memo(() => {
@@ -433,9 +457,9 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
       r.ticket.args = a;
       return r.value;
     }
-    if (ans && (ans.req || ans.promise)) {
+    if (ans && (ans.req || ans.promise || ans.stream)) {
       hold();
-      const t = { id: ++Ticket, args: a, req: ans.req, promise: ans.promise, baked }; if (baked) say(`${name} shows its build-time answer until its source answers`);
+      const t = { id: ++Ticket, args: a, req: ans.req, promise: ans.promise, stream: ans.stream, baked, r }; if (baked) say(`${name} shows its build-time answer until its source answers`);
       if (r.ticket) say(`forget ticket ${r.ticket.id} (${name})`);
       r.ticket = t; flag(pend, true); send(t, land(t));
       return r.value;
@@ -454,6 +478,7 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
     reread_: undo => { r.reread = true; flag(ver, ver.n.v + 1, undo); },
     revise: undo => { r.rev = true; flag(ver, ver.n.v + 1, undo); },
   });
+  onEnd(() => { r.gone = true; }); // its region ended: an open stream closes (`Open`)
   Resources.push(r);
   m.p = () => (m(), pend());
   m.f = () => (m(), fail() != null);
@@ -469,11 +494,11 @@ export function mut(name, slot, refreshes, type) {
   slot.n.m = m;
   const landWrite = (v, undo) => { slot.n.landing = 1; try { undo.push([slot.n, slot.n.v]); write(slot.n, v); } finally { slot.n.landing = 0; } Landed.push(m); };
   // A reply the source cannot take ends it unsent: its slot as it was, its `then` unarmed (`reply`).
-  const land = t => reply(t, name, t.source, () => m.ticket === t, p => {
-    if (p.req) { t.req = p.req; send(t, land(t)); return; }
+  const land = t => reply(t, name, t.source, () => m.ticket === t, (p, o) => {
+    if (p.req) { if (o.more) { const n = { id: ++Ticket, source: t.source, args: t.args, req: p.req }; m.ticket = n; send(n, land(n)); } else { t.req = p.req; send(t, land(t)); } return; }
     if (type && !conforms(p.v, type, [0], m.checked)) throw new Failed(`${name}: the answer does not conform to its shape`);
     m.checked = p.v;
-    m.ticket = null; W(pend, false);
+    if (!o.more) m.ticket = null; W(pend, false);
     slot.n.landing = 1; W(slot, p.v); Landed.push(m);
     for (const r of refreshes) R(r.r);
     queueMicrotask(() => { slot.n.landing = 0; });
@@ -486,8 +511,8 @@ export function mut(name, slot, refreshes, type) {
         if (type && !conforms(a.v, type, [0], m.checked)) throw new Refusal(`${name}: the answer does not conform to its shape`);
         m.checked = a.v;
         landWrite(a.v, undo);
-      } else if (a && (a.req || a.promise)) {
-        const t = { id: ++Ticket, source, args, req: a.req, promise: a.promise };
+      } else if (a && (a.req || a.promise || a.stream)) {
+        const t = { id: ++Ticket, source, args, req: a.req, promise: a.promise, stream: a.stream };
         m.ticket = t; undo.push([pend.n, pend.n.v]); write(pend.n, true); send(t, land(t));
       } else throw new Refusal(`${name}: its source is not ready`);
       for (const r of refreshes) r.r.reread_(undo);
