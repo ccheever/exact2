@@ -626,7 +626,7 @@ public final class ExactSession {
                 continue
             }
             let batch = next.batch
-            if !(batch.ops.isEmpty && batch.error == nil && batch.motion == frames.motion && batch.spatial == frames.spatial && batch.timerDueMs == timerDue && batch.canvasOwed == canvasOwed) {
+            if !(changesNothing(batch) && batch.timerDueMs == timerDue) {
                 apply(batch)
             }
             // A draw owed while this one ran, or one a tick left owed.
@@ -664,7 +664,7 @@ public final class ExactSession {
             // A report inside the built window commits nothing: while a list
             // moves that is most frames. Skip the presenter's finalization
             // pass for it, unless the clock or the motion it reports is news.
-            if batch.ops.isEmpty && batch.error == nil && batch.motion == frames.motion && batch.spatial == frames.spatial && batch.timerDueMs == timerDue && batch.canvasOwed == canvasOwed { return }
+            if changesNothing(batch) && batch.timerDueMs == timerDue { return }
             apply(batch)
         }
         presenter.onPress = { [unowned self] id in apply(runtime.press(id, held: presenter.pressHeld, now: now())) }
@@ -895,8 +895,32 @@ public final class ExactSession {
         apply(runtime.surfaceRecord(name, json))
     }
 
+    /// A batch that changes nothing the presenter shows: no ops, no error,
+    /// no control's viewless contents (`controls`, LLP 1069.011 §9), and the
+    /// motion, spatial, frame-task, canvas and owed-draw state as they stand.
+    /// Its timer deadline is the caller's to compare.
+    func changesNothing(_ batch: Batch) -> Bool {
+        batch.ops.isEmpty && !batch.controls && batch.error == nil && batch.canvasImages.isEmpty
+            && batch.motion == frames.motion && batch.spatial == frames.spatial && batch.canvasOwed == canvasOwed
+            && batch.canvas == frames.canvas2d && batch.frames == frames.tasks
+    }
+
+    /// A timer's batch. An app's timer that writes nothing (a poll that finds
+    /// no news) still commits a batch, with only its next deadline: that one
+    /// only moves the clock, as fills and list feedback already skip theirs,
+    /// instead of running the presenter's whole pass four times a second.
+    func applyTick(_ batch: Batch) {
+        guard !applying, !(fillInFlight || tickInFlight || canvasInFlight), changesNothing(batch) else { apply(batch); return }
+        timerDue = batch.timerDueMs
+        scheduleClock(due: batch.timerDueMs)
+    }
+
+    /// Batches that reached `apply` (`applyTick`'s tests read it).
+    private(set) var appliedBatches = 0
+
     func apply(_ batch: Batch) {
         guard state != .destroyed else { return }
+        appliedBatches += 1
         // A slice the owner committed before this batch applies first (T4).
         if !applying, !landing, fillInFlight || tickInFlight || canvasInFlight, hasPublished { landFill() }
         let outermost = !applying
@@ -1110,7 +1134,7 @@ public final class ExactSession {
             clockTimer = SessionClockTimer.schedule(after: delay / 1000) { [weak self] _ in
                 guard let self, state != .destroyed else { return }
                 clockTimer = nil
-                whenIdle { [weak self] in guard let self, state != .destroyed else { return }; followOffset(); apply(runtime.advance(now: now())) }
+                whenIdle { [weak self] in guard let self, state != .destroyed else { return }; followOffset(); applyTick(runtime.advance(now: now())) }
             }
         }
         frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)

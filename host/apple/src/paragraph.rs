@@ -208,6 +208,7 @@ impl<D: DataSource> Host<D> {
             return;
         }
         if self.option_part(id) {
+            batch.controls = true;
             let key = self.runner.kernel().node(id).expect("live").key;
             self.keys.insert(key, id);
             self.viewless_hook(id, "an option's content is its control's, not a view");
@@ -270,7 +271,12 @@ impl<D: DataSource> Host<D> {
     }
 
     pub(super) fn update(&mut self, id: ViewId, batch: &mut Batch) {
-        if self.svg.element(self.runner.kernel(), id).is_some() || self.option_part(id) {
+        if self.svg.element(self.runner.kernel(), id).is_some() {
+            return;
+        }
+        if self.option_part(id) {
+            // Its control reads it from the kernel: say so, as no op will.
+            batch.controls = true;
             return;
         }
         self.queue_layout(id);
@@ -325,6 +331,7 @@ impl<D: DataSource> Host<D> {
         }
         // A select's options are its menu's, not views (LLP 1069.001 D2).
         if node_type == NodeType::Control {
+            batch.controls = true;
             return;
         }
         let children = self.runner.kernel().node(id).expect("live").children();
