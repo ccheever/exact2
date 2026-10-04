@@ -235,10 +235,12 @@ impl<D: DataSource + Default + 'static> App<D> {
         // A keyboard command can change the cursor while the mouse is still.
         // Re-resolve the painted hit after the frame, including unmounts and HUDs.
         let cursor = if self.pointer_inside && self.focused {
-            match p.cursor_at(self.pointer.0, self.pointer.1) {
-                exact_kernel::Cursor::Crosshair => CursorIcon::Crosshair,
-                exact_kernel::Cursor::Auto | exact_kernel::Cursor::Default => CursorIcon::Default,
-            }
+            // A CSS keyword is winit's cursor name (cursor-icon parses
+            // CSS's); `auto` and `none` show the default arrow.
+            p.cursor_at(self.pointer.0, self.pointer.1)
+                .name()
+                .parse::<CursorIcon>()
+                .unwrap_or(CursorIcon::Default)
         } else {
             CursorIcon::Default
         };

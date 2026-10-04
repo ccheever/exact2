@@ -86,7 +86,14 @@ fn setting_the_insets_relayouts_the_nodes_that_read_them() {
         .compute_layout(1, Offer::definite(390.0, 844.0))
         .unwrap();
     assert!(kernel.set_env(Env::new(62.0, 0.0, 34.0, 0.0)).unwrap());
-    assert_eq!(kernel.env(), Env::new(62.0, 0.0, 34.0, 0.0));
+    assert_eq!(
+        kernel.env(),
+        Env {
+            viewport_width: 390.0,
+            viewport_height: 844.0,
+            ..Env::new(62.0, 0.0, 34.0, 0.0)
+        }
+    );
     let receipt = kernel
         .compute_layout(1, Offer::definite(390.0, 844.0))
         .unwrap();
@@ -419,4 +426,36 @@ fn segment_lengths_travel_the_wire() {
     );
     let bytes = other.export(None).unwrap();
     assert!(!bytes.is_empty());
+}
+
+#[test]
+fn viewport_lengths_resolve_against_the_window_and_follow_resize() {
+    let mut k = Kernel::with_monospace();
+    let mut root = StyleProps::default();
+    root.set_dynamic(StyleId::Width, &StyleValue::Text("50vw".into()))
+        .unwrap();
+    root.set_dynamic(StyleId::Height, &StyleValue::Text("25dvh".into()))
+        .unwrap();
+    root.set_dynamic(StyleId::PaddingTop, &StyleValue::Text("5vmin".into()))
+        .unwrap();
+    k.apply(
+        0,
+        1,
+        &[
+            Op::CreateView {
+                id: 1,
+                node_type: NodeType::View,
+            },
+            Op::SetStyle {
+                id: 1,
+                patch: Box::new(root),
+            },
+            Op::AttachRoot { id: 1 },
+        ],
+    )
+    .unwrap();
+    k.compute_layout(1, Offer::definite(800.0, 600.0)).unwrap();
+    assert_eq!(frame(&k, 1), (0.0, 0.0, 400.0, 180.0));
+    k.compute_layout(1, Offer::definite(400.0, 800.0)).unwrap();
+    assert_eq!(frame(&k, 1), (0.0, 0.0, 200.0, 220.0));
 }

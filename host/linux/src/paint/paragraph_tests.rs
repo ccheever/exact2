@@ -285,3 +285,48 @@ fn styled_paragraph_pixels_on_real_gpu_when_available() {
         }
     }
 }
+
+#[test]
+fn css_strike_through_changes_pixels_without_changing_layout() {
+    let mut plain = fixture("      text \"MMMM WWWW\" testId=\"line\" font-size=24\n");
+    let mut strike = fixture(
+        "      text \"MMMM WWWW\" testId=\"line\" font-size=24 text-decoration=\"line-through\"\n",
+    );
+    let frame = |p: &Presenter<NoData>| {
+        p.host()
+            .kernel()
+            .node_by_key(p.host().kernel().find_by_test_id("line")[0])
+            .unwrap()
+            .frame
+    };
+    assert_eq!(frame(&plain), frame(&strike));
+    let before = plain.frame();
+    let after = strike.frame();
+    assert_ne!(
+        before.data(),
+        after.data(),
+        "the decoration must actually paint"
+    );
+}
+
+#[test]
+fn html_maxlength_is_enforced_by_linux_typing() {
+    let plan = contract::compile("component App\n  state draft = \"\"\n  action edit(value: string)\n    draft = value\n  view\n    input value=draft input=edit maxlength=3 testId=\"limited\"\n").unwrap();
+    let (mut p, error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none());
+    let key = p.host().kernel().find_by_test_id("limited")[0];
+    let id = p.host().kernel().node_by_key(key).unwrap().id;
+    p.type_text(id, "a😀b").unwrap();
+    assert_eq!(
+        p.host().kernel().node(id).unwrap().props.str(PropId::Value),
+        Some("a😀")
+    );
+}

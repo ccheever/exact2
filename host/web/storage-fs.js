@@ -208,6 +208,13 @@ export function createFileStore(appId) {
       const contents = await run(false, records => file(records, path).contents, path);
       return contents instanceof Blob ? contents.arrayBuffer() : contents;
     },
+    // Trusted host only: a file as a Blob, for an `image` or `video` source
+    // (LLP 1069.002 D7), and when it last changed. A picked entry is its File.
+    async blob(path, type) {
+      path = normalizePath(path);
+      const { contents, modifiedMs } = await run(false, records => file(records, path), path);
+      return { blob: contents instanceof Blob ? contents : new Blob([contents], { type }), modifiedMs };
+    },
     // Trusted host only: a picked file's entry, backed by the browser's File
     // rather than bytes read into memory (LLP 1069.002 D5).
     putBlob(path, blob) {

@@ -9,7 +9,6 @@
 //!
 //! An engine fault is never a panic: it is recorded, reported as
 //! [`LayoutError::Engine`], and the kernel rebuilds the tree from the columns.
-
 #[cfg(test)]
 mod containment_tests;
 mod hoist;
@@ -991,6 +990,19 @@ impl LayoutTree {
                         });
                         metrics
                     };
+                    let mut metrics = metrics;
+                    if arena.node_type(slot) == NodeType::TextInput
+                        && arena.style(slot).field_sizing == FieldSizing::Fixed
+                        && arena.props(slot).str(crate::PropId::SemanticTag) == Some("textarea")
+                    {
+                        let rows = arena
+                            .props(slot)
+                            .get(crate::PropId::Rows)
+                            .and_then(crate::PropValue::as_int)
+                            .filter(|n| *n > 0)
+                            .unwrap_or(2);
+                        metrics.height *= rows as f32 / 2.0;
+                    }
                     first_baseline = metrics.first_baseline;
                     Size {
                         width: metrics.width,

@@ -182,6 +182,9 @@ impl<'a> Reader<'a> {
                 crate::style::env::decode(kind, value, x, y)
                     .ok_or(DecodeError::UnknownDimensionKind(kind))?
             }
+            14..=23 => {
+                Dimension::Viewport(crate::style::ViewportUnit::ALL[(kind - 14) as usize], value)
+            }
             other => return Err(DecodeError::UnknownDimensionKind(other)),
         };
         if kind != 0 && !dim.is_finite() {
@@ -482,6 +485,10 @@ impl Writer {
                 self.u8(0);
                 self.f32(0.0);
             }
+            Dimension::Viewport(unit, v) => {
+                self.u8(14 + unit as u8);
+                self.f32(v);
+            }
             Dimension::Points(v) => {
                 self.u8(1);
                 self.f32(v);
@@ -646,7 +653,7 @@ mod tests {
         // build.rs hashes the production codec sources beside the canonical
         // schema. The literal makes an accidental removal of that coupling a
         // test failure whenever the byte snapshot above is intentionally moved.
-        assert_eq!(SCHEMA_DIGEST, 0x6b94_7c78_7732_7e48);
+        assert_eq!(SCHEMA_DIGEST, 0x1b94_d1a6_08e1_8ef6);
     }
 
     #[test]
@@ -702,10 +709,10 @@ mod tests {
                 Ok(Dimension::Env(*edge, i as f32 * 1.5))
             );
         }
-        let mut r = Reader::new(&[14u8, 0, 0, 0, 0]);
+        let mut r = Reader::new(&[24u8, 0, 0, 0, 0]);
         assert_eq!(
             r.dimension(StyleId::Width, true),
-            Err(DecodeError::UnknownDimensionKind(14))
+            Err(DecodeError::UnknownDimensionKind(24))
         );
     }
 
@@ -822,5 +829,23 @@ mod tests {
         w.bytes(&[0xff, 0xfe]);
         let bytes = w.into_vec();
         assert_eq!(Reader::new(&bytes).string(), Err(DecodeError::InvalidUtf8));
+    }
+}
+
+#[cfg(test)]
+mod viewport_tests {
+    use super::*;
+    #[test]
+    fn viewport_dimensions_round_trip() {
+        for unit in crate::ViewportUnit::ALL {
+            let value = Dimension::Viewport(unit, 10.0);
+            let mut writer = Writer::new();
+            writer.dimension(value);
+            let bytes = writer.into_vec();
+            assert_eq!(
+                Reader::new(&bytes).dimension(StyleId::Width, true).unwrap(),
+                value
+            );
+        }
     }
 }

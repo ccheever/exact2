@@ -1165,3 +1165,16 @@ component A
     let a = 1
   view
     text "a"
+---
+== lower-reorder-collection
+component A
+  state moved = ""
+  resource rows = rows() as shape list<string>
+  action drop(item: string, before: option<string>)
+    moved = item
+  view
+    list id="cities" reorderdrop=drop height=300
+      each city in rows key=city
+        row
+          box reorderFor="cities" width=24 height=24
+          text city

@@ -4,8 +4,9 @@
 // dynamic source names a role from `table`, the plan's own strings that are
 // roles, or, for one its data names (ledger diary F10), from every role,
 // loaded once (`symbol-roles.js`, the build's). Imported by an app's module
-// only when its plan draws a symbol.
-import { After, PropHooks, inflight, journal, clock } from "./rt.js";
+// only when its plan draws a symbol, binds an image's source, or names an
+// `app:/` file (below).
+import { After, PropHooks, inflight, journal, clock, data } from "./rt.js";
 
 let Table = {}, All = null; // every role: not asked for, loading, or loaded (true)
 const draw = (e, role) => { const [path, filled] = Table[role] ?? [""]; e.setAttribute("data-symbol-path", path); e.toggleAttribute("data-symbol-fill", !!filled); };
@@ -24,13 +25,43 @@ export function symbols(table) {
   if (typeof document === "undefined") return;
   document.head.append(Object.assign(document.createElement("style"), { textContent: STYLE }));
   PropHooks.src = (e, v) => {
-    if (e.localName !== "img" || !v?.startsWith("symbol:")) { e.removeAttribute("data-symbol-path"); e.removeAttribute("data-symbol-fill"); e.removeAttribute("data-symbol-source"); e.symbolKey = null; template(e, v); return false; }
+    // A source that is no longer a symbol drops the symbol's rendering first,
+    // so neither `refresh` nor the role table's late load paints it back over
+    // what the new source shows (an `app:/` file lands asynchronously).
+    if (!v?.startsWith("symbol:")) unsymbol(e);
+    if (e.localName === "img" && v?.startsWith("app:/")) { appSource(e, v); return true; }
+    if (e.localName === "img" && e.$app) { e.$app = null; e.removeAttribute("data-app-src"); }
+    // A `data:` source past its bound shows nothing, as on every host (LLP 1011 §2; exact_raster::MAX_DATA_URL_BYTES).
+    if (e.localName === "img" && v?.startsWith("data:") && v.length > DATA_LIMIT) { journal.push(`t=${clock.now} image refused: a data: source is over ${DATA_LIMIT} bytes`); e.removeAttribute("src"); return true; }
+    if (e.localName !== "img" || !v?.startsWith("symbol:")) { template(e, v); return false; }
     template(e, null);
     if (!Table[v.slice(7)] && !All && !v.startsWith("symbol:sf/")) everyRole();
     e.setAttribute("data-symbol-source", v); draw(e, v.slice(7)); e.alt = "";
     return true;
   };
   After.push(refresh);
+}
+function unsymbol(e) {
+  if (!e.hasAttribute?.("data-symbol-source") && !e.hasAttribute?.("data-symbol-path")) return;
+  for (const a of ["data-symbol-path", "data-symbol-fill", "data-symbol-source"]) e.removeAttribute(a);
+  e.style.removeProperty("--exact-symbol-mask"); e.style.removeProperty("--exact-symbol-fit");
+  if (e.getAttribute("src") === e.symbolPlaceholder) e.removeAttribute("src");
+  e.symbolKey = e.symbolMask = e.symbolPlaceholder = e.symbolRefusal = null;
+}
+// An `app:/` source (LLP 1069.002 D7): the app's own file — a picked one, or
+// one its data module kept in `app:/data` — shown as an object URL by the web
+// host's picker glue (`appURL`), as on the wasm host; counted in flight, so
+// `clock settle` waits for it. A literal source arrives as `data-app-src`.
+let Files = null;
+const DATA_LIMIT = 1024 * 1024;
+function appSource(e, v) {
+  e.$app = v;
+  if (e.getAttribute("data-app-src") !== v) e.setAttribute("data-app-src", v);
+  inflight.n++;
+  (Files ??= import(new URL("./picker-glue.js", import.meta.url).href).then(() => globalThis.exact.appURL))
+    .then(appURL => appURL(v, data.appId))
+    .then(url => { if (e.$app === v && e.getAttribute("src") !== url) { if (url) e.setAttribute("src", url); else e.removeAttribute("src"); template(e, url || null); } })
+    .catch(() => {}).finally(() => inflight.n--);
 }
 // A raster with a `tint-color` is a template (element.rs `host_css`, LLP
 // 1011 §3): its alpha masks the tint. A source that becomes a raster takes
@@ -49,6 +80,7 @@ function template(e, v) {
   if (fit === "scale-down") { const set = () => { const cs = getComputedStyle(e); e.style.setProperty("--exact-tint-fit", e.naturalWidth <= e.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) && e.naturalHeight <= e.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) ? "auto" : "contain"); }; if (e.complete) set(); else e.addEventListener("load", set, { once: true }); }
 }
 function refresh() {
+  for (const el of document.querySelectorAll("#exact-root img[data-app-src]")) if (el.$app === undefined) appSource(el, el.getAttribute("data-app-src"));
   for (const el of document.querySelectorAll("#exact-root img[data-symbol-path]")) {
     const cs = getComputedStyle(el), size = parseFloat(cs.fontSize), weight = Number(cs.fontWeight);
     const path = el.getAttribute("data-symbol-path"), filled = el.hasAttribute("data-symbol-fill"), key = `${path}:${filled}:${size}:${weight}`;

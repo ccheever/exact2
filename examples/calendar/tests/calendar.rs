@@ -229,7 +229,7 @@ impl App {
         self.event(test_id, Event::Input(value.into()));
     }
     fn key_press(&mut self, test_id: &str, name: &str) {
-        self.event(test_id, Event::Key(name.into()));
+        self.event(test_id, Event::key(name));
     }
     fn finish_motion(&mut self) {
         for _ in 0..72 {

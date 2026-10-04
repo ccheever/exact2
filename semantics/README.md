@@ -74,6 +74,55 @@ project, checks the proofs (the app proofs among them), checks the app
 embeddings are current, runs the corpus and a random sweep seeded by the
 commit.
 
+## Using it day to day
+
+None of this is a blocking check. Nothing needs Lean except these
+commands, and they say how to install it when it is missing (below,
+"Lean"). The first run builds the library (minutes, once per worktree);
+after that, Lean's observation of a case is kept under
+`target/difftest/cache/`, keyed by the case's embedding, oracle and
+events and by the semantics' sources, so a rerun only takes Lean time for
+what changed. Only `verify` and `quick` use the cache unless
+`DIFFTEST_CACHE=1`, and the async lane always runs Lean.
+
+**Writing an app.** `contract verify apps/<app>/app.contract` runs the
+app's `test` blocks (its own and those in `app.test.contract` beside it)
+plus an explore script, on the runner and on the semantics. A divergence
+names the step where the two first differ and the line of the test that
+step comes from, where the element it tapped is declared, and the slot,
+derive or element whose line differs:
+
+```
+DIVERGE apps/counter/app.contract: increments
+  at step 2: tap "add" (apps/counter/app.contract:22:3)
+  the element "add" is apps/counter/app.contract:17:7
+  count is declared at apps/counter/app.contract:3:3
+  runner: slot count 7
+  lean:   slot count 8
+```
+
+`OUTSIDE` means the semantics doesn't model a construct the app uses
+("What the semantics leaves out"), not that something is wrong. `NOTE`
+means a test's `expect` fails against the seeded oracle's data instead of
+the app's own, which is information and not a failure. `--types` also
+runs the Lean checker on the program. `--prove <Module>` regenerates
+`Apps/<Module>.lean` and builds `Apps/Proofs/<Module>.lean` (the next
+section). `contract verify` runs `cargo run -p contract-difftest --
+verify` in the checkout it was built from. Warm on a small app it takes
+a few seconds.
+
+**Changing the compiler, runner or semantics.** Before landing a change
+under `contract/`, `runner/`, `plan/` or `semantics/`, run
+`cargo run -p contract-difftest -- quick`. From the files changed since the
+merge base with origin/main (`--base <rev>` picks another base), it runs
+the corpus directories the changed files' names point at, or the whole
+corpus when the names point at no area. It also runs 40 random programs
+and the lowering check on 8, seeded by the base, so a branch's reruns are
+warm. Warm, it takes about 10 s. Cold, with the semantics changed so Lean
+reruns everything, it takes one to three minutes depending on load. It
+prints a command that reproduces each divergence. The async lane's
+`semantics` step is still the full run.
+
 ## Verifying an app
 
 An app is verified against its embedding, so the proofs are about the

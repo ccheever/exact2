@@ -541,7 +541,8 @@ pub fn run(seed: u64, count: usize, dir: &Path) -> Result<bool, String> {
     Ok(lean_refuses == 0 && lean_accepts == 0 && refused == 0)
 }
 
-fn build_checker() -> Result<(), String> {
+/// Build `Contract.TypeCheck`, which the checker modules import.
+pub fn build_checker() -> Result<(), String> {
     let out = Command::new(leanrun::lake())
         .args(["build", "Contract.TypeCheck"])
         .current_dir(leanrun::project())

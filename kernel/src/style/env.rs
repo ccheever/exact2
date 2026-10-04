@@ -169,6 +169,10 @@ pub struct Env {
     pub rows: u8,
     /// The segments, row-major, `cols × rows` of them — empty for one segment.
     pub segments: Vec<Rect>,
+    /// Layout viewport width in points.
+    pub viewport_width: f32,
+    /// Layout viewport height in points.
+    pub viewport_height: f32,
 }
 
 impl Default for Env {
@@ -188,6 +192,8 @@ impl Env {
             cols: 1,
             rows: 1,
             segments: Vec::new(),
+            viewport_width: 0.0,
+            viewport_height: 0.0,
         }
     }
 
@@ -501,4 +507,39 @@ fn leading_length(body: &str) -> Result<Option<Dimension>, EnvRefusal> {
         Dimension::Segment(var, x, y, _) => Dimension::Segment(var, x, y, plus),
         other => other,
     }))
+}
+
+/// Whether a style reads a viewport or environment length.
+pub fn uses_env(style: &crate::StyleProps) -> bool {
+    style.mask.iter().any(|id| {
+        matches!(
+            style.get(id),
+            crate::RowValue::Dimension(
+                Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..)
+            )
+        )
+    })
+}
+
+impl Env {
+    pub(crate) fn with_viewport(&self, offer: crate::Offer) -> Self {
+        use crate::AxisOffer::Definite;
+        if !matches!((offer.width, offer.height), (Definite(w), Definite(h)) if w >= 0.0 && h >= 0.0)
+        {
+            return self.clone();
+        }
+        Self {
+            viewport_width: if let Definite(v) = offer.width {
+                v
+            } else {
+                self.viewport_width
+            },
+            viewport_height: if let Definite(v) = offer.height {
+                v
+            } else {
+                self.viewport_height
+            },
+            ..self.clone()
+        }
+    }
 }

@@ -59,6 +59,20 @@ pub(crate) fn control(
     tag: &str,
     attrs: &[contract_syntax::Attr],
 ) -> Result<Option<&'static str>, LowerError> {
+    if tag != "textarea" {
+        if let Some(a) = attrs.iter().find(|a| a.name == "rows") {
+            return err("lower-attr-tag", "HTML rows belongs to textarea", a.span);
+        }
+    }
+    if !matches!(tag, "input" | "textarea") {
+        if let Some(a) = attrs.iter().find(|a| a.name == "maxlength") {
+            return err(
+                "lower-attr-tag",
+                "HTML maxlength belongs to input or textarea",
+                a.span,
+            );
+        }
+    }
     // @ref LLP 1069.011 D1, D2 — a native button, and its style nowhere else.
     if tag == "button" && native_button(attrs)? {
         return Ok(Some("button"));

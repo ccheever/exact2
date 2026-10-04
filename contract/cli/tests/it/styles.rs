@@ -203,7 +203,7 @@ fn enum_refusals_list_accepted_values_and_each_suggestion_compiles() {
             "local",
         ),
         ("touch-action", StyleId::TouchAction, "swipe"),
-        ("cursor", StyleId::Cursor, "pointer"),
+        ("cursor", StyleId::Cursor, "hand"),
     ] {
         for named_style in [false, true] {
             let source = if named_style {
@@ -1142,5 +1142,232 @@ fn corner_radii_refuse_negative_nonfinite_lengths_percentages_and_auto() {
     for value in ["-1px", "-1%", "auto", "3e38in"] {
         let source = format!("component Corners\n  view\n    view border-radius=\"{value}\"\n");
         assert!(contract::compile(&source).is_err(), "{value}");
+    }
+}
+
+#[test]
+fn overflow_auto_is_a_scroll_container_on_either_axis() {
+    let r = boot("component App\n  view\n    column\n      box overflow=\"auto\" testId=\"both\"\n      box overflow-x=\"auto\" testId=\"x\"\n      box overflow-y=\"auto\" testId=\"y\"\n");
+    use exact_kernel::Overflow;
+    assert_eq!(style_of(&r, "both").overflow_x, Overflow::Auto);
+    assert_eq!(style_of(&r, "both").overflow_y, Overflow::Auto);
+    for name in ["both", "x", "y"] {
+        assert!(matches!(
+            style_of(&r, name).overflow_x,
+            Overflow::Auto | Overflow::Visible
+        ));
+    }
+}
+
+#[test]
+fn css_flex_shorthands_lower_in_order_to_the_longhands() {
+    for (value, grow, shrink, basis) in [
+        ("none", 0.0, 0.0, Dimension::Auto),
+        ("auto", 1.0, 1.0, Dimension::Auto),
+        ("0 1 auto", 0.0, 1.0, Dimension::Auto),
+        ("2", 2.0, 1.0, Dimension::Percent(0.0)),
+        ("2 3", 2.0, 3.0, Dimension::Percent(0.0)),
+        ("2 3 40px", 2.0, 3.0, Dimension::Points(40.0)),
+        ("25%", 1.0, 1.0, Dimension::Percent(25.0)),
+        ("40px 2 3", 2.0, 3.0, Dimension::Points(40.0)),
+        ("1 1 0", 1.0, 1.0, Dimension::Points(0.0)),
+    ] {
+        let r = boot(&format!(
+            "component App\n  view\n    column\n      box testId=\"item\" flex=\"{value}\"\n"
+        ));
+        let s = style_of(&r, "item");
+        assert_eq!(
+            (s.flex_grow, s.flex_shrink, s.flex_basis),
+            (grow, shrink, basis),
+            "{value}"
+        );
+    }
+    let r = boot("component App\n  state on = true\n  view\n    column\n      box testId=\"item\" flex=(on ? \"none\" : \"2 3 40px\") flex-shrink=4\n");
+    assert_eq!(style_of(&r, "item").flex_shrink, 4.0);
+    for value in ["-1", "1 -2 auto", "1 2 3px garbage", "1 2 3"] {
+        assert_eq!(refused(&format!("flex=\"{value}\"")).id, "lower-attr-value");
+    }
+}
+
+#[test]
+fn a_zero_minimum_scroller_can_shrink_under_a_bounded_column() {
+    for bound in ["height=200", "max-height=200", "max-height=\"100%\""] {
+        contract::compile(&format!("component App\n  view\n    column {bound}\n      scroll flex-shrink=1 min-height=0\n        box height=1000\n")).unwrap();
+    }
+    for parent in ["column", "box height=200"] {
+        let e = contract::compile(&format!(
+            "component App\n  view\n    {parent}\n      scroll flex-shrink=1 min-height=0\n"
+        ))
+        .unwrap_err();
+        assert_eq!(e.id, "lower-scroll-unbounded");
+    }
+}
+
+#[test]
+fn viewport_units_are_admitted_on_dimension_rows() {
+    for unit in exact_kernel::ViewportUnit::ALL {
+        let r = boot(&format!(
+            "component App\n  view\n    box width=\"50{}\" padding-top=\"5{}\" testId=\"item\"\n",
+            unit.name(),
+            unit.name()
+        ));
+        assert_eq!(style_of(&r, "item").width, Dimension::Viewport(unit, 50.0));
+    }
+}
+
+#[test]
+fn a_css_width_transition_names_the_engine_limit_not_a_syntax_error() {
+    let e = refused("transition=\"width 200ms ease\"");
+    assert_eq!(e.id, "lower-attr-value");
+    assert!(
+        e.message.contains("`width` is a CSS layout property"),
+        "{e}"
+    );
+    assert!(e.message.contains("layout per frame"), "{e}");
+    assert!(
+        e.message.contains("opacity") && e.message.contains("border-color"),
+        "{e}"
+    );
+    assert!(!e.message.contains("not a CSS"), "{e}");
+    let malformed = refused("transition=\"opacity 20ms gibberish\"");
+    assert!(malformed.message.contains("invalid transition components"));
+    for v in [
+        "opacity 200ms ease",
+        "border-color 200ms ease",
+        "stroke-dashoffset 200ms linear",
+        "height 200ms ease",
+    ] {
+        contract::compile(&format!(
+            "component App\n  view\n    box transition=\"{v}\"\n"
+        ))
+        .unwrap();
+    }
+}
+
+#[test]
+fn cursor_keywords_are_css_and_inherit() {
+    for value in exact_kernel::StyleId::Cursor.enum_names() {
+        let r = boot(&format!(
+            "component App\n  view\n    box cursor=\"{value}\"\n      box testId=\"child\"\n"
+        ));
+        let key = r.kernel().find_by_test_id("child")[0];
+        let node = r.kernel().node_by_key(key).unwrap();
+        assert_eq!(
+            node.computed(exact_kernel::StyleId::Cursor),
+            exact_kernel::RowValue::Enum(value)
+        );
+    }
+}
+
+#[test]
+fn css_font_fallback_lists_keep_every_member_in_order() {
+    let plan = contract::compile("component App\n  view\n    text \"Fallback\" font-family=\"Inter, system-ui, sans-serif\"\n").unwrap();
+    let stack = plan.stacks.last().unwrap();
+    let members: Vec<_> = stack
+        .members
+        .iter()
+        .map(|id| plan.stack_member(id).kind)
+        .collect();
+    assert_eq!(
+        members,
+        [
+            exact_plan::StackMemberKind::Family,
+            exact_plan::StackMemberKind::SystemUi,
+            exact_plan::StackMemberKind::SansSerif
+        ]
+    );
+    let family = plan.familie(
+        plan.stack_member(stack.members.iter().next().unwrap())
+            .family
+            .unwrap(),
+    );
+    assert_eq!(plan.str(family.name), "Inter");
+    assert_eq!(family.faces.len, 0, "a local family needs no bundled asset");
+}
+
+#[test]
+fn css_border_and_decoration_shorthands_reset_and_preserve_choices() {
+    let source = r##"style Card
+  border="2px solid #123456"
+component App
+  state done = false
+  action finish
+    done = true
+  view
+    column
+      button "Finish" press=finish testId="finish"
+      text "Card" class=Card border-top="thick #abcdef" border-bottom="solid" text-decoration=(done ? "underline line-through" : "none") testId="card"
+"##;
+    let plan = contract::bake(contract::compile(source).unwrap(), NoData).unwrap();
+    let mut runner = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let card = runner.kernel().find_by_test_id("card")[0];
+    let style = runner.kernel().node_by_key(card).unwrap().style;
+    assert_eq!(style.border_width_top, 5.0);
+    assert_eq!(style.border_style_top, exact_kernel::BorderStyle::None);
+    assert_eq!(style.border_width_right, 2.0);
+    assert_eq!(style.border_style_right, exact_kernel::BorderStyle::Solid);
+    assert_eq!(style.border_width_bottom, 3.0);
+    assert_eq!(
+        style.border_color_bottom, None,
+        "omitted color resets to currentcolor"
+    );
+    let button = runner.kernel().find_by_test_id("finish")[0];
+    runner
+        .dispatch(
+            runner.kernel().node_by_key(button).unwrap().id,
+            exact_runner::Event::Press,
+        )
+        .unwrap();
+    assert_eq!(
+        runner
+            .kernel()
+            .node_by_key(card)
+            .unwrap()
+            .style
+            .text_decoration_line,
+        exact_kernel::TextDecorationLine::UnderlineLineThrough
+    );
+}
+
+#[test]
+fn css_native_interaction_gaps_are_named_precisely() {
+    for (name, value, reason) in [
+        ("resize", "vertical", "user-controlled box geometry"),
+        ("user-select", "all", "selection ownership"),
+        ("border", "1px dashed red", "native painters"),
+        ("text-decoration", "underline wavy", "native text painters"),
+    ] {
+        let source = format!("component App\n  view\n    text \"x\" {name}=\"{value}\"\n");
+        let error = contract::compile(&source).unwrap_err().to_string();
+        assert!(error.contains(reason), "{error}");
+        assert!(!error.contains("unknown attribute"), "{error}");
+    }
+    contract::compile("component App\n  view\n    textarea rows=3 maxlength=5 resize=\"none\" user-select=\"none\"\n").unwrap();
+}
+
+#[test]
+fn css_flex_factor_order_and_intrinsic_basis_refusals_are_precise() {
+    let source = |value: &str| format!("component App\n  view\n    box flex=\"{value}\"\n");
+    assert!(
+        contract::compile(&source("0 auto 1")).is_err(),
+        "grow and shrink must be adjacent in CSS"
+    );
+    contract::compile(&source("20px 0 1")).unwrap();
+    contract::compile(&source("NONE")).unwrap();
+    for basis in ["content", "min-content", "max-content", "fit-content"] {
+        let error = contract::compile(&source(&format!("1 1 {basis}")))
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("intrinsic basis sizing") && error.contains("CSS flex-basis"),
+            "{error}"
+        );
     }
 }

@@ -266,6 +266,12 @@ In `app.ts`, use `import type { Sources, Answer } from './app.contract.d.ts'`.
 Annotate the provider map as `Sources`; each function takes `(args, store, storage)` and
 returns its declared result or a Promise of it. An `Answer` dispatcher can call
 `sources[source](args, store, storage)` without casts. `bun install --frozen-lockfile` installs the pinned `tsc`.
+An answer is held to its shape exactly, on every executor: each declared field
+present (an `undefined` one is missing, as `JSON.stringify` leaves it out), none
+undeclared at any depth, each value of its declared kind. TypeScript's excess
+property check misses a spread (`{ ...row, amount }` keeps `row`'s other fields),
+so the refusal is at run time, the same on the web as on a device:
+``` `ledger` answered outside its shape: field `days`: field `transactions`: field `cents` is not in the shape ```.
 Use a distinct filename: adjacent `app.ts` shadows an `app.d.ts` import.
 Generated declarations are build artifacts, not files to commit. A development
 build writes them beside `app.ts` for an editor: the web build and the native
@@ -301,9 +307,12 @@ on the web and these on Hermes (macOS, iOS, Linux):
 
 Not in a data module, by design (LLP 1027.000): timers (`setTimeout`,
 `setInterval`), `performance.now()`, `Date.now()`, `new Date()` without a value
-and `Math.random()`: time and seeds are source arguments. Hermes and the web's
-module realm refuse the clock and `Math.random` by name; the type check cannot
-see the difference, so an app that calls them builds and fails on a device.
+and `Math.random()`: time and seeds are source arguments. Every executor
+refuses them by name, with the same message, on first use: Hermes, the web's
+module realm, and the web build, whose bundler gives the app's own modules
+guarded `Date`, `Math`, `Intl`, timers and `performance` in place of the
+page's (LLP 1027.000 D3), so an app that reads the clock fails in the web loop
+as it would on a device. The type check cannot see the difference.
 ES2024's resizable `ArrayBuffer`, shared memory and the RegExp `v` flag are not
 in Hermes, so they are not in the library.
 
@@ -327,6 +336,28 @@ Use HTTPS or localhost for Web Locks. Data persists across reloads within the
 same browser origin, subject to browser storage retention and quota policies.
 An open database exclusively locks its file; conflicting opens or filesystem
 mutations return `Unavailable` with a busy message. Agent mode skips storage.
+
+In `app.ts`, a storage refusal is an `Error` with `kind: 'Unavailable'`, a `code` and a
+`message`. The code is the same on every host; the message says more and may
+differ. Storage itself is unavailable: `'bake'` (the build compiles no answer
+that reads storage; show a placeholder), `'agent'` (a scripted drive that names
+no scratch store, `--storage <name>`), `'unsupported'` (a host with no app
+storage). The operation was refused: `'denied'` (the grants do not cover it),
+the filesystem's POSIX name (`'ENOENT'`, `'EEXIST'`, `'ENOTDIR'`, `'EISDIR'`,
+`'ENOTEMPTY'`, `'EBUSY'`), else `'failed'`. Branch on the code, never the
+message: `catch (e) { if (e.code === 'ENOENT') return empty; throw e; }`.
+
+An answer's storage and `fetch` steps run whether or not it awaits them: a save
+started and not awaited (queued behind the module's own promise chain, say)
+lands on every host. In the browser the answer is given at once and the save
+finishes behind it; on Hermes the answer is given once the steps it started
+have landed (kanban F22). A storage or `fetch` call made when no answer is in
+flight is refused and logged, never silently dropped. An answer the runner
+lets go between storage steps (a refresh it discards before a mutation lands, a
+read whose arguments changed or that a `refresh` replaced) still runs the steps it began, and the chain
+behind them, to their end before the next answer starts; only its answer is
+dropped, so serializing storage through one promise chain composes with
+`refreshes` and fast-changing arguments (ledger F12, minesweeper F10).
 
 This first browser implementation targets modest app stores: filesystem
 operations read the app's file records, and each SQLite mutation atomically

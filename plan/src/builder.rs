@@ -276,8 +276,7 @@ impl PlanBuilder {
         KeyframesId(self.plan.keyframes.len() as u32 - 1)
     }
 
-    /// An ordered font stack. v1's semantic validator accepts one member;
-    /// the range keeps the format additive for authored cascade later.
+    /// An ordered CSS font fallback list (one to 64 members).
     pub fn font_stack(&mut self, members: &[(StackMemberKind, Option<FamiliesId>)]) -> StacksId {
         let start = self.plan.stack_members.len() as u32;
         for (kind, family) in members {

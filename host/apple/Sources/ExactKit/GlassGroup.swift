@@ -107,7 +107,7 @@ extension NodeView {
         guard props["glassGroup"] != nil else { return nil }
         if glassGroupSpacing == nil { return "spacing" }
         if materialRequest != nil { return "material" }
-        if scroll != nil || style["overflow_x"]?.string == "scroll" || style["overflow_y"]?.string == "scroll" { return "scroll" }
+        if scroll != nil || ["scroll", "auto"].contains(style["overflow_x"]?.string ?? "") || ["scroll", "auto"].contains(style["overflow_y"]?.string ?? "") { return "scroll" }
         if overlay != nil { return "canvas" }
         #if os(iOS) || os(tvOS)
         if #unavailable(iOS 26.0, tvOS 26.0) { return "os" }

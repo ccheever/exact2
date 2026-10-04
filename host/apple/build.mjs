@@ -859,10 +859,10 @@ async function main(args) {
     return step;
   };
   // A production binary whose plan is its own for good (store level 0) may
-  // make no canvas, and then has no use for the canvas module: its compile
-  // waits for the bake to say (below). Every other build starts it now.
+  // reach neither module, and then compiles neither: its build waits for the
+  // bake to say (below). Every other build starts both now.
   const fixedPlan = cargoProfile === 'release' && expected.composition === 'embedded';
-  const hostModules = embedOnly ? null : buildModules(['exact-svg-raster', ...(metal && !fixedPlan ? ['exact-canvas-vello'] : [])], 'host-modules.log');
+  const hostModules = embedOnly || fixedPlan ? null : buildModules(['exact-svg-raster', ...(metal ? ['exact-canvas-vello'] : [])], 'host-modules.log');
   const buildReceipt = contractLast(() => buildBake(app, ios ? 'ios' : 'macos', target, { env: cargoEnv, profile: cargoProfile, prepareGpu(product) {
     // Cargo puts its own unsigned file back on every build, and a signature
     // carries its signing time: signing in place made the app's bake (which
@@ -935,17 +935,22 @@ async function main(args) {
     if (!args.includes('--run') && !args.includes('--host')) return;
   }
   const t1 = Date.now();
-  // The Canvas 2D GPU module only where a canvas can be (LLP 1047 D1's loaded
-  // tier, by the plan's own rows): a production binary at store level 0 runs
-  // the plan it was baked with and no other, so when that plan makes no
-  // `Canvas` the module is neither compiled nor bundled, 3.9 MB of every
-  // bundle. Any other build carries it: a development plan or a later bundle
-  // may bring a canvas. Without the module a canvas draws with Core Graphics,
-  // as it does on a Mac with no Metal toolchain, so nothing is refused.
-  const makes = buildReceipt.graph.nodeTypes;
-  const canvasGpu = metal && !(cargoProfile === 'release' && level === '0' && Array.isArray(makes) && !makes.includes('Canvas'));
-  if (metal && !canvasGpu) console.log('host/apple: the plan makes no canvas and cannot change (production, store level 0): no Canvas 2D GPU module in this build');
-  const lateCanvas = canvasGpu && fixedPlan && !embedOnly ? buildModules(['exact-canvas-vello'], 'canvas-module.log') : null;
+  // The host's loaded modules only where the plan can reach them (LLP 1047
+  // D1's loaded tier; the bake's `loads`, by the runner's own rule for each):
+  // a production binary at store level 0 runs the plan it was baked with and
+  // no other, so a module that plan cannot reach is neither compiled nor
+  // bundled. The canvas module alone is 3.9 MB of every bundle. Any other
+  // build carries all four: a development plan or a later bundle may reach
+  // one. Nothing is refused for a module left out: each loader says by name
+  // that its module is absent, and a canvas then draws with Core Graphics.
+  const reaches = buildReceipt.graph.loads;
+  const settled = cargoProfile === 'release' && level === '0' && Array.isArray(reaches);
+  const carries = (module) => !settled || reaches.includes(module);
+  const leftOut = settled ? ['canvas', 'svg', 'video', 'web'].filter((module) => !reaches.includes(module)) : [];
+  if (leftOut.length) console.log(`host/apple: the plan cannot change (production, store level 0) and reaches no ${leftOut.join(', ')} module: left out of this build`);
+  const canvasGpu = metal && carries('canvas');
+  const lateCrates = fixedPlan && !embedOnly ? [...(carries('svg') ? ['exact-svg-raster'] : []), ...(canvasGpu ? ['exact-canvas-vello'] : [])] : [];
+  const lateModules = lateCrates.length ? buildModules(lateCrates, 'late-modules.log') : null;
   const env = swiftEnv(libDir, composition);
   // The products: the standalone app, and with --host the sample host too
   // (LLP 1031 D10 — the fixture the smoke drives).
@@ -1003,10 +1008,11 @@ async function main(args) {
   };
   const arms = [];
   // tvOS has no WebKit, so no iframe arm there.
-  if (!tv) arms.push(arm(webArgs, resolve(root, 'host/apple/webarm/WebArm.swift'), webBuilt));
+  const hasWeb = !tv && carries('web'), hasVideo = carries('video'), hasSvg = carries('svg');
+  if (hasWeb) arms.push(arm(webArgs, resolve(root, 'host/apple/webarm/WebArm.swift'), webBuilt));
   const videoBuilt = resolve(webBuildDir, videoLoadName);
   const videoArgs = webArgs.map(value => value === 'ExactWebArm' ? 'ExactVideoArm' : value === resolve(root, 'host/apple/webarm/WebArm.swift') ? resolve(root, 'host/apple/videoarm/VideoArm.swift') : value === webBuilt ? videoBuilt : value === 'WebKit' ? 'AVKit' : value);
-  arms.push(arm(videoArgs, resolve(root, 'host/apple/videoarm/VideoArm.swift'), videoBuilt));
+  if (hasVideo) arms.push(arm(videoArgs, resolve(root, 'host/apple/videoarm/VideoArm.swift'), videoBuilt));
   // @ref LLP 1024 D3/D8.4 — the app's one module artifact, only when the app
   // has modules (the GPU gate): the host's table glue and the app's own
   // `modules/apple/*.swift`, one dylib under one load name. A release build
@@ -1120,10 +1126,10 @@ async function main(args) {
   // work) and the Canvas 2D GPU module (@ref LLP 1056 §8.5: exact-canvas-vello,
   // which Canvas2DGpu.swift dlopens the first time a canvas that animates
   // draws), started above: each its own dylib, never linked into the presenter.
-  await hostModules.done();
-  await lateCanvas?.done();
+  await hostModules?.done();
+  await lateModules?.done();
   const svgBuilt = resolve(webBuildDir, svgLoadName);
-  copyFileSync(resolve(moduleLibDir, 'libexact_svg_raster.dylib'), svgBuilt);
+  if (hasSvg) copyFileSync(resolve(moduleLibDir, 'libexact_svg_raster.dylib'), svgBuilt);
   const canvasGpuLoadName = 'libexact_canvas_gpu.dylib';
   const canvasGpuBuilt = canvasGpu ? resolve(webBuildDir, canvasGpuLoadName) : null;
   if (canvasGpu) copyFileSync(resolve(moduleLibDir, 'libexact_canvas_vello.dylib'), canvasGpuBuilt);
@@ -1161,15 +1167,16 @@ async function main(args) {
     rmSync(gpuDest, { force: true });
     if (hasGpu) copyFileSync(resolve(libDir, dylib), gpuDest);
     for (const m of moduleDylibs) { rmSync(resolve(binDir, m.load), { force: true }); copyFileSync(resolve(libDir, m.built), resolve(binDir, m.load)); }
+    const loaded = [...(hasWeb ? [webLoadName] : []), ...(hasVideo ? [videoLoadName] : []), ...(hasSvg ? [svgLoadName] : [])];
     const webDest = resolve(binDir, webLoadName);
     rmSync(webDest, { force: true });
-    copyFileSync(webBuilt, webDest);
+    if (hasWeb) copyFileSync(webBuilt, webDest);
     rmSync(resolve(binDir, videoLoadName), { force: true });
-    copyFileSync(videoBuilt, resolve(binDir, videoLoadName));
+    if (hasVideo) copyFileSync(videoBuilt, resolve(binDir, videoLoadName));
     rmSync(resolve(binDir, modulesLoadName), { force: true });
     if (modulesBuilt) copyFileSync(modulesBuilt, resolve(binDir, modulesLoadName));
     rmSync(resolve(binDir, svgLoadName), { force: true });
-    copyFileSync(svgBuilt, resolve(binDir, svgLoadName));
+    if (hasSvg) copyFileSync(svgBuilt, resolve(binDir, svgLoadName));
     rmSync(resolve(binDir, canvasGpuLoadName), { force: true });
     if (canvasGpuBuilt) {
       copyFileSync(canvasGpuBuilt, resolve(binDir, canvasGpuLoadName));
@@ -1191,9 +1198,9 @@ async function main(args) {
     rmSync(resolve(binDir, 'Info.plist'), { force: true });
     rmSync(resolve(binDir, '_CodeSignature'), { recursive: true, force: true });
     writeFileSync(resolve(binDir, `${products[0]}-Info.plist`), macInfoPlist(app, { development, reach: bakedCompat.reach }));
-    run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', webDest], { stdio: 'ignore' });
+    if (hasWeb) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', webDest], { stdio: 'ignore' });
     if (modulesBuilt) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(binDir, modulesLoadName)], { stdio: 'ignore' });
-    run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(binDir, svgLoadName)], { stdio: 'ignore' });
+    if (hasSvg) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(binDir, svgLoadName)], { stdio: 'ignore' });
     run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', '--identifier', app.id, bin], { stdio: 'ignore' });
     for (const p of products.slice(1)) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', '--identifier', `${app.id}.${p.toLowerCase()}`, resolve(binDir, p)], { stdio: 'ignore' });
     // The receipt beside it (LLP 1030 D2).
@@ -1215,7 +1222,7 @@ async function main(args) {
       const executables = resolve(contents, 'MacOS'), resources = resolve(contents, 'Resources');
       mkdirSync(executables, { recursive: true });
       mkdirSync(resources);
-      for (const file of ['ExactMac', webLoadName, videoLoadName, svgLoadName, ...(canvasGpuBuilt ? [canvasGpuLoadName] : []), ...(modulesBuilt ? [modulesLoadName] : []), ...(hasGpu ? [loadName] : []), ...moduleDylibs.map(m => m.load)]) copyFileSync(resolve(binDir, file), resolve(executables, file));
+      for (const file of ['ExactMac', ...loaded, ...(canvasGpuBuilt ? [canvasGpuLoadName] : []), ...(modulesBuilt ? [modulesLoadName] : []), ...(hasGpu ? [loadName] : []), ...moduleDylibs.map(m => m.load)]) copyFileSync(resolve(binDir, file), resolve(executables, file));
       writeFileSync(resolve(contents, 'Info.plist'), macInfoPlist(app, { development, reach: bakedCompat.reach }));
       copyAppleStaticTrees(paths.capture, resources);
       verifyBakeFiles(bakedCompat, bakedPlan, listAssets(resources, true));
@@ -1225,7 +1232,7 @@ async function main(args) {
       writeFileSync(resolve(resources, 'receipt.json'), distribution ? shippedReceipt(whole) : whole);
       // GPU artifacts were signed before their digests entered the baked receipt.
       // Preserve those exact bytes, as the iOS bundle assembly does below.
-      for (const file of [webLoadName, videoLoadName, svgLoadName, ...(canvasGpuBuilt ? [canvasGpuLoadName] : []), ...(modulesBuilt ? [modulesLoadName] : [])]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
+      for (const file of [...loaded, ...(canvasGpuBuilt ? [canvasGpuLoadName] : []), ...(modulesBuilt ? [modulesLoadName] : [])]) run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', resolve(executables, file)], { stdio: 'ignore' });
       run('codesign', ['--force', '--sign', sha1 ?? '-', '--timestamp=none', bundle], { stdio: 'ignore' });
       const placed = bundleDestination;
       assertAppleIdentity(app, resolve(executables, 'ExactMac'), bakedCompat.id);
@@ -1237,7 +1244,7 @@ async function main(args) {
     publishProducts();
     release();
     rmSync(webBuildDir, { recursive: true, force: true });
-    console.log(`host/apple: ${resolve(paths.products, product).replace(root + '/', '')} (${timing()}; ${sha1 ? 'signed ' + sha1.slice(0, 8) : 'ad-hoc signed'}); GPU: ${gpuNote}; web arm: ${webLoadName}${modulesBuilt ? `; modules: ${modulesLoadName}` : ''}`);
+    console.log(`host/apple: ${resolve(paths.products, product).replace(root + '/', '')} (${timing()}; ${sha1 ? 'signed ' + sha1.slice(0, 8) : 'ad-hoc signed'}); GPU: ${gpuNote}; web arm: ${hasWeb ? webLoadName : 'none'}${modulesBuilt ? `; modules: ${modulesLoadName}` : ''}`);
     // A live source is explicit (--url or EXACT_DEV_PLAN). The shared web
     // output may belong to another app, and TypeScript edits publish complete
     // URL generations rather than rewriting its initial app.plan.
@@ -1262,10 +1269,10 @@ async function main(args) {
   writeUsageStrings(bakedCompat.reach, bundle);
   if (hasGpu) copyFileSync(resolve(libDir, dylib), resolve(bundle, 'Frameworks', loadName));
   for (const m of moduleDylibs) copyFileSync(resolve(libDir, m.built), resolve(bundle, 'Frameworks', m.load));
-  if (!tv) copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));
-  copyFileSync(videoBuilt, resolve(bundle, 'Frameworks', videoLoadName));
+  if (hasWeb) copyFileSync(webBuilt, resolve(bundle, 'Frameworks', webLoadName));
+  if (hasVideo) copyFileSync(videoBuilt, resolve(bundle, 'Frameworks', videoLoadName));
   if (modulesBuilt) copyFileSync(modulesBuilt, resolve(bundle, 'Frameworks', modulesLoadName));
-  copyFileSync(svgBuilt, resolve(bundle, 'Frameworks', svgLoadName));
+  if (hasSvg) copyFileSync(svgBuilt, resolve(bundle, 'Frameworks', svgLoadName));
   if (svgFilterBuilt) copyFileSync(svgFilterBuilt, resolve(bundle, svgFilterLibraryName));
   if (canvasGpuBuilt) copyFileSync(canvasGpuBuilt, resolve(bundle, 'Frameworks', canvasGpuLoadName));
   const bundles = [[bundle, false]];
@@ -1321,7 +1328,7 @@ async function main(args) {
       run('xcrun', ['devicectl', 'device', 'install', 'app', '--device', ph.udid, placed]);
     } else install(dev, placed, app, host);
   }
-  console.log(`host/apple: ${paths.bundle} on ${dev.name} (${timing()}); GPU: ${gpuNote}${ios && !svgFilterBuilt ? '; no SVG filter kernels (no Metal toolchain)' : ''}; web arm: ${webLoadName}${modulesBuilt ? `; modules: ${modulesLoadName} (Frameworks, signed)` : ''}`);
+  console.log(`host/apple: ${paths.bundle} on ${dev.name} (${timing()}); GPU: ${gpuNote}${ios && !svgFilterBuilt ? '; no SVG filter kernels (no Metal toolchain)' : ''}; web arm: ${hasWeb ? webLoadName : 'none'}${modulesBuilt ? `; modules: ${modulesLoadName} (Frameworks, signed)` : ''}`);
   if (args.includes('--run')) {
     if (device) run('xcrun', deviceLaunchArgs(ph.udid, app.id, launchEnv));
     else {

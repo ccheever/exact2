@@ -57,7 +57,23 @@ enum KeyCodes {
     static func named(_ code: String) -> Bool {
         ["Enter", "NumpadEnter", "Escape", "Tab", "Backspace", "Delete", "Insert", "Home", "End", "PageUp", "PageDown",
          "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "CapsLock"].contains(code)
-            || (code.hasPrefix("F") && Int(code.dropFirst()) != nil)
+            || (code.hasPrefix("F") && Int(code.dropFirst()) != nil) || modifier(code)
+    }
+    /// Shift, Control, Alt or Meta, either side: a key that types nothing.
+    static func modifier(_ code: String) -> Bool {
+        ["Shift", "Control", "Alt", "Meta"].contains { code == $0 + "Left" || code == $0 + "Right" }
+    }
+    /// A driver's chord (`Shift+Enter`, `Meta+s`, `+`, `Shift++`) as
+    /// `Event::key` reads one: the modifiers' chord prefix, and the key.
+    static func split(_ chord: String) -> (held: String, key: String) {
+        var held: Set<Substring> = []
+        var rest = Substring(chord)
+        while let plus = rest.firstIndex(of: "+"), rest.index(after: plus) < rest.endIndex,
+              ["Shift", "Control", "Alt", "Meta"].contains(rest[..<plus]) {
+            held.insert(rest[..<plus])
+            rest = rest[rest.index(after: plus)...]
+        }
+        return (self.held(shift: held.contains("Shift"), control: held.contains("Control"), alt: held.contains("Alt"), meta: held.contains("Meta")), String(rest))
     }
     static func device(_ name: String) -> (code: String, key: String)? {
         var code = name

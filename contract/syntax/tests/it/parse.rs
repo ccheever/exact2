@@ -478,7 +478,7 @@ fn let_starts_a_statement_only_before_a_name_and_records_build_with_named_argume
         if matches!(&then[0], Stmt::Let { name, .. } if name == "word")));
     assert!(matches!(&body[2], Stmt::Assign { target, .. } if target == "let"));
     let e =
-        parse("component A\n  action go\n    let view = 1\n  view\n    text \"a\"\n").unwrap_err();
+        parse("component A\n  action go\n    let in = 1\n  view\n    text \"a\"\n").unwrap_err();
     assert_eq!(e.id, "syntax-expected-name", "{e:?}");
     let e = parse("component A\n  action go\n    let a 1\n  view\n    text \"a\"\n").unwrap_err();
     assert_eq!(e.id, "syntax-expected", "{e:?}");

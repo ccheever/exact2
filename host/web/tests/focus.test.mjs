@@ -91,14 +91,15 @@ test('declared shortcuts support named keys and leave text input and composition
   const handlers=new Map();
   let chord='',presses=0,editing=false,inert=false,modal=null;
   const button={isConnected:true,disabled:false,getClientRects:()=>[{}],getAttribute:()=>chord,click:()=>presses++};
-  const root={addEventListener(){},querySelectorAll:()=>[button]};
+  const root={addEventListener(){},querySelectorAll:()=>[button],contains:()=>false};
   const target={matches:()=>editing,closest:()=>modal};
-  globalThis.document={addEventListener:(name,handler)=>handlers.set(name,handler),activeElement:target};
+  // Every listener on the document hears the key, in order, as a browser's would.
+  globalThis.document={addEventListener:(name,handler)=>handlers.set(name,[...(handlers.get(name)??[]),handler]),activeElement:target};
   globalThis.getComputedStyle=()=>({visibility:'visible'});
   const key=(key,mods={},extra={})=>{
     const event={key,metaKey:false,ctrlKey:false,altKey:false,shiftKey:false,...mods,...extra,
       composedPath:()=>[target],preventDefault(){this.prevented=true;},stopImmediatePropagation(){this.stopped=true;}};
-    handlers.get('keydown')(event);return event;
+    for(const handler of handlers.get('keydown'))handler(event);return event;
   };
   try {
     createInputHandlers({root,views:new Map(),retiredViews:new Set(),ready:()=>true,inertAncestor:()=>inert,dispatch(){}});

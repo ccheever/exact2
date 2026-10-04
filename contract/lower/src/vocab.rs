@@ -71,6 +71,12 @@ pub fn html_tags() -> Vec<(&'static str, &'static str)> {
         .collect()
 }
 
+/// The longhand rows a CSS shorthand attribute (`border`, `border-top`, …,
+/// `text-decoration`) sets, in the order it lowers them.
+pub fn shorthand_rows(name: &str) -> &'static [StyleId] {
+    crate::shorthands::rows(name)
+}
+
 /// A style row's wire codec, by the schema's spelling (`dimension`,
 /// `colorValue`, `enum`).
 pub fn codec(row: StyleId) -> String {

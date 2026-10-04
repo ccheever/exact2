@@ -202,7 +202,9 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
             }
             (StyleId::FontFamily, RowValue::Number(index)) => {
                 if let Some(family) = font_names.get(*index as usize) {
-                    let value = if is_generic_family(family) {
+                    let value = if family.starts_with('"') || family.contains(',') {
+                        family.clone()
+                    } else if is_generic_family(family) {
                         generic_stack(family).to_string()
                     } else {
                         css_string(family)
@@ -215,14 +217,17 @@ pub fn css_text(style: &StyleProps, font_names: &[String]) -> (String, Vec<Skipp
                     });
                 }
             }
+            (StyleId::TextDecorationLine, RowValue::Enum("underline-line-through")) => {
+                out.push_str("text-decoration-line:underline line-through;")
+            }
             (StyleId::LineClamp, RowValue::Number(n)) => {
                 if *n > 0.0 {
                     // The legacy clamp requires an old flex box and clipping. It
                     // cannot replace a modern flex/grid/hidden box or a scroller.
                     // Keep those authored semantics; unsupported clamp is named.
                     if style.display != Display::Block
-                        || style.overflow_x == Overflow::Scroll
-                        || style.overflow_y == Overflow::Scroll
+                        || matches!(style.overflow_x, Overflow::Scroll | Overflow::Auto)
+                        || matches!(style.overflow_y, Overflow::Scroll | Overflow::Auto)
                     {
                         skipped.push(Skipped {
                             row: id,
@@ -677,6 +682,10 @@ pub fn easing_css(e: &Easing) -> String {
 
 pub(crate) fn dimension(out: &mut String, d: Dimension) {
     match d {
+        Dimension::Viewport(unit, n) => {
+            num_into(out, n);
+            out.push_str(unit.name());
+        }
         Dimension::Auto => out.push_str("auto"),
         Dimension::Points(p) => {
             num_into(out, p);
@@ -1229,4 +1238,44 @@ mod declaration_tests {
             list.css().replace(" grow,", " grow-exact-press,")
         );
     }
+}
+
+/// CSS family aliases for declared fonts; local families keep their CSS names.
+pub fn font_alias(plan: &exact_plan::Plan, family: exact_plan::FamiliesId) -> String {
+    let row = plan.familie(family);
+    if row.faces.len == 0 {
+        return plan.str(row.name).into();
+    }
+    let i = plan
+        .stacks
+        .iter()
+        .position(|s| {
+            s.members.len == 1
+                && plan.stack_member(s.members.iter().next().unwrap()).family == Some(family)
+        })
+        .unwrap_or(8 + family.0 as usize);
+    format!("ExactPlanStack{i}")
+}
+
+/// Every stack's complete CSS fallback list in authored order.
+pub fn font_family_names(plan: &exact_plan::Plan) -> Vec<String> {
+    plan.stacks
+        .iter()
+        .map(|stack| {
+            stack
+                .members
+                .iter()
+                .map(|id| {
+                    let member = plan.stack_member(id);
+                    match member.kind {
+                        exact_plan::StackMemberKind::Family => {
+                            css_string(&font_alias(plan, member.family.unwrap()))
+                        }
+                        generic => generic_stack(generic.name()).into(),
+                    }
+                })
+                .collect::<Vec<String>>()
+                .join(", ")
+        })
+        .collect()
 }

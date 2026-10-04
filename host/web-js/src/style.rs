@@ -728,17 +728,7 @@ fn css_property(id: StyleId) -> String {
 /// index (the value a binding gives), as css.rs writes it with the host's
 /// family names (`host/web/src/host/fonts.rs` `font_names`).
 pub fn font_family_table(plan: &Plan) -> Vec<String> {
-    use exact_plan::{StackMemberKind, StacksId};
-    let names: Vec<String> = (0..plan.stacks.len())
-        .map(|i| {
-            let stack = plan.stack(StacksId(i as u32));
-            let member = plan.stack_member(stack.members.iter().next().expect("validated stack"));
-            match member.kind {
-                StackMemberKind::Family => format!("ExactPlanStack{i}"),
-                generic => generic.name().to_string(),
-            }
-        })
-        .collect();
+    let names = exact_web::css::font_family_names(plan);
     (0..names.len())
         .map(|i| {
             let mut p = exact_kernel::StyleProps::default();

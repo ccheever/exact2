@@ -354,7 +354,10 @@ extension Capture {
     /// A capture renders a box's sublayers over what its `draw(_:)` paints,
     /// so a box with an inset shadow — drawn in `draw(_:)` over its fill —
     /// has its fill and gradient sublayers hidden for the capture (its
-    /// `draw(_:)` paints both); `restore` shows them again.
+    /// `draw(_:)` paints both), and so does an image whose pixels are a
+    /// sublayer: while capturing, `draw(_:)` paints its bitmap (sRGB, as the
+    /// shot is), and a translucent image composited twice comes out darker.
+    /// `restore` shows them again.
     static func hideBoxFills(in root: NSView) -> [CALayer] {
         var out: [CALayer] = []
         func walk(_ v: NSView) {
@@ -363,6 +366,11 @@ extension Capture {
                     l.isHidden = true
                     out.append(l)
                 }
+            }
+            if let n = v as? NodeView, n.kind == "image", n.symbolView == nil, n.raster?.image != nil,
+               let l = n.imageLayer, !l.isHidden {
+                l.isHidden = true
+                out.append(l)
             }
             v.subviews.forEach(walk)
         }

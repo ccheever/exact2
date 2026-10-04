@@ -42,6 +42,7 @@ mod display_frame;
 mod events;
 mod pan_release;
 mod picker;
+mod pointer;
 #[cfg(test)]
 mod save_tests;
 mod svg_hit;
@@ -104,6 +105,9 @@ pub struct Presenter<D: DataSource> {
     /// The text field typed into since it took the focus: its `change`
     /// fires on blur or Enter, HTML's commit (LLP 1069.001 D4).
     pub(crate) edited: Option<ViewId>,
+    /// The modifier keys held, each side a bit (Shift, Control, Alt, Meta,
+    /// left then right): a `key` event's flags (`KeyboardEvent.shiftKey`…).
+    pub(crate) held: u8,
     /// Unbound checkboxes' own states, as a browser keeps an uncontrolled
     /// control's (LLP 1069.001 D4); a bound one draws its `checked`.
     pub(crate) controls: BTreeMap<ViewId, bool>,
@@ -113,6 +117,8 @@ pub struct Presenter<D: DataSource> {
     pointer: Option<(f32, f32)>,
     /// The nodes with a `hover` handler under the pointer, innermost first.
     hovered: Vec<ViewId>,
+    /// The node holding the pointer's `pointerdown` until it lifts.
+    pointer_held: Option<exact_kernel::NodeKey>,
     pub(crate) control_bindings: BTreeMap<(u32, u32), crate::surfaces::ControlBinding>,
     pub(crate) control_contact: Option<(ViewId, f32, f32)>,
     boxes: Vec<PaintedBox>,
@@ -400,11 +406,13 @@ impl<D: DataSource> Presenter<D> {
             hosts: 0,
             focus: None,
             edited: None,
+            held: 0,
             controls: BTreeMap::new(),
             menu: None,
             autofocus_processed: Default::default(),
             pointer: None,
             hovered: Vec::new(),
+            pointer_held: None,
             control_contact: None,
             control_bindings: BTreeMap::new(),
             boxes: Vec::new(),
@@ -932,7 +940,19 @@ impl<D: DataSource> Presenter<D> {
         let page = self.page;
         self.page.0 = self.page.0.clamp(0.0, (doc.0 - viewport.0).max(0.0));
         self.page.1 = self.page.1.clamp(0.0, (doc.1 - viewport.1).max(0.0));
+        self.publish_scroll();
         changed || self.page != page
+    }
+
+    /// Tell the runner where every scroller and the page stand, for
+    /// `frame()` (LLP 1051.000 D1): after a clamp, and wherever a scroll
+    /// moves geometry (`refresh_transform_geometry`).
+    pub(crate) fn publish_scroll(&mut self) {
+        let runner = self.host.runner_mut();
+        runner.scrolled(None, f64::from(self.page.0), f64::from(self.page.1));
+        for (id, (left, top)) in &self.scroll {
+            runner.scrolled(Some(*id), f64::from(*left), f64::from(*top));
+        }
     }
 
     /// Every node's painted box, in paint order (a fresh frame when stale).
@@ -1200,7 +1220,9 @@ impl<D: DataSource> Presenter<D> {
                 )
             });
             let (ox, oy) = bounds.axes;
-            if ox == Overflow::Scroll || oy == Overflow::Scroll {
+            if matches!(ox, Overflow::Scroll | Overflow::Auto)
+                || matches!(oy, Overflow::Scroll | Overflow::Auto)
+            {
                 let max = bounds.max;
                 let off = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
                 let takes = |scrolls: bool, d: f32, off: f32, max: f32| {
@@ -1209,8 +1231,18 @@ impl<D: DataSource> Presenter<D> {
                         && max > 0.0
                         && ((d > 0.0 && off < max) || (d < 0.0 && off > 0.0))
                 };
-                let take_x = takes(ox == Overflow::Scroll, dx, off.0, max.0);
-                let take_y = takes(oy == Overflow::Scroll, dy, off.1, max.1);
+                let take_x = takes(
+                    matches!(ox, Overflow::Scroll | Overflow::Auto),
+                    dx,
+                    off.0,
+                    max.0,
+                );
+                let take_y = takes(
+                    matches!(oy, Overflow::Scroll | Overflow::Auto),
+                    dy,
+                    off.1,
+                    max.1,
+                );
                 if take_x || take_y {
                     let nx = if take_x {
                         (off.0 + dx).clamp(0.0, max.0)
