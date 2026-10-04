@@ -245,3 +245,30 @@ fn a_scroller_under_the_bar_takes_no_inset_from_the_header() {
         "the list starts at the top, under the bar"
     );
 }
+
+#[test]
+fn a_route_whose_replaced_header_leaves_takes_back_its_inset() {
+    let mut kernel = header_padded();
+    kernel
+        .set_host_cover(2, Some(HostCover::Edges([44.0, 0.0, 0.0, 0.0])))
+        .unwrap();
+    kernel.set_host_cover(3, Some(HostCover::Whole)).unwrap();
+    assert_eq!(frame(&mut kernel, 4).1, 106.0);
+    // The header goes (a `when`), the bar's cover stays.
+    let op = Op::SetChildren {
+        id: 2,
+        children: vec![4],
+    };
+    kernel.apply(2, 3, &[op]).unwrap();
+    assert_eq!(
+        frame(&mut kernel, 4).1,
+        44.0,
+        "no replaced header, no inset"
+    );
+    let op = Op::SetChildren {
+        id: 2,
+        children: vec![3, 4],
+    };
+    kernel.apply(3, 4, &[op]).unwrap();
+    assert_eq!(frame(&mut kernel, 4).1, 106.0, "and back with it");
+}

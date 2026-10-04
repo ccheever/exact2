@@ -31,7 +31,7 @@ struct HeaderTitle: Equatable {
         func walk(_ node: NodeView) {
             for case let child as NodeView in node.container.subviews where child.style["display"]?.string != "none" {
                 if child === heading { passed = true; continue }
-                if !passed, avatar == nil, let face = BadgeFace(box: child) { avatar = face; continue }
+                if !passed, avatar == nil, !heading.isDescendant(of: child), let face = BadgeFace(box: child) { avatar = face; continue }
                 if passed, subtitle.isEmpty, child.isParagraph, !child.accessibleText.isEmpty { subtitle = child.accessibleText; continue }
                 walk(child)
             }
@@ -103,7 +103,8 @@ final class HeaderTitleView: UIControl {
     required init?(coder: NSCoder) { nil }
 
     override var intrinsicContentSize: CGSize {
-        CGSize(width: stack.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize).width, height: 44)
+        let fitted = stack.systemLayoutSizeFitting(UIView.layoutFittingCompressedSize)
+        return CGSize(width: fitted.width, height: max(44, fitted.height))
     }
     override var isHighlighted: Bool { didSet { stack.alpha = isHighlighted ? 0.5 : 1 } }
 
@@ -130,9 +131,12 @@ final class HeaderTitleView: UIControl {
 
 extension NavigationHost {
     /// Whether a route shows its stack's bar: the stack has one and the
-    /// route's header is shaped for it and shown (§9.10).
+    /// route's header is shaped for it and shown (§9.10) — and its search
+    /// is not active, while which UIKit hides the bar itself
+    /// (`hidesNavigationBarDuringPresentation`, §9.6).
     func routeShowsBar(_ c: RouteController, in nav: UINavigationController) -> Bool {
-        barShows(nav) && HeaderShape(route: c.node, back: nil).flatMap(HeaderShape.shown) != nil
+        if c.search?.controller.isActive == true { return nav.isNavigationBarHidden == false }
+        return barShows(nav) && HeaderShape(route: c.node, back: nil).flatMap(HeaderShape.shown) != nil
     }
 
     /// Whether the bar shows for the route on top of a stack.
@@ -183,15 +187,18 @@ extension NavigationHost {
     /// A route pushed while the root's authored tablist is hidden hides the
     /// tab bar (`hidesBottomBarWhenPushed`), as the web hides the tablist.
     /// UIKit reads it at the push and keeps the bar hidden for the routes
-    /// above; written on change, so a hook's own value stands till then.
+    /// above. The route the root names follows the tablist; routes pushed
+    /// with it in one batch (a cold launch's) take the same. Written on
+    /// change, so a hook's own value stands till then.
     func followTablist(_ routes: [RouteController]) {
-        guard let key = container?.props["navigationKey"], let c = routes.dropFirst().first(where: { $0.key == key }),
+        guard let key = container?.props["navigationKey"], let at = routes.indices.dropFirst().first(where: { routes[$0].key == key }),
               let list = adoptedTablist.flatMap({ presenter.views[$0] }) ?? container.flatMap({ NavigationTabs.of($0, presenter)?.tablist })
         else { return }
         let hidden = list.style["display"]?.string == "none"
-        guard c.tablistHidden != hidden else { return }
-        c.tablistHidden = hidden
-        c.hidesBottomBarWhenPushed = hidden
+        for (index, c) in routes.enumerated() where index > 0 && index <= at && (index == at || c.tablistHidden == nil) && c.tablistHidden != hidden {
+            c.tablistHidden = hidden
+            c.hidesBottomBarWhenPushed = hidden
+        }
     }
 }
 #endif

@@ -768,11 +768,13 @@ pub(crate) fn apply_document(
                         count(arena.children(p).len(), 0);
                         arena.prune_children(p);
                         sync_children(arena, layout, p);
+                        crate::kernel::cover_children_changed(arena, layout, p);
                         arena.flags_mut(p).insert(NodeFlags::CHILDREN_DIRTY);
                         touched.push(arena.key(p));
                     }
                     arena.set_children(slot, new);
                     sync_children(arena, layout, slot);
+                    crate::kernel::cover_children_changed(arena, layout, slot);
                     arena.flags_mut(slot).insert(NodeFlags::CHILDREN_DIRTY);
                     if arena.node_type(slot) == NodeType::Text {
                         invalidate_text(arena, layout, slot);

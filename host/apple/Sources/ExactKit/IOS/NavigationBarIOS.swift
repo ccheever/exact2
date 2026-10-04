@@ -506,6 +506,7 @@ extension NavigationHost {
             let top = sv.contentOffset.y + old.scrollTopInset(sv)
             sv.contentInsetAdjustmentBehavior = .never
             old.scrollOrigin = 0
+            old.scrollCollapsed = 0
             sv.contentOffset.y = top
         }
         c.collapseScroll = target
@@ -637,14 +638,20 @@ extension NavigationHost {
             let edges: HostCover.Edges
             // A collapsing title's scroller goes under the bar, which insets it;
             // its expanded inset is where CSS scrollTop 0 rests.
-            if let node = c.collapseScroll, let sv = node.scroll, sv.adjustedContentInset.top > 0 {
-                let inset = sv.adjustedContentInset.top
-                if inset > node.scrollOrigin { node.scrollOrigin = inset }
-                if node.scrollCollapsed == 0 || inset < node.scrollCollapsed { node.scrollCollapsed = inset }
-            }
             // While the bar is not as the route wants it (mid-transition to or
             // from a route without one, §9.10), its last cover stands.
-            if c.viewIfLoaded?.window != nil, nav.isNavigationBarHidden != routeShowsBar(c, in: nav) {
+            let settled = nav.isNavigationBarHidden != routeShowsBar(c, in: nav)
+            if settled, let node = c.collapseScroll, let sv = node.scroll, sv.adjustedContentInset.top > 0 {
+                let inset = sv.adjustedContentInset.top
+                if c.navigationItem.largeTitleDisplayMode != .always {
+                    // An inline title does not collapse: its inset is the one it has.
+                    node.scrollOrigin = inset; node.scrollCollapsed = inset
+                } else {
+                    if inset > node.scrollOrigin { node.scrollOrigin = inset }
+                    if node.scrollCollapsed == 0 || inset < node.scrollCollapsed { node.scrollCollapsed = inset }
+                }
+            }
+            if settled, c.viewIfLoaded?.window != nil {
                 let safe = c.view.safeAreaInsets, env = presenter.insets
                 let top = c.collapseScroll == nil ? max(0, safe.top - env.top) : 0
                 edges = .init(top: top, right: whole ? max(0, safe.right - env.right) : 0,

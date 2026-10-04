@@ -31,8 +31,8 @@ mod geometry;
 mod intrinsic;
 mod trim;
 
-pub(crate) use cover::header_inset;
 pub use cover::HostCover;
+pub(crate) use cover::{children_changed as cover_children_changed, header_inset};
 
 /// How many receipts the kernel retains for late readers.
 pub const RECEIPT_RING: usize = 64;

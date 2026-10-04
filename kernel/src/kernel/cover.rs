@@ -18,6 +18,7 @@ use super::Kernel;
 use crate::arena::NodeArena;
 use crate::error::{KernelError, LayoutError};
 use crate::id::ViewId;
+use crate::layout::LayoutMirror;
 use crate::style::{Dimension, Edge};
 
 /// A host container's claim on one box.
@@ -70,6 +71,15 @@ impl Kernel {
             }
         }
         Ok(())
+    }
+}
+
+/// A box's children changed: a covered box's top cover may hold its first
+/// child's inset (`header_inset`), so its engine style is derived again.
+pub(crate) fn children_changed(arena: &NodeArena, layout: &mut dyn LayoutMirror, slot: u32) {
+    if let (Some(HostCover::Edges(_)), Some(node)) = (arena.cover(slot), arena.taffy(slot)) {
+        layout.restyle(arena, slot, node);
+        layout.mark_dirty(node);
     }
 }
 

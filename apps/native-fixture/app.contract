@@ -213,7 +213,7 @@ component NativeFixture
                     // a subtitle: the item's title, drawn, tapped (§9.10).
                     when e.name == "chat"
                       row press=pressTitle testId="title-group" flex=1 align-items="center" gap=8
-                        column width=32 height=32 border-radius=16 background-color="#dcfce7" align-items="center" justify-content="center"
+                        column width=32 height=32 border-radius="50%" background-color="#dcfce7" align-items="center" justify-content="center"
                           text "CD" font-size=13 color="#166534"
                         column
                           text "Chat" aria-level=2 testId="title-chat" font-weight=700 font-size=17
