@@ -711,9 +711,16 @@ pub fn check(plan: &Plan) -> Result<(), BakeError> {
             )))
         }
     }
+    // Only the unanswered source is excused: a trap, a shape, a derive's
+    // type or anything else the boot refuses fails here as a bake fails
+    // (review C2).
     match first_frame(plan, Unanswered, false) {
-        Err(BakeError::Runner(_)) | Ok(_) => Ok(()),
-        Err(lint) => Err(lint),
+        Err(BakeError::Runner(RunnerError::Data {
+            error: exact_runner::DataError::Unavailable(_),
+            ..
+        }))
+        | Ok(_) => Ok(()),
+        Err(refused) => Err(refused),
     }
 }
 

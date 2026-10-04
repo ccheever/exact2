@@ -142,6 +142,20 @@ fn check_refuses_without_data_what_no_answer_could_change() {
     contract::check(&contract::compile(answered).unwrap()).unwrap();
 }
 
+/// Review C2: `check` excuses only a source that answers in the page. Any
+/// other refusal at boot is the bake's too, and fails the web build (here a
+/// plan for another kernel schema, refused before a frame).
+#[test]
+fn check_refuses_a_boot_the_bake_refuses() {
+    let mut plan = contract::compile("component A\n  view\n    text \"a\"\n").unwrap();
+    contract::check(&plan).unwrap();
+    plan.kernel_schema_digest ^= 1;
+    match contract::check(&plan).unwrap_err() {
+        BakeError::Runner(exact_runner::RunnerError::KernelSchemaMismatch { .. }) => {}
+        other => panic!("{other:?}"),
+    }
+}
+
 #[test]
 fn conditional_style_literals_are_refused_at_the_offending_branch() {
     for (property, value, bad) in [
