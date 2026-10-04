@@ -466,3 +466,35 @@ fn a_keyframe_takes_the_colour_names_a_node_takes() {
     let source = "keyframes glow\n  from color=\"gray\" background-color=\"light-dark(white, black)\" box-shadow=\"0 0 4px rebeccapurple\"\n  to color=\"#000\"\ncomponent App\n  view\n    text \"a\" testId=\"a\" animation=\"glow 1s\" color=\"Gray\"\n";
     contract::compile(source).unwrap();
 }
+
+/// A hex color is written bare as CSS writes it, in a keyframe as on a node
+/// (x2apps dash: every keyframe color failed as `unexpected '#'`): `#` and
+/// 3, 4, 6 or 8 hex digits is the same string as its quoted spelling. A `#`
+/// that is no color says what `#` is and is not.
+#[test]
+fn a_bare_hex_color_is_its_quoted_string_and_another_hash_says_why() {
+    let source = |c: &str| {
+        format!("keyframes flash\n  from background-color={c}\n  to background-color={c}\n\ncomponent App\n  view\n    text \"x\" color={c} animation=\"flash 1s\"\n")
+    };
+    for (bare, quoted) in [
+        ("#1f9d6244", "\"#1f9d6244\""),
+        ("#fff", "\"#fff\""),
+        ("#ABCDEF", "\"#ABCDEF\""),
+    ] {
+        let plan = contract::compile(&source(bare)).unwrap();
+        assert_eq!(
+            plan.encode(),
+            contract::compile(&source(quoted)).unwrap().encode(),
+            "{bare}"
+        );
+    }
+    for bad in ["#12345", "#ggg", "#fff0x", "# a comment"] {
+        let e = contract::compile(&source(bad)).unwrap_err();
+        let text = format!("{e:?}");
+        assert!(
+            text.contains("a hex color is `#` and 3, 4, 6 or 8 hex digits")
+                && text.contains("a comment starts with `//`"),
+            "{bad}: {text}"
+        );
+    }
+}

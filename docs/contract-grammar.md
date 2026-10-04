@@ -49,7 +49,12 @@ a `keyframes` or `font` block, and a component need at least one entry.
   Template text is verbatim: a backslash is never an escape and stays in the
   text, and `\${` still interpolates. Use an ordinary string when you need an
   escape.
-- `//` starts a line comment outside a string/template. No block comments.
+- A hex color may be written bare, as CSS writes it: `#` and 3, 4, 6 or 8 hex
+  digits (`color=#1f9d62`, a keyframe's `background-color=#1f9d6244`) is the
+  string `"#1f9d62"`, and the formatter prints it quoted. Any other `#` is
+  refused, saying so.
+- `//` starts a line comment outside a string/template. No block comments;
+  `#` is not a comment.
 - Indentation uses spaces; a tab in indentation is refused. At bracket depth zero, indentation emits
   block tokens. Inside `()`, `[]`, and `{}`, newlines and indentation continue
   the logical expression instead.

@@ -321,6 +321,36 @@ impl Lexer {
                     pos = end + 1;
                     continue;
                 }
+                if c == '#' {
+                    // A hex color is a string, bare as CSS writes it
+                    // (`background-color=#1f9d6244`, in a keyframe as on a
+                    // node; x2apps dash): `#` and 3, 4, 6 or 8 hex digits.
+                    // Anything else names what `#` is not.
+                    let digits = bytes[pos + 1..]
+                        .iter()
+                        .take_while(|b| b.is_ascii_hexdigit())
+                        .count();
+                    let end = pos + 1 + digits;
+                    let word = bytes
+                        .get(end)
+                        .is_some_and(|b| b.is_ascii_alphanumeric() || *b == b'_' || *b == b'-');
+                    if !matches!(digits, 3 | 4 | 6 | 8) || word {
+                        return Err(LexError {
+                            id: "syntax-unexpected-char",
+                            message: "unexpected `#`: a hex color is `#` and 3, 4, 6 or 8 hex digits (`#1f9d62`), and a comment starts with `//`".into(),
+                            span,
+                        });
+                    }
+                    out.push(Token {
+                        kind: TokenKind::Str(trimmed[pos..end].to_string()),
+                        span: Span {
+                            end_col: col_of(end).col,
+                            ..span
+                        },
+                    });
+                    pos = end;
+                    continue;
+                }
                 let mut matched = None;
                 for p in PUNCT {
                     if trimmed[pos..].starts_with(p) {
