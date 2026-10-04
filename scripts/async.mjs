@@ -6,7 +6,8 @@
  * `#[ignore = "async lane: …"]`, every web host unit test found by one glob,
  * the web host's app-building document test in its own step, the web JS target's conformance run
  * (`host/web-js/conform.mjs --strict`), the UIKit XCTests on a simulator when the commit
- * touches host/apple (`build.mjs --test --ios`; Charlie, 2026-09-23), then
+ * touches host/apple (`build.mjs --test --ios`; Charlie, 2026-09-23), the
+ * Contract semantics' proofs and differential run (`semantics/README.md`), then
  * `metrics.mjs --long` (every RULES budget;
  * a VIOLATION or FAILED row or a failed run counts, an OVER time does not — it
  * moves with the load). A failure that the previous commit did not have is filed with
@@ -97,6 +98,22 @@ function checks(sha) {
     // Real touches through the XCTest runner on a simulator (LLP 1080.000 §6):
     // a runner that does not start fails here, never skips.
     ...(apple ? [['ios-touch', 'bun', ['scripts/smoke-touch.mjs', '--build']]] : []),
+    // The Contract semantics (semantics/README.md; Charlie, 2026-10-03): the
+    // Lean project builds with every proof checked, then the runner against
+    // the semantics over the scripted corpus and a fixed random sweep (fixed
+    // seeds, so a divergence is attributed to the commit that made it).
+    // A `sorry` fails it: a proof that is not there is not checked. Every
+    // part runs whatever the one before it found.
+    ['semantics', 'sh', ['-c', [
+      'export PATH="$HOME/.elan/bin:$PATH"; failed=0',
+      'out=$(cd semantics && lake build 2>&1) || failed=1; echo "$out"',
+      'if echo "$out" | grep -q "declaration uses .sorry."; then echo "error: semantics: a proof uses sorry"; failed=1; fi',
+      'cargo run -q -p contract-difftest -- corpus || failed=1',
+      'cargo run -q -p contract-difftest -- explore contract/corpus apps/*/app.contract || failed=1',
+      'cargo run -q -p contract-difftest -- random --seed 1 --count 5000 || failed=1',
+      'cargo run -q -p contract-difftest -- numbers --count 200000 || failed=1',
+      'exit $failed',
+    ].join('\n')]],
     ['metrics', 'bun', ['scripts/metrics.mjs', '--long']],
   ];
 }
@@ -123,6 +140,9 @@ function failures(name, log, status) {
   // conform --strict: a failing step by target and step (the what varies run to run).
   for (const m of log.matchAll(/^FAIL (\S+) ([^:\n]+):/gm)) found.add(`${name}: ${m[1]} ${m[2]}`);
   for (const m of log.matchAll(/^\(fail\) (.+?) \[[\d.]+m?s\]$/gm)) found.add(`${name}: ${m[1]}`);
+  // difftest: a case that diverged, failed an expectation or was refused.
+  for (const m of log.matchAll(/^(DIVERGE|EXPECT|EMIT|SCRIPT|REFUSED) (.+?)(?: at line \d+)?:/gm)) found.add(`${name}: ${m[1]} ${m[2]}`);
+  for (const m of log.matchAll(/^error: (\S+\.lean):\d+:\d+: (.*)$/gm)) found.add(`${name}: ${m[1]} ${m[2]}`);
   if (status !== 0 && !found.size) found.add(`${name}: exit ${status} (see log)`);
   return [...found];
 }

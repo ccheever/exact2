@@ -12,6 +12,9 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+/// The Lean backend: a program as a term of `semantics/` (LLP-free; see
+/// `semantics/README.md`).
+pub mod lean;
 mod logic;
 mod manifest;
 mod map;

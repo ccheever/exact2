@@ -1,0 +1,26 @@
+// `pending(r)` and `failed(r)`: with answers that arrive synchronously a
+// settled resource is neither.
+shape Item
+  id: string
+
+component App
+  state q = 1
+  resource items = items(q) as shape list<Item>
+  derive loading = pending(items)
+  derive broken = failed(items)
+  action next
+    q = q + 1
+  view
+    column
+      when pending(items)
+        text "loading" testId="loading"
+      else
+        text `${length(items)}` testId="count"
+      button "next" press=next testId="next"
+
+test "never pending"
+  expect state loading == false
+  expect state broken == false
+  expect tree missing "loading"
+  tap "next"
+  expect state loading == false

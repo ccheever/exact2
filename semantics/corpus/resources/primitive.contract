@@ -1,0 +1,23 @@
+// Resources of primitive and option shapes; their arguments follow state.
+component App
+  state q = "a"
+  resource n = count(q) as shape number
+  resource s = title(q) as shape string
+  resource flag = enabled(q) as shape bool
+  resource maybe = lookup(q) as shape option<string>
+  derive shown = match maybe { case some(m) => m, case none => "(none)" }
+  derive sum = n + length(s)
+  action setQ(v: string)
+    q = v
+  view
+    column
+      input value=q change=setQ testId="q"
+      text `${n}` testId="n"
+      text s testId="s"
+      text `${flag}` testId="flag"
+      text shown testId="maybe"
+
+test "requery on change"
+  type "q" "b"
+  type "q" "a"
+  type "q" "c"

@@ -17,7 +17,8 @@ const USAGE: &str = "usage:
   contract fmt [--check | --stdout] <file.contract>
   contract types <file.contract> [-o <app.d.ts>]
   contract rust <file.contract> [-o <shapes.rs>]
-  contract test <file.test.contract>";
+  contract test <file.test.contract>
+  contract lean <file.contract> [--name <ident>] [-o <file.lean>]";
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -30,6 +31,7 @@ fn main() -> ExitCode {
         Some("symbols") => symbols(&args[1..]),
         Some("fmt") => fmt(&args[1..]),
         Some("test") => tests(&args[1..]),
+        Some("lean") => lean(&args[1..]),
         Some("types") => types(&args[1..], "types", "app.d.ts", contract::typescript),
         Some("rust") => types(&args[1..], "rust", "shapes.rs", contract::rust),
         _ => {
@@ -194,6 +196,67 @@ fn fmt(args: &[String]) -> ExitCode {
         },
         Err(error) => {
             eprintln!("{input}:{error}");
+            ExitCode::from(1)
+        }
+    }
+}
+
+/// `contract lean <file.contract>`: the program as a `Contract.Program`
+/// term of the Lean semantics (`semantics/`), after the whole compiler
+/// accepts it.
+fn lean(args: &[String]) -> ExitCode {
+    const USAGE: &str = "usage: contract lean <file.contract> [--name <ident>] [-o <file.lean>]";
+    let mut input = None;
+    let mut name = "program".to_string();
+    let mut output = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--help" | "-h" => {
+                println!("{USAGE}");
+                return ExitCode::SUCCESS;
+            }
+            "--name" => match it.next() {
+                Some(n) => name = n.clone(),
+                None => {
+                    eprintln!("{USAGE}");
+                    return ExitCode::from(2);
+                }
+            },
+            "-o" => match it.next() {
+                Some(o) => output = Some(o.clone()),
+                None => {
+                    eprintln!("{USAGE}");
+                    return ExitCode::from(2);
+                }
+            },
+            other if !other.starts_with('-') && input.is_none() => input = Some(other.to_string()),
+            _ => {
+                eprintln!("{USAGE}");
+                return ExitCode::from(2);
+            }
+        }
+    }
+    let Some(input) = input else {
+        eprintln!("{USAGE}");
+        return ExitCode::from(2);
+    };
+    match contract::lean::lean_path(std::path::Path::new(&input), &name) {
+        Ok(text) => {
+            let text = format!("import Contract\n\n{text}");
+            match output {
+                Some(o) => {
+                    if let Err(e) = std::fs::write(&o, text) {
+                        eprintln!("{o}: {e}");
+                        return ExitCode::from(1);
+                    }
+                }
+                None => print!("{text}"),
+            }
+            ExitCode::SUCCESS
+        }
+        Err(error) => {
+            eprintln!("{error}");
             ExitCode::from(1)
         }
     }

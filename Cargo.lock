@@ -527,6 +527,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "contract-difftest"
+version = "0.1.0"
+dependencies = [
+ "contract",
+ "contract-syntax",
+ "exact-kernel",
+ "exact-plan",
+ "exact-runner",
+]
+
+[[package]]
 name = "contract-lower"
 version = "0.1.0"
 dependencies = [

@@ -21,7 +21,7 @@ import { extname, resolve } from 'node:path';
 
 const RULES_PATH = 'rules/RULES.md';
 const CODE_EXTENSIONS = new Set([
-  '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.rs', '.go', '.py', '.rb',
+  '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx', '.rs', '.go', '.py', '.rb', '.lean',
   '.java', '.kt', '.swift', '.c', '.h', '.cc', '.cpp', '.hpp', '.cs', '.php',
 ]);
 const DEAD_STATUSES = new Set(['superseded', 'shelved', 'withdrawn', 'tombstoned', 'archived']);

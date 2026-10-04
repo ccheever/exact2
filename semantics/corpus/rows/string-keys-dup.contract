@@ -1,0 +1,35 @@
+// Rows keyed by a field that may repeat: duplicates are told apart by
+// order; a list change re-matches them.
+shape Item
+  id: string
+
+component App
+  state page = 0
+  resource items = items(page) as shape list<Item>
+  action next
+    page = page + 1
+  view
+    column
+      button "next" press=next testId="next"
+      each it, i in items key=(length(it.id) > 1 ? "long" : "short")
+        Row(index=i)
+
+component Row
+  props
+    index: number
+  state hits = 0
+  action hit
+    hits = hits + 1
+  view
+    button "hit" press=hit testId=`hit-${index}`
+      text `${index}:${hits}` testId=`row-${index}`
+
+test "duplicate keys across pages"
+  tap "hit-0"
+  tap "hit-1"
+  tap "hit-1"
+  tap "hit-2"
+  tap "next"
+  tap "hit-0"
+  tap "next"
+  tap "next"

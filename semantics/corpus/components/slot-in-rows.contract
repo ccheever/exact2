@@ -1,0 +1,37 @@
+// A slot component used inside rows: the fill sees the row's item; the
+// slot component's own state is per row.
+shape Item
+  id: string
+
+component App
+  resource a = items(1) as shape list<Item>
+  resource b = items(2) as shape list<Item>
+  derive items = length(a) >= length(b) ? a : b
+  state suffix = "!"
+  action louder
+    suffix = suffix + "!"
+  view
+    column
+      button "louder" press=louder testId="louder"
+      each it, i in items key=i
+        Folding(index=i)
+          text `${it.id}${suffix}` testId=`fill-${i}`
+
+component Folding
+  props
+    index: number
+  slot
+  state open = true
+  action toggle
+    open = not open
+  view
+    column
+      button "t" press=toggle testId=`fold-${index}`
+      when open
+        children
+
+test "fills per row"
+  tap "fold-0"
+  tap "louder"
+  tap "fold-1"
+  tap "fold-0"

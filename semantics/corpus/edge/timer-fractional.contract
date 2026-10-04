@@ -1,0 +1,23 @@
+// Fractional clock advances accumulate; a timer fires when the clock
+// reaches its due time exactly.
+component App
+  state n = 0
+  action tick
+    n = n + 1
+  task t mount
+    every(3, tick)
+  view
+    text `${n}` testId="n"
+
+test "fractions"
+  clock +1.5
+  clock +1.5
+  expect state n == 1
+  clock +0.1
+  clock +0.2
+  clock +2.7
+  expect state n == 2
+  clock +2.9999
+  expect state n == 2
+  clock +0.0001
+  expect state n == 3

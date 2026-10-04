@@ -1,0 +1,43 @@
+// Infinity and NaN live only inside an evaluation: they print, compare and
+// flow into strings and bools, but never land in a slot or derive.
+component App
+  state z = 0
+  state one = 1
+  derive infBig = one / z > 1000000
+  derive nanEq = z / z == z / z
+  derive nanNe = z / z != z / z
+  derive nanLt = z / z < 1
+  derive nanGe = z / z >= 1
+  derive infText = `${one / z}`
+  derive ninfText = `${-one / z}`
+  derive nanText = `${z / z}`
+  derive negZeroDiv = `${one / -z}`
+  derive capped = min(one / z, 5)
+  derive floored = max(-one / z, -3)
+  derive infMinusInf = `${one / z - one / z}`
+  derive infTimesZero = `${(one / z) * z}`
+  derive modInf = 7 % (one / z)
+  derive modZero = `${7 % z}`
+  view
+    column
+      text infText testId="inf"
+      text ninfText testId="ninf"
+      text nanText testId="nan"
+      text negZeroDiv testId="nzd"
+      text toString(1 / 0) testId="lit"
+      text `${infMinusInf} ${infTimesZero} ${modZero}` testId="mix"
+
+test "non-finite inside expressions"
+  expect state infBig == true
+  expect state nanEq == false
+  expect state nanNe == true
+  expect state nanLt == false
+  expect state nanGe == false
+  expect state infText == "Infinity"
+  expect state ninfText == "-Infinity"
+  expect state nanText == "NaN"
+  expect state negZeroDiv == "-Infinity"
+  expect state capped == 5
+  expect text "lit" == "Infinity"
+  expect text "mix" == "NaN NaN NaN"
+  expect state modInf == 7

@@ -1,0 +1,8 @@
+name = "contract-semantics"
+defaultTargets = ["Contract"]
+
+# The library is compiled to native code so a generated program's `main`,
+# run with `lean --run`, calls the interpreter natively.
+[[lean_lib]]
+name = "Contract"
+precompileModules = true

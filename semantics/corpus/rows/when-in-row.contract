@@ -1,0 +1,41 @@
+// `when` and `match` inside rows, reading row state and the item.
+shape Item
+  id: string
+  note: option<string>
+
+component App
+  resource a = items(1) as shape list<Item>
+  resource b = items(2) as shape list<Item>
+  resource c = items(3) as shape list<Item>
+  derive ab = length(a) >= length(b) ? a : b
+  derive items = length(ab) >= length(c) ? ab : c
+  view
+    column
+      each it, i in items key=i
+        Row(item=it, index=i)
+
+component Row
+  props
+    item: Item
+    index: number
+  state open = false
+  action toggle
+    open = not open
+  view
+    column
+      button "t" press=toggle testId=`t-${index}`
+      when open
+        text `open ${item.id}` testId=`open-${index}`
+      else
+        text "closed" testId=`closed-${index}`
+      match item.note
+        case some(n)
+          text n testId=`note-${index}`
+        case none
+          text "-" testId=`nonote-${index}`
+
+test "toggle rows"
+  tap "t-0"
+  tap "t-1"
+  tap "t-0"
+  tap "t-2"

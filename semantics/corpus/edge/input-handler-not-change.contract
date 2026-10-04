@@ -1,0 +1,18 @@
+// `type` delivers a change event; an input with only an `input=` handler.
+component App
+  state q = ""
+  state changes = 0
+  action onInput(v: string)
+    q = v
+  action onChange(v: string)
+    changes = changes + 1
+  view
+    column
+      input value=q input=onInput testId="only-input"
+      input value=q change=onChange testId="only-change"
+      input value=q input=onInput change=onChange testId="both"
+
+test "events"
+  type "only-input" "a"
+  type "only-change" "b"
+  type "both" "c"

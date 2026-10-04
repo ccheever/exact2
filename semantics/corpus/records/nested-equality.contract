@@ -1,0 +1,34 @@
+// Equality of nested records with lists and options inside.
+shape Inner
+  tags: list<string>
+  note: option<string>
+
+shape Outer
+  name: string
+  inner: Inner
+
+component App
+  state a = Outer(name="n", inner=Inner(tags=[], note=none))
+  state b = Outer(name="n", inner=Inner(tags=[], note=none))
+  derive same = a == b
+  action noteA
+    a = Outer(a, inner=Inner(a.inner, note=some("x")))
+  action noteB
+    b = Outer(b, inner=Inner(b.inner, note=some("x")))
+  action renameB
+    b = Outer(b, name="m")
+  view
+    column
+      text `${same}` testId="same"
+      button "a" press=noteA testId="note-a"
+      button "b" press=noteB testId="note-b"
+      button "r" press=renameB testId="rename-b"
+
+test "nested equality"
+  expect state same == true
+  tap "note-a"
+  expect state same == false
+  tap "note-b"
+  expect state same == true
+  tap "rename-b"
+  expect state same == false

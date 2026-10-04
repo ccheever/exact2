@@ -1,0 +1,18 @@
+// A resource argument that changes from 0 to -0: equal numbers, different
+// bits. Does the resource ask its source again?
+shape Item
+  id: string
+
+component App
+  state z = 0
+  resource items = items(z) as shape list<Item>
+  action negate
+    z = -z
+  view
+    column
+      text `${length(items)}` testId="n"
+      button "negate" press=negate testId="negate"
+
+test "negate the argument"
+  tap "negate"
+  tap "negate"

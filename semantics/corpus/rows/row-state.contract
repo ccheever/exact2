@@ -1,0 +1,70 @@
+// A child component's state inside `each` rows: every row has its own;
+// hiding a row and showing it again starts it fresh; rows are keyed by
+// index here, so the surviving rows keep theirs.
+shape Item
+  id: string
+  label: string
+
+component App
+  resource a = items(1) as shape list<Item>
+  resource b = items(2) as shape list<Item>
+  resource c = items(3) as shape list<Item>
+  resource d = items(4) as shape list<Item>
+  // The longest of four answers, so whatever the oracle's seed some rows
+  // are almost surely there.
+  derive ab = length(a) >= length(b) ? a : b
+  derive cd = length(c) >= length(d) ? c : d
+  derive items = length(ab) >= length(cd) ? ab : cd
+  state shown = 10
+  derive visible = filter(items, (it, i) => i < shown)
+  action hide
+    shown = 0
+  action showOne
+    shown = 1
+  action showAll
+    shown = 10
+  view
+    column
+      text `${length(visible)}` testId="count"
+      each it, i in visible key=i
+        Row(item=it, index=i)
+      button "hide" press=hide testId="hide"
+      button "one" press=showOne testId="one"
+      button "all" press=showAll testId="all"
+
+component Row
+  props
+    item: Item
+    index: number
+  state taps = 0
+  state seed = item.label
+  action tap
+    taps = taps + 1
+  view
+    row
+      button "tap" press=tap testId=`tap-${index}`
+      text `${index}:${taps}:${seed}` testId=`row-${index}`
+
+test "rows keep their own state"
+  tap "tap-0"
+  tap "tap-0"
+  tap "tap-1"
+  tap "tap-2"
+  tap "tap-2"
+  tap "tap-2"
+
+test "hide and show resets"
+  tap "tap-0"
+  tap "tap-1"
+  tap "hide"
+  expect text "count" == "0"
+  expect tree missing "row-0"
+  tap "all"
+  tap "tap-1"
+
+test "shrinking keeps the survivors"
+  tap "tap-0"
+  tap "tap-1"
+  tap "one"
+  tap "tap-0"
+  tap "all"

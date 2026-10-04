@@ -1,0 +1,49 @@
+// Components inside components, with state at two levels and a slot fill
+// that sees the caller's names.
+component App
+  state title = "T"
+  action retitle
+    title = title + "!"
+  view
+    column
+      Card(heading=title)
+        text `fill sees ${title}` testId="fill"
+      button "t" press=retitle testId="retitle"
+
+component Card
+  props
+    heading: string
+  slot
+  state open = true
+  action toggle
+    open = not open
+  view
+    column
+      button heading press=toggle testId="toggle"
+      text heading testId="heading"
+      when open
+        children
+      Inner(prefix=heading)
+
+component Inner
+  props
+    prefix: string
+  state clicks = 0
+  action click
+    clicks = clicks + 1
+  view
+    button "inner" press=click testId="inner"
+      text `${prefix}${clicks}` testId="inner-text"
+
+test "slot and nesting"
+  expect text "fill" == "fill sees T"
+  tap "retitle"
+  expect text "fill" == "fill sees T!"
+  expect text "heading" == "T!"
+  tap "toggle"
+  expect tree missing "fill"
+  tap "inner"
+  tap "inner"
+  expect text "inner-text" == "T!2"
+  tap "toggle"
+  expect tree has "fill"

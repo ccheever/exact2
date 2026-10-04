@@ -1,0 +1,31 @@
+// A match statement on first(list) and at(list, -1), writing different
+// slots in each arm.
+shape Item
+  id: string
+  n: number
+
+component App
+  resource items = items() as shape list<Item>
+  state head = "?"
+  state tail = "?"
+  state sum = 0
+  action scan
+    match first(items)
+      case some(f)
+        head = f.id
+        match at(items, -1)
+          case some(l)
+            tail = l.id
+            sum = f.n + l.n
+          case none
+            tail = "impossible"
+      case none
+        head = "empty"
+        tail = "empty"
+  view
+    column
+      text `${head} ${tail}` testId="r"
+      button "scan" press=scan testId="scan"
+
+test "scan"
+  tap "scan"
