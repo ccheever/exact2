@@ -1146,7 +1146,14 @@ impl<D: DataSource> Host<D> {
             self.router_op = Some(change);
             changed = true;
         }
-        for line in self.navigation.sync(self.runner.kernel(), &self.preorder()) {
+        // Only stacks and popovers matter to it: the walk keeps those, in
+        // preorder, not every node of every mounted row.
+        let kernel = self.runner.kernel();
+        let navigation = kernel.preorder_where(&self.runner.roots(), |_, props| {
+            props.str(exact_kernel::PropId::NavigationBack).is_some()
+                || props.str(exact_kernel::PropId::Popover).is_some()
+        });
+        for line in self.navigation.sync(self.runner.kernel(), &navigation) {
             self.runner.log(line);
         }
         changed
@@ -1207,18 +1214,9 @@ impl<D: DataSource> Host<D> {
 
     /// Every live node in preorder.
     pub fn preorder(&self) -> Vec<ViewId> {
-        let kernel = self.runner.kernel();
-        let mut stack: Vec<ViewId> = self.runner.roots().into_iter().rev().collect();
-        let mut order = Vec::new();
-        while let Some(id) = stack.pop() {
-            order.push(id);
-            if let Some(node) = kernel.node(id) {
-                let mut children = node.children();
-                children.reverse();
-                stack.extend(children);
-            }
-        }
-        order
+        self.runner
+            .kernel()
+            .preorder_where(&self.runner.roots(), |_, _| true)
     }
 }
 
