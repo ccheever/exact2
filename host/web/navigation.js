@@ -910,18 +910,17 @@ export function guestType(frame, request) {
   return { typed: request.id, guest: true, value: "value" in target ? target.value : target.textContent };
 }
 
-// @ref LLP 1069.001 D4 — a select (and the range and date inputs) is
-// controlled: the committed `value` is authoritative, so the element shows
-// it again after the options change, and after an action that refused. A
-// date after its action (`acted`) is the exception: like a text field, it
-// keeps the person's choice until the committed value changes, as the web
-// build's does, where it was cleared while a `send` was in flight (x2apps
-// kanban2 #5).
+// @ref LLP 1069.001 D4 (amended 2026-10-04) — a select, range or date is
+// controlled as a text field is: the committed `value` is written when it
+// changes, and shown again after the options change or a refused `type`;
+// after the action that heard the person (`acted`) it keeps their choice,
+// as the web build's does (x2apps kanban2 #5: a date cleared while a `send`
+// was in flight).
 const VALUED = new Set(["range", "date", "time", "datetime-local"]);
 export const valuedControl = (el) => el instanceof HTMLSelectElement || (el instanceof HTMLInputElement && VALUED.has(el.type));
 export function settleValue(el, acted = false) {
   const c = el instanceof HTMLOptionElement ? el.parentElement : el;
-  if (acted && c instanceof HTMLInputElement && c.type !== "range") return;
+  if (acted) return;
   if (c && valuedControl(c) && c.exactValue !== undefined && c.value !== c.exactValue) c.value = c.exactValue;
 }
 // What `type <id> <value>` sets rather than types into (D9): the valued

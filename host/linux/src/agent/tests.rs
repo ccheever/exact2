@@ -698,7 +698,7 @@ fn a_hover_never_presses_and_a_key_is_never_text() {
 fn a_target_out_of_view_is_revealed_and_a_control_takes_a_value() {
     // ledger F7, shop F11: a scroller's row and a row below the fold
     // scroll into view; kanban F17: a checkbox and a select by label.
-    let plan = contract::compile("component App\n  state on = false\n  state pick = \"a\"\n  state due = \"\"\n  state noted = \"\"\n  action set(value: bool)\n    on = value\n  action choose(value: string)\n    pick = value\n  action note(value: string)\n    noted = value\n  view\n    column width=300\n      input type=\"date\" value=due change=note testId=\"due\"\n      input type=\"checkbox\" checked=on change=set testId=\"agree\"\n      select value=pick change=choose testId=\"pick\"\n        option \"Alpha\" value=\"a\"\n        option \"Beta\" value=\"b\"\n      text `${on} ${pick}` testId=\"log\" height=20\n      scroll testId=\"inner\" height=100\n        box height=400\n        box testId=\"deep\" width=50 height=20\n      box testId=\"auto\" height=100 overflow-y=\"auto\"\n        box height=400\n        box testId=\"autodeep\" width=50 height=20\n      box height=900\n      box testId=\"far\" width=50 height=20\n").unwrap();
+    let plan = contract::compile("component App\n  state on = false\n  state pick = \"a\"\n  state due = \"\"\n  state noted = \"\"\n  action set(value: bool)\n    on = value\n  action choose(value: string)\n    pick = value\n  action note(value: string)\n    noted = value\n  action level(value: number)\n    noted = `${value}`\n  view\n    column width=300\n      input type=\"date\" value=due change=note testId=\"due\"\n      input type=\"range\" value=10 change=level testId=\"level\"\n      input type=\"checkbox\" checked=on change=set testId=\"agree\"\n      select value=pick change=choose testId=\"pick\"\n        option \"Alpha\" value=\"a\"\n        option \"Beta\" value=\"b\"\n      text `${on} ${pick}` testId=\"log\" height=20\n      scroll testId=\"inner\" height=100\n        box height=400\n        box testId=\"deep\" width=50 height=20\n      box testId=\"auto\" height=100 overflow-y=\"auto\"\n        box height=400\n        box testId=\"autodeep\" width=50 height=20\n      box height=900\n      box testId=\"far\" width=50 height=20\n").unwrap();
     let (mut p, boot_error) = Presenter::boot_with(
         &plan.encode(),
         NoData,
@@ -762,7 +762,16 @@ fn a_target_out_of_view_is_revealed_and_a_control_takes_a_value() {
         &format!(r#"{{"op":"type","id":{due},"text":"2026-06-01"}}"#),
     );
     assert!(reply.contains("\"value\":\"2026-06-01\""), "{reply}");
-    assert_eq!(p.dates.get(&due), Some(&("2026-06-01".into(), "".into())));
+    assert_eq!(p.chosen.get(&due), Some(&("2026-06-01".into(), "".into())));
+    // So does a range (LLP 1069.001 D4, amended 2026-10-04): its action
+    // wrote something else, and the thumb stays at 70, not 10.
+    let level = id(&p, "level");
+    let reply = handle(
+        &mut p,
+        &format!(r#"{{"op":"type","id":{level},"text":"70"}}"#),
+    );
+    assert!(reply.contains("\"value\":\"70\""), "{reply}");
+    assert_eq!(p.chosen.get(&level), Some(&("70".into(), "10".into())));
     for target in [deep, autodeep, far] {
         let reply = handle(&mut p, &format!(r#"{{"op":"reveal","id":{target}}}"#));
         assert!(reply.contains("\"scrolled\":true"), "{reply}");

@@ -160,23 +160,20 @@ impl<D: DataSource> Presenter<D> {
         if let Some(e) = error.or(after) {
             return Err(e);
         }
-        let node = self.host.kernel().node(id);
-        let date = node.is_some_and(|n| {
-            matches!(
-                n.props.str(PropId::Type),
-                Some("date" | "time" | "datetime-local")
-            )
-        });
-        let mut shown = node
+        let mut shown = self
+            .host
+            .kernel()
+            .node(id)
             .and_then(|n| n.props.str(PropId::Value).map(str::to_owned))
             .unwrap_or_default();
-        // A date keeps the choice until its bound value changes, as the web
-        // build's input does (`paint::control::date_text`; kanban2 #5).
-        if date && shown != value {
-            self.dates.insert(id, (value.to_owned(), shown.clone()));
+        // A date, range or select keeps the choice until its bound value
+        // changes, as the web build's does (`paint::control::choice`; LLP
+        // 1069.001 D4, amended 2026-10-04; kanban2 #5).
+        if shown != value {
+            self.chosen.insert(id, (value.to_owned(), shown.clone()));
             shown = value.to_owned();
         } else {
-            self.dates.remove(&id);
+            self.chosen.remove(&id);
         }
         Ok(format!(
             "{{\"typed\":{id},\"value\":{},\"delivery\":\"recognized\"}}",
@@ -223,6 +220,7 @@ impl<D: DataSource> Presenter<D> {
         let b = self.boxes.iter().find(|b| b.id == id)?;
         let style = node.computed_style(exact_kernel::StyleMask::INHERITED);
         let choices = self.host.kernel().select_choices(id);
+        let picked = crate::paint::control::choice(&node, self.chosen.get(&id));
         let chosen = self.host.kernel().select_chosen(id).map(|c| c.view);
         let mut text = self.text.borrow_mut();
         let mut width = b.rect.2;
@@ -245,7 +243,10 @@ impl<D: DataSource> Presenter<D> {
             MenuPaint {
                 rect: (x.min(self.viewport.0 - width).max(0.0), top, width, height),
                 row,
-                chosen: choices.iter().position(|c| Some(c.view) == chosen),
+                chosen: match picked {
+                    Some(v) => choices.iter().position(|c| c.value == v),
+                    None => choices.iter().position(|c| Some(c.view) == chosen),
+                },
                 rows: choices.into_iter().map(|c| (c.label, c.disabled)).collect(),
                 accent: accent(&node, self.brush.dark),
                 style,

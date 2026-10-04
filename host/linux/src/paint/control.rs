@@ -10,21 +10,44 @@ use tiny_skia::Transform;
 /// Chrome's default accent, `#0075ff`, where `accent-color` is `auto`.
 const ACCENT: [u8; 4] = [0x00, 0x75, 0xff, 0xff];
 
-/// What a date control shows: the person's choice while its bound value is
-/// the one it had when they chose (the web build writes an input's `value`
-/// only when the bound value changes; x2apps kanban2 #5), else the bound
-/// value, HTML's placeholder form when empty.
-pub(super) fn date_text<'a>(node: &NodeRef<'a>, chosen: Option<&'a (String, String)>) -> &'a str {
+/// A control's choice while its bound value is the one it had when the
+/// person chose, as the web build writes an input's `value` only when the
+/// bound value changes (LLP 1069.001 D4, amended 2026-10-04; kanban2 #5).
+pub(crate) fn choice<'a>(
+    node: &NodeRef<'_>,
+    chosen: Option<&'a (String, String)>,
+) -> Option<&'a str> {
     let bound = node.props.str(PropId::Value).unwrap_or("");
-    let value = match chosen {
-        Some((choice, at)) if at == bound => choice.as_str(),
-        _ => bound,
-    };
+    chosen
+        .filter(|(_, at)| at == bound)
+        .map(|(c, _)| c.as_str())
+}
+
+/// What a date control shows: its [`choice`], else the bound value, HTML's
+/// placeholder form when empty.
+pub(super) fn date_text<'a>(node: &NodeRef<'a>, chosen: Option<&'a (String, String)>) -> &'a str {
+    let value = choice(node, chosen).unwrap_or_else(|| node.props.str(PropId::Value).unwrap_or(""));
     match (value, node.props.str(PropId::Type)) {
         ("", Some("date")) => "yyyy-mm-dd",
         ("", Some("time")) => "--:--",
         ("", _) => "yyyy-mm-ddT--:--",
         (v, _) => v,
+    }
+}
+
+/// A select's label: its [`choice`]'s option, else the bound one's.
+pub(super) fn select_label(
+    kernel: &exact_kernel::Kernel,
+    node: &NodeRef<'_>,
+    chosen: Option<&(String, String)>,
+) -> Option<String> {
+    match choice(node, chosen) {
+        Some(v) => kernel
+            .select_choices(node.id)
+            .into_iter()
+            .find(|c| c.value == v)
+            .map(|c| c.label),
+        None => kernel.select_chosen(node.id).map(|c| c.label),
     }
 }
 
@@ -114,7 +137,13 @@ impl super::Painter {
 
     /// A range (LLP 1069.001 D7): Chrome's track, filled with the accent to
     /// a 16 px thumb at the value.
-    pub(super) fn range_control(&mut self, node: &NodeRef<'_>, content: Rect4, ts: Transform) {
+    pub(super) fn range_control(
+        &mut self,
+        node: &NodeRef<'_>,
+        content: Rect4,
+        ts: Transform,
+        chosen: Option<&(String, String)>,
+    ) {
         if node.style.appearance == Appearance::None {
             return;
         }
@@ -127,7 +156,9 @@ impl super::Painter {
             c
         };
         let range = exact_kernel::Range::of(node.props);
-        let value = range.shown(node.props);
+        let value = choice(node, chosen)
+            .and_then(|c| c.parse::<f64>().ok())
+            .map_or_else(|| range.shown(node.props), |v| range.sanitize(v));
         let t = if range.max > range.min {
             ((value - range.min) / (range.max - range.min)) as f32
         } else {

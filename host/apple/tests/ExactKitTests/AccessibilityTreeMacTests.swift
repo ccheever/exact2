@@ -113,6 +113,28 @@ final class AccessibilityTreeMacTests: XCTestCase {
         XCTAssertTrue(field.empty)
     }
 
+    /// A range keeps the person's value until its bound value changes, as the
+    /// web build's does (LLP 1069.001 D4, amended 2026-10-04): it snapped back
+    /// to 10 after an action that wrote something else.
+    func testARangeKeepsThePersonsValueUntilItsBoundValueChanges() throws {
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 11, "kind": "control", "props": ["type": "range", "value": "10", "testId": "level"], "handlers": ["change"], "style": [:]],
+            ["op": "children", "id": 1, "ids": [2, 3, 11]],
+            ["op": "frame", "id": 11, "x": 0.0, "y": 140.0, "w": 129.0, "h": 24.0],
+        ]))
+        p.onControlValue = { _, _, _, _ in }
+        let slider = try XCTUnwrap(p.controls.controls[11] as? NSSlider)
+        XCTAssertEqual(slider.doubleValue, 10)
+        let reply = try XCTUnwrap(p.controls.type(try XCTUnwrap(p.views[11]), "70"))
+        XCTAssertEqual(reply["value"] as? String, "70")
+        XCTAssertEqual(slider.doubleValue, 70, "the bound value is still 10: the knob stays")
+        p.apply(wireBatch([["op": "props", "id": 11, "set": ["max": "90"]]]))
+        XCTAssertEqual(slider.doubleValue, 70, "another prop leaves it")
+        p.apply(wireBatch([["op": "props", "id": 11, "set": ["value": "40"]]]))
+        XCTAssertEqual(slider.doubleValue, 40, "the bound value, once it changes")
+    }
+
     /// An attached sheet is the modal: the driver judges everything else against it.
     func testASheetRootIsReportedAsTheModal() throws {
         let p = try fixture()
