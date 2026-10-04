@@ -299,13 +299,13 @@ fn write<S: Source>(
 
 /// Decide every list before an opening tag can be streamed. This source may
 /// be a DocTree with no kernel; the rule is still the kernel's pure functions.
-fn isolation<S: Source>(src: &S, roots: &[ViewId]) -> SortedMap<ViewId, bool> {
+fn isolation<S: Source>(src: &S, roots: &[ViewId]) -> SortedMap<ViewId, Child> {
     fn walk<S: Source>(
         src: &S,
         id: ViewId,
         beside_exclusion: bool,
         parent_display: Option<exact_kernel::Display>,
-        out: &mut SortedMap<ViewId, bool>,
+        out: &mut SortedMap<ViewId, Child>,
     ) -> Child {
         let node = src.facts(id).expect("live document node");
         let children = src.children(id);
@@ -338,7 +338,7 @@ fn isolation<S: Source>(src: &S, roots: &[ViewId]) -> SortedMap<ViewId, bool> {
             .zip(paint_order::decide(&facts))
         {
             child.isolated = isolated;
-            out.insert(*id, isolated || child.own.policy);
+            out.insert(*id, *child);
         }
         Child {
             own,
@@ -349,7 +349,7 @@ fn isolation<S: Source>(src: &S, roots: &[ViewId]) -> SortedMap<ViewId, bool> {
     let mut out = SortedMap::new();
     for root in roots {
         let child = walk(src, *root, false, None, &mut out);
-        out.insert(*root, child.own.policy);
+        out.insert(*root, child);
     }
     out
 }
@@ -477,7 +477,7 @@ pub fn tab_routes(
 
 struct Walk<'r, 'w, S: Source> {
     src: &'r S,
-    isolation: SortedMap<ViewId, bool>,
+    isolation: SortedMap<ViewId, Child>,
     computed: Option<Computed>,
     fonts: Vec<String>,
     handlers: SortedMap<ViewId, Vec<EventKind>>,
@@ -550,7 +550,8 @@ impl<S: Source> Walk<'_, '_, S> {
         };
         animations(node.style, &mut self.keyframes);
         let children = src.children(id);
-        let isolated = self.isolation.get(&id).copied().unwrap_or(false);
+        let paint = self.isolation.get(&id).copied().unwrap_or_default();
+        let isolated = paint.isolated || paint.own.policy;
         let holds = children.len() == 1
             && src.facts(children[0]).is_some_and(|c| {
                 let handled = self
@@ -566,6 +567,23 @@ impl<S: Source> Walk<'_, '_, S> {
         let element = if tag == "canvas" { "div" } else { tag };
         self.route_children(&node, &children);
         let chosen = (element == "select").then(|| props.get("value").cloned());
+        // A waiting keyed row is opaque to adoption. Its complete paint
+        // summary lets the JS target decide siblings without visiting it.
+        // Bits mirror paint.js: own facts, potentials, authored isolation, root, layout, exclusion.
+        let flags = u16::from(paint.own.positioned)
+            | (u16::from(paint.own.stacks) << 1)
+            | (u16::from(paint.own.policy) << 2)
+            | (u16::from(paint.own.outside) << 3)
+            | (u16::from(paint.potentials.z) << 4)
+            | (u16::from(paint.potentials.level0) << 5)
+            | (u16::from(node.style.isolation == exact_kernel::Isolation::Isolate) << 6)
+            | (u16::from(node.is_root) << 7)
+            | (u16::from(node.style.mask.has(exact_kernel::StyleId::LayoutTransition)) << 8)
+            | (u16::from(
+                node.style.position_type == exact_kernel::PositionType::Absolute
+                    && node.style.wrap_flow == exact_kernel::WrapFlow::Both,
+            ) << 9);
+        let z = paint.own.z.map_or_else(|| "null".into(), |z| z.to_string());
         let mut attrs: Vec<(String, Option<String>)> = Vec::new();
         let mut content: Option<String> = None;
         let mut markup: Option<String> = None;
@@ -675,6 +693,7 @@ impl<S: Source> Walk<'_, '_, S> {
         if !style.is_empty() {
             attrs.push(("style".into(), Some(style)));
         }
+        attrs.push(("data-exact-paint".into(), Some(format!("[{flags},{z}]"))));
         self.open(id, element, &attrs)?;
         if matches!(element, "img" | "input") {
             // Void: no content, no end tag.

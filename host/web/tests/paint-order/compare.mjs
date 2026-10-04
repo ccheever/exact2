@@ -45,11 +45,36 @@ try {
       const rendered = (await renderer(dir)('/')).html;
       const rust = readFileSync(resolve(dir, 'rust.html'), 'utf8');
       const page = await browser.newPage();
+      const sliced = names[i].startsWith('sliced keyed');
+      if (sliced) await page.addInitScript(() => {
+        // Deterministic budgets, with adoption tasks driven one at a time.
+        let now = 0;
+        performance.now = () => ++now;
+        globalThis.adoptionSlices = [];
+        globalThis.scheduler = { postTask: f => { adoptionSlices.push(f); return Promise.resolve(); } };
+      });
       const check = async (html, adopt = false) => {
         pages.set(`/${i}/index.html`, html);
         await page.goto(`${server.url}${i}/index.html`);
         if (adopt) await page.waitForFunction(() => globalThis.ready);
-        return page.evaluate(readIsolation);
+        const result = await page.evaluate(readIsolation);
+        if (adopt && sliced && (await page.evaluate(() => journal)).some(s => s.includes('adopted the document'))) {
+          assert.deepEqual(result, expected, 'waiting rows retain server isolation');
+          assert.ok(await page.evaluate(() => adoptionSlices.length > 0), 'the list exceeded the initial budget');
+          assert.ok(await page.evaluate(() => {
+            const row = document.querySelector('[data-testid="row-200"]');
+            const waiting = row.$n === undefined;
+            row.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+            return waiting && row.$n !== undefined;
+          }), 'input adopts a waiting row');
+          assert.deepEqual(await page.evaluate(readIsolation), expected, 'event-triggered adoption flushes paint');
+          for (let slice = 0; await page.evaluate(() => adoptionSlices.length); slice++) {
+            assert.ok(slice < 200, 'adoption completes');
+            await page.evaluate(() => adoptionSlices.shift()());
+            assert.deepEqual(await page.evaluate(readIsolation), expected, `paint after adoption slice ${slice}`);
+          }
+        }
+        return result;
       };
       const expected = await check(withoutScripts(shell).replace('<div id="exact-root"></div>', `<div id="exact-root">${rust}</div>`));
       assert.deepEqual(await check(withoutScripts(rendered)), expected, 'JS server before adoption');

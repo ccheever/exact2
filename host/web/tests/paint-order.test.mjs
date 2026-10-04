@@ -2,7 +2,7 @@
 // the browser. These holders intentionally have no data-exact-box marker.
 import { test, expect } from 'bun:test';
 import { createDocument } from '../../web-js/dom.js';
-import { paintList, paintFacts, paintFlush } from '../../web-js/paint.js';
+import { paintList, paintFacts, paintFlush, paintWait } from '../../web-js/paint.js';
 
 function tree() {
   const doc = createDocument();
@@ -75,4 +75,18 @@ test('host policy is separate from authored isolation and outside boxes contribu
   expect(button.style.isolation).toBe('');
   expect(image.style.isolation).toBe('');
   expect(holder.style.isolation).toBe('isolate');
+});
+
+test('waiting server rows retain layout and exclusion facts for their adopted relatives', () => {
+  const { root, add } = tree();
+  const holder = add(root), paragraph = add(holder, 'text');
+  const waiting = add(holder, 'box', { layout: '', position: 'absolute', wrap: '' });
+  globalThis.__exactRender = true;
+  try { paintFlush(); } finally { delete globalThis.__exactRender; }
+  paintWait(waiting);
+  // The Rust document has the paint summary before template attributes arrive.
+  for (const fact of ['layout', 'position', 'wrap', 'kind']) waiting.removeAttribute('data-exact-' + fact);
+  paintFacts(holder); paintFlush();
+  expect(holder.style.isolation).toBe('isolate');
+  expect(paragraph.style.isolation).toBe('isolate');
 });

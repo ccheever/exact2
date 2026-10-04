@@ -116,6 +116,23 @@ component Paint
         &["toggle", "toggle", "toggle"],
     );
     labels.push("bound facts, arm swaps and keyed each edits");
+    let long = contract::compile(
+        r#"shape Item
+  id: number
+component Paint
+  resource items = items() as shape list<Item>
+  view
+    box
+      box testId="waiting-list"
+        each item in items key=item.id
+          box testId=`row-${item.id}`
+            box position="absolute" z-index=2
+"#,
+    )
+    .unwrap();
+    let long = contract::bake(long, ManyItems).unwrap();
+    write_case(&dir.join(labels.len().to_string()), &long, &[]);
+    labels.push("sliced keyed adoption preserves server paint facts");
     std::fs::write(
         dir.join("cases.json"),
         serde_json::to_string(&labels).unwrap(),
@@ -288,5 +305,16 @@ fn bound_transition_stacking_matches_kernel() {
             holds_layout_transition: false,
         });
         assert_eq!(actual, own.policy, "transition: {value}");
+    }
+}
+
+struct ManyItems;
+impl exact_runner::DataSource for ManyItems {
+    fn query(&mut self, _: &str, _: &[Value]) -> Result<Value, exact_runner::DataError> {
+        Ok(Value::list(
+            (1..=200)
+                .map(|i| Value::record(vec![Value::Number(f64::from(i))]))
+                .collect(),
+        ))
     }
 }

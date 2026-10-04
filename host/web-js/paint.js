@@ -7,6 +7,20 @@ const get = (e, n) => e.getAttribute("data-exact-" + n);
 const fact = (e, n) => e.getAttributeNames().some(k => k === "data-exact-" + n || k.startsWith("data-exact-" + n + "-"));
 const record = e => e.$paint ??= { z: false, level0: false, isolated: false, cz: false, c0: false };
 
+/** Keep the server's own facts and descendant potentials for a row whose
+ * bindings wait for an adoption slice. Both server renderers write these. */
+export function paintWait(e) {
+  const [bits, z] = JSON.parse(get(e, "paint"));
+  Object.assign(record(e), { z: !!(bits & 16), level0: !!(bits & 32), own: {
+    positioned: !!(bits & 1), stacks: !!(bits & 2), policy: !!(bits & 4), outside: !!(bits & 8),
+    isolation: !!(bits & 64), root: !!(bits & 128), z,
+  }, layout: !!(bits & 256), exclusion: !!(bits & 512) });
+  e.$paintWaiting = true;
+}
+
+const layout = e => e.$paintWaiting ? record(e).layout : has(e, "layout");
+const excludes = e => e.$paintWaiting ? record(e).exclusion : get(e, "position") === "absolute" && has(e, "wrap");
+
 /** A structural edit can change both a list and its holder's policy. */
 export function paintList(p) {
   if (p?.nodeType !== 1) return;
@@ -17,6 +31,7 @@ export function paintList(p) {
 export function paintFacts(e) { paintList(e); }
 
 function own(e, parent, exclusion) {
+  if (e.$paintWaiting) return record(e).own;
   const root = has(e, "root"), position = get(e, "position");
   const positioned = root || position !== null;
   const zi = get(e, "zi"), z = zi !== null && (positioned || has(parent, "flex")) ? Number(zi) : null;
@@ -28,9 +43,9 @@ function own(e, parent, exclusion) {
     || (button && (style.endsWith("glass") || (get(e, "disabled") === "true" && !["bordered", "gray"].includes(style))))
     || has(e, "material") || get(e, "navigation") === "modal"
     || fact(e, "motion") || has(e, "layout") || has(e, "exit")
-    || (kind === "text" && exclusion) || Array.from(e.children).some(c => !c.hasAttribute("data-exiting") && has(c, "layout"));
+    || (kind === "text" && exclusion) || Array.from(e.children).some(c => !c.hasAttribute("data-exiting") && layout(c));
   return { positioned, stacks: authored || !!policy, policy: !!policy && !authored, z,
-    outside: !kind || has(e, "outside") || get(e, "semantic") === "dialog" || has(e, "popover"), root };
+    isolation: has(e, "own-isolation"), outside: !kind || has(e, "outside") || get(e, "semantic") === "dialog" || has(e, "popover"), root };
 }
 
 export function paintFlush() {
@@ -49,7 +64,7 @@ export function paintFlush() {
     const list = buckets.at(-1);
     if (!list?.length) { buckets.pop(); continue; }
     const p = list.pop(), children = Array.from(p.children).filter(c => !c.hasAttribute("data-exiting"));
-    const exclusion = children.some(c => get(c, "position") === "absolute" && has(c, "wrap"));
+    const exclusion = children.some(excludes);
     let layered = false, leaked = false, z = false, level0 = false, changed = false;
     for (const c of children) {
       const r = record(c), o = own(c, p, exclusion), free = !o.stacks, stat = !o.positioned;
@@ -57,7 +72,7 @@ export function paintFlush() {
       const leaks = stat && free && !isolated && r.level0;
       if (!o.outside) { layered ||= o.positioned || o.stacks || isolated || leaks; leaked ||= leaks; }
       c.toggleAttribute("data-exact-policy", o.policy);
-      const iso = isolated || o.policy || has(c, "own-isolation");
+      const iso = isolated || o.policy || o.isolation;
       // Presence restores this current decision after the last ghost. A
       // sliced adoption may flush without a presence before/after pair.
       if (c.$ghostIsolation) Object.assign(c.$ghostIsolation, { value: iso ? "isolate" : "", priority: "", released: false });
@@ -68,6 +83,12 @@ export function paintFlush() {
       const c0 = !o.outside && (((o.positioned || o.stacks) && !nonzero) || isolated || (open && stat && r.level0));
       changed ||= r.isolated !== isolated || r.policy !== o.policy || r.cz !== cz || r.c0 !== c0;
       Object.assign(r, { own: o, isolated, policy: o.policy, cz, c0 });
+      if (globalThis.__exactRender) {
+        // Same compact summary as the Rust document emitter.
+        const bits = +o.positioned | (+o.stacks << 1) | (+o.policy << 2) | (+o.outside << 3)
+          | (+r.z << 4) | (+r.level0 << 5) | (+o.isolation << 6) | (+o.root << 7) | (+layout(c) << 8) | (+excludes(c) << 9);
+        c.setAttribute("data-exact-paint", JSON.stringify([bits, o.z]));
+      }
       z ||= cz; level0 ||= c0;
     }
     const r = record(p);

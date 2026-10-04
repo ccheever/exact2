@@ -1,6 +1,6 @@
 import { renderMarkup, reportPlace } from "./navigation.js"; export { animationClocks } from "./navigation.js"; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { conforms, eq } from "./shape.js"; import { pointer } from "./pointer.js";
-import { paintList, paintFacts, paintFlush } from "./paint.js";
+import { paintList, paintFacts, paintFlush, paintWait } from "./paint.js";
 export { conforms, eq };
 import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head };
 // The JS target's runtime: fine-grained DOM signals for a plan compiled ahead by `exact-web-js`. Everything here is imported
@@ -531,6 +531,7 @@ function adopt(p, tag, cls, attrs) {
   while (e && e.nodeType !== 1) e = e.nextSibling;
   if (!e || e.localName.toLowerCase() !== tag.toLowerCase()) throw new Mismatch(`adoption: expected <${tag}>, found ${e ? "<" + e.localName + ">" : "nothing"}`);
   p.$n = e.nextSibling;
+  e.$paintWaiting = false; e.removeAttribute("data-exact-paint");
   // The renderer's inline style stays: it is the class's declarations and
   // the live rows, which the node's style bindings rewrite as they change.
   if (e.hasAttribute("data-view")) e.removeAttribute("data-view");
@@ -1164,7 +1165,7 @@ let LazyAt = 0, LazyTask = null;
 const LAZY_EVENTS = ["pointerdown", "mousedown", "touchstart", "click", "keydown", "beforeinput", "input", "change", "focusin"];
 // Passive: a waiting row must never make the page's touches wait for script.
 const LAZY_OPTS = { capture: true, passive: true };
-function lazy(x) { Lazy.push(x); LazyRows.set(x[1].start, x); }
+function lazy(x) { paintWait(x[1].start); Lazy.push(x); LazyRows.set(x[1].start, x); }
 function adoptLazy(x) {
   const [p, r, row, own] = x;
   LazyRows.delete(r.start);
@@ -1193,17 +1194,17 @@ function lazyDone() {
   for (const t of LAZY_EVENTS) root?.removeEventListener(t, onLazy, LAZY_OPTS);
 }
 function adoptAt(target) {
-  for (let n = target; n && n.nodeType === 1; n = n.parentNode) { const x = LazyRows.get(n); if (x) { adoptLazy(x); break; } }
+  for (let n = target; n && n.nodeType === 1; n = n.parentNode) { const x = LazyRows.get(n); if (x) { adoptLazy(x); paintFlush(); break; } }
 }
 const onLazy = ev => adoptAt(ev.target);
 function slice() {
   LazyTask = null;
   const end = performance.now() + SLICE_MS;
   while (LazyAt < Lazy.length && performance.now() < end) adoptLazy(Lazy[LazyAt++]);
+  paintFlush();
   if (LazyAt < Lazy.length) LazyTask = post(slice); else lazyDone();
 }
 const post = f => globalThis.scheduler?.postTask ? scheduler.postTask(f, { priority: "user-visible" }) : setTimeout(f);
-
 // ---------------------------------------------------------------- boot
 /** Build the view into `#exact-root` and start the clock. */
 export function mount(f) {
