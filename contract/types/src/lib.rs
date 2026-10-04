@@ -1257,7 +1257,10 @@ fn check_children(file: &File, types: &mut Types, sink: &mut Sink) {
                 .unwrap_or(c.span);
             sink.push(TypeError {
                 id: "type-child-resource",
-                message: format!("component `{}` takes props: a resource, mutation, or task lives in the root (a child may own state, derives, and actions)", c.name),
+                message: format!(
+                    "component `{}` is a child (the root is the file's first component, `{}`): a resource, mutation, or task lives in the root; a child may own state, derives, and actions. If `{}` is the app, move it above the other components",
+                    c.name, file.components[0].name, c.name
+                ),
                 span,
             });
         }
