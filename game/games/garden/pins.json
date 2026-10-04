@@ -1,19 +1,19 @@
 {
   "ticks": {
-    "0": "0x5dd7e54782e3ead7",
-    "5136": "0x67ff9f238a4d982d"
+    "0": "0x45f32f6360bbbb73",
+    "5136": "0x5e57e536867f9d6f"
   },
   "saves": {
-    "continuation": "b512a54498fe1fa2d459969c91780395fa05438eaa80478045af9141ed73c84d",
-    "market": "c7804a76c9ba6202cf302ff1cb4708094c151f17937d6e5a0b7d2d5c6b4e9f46"
+    "continuation": "d7a91ec927afb6f8144f25acf1c150e9b61e79be23e23938c61f0ce50e4d82db",
+    "market": "6910128d1f1d06175257b0159eae2c9c7280f86bdc4f97a8646114e48e1160a4"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "0459cdebc3d2e7d615a7d358d8af7b2df20c947ca3940be27bfa4c7e2c6be746",
+  "inputs": "0a970f4156485a8828fb50e265372226cd57c67eda27c1f910511b0f6f14c2a8",
   "game": "garden",
   "generated": "bun game/prove.mjs garden --repin --hosts 'linux,web'",
-  "at": "a4dc6b67c8d1a13a54a8d52296600093aec63a44",
-  "reason": "Visible market steps, requested-seed stock and all five orders through ordinary controls"
+  "at": "15447a888b494c3f73f770573d5fa96e196b2ddb",
+  "reason": "Garden offsets stems and fruit beside the player and saves a four-entity active plot outline; normal proofs verify planting and harvest colors while retaining all five market orders and identical fresh continuation."
 }

@@ -724,3 +724,20 @@ p95 2.5/3.3/4.3 ms. The largest scene has 110,732 entities, 28 draws, and
 fixture on this Mac, not a browser or app-window latency measurement. Both
 Jev screenshots were inspected as well: web's corn is visible beside the
 avatar; Mac's missing outline agrees with its outside-garden state.
+
+### Accepted plot verification
+
+Feature `15447a888` is accepted by `artifacts/prove/run-P5FxVf`: all seven
+normal/Save/FreshGame Linux and web runs plus native release agree, with zero
+failures and passing descendant audits. Linux takes 18.2/4.7/4.8 s, web
+64.7/61.8/52.3 s, including mode-specific builds; release takes 66.7 s. The
+collector restores the normal web build. The independent macOS proof matches
+the collector's source inputs, all pins, four world snapshots and six saves.
+The saved outline and plant positions change tick 0 to `0x45f32f6360bbbb73`,
+tick 5136 to `0x5e57e536867f9d6f`, continuation to `d7a91ec9…` and market to
+`6910128d…`. The subsequent ordinary Linux proof passes the accepted pins.
+
+All five root gates pass: 2,316 enabled tests across 81 binaries, nine ignored;
+Garden's Clippy and formatting checks also pass. The core's deprecated
+`fetch_update` warnings occur only with the newer pinned web nightly, not the
+stable gate toolchain. No engine code or Jev policy changes in this feature.
