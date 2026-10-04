@@ -1,7 +1,7 @@
 # LLP 1086: What an app author is given
 
 **Type:** RFC
-**Status:** Draft, 2026-10-04. Nothing here is built.
+**Status:** Draft r2, 2026-10-04. Reviewed blind by Astra (max) and Grok (xhigh): both SOUND WITH CHANGES; §6 lists what r2 changed. Charlie asked for it to be implemented after review (2026-10-04); his request is the approval RULES asks for the build script (D3) and the DEFERRED bullet (D9).
 **Systems:** Scaffolding (`game/new.mjs`: the files `exact new` writes and `--update` rewrites), the app's command runner (the generated `exact.mjs`), setup (`scripts/exact.mjs` `setup`), the app manifest schema (`scripts/app.schema.json`, `scripts/app.mjs` validation), the Contract CLI (`contract/cli`: a `vocab` command), the author docs (`docs/contract-for-humans.md`, `docs/contract-for-agents.md`, `docs/contract-grammar.md`, `docs/reference.md`), `README.md`, `AGENTS.md`/`CLAUDE.md`, `rules/DEFERRED.md`, LLP 1000
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
@@ -80,8 +80,10 @@ app's directory can't discover:
   to the app, computed the same way `exact.mjs` computes its `EXACT2` default.
 - **The app's commands.** Every `bun exact.mjs` verb, including D4's
   `contract`.
-- **The loop.** Edit, `contract build --json`, `test web`, drive with
-  `agent web`, then the native hosts.
+- **The loop.** `bun exact.mjs contract types app.contract -o
+  app.contract.d.ts` first, because `app.ts` imports the file it writes and
+  nothing else creates it before a host build. Then edit, `contract build
+  --json`, `test web`, drive with `agent web`, and finally the native hosts.
 - **Don't edit the generated parts.** The `[patch.crates-io]` table,
   `rust-toolchain.toml` and `exact.mjs` are rewritten by `bun exact.mjs
   update`.
@@ -100,8 +102,10 @@ Not taken:
 
 ### D2. The data module gets a worked example
 
-`docs/contract-for-humans.md` gains a section, "Writing the data module". It
-contains one complete, compiling `app.ts` beside the Contract that uses it:
+The README already shows a complete `app.ts`: the todo list, which is in
+memory. `docs/contract-for-humans.md` gains a section, "Writing the data
+module", that continues that example instead of starting over. It contains one
+complete, compiling `app.ts` beside the Contract that uses it:
 
 - a synchronous source;
 - an async source that uses `fetch`, with the `net.fetch` grant it needs;
@@ -115,8 +119,15 @@ The section also states the rules an author otherwise learns by failing:
   placeholder.
 - SQLite integers are `bigint` and must be converted before they are returned.
 - `app.ts` imports only local files. There are no npm packages yet.
+- Grant verbs are a closed list (`grants/src/lib.rs`), and the section names
+  all of them.
 - A Rust data crate is the alternative. It is shown in a paragraph pointing at
   `contract rust` and Caltrain's `data/`, not taught.
+- **How to verify it.** Generate the types, build, then drive with
+  `--storage <name>`, which an ordinary agent drive refuses
+  (`host/web/storage-environment.js`). Without that flag a drive exercises
+  only the storage-unavailable path. Then drive a second time to show the data
+  persisted.
 
 `docs/contract-for-agents.md` gains the same example in condensed form under
 "Data requests and side effects".
@@ -148,21 +159,37 @@ With a name, it prints just that entry. If the name isn't admitted, it prints
 the same "did you mean" the compiler would.
 
 **The list comes from the lookups themselves.** `tags.rs`'s `tag()` and
-`attr()` are `match` expressions, with no table to iterate. A build script in
-`contract-lower` scans `tags.rs` for the string patterns in those two functions
-and generates a candidate list. `vocab` keeps the candidates that the real
-lookup admits, and classifies each by what the lookup returns. The generated
-list is a build artefact, not a committed file. It can't drift, because
-admission is decided by the same function the compiler calls. Two unit tests
-guard the edges:
+`attr()` are `match name` expressions with no table to iterate. `renamed()`
+and `html_tag()` are the same.
 
-- **No dead candidates.** Every candidate either resolves or is a known
-  refusal (`renamed`, the HTML hints).
-- **The scan finds what it should.** A canary checks that a sample of names
-  known to be admitted, one per family, is present.
+1. **Scan.** A build script in `contract-lower` scans those four functions'
+   `match name` arms, and only the patterns left of `=>`. Value literals
+   inside arm bodies (`"flex"`, `"pre-wrap"`) are never candidates. It follows
+   or-patterns across lines.
+2. **Fail on anything else.** The script fails the build if an arm in those
+   matches is anything other than string-literal patterns or `_`. That makes
+   the scan complete rather than sampled: a new arm is either seen, or it
+   breaks the build with a message saying why.
+3. **Filter and classify.** `vocab` keeps the candidates the live lookup
+   admits, and classifies each by its `AttrTarget`: `Styles`, `Prop`,
+   `InvertedBoolProp`, `Handler`, `Flex` or `Surface`.
+4. **Describe.** It attaches each style row's codec, enum values and default
+   from the kernel's schema. The lookup's return can't supply those.
+5. **Rules no table lists.** It prints them from the compiler's own constants:
+   - the `head` fields;
+   - the attributes admitted only on certain tags (`lib.rs`'s contextual
+     refusals);
+   - the two open sets that bypass the lookups: a hyphenated tag is a native
+     module declared in `app.json` (`native.rs`), and `data-*` must be
+     declared too (`dataset.rs`).
 
-If LLP 1081 lands its `style_names.rs` table, the scan for styles is replaced
-by that table.
+The generated list is a build artefact, not a committed file. It can't drift:
+the scan is total over the patterns, and admission is decided by the same
+function the compiler calls. A unit test checks that every scanned candidate
+resolves or is a refusal (`renamed`, `html_tag`).
+
+If LLP 1081 lands its iterable `style_names.rs` table, the style half of the
+scan is replaced by that table, as Astra recommends.
 
 `docs/contract-grammar.md`'s "Style and prop names come from `schema.json` and
 `tags.rs`… This document does not duplicate their changing property tables"
@@ -178,10 +205,23 @@ Not taken:
 ### D4. One command form that works from the app
 
 The generated `exact.mjs` gains a `contract` verb. It runs exact2's compiler
-(`cargo run -q --release --manifest-path <exact2>/Cargo.toml -p contract --`)
-with the remaining arguments, resolved against the app directory. The CLI
-already takes paths, so `bun exact.mjs contract build app.contract --json` and
-`bun exact.mjs contract vocab padding` work from inside the app.
+as `cargo +<pinned stable> run -q --manifest-path <exact2>/Cargo.toml -p
+contract -- …` with the remaining arguments.
+
+- **Debug, not `--release`.** The guides already use the debug build, and a
+  release build would add a cold kernel-and-runner compile to the author's
+  first command.
+- **From the app directory**, so relative paths resolve against it.
+- **The environment:**
+  - The toolchain is named explicitly, and an ambient `RUSTUP_TOOLCHAIN` is
+    dropped. rustup picks the toolchain from the cwd and the environment, not
+    from `--manifest-path`, and `scripts/app.mjs` already guards against
+    mise's override.
+  - An inherited `CARGO_TARGET_DIR` is dropped, so the compiler builds into
+    exact2's own `target/` and never into the app's or another checkout's.
+
+So `bun exact.mjs contract build app.contract --json` and `bun exact.mjs
+contract vocab padding` work from inside the app.
 
 Every command in the three guides is shown in the app form. The root form
 (`cargo run -q -p contract -- … apps/<name>/…`) is kept once, as "inside the
@@ -196,8 +236,9 @@ it. They were reviewed with the diary and are independent of this RFC.
 - The scaffold writes `"$schema"` as the path to `scripts/app.schema.json`,
   relative to the app. `--update` rewrites it when the checkout moves. Editors
   that read JSON Schema then complete keys and show descriptions.
-- `app.schema.json` admits a top-level `$schema` string. It refuses unknown
-  keys today, so this is required.
+- `app.schema.json` already admits a top-level `$schema`, and both web
+  builders whitelist manifest keys, so it never reaches a web manifest. No
+  validator change is needed.
 - Each key that an author sets, or that `exact new` writes, gets a
   `description` that says what it does in a sentence. The LLP citation follows
   the sentence instead of replacing it. Those keys are:
@@ -218,16 +259,28 @@ it. They were reviewed with the diary and are independent of this RFC.
   whole table.
 - It gains rows for:
   - exact2's `node_modules`;
-  - Chrome (`CHROME`, else the standard paths);
+  - Chrome, found through the agent's own `chromium()` lookup
+    (`agent-launch.mjs`). It is needed for the web loop, which is how every
+    app is driven.
   - on macOS, an Xcode `xcode-select -p`, not the Command Line Tools;
-  - Hermes for TypeScript on native hosts. Its source is resolved in
-    `js/build.rs`'s order: `EXACT_HERMES_DIR`, the sibling ibex, then the
-    machine cache.
+  - Hermes, reported as two rows, in `js/build.rs`'s orders:
+    - **`hermesc`**, needed for any TypeScript app, the web included:
+      `EXACT_HERMESC`, else the machine cache's `hermesc`, else ibex's
+      `tools/hermes-vanilla`.
+    - **The macOS engine**, needed for TypeScript on native hosts:
+      `EXACT_HERMES_DIR`. Otherwise the machine cache, used only when there is
+      no sibling ibex at all and only with its pinned receipt. Otherwise the
+      sibling ibex's `ios/Frameworks-vanilla`.
+    
+    iOS's lean archives are built on demand by `build.mjs --ios` and are not
+    checked.
 
-  Hermes and Chrome are reported as *needed for*, not as failures. A web-only
-  Rust app needs neither.
-- `exact new` runs the same check in report mode after writing the app, then
-  prints what is missing below its command list.
+  Rows that depend on the app are reported as *needed for …*, not as
+  failures: a Rust app needs no Hermes.
+- `exact new` runs the check in report mode **before** it touches Cargo. A
+  missing `cargo` today fails at `cargo metadata` and deletes the half-written
+  app, and a report printed afterwards can't help with that. It then writes
+  the app and prints anything missing below its command list.
 
 Not taken: installing Xcode or Hermes from `setup`. Hermes provisioning is
 LLP 1036.001 D5's open question (Seth). This RFC only reports.
@@ -253,9 +306,11 @@ Their names already say what they are.
 - `AGENTS.md` and `CLAUDE.md` gain three lines at the top. If you are building
   an app rather than working on exact2, read the agent guide and the pitfalls
   list, and use `exact new`.
-- The Weird Castle line becomes `exact new`.
-- LLP 1000's map gains `host/web-js` (LLP 1071) and `host/render` (LLP 1048).
-  Its "line map" claim, now Canvas 2D, is corrected.
+- The Weird Castle line becomes `exact new`, in `AGENTS.md` and in
+  `game/README.md`.
+- LLP 1000's map gains `host/web-js` (LLP 1071) and `host/render`, the render
+  host (LLP 1048). Its web dev-loop description is brought up to date: the JS
+  target is the default build, and the ~20 ms resident loop is `--wasm`.
 
 ### D9. The docs under `docs/` are part of the product
 
@@ -267,6 +322,9 @@ are something else. DEFERRED gains one bullet beside them:
 > change that alters what an author writes or runs updates them in the same
 > change. That is not apparatus, and it needs no approval.
 
+The enforced document caps are on `llp/current/` and `llp/foundation/`. The
+20-document sentence is about a governance corpus, and `docs/` is outside it.
+
 RULES' "agents add no design doc" is unchanged. It is about adding documents,
 and this is about keeping four existing ones true. New files under `docs/`
 still need a person to say so. This RFC is that for the files it names.
@@ -277,12 +335,22 @@ Add a test to the Contract CLI's existing integration suite
 (`contract/cli/tests/it/docs.rs`). It does two things:
 
 - Every fenced `contract` block in `docs/*.md` and `README.md` must compile with
-  no diagnostics. A block that is deliberately partial is fenced as `text`.
+  no diagnostics. The test compiles in-process and reports every failure in one
+  run. A block that is deliberately partial is fenced as `text`. The README's
+  todo app is fenced bare today, so it is labeled `contract`, `ts` and
+  `contract-test`.
 - Every `contract-test` block must parse.
+- Paths come from `CARGO_MANIFEST_DIR/../../`, as `corpus.rs` already does.
 
-D2's `app.ts` example is type-checked by `tsc` against `contract types` output
-in the TypeScript tooling tests (`bun test ./scripts/`), with a fixture
-directory holding the pair.
+The TypeScript examples are taken from the docs themselves, not from a fixture
+copy. Each `ts` block that follows a `contract` block in the same section is
+type-checked with `tsc` against that Contract's `contract types` output. The
+check runs in the existing async-lane `tsc` test (`typescript.rs`), not in the
+blocking gate.
+
+This is not DEFERRED's refused "executable `contract` assertions". Those were
+assertions inside language sections, which LLP 1006 refused in favor of `test`
+blocks. Here, examples compile.
 
 Cost: about 20 small compiles, well under a second. It isn't a new check. It
 runs inside `cargo test`, one of the five. The one block that fails today, the
@@ -291,11 +359,13 @@ native `list` fragment at `contract-for-humans.md:754`, is refenced as `text`.
 ### D11. The trial is the measurement
 
 The README's agent prompt and the authoring diaries found every gap above. No
-new tooling comes from this. When a change alters what an author meets first
-(the scaffold, setup, the guides' structure), the person landing it re-runs
-the README prompt in a fresh session. The README tip's time and date are
-updated to match, and anything rough goes in `docs/agent-pitfalls.md` or
-`issues/`.
+new tooling comes from this, and it is not a gate: a 23-minute run cannot
+block anything under RULES. When a change alters what an author meets first
+(the scaffold, setup, the guides' structure), someone re-runs the README
+prompt in a fresh session soon after. They record the elapsed time and the
+machine's provisioning state (warm Cargo cache, Hermes present). The README
+tip is updated to match, and anything rough goes in `docs/agent-pitfalls.md`
+or `issues/`. A storage-backed task (D2's example) is a good second prompt.
 
 ## 3. Implementation order
 
@@ -325,12 +395,37 @@ document. The candidate is the one whose work has most fully landed; see §5.
 - **D2 adds about 120 lines to the human guide. D2 and D7 delete more than
   that from `reference.md`.**
 
-## 5. Questions for Charlie, with recommendations
+## 5. Questions settled for implementation
 
-1. **CLAUDE.md as a copy or an `@AGENTS.md` import?** Recommend a copy, as the
-   repo does. It works in every harness.
-2. **Which `llp/current/` link to retire?** Recommend LLP 1075.003 (native
-   platform control, merged per its title). Otherwise, the oldest fully landed
-   document.
-3. **Is D9's wording the policy you want?** It is the one change here that
-   moves a binding document.
+Charlie asked for this to be implemented after review without stopping on
+details. These were settled by the author on the recommendation, and are open
+to reversal:
+
+1. **CLAUDE.md is a copy**, as the repo's own is. It works in every harness.
+2. **LLP 1075.003 leaves `llp/current/`.** It is the native platform control
+   plan, merged per its title. This RFC takes its place.
+3. **D9's wording is as written.** It is the one change here that moves a
+   binding document. Charlie should read it.
+
+## 6. Revisions
+
+**r2 (2026-10-04)**, after blind reviews by Astra (max) and Grok (xhigh). Both
+returned SOUND WITH CHANGES. Their findings are in
+`llp/reviews/rfc-2026-10-04-1086.{astra,grok}.md`.
+
+- **D3:** scan only arm patterns, fail on a non-literal arm, take codecs from
+  the schema, and print the contextual rules and the open sets. (Both
+  reviewers.)
+- **D4:** debug rather than release, an explicit toolchain, no inherited
+  `CARGO_TARGET_DIR`, and the app as cwd. (Both.)
+- **D6:** corrected the Hermes orders, separate `hermesc` and engine rows,
+  Chrome through `chromium()`, and the check before Cargo. (Both.)
+- **D1:** `contract types` comes first in the loop. **D2:** grant verbs, and
+  the `--storage` verification. (Grok; Astra.)
+- **D2:** continues the README's todo example. **D10:** README fences labeled,
+  TypeScript taken from the docs, scope against DEFERRED stated. (Astra;
+  Grok.)
+- **D8:** dropped a misread "line map is Canvas 2D" correction. Caltrain's GPU
+  module does draw the line map. (Grok.)
+- **D11:** not a gate. (Astra.)
+- **D5:** `$schema` is already admitted. (Astra.)
