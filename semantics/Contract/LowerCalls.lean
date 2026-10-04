@@ -344,8 +344,9 @@ theorem case_each (ih : AllOk fuel) {fl : Bool} {l ps body cl tl cb tb}
 
 /-! ## `pending`, `failed` and the roster -/
 
-theorem stdlib_now {e₁ e₂ : Contract.Env} {f vs} (h : e₁.now = e₂.now) : stdlib e₁ f vs = stdlib e₂ f vs := by
-  unfold stdlib; rw [h]
+theorem stdlib_now {e₁ e₂ : Contract.Env} {f vs} (h : e₁.now = e₂.now)
+    (hr : e₁.prog.routes = e₂.prog.routes) : stdlib e₁ f vs = stdlib e₂ f vs := by
+  unfold stdlib; rw [h, hr]
 
 /-- What a call evaluates by, with its name a variable (so that a literal
 name never meets the unifier). -/
@@ -498,7 +499,8 @@ theorem case_stdlib (ih : AllOk fuel) {name args ca ts} (hfd : p.fns.find? (·.n
         | .ok v => .ok (.run (M (pc + ca.length + 1) (v :: S) L cbs fx))
         | .error e => .error (.call e) := by
     intro vs hl
-    rw [← hl, ← stdlib_now (e₁ := callEnv venv) (by simp [callEnv, hx.quiet.now])]
+    rw [← hl, ← stdlib_now (e₁ := callEnv venv) (by simp [callEnv, hx.quiet.now])
+      (by simp [callEnv, hx.quiet.routes])]
     simp only [Vm.exec, popN_ok]
     cases stdlib (callEnv venv) name vs <;> rfl
   refine ⟨fun v hv => ?_, fun hh => ?_⟩

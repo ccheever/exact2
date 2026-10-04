@@ -107,7 +107,7 @@ def vmEnv (p : Program) (pi : PlanInfo) (c : Config) (params : List Value) (writ
     derives := pi.derives.map (lookup · c.settled.derives)
     resources := pi.resources.map (lookup · c.settled.resources)
     params, now := c.now, writable := writes
-    mutationSlots := pi.mutations.map (·.2) }
+    mutationSlots := pi.mutations.map (·.2), routes := p.routes }
 
 def semEnv (p : Program) (c : Config) : Contract.Env :=
   { prog := p, slots := c.slots, derives := c.settled.derives,

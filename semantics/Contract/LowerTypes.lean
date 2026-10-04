@@ -84,7 +84,7 @@ theorem stdlib_ty {env : Env} {sh f vs ts v} (h : stdlib env f vs = .ok v) (hts 
       · simp [VTy]
       · simp only [VTy]
         exact VTyAll.get (by simpa [VTy] using hts.1) hw
-  case h_17 =>
+  case h_30 =>
     split at h
     · obtain rfl := Except.ok.inj h; simp [VTy]
     · obtain ⟨s, rfl⟩ := bind_str_ok h; simp [VTy]

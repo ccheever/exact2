@@ -137,7 +137,7 @@ field count; a `Call` is the roster entry's name and arity), and a jump is a
 forward instruction offset: the decoder checks what `Plan::check_code`
 checks of what the model reads (framing, pool operands, forward and aligned
 jumps, a final `Return`) and refuses the rest. A `Call` means
-`Contract.stdlib`.
+`Contract.stdlib` over the program's route table (the router verbs and reads).
 
 **The compiler.** `Contract.Lower.compile` resolves names through a scope
 as `contract/lower` does through `Scope` and emits its instruction choices:
@@ -149,12 +149,14 @@ locals, `map`/`filter` with the callback inline after the opcode, and blocks
 whose `let`s are dropped where the block ends. It carries static types of
 its own (`STy`), proved sound, and refuses where it cannot know (`+` of an
 operand not known to be a number or a string, a member of one not known to
-be a record) or where the semantics differs (a tail call's `@check:`).
+be a record, such as a router read) or where the semantics differs (a tail
+call's `@check:`; `path(…)`, which the Rust compiler expands into a template
+and the semantics evaluates by name).
 
 **The theorems** (`Contract.LowerStmt`). In a machine state that
 corresponds to the semantics' environment (`Ctx`: every name the scope
 resolves reads, on the VM, what `eval` reads for it, of its static type;
-nothing in flight; the same clock) — `compileBody_correct`: the compiled
+nothing in flight; the same clock and route table) — `compileBody_correct`: the compiled
 code of a derive, slot initializer or resource argument returns `v` exactly
 when `eval` answers `v`, and returns at all exactly when `eval` has a value;
 `compileAction_correct`: with `writes` admitting the body's writes

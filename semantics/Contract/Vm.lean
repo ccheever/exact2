@@ -120,6 +120,8 @@ structure Env where
   pendingResources : List Bool := []
   failedResources : List Bool := []
   pendingMutations : List Bool := []
+  /-- The route table the router verbs read (the runner's `Routing`). -/
+  routes : Route.Table := []
   deriving Inhabited
 
 /-- What a body asks for, in execution order. -/
@@ -165,8 +167,9 @@ inductive Status where
 
 abbrev Out := Except Trap Status
 
-/-- The semantics' environment for a roster call: only the clock is read. -/
-def callEnv (env : Env) : Contract.Env := { prog := {}, slots := [], now := env.now }
+/-- The semantics' environment for a roster call: only the clock and the
+route table are read. -/
+def callEnv (env : Env) : Contract.Env := { prog := { routes := env.routes }, slots := [], now := env.now }
 
 /-- Two numbers to one value (`Add`, `Lt`, …). -/
 def num2 (f : Float → Float → Value) (op : String) : Value → Value → Except Trap Value

@@ -49,6 +49,7 @@ def Agree (env : Contract.Env) (inFn : Bool) (ls : Locals) (venv : Vm.Env) (L : 
 synchronously. -/
 structure Quiet (env : Contract.Env) (venv : Vm.Env) : Prop where
   now : venv.now = env.now
+  routes : venv.routes = env.prog.routes
   pendingResources : ∀ i : Nat, venv.pendingResources[i]?.getD false = false
   failedResources : ∀ i : Nat, venv.failedResources[i]?.getD false = false
   pendingMutations : ∀ i : Nat, venv.pendingMutations[i]?.getD false = false
