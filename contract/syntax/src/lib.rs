@@ -31,7 +31,9 @@ mod spans;
 
 pub use ast::*;
 pub use clock::{resolve_clock_timelines, resolve_clock_timelines_in};
-pub use inline::{expand, expand_all, expand_mapped, inline, Expanded, Instance, Owner};
+pub use inline::{
+    expand, expand_all, expand_checked, expand_mapped, hygiene, inline, Expanded, Instance, Owner,
+};
 pub use lexer::{Lexer, Token, TokenKind};
 pub use parser::{parse, parse_source, parse_source_all, SyntaxError};
 pub use share::share_calls;
@@ -67,3 +69,47 @@ impl std::fmt::Display for Span {
         write!(f, "{}:{}", self.line, self.col)
     }
 }
+
+/// The commands a host answers (LLP 1005 §3): every name an action body may
+/// call. The web host's `command` op, the Apple session's queue, and the Linux
+/// presenter's `run_commands` match these by name; any other name would reach
+/// them and be refused there, silently to the author, so the type pass
+/// refuses it. It lives here, not in the type pass, because expansion reads
+/// it too: a statement naming one is the command, even inside an action of
+/// the same name, never a call of that action (LLP 1089 D1).
+pub const HOST_COMMANDS: &[&str] = &[
+    "blur",
+    "copyText",
+    "deliveryActivate",
+    "deliveryCheck",
+    "focus",
+    "format",
+    // @ref LLP 1077 D14 — `haptic("success" | "warning" | "error" | …)`.
+    "haptic",
+    "openURL",
+    // `reload()`: the development host boots the app again, as its dev
+    // menu's Reload does; a host without a dev menu refuses it.
+    "reload",
+    "selectText",
+    "setScheme",
+    // @ref LLP 1069.002 D2 — `HTMLInputElement.showPicker()` on a file input.
+    "showPicker",
+    "share",
+    // @ref LLP 1069.010 D3 — export: the host copies an `app:/` file out.
+    "saveFile",
+    // @ref LLP 1069.010 D2 — the File System Access API's pickers.
+    "showOpenFilePicker",
+    "showDirectoryPicker",
+    "showSaveFilePicker",
+    // @ref LLP 1070.000 — a virtualized list's row brought into view, by key.
+    "scrollIntoView",
+    // The inverse of a canvas's `message=`: `postMessage(text, "world")` queues
+    // text into the surface of that name, delivered in order, never coalesced.
+    "postMessage",
+    // `event.preventDefault()` for the `key` event that ran the action: the
+    // host skips the key's default action (docs/contract-grammar.md#events).
+    "preventDefault",
+    // `event.stopPropagation()` for the same event: no ancestor's `key`
+    // handler hears it, and its default still happens (files diary F8).
+    "stopPropagation",
+];

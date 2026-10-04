@@ -2,9 +2,9 @@
 //! send forgets the first's in-flight reply (LLP 1016 D5), so two sends to
 //! one mutation on one path through an action are refused, not warned of.
 //!
-//! It runs on the root's actions after tail calls are inlined (a caller and
-//! its callee are one commit); a tail call's `@check:` leftover is a command
-//! and sends nothing. The walk is path-sensitive, over the body's statements (`Action::effects`
+//! It runs on the root's actions with every call expanded (a caller and
+//! its callees are one commit, LLP 1089 D6), and names the calls a send is
+//! made through. The walk is path-sensitive, over the body's statements (`Action::effects`
 //! flattens branches): each `if`/`match` arm starts from what the paths
 //! into it may have sent, and the branch leaves their union, so exclusive
 //! arms pass while an arm's send followed by another after the branch is
@@ -20,10 +20,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// What a path's enclosing conditions say: each tested name is one of these
 /// literals.
-type Guard = Vec<(String, BTreeSet<String>)>;
+pub(super) type Guard = Vec<(String, BTreeSet<String>)>;
 
 /// Two guards no one evaluation can satisfy both of.
-fn exclusive(a: &Guard, b: &Guard) -> bool {
+pub(super) fn exclusive(a: &Guard, b: &Guard) -> bool {
     a.iter().any(|(name, values)| {
         b.iter()
             .any(|(other, given)| name == other && values.is_disjoint(given))
@@ -31,7 +31,7 @@ fn exclusive(a: &Guard, b: &Guard) -> bool {
 }
 
 /// What `cond` being true says of the names it tests.
-fn facts(cond: &Expr) -> Guard {
+pub(super) fn facts(cond: &Expr) -> Guard {
     fn path(e: &Expr) -> Option<String> {
         match e {
             Expr::Ident(n, _) => Some(n.clone()),
@@ -79,22 +79,45 @@ fn facts(cond: &Expr) -> Guard {
     out
 }
 
-type Sent<'a> = BTreeMap<&'a str, Vec<(Span, Guard)>>;
+/// The call a statement is made in: the callee and the call's span, or
+/// the action's own body.
+pub(super) type Frame<'a> = Option<(&'a str, Span)>;
+
+type Sent<'a> = BTreeMap<&'a str, Vec<(Span, Guard, Frame<'a>)>>;
+
+/// Whether a fact is about `name`, or a member of it.
+pub(super) fn about(name: &str) -> impl Fn(&(String, BTreeSet<String>)) -> bool + '_ {
+    move |(tested, _)| tested.split('.').next() == Some(name)
+}
 
 /// Forget what conditions said of `name`, now that it changed.
 fn changed(name: &str, guard: &mut Guard, sent: &mut Sent<'_>) {
-    let about = |(tested, _): &(String, BTreeSet<String>)| tested.split('.').next() == Some(name);
-    guard.retain(|f| !about(f));
+    guard.retain(|f| !about(name)(f));
     for sends in sent.values_mut() {
-        for (_, g) in sends.iter_mut() {
-            g.retain(|f| !about(f));
+        for (_, g, _) in sends.iter_mut() {
+            g.retain(|f| !about(name)(f));
         }
+    }
+}
+
+/// Where a send or an assignment is made, for a refusal: in the action's
+/// own body, or in the call it is made through.
+pub(super) fn made_in(action: &str, frame: Frame<'_>, at: Span) -> String {
+    match frame {
+        None => format!("in `{action}` at line {}", at.line),
+        Some((callee, call)) => format!(
+            "in `{}` (called at line {})",
+            contract_syntax::inline::calls::shown(callee),
+            call.line
+        ),
     }
 }
 
 struct Walk<'a> {
     c: &'a Component,
     action: &'a str,
+    /// The call being walked, innermost.
+    frame: Frame<'a>,
     errors: Vec<AnalyzeError>,
 }
 
@@ -106,7 +129,9 @@ impl<'a> Walk<'a> {
             match stmt {
                 Stmt::Send { target, span, .. } => {
                     let earlier = sent.entry(target).or_default();
-                    if let Some((first, _)) = earlier.iter().find(|(_, g)| !exclusive(g, guard)) {
+                    if let Some((first, _, frame)) =
+                        earlier.iter().find(|(_, g, _)| !exclusive(g, guard))
+                    {
                         let reaches = match self.c.mutations.iter().find(|m| &m.name == target) {
                             Some(m) => match &m.then {
                                 Some((then, _)) => format!("`then {then}`"),
@@ -114,12 +139,23 @@ impl<'a> Walk<'a> {
                             },
                             None => format!("`{target}`"),
                         };
+                        let action = contract_syntax::inline::calls::shown(self.action);
+                        // Through a call, the refusal names the calls (LLP
+                        // 1089 D6): neither body shows both sends.
+                        let message = if frame.is_none() && self.frame.is_none() {
+                            format!(
+                                "`{action}` sends `{target}` twice; only the last send's reply reaches {reaches} (LLP 1016 D5). Send once, or use a mutation per request"
+                            )
+                        } else {
+                            format!(
+                                "`{action}` sends `{target}` twice on one path: {} and {}. Only the last send's reply reaches {reaches} (LLP 1016 D5): send once, or use a mutation per request",
+                                made_in(action, *frame, *first),
+                                made_in(action, self.frame, *span)
+                            )
+                        };
                         self.errors.push(AnalyzeError {
                             id: "analyze-send-twice",
-                            message: format!(
-                                "`{}` sends `{target}` twice; only the last send's reply reaches {reaches} (LLP 1016 D5). Send once, or use a mutation per request",
-                                self.action
-                            ),
+                            message,
                             span: *span,
                             related: vec![Related {
                                 span: *first,
@@ -127,8 +163,15 @@ impl<'a> Walk<'a> {
                             }],
                         });
                     }
-                    earlier.push((*span, guard.clone()));
+                    earlier.push((*span, guard.clone(), self.frame));
                     changed(target, guard, sent);
+                }
+                Stmt::Call {
+                    action, body, span, ..
+                } => {
+                    let outer = self.frame.replace((action, *span));
+                    self.block(body, guard, sent);
+                    self.frame = outer;
                 }
                 Stmt::Assign { target, .. } => changed(target, guard, sent),
                 Stmt::If {
@@ -166,10 +209,10 @@ impl<'a> Walk<'a> {
 fn merge<'a>(into: &mut Sent<'a>, from: Sent<'a>) {
     for (target, sends) in from {
         let have = into.entry(target).or_default();
-        for (span, guard) in sends {
-            match have.iter_mut().find(|(s, _)| *s == span) {
-                Some((_, kept)) => kept.retain(|f| guard.contains(f)),
-                None => have.push((span, guard)),
+        for (span, guard, frame) in sends {
+            match have.iter_mut().find(|(s, _, f)| *s == span && *f == frame) {
+                Some((_, kept, _)) => kept.retain(|f| guard.contains(f)),
+                None => have.push((span, guard, frame)),
             }
         }
     }
@@ -182,10 +225,11 @@ pub(super) fn check(c: &Component) -> Vec<AnalyzeError> {
         let mut walk = Walk {
             c,
             action: &a.name,
+            frame: None,
             errors: Vec::new(),
         };
         walk.block(&a.body, &mut Guard::new(), &mut BTreeMap::new());
-        // A callee inlined at a tail call repeats its own refusal there.
+        // A callee expanded at a call repeats its own refusal there.
         for e in walk.errors {
             if !errors.iter().any(|x: &AnalyzeError| x.span == e.span) {
                 errors.push(e);

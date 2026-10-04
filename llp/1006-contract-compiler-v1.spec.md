@@ -278,7 +278,11 @@ spell a root name the child never saw, and it is renamed apart (`x@k`) when
 a substituted expression mentions it. Lowering binds it
 (`BindLocal`) and drops it (`DropLocal`) where its block ends
 (`contract/lower/src/stmts.rs`); the plan format, the VM and the
-JavaScript runtime are unchanged. A parameter's type is written or
+JavaScript runtime are unchanged. Since 2026-10-04 (LLP 1089), a `name(args)`
+statement that is not a host command calls an action of the same component,
+an `action` prop or an injected action, anywhere a statement stands: the
+compiler expands the callee's statements in place, in the one commit
+(`contract/syntax/src/inline/calls.rs`). A parameter's type is written or
 inferred from its handler call sites (the handler attributes are `press`,
 `change`, `hover`, `focus`, `blur`, `key`, `submit`, `contextmenu`, `dblclick`, `navigate`, LLP 1005 §3 — `submit`
 on an `input` is Enter, the web's implicit submission; a `key`'s or

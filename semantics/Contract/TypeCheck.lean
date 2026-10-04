@@ -228,6 +228,10 @@ def checkStmts (p : Program) (G : Scope) : Scope → List Stmt → Bool
     (match infer p G Γ s with
       | .some (.option a) => checkStmts p G ((x, a) :: Γ) sm
       | _ => false) && checkStmts p G Γ nn && checkStmts p G Γ rest
+  | Γ, .call a args :: rest =>
+    (match p.actions.find? (·.name == a), inferList p G Γ args with
+      | .some ad, .some ts => Ty.leAll ts (ad.params.map (·.2))
+      | _, _ => false) && checkStmts p G Γ rest
 
 def checkArm (p : Program) (G Γ : Scope) (owner : Nat × Nat) : Bool :=
   p.states.all fun st => !decide (st.owner = .some owner) || inferLe p G Γ st.init st.ty
@@ -653,6 +657,14 @@ theorem checkStmts_sound {p : Program} {G : Scope} : ∀ {Γ : Scope} (ss : List
     split at hs
     · next a ha => exact ⟨a, infer_sound s ha, checkStmts_sound sm hs⟩
     · simp at hs
+  | Γ, .call a args :: rest, h => by
+    simp only [StmtsTy]
+    simp only [checkStmts, Bool.and_eq_true] at h
+    obtain ⟨hc, hr⟩ := h
+    refine ⟨?_, checkStmts_sound rest hr⟩
+    split at hc
+    · next ad ts had hts => exact ⟨ad, had, ts, inferList_sound args hts, hc⟩
+    · simp at hc
 
 theorem checkArm_sound {p : Program} {G Γ owner} (h : checkArm p G Γ owner = true) : ArmInits p G Γ owner := by
   intro st hst ho

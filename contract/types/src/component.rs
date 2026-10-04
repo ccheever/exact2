@@ -202,6 +202,8 @@ pub(crate) fn check_component(
     // action-prop arguments must see those types too, not the earlier scope.
     let scope = types.component_scope(c, &ct);
     sink.keep_unit(refine_params_from_view(&c.view, &scope, c, &mut ct, shapes));
+    // Then the calls in action bodies (LLP 1089 D8), before any body is checked.
+    crate::calls::refine(c, &mut ct, types);
     // Action bodies: writes refine slots; assignments must unify. Two
     // rounds, so a `send` whose argument is a state a later action writes
     // (`state q = none`, typed by `q = some(s)`) records the written type

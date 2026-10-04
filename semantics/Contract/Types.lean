@@ -280,7 +280,8 @@ end
 /-- An action body is well typed. Assignments are to states and mutations
 at types at most theirs (`slotTy`); a `send` targets a mutation and a
 `refresh` a resource; `if` tests a bool and `match` an option. A `let`
-scopes over the rest of its block. -/
+scopes over the rest of its block. A call names an action and passes
+each of its parameters a value of its type. -/
 def StmtsTy (p : Program) (G : Scope) : Scope → List Stmt → Prop
   | _, [] => True
   | Γ, .letS x e :: rest => ∃ t, HasTy p G Γ e t ∧ StmtsTy p G ((x, t) :: Γ) rest
@@ -296,6 +297,11 @@ def StmtsTy (p : Program) (G : Scope) : Scope → List Stmt → Prop
   | Γ, .matchS s x sm nn :: rest =>
     (∃ a, HasTy p G Γ s (.option a) ∧ StmtsTy p G ((x, a) :: Γ) sm) ∧ StmtsTy p G Γ nn ∧
       StmtsTy p G Γ rest
+  /- A call (LLP 1089 D9) names an action, its arguments each at most its
+  parameter's type; the callee's body is typed as the action it is. -/
+  | Γ, .call a args :: rest =>
+    (∃ ad, p.actions.find? (·.name == a) = .some ad ∧
+      ∃ ts, ListTy p G Γ args ts ∧ Ty.leAll ts (ad.params.map (·.2)) = true) ∧ StmtsTy p G Γ rest
 
 /-! ## Views -/
 

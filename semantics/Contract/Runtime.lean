@@ -69,6 +69,19 @@ def exec : Nat → Env → Locals → List Stmt → Effects → Result Effects
         | .none => exec fuel env ls nn fx
         | _ => .error (.type "`match` on a value that is not an option")
       exec fuel env ls rest fx
+    -- A call (LLP 1089 D9): the arguments in the caller's scope, then the
+    -- callee's body in a scope of its parameters alone, against the same
+    -- starting state and rows, adding to the same effects. A refusal in
+    -- it refuses the action. Fuel bounds the nesting: an accepted program
+    -- has no call cycle, and a cycle runs out of fuel.
+    | .call a args => do
+      let vs ← evalList fuel env false ls args
+      match env.prog.actions.find? (·.name == a) with
+      | .none => .error (.unbound a)
+      | .some ad =>
+        if ad.params.length != vs.length then .error (.refused "arity") else
+        let fx ← exec fuel env ((ad.params.map (·.1)).zip vs).reverse ad.body fx
+        exec fuel env ls rest fx
 
 /-! ## Types at run time -/
 

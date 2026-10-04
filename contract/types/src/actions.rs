@@ -1,7 +1,7 @@
 //! Action bodies (LLP 1017 P2): statements through every branch, and the
 //! block-scoped, immutable `let` locals of LLP 1035.005.000 D2.
 
-use super::{checks, err, infer, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError};
+use super::{calls, checks, err, infer, ComponentTypes, Ref, Scope, Shapes, Sink, Ty, TypeError};
 use contract_syntax::{Component, Expr, Span, Stmt, TemplatePart};
 
 /// The `let`s a block sees: those in force (declared above, in it or a
@@ -31,10 +31,6 @@ pub(super) fn check_body(
         shapes,
         sink,
         lifted,
-        tails: contract_syntax::inline::tail::tail_positions(stmts)
-            .into_iter()
-            .map(|s| s as *const Stmt)
-            .collect(),
     };
     cx.block(stmts, scope, &Lets::default());
 }
@@ -45,9 +41,6 @@ struct Cx<'c, 's> {
     shapes: &'c Shapes,
     sink: &'s mut Sink,
     lifted: bool,
-    /// The body's statements in tail position: the only place an action
-    /// prop may be called (its tail call).
-    tails: Vec<*const Stmt>,
 }
 
 impl Cx<'_, '_> {
@@ -63,6 +56,10 @@ impl Cx<'_, '_> {
                     _ => None,
                 }));
             if let Some(e) = read_too_early(stmt, &scope, &lets) {
+                self.sink.push(e);
+                continue;
+            }
+            if let Some(e) = calls::called_for_value(stmt, &scope, self.shapes) {
                 self.sink.push(e);
                 continue;
             }
@@ -179,32 +176,18 @@ impl Cx<'_, '_> {
                 }
             }
             Stmt::Command { name, args, span } => {
-                // A marked tail call the expansion could not resolve: it
-                // already said why.
-                if name.starts_with(contract_syntax::inline::TAIL) {
-                    return Ok(());
-                }
-                // A resolved tail call's arguments against the callee's
-                // parameters (LLP 1017 §11).
-                if let Some(target) = name.strip_prefix(contract_syntax::inline::tail::CHECK) {
-                    return match scope.lookup(target) {
-                        Some((Ref::Action(_), Ty::Action(params))) => {
-                            tail_args(target, params, args, scope, shapes, *span)
-                        }
-                        _ => err(
-                            "type-tail-call",
-                            format!("`{target}` is not an action"),
-                            *span,
-                        ),
-                    };
-                }
-                if self.tails.contains(&(stmt as *const Stmt)) {
+                // An action prop or injected action, called anywhere (LLP
+                // 1089 D1, D7): its arguments here, against its declared
+                // type; the action it names is run, and checked, after
+                // lifting.
+                if !contract_syntax::HOST_COMMANDS.contains(&name.as_str()) {
                     if let Some((Ref::Prop(_), Ty::Action(params))) = scope.lookup(name) {
-                        return tail_args(name, params, args, scope, shapes, *span);
+                        return calls::prop_args(name, params, args, scope, shapes, *span);
                     }
                 }
-                return checks::check_command(name, args, scope, shapes, *span);
+                return checks::check_command(name, args, scope, shapes, &c.name, *span);
             }
+            Stmt::Call { .. } => return calls::check(stmt, self.lifted, c, scope, shapes),
             Stmt::Send {
                 target,
                 source,
@@ -290,7 +273,7 @@ fn read_too_early(stmt: &Stmt, scope: &Scope, lets: &Lets<'_>) -> Option<TypeErr
         Stmt::Let { expr, .. } | Stmt::Assign { expr, .. } => {
             names(expr, &mut Vec::new(), &mut reads)
         }
-        Stmt::Command { args, .. } | Stmt::Send { args, .. } => {
+        Stmt::Command { args, .. } | Stmt::Send { args, .. } | Stmt::Call { args, .. } => {
             for a in args {
                 names(a, &mut Vec::new(), &mut reads);
             }
@@ -371,43 +354,4 @@ fn names<'e>(e: &'e Expr, bound: &mut Vec<&'e str>, out: &mut Vec<(&'e str, Span
             bound.truncate(bound.len() - params.len());
         }
     }
-}
-
-/// An action prop called as an action's last statement (LLP 1017 P4c, the
-/// tail call): every remaining parameter supplied, each of its type. The
-/// call runs after the action's own writes, in the same commit.
-fn tail_args(
-    name: &str,
-    params: &[Ty],
-    args: &[Expr],
-    scope: &Scope,
-    shapes: &Shapes,
-    span: Span,
-) -> Result<(), TypeError> {
-    // Every argument is the caller's, whatever the callee's signature says.
-    for arg in args {
-        infer(arg, scope, shapes)?;
-    }
-    if !params.is_empty() && args.len() != params.len() {
-        return err(
-            "type-arity",
-            format!(
-                "`{name}` takes {} argument(s) here, given {}",
-                params.len(),
-                args.len()
-            ),
-            span,
-        );
-    }
-    for (arg, pt) in args.iter().zip(params) {
-        let t = infer(arg, scope, shapes)?;
-        if !checks::can_unify(&t, pt) {
-            return err(
-                "type-argument",
-                format!("`{name}` expects `{pt}`, given `{t}`"),
-                arg.span(),
-            );
-        }
-    }
-    Ok(())
 }

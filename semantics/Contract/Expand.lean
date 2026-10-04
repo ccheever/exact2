@@ -1,7 +1,7 @@
 /-
 Component expansion in Lean, mirroring `contract_syntax::inline`
 (contract/syntax/src/inline.rs, inline/subst.rs, inline/derives.rs,
-inline/tail.rs) step for step, names and numbering included, so that
+inline/calls.rs) step for step, names and numbering included, so that
 `difftest expansion` can compare its output with the Rust expander's
 structurally and `Contract.ExpandProof` can relate it to the
 component-level semantics (`Contract.CompSem`).
@@ -15,9 +15,10 @@ component-level semantics (`Contract.CompSem`).
     the nearest `provide`, fills put at `children`, a child's states and
     actions lifted into the root as `name#n` with their owners, props
     captured as hidden action parameters `@capture:n:i` (inline.rs).
-  * `tailResolve`: a tail call replaced by the named action's statements
-    (tail.rs). The `@check:` statement Rust leaves is not emitted: the
-    flat embedding drops it.
+  * `ownCalls`, `callMarked`, `resolveCalls`, `hygiene`: action calls
+    (calls.rs, LLP 1089). A call stays a `call`, as `contract lean` emits
+    it; its caller's parameters and binders are renamed as Rust's hygiene
+    renames them.
 -/
 import Contract.Components
 
@@ -95,7 +96,7 @@ target, a binder, the names in its expressions (not a command's name). -/
 def stmtAllNames : Stmt → List String
   | .assign t e => t :: allNames e
   | .letS n e => n :: allNames e
-  | .command _ args | .send _ _ args => allNamesList args
+  | .command _ args | .send _ _ args | .call _ args => allNamesList args
   | .refresh _ => []
   | .ifS c a b => allNames c ++ stmtsAllNames a ++ stmtsAllNames b
   | .matchS s x a b => x :: (allNames s ++ stmtsAllNames a ++ stmtsAllNames b)
@@ -241,6 +242,11 @@ def substStmts (s : Subst) (names : List (String × String)) : List Stmt → Lis
     | .assign t e =>
       .assign ((names.find? (·.1 == t)).map (·.2) |>.getD t) (substExpr s e) :: substStmts s names rest
     | .command n args => .command n (substList s args) :: substStmts s names rest
+    -- A call's callee by its lifted name, its arguments in the caller's
+    -- scope (subst.rs: the body is the callee's, which `contract lean`
+    -- does not emit).
+    | .call a args =>
+      .call ((names.find? (·.1 == a)).map (·.2) |>.getD a) (substList s args) :: substStmts s names rest
     | .send t src args => .send t src (substList s args) :: substStmts s names rest
     | .refresh t => .refresh t :: substStmts s names rest
     | .ifS c a b => .ifS (substExpr s c) (substStmts s names a) (substStmts s names b) :: substStmts s names rest
@@ -271,8 +277,6 @@ structure Ctx where
   arms : List Owner := []
   extraStates : List StateDecl := []
   extraActions : List ActionDecl := []
-  /-- The fresh-name counter of `tailResolve`. -/
-  fresh : Nat := 0
   deriving Inhabited
 
 abbrev ExM := StateT Ctx (Except String)
@@ -511,7 +515,7 @@ end
 mutual
 def stmtNames : Stmt → List String
   | .assign _ e | .letS _ e => exprNames e
-  | .command _ args | .send _ _ args => exprNamesList args
+  | .command _ args | .send _ _ args | .call _ args => exprNamesList args
   | .refresh _ => []
   | .ifS c a b => exprNames c ++ stmtsNames a ++ stmtsNames b
   | .matchS s _ a b => exprNames s ++ stmtsNames a ++ stmtsNames b
@@ -578,42 +582,72 @@ def resolvedDerives (records : List String) (c : CComponent) : Except String (Li
   pure ((c.derives.zipIdx.filter fun (d, _) => read.contains d.name).map fun (d, i) =>
     (d.name, place cx (1 <<< 20) [] true (bodies.getD i .none)))
 
-/-! ## Tail calls (tail.rs, and inline.rs `tail_marked`) -/
+/-! ## Calls (calls.rs, and inline.rs `with_captures`, `call_marked`)
 
-def tailPrefix : String := "@tail:"
+`contract lean` emits a call by its callee and whole argument list, never
+the body Rust expanded (LLP 1089 D9), so only what decides those is
+transcribed here: which statements are calls, the callee's lifted name,
+the arguments, and the names hygiene draws. -/
 
-/-- The statements in tail position. -/
-def tailPositions : List Stmt → List Stmt
+/-- A prop or inject call between lifting and `resolveCalls`. -/
+def callMark : String := "@call:"
+
+/-- Whether a statement of `body` is `name(…)`. -/
+def commandsIn (name : String) : List Stmt → Bool
+  | [] => false
+  | .command n _ :: rest => n == name || commandsIn name rest
+  | .ifS _ a b :: rest | .matchS _ _ a b :: rest => commandsIn name a || commandsIn name b || commandsIn name rest
+  | _ :: rest => commandsIn name rest
+
+/-- A lifted body whose same-component calls pass the instance's captures
+first (inline.rs `with_captures`). -/
+def withCaptures (captures : List String) : List Stmt → List Stmt
   | [] => []
-  | [.ifS _ a b] => tailPositions a ++ tailPositions b
-  | [.matchS _ _ a b] => tailPositions a ++ tailPositions b
-  | [s] => [s]
-  | _ :: rest => tailPositions rest
+  | .call a args :: rest => .call a (captures.map .var ++ args) :: withCaptures captures rest
+  | .ifS c a b :: rest => .ifS c (withCaptures captures a) (withCaptures captures b) :: withCaptures captures rest
+  | .matchS s x a b :: rest =>
+    .matchS s x (withCaptures captures a) (withCaptures captures b) :: withCaptures captures rest
+  | st :: rest => st :: withCaptures captures rest
 
-def tailCalls (body : List Stmt) : List String :=
-  (tailPositions body).filterMap fun | .command n _ => Option.some n | _ => Option.none
-
-/-- A lifted body whose tail calls name an action prop, each pointed at
-the action the prop named, its curried arguments first. -/
-def tailMarked (tails : List (String × String × List Expr)) : List Stmt → List Stmt
+/-- A lifted body whose calls of an action prop or injected action, at
+every position, are marked with the action it named, its curried
+arguments first (inline.rs `call_marked`). -/
+def callMarked (called : List (String × String × List Expr)) : List Stmt → List Stmt
   | [] => []
-  | [.command n args] =>
-    match tails.find? (·.1 == n) with
-    | .some (_, target, held) => [.command (tailPrefix ++ target) (held ++ args)]
-    | .none => [.command n args]
-  | [.ifS c a b] => [.ifS c (tailMarked tails a) (tailMarked tails b)]
-  | [.matchS s x a b] => [.matchS s x (tailMarked tails a) (tailMarked tails b)]
-  | s :: rest => s :: tailMarked tails rest
+  | .command n args :: rest =>
+    (match called.find? (·.1 == n) with
+      | .some (_, target, held) => .call (callMark ++ target) (held ++ args)
+      | .none => .command n args) :: callMarked called rest
+  | .ifS c a b :: rest => .ifS c (callMarked called a) (callMarked called b) :: callMarked called rest
+  | .matchS s x a b :: rest => .matchS s x (callMarked called a) (callMarked called b) :: callMarked called rest
+  | st :: rest => st :: callMarked called rest
 
-def marked (body : List Stmt) : Bool :=
-  (tailPositions body).any fun | .command n _ => n.startsWith tailPrefix | _ => false
+/-- Every marked call pointed at the action it names (calls.rs `resolve`). -/
+def resolveCalls (actions : List ActionDecl) : List Stmt → Except String (List Stmt)
+  | [] => pure []
+  | .call a args :: rest => do
+    let a := if a.startsWith callMark then (a.drop callMark.length).toString else a
+    if !actions.any (·.name == a) then throw s!"`{a}` is not an action"
+    pure (.call a args :: (← resolveCalls actions rest))
+  | .ifS c x y :: rest => do
+    pure (.ifS c (← resolveCalls actions x) (← resolveCalls actions y) :: (← resolveCalls actions rest))
+  | .matchS s v x y :: rest => do
+    pure (.matchS s v (← resolveCalls actions x) (← resolveCalls actions y) :: (← resolveCalls actions rest))
+  | st :: rest => do pure (st :: (← resolveCalls actions rest))
+
+def hasCall : List Stmt → Bool
+  | [] => false
+  | .call .. :: _ => true
+  | .ifS _ a b :: rest | .matchS _ _ a b :: rest => hasCall a || hasCall b || hasCall rest
+  | _ :: rest => hasCall rest
 
 abbrev TailM := StateT Nat (Except String)
 
 def values (records : List String) (map : SMap) : Subst := { map, calls := false, records }
 
-/-- Every `let` and `match` binding renamed `x@bk`, its reads with it.
-`fuel` bounds the walk (a block's statements, nested ones included). -/
+/-- Every `let` and `match` binding renamed `x@bk`, its reads with it; a
+call's arguments are renamed with the rest (calls.rs `apart`). `fuel`
+bounds the walk (a block's statements, nested ones included). -/
 def apart (records : List String) : Nat → List Stmt → TailM (List Stmt)
   | 0, _ => throw "apart: out of fuel"
   | _ + 1, [] => pure []
@@ -646,55 +680,46 @@ def stmtsSize : List Stmt → Nat
   | s :: ss => stmtSize s + stmtsSize ss
 end
 
-/-- A block with its tail position resolved: a marked call replaced by
-`let`s of the callee's parameters and the callee's statements, renamed
-apart, its own tail calls resolved after (tail.rs `block` and `call`).
-`path` is the chain of actions on the way (a cycle is refused). -/
-def block (records : List String) (actions : List ActionDecl) : Nat → List String → List Stmt →
-    TailM (List Stmt)
-  | 0, _, _ => throw "tail: out of fuel"
-  | _ + 1, _, [] => pure []
-  | fuel + 1, path, [.ifS c a b] => do
-    let a ← block records actions fuel path a
-    let b ← block records actions fuel path b
-    pure [.ifS c a b]
-  | fuel + 1, path, [.matchS s x a b] => do
-    let a ← block records actions fuel path a
-    let b ← block records actions fuel path b
-    pure [.matchS s x a b]
-  | fuel + 1, path, [.command n args] =>
-    if n.startsWith tailPrefix then do
-      let target := (n.drop tailPrefix.length).toString
-      let .some callee := actions.find? (·.name == target)
-        | throw s!"`{target}` is not an action"
-      if path.contains target then throw s!"calling `{target}` last comes back to an action already on the way"
-      if args.length != callee.params.length then throw s!"`{target}` takes {callee.params.length} argument(s) here, given {args.length}"
-      modify (· + 1)
-      let k ← get
-      let renamed := fun (p : String) => s!"{p}@tail{k}"
-      let map : SMap := callee.params.map fun (p, _) => (p, .var (renamed p))
-      let own := substStmts (values records map) [] callee.body
-      let own ← apart records (stmtsSize own) own
-      let inner ← block records actions fuel (path ++ [target]) own
-      pure ((callee.params.zip args).map (fun ((p, _), a) => .letS (renamed p) a) ++ inner)
-    else pure [.command n args]
-  | fuel + 1, path, s :: rest => do pure (s :: (← block records actions fuel path rest))
+/-- The `let`s and `match` bindings of a block, its arms' included, a
+call's not (calls.rs `drawn`'s `binders`). -/
+def binders : List Stmt → Nat
+  | [] => 0
+  | .letS .. :: rest => 1 + binders rest
+  | .ifS _ a b :: rest => binders a + binders b + binders rest
+  | .matchS _ _ a b :: rest => 1 + binders a + binders b + binders rest
+  | _ :: rest => binders rest
 
-/-- Resolve every marked tail call (tail.rs `resolve`): the caller's own
-parameters (not the hidden `@` ones) renamed `p@ck` first. -/
-def tailResolve (records : List String) (actions : List ActionDecl) :
-    StateT Nat (Except String) (List ActionDecl) :=
+/-- The names LLP 1017 §11's resolver drew for the calls in a block
+(calls.rs `drawn`): one for each call's parameters, one for each binder of
+the callee's statements, and its own calls' in turn. A call that does not
+expand (its arity refused) drew one. -/
+def drawn (actions : List ActionDecl) : Nat → List Stmt → Nat
+  | 0, _ => 0
+  | _ + 1, [] => 0
+  | fuel + 1, .ifS _ a b :: rest | fuel + 1, .matchS _ _ a b :: rest =>
+    drawn actions fuel a + drawn actions fuel b + drawn actions fuel rest
+  | fuel + 1, .call a args :: rest =>
+    let here := match actions.find? (·.name == a) with
+      | .some callee =>
+        if callee.params.length == args.length then 1 + binders callee.body + drawn actions fuel callee.body else 1
+      | .none => 1
+    here + drawn actions fuel rest
+  | fuel + 1, _ :: rest => drawn actions fuel rest
+
+/-- Rename every caller's own parameters `p@ck` and binders `x@bk` apart
+(calls.rs `hygiene`), `k` drawn as the tail call drew it. -/
+def hygiene (records : List String) (actions : List ActionDecl) : TailM (List ActionDecl) := do
+  let fuel := actions.foldl (fun n a => n + stmtsSize a.body) 1
   actions.mapM fun a => do
-    if !marked a.body then return a
+    if !hasCall a.body then return a
     modify (· + 1)
     let k ← get
-    let ren := fun (p : String) => if p.startsWith "@" then p else s!"{p}@c{k}"
-    let map : SMap := (a.params.filter fun (p, _) => !p.startsWith "@").map fun (p, _) => (p, .var (ren p))
+    let ren := fun (p : String) => if p.contains '@' then p else s!"{p}@c{k}"
+    let map : SMap := (a.params.filter fun (p, _) => !p.contains '@').map fun (p, _) => (p, .var (ren p))
     let params := a.params.map fun (p, t) => (ren p, t)
     let body := substStmts (values records map) [] a.body
     let body ← apart records (stmtsSize body) body
-    let fuel := actions.foldl (fun n a => n + stmtsSize a.body) (stmtsSize body) + 1
-    let body ← block records actions fuel [a.name] body
+    modify (· + drawn actions fuel body)
     pure { a with params, body }
 
 /-! ## Inlining (inline.rs) -/
@@ -883,12 +908,14 @@ def inlineNode (p : CProgram) : Nat → Subst → CNode → ExM (List Node)
       let mut captures : List ((String × Ty) × Expr × String) :=
         valueProps.zipIdx.map fun (pd, i) =>
           ((s!"@capture:{n}:{i}", pd.ty), (child.get? pd.name).getD .none, pd.name)
-      let mut tails : List (String × String × List Expr) := []
-      for (pd, pi) in c.props.zipIdx do
-        let called := c.actions.any fun a => (tailCalls a.body).contains pd.name
-        if !(pd.action && called) then continue
+      let mut called : List (String × String × List Expr) := []
+      for (pd, pi) in (c.props ++ c.injects).zipIdx do
+        let used := pd.action && !hostCommands.contains pd.name &&
+          c.actions.any fun a => commandsIn pd.name a.body
+        if !used then continue
         let .some v := child.get? pd.name | continue
         let (target, curried) ← match v with
+          | .var "?" => continue
           | .var t => pure (t, [])
           | .call t cs => pure (t, cs)
           | _ => refuse s!"`{pd.name}` is called by an action, so it must name an action"
@@ -897,7 +924,7 @@ def inlineNode (p : CProgram) : Nat → Subst → CNode → ExM (List Node)
           let hidden := s!"@capture:{n}:a{pi}:{j}"
           held := held ++ [Expr.var hidden]
           captures := captures ++ [((hidden, .unknown), arg, "")]
-        tails := tails ++ [(pd.name, target, held)]
+        called := called ++ [(pd.name, target, held)]
       for a in c.actions do
         child := child.insert a.name (.call (nameOf a.name) (captures.map (·.2.1)))
       let derives ← match resolvedDerives p.records c with
@@ -922,7 +949,8 @@ def inlineNode (p : CProgram) : Nat → Subst → CNode → ExM (List Node)
           act := act.insert d (substExpr { map := abase, records := p.records } e)
         for (q, _) in a.params do
           act := act.erase q
-        let body := tailMarked tails (substStmts { map := act, records := p.records } names a.body)
+        let body := callMarked called
+          (withCaptures (captures.map (·.1.1)) (substStmts { map := act, records := p.records } names a.body))
         modify fun ctx => { ctx with extraActions := ctx.extraActions ++
           [{ name := nameOf a.name, params := captures.map (·.1) ++ a.params, body }] }
       if !fill.isEmpty && !c.slot then
@@ -939,8 +967,10 @@ end
 
 /-- The flat program `p` expands to (inline.rs `expand`): the root's own
 declarations (the router's slot first), the inlined view, every lifted
-state and action, tail calls resolved. -/
+state and action, every call resolved and its caller's names drawn apart
+(LLP 1089). -/
 def expand (p : CProgram) : Except String Program := do
+  let p := ownCallsProgram p
   let root := p.root
   let routerState : List StateDecl := match p.router with
     | .some x => [{ name := x, ty := .record "Router", init := .none }]
@@ -949,7 +979,8 @@ def expand (p : CProgram) : Except String Program := do
   let provides := root.provides.map fun (x, e) => (x, substExpr s0 e)
   let (view, ctx) ← (inlineNodes p (1 <<< 20) s0 root.view).run { provides }
   let actions := root.actions ++ ctx.extraActions
-  let (actions, _) ← (tailResolve p.records actions).run 0
+  let actions ← actions.mapM fun a => do pure { a with body := ← resolveCalls actions a.body }
+  let (actions, _) ← (hygiene p.records actions).run 0
   pure { shapes := p.shapes, fns := p.fns,
          states := routerState ++ root.states ++ ctx.extraStates,
          derives := root.derives, resources := root.resources, mutations := root.mutations,

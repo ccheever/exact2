@@ -86,7 +86,7 @@ def rootProgram (p : CProgram) : Program :=
       | .some x => [{ name := x, ty := .record "Router", init := .none }]
       | .none => []) ++ p.root.states,
     derives := p.root.derives, resources := p.root.resources,
-    mutations := p.root.mutations, actions := p.root.actions, tasks := p.root.tasks,
+    mutations := p.root.mutations, actions := (ownCallsComponent p.root).actions, tasks := p.root.tasks,
     routes := p.routes, router := p.router }
 
 /-- What an evaluation reads: the root's names (`Env` over `rootProgram`)
@@ -304,7 +304,7 @@ abbrev Thunk := Expr × Frame × Locals
 def forceAll (fuel : Nat) (ce : CEnv) (ts : List Thunk) : Result (List Value) :=
   ts.mapM fun (e, f, ls) => ceval fuel ce f ls e
 
-/-- The action a handler (or a tail call) names in a frame, with the
+/-- The action a handler (or a call) names in a frame, with the
 arguments curried on the way through `action` props, outermost first,
 then `args`. -/
 def resolveAction : Nat → CProgram → Frame → Locals → String → List Thunk →
@@ -333,15 +333,19 @@ structure CEffects where
   inst : List (InstId × String × String × Value) := []
   deriving Inhabited
 
+/-- The action `a` of a frame's component, its own calls made calls. -/
 def _root_.Contract.Components.CProgram.actionIn (p : CProgram) : Frame → String → Option ActionDecl
-  | .root, a => p.root.actions.find? (·.name == a)
-  | .inst c _ _, a => (p.component? c).bind fun C => C.actions.find? (·.name == a)
+  | .root, a => (ownCallsComponent p.root).actions.find? (·.name == a)
+  | .inst c _ _, a => (p.component? c).bind fun C => (ownCallsComponent C).actions.find? (·.name == a)
 
 /-- Run a block in a frame. In the root's frame it is `exec` over the
 root alone. In an instance's frame an assignment writes the instance's
-state, and a command naming an `action` prop is a tail call: the action it
-names runs its statements here, in its own frame, its parameters bound to
-the curried arguments then the call's. -/
+state; a call of the component's own action runs its statements here, in
+the same frame, its parameters alone bound; and a command naming an
+`action` prop or injected action is a call (LLP 1089): the action it names
+runs its statements here, in its own frame, its parameters bound to the
+curried arguments then the call's. Every statement reads the state the
+action started with. -/
 def cexec : Nat → CEnv → Frame → Locals → List Stmt → CEffects → Result CEffects
   | 0, _, _, _, _, _ => .error outOfFuel
   | fuel + 1, ce, .root, ls, ss, fx => do
@@ -360,13 +364,13 @@ def cexec : Nat → CEnv → Frame → Locals → List Stmt → CEffects → Res
         cexec fuel ce f ls rest { fx with inst := fx.inst ++ [(id, c, t, v)] }
       else .error (.unbound t)
     | .command name args =>
-      if C.props.any (fun pd => pd.name == name && pd.action) then do
+      if (C.props ++ C.injects).any (fun pd => pd.name == name && pd.action) then do
         let (f', a, ts) ← resolveAction fuel ce.prog f ls name (args.map (·, f, ls))
         let vs ← forceAll fuel ce ts
         match ce.prog.actionIn f' a with
         | .none => .error (.unbound a)
         | .some ad =>
-          if ad.params.length != vs.length then .error (.refused "tail call arity") else
+          if ad.params.length != vs.length then .error (.refused "call arity") else
           let fx ← cexec fuel ce f' ((ad.params.map (·.1)).zip vs).reverse ad.body fx
           cexec fuel ce f ls rest fx
       else do
@@ -376,6 +380,14 @@ def cexec : Nat → CEnv → Frame → Locals → List Stmt → CEffects → Res
       let vs ← cevalList fuel ce f ls args
       cexec fuel ce f ls rest { fx with flat := { fx.flat with sends := fx.flat.sends ++ [(t, src, vs)] } }
     | .refresh t => cexec fuel ce f ls rest { fx with flat := { fx.flat with refreshes := fx.flat.refreshes ++ [t] } }
+    | .call a args => do
+      let vs ← cevalList fuel ce f ls args
+      match ce.prog.actionIn f a with
+      | .none => .error (.unbound a)
+      | .some ad =>
+        if ad.params.length != vs.length then .error (.refused "call arity") else
+        let fx ← cexec fuel ce f ((ad.params.map (·.1)).zip vs).reverse ad.body fx
+        cexec fuel ce f ls rest fx
     | .ifS cnd thn els => do
       let fx ← match ← ceval fuel ce f ls cnd with
         | .bool true => cexec fuel ce f ls thn fx

@@ -286,10 +286,16 @@ be read before its declaration. Separate branches may each declare their own
 local of the same name. Locals do not become application state.
 
 Actions support assignments to their own states and mutations, `let`, `send`,
-`refresh`, host commands, `if`/`else`, and option `match` blocks. They have no
-loops, `return`, `await`, or general action-to-action calls. Share calculations
-through `fn`; bind an action to an event to invoke it. The compiler infers the
-state an action writes. Do not write a `writes` clause.
+`refresh`, host commands, calls of actions, `if`/`else`, and option `match`
+blocks. They have no loops, `return`, or `await`. An action calls another action
+of its component, an `action` prop or an injected action as a statement:
+`arrive(path)` runs `arrive`'s statements right there, in the same commit, and
+they too read the state the action started with. So a helper does not see what
+its caller assigned before the call; the compiler refuses such a read and asks
+for the value to be passed (`arrive(next)`). A name that is a host command, such
+as `focus`, stays the command. A call returns nothing: share calculations through
+`fn`. The compiler infers the state an action writes, through its calls. Do not
+write a `writes` clause.
 
 ## Expressions and functions
 

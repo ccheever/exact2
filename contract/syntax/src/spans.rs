@@ -134,6 +134,7 @@ record_variants! {
         Let { name, expr, span }, Assign { target, expr, span }, Command { name, args, span },
         Send { target, source, args, span }, Refresh { target, span },
         If { cond, then, otherwise, span }, Match { subject, some, none, span },
+        Call { action, args, body, authored, curried, binding, span },
     }
 }
 record_variants! {

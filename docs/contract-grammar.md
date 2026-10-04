@@ -173,8 +173,17 @@ body has exactly one schedule. The named timer action takes no parameters;
 a millisecond interval is a literal whole number of at least 1.
 
 Both option-match arms are required exactly once. Actions have no loops, returns,
-awaits, or ordinary action-to-action calls. A standalone call statement is a
-host command, not an arbitrary function invocation. `let` is recognized as the
+or awaits. A standalone call statement `name(args)` is a host command when `name`
+is one, even inside an action of that name (`action setScheme` may call the
+command `setScheme(s)`). Otherwise it calls an action of the same component, an
+`action` prop or an injected action (LLP 1089), never a function. A call is
+expanded in place: the callee's statements run where the call stands, in the
+caller's one commit, reading the state the action started with. Its arguments
+complete the callee's parameters after any curried where it was bound; no event
+payload is appended. A call gives no value (`type-call-value`), passes no action
+as an argument (`type-call-action-arg`), and never recurses, directly or through
+other actions (`syntax-call-cycle`). An action whose calls would expand past
+1,024 statements is `syntax-call-size`. `let` is recognized as the
 local-declaration statement when followed by a name; a writable slot named `let`
 can still appear in an ordinary assignment.
 
@@ -741,7 +750,14 @@ Syntax is only the first layer. In particular:
   the first's reply (LLP 1016 D5), so it is `analyze-send-twice`. Exclusive
   `if`/`match` arms, and sequential `if`s testing one unchanged name against
   different literals, are separate paths (LLP 1088 D8). The walk reads the root's
-  actions after tail calls are inlined, where a caller and its callee are one commit.
+  actions with every call expanded, where a caller and its callees are one commit.
+- Behind a call, a read of a state, mutation or router slot that another frame
+  (the action's own body, or another call) assigned earlier on the same path is
+  `analyze-call-stale-read` (LLP 1089 D3): the reader would see the starting
+  value, and neither body shows it. Pass the value as an argument, from a `let`
+  bound before the write for the old value or the assigned expression for the
+  new one. A derive, a resource and `pending(m)` read settled values and are not
+  refused; the same walk's exclusive paths are separate.
   `pending`/`failed` operate on declarations, not arbitrary values.
 - View roots cannot be conditional/repeated regions. Tags, attributes, and
   children must fit their lowering rules. Class application is not a CSS cascade.

@@ -242,6 +242,12 @@ impl Rewriter<'_> {
                     self.stmts(&mut some.1)?;
                     self.stmts(none)?;
                 }
+                // The parser never makes a call (LLP 1089); expansion does,
+                // after every file is in one scope.
+                Stmt::Call { args, body, .. } => {
+                    self.exprs(args)?;
+                    self.stmts(body)?;
+                }
             }
         }
         Ok(())
