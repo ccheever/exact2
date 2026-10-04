@@ -9,7 +9,6 @@ use std::{
     path::PathBuf,
 };
 #[cfg(not(target_arch = "wasm32"))]
-#[cfg(not(target_arch = "wasm32"))]
 mod native;
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests;
@@ -412,6 +411,7 @@ impl<D: DataSource> DataSource for Storage<D> {
                 let (kind, message) = refusal?;
                 Some(Box::new(move || Outcome::Failed { kind, message }))
             }
+            #[cfg(not(target_arch = "wasm32"))]
             Pending::Storage(payload, grants) => {
                 let paths = self.directories.clone();
                 let alive = self.alive.clone();
