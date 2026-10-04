@@ -94,7 +94,12 @@ pub fn materials(
                     payload.1 |= bits;
                 }
                 i
-            } else if let Some(name) = standalone(texture.source(), dir, srgb)? {
+            } else if let Some(name) = cutoff
+                .is_none()
+                .then(|| standalone(texture.source(), dir, srgb))
+                .transpose()?
+                .flatten()
+            {
                 let index = out.textures.len() as u32;
                 out.textures.push(name.clone());
                 cache.insert(key, (index, name));
@@ -277,6 +282,45 @@ fn srgb(v: f32) -> f32 {
     }
 }
 /// Box mip chain with linear-light colour filtering; alpha and data channels are linear.
+/// An RGBM chain whose levels average radiance (rgb times alpha), each level
+/// re-encoded with its own multiplier: per-channel averaging would mix bright
+/// and dim texels' multipliers and darken or brighten the sky's far mips.
+pub fn rgbm_mips(mut w: u32, mut h: u32, rgba: Vec<u8>) -> Vec<Vec<u8>> {
+    let mut out = vec![rgba];
+    while w > 1 || h > 1 {
+        let (nw, nh) = ((w / 2).max(1), (h / 2).max(1));
+        let previous = out.last().unwrap();
+        let mut next = vec![0; (nw * nh * 4) as usize];
+        for y in 0..nh {
+            for x in 0..nw {
+                let (x0, x1, y0, y1) = (x * w / nw, (x + 1) * w / nw, y * h / nh, (y + 1) * h / nh);
+                let mut sum = [0f32; 3];
+                for sy in y0..y1 {
+                    for sx in x0..x1 {
+                        let p = &previous[((sy * w + sx) * 4) as usize..][..4];
+                        let m = f32::from(p[3]) / 255.;
+                        for c in 0..3 {
+                            sum[c] += f32::from(p[c]) / 255. * m;
+                        }
+                    }
+                }
+                let n = ((x1 - x0) * (y1 - y0)) as f32;
+                let v = sum.map(|s| s / n);
+                let a = (v.iter().fold(0f32, |a, &b| a.max(b)) * 255.)
+                    .ceil()
+                    .clamp(1., 255.);
+                let at = ((y * nw + x) * 4) as usize;
+                for c in 0..3 {
+                    next[at + c] = (v[c] / (a / 255.) * 255.).round().clamp(0., 255.) as u8;
+                }
+                next[at + 3] = a as u8;
+            }
+        }
+        out.push(next);
+        (w, h) = (nw, nh);
+    }
+    out
+}
 pub fn mips(
     mut w: u32,
     mut h: u32,

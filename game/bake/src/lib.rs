@@ -390,21 +390,27 @@ pub enum PngKind {
     /// Under `art/textures/`: a material colour texture shared by any model or
     /// generated mesh: sRGB, repeating, linearly filtered, box-filtered mips.
     Color,
-    /// Under `art/data/`: the same, but linear values (normal maps, masks, an
-    /// RGBM environment map).
+    /// Under `art/data/`: the same, but linear values (normal maps, masks).
     Data,
+    /// Under `art/data/rgbm/`: an RGBM environment map, linear, its mips
+    /// box-filtered as radiance (decoded, averaged, re-encoded), not per channel.
+    Rgbm,
 }
 impl PngKind {
     /// The kind a PNG's path inside `art/` selects.
     pub fn of(art: &Path, path: &Path) -> Self {
-        let first = path
+        let mut parts = path
             .strip_prefix(art)
             .ok()
-            .and_then(|p| p.components().next())
-            .and_then(|c| c.as_os_str().to_str());
-        match first {
-            Some("textures") if path.parent() != Some(art) => Self::Color,
-            Some("data") if path.parent() != Some(art) => Self::Data,
+            .into_iter()
+            .flat_map(|p| p.components())
+            .map(|c| c.as_os_str().to_str());
+        let (first, second) = (parts.next().flatten(), parts.next().flatten());
+        let nested = path.parent() != Some(art);
+        match (first, second) {
+            (Some("textures"), _) if nested => Self::Color,
+            (Some("data"), Some("rgbm")) if path.parent() != Some(&art.join("data")) => Self::Rgbm,
+            (Some("data"), _) if nested => Self::Data,
             _ => Self::Sprite,
         }
     }
@@ -422,7 +428,11 @@ pub fn material_texture_variants(
     texture.wrap = [Wrap::Repeat; 2];
     texture.filter = [Filter::Linear; 3];
     let top = texture.mips.swap_remove(0);
-    texture.mips = textures::mips(texture.width, texture.height, top, color, true, None);
+    texture.mips = if kind == PngKind::Rgbm {
+        textures::rgbm_mips(texture.width, texture.height, top)
+    } else {
+        textures::mips(texture.width, texture.height, top, color, true, None)
+    };
     texture.validate()?;
     compress::variants(name, &texture, compress::Channels::ColorAlpha, false)
 }
@@ -683,6 +693,11 @@ mod png_kind_tests {
             PngKind::Color
         );
         assert_eq!(PngKind::of(art, &art.join("data/sky.png")), PngKind::Data);
+        assert_eq!(
+            PngKind::of(art, &art.join("data/rgbm/sky.png")),
+            PngKind::Rgbm
+        );
+        assert_eq!(PngKind::of(art, &art.join("data/rgbm.png")), PngKind::Data);
         let dir = std::env::temp_dir().join(format!("exact-bake-png-kind-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("soil.png");
@@ -708,5 +723,14 @@ mod png_kind_tests {
             assert_eq!(variants.len(), 3, "RGBA8, BC and ASTC families");
         }
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+    #[test]
+    fn rgbm_mips_average_radiance_not_channels() {
+        // A dim texel (rgb 1.0 under multiplier 0.2) beside black at full multiplier.
+        let mips = textures::rgbm_mips(2, 1, vec![255, 255, 255, 51, 0, 0, 0, 255]);
+        let p = &mips[1];
+        let radiance = f32::from(p[0]) / 255. * f32::from(p[3]) / 255.;
+        // Per-channel averaging would give rgb 0.5 under 0.6: 0.3.
+        assert!((radiance - 0.1).abs() < 0.005, "{radiance} from {p:?}");
     }
 }

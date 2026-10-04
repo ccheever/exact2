@@ -516,6 +516,14 @@ fn gltf_images_under_art_textures_sample_the_one_standalone_texture() {
             "{stem} embeds a copy"
         );
     }
+    // A masked material keeps coverage-preserving mips: it embeds its own
+    // (shared across models by content), not the straight-alpha standalone.
+    let mut masked = source.clone();
+    masked["materials"][0]["alphaMode"] = serde_json::json!("MASK");
+    fs::write(app.join("art/models/pot.gltf"), masked.to_string()).unwrap();
+    let pot = exact_game_bake::model(app.join("art/models/pot.gltf")).unwrap();
+    assert_ne!(pot.textures, ["soil.tex"], "masked: {:?}", pot.textures);
+    fs::write(app.join("art/models/pot.gltf"), source.to_string()).unwrap();
     // A colour texture cannot be a model's normal map.
     let mut normal = source.clone();
     normal["materials"][0]["normalTexture"] = serde_json::json!({ "index": 0 });

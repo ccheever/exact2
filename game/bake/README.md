@@ -63,12 +63,15 @@ A PNG under `art/textures/` is a material texture instead, shared by name with a
 model or generated mesh (`textures/soil.png` bakes as `soil.tex`): sRGB colour,
 repeating on both axes, linear min/mag/mip filtering, a box-filtered mip chain in
 linear light, block-compressed within the usual quality bound. Under `art/data/` the
-same, but linear values: normal maps, masks, an RGBM environment map.
+same, but linear values: normal maps, masks. Under `art/data/rgbm/` an RGBM
+environment map: linear, its mips box-filtered as radiance (decoded, averaged and
+re-encoded per texel) rather than per channel.
 A glTF whose image `uri` points at such a PNG (`"../textures/soil.png"`) samples
 that one `soil.tex` instead of embedding a copy, so many models share it; a colour
 slot (base, emission) must point into `art/textures/` and a data slot into
-`art/data/`, or the bake refuses by name. Such a texture keeps straight-alpha mips,
-not a MASK material's coverage-preserving ones.
+`art/data/`, or the bake refuses by name. A MASK material embeds its own copy
+instead, with mips that preserve its cutout's coverage (models sharing that image
+and cutoff still ship it once, by content).
 
 Put sounds at `art/<name>.wav` or `art/<name>.ogg`; the bake writes `assets/<name>.sound`
 (a stem may have one source). WAV may be 8/16/24/32-bit integer PCM or 32/64-bit float,
