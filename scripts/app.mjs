@@ -25,6 +25,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
 import { gzipSync } from 'node:zlib';
 import { BINARYEN } from '../host/web/stages.mjs';
 
@@ -209,7 +210,7 @@ function checkOutsideLock(workspace) {
 
 export const runnerOwnedSource = name => ['exactDelivery', 'exactViewport', 'exactSurface'].includes(name);
 
-const ROOT = resolve(new URL('..', import.meta.url).pathname);
+const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
 
 /** Source paths inside the wasm (panic locations) name no machine: the
  * toolchain's sources as std's own rlibs do (`/rustc/<commit>`), Cargo's
@@ -284,12 +285,12 @@ if (process.versions.bun && PINNED_BUN) {
   // Build steps start `bun` by name (the bake's compatibility inputs, the
   // TypeScript compiler); they get the Bun that passed, not whatever is first on PATH.
   const found = Bun.which('bun');
-  if (!found || realpathSync(found) !== realpathSync(process.execPath)) process.env.PATH = `${dirname(process.execPath)}:${process.env.PATH ?? ''}`;
+  if (!found || realpathSync(found) !== realpathSync(process.execPath)) process.env.PATH = `${dirname(process.execPath)}${delimiter}${process.env.PATH ?? ''}`;
 }
 
 // `exact setup` installs Binaryen privately; every build finds the same pin.
 const binaryenBin = resolve(homedir(), '.cache/exact/binaryen', BINARYEN.replace(' ', '_'), 'bin');
-if (existsSync(resolve(binaryenBin, 'wasm-opt'))) process.env.PATH = `${binaryenBin}:${process.env.PATH ?? ''}`;
+if (existsSync(resolve(binaryenBin, process.platform === 'win32' ? 'wasm-opt.exe' : 'wasm-opt'))) process.env.PATH = `${binaryenBin}${delimiter}${process.env.PATH ?? ''}`;
 
 // @ref LLP 1043.000 §3 D7/D8 — one inventory for host builds, serving and fixtures.
 // Groups preserve capability-based shipping; none of these imports enters boot.
@@ -596,7 +597,11 @@ export function developmentBuildEnv() {
     ignoredToolchain = toolchain;
     delete env.RUSTUP_TOOLCHAIN;
   }
-  if (process.versions.bun) env.PATH = [dirname(process.execPath), ...(env.PATH ?? '').split(delimiter).filter(Boolean)].join(delimiter);
+  // process.env looks up Windows names case-insensitively; spreading it into a
+  // plain object does not. Preserve Path and emit only one spelling for children.
+  const path = env.PATH ?? Object.entries(env).find(([key]) => key.toLowerCase() === 'path')?.[1] ?? '';
+  for (const key of Object.keys(env)) if (key !== 'PATH' && key.toLowerCase() === 'path') delete env[key];
+  env.PATH = [...(process.versions.bun ? [dirname(process.execPath)] : []), ...path.split(delimiter).filter(Boolean)].join(delimiter);
   return env;
 }
 

@@ -1,13 +1,27 @@
 import { test } from 'bun:test';
 // These cases run cargo (the filesystem tool, bakes, locks). A shell whose PATH
 // omits rustup's bin directory still finds it there; without cargo, say so.
-const cargoBin = `${process.env.CARGO_HOME ?? `${process.env.HOME}/.cargo`}/bin`;
-if (!(process.env.PATH ?? '').split(':').includes(cargoBin)) process.env.PATH = `${process.env.PATH ?? ''}:${cargoBin}`;
+const cargoBin = resolve(process.env.CARGO_HOME ?? resolve(homedir(), '.cargo'), 'bin');
+if (!(process.env.PATH ?? '').split(delimiter).includes(cargoBin)) process.env.PATH = `${process.env.PATH ?? ''}${delimiter}${cargoBin}`;
 if (!Bun.which('cargo', { PATH: process.env.PATH })) throw new Error(`these tests need cargo: put it on PATH or in ${cargoBin}`);
 // The fixtures name their apps; a caller's EXACT_APP_DIR would redirect every one.
 delete process.env.EXACT_APP_DIR;
 import assert from 'node:assert/strict';
 import { classifyArtifacts } from './app.mjs';
+import { chromium } from './agent-launch.mjs';
+
+test('Windows browser discovery accepts an installed Chrome and explicit executable paths with spaces', () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact browser paths-'));
+  try {
+    const chrome = resolve(dir, 'Google/Chrome/Application/chrome.exe');
+    mkdirSync(dirname(chrome), {recursive:true});
+    writeFileSync(chrome, '');
+    chmodSync(chrome, 0o755);
+    assert.equal(chromium({ProgramFiles:dir}, 'win32').executable, chrome);
+    assert.equal(chromium({CHROME:chrome}, 'win32').unavailable, null);
+    assert.ok(chromium({CHROME:resolve(dir, 'missing.exe')}, 'win32').unavailable);
+  } finally { rmSync(dir, {recursive:true, force:true}); }
+});
 
 test('runner-owned sources never warn that native app code is retained', () => {
   for (const name of ['exactSurface', 'exactViewport', 'exactDelivery', 'appData']) {
@@ -69,8 +83,8 @@ test.skipIf(!process.env.EXACT_ASSET_BAKE_TEST)('creating optional asset roots r
 
 import { spawn, spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
-import { tmpdir } from 'node:os';
+import { delimiter, dirname, resolve } from 'node:path';
+import { homedir, tmpdir } from 'node:os';
 import { resolveApp, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
 import { hermesIos } from './app.mjs';
 import { HERMES_IOS_ARCHIVES, provisionHermesIos, iosAssets, infoPlist, macInfoPlist, macReleaseEntitlements, useXcode, writeUsageStrings, designCompatible, COMPATIBLE_SDK } from '../host/apple/build.mjs';
@@ -927,6 +941,8 @@ test('a build env keeps the pinned toolchain and the checked Bun ahead of ambien
     const env = developmentBuildEnv();
     assert.equal(env.RUSTUP_TOOLCHAIN, undefined);
     assert.equal(env.PATH.split(delimiter)[0], dirname(process.execPath));
+    assert.ok(Bun.which('cargo', {PATH:env.PATH}), 'the build inherits Cargo after spreading Windows Path');
+    assert.equal(Object.keys(env).filter(key => key.toLowerCase() === 'path').length, 1);
     assert.equal(env.EXACT_UPDATE_TRUST, process.env.EXACT_UPDATE_TRUST ?? 'development');
   } finally { if (previous === undefined) delete process.env.RUSTUP_TOOLCHAIN; else process.env.RUSTUP_TOOLCHAIN = previous; }
 });
