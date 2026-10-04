@@ -77,7 +77,10 @@ fn captures_fonts_and_complete_static_trees_without_following_links() {
             ("AGENTS.md", "assets/notes.md"),
         ] {
             std::os::unix::fs::symlink(app.0.join(target), app.0.join(link)).unwrap();
-            assert!(sources(&app.0).unwrap_err().contains("source links"), "{link}");
+            assert!(
+                sources(&app.0).unwrap_err().contains("source links"),
+                "{link}"
+            );
             std::fs::remove_file(app.0.join(link)).unwrap();
         }
         std::os::unix::fs::symlink(app.0.join("private.bin"), app.0.join("assets/link.bin"))

@@ -746,7 +746,9 @@ impl Color {
             return Some(Color::rgba(0, 0, 0, 0));
         }
         let named = || exact_motion::named::named(text).map(|[r, g, b]| Color::rgba(r, g, b, 255));
-        Color::parse_hex(text).or_else(|| Color::parse_rgb(text)).or_else(named)
+        Color::parse_hex(text)
+            .or_else(|| Color::parse_rgb(text))
+            .or_else(named)
     }
 
     /// CSS `rgb()` / `rgba()` (one function under two names, as in CSS

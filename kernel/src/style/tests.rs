@@ -162,9 +162,18 @@ fn a_colour_parses_as_hex_or_as_css_rgb_notation() {
     assert_eq!(Color::parse("transparentt"), None);
     // CSS's named colours, in any ASCII case (CSS Color 4 §6.1).
     assert_eq!(Color::parse("red"), red);
-    assert_eq!(Color::parse(" Gray "), Some(Color::rgba(128, 128, 128, 255)));
-    assert_eq!(Color::parse("REBECCAPURPLE"), Some(Color::rgba(102, 51, 153, 255)));
-    assert_eq!(Color::parse("lightgoldenrodyellow"), Some(Color::rgba(250, 250, 210, 255)));
+    assert_eq!(
+        Color::parse(" Gray "),
+        Some(Color::rgba(128, 128, 128, 255))
+    );
+    assert_eq!(
+        Color::parse("REBECCAPURPLE"),
+        Some(Color::rgba(102, 51, 153, 255))
+    );
+    assert_eq!(
+        Color::parse("lightgoldenrodyellow"),
+        Some(Color::rgba(250, 250, 210, 255))
+    );
     let half = Some(Color::rgba(255, 0, 0, 128));
     assert_eq!(Color::parse("rgba(255, 0, 0, 0.5)"), half);
     assert_eq!(Color::parse("rgba(255, 0, 0, 50%)"), half);
