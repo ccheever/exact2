@@ -1,13 +1,14 @@
 # LLP 1092: Sends that queue and timers that wait
 
 **Type:** RFC
-**Status:** Draft (r1)
-**Systems:** Contract compiler, Plan (`mutations`, `timers`), Runner (`commit.rs`, `runner.rs`, `agent.rs`), JS target (`rt.js`, `emit.rs`), conformance, Lean and difftest, docs
+**Status:** Draft (r2, round 1 of 3). r1 was reviewed twice by Grok 4.7 (xhigh), with two scopes: semantics (`llp/reviews/1092-r1.grok-a.md`, READY WITH CHANGES) and implementation (`llp/reviews/1092-r1.grok-b.md`, NOT READY). Codex/Astra's budget was exhausted, so both reviews are one family. r2 resolves every finding (§9). The orchestrator decided r1's open questions under Charlie's 2026-10-04 delegation (§8); the `rules/DEFERRED.md` waiver is recorded in its own commit (`3555dc4e6`).
+**Systems:** Contract compiler, Plan (`mutations`, `timers`), Runner (`commit.rs`, `runner.rs`, `agent.rs`, new `queue.rs` and `gates.rs`), JS target (`rt.js`, `emit.rs`, new `schedule.js`), conformance, Lean and difftest, docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-05
+**Revised:** 2026-10-05 (r2)
 **Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stages 1 and 2 on 2026-10-05, stage 3 on 2026-10-06 (§6)
 **Amends:** LLP 1016 §4 (newest-wins, unless queued); LLP 1016.001; LLP 1088 D8; LLP 1017 P4c's deferral of `task … when` (D11); LLP 1073 D4; `rules/DEFERRED.md` **Motion**
-**Related:** LLP 1005 §6; LLP 1016 D5; LLP 1035.005.000 D7 and §5; LLP 1041 D2; diaries `~/projects/x2apps/{kanban2,flashcards,spreadsheet,studio,ledger2,chat,chat2,trivia,pomodoro}/DIARY.md`
+**Related:** LLP 1005 §6; LLP 1012 §2; LLP 1016 D5; LLP 1027.005; LLP 1035.005.000 D7 and §5; LLP 1041 D2; LLP 1054.000.000 D1; diaries `~/projects/x2apps/{kanban2,flashcards,spreadsheet,studio,ledger2,chat,chat2,trivia,pomodoro}/DIARY.md`
 
 ## Summary
 
@@ -23,7 +24,7 @@ This RFC adds one clause to each declaration:
 ```
 mutation wrote as shape Wrote queue refreshes doc then afterWrote
 
-task hide when toast != "" key=toastSeq
+task hide when toast != "" key=toastUntil
   after(5000, expire)
 ```
 
@@ -31,7 +32,7 @@ task hide when toast != "" key=toastSeq
   asked after the previous reply and its `then`.
 - **`when` and `key=`:** the timer exists while its condition holds, as a
   `when` arm's nodes do; a new key restarts it, as a new `each` key makes a
-  new row.
+  new row. Nothing runs when the gate changes.
 
 Both are opt-in; without them, behaviour is unchanged.
 
@@ -39,14 +40,14 @@ Both are opt-in; without them, behaviour is unchanged.
 |---|---|---|---|
 | D1 | `queue` on the mutation declaration; the default stays newest-wins | kanban2 #1, flashcards F4 | 1 |
 | D2 | One request in flight; later sends wait with their send-time arguments | kanban2 | 1 |
-| D3 | A waiting send is asked in a commit of its own, after the previous reply's `then` | studio R8 | 1 |
-| D4 | `pending`, `then`, `refreshes`, assignment, failure, reload, a bound | — | 1 |
+| D3 | When a mutation is free; a waiting send is asked in a `next` commit on the wake path | studio R8 | 1 |
+| D4 | `pending`, `then`, `refreshes`, assignment, failure, reload, the bound | — | 1 |
 | D5 | What the data module sees | spreadsheet | 1 |
-| D6 | The compiler: a plan field; `analyze-send-twice` exempts a queue | spreadsheet | 1 |
+| D6 | The compiler and the JS target | spreadsheet | 1 |
 | D7 | `task NAME when COND [key=EXPR]` | ledger2 #1, chat F7 | 2 |
 | D8 | When a gated task arms, re-arms and drops its timer | — | 2 |
-| D9 | Gates and keys lower to derives; three refusals | — | 2 |
-| D10 | Clock, frames, hosts and the agent | trivia | 2 |
+| D9 | Gates and keys lower to hidden derives; refusals | — | 2 |
+| D10 | Frames, the clock, hosts and the agent | trivia | 2 |
 | D11 | A gated timer is not the deferred reaction | LLP 1017 P4c | 2 |
 | D12 | Lean and difftest | — | 3 |
 | D13 | Docs and adoption | all | 1, 2 |
@@ -62,36 +63,34 @@ Both are opt-in; without them, behaviour is unchanged.
   write queue, or a click that does not cancel the save already in
   flight".
 - **Flashcards F4.** `commitEdit` sent `saveCard`, then `setImage`, to
-  `edited`. `then afterEdit` saw only the second ack, so the editor never
-  closed. LLP 1088 D8 now refuses this.
-- **Spreadsheet.** D8 refused `down` and `openSheet`, and the fix was a
-  mutation per request. Before D8, "the data module saw both, in order":
-  forgetting drops the reply, not the request.
-- **Studio R8.** Save-then-close relays through a second mutation (`then`
-  may not send its own); each reply carries a `seq` so the view acts once.
-- **Chat and chat2** guard their sends with `not pending(…)`.
+  `edited`; `then afterEdit` saw only the second ack. LLP 1088 D8 now
+  refuses this, and the app sends `setImage` through `imaged`.
+- **Spreadsheet.** D8 refused `down` and `openSheet`; the fix was a
+  mutation per request (`committed`). Before D8, "the data module saw
+  both, in order": forgetting drops the reply, not the request.
+- **Studio R8.** Each `op` reply carries a `seq`, so `afterOp` acts once
+  per reply.
 
 Today `send` asks the source in the commit (`commit.rs:480–518`), and both
 `enqueue` (`:750–754`) and an assignment to the slot (`:567–613`) forget
 the request in flight; the JS target's `mut()` holds one ticket
-(`rt.js:463–498`). Forgetting can drop the write itself, not only its
-reply: a host lets go of the work for a ticket the runner no longer
-`holds` (`commit.rs:897–902`; Linux `presenter.rs:772`), and the JS target
-dispatches a multi-step answer's next step only while it is held
-(`rt.js:473`). A save written as a storage step plus a continuation can
-stop between them.
+(`rt.js:463–498`). Forgetting can drop the write itself: a host lets go of
+the work for a ticket the runner no longer `holds` (`commit.rs:897–902`;
+Linux `presenter.rs:772`), and the JS target dispatches a multi-step
+answer's next step only while it is held (`rt.js:473`). A save written as a
+storage step plus a continuation can stop between them.
 
 ### 1.2 Timers
 
-`task NAME mount` arms its one schedule at boot (`runner.rs:928–941`). Only
+`task NAME mount` arms its one schedule at boot (`runner.rs:926–941`). Only
 the root may declare a task (`types/src/lib.rs:1261`).
 
 | App | Task | Needed only while |
 |---|---|---|
 | ledger2 (#1, Rough 8) | `every(1000, expire)` | an undo toast shows |
-| chat (F7), chat2 | `every(200, tick)` | a bot reply or a toast is due |
+| chat (F7), chat2 | `every(200, tick)` | a bot reply is due, or a toast shows |
 | trivia | `every(100, tick)` | `screen == "play"` |
-| pomodoro | `every(1000, tick)` | the timer runs |
+| pomodoro | `every(1000, tick)` | always: it advances `nowMs`, the day clock behind `dayNum` |
 | studio | `every(15000, beat)` | always (a real heartbeat) |
 
 Every tick is a commit even when it writes nothing: ledger2's `logs` show
@@ -121,7 +120,7 @@ debounce's must.
     if (!toast) return;
     const t = setTimeout(expire, 5000);
     return () => clearTimeout(t);
-  }, [toast, toastSeq]);
+  }, [toast, toastUntil]);
   ```
 
   The timer lives while its condition holds and restarts when a dependency
@@ -147,87 +146,125 @@ save wants the latest answer. A write log wants every send.
 
 ### D2 — One request in flight; later sends wait
 
-A send to a queue mutation `m` asks its source in the sending commit only
-when `m` is **idle**:
+A send to a queue mutation `m` is **asked** in the sending commit only when
+`m` is **free** (D3) and no earlier send of `m` was made in this commit.
+Otherwise it joins `m`'s queue as its source and argument values, evaluated
+where the send stands (LLP 1005 §6): kanban's tap sends the label it was
+tapped for. Only an asked send calls the source, re-reads `refreshes` and
+hands out a request. The queue is in the commit's `Checkpoint`
+(`commit.rs:18–30`), so a refused action adds nothing to it.
 
-- no request of `m` is in flight;
-- no send of `m` is waiting;
-- no `then` of `m` is armed;
-- no earlier send of `m` was made in this commit.
+### D3 — When a mutation is free; the `next` commit
 
-Otherwise it joins `m`'s queue as its source and argument values,
-evaluated where the send stands (LLP 1005 §6): kanban's tap sends the label
-it was tapped for. The queue is in the commit's checkpoint (`commit.rs:35`),
-so a refused commit adds nothing.
+**In flight.** A send of `m` is in flight from its ask until its source
+answers `Now`, or its request ends with no answer (`release_failed`, or
+`release_refused`, `admission.rs:67–107`). A further `Later` round
+(`commit.rs:1036–1042`, "one more round") is not a reply: the send stays in
+flight and runs no `then`. A storage step and its continuation therefore
+finish before the next send is asked.
 
-### D3 — A waiting send is asked in a commit of its own
+**Free.** `m` is free when no request of `m` is in flight, its `then_due`
+is not armed, and its `next_due` is not armed. The runner checks this from
+state, not from the kind of commit (`queue.rs`, `arm_next`):
 
-`m` becomes **free** once its request ends (its reply lands, or it fails
-with no answer and is released) and, if that armed a `then`, once the
-`then`'s commit ends, stood or refused. If a send is waiting, the runner
-then arms `next_due[m] = now`, beside `then_due` (`commit.rs:395`).
+- after every commit concludes, whether it stood or was refused;
+- on `release_refused`'s early return, which makes no commit
+  (`admission.rs:67–68`).
 
-At any one time, `advance` runs the armed `then`s, then the armed `next`s,
-then the timers, each group by index. This extends LLP 1016.001 D3's rule
-that a `then` goes before a timer.
+When `m` is free and a send waits, `next_due[m] = now`. A `then` is checked
+only after its commit concludes, so `then_due` being cleared before the
+`then` runs (`commit.rs:271`) never frees `m` early.
 
-- **A `next` commit** asks the head's source as an action's send does: an
-  answer now lands there and arms `then`; a request goes out when it
-  stands. Journaled `wrote next (1 waiting)`.
-- **`land_then`** (`commit.rs:207`) runs everything due now except timers,
-  so it runs `next`s too. An input step against a source that answers at
-  once ends with every queued send answered and every `then` run.
-- **A refused `next`** (the source refuses the ask, or the answer has the
-  wrong shape) drops that send, journaled as `wrote queued send refused: …`.
-  The advance stops at that time, as for a refused `then`, and the
-  following send is armed.
+**The wake path.** `timer_due_ms` (`runner.rs:1199`) reports `next_due`
+exactly as it reports `then_due`, and so does the JS target's `drive()`. A
+queue with no `then` (studio's `rec`, kanban's `wrote` after the fold) is
+asked as soon as its reply lands, with no other timer. `clock settle`'s
+advance to now runs every due `next`, then waits on the request it hands
+out, so it does not return while a send waits.
+
+**Order.** At one time, `advance` runs every armed `then`, then every armed
+`next`, then the timers, each group by index (`land_then`, `commit.rs:207`,
+runs the first two). This extends LLP 1016.001 D3.
+
+**A `next` commit** pops the head *before* `checkpoint()` and asks its
+source as an action's send does: an answer now lands there and arms
+`then`; a request goes out when it stands. Journaled `wrote next (1
+waiting)`. If it is refused (the source refuses the ask, or the answer
+misses the shape), the popped send stays dropped, journaled `wrote queued
+send refused: …`. The advance stops with that error, as for a refused
+`then` (`what` = `wrote next`), and the scan arms the successor at that
+time, so the next advance asks it before any timer. A shaped failure is an
+answer (LLP 1016 D4) and runs `then`.
 
 Asking the head inside the reply's commit was not taken: two answers given
 at once would land in one commit, and `then` would see only the second.
 
 ### D4 — What each part of the model does with a queue
 
-- **`pending(m)`** is true while a request is in flight or a send waits.
+- **`pending(m)`** is true while a send of `m` is in flight or waits. It is
+  false once a reply has landed and nothing waits, even while that reply's
+  `then` is armed. Sending while `pending` is how a queue is fed: `not
+  pending(m)` means the spinner is off, not that a send may be skipped
+  (kanban drops its guard).
 - **`then`** runs once per reply, in send order, reading the slot as that
-  reply set it. The 2026-09-27 ruling (once per advance, the latest)
-  agrees: no second reply can land before the `then` runs. Studio's `seq`
-  goes; `analyze-then-self-send` stays (§8 Q3).
-- **`refreshes`** re-reads when a send is asked (in the action or in
-  `next`), not when it joins the queue, and forces again at each reply.
-- **Assignment.** `m = none` writes the slot. It forgets nothing and drops
-  no waiting send, because the queue holds writes a person made. No
-  cancellation is offered (§8 Q2).
-- **A failure that brings no answer** leaves the slot as it was. `then`
-  does not run, and the queue moves on.
-- **Bound.** At most 64 sends wait per mutation; a 65th refuses its action
+  reply set it. The 2026-09-27 ruling (once per advance, the latest) agrees,
+  because no second reply can land before the `then` runs.
+  `analyze-then-self-send` stays (§8).
+- **`refreshes`** re-reads when a send is asked, with the resources'
+  arguments in that commit, not the queued body's; it forces again at each
+  reply. A send that only joins the queue reads nothing.
+- **Assignment.** `m = none` writes the slot and forgets nothing. The reply
+  in flight and every waiting send's reply still land and overwrite it.
+  A mutation that must drop a late reply (a session) does not declare
+  `queue`. No cancellation (§8).
+- **A failure that brings no answer** leaves the slot as it was, runs no
+  `then`, and frees `m`.
+- **Bound.** At most 64 sends wait per mutation; the send in flight does not
+  count. A send that would be the 65th waiter refuses its action
   (`RunnerError::QueueFull`). Refusal is the overload policy (LLP 1041 D2):
   dropping a write silently is the bug being removed.
-- **Reload and poison** drop the waiting sends along with the ticket in
-  flight, as LLP 1016 D5 drops tickets, journaled as `forgot`.
+- **Reload, poison, a dev restart** drop the waiting sends along with the
+  ticket in flight. They were never asked, so there is no ticket and no
+  source call (no `discard`): one line, `forgot 2 waiting sends (wrote)`.
+  `poison()` (`commit.rs:662–669`) clears the queues. The queue is not
+  carried. A kept answer (LLP 1027.005) is not a record of a send that was
+  never asked, so a carried draft can be ahead of the resource, with
+  `pending` false.
 
 ### D5 — What the data module sees
 
-- One request at a time, in send order. Each `answer(source, args, store)`
-  is called when its send is asked, so the store holds the previous
-  reply's writes; the arguments are the send-time values.
-- No seam change. A send never asked (a reload, poison) never reaches it.
+- One request at a time, in send order. `answer(store, source, args)`
+  (`source.rs:280–285`) is called when the send is asked, so the store holds
+  the previous reply's writes; the arguments are the send-time values.
+- No seam change.
 - Two queue mutations do not order each other; to order two kinds of
-  write, send both through one (kanban folds `aside` into `wrote`).
+  write, send both through one.
 
-### D6 — The compiler
+### D6 — The compiler and the JS target
 
 - **AST and plan.** `MutationDecl` gains `queue: bool`
-  (`syntax/src/parser.rs:799`). Plan `mutations` gains `queue: bool`, and
-  `FORMAT_DIGEST` changes.
+  (`fn mutation`, `syntax/src/parser.rs:815`, moves with `fn task` into
+  `parser/decls.rs`). Plan `mutations` gains `queue: bool`; `FORMAT_DIGEST`
+  changes.
 - **`analyze-send-twice`** (`analyze/src/sends.rs:118`) skips queue
-  mutations. For the rest, its message names the new fix:
+  mutations. For the rest, its message adds the fix, except when the same
+  action assigns the mutation's slot (a reply it means to drop):
 
   > `commitEdit` sends `edited` twice; only the last send's reply reaches
   > `then afterEdit` (LLP 1016 D5). Send once, use a mutation per request,
   > or declare `mutation edited … queue` to run both in order.
 
-- **The JS target** emits `mut(…, queue)`; `rt.js` keeps `m.queue` and
-  `m.next` under the commit's `undo` and orders `advance`/`drive` as D3.
+- **The JS target** emits `mut(…, queue)` and keeps the queue in
+  `schedule.js`. For a queue mutation:
+  - an assignment's `forget` (`rt.js:152`) does nothing;
+  - `pending` stays true while the wait list is non-empty, even with
+    `ticket == null`;
+  - the commit's `undo` pushes and restores the wait list, beside
+    `m.ticket` (`rt.js:164`);
+  - `ask` and `refreshes` (`rt.js:483–493`) run only when a send is asked;
+  - `advance` (`rt.js:263–275`) runs every due `then`, then every due
+    `next`, then timers, each group by index, and `drive()` wakes for
+    `m.next`.
 
 ### D7 — `task NAME when COND [key=EXPR]`
 
@@ -237,76 +274,92 @@ gate = "when" expr [ "key" "=" expr ] | "key" "=" expr ;
 ```
 
 ```
-task hide when toast != "" key=toastSeq     -- the undo toast (ledger2)
+task hide when toast != "" key=toastUntil     -- ledger2's undo toast
   after(5000, expire)
-task autosave when draft != saved key=draft -- a debounce
+task autosave when draft != saved key=draft   -- a debounce
   after(800, save)
-task ticker when status == "running"        -- pomodoro
-  every(1000, tick)
-task fly when flying                        -- Messages' flight phases
+task round when screen == "play"              -- trivia
+  every(100, tick)
+task fly when flying                          -- Messages' flight phases
   every(frame, step)
 ```
 
 `mount` is the ungated task, unchanged. `key=` alone means
-`when true key=…`, and it is spelled as `each` spells it. Tasks stay
-root-only, and the schedules and their literal intervals do not change.
+`when true key=…`, spelled as `each` spells it. Tasks stay root-only, and
+the schedules and their literal intervals do not change.
 
 ### D8 — When a gated task arms, re-arms and drops its timer
 
-Each task is **idle** or **armed** with a due time. The runner reads every
-gated task's gate and key, in plan order, after each commit that stands
-(an action, a reply, a timer, a `then`, a `next`, a router change) and at
-boot after the first settlement:
+Each task is **idle** or **armed**. The step that reads the gates
+(`gates.rs`) runs inside each commit, after its settlement and before the
+tree update: it is the first thing every commit's `update()` does. Timer
+state joins the `Checkpoint`, so a refused commit restores it. At boot it
+runs where the runner arms timers today, after `init_late_slots`
+(`runner.rs:924–941`), so a gate that reads a derive or a late slot reads
+its value.
 
 | Gate | Key | Result |
 |---|---|---|
 | false | — | idle; an armed timer is dropped and nothing runs |
-| true, was false (or boot) | — | armed: `after` and `every` at now + ms; a frame task at the next virtual frame |
-| true | changed (compared as an `each` key) | re-armed from now |
+| true, was false (or boot) | — | armed: `after` and `every` at now + ms; a frame task as D10 says |
+| true | changed | re-armed from now |
 | true | unchanged | as it was: an `every` keeps its phase; a spent `after` stays spent |
 
-"Now" is the commit's time. A commit that a timer makes at its due time
-arms from that due time, so the seek rule holds (LLP 1005 §6): one
-`advance(60_000)` equals sixty `advance(1_000)`s.
+- **Keys compare by `key_text`** (`instance.rs:1028–1039`), as an `each`
+  key does: `-0` is `0`. A non-finite number is not a key: that commit is
+  refused (`RunnerError::TaskKey`) and the timer is unchanged.
+- **"Now" is the commit's time.** A commit that a timer makes at its due
+  time arms from that due time.
+- **A task's own fire** is a commit like any other: an `every` whose action
+  clears its gate stops, and a debounce whose `save` makes `draft == saved`
+  goes idle.
 
-A task's own fire is a commit like any other: an `every` whose action
-clears its gate stops (pomodoro's `status = "done"`), and a debounce whose
-`save` makes `draft == saved` goes idle.
+### D9 — Gates and keys lower to hidden derives
 
-**Placement.** The step goes in `conclude` (`commit.rs:56`), where all four
-kinds of commit end (`commit.rs:385`, `:943`, `:983`; `settlement.rs:77`).
-It reads only values that stood, so nothing arms in a refused commit.
-`arm_then` and D3's arming of `next` move there too.
+`lower` (`timers.rs`, moved out of `lower/src/lib.rs`) turns a gate (`bool`)
+and a key (string, number or bool) into hidden root derives, `hide#when` and
+`hide#key`, appended after the authored derives so their indices do not
+move. Settlement evaluates them like any derive, and the JS target gets
+signals. Plan `timers` gains `gate` and `key`, both `opt:derives`. A derive
+named by a timer's `gate` or `key` is hidden: `state().derives`
+(`agent.rs:830–841`) and difftest's `observe` (`observe.rs:122–127`) skip
+it.
 
-### D9 — Gates and keys lower to derives
-
-`lower` turns a gate (`bool`) and a key (string, number or bool) into hidden
-root derives, `hide#when` and `hide#key`, settled like any derive: a trap
-refuses the commit that caused it, and the JS target gets signals. Plan
-`timers` gains `gate` and `key`, both `opt:derives`.
-
-Three refusals:
+Refusals:
 
 - **`type-task-gate`**: "`when` takes a bool; `toast` is a string; write
   `toast != ""`".
 - **`type-task-key`**: a key that is not a string, number or bool.
-- **`analyze-task-gate-clock`**: a gate or key that reads `now()`, directly
-  or through a derive. "A gate is read at commits, not as the clock moves;
-  gate on state (`toast != ""`) and let `after(5000, …)` measure the time."
-  A reader of `now()` is re-evaluated only at commits (`rt.js:229–233`), so
-  `when now() < toastUntil` would never turn false by itself.
+- **`analyze-task-gate-clock`**: a gate or key that reads `now()`, directly,
+  through a derive, or through a `fn` body. "A gate is read at commits, not
+  as the clock moves, so an `after` gated on `now()` cannot be dropped
+  before it fires, and an `every` stops up to an interval late. Gate on
+  state (`toast != ""`) and let `after(5000, …)` measure the time."
 
-### D10 — Clock, frames, hosts and the agent
+### D10 — Frames, the clock, hosts and the agent
 
-- **The clock.** `timer_due_ms` (`runner.rs:1199`) reports only armed
-  tasks, so an idle gated task keeps no host awake: no tick, no commit, no
-  epoch. `clock settle` is unchanged.
-- **Frames.** `wants_frames()` (`runner.rs:1191`) becomes "a frame task is
-  armed". Apple reads it each batch (`host/apple/src/host.rs:1128`), Linux
-  each loop (`display.rs:525`), and the JS `paint()` stops once no frame
-  timer is listed. No host changes.
+- **Frame tasks.** While a host presents frames, arming lists the task:
+  `wants_frames()` (`runner.rs:1191`) becomes "a frame task is armed", and
+  `frame(now)` (`commit.rs:156–187`) fires only armed frame tasks, once,
+  at that frame, as LLP 1073 D4 says; an idle one is skipped. While the
+  agent or a test seeks, arming sets the task's next virtual frame from the
+  commit's time (`virtual_frame(now, 1)`). In the JS target, `gated()`
+  removes an idle frame task from `clock.timers`, which is what stops
+  `paint()` (`rt.js:297–306`), and calls `paint()` when it arms one.
+- **The clock.** `timer_due_ms` reports only armed tasks (and D3's
+  `next_due`), so an idle gated task keeps no host awake.
+- **Hosts.** No change: Apple reads `timer_due_ms` and `wants_frames` each
+  batch (`host/apple/src/host.rs:1128–1132`), Linux each loop
+  (`display.rs:525`), Windows through the Linux presenter, and the wasm
+  glue each turn.
+- **The seek rule.** One `advance(60_000)` equals sixty `advance(1_000)`s
+  with no reply outstanding, virtual frames included. A driver jump stops
+  at a commit that hands out a request and lands its reply first
+  (`advance_until_request`, `commit.rs:192–197`; LLP 1012 §2). Under the
+  driver, `clock +60000` and sixty `clock +1000` agree with each other.
 - **The agent's `state`** gains `tasks` (due time or `null`) and `queued`
-  (waiting counts). No operation is added.
+  (waiting counts), printed by `runner/src/agent/schedule.rs`. No operation
+  is added.
 - **A dev reload** restarts tasks over the carried state, as today.
 
 ### D11 — A gated timer is not the deferred reaction
@@ -319,48 +372,88 @@ That form ran an action when its dependency changed. A gated task runs
 nothing then: the change starts a timer, and the action runs at least 1 ms
 later as its own commit, reading the state as it is then (`then`'s
 discipline). `after(1, seed)` bends it toward a reaction, as
-`task boot mount after(1, start)` already does, so the docs name `then`
-as the reaction to an answer (§8 Q4). It needs **Motion**'s task entry in
-`rules/DEFERRED.md` expanded, by Charlie's waiver (§8 Q1).
+`task boot mount after(1, start)` already does; the docs name `then` as the
+reaction to an answer. The waiver is recorded under **Motion** in
+`rules/DEFERRED.md` (`3555dc4e6`).
 
 ### D12 — Lean and difftest
 
-- **Mutations.** Lean asks every send now (`Runtime.lean:477`) and has no
-  `then`. A queue mutation's later sends in a commit go to a new
-  `Config.queued`, which each `dispatch` ends by asking, a commit each, and
-  `advance` drains before timers.
-- **Timers.** `Timer` gains `gate`, `key` (derive names) and `armed`.
-  `startTimers` and every `runAction` that stands apply D8's table.
-- `StepSound`, `Invariant` and `Soundness` carry the new fields. The
-  corpus gains `mutations/queue-*` and `timers/gated-*`, and the random
-  generator emits both.
+Lean asks every send now (`Runtime.lean:477`); its oracle answers at once,
+so nothing is ever in flight (`Big.lean`, `pendingSettled`), and it has no
+`then` or frame tasks.
 
-Frame tasks and `then` stay outside Lean (`semantics/README.md:582`).
+- **Queues.** `Config.queued` holds a queue mutation's later sends in a
+  commit. `dispatch` does not drain it, because the runner's `dispatch`
+  does not and difftest observes `dispatch` without `land_then`
+  (`observe.rs:191–193`). `advance` drains it before timers, a commit each,
+  at the commit's time.
+- **Gates.** `contract lean` emits a task's gate and key as expressions on
+  the task, not as derives (its derives come from the checked AST,
+  `lean.rs:233–247`). `boot` applies D8's table after `lateSlots`, not in
+  today's `startTimers` (`Runtime.lean:548–555`); every `runAction` that
+  stands applies it after `update`. Keys compare as `rowKey` does
+  (`Runtime.lean:273–281`).
+- **Proofs.** `StepSound`, `Invariant` and `Soundness` carry the new
+  fields.
+- **Corpus.** `mutations/queue-*` and `timers/gated-*`, all `then`-free and
+  frame-free. Per-reply `then` order and a send behind one in flight are
+  runner and conformance tests (§5); Lean cannot express them.
+  `mutations/two-sends.contract` is refused on main today
+  (`analyze-send-twice`, by probe), so `difftest corpus` is red apart from
+  this RFC: stage 1 splits its sends over two mutations, and stage 3 adds
+  `queue-two-sends`.
+- **The generator** emits queue mutations and gated tasks, never two sends
+  to a mutation without `queue`, and never a `now()` gate.
 
 ### D13 — Docs and adoption
 
 **Docs.** `contract-for-agents.md` gains table rows (`:300`, `:730`):
 "writes that must all land, in order → `mutation … queue`" and "a timer
-while something shows → `task … when cond`, restarted by `key=`"; `:323`
-and `:535` follow. The grammar, its contextual words and
-`contract-for-humans.md:1043–1066` change; `agent-pitfalls.md` gains "a
-gate reads state at commits".
+while something shows → `task … when cond`, restarted by `key=`". `:323`
+and `:535` follow, with D4's `pending` and assignment sentences. The
+grammar, its contextual words and `contract-for-humans.md:1043–1066`
+change; `agent-pitfalls.md` gains "a gate reads state at commits".
 
-**Adoption** (outside the repo, `EXACT_APP_DIR`; driven on web and macOS):
-- Stage 1: kanban2 folds `aside` into `wrote queue` and drops the guard.
-  Flashcards and spreadsheet fold their split mutations into
-  `edited queue`. Studio's close becomes two queued sends.
-- Stage 2: ledger2's toast, chat's and chat2's bots, trivia's round and
-  pomodoro's ticker become gated tasks.
+**Adoption** (outside the repo, `EXACT_APP_DIR`; driven on web and macOS).
+Stage 1:
+- **Kanban2** folds `aside` into `wrote queue`. `afterWrote` gains
+  `afterAside`'s `if not w.ok` → `dueFor = ""`. The label tap's `pending`
+  guard goes.
+- **Flashcards** sends `saveCard` and `setImage` to `edited queue`.
+  `imaged` goes. `afterEdit` has no `setImage` arm, so that ack falls
+  through. The editor still closes in the action.
+- **Spreadsheet** folds `committed` into `edited queue`. The commit op's
+  reply carries `select = false`, and `afterEdit` already shows a failure's
+  message.
+- **Studio** declares `op … queue` and drops `seq` and `handledOp` from
+  `afterOp`. The `file` relay stays, because `closeBoard`'s arguments come
+  from the file reply (`studio/app.contract:472–512`).
+
+Stage 2:
+- **Ledger2**: `task hide when toast != "" key=toastUntil after(5000,
+  expire)`; `tick` goes.
+- **Chat**: two toast tasks, `when toast != "" and not toastUndo
+  key=toastAt` with `after(1500, …)`, and `… and toastUndo` with
+  `after(4000, …)`. The bots become `when box.nextDue > 0 every(200, tick)`,
+  still polling while a reply is due, and the `not pending(stepped)` guard
+  stays.
+- **Chat2**: the same, with a `when phase == "wait"` poll.
+- **Trivia**: `when screen == "play"`; the settings pause stays in `tick`.
+- **Pomodoro** is not adopted: its tick is the day clock.
 
 ## 4. Effect on each implementation
 
+Every file stays under the 1,500-line cap (`rules/RULES.md`). The work lands
+in new files, and files near the cap gain only call sites:
+
 | | Stage 1 (D1–D6) | Stage 2 (D7–D11) |
 |---|---|---|
-| compiler | `queue`; send-twice exemption | `when`/`key=`; D9 |
-| plan | `mutations.queue` | `timers.gate`, `.key` |
-| runner, agent | queues, `next_due`, `QueueFull`; `state.queued` | gate arming, `wants_frames`; `state.tasks` |
-| JS target | `m.queue`, `m.next` | `gated(…)` at a commit's end (`rt.js:184`) |
+| syntax | `parser/decls.rs`: `fn mutation`, `fn task` from `parser.rs` (1,443) | `when`/`key=` there |
+| types, analyze | `sends.rs` exemption and hint | `types/src/tasks.rs`; `analyze/src/gates.rs` |
+| lower, plan | `mutations.queue` | `lower/src/timers.rs`, from `lib.rs` (1,458); `timers.gate`, `.key` |
+| runner | `runner/queue.rs`: queues, `next_due`, the scan, `QueueFull` | `runner/gates.rs`; `frame()`, `wants_frames`; `runner.rs` (1,418) and `settlement.rs` (1,451) gain call sites only |
+| agent | `agent/schedule.rs` (`agent.rs` is 1,408) | the same |
+| JS target | `schedule.js` (`rt.js` is 1,338); `src/timers.rs` from `emit.rs` (1,409) | `gated(…)` there |
 | hosts | none | none |
 
 Stage 3 is D12, Lean and difftest only.
@@ -369,20 +462,37 @@ Stage 3 is D12, Lean and difftest only.
 
 - **Compiler** (`contract/cli/tests/it/mutation.rs`, `time.rs`,
   `contract/corpus/rejects.txt`): `queue` in D1's position; send-twice
-  accepted for a queue and refused otherwise, D6's message asserted whole;
-  `when`, `when … key=`, `key=` alone and D9's refusals; every in-repo
-  app's plan byte-identical apart from the digest.
-- **Queues** (`mutation.rs`): two sends in one action, answered now and
-  later; a send while one is in flight; one `then` per reply, in order; a
-  refused `then` that does not stall; an assignment that forgets nothing;
-  a failure that moves on; the 65th send refused; a reload dropping the
-  queue; a two-step continuation completing behind a second send (today's
-  dropped save).
-- **Timers** (`time.rs`): on then off before the due time fires nothing; a
-  key change re-arms; a spent `after` stays spent; an `every` that clears
-  its gate stops; `wants_frames` follows a frame gate; a gate armed inside
-  an advance fires within it; `advance(60_000)` equals sixty
-  `advance(1_000)`s; an idle gated task reports no due time.
+  accepted for a queue, refused otherwise, D6's message asserted whole with
+  and without the hint; `when`, `when … key=`, `key=` alone; D9's refusals,
+  `now()` through a `fn` included.
+- **Plans.** Decode every in-repo app's plan before and after: equal, with
+  `queue == false` and no gate or key everywhere, and a changed digest. The
+  bytes change, since every row gains the fields.
+- **Queues** (`mutation.rs`):
+  - two sends in one action, answered now and later;
+  - a send while one is in flight;
+  - one `then` per reply, in order;
+  - a queue with no `then` asked by `timer_due_ms` alone;
+  - a refused `next` dropped, its successor asked before a due timer;
+  - a refused `then` that does not stall;
+  - assignment overwritten by a later reply;
+  - a failure, released, that moves on;
+  - a `Later` round that is not a reply;
+  - the 65th waiter refused;
+  - poison's and reload's journal line and no source call;
+  - a two-step continuation completing behind a second send (today's
+    dropped save).
+- **Timers** (`time.rs`):
+  - on then off before the due time fires nothing;
+  - a key change re-arms, a NaN key refuses its commit, `-0` equals `0`;
+  - a spent `after` stays spent, and an `every` that clears its gate stops;
+  - a boot gate that reads a late slot;
+  - `frame()` skips an idle frame task, and `wants_frames` follows the gate;
+  - a gate armed inside an advance fires within it;
+  - one `advance(60_000)` equals sixty `advance(1_000)`s;
+  - an idle gated task reports no due time;
+  - a driver case: a gated tick sends and its `then` clears the gate, and
+    `clock +60000` and sixty `clock +1000` stop together.
 - **Conformance.** `host/web-js/conformance/queue.contract` and
   `gates.contract`, with `.steps`, compare journals and state across the
   wasm runner, the JS runtime and the Linux host (`conform.mjs`).
@@ -394,16 +504,16 @@ Stage 3 is D12, Lean and difftest only.
 
 Each commit passes the five checks.
 
-1. **Stage 1, 2026-10-05: queued sends (D1–D6, D13).** Exit: §5's queue
-   tests and conformance; kanban2's blur-and-tap test (type notes, tap the
-   label, no settle) on web and macOS.
-2. **Stage 2, 2026-10-05: gated tasks (D7–D11, D13),** after the waiver
-   (§8 Q1). Exit: §5's timer tests and conformance; ledger2 makes no
-   commit at rest over `perf during "clock +60000"`.
+1. **Stage 1, 2026-10-05: queued sends (D1–D6, D13), with §4's files.**
+   Exit: §5's queue tests and conformance; kanban2's blur-and-tap test
+   (type notes, tap the label, no settle) on web and macOS.
+2. **Stage 2, 2026-10-05: gated tasks (D7–D11, D13).** Exit: §5's timer
+   tests and conformance; ledger2 makes no commit at rest over
+   `perf during "clock +60000"`.
 3. **Stage 3, 2026-10-06: D12.** A slipped proof lands as a restriction
    named in `semantics/README.md` with a `QUEUE.md` line; no `sorry`.
 
-## 7. Considered and not taken
+## 7. Considered, not taken, and deferred
 
 - **Queue by default.** It breaks the logout rule and changes what
   `pending` means for every existing mutation.
@@ -417,29 +527,50 @@ Each commit passes the five checks.
   the view already shows.
 - **Component-scoped tasks.** Instance-bound timers in the runner, and a
   restart needs a keyed single instance Contract lacks (no `key=` on a
-  component use, no list literals, LLP 1088 §9.1); the expiry still writes
-  root state. A `when` arm's condition, as the gate, gives the same
-  lifetime. Trigger: a per-row timer.
-- **`animationend=expire`,** the web's declarative timer. It ties app state
-  to presentation, and reduced motion changes when it fires.
+  component use, no list literals, LLP 1088 §9.1). Trigger: a per-row
+  timer.
+- **`animationend=expire`.** It ties app state to presentation, and reduced
+  motion changes when it fires.
 - **Free empty commits** (chat F7): QUEUE's "Presenter.apply runs its
   post-pass for a batch that changed nothing", independent of this RFC.
 
-## 8. Open questions
+**Deferred, with preconditions:**
+- **A computed interval, `after(expr)`.** Chat's and chat2's bots still poll
+  every 200 ms while a reply is due. Precondition: a measured cost of that
+  poll after stage 2, and a rule for an interval that changes while armed.
+- **`then` in Lean,** and with it per-reply order in difftest.
+  Precondition: QUEUE's "What the Lean semantics still leaves out" closes
+  `then`.
 
-1. **The waiver for D7–D11.** It reverses LLP 1017 P4c's deferral of
-   `task … when`, in D11's timer-only form. No take is offered. The
-   consumers are D13's five apps, plus Bluesky and Messages.
-2. **Cancelling a queue.** `cancel m` (drop the waiting sends, forget the
-   one in flight) waits for a consumer, such as an upload's Cancel.
-3. **`then` sending its own queue mutation** (studio R8). It still loops if
-   the `then` always sends, and two queued sends in the action do the same
-   job. Keep the refusal?
-4. **A minimum `after` under a gate.** Should a gate refuse anything under
-   16 ms, so it cannot be written as a near-reaction? r1 admits 1 ms, as
-   `mount` does.
-5. **The bound.** Is 64 the right number of waiting sends?
+## 8. Questions decided (the orchestrator, for Charlie, 2026-10-05)
+
+1. **The waiver for D7–D11:** granted under Charlie's 2026-10-04
+   delegation, recorded in `rules/DEFERRED.md`'s **Motion** entry as its own
+   commit (`3555dc4e6`). No take.
+2. **Cancelling a queue:** no `cancel` yet.
+3. **A `then` that sends its own queue mutation:** stays refused.
+4. **A minimum gated `after`:** none beyond `mount`'s 1 ms.
+5. **The bound:** 64 waiting sends.
 
 ## 9. Revisions
 
+- **r2** (2026-10-05, round 1 of 3). Two Grok 4.7 xhigh reviews of r1, one
+  family with two scopes. Each finding was checked against the code; the
+  dispositions are in `llp/reviews/1092-r1.grok-{a,b}.md`.
+  - D3 rebuilt: in flight until `Now` or a release; free is a state check
+    after every commit and on `release_refused`; `next_due` on the wake path;
+    the head popped before the checkpoint.
+  - D8 runs inside the commit, under the checkpoint, after
+    `init_late_slots` at boot; keys compare by `key_text`.
+  - D10 splits frame arming between presenting and seeking, and `frame()`
+    skips idle tasks.
+  - D9 hides the synthesized derives, and its clock refusal walks `fn`
+    bodies.
+  - D12 drains in `advance` only, applies gates after `lateSlots`, and
+    names the corpus's limits.
+  - D4 restates `pending`, assignment, `refreshes`, reload and the bound.
+  - D13 corrects studio, chat, chat2 and pomodoro, and writes the folded
+    `then`s.
+  - §4 names the new files under the line cap, and §5 compares decoded
+    plans.
 - **r1** (2026-10-05): first draft.

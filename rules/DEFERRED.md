@@ -457,12 +457,31 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   offset, buttons, pressure, type and id) on these two and a new
   `pointermove`, on any node. The paint app's diary (F1) is the consumer.
   Take: none offered.
+  **Expanded (LLP 1094; waived by the orchestrator under Charlie's
+  2026-10-04 delegation, "make decisions without me"):** a reorder spanning
+  vertical virtualized lists that share a `reorderGroup`, in one session,
+  with a host-drawn top-layer ghost, a drop hold, keyboard and
+  custom-action moves, the action read `elementFromPoint`, and
+  `PointerEvent`'s `clientX`/`clientY`. Consumers: the two kanban builds
+  (F4). Unblocks moving cards on a board without a hand-built drag. Take:
+  none offered. Still out: reorder on row and nested lists (LLP 1094 §7),
+  drags into or out of the app, multi-item drags, grids, a gesture arena.
   **Expanded (Charlie, 2026-09-29: "Yeah add the every frame task"; take
   waived, none offered; waiver confirmed by Charlie 2026-09-30):** one root task form, `every(frame, action)`
   (LLP 1073): the action once per presented frame, never caught up, and on
   the agent's seekable clock a virtual 60 Hz display. Unblocks a ticker or
   an animation loop in step with the display (the web-framework bench's
   grid ticker). Per-node frame callbacks and frame arguments stay out.
+  **Expanded (LLP 1092; waived by the orchestrator under Charlie's
+  2026-10-04 delegation, "make decisions without me"):** a gated root task,
+  `task NAME when COND [key=EXPR]`, whose timer exists only while its
+  condition holds and restarts when its key changes; nothing runs when the
+  gate changes. Consumers: ledger2's undo toast, chat's and chat2's bots and
+  toasts, trivia's round (their diaries' Top-5). Unblocks an app that does
+  no work at rest while nothing is showing. Take: none offered. Still out:
+  a reaction to a state change (LLP 1017 P4c's `task … when [dep]`),
+  component-scoped and action-started timers, computed intervals, a gate
+  that reads `now()`, and cancelling a queued send.
 - **A second value graph.** No shared-value plane, derived values, bindings, or
   plan node graph. The style row is the binding.
   **Expanded (Charlie, 2026-09-27, LLP 1057.003: "approve those"; take waived, none
