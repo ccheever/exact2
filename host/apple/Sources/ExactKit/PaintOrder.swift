@@ -31,6 +31,10 @@ enum PaintOrder {
         precondition(depth > 0)
         depth -= 1
         guard depth == 0 else { return }
+        flush()
+    }
+    /// A capture within an open batch must see every rank written so far.
+    static func flush() {
         let parents = dirty.values
         dirty = [:]
         for parent in parents { NodeView.rankChildren(of: parent) }
@@ -100,6 +104,10 @@ extension NodeView {
     }
 
     fileprivate static func rankChildren(of parent: PaintView) {
+        // Dense depth is an ordering key, never an animated property. This
+        // also prevents cached canvas mirrors interpolating from the old order.
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
         let children = parent.subviews.filter { $0 is NodeView || $0.paintForeground }
         // Zero is the origin even when no child has rank zero. Native
         // decoration/content layers remain there as well.

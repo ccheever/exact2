@@ -884,6 +884,7 @@ final class Presenter {
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
         session?.canvases.cancelMovedControls()
+        PaintOrder.flush()
         session?.canvases.captureIfNeeded()
         for id in scrollers.union(pendingScrolls).union(materialNodes) {
             guard let node = views[id] else { continue }

@@ -170,3 +170,9 @@ guide's rules don't make obvious.
   sRGB. Converting that `NSColor` to sRGB again turned measured bytes
   `[128, 0, 127, 255]` into about 58% red and 57% blue. Compare the bitmap's
   components or bytes in its declared color space. (Apple A2 capture test.)
+- **A canvas capture still shows the previous order after ranks flush.**
+  Cached shadow layers are plain `CALayer`s: changing their `zPosition`
+  outside a disabled-actions transaction implicitly animates the depth.
+  Flush ranks before capture and disable actions for that flush, including
+  mirror writes. A same-batch texture upload then sees the new front sibling.
+  (LLP 1083.000, Astra 6 regression.)
