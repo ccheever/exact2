@@ -354,7 +354,7 @@ export function receiptChanges(receipt, app) {
  * The proof's input digest (game/proof.mjs) and the web staleness check share it. */
 export function gameNonInput(path) {
   path = path.replaceAll('\\', '/');
-  return /(^|\/)(pins\.json|proof\.mjs|[^/]*\.test\.mjs|[^/]*\.md)$/.test(path)
+  return /(^|\/)(pins\.json|proof\.mjs|[^/]*\.test\.mjs|[^/]*\.test\.contract|[^/]*\.md)$/.test(path)
     || (/\.m?js$/.test(path) && !/^(logic|data|gpu|presentation|art|assets|deck)\//.test(path));
 }
 export function webChanges(dist, app) {

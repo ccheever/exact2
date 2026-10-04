@@ -8,6 +8,7 @@
 //   exact release <app>          sign for distribution, notarise, staple, package
 //   exact list                   the apps this repo has, and what is installed
 //   exact new <path> [--update]  an app outside this repo, ready to run
+//   exact new <path> --game      a game outside this repo, ready to run
 //
 // The two things this exists to get right, because they are the two that make
 // a Mac GUI app awkward from a shell:
@@ -36,7 +37,7 @@ import { BINARYEN } from '../host/web/stages.mjs';
 import { delimiter, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveApp, WEB_TOOLCHAIN, webToolchainEnv } from './app.mjs';
-import { createApp } from '../game/new.mjs';
+import { createApp, createGame } from '../game/new.mjs';
 import { sdkFetch } from '../game/app/shells.mjs';
 import { appleArtifacts, assertAppleIdentity, macReleaseEntitlements, stripForDistribution } from '../host/apple/build.mjs';
 import { closeFilesystemReader } from './filesystem.mjs';
@@ -476,14 +477,16 @@ export function contract(args, env = process.env) {
 
 /** `exact new`: check the machine first, since a missing Cargo fails the
  * scaffold itself; then write the app and say what its builds will still need. */
-function newApp(path, update) {
+function newApp(path, {update = false, game = false, assets = false} = {}) {
   if (update) return console.log(createApp(path, {update}));
+  if (game && !path) throw new Error('Usage: exact new <path> --game [--assets] (the last part names the game: lowercase-hyphenated, no host suffix)');
   const report = sdkReport();
   if (report.some(row => row.name === 'rustup' && !row.ok)) {
     printReport(report, {onlyMissing: true});
     throw new Error('exact new needs Cargo (rustup) to resolve the new app; install it, then run exact new again');
   }
-  console.log(createApp(path));
+  // A game is a path here, as an app is: `game/new.mjs` alone takes a bare name for game/games.
+  console.log(game ? createGame(resolve(path), undefined, {assets}) : createApp(path));
   if (report.some(row => !row.ok)) {
     console.log('\nThis machine still needs (exact setup --check shows the whole table):');
     printReport(report, {onlyMissing: true});
@@ -501,6 +504,9 @@ const USAGE = `exact — run an Exact app from the command line (macOS)
   exact list                   the apps in this repo
   exact new <path> [--update]  a new app outside this repo, using this checkout;
                                --update follows a moved checkout or a new patch
+  exact new <path> --game      a new game (game/README.md): a Rust world under
+                               Contract's menus, with the same exact.mjs verbs;
+                               --assets declares game.assets
   exact contract <args…>       the Contract compiler (build, types, vocab, …),
                                with paths relative to where you run it
 
@@ -518,7 +524,11 @@ function main(argv) {
   if (verb === 'setup') return setup({check: name === '--check'});
   if (verb === 'list') return list();
   if (verb === 'contract') return process.exit(contract(argv.slice(1)));
-  if (verb === 'new') return newApp(name, rest.includes('--update'));
+  if (verb === 'new') {
+    // Flags may come before the path: `exact new --game ./my-game`.
+    const args = argv.slice(1), path = args.find(arg => !arg.startsWith('--'));
+    return newApp(path, {update: args.includes('--update'), game: args.includes('--game'), assets: args.includes('--assets')});
+  }
   if (!['run', 'install', 'uninstall', 'release'].includes(verb)) { console.error(`exact: no verb ${verb}\n\n${USAGE}`); process.exit(2); }
   if (!name) { console.error(`exact ${verb}: name an app (exact list)`); process.exit(2); }
   if (process.platform !== 'darwin') { console.error(`exact ${verb} is macOS's; on Linux build the app's own executable (cargo build --profile host-dev -p ${name}-linux to drive it, --release to ship it)`); process.exit(2); }

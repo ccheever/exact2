@@ -81,6 +81,11 @@ beacons, pause/restart, touch controls, a ground grid, pads, fog, sun shadows an
 
 A bare name (`bun game/new.mjs my-game`) creates `game/games/my-game`; a path chooses
 the directory. From an empty directory, `bun /path/to/exact2/game/new.mjs .` works too.
+A game outside this checkout — `bun scripts/exact.mjs new ../my-game --game` makes
+one, as `exact new` makes an app — also gets an app's `exact.mjs` and `AGENTS.md`:
+`bun exact.mjs test-rust` (the hostless tests), `web`, `web-build`, `test web`
+(`app.test.contract`; also `macos`, `ios`), `agent`, `mac`, `ios`, `contract`,
+`prove` and `feedback`, with the exact2 checkout named once (LLP 1086).
 Generation writes only inside that game. A game is the files its author writes; bakes
 generate its hosts, Cargo workspace and lock, ignored, under `.shells/`.
 
@@ -89,6 +94,7 @@ generate its hosts, Cargo workspace and lock, ignored, under `.shells/`.
 | `logic/src/lib.rs` | Scene setup, typed arguments and the tick function |
 | `app.contract` | Menus, HUD, layout, accessibility and app actions |
 | `proof.mjs`, `logic/tests/*.rs` | Real-host assertions and hostless simulation tests |
+| `app.test.contract` | Menus and HUD driven on a host (`bun scripts/agent.mjs <host> --test`) |
 | `pins.json` | Verified tick/save baselines, written by `prove.mjs` |
 | `app.json` (optional) | Authored keys only: a title, bundle id, `game.audio`, `game.assets`, data and presentation crates |
 | `logic/Cargo.toml`, `Cargo.lock` (optional) | Only when the game adds dependencies ([below](#exact2-integration)) |

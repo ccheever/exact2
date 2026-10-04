@@ -93,6 +93,14 @@ markers. `--update` rewrites only what is between the markers, and appends the
 block when they are missing, so an author's own notes survive. An app that has
 neither file gets both. An app with only one gets the block in that one only.
 
+A game gets the same (2026-10-04, the platformer's diary R1: a game had no
+`exact.mjs`, `AGENTS.md` or test file). `exact new <path> --game`, or
+`game/new.mjs` with a path outside the checkout, writes them beside the
+template's files; its `exact.mjs` adds `test-rust` (the hostless Rust tests)
+and `prove` (the proof's baseline), its notes point at `game/README.md`, and
+`--update` rewrites only those two, since a game's Cargo workspace is the
+bake's (`.shells/`).
+
 Not taken:
 
 - **A skill directory in the app.** Skills are discovered per harness, and a
