@@ -108,6 +108,17 @@ guide's rules don't make obvious.
   `box-sizing`.) **Candidate diagnostic:** the compiler or a development log
   could name the failed condition.
 
+## Data sources
+
+- **A TypeScript source shows its build-time answer on macOS and iOS, and a live
+  one on the web.** `explore()` read a world the module built on its first
+  `feed(epoch)` call: macOS showed the empty world, the web the full one.
+  Cause: a native bake answers each TypeScript resource, and a resource whose
+  arguments are the ones the bake answered keeps that answer at launch (LLP
+  1048.003 D6); the web's JS build bakes none and asks at launch. A source is
+  read as a function of its arguments. Fix: pass what the answer depends on
+  as an argument (`explore(epoch)`). (feed F24, 2026-10-04.)
+
 ## Driving and testing
 
 - **Every date in a screenshot is 1 January 2026** (31 December 2025 west of UTC).
