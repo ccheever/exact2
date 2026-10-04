@@ -751,6 +751,48 @@ fn a_fetch_made_after_awaiting_another_answers_fetch_is_not_left_behind() {
     assert_eq!(r.data().in_flight(), 0);
 }
 
+/// An answer that fetches without awaiting and finishes while another answer
+/// awaits its own fetch: its request is still handed out, not left in the
+/// module (Grok's batch 2 review, runtime). A ticket made while the answer
+/// was still in flight is its own, whoever else is pending.
+#[test]
+fn an_unawaited_fetch_is_sent_while_another_answer_is_in_flight() {
+    let src = SHARED
+        .replace(
+            "  resource comments = thread(story) as shape Session\n",
+            "  mutation saved as shape Session\n  action save\n    send saved = saveQuietly(\"8863\")\n",
+        )
+        .replace(
+            "      text comments.error testId=\"comments\"\n",
+            "      button press=save testId=\"save\"\n        text \"Save\"\n      match saved\n        case some(s)\n          text s.error testId=\"saved\"\n        case none\n          text \"\"\n",
+        );
+    let plan = contract::compile(&src).expect("the fixture's Contract compiles");
+    let baked = contract::bake(plan, Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap()).unwrap();
+    let mut r = Runner::boot(
+        baked,
+        Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.dispatch(view_of(&r, "open"), Event::Press).unwrap();
+    let item = r.take_requests();
+    assert_eq!(item.len(), 1);
+    assert_eq!(item[0].request.url, "https://api.castle.xyz/item/8863");
+    r.dispatch(view_of(&r, "save"), Event::Press).unwrap();
+    let saved = r.take_requests();
+    assert_eq!(saved.len(), 1, "the unawaited POST is handed out: {saved:?}");
+    assert_eq!(saved[0].request.url, "https://api.castle.xyz/save/8863");
+    assert_eq!(saved[0].request.method, "POST");
+    r.fulfill(saved[0].ticket, response(200, "")).unwrap();
+    assert_eq!(text_of(&r, "saved").as_deref(), Some("saved"));
+    r.fulfill(item[0].ticket, response(200, "the story")).unwrap();
+    assert_eq!(text_of(&r, "detail").as_deref(), Some("the story"));
+    assert!(!r.has_pending());
+    assert_eq!(r.data().in_flight(), 0);
+}
+
 // --- the kept answer (LLP 1027 D4, as ruled 2026-09-03) --------------------
 
 #[test]

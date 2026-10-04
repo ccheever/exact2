@@ -520,7 +520,9 @@
     call.tickets.push(ticket);
     if (stream) call.stream = stream;
     return new Promise(function (resolve, reject) {
-      var p = { resolve: resolve, reject: reject, call: call, claimed: false, stream: !!stream, signal: signal, release: function () {} };
+      // `early`: made while its answer was still in flight (its body, or its
+      // own continuation), so that answer's own, whoever else is pending.
+      var p = { resolve: resolve, reject: reject, call: call, claimed: false, stream: !!stream, signal: signal, release: function () {}, early: call.status === "pending" };
       pending.set(ticket, p);
       if (signal) p.release = watchAbort(signal, function () { if (settled(ticket)) reject(signal.reason); });
     });
@@ -749,15 +751,18 @@
   }
   function settle(call, final) {
     // Its own work first, awaited or not: a fetch it made that no settle
-    // has handed out, then its storage steps. A finished answer leaves an
-    // unclaimed fetch to another answer still in flight, which may be the
-    // one whose continuation made it (review r4a, finding 1); with none,
-    // it waits for the fetch itself, so nothing is left behind.
+    // has handed out, then its storage steps. A fetch made while it was in
+    // flight is its own (an unawaited POST), and it claims it whoever else
+    // is pending. One made only after it finished ran in a continuation it
+    // settled for another answer: with another answer in flight, which may
+    // be that one, it is left to it (review r4a, finding 1); with none, it
+    // waits for the fetch itself. Either way nothing is left behind (Grok's
+    // batch 2 review).
     var finished = call.status === "done" || call.status === "failed", others = false;
     if (finished && moduleWide) calls.forEach(function (c) { if (c !== call && !c.letGo && c.status === "pending") others = true; });
     for (var i = 0; i < call.tickets.length; i++) {
       var own = pending.get(call.tickets[i]);
-      if (own && !own.claimed && own.call === call && !others) return claim(call, call.tickets[i]);
+      if (own && !own.claimed && own.call === call && (own.early || !others)) return claim(call, call.tickets[i]);
     }
     if (call.storage > 0 && !call.lost) return JSON.stringify({ tag:1, call:call.id, ticket:0 });
     if (finished) {
