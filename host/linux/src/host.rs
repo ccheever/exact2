@@ -420,7 +420,17 @@ impl<D: DataSource> Host<D> {
         &mut self,
         feedback: exact_runner::CollectionFeedback,
     ) -> Result<bool, String> {
-        match self.runner.collection_feedback(feedback) {
+        self.collection_feedback_filled(feedback, exact_runner::CollectionFill::default())
+    }
+
+    /// [`Host::collection_feedback`] with a fill: the list's velocity and a
+    /// slice's limit (LLP 1050.000 §6).
+    pub fn collection_feedback_filled(
+        &mut self,
+        feedback: exact_runner::CollectionFeedback,
+        fill: exact_runner::CollectionFill,
+    ) -> Result<bool, String> {
+        match self.runner.collection_feedback_filled(feedback, fill) {
             Ok(mut result) => {
                 let changed = !result.receipts.is_empty();
                 if !changed && result.error.is_none() {
