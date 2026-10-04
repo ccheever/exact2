@@ -93,6 +93,8 @@ async function operate(op, path, bytes, scope) {
       }
       case 'writeFile': case 'atomicWriteFile': case 'appendFile': {
         // A writable commits on close, which is what makes it atomic here.
+        // The chosen folder itself is a folder, as `readFile` says (review B6).
+        if (found.entry?.kind === 'directory') throw failure(`fs.${op} ${path}: it is a folder`, 'EISDIR');
         const h = found.entry ?? await found.folder.getFileHandle(found.name, { create: true });
         const w = await h.createWritable({ keepExistingData: op === 'appendFile' });
         if (op === 'appendFile') await w.seek((await h.getFile()).size);

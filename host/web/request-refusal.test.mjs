@@ -265,8 +265,10 @@ test('a chosen folder is the same storage for a TypeScript source and a Rust req
       code(fs.readFile(`${doc}/absent`)), code(fs.readFile(`${doc}/../escape`)), code(fs.readFile(`${doc}/sub`)),
       code(fs.readdir(`${doc}/a.txt`)), code(fs.rm(`${doc}/sub`)), code(fs.rm(doc)), code(fs.rename(`${doc}/a.txt`, `${doc}/c.txt`)),
       code(fs.readFile('doc:/999999/a.txt')), code(globalThis.exact.documents.files(read).writeFile(`${doc}/a.txt`, new Uint8Array([1]))),
+      // Review B6: writing the chosen folder itself, or a folder in it, is EISDIR, as on Hermes.
+      code(fs.writeFile(doc, new Uint8Array([1]))), code(fs.appendFile(doc, new Uint8Array([1]))), code(fs.writeFile(`${doc}/sub`, new Uint8Array([1]))),
     ])).toEqual(['Unavailable ENOENT', 'Unavailable denied', 'Unavailable EISDIR', 'Unavailable ENOTDIR', 'Unavailable ENOTEMPTY',
-      'Unavailable failed', 'Unavailable failed', 'Unavailable failed', 'Unavailable denied']);
+      'Unavailable failed', 'Unavailable failed', 'Unavailable failed', 'Unavailable denied', 'Unavailable EISDIR', 'Unavailable EISDIR', 'Unavailable EISDIR']);
     // A Rust source's storage request: the same operation, its bytes as base64.
     expect(await globalThis.exact.documents.run('fs.readFile', { path: `${doc}/a.txt` }, null, read)).toEqual({ base64: btoa('A') });
     await expect(globalThis.exact.documents.run('fs.writeFile', { path: `${doc}/a.txt` }, new Uint8Array([1]), read)).rejects.toThrow(/^denied: fs.writeFile .*needs `fs.write doc:\/`/);
