@@ -583,8 +583,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "reorderFor" => AttrTarget::Prop(p("reorderFor")),
         "transformDragFor" => AttrTarget::Prop(p("transformDragFor")),
         "heightDragFor" => AttrTarget::Prop(p("heightDragFor")),
-        // the canvas's surface (LLP 1009 D3)
-        "surface" => AttrTarget::Surface,
+        "surface" => AttrTarget::Surface, // the canvas's surface (LLP 1009 D3)
         // props (HTML and ARIA attribute names; `testId` is Exact's)
         "poster" => AttrTarget::Prop(p("poster")),
         "autoplay" => AttrTarget::Prop(p("autoplay")),
