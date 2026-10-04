@@ -164,8 +164,9 @@ statement     = IDENT "=" expr NL
               | "send" IDENT "=" source-call NL
               | "refresh" IDENT NL
               | IDENT "(" [ arguments ] ")" NL
-              | "if" expr block(statement) [ "else" block(statement) ]
+              | if
               | statement-match ;
+if            = "if" expr block(statement) [ "else" ( if | block(statement) ) ] ;
 statement-match = "match" expr block(statement-case) ;
 statement-case  = "case" "some" "(" IDENT ")" block(statement)
                 | "case" "none" block(statement) ;
@@ -176,6 +177,10 @@ There is one `props`, `inject`, `provide`, `slot`, and `view` section at most in
 a component. Only the root may own resources, mutations, and tasks. A task's
 body has exactly one schedule. The named timer action takes no parameters;
 a millisecond interval is a literal whole number of at least 1.
+
+`else if c` is `else` around one nested `if c`, and `else when c` in a view
+is `else` around one nested `when c`: the same tree, so the same plan. The
+keyword after `else` is its construct's own (`syntax-else-keyword`).
 
 Both option-match arms are required exactly once. Actions have no loops, returns,
 or awaits. A standalone call statement `name(args)` is a host command when `name`
@@ -216,7 +221,7 @@ continuation  = FIELD "=" expr { attribute } NL ;
 component-use = CAPITALIZED_IDENT "(" [ named-args ] ")" NL [ node-children ] ;
 named-args    = FIELD "=" expr { "," FIELD "=" expr } [ "," ] ;
 node-children = INDENT node { node } DEDENT ;
-when          = "when" expr block(node) [ "else" block(node) ] ;
+when          = "when" expr block(node) [ "else" ( when | block(node) ) ] ;
 each          = "each" IDENT [ "," IDENT ] "in" expr "key" "=" expr block(node) ;
 view-match    = "match" expr block(view-case) ;
 view-case     = "case" "some" "(" IDENT ")" block(node)

@@ -1149,6 +1149,18 @@ component A
     column
       map(xs, x => text x)
 ---
+== syntax-else-keyword
+# An action branches with `if`, a view with `when`: `else if` here.
+component A
+  state n = 0
+  action a
+    if n > 0
+      n = 1
+    else when n < 0
+      n = 2
+  view
+    text "a" press=a
+---
 == syntax-callback-view
 component A
   resource xs = xs() as shape list<string>

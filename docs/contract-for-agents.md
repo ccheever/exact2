@@ -277,7 +277,8 @@ derive, resource value, or arbitrary record field. Replace a record with a copie
 record. `send` targets a mutation owned by that component.
 
 Permitted statements: assignment, `let`, `send`, `refresh`, known host command,
-a call of an action, `if`/`else`, and option `match`. No loops. The compiler
+a call of an action, `if`/`else` (`else if c` is `else` around one nested `if`),
+and option `match`. No loops. The compiler
 infers effects from the body, through its calls; `writes` is a refusal, not an
 optional annotation. Use `symbols` when you need the inferred write set.
 
@@ -439,9 +440,9 @@ or authenticated network session is available while baking. See
 
 ## Views, layout, and interaction
 
-The view forms are element, component use, `when`/`else`, keyed `each`, exhaustive
-option `match`, and `children`. Wrap root regions in a stable element. A component
-call uses parentheses; a built-in element uses space-separated attributes.
+The view forms are element, component use, `when`/`else` (and `else when`),
+keyed `each`, exhaustive option `match`, and `children`. Wrap root regions in a
+stable element. A component call uses parentheses; a built-in element uses space-separated attributes.
 `button "Save" press=save` is text-child sugar; an explicit text child is useful
 when that label needs its own styling or driver id. A `button` is the web's
 `<button>`: a block whose content is centred in its height and whose text is

@@ -898,8 +898,20 @@ impl Parser {
             let mut otherwise = Vec::new();
             if self.at_ident("else") {
                 self.next();
-                self.newline()?;
-                otherwise = self.required_block(span, "else", |p| p.stmt())?;
+                // `else if` is an `else` whose one statement is the next
+                // `if`: the tree, so the plan and the semantics, is the
+                // nested form's (the chess, kanban2 and spreadsheet diaries).
+                if self.at_ident("if") {
+                    otherwise = vec![self.stmt()?];
+                } else if self.at_ident("when") {
+                    return self.err(
+                        "syntax-else-keyword",
+                        "an action branches with `if`; `when` is a view's: write `else if`",
+                    );
+                } else {
+                    self.newline()?;
+                    otherwise = self.required_block(span, "else", |p| p.stmt())?;
+                }
             }
             return Ok(Stmt::If {
                 cond,
@@ -1132,8 +1144,19 @@ impl Parser {
                 let mut otherwise = Vec::new();
                 if self.at_ident("else") {
                     self.next();
-                    self.newline()?;
-                    otherwise = self.required_block(span, "else", |p| p.node())?;
+                    // `else when` is an `else` whose one node is the next
+                    // `when`, as `else if` is in an action.
+                    if self.at_ident("when") {
+                        otherwise = vec![self.node()?];
+                    } else if self.at_ident("if") {
+                        return self.err(
+                            "syntax-else-keyword",
+                            "a view branches with `when`; `if` is an action's: write `else when`",
+                        );
+                    } else {
+                        self.newline()?;
+                        otherwise = self.required_block(span, "else", |p| p.node())?;
+                    }
                 }
                 Ok(Node::When {
                     tag: 0,
