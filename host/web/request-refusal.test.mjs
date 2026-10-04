@@ -359,7 +359,10 @@ test('a built TypeScript source reaches fetch through the app grant binding', as
   const dir = mkdtempSync(resolve(tmpdir(), 'exact ts fetch # ')), dist = resolve(dir, 'dist'), profile = resolve(dir, 'chrome');
   writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Grant probe', app: { id: 'test.grant-probe', name: 'Grant probe' }, host: { web: {} } }));
   writeFileSync(resolve(dir, 'app.contract'), `shape Result\n  value: string\ncomponent Probe\n  resource result = probe() as shape Result\n  view\n    text result.value testId="result"\n`);
-  writeFileSync(resolve(dir, 'app.ts'), `import type { Answer, Sources } from './app.contract.d.ts';\nexport const appId='test.grant-probe',grants='';\nconst sources: Sources = { probe: async () => {try{await fetch(${JSON.stringify(destination.url.href)});return {value:'raw browser fetch'};}catch(error:any){return {value:error.name+':'+error.kind};}} };\nexport const answer: Answer = (source, args, store, storage, native) => sources[source](args as never, store, storage, native) as never;\n`);
+  // The app dependency must be rewritten; copied host modules must retain browser
+  // globals. Rewriting both would make the generated appGlobal self-referential.
+  writeFileSync(resolve(dir, 'fetch-request.ts'), `export async function attempt(){try{await fetch(${JSON.stringify(destination.url.href)});return {value:'raw browser fetch'};}catch(error:any){return {value:error.name+':'+error.kind};}}\n`);
+  writeFileSync(resolve(dir, 'app.ts'), `import type { Answer, Sources } from './app.contract.d.ts';\nimport { attempt } from './fetch-request.ts';\nexport const appId='test.grant-probe',grants='';\nconst sources: Sources = { probe: attempt };\nexport const answer: Answer = (source, args, store, storage, native) => sources[source](args as never, store, storage, native) as never;\n`);
   const built = spawnSync(process.execPath, ['host/web-js/build.mjs', 'grant-probe', '--out', dist, '--render', 'none'], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: dir } });
   let page, child, cdp, exited;
   try {

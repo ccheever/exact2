@@ -15,7 +15,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, posix, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, posix, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { transformSync } from 'rolldown/utils';
 import { buildEditor, buildFlow, buildMarkdown, buildModule, buildMotion, fresh, moduleGrants } from './module.mjs';
@@ -307,8 +307,13 @@ if (production) for (const f of readdirSync(gen).filter(f => f.endsWith('.js')))
 const how = opt('--render') ?? 'rust';
 // Inject only into the app's module graph, never the copied host runtime.
 // Oxc resolves lexical bindings, so an authored local `fetch` stays local.
+const generatedRoots = [gen, realpathSync(gen)];
 const scopedModule = (code, id) => {
-  if (!ts || id.startsWith(gen + '/') || id.startsWith(realpathSync(gen) + '/') || !/\.[cm]?[jt]sx?$/.test(id)) return null;
+  if (!ts || !/\.[cm]?[jt]sx?$/.test(id)) return null;
+  if (generatedRoots.some(root => {
+    const path = relative(root, id);
+    return path === '' || !isAbsolute(path) && path !== '..' && !path.startsWith('..' + sep);
+  })) return null;
   // And the clock, timers and Math.random refused by name (LLP 1027.000 D3).
   const bound = ['fetch', 'Date', 'Math', 'Intl', 'setTimeout', 'setInterval', 'requestAnimationFrame', 'requestIdleCallback',
     'clearTimeout', 'clearInterval', 'cancelAnimationFrame', 'cancelIdleCallback', 'performance'];
