@@ -896,7 +896,8 @@ For direct manipulation, `pan`, `panrelease`, `heightrelease`,
 `transformgeometry`/`transformrelease`, and `reorderdrop` supply measured payloads.
 The transform pair must be declared together. The height, transform and reorder
 drags start only from a handle that names its target's `id` with `heightDragFor`,
-`transformDragFor` or `reorderFor`. The platform owns gesture
+`transformDragFor` or `reorderFor`, and `reorderdrop` belongs to a vertical
+`list virtualized=true`, whose rows are the only ones a host can drag. The platform owns gesture
 recognition and competition with scrolling; Contract does not define a general
 gesture arena. See [Interaction Gallery](../apps/interaction-gallery/app.contract)
 and [Spark](../apps/spark/app.contract) for complete bindings.

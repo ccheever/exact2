@@ -327,7 +327,9 @@ or a growing `flex`, and takes `estimated-item-height`. A horizontal one needs a
 literal `display="flex"` and a literal positive `height`, takes
 `estimated-item-width`, and refuses wrapping, reversed or right-to-left flow, a
 nonzero `gap`, main-axis padding, `justify-content` other than `flex-start`, and
-`reorderdrop`. Lists nest one level deep; an inner vertical list needs a literal
+`reorderdrop`. `reorderdrop` belongs only on a vertical `list virtualized=true`
+(each row's handle names it with `reorderFor`); the compiler refuses it on any
+other element, where no host could drag. Lists nest one level deep; an inner vertical list needs a literal
 `height` or `max-height`. Do not revive the removed legacy `item-height`
 windowing mechanism.
 
