@@ -104,7 +104,8 @@ assert!(sim.local_position("player").unwrap().x > 0.0);
 ```
 
 - A tick calls ordinary functions in the order you write them. Physics is an
-  explicit `physics::step(w)`; animation is `animation::step(w)`.
+  explicit `physics::step(w)`; animation is `animation::step(w)`. Emitters step after the tick unless it
+  called `emitter::step(w)` to choose their order; they never step twice a tick.
 - `#[derive(Component)]` declares per-entity data; `#[derive(Resource)]` declares
   singleton data. Their `Data` representation supplies saves, hashes and agent JSON.
 - Names and entity handles address the same world: `w.require_mut::<Transform>("fox")`

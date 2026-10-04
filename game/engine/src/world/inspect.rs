@@ -147,6 +147,7 @@ impl World {
         self.mutated();
         self.in_tick = true;
         self.followed.set(false);
+        self.emitted.set(false);
         self.state.busy.get_mut().clear();
         for e in self.fresh.drain(..) {
             self.state.slots[e.index as usize].fresh = false;

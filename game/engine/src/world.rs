@@ -205,6 +205,8 @@ pub struct World {
     // Executor phase, never saved: audio authored in a tick starts at its end.
     pub(crate) in_tick: bool,
     pub(crate) followed: std::cell::Cell<bool>,
+    // Whether this tick's emitters have stepped (emitter::step or the Sim's own).
+    pub(crate) emitted: std::cell::Cell<bool>,
     pub(crate) attachments: Option<Attachments>,
     pub(crate) detach: Option<fn(&World, Entity)>,
     state: State,
@@ -251,6 +253,7 @@ impl World {
             observation: ObservationState::Unknown,
             in_tick: false,
             followed: std::cell::Cell::new(false),
+            emitted: std::cell::Cell::new(false),
             attachments: None,
             detach: None,
             state: State {

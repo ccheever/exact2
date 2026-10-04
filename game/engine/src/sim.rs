@@ -1094,6 +1094,8 @@ impl<G: Game> Sim<G> {
             G::tick(&mut self.world, &self.input, &self.args);
             self.last_motion = self.input.pointer().map_or(crate::Vec2::ZERO, |p| p.delta);
             crate::scene::follow(&self.world);
+            // A tick that did not step its emitters gets the step it forgot.
+            crate::emitter::step(&self.world);
             self.world.reap_orphans();
             self.world.propagate();
             self.world.step_clock();

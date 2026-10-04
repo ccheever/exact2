@@ -314,10 +314,15 @@ pub struct Particle {
     /// Linear straight RGBA.
     pub color: [f32; 4],
 }
-/// Advance saved emitter state once from Game::tick. Existing particles reserve
-/// capacity first; births share remaining capacity in entity order. Invalid emitters
-/// report a named journal line and do not emit. No renderer or wall clock is involved.
+/// Advance saved emitter state once from Game::tick, to choose its order; the
+/// simulation steps emitters after the tick otherwise, and never twice a tick.
+/// Existing particles reserve capacity first; births share remaining capacity in
+/// entity order. Invalid emitters report a named journal line and do not emit.
+/// No renderer or wall clock is involved.
 pub fn step(w: &World) {
+    if w.in_tick && w.emitted.replace(true) {
+        return;
+    }
     let hz = w.hz() as f64;
     let mut alive = 0u32;
     for (_, e) in w.query::<&mut Emitter>().iter() {
