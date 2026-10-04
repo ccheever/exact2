@@ -111,17 +111,23 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   return {
     // @ref LLP 1005 §3 — `pointerdown`/`pointerup`, DOM's own: the primary
     // button or a touch going down on the node, then up or cancelled (a
-    // cancel is an up), held through a pointer capture so the up arrives
-    // wherever it lifts. `fire(29)` is down, `fire(30)` up.
+    // cancel is an up). The up is heard on the document, so it arrives
+    // wherever the pointer lifts; a pointer capture would also retarget the
+    // click there, a press the platforms do not make. `fire(29)` is down,
+    // `fire(30)` up.
     pointer(el, on, fire) {
       let held = null;
       const wants = kind => el.exactHandlers?.includes(kind);
-      const up = e => { if (e.pointerId !== held) return; held = null; if (wants("pointerup")) fire(30); };
-      on("pointerup", up); on("pointercancel", up);
+      const up = e => {
+        if (e.pointerId !== held) return;
+        held = null;
+        document.removeEventListener("pointerup", up, true); document.removeEventListener("pointercancel", up, true);
+        if (wants("pointerup") && ready()) fire(30);
+      };
       return e => {
         if (e.button !== 0 || held !== null || el.matches(":disabled") || inertAncestor(el)) return;
         held = e.pointerId;
-        if (wants("pointerup")) { try { el.setPointerCapture(e.pointerId); } catch {} }
+        document.addEventListener("pointerup", up, true); document.addEventListener("pointercancel", up, true);
         if (wants("pointerdown")) fire(29);
       };
     },

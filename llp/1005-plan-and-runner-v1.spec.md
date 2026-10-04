@@ -482,8 +482,10 @@ any gesture has decided, and both sit beside `press`, `pan` and
 `contextmenu` without taking anything from them. On the web a cancel is
 DOM's `pointercancel`. DOM's order holds: down, up, then the click's
 `press`. The innermost node that hears either one takes the pointer, and its
-up arrives wherever the pointer lifts (a pointer capture on the web; AppKit's
-own mouse-up routing; the touch on UIKit).
+up arrives wherever the pointer lifts: heard on the document on the web (a
+pointer capture would also retarget the click and press on a lift
+elsewhere), through AppKit's own mouse-up routing, and with the touch on
+UIKit.
 - **Web** (`glue.js` with `input-glue.js` `pointer`; the JS target's
   `pointer.js`): the element's own events.
 - **iOS** (`IOS/PointerIOS.swift`): a gesture recognizer that only observes.
@@ -500,7 +502,9 @@ own mouse-up routing; the touch on UIKit).
 
 Tests: `contract/cli/tests/it/pointer.rs` (the runner and DOM's order),
 `testAPointerNodeObservesItsTouchWithoutPreventingAnything` (iOS), and
-`testPointerDownAndUpReachTheNearestPointerNodeAroundThePress` (macOS).
+`testPointerDownAndUpReachTheNearestPointerNodeAroundThePress` (macOS), and
+`host/web/tests/pointer.test.mjs` (Chrome: order, a lift elsewhere, the
+secondary button, a disabled node).
 
 `swiperight` is the next EventKind after `dblclick`: a recognized, payload-free
 host event. It preserves authored action arguments and journals once on a
