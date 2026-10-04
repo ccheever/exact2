@@ -584,6 +584,10 @@ final class SvgScene {
 /// `animations` ops, the agent clock's re-seek, and cleanup when a view goes.
 final class SvgHost {
     private var scenes: [UInt32: SvgScene] = [:]
+    /// Each view's last scene: a `light-dark()` paint is resolved when a
+    /// scene is applied, so an appearance change applies it again
+    /// (minesweeper F11, paint F10).
+    private var payloads: [UInt32: [String: Any]] = [:]
     /// The session's fonts, for SVG text: set by the presenter.
     var fonts: SvgText.Fonts?
     private var boxSpecs: [UInt32: (layer: CALayer, specs: [[String: Any]])] = [:]
@@ -596,7 +600,17 @@ final class SvgHost {
         if scene.root.superlayer !== layer { layer.addSublayer(scene.root) }
         scene.scale = max(1, layer.contentsScale)
         scene.fonts = fonts
-        scene.apply(payload["scene"] as? [String: Any] ?? [:], dark: dark, clock: clock)
+        let spec = payload["scene"] as? [String: Any] ?? [:]
+        payloads[id] = spec
+        scene.apply(spec, dark: dark, clock: clock)
+    }
+
+    /// `id`'s view changed appearance: its scene is applied again in the
+    /// new one. Only what the appearance reaches redraws (`drew`, and the
+    /// islands' and pictures' keys, hash it); animations keep running.
+    func reappear(_ id: UInt32, dark: Bool, clock: Double?) {
+        guard let scene = scenes[id], let spec = payloads[id] else { return }
+        scene.apply(spec, dark: dark, clock: clock)
     }
 
     func animations(_ id: UInt32, _ payload: [String: Any], layer: CALayer?, clock: Double?) {
@@ -620,6 +634,7 @@ final class SvgHost {
 
     func forget(_ id: UInt32) {
         if let scene = scenes.removeValue(forKey: id) { scene.reset(); scene.root.removeFromSuperlayer() }
+        payloads.removeValue(forKey: id)
         if let entry = boxSpecs.removeValue(forKey: id) { CssAnimations.apply([], to: entry.layer, clock: nil, installed: &boxInstalled[id, default: [:]]) }
         boxInstalled.removeValue(forKey: id)
     }

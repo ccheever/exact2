@@ -485,6 +485,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             node.paragraphOwner.invalidateText()
             node.paragraphOwner.setNeedsDisplay()
             node.applyStyle(node.style)
+            // An `svg`'s paints are resolved into its scene's layers.
+            node.presenter?.svg.reappear(node.id, dark: node.drawsDark, clock: node.presenter?.session?.clock)
             node.presenter?.requestTextPublication()
             if let presenter = node.presenter, node.superview === presenter.root { presenter.paintCanvas() }
         }
