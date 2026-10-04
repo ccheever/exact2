@@ -104,10 +104,14 @@ extension KeyCodes {
 
 extension NodeView {
     /// The web's `KeyboardEvent.key` for AppKit's: a named key by its name,
-    /// any other by the character it types (Shift's included).
+    /// any other by the character it types (Shift's included), and with
+    /// Option by the character Option types, as Chrome reports it (Option+A
+    /// is "å"). Control's key stays the unmodified one (its `characters` is a
+    /// control character), as the web's does.
     static func keyName(_ event: NSEvent) -> String {
         if let code = KeyCodes.mac[Int(event.keyCode)], KeyCodes.named(code) { return KeyCodes.key(code) }
-        return event.charactersIgnoringModifiers ?? ""
+        return KeyCodes.typed(option: event.modifierFlags.contains(.option), characters: event.characters,
+                              ignoringModifiers: event.charactersIgnoringModifiers ?? "")
     }
 }
 #else
@@ -122,7 +126,9 @@ extension NodeView {
     /// The web's key names for UIKit's.
     static func keyName(_ key: UIKey) -> String {
         let code = KeyCodes.hid(key.keyCode.rawValue)
-        return KeyCodes.named(code) ? KeyCodes.key(code) : key.charactersIgnoringModifiers
+        return KeyCodes.named(code) ? KeyCodes.key(code)
+            : KeyCodes.typed(option: key.modifierFlags.contains(.alternate), characters: key.characters,
+                             ignoringModifiers: key.charactersIgnoringModifiers)
     }
     /// A hardware key at this node's field or textarea, before UIKit edits
     /// with it: true when a `key` handler prevented its default. An input
@@ -133,3 +139,18 @@ extension NodeView {
     }
 }
 #endif
+
+extension KeyCodes {
+    /// A character key's `KeyboardEvent.key`: what the key types with its
+    /// modifiers when Option is down and that is a character (Chrome's on a
+    /// Mac: Option+A is "å", Option+Shift+A "Å"), else what it types
+    /// ignoring them but Shift. A dead key's empty text and a control
+    /// character (Control held too) keep the plain one.
+    static func typed(option: Bool, characters: String?, ignoringModifiers: String) -> String {
+        if option, let c = characters, c.unicodeScalars.count == 1, let s = c.unicodeScalars.first,
+           !CharacterSet.controlCharacters.contains(s), !(0xF700...0xF8FF).contains(s.value) {
+            return c
+        }
+        return ignoringModifiers
+    }
+}
