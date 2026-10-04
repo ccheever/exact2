@@ -483,6 +483,18 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     s.push_str(",\"key\":");
                     q(key, &mut s);
                 }
+                Step::Pick { target, paths, .. } => {
+                    s.push_str("{\"op\":\"pick\",\"target\":");
+                    q(target, &mut s);
+                    s.push_str(",\"paths\":[");
+                    for (i, path) in paths.iter().enumerate() {
+                        if i > 0 {
+                            s.push(',');
+                        }
+                        q(path, &mut s);
+                    }
+                    s.push(']');
+                }
                 Step::Clock { arg, .. } => {
                     s.push_str("{\"op\":\"clock\",\"arg\":");
                     q(arg, &mut s);

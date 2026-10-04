@@ -617,7 +617,10 @@
       return Promise.reject(refused);
     }
     var refused;
-    try { refused = host(5, "", "") || (receiver ? undefined : "unsupported"); }
+    // A file operation names its path: a document the person chose
+    // (`doc:/`) needs no app storage (LLP 1069.010 D1).
+    var path = receiver && nativeStorage && receiver === nativeStorage.fs && typeof args[0] === "string" ? args[0] : "";
+    try { refused = host(5, path, "") || (receiver ? undefined : "unsupported"); }
     catch (e) { refused = "bake"; } // no filesystem or database effects during bake
     if (refused) return Promise.reject(storageError(REFUSED[refused], refused));
     call.storage++;

@@ -229,6 +229,18 @@ pub enum Step {
         /// Where.
         span: Span,
     },
+    /// `pick "id" "path"…` / `pick "id" cancel`: answer the device request
+    /// held at the node whose `id` (or `testId`) a picker named, or the one
+    /// hold with that capability (`open-directory`, `pick`, `export`, …),
+    /// whatever its ticket (files F11). Paths are the test file's.
+    Pick {
+        /// The node the answer arrives at, or a capability.
+        target: String,
+        /// The files or folders chosen; empty for `cancel`.
+        paths: Vec<String>,
+        /// Where.
+        span: Span,
+    },
     /// `clock settle`, `clock +ms`, `clock +ms real`, `clock ms`.
     Clock {
         /// The argument as the agent takes it.
@@ -1030,6 +1042,7 @@ impl Step {
             | Step::Seed { span, .. }
             | Step::Type { span, .. }
             | Step::Key { span, .. }
+            | Step::Pick { span, .. }
             | Step::Clock { span, .. }
             | Step::Screenshot { span, .. }
             | Step::ExpectTree { span, .. }

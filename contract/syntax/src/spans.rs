@@ -123,6 +123,7 @@ record_variants! {
         Tap { target, hover, span }, Drag { target, dx, dy, press, over, hold, span },
         Size { width, height, span }, Epoch { value, span }, TimeZone { zone, span },
         Locale { tag, span }, Seed { seed, span }, Type { target, text, span }, Key { target, key, span },
+        Pick { target, paths, span },
         Clock { arg, span }, Screenshot { path, span }, ExpectTree { target, present, span },
         ExpectText { target, value, span }, ExpectState { name, value, span },
     }

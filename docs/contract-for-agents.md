@@ -625,6 +625,12 @@ between operations it moves only as far as the drive took. `clock +N real` lets
 N ms of real time pass with the clock moving beside it, a step at a time: a
 video plays that far (its `timeupdate`s arrive), and a reply that lands in the
 span lands (LLP 1042 §3).
+Under the driver a picker, an export, a share or an auth session opens no panel:
+it is held and `state` lists it under `pending` with its capability. Answer it by
+the node its answer arrives at (the `id` the command names) or by its capability:
+`type @folder-input path/to/folder`, `type @pick photo.jpg`, `tap @open-directory
+cancel`. `@N`, its ticket, works too, but a ticket counts every request before it,
+so it differs between hosts and runs.
 
 Authored tests are a smaller language over that API:
 
@@ -643,7 +649,9 @@ names — written first in the test or, for every test, at the top of the file.
 A test whose text depends on the date names its `epoch`; without one it runs at
 the driver's 2026-01-01 UTC. The steps are `tap "id" [hover]`,
 `tap "id" drag dx dy [press ms] [over ms] [hold ms]`,
-`type "id" "text"` or `type "id" key "Name"`, `clock settle|+ms|+ms real|ms`,
+`type "id" "text"` or `type "id" key "Name"`, `pick "id" "path"…` or
+`pick "id" cancel` (a held picker or export, by its node or capability as
+above; paths are the test file's), `clock settle|+ms|+ms real|ms`,
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
 (the node's text, else its descendants' — a button's label — else a field's
 value), and `expect state name == <number|string|bool|none|[]>`. An input

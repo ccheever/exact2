@@ -174,6 +174,9 @@ struct HostState {
     auth_callback: Option<String>,
     /// The engine has app storage: the host configured directories.
     storage: bool,
+    /// The engine reaches the documents the person chose (`doc:`), with or
+    /// without app storage: the grants name them (LLP 1069.010 D1).
+    documents: bool,
     /// The bake's module ([`Module::inspect`]): storage refuses as `bake`.
     baking: bool,
 }
@@ -285,7 +288,10 @@ unsafe extern "C" fn host_door(
                 if state.baking {
                     Err("bake".into())
                 } else {
-                    Ok((!state.storage).then(|| {
+                    // `a` is the path a file operation names: a document
+                    // needs no app storage, as for a Rust source.
+                    let document = state.documents && a.starts_with("doc:/");
+                    Ok((!state.storage && !document).then(|| {
                         if state.agent.is_some() {
                             "agent"
                         } else {
@@ -631,10 +637,11 @@ impl Module {
                     }));
                 self.host.native = Some(native);
             }
-            self.storage = Some(storage::Session::open(
-                paths,
-                &exact_runner::io_grants(&self.grants),
-            )?);
+        }
+        let io = exact_runner::io_grants(&self.grants);
+        self.host.documents = storage::reaches_documents(&io);
+        if self.directories.is_some() || (self.host.documents && !self.host.baking) {
+            self.storage = Some(storage::Session::open(self.directories.as_ref(), &io)?);
             // Retain the borrowed queue even if adapter initialization fails;
             // the local engine must be destroyed before its storage context.
             engine.install_storage(&self.storage.as_ref().unwrap().context)?;

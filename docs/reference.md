@@ -379,6 +379,44 @@ saves the whole database file. Database files share the filesystem namespace,
 so closed databases can be copied or exported through `storage.fs`. SQLite integer results
 are `bigint`: convert them to a Contract-compatible value before returning.
 
+### Documents the person chose (`doc:`)
+
+A file or folder the person picks (`showOpenFilePicker`, `showDirectoryPicker`,
+`showSaveFilePicker`), or opens from the system at the app's `open-file` node,
+arrives as a `doc:/<n>/<name>` path (LLP 1069.010 D1). `storage.fs` reaches it,
+and paths beneath a chosen folder, under the grants `fs.read doc:/` and
+`fs.write doc:/` — the same grants, operations, refusals and codes whether the
+data module is TypeScript or Rust, on every host:
+
+```ts
+export const grants = 'fs.read doc:/';
+// listing([folder]) with folder = 'doc:/1/notes', from `change` on the picker's node
+for (const name of await storage.fs.readdir(folder)) {
+  const stat = await storage.fs.stat(`${folder}/${name}`);       // a folder's size is 0
+  if (stat.isFile) bytes = await storage.fs.readFile(`${folder}/${name}`);
+}
+```
+
+| Operation on a `doc:` path | Grant | What it does |
+| --- | --- | --- |
+| `readFile`, `stat`, `readdir` | `fs.read doc:/` | `doc:/<n>` itself lists only `<name>` |
+| `writeFile`, `atomicWriteFile`, `appendFile` | `fs.write doc:/` | Creates a file beneath a chosen folder |
+| `mkdir` | `fs.write doc:/` | Makes the folders above it too |
+| `rm` | `fs.write doc:/` | One file or one empty folder beneath the chosen document; never the document itself, never a tree |
+| `rename`, `copyFile`, `realpath` | — | Refused (`'failed'`): read the bytes and write them |
+
+A path never minted, `.`/`..`, and a closed window's or page's handle are
+refused. A document needs no app storage: a drive without `--storage` reaches
+it. On the web the paths are the `FileSystemHandle`s the page's picker
+returned (Chromium; Safari and Firefox refuse the pickers), and a module placed
+on a worker on the wasm web host cannot reach them (`'unsupported'`); on macOS
+and iOS they are security-scoped URLs held for the session; Linux opens no
+picker panel (a drive's held pickers still answer), so outside a drive only
+`open-file` delivers one there. The handles end with the
+session: nothing about a document is remembered across launches.
+
+### Bake and deliver a TypeScript module
+
 Build an app-local `app.ts` module and bake its Contract through the resulting
 Hermes bytecode (currently a macOS producer with the sibling ibex toolchain):
 

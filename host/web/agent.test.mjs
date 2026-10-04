@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { createHash } from 'node:crypto';
 import vm from 'node:vm';
-import { render, sourceMapReader, identifyInspectedNode } from '../../scripts/agent.mjs';
+import { render, sourceMapReader, identifyInspectedNode, heldTicket, holdOf } from '../../scripts/agent.mjs';
 import { retainDevGeneration, readDevGeneration, readDevGenerationAsync, serveBuildTree } from './serve.mjs';
 import { focusController, placeReporter, timeReporter, pageReporter, viewBox, grantOrigins } from './navigation.js';
 import { storageKey } from './storage-environment.js';
@@ -1265,4 +1265,15 @@ test('tree --ax: parity skips a state the runtime cannot observe (UIKit expanded
   expect(axParity(web, ios17).findings).toEqual([]);
   const ios18 = axReply([el(0, 'button', 'Toggle', { testId: 'toggle', native: { role: ['button'] } })], { source: 'uikit', observes: ['checked', 'disabled', 'expanded'] });
   expect(axParity(web, ios18).findings.map(f => f.detail)).toEqual(['expanded missing on uikit (true vs —)']);
+});
+
+// files F11: a held device request is named by the node its answer arrives at
+// or by its capability, whatever ticket the host's counter gave it.
+test('a hold is addressed by its node or capability, and an unclear name is refused', () => {
+  const pending = [{ name: 'notes', ticket: 4 }, { name: 'folder-input', ticket: 7, device: { capability: 'open-directory', args: { id: 'folder-input' } } },
+    { name: 'share', ticket: 9, device: { capability: 'share', args: {} } }, { name: 'export-input', ticket: 11, device: { capability: 'export', args: { id: 'export-input' } } }];
+  expect([holdOf('@7'), holdOf('@folder-input'), holdOf('folder-input'), holdOf('@')]).toEqual([true, true, false, false]);
+  expect([heldTicket(pending, '@folder-input'), heldTicket(pending, '@open-directory'), heldTicket(pending, '@share'), heldTicket(pending, '@export')]).toEqual([7, 7, 9, 11]);
+  expect(() => heldTicket(pending, '@notes')).toThrow(/no held device request .*held: @7 open-directory at "folder-input"/);
+  expect(() => heldTicket([...pending, { name: 'other', ticket: 12, device: { capability: 'open-directory', args: { id: 'other' } } }], '@open-directory')).toThrow(/2 holds match/);
 });

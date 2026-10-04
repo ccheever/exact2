@@ -7,7 +7,7 @@
   sibling `../ibex` checkout. The compiler includes `src/bindings/storage.d.ts`
   as text, `exact-js` compiles `src/engine/ibex2_jsi.cc` and the binding
   scripts, and seven manifests depend on the crates.
-- **Patches:** two Exact-only patches below and the Windows connection backport
+- **Patches:** three Exact-only patches below and the Windows connection backport
   described next. Otherwise the copy is the commit's tracked tree, byte for byte,
   plus this file.
 - **Not vendored:** the Hermes engine and `hermesc` builds. They are
@@ -22,7 +22,8 @@
   ```
 
   then restore this file with the new commit and date, and reapply patches
-  3 and 4 (`git show ae0c186a9 a268b5512 001e43d03 -- vendor/ibex2`).
+  3, 4 and 5 (`git show ae0c186a9 a268b5512 001e43d03 -- vendor/ibex2`, and
+  patch 5's commit, `git log -1 --format=%h -S run_document -- vendor/ibex2`).
   Keep the Windows connection backport unless the new snapshot contains it.
   Patch 4 replaces `src/grant.rs` wholesale, so keep the vendored file
   rather than merging upstream's: a grant-grammar change upstream must be
@@ -110,3 +111,20 @@ with database and sidecar reparse preflight. See Exact LLP 1027.001 D2 and
 [Ibex LLP 0068](https://github.com/expo/ibex/blob/e3e00690/llp/0068-the-standard-library-for-a-rust-consumer.spec.md).
 Exact still disables Ibex's default features; the refresh does not automatically
 enable the new crypto implementation or claim a Windows Exact TypeScript engine.
+
+## Patch 5: documents the person chose (`doc:`) — Exact only
+
+2026-10-04, LLP 1069.010 D1 (files F2): a TypeScript source's `storage.fs`
+reaches a `doc:/<n>/<name>` path as a Rust source's storage request does,
+under the same `fs.read doc:/` / `fs.write doc:/` grants.
+
+- `src/stdlib/fs.rs`: `Document`, `Documents` (the embedder's table, a
+  `doc:` path to its real location) and `run_document`, the one executor
+  both languages run on a native host: the grant checked on the path as
+  spelt, `rename`/`copyFile`/`realpath` refused, `rm` one file or empty
+  folder beneath the chosen document, the real path never in an error.
+  `run` refuses a `doc:` path instead of calling it relative.
+- `src/task.rs`, `src/bindings.rs`: `set_documents` on the runtime state
+  and the `Context`; `src/boundary_abi.rs`'s `run_fs` sends a `doc:` path
+  to `run_document`.
+- Not for upstream until Ibex has a picker that mints such paths.

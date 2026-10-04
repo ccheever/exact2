@@ -149,7 +149,7 @@ impl Parser {
                 return self.err(
                     "syntax-expected-step",
                     format!(
-                    "expected `tap`, `type`, `clock`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`), found {}",
+                    "expected `tap`, `type`, `pick`, `clock`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`), found {}",
                     describe(&other)
                 ),
                 )
@@ -212,6 +212,25 @@ impl Parser {
                 } else {
                     let text = self.str_lit("the text")?;
                     Step::Type { target, text, span }
+                }
+            }
+            // `pick "id" "path"…` or `pick "id" cancel` (files F11).
+            "pick" => {
+                let target = self.str_lit("the picker's node id, or its capability")?;
+                let mut paths = Vec::new();
+                if self.at_ident("cancel") {
+                    self.next();
+                } else {
+                    paths.push(self.str_lit("a path to choose, or `cancel`")?);
+                    while let TokenKind::Str(path) = self.peek_kind().clone() {
+                        self.next();
+                        paths.push(path);
+                    }
+                }
+                Step::Pick {
+                    target,
+                    paths,
+                    span,
                 }
             }
             "clock" => {
@@ -419,7 +438,7 @@ impl Parser {
                 return Err(SyntaxError {
                     id: "syntax-expected-step",
                     message: format!(
-                    "expected `tap`, `type`, `clock`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`), found `{other}`"
+                    "expected `tap`, `type`, `pick`, `clock`, `screenshot`, `expect`, or a launch line (`size`, `epoch`, `time-zone`, `locale`, `seed`), found `{other}`"
                 ),
                     span,
                 })
