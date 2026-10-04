@@ -1617,7 +1617,6 @@ version = "0.1.0"
 dependencies = [
  "exact-linux",
  "exact-runner",
- "serde_json",
  "softbuffer",
  "winit",
 ]

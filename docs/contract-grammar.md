@@ -264,7 +264,10 @@ special typing; it is not a source-language type annotation.
 
 ```ebnf
 test          = "test" STRING block(step) ;
-step          = "tap" STRING [ "hover" ] NL
+step          = "size" NUMBER "x" NUMBER NL          (* first step only; written 1200x800 *)
+              | "tap" STRING [ "hover" ] NL
+              | "tap" STRING "drag" [ "-" ] NUMBER [ "-" ] NUMBER
+                  { ( "press" | "over" | "hold" ) NUMBER } NL
               | "type" STRING ( STRING | "key" STRING ) NL
               | "clock" ( "settle" | [ "+" ] NUMBER ) NL
               | "screenshot" STRING NL
@@ -274,7 +277,17 @@ step          = "tap" STRING [ "hover" ] NL
 test-value    = NUMBER | STRING | "true" | "false" | "none" | "[" "]" ;
 ```
 
-Targets are driver test ids. `expect state` is deliberately restricted to the
+Targets are driver test ids. Each test is a session of its own: `size 1200x800`,
+the driver's `--size`, is the viewport that session opens at, so it can only be
+the first step. `tap "id" drag dx dy` is the driver's `tap … drag` (from the
+node's middle, in points; `press`, `over`, `hold` in milliseconds, each once).
+`type` on a `select` chooses an enabled option by value, else by its one label;
+on a date, time or range input it sets the value in HTML's format; on a checkbox
+it takes `true` or `false`. A target out of view is scrolled into view first.
+The clock stands still between steps: what an input starts (a reply, a
+mutation's `then`, a timer, a transition) lands at a `clock` step, as `clock settle`.
+`expect text` reads the node's text, else its descendants' text in order (a
+button's label), else a field's value. `expect state` is deliberately restricted to the
 parser's literal cases, not arbitrary expressions or record comparisons. The
 parser currently treats unary minus as an expression rather than a number
 literal in this particular form. Use the interactive state inspection when a
@@ -382,6 +395,11 @@ CSS's one to four values (`padding="12px 40px"`: top and bottom 12, sides 40).
 CSS hyphens are part of the authored name. `testId` and admitted host-specific
 props retain their declared spelling.
 
+A `button` is a pressable `display: flex; flex-direction: column` box, not
+Chrome's `inline-block` `<button>` that centres its content (declared in
+[LLP 1001](../llp/1001-kernel-v1.spec.md)): write `align-items="center"
+justify-content="center"` to centre it, and `flex-direction="row"` for a row.
+
 `button appearance="auto"` selects a native control; the literal switch is
 resolved after class merging. Default/`none` keeps the authored pressable.
 Native face content, styles, transitions/keyframes, and enclosing contexts have
@@ -413,12 +431,54 @@ working fixture, not inferred from JavaScript's Event interface.
 | None | `press`, `cancel`, `focus`, `blur`, `submit`, `load`, `contextmenu`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
 
 `scroll` appends left then top offsets; `panrelease` appends x/y release velocity;
-`heightrelease` appends height and velocity. The compiler validates arity and
+`heightrelease` appends height and velocity. A `pan` hears a drag that starts
+anywhere inside it, a nested `button` or `press` node included: past the slop
+the pan takes the contact and the press does not fire, while a tap still
+presses. A nested text input or control keeps its own drags, and the innermost
+recognizer wins ([LLP 1057.001](../llp/1057.001-gesture-precedence-and-pinch.spec.md) §1).
+The compiler validates arity and
 available payload types; tags and hosts constrain where events make sense.
 `navigate` belongs on the first root element, outside any region, which must
 also carry `navigationKey` and `navigationBack`. Transform geometry/release
 bindings are required as a pair. See
 [`handler_arity`](../contract/analyze/src/lib.rs) and the corresponding corpus/tests.
+
+### Keys
+
+`key` is the DOM's `keydown`, on every host (web, macOS, iOS and iPadOS with a
+hardware keyboard, Linux):
+
+- **Where.** The key goes to the focused element: a field or textarea being
+  edited, a `button`, or any element with a `focus`, `blur` or `key` handler
+  (such an element takes the focus, as `tabindex="0"` gives it). It then bubbles: the
+  focused element's handler hears it first, then every ancestor's, innermost
+  first. With nothing focused, only `aria-keyshortcuts` buttons hear keys.
+- **What.** The payload is `KeyboardEvent.key`: the character typed, Shift's
+  included (`"a"`, `"A"`, `"7"`, `" "`, `"/"`), or the key's name (`"Enter"`,
+  `"Escape"`, `"Tab"`, `"Backspace"`, `"Delete"`, `"ArrowUp"`…, `"Home"`,
+  `"End"`, `"PageUp"`, `"PageDown"`, `"F1"`…). Every key is heard, printable
+  ones in a field included. Keys an input method is composing are its own.
+- **Then the default.** After the handlers, the key does what it would have:
+  a character is typed into the focused field, Backspace deletes, Enter
+  submits an input (`submit`) or presses a button, Space presses a button,
+  Tab moves the focus, arrows move the caret; on the web arrows, Space and
+  the page keys also scroll the page or the focus's scroller (a native
+  scroller does not scroll by key, so there is nothing there to prevent).
+- **Claiming a key.** An action run by a `key` event that calls the host
+  command `preventDefault()` is the handler's `event.preventDefault()`: that
+  default does not happen. Ancestors' handlers still hear the key, as they do
+  on the web. Call it only for the keys you handle, so typing still works:
+
+```contract
+action move(k: string)
+  if k == "ArrowDown"
+    cursor = cursor + 1
+    preventDefault()
+```
+
+- **Shortcuts.** An `aria-keyshortcuts` button hears its chord before any
+  `key` handler, and takes the key (no `key` handler hears it). The web and
+  macOS carry them; iOS does not yet.
 
 ## Host commands
 
@@ -426,7 +486,8 @@ The current command name inventory is:
 
 `blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `focus`, `format`,
 `openURL`, `selectText`, `setScheme`, `showPicker`, `share`, `saveFile`,
-`showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`.
+`showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`,
+`haptic`, `postMessage`, `reload`, `preventDefault` ([keys](#keys)).
 
 These appear only as action statements. They are not ordinary value-returning
 functions. Some have dedicated compiler checks while others also rely on host

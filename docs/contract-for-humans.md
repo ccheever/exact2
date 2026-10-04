@@ -738,8 +738,9 @@ call outside them fails. The capabilities are:
   leaves a resource `failed(…)` and a mutation without an answer.
 - *`app.ts` imports only local files.* npm packages are not bundled yet.
 
-**Testing with storage.** An agent drive has no storage unless it names a
-scratch store, apart from the app's own data:
+**Testing with storage.** Each authored test gets an empty store of its own,
+apart from the app's real data. An ad hoc `agent` drive has none unless it
+names a scratch store with `--storage`:
 
 ```contract-test
 test "a book is added and kept"
@@ -752,7 +753,7 @@ test "a book is added and kept"
 ```
 
 ```sh
-bun exact.mjs test web --storage demo     # each test gets its own empty store
+bun exact.mjs test web                    # each test starts with an empty store
 bun exact.mjs agent web --storage demo "type title Dune" "tap add" "clock settle" tree
 ```
 
@@ -852,8 +853,9 @@ the payload: `input=edit(item.id)` calls the bound action with the id followed
 by the new text. This syntax is binding, not immediate evaluation.
 
 Use explicit types when they make the interface clear; omitted action parameter
-types can be inferred from event sites. There is no event object with methods
-such as `preventDefault`, and no inline `() => …` handler.
+types can be inferred from event sites. There is no event object and no inline
+`() => …` handler; a `key` action claims its key with the host command
+`preventDefault()` ([keys](contract-grammar.md#keys)).
 
 The complete event inventory and payload groups are in the
 [event reference](contract-grammar.md#events). HTML controls include `select` and

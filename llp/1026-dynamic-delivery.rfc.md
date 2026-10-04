@@ -607,6 +607,37 @@ because it is retrofit-hostile:
   same `exact.json` bake wrote, at a CDN. No server generation
   (1023 §8, kept), no per-request work, no per-user targeting.
 
+#### D11a — Windows durable-store refusal (2026-10-04)
+
+**Implementer:** Codex, 2026-10-04, for Charlie's native Windows game request
+(LLP 1015.000). **Review:** independent same-family parent Codex review accepted
+the following bounded change before implementation; no cross-family review is
+claimed. The parent required missing-root and existing-byte preservation tests,
+explicit unsupported disk-test reporting, and all pure compatibility tests kept.
+
+The existing durable disk protocol opens a directory with `std::fs::File::open`
+and syncs it after replacing the rollback-floor record. On Windows this fails
+with AccessDenied, after `Store::open` has already created directories, locked a
+file, or swept/recovered an existing store. That late refusal is not a safe
+unsupported-platform boundary. Windows `Store::open` must refuse by name before
+any filesystem access, directory creation, ownership lock, recovery or sweep.
+An absent root remains absent; an existing root and its files remain unchanged.
+This applies to development and production trust alike.
+
+This is an explicit unsupported durable-store profile, not Windows power-loss
+qualification. No directory sync is skipped and no weaker write is advertised as
+durable. Static packaged Windows games at L=0 remain supported. Pure envelope,
+canonical-byte, signature, binary-fact and stripped-store tests still run on
+Windows; each disk-store test reports the Windows qualification reason as an
+ignored test instead of pretending to exercise storage successfully.
+
+A real Windows backend requires a separately reviewed commit protocol covering
+durable new files, record replacement, directory publication, recovery and
+exclusive ownership. Merely opening a directory with BACKUP_SEMANTICS does not
+establish those guarantees; neither does substituting MoveFileEx without
+qualifying its replacement semantics. That work remains ahead of any L>0
+Windows host claim.
+
 ### D12 — One mechanism, two policies; Level A and Level B
 
 Dev reload and production update are the **same store and the same

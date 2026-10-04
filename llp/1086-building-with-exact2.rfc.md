@@ -127,8 +127,8 @@ The section also states the rules an author otherwise learns by failing:
   `--storage <name>`, which an ordinary agent drive refuses
   (`host/web/storage-environment.js`). Without that flag a drive exercises
   only the storage-unavailable path. Authored tests took no `--storage` at all
-  (`runTests` dropped it); as built, `agent.mjs --test … --storage <name>` gives
-  each test its own empty scratch store. On the web, every drive starts a new
+  when this was written; main's `agent-test.mjs` (`af670d6b9`, the same day)
+  now gives each test an empty store of its own, so `test web` needs no flag. On the web, every drive starts a new
   browser profile, so persistence across launches is shown in the dev loop or on
   a native host, not by a second drive.
 

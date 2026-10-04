@@ -130,8 +130,8 @@ guide's rules don't make obvious.
 - **A storage test fails with `storage is busy`, or storage is "unavailable in
   agent mode".** Cause: a drive has no storage unless it names a scratch store, and
   an open SQLite database locks its file, so a mutation and the refresh it triggers
-  collide. Fix: `--storage <name>` on `agent` or `test` (each test gets its own
-  empty store), and queue every `storage.sqlite.open` in `app.ts`
+  collide. Fix: `--storage <name>` on an `agent` drive (authored tests get a
+  store of their own), and queue every `storage.sqlite.open` in `app.ts`
   ([the human guide](contract-for-humans.md#writing-the-data-module) shows one).
   (LLP 1086 reading-list example, 2026-10-04.)
 

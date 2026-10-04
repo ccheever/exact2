@@ -467,7 +467,10 @@ impl Store {
     /// a record from another cohort is reset to this one's;
     /// a record from another store codec freezes the store (LLP 1030 D9) and
     /// nothing here writes.
+    /// Windows durable storage is not qualified: opening refuses before any
+    /// filesystem access or mutation (LLP 1026 D11a).
     pub fn open(dir: &Path, embedded: Embedded) -> Result<Store, String> {
+        disk::require_durable_store()?;
         std::fs::create_dir_all(dir).map_err(|e| format!("cannot make {}: {e}", dir.display()))?;
         // Lock before reading, recovering or sweeping anything. An atomic rename
         // alone cannot protect the signed floor from a second stale owner.

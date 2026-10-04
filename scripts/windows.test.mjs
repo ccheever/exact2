@@ -6,9 +6,46 @@ import {tmpdir} from 'node:os';
 import {resolve} from 'node:path';
 import {closeFilesystemReader, filesystem, filesystemErrorCode} from './filesystem.mjs';
 import {packagedBuildChanges} from './agent-launch.mjs';
+import {browserKey} from './agent.mjs';
 import {runCaps} from './caps.mjs';
 import {binaryenArchive, binaryenVersion} from './exact.mjs';
 import {listPublicFiles, publicFileCards, readStaticFile, readStaticFileAsync, staticFile} from '../host/web/serve.mjs';
+import {gameShells} from '../game/app/shells.mjs';
+
+test.skipIf(process.platform !== 'win32')('release Windows game shells use GUI executables and preserve agent pipes', () => {
+  const root=mkdtempSync(resolve(tmpdir(),'exact GUI shell '));
+  try {
+    mkdirSync(resolve(root,'logic/src'),{recursive:true});
+    writeFileSync(resolve(root,'logic/src/lib.rs'),'pub struct Probe;');
+    const game={crate:'gui-probe-logic',type:'Probe'};
+    writeFileSync(resolve(root,'app.json'),JSON.stringify({app:{id:'com.exact.gui-probe',name:'Signal 夜'},game}));
+    gameShells(root,game,resolve(import.meta.dir,'../game'));
+    // Compile the real generated shell with a tiny included entry: subsystem
+    // selection must preserve explicitly inherited stdin/stdout, as agent mode does.
+    writeFileSync(resolve(root,'entry.rs'),'fn main() { let mut line = String::new(); std::io::stdin().read_line(&mut line).unwrap(); print!("received:{}", line); }');
+    for(const [assertions,subsystem] of [['no',2],['yes',3]]) {
+      const binary=resolve(root,`probe-${assertions}.exe`);
+      const compile=spawnSync('rustc',[resolve(root,'.shells/windows/src/main.rs'),'--edition=2021','--crate-name','gui_probe','-C',`debug-assertions=${assertions}`,'-o',binary],{cwd:root,env:{...process.env,OUT_DIR:root},encoding:'utf8',timeout:60000,windowsHide:true});
+      expect(compile.status,compile.stderr).toBe(0);
+      const bytes=readFileSync(binary), pe=bytes.readUInt32LE(0x3c);
+      expect(bytes.toString('ascii',pe,pe+4)).toBe('PE\0\0');
+      expect(bytes.readUInt16LE(pe+24+68)).toBe(subsystem);
+      const agent=spawnSync(binary,[],{input:'{"op":"tags"}\n',encoding:'utf8',timeout:10000,windowsHide:true});
+      expect(agent.status,agent.stderr).toBe(0);
+      expect(agent.stdout).toBe('received:{"op":"tags"}\n');
+    }
+  } finally { rmSync(root,{recursive:true,force:true}); }
+},60000);
+
+test('browser function keys reach the focused game with their platform key identity', async () => {
+  for(const [key,vk] of [['F1',112],['F2',113],['F12',123],['F24',135]]) {
+    const calls=[];
+    await browserKey({id:17,opts:{key},evaluate:async()=>true,ask:async()=>({ok:true}),
+      call:async(method,args)=>calls.push([method,args]),frame:async()=>{}});
+    expect(calls.map(([method,args])=>[method,args.type,args.code,args.key,args.windowsVirtualKeyCode]))
+      .toEqual(['keyDown','keyUp'].map(type=>['Input.dispatchKeyEvent',type,key,key,vk]));
+  }
+});
 
 test('public web inventory and owned reads agree on native Windows paths', async () => {
   const root=mkdtempSync(resolve(tmpdir(),'exact static paths '));

@@ -179,12 +179,14 @@ uint32_t gpu_agent(uint32_t id, const unsigned char *text, size_t len) {
 static uint32_t cancels = 0;
 uint32_t test_cancels(void) { return cancels; }
 static char event[2048];
+static char previous_event[2048];
 static uint32_t event_id, event_count;
 const char *test_input(void) { return event; }
+const char *test_previous_input(void) { return previous_event; }
 uint32_t test_input_id(void) { return event_id; }
 uint32_t test_input_count(void) { return event_count; }
 uint32_t gpu_input(uint32_t id, const unsigned char *text, size_t len) {
-  if(len>=sizeof(event)) return 1; memcpy(event,text,len);event[len]=0;
+  if(len>=sizeof(event)) return 1; memcpy(previous_event,event,sizeof(event)); memcpy(event,text,len);event[len]=0;
   event_id=id; event_count++;
   if (strstr(event,"RejectKey")) return 1;
   if (strstr(event,"cancel") || strstr(event,"blur")) cancels++;

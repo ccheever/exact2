@@ -103,12 +103,14 @@ async function waitForBoot(page, why = 'the page never booted') {
   return Number(await page.locator('#exact-root').getAttribute('data-boot-ms'));
 }
 
-const keyName = (code, browserOwned = false) => {
-  if (!browserOwned && code.length === 1) return code;
+// A key by its `key` name or its code, on every target (as scripts/agent.mjs `browserKey`).
+const keyName = (code) => {
+  if (code.length === 1) return code;
   if (/^Key[A-Z]$/.test(code)) return code;
   if (/^Digit[0-9]$/.test(code)) return code;
-  const key = { Space: ' ', Enter: 'Enter', Escape: 'Escape', ...(browserOwned ? {} : { Tab: 'Tab', Backspace: 'Backspace' }), ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight', Shift: 'Shift', ShiftLeft: 'ShiftLeft', ShiftRight: 'ShiftRight' }[code];
-  if (!key) throw new Error(`key: unsupported code ${code}`);
+  if (/^F([1-9]|1[0-2])$/.test(code)) return code;
+  const key = { Space: ' ', Enter: 'Enter', Escape: 'Escape', Tab: 'Tab', Backspace: 'Backspace', Delete: 'Delete', Home: 'Home', End: 'End', PageUp: 'PageUp', PageDown: 'PageDown', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight', Shift: 'Shift', ShiftLeft: 'ShiftLeft', ShiftRight: 'ShiftRight' }[code];
+  if (!key) throw new Error(`key: unsupported key ${code}`);
   return key;
 };
 
@@ -191,12 +193,12 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
       }, id);
       if (!result.ok) throw new Error(`view ${id} could not take focus`);
     };
-    const browserKey = async (id, opts, browserOwned = true) => {
+    const browserKey = async (id, opts) => {
       if (opts.phase != null && !['down', 'up'].includes(opts.phase)) throw new Error(`key: not a phase: ${opts.phase}`);
       const isWorld = await page.evaluate(id => globalThis.exact.gpu?.wantsInput(id) ?? false, id);
       if (isWorld) { const r = await ask({ op: 'focus', id, world: true }); if (r.error || !r.ok) throw new Error(r.error ?? `view ${id} could not take focus`); }
       else await directFocus(id);
-      const key = keyName(opts.key, browserOwned), reply = phase => ({ typed: id, key: opts.key, ...(phase != null ? { phase } : {}), delivery: 'platform' });
+      const key = keyName(opts.key), reply = phase => ({ typed: id, key: opts.key, ...(phase != null ? { phase } : {}), delivery: 'platform' });
       const release = async () => { await page.keyboard.up(key); heldKeys.delete(opts.key); await frame(); return reply('up'); };
       try {
         for (const phase of opts.phase == null ? ['down', 'up'] : [opts.phase]) {
@@ -217,6 +219,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         await context.clearCookies(); hostLines.length = 0; await page.goto(address.href, { waitUntil: 'commit' }); this.boot = await waitForBoot(page, 'the reused page never booted');
       },
       ask,
+      async reveal(id) { const r = await ask({ op: 'reveal', id }); if (r.scrolled) await frame(); return r; },
       async prefer(media, pageFacts) {
         const unsupported = Object.entries(media).find(([key, value]) => (key === 'prefers-reduced-transparency' && value !== 'no-preference') || (key === 'prefers-contrast' && !['more', 'no-preference'].includes(value)));
         if (unsupported) throw new Error(`${name} prefer cannot emulate ${unsupported[0]} ${unsupported[1]} through Playwright`);
@@ -246,7 +249,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
           const guest = await ask(request);
           if (guest.guest === true || guest.handled === true) { if (guest.error) throw new Error(guest.error); await frame(); return { ...guest, at: [x, y] }; }
         }
-        if (kind === 'key' && (opts.phase != null || await page.evaluate(id => globalThis.exact.gpu?.wantsInput(id) || globalThis.exact.views.get(id)?.matches('button, a[href], [role="button"], [role="link"]') || false, id))) return browserKey(id, opts, true);
+        if (kind === 'key' && (opts.phase != null || await page.evaluate(id => globalThis.exact.gpu?.wantsInput(id) || globalThis.exact.views.get(id)?.matches('button, a[href], [role="button"], [role="link"]') || false, id))) return browserKey(id, opts);
         if (id != null && ['press', 'contextmenu', 'dblclick'].includes(kind)) {
           const why = await page.evaluate(({ id, x, y }) => { const el = globalThis.exact.views.get(id), hit = document.elementFromPoint(x, y); return !el ? null : !hit ? 'its middle is outside the viewport; scroll it into view first' : el === hit || el.contains(hit) || hit.contains(el) ? null : `${hit.dataset?.view ? `node #${hit.dataset.view}` : hit.tagName.toLowerCase()} covers its middle`; }, { id, x, y });
           if (why) throw new Error(`tap #${id} at (${x}, ${y}): ${why}`);
@@ -267,7 +270,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         else if (kind === 'dblclick') await page.mouse.dblclick(x, y);
         else if (kind === 'press') await page.mouse.click(x, y);
         else if (kind === 'type') { await focus(id); await page.keyboard.insertText(opts.text); }
-        else if (kind === 'key') return browserKey(id, opts, false);
+        else if (kind === 'key') return browserKey(id, opts);
         else if (kind === 'pinch') throw new Error(`${name} pinch unsupported: Playwright cannot produce trusted phased touches; synthetic dispatchEvent input is not equal input`);
         await frame();
         return { at: kind === 'wheel' ? deliveredAt : [x, y] };

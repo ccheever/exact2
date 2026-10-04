@@ -168,5 +168,33 @@ final class GesturePrecedenceMacTests: XCTestCase {
         node.mouseUp(with: event(.leftMouseUp, node, right: 10))
         XCTAssertEqual(log, ["pan 10.0"], "a pan that begins cancels the press")
     }
+
+    /// Rule 3 for a `pan` (kanban F6): a press between keeps the contact only
+    /// within the slop — a drag that starts on a card's button pans the card,
+    /// and a tap on the button still presses it.
+    func testAnAncestorPanTakesADragThatStartsOnAButton() {
+        let p = host([
+            ["op": "create", "id": 1, "kind": "view", "handlers": ["pan"]],
+            ["op": "create", "id": 2, "kind": "button", "handlers": ["press"]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 300.0, "h": 100.0],
+            ["op": "frame", "id": 2, "x": 10.0, "y": 10.0, "w": 100.0, "h": 40.0]
+        ])
+        var log: [String] = []
+        p.onPress = { log.append("press \($0)") }
+        p.onPan = { id, dx, _ in log.append("pan \(id) \(dx)") }
+        let button = p.views[2]!
+        button.mouseDown(with: event(.leftMouseDown, button))
+        button.mouseDragged(with: event(.leftMouseDragged, button, right: 2))
+        button.mouseUp(with: event(.leftMouseUp, button, right: 2))
+        XCTAssertEqual(log, ["press 2"], "inside the slop it is the button's press")
+        log = []
+        button.mouseDown(with: event(.leftMouseDown, button))
+        button.mouseDragged(with: event(.leftMouseDragged, button, right: 10))
+        button.mouseDragged(with: event(.leftMouseDragged, button, right: 30))
+        button.mouseUp(with: event(.leftMouseUp, button, right: 30))
+        XCTAssertEqual(log, ["pan 1 10.0", "pan 1 20.0"], "past it the card pans and the press is cancelled")
+    }
 }
 #endif
