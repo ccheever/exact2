@@ -299,3 +299,19 @@ fn a_provide_section_spaces_like_bindings() {
     let expected = src.replace("b   =   a+1", "b = a + 1");
     assert_eq!(preserved(src), expected);
 }
+
+#[test]
+fn an_elements_tag_keeps_its_space_before_a_parenthesized_positional() {
+    // `text (on ? "yes" : "no")` is a tag and its expression, not a call `text(…)`;
+    // a call inside a positional stays tight (authoring bench, LLP 1087).
+    let src = "component A\n  state on = false\n  view\n    column\n      text (on ? \"yes\" : \"no\") testId=\"a\"\n      text toString(max(1, 2))\n";
+    let after = preserved(src);
+    assert!(
+        after.contains("      text (on ? \"yes\" : \"no\") testId=\"a\"\n"),
+        "{after}"
+    );
+    assert!(
+        after.contains("      text toString(max(1, 2))\n"),
+        "{after}"
+    );
+}

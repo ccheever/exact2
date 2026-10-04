@@ -130,6 +130,9 @@ struct Layout<'a> {
     attached: BTreeSet<Span>,
     /// A conditional's `:`, spaced as its `?` is: `a ? b : c` (habits F5).
     ternary_colons: BTreeSet<Span>,
+    /// An element's tag, which keeps its space before a positional expression:
+    /// `text (n > 0 ? a : b)`, not a call `text(…)`.
+    tags: BTreeSet<Span>,
     /// A prefix `-` or `!`, which stays against its operand: `-0.4`, `!done`.
     prefixes: BTreeSet<Span>,
     breaks: BTreeMap<Span, usize>,
@@ -200,6 +203,7 @@ impl<'a> Layout<'a> {
             type_angles: BTreeSet::new(),
             attached: BTreeSet::new(),
             ternary_colons,
+            tags: BTreeSet::new(),
             prefixes,
             breaks: BTreeMap::new(),
         }
@@ -329,10 +333,11 @@ impl<'a> Layout<'a> {
                 } => {
                     // The button's normalized text child has its parent's
                     // span, but no corresponding source tag of its own.
-                    if self
+                    if let Some(i) = self
                         .position(*span)
-                        .is_some_and(|i| text(&self.tokens[i], self.lines) == tag)
+                        .filter(|&i| text(&self.tokens[i], self.lines) == tag)
                     {
+                        self.tags.insert(self.tokens[i].span);
                         let mut last_positional = positional.iter().map(|e| e.span()).max();
                         if tag == "button" {
                             if let Some(Node::Element {
@@ -480,6 +485,7 @@ impl<'a> Layout<'a> {
                 || (b == "." && !matches!(previous.kind, TokenKind::Number(_)))
                 || (b == "("
                     && matches!(previous.kind, TokenKind::Ident(_))
+                    && !self.tags.contains(&previous.span)
                     && !matches!(
                         a,
                         "when" | "if" | "match" | "not" | "and" | "or" | "in" | "with"
