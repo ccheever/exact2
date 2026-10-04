@@ -120,7 +120,10 @@ fn parent_visibility_pixels_remove_mesh_model_shadow_and_light_without_a_tick() 
     render(&gpu, &mut fresh, 0., "parent-visibility-before-restore");
     fresh.restore(&saved, exact_gpu::Restore::Open).unwrap();
     let restored = render(&gpu, &mut fresh, 0., "parent-visibility-restored");
-    assert!(restored.data == baseline.data, "restored hidden pixels differ");
+    assert!(
+        restored.data == baseline.data,
+        "restored hidden pixels differ"
+    );
     surface
         .sim()
         .unwrap()
@@ -129,6 +132,9 @@ fn parent_visibility_pixels_remove_mesh_model_shadow_and_light_without_a_tick() 
         .0 = true;
     surface.bind(&[Value::Bool(true)], None).unwrap();
     let revealed = render(&gpu, &mut surface, 0., "parent-visibility-revealed");
-    assert!(revealed.data == shown.data, "revealed pixels differ from initial frame");
+    assert!(
+        revealed.data == shown.data,
+        "revealed pixels differ from initial frame"
+    );
     assert_eq!(surface.sim().unwrap().world().tick(), 0);
 }
