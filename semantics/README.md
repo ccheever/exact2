@@ -22,6 +22,7 @@ tested against it, differentially and at random.
 | `Contract/Lower.lean` | A compiler from the semantics' expressions and statements to VM code, mirroring `contract/lower` (`expr.rs`, `stmts.rs`) instruction for instruction. |
 | `Contract/VmFacts.lean`, `Lower{Types,Sim,Spec,Proof,Lists,Calls,Correct,Stmt}.lean` | Its correctness proof (below). |
 | `Contract/LowerCheck.lean` | The Lean half of `difftest lowering`. |
+| `vm-extract/` | The shipped VM machine (`runner/src/machine.rs`) extracted to Lean by Charon and Aeneas, and proved to refine `Contract/Vm.lean` step by step and run by run (`vm-extract/README.md`). |
 | `Contract/ValTy.lean` | Types as sets of values (`ValTy`, `conforms` without finiteness), the order and join the checker's `?` induces (`Ty.le`, `Ty.unify`), and that `conforms` at a complete type gives `ValTy`. |
 | `Contract/Types.lean` | The type system: typing judgments for expressions, statements, views and programs (`HasTy`, `StmtsTy`, `NodesTy`, `WellTyped`), mirroring the Rust checker (contract/types). |
 | `Contract/TypeCheck.lean` | The checker as a program (`check`), proved sound for the judgments. |
@@ -501,6 +502,13 @@ All without `sorry` or axioms beyond Lean's own (`propext`,
 - `conforms_valTy`: what the runtime check admits at a complete type is a
   value of that type; `conforms_of_valTy`: a value of a type whose numbers
   are finite passes the check. Finiteness is all that separates them.
+- `VmExtract.step_ok`, `VmExtract.machine_run_ok` (`vm-extract/`, checked by
+  its own `check.sh` under Aeneas's Lean): the runner's VM machine as
+  shipped, translated by Charon and Aeneas, refines `Contract.Vm`: whatever a
+  step or a run of it returns, the model's step or interpreter returns too,
+  or traps correspondingly. The trusted base (the translation, a few standard
+  functions, the runner's `Val` and `Host` instances against the model's) is
+  in `vm-extract/README.md`.
 - `EnvGood.envOK` (`EnvSound.lean`): an environment whose root slots are
   present and of their types, whose row slots in force are of theirs and
   whose settled derives and resources are declared ones of theirs
