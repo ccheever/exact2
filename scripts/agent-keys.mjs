@@ -162,6 +162,27 @@ export function mouseContact() {
   };
 }
 
+/** The CLI `type` line. Key, copy, cut and paste stay whitespace-split.
+ * Typed text keeps its tail: real newlines stay, and `\\n` `\\t` `\\r`
+ * `\\\\` decode, as does a JSON string around the tail. `hello for 100`
+ * stays text (notes: a newline was flattened to a space). */
+export function typeCommand(line) {
+  const body = String(line).trim().replace(/^type(?:\s+|$)/, '');
+  const matched = /^(?:"((?:[^"\\]|\\.)*)"|(\S+))(?:\s+([\s\S]*))?$/.exec(body);
+  if (!matched) throw new Error('type needs a target');
+  const target = matched[1] != null ? JSON.parse(`"${matched[1]}"`) : matched[2];
+  const rest = matched[3] ?? '';
+  const head = /^\S+/.exec(rest)?.[0];
+  if (head === 'key' || head === 'copy' || head === 'cut' || head === 'paste') return typeArguments([target, ...rest.trim().split(/\s+/)]);
+  return [target, decodeTypeText(rest)];
+}
+function decodeTypeText(text) {
+  if (text.length >= 2 && text.startsWith('"') && text.endsWith('"')) {
+    try { return JSON.parse(text); } catch { /* a quote in the text, not a JSON string */ }
+  }
+  return text.replace(/\\([ntr\\])/g, (_, c) => ({ n: '\n', t: '\t', r: '\r', '\\': '\\' }[c]));
+}
+
 export function typeArguments(args) {
   // The clipboard's events at the target (spreadsheet F6): `copy`, `cut`, `paste <text…>`.
   if (['copy', 'cut'].includes(args[1]) && args.length === 2) return [args[0], {clipboard:args[1]}];

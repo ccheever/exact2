@@ -45,8 +45,8 @@ import { fileURLToPath } from 'node:url';
 import { openTouches, realTap } from '../host/apple/touches.mjs';
 import { dragTap } from './agent-drag.mjs';
 import { runTests } from './agent-test.mjs';
-import { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, pickedPaths, mouseContact, withHeldModifiers } from './agent-keys.mjs';
-export { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, pickedPaths, mouseContact } from './agent-keys.mjs';
+import { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact, withHeldModifiers } from './agent-keys.mjs';
+export { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, typeCommand, pickedPaths, mouseContact } from './agent-keys.mjs';
 import { appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
 import { crashReports, developmentLaunchEnvironment, phone, phoneBridge, showSimulator, simulator } from '../host/apple/devices.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
@@ -1053,7 +1053,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     /** The contact this session holds, `{x, y}` in the viewport's space, or null. */
     contact: null,
     /** A press on the target through the host's input path (an iframe target accepts guest `selector` or `x`/`y`); with `{ wheel: [dx, dy] }`, a wheel over it (dy > 0 scrolls down); with `{ hover: true }`, the pointer moved onto it (a hover — and off whatever it was over); with `{ down: true[, at: [x, y]] }`, a contact goes down on it (at its centre, or at an offset from its corner) and stays down until `pointer('up')` (LLP 1035.003 D1). Every reply says how it was delivered (`delivery`), by which carrier, in which mode. */
-    // Canvas {mouse:true,at:[x,y]} is one primary mouse click on web/Windows/Linux;
+    // Canvas {mouse:true,at:[x,y]} is one primary mouse click on web, macOS, Windows and Linux;
     // {contextmenu:true,at:[x,y]} is secondary. Points are target-relative; plain
     // canvas taps and held down/move/up contacts remain fingers (LLP 1015.000).
     async tap(target, opts = {}) {
@@ -1062,8 +1062,9 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       let node;
       try { node = await s.target(target); }
       catch (error) { throw await tapRefusal(s, target, error); }
+      if (opts.at !== undefined && opts.mouse !== true && opts.contextmenu !== true && opts.down !== true && opts.pinch === undefined && !opts.drag) throw new Error('at is a point on a mouse click, a context menu, a contact, a pinch or a drag');
       if (opts.mouse) {
-        if (!['web', 'linux', 'windows'].includes(host)) throw new Error(`${host} does not carry explicit mouse clicks`);
+        if (!['web', 'linux', 'windows', 'macos', 'mac'].includes(host)) throw new Error(`${host} does not carry explicit mouse clicks`);
         if (node.entity !== undefined || ['contextmenu','dblclick','down','drag','wheel','hover','pinch','history','into','gesture'].some(key => opts[key] !== undefined)) throw new Error('mouse cannot be combined with another input mode or an entity target');
       }
       if (node.entity !== undefined) {
@@ -1092,7 +1093,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       if ((opts.contextmenu || opts.dblclick) && !['web', 'ios', 'macos', 'mac', ...(opts.dblclick ? [] : ['linux', 'windows'])].includes(host)) throw new Error(`${host} does not carry contextmenu/dblclick input`);
       if ((opts.contextmenu || opts.mouse) && s.contact) throw new Error('mouse/contextmenu requires the held contact to be released');
       if ((opts.contextmenu || opts.mouse) && opts.at !== undefined) {
-        if (!['web', 'linux', 'windows'].includes(host)) throw new Error(`${host} does not carry contextmenu at an explicit point`);
+        if (!['web', 'linux', 'windows', 'macos', 'mac'].includes(host)) throw new Error(`${host} does not carry contextmenu at an explicit point`);
         if (!Array.isArray(opts.at) || opts.at.length !== 2 || !opts.at.every(Number.isFinite)) throw new Error('mouse/contextmenu at needs two finite numbers');
         const layout = await s.layout(), b = layout.nodes.find(n => n.id === node.id), [x, y] = opts.at;
         if (!b || x < 0 || y < 0 || x >= b.w || y >= b.h) throw new Error('mouse/contextmenu at must be inside the target box');
@@ -1381,7 +1382,11 @@ async function main(argv) {
   let at = 0;
   // One op line; `perf … during "<op>" …` drives its own through here.
   const step = async (line) => {
-      const [op, ...args] = line.trim().split(/\s+/);
+      const trimmed = line.trim();
+      // `type` keeps the text tail, including newlines and \n, which a
+      // whitespace split would flatten (notes: a body typed as one line).
+      if (/^type(\s|$)/.test(trimmed)) return ['type', await s.type(...typeCommand(trimmed))];
+      const [op, ...args] = trimmed.split(/\s+/);
       let r;
       switch (op) {
         case 'tree': r = args[0] === '--ax' ? await s.tree(args[1], {ax: true}) : await s.tree(args[0], args[1] === 'under' ? args[2] : undefined); break;
@@ -1448,7 +1453,6 @@ async function main(argv) {
           // A wheel with the modifiers held (a pinch is a Control-held wheel; studio diary R3): `… wheel <dx> <dy> [gesture] [modifiers Control]`.
           else r = args[1] === 'wheel' ? await s.tap(args[0], { wheel: [Number(args[2]), Number(args[3])], gesture: args[4] === 'gesture', ...(args.indexOf('modifiers') > 3 ? { modifiers: args[args.indexOf('modifiers') + 1] } : {}) }) : args[1] === 'hover' ? await s.tap(args[0], { hover: true }) : ['contextmenu', 'dblclick', 'mouse'].includes(args[1]) ? await s.tap(args[0], { [args[1]]: true }) : await s.tap(args[0]);
           break;
-        case 'type': r = await s.type(...typeArguments(args)); break;
         case 'clock': r = await s.clock(args.join(' ') || 'settle'); break;
         case 'resize': { const m = /^(\d+)x(\d+)$/.exec(args.join('')); if (!m) throw new Error('resize <w>x<h>, as resize 800x600'); r = await s.resize(Number(m[1]), Number(m[2])); break; }
         case 'prefer': r = await s.prefer(Object.fromEntries(args.flatMap((a, i) => i % 2 ? [] : [[a, args[i + 1]]]))); break;

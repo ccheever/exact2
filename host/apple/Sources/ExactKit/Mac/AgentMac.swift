@@ -427,7 +427,7 @@ extension Agent {
                 return ["error": "tap #\(node.id): its middle is outside the viewport; scroll it into view first"]
             }
         }
-        if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil,
+        if req["phase"] == nil, req["wheel"] == nil, req["x"] == nil, req["y"] == nil, req["mouse"] == nil,
            let id = req["id"] as? UInt32, let run = presenter.inlineText(id), let node = presenter.textHost(id) {
             guard node.window != nil, !node.inert, !node.disabled else { return ["error": "inline node #\(id) is unavailable"] }
             if req["hover"] as? Bool == true {
@@ -439,7 +439,7 @@ extension Agent {
 
         if let phase = req["phase"] as? String { return contact(phase, req) }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
-           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil, req["mouse"] == nil,
            let activated = presenter.toolbar.activate(node) {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "NSToolbarItem"]
                 : ["error": "native toolbar item #\(id) is unavailable"]
@@ -448,13 +448,13 @@ extension Agent {
             return ["error": "native toolbar geometry is system-owned; only button host activation is supported"]
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
-           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil, req["mouse"] == nil,
            let activated = presenter.controls.activate(node) {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "control"]
                 : ["error": "control #\(id) is disabled, inert or not shown"]
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
-           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil, req["mouse"] == nil,
            let activated = presenter.segments.activate(node) {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "segmented-control"]
                 : ["error": "native segment #\(id) is unavailable"]
@@ -463,10 +463,17 @@ extension Agent {
         guard presenter.toolbar.visible(v), !v.inert else { return ["error": "view \(v.id) is hidden or inert"] }
         let b = box(v)
         // The middle of the box as seen — through a surface's placement when
-        // there is one (LLP 1014 D5) — as a point in the window.
+        // there is one (LLP 1014 D5) — as a point in the window. `at` is a
+        // point in the view (a mouse click, a context menu), the same
+        // conversion a pinch uses; the reply names that point, not the middle.
         let clip = presenter.viewport.contentView
-        let p = clip.convert(NSPoint(x: (req["x"] as? Double ?? b.midX) + clip.bounds.origin.x, y: (req["y"] as? Double ?? b.midY) + clip.bounds.origin.y), to: nil)
-        let at = [Agent.r2(b.midX), Agent.r2(b.midY)]
+        let localAt: CGPoint? = {
+            guard let raw = req["at"] as? [Double], raw.count == 2, raw.allSatisfy(\.isFinite) else { return nil }
+            return CGPoint(x: raw[0], y: raw[1])
+        }()
+        if req["at"] != nil, localAt == nil { return ["error": "at needs two finite numbers"] }
+        let p = localAt.map { v.convert($0, to: nil) } ?? clip.convert(NSPoint(x: (req["x"] as? Double ?? b.midX) + clip.bounds.origin.x, y: (req["y"] as? Double ?? b.midY) + clip.bounds.origin.y), to: nil)
+        let at = localAt.map { [Agent.r2($0.x), Agent.r2($0.y)] } ?? [Agent.r2(b.midX), Agent.r2(b.midY)]
         if req["wheel"] == nil,
            !clip.bounds.contains(clip.convert(p, from: nil)) {
             return ["error": "tap #\(v.id): its middle is outside the viewport; scroll it into view first"]
