@@ -119,12 +119,20 @@ impl Catalog {
             for face_id in family.faces.iter() {
                 let face = plan.face(face_id);
                 let source = plan.str(face.source);
-                let Some(bytes) = assets.read(source) else {
-                    failed = true;
-                    break;
+                // A bundled file is mapped when it shapes, not read whole
+                // at boot; a selected generation's bytes are as verified.
+                let font = match assets.path(source) {
+                    Some(path) => fontdb::Source::File(path),
+                    None => match assets.read(source) {
+                        Some(bytes) => fontdb::Source::Binary(Arc::new(bytes)),
+                        None => {
+                            failed = true;
+                            break;
+                        }
+                    },
                 };
                 let mut parsed = fontdb::Database::new();
-                let ids = parsed.load_font_source(fontdb::Source::Binary(Arc::new(bytes)));
+                let ids = parsed.load_font_source(font);
                 if ids.len() != 1 {
                     failed = true;
                     break;
