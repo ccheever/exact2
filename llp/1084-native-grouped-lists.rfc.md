@@ -206,6 +206,28 @@ rather than the label colour it wrote.
 `GroupedListIOSTests.testASymbolTakesItsAuthoredTintForEachAppearance` covers
 a hidden image before the symbol, a chevron after it, and both appearances.
 
+## 6.2 A section without its card (2026-10-04, Signal Clone)
+
+Signal's profile header and conversation-settings header sit on the list's
+background, not on a card: a section whose cell background is clear. The
+author writes `section background-color="transparent"`.
+- **Contract.** A section's `background-color` is its group's (the column
+  the sheet paints as the card), not the section's own. The sheet's `CELL`
+  comes first, so the author's value replaces it, and the web and the
+  sheet's hosts draw no card.
+- **Kernel.** `GroupedSection.card` is false when the group's background is
+  transparent in both appearances; `exact_grouped_list` carries it as
+  `"card"`.
+- **iOS.** That section's cells take `UIBackgroundConfiguration.clear()`
+  and its layout shows no separators. A section that gains or loses its card
+  configures its rows again and lays the list out again.
+- Only the literal attribute on `section` moves to the group; a class's
+  `background-color` stays the section's.
+
+Proofs: `contract/cli/tests/it/grouped_list.rs`
+`a_transparent_section_has_no_card`;
+`GroupedListIOSTests.testACardlessSectionsCellsAreClear`.
+
 ## 7. Open
 
 - **`sidebar` and `sidebarPlain`.** These are UIKit's other two appearances. They wait for an iPad or Mac consumer.

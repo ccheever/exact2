@@ -372,7 +372,11 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
     };
     let bottom = if tail == 1 || plain { 0.0 } else { SECTION_GAP };
     let mut sheet = vec![n("margin-top", top, span), n("margin-bottom", bottom, span)];
-    sheet.extend(attrs.iter().cloned());
+    // A section's `background-color` is its group's: the card. `transparent`
+    // drops the card, as Signal's profile and conversation headers sit on the
+    // list's background (UIKit's clear cell background).
+    let (card, own): (Vec<&Attr>, Vec<&Attr>) = attrs.iter().partition(|a| a.name == "background-color");
+    sheet.extend(own.into_iter().cloned());
     let label = |node: &Node, footer: bool| -> Node {
         let Node::Element {
             tag,
@@ -427,6 +431,7 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
     // Every row draws the separator under it and overlaps the next by its
     // width; the group clips the last one away (`row`).
     group.push(s("overflow", "hidden", span));
+    group.extend(card.into_iter().cloned());
     let body = rows
         .iter()
         .map(|r| over(r, &mut |node| Ok(row(node))))

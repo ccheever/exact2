@@ -239,6 +239,24 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertTrue(row.superview === after.contentView, "carried again")
     }
 
+    /// A card-less section (`section background-color="transparent"`): its
+    /// rows sit on the list's background, as Signal's profile header does,
+    /// and a section that gains its card back is configured again.
+    func testACardlessSectionsCellsAreClear() throws {
+        var card = false
+        let p = presenter {
+            var m = self.model(custom: true)
+            m.sections[1].card = card
+            return m
+        }
+        let clear = try cell(p, 21).backgroundConfiguration
+        XCTAssertEqual(clear?.backgroundColor, .clear, "no card")
+        XCTAssertNotEqual(try cell(p, 10).backgroundConfiguration?.backgroundColor, .clear, "the other section keeps its card")
+        card = true
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["testId": "s1"], "clear": [String]()]]))
+        XCTAssertNotEqual(try cell(p, 21).backgroundConfiguration?.backgroundColor, .clear, "the card is back")
+    }
+
     func testCustomRowsGoBackInTheirOrder() throws {
         let p = presenter {
             var m = self.model(custom: true)

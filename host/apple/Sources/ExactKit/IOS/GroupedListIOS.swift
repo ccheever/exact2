@@ -28,6 +28,9 @@ struct GroupedListModel: Equatable {
         var header: String?
         var footer: String?
         var rows: [Row]
+        /// Whether the rows sit on a card; false for a transparent group
+        /// (`section background-color="transparent"`): clear cells, no separators.
+        var card = true
     }
     var style = "inset-grouped"
     var sections: [Section] = []
@@ -47,7 +50,8 @@ struct GroupedListModel: Equatable {
                            target: id(r["target"]), pressable: r["pressable"] as? Bool ?? false,
                            destructive: r["destructive"] as? Bool ?? false, disabled: r["disabled"] as? Bool ?? false)
             }
-            return Section(view: view, header: s["header"] as? String, footer: s["footer"] as? String, rows: rows)
+            return Section(view: view, header: s["header"] as? String, footer: s["footer"] as? String, rows: rows,
+                           card: s["card"] as? Bool ?? true)
         }
     }
     var appearance: UICollectionLayoutListConfiguration.Appearance {
@@ -253,6 +257,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
             let s = section(at: index)
             c.headerMode = s?.header == nil ? .none : .supplementary
             c.footerMode = s?.footer == nil ? .none : .supplementary
+            c.showsSeparators = s?.card ?? true
             let section = NSCollectionLayoutSection.list(using: c, layoutEnvironment: environment)
             // A plain list's footer stays under its rows, as its header
             // stays at their top: UIKit pins both by default.
@@ -281,7 +286,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // is, as its views may have changed size.
         // A standard row whose symbol's authored tint changed is too (D7).
         let tints: [UInt32: BatchValue?] = Dictionary(uniqueKeysWithValues: snapshot.itemIdentifiers.map { ($0, tint(of: $0)) })
-        let changed = snapshot.itemIdentifiers.filter { id in old[id].map { $0 != rows[id] || $0.custom || tints[id] != looks[id] } ?? false }
+        // A section that gained or lost its card configures its rows again.
+        let carded = Dictionary(previous.sections.map { ($0.view, $0.card) }, uniquingKeysWith: { a, _ in a })
+        let recarded = Set(next.sections.filter { s in carded[s.view].map { $0 != s.card } ?? false }.flatMap { $0.rows.map(\.view) })
+        let changed = snapshot.itemIdentifiers.filter { id in old[id].map { $0 != rows[id] || $0.custom || tints[id] != looks[id] || recarded.contains(id) } ?? false }
         looks = tints
         // A row whose switch is firing is reconfigured once its action has
         // returned: rebuilding its accessories would take the switch out of
@@ -299,6 +307,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         // Headers and footers live in the sections' layout: one that came,
         // went or changed lays the list out again.
         let texts = previous.sections.map { [$0.header, $0.footer] } != next.sections.map { [$0.header, $0.footer] }
+            || !recarded.isEmpty // separators are the section layout's
         if restyled { collection.setCollectionViewLayout(layout(), animated: false) }
         source.apply(snapshot, animatingDifferences: false)
         if texts {
@@ -348,6 +357,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         guard let row = rows[id] else { return }
         interact(cell, id)
         cell.accessibilityIdentifier = host.presenter.views[id]?.props["testId"]
+        // A card-less section's rows sit on the list's background.
+        let card = model.sections.first { $0.rows.contains { $0.view == id } }?.card ?? true
+        cell.backgroundConfiguration = card ? cell.defaultBackgroundConfiguration() : .clear()
         if row.custom {
             cell.contentConfiguration = nil
             cell.accessories = []
