@@ -857,9 +857,9 @@ pub fn locomotion<const N: usize>(state: &str, idle: &str, gaits: [(f32, &str); 
     gaits.sort_by(|a, b| a.0.total_cmp(&b.0));
     assert!(
         !gaits.is_empty()
-            && gaits.iter().all(|g| g.0.is_finite() && g.0 > 0.)
+            && gaits.iter().all(|g| g.0.is_finite() && g.0 >= IDLE_BELOW)
             && gaits.windows(2).all(|p| p[0].0 < p[1].0),
-        "rig: locomotion gaits need distinct finite speeds above zero"
+        "rig: locomotion gaits need distinct finite speeds of at least IDLE_BELOW"
     );
     let mut knots = vec![(0., idle)];
     knots.extend(gaits);
@@ -880,7 +880,12 @@ pub const IDLE_BELOW: f32 = 0.05;
 /// gait at `speed / slowest` (blending idle in only under [`IDLE_BELOW`]); between
 /// gaits it blends them and corrects the rate for the blended stride; above the
 /// fastest it plays faster. Zero and negative speeds play the idle.
-/// Reads the clip lengths from the entity's generated or delivered model.
+///
+/// `state` must be a [`locomotion`] state (a missing or other state panics, as a
+/// misspelled name would). Clip lengths come from the entity's generated or
+/// delivered model; until that model is loaded (or without a `Mesh::asset`) this
+/// changes nothing, as `animation::step` skips it. It briefly borrows the target's
+/// `Mesh` and `Animator` rows, so call it outside a query holding either.
 pub fn drive(w: &World, target: impl Target, state: &str, speed: f32) {
     assert!(speed.is_finite(), "rig: invalid speed");
     let label = target.label();
@@ -888,11 +893,12 @@ pub fn drive(w: &World, target: impl Target, state: &str, speed: f32) {
         .entity(w)
         .unwrap_or_else(|| panic!("rig: drive target `{label}` does not exist"));
     let mesh = w.get::<crate::Mesh>(e);
-    let model = match mesh.as_deref() {
+    let Some(model) = (match mesh.as_deref() {
         Some(crate::Mesh::Asset(name)) => w.model(name),
         _ => None,
-    }
-    .unwrap_or_else(|| panic!("rig: drive target `{label}` has no loaded model"));
+    }) else {
+        return;
+    };
     let mut animator = w.require_mut::<Animator>(e);
     let knots = match animator.state_named(state).map(|s| &s.play) {
         Some(crate::Play::Blend(b)) => b.clips.clone(),
@@ -915,11 +921,11 @@ pub fn drive(w: &World, target: impl Target, state: &str, speed: f32) {
 
 // The blend axis and playback rate that make the blended gait cover `speed`.
 fn gait_rate(knots: &[(f32, String)], period: &dyn Fn(&str) -> f32, speed: f32) -> (f32, f32) {
-    let gaits = &knots[1..];
+    let gaits = knots.get(1..).unwrap_or(&[]);
     let (Some(slowest), Some(fastest)) = (gaits.first(), gaits.last()) else {
         return (0., 1.);
     };
-    if speed.is_nan() || speed <= 0. {
+    if speed <= 0. {
         return (0., 1.);
     }
     if speed < slowest.0 {

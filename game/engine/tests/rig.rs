@@ -237,6 +237,23 @@ fn drive_picks_the_gait_and_rate_for_the_ground_speed() {
         rig::drive(&w, "hero", "move", speed);
         assert_eq!(read(&w), (axis, rate), "{speed}");
     }
+    // Without a loaded model (a primitive mesh, or an asset not yet declared) it
+    // changes nothing, as animation::step skips such an entity.
+    for (name, mesh) in [
+        ("cube", Mesh::cuboid(Vec3::ONE)),
+        ("late", Mesh::asset("late.model")),
+    ] {
+        w.spawn_named(
+            name,
+            (
+                mesh,
+                Animator::new([rig::locomotion("move", "idle", [(1.4, "walk")])]),
+            ),
+        );
+        rig::drive(&w, name, "move", 3.);
+        let a = w.require::<Animator>(name);
+        assert!(a.params.is_empty() && a.state_named("move").unwrap().speed == 1.);
+    }
     // Between gaits the rate corrects the blended stride (shorter than the blend's speed).
     rig::drive(&w, "hero", "move", 2.7);
     let (axis, rate) = read(&w);
