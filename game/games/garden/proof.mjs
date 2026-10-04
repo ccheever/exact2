@@ -67,6 +67,9 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
 
   await game.run(100);
   check('the prompt offers to plant', text(await s.tree(), 'prompt') === 'E: plant Carrot (1 left)', text(await s.tree(), 'prompt'));
+  const plotColor = snapshot => snapshot.entities.find(e => e.name === 'plot-north')?.components.Material.color;
+  const emptyPlot = plotColor(await game.snapshot());
+  check('the current plot has an outline', Array.isArray(emptyPlot));
   await game.tap('KeyE');
   await game.run(100);
   t = await s.tree();
@@ -74,6 +77,12 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   check('census counts it', text(t, 'census') === '1 plants · 0/0 ripe · 0 mutated', text(t, 'census'));
   check('held seeds run out', text(t, 'held') === 'No seeds in hand', text(t, 'held'));
   check('planted seeds disappear from shop inventory immediately', !node(t, 'equip-carrot'));
+  const planted = await game.snapshot();
+  const growingPlot = plotColor(planted);
+  check('planting changes the plot outline', JSON.stringify(growingPlot) !== JSON.stringify(emptyPlot));
+  const stem = planted.entities.find(e => e.components?.Plant)?.components.Transform.position;
+  check('the new seedling stands beside the player', stem?.[0] > 0.6 && stem?.[2] < 0);
+  if (host !== 'linux') await s.screenshot(resolve(out, 'planted.png'));
   await game.run(10_000);
   check('the countdown counts down', /^Carrot growing · 0:(09|10)$/.test(text(await s.tree(), 'prompt')), text(await s.tree(), 'prompt'));
   const stage = (await game.snapshot()).entities.find(e => e.components?.Plant)?.components.Plant.stage;
@@ -81,12 +90,16 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await game.run(10_500);
   t = await s.tree();
   check('a ripe carrot can be harvested', text(t, 'prompt') === 'E: harvest 1 Carrot', text(t, 'prompt'));
+  const ripePlot = plotColor(await game.snapshot());
+  check('ripe fruit changes the outline again', JSON.stringify(ripePlot) !== JSON.stringify(growingPlot) && JSON.stringify(ripePlot) !== JSON.stringify(emptyPlot));
+  if (host !== 'linux') await s.screenshot(resolve(out, 'ripe.png'));
   await game.tap('KeyE');
   await game.run(100);
   t = await s.tree();
   ax = await axNames(s);
   check('the backpack holds it', label(t, 'bag-tab') === 'Backpack 1' && (ax.unavailable || ax.name('bag-tab') === 'Backpack, 1 fruit'), [label(t, 'bag-tab'), ax.name('bag-tab')]);
   check('a carrot plant is gone after one harvest', text(t, 'census') === '0 plants · 0/0 ripe · 0 mutated', text(t, 'census'));
+  check('single harvest returns the empty outline', JSON.stringify(plotColor(await game.snapshot())) === JSON.stringify(emptyPlot));
   await s.tap('bag-tab');
   t = await s.tree();
   ax = await axNames(s);
@@ -214,6 +227,7 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
     tree = await session.tree();
     check('the planted plot and market agree on blueberry', text(tree, 'plot')?.startsWith('Plot 1, 2 · Blueberry') && text(tree, 'order-hint')?.startsWith('Wait here for Blueberry'));
     await g.run(100_100);
+    if (host !== 'linux') await session.screenshot(resolve(out, 'blueberry.png'));
     await g.tap('KeyE');
     await g.run(100);
     await session.tap('deliver');

@@ -177,6 +177,12 @@ pub fn tile_center(tile: [u16; 2]) -> Vec3 {
     Vec3::new(tile[0] as f32 * TILE, 0.0, -(tile[1] as f32) * TILE)
 }
 
+/// Leave the centre of the interaction tile clear for the player. Use the
+/// same anchor for the stem and its world-space fruit, including regrowth.
+fn plant_center(tile: [u16; 2]) -> Vec3 {
+    tile_center(tile) + Vec3::new(0.65, 0.0, -0.35)
+}
+
 /// A material from an sRGB-ish authored colour (materials are linear).
 pub fn paint(c: [f32; 3]) -> Material {
     Material::rgb(c[0] * c[0], c[1] * c[1], c[2] * c[2])
@@ -189,7 +195,7 @@ fn plant_scale(stage: u8) -> f32 {
 fn plant_pose(kind: u8, tile: [u16; 2], scale: f32) -> Transform {
     let h = crop(kind).height;
     let mut t = Transform::at(0.0, h * scale / 2.0, 0.0).with_scale(scale);
-    t.position += tile_center(tile);
+    t.position += plant_center(tile);
     t
 }
 
@@ -236,7 +242,7 @@ pub fn bear(w: &mut World, plant: Entity, kind: u8, slot: u8, at: u64) -> Entity
     let ripe_at = at + c.fruit_s as u64 * 1000;
     let base = w.require::<Plant>(plant).tile;
     let mut pose = Transform::at(0.0, c.height / 2.0, 0.0).with_scale(0.4);
-    pose.position += tile_center(base) + fruit_offset(kind, slot);
+    pose.position += plant_center(base) + fruit_offset(kind, slot);
     let e = w.spawn((
         pose,
         Mesh::sphere(c.fruit_size),

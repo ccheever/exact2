@@ -111,6 +111,7 @@ impl Game for Garden {
             ),
         );
         farm::lay_ground(w);
+        farm::create_plot_outline(w);
         shop::restock(w, 0);
         w.resource_mut::<Schedule>()
             .push(garden::change_after(w), Due::Weather);
@@ -154,6 +155,7 @@ impl Game for Garden {
         };
         if changed {
             let prompt = if acted { farm::prompt(w).1 } else { prompt };
+            farm::show_plot(w, tile);
             {
                 let mut shown = w.resource_mut::<Shown>();
                 shown.second = now / STATUS_MS;

@@ -14,6 +14,9 @@ bun game/app/shells.mjs ./game/games/garden --test
 
 Walk with WASD or the stick. **E** plants the seed in your hand on the tile
 under you, or harvests what is ripe there. You start with 20¢ and one carrot.
+The outline marks that tile: cyan when empty, amber while growing or regrowing,
+green when fruit is ready. Crops stand to one side of the tile's centre so you
+can see them beside your character.
 
 - **Shop**: fourteen seeds from Common to Divine. Stock rolls every five
   minutes; rarer seeds appear less often. Buy, then hold a seed (`×N`).

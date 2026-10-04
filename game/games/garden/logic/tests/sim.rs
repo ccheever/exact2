@@ -1,4 +1,4 @@
-use exact_game::Sim;
+use exact_game::{Material, Sim, Transform, Visible};
 use garden_logic::crops::{kind_of, CROPS};
 use garden_logic::farm::Farm;
 use garden_logic::garden::{now_ms, Census, Fruit, GardenClock, Plant, Schedule, Weather};
@@ -418,6 +418,108 @@ fn order_guidance_tracks_equipped_seed_and_movement_between_empty_tiles() {
         game.save().unwrap() == restored.save().unwrap(),
         "guided planting must continue identically after restore"
     );
+}
+
+#[test]
+fn plot_outline_tracks_growth_harvest_movement_and_restore() {
+    let mut game = new(7);
+    let color = |game: &Sim<Garden>| game.world().require::<Material>("plot-north").color;
+    let empty = color(&game);
+    assert!(game.world().require::<Visible>("plot-north").0);
+    game.tap("KeyE");
+    game.run(100.0);
+    let growing = color(&game);
+    assert_ne!(growing, empty);
+    game.run(20_100.0);
+    let ripe = color(&game);
+    assert_ne!(ripe, growing);
+    assert_ne!(ripe, empty);
+    let saved = game.save().unwrap();
+    let mut restored = new(7);
+    restored.restore(&saved).unwrap();
+    assert_eq!(color(&restored), ripe);
+    for sim in [&mut game, &mut restored] {
+        sim.tap("KeyE");
+        sim.run(100.0);
+        assert_eq!(color(sim), empty, "single harvest frees the tile");
+        sim.key_down("KeyD");
+        sim.run(500.0);
+        sim.key_up("KeyD");
+        sim.run(100.0);
+        assert_eq!(
+            sim.world().require::<Transform>("plot-north").position.x,
+            2.0
+        );
+        assert_eq!(
+            sim.world().require::<Transform>("plot-south").position.x,
+            2.0
+        );
+        sim.key_down("KeyS");
+        sim.run(500.0);
+        sim.key_up("KeyS");
+        sim.run(100.0);
+        for edge in ["plot-north", "plot-south", "plot-east", "plot-west"] {
+            assert!(!sim.world().require::<Visible>(edge).0, "outside: {edge}");
+        }
+        sim.key_down("KeyW");
+        sim.run(500.0);
+        sim.key_up("KeyW");
+        sim.run(100.0);
+        assert!(sim.world().require::<Visible>("plot-north").0);
+    }
+    assert!(game.save().unwrap() == restored.save().unwrap());
+}
+
+#[test]
+fn stems_and_fruit_keep_the_same_offset_through_growth_and_regrowth() {
+    for smooth in [false, true] {
+        let mut game = Sim::<Garden>::new(Options {
+            seed: 7,
+            smooth,
+            ..Options::default()
+        })
+        .unwrap();
+        send(&mut game, "fill 14");
+        let anchors: Vec<_> = game
+            .world()
+            .query::<&Plant>()
+            .iter()
+            .map(|(e, p)| {
+                let pos = game.world().require::<Transform>(e).position;
+                let tile = garden_logic::garden::tile_center(p.tile);
+                assert!(
+                    pos.x > tile.x + 0.6,
+                    "stem must stand beside the tile centre"
+                );
+                (e, pos.x, pos.z)
+            })
+            .collect();
+        for span in [10_000.0, 900_000.0] {
+            game.run(span);
+            for &(e, x, z) in &anchors {
+                let pos = game.world().require::<Transform>(e).position;
+                assert_eq!((pos.x, pos.z), (x, z), "growth moves only height and scale");
+            }
+        }
+        for _ in 0..2 {
+            assert!(game.world().resource::<Census>().ripe > 0);
+            for (e, fruit) in game.world().query::<&Fruit>().iter() {
+                let plant = game
+                    .world()
+                    .require::<Transform>(fruit.plant.unwrap())
+                    .position;
+                let pos = game.world().require::<Transform>(e).position;
+                let dx = pos.x - plant.x;
+                let dz = pos.z - plant.z;
+                assert!(
+                    dx * dx + dz * dz <= 0.43 * 0.43,
+                    "fruit must share its stem's anchor"
+                );
+            }
+            send(&mut game, "harvest all");
+            game.run(900_000.0);
+        }
+    }
 }
 
 #[test]

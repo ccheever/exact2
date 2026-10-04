@@ -86,6 +86,54 @@ pub fn tile_at(w: &World, p: Vec3) -> Option<[u16; 2]> {
     (x >= 0.0 && z >= 0.0 && x < size && z < size).then_some([x as u16, z as u16])
 }
 
+const PLOT_EDGES: [(&str, f32, f32); 4] = [
+    ("plot-north", 0.0, -0.96),
+    ("plot-south", 0.0, 0.96),
+    ("plot-west", -0.96, 0.0),
+    ("plot-east", 0.96, 0.0),
+];
+
+pub fn create_plot_outline(w: &mut World) {
+    for (name, x, _) in PLOT_EDGES {
+        let (width, depth) = if x == 0.0 { (1.96, 0.04) } else { (0.04, 1.96) };
+        w.spawn_named(
+            name,
+            (
+                Transform::default(),
+                Mesh::plane(width, depth),
+                Material::default(),
+                Visible(false),
+            ),
+        );
+    }
+    show_plot(w, Some([0, 0]));
+}
+
+/// Only the active plot and its bounded fruit slots are read. Unchanged
+/// components stay untouched, so a timer publication cannot dirty the scene.
+pub fn show_plot(w: &World, tile: Option<[u16; 2]>) {
+    let plant = tile.and_then(|tile| w.resource::<Farm>().at(tile));
+    let color = match plant {
+        None => [0.2, 0.85, 1.0],
+        Some(p) if garden::fruits_of(w, p).iter().any(|fruit| fruit.1) => [0.35, 1.0, 0.3],
+        Some(_) => [1.0, 0.7, 0.15],
+    };
+    let material = garden::paint(color).emissive(color[0] * 0.15, color[1] * 0.15, color[2] * 0.15);
+    for (name, x, z) in PLOT_EDGES {
+        if w.require::<Visible>(name).0 != tile.is_some() {
+            w.require_mut::<Visible>(name).0 = tile.is_some();
+        }
+        let Some(tile) = tile else { continue };
+        let position = garden::tile_center(tile) + Vec3::new(x, 0.025, z);
+        if w.require::<Transform>(name).position != position {
+            w.require_mut::<Transform>(name).position = position;
+        }
+        if *w.require::<Material>(name) != material {
+            *w.require_mut::<Material>(name) = material;
+        }
+    }
+}
+
 /// Plants the held seed on a tile. Refuses an occupied tile or an empty hand.
 pub fn plant_held(w: &mut World, tile: [u16; 2]) -> Result<Entity, String> {
     let (kind, occupied) = {

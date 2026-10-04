@@ -639,3 +639,88 @@ Garden's unchanged complete proofs pass on web in 88.9 s and macOS in 42.0 s,
 including rebuilds. Their source inputs, tick/save pins, four world snapshots
 and six saves agree. Web's descendant audit passes; macOS's optional scan times
 out while every owned carrier closes. Artifacts: `artifacts/main-paint-{web,macos}/`.
+
+## Seeing the active plot (2026-10-04)
+
+Main moved another eight commits while Forest's axe was being verified. They
+are documentation and queue updates, merged through `407cd0b5c` as `97746517c`
+before this batch; source stays fixed during the cross-host collector.
+
+The market screenshots exposed a human problem that Jev's text observations
+cannot detect: the capsule and a planted crop share their tile's centre. The
+player covers a seedling completely and most of a blueberry plant. Crops now
+stand 0.65 m to the right and 0.35 m forward of the interaction centre. Stems
+and world-space fruit share that anchor through growth and regrowth; fruit
+stays unparented, preserving the measured long-seek saving above.
+
+Four thin planes outline the current interaction tile: cyan for empty, amber
+for growing or regrowing, green for ripe fruit. They hide outside the garden.
+This is four entities regardless of garden size. Updating the outline reads
+only the current tile and its fruit slots, runs with the existing status
+change publication, and avoids writing unchanged transforms or materials.
+The text prompt still names the action and countdown, so colour is additional
+feedback, not the only way to tell what is ready. A player can still walk over
+a crop; the offset improves the normal planting position, not all occlusion.
+
+The first visual round is accepted without further tuning. Normal proofs on
+web and macOS pass all behavioral checks, including all five orders and two
+fresh-process continuations with identical saved bytes. Their planted, ripe,
+blueberry and final-market screenshots are retained in `artifacts/plot-{web,macos}/`.
+The small seedling, ripe carrot and blueberry are visible beside the avatar,
+and the outline identifies which of the adjacent plants E will harvest.
+Web takes 48.3 s and macOS 26.0 s including builds. Web's descendant audit
+passes; macOS's optional scan times out while every recorded carrier closes.
+These exploratory runs do not accept pins; the strict collector follows.
+
+Seventeen simulation tests and three crop unit tests pass. New regressions
+exercise the outline's growth, harvest, movement out of and back into the
+garden, and save/restore continuation; all fourteen crops keep their stem and
+fruit anchors through stepped and smooth growth and a second harvest cycle.
+The ordinary proof now checks the outline transitions and captures those
+early planting and harvest scenes on both graphical hosts.
+
+The engine supplied the required meshes, materials, visibility and saved state
+without a new feature. The development lesson is about the observation loop:
+a successful text-driven playtest needs a separate visual inspection. A full
+market completion had hidden this defect, and replaying the same policy alone
+could never prove that it was fixed.
+
+### Unchanged Jev replay and scale
+
+The same full-market policy is replayed once per host, without prompt, action
+or economy changes. Web completes all five orders in 69 decisions (3,064¢,
+11:05 garden time). Mac completes three, steps west out of the garden after
+returning to the strawberry tile, and spends most remaining decisions walking
+north. "Outside the garden" tells it where it is not, but gives no direction
+back. It ends at `[1.891, 0.9, -12]`, the movement bound, with 6¢ and its tomato
+seed unused. The outline correctly hides outside the garden. This is a new
+queued recovery-feedback case, not evidence that the visual change affected
+Jev, whose inputs do not include images. No policy tuning or further replay
+in this batch; the earlier market baseline+A+B batch stays closed.
+
+Artifacts: `artifacts/jev-plot-{web,macos}/`. Decision latency p50/p95 is
+290/484 ms web and 301/666 ms Mac; input/output tokens 82,517/6,965 and
+109,343/9,714. Wall times are 25.2 and 62.1 s, both with cached builds and
+passing descendant audits. Model time is outside the game clock.
+
+The existing release `entity_ramp` measurement, after those runs have closed:
+
+| Plants | Entities when mature | Stepped mean ms/frame | Smooth mean ms/frame | One-hour seek |
+|---|---:|---:|---:|---:|
+| 100 | 435 | 0.001 | 0.001 | 76 ms |
+| 10,000 | 42,866 | 0.001 | 0.011 | 110 ms |
+| 50,000 | 214,292 | 0.004 | 0.060 | 286 ms |
+
+All three mature mean frame costs round below 0.001 ms. At 50,000 plants the
+hour processes 332,168 events, saves 6,398,657 bytes in 139.7 ms, and restores
+in 121.8 ms with the same hash. These are simulation measurements, not rendered
+frame timings or a before/after performance comparison. Full observations
+still cost O(entities): 34.0 ms for the largest garden's observed tick.
+
+The existing offscreen GPU fixture also passes: at 150 garden seconds with
+100/10,000/50,000 plants, 180 rendered frames average 1.4/2.0/3.4 ms with
+p95 2.5/3.3/4.3 ms. The largest scene has 110,732 entities, 28 draws, and
+0.015 ms mean scene-feed time. This is the native release renderer's overview
+fixture on this Mac, not a browser or app-window latency measurement. Both
+Jev screenshots were inspected as well: web's corn is visible beside the
+avatar; Mac's missing outline agrees with its outside-garden state.
