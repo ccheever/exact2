@@ -45,7 +45,7 @@ import { fileURLToPath } from 'node:url';
 import { openTouches, realTap } from '../host/apple/touches.mjs';
 import { dragTap } from './agent-drag.mjs';
 import { runTests } from './agent-test.mjs';
-import { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, pickedPaths, mouseContact } from './agent-keys.mjs';
+import { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, pickedPaths, mouseContact, withHeldModifiers } from './agent-keys.mjs';
 export { cdpKey, browserKey, nativeKey, typeFor, ticketOf, holdOf, heldTicket, typeArguments, pickedPaths, mouseContact } from './agent-keys.mjs';
 import { appleArtifacts, assertAppleIdentity, bundleId, install } from '../host/apple/build.mjs';
 import { crashReports, developmentLaunchEnvironment, phone, phoneBridge, showSimulator, simulator } from '../host/apple/devices.mjs';
@@ -203,7 +203,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
     const heldKeys = new Map();
     const call = async (method, params, timeoutMs) => {
-      const reply = await cdp.send(method, params, sessionId, timeoutMs);
+      const reply = await cdp.send(method, withHeldModifiers(method, params, heldKeys), sessionId, timeoutMs);
       if (method === 'Input.dispatchKeyEvent') {
         if (params.type === 'keyUp') heldKeys.delete(params.code);
         else if (params.type === 'keyDown' || params.type === 'rawKeyDown') heldKeys.set(params.code, params);
@@ -323,6 +323,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
       async reveal(id) { const r = await ask({ op: 'reveal', id }); if (r.scrolled) await frame(); return r; },
       prefer: (media, page, fold) => preferWeb({ media, page, fold, emulated, call, evaluate, frame, ask }), // the browser's emulation through CDP, the glue's substitute where it offers none (agent-prefer.mjs)
       async input(id, kind, opts) {
+        if (kind === 'key') cdpKey(opts.key); // Refuse before focus or browser input.
         // @ref LLP 1038 D11 — history.go delivers popstate in the page.
         if (kind === 'history') {
           const reply = await ask({ op: 'tap', id, history: opts.history });
@@ -441,9 +442,9 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
           const f = await ask({ op: 'focus', id, select: false });
           if (f.error) throw new Error(f.error);
           // A chord's modifiers ride on the key; Enter types a newline in a textarea.
-          const { key, code, vk, modifiers, text } = cdpKey(opts.key);
-          await call('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: vk, modifiers, ...(text ? { text } : {}) });
-          await call('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: vk, modifiers });
+          const { key, code, vk, modifiers, text, location } = cdpKey(opts.key);
+          await call('Input.dispatchKeyEvent', { type: 'keyDown', key, code, windowsVirtualKeyCode: vk, modifiers, location, ...(text ? { text } : {}) });
+          await call('Input.dispatchKeyEvent', { type: 'keyUp', key, code, windowsVirtualKeyCode: vk, modifiers, location });
         }
         else if (kind === 'press' && await evaluate(`(() => { const hit = document.elementFromPoint(${x}, ${y}), host = hit?.closest('[data-gpu-input]'), el = ${id == null ? 'null' : `exact.views.get(${id})`}; return !!host && (hit === host || hit.localName === 'canvas') && (!el || el === host || el.contains(host) || host.contains(el)); })()`)) {
           // A tap on a world's canvas is a finger, as a held contact is here and

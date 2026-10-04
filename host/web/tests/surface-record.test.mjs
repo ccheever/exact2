@@ -132,10 +132,27 @@ test('forwarded keyups survive focus changes; editable focus blurs; shortcuts st
   const f = await fixture({input:true}), el = f.create(1), button = new f.Element('button'), input = new f.Element('input');
   const send = (name, code, target = el, extra = {}) => el.listeners[name]({target, code, timeStamp:0, preventDefault(){}, ...extra});
   send('keydown', 'Space'); send('keyup', 'Space', button);
-  send('keyup', 'KeyX'); send('keydown', 'Tab'); send('keydown', 'KeyR', el, {metaKey:true}); send('keydown', 'KeyW', el, {isComposing:true});
+  send('keyup', 'KeyX'); send('keydown', 'Tab'); send('keydown', 'KeyR', button, {metaKey:true}); send('keydown', 'KeyW', el, {isComposing:true});
   assert.deepEqual(f.events.map(e => [e.code, e.down]), [['Space',true],['Space',false]]);
   send('keydown', 'KeyW'); send('focusin', '', input); send('keyup', 'KeyW', input);
   assert.equal(f.events.at(-1).t, 'blur');
+});
+test('only the focused game host or render canvas owns Ctrl and Meta chords', async () => {
+  const f=await fixture({input:true}), el=f.create(1), button=new f.Element('button'), input=new f.Element('input');
+  const send=(type,code,target,extra={})=>{let prevented=false;el.listeners[type]({target,code,timeStamp:0,preventDefault(){prevented=true;},...extra});return prevented;};
+  for(const [code,flag] of [['ControlLeft','ctrlKey'],['MetaRight','metaKey']]) {
+    assert.equal(send('keydown',code,el,{[flag]:true}),true);
+    assert.equal(send('keydown','Digit1',el.canvas,{[flag]:true}),true);
+    send('keyup','Digit1',button,{[flag]:true}); send('keyup',code,button);
+  }
+  assert.deepEqual(f.events.map(e=>[e.code,e.down]),[['ControlLeft',true],['Digit1',true],['Digit1',false],['ControlLeft',false],['MetaRight',true],['Digit1',true],['Digit1',false],['MetaRight',false]]);
+  const count=f.events.length;
+  for(const target of [button,input]) for(const code of ['ControlLeft','Digit1','Space','Enter']) assert.equal(send('keydown',code,target,{ctrlKey:true}),false);
+  for(const extra of [{ctrlKey:true,isComposing:true},{ctrlKey:true,defaultPrevented:true}]) send('keydown','Digit1',el,extra);
+  send('keydown','Tab',el,{ctrlKey:true});
+  assert.equal(f.events.length,count);
+  send('keydown','ControlRight',el,{ctrlKey:true}); send('focusin','',input); send('keyup','ControlRight',input);
+  assert.equal(f.events.at(-1).t,'blur');
 });
 test('restore bytes survive a refusal and reach the next capable surface', async () => {
   const f = await fixture({refuse:id=>id===1}); f.exact.worldCarry = new Uint8Array([7]);
