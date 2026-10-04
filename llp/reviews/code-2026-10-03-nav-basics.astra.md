@@ -58,3 +58,6 @@ Round-2 findings are addressed: [destruction invalidation](/tmp/rv-nav1/kernel/s
 1. **Should-fix — [NavigationTitleIOS.swift:209](/tmp/rv-nav1/host/apple/Sources/ExactKit/IOS/NavigationTitleIOS.swift:209): in-place tablist changes can expose the native bar under agent mode.** With `EXACT_AGENT=1`, keep a pushed route selected and change its tablist from `display: none` to `flex`. This branch calls `setTabBarHidden(false, …)`, clearing [UIKit’s hidden state](https://developer.apple.com/documentation/uikit/uitabbarcontroller/istabbarhidden) despite the agent’s deliberate hiding at [NavigationTabsIOS.swift:122](/tmp/rv-nav1/host/apple/Sources/ExactKit/IOS/NavigationTabsIOS.swift:122). Both native and authored bars can then appear, while cover reporting still excludes native bars under the agent. **Fix:** gate native tab-bar reconciliation with `tabBarShows` and restrict it to Exact’s tab controller; add an agent-mode regression for this in-place visibility change.
 
 Verdict: LAND WITH FIXES
+---
+
+**Landed** (rebased onto origin/main): b7d195a0d → 748378eeb, 4cd44c10f → 0426b282e, ff593ecc4 → 64468ec7a, 17ca1be8a → 3c0ab0327.

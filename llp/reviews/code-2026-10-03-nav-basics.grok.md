@@ -92,3 +92,7 @@ I'll review the round-3 fixes against §9.10 and the two diffs, starting with th
 An edge swipe does not commit the stack: a cancel calls `willShow` again for the source while the coordinator's `.to` is still the destination (`host/apple/Sources/ExactKit/IOS/NavigationIOS.swift:582`), so `topViewController` is still the searching route. `showBar` returns and the revealed route's bar stays hidden for the whole gesture. `reportCovers` forces `settled` from that same flag for every controller in the nav, so the revealed route, now in the window, replaces its cover from the search-shrunk safe area instead of standing. Cancel also clears `isActive` before the bar is back (`NavigationBarIOS.swift:235` blurs on `searchBarTextDidEndEditing`), so the ownership check (`NavigationBarIOS.swift:720`) can log that the bar changed outside Exact, and finding 1's sampler runs on the dismiss inset. Key the exception off the controller being decided: only that route skips `showBar`, the ownership check, and inset sampling, and keep skipping until the dismissal's bar animation has finished.
 
 Verdict: LAND WITH FIXES
+
+---
+
+**Landed** (rebased onto origin/main): b7d195a0d → 748378eeb, 4cd44c10f → 0426b282e, ff593ecc4 → 64468ec7a, 17ca1be8a → 3c0ab0327.
