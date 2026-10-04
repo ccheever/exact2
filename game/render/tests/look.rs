@@ -57,19 +57,22 @@ impl Game for Fade {
         });
         w.spawn((Transform::at(0., 0., 3.), Camera::default()));
         let e = if args.primitive {
-            w.spawn((Transform::default(), Mesh::cube(2.)))
+            w.spawn_named("panel", (Transform::default(), Mesh::cube(2.)))
         } else {
             let panel = w.generated("panel.model", quad([1.; 4])).unwrap();
-            w.spawn((Transform::default(), panel))
+            w.spawn_named("panel", (Transform::default(), panel))
         };
-        if args.opacity < 1. {
-            w.insert(e, Opacity(args.opacity));
-        }
         if args.tint {
             w.insert(e, Material::rgb(1., 0.2, 0.2));
         }
     }
     fn tick(_: &mut World, _: &Input, _: &FadeArgs) {}
+    fn present(w: &mut World, args: &FadeArgs) {
+        if args.opacity < 1. {
+            let e = w.named("panel").unwrap();
+            w.insert(e, Opacity(args.opacity));
+        }
+    }
 }
 fn fade(gpu: &Gpu, opacity: f32, tint: bool, primitive: bool) -> fixture::Pixels {
     let mut s = WorldSurface::<Fade, ModelPresentation, true>::default();

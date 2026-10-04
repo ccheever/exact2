@@ -10,6 +10,7 @@ enum Call {
     Material(u32, usize),
     Previous(u32, usize),
     Batches,
+    Opacity(usize),
 }
 struct Recording {
     calls: Vec<Call>,
@@ -100,6 +101,9 @@ impl Writes for Recording {
         let id = MeshId(self.meshes.len());
         self.meshes.push((v.to_vec(), i.to_vec()));
         id
+    }
+    fn opacity(&mut self, values: &[(u32, f32)]) {
+        self.call(Call::Opacity(values.len()));
     }
     fn batches(&mut self, b: &[Batch], s: &[u32]) -> Result<(), RenderError> {
         self.call(Call::Batches);
@@ -238,6 +242,37 @@ fn structure_and_visibility_rebuild_but_movement_does_not() {
     w.remove::<Transform>(b);
     f.feed_to(&w, &mut r).unwrap();
     assert!(r.slots.is_empty());
+}
+#[test]
+fn presentation_looks_rebuilt_unchanged_neither_rebatch_nor_refade() {
+    let mut w = World::new(60, 0);
+    let e = w.spawn((Transform::default(), Mesh::cube(1.0)));
+    let looks = || {
+        exact_game::NodeMaterials(vec![exact_game::NodeMaterial {
+            node: "visor".into(),
+            ..Default::default()
+        }])
+    };
+    w.insert(e, looks());
+    w.insert(e, exact_game::Opacity(0.5));
+    let mut f = Feed::default();
+    let mut r = Recording::default();
+    f.feed_to(&w, &mut r).unwrap();
+    // Game::present erases and rewrites presentation rows every tick.
+    r.calls.clear();
+    w.remove::<exact_game::NodeMaterials>(e);
+    w.remove::<exact_game::Opacity>(e);
+    w.insert(e, looks());
+    w.insert(e, exact_game::Opacity(0.5));
+    f.feed_to(&w, &mut r).unwrap();
+    assert!(!r.calls.contains(&Call::Batches), "{:?}", r.calls);
+    assert!(!r.calls.contains(&Call::Opacity(1)), "{:?}", r.calls);
+    w.insert(e, exact_game::Opacity(0.25));
+    let mut changed = looks();
+    changed.0[0].color = [1., 0., 0., 1.];
+    w.insert(e, changed);
+    f.feed_to(&w, &mut r).unwrap();
+    assert!(r.calls.contains(&Call::Batches) && r.calls.contains(&Call::Opacity(1)));
 }
 #[test]
 fn materials_repack_pages_only_on_revision_and_default_missing_values() {

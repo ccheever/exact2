@@ -153,7 +153,6 @@ fn engine_scene_components_first_spawned_mid_game_restore_unregistered() {
         exact_game::SpotLight::default(),
         exact_game::LightShadows,
         exact_game::ViewModel,
-        exact_game::Opacity(0.5),
         exact_game::MouseLook::default(),
     ));
     w.propagate();

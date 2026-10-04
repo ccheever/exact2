@@ -307,10 +307,13 @@ They keep depth testing, disable depth writes, and do not cast shadows. A model'
 own materials are multiplied by entity base colour and have entity emission added:
 one model serves every team colour or mutation look. `NodeMaterials` adds a tint and
 emission per named node of one instance (stored in that node's instance record).
-`Opacity(o)` fades any instance, primitive or model: opaque surfaces drop pixels in
+`Opacity(o)` (presentation state, like `NodeMaterials`: written by `Game::present`,
+never saved or hashed) fades any instance, primitive or model: opaque surfaces drop pixels in
 an ordered 4×4 screen-door dither (depth stays exact, nothing is sorted; model
 shadows fade with it, primitive shadows do not), blended model materials multiply
 their alpha. Custom-material hooks ignore both.
+Present rebuilds both every tick; the feed compares their content, so unchanged
+looks neither rebatch nor re-upload fades.
 At load, a model's rigid, non-blended parts that share a material merge into one
 draw: static parts into one mesh pre-transformed into model space (mirrored parts
 rewound), parts a clip animates into one mesh skinned with weight one to each

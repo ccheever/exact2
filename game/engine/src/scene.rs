@@ -512,8 +512,9 @@ pub struct ViewModel;
 /// opaque surfaces drop pixels in an ordered 4 × 4 dither (no sorting, depth
 /// stays exact) and blended model materials multiply their alpha. Model shadows
 /// fade with it. 1 or absent draws as before. Fades occluders, such as a crown
-/// between the camera and the player, without a pop.
-#[derive(Clone, Copy, Debug, PartialEq, Component)]
+/// between the camera and the player, without a pop. Presentation state:
+/// write it from `Game::present`; it is never saved or hashed.
+#[derive(Clone, Copy, Debug, PartialEq, crate::Presentation)]
 pub struct Opacity(pub f32);
 impl Default for Opacity {
     fn default() -> Self {
@@ -543,7 +544,8 @@ impl Default for NodeMaterial {
 /// Per-node looks of a model instance, on top of the entity's `Material` (which
 /// tints and lights every node): a team colour on a soldier's uniform but not
 /// its visor, a mutation glow on one fruit part. Nodes not named keep theirs.
-#[derive(Clone, Debug, Default, PartialEq, Component)]
+/// Presentation state: write it from `Game::present`; never saved or hashed.
+#[derive(Clone, Debug, Default, PartialEq, crate::Presentation)]
 pub struct NodeMaterials(pub Vec<NodeMaterial>);
 
 /// One coarser level of a model instance: drawn from `distance` metres from the

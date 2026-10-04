@@ -254,6 +254,20 @@ struct Versions {
     live: u64,
     membership: u64,
 }
+/// A content digest of every `NodeMaterials` row, by slot.
+fn node_looks_digest(w: &World) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    for (e, looks) in w.query::<&exact_game::NodeMaterials>().iter() {
+        e.index().hash(&mut h);
+        for l in &looks.0 {
+            l.node.hash(&mut h);
+            l.color.map(f32::to_bits).hash(&mut h);
+            l.emissive.map(f32::to_bits).hash(&mut h);
+        }
+    }
+    h.finish()
+}
 impl Versions {
     fn of(w: &World, assets: u64) -> Self {
         Self {
@@ -313,6 +327,10 @@ pub struct Feed {
     changed_blocks: Vec<u32>,
     changed_pages: Vec<usize>,
     fades: Vec<(u32, f32)>,
+    fades_next: Vec<(u32, f32)>,
+    // Presentation looks are rebuilt every tick: rebatch only when their content
+    // changes, not their revision.
+    node_looks: u64,
     scene: Scene,
     glows: Vec<crate::GlowInput>,
 }
@@ -344,6 +362,8 @@ impl Default for Feed {
             changed_blocks: Vec::new(),
             changed_pages: Vec::new(),
             fades: Vec::new(),
+            fades_next: Vec::new(),
+            node_looks: 0,
             scene: Scene::default(),
             glows: Vec::new(),
         }
@@ -447,12 +467,16 @@ impl Feed {
             || next.glow != old.glow
             || next.membership != old.membership
             || next.mesh != old.mesh;
+        let looks_changed = (initial || next.node_materials != old.node_materials) && {
+            let digest = node_looks_digest(w);
+            std::mem::replace(&mut self.node_looks, digest) != digest || initial
+        };
         let batches = initial
             || next.assets != old.assets
             || next.mesh != old.mesh
             || next.visible != old.visible
             || next.viewmodel != old.viewmodel
-            || next.node_materials != old.node_materials
+            || looks_changed
             || next.lod != old.lod
             || next.live != old.live
             || next.membership != old.membership;
@@ -803,11 +827,14 @@ impl Feed {
             r.model_poses(w, &self.assets.entities, initial || parent_changed, moved);
         }
         if initial || next.opacity != old.opacity || next.live != old.live {
-            self.fades.clear();
+            self.fades_next.clear();
             for (e, o) in w.query::<&exact_game::Opacity>().iter() {
-                self.fades.push((e.index(), o.0));
+                self.fades_next.push((e.index(), o.0));
             }
-            r.opacity(&self.fades);
+            if initial || self.fades_next != self.fades {
+                std::mem::swap(&mut self.fades, &mut self.fades_next);
+                r.opacity(&self.fades);
+            }
         }
         r.quads(w, initial, self.tick != w.tick(), parent_changed)?;
         r.attachments(
