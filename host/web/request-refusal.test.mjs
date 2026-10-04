@@ -435,7 +435,7 @@ test('ts-data installs the native Store facade and a later gpu-glue shader uses 
   writeFileSync(resolve(dir, 'ts-data.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-data.js'), 'utf8')
     .replace('__APP_TS__', pathToFileURL(app).href).replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', '')
     .replace("from './rt.js'", "from './rt-stub.js'"));
-  writeFileSync(resolve(dir, 'rt-stub.js'), `export const clock={agent:false,now:0},journal=[],Resources=[];export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};\n`);
+  writeFileSync(resolve(dir, 'rt-stub.js'), `export const clock={agent:false,now:0},journal=[],Resources=[];export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};export const painted=()=>Promise.resolve();\n`);
   writeFileSync(resolve(dir, 'names.js'), `export const sourceTypes={read:[[],'s'],kept:[[],'s']};\n`);
   writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'"));
   writeFileSync(resolve(dir, 'admission-data.js'), `import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(${JSON.stringify(set)});\n`);
@@ -465,6 +465,50 @@ test('ts-data installs the native Store facade and a later gpu-glue shader uses 
       if (descriptor) Object.defineProperty(globalThis, name, descriptor); else delete globalThis[name];
     }
     delete globalThis.exact;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// The JS target checks a TypeScript answer as Hermes does (js/value's
+// `decode_tree`), with Hermes's message (ledger F11).
+test('ts-data refuses an answer outside its shape as Hermes does', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-shape-'));
+  const app = resolve(dir, 'source.js');
+  writeFileSync(app, `export const appId='test.shape';export const grants='';
+const day = t => ({ id: 'd', transactions: [t] });
+const answers = {
+  spread: { days: [day({ id: 'a', amount: 1, cents: 100 })], note: null },
+  missing: { days: [day({ id: 'a' })], note: null },
+  absent: { days: [day({ id: 'a', amount: 1 })], note: undefined },
+  nan: { days: [day({ id: 'a', amount: NaN })], note: null },
+  kind: { days: 'none', note: null },
+  dropped: { days: [day({ id: 'a', amount: 1, later: undefined, f() {} })], note: 'n' },
+};
+export function answer(name, args) { return name === 'later' ? Promise.resolve(answers.spread) : answers[args[0]]; }
+`);
+  writeFileSync(resolve(dir, 'ts-data.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-data.js'), 'utf8')
+    .replace('__APP_TS__', pathToFileURL(app).href).replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', '')
+    .replace("from './rt.js'", "from './rt-stub.js'"));
+  writeFileSync(resolve(dir, 'rt-stub.js'), `export const clock={agent:false,now:0},journal=[],Resources=[];export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};export const painted=()=>Promise.resolve();\n`);
+  const ledger = '{"days":["[",{"id":"s","transactions":["[",{"id":"s","amount":"n"}]}],"note":["?","s"]}';
+  writeFileSync(resolve(dir, 'names.js'), `export const sourceTypes={ledger:[["s"],${ledger}],later:[[],${ledger}]};\n`);
+  writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'"));
+  writeFileSync(resolve(dir, 'admission-data.js'), `import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(${JSON.stringify(normalized(''))});\n`);
+  for (const name of ['grant-admission.js', 'navigation.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+  try {
+    const ts = await import(`${pathToFileURL(resolve(dir, 'ts-data.js')).href}?shape=${Date.now()}`), data = { q: [] };
+    ts.install(data);
+    const refusal = which => { try { data.answer('ledger', [which], new Map()); return null; } catch (e) { return [e.kind, e.message]; } };
+    const outside = '`ledger` answered outside its shape: ';
+    expect(refusal('spread')).toEqual(['Unavailable', outside + 'field `days`: field `transactions`: field `cents` is not in the shape']);
+    expect(refusal('missing')).toEqual(['Unavailable', outside + 'field `days`: field `transactions`: field `amount` is missing']);
+    expect(refusal('absent')).toEqual(['Unavailable', outside + 'field `note` is missing']);
+    expect(refusal('nan')).toEqual(['Unavailable', outside + 'field `days`: field `transactions`: field `amount`: expected a number, got null']);
+    expect(refusal('kind')).toEqual(['Unavailable', outside + 'field `days`: expected an array, got a string']);
+    // What `JSON.stringify` leaves out is not there for Hermes either.
+    expect(data.answer('ledger', ['dropped'], new Map()).v).toEqual([[['d', [['a', 1]]]], 'n']);
+    await expect(data.answer('later', [], new Map()).promise).rejects.toThrow('`later` answered outside its shape: field `days`: field `transactions`: field `cents` is not in the shape');
+  } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });

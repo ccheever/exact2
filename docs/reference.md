@@ -259,6 +259,12 @@ In `app.ts`, use `import type { Sources, Answer } from './app.contract.d.ts'`.
 Annotate the provider map as `Sources`; each function takes `(args, store, storage)` and
 returns its declared result or a Promise of it. An `Answer` dispatcher can call
 `sources[source](args, store, storage)` without casts. `bun install --frozen-lockfile` installs the pinned `tsc`.
+An answer is held to its shape exactly, on every executor: each declared field
+present (an `undefined` one is missing, as `JSON.stringify` leaves it out), none
+undeclared at any depth, each value of its declared kind. TypeScript's excess
+property check misses a spread (`{ ...row, amount }` keeps `row`'s other fields),
+so the refusal is at run time, the same on the web as on a device:
+``` `ledger` answered outside its shape: field `days`: field `transactions`: field `cents` is not in the shape ```.
 Use a distinct filename: adjacent `app.ts` shadows an `app.d.ts` import.
 Generated declarations are build artifacts, not files to commit. A development
 build writes them beside `app.ts` for an editor: the web build and the native
