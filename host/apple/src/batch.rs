@@ -501,6 +501,12 @@ impl Batch {
         self.ops.push(s);
     }
 
+    /// Twice the sibling paint rank, losslessly encoded (LLP 1083.000 D4).
+    pub fn rank(&mut self, id: u32, rank: i64) {
+        self.ops
+            .push(format!("{{\"op\":\"rank\",\"id\":{id},\"rank\":{rank}}}"));
+    }
+
     /// `{"op":"sticky","id":…,"scroller":…,"natural":[…],"limit":[…],
     /// "port":[…],"insets":[…]}` — a sticky box's constraint (LLP 1083 D3),
     /// or `{"op":"sticky","id":…}` when it is no longer sticky.
