@@ -247,7 +247,10 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                 Ok(request) => request,
                 Err(_) => return error("unreadable tap request"),
             };
-            if field_bool(line, "contextmenu") || field_bool(line, "mouse") {
+            // A held contact's phase that says `mouse` (a drag's, review A1)
+            // is a contact with the left button held, as `answer` set it up.
+            let phased = request.get("phase").is_some();
+            if field_bool(line, "contextmenu") || (field_bool(line, "mouse") && !phased) {
                 return p
                     .mouse_request(id(), &request)
                     .unwrap_or_else(|e| error(&e));
@@ -258,7 +261,7 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
             if let Some(reply) = p.control_tap(&request) {
                 return reply.to_string();
             }
-            if request.get("phase").is_some() {
+            if phased {
                 return contact::answer(p, &request);
             }
             let Some(id) = id() else {

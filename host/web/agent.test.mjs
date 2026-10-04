@@ -1289,3 +1289,38 @@ test('a pick answer keeps a path with a space when it comes one per line', () =>
   expect(pickedPaths('/tmp/a b.png\n/tmp/c.png\n')).toEqual(['/tmp/a b.png', '/tmp/c.png']);
   expect(pickedPaths('a.png b.png')).toEqual(['a.png', 'b.png']);
 });
+
+// Review A1: `tap … drag … mouse` (an authored test's `drag … from x y mouse`) holds the left button on the web: the
+// page hears a mouse's pointerdown and pointerup, where `tap` itself refuses `mouse` beside `down` (its click form).
+test('a mouse drag presses and releases the left button on the web', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'exact-mouse-drag-')), contract = join(dir, 'app.contract'), plan = join(dir, 'app.plan'), dist = join(dir, 'dist');
+  writeFileSync(contract, `component MouseDrag
+  state log = ""
+  action at(kind: string, e: PointerEvent)
+    log = \`\${log}\${kind}:\${e.pointerType};\`
+  view
+    column testId="root"
+      column testId="pad" width=300 height=100 touch-action="none" pointerdown=at("down") pointerup=at("up") background-color="#dddddd"
+      text log testId="log"
+`);
+  const compile = spawnSync('cargo', ['run', '-q', '-p', 'contract', '--', 'build', contract, '-o', plan], { encoding:'utf8' });
+  expect(compile.status, compile.stderr).toBe(0);
+  const build = spawnSync(process.execPath, ['host/web-js/build.mjs', 'caltrain', '--plan', plan, '--out', dist, '--render', 'none'], { cwd:new URL('../../', import.meta.url).pathname, encoding:'utf8' });
+  expect(build.status, build.stderr).toBe(0);
+  const server = createServer((request, response) => serveBuildTree(dist, request, response));
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  let s;
+  try {
+    s = await open({ host:'web', url:`http://127.0.0.1:${server.address().port}/` });
+    await expect(s.tap('pad', { down: true, mouse: true })).rejects.toThrow('mouse cannot be combined');
+    const r = await s.tap('pad', { drag: { dx: 40, dy: 20, from: [12, 8], mouse: true, over: 64 } });
+    expect(r.drag.mouse).toBe(true);
+    expect(s.contact).toBeNull();
+    await s.clock('+16');
+    expect((await s.state()).slots.log).toBe('down:mouse;up:mouse;');
+  } finally {
+    await s?.close();
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 120000);

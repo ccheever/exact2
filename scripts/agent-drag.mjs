@@ -47,8 +47,16 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     return r;
   };
   try {
-    down = await s.tap(target, { down: true, at: from, ...(mouse ? { mouse } : {}) });
-    if (down.error) throw new Error(`drag: down: ${down.error}`);
+    // The contact starts here, through the carrier, at the point `tap … down at` would use (review A1): `tap` refuses
+    // `mouse` beside `down`, its click form. `mouse` holds the left button on the web, Linux and Windows; a macOS
+    // contact already is the mouse.
+    try { down = await carrier.input(node.id, 'down', { x: start[0], y: start[1], ...(mouse && !['macos', 'mac', 'host'].includes(host) ? { mouse } : {}) }); }
+    catch (error) { throw await tapRefusal(s, target, error); }
+    if (down.error) throw new Error(`drag: down: ${(await tapRefusal(s, target, new Error(down.error))).message}`);
+    if (down.delivery !== 'unsupported') {
+      s.contact = down.contact === false ? null : { x: down.at[0], y: down.at[1] };
+      if (Number.isFinite(down.clock)) s.now = down.clock;
+    }
     if (down.delivery === 'unsupported') {
       const { phase: _, ...refused } = down;
       return s.tagged({ ...refused, drag: said, reason: `${down.reason ?? 'no held contact'}; a real drag is --touch platform's (LLP 1080.000 §11)` });

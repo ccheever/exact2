@@ -947,3 +947,39 @@ fn a_jump_names_the_requests_it_left_in_flight() {
     assert_eq!(reply["settled"], false, "{reply}");
     assert_eq!(reply["reason"], "requests", "{reply}");
 }
+
+/// Review A1: a drag's contact with `mouse` holds the left button through its
+/// phases. Every phase says `mouse`, which a contact takes (a click's `mouse`
+/// form stays the click's), and the box hears the press and the release.
+#[test]
+fn a_mouse_contact_goes_down_holds_and_lifts() {
+    let plan = contract::compile("component App\n  state log = \"\"\n  action at(kind: string, e: PointerEvent)\n    log = `${log}${kind}:${e.pointerType};`\n  view\n    column width=300\n      box testId=\"pad\" width=200 height=100 touch-action=\"none\" pointerdown=at(\"down\") pointerup=at(\"up\")\n      text log testId=\"log\" height=20\n").unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let id = |p: &Presenter<NoData>, test_id: &str| {
+        let k = p.host().kernel();
+        k.node_by_key(k.find_by_test_id(test_id)[0]).unwrap().id
+    };
+    let (pad, log) = (id(&p, "pad"), id(&p, "log"));
+    for line in [
+        format!(r#"{{"op":"tap","phase":"down","id":{pad},"x":20,"y":20,"mouse":true}}"#),
+        r#"{"op":"tap","phase":"hold","ms":32,"mouse":true}"#.to_string(),
+        r#"{"op":"tap","phase":"up","mouse":true}"#.to_string(),
+    ] {
+        let reply = handle(&mut p, &line);
+        assert!(!reply.contains("\"error\""), "{line}: {reply}");
+    }
+    let k = p.host().kernel();
+    assert_eq!(
+        k.node(log).unwrap().props.str(exact_kernel::PropId::Text),
+        Some("down:mouse;up:mouse;")
+    );
+}
