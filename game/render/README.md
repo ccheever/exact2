@@ -150,6 +150,9 @@ saved types.
   resolution and 12, `High` full resolution and 16. A depth-aware 3×3 upsample
   (edges do not bleed) multiplies the resolved HDR colour before post and bloom. It darkens all light at a crease, not only ambient, and translucent
   surfaces over a crease take its darkening. Off, no texture or pass exists.
+  The `Medium` default (half resolution, 12 samples) replaced full-resolution
+  occlusion: scenes with SSAO on change pixels slightly (intended; `High` is the
+  former full-resolution cost and look).
 - Bloom defaults to threshold 1, intensity 0.16, radius 1.5: one-sided knee, 13-tap
   downsampling and additive tent upsampling. Up to six RGBA16F levels, stopping
   before either dimension falls below 8; tiny outputs retain one level.
