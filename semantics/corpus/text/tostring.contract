@@ -1,0 +1,17 @@
+// toString on numbers, bools and strings.
+component App
+  state n = -12.5
+  derive a = toString(n)
+  derive b = toString(n > 0)
+  derive c = toString("already")
+  derive d = toString(n * 0)
+  derive e = toString(0.1 + 0.2) + toString(1 / 3)
+  view
+    text a testId="a"
+
+test "toString"
+  expect state a == "-12.5"
+  expect state b == "false"
+  expect state c == "already"
+  expect state d == "0"
+  expect state e == "0.300000000000000040.3333333333333333"

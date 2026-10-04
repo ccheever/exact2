@@ -1,0 +1,52 @@
+// includes / startsWith / endsWith: literal, case-sensitive; the empty
+// needle is always found.
+component App
+  state hay = "Hello, World"
+  state needle = "World"
+  derive inc = includes(hay, needle)
+  derive sw = startsWith(hay, needle)
+  derive ew = endsWith(hay, needle)
+  action setNeedle(v: string)
+    needle = v
+  action setHay(v: string)
+    hay = v
+  view
+    column
+      input value=needle change=setNeedle testId="needle"
+      input value=hay change=setHay testId="hay"
+      text `${inc}/${sw}/${ew}` testId="r"
+
+test "suffix"
+  expect text "r" == "true/false/true"
+
+test "prefix and case"
+  type "needle" "Hello"
+  expect text "r" == "true/true/false"
+  type "needle" "hello"
+  expect text "r" == "false/false/false"
+
+test "empty needle"
+  type "needle" ""
+  expect text "r" == "true/true/true"
+  type "hay" ""
+  expect text "r" == "true/true/true"
+
+test "needle longer than hay"
+  type "hay" "Hi"
+  type "needle" "Hi there"
+  expect text "r" == "false/false/false"
+
+test "unicode"
+  type "hay" "café 😀 日本"
+  type "needle" "😀"
+  expect text "r" == "true/false/false"
+  type "needle" "日本"
+  expect text "r" == "true/false/true"
+  type "needle" "café"
+  expect text "r" == "true/true/false"
+  type "needle" "cafe"
+  expect text "r" == "false/false/false"
+
+test "whole string"
+  type "needle" "Hello, World"
+  expect text "r" == "true/true/true"

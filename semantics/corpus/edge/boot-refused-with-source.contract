@@ -1,0 +1,15 @@
+// A boot refused (a derive that is NaN for any answer) in a program that
+// reads a source: the oracle's transcript must survive the refusal so both
+// sides refuse for the same reason, not because the Lean side was given no
+// answers.
+shape Item
+  id: string
+
+component App
+  resource items = items() as shape list<Item>
+  derive bad = 1 / (length(items) - length(items))
+  view
+    text `${bad}` testId="bad"
+
+test "boot refused"
+  expect tree missing "bad"

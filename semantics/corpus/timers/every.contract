@@ -1,0 +1,28 @@
+// `every(ms, action)` fires once per interval as the clock advances, each
+// at its own due time.
+component App
+  state ticks = 0
+  state at = 0
+  action tick
+    ticks = ticks + 1
+    at = now()
+  task t mount
+    every(100, tick)
+  view
+    text `${ticks}@${at}` testId="t"
+
+test "fires per interval"
+  clock +99
+  expect state ticks == 0
+  clock +1
+  expect state ticks == 1
+  expect state at == 100
+  clock +250
+  expect state ticks == 3
+  expect state at == 300
+  expect text "t" == "3@300"
+
+test "one big advance"
+  clock +1000
+  expect state ticks == 10
+  expect state at == 1000

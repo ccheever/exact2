@@ -1,0 +1,26 @@
+// Escapes inside templates versus string literals. A string literal
+// unescapes \n \t \" \\ \` \$. A template, as observed (2026-10-03), keeps
+// every backslash: the lexer skips an escape to find the closing backtick
+// but nothing decodes it, so `a\tb` shows a backslash and a "t", and
+// `\${n}` still interpolates, after a backslash. JavaScript would decode
+// all of these; pinned as the compiler does it, reported as a likely bug.
+component App
+  state n = 1
+  view
+    column
+      text "a\tb" testId="str-tab"
+      text `a\tb` testId="tpl-tab"
+      text `x\`y` testId="tpl-tick"
+      text `\${n}` testId="tpl-dollar"
+      text `a\\b` testId="tpl-backslash"
+      text `l1\nl2` testId="tpl-nl"
+      text "q\"q" testId="str-quote"
+
+test "escapes"
+  expect text "str-tab" == "a\tb"
+  expect text "str-quote" == "q\"q"
+  expect text "tpl-tab" == "a\\tb"
+  expect text "tpl-tick" == "x\\`y"
+  expect text "tpl-dollar" == "\\1"
+  expect text "tpl-backslash" == "a\\\\b"
+  expect text "tpl-nl" == "l1\\nl2"

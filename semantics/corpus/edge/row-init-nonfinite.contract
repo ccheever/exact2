@@ -1,0 +1,32 @@
+// A row slot's initializer that evaluates to a non-finite number: the row
+// cannot be created. Rows appear when `shown` grows.
+shape Item
+  n: number
+
+component App
+  resource a = items(1) as shape list<Item>
+  resource b = items(2) as shape list<Item>
+  derive items = length(a) >= length(b) ? a : b
+  state shown = 0
+  derive visible = filter(items, (it, i) => i < shown)
+  action more
+    shown = shown + 1
+  view
+    column
+      text `${shown}` testId="shown"
+      button "more" press=more testId="more"
+      each it, i in visible key=i
+        Inv(item=it, index=i)
+
+component Inv
+  props
+    item: Item
+    index: number
+  state inv = 1 / (item.n - item.n)
+  view
+    text `${inv}` testId=`inv-${index}`
+
+test "growing"
+  tap "more"
+  tap "more"
+  tap "more"

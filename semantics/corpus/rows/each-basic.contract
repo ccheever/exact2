@@ -1,0 +1,39 @@
+// `each` rows with per-row testIds, the index, and a row action that
+// receives the item.
+shape Item
+  id: string
+  label: string
+
+component App
+  resource a = items(1) as shape list<Item>
+  resource b = items(2) as shape list<Item>
+  resource c = items(3) as shape list<Item>
+  resource d = items(4) as shape list<Item>
+  // The longest of four answers, so whatever the oracle's seed some rows
+  // are almost surely there.
+  derive ab = length(a) >= length(b) ? a : b
+  derive cd = length(c) >= length(d) ? c : d
+  derive items = length(ab) >= length(cd) ? ab : cd
+  state picked = ""
+  state pickedIndex = 1000
+  action pick(id: string, i: number)
+    picked = id
+    pickedIndex = i
+  view
+    column
+      text `${length(items)}` testId="count"
+      text picked testId="picked"
+      each it, i in items key=i
+        row testId=`row-${i}`
+          text `${i}:${it.label}` testId=`label-${i}`
+          button "pick" press=pick(it.id, i) testId=`pick-${i}`
+
+test "rows render"
+  tap "pick-0"
+  tap "pick-1"
+  tap "pick-9"
+
+test "a tap on a row that is not there changes nothing"
+  tap "pick-99"
+  expect state pickedIndex == 1000
+  expect state picked == ""

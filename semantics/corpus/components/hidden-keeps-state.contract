@@ -1,0 +1,28 @@
+// A child used outside any `each` owns root slots: hiding it under a
+// `when` and showing it again keeps its state (unlike a row's).
+component App
+  state open = true
+  action toggle
+    open = not open
+  view
+    column
+      button "toggle" press=toggle testId="toggle"
+      when open
+        Counter()
+
+component Counter
+  state n = 0
+  action inc
+    n = n + 1
+  view
+    button "inc" press=inc testId="inc"
+      text `${n}` testId="n"
+
+test "hide and show keeps the count"
+  tap "inc"
+  tap "inc"
+  tap "toggle"
+  expect tree missing "n"
+  tap "inc"
+  tap "toggle"
+  expect text "n" == "2"

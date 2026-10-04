@@ -270,19 +270,10 @@ pub fn format_number(n: f64) -> String {
     out
 }
 
-/// [`format_number`], appended to `out`.
+/// [`format_number`], appended to `out`: JavaScript's `String(n)`
+/// ([`exact_num::push_js`]).
 pub fn push_number(n: f64, out: &mut String) {
-    if n == 0.0 {
-        out.push('0');
-    } else if n.is_finite() && (n.abs() >= 1e21 || n.abs() < 1e-6) {
-        let scientific = exact_num::Exponent(n).to_string();
-        let (mantissa, exponent) = scientific.split_once('e').expect("scientific notation");
-        let exponent: i32 = exponent.parse().expect("decimal exponent");
-        out.push_str(&format!("{mantissa}e{exponent:+}"));
-    } else {
-        // Written without the formatter: an app's numbers are shown on boot.
-        exact_num::push_text!(out, "{}", exact_num::Shortest(n));
-    }
+    exact_num::push_js(n, out);
 }
 
 thread_local! {
@@ -454,9 +445,41 @@ mod tests {
         values.extend((0..10_000).map(|_| f64::from_bits(next())));
         for n in values {
             if n != 0.0 && n.is_finite() && (1e-6..1e21).contains(&n.abs()) {
-                assert_eq!(format_number(n), exact_num::Shortest(n).to_string());
+                // Rust's shortest text, but for a tie between two shortest
+                // forms, where JavaScript takes the even one: as short, and
+                // it reads back as `n`.
+                let (ours, rust) = (format_number(n), exact_num::Shortest(n).to_string());
+                if ours != rust {
+                    assert_eq!(ours.len(), rust.len(), "{n:e}");
+                    assert_eq!(ours.parse::<f64>(), Ok(n), "{n:e}");
+                }
             }
         }
+    }
+
+    #[test]
+    fn a_tie_between_two_shortest_forms_takes_the_even_one_as_javascript_does() {
+        // Each is exactly halfway between two 17-digit decimals that both
+        // read back as it; JavaScript (and the Lean semantics) print the even.
+        for (bits, js) in [
+            (0x4314_e17f_1d0f_1d8d_u64, "1469358899709795.2"),
+            (0x42bc_bf5b_965b_6990, "31608200911721.562"),
+            (0xc2e6_a575_0d63_7d24, "-199199113812969.12"),
+        ] {
+            assert_eq!(format_number(f64::from_bits(bits)), js);
+        }
+        assert_eq!(format_number(0.1 + 0.2), "0.30000000000000004");
+        assert_eq!(
+            format_number(123456789012345680000.0),
+            "123456789012345680000"
+        );
+    }
+
+    #[test]
+    fn non_finite_numbers_print_as_javascript_prints_them() {
+        assert_eq!(format_number(f64::INFINITY), "Infinity");
+        assert_eq!(format_number(f64::NEG_INFINITY), "-Infinity");
+        assert_eq!(format_number(f64::NAN), "NaN");
     }
 
     #[test]

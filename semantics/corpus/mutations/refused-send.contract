@@ -1,0 +1,26 @@
+// An action that sends and then is refused (it writes Infinity): the
+// mutation's slot does not change.
+shape Ack
+  ok: bool
+
+component App
+  state d = 1
+  state n = 1
+  mutation ack as shape Ack
+  action good
+    send ack = ping(n)
+  action bad
+    send ack = ping(n + 100)
+    n = n / (d - 1)
+  view
+    column
+      button "good" press=good testId="good"
+      button "bad" press=bad testId="bad"
+
+test "refused send"
+  tap "bad"
+  expect state ack == none
+  expect state n == 1
+  tap "good"
+  tap "bad"
+  expect state n == 1

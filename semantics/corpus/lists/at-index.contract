@@ -1,0 +1,38 @@
+// `at` follows Array#at: fractions truncate toward zero, negatives count
+// from the end, NaN is 0, out of range is none.
+shape Item
+  id: string
+
+component App
+  resource items = items("at") as shape list<Item>
+  state i = 0
+  derive got = match at(items, i) { case some(x) => x.id, case none => "none" }
+  derive inRange = at(items, i) != none
+  derive expectIn = i > -1 - length(items) and i < length(items)
+  derive agrees = inRange == expectIn
+  derive nanIdx = at(items, 0 / 0) == first(items)
+  derive fracNeg = at(items, -0.5) == first(items)
+  derive fracPos = at(items, 0.9) == first(items)
+  action set(v: number)
+    i = v
+  view
+    column
+      text got testId="got"
+      button "m1" press=set(-1) testId="m1"
+      button "m5" press=set(-5) testId="m5"
+      button "p2" press=set(2) testId="p2"
+      button "p9" press=set(9) testId="p9"
+      button "f" press=set(1.7) testId="f"
+
+test "indices"
+  expect state nanIdx == true
+  expect state fracNeg == true
+  expect state fracPos == true
+  expect state agrees == true
+  tap "m1"
+  expect state agrees == true
+  tap "m5"
+  tap "p2"
+  tap "p9"
+  expect state got == "none"
+  tap "f"

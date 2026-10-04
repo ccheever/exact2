@@ -1,0 +1,47 @@
+// `%` is C's fmod: the result takes the sign of the dividend.
+component App
+  state x = 0
+  derive m1 = -7 % 3
+  derive m2 = 7 % -3
+  derive m3 = -7 % -3
+  derive m4 = 5.5 % 2
+  derive m5 = -5.5 % 2
+  derive m6 = 0.3 % 0.1
+  derive m7 = x % 5
+  derive negzero = -6 % 3
+  derive big = 1000000007 % 97
+  derive nzSign = 1 / negzero < 0
+  derive m7neg = m7 == -2
+  action set(n: number)
+    x = n
+  view
+    column
+      text `${m1} ${m2} ${m3}` testId="signs"
+      text `${m4} ${m5}` testId="frac"
+      text `${m6}` testId="tenth"
+      text `${m7}` testId="m7"
+      text `${negzero}` testId="nz"
+      text `${big}` testId="big"
+      button "a" press=set(12) testId="s12"
+      button "b" press=set(-12) testId="sm12"
+      button "c" press=set(2.25) testId="sfrac"
+
+test "fmod signs"
+  expect state m2 == 1
+  expect state m4 == 1.5
+  expect text "signs" == "-1 1 -1"
+  expect text "frac" == "1.5 -1.5"
+  expect text "tenth" == "0.09999999999999998"
+  expect state nzSign == true
+  expect text "nz" == "0"
+  expect text "big" == "41"
+
+test "slot dividend"
+  expect state m7 == 0
+  tap "s12"
+  expect state m7 == 2
+  tap "sm12"
+  expect state m7neg == true
+  expect text "m7" == "-2"
+  tap "sfrac"
+  expect state m7 == 2.25

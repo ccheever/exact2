@@ -1,0 +1,13 @@
+// A text change delivered to a range input whose action takes a number.
+// The runner parses the text ("5" becomes 5; "abc" is refused as
+// InvalidValue); the semantics passes the string, which the action's
+// number parameter refuses.
+component App
+  state level = 0
+  action setLevel(v: number)
+    level = v
+  view
+    input type="range" value=level min=0 max=10 change=setLevel testId="range"
+
+test "range gets text"
+  type "range" "5"

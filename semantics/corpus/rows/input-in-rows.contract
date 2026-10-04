@@ -1,0 +1,36 @@
+// Inputs inside rows: each row's change writes its own row state, and a
+// root action receives the row's key with the typed text.
+shape Item
+  id: string
+
+component App
+  resource a = items(1) as shape list<Item>
+  resource b = items(2) as shape list<Item>
+  derive items = length(a) >= length(b) ? a : b
+  state lastEdit = ""
+  action edited(i: number, v: string)
+    lastEdit = `${i}=${v}`
+  view
+    column
+      text lastEdit testId="last"
+      each it, i in items key=i
+        Field(index=i, report=edited)
+
+component Field
+  props
+    index: number
+    report: action
+  state text = ""
+  action set(v: string)
+    text = v
+  view
+    row
+      input value=text change=set testId=`in-${index}`
+      input value=text change=report(index) testId=`report-${index}`
+      text text testId=`echo-${index}`
+
+test "row inputs"
+  type "in-0" "zero"
+  type "in-1" "one"
+  type "report-1" "r1"
+  type "in-0" "zero again"

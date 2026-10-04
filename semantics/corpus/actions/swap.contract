@@ -1,0 +1,29 @@
+// Swapping two slots without a temporary works, because reads see the
+// pre-state; derives see only the committed result.
+component App
+  state a = "left"
+  state b = "right"
+  derive both = `${a}|${b}`
+  action swap
+    a = b
+    b = a
+  action rotate3
+    a = b
+    b = both
+  view
+    column
+      text both testId="both"
+      button "swap" press=swap testId="swap"
+      button "rot" press=rotate3 testId="rot"
+
+test "swap"
+  tap "swap"
+  expect text "both" == "right|left"
+  tap "swap"
+  expect text "both" == "left|right"
+
+test "derive read in action is pre-state"
+  tap "rot"
+  expect state a == "right"
+  expect state b == "left|right"
+  expect text "both" == "right|left|right"

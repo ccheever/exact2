@@ -1,0 +1,25 @@
+// join prints strings, numbers and bools as toString does; a lone string
+// item is returned as is.
+shape Row
+  name: string
+  score: number
+  ok: bool
+  tags: list<string>
+
+component App
+  resource rows = rows() as shape list<Row>
+  derive names = join(map(rows, r => r.name), ", ")
+  derive scores = join(map(rows, r => r.score), "")
+  derive oks = join(map(rows, r => r.ok), "/")
+  derive tagged = join(map(rows, r => join(r.tags, "+")), ";")
+  derive emptyJoin = join(filter(map(rows, r => r.name), n => false), ",")
+  derive viaFilter = join(filter(map(rows, r => r.name), n => n != ""), "|")
+  view
+    column
+      text names testId="names"
+      text scores testId="scores"
+      text oks testId="oks"
+      text tagged testId="tagged"
+
+test "joins"
+  expect state emptyJoin == ""

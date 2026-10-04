@@ -12,7 +12,7 @@ use exact_plan::{Opcode, Stdlib};
 /// A host command's arguments in the order its hosts read them. `share`'s
 /// are named (LLP 1069.003 D1) and lower as `(title, text, url)`, `None`
 /// for an absent one, so the plan's `Command` op stays positional.
-pub(crate) fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
+pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
     let named = |want: &str| {
         args.iter().find_map(|a| match a {
             Expr::NamedArg(n, value, _) if n == want => Some(value.as_ref()),

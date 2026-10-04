@@ -1,0 +1,40 @@
+// A filter toggled on and off over string-keyed rows: hidden rows lose
+// their state, visible ones keep it, whatever their position.
+shape Item
+  id: string
+  on: bool
+
+component App
+  resource a = items(1) as shape list<Item>
+  resource b = items(2) as shape list<Item>
+  resource c = items(3) as shape list<Item>
+  derive ab = length(a) >= length(b) ? a : b
+  derive items = length(ab) >= length(c) ? ab : c
+  state onlyOn = false
+  derive shown = filter(items, it => not onlyOn or it.on)
+  action toggle
+    onlyOn = not onlyOn
+  view
+    column
+      button "toggle" press=toggle testId="toggle"
+      each it, i in shown key=`${it.id}/${it.on}`
+        Row(index=i)
+
+component Row
+  props
+    index: number
+  state hits = 0
+  action hit
+    hits = hits + 1
+  view
+    button "hit" press=hit testId=`hit-${index}`
+      text `${index}:${hits}` testId=`row-${index}`
+
+test "toggle filter"
+  tap "hit-0"
+  tap "hit-1"
+  tap "hit-1"
+  tap "hit-2"
+  tap "toggle"
+  tap "hit-0"
+  tap "toggle"
