@@ -150,6 +150,25 @@ fn main() -> ExitCode {
                     let _ = std::fs::write(dir.join("files.flag"), "");
                 }
             }
+            // Every portable symbol role, which symbols.js loads when a bound
+            // source names one the plan's strings don't (ledger diary F10).
+            let roles: Vec<String> = exact_kernel::generated::SYMBOL_ROLES
+                .iter()
+                .filter_map(|r| exact_kernel::generated::symbol(r).map(|s| (r, s)))
+                .map(|(r, (_, path, filled))| {
+                    format!(
+                        "{}:[{},{}]",
+                        serde_json::to_string(r).unwrap(),
+                        serde_json::to_string(path).unwrap(),
+                        filled as u8
+                    )
+                })
+                .collect();
+            let roles = format!("export default {{{}}};", roles.join(","));
+            if let Err(e) = std::fs::write(dir.join("symbol-roles.js"), roles) {
+                eprintln!("symbol-roles.js: {e}");
+                return ExitCode::from(1);
+            }
             if out_files.markdown {
                 let _ = std::fs::write(dir.join("markdown.flag"), "");
             }

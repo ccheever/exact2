@@ -1342,6 +1342,14 @@ impl<'a> Lowerer<'a> {
                 if prop == exact_kernel::PropId::AccessibilityPressed && ty == Ty::Bool {
                     asm.call(exact_plan::Stdlib::ToString);
                 }
+                // An enumerated attribute whose IDL attribute is a bool takes
+                // one, as its words (shop diary F7).
+                if let (Ty::Bool, Some((yes, no))) = (&ty, values::bool_words(prop)) {
+                    let word = |w: &str| Box::new(Expr::Str(w.into(), a.span));
+                    let words = Expr::Ternary(Box::new(value.clone()), word(yes), word(no), a.span);
+                    (asm, depth) = (Asm::new(), locals);
+                    expr::compile(self, &mut asm, &words, scope, &mut depth)?;
+                }
                 let code = self.b.code(asm);
                 bindings.push(BindingsRow {
                     kind: BindingKind::Prop,

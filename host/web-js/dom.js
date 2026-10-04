@@ -59,7 +59,9 @@ class Element extends Node {
   getElementsByTagName(tag) { return this.childNodes.flatMap(c => c.nodeType === 1 ? [...(tag === '*' || c.localName === tag ? [c] : []), ...c.getElementsByTagName(tag)] : []); }
   querySelectorAll() { return []; } querySelector() { return null; } contains() { return false; }
   get value() { return this.localName === 'textarea' ? this.textContent : this.getAttribute('value') ?? ''; }
-  set value(v) { if (this.localName === 'textarea') this.textContent = v; else if (v === '') this.removeAttribute('value'); else this.setAttribute('value', v); }
+  get options() { return this.childNodes.filter(c => c.localName === 'option'); }
+  // A select's value is the option that carries it, `selected` (document.rs).
+  set value(v) { if (this.localName === 'select') for (const o of this.childNodes) o.toggleAttribute?.('selected', o.getAttribute('value') === v); else if (this.localName === 'textarea') this.textContent = v; else if (v === '') this.removeAttribute('value'); else this.setAttribute('value', v); }
   set checked(v) { this.toggleAttribute('checked', !!v); }
   get checked() { return this.hasAttribute('checked'); }
   set muted(v) {} pause() {} play() { return Promise.resolve(); }

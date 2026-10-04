@@ -376,6 +376,11 @@ restrictions. This document does not duplicate their changing property tables.
 CSS hyphens are part of the authored name. `testId` and admitted host-specific
 props retain their declared spelling.
 
+A `button` is a pressable `display: flex; flex-direction: column` box, not
+Chrome's `inline-block` `<button>` that centres its content (declared in
+[LLP 1001](../llp/1001-kernel-v1.spec.md)): write `align-items="center"
+justify-content="center"` to centre it, and `flex-direction="row"` for a row.
+
 `button appearance="auto"` selects a native control; the literal switch is
 resolved after class merging. Default/`none` keeps the authored pressable.
 Native face content, styles, transitions/keyframes, and enclosing contexts have

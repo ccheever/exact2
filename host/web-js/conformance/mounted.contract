@@ -1,0 +1,38 @@
+// Values a node is mounted with: a select's (constant, bound, and one whose
+// option comes in the same commit) is its option's `value`, shown at once
+// (calendar diary F6); a scroller's `scrollTop` and `scrollLeft`, constant or bound, at
+// boot and in a commit that mounts it, are where it opens (calendar diary F8).
+component Mounted
+  state pick = "b"
+  state open = false
+  state top = 150
+  action choose(v: string)
+    pick = v
+  action show
+    pick = open ? "b" : "c"
+    open = not open
+  view
+    column testId="root" gap=8 padding=8 width=400
+      row gap=8
+        select value=pick change=choose testId="bound" aria-label="Bound"
+          option "Alpha" value="a"
+          option "Beta" value="b"
+          when open
+            option "Gamma" value="c"
+        select value="y" testId="constant" aria-label="Constant"
+          option "Ex" value="x"
+          option "Why" value="y"
+        text pick testId="pick"
+        button press=show testId="show"
+          text "Show"
+      row gap=8 height=100
+        scroll testId="boot" width=100 height=100 scrollTop=200 scrollLeft=30
+          column width=300 height=1000 background-image="linear-gradient(#ff0000, #0000ff)"
+        scroll testId="boot-bound" width=100 height=100 scrollTop=top
+          column height=1000 background-image="linear-gradient(#ff0000, #0000ff)"
+      when open
+        row gap=8 height=100
+          scroll testId="later" width=100 height=100 scrollTop=300
+            column height=1000 background-image="linear-gradient(#00ff00, #000000)"
+          scroll testId="later-bound" width=100 height=100 scrollTop=top
+            column height=1000 background-image="linear-gradient(#00ff00, #000000)"
