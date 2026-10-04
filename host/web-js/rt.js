@@ -1036,6 +1036,9 @@ export function each(p, list, key, row, pure) {
   let rows = new Map(), single = false, order = null;
   effect(() => {
     const items = list(), parent = b?.parentNode ?? p; // rows go where the end anchor is: at an arm's top, `p` is the fragment the arm was built in
+    // The keys are read here, so a key's other inputs rerun the pass too: a
+    // new key is a new row though its item is the same (jukebox F19; list.js).
+    const keys = items.map((item, i) => { const k = key(() => item, () => i); return typeof k + ":" + (Object.is(k, -0) ? 0 : k); });
     untracked(() => {
       // Rows moving or leaving are adopted rows (a row waiting for its slice
       // shows its rendered values until then, and adopts at the current ones).
@@ -1045,9 +1048,8 @@ export function each(p, list, key, row, pure) {
         let i = 0;
         for (; i < items.length; i++) {
           const item = items[i], r = order[i];
+          if (keys[i] !== r.k) break;
           if (r.item.n.v === item) continue;
-          const k = key(() => item, () => i);
-          if (typeof k + ":" + (Object.is(k, -0) ? 0 : k) !== r.k) break;
           writeItem(r.item.n, item);
         }
         if (i === items.length) return;
@@ -1055,8 +1057,7 @@ export function each(p, list, key, row, pure) {
       // A row's place in the last pass is its `at`; repeats count once a key repeats.
       const next = new Map(), seen = new Map();
       items.forEach((item, i) => {
-        let k = key(() => item, () => i);
-        k = typeof k + ":" + (Object.is(k, -0) ? 0 : k);
+        let k = keys[i];
         if (next.has(k)) { const n = seen.get(k) ?? 1; seen.set(k, n + 1); k = "d" + n + ":" + k; journal.push(`each: repeated key ${k}`); }
         let r = rows.get(k);
         if (r) { rows.delete(k); r.old = r.at; if (!Object.is(r.item.n.v, item)) writeItem(r.item.n, item); if (r.index.n.v !== i) write(r.index.n, i); }
