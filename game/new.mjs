@@ -399,7 +399,7 @@ for (let i = verb === 'test' ? 0 : rest.length; i < rest.length;) {
   const named = rest[i] === '--test' ? rest.splice(i, 2)[1] : /\\.contract$|\\*/.test(rest[i]) ? rest.splice(i, 1)[0] : (i++, null);
   if (named == null) continue;
   const found = named.includes('*') ? [...new Bun.Glob(named).scanSync({ absolute: true })].sort() : [resolve(named)];
-  if (!found.length) { console.error(\`no test file matches \${named}\`); process.exit(2); }
+  if (!found.length) { console.error(\`no test file matches \${named}\`); process.exit(log(2)); }
   tests.push(...found);
 }
 if (drivesWeb) { const built = await run(verbs['web-build'], [], [0, 2, 2]); if (built) process.exit(log(built)); }
