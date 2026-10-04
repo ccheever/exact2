@@ -102,3 +102,26 @@ component Row
         assert_eq!(r.slot("selected"), Some(&Value::str(id)));
     }
 }
+
+/// LLP 1086 D4 reads an initializer's call targets as `infer` resolves
+/// them: a roster call or a file `fn` that shares a state's name is not
+/// that state, and a state named like the roster call it starts from
+/// compiles (Astra's batch 2 review). An action called there is still
+/// refused.
+#[test]
+fn an_initializer_calls_the_roster_and_fns_not_states_of_that_name() {
+    for src in [
+        "component App\n  state length = length(\"abc\")\n  view\n    text `${length}`\n",
+        "fn twice(n: number): number = n * 2\ncomponent App\n  state twice = twice(2)\n  view\n    text `${twice}`\n",
+        "fn twice(n: number): number = n * 2\ncomponent App\n  state n = twice(2)\n  state twice = 1\n  view\n    text `${n} ${twice}`\n",
+    ] {
+        if let Err(e) = contract::compile(src) {
+            panic!("{src}\n{} {}", e.id, e.message);
+        }
+    }
+    let e = contract::compile(
+        "component App\n  state n = go()\n  action go\n    n = 1\n  view\n    text `${n}`\n",
+    )
+    .unwrap_err();
+    assert_eq!(e.id, "type-initializer-scope", "{}", e.message);
+}

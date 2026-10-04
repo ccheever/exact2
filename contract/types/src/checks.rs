@@ -486,7 +486,7 @@ pub(super) fn infer_owned_state_initializers(
             scope.push(settled.clone());
             scope.push(names.clone());
             scope.frames.extend(regions);
-            if let Some(e) = super::component::initializer_scope(c, i, &scope) {
+            if let Some(e) = super::component::initializer_scope(c, i, &scope, &types.shapes) {
                 return Err(e);
             }
             ct.slots[i] = infer(&state.expr, &scope, &types.shapes)?;

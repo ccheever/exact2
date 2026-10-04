@@ -116,7 +116,7 @@ pub(crate) fn check_component(
                 // derives and resources it may read are
                 // (`infer_owned_state_initializers`).
                 Ty::Unknown
-            } else if let Some(e) = initializer_scope(c, i, &scope) {
+            } else if let Some(e) = initializer_scope(c, i, &scope, shapes) {
                 sink.push(e);
                 Ty::Unknown
             } else {
@@ -757,7 +757,7 @@ fn empty_list_in(e: &Expr) -> Option<Span> {
 /// The first name in `e` the component declares: state a placeholder's
 /// arguments may not read (LLP 1048.003 D6).
 fn reads_state(e: &Expr, scope: &Scope) -> Option<(String, Span)> {
-    first_free(e, false, &|name| scope.lookup(name).is_some())
+    first_free(e, &|_| false, &|name| scope.lookup(name).is_some())
 }
 
 /// @ref LLP 1086 D4 — a state's initializer runs before any resource
@@ -765,7 +765,12 @@ fn reads_state(e: &Expr, scope: &Scope) -> Option<(String, Span)> {
 /// states declared above it. A name it reads that the component declares
 /// otherwise is refused as what it is; an unknown name keeps its
 /// near-name suggestion.
-pub(crate) fn initializer_scope(c: &Component, i: usize, scope: &Scope) -> Option<TypeError> {
+pub(crate) fn initializer_scope(
+    c: &Component,
+    i: usize,
+    scope: &Scope,
+    shapes: &Shapes,
+) -> Option<TypeError> {
     let state = c.states[i].name.split('#').next().unwrap_or_default();
     let declared = |name: &str| {
         c.states[i..].iter().any(|s| s.name == name)
@@ -774,7 +779,18 @@ pub(crate) fn initializer_scope(c: &Component, i: usize, scope: &Scope) -> Optio
             || c.mutations.iter().any(|m| m.name == name)
             || c.actions.iter().any(|a| a.name == name)
     };
-    let (name, span) = first_free(&c.states[i].expr, true, &|name| {
+    // A call's name resolves as `infer` resolves it: `failed`/`pending`, a
+    // record's constructor and a file `fn` come before the component's
+    // names, and of those only an action is callable; any other name a
+    // call makes is the roster's (`state length = length("abc")`).
+    let calls = |name: &str| {
+        !matches!(name, "failed" | "pending")
+            && !crate::records::is_record_call(name, shapes)
+            && !shapes.fns.contains_key(name)
+            && c.actions.iter().any(|a| a.name == name)
+            && scope.lookup(name).is_none()
+    };
+    let (name, span) = first_free(&c.states[i].expr, &calls, &|name| {
         scope.lookup(name).is_none() && declared(name)
     })?;
     let shown = name.split('#').next().unwrap_or_default();
@@ -882,12 +898,16 @@ fn walk_exprs(e: &Expr, f: &mut dyn FnMut(&Expr)) {
 }
 
 /// The first free name in `e` (not bound by a `let`, a `match` or an arrow
-/// inside it) that `hit` accepts, with where; `calls` includes the names
-/// calls are made by.
-fn first_free(e: &Expr, calls: bool, hit: &dyn Fn(&str) -> bool) -> Option<(String, Span)> {
+/// inside it) that `hit` accepts, or the first name a call is made by that
+/// `calls` accepts, with where.
+fn first_free(
+    e: &Expr,
+    calls: &dyn Fn(&str) -> bool,
+    hit: &dyn Fn(&str) -> bool,
+) -> Option<(String, Span)> {
     fn walk(
         e: &Expr,
-        calls: bool,
+        calls: &dyn Fn(&str) -> bool,
         hit: &dyn Fn(&str) -> bool,
         bound: &mut Vec<String>,
     ) -> Option<(String, Span)> {
@@ -916,7 +936,7 @@ fn first_free(e: &Expr, calls: bool, hit: &dyn Fn(&str) -> bool) -> Option<(Stri
             | Expr::Typed(x, _, _)
             | Expr::Unary(_, x, _) => walk(x, calls, hit, bound),
             Expr::Call(name, args, span) => {
-                if calls && !bound.contains(name) && hit(name) {
+                if !bound.contains(name) && calls(name) {
                     return Some((name.clone(), *span));
                 }
                 args.iter().find_map(|a| walk(a, calls, hit, bound))
