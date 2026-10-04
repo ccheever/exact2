@@ -585,7 +585,6 @@ impl<D: DataSource> Presenter<D> {
         }
         self.restore_time(&mut host)?;
         self.host = host;
-        self.brush.paint_epoch = None; // A new kernel may have the same epoch.
         self.replaced();
         if self.display.new_session() {
             self.painted = false;
@@ -1404,6 +1403,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// Another host took over: it is measured as the last was, and counted.
     pub(crate) fn replaced(&mut self) {
+        self.brush.paint_epoch = None; // A new kernel may have the same epoch.
         self.hosts += 1;
         self.measure();
     }
