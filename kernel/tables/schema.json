@@ -53,7 +53,8 @@
     },
     {
       "id": 12,
-      "name": "Video"
+      "name": "Video",
+      "_comment": "@ref LLP 1042: HTML's `video`, and its `audio` (`semanticTag` audio, LLP 1042 §8): one media node, one player per host."
     },
     {
       "id": 13,

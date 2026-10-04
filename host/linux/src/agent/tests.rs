@@ -730,3 +730,37 @@ fn a_target_out_of_view_is_revealed_and_a_control_takes_a_value() {
         assert!(again.contains("\"scrolled\":false"), "{again}");
     }
 }
+
+/// A `video` or `audio` here plays nothing (no decoder, no audio output):
+/// `state.media` says so per node, and the tree marks it unavailable
+/// (LLP 1042 §5, §8).
+#[test]
+fn media_is_reported_unavailable() {
+    let plan = contract::compile(
+        "component App\n  view\n    column\n      audio \"assets/ding.wav\" testId=\"sound\" paused=false\n",
+    )
+    .unwrap();
+    let (mut p, _) = Presenter::boot_with(
+        &plan.encode(),
+        NoData,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    let json = |s: String| -> serde_json::Value { serde_json::from_str(&s).unwrap() };
+    let state = json(handle(&mut p, r#"{"op":"state"}"#));
+    let media = state["media"].as_array().expect("state.media");
+    assert_eq!(media.len(), 1, "{state}");
+    assert_eq!(media[0]["state"]["paused"], true);
+    assert!(media[0]["state"]["unavailable"].is_string(), "{state}");
+    let tree = json(handle(&mut p, r#"{"op":"tree"}"#));
+    let sound = tree["nodes"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["type"] == "Video")
+        .unwrap();
+    assert_eq!(sound["unavailable"], true, "{tree}");
+}

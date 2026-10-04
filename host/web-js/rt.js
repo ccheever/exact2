@@ -499,13 +499,13 @@ const rel = (k, v) => (k === "src" || k === "poster") && /^\/(assets|deck|shader
   && (Release ??= (() => { try { return /^\/\.exact\/root\/web\/releases\/[0-9a-f]{64}\/$/.test(new URL(document.baseURI).pathname); } catch { return false; } })()) ? "." + v : v;
 export function h(p, tag, cls, attrs, text, ns) {
   if (attrs?.["aria-keyshortcuts"] != null) input();
-  if (Adopt) { const e = adopt(p, tag, cls, attrs); if (tag === "video") media(e, attrs); return e; }
+  if (Adopt) { const e = adopt(p, tag, cls, attrs); if (tag === "video" || tag === "audio") media(e, attrs); return e; }
   const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag);
   if (cls !== 0) e.setAttribute("class", "c" + cls);
   if (attrs) { for (const k in attrs) e.setAttribute(k, rel(k, attrs[k])); if ("data-scrolldocument" in attrs) Docs.add(e); if ("data-exact-box" in attrs) paintList(p); }
   if (text !== 0) e.textContent = text;
   p.append(e);
-  if (tag === "video") media(e, attrs);
+  if (tag === "video" || tag === "audio") media(e, attrs); // an `audio` is the same media host (LLP 1042 §8)
   return e;
 }
 /** An SVG element (the compiler knows the node's type; element.rs's tag). */

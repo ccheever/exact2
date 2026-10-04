@@ -411,6 +411,35 @@ update); only handled events cross the ABI and the 4 Hz timeupdate runs only
 while handled, as the web glue does; one parsed `AVURLAsset` per unchanged
 local file; `src`/`poster` resolved only when they change.
 
+## 8. Audio (x2apps diaries, 2026-10-04)
+
+Three apps (snake F1, jukebox, trivia F5) had no way to play a sound; one
+played audio files through a `video`. `audio` is HTML's `<audio>`: the same
+media node (`Video`, `semanticTag` audio), so every prop, event, error code
+and `state.media` row above is its too, and each host's player is the one a
+`video` has (an `<audio>` element on both web targets, the AVPlayer arm on
+Apple). What differs is what HTML's differs in:
+
+- No picture: `poster`, `playsinline` and `playbackVisibilityThreshold` are
+  refused (`lower-attr-tag`); Chrome's off-screen autoplay rule (§3) never
+  holds one; on iOS it never takes full screen or picture in picture, and
+  only `controls` brings AVKit's controller.
+- No box without `controls`: the UA's `audio:not([controls]) { display: none
+  !important }`, so no authored `display` shows one; a bound `controls` binds
+  `display` with it. With `controls` the box is Chrome's 300×54 until the
+  author sizes it. It never waits for a natural size.
+- A sound effect plays from the input's own action: the web glue calls
+  `play()` in the commit that the press made, inside the user gesture
+  (verified: a play the boot asks for is refused `not-allowed` in the
+  driver's Chrome, one a tap asks for plays). An ended item asked to play
+  starts over, as HTML's `play()` does; Apple seeks to the start, and reports
+  `pause` before `ended` as the element does. `preload="auto"` readies it.
+
+Linux has no decoder or audio output: its `state.media` lists each media
+node as unavailable, paused at 0. iOS plays under the default audio session,
+so the ring/silent switch silences it, where Safari's element plays (the app
+audio-session arbiter is §5's, unbuilt).
+
 Sources: [HTML media](https://html.spec.whatwg.org/multipage/media.html),
 [AVPlayerViewController](https://developer.apple.com/documentation/avkit/avplayerviewcontroller),
 [AVPlayerView](https://developer.apple.com/documentation/avkit/avplayerview).

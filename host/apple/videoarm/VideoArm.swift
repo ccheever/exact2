@@ -86,6 +86,10 @@ private final class VideoArm: NSObject {
     var itemReady = false
     var naturalSize = CGSize.zero
     var wantsPlay = false
+    /// The item played to its end (HTML's "ended playback"): the next play
+    /// starts it over, as HTML's play() does (LLP 1042 §8: a sound effect
+    /// replays by asking to play again).
+    var atEnd = false
     var lastPaused = true
     var lastTimeStatus = AVPlayer.TimeControlStatus.paused
     /// The playback rate last reported by `ratechange` (HTML's playbackRate):
@@ -225,16 +229,16 @@ private final class VideoArm: NSObject {
         presentation.showsFullScreenToggleButton = !(props["controlslist"] ?? "").split(separator: " ").contains("nofullscreen")
         presentation.showsSharingServiceButton = false
         presentation.showsTimecodes = bool("showsTimecodes")
-        presentation.allowsPictureInPicturePlayback = !bool("disablepictureinpicture") && bool("allowsPictureInPicturePlayback", true)
+        presentation.allowsPictureInPicturePlayback = props["semanticTag"] != "audio" && !bool("disablepictureinpicture") && bool("allowsPictureInPicturePlayback", true)
         presentation.allowsVideoFrameAnalysis = bool("allowsVideoFrameAnalysis", true)
         #else
         configurePresentation()
         controller?.showsPlaybackControls = bool("controls")
-        controller?.allowsPictureInPicturePlayback = !bool("disablepictureinpicture") && bool("allowsPictureInPicturePlayback", true)
+        controller?.allowsPictureInPicturePlayback = props["semanticTag"] != "audio" && !bool("disablepictureinpicture") && bool("allowsPictureInPicturePlayback", true)
         // tvOS playback is always full screen and has no inline PiP or frame analysis.
         #if !os(tvOS)
         controller?.canStartPictureInPictureAutomaticallyFromInline = bool("canStartPictureInPictureAutomaticallyFromInline")
-        controller?.entersFullScreenWhenPlaybackBegins = bool("entersFullScreenWhenPlaybackBegins", !bool("playsinline"))
+        controller?.entersFullScreenWhenPlaybackBegins = props["semanticTag"] != "audio" && bool("entersFullScreenWhenPlaybackBegins", !bool("playsinline"))
         controller?.exitsFullScreenWhenPlaybackEnds = bool("exitsFullScreenWhenPlaybackEnds")
         #endif
         controller?.requiresLinearPlayback = bool("requiresLinearPlayback")
@@ -289,7 +293,7 @@ private final class VideoArm: NSObject {
         notifications.removeAll()
         player.replaceCurrentItem(with: nil)
         naturalSize = .zero
-        itemReady = false; seekTarget = nil
+        itemReady = false; seekTarget = nil; atEnd = false
         pendingSeek = props["currentTime"].flatMap(Double.init)
         guard let source = props["src"], !source.isEmpty, let url = URL(string: source) else { return }
         // preload is a hint: AVKit may prepare an item so its native Play control works.
@@ -325,15 +329,24 @@ private final class VideoArm: NSObject {
             guard let self, !self.invalidated, self.generation == token else { return }
             // The player keeps its rate at the end (`actionAtItemEnd` is none);
             // the seek reports seeking, seeked and timeupdate, as Chrome does.
-            if self.bool("loop") { self.seek(0) } else { self.wantsPlay = false; self.emit("ended") }
+            // HTML's end without loop: `pause`, then `ended` (AVPlayer's
+            // own pause arrives after this notification; it is the same one).
+            guard !self.bool("loop") else { self.seek(0); return }
+            self.wantsPlay = false; self.atEnd = true
+            if !self.lastPaused { self.lastPaused = true; self.emit("pause") }
+            self.emit("ended")
         })
         if wantsPlay { play() }
     }
-    func play() { player.defaultRate = rate; player.play() }
+    func play() {
+        player.defaultRate = rate
+        if atEnd { atEnd = false; seek(0) }
+        player.play()
+    }
     func seek(_ time: Double) {
         guard player.currentItem?.status == .readyToPlay else { pendingSeek = time; return }
         poster.isHidden = true
-        seekTarget = time; seeks += 1
+        seekTarget = time; seeks += 1; atEnd = false
         emit("seeking")
         let token = generation, mine = seeks
         player.seek(to: CMTime(seconds: time, preferredTimescale: 600), toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] completed in
@@ -373,12 +386,15 @@ private final class VideoArm: NSObject {
     /// until this node is destroyed.
     private func configurePresentation() {
         guard props["src"] != nil || presentation != nil else { return }
-        let needsController = bool("controls")
-            || (!bool("disablepictureinpicture") && props["allowsPictureInPicturePlayback"] == "true")
+        // An `audio` has no picture to take full screen or to picture in
+        // picture: only its `controls` ask for AVKit (LLP 1042 §8).
+        let audio = props["semanticTag"] == "audio"
+        let needsController = bool("controls") || !audio && (
+            (!bool("disablepictureinpicture") && props["allowsPictureInPicturePlayback"] == "true")
             || bool("canStartPictureInPictureAutomaticallyFromInline")
             || bool("entersFullScreenWhenPlaybackBegins", !bool("playsinline"))
             || bool("exitsFullScreenWhenPlaybackEnds") || bool("requiresLinearPlayback")
-            || props["allowsVideoFrameAnalysis"] == "true"
+            || props["allowsVideoFrameAnalysis"] == "true")
         if controller == nil && needsController {
             let native = AVPlayerViewController()
             native.player = player

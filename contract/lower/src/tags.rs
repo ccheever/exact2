@@ -325,6 +325,7 @@ pub fn tag(name: &str) -> Option<Tag> {
             fixed_props: &[],
             positional: Some(PropId::Src),
         },
+        "audio" => crate::media::AUDIO,
         "image" => Tag {
             node_type: NodeType::Image,
             fixed_styles: &[],

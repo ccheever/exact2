@@ -365,6 +365,25 @@ nothing (the web and Apple journal `image refused`). Keep a picked photo by copy
 (`HermesInternal`) to choose a source
 ([LLP 1069.002](../llp/1069.002-media-picker.rfc.md) D7, [LLP 1011](../llp/1011-image-v1.spec.md) §2).
 
+A sound is HTML's `audio` (LLP 1042 §8): `video`'s props and events with no
+picture, hidden unless it has `controls`. Bind `paused` and play from the input's
+own action, so the play is inside the user gesture the web requires (a play that
+nothing pressed for is refused, `error` `not-allowed`); mirror `pause` into the
+binding, since a sound that ends pauses itself. Asking an ended sound to play
+again starts it over, on every host:
+
+```contract
+  state hush = true
+  action ding
+    hush = false
+  action hushed
+    hush = true
+  view
+    column
+      button "Ding" press=ding
+      audio "assets/ding.wav" preload="auto" paused=hush pause=hushed
+```
+
 Keep `id` and `testId` separate:
 
 - `id`: host command target, geometry, cross-node references.
@@ -497,7 +516,7 @@ nearest scroll containers, then the page) and say so in the reply's `scrolled`.
 move, with the finger still down. `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires
 first); its reply says what is still in flight, and `clock settle` lands it.
-A playing `video` is on real time too: the clock never seeks or holds it, so
+A playing `video` or `audio` is on real time too: the clock never seeks or holds it, so
 between operations it moves only as far as the drive took. `clock +N real` lets
 N ms of real time pass with the clock moving beside it, a step at a time: a
 video plays that far (its `timeupdate`s arrive), and a reply that lands in the

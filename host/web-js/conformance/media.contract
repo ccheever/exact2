@@ -4,7 +4,8 @@
 // engine reports the same way each run; the time is the one a seek
 // reports, not where playing reached. A missing source's `error` is a code,
 // never the engine's text. (No slot shares a name with Video Player's: the
-// wasm page carries its first world into this plan by slot name.)
+// wasm page carries its first world into this plan by slot name.) An
+// `audio` beside it (LLP 1042 §8) is hidden and plays from the play press.
 component Media
   state held = true
   state muted = false
@@ -25,6 +26,8 @@ component Media
   state pauses = 0
   state ready = false
   state problem = ""
+  state hush = true
+  state sounds = 0
   action quieter
     volume = 0.25
   action mute
@@ -40,6 +43,7 @@ component Media
   action play
     held = false
     looped = true
+    hush = false
   action pause
     held = true
   action other
@@ -71,10 +75,12 @@ component Media
     problem = code
   action heard
     problem = problem
+  action sounded
+    sounds = sounds + 1
   view
     column testId="root" gap=4 padding=8 height="100%" box-sizing="border-box" background-color="#ffffff" color="#000000"
       video src testId="video" width=160 height=90 paused=held muted=muted loop=looped volume=volume playbackRate=rate preservesPitch=pitch currentTime=seek preload="auto" playsinline=true controls=false loadedmetadata=meta durationchange=length timeupdate=tick play=played playing=heard pause=stopped ended=heard waiting=heard seeking=seeking seeked=seeked ratechange=rated volumechange=vol canplay=can error=failed
-      text `metas ${metas} dur ${dur} at ${at} vols ${vols} rates ${rates} seeks ${seeks} plays ${plays} pauses ${pauses} ready ${ready} error ${problem}` testId="seen"
+      text `metas ${metas} dur ${dur} at ${at} vols ${vols} rates ${rates} seeks ${seeks} plays ${plays} pauses ${pauses} ready ${ready} error ${problem} sounds ${sounds}` testId="seen"
       button "quieter" press=quieter testId="quieter"
       button "mute" press=mute testId="mute"
       button "faster" press=faster testId="faster"
@@ -85,3 +91,4 @@ component Media
       button "back" press=back testId="back"
       button "other" press=other testId="other"
       button "missing" press=missing testId="missing"
+      audio "assets/motion.mp4" testId="audio" preload="auto" paused=hush play=sounded

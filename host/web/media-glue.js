@@ -1,4 +1,5 @@
-// @ref LLP 1042. Loaded on demand; the browser owns decoding, controls and time.
+// @ref LLP 1042. Loaded on demand; the browser owns decoding, controls and time,
+// for a `video` and an `audio` alike (§8).
 const states = new WeakMap();
 const booleans = new Set(['autoplay', 'controls', 'loop', 'muted', 'playsinline', 'disablepictureinpicture', 'disableremoteplayback']);
 const numbers = { volume: [0, 1, 1], playbackRate: [0.25, 4, 1], currentTime: [0, Infinity, 0] };
@@ -65,7 +66,7 @@ globalThis.exact.installMedia = (el, send) => {
   const emit = (name, payload = '') => {
     if (!state.retired && el.isConnected && el.exactMedia.handlers.includes(name)) send(`${name}\n${payload}`);
   };
-  const state = { applied: {}, seek: null, threshold: null, visibilityBlocked: false, retired: false, error(code, message) { if (!state.retired) console.warn(`exact: video ${code}: ${message}`); emit('error', code); } };
+  const state = { applied: {}, seek: null, threshold: null, visibilityBlocked: false, retired: false, error(code, message) { if (!state.retired) console.warn(`exact: ${el.localName} ${code}: ${message}`); emit('error', code); } };
   states.set(el, state);
   for (const name of mediaEvents) el.addEventListener(name, () => {
     if (name === 'loadedmetadata' && state.seek !== null) { el.currentTime = state.seek; state.seek = null; }

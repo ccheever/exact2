@@ -385,7 +385,7 @@ Several tags share a kernel node type with different fixed properties.
 | Boxes / layout | `view`, `box`, `row`, `column`, `scroll`, `list` |
 | Structure | `main`, `header`, `nav`, `section`, `footer`, `article`, `aside`, `dialog` |
 | Text and controls | `text`, `button`, `link`, `input`, `textarea`, `select`, `option` |
-| Media / metadata | `image`, `video`, `iframe`, `canvas`, `head` |
+| Media / metadata | `image`, `video`, `audio`, `iframe`, `canvas`, `head` |
 | SVG scene | `svg`, `g`, `path`, `polyline`, `polygon`, `circle`, `ellipse`, `line`, `rect` |
 | SVG definitions | `defs`, `symbol`, `use`, `clipPath`, `marker`, `mask`, `pattern` |
 | SVG color / text / embedding | `linearGradient`, `radialGradient`, `stop`, `tspan`, `foreignObject` |
@@ -453,7 +453,11 @@ working fixture, not inferred from JavaScript's Event interface.
 | Zero or one `PointerEvent` (the action takes it or leaves it) | `pointerdown`, `pointerup`, `pointermove` |
 | None | `press`, `cancel`, `focus`, `blur`, `submit`, `load`, `contextmenu`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
 
-A `video`'s `error` appends a stable code, never the engine's text: MediaError's
+An `audio` is HTML's: `video`'s props and events without `poster`, `playsinline`
+or `playbackVisibilityThreshold`; no box unless `controls` (then Chrome's 300×54,
+which `width`/`height` override), whatever `display` says
+([LLP 1042](../llp/1042-video.spec.md) §8).
+A `video`'s or `audio`'s `error` appends a stable code, never the engine's text: MediaError's
 `aborted`, `network`, `decode` and `src-not-supported` (a source that never loaded),
 `not-allowed` (the browser refused to start playing) or `invalid-value` (a number out
 of range). A play interrupted by a pause or a new source is no error. A `video` the

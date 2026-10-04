@@ -925,7 +925,7 @@ and its arguments; it is not a drawing-command language. Heavy computation and
 game loops belong in those modules. See [Canvas Gallery](../apps/canvas-gallery/app.contract),
 [SVG Gallery](../apps/svg-gallery/app.contract), and [the game workspace](../game/README.md).
 
-`image`, `video`, `iframe`, and Markdown-capable text/editors use host facilities.
+`image`, `video`, `audio`, `iframe`, and Markdown-capable text/editors use host facilities.
 Use `object-fit` for replaced media; distinguish text content from markup.
 [Video Player](../apps/video-player/app.contract) shows playback bindings and
 [Markdown Stress](../apps/markdown-stress/app.contract) selection and editing;
