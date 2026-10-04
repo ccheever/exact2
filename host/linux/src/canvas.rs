@@ -1178,7 +1178,32 @@ impl<D: DataSource + Default> CanvasHost<D> {
     /// retire there, not inside the next frame's scroll); from now on scrolls
     /// leave it. Whether a frame is wanted after it.
     pub fn refine(&mut self) -> bool {
+        self.refine_slice(None, 0.0)
+    }
+
+    /// [`CanvasHost::refine`], building at most `limit` rows past what shows
+    /// per list (a slice; `None`: whole windows), the scrolled list leading
+    /// toward `velocity` (logical px/s). Whether a paint is wanted; the
+    /// rest a slice left is [`CanvasHost::refine_pending`].
+    pub fn refine_slice(&mut self, limit: Option<u32>, velocity: f64) -> bool {
         let _s = Section::begin(c"exact refine");
+        self.p.slice_collections(limit, velocity);
+        let wanted = self.refine_inner();
+        self.p.slice_collections(None, 0.0);
+        wanted
+    }
+
+    /// Device pixels per logical pixel.
+    pub fn scale(&self) -> f32 {
+        self.scale
+    }
+
+    /// Whether a slice left rows to build.
+    pub fn refine_pending(&self) -> bool {
+        self.p.collections_pending()
+    }
+
+    fn refine_inner(&mut self) -> bool {
         self.scrolled = false;
         self.prefetching = true;
         // Pictures coming into view while frames move: requested now, where
