@@ -17,7 +17,7 @@
 // `tap … wheel <dx> <dy> gesture` sends the wheel as a trackpad's gesture —
 // began, changed, and the zero-delta lift that ends it (LLP 1033 D4a, macOS
 // only); `tap … hover` moves the pointer onto the target (LLP 1005 §3). --device: build/install first with build.mjs --device; no Mac-local plan/assets paths.
-import { Cdp, chromium, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
+import { Cdp, chromium, removeBrowserProfile, traceLocators, parseFlags, launchFacts, launchEnvironment, refuseStale, unchecked, depInfoChanges, packagedBuildChanges, receiptChanges, webChanges, bakedPlans } from './agent-launch.mjs';
 export { Cdp } from './agent-launch.mjs';
 import { sourceMapReaders, identifyInspectedNode, render, perfOp, readTrace, renderTrace, layoutArgs } from './agent-inspect.mjs';
 import { LAUNCH_MEDIA, preferGroups, preferOp, preferWeb } from './agent-prefer.mjs';
@@ -173,7 +173,9 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     } else try { process.kill(-child.pid, 'SIGKILL'); } catch {}
     await waitAtMost(exited, 2000);
     server.close();
-    rmSync(profile, { recursive: true, force: true, maxRetries:5, retryDelay:100 });
+    if (child.exitCode === null && child.signalCode === null)
+      throw new Error(`Chrome ${child.pid} did not exit; owned profile retained at ${profile}`);
+    await removeBrowserProfile(profile);
     if (planBuild) rmSync(planBuild, { recursive: true, force: true });
   };
   try {
