@@ -63,6 +63,29 @@ final class AccessibilityTreeMacTests: XCTestCase {
         XCTAssertEqual((box["states"] as? [String: Any])?["checked"] as? Bool, true)
     }
 
+    /// A box whose ARIA role is `button` is one, as the web's tree has it
+    /// (chat F14); an empty date reads empty and shows its format, never
+    /// the picker's 1/1/2001 (kanban F23).
+    func testARoleButtonBoxIsAButtonAndAnEmptyDateReadsEmpty() throws {
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "view", "handlers": ["press"],
+             "props": ["testId": "bubble", "accessibilityRole": "button", "accessibilityLabel": "Message"]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4]],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 100.0, "w": 100.0, "h": 40.0],
+        ]))
+        p.syncAccessibility()
+        let bubble = try XCTUnwrap(elements(p.axElements(roots: [p.viewport])).first { $0["testId"] as? String == "bubble" })
+        XCTAssertEqual(bubble["role"] as? String, "button")
+        XCTAssertEqual(bubble["name"] as? String, "Message")
+        let date = DateField()
+        date.empty = true
+        XCTAssertEqual(date.accessibilityValue() as? String, "")
+        XCTAssertEqual(DateField.placeholder("date", Locale(identifier: "en_US")), "mm/dd/yyyy")
+        XCTAssertEqual(DateField.placeholder("date", Locale(identifier: "en_GB")), "dd/mm/yyyy")
+        XCTAssertEqual(DateField.placeholder("time", Locale(identifier: "en_US")), "--:-- --")
+    }
+
     /// An attached sheet is the modal: the driver judges everything else against it.
     func testASheetRootIsReportedAsTheModal() throws {
         let p = try fixture()

@@ -102,7 +102,8 @@ extension ControlHost {
             return ["view": "NSSlider", "value": slider.doubleValue, "min": slider.minValue, "max": slider.maxValue]
         }
         if let picker = control as? NSDatePicker {
-            return ["view": "NSDatePicker", "value": DateValue.format(kinds[UInt32(picker.tag)] ?? "date", picker.dateValue)]
+            let empty = (picker as? DateField)?.empty == true
+            return ["view": "NSDatePicker", "value": empty ? "" : DateValue.format(kinds[UInt32(picker.tag)] ?? "date", picker.dateValue)]
         }
         guard let popup = control as? NSPopUpButton else { return nil }
         let menu = menus[UInt32(popup.tag)]

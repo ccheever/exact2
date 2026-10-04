@@ -38,6 +38,11 @@ extension ControlHost {
     /// HTML's format; the runner holds it to the format and `min`/`max`.
     func typeDate(_ picker: UIDatePicker, _ node: NodeView, _ text: String) -> [String: Any] {
         let kind = kinds[node.id] ?? "date"
+        // An empty value clears it, as deleting every segment does on the web.
+        if text.isEmpty {
+            presenter.controlValue(node.id, "", input: true, change: true)
+            return ["typed": Int(node.id), "value": presenter.views[node.id]?.props["value"] ?? "", "delivery": "host-activation", "native": "control"]
+        }
         guard let date = DateValue.parse(kind, text) else {
             return ["error": "\"\(text)\" is not a \(kind) value (HTML's format, as 2026-09-27, 14:30 or 2026-09-27T14:30)"]
         }
