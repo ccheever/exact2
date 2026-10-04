@@ -104,8 +104,19 @@ final class GroupedListHost {
     func scroller(for id: UInt32) -> UIScrollView? {
         if let list = lists[id] { return list.collection }
         if let (list, _) = list(drawing: id) { return list.collection }
-        guard let node = presenter.views[id] else { return nil }
-        return lists.values.first { node.isDescendant(of: $0.owner) }?.collection
+        // A custom row or a view inside one, wherever its cell's reuse left
+        // it: up its own views to a row a list's model names.
+        var at: UIView? = presenter.views[id]
+        while let view = at {
+            if let node = view as? NodeView {
+                if let list = lists[node.id] { return list.collection }
+                if let list = lists.values.first(where: { $0.model.sections.contains { $0.rows.contains { $0.view == node.id } } }) {
+                    return list.collection
+                }
+            }
+            at = view.superview
+        }
+        return nil
     }
 
     /// Whether a list draws `id` (a row, or a row's toggle or detail
@@ -183,7 +194,7 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     private var rows: [UInt32: GroupedListModel.Row] = [:]
     private var switches: [UInt32: UISwitch] = [:]
     /// Custom rows: where the presenter put each, to give it back.
-    private(set) var carried: [UInt32: (parent: UIView, index: Int, frame: CGRect)] = [:]
+    private(set) var carried: [UInt32: (parent: UIView, index: Int, frame: CGRect, inert: Bool)] = [:]
     /// The order they were carried in: given back last first, each index
     /// is where it was before the ones carried after it left.
     private var carriedOrder: [UInt32] = []
@@ -419,7 +430,8 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         guard rows[id]?.custom == true, let row = host.presenter.views[id] else { return }
         for case let other as NodeView in cell.contentView.subviews where other !== row { other.removeFromSuperview() }
         if carried[id] == nil, let parent = row.superview {
-            carried[id] = (parent, parent.subviews.firstIndex(of: row) ?? 0, row.frame)
+            // Its inertness is its authored ancestors', which a cell is not.
+            carried[id] = (parent, parent.subviews.firstIndex(of: row) ?? 0, row.frame, row.inert)
             carriedOrder.append(id)
         }
         guard let place = carried[id] else { return }
@@ -466,12 +478,12 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     /// (its node or an ancestor, the section included).
     private func pressable(_ id: UInt32) -> Bool {
         guard let row = rows[id], row.pressable, !row.disabled, let node = host.presenter.views[id] else { return false }
-        return !node.inert
+        return !(carried[id]?.inert ?? node.inert)
     }
 
     /// An inert row's cell takes no touch and is no element, as its node.
     private func interact(_ cell: UICollectionViewCell, _ id: UInt32) {
-        let inert = host.presenter.views[id]?.inert ?? false
+        let inert = carried[id]?.inert ?? host.presenter.views[id]?.inert ?? false
         assign(cell, \.isUserInteractionEnabled, !inert)
         assign(cell, \.accessibilityElementsHidden, inert)
     }

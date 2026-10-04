@@ -679,9 +679,20 @@ impl<'a> Lowerer<'a> {
                 // `class=` expands its style's rows first; the node's own
                 // attribute of the same name replaces the style's (LLP 1017 P6).
                 // @ref LLP 1082 D7 — a grouped list's sheet, under its classes.
-                let (sheet, unmarked) = grouped::split(attrs);
+                let (mut sheet, unmarked) = grouped::split(attrs);
                 let attrs = unmarked.as_ref().unwrap_or(attrs);
                 let (class_label, mut expanded) = self.class_rows(attrs)?.unzip();
+                let native = expanded
+                    .iter()
+                    .flatten()
+                    .chain(attrs.iter())
+                    .rev()
+                    .find(|a| a.name == "appearance");
+                if tag == "button"
+                    && native.is_some_and(|a| matches!(&a.value, Expr::Str(v, _) if v == "auto"))
+                {
+                    grouped::native_rows(&mut sheet);
+                }
                 let class_len = expanded.as_ref().map_or(0, Vec::len) + sheet.len();
                 let expanded = match &mut expanded {
                     Some(rows) => {
@@ -723,6 +734,10 @@ impl<'a> Lowerer<'a> {
                 let expanded = canonical_type.as_deref().unwrap_or(expanded);
                 let control = controls::control(tag, expanded)?;
                 let t = control.map_or(t.clone(), |kind| controls::tag(kind, t.clone()));
+                let face = (control == Some("button"))
+                    .then(|| grouped::unsheet(children))
+                    .flatten();
+                let children = face.as_ref().unwrap_or(children);
                 if control == Some("button") {
                     self.check_native_button(expanded, children, *span)?;
                 }

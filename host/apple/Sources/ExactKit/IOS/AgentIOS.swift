@@ -475,6 +475,13 @@ extension Agent {
             button.sendActions(for: event)
             return ["tapped": id, "at": [Agent.r2(b.midX), Agent.r2(b.midY)], "delivery": "host-activation", "native": "swipe-action"]
         }
+        // A wheel on what a grouped list draws scrolls that list, even when
+        // the node is a custom row's view its cell's reuse took off screen.
+        if let wheel = req["wheel"] as? [Double], wheel.count == 2, wheel.allSatisfy(\.isFinite),
+           let id = req["id"] as? Int, let list = presenter.groupedLists.scroller(for: UInt32(id)), presenter.views[UInt32(id)]?.window == nil {
+            Agent.scroll(from: list, dx: CGFloat(wheel[0]), dy: CGFloat(wheel[1]))
+            return ["tapped": id, "wheel": wheel]
+        }
         guard let v = view(req), let win = v.window else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         let b = box(v)
         // The middle of the box as seen — through a surface's placement when

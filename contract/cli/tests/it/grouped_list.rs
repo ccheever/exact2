@@ -376,3 +376,57 @@ fn a_subtitle_shown_by_a_condition_and_a_hidden_text() {
         "a hidden text is not counted: `Stay` is the title"
     );
 }
+
+#[test]
+fn round_three_shapes() {
+    // A class that makes a row a native button.
+    let src = app("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button class=Native press=go testId=\"native\"\n      text \"Native\"");
+    let src = format!("style Native\n  appearance=\"auto\"\n{src}");
+    contract::compile(&src)
+        .unwrap_or_else(|e| panic!("a class-made native button row compiles: {e}"));
+    // A conditional first subtitle line, a text field beside a column,
+    // and a hidden leading symbol.
+    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      column\n        when dark\n          text \"New\"\n        text \"Notifications\" testId=\"second\"\n    row testId=\"field\"\n      column testId=\"cols\"\n        text \"A\"\n        text \"B\"\n      input type=\"text\" value=\"x\"\n    button press=go testId=\"plain\"\n      image \"symbol:person\" display=\"none\"\n      text \"Title\"");
+    let size = |r: &Runner<NoData>| r.kernel().node(id(r, "second")).unwrap().frame.height;
+    let title = size(&r);
+    assert!(
+        r.kernel().node(id(&r, "cols")).unwrap().frame.height < 50.0,
+        "beside a text field the column is the author's"
+    );
+    assert_eq!(
+        r.kernel().node(id(&r, "plain")).unwrap().frame.x,
+        32.0,
+        "a hidden symbol reserves no inset"
+    );
+    let row = id(&r, "row");
+    r.dispatch(row, exact_runner::Event::Press).unwrap();
+    let k = r.kernel_mut();
+    let root = k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id;
+    k.compute_layout(root, Offer::definite(402.0, 874.0))
+        .unwrap();
+    assert!(
+        size(&r) < title,
+        "with `New` shown, `Notifications` is the 15-pt second line"
+    );
+}
+
+#[test]
+fn a_hidden_text_in_a_subtitle_column_and_a_hidden_first_line() {
+    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go\n      column testId=\"stack\"\n        text \"Gone\" display=\"none\"\n        text \"Privacy\"\n        text \"Screen lock\"\n    button press=go testId=\"row\"\n      column\n        when dark\n          text \"Privacy\"\n        text \"Screen lock\" testId=\"lock\"");
+    assert!(
+        r.kernel().node(id(&r, "stack")).unwrap().frame.height > 60.0,
+        "two shown lines: the subtitle cell's padding"
+    );
+    let size = |r: &Runner<NoData>| r.kernel().node(id(r, "lock")).unwrap().frame.height;
+    let alone = size(&r);
+    let row = id(&r, "row");
+    r.dispatch(row, exact_runner::Event::Press).unwrap();
+    let k = r.kernel_mut();
+    let root = k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id;
+    k.compute_layout(root, Offer::definite(402.0, 874.0))
+        .unwrap();
+    assert!(
+        size(&r) < alone,
+        "the title alone, then the 15-pt second line under `Privacy`"
+    );
+}

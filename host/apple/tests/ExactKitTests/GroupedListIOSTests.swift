@@ -209,6 +209,16 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertEqual(pressed, [20])
     }
 
+    func testACarriedCustomRowKeepsItsSectionsInertness() throws {
+        let p = presenter { self.model(custom: true) }
+        p.apply(wireBatch([["op": "props", "id": 3, "set": ["inert": "true"], "clear": [String]()]]))
+        let custom = try cell(p, 21)
+        XCTAssertTrue(p.views[21]?.superview === custom.contentView, "carried")
+        XCTAssertFalse(custom.isUserInteractionEnabled, "the section is inert though the cell is not its ancestor")
+        XCTAssertTrue(custom.accessibilityElementsHidden)
+        XCTAssertTrue(p.groupedLists.scroller(for: 21) === (try list(p)).collection, "a custom row's wheel scrolls its list")
+    }
+
     func testARowThatTurnsCustomAndBackAndAHeaderThatChanges() throws {
         var custom = false, header = "Account"
         let p = presenter {
