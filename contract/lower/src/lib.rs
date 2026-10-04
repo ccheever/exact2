@@ -39,6 +39,7 @@ mod strings;
 mod svg;
 pub mod tags;
 mod values;
+pub mod vocab;
 
 pub use dataset::{data_words, hook_words};
 pub use lint::lint;
@@ -1315,9 +1316,9 @@ impl<'a> Lowerer<'a> {
                     });
                     return Ok(());
                 }
-                // CSS's one-to-four-value `border-color`: a binding a side.
-                if rows == values::BORDER_COLORS {
-                    if let Some(sides) = values::border_color_sides(&a.value)? {
+                // CSS's one-to-four-value box shorthands: a binding a side.
+                if values::four_sided(rows) {
+                    if let Some(sides) = values::sides(&a.name, &a.value)? {
                         for (&row, value) in rows.iter().zip(sides) {
                             let (code, ty) = self.typed_code(&value, scope, locals)?;
                             let side = Attr { value, ..a.clone() };

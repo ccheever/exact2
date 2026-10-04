@@ -27,14 +27,15 @@ collects syntax, operator precedence, built-in functions, tags, and events.
 7. [Views and repeated content](#views-and-repeated-content)
 8. [Components, providers, and slots](#components-providers-and-slots)
 9. [Resources and mutations](#resources-and-mutations)
-10. [Styling and layout](#styling-and-layout)
-11. [Input, events, and commands](#input-events-and-commands)
-12. [Navigation and documents](#navigation-and-documents)
-13. [Time, motion, and geometry](#time-motion-and-geometry)
-14. [Graphics, media, and native extensions](#graphics-media-and-native-extensions)
-15. [Platform facts and localization](#platform-facts-and-localization)
-16. [Testing, diagnostics, and delivery](#testing-diagnostics-and-delivery)
-17. [Where to go next](#where-to-go-next)
+10. [Writing the data module](#writing-the-data-module)
+11. [Styling and layout](#styling-and-layout)
+12. [Input, events, and commands](#input-events-and-commands)
+13. [Navigation and documents](#navigation-and-documents)
+14. [Time, motion, and geometry](#time-motion-and-geometry)
+15. [Graphics, media, and native extensions](#graphics-media-and-native-extensions)
+16. [Platform facts and localization](#platform-facts-and-localization)
+17. [Testing, diagnostics, and delivery](#testing-diagnostics-and-delivery)
+18. [Where to go next](#where-to-go-next)
 
 ## Run an app
 
@@ -587,8 +588,185 @@ cargo run -q -p contract -- rust path/to/app.contract -o /tmp/shapes.rs
 
 Generated declarations are build artifacts. The data module's
 `export const grants` governs network and storage permissions; a source name alone
-grants nothing. Use [the data-module reference](reference.md#generate-typescript-data-source-types)
-and [Fieldnotes](../apps/fieldnotes) for storage and mixed application examples.
+grants nothing. The next section writes one end to end;
+[Fieldnotes](../apps/fieldnotes) is a larger storage example.
+
+## Writing the data module
+
+The view asks; `app.ts` answers. The README's todo list keeps its data in memory.
+This app keeps a reading list in SQLite, so it survives a restart, and shows a
+quote fetched from the network. It was made with `exact new`, and its test passes
+on the web host.
+
+```contract
+shape Book
+  id: string
+  title: string
+shape Saved
+  ok: bool
+  message: string
+shape Quote
+  text: string
+
+component ReadingList
+  state draft = ""
+  state notice = ""
+  resource books = books() as shape list<Book>
+  resource quote = quote() as shape Quote else empty(text="…")
+  mutation saved as shape Saved refreshes books then afterSave
+  action edit(value: string)
+    draft = value
+  action add
+    if trim(draft) != ""
+      send saved = addBook(trim(draft))
+      draft = ""
+  action afterSave
+    match saved
+      case some(result)
+        notice = result.message
+      case none
+        notice = ""
+  view
+    column padding=24 gap=12
+      text "Reading list" font-size=28 font-weight=700
+      text quote.text color="#6b7280" testId="quote"
+      row gap=8
+        input value=draft input=edit submit=add placeholder="A book" aria-label="New book" testId="title" flex=1
+        button press=add testId="add"
+          text "Add"
+      text notice testId="notice"
+      each book in books key=book.id
+        text book.title testId=`book-${book.id}`
+```
+
+Generate the types `app.ts` imports, and regenerate them whenever a source's
+arguments or declared shape change:
+
+```sh
+bun exact.mjs contract types app.contract -o app.contract.d.ts
+```
+
+```ts
+import type { Answer, Database, Result, Sources, Storage } from './app.contract.d.ts';
+
+export const appId = 'com.example.reading-list';
+// One capability per line: what this module may reach. Nothing else is allowed.
+export const grants = [
+  'sqlite.open app:/data/books.db',
+  'net.fetch https://api.quotable.kurokeita.dev',
+].join('\n');
+
+// An open database locks its file, so a read and a write that overlap (a
+// mutation and the refresh it triggers) would refuse each other as busy.
+// One queue, one open at a time.
+let queue: Promise<unknown> = Promise.resolve();
+function withBooks<T>(storage: Storage, work: (db: Database) => Promise<T>): Promise<T> {
+  const run = queue.then(async () => {
+    const db = await storage.sqlite.open('app:/data/books.db');
+    try {
+      await db.execute('CREATE TABLE IF NOT EXISTS books (id INTEGER PRIMARY KEY, title TEXT NOT NULL)');
+      return await work(db);
+    } finally { await db.close(); }
+  });
+  queue = run.catch(() => {});
+  return run;
+}
+
+const sources: Sources = {
+  // A read: SQLite rows to the declared `list<Book>`. Integers arrive as
+  // bigint, so convert them. At build (bake) time there is no storage, and
+  // the throw leaves the resource to be asked when the app runs.
+  books: (_args, _store, storage): Promise<Result<'books'>> =>
+    withBooks(storage, async (db) => {
+      const { rows } = await db.query('SELECT id, title FROM books ORDER BY id');
+      return rows.map(([id, title]) => ({ id: String(id), title: String(title) }));
+    }),
+  // A write, sent by the `saved` mutation; `refreshes books` reads the list again.
+  addBook: ([title], _store, storage): Promise<Result<'addBook'>> =>
+    withBooks(storage, async (db) => {
+      await db.execute('INSERT INTO books (title) VALUES (?)', [title]);
+      return { ok: true, message: `Added ${title}.` };
+    }).catch((error) => ({ ok: false, message: String(error) })),
+  // The network: only the origin `grants` names. A failure is data here.
+  quote: async (): Promise<Result<'quote'>> => {
+    try {
+      const response = await fetch('https://api.quotable.kurokeita.dev/api/quotes/random');
+      if (!response.ok) return { text: '' };
+      const body = (await response.json()) as { quote?: { content?: string } };
+      return { text: body.quote?.content ?? '' };
+    } catch {
+      return { text: '' };
+    }
+  },
+};
+
+export const answer: Answer = (source, args, store, storage, native) =>
+  sources[source](args, store, storage, native);
+```
+
+Each name the Contract calls (`books()`, `addBook(…)`, `quote()`) is a key of
+`sources`. A source receives its arguments as an array, then the store (secrets),
+`storage` (files and SQLite), and the native module, if any. It returns the
+declared shape, or a promise of it. A resource and a mutation are answered the
+same way; the difference is only who asks and when.
+
+**Grants.** `grants` lists, one per line, everything the module may reach. A
+call outside them fails. The capabilities are:
+
+| Grant | Allows |
+|---|---|
+| `net.fetch https://api.example.com` | `fetch` to that origin (`https://*.example.com` for its subdomains) |
+| `net.websocket wss://api.example.com` | a WebSocket to that origin |
+| `sqlite.open app:/data/name.db` | `storage.sqlite.open` on that path |
+| `fs.read app:/data/dir`, `fs.write app:/data/dir` | `storage.fs` under that prefix (`app:/data`, `app:/cache`, `app:/tmp`) |
+| `secret.keep name` | `store.keepKey(name, pair)` and `store.key(name)`: a P-256 key pair kept by the platform |
+| `storage.kv scope`, `env.read NAME` | a key–value scope; an environment variable (see `grants/src/lib.rs`) |
+
+**What catches people.**
+
+- *There is no storage or network at build time.* The build bakes each
+  resource's first value into the plan. A source that throws then (as `books`
+  does, with storage unavailable) is simply asked again when the app runs. To
+  show something better than the type's zero meanwhile, give the resource an
+  `else` placeholder, as `quote` does.
+- *An open database locks its file.* A mutation and the refresh it triggers
+  overlap, and the second `open` fails as busy. Queue every open, as
+  `withBooks` does.
+- *SQLite integers are `bigint`.* Convert them (`String(id)`, `Number(n)`)
+  before returning; a Contract `number` is not a `bigint`.
+- *A domain failure is data.* `addBook` returns `ok: false` with a message
+  rather than throwing, so the view can say what happened. A thrown error
+  leaves a resource `failed(…)` and a mutation without an answer.
+- *`app.ts` imports only local files.* npm packages are not bundled yet.
+
+**Testing with storage.** Each authored test gets an empty store of its own,
+apart from the app's real data. An ad hoc `agent` drive has none unless it
+names a scratch store with `--storage`:
+
+```contract-test
+test "a book is added and kept"
+  clock settle
+  type "title" "Middlemarch"
+  tap "add"
+  clock settle
+  expect text "notice" == "Added Middlemarch."
+  expect text "book-1" == "Middlemarch"
+```
+
+```sh
+bun exact.mjs test web                    # each test starts with an empty store
+bun exact.mjs agent web --storage demo "type title Dune" "tap add" "clock settle" tree
+```
+
+On the web, every agent drive starts a new browser profile, so a scratch store
+lasts one drive. To see the list survive a restart, add a book in the dev loop
+(`bun exact.mjs web`) and reload the page, or run the app on macOS.
+
+**Rust instead.** A data module can be a Rust crate rather than `app.ts`:
+`bun exact.mjs contract rust app.contract -o shapes.rs` generates the shapes as
+structs with their conversions, and [Caltrain's data crate](../apps/caltrain/data/src/lib.rs)
+answers its sources that way. The [reference](reference.md#generate-typescript-data-source-types)
+covers placement on a worker, live replacement, and the platform limits.
 
 ## Styling and layout
 
@@ -754,7 +932,7 @@ subtitle), and an optional trailing accessory — a `forward-chevron` or
 `image "symbol:info"`. `destructive` draws a row red. Any other row is custom
 and keeps its own views.
 
-```contract
+```text
 list appearance="auto" listStyle="inset-grouped" flex=1
   section
     header

@@ -29,6 +29,8 @@ final class Presenter {
     var views: [UInt32: NodeView] = [:]
     /// Views leaving with their exit, by id (LLP 1063, `PresenceIOS.swift`).
     var leaving: [UInt32: Leaving] = [:]
+    /// Shared elements in flight, by the arriver's id (LLP 1013.000, `FlightsIOS.swift`).
+    var flights: [UInt32: Flight] = [:]
     private(set) var chrome = ChromeIndex()
     func propsChanged(_ view: NodeView) { chrome.note(view.id, props: view.props); view.updateReorderGesture(); view.updateRefresh() }
     func carrying(_ key: String) -> [NodeView] { chrome.ids(key).sorted().compactMap { views[$0] } }
@@ -315,6 +317,7 @@ final class Presenter {
     func reset() {
         // Every hooked node ends first, its view and platform object there.
         elements.reset()
+        resetFlights()
         canvasKey = nil
         session?.transformInputHold?.cancel()
         reorder?.abandon()
@@ -818,12 +821,18 @@ final class Presenter {
             case .exit:
                 if flats.isFlat(id) { flats.promote(id) }
                 beginExit(id)
+            case .flight:
+                if let from = (op.payload["from"] as? NSNumber)?.uint32Value, flats.isFlat(from) { flats.promote(from) }
+                beginFlight(op)
+            case .land:
+                if let f = flights[id] { landFlight(f) }
             case .sticky:
                 if flats.isFlat(id) { flats.promote(id) }
                 stickies.apply(id, op.payload)
             case .destroy:
                 elements.destroyed(id)
                 stickies.forget(id)
+                forgetFlight(id)
                 if flats.isFlat(id) { flats.destroy(id); continue }
                 if endExit(id) { continue }
                 // A collection's retired row parks for the next of its shape.
@@ -841,6 +850,7 @@ final class Presenter {
                     continue
                 }
                 if kind == .frame { pool.framed(id) }
+                if flightFrame(op) { continue }
                 if let node = views[id], !modals.deferGeometry(op, for: node) { applyGeometry(op) }
             case .present:
                 if flats.isFlat(id) {
@@ -855,6 +865,7 @@ final class Presenter {
                 case "scale": v.scale = x; v.applyTransform()
                 case "rotate": v.rotate = x; v.applyTransform()
                 case "opacity": v.alpha = x
+                case "flight": presentFlight(id, x)
                 default: break
                 }
             default: break
@@ -882,6 +893,7 @@ final class Presenter {
             if let material = node.materialView { node.sendSubviewToBack(node.glassSlot ?? material) }
         }
         pendingScrolls = pendingScrolls.filter { views[$0]?.pendingScrollTop != nil || views[$0]?.pendingScrollLeft != nil }
+        if !flights.isEmpty { flightsBatchApplied() }
         navigation.sync(batch)
         #if os(tvOS)
         menuKey.sync()
@@ -932,7 +944,7 @@ final class Presenter {
         // In order, below anything else in the container (a scroll
         // view's indicators): inserting a subview at an index moves
         // it when it is already there. One already there stays.
-        let contained = want.filter { !navigation.ownsContainment(of: $0, under: parent) && !menus.lifted($0) }
+        let contained = want.filter { !navigation.ownsContainment(of: $0, under: parent) && !menus.lifted($0) && !isFlying($0) }
         current = container.subviews
         for (i, child) in contained.enumerated() where !(i < current.count && current[i] === child) {
             container.insertSubview(child, at: i)

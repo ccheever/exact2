@@ -1017,6 +1017,7 @@ mod tests {
             (StyleId::TextAnchor, text("middle")),
             (StyleId::DominantBaseline, text("central")),
             (StyleId::PointerEvents, text("stroke")),
+            (StyleId::Cursor, text("crosshair")),
             (StyleId::MarkerStart, text("url(#a)")),
             (StyleId::MarkerMid, text("url(#a)")),
             (StyleId::MarkerEnd, text("url(#a)")),

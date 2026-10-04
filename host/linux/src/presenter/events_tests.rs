@@ -79,6 +79,50 @@ fn log<D: DataSource>(p: &Presenter<D>) -> String {
 }
 
 #[test]
+fn cursor_resolves_inheritance_hud_override_stationary_changes_and_unmount() {
+    let source = r#"component CursorTest
+  state armed = false
+  state shown = true
+  action arm
+    armed = !armed
+  action hide
+    shown = false
+  view
+    column width=200 height=200
+      button "Arm" testId="arm" press=arm height=30
+      button "Hide" testId="hide" press=hide height=30
+      when shown
+        column cursor=(armed ? "crosshair" : "default") width=200 height=100
+          button "HUD" testId="hud" cursor="auto" press=arm width=50 height=30
+          box testId="zone" width=200 height=70
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(source).unwrap().encode(),
+        Keeps,
+        (200., 200.),
+        1.,
+        PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    let zone = id(&p, "zone");
+    let (x, y, w, h) = p.rect_of(zone).unwrap();
+    let point = (x + w / 2., y + h / 2.);
+    p.pointer_move(point.0, point.1, 0.).unwrap();
+    assert_eq!(p.cursor_at(point.0, point.1).name(), "default");
+    p.tap(id(&p, "arm")).unwrap();
+    assert_eq!(p.cursor_at(point.0, point.1).name(), "crosshair");
+    let (x, y, w, h) = p.rect_of(id(&p, "hud")).unwrap();
+    assert_eq!(p.cursor_at(x + w / 2., y + h / 2.).name(), "auto");
+    p.tap(id(&p, "arm")).unwrap();
+    assert_eq!(p.cursor_at(point.0, point.1).name(), "default");
+    p.tap(id(&p, "arm")).unwrap();
+    p.tap(id(&p, "hide")).unwrap();
+    assert_eq!(p.cursor_at(point.0, point.1).name(), "auto");
+}
+
+#[test]
 fn keys_submit_focus_and_blur_reach_their_handlers() {
     let mut p = boot();
     let field = id(&p, "field");

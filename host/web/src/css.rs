@@ -902,6 +902,16 @@ mod declaration_tests {
         css_text(&style, &fonts).0
     }
 
+    #[test]
+    fn cursor_emits_the_css_keyword_including_explicit_auto_override() {
+        for value in ["auto", "default", "crosshair"] {
+            assert_eq!(
+                css(&[(StyleId::Cursor, StyleValue::Text(value.into()))], &[]),
+                format!("cursor:{value};")
+            );
+        }
+    }
+
     /// The declarations `css_text` composes itself, as the `write!`-built
     /// text had them, byte for byte.
     #[test]

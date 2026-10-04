@@ -5,6 +5,7 @@
 //! @ref LLP 1015 §2
 
 mod backdrop;
+mod canvas;
 mod mask;
 
 use crate::image::Bitmap;
@@ -920,20 +921,8 @@ impl Backend for Raster {
     }
 
     fn canvas(&mut self, image: &Arc<Pixmap>, dst: Rect4, clips: &[Shape], ts: Transform) {
-        let (nw, nh) = (image.width() as f32, image.height() as f32);
-        if nw <= 0.0 || nh <= 0.0 || dst.2 <= 0.0 || dst.3 <= 0.0 {
-            return;
-        }
-        let mask = self.mask_with(clips, ts);
-        let dev = self
-            .device(ts)
-            .pre_concat(Transform::from_translate(dst.0, dst.1).pre_scale(dst.2 / nw, dst.3 / nh));
-        let paint = PixmapPaint {
-            quality: FilterQuality::Bilinear,
-            ..PixmapPaint::default()
-        };
-        if let Some(t) = self.target.as_mut() {
-            t.draw_pixmap(0, 0, image.as_ref().as_ref(), &paint, dev, mask.as_ref());
+        if !self.copy_opaque_canvas(image, dst, clips, ts) {
+            self.raster_canvas(image, dst, clips, ts);
         }
     }
 

@@ -168,6 +168,10 @@ fn one_byte_changed_anywhere_is_refused() {
 }
 
 #[test]
+#[cfg_attr(
+    windows,
+    ignore = "Windows durable store is not qualified (LLP 1026 D11a)"
+)]
 fn the_published_stream_is_staged_whole_by_a_client() {
     let temp = Temp::new("stream");
     let head = Envelope::parse(HEAD).unwrap();

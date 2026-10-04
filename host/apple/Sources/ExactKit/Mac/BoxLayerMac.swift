@@ -160,7 +160,8 @@ extension NodeView {
         // radius only where the overflow clips; a rounded box that does not
         // clip fills a sublayer of its own under the children.
         let layerRadius = clipsToBounds && p.oneRadius && !p.shaped ? p.radius : 0
-        if layer.cornerRadius != layerRadius { layer.cornerRadius = layerRadius }
+        // A flight interpolates the radius itself (LLP 1013.000 D4).
+        if flightLook == nil, layer.cornerRadius != layerRadius { layer.cornerRadius = layerRadius }
         if layerRadius > 0, layer.maskedCorners != p.corners { layer.maskedCorners = p.corners }
         if layer.cornerCurve != p.curve { layer.cornerCurve = p.curve }
         let fill = onLayer && !away ? p.fill : nil
@@ -287,6 +288,23 @@ extension NodeView {
 
     /// The image's pixels onto a sublayer, or none (`draw(_:)` paints them).
     func applyImageLayer() {
+        if let look = flightLook, let layer, kind == "image", symbolView == nil, style["tint_color"] == nil, let bitmap = raster?.image {
+            // Flying (LLP 1013.000 D4): the whole image where the flight
+            // puts it; the view's own bounds and radius clip it.
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            defer { CATransaction.commit() }
+            let l = imageLayer ?? CALayer()
+            imageLayer = l
+            if l.superlayer !== layer { insertBoxSublayer(l) }
+            l.frame = look.image
+            l.contentsRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+            l.contentsGravity = .resize
+            let frame = AnimatedRasters.shared.frame(for: self) ?? bitmap.image
+            if (l.contents as AnyObject?) !== frame { l.contents = frame }
+            l.cornerRadius = 0
+            l.masksToBounds = false
+            return
+        }
         guard let layer, layerBoxEligible, let plan = imagePlan, let bitmap = raster?.image else {
             imageLayer?.removeFromSuperlayer(); imageLayer = nil; return
         }

@@ -21,9 +21,10 @@ into the slot keeps it (`Stmt.noAssigns`, `Stmt.noSends`, decided by
 for a property every action keeps, from any configuration;
 `Reachable.advance_untouched` says what the clock cannot change.
 
-Nothing here needs `conforms`, `Value.equal` or `Value.same`, which are
-`partial` (opaque to proofs): a step that refuses keeps the configuration,
-so only what a commit writes matters, and `runAction_commit` says that.
+Nothing here needs `conforms`, `Value.equal` or `Value.same`: a step that
+refuses keeps the configuration, so only what a commit writes matters, and
+`runAction_commit` says that. (`Contract.TypeInvariant` is the invariant
+that does read `conforms`: every slot of its declared type.)
 -/
 import Contract.Axiomatic
 

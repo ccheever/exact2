@@ -444,7 +444,7 @@ test('the SDK lock decides every version; a game that adds packages captures its
   assert.deepEqual(outsideWorkspaceProblems(import.meta.dir), []);
   const sdkCargo = Bun.TOML.parse(readFileSync(resolve(import.meta.dir, 'Cargo.toml'), 'utf8'));
   const coreCargo = Bun.TOML.parse(readFileSync(resolve(import.meta.dir, '../Cargo.toml'), 'utf8'));
-  assert.deepEqual(sdkCargo.profile['apple-dev'], coreCargo.profile['apple-dev']);
+  assert.deepEqual(sdkCargo.profile['host-dev'], coreCargo.profile['host-dev']);
   // The checked-in SDK lock is current for the union of every shell's dependencies.
   sdkLock();
 }, 120000);

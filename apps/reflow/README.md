@@ -59,7 +59,7 @@ bun host/apple/build.mjs --app reflow --run
 bun host/apple/build.mjs --app reflow --ios --run
 
 # Linux's CPU painter, headless on macOS too
-cargo build --release -p reflow-linux
+cargo build --profile host-dev -p reflow-linux
 bun scripts/agent.mjs linux --app reflow --size 1000x900 tree
 
 # The agreement tests: cosmic-text's layout of every card, column and row

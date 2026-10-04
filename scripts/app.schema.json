@@ -91,22 +91,28 @@
       }
     },
     "$schema": {
+      "description": "The path or URL of this schema (scripts/app.schema.json in the exact2 checkout); `exact new` writes it and `bun exact.mjs update` follows a checkout that moved, so an editor completes and explains every key. Builds ignore it.",
       "type": "string"
     },
     "name": {
+      "description": "The app's full name, as the web manifest and an installed web app show it.",
       "type": "string",
       "minLength": 1
     },
     "short_name": {
+      "description": "The name where space is short: a home screen, a dock tile.",
       "type": "string"
     },
     "id": {
+      "description": "The web app's identity (the web manifest's `id`); usually the same as `app.id`.",
       "type": "string"
     },
     "start_url": {
+      "description": "The web page the installed app opens at; `/` for most apps.",
       "type": "string"
     },
     "display": {
+      "description": "How an installed web app is framed: `standalone` (its own window, no browser chrome) is the usual choice.",
       "type": "string",
       "enum": [
         "fullscreen",
@@ -131,6 +137,7 @@
       "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{1,8})*$"
     },
     "icons": {
+      "description": "The app's icons, as the web manifest spells them (`src`, `sizes`, `type`, `purpose`). The native bakes derive their icon sets from these; a distribution build refuses an app without a square one.",
       "type": "array",
       "items": {
         "type": "object",
@@ -197,6 +204,7 @@
       "additionalProperties": false
     },
     "app": {
+      "description": "The app's identity on every platform (LLP 1030 D2). Required.",
       "type": "object",
       "required": [
         "id",
@@ -204,14 +212,17 @@
       ],
       "properties": {
         "id": {
+          "description": "The reverse-DNS identity: the bundle identifier on Apple, the update stream's app id, and app.ts's `appId`. `exact new` writes com.example.<name>; change it before distributing.",
           "type": "string",
           "pattern": "^[a-zA-Z][a-zA-Z0-9-]*(\\.[a-zA-Z][a-zA-Z0-9-]*)+$"
         },
         "name": {
+          "description": "The name a native host shows: the menu bar, the app switcher, Finder.",
           "type": "string",
           "minLength": 1
         },
         "origin": {
+          "description": "The https origin a web build is served from, when it signs people in (OAuth callbacks are derived from it).",
           "type": "string",
           "pattern": "^https?://"
         },
@@ -224,12 +235,15 @@
       "additionalProperties": false
     },
     "host": {
+      "description": "Per-platform host settings the build bakes into each native app; a platform's key may be empty.",
       "type": "object",
       "properties": {
         "ios": {
+          "description": "iOS: `minimumOS` (default 17.0), `deviceFamily` (iphone, ipad), and the keys below.",
           "type": "object",
           "properties": {
             "minimumOS": {
+              "description": "The oldest iOS the app runs on, as \"17.0\"; never below 17.0.",
               "type": "string"
             },
             "designRequiresCompatibility": {
@@ -284,9 +298,11 @@
           "additionalProperties": false
         },
         "macos": {
+          "description": "macOS: `minimumOS` (default 14.0), the first window's size, and the keys below.",
           "type": "object",
           "properties": {
             "minimumOS": {
+              "description": "The oldest macOS the app runs on, as \"14.0\"; never below 14.0.",
               "type": "string"
             },
             "designRequiresCompatibility": {
@@ -343,10 +359,12 @@
           "additionalProperties": false
         },
         "linux": {
+          "description": "The Linux host has no settings yet; an empty object.",
           "type": "object",
           "additionalProperties": false
         },
         "web": {
+          "description": "The web host has no settings yet; an empty object.",
           "type": "object",
           "additionalProperties": false
         }
@@ -354,6 +372,7 @@
       "additionalProperties": false
     },
     "deploy": {
+      "description": "How the app is delivered and updated (LLP 1030.000): policy, never identity. `exact new` writes only `store`.",
       "type": "object",
       "properties": {
         "origin": {
@@ -386,6 +405,7 @@
           }
         },
         "store": {
+          "description": "Per platform (web, macos, ios, linux), whether an installed app has an update store: \"0\" links none, so every change ships as a new binary; \"A\" links the store, so signed plans and assets update over the air (LLP 1030 D4). `exact new` writes \"0\" everywhere: signed TypeScript and Rust module delivery isn't implemented.",
           "type": "object",
           "additionalProperties": {
             "type": "string",
@@ -640,7 +660,7 @@
         }
       },
       "additionalProperties": false,
-      "description": "The TypeScript module's placement (LLP 1027.002), globally and per platform, and the directories it imports from outside the app."
+      "description": "Where app.ts runs: `placement` is \"main\" (the default) or \"worker\". The TypeScript module's placement (LLP 1027.002), globally and per platform, and the directories it imports from outside the app."
     },
     "dev": {
       "type": "object",

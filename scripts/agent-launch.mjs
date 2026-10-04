@@ -1,12 +1,25 @@
 // Session setup shared by the agent CLI and its programmatic driver.
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { basename, delimiter, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { bakeOutput, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
+import { bakeOutput, linuxBinary, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
 
 const ROOT = resolve(fileURLToPath(new URL('..', import.meta.url)));
+
+/** Only the caller's throwaway browser profile. Bun 1.4.2 on Windows ignores
+ * rmSync's maxRetries: a real sharing lock fails in <1 ms. Yield between bounded
+ * attempts so browser shutdown can finish; a persistent lock still fails. */
+export async function removeBrowserProfile(profile) {
+  for (let attempt = 0; ; attempt++) {
+    try { rmSync(profile, {recursive:true, force:true}); return; }
+    catch (error) {
+      if (attempt === 5 || !['EBUSY','ENOTEMPTY','EPERM'].includes(error.code)) throw error;
+      await new Promise(resolve => setTimeout(resolve, 100 * (attempt + 1)));
+    }
+  }
+}
 
 /** One browser lookup for the agent and its tests: an explicit override,
  * otherwise the platform's ordinary Chromium installation. A bare CHROME
@@ -87,8 +100,13 @@ const listed = changed => changed.slice(0, 3).join(', ') + (changed.length > 3 ?
 
 /** Throws when `changed` names anything: what, since which build, and the command that rebuilds it. */
 export function refuseStale(what, built, changed, command) {
-  if (changed.length) throw new Error(`${what} build is stale: ${listed(changed)} changed since ${shown(built)} was built; run ${command}`);
+  if (changed.length) throw staleError(`${what} build is stale: ${listed(changed)} changed since ${shown(built)} was built; run ${command}`);
 }
+
+/** A refusal that a rebuild answers: the driver exits 3 for it, so an app's
+ * `exact.mjs` can build and drive again (LLP 1012.001.000: the driver itself
+ * never builds). */
+export const staleError = message => Object.assign(new Error(message), { stale: true });
 
 /** Says, without refusing, what a coarse rule found or what was not checked. */
 export function warnStale(what, built, changed, command) {
@@ -151,7 +169,7 @@ export function bakedPlans(linuxBin, bakeDir) {
  * left — where the live driver looks. */
 export function traceLocators(appName) {
   const out = [process.env.EXACT_DEV_PLAN, resolve(webDist(), 'app.plan')].filter(Boolean);
-  try { const a = resolveApp(appName); out.push(...bakedPlans(process.env.EXACT_LINUX_BIN ?? resolve(a.target, `release/${a.crate('linux')}`), bakeOutput(a))); } catch {}
+  try { const a = resolveApp(appName); out.push(...bakedPlans(process.env.EXACT_LINUX_BIN ?? linuxBinary(a), bakeOutput(a))); } catch {}
   return out;
 }
 

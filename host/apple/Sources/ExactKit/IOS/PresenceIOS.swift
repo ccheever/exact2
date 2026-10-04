@@ -16,6 +16,7 @@ struct Leaving {
 extension Presenter {
     func beginExit(_ id: UInt32) {
         guard let view = views[id] else { return }
+        landFlights(inside: view) // a flying view leaves with its subtree (LLP 1013.000)
         var members: [NodeView] = []
         var stack: [UIView] = [view]
         while let next = stack.popLast() {

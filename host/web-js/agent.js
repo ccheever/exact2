@@ -309,6 +309,9 @@ export function install(exact) {
         // jump lands before a timer fires too, as the wasm and native hosts'
         // jumps wait for it (calendar F10: a store's reply is on real time).
         const due = () => exact.clock.timers.some(t => t.due <= req.to);
+        // A view transition on its way is ready first, so its animations
+        // start at this clock, not the one the jump reaches (LLP 1013.000 D9).
+        await exact.viewTransition?.();
         for (const end = performance.now() + 20000; ;) {
           while (due() && exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 1));
           const before = exact.inflight.n, stopped = exact.advance(req.to, false, () => exact.inflight.n > before);

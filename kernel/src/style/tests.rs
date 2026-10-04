@@ -1,4 +1,32 @@
 use super::*;
+
+#[test]
+fn cursor_is_inherited_non_layout_css_with_its_keyword_vocabulary() {
+    assert!(StyleId::Cursor.inherited());
+    assert!(!StyleId::Cursor.affects_layout());
+    let mut style = StyleProps::default();
+    assert_eq!(style.cursor.name(), "auto");
+    // CSS's keywords (the targeting cursors, and the rest the macOS and
+    // Windows hosts map); image cursors are not admitted.
+    for name in [
+        "auto",
+        "default",
+        "crosshair",
+        "pointer",
+        "not-allowed",
+        "grab",
+    ] {
+        style
+            .set_dynamic(StyleId::Cursor, &StyleValue::Text(name.into()))
+            .unwrap();
+        assert_eq!(style.cursor.name(), name);
+    }
+    for value in ["hand", "url(cursor.png), crosshair", "invalid"] {
+        assert!(style
+            .set_dynamic(StyleId::Cursor, &StyleValue::Text(value.into()))
+            .is_err());
+    }
+}
 use taffy::prelude::{line, span};
 
 #[test]

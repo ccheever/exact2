@@ -211,6 +211,8 @@ child. `autofocus` is the bare boolean convenience spelling.
 
 A deeper element line is treated as an attribute continuation only when it starts
 with `name=`; once child nodes begin, later lines are children, not continuations.
+Continuations may sit deeper than the children that follow them; `fmt` moves them
+to the children's level.
 A repeated attribute on one element is refused. A component use takes named
 arguments; its name starts uppercase to distinguish it from an element.
 
@@ -401,9 +403,13 @@ is `lower-native-attr` (LLP 1024 D1, LLP 1086 D7.2). A capitalized name is a com
 built-in tag. Platform support can further restrict an admitted tag, notably
 native `foreignObject`.
 
-Style and prop names come from [`schema.json`](../kernel/tables/schema.json) and
-[`tags.rs`](../contract/lower/src/tags.rs), including shorthands and contextual
-restrictions. This document does not duplicate their changing property tables.
+`contract vocab` lists every tag, style and prop name the compiler admits,
+with each style row's codec, values and default, the renamed spellings and the
+contextual restrictions: `cargo run -q -p contract -- vocab padding` for one
+name, no name for all, `--json` for a document. From an app made by
+`exact new`, run `bun exact.mjs contract vocab`.
+`padding`, `margin`, `inset`, `border-width`, `border-style` and `border-color` take
+CSS's one to four values (`padding="12px 40px"`: top and bottom 12, sides 40).
 CSS hyphens are part of the authored name. `testId` and admitted host-specific
 props retain their declared spelling.
 
@@ -533,7 +539,7 @@ hardware keyboard, Linux):
   default does not happen. Ancestors' handlers still hear the key, as they do
   on the web. Call it only for the keys you handle, so typing still works:
 
-```contract
+```text
 action move(k: string)
   if k == "ArrowDown"
     cursor = cursor + 1
@@ -543,7 +549,7 @@ action move(k: string)
 Enter sends and Shift+Enter breaks the line, as a chat composer does (on a
 phone the software keyboard's Return is Enter, so it sends there too):
 
-```contract
+```text
 action compose(k: string, e: KeyboardEvent)
   if k == "Enter" and not e.shiftKey
     send(draft)

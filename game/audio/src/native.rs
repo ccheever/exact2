@@ -1,4 +1,4 @@
-//! The crate's only unsafe boundary: SPSC ownership, sample reads, AudioToolbox ABI.
+//! Native audio ownership: shared bounded mixer, then each platform device boundary.
 use std::{
     cell::{Cell, UnsafeCell},
     collections::{BTreeMap, VecDeque},
@@ -217,6 +217,11 @@ impl Pending {
         offset: usize,
         pitch: f32,
     ) -> bool {
+        // Pcm is public. Validate channels before frame-count division or a raw
+        // view: zero channels would underflow the mixer's right-channel index.
+        if !matches!(pcm.channels(), 1 | 2) || pcm.frames() == 0 {
+            return false;
+        }
         // Refuse before changing ownership or publishing anything. Shared PCM
         // is pointer-keyed and counted once, including stops awaiting an ack.
         if !self.retained.contains_key(&pcm.address()) {
@@ -437,6 +442,23 @@ impl Mixer {
             }
         }
     }
+    /// Stop every old voice and acknowledge queued work without rendering it.
+    /// The owner keeps PCM alive until it observes the watermark or joins us.
+    #[cfg(any(windows, test))]
+    fn discard(&mut self) {
+        self.voices.fill(None);
+        for _ in 0..CAPACITY {
+            let Some(packet) = self.commands.pop() else {
+                break;
+            };
+            self.pending_ack = Some(packet.sequence);
+        }
+        if let Some(ack) = self.pending_ack {
+            if self.acknowledgements.push(ack).is_ok() {
+                self.pending_ack = None;
+            }
+        }
+    }
     fn frame(&mut self) -> (f32, f32) {
         let (mut left, mut right) = (0.0, 0.0);
         for slot in &mut self.voices {
@@ -462,7 +484,7 @@ impl Mixer {
             } else {
                 i
             };
-            // SAFETY: both frames are below len, and AppleOutput retains the
+            // SAFETY: both frames are below len, and the output retains the
             // immutable allocation until its stop command has been acknowledged.
             let ((al, ar), (bl, br)) = unsafe { (v.pcm.frame(i), v.pcm.frame(j)) };
             // Linear interpolation resamples the source rate to the device rate.
@@ -493,18 +515,22 @@ impl Mixer {
     }
 }
 
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos", test))]
 use std::ffi::c_void;
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos", test))]
 #[repr(C)]
 struct Buffer {
     channels: u32,
     bytes: u32,
     data: *mut c_void,
 }
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos", test))]
 #[repr(C)]
 struct Buffers {
     count: u32,
     first: Buffer,
 }
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "tvos", test))]
 // AudioBufferList has a flexible tail; the caller owns count valid buffer records.
 unsafe extern "C" fn render(
     context: *mut c_void,
@@ -831,3 +857,9 @@ mod tests {
 #[cfg(test)]
 #[path = "apple_tests.rs"]
 mod regression_tests;
+
+#[cfg(windows)]
+#[path = "windows.rs"]
+mod windows;
+#[cfg(windows)]
+pub use windows::WindowsOutput;

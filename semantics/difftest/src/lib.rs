@@ -14,10 +14,12 @@
 
 pub mod gen;
 pub mod leanrun;
+pub mod lowering;
 pub mod observe;
 pub mod oracle;
 pub mod rng;
 pub mod script;
+pub mod types;
 
 use script::{Case, Expect, Item, Scripted};
 use std::path::{Path, PathBuf};
@@ -68,9 +70,12 @@ pub fn seed_of(name: &str) -> u64 {
     h
 }
 
-struct Prepared {
-    rust: Vec<String>,
-    lean: leanrun::LeanCase,
+/// A case run on the runner, ready for Lean.
+pub struct Prepared {
+    /// The runner's observation.
+    pub rust: Vec<String>,
+    /// The Lean half: the embedding, the oracle transcript, the events.
+    pub lean: leanrun::LeanCase,
 }
 
 /// Compile a case's program: by its file when it has one (its `use`s
@@ -83,7 +88,9 @@ pub fn compile(case: &Case) -> Result<exact_plan::Plan, String> {
     .map_err(|e| e.to_string())
 }
 
-fn prepare(case: &Case, index: usize) -> Result<Prepared, Verdict> {
+/// Compile a case, run it on the runner, and emit its Lean half as the
+/// `def` named `p<index>`.
+pub fn prepare(case: &Case, index: usize) -> Result<Prepared, Verdict> {
     let plan = compile(case).map_err(Verdict::Refused)?;
     let name = format!("p{index}");
     let program = match &case.path {
@@ -190,7 +197,8 @@ pub fn check(cases: Vec<Case>, batch: usize, tag: &str) -> Result<Vec<Outcome>, 
     Ok(outcomes)
 }
 
-fn clone_case(c: &leanrun::LeanCase) -> leanrun::LeanCase {
+/// A copy of a Lean case.
+pub fn clone_case(c: &leanrun::LeanCase) -> leanrun::LeanCase {
     leanrun::LeanCase {
         name: c.name.clone(),
         program: c.program.clone(),

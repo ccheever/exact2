@@ -74,15 +74,21 @@ A proposal in a design document is not an implemented grammar production.
 
 ## The implementation loop
 
-Run from the exact2 root unless the app's own wrapper says otherwise:
+In an app made by `exact new`, run its own `exact.mjs` from the app's directory.
+Its `contract` verb is exact2's compiler, with paths relative to where you run it:
 
 ```sh
-bun install --frozen-lockfile
-cargo run -q -p contract -- build apps/caltrain/app.contract --json
-cargo run -q -p contract -- symbols apps/caltrain/app.contract
-cargo run -q -p contract -- fmt --stdout apps/caltrain/app.contract
-bun host/web/dev.mjs --app caltrain
+bun exact.mjs contract types app.contract -o app.contract.d.ts   # what app.ts imports
+bun exact.mjs contract build app.contract --json
+bun exact.mjs contract symbols app.contract
+bun exact.mjs contract fmt --stdout app.contract
+bun exact.mjs contract vocab padding                              # is it accepted, and how
+bun exact.mjs web
 ```
+
+Inside the exact2 checkout, for its own apps, the same commands are
+`cargo run -q -p contract -- <command> apps/<name>/app.contract …` and
+`bun host/web/dev.mjs --app <name>`. Run `bun install --frozen-lockfile` there once.
 
 Use `build --json` before and after the edit. It returns one JSON array with all
 independent diagnostics it can collect, capped at 20; success is `[]`. Keep the
@@ -94,7 +100,14 @@ Formatting is explicit. `fmt --stdout` previews, `fmt --check` checks, and plain
 and references, with component interfaces and inferred action effects. Search
 by exact name with `symbols file.contract --name name`.
 
-After compiling, build and drive the actual app. For Caltrain on the web:
+After compiling, build and drive the actual app. From an `exact new` app:
+
+```sh
+bun exact.mjs test web                          # app.test.contract; builds a stale web app first
+bun exact.mjs agent web tree "tap add" state logs "screenshot out.png"
+```
+
+Inside the exact2 checkout, for Caltrain:
 
 ```sh
 bun host/web/build.mjs caltrain-web
@@ -102,8 +115,8 @@ bun scripts/agent.mjs web tree "tap change-station" "type station-search Palo" s
 bun scripts/agent.mjs web --test apps/caltrain/app.test.contract
 ```
 
-For another app, supply its `--app` and build target as its manifest/scripts
-require. For an external app, set `EXACT_APP_DIR` on both build and drive. A stale
+For an external app driven from the exact2 root, set `EXACT_APP_DIR` on both build
+and drive. A stale
 artifact is a failed verification; rebuild what the driver names. A successful
 Cargo rlib build does not prove a native app launches or behaves correctly.
 
@@ -149,6 +162,11 @@ state, prop, parameter, `let`, `each` item, shape name, …): `when`, `if`, `els
 is an ordinary name there, so `action searchKey(key: string)` and `action refresh`
 compile. Shape fields, named arguments and members take any word
 ([grammar](contract-grammar.md#lexical-rules)).
+
+`contract vocab` lists every built-in tag, attribute, and CSS property the compiler
+accepts, with each property's value kind and default; `contract vocab <name>`
+answers for one, or suggests the spelling it meant. Check there before guessing
+at CSS.
 
 ## Values, expressions, and functions
 
@@ -299,11 +317,14 @@ A domain error returned as a record is an answer and must be handled as data.
 Infer the actual source interface from the Contract:
 
 ```sh
-cargo run -q -p contract -- types path/to/app.contract -o /tmp/app.contract.d.ts
-cargo run -q -p contract -- rust path/to/app.contract -o /tmp/shapes.rs
+bun exact.mjs contract types app.contract -o app.contract.d.ts
+bun exact.mjs contract rust app.contract -o /tmp/shapes.rs
 ```
 
 Use those generated declarations with the existing TypeScript/Rust integration.
+The [human guide's data-module section](contract-for-humans.md#writing-the-data-module)
+has a complete `app.ts`: synchronous, `fetch` and SQLite sources, the grants
+each needs, and how to drive it with storage.
 The compiler accepting a source call does not provide its implementation. Check
 its arguments, declared result, grants, storage access, and bake-time behavior.
 Keep generated output out of version control. Use app-local sources for domain
@@ -470,9 +491,9 @@ locations when an error crosses a child prop, injected action, or imported file.
 Do not use a character index as a byte offset in Unicode source.
 
 ```sh
-cargo run -q -p contract -- build path/to/app.contract --json
-cargo run -q -p contract -- symbols path/to/app.contract --name save
-cargo run -q -p contract -- build path/to/app.contract -o /tmp/app.plan --map
+bun exact.mjs contract build app.contract --json
+bun exact.mjs contract symbols app.contract --name save
+bun exact.mjs contract build app.contract -o /tmp/app.plan --map
 ```
 
 The source map (`<plan>.map.json`, beside the plan) is separate from the plan and
@@ -487,6 +508,15 @@ commands. Use `tree` to find targets, `state` for data and delivery, `layout` fo
 geometry, `perf` for the work a drive cost (`perf <target> during "<op>" …`: per
 plan site, evaluations, unchanged results, instances created and retired), and
 screenshots for rendered output. Logs name refused operations and data errors.
+For a game canvas, JavaScript `s.tap("world", {mouse:true, at:[x,y]})` sends one
+primary mouse click on web, Windows, and Linux. `{contextmenu:true, at:[x,y]}`
+sends a right-click. Coordinates are relative to the target's top-left; omit
+`at` for its center. Both refuse invalid, covered, or offscreen points and held
+contacts. The CLI forms are `tap world mouse` and `tap world contextmenu`, or use
+a JSON options object for coordinates. Plain canvas taps and held contacts are
+fingers, so their platform pointer identity and retained press history can differ
+from a mouse's; use the intended physical input when comparing game saves.
+
 `tap` and `type` scroll a target whose middle is out of view into it first (its
 nearest scroll containers, then the page) and say so in the reply's `scrolled`.
 `type` on a control sets it as a person choosing would, with `input` then

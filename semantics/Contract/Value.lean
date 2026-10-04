@@ -36,11 +36,12 @@ abbrev Result := Except Err
 
 namespace Value
 
+mutual
 /-- Structural equality as the runner's `compare::equal`: numbers by IEEE
 `==` (so `NaN ≠ NaN`, `-0 = 0`), lists and records item by item stopping at
 the first unequal pair; `none` (`Option.none`) when the two are not of one
 type. -/
-partial def equal : Value → Value → Option Bool
+def equal : Value → Value → Option Bool
   | .num a, .num b => Option.some (a == b)
   | .bool a, .bool b => Option.some (a == b)
   | .str a, .str b => Option.some (a == b)
@@ -49,22 +50,20 @@ partial def equal : Value → Value → Option Bool
   | .some _, .none => Option.some false
   | .none, .some _ => Option.some false
   | .some a, .some b => equal a b
-  | .list xs, .list ys => items xs ys
-  | .record _ xs, .record _ ys => items xs ys
+  | .list xs, .list ys => if xs.length != ys.length then Option.some false else equalItems xs ys
+  | .record _ xs, .record _ ys =>
+    if xs.length != ys.length then Option.some false else equalItems xs ys
   | _, _ => Option.none
-where
-  items (xs ys : List Value) : Option Bool :=
-    if xs.length != ys.length then Option.some false
-    else
-      let rec go : List Value → List Value → Option Bool
-        | [], _ => Option.some true
-        | _, [] => Option.some true
-        | x :: xs, y :: ys =>
-          match equal x y with
-          | Option.none => Option.none
-          | Option.some false => Option.some false
-          | Option.some true => go xs ys
-      go xs ys
+/-- Item by item, stopping at the first unequal pair. -/
+def equalItems : List Value → List Value → Option Bool
+  | [], _ => Option.some true
+  | _, [] => Option.some true
+  | x :: xs, y :: ys =>
+    match equal x y with
+    | Option.none => Option.none
+    | Option.some false => Option.some false
+    | Option.some true => equalItems xs ys
+end
 
 def asNum : Value → Result Float
   | .num f => .ok f

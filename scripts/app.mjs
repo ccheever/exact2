@@ -22,7 +22,7 @@
 // validator small enough to live beside the reader; an app without one gets
 // the derived defaults it had before the manifest existed.
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { basename, delimiter, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -196,7 +196,7 @@ export function lockedMetadata(workspace, noDeps = false, env = process.env) {
   const args = ['metadata', '--locked', '--offline', ...(noDeps ? ['--no-deps'] : []), '--format-version', '1'];
   const options = { cwd: workspace, env, encoding: 'utf8', maxBuffer: 1 << 26 };
   let result = spawnSync('cargo', args, options);
-  if (result.status !== 0 && /--offline was specified|attempting to make an HTTP request|in the offline mode/.test(result.stderr ?? '')) {
+  if (result.status !== 0 && /--offline was specified|attempting to make an HTTP request|in the offline mode|offline mode \(via `--offline`\)/.test(result.stderr ?? '')) {
     console.error(`${workspace}: fetching missing locked Cargo sources (cargo fetch --locked)`);
     const fetched = spawnSync('cargo', ['fetch', '--locked'], options);
     if (fetched.status === 0) result = spawnSync('cargo', args, options);
@@ -416,6 +416,16 @@ export function webDist() {
   if (process.env.EXACT_WEB_DIST) return resolve(process.env.EXACT_WEB_DIST);
   if (process.env.EXACT_APP_DIR) return resolve(resolveApp().target, 'web-dist');
   return resolve(ROOT, 'host/web/dist');
+}
+
+/** The command that rebuilds `dist` for `app`: an app outside this checkout
+ * with its own runner (`exact new`) is told its own `bun exact.mjs web-build`. */
+export function webBuildCommand(app, dist, flags = '', otherwise = null) {
+  const quote = value => "'" + String(value).replaceAll("'", "'\\''") + "'";
+  const own = app.dir ? resolve(app.dir, 'exact.mjs') : null;
+  if (own && process.env.EXACT_APP_DIR && !process.env.EXACT_WEB_DIST && existsSync(own) && !own.startsWith(`${ROOT}/`))
+    return `cd ${quote(app.dir)} && bun exact.mjs web-build${flags}`;
+  return otherwise ?? `EXACT_APP_DIR=${quote(app.dir)} EXACT_WEB_DIST=${quote(resolve(dist))} bun host/web/build.mjs ${app.crate('web')}${flags}`;
 }
 
 /** Refuse a target directory inside another checkout of the same repository:
@@ -702,7 +712,7 @@ function buildCommand(command, args, app, env, stderr = 'pipe') {
   // An offline Cargo that lacks a source it needs (a new workspace, a new
   // lock entry) fetches the lock's sources once and tries again, instead of
   // failing on the first missing crate (LLP 1054 O2).
-  if (command === 'cargo' && result.status !== 0 && /--offline was specified|attempting to make an HTTP request|in the offline mode/.test(result.stderr ?? '')) {
+  if (command === 'cargo' && result.status !== 0 && /--offline was specified|attempting to make an HTTP request|in the offline mode|offline mode \(via `--offline`\)/.test(result.stderr ?? '')) {
     console.error(`${app.name}: Cargo's sources are not all fetched; fetching the locked ones (cargo fetch --locked) and trying again`);
     const fetched = spawnSync('cargo', ['fetch', '--locked'], { cwd: app.workspace, env, stdio: ['ignore', 'inherit', 'inherit'] });
     if (fetched.status === 0) result = spawnSync(command, args, { cwd: app.workspace, env, stdio: ['ignore','pipe',stderr], encoding: 'utf8', maxBuffer: 128 * 1024 * 1024 });
@@ -744,6 +754,16 @@ export function hermesIos(env = process.env) {
   if (env.EXACT_HERMES_IOS_DIR) return { pin, root: resolve(env.EXACT_HERMES_IOS_DIR), cached: false };
   return { pin, root: resolve(env.HOME ?? homedir(), '.cache/exact/hermes', `${pin.slice(0, 12)}-lean-ios`), cached: true };
 }
+/** The profile a development native build compiles with (Cargo.toml): an
+ * Apple app through host/apple/build.mjs, the Linux host by `linuxBuild`.
+ * What ships is baked at `release`. */
+export const HOST_DEV = 'host-dev';
+/** The Linux host an agent drives: the app's development executable, or
+ * another binary of its Linux crate (`<app>-render`). */
+export const linuxBinary = (app, bin = app.crate('linux')) => resolve(app.target, HOST_DEV, bin);
+/** The command that builds it. An app outside this repo gets the root's
+ * profiles on the command line, as its Apple build does (injectedProfiles). */
+export const linuxBuild = (app, bin = null) => ['cargo', 'build', ...injectedProfiles(app), '--profile', HOST_DEV, '-p', app.crate('linux'), ...(bin ? ['--bin', bin] : [])];
 export function bakeTarget(platform) {
   if (platform === 'web') return 'wasm32-unknown-unknown';
   if (platform === 'ios') return 'aarch64-apple-ios';
@@ -957,7 +977,20 @@ function completeBuild(app, platform, target, graph, messages, roots, env, prepa
   if (platform === 'macos' || platform === 'ios') {
     const packageRoot=resolve(ROOT,'host/apple');
     const swiftEnv = {...env, EXACT_APP_COMPOSITION: compat.inputs.store.L === '0' ? 'embedded' : 'updating'}; delete swiftEnv.SDKROOT;
-    const swift=JSON.parse(buildCommand('swift',['package','--package-path',packageRoot,'describe','--type','json'],app,swiftEnv).stdout);
+    // SwiftPM's description of the package is 0.6 s of every build, and it is a
+    // function of the manifest, the composition and which files are there:
+    // asked once for each, kept beside the Swift scratch.
+    const tree=(dir)=>readdirSync(dir,{withFileTypes:true}).flatMap((e)=>e.isDirectory()?tree(resolve(dir,e.name)):[resolve(dir,e.name)]).sort();
+    const described=resolve(app.target,'apple-swift',`package-${buildHash(canonicalBuild([readFileSync(resolve(packageRoot,'Package.swift'),'utf8'),swiftEnv.EXACT_APP_COMPOSITION,swiftEnv.EXACT_TESTS??null,tree(resolve(packageRoot,'Sources')).map((f)=>relative(packageRoot,f))])).slice(0,16)}.json`);
+    if(!existsSync(described)) {
+      mkdirSync(dirname(described),{recursive:true});
+      writeFileSync(`${described}.${process.pid}.tmp`,buildCommand('swift',['package','--package-path',packageRoot,'describe','--type','json'],app,swiftEnv).stdout);
+      renameSync(`${described}.${process.pid}.tmp`,described);
+      // Both compositions' are kept, and a few before them; an added file makes a new one.
+      const kept=readdirSync(dirname(described)).filter((f)=>/^package-[0-9a-f]{16}\.json$/.test(f)).map((f)=>resolve(dirname(described),f)).sort((a,b)=>statSync(b).mtimeMs-statSync(a).mtimeMs);
+      for(const old of kept.slice(6))rmSync(old,{force:true});
+    }
+    const swift=JSON.parse(readFileSync(described,'utf8'));
     const pending=[platform==='ios'?'ExactIOS':'ExactMac'],seen=new Set();
     while(pending.length) { const name=pending.pop();if(seen.has(name))continue;seen.add(name);const unit=swift.targets.find((t)=>t.name===name);if(!unit)throw new Error(`Swift package has no ${name}`);
       for(const file of unit.sources??[])add(resolve(packageRoot,unit.path,file));
@@ -1004,6 +1037,21 @@ export function claimBuildOutput(app, path) {
   const release = () => { if (held) { held = false; rmSync(path); process.removeListener('exit', release); } };
   process.once('exit', release);
   return release;
+}
+
+/** A claim on an output several apps share and each holds briefly (the Swift
+ * scratch): wait for a live owner instead of refusing. `waiting` hears the
+ * owner's app once. A dead owner's claim is taken, as claimBuildOutput takes it. */
+export function awaitBuildOutput(app, path, waiting) {
+  const pause = new Int32Array(new SharedArrayBuffer(4));
+  for (let told = false; ; Atomics.wait(pause, 0, 0, 200)) {
+    try { return claimBuildOutput(app, path); }
+    catch (error) {
+      if (!/^Apple build busy for /.test(error.message)) throw error;
+      // The message carries the owner's claim: its app, not the one waiting.
+      if (!told) { told = true; waiting?.(/"app":"([^"]+)"/.exec(error.message)?.[1] ?? 'another app'); }
+    }
+  }
 }
 
 function claimLive(text) {

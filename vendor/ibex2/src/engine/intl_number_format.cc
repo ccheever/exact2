@@ -73,8 +73,10 @@ struct Owner final : jsi::NativeState {
   throw jsi::JSError(rt, jsi::Value(rt, error));
 }
 
-jsi::Value call_checked(jsi::Runtime &rt, const void *state, uint32_t op,
+jsi::Value call_checked(jsi::Runtime &rt,
+                        const std::shared_ptr<Lifetime> &lifetime, uint32_t op,
                         const jsi::Value *args, size_t count) {
+  const void *state = lifetime->require(rt);
   auto result = call_host_result(rt, state, op, args, count);
   if (result.status != 0) throw_host_error(rt, result.value);
   return std::move(result.value);
@@ -96,29 +98,36 @@ jsi::Value handle_value(const std::shared_ptr<Owner> &owner) {
 
 jsi::Function host_function(
     jsi::Runtime &rt, const char *name, unsigned int length,
-    jsi::HostFunctionType body) {
+    const std::shared_ptr<Lifetime> &lifetime, jsi::HostFunctionType body) {
   return jsi::Function::createFromHostFunction(
-      rt, jsi::PropNameID::forAscii(rt, name), length, std::move(body));
+      rt, jsi::PropNameID::forAscii(rt, name), length,
+      [lifetime, body = std::move(body)](
+          jsi::Runtime &r, const jsi::Value &this_value,
+          const jsi::Value *args, size_t count) -> jsi::Value {
+        lifetime->require(r);
+        return body(r, this_value, args, count);
+      });
 }
 
 } // namespace
 
-void install(jsi::Runtime &rt, const void *state) {
+void install(jsi::Runtime &rt, std::shared_ptr<Lifetime> lifetime) {
   jsi::Object raw(rt);
 
   raw.setProperty(
       rt, "initialize",
       host_function(
-          rt, "initialize", 1,
-          [state](jsi::Runtime &r, const jsi::Value &,
+          rt, "initialize", 1, lifetime,
+          [lifetime](jsi::Runtime &r, const jsi::Value &,
                   const jsi::Value *args, size_t count) -> jsi::Value {
             if (count != 19 || !args[0].isObject())
               throw jsi::JSError(r, "Intl.NumberFormat initialization failed");
-            auto handle = call_checked(r, state, kCreate, args + 1, count - 1);
+            auto handle =
+                call_checked(r, lifetime, kCreate, args + 1, count - 1);
             if (!handle.isNumber())
               throw jsi::JSError(r, "Intl.NumberFormat returned no native handle");
             auto owner = std::make_shared<Owner>(
-                ibex2_intl_owner_create(state, handle.asNumber()));
+                ibex2_intl_owner_create(lifetime->require(r), handle.asNumber()));
             if (owner->value == nullptr)
               throw jsi::JSError(r, "Intl.NumberFormat could not own its native handle");
             args[0].getObject(r).setNativeState(r, std::move(owner));
@@ -128,7 +137,7 @@ void install(jsi::Runtime &rt, const void *state) {
   raw.setProperty(
       rt, "assertReceiver",
       host_function(
-          rt, "assertReceiver", 1,
+          rt, "assertReceiver", 1, lifetime,
           [](jsi::Runtime &r, const jsi::Value &,
              const jsi::Value *args, size_t count) -> jsi::Value {
             if (count != 1) throw jsi::JSError(r, "NumberFormat receiver expected");
@@ -139,18 +148,18 @@ void install(jsi::Runtime &rt, const void *state) {
   raw.setProperty(
       rt, "currencyDigits",
       host_function(
-          rt, "currencyDigits", 1,
-          [state](jsi::Runtime &r, const jsi::Value &,
+          rt, "currencyDigits", 1, lifetime,
+          [lifetime](jsi::Runtime &r, const jsi::Value &,
                   const jsi::Value *args, size_t count) -> jsi::Value {
             if (count != 1) throw jsi::JSError(r, "currency code expected");
-            return call_checked(r, state, kCurrencyDigits, args, count);
+            return call_checked(r, lifetime, kCurrencyDigits, args, count);
           }));
 
   raw.setProperty(
       rt, "format",
       host_function(
-          rt, "format", 3,
-          [state](jsi::Runtime &r, const jsi::Value &,
+          rt, "format", 3, lifetime,
+          [lifetime](jsi::Runtime &r, const jsi::Value &,
                   const jsi::Value *args, size_t count) -> jsi::Value {
             if (count != 3)
               throw jsi::JSError(r, "Intl.NumberFormat format needs a receiver and value");
@@ -159,14 +168,14 @@ void install(jsi::Runtime &rt, const void *state) {
             input.emplace_back(handle_value(owner));
             input.emplace_back(r, args[1]);
             input.emplace_back(r, args[2]);
-            return call_checked(r, state, kFormat, input.data(), input.size());
+            return call_checked(r, lifetime, kFormat, input.data(), input.size());
           }));
 
   raw.setProperty(
       rt, "formatToParts",
       host_function(
-          rt, "formatToParts", 3,
-          [state](jsi::Runtime &r, const jsi::Value &,
+          rt, "formatToParts", 3, lifetime,
+          [lifetime](jsi::Runtime &r, const jsi::Value &,
                   const jsi::Value *args, size_t count) -> jsi::Value {
             if (count != 3)
               throw jsi::JSError(r, "formatToParts needs a receiver and value");
@@ -175,7 +184,8 @@ void install(jsi::Runtime &rt, const void *state) {
             input.emplace_back(handle_value(owner));
             input.emplace_back(r, args[1]);
             input.emplace_back(r, args[2]);
-            auto length = call_checked(r, state, kFormatParts, input.data(), input.size());
+            auto length = call_checked(r, lifetime, kFormatParts,
+                                       input.data(), input.size());
             if (!length.isNumber())
               throw jsi::JSError(r, "formatToParts returned no part count");
             const size_t count_parts = static_cast<size_t>(length.asNumber());
@@ -183,8 +193,8 @@ void install(jsi::Runtime &rt, const void *state) {
             for (size_t i = 0; i < count_parts; ++i) {
               jsi::Value field_args[] = {
                   handle_value(owner), jsi::Value(static_cast<double>(i))};
-              auto type = call_checked(r, state, kPartType, field_args, 2);
-              auto value = call_checked(r, state, kPartValue, field_args, 2);
+              auto type = call_checked(r, lifetime, kPartType, field_args, 2);
+              auto value = call_checked(r, lifetime, kPartValue, field_args, 2);
               jsi::Object part(r);
               part.setProperty(r, "type", std::move(type));
               part.setProperty(r, "value", std::move(value));
@@ -196,8 +206,8 @@ void install(jsi::Runtime &rt, const void *state) {
   raw.setProperty(
       rt, "resolvedOptions",
       host_function(
-          rt, "resolvedOptions", 1,
-          [state](jsi::Runtime &r, const jsi::Value &,
+          rt, "resolvedOptions", 1, lifetime,
+          [lifetime](jsi::Runtime &r, const jsi::Value &,
                   const jsi::Value *args, size_t count) -> jsi::Value {
             if (count != 1)
               throw jsi::JSError(r, "resolvedOptions needs a receiver");
@@ -213,7 +223,7 @@ void install(jsi::Runtime &rt, const void *state) {
             for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); ++i) {
               jsi::Value field_args[] = {
                   handle_value(owner), jsi::Value(static_cast<double>(i))};
-              auto value = call_checked(r, state, kResolved, field_args, 2);
+              auto value = call_checked(r, lifetime, kResolved, field_args, 2);
               if (!value.isUndefined())
                 result.setProperty(r, names[i], std::move(value));
             }
@@ -223,12 +233,12 @@ void install(jsi::Runtime &rt, const void *state) {
   raw.setProperty(
       rt, "supportedLocalesOf",
       host_function(
-          rt, "supportedLocalesOf", 2,
-          [state](jsi::Runtime &r, const jsi::Value &,
+          rt, "supportedLocalesOf", 2, lifetime,
+          [lifetime](jsi::Runtime &r, const jsi::Value &,
                   const jsi::Value *args, size_t count) -> jsi::Value {
             if (count != 2)
               throw jsi::JSError(r, "supportedLocalesOf needs locales and matcher");
-            return call_checked(r, state, kSupportedLocales, args, count);
+            return call_checked(r, lifetime, kSupportedLocales, args, count);
           }));
 
   rt.global().setProperty(rt, "__ibex2_intl_number_format", std::move(raw));
@@ -285,8 +295,10 @@ struct Owner final : jsi::NativeState {
   throw jsi::JSError(rt, jsi::Value(rt, error));
 }
 
-jsi::Value call_checked(jsi::Runtime &rt, const void *state, uint32_t op,
+jsi::Value call_checked(jsi::Runtime &rt,
+                        const std::shared_ptr<Lifetime> &lifetime, uint32_t op,
                         const jsi::Value *args, size_t count) {
+  const void *state = lifetime->require(rt);
   auto result = call_host_result(rt, state, op, args, count);
   if (result.status != 0) throw_host_error(rt, result.value);
   return std::move(result.value);
@@ -307,29 +319,38 @@ jsi::Value handle_value(const std::shared_ptr<Owner> &owner) {
 }
 
 jsi::Function host_function(jsi::Runtime &rt, const char *name,
-                            unsigned int length, jsi::HostFunctionType body) {
+                            unsigned int length,
+                            const std::shared_ptr<Lifetime> &lifetime,
+                            jsi::HostFunctionType body) {
   return jsi::Function::createFromHostFunction(
-      rt, jsi::PropNameID::forAscii(rt, name), length, std::move(body));
+      rt, jsi::PropNameID::forAscii(rt, name), length,
+      [lifetime, body = std::move(body)](
+          jsi::Runtime &r, const jsi::Value &this_value,
+          const jsi::Value *args, size_t count) -> jsi::Value {
+        lifetime->require(r);
+        return body(r, this_value, args, count);
+      });
 }
 
 } // namespace
 
 std::vector<jsi::Value> factory_arguments(jsi::Runtime &rt,
-                                          const void *state) {
+    std::shared_ptr<Lifetime> lifetime) {
   std::vector<jsi::Value> result;
   result.reserve(8);
 
   result.emplace_back(host_function(
-      rt, "createDateTimeFormat", 19,
-      [state](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
+      rt, "createDateTimeFormat", 19, lifetime,
+      [lifetime](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
               size_t count) -> jsi::Value {
         if (count != 19)
           throw jsi::JSError(r, "DateTimeFormat initialization failed");
-        auto handle = call_checked(r, state, kCreate, args, count);
+        auto handle = call_checked(r, lifetime, kCreate, args, count);
         if (!handle.isNumber())
           throw jsi::JSError(r, "DateTimeFormat returned no native handle");
         auto owner = std::make_shared<Owner>(
-            ibex2_intl_datetime_owner_create(state, handle.asNumber()));
+            ibex2_intl_datetime_owner_create(lifetime->require(r),
+                                              handle.asNumber()));
         if (owner->value == nullptr)
           throw jsi::JSError(r, "DateTimeFormat could not own its native handle");
         jsi::Object object(r);
@@ -338,70 +359,72 @@ std::vector<jsi::Value> factory_arguments(jsi::Runtime &rt,
       }));
 
   result.emplace_back(host_function(
-      rt, "formatDateTime", 2,
-      [state](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
+      rt, "formatDateTime", 2, lifetime,
+      [lifetime](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
               size_t count) -> jsi::Value {
         if (count != 2)
           throw jsi::JSError(r, "DateTimeFormat format needs an owner and value");
         auto owner = owner_from(r, args[0]);
         jsi::Value input[] = {handle_value(owner), jsi::Value(r, args[1])};
-        return call_checked(r, state, kFormat, input, 2);
+        return call_checked(r, lifetime, kFormat, input, 2);
       }));
 
   result.emplace_back(host_function(
-      rt, "dateTimeParts", 2,
-      [state](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
+      rt, "dateTimeParts", 2, lifetime,
+      [lifetime](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
               size_t count) -> jsi::Value {
         if (count != 2)
           throw jsi::JSError(r, "DateTimeFormat parts needs an owner and value");
         auto owner = owner_from(r, args[0]);
         jsi::Value input[] = {handle_value(owner), jsi::Value(r, args[1])};
-        return call_checked(r, state, kFormatParts, input, 2);
+        return call_checked(r, lifetime, kFormatParts, input, 2);
       }));
 
-  auto part = [state](const char *name, uint32_t op) {
-    return [state, name, op](jsi::Runtime &r, const jsi::Value &,
+  auto part = [lifetime](const char *name, uint32_t op) {
+    return [lifetime, name, op](jsi::Runtime &r, const jsi::Value &,
                              const jsi::Value *args,
                              size_t count) -> jsi::Value {
       if (count != 2)
         throw jsi::JSError(r, std::string(name) + " needs an owner and index");
       auto owner = owner_from(r, args[0]);
       jsi::Value input[] = {handle_value(owner), jsi::Value(r, args[1])};
-      return call_checked(r, state, op, input, 2);
+      return call_checked(r, lifetime, op, input, 2);
     };
   };
   result.emplace_back(
-      host_function(rt, "dateTimePartType", 2, part("partType", kPartType)));
+      host_function(rt, "dateTimePartType", 2, lifetime,
+                    part("partType", kPartType)));
   result.emplace_back(
-      host_function(rt, "dateTimePartValue", 2, part("partValue", kPartValue)));
+      host_function(rt, "dateTimePartValue", 2, lifetime,
+                    part("partValue", kPartValue)));
 
   result.emplace_back(host_function(
-      rt, "resolvedDateTimeOption", 2,
-      [state](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
+      rt, "resolvedDateTimeOption", 2, lifetime,
+      [lifetime](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
               size_t count) -> jsi::Value {
         if (count != 2)
           throw jsi::JSError(r, "resolved DateTimeFormat option needs owner and field");
         auto owner = owner_from(r, args[0]);
         jsi::Value input[] = {handle_value(owner), jsi::Value(r, args[1])};
-        return call_checked(r, state, kResolved, input, 2);
+        return call_checked(r, lifetime, kResolved, input, 2);
       }));
 
   result.emplace_back(host_function(
-      rt, "supportedDateTimeLocales", 2,
-      [state](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
+      rt, "supportedDateTimeLocales", 2, lifetime,
+      [lifetime](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
               size_t count) -> jsi::Value {
         if (count != 2)
           throw jsi::JSError(r, "supported DateTimeFormat locales need list and matcher");
-        return call_checked(r, state, kSupportedLocales, args, count);
+        return call_checked(r, lifetime, kSupportedLocales, args, count);
       }));
 
   result.emplace_back(host_function(
-      rt, "canonicalTimeZone", 1,
-      [state](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
+      rt, "canonicalTimeZone", 1, lifetime,
+      [lifetime](jsi::Runtime &r, const jsi::Value &, const jsi::Value *args,
               size_t count) -> jsi::Value {
         if (count > 1)
           throw jsi::JSError(r, "canonical time zone accepts at most one value");
-        return call_checked(r, state, kCanonicalTimeZone, args, count);
+        return call_checked(r, lifetime, kCanonicalTimeZone, args, count);
       }));
 
   return result;
@@ -411,11 +434,12 @@ std::vector<jsi::Value> factory_arguments(jsi::Runtime &rt,
 
 namespace ibex2::intl_case {
 
-void install(jsi::Runtime &rt, const void *state) {
+void install(jsi::Runtime &rt, std::shared_ptr<Lifetime> lifetime) {
   auto function = jsi::Function::createFromHostFunction(
       rt, jsi::PropNameID::forAscii(rt, "__ibex2_intl_case"), 3,
-      [state](jsi::Runtime &r, const jsi::Value &,
+      [lifetime](jsi::Runtime &r, const jsi::Value &,
               const jsi::Value *args, size_t count) -> jsi::Value {
+        const void *state = lifetime->require(r);
         if (count != 3 || !args[0].isString() || !args[1].isString() ||
             !args[2].isString())
           throw jsi::JSError(r, "Intl case mapping needs mode, locale, and string");

@@ -1299,19 +1299,25 @@
     },
     {
       "id": 226,
+      "name": "sharedElement",
+      "kind": "str",
+      "_comment": "@ref LLP 1013.000 D1: the node's shared-element name. A name that leaves one node and arrives at another in one commit is a handoff (CommitReceipt::handoffs); the arriver flies from the leaver's box."
+    },
+    {
+      "id": 227,
       "name": "rows",
       "kind": "int",
       "measure": true,
       "_comment": "HTML textarea preferred line count; absent or invalid, two. CSS height and field-sizing override intrinsic size."
     },
     {
-      "id": 227,
+      "id": 228,
       "name": "maxlength",
       "kind": "int",
       "_comment": "HTML maximum user-entered UTF-16 length; absent or negative, unlimited. Programmatic value changes are not truncated."
     },
     {
-      "id": 228,
+      "id": 229,
       "name": "target",
       "kind": "str",
       "_comment": "HTML's link `target`, `_blank` or `_self`: where the web opens a link's URL. Unset, a link to an absolute URL opens in a new browsing context, as the native hosts open it in the system browser (x2apps chat F11, hn-reader F3); natively a path navigates in the app and any other URL leaves it, whatever the target."
@@ -3087,7 +3093,8 @@
       "bit": 172,
       "field": "cursor",
       "codec": "enum:Cursor",
-      "inherited": true
+      "inherited": true,
+      "_comment": "CSS cursor (inherited), every keyword but image cursors: the web writes it, Windows (LLP 1015.000) and macOS map it to a system cursor."
     },
     {
       "bit": 173,

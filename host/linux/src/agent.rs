@@ -121,8 +121,8 @@ fn tagged<D: DataSource>(p: &Presenter<D>, line: &str, mut reply: String) -> Str
 
 pub(crate) fn answer<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
     // An agent's taps and contacts reach a canvas as a finger, as on the web
-    // and iOS. An explicit contextmenu is a mouse's secondary button (LLP 1015.000).
-    p.agent_finger(!field_bool(line, "contextmenu"));
+    // and iOS. Explicit mouse/contextmenu use device mouse buttons (LLP 1015.000).
+    p.agent_finger(!field_bool(line, "contextmenu") && !field_bool(line, "mouse"));
     let reply = answer_line(p, line);
     p.agent_finger(false);
     reply
@@ -221,21 +221,18 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
         }
         Some("layout") => p.layout_json(id(), field_bool(line, "plan")),
         Some("tap") => {
-            // LLP 1041 §8: optional input variant, never a ninth operation.
-            // Parse this bounded pair strictly; the legacy wheel pair reader
-            // intentionally accepts a smaller flat-request vocabulary.
+            // Bounded input variants use the full JSON parser, never the legacy wheel reader.
             let request: serde_json::Value = match serde_json::from_str(line) {
                 Ok(request) => request,
                 Err(_) => return error("unreadable tap request"),
             };
+            if field_bool(line, "contextmenu") || field_bool(line, "mouse") {
+                return p
+                    .mouse_request(id(), &request)
+                    .unwrap_or_else(|e| error(&e));
+            }
             if request.get("resize").is_some() {
                 return resize(p, &request);
-            }
-            if field_bool(line, "contextmenu") {
-                return match id() {
-                    Some(id) => p.contextmenu(id).unwrap_or_else(|e| error(&e)),
-                    None => error("contextmenu needs an id"),
-                };
             }
             if let Some(reply) = p.control_tap(&request) {
                 return reply.to_string();

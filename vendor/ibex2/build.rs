@@ -5,6 +5,7 @@
 //!
 //!     ./scripts/build-hermes.sh --vanilla          # Apple
 //!     ./scripts/build-hermes-linux.sh --vanilla    # Linux
+//!     ./scripts/build-hermes-windows.ps1 -Vanilla  # Windows (MSVC shell)
 //!
 //! This deliberately points at the platform's `Frameworks-vanilla/`, never at
 //! the legacy patched install. Linking the reviewed patched engine here would
@@ -27,6 +28,7 @@ fn main() {
     let target_vendor = std::env::var("CARGO_CFG_TARGET_VENDOR").unwrap_or_default();
     let target_os = std::env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let is_apple = target_vendor == "apple";
+    let is_windows = target_os == "windows";
 
     // The Apple platform transport (LLP 0057 §3). Objective-C++ with ARC, so
     //
@@ -80,17 +82,36 @@ fn main() {
     if std::env::var("CARGO_FEATURE_HERMES").is_err() {
         return;
     }
+    assert!(
+        is_apple || target_os == "linux" || is_windows,
+        "unsupported Hermes platform: {target_os}"
+    );
+    let arch = match std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
+        Ok("aarch64") => "arm64",
+        Ok("x86_64") => "x64",
+        other => panic!("unsupported Hermes architecture: {other:?}"),
+    };
+    assert!(
+        !is_windows || arch == "x64",
+        "Windows Hermes currently supports x64 only"
+    );
 
-    let repo_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .expect("crate lives two levels below the repo root");
+    // canonicalize produces a verbatim Windows path that MSVC's include
+    // search does not accept. Cargo already supplies an absolute path.
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let repo_root = manifest_dir
+        .ancestors()
+        .nth(2)
+        .expect("crate lives two levels below the repo root")
+        .to_path_buf();
 
     let engine_dir = std::env::var("IBEX2_VANILLA_HERMES_DIR")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
             if is_apple {
                 repo_root.join("ios/Frameworks-vanilla")
+            } else if is_windows {
+                repo_root.join(format!("tools/hermes-vanilla/windows-{arch}"))
             } else {
                 repo_root.join("linux/Frameworks-vanilla")
             }
@@ -99,6 +120,8 @@ fn main() {
     let headers = engine_dir.join("hermes-headers");
     let static_dir = engine_dir.join(if is_apple {
         "macos-static"
+    } else if is_windows {
+        "windows-static"
     } else {
         "linux-static"
     });
@@ -121,12 +144,18 @@ fn main() {
         .file("src/engine/ibex2_jsi.cc")
         .file("tests/embedding.cc")
         .include(&headers)
-        .flag("-std=c++17");
+        .std("c++17");
+    // @ref LLP 0068#windows-host-and-engine — static MSVC embedding uses
+    // ordinary C++ exceptions at the JSI boundary, never DLL imports.
+    if is_windows {
+        shim.flag("/EHsc").define("NOMINMAX", None);
+    }
     if target_os == "linux" {
         shim.file("src/engine/intl_number_format.cc")
             .file("src/engine/intl_icu.cc")
             .file("src/engine/intl_case_icu.cc")
-            .file("src/engine/intl_datetime_icu.cc");
+            .file("src/engine/intl_datetime_icu.cc")
+            .define("IBEX2_JSI_HAS_INTL", None);
     }
     if is_apple {
         shim.flag("-stdlib=libc++");
@@ -140,7 +169,11 @@ fn main() {
     // 25 ms of a 30 ms budget, to verify a file it does not even run
     // (issues/20260829-run-hashes-the-engine-on-every-start.md). Hashed here,
     // once per link, of the archive actually linked.
-    let archive = static_dir.join("libhermesvm_a.a");
+    let archive = static_dir.join(if is_windows {
+        "hermesvm_a.lib"
+    } else {
+        "libhermesvm_a.a"
+    });
     println!("cargo:rerun-if-changed={}", archive.display());
     let archive_bytes = std::fs::read(&archive)
         .unwrap_or_else(|e| panic!("cannot read {}: {e}", archive.display()));
@@ -155,14 +188,13 @@ fn main() {
     // source at every start (~0.7 ms of a 1.8 ms floor, LLP 0063 §2). The
     // hermesc is the one beside the vanilla engine, from the same install as
     // the archive linked above, so the bytecode version matches the VM.
-    let arch = match std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() {
-        Ok("aarch64") => "arm64",
-        _ => "x64",
-    };
     let hermesc = std::env::var("IBEX2_HERMESC")
         .map(PathBuf::from)
         .unwrap_or_else(|_| {
-            repo_root.join(format!("tools/hermes-vanilla/hermesc-{target_os}-{arch}"))
+            let suffix = if is_windows { ".exe" } else { "" };
+            repo_root.join(format!(
+                "tools/hermes-vanilla/hermesc-{target_os}-{arch}{suffix}"
+            ))
         });
     assert!(
         hermesc.exists(),
@@ -189,6 +221,9 @@ fn main() {
         bindings.push("intl_case");
         bindings.push("intl_datetime");
     }
+    // It installs last even though compilation order is not observable; keep
+    // this inventory in the same conceptual order as bindings::scripts.
+    bindings.push("structured_clone");
     for name in bindings {
         let source = format!("src/bindings/{name}.js");
         println!("cargo:rerun-if-changed={source}");
@@ -212,6 +247,13 @@ fn main() {
         // CFLocale/CFString directly for case conversion and normalization.
         println!("cargo:rustc-link-lib=framework=CoreFoundation");
         println!("cargo:rustc-link-lib=framework=Foundation");
+    } else if is_windows {
+        println!("cargo:rustc-link-lib=icuuc");
+        println!("cargo:rustc-link-lib=icuin");
+        println!("cargo:rustc-link-lib=dbghelp");
+        println!("cargo:rustc-link-lib=version");
+        println!("cargo:rustc-link-lib=psapi");
+        println!("cargo:rustc-link-lib=winmm");
     } else {
         // The Linux vanilla build enables Intl. Close ICU statically so a
         // published executable does not acquire an undeclared libicu runtime

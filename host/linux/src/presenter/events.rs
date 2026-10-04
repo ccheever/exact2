@@ -5,6 +5,18 @@
 use super::*;
 
 impl<D: DataSource> Presenter<D> {
+    /// CSS cursor at the current painted hit. Hosts choose the system cursor;
+    /// `auto` leaves their existing control/default behavior intact.
+    pub fn cursor_at(&mut self, x: f32, y: f32) -> exact_kernel::Cursor {
+        self.hit(x, y)
+            .and_then(|id| self.host.kernel().node(id))
+            .map(|node| {
+                node.computed_style(exact_kernel::StyleMask::INHERITED)
+                    .cursor
+            })
+            .unwrap_or_default()
+    }
+
     /// Move the focus: `blur` at the node that loses it, then `focus` at the
     /// node that gains it — each at its own handler, since the web's focus
     /// events do not bubble.
@@ -165,7 +177,7 @@ impl<D: DataSource> Presenter<D> {
     /// The agent's hover (`tap … hover`, LLP 1012): the pointer to the node's
     /// projected center, as a mouse moved there — never a press.
     pub fn hover(&mut self, id: ViewId) -> Result<String, String> {
-        let (x, y) = self.pointer_target(id)?;
+        let (x, y) = self.pointer_target(id, None)?;
         self.set_pointer(Some((x, y)));
         if let Some(error) = self.hover_at(Some((x, y)), self.host.now()) {
             return Err(error);
@@ -175,30 +187,93 @@ impl<D: DataSource> Presenter<D> {
         ))
     }
 
+    pub(crate) fn mouse_request(
+        &mut self,
+        id: Option<ViewId>,
+        request: &serde_json::Value,
+    ) -> Result<String, String> {
+        let mouse = request["mouse"].as_bool() == Some(true);
+        if mouse
+            && [
+                "contextmenu",
+                "dblclick",
+                "phase",
+                "wheel",
+                "hover",
+                "pinch",
+                "history",
+                "into",
+                "resize",
+            ]
+            .iter()
+            .any(|name| request.get(name).is_some())
+        {
+            return Err("mouse cannot be combined with another input mode".into());
+        }
+        let at = match request.get("at") {
+            None => None,
+            Some(value) => match value.as_array().map(Vec::as_slice) {
+                Some([x, y]) => match (x.as_f64(), y.as_f64()) {
+                    (Some(x), Some(y)) if (x as f32).is_finite() && (y as f32).is_finite() => {
+                        Some((x as f32, y as f32))
+                    }
+                    _ => return Err("mouse/contextmenu at needs two finite numbers".into()),
+                },
+                _ => return Err("mouse/contextmenu at needs two finite numbers".into()),
+            },
+        };
+        let id = id.ok_or("mouse/contextmenu needs an id")?;
+        if mouse {
+            self.mouse_click(id, at, false)
+        } else {
+            self.contextmenu(id, at)
+        }
+    }
+
     /// A secondary mouse click on a canvas, through the device input path.
     /// Other native context menus remain unsupported, never a primary press.
-    pub(crate) fn contextmenu(&mut self, id: ViewId) -> Result<String, String> {
+    pub(crate) fn contextmenu(
+        &mut self,
+        id: ViewId,
+        at: Option<(f32, f32)>,
+    ) -> Result<String, String> {
+        self.mouse_click(id, at, true)
+    }
+
+    /// An explicit primary mouse click; ordinary agent taps remain fingers.
+    pub(crate) fn mouse_click(
+        &mut self,
+        id: ViewId,
+        at: Option<(f32, f32)>,
+        secondary: bool,
+    ) -> Result<String, String> {
+        let kind = if secondary { "contextmenu" } else { "mouse" };
         if self.contact_position().is_some() {
-            return Err("contextmenu requires the held contact to be released".into());
+            return Err(format!("{kind} requires the held contact to be released"));
         }
-        let (x, y) = self.pointer_target(id)?;
+        let (x, y) = self.pointer_target(id, at)?;
         let canvas = self.hover_canvas(x, y);
         if canvas.is_none() || canvas != self.input_surface(id) {
-            return Err(format!("view {id} does not carry canvas contextmenu input"));
+            return Err(format!("view {id} does not carry canvas {kind} input"));
         }
         let now = self.host.now();
         self.set_pointer(Some((x, y)));
         self.pointer_move(x, y, now)?;
-        self.pointer_aux(2, true, x, y, now);
-        self.pointer_aux(2, false, x, y, now);
+        if secondary {
+            self.pointer_aux(2, true, x, y, now);
+            self.pointer_aux(2, false, x, y, now);
+        } else {
+            self.pointer_down(x, y, now)?;
+            self.pointer_up(x, y, now)?;
+        }
         Ok(format!(
-            "{{\"tapped\":{id},\"contextmenu\":true,\"at\":[{},{}],\"delivery\":\"presenter\"}}",
+            "{{\"tapped\":{id},\"{kind}\":true,\"at\":[{},{}],\"delivery\":\"presenter\"}}",
             num(r2(x)),
             num(r2(y))
         ))
     }
 
-    fn pointer_target(&mut self, id: ViewId) -> Result<(f32, f32), String> {
+    fn pointer_target(&mut self, id: ViewId, at: Option<(f32, f32)>) -> Result<(f32, f32), String> {
         self.boxes();
         if self.host.route_visibility(id).1 || self.placement_hidden(id) {
             return Err(format!("view {id} is hidden or inert"));
@@ -206,14 +281,34 @@ impl<D: DataSource> Presenter<D> {
         let b = self
             .box_of(id)
             .ok_or_else(|| format!("no view {id} on screen"))?;
-        let (x, y) = b.center();
+        let (x, y) = match at {
+            Some((x, y))
+                if x.is_finite()
+                    && y.is_finite()
+                    && x >= 0.
+                    && y >= 0.
+                    && x < b.rect.2
+                    && y < b.rect.3 =>
+            {
+                (b.rect.0 + x, b.rect.1 + y)
+            }
+            Some(_) => {
+                return Err(format!(
+                    "view {id}: mouse/contextmenu at must be a finite point inside its box"
+                ))
+            }
+            None => b.center(),
+        };
+        if x < 0. || y < 0. || x >= self.viewport.0 || y >= self.viewport.1 {
+            return Err(format!("view {id}: pointer point is outside the viewport"));
+        }
         let mut hit = self.hit(x, y);
         while hit.is_some() && hit != Some(id) {
             hit = hit.and_then(|n| self.host.kernel().node(n).and_then(|n| n.parent));
         }
         if hit != Some(id) {
             return Err(format!(
-                "view {id} is covered or not hit at its projected center"
+                "view {id} is covered or not hit at the requested point"
             ));
         }
         Ok((x, y))

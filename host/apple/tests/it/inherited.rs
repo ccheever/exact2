@@ -355,6 +355,9 @@ try {
       [false,true].map(host => appleArtifacts(a,{destination,composition,trust,host})))));
   for (const key of ['products','binary']) assert.equal(new Set(forms.map(p => p[key])).size, forms.length, key);
   for (const key of ['scratch','embed']) assert.equal(new Set(forms.map(p => p[key])).size, forms.length / 2, key);
+  // One Swift compile per destination, whatever the app, composition, trust or product.
+  assert.equal(new Set(forms.map(p => p.swift)).size, 3);
+  assert.equal(appleArtifacts(b).swift, first.swift);
   assert.equal(new Set(forms.map(p => p.lock)).size, 1);
   assert.equal(appleArtifacts(a,{trust:'production'}).bundle, first.bundle);
   const release = appleBuildLock(a);
