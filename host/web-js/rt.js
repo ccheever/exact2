@@ -18,10 +18,9 @@ import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; ex
 // - timers fire on a clock the host moves (`advance`), each at its own time.
 // ---------------------------------------------------------------- signals
 let Listener = null, Owner = null, Queue = [], Flushing = false, Rev = 0;
-const CLEAN = 0, CHECK = 1, DIRTY = 2;
-
+const CLEAN = 0, CHECK = 1, DIRTY = 2, None = new Set(); // `None`: an effect's observers (nothing reads an effect)
 function node(fn, v, effect) {
-  const n = { fn, v, effect, s: fn ? DIRTY : CLEAN, src: [], obs: new Set(), kids: null, gone: 0 };
+  const n = { fn, v, effect, s: fn ? DIRTY : CLEAN, src: [], obs: effect ? None : new Set(), kids: null, gone: 0 };
   if (Owner) { (Owner.kids ??= []).push(n); n.up = Owner; }
   return n;
 }
@@ -488,22 +487,25 @@ export function mut(name, slot, refreshes, type) {
 export function M(m, source, args) { Sends.push([m, source, args]); }
 // ---------------------------------------------------------------- the DOM
 const SVG = "http://www.w3.org/2000/svg";
-/** An element under `p`: its static class, attributes and text. */
 /** An app file named from the root (`/assets/…`, `/deck/…`, `/shaders/…`)
  * is its published release's when the page is one (its base, LLP 1038 D7),
  * as the web host's `localAssetURL` resolves it. */
 let Release;
 const rel = (k, v) => (k === "src" || k === "poster") && /^\/(assets|deck|shaders)\//.test(v ?? "")
   && (Release ??= (() => { try { return /^\/\.exact\/root\/web\/releases\/[0-9a-f]{64}\/$/.test(new URL(document.baseURI).pathname); } catch { return false; } })()) ? "." + v : v;
+/** An element under `p`: its static class, attributes and text, made once per site (`attrs` is the site's own object, the emitter's `$A`) and cloned. */
+const Made = new WeakMap();
 export function h(p, tag, cls, attrs, text, ns) {
   if (attrs?.["aria-keyshortcuts"] != null) input();
   if (Adopt) return adopt(p, tag, cls, attrs);
-  const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag);
-  if (cls !== 0) e.setAttribute("class", "c" + cls);
-  if (attrs) { for (const k in attrs) e.setAttribute(k, rel(k, attrs[k])); if ("data-scrolldocument" in attrs) Docs.add(e); if ("data-exact-box" in attrs) paintList(p); }
-  if (text !== 0) e.textContent = text;
-  p.append(e);
-  return e;
+  let e = Made.get(attrs)?.cloneNode(true);
+  if (!e) {
+    e = ns ? document.createElementNS(ns, tag) : document.createElement(tag);
+    if (cls !== 0) e.setAttribute("class", "c" + cls); for (const k in attrs) e.setAttribute(k, rel(k, attrs[k]));
+    if (text !== 0) e.textContent = text; if (e.cloneNode && attrs) Made.set(attrs, e.cloneNode(true));
+  }
+  if (attrs) { if ("data-scrolldocument" in attrs) Docs.add(e); if ("data-exact-box" in attrs) paintList(p); }
+  p.append(e); return e;
 }
 /** An SVG element (the compiler knows the node's type; element.rs's tag). */
 export const hs = (p, tag, cls, attrs, text) => h(p, tag, cls, attrs, text, SVG);
@@ -567,7 +569,8 @@ export function P(e, name, f) {
     // link loses its `href`, an iframe shows about:blank.
     if (v != null && (name === "href" || (name === "src" && e.localName === "iframe")) && !navigable(v)) v = name === "src" ? "about:blank" : null;
     if (PropHooks[name]?.(e, v)) return;
-    if (name === "text") { if (!e.childElementCount && e.textContent !== (v ?? "")) e.textContent = v ?? ""; }
+    if (name === "text") { // a text's one Text node takes the new text as its data (no node replaced, no subtree read)
+      const t = v ?? "", c = e.firstChild; if (c && c.nodeType === 3 && !c.nextSibling && t) { if (c.data !== t) c.data = t; } else if (!e.childElementCount && e.textContent !== t) e.textContent = t; }
     else if (name === "value") { if (e.value !== (v ?? "")) e.value = v ?? ""; }
     else if (name === "scrollTop" || name === "scrollLeft") { if (v != null) (Scrolls.get(e) ?? Scrolls.set(e, {}).get(e))[name] = Number(v); }
     else if (name === "paused") {
@@ -714,10 +717,9 @@ function css(e, prop, unit, v, rendered) {
     const now = e.style.getPropertyValue(prop);
     if (t == null ? !now : same(now) === normal(prop, t)) return;
   }
-  if (t == null) return e.style.removeProperty(prop);
+  if (t != null && normal(prop, t)) return e.style.setProperty(prop, t); // one write, one style mutation; a value it doesn't take unsets it
   e.style.removeProperty(prop);
-  e.style.setProperty(prop, t);
-  if (!e.style.getPropertyValue(prop)) say(`unset ${prop}: ${JSON.stringify(v)} is not a value it takes`);
+  if (t != null) say(`unset ${prop}: ${JSON.stringify(v)} is not a value it takes`);
 }
 /** `S` for a row that can reference an element (`url(#…)`): an authored id
  * names the node the kernel's `resolve_id` would, the nearest in the tree
@@ -1105,9 +1107,8 @@ export function each(p, list, key, row, pure) {
         p.append(a, b);
       }
       else if (rows.size) { endAll(rows); for (const r of rows.values()) { let n = r.start; while (n) { const m = n.nextSibling; Leave ? Leave(n, b) : n.remove(); if (n === r.end) break; n = m; } } }
-      // Order, from the last row back: kept rows on the longest run already in
-      // order stay; any other moves before the row after it; new rows go in
-      // one fragment per run.
+      // Order, from the last row back: kept rows on the longest run already in order stay;
+      // any other moves before the row after it; new rows go in one fragment per run.
       if (b) {
         const stay = inOrder(list);
         let anchor = b, batch = null, first = null;
@@ -1117,9 +1118,8 @@ export function each(p, list, key, row, pure) {
           if (r.frag) { if (batch) batch.prepend(r.frag); else batch = r.frag; first = r.start; r.frag = null; continue; }
           flush();
           if (!stay.has(i)) {
-            const f = document.createDocumentFragment();
-            let n = r.start; while (n) { const m = n.nextSibling; f.append(n); if (n === r.end) break; n = m; }
-            p.insertBefore(f, anchor);
+            if (r.start === r.end) p.insertBefore(r.start, anchor); // a row of one element moves itself, not through a fragment
+            else { const f = document.createDocumentFragment(); let n = r.start; while (n) { const m = n.nextSibling; f.append(n); if (n === r.end) break; n = m; } p.insertBefore(f, anchor); }
           }
           anchor = r.start;
         }
@@ -1466,9 +1466,9 @@ export const x_path = (name, ...values) => path(Routes.find(r => r.name === name
  * `navigate` (LLP 1038 D7, D11). */
 let RouterSlot = null, Shown = null, Navigate = null, History = null; export const pageHistory = () => History; // the page's navigation.js, which the agent observes: its own copy's state is never written
 /** The plan's navigation roots, with a router or without (document.js `projectRoots`). */
-export function navigationRoots(history) { History = history; projectRoots(history, location => Navigate?.(location), say, After); }
-export function router(slot, history) {
-  RouterSlot = slot; navigationRoots(history);
+export function navigationRoots(history, roots = 1) { History = history; projectRoots(history, location => Navigate?.(location), say, After, roots); }
+export function router(slot, history, roots) {
+  RouterSlot = slot; navigationRoots(history, roots);
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document, as input-glue.js's rule for the wasm host:
   // a link with its own `press` navigates by it; any other goes to the
