@@ -260,7 +260,45 @@ Annotate the provider map as `Sources`; each function takes `(args, store, stora
 returns its declared result or a Promise of it. An `Answer` dispatcher can call
 `sources[source](args, store, storage)` without casts. `bun install --frozen-lockfile` installs the pinned `tsc`.
 Use a distinct filename: adjacent `app.ts` shadows an `app.d.ts` import.
-Generated declarations are build artifacts, not files to commit.
+Generated declarations are build artifacts, not files to commit. A development
+build writes them beside `app.ts` for an editor: the web build and the native
+development bake both do.
+
+### What a data module can use
+
+Every build type-checks `app.ts` and what it imports with one configuration,
+`js/bake/src/typescript.mjs`: the web build (alongside bundling, ~40 ms for a
+small app, about nothing on the build's wall time) and the native bake, with
+the same capture, entry and diagnostics, so an `app.ts` that builds on one
+host builds on all of them and a type error stops every build the same way.
+`strict`; target and library ES2023, plus ES2024's `Object.groupBy`,
+`Map.groupBy`, `Promise.withResolvers` and well-formed strings; `WebWorker`'s
+web APIs, never the DOM's UI types (`Document`, `HTMLElement`, `Window`).
+Imports may name `.ts` files (`import { day } from './dates.ts'`) or leave the
+extension off; `tsconfig.json` contributes only `paths` and `baseUrl`.
+
+The language is the same everywhere. The globals beyond it are the browser's
+on the web and these on Hermes (macOS, iOS, Linux):
+
+| Available on every executor | Notes on Hermes |
+| --- | --- |
+| `fetch`, `Headers`, `Response` | Grant-checked; `signal` aborts. A `Response` has `status`, `ok`, `headers`, `text()`, `json()`, `arrayBuffer()`; no `Request`, `Blob` or `FormData` |
+| `structuredClone` | No transfer list |
+| `TextEncoder`, `TextDecoder` | The decoder is UTF-8 only |
+| `URL`, `URLSearchParams`, `atob`, `btoa` | |
+| `crypto.getRandomValues`, `crypto.randomUUID`, `crypto.subtle` | Inside an answer; `subtle` digests (SHA-256/384/512) and ECDSA P-256 keys (LLP 1069.005), and refuses the rest by name |
+| `AbortController`, `AbortSignal` | `AbortSignal.timeout()` refuses: no timers |
+| `queueMicrotask`, `Promise` | |
+| `Intl.NumberFormat`, `Intl.DateTimeFormat`, `Intl.Collator`, `localeCompare`, `toLocaleString` | Date formatting needs an explicit timestamp. No `Intl.PluralRules`, `RelativeTimeFormat`, `ListFormat`, `Segmenter`, `DisplayNames` or `Locale` (Apple's engine; Linux's is built `--intl`) |
+| `console` | To the runner's logs |
+
+Not in a data module, by design (LLP 1027.000): timers (`setTimeout`,
+`setInterval`), `performance.now()`, `Date.now()`, `new Date()` without a value
+and `Math.random()`: time and seeds are source arguments. Hermes and the web's
+module realm refuse the clock and `Math.random` by name; the type check cannot
+see the difference, so an app that calls them builds and fails on a device.
+ES2024's resizable `ArrayBuffer`, shared memory and the RegExp `v` flag are not
+in Hermes, so they are not in the library.
 
 The dispatcher receives storage as its fourth argument:
 `answer(source, args, store, storage)`. `store` remains the grant-checked secrets

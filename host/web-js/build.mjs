@@ -129,6 +129,47 @@ if (ts && existsSync(webScript) && !/^\s*fn main\(\)\s*\{\s*exact_js_bake::build
   const r = spawnSync('cargo', ['check', '-q', '--manifest-path', resolve(appDir, 'web/Cargo.toml')], { cwd: root, stdio: 'inherit' });
   if (r.status !== 0) { console.error(`${app}: its web build script failed`); process.exit(1); }
 }
+// `app.ts` is type-checked as the native bake checks it: the same
+// configuration and check (js/bake/src/typescript.mjs) over the same capture
+// and entry, against this plan's declarations, so an app.ts the web builds
+// is one every host builds, refused with the same diagnostics (calc F2,
+// calendar F9/F11). It runs while the page bundles; the build waits for it.
+const typeChecked = ts ? typecheck().then(() => null, error => error) : null;
+async function typecheck() {
+  const { configure, check } = await import(resolve(root, 'js/bake/src/typescript.mjs'));
+  const libraries = resolve(dirname(fileURLToPath(import.meta.resolve(`@typescript/typescript-${process.platform}-${process.arch}/package.json`))), 'lib');
+  const source = readFileSync(appTs, 'utf8');
+  let declarations = readFileSync(resolve(gen, 'app.contract.d.ts'), 'utf8');
+  if (/export\s+(?:function|const|let)\s+draw\b|export\s*\{[^}]*\bdraw\b/.test(source)) declarations += readFileSync(resolve(root, 'js/bake/src/canvas-types.d.ts'), 'utf8');
+  // Beside app.ts too, for an editor, as the native development bake writes
+  // it: never a captured source, written only when it changes.
+  const beside = resolve(appDir, 'app.contract.d.ts');
+  if (!production && (!existsSync(beside) || readFileSync(beside, 'utf8') !== declarations)) writeFileSync(beside, declarations);
+  // The bake's capture (js/bake/src/lib.rs `sources`): the app's TypeScript
+  // and JSON, and each `typescript.sources` mount under its name.
+  const stage = resolve(gen, 'typescript');
+  const mounts = Object.entries(manifest.typescript?.sources ?? {}).map(([name, path]) => [name, realpathSync(resolve(appDir, path))]);
+  const capture = (from, to, top) => {
+    for (const entry of readdirSync(from, { withFileTypes: true })) {
+      const name = entry.name, path = resolve(from, name);
+      if (['.git', 'node_modules', 'target', 'dist'].includes(name) || name.startsWith('.exact-js-bake-') || (top && name === 'app.contract.d.ts')) continue;
+      if (top && mounts.some(([mount]) => mount === name)) continue;
+      if (entry.isSymbolicLink()) throw new Error(`source links are not captured: ${path}`);
+      if (entry.isDirectory()) capture(path, resolve(to, name), false);
+      else if (/\.(ts|json)$/.test(name)) { mkdirSync(to, { recursive: true }); cpSync(path, resolve(to, name)); }
+    }
+  };
+  capture(appDir, stage, true);
+  for (const [name, dir] of mounts) capture(dir, resolve(stage, name), false);
+  writeFileSync(resolve(stage, 'app.contract.d.ts'), declarations);
+  // The bake's generated entry (js/bake/src/lib.rs `bake_in`), less the
+  // Canvas 2D seam, which adds no type the module must meet.
+  writeFileSync(resolve(stage, '__exact_entry.ts'), "import * as app from './app';\nimport type { Answer } from './app.contract.d.ts';\nexport const appId: string = app.appId;\nexport const grants: string = app.grants;\nexport const answer: Answer = app.answer;\n");
+  writeFileSync(resolve(stage, '__exact_paths.json'), JSON.stringify({ app: realpathSync(appDir), mounts }));
+  const real = realpathSync(stage);
+  configure(real);
+  await check(real, resolve(libraries, 'tsc'), libraries);
+}
 const normalizeGrants = (label, spec, stem) => {
   const file = resolve(gen, `${stem}.grants`);
   writeFileSync(file, spec);
@@ -424,6 +465,10 @@ if (!production) {
   writeInstallPages(out, readManifest(appDir, app), { id, source, dirty: changes === null ? null : !!changes, builtAt: new Date().toISOString(),
     mode: 'Development build' });
 }
+// The type check, which ran while the page bundled: its diagnostics are the
+// native bake's (host/web/build.mjs keeps them in its summary).
+const typeError = await typeChecked;
+if (typeError) { console.error(`${typeError.message ?? typeError}\nerror: ${app}: app.ts failed the type check every host's build runs`); process.exit(1); }
 // Pages at build (LLP 1048.000): `--render rust` (the default) runs the app's
 // native render entry (`<app>-render`, exact_render) over this shell;
 // `--render js` runs this runtime under Bun (render.mjs). Either page adopts.

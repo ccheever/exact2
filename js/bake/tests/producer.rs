@@ -748,6 +748,74 @@ fn both_producer_paths_check_worker_web_types_and_refuse_dom_ui_types() {
     assert_eq!(producer.bake(&f.0, None).unwrap().receipt, f.bake().receipt);
 }
 
+/// One TypeScript configuration (`js/bake/src/typescript.mjs`) in both
+/// producers and the web build: ES2023 runs on Hermes as in a browser, a
+/// `.ts` import path resolves, and what one refuses every one refuses with
+/// the same diagnostic (calc F2, calendar F9/F11).
+#[test]
+fn every_build_takes_one_typescript_configuration_and_refuses_alike() {
+    let f = Fixture::new();
+    f.write("app.ts", &SOURCE.replace("'./logic'", "'./logic.ts'"));
+    f.write(
+        "app.json",
+        r#"{"name":"Logic","app":{"id":"test.exact.logic","name":"Logic"}}"#,
+    );
+    let accepted = "export const prefix = [['b', 2], ['a', 1]].toSorted().map(([k]) => k).join('').replaceAll('a', 'A') + [1, 2].at(-1) + [1, 2].findLast(n => n < 2) + Object.keys(Object.groupBy([1], n => 'g' + n)) + ': ';";
+    f.write("logic.ts", accepted);
+    let web = || {
+        let out = f.0.join("web-out");
+        let _ = std::fs::remove_dir_all(&out);
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let built = std::process::Command::new("bun")
+            .arg(root.join("host/web-js/build.mjs"))
+            .args(["logic", "--render", "none", "--out"])
+            .arg(&out)
+            .env("EXACT_APP_DIR", &f.0)
+            .current_dir(&root)
+            .output()
+            .unwrap();
+        if built.status.success() {
+            Ok(())
+        } else {
+            Err(String::from_utf8_lossy(&built.stderr).into_owned())
+        }
+    };
+    web().unwrap();
+    assert!(
+        f.0.join("app.contract.d.ts").exists(),
+        "a development build writes the declarations beside app.ts"
+    );
+    std::fs::remove_file(f.0.join("app.contract.d.ts")).unwrap();
+    let engine = exact_js::ENGINE_LINKED;
+    if engine {
+        let baked = f.bake();
+        let candidate = paired(&baked);
+        let live = Runner::boot(
+            candidate.plan,
+            candidate.module,
+            Kernel::with_monospace(),
+            Default::default(),
+            "/",
+        )
+        .unwrap();
+        assert_eq!(live.resource("message"), Some(&Value::str("Ab21g1: 0")));
+    }
+    // ES2024's RegExp `v` flag is not in Hermes, so not in the library.
+    f.write("logic.ts", "export const prefix = /[a]/v.source;");
+    let mut refusals = vec![web().unwrap_err()];
+    if engine {
+        let mut producer = exact_js_bake::Producer::new(Tools::default()).unwrap();
+        refusals.push(producer.bake(&f.0, None).err().unwrap());
+        refusals.push(bake(&f.0, &Tools::default()).err().unwrap());
+    }
+    for error in refusals {
+        assert!(
+            error.contains("logic.ts(1,28): error TS1501"),
+            "the one diagnostic: {error}"
+        );
+    }
+}
+
 #[test]
 fn an_alias_resolves_a_mounted_source_alike_in_both_producers_and_names_only_the_capture() {
     if !exact_js::ENGINE_LINKED {

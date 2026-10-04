@@ -458,12 +458,21 @@
       return Promise.reject(new TypeError("exactStream maps each event to the answer: (event) => value"));
     if (stream && call.stream) return Promise.reject(new Error("an answer streams one request"));
     if (stream && ceiling === undefined) ceiling = 1048576;
+    // The web's `signal`: an aborted fetch rejects with its reason at once.
+    // The host's request still runs; its reply is dropped (`__exact_fulfill`).
+    var signal = init ? init.signal : undefined;
+    if (signal && signal.aborted) return Promise.reject(signal.reason);
     var ticket = nextTicket++;
     var error = host(1, String(ticket), JSON.stringify({ method: method, url: String(url), headers: headers, body: body, max_response_bytes: ceiling, stream: stream ? true : undefined }));
     if (error !== undefined) return Promise.reject(new Error(error));
     call.tickets.push(ticket);
     if (stream) call.stream = stream;
-    return new Promise(function (resolve, reject) { pending.set(ticket, { resolve: resolve, reject: reject, call: call }); });
+    return new Promise(function (resolve, reject) {
+      pending.set(ticket, { resolve: resolve, reject: reject, call: call });
+      if (signal) signal.addEventListener("abort", function () {
+        if (pending.delete(ticket)) reject(signal.reason);
+      }, { once: true });
+    });
   };
 
   // --- signing in through the system browser (LLP 1069.006) ---------------
@@ -617,22 +626,42 @@
     var message = e && typeof e === "object" && e.message !== undefined ? e.message : e;
     return JSON.stringify({ tag: 2, kind: kind, message: String(message) });
   }
-  function settle(call) {
+  // Natively, liveness is the module's, as a browser's event loop has it
+  // (LLP 1027.003.000 §13; hn-reader F7): an answer awaiting a promise
+  // another answer started (one memoized fetch, a queue chained through
+  // another's storage) waits while any fetch or storage step of the module
+  // is outstanding, and the executor asks again after each one lands. The
+  // web's module realm (module-glue.js, the wasm target's) runs one answer
+  // at a time and keeps the per-answer rule.
+  var moduleWide = bytesDoor !== undefined;
+  function outstanding() {
+    if (pending.size) return true;
+    var any = false;
+    calls.forEach(function (c) { if (c.storage > 0) any = true; });
+    return any;
+  }
+  function settle(call, final) {
     if (call.status === "done") { calls.delete(call.id); return ok(call.value); }
     if (call.status === "failed") { calls.delete(call.id); return fail(call.error); }
     for (var i = 0; i < call.tickets.length; i++) if (pending.has(call.tickets[i])) return JSON.stringify({ tag: 1, call: call.id, ticket: call.tickets[i] });
     if (call.storage > 0) return JSON.stringify({ tag:1, call:call.id, ticket:0 });
+    if (moduleWide && !final && outstanding()) return JSON.stringify({ tag: 1, call: call.id, ticket: 0, waiting: true });
     calls.delete(call.id);
+    if (moduleWide) return fail(new Error("the answer is pending on nothing: it awaits a promise that no fetch or storage step " +
+      "in flight in this module will settle"));
     return fail(new Error("the answer is pending on nothing: no host operation it started will resolve it. " +
       "An answer that awaits a promise another answer started (a fetch shared between answers, or a queue chained through a " +
-      "fetch another answer is waiting on) waits on work it does not own; make each answer's own fetch, or share the resolved " +
-      "value rather than the promise. Storage is different: an answer queued behind another's storage turn waits for it"));
+      "fetch another answer is waiting on) waits on work it does not own in the web's module realm; make each answer's own " +
+      "fetch, or share the resolved value rather than the promise. Storage is different: an answer queued behind another's " +
+      "storage turn waits for it"));
   }
   // The executor: `__exact_call(source, argsJson)` → tag 0/2 at once, or
   // tag 3 with a call id — then it drains microtasks and asks
   // `__exact_settle(id)`, which is tag 0/2, or tag 1 with the ticket of the
-  // fetch the answer is waiting on. `__exact_fulfill(ticket, outcomeJson)`
-  // resolves that fetch; drain and settle again.
+  // fetch the answer is waiting on (0: its storage; 0 and `waiting`: another
+  // answer's work). `__exact_fulfill(ticket, outcomeJson)` resolves that
+  // fetch; drain and settle again. `__exact_settle(id, "final")` refuses an
+  // answer still waiting on nothing of its own.
   global.__exact_call = function (source, argsJson) {
     initializing = false;
     var call = { id: nextCall++, status: "pending", value: undefined, error: undefined, tickets: [], storage: 0 };
@@ -696,10 +725,10 @@
     if (global.exact.retireCanvases) global.exact.retireCanvases(retired);
     return "";
   };
-  global.__exact_settle = function (id) {
+  global.__exact_settle = function (id, final) {
     currentCall = null;
     var call = calls.get(Number(id));
-    return call ? settle(call) : fail(new Error("no such call"));
+    return call ? settle(call, final === "final") : fail(new Error("no such call"));
   };
   // The runner let this call's request go (LLP 1016 D5): drop the call and
   // the fetches it waits on, so nothing keeps them alive.
