@@ -185,6 +185,27 @@ This adds to `rules/DEFERRED.md` as Charlie approved, without a take: one tag me
   - macOS draws the same sheet Linux and the web do; it was not driven.
 - **Review.** Three rounds each by Astra and Grok (`llp/reviews/code-2026-10-03-grouped-list.*.md`). Round 3 ended with Astra at DO NOT LAND and Grok at LAND WITH FIXES. Every round-3 finding is fixed or declared in §4.
 
+### 6.1 The symbol's tint (2026-10-04)
+
+The sheet takes the author's attributes over its own (D7), but UIKit's cells
+did not. Signal Clone's settings symbols came out in UIKit's accent colour
+rather than the label colour it wrote.
+- **A standard row's symbol** takes the tint the sheet draws: the author's
+  `tint-color` over the sheet's own `light-dark(#0088ff, #0091ff)`. It is a
+  dynamic colour, so each side of a `light-dark()` pair follows the
+  appearance with no batch.
+- **The symbol** is the one the model named: the row's first shown child,
+  when it is that symbol's image, as `kernel/src/grouped.rs` reads it.
+  `display: none` children are skipped.
+- A row whose symbol tint changes is configured again. A destructive or
+  disabled row's colour still wins.
+- A custom row's background is not changed: on the sheet a transparent row
+  shows its group's cell colour, and so does the cell (r1 cleared the cell,
+  and both reviews found that not to be parity).
+
+`GroupedListIOSTests.testASymbolTakesItsAuthoredTintForEachAppearance` covers
+a hidden image before the symbol, a chevron after it, and both appearances.
+
 ## 7. Open
 
 - **`sidebar` and `sidebarPlain`.** These are UIKit's other two appearances. They wait for an iPad or Mac consumer.
