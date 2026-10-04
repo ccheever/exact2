@@ -306,6 +306,14 @@ impl SizeIndex {
             .is_some_and(|i| self.rows[i].measured_epoch == Some(self.epoch))
     }
 
+    /// [`SizeIndex::is_measured`] by position (keys are unique), without a
+    /// key lookup.
+    pub(crate) fn is_measured_at(&self, index: usize) -> bool {
+        self.rows
+            .get(index)
+            .is_some_and(|row| row.measured_epoch == Some(self.epoch))
+    }
+
     /// Current measurements for a nonempty geometric band, in O(log N).
     pub(crate) fn range_measured(&self, range: Range<usize>) -> bool {
         !range.is_empty() && self.tree.min_epoch(range) >= self.epoch
@@ -374,6 +382,12 @@ impl SizeIndex {
             return Ok(false);
         }
         let i = self.positions[key];
+        // The same height measured again this epoch: nothing to write.
+        if self.rows[i].height.to_bits() == height.to_bits()
+            && self.rows[i].measured_epoch == Some(self.epoch)
+        {
+            return Ok(true);
+        }
         self.tree.set(i, height)?;
         self.rows[i].height = height;
         self.rows[i].measured_epoch = Some(self.epoch);

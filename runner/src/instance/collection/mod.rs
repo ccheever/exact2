@@ -1138,8 +1138,7 @@ impl Collection {
         if self.axis == ListAxis::Horizontal && !changed_width {
             let (again, first): (Vec<_>, Vec<_>) = feedback.measurements.drain(..).partition(|m| {
                 let row = &self.mounted[by_view[&m.view]];
-                self.index
-                    .is_measured(self.index.key(row.position).unwrap())
+                self.index.is_measured_at(row.position)
             });
             for measurement in again {
                 self.measure(by_view, measurement)?;
@@ -1197,14 +1196,14 @@ impl Collection {
         measurement: RowMeasurement,
     ) -> Result<(), InstanceError> {
         let row = &self.mounted[by_view[&measurement.view]];
-        let key = self.index.key(row.position).unwrap().to_owned();
+        let key = self.index.shared_key(row.position).unwrap().clone();
         self.index
             .set_measured_height(&key, row.token, measurement.size)
             .map_err(index_error)?;
         if measurement.size == 0.0 {
-            self.zero_heights.insert(key);
-        } else {
-            self.zero_heights.remove(&key);
+            self.zero_heights.insert(key.to_string());
+        } else if !self.zero_heights.is_empty() {
+            self.zero_heights.remove(&*key);
         }
         Ok(())
     }
@@ -1350,6 +1349,10 @@ impl Collection {
         Ok(true)
     }
     fn snapshot(&self) -> CollectionSnapshot {
+        self.snapshot_rows(usize::MAX)
+    }
+    /// [`Collection::snapshot`] with at most `rows` mounted rows (the first).
+    fn snapshot_rows(&self, rows: usize) -> CollectionSnapshot {
         CollectionSnapshot {
             view: self.view,
             axis: self.axis,
@@ -1363,6 +1366,7 @@ impl Collection {
             rows: self
                 .mounted
                 .iter()
+                .take(rows)
                 .map(|row| CollectionRow {
                     view: row.wrapper,
                     root: roots_of(&row.row.roots)[0],
@@ -1370,9 +1374,7 @@ impl Collection {
                     start: self.index.prefix(row.position).unwrap(),
                     size: self.index.height(row.position).unwrap(),
                     epoch: row.epoch,
-                    measured: self
-                        .index
-                        .is_measured(self.index.key(row.position).unwrap()),
+                    measured: self.index.is_measured_at(row.position),
                 })
                 .collect(),
             correction: self.correction,

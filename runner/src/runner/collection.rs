@@ -11,6 +11,18 @@ impl<D: DataSource> Runner<D> {
             .map(Tree::collections)
             .unwrap_or_default()
     }
+    /// One list's entry of [`Runner::collections`].
+    pub fn collection(&self, view: ViewId) -> Option<CollectionSnapshot> {
+        self.tree.as_ref().and_then(|tree| tree.collection(view))
+    }
+    /// [`Runner::collections`] with only each list's first mounted row
+    /// ([`Tree::collections_shallow`]).
+    pub fn collections_shallow(&self) -> Vec<CollectionSnapshot> {
+        self.tree
+            .as_ref()
+            .map(Tree::collections_shallow)
+            .unwrap_or_default()
+    }
     /// Bound borrowed traversal and count all collections/rows before copying
     /// numeric host snapshots. No keys, records or action frames are captured.
     pub fn collections_bounded(
