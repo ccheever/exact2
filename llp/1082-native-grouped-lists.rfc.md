@@ -139,6 +139,7 @@ Colours are `light-dark()` pairs of §2's values.
 - **A custom row's width is the kernel's.** In a wider UIKit layout margin (an iPad, landscape), its views keep the sheet's 16-pt inset, while UIKit's own cells follow the margin.
 - **The large-title collapse (LLP 1075.003 §3.7) does not follow a grouped list.** It follows the route's authored scroll, which this list hides. The route's `setContentScrollView` would need to be the collection view (§7).
 - **Swipe actions (`swipeContent`) on a grouped list's rows are not projected into its cells.**
+- **A custom row takes no cell highlight.** Its carried views keep their own touch handling, so its press, press feedback and nested controls stay the author's.
 - **The list's scroll position is UIKit's.** An authored `scrollTop` write still goes to the hidden scroll, and the collection view reports no `scroll` event. The kernel's content height is the sheet's, not UIKit's, so mirroring one offset onto the other would be wrong at both ends. A settings screen needs neither. The agent's wheel scrolls the collection view (D8). A consumer that needs a position gets it designed then.
 
 ## 5. Scope
