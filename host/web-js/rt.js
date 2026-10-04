@@ -431,11 +431,11 @@ export function res(name, source, args, initial, initialArgs, type, ph, carried 
       r.ticket = t; flag(pend, true); send(t, land(t));
       return r.value;
     }
-    // Not ready (Rust loads after first paint): the bake's answer for its arguments stands; another compiled value stands, stale, asked again, forced, when it is (LLP 1027 D4).
-    if (baked && eq(a, r.settled)) return r.value;
-    hold();
-    flag(pend, true);
-    if (!r.waiting) { r.waiting = true; data.ready(() => { r.waiting = false; commit(() => { r.forced = true; W(ver, ver.n.v + 1); W(pend, false); }, `data ready ${name}`); }); }
+    // Not ready (Rust loads after first paint): the bake's answer for its arguments stands, not pending, and is asked at `ready` as a
+    // native runner asks at data_ready (review B3); another compiled value stands, stale, asked again, forced, when it is (LLP 1027 D4).
+    const shown = baked && eq(a, r.settled);
+    if (!shown) { hold(); flag(pend, true); }
+    if (!r.waiting) { r.waiting = true; data.ready(() => { r.waiting = false; commit(() => { r.forced = true; r.baked ||= shown; W(ver, ver.n.v + 1); W(pend, false); }, `data ready ${name}`); }); }
     return r.value;
   }, type);
   Object.assign(r, {
