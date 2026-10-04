@@ -1,0 +1,26 @@
+// Synthetic conformance plan (LLP 1088 D7.3): HTML's `tabindex` is the
+// attribute on both renderers. A plain box with `tabindex=0` and no handler
+// is a Tab stop; a positive value goes first; `-1` is focusable by a click
+// but Tab skips it, a key handler's node included; absent is never `0`; a
+// value bound to state moves a box in and out of the order. The column's
+// `key` handler hears every Tab bubble from the focused box.
+component Tabs
+  state open = false
+  state heard = ""
+  action reveal
+    open = true
+  action key(k: string)
+    heard = `${heard}${k};`
+  action noted(k: string)
+    heard = `${heard}!${k};`
+  view
+    column testId="root" key=key gap=4 padding=8
+      text heard testId="heard"
+      box tabindex=0 testId="zero" width=60 height=20 background-color="#ddd"
+      box testId="plain" width=60 height=20 background-color="#eee"
+      box tabindex=-1 key=noted testId="minus" width=60 height=20 background-color="#ccc"
+      button "Reveal" press=reveal testId="reveal"
+      box tabindex=2 testId="two" width=60 height=20 background-color="#bbb"
+      box tabindex=1 testId="one" width=60 height=20 background-color="#aaa"
+      box tabindex=(open ? 0 : -1) testId="bound" width=60 height=20 background-color="#999"
+      box tabindex=0 disabled=true testId="disabled" width=60 height=20

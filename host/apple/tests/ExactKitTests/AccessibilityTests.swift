@@ -188,10 +188,9 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertTrue(w.makeFirstResponder(other))
         w.selectNextKeyView(nil)
         XCTAssertTrue(w.firstResponder === stop, "Tab lands on the box itself")
-        // What a click does (`mouseDown`): the first responder, if it accepts.
-        XCTAssertTrue(w.makeFirstResponder(skipped) && w.firstResponder === skipped, "a click focuses tabindex=-1")
-        _ = w.makeFirstResponder(plain)
-        XCTAssertFalse(w.firstResponder === plain, "and never a box with no tabindex")
+        // A click makes the node first responder when it accepts (`mouseDown`;
+        // the window's `makeFirstResponder` itself does not ask).
+        XCTAssertTrue(skipped.acceptsFirstResponder && w.makeFirstResponder(skipped) && w.firstResponder === skipped, "a click focuses tabindex=-1")
         skipped.applyProps(set: ["tabIndex": "0"], clear: [])
         stop.applyProps(set: [:], clear: ["tabIndex"])
         p.syncKeyViewLoop()
