@@ -28,15 +28,56 @@ static LINKED: std::sync::OnceLock<Shown> = std::sync::OnceLock::new();
 #[cfg(target_arch = "wasm32")]
 type Shown = for<'t> fn(TextTransform, &'t str, WordBoundary) -> Cow<'t, str>;
 
+/// [`lowercase_bounded`], once linked: the roster's `toLowerCase` reaches
+/// the case tables only through this pointer on the web (LLP 1088 D2).
+#[cfg(target_arch = "wasm32")]
+static LOWERCASE: std::sync::OnceLock<Lowercase> = std::sync::OnceLock::new();
+
+/// [`lowercase_bounded`]'s signature.
+pub type Lowercase = fn(&str, usize) -> Option<String>;
+
 /// Link `text-transform`'s case mapping (LLP 1047 D2, linked by use): its
 /// Unicode case tables are ~3–6 KiB of a web core, and an app's `<option>`
 /// label reaches them through its runs. A web artifact links it when its
-/// plan binds the row, and a plan that binds it unlinked is refused at boot
-/// (D6), so an unlinked artifact never holds a transform but `none`. Native
-/// artifacts and the compiler map without it.
+/// plan binds the row or calls `toLowerCase` (LLP 1088 D2), and a plan that
+/// does either unlinked is refused at boot (D6), so an unlinked artifact
+/// never holds a transform but `none`. Native artifacts and the compiler map
+/// without it.
 pub fn link() {
     #[cfg(target_arch = "wasm32")]
-    let _ = LINKED.set(TextTransform::apply_after);
+    {
+        let _ = LINKED.set(TextTransform::apply_after);
+        let _ = LOWERCASE.set(lowercase_bounded);
+    }
+}
+
+/// The roster's `toLowerCase`, once [`link`]ed on the web, directly
+/// elsewhere; `None` when an artifact never linked the case tables (the
+/// runner traps — the plan was refused at boot first).
+pub fn linked_lowercase() -> Option<Lowercase> {
+    #[cfg(target_arch = "wasm32")]
+    return LOWERCASE.get().copied();
+    #[cfg(not(target_arch = "wasm32"))]
+    Some(lowercase_bounded)
+}
+
+/// JavaScript's `toLowerCase` (Unicode's default mapping with final
+/// sigma, no language tailoring), or `None` when the result would pass
+/// `max_bytes` of UTF-8 (LLP 1088 D2). A preflight counts the result first
+/// without allocating — each character's mapping, expansion included
+/// (`"İ"` grows from 2 bytes to 3); final sigma never changes a length, as
+/// `ς` and `σ` are both 2 bytes — and only a result that fits is mapped,
+/// whole, so `"ΟΣ"` is `"ος"`: no allocation passes the bound, and the
+/// result is always `str::to_lowercase`'s.
+pub fn lowercase_bounded(text: &str, max_bytes: usize) -> Option<String> {
+    let mut bytes = 0usize;
+    for c in text.chars() {
+        bytes += c.to_lowercase().map(char::len_utf8).sum::<usize>();
+        if bytes > max_bytes {
+            return None;
+        }
+    }
+    Some(text.to_lowercase())
 }
 
 /// `text` as `transform` shows it in a run: [`TextTransform::apply_after`],
@@ -201,6 +242,30 @@ mod tests {
         assert_eq!(t(Lowercase, "ὈΔΥΣΣΕΎΣ İ"), "ὀδυσσεύς i\u{307}");
         assert_eq!(t(None, "MiXeD"), "MiXeD");
         assert!(matches!(Uppercase.apply("ABC 123", ""), Cow::Borrowed(_)));
+    }
+
+    /// LLP 1088 D2: final sigma decided on the whole string, expansion
+    /// counted, the bound exact, and `to_lowercase`'s result when it fits.
+    #[test]
+    fn lowercase_bounded_is_to_lowercase_within_its_bound() {
+        assert_eq!(lowercase_bounded("ΟΣ", 64).as_deref(), Some("ος"));
+        assert_eq!(lowercase_bounded("ΟΣ Α", 64).as_deref(), Some("ος α"));
+        assert_eq!(lowercase_bounded("İİ", 6).map(|s| s.len()), Some(6));
+        assert_eq!(lowercase_bounded("İİ", 5), None);
+        assert_eq!(lowercase_bounded("", 0).as_deref(), Some(""));
+        for text in ["MiXeD ÀÉ", "ὈΔΥΣΣΕΎΣ İ", "Σ", "AΣ'B", "ΣΑΣ.", "Ⱥ K"] {
+            let want = text.to_lowercase();
+            assert_eq!(
+                lowercase_bounded(text, want.len()),
+                Some(want.clone()),
+                "{text}"
+            );
+            assert_eq!(lowercase_bounded(text, want.len() - 1), None, "{text}");
+        }
+        assert_eq!(
+            linked_lowercase().map(|f| f("ABC", 3)),
+            Some(Some("abc".into()))
+        );
     }
 
     #[test]
