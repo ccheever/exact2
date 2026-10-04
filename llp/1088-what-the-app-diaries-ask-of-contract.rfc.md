@@ -1,7 +1,7 @@
 # LLP 1088: What the app diaries ask of Contract
 
 **Type:** RFC
-**Status:** Accepted (stages 1–3 as descoped), r5, 2026-10-04. Accepted by the orchestrator for Charlie under the three-round rule (`rules/RULES.md`, "Fix loops get 3 rounds") after Astra's r3; D6 deferred. Stage 1 is built as of 2026-10-04, without D6's fixed point, and stage 2 as of 2026-10-04 (§10, "As built"); stage 3 is not. All three review rounds were one family (Astra, `gpt-6-astra`, max; Grok was unavailable): r1 NOT READY (7 MATERIAL, 6 MINOR); r2 NOT READY (4 new MATERIAL, 3 new MINOR); r3 NOT READY on one MATERIAL (D6's convergence) and three MINORs. The reviewer stated that only D6 blocked stage 1. r4 is a final edit with no further review: D6 moves to §9 with the requirement a follow-up must meet, and r3's MINORs are folded in. A second family, Grok 4.7 (xhigh), then reviewed r4 (truncated); r5 folds its findings into the decisions with no new round. Renumbered from 1085, then from 1086 (origin/main took 1085, then 1086 and 1087). §8 lists each revision.
+**Status:** Accepted (stages 1–3 as descoped), r5, 2026-10-04. Accepted by the orchestrator for Charlie under the three-round rule (`rules/RULES.md`, "Fix loops get 3 rounds") after Astra's r3; D6 deferred. Stage 1 is built as of 2026-10-04, without D6's fixed point, and stages 2 and 3 as of 2026-10-04 (§10, "As built"). All three review rounds were one family (Astra, `gpt-6-astra`, max; Grok was unavailable): r1 NOT READY (7 MATERIAL, 6 MINOR); r2 NOT READY (4 new MATERIAL, 3 new MINOR); r3 NOT READY on one MATERIAL (D6's convergence) and three MINORs. The reviewer stated that only D6 blocked stage 1. r4 is a final edit with no further review: D6 moves to §9 with the requirement a follow-up must meet, and r3's MINORs are folded in. A second family, Grok 4.7 (xhigh), then reviewed r4 (truncated); r5 folds its findings into the decisions with no new round. Renumbered from 1085, then from 1086 (origin/main took 1085, then 1086 and 1087). §8 lists each revision.
 **Systems:** Contract compiler (`contract/{syntax,types,analyze,lower}`, `contract/cli/src/lean.rs`), Plan (`plan/tables/format.json` `stdlib`), Runner (`vm.rs`, `stdlib.rs`, `uses.rs`), JS target (`host/web-js`), web host (`host/web`), Apple hosts (`host/apple`), Linux host, Lean semantics and difftest (`semantics/`), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
@@ -793,4 +793,65 @@ D7.3 as specified, on every host:
   whole list, the ancestor's `key` included). Driven on the web and macOS
   with a scratch app: Tab from a `tabindex=0` box with no handler, `-1`
   skipped and focused by tap, the bound value joining the order, Shift-Tab.
+
+### Stage 3, 2026-10-04 (branch `fix/impl1088`)
+
+D1 and D2 as specified, with these differences:
+
+- **The omitted `end` is `Number.MAX_VALUE`, not `Infinity`.** A plan's
+  number constants are finite (the code validator's `NonFinite`), and an
+  index past any end clamps exactly as `undefined` and `Infinity` do. The
+  roster row says `"optional": ["Number.MAX_VALUE"]`; `plan/build.rs`
+  generates `Stdlib::min_arity()` and `Stdlib::defaults()`.
+- **No `Types.roster_calls`.** The checker admits `min_arity..=arity` only in
+  its roster arm, after scoped actions and props (so `action slice(by)`
+  keeps its arity), and lowering's roster arm, which every expression call
+  that is not a `fn` or a record reaches, fills the defaults. `lean.rs`
+  fills them for a roster-named call short of its arity: no `fn` takes a
+  roster name, and the semantics evaluates no action in an expression, so
+  the name decides. The arity refusal reads "`slice` takes 2 to 3
+  argument(s), given 1; expected `slice(string, number, number?)`", and
+  `slice` over a list is `type-refused-idiom` naming §9.
+- **`lowercase_bounded` is a preflight.** It counts each character's mapped
+  UTF-8 length first, allocating nothing and returning `None` the moment the
+  count passes the bound, and only then maps the whole string with
+  `to_lowercase`. Final sigma never changes a length (`ς` and `σ` are both 2
+  bytes), so the count is exact, no allocation passes the bound, and the
+  result is `to_lowercase`'s, context included, without reimplementing
+  `Final_Sigma`'s case-ignorable scan. `link()` installs it beside
+  `apply_after`; `linked_lowercase()` is that pointer on wasm (`None`
+  unlinked: the runner traps, after boot already refused the plan) and the
+  function natively.
+- **Runner.** `runner/src/strings.rs`: `order`, `slice`, and `replace_all`
+  through one counter that carries a pending high surrogate across pieces,
+  trapping `StringTooLong` before a byte past `MAX_STRING` is kept. A
+  non-empty pattern is matched in UTF-8 (a well-formed pattern's matches
+  begin and end on character boundaries); only an empty one walks code
+  units. `uses` adds `text_transform` for a `toLowerCase` call.
+- **JS target.** `x_slice`, `x_replaceAll` and `x_toLowerCase` live in
+  `roster.js`, which imports `Refusal` from `rt.js` as `router.js` does.
+- **Lean.** `Str.utf16Units`, `wellFormed`, `lt`, `slice`, `substitute`
+  (`GetSubstitution`) and `replaceAll` in `Value.lean`; the string arms of
+  `binop` (`Eval.lean`) and the VM model's `binary` (`Vm.lean`); `rosterTy`
+  and `binTy` (`Types.lean`), with `toLowerCase` typed and left out as the
+  formats are; the soundness proofs extended (`lake build` green). The
+  `MAX_STRING` bound is not modelled, as no string bound is.
+- **Difftest.** `semantics/corpus/text/{compare,slice,replace-all}`; the
+  generator writes string comparisons, `slice` (two and three arguments)
+  and `replaceAll`, and U+E000 joins its strings. The text corpus agrees on
+  the runner, Lean and (`--js`) the JS target, and the lowering corpus
+  matches `Contract.Lower` byte for byte. `--js` had failed to bundle on
+  origin/main (its runtime copy lacked `media-glue.js`); that list is fixed.
+  A random sweep (seed 1088, 300) agrees; its 20 compiler refusals are all
+  stage 1's `analyze-send-twice` on generated double sends.
+- **Conformance.** `host/web-js/conformance/text.{contract,steps}`: the three
+  functions, both comparisons, the trap (a refused action keeps its state),
+  `at`, `join`, `includes` and `formatDate`, 13 steps equal in Chrome. The
+  Firefox and WebKit runs are the async lane's.
+- **Tests.** `strings.rs` (runner: indices, NaN, ±∞, cuts, `$` forms, the
+  split-pair byte boundary at 8/7, 400/399, 11/10, the quadratic trap,
+  order across U+E000); `case.rs` (kernel); `search.rs` and
+  `corpus/strings.contract` (calendar's end-after-start and calc's
+  Backspace in Contract); `uses.rs`; `js-runtime.test.mjs` (the JS entries
+  against the browser's methods and the trap).
 

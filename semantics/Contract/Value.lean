@@ -124,6 +124,98 @@ def startsWith (s p : String) : Bool := isPrefix p.toList s.toList
 
 def endsWith (s p : String) : Bool := isPrefix p.toList.reverse s.toList.reverse
 
+/-! The web's strings as JavaScript holds them, UTF-16 code units (LLP 1088
+D1, D2): their order, and `slice` and `replaceAll` over them, each result
+made well formed once (`toWellFormed`). -/
+
+/-- A string's UTF-16 code units. -/
+def utf16Units (s : String) : List Nat :=
+  s.toList.flatMap fun c =>
+    if c.toNat > 0xFFFF then
+      [0xD800 + (c.toNat - 0x10000) / 0x400, 0xDC00 + (c.toNat - 0x10000) % 0x400]
+    else [c.toNat]
+
+def isHigh (u : Nat) : Bool := 0xD800 ≤ u && u ≤ 0xDBFF
+def isLow (u : Nat) : Bool := 0xDC00 ≤ u && u ≤ 0xDFFF
+
+/-- One code unit that pairs with nothing: a lone half is U+FFFD. -/
+def lone (u : Nat) : Char := if isHigh u || isLow u then '\uFFFD' else Char.ofNat u
+
+/-- Code units as scalar values, well formed: a high half and the low half
+after it are their pair's scalar, any other half U+FFFD. -/
+def wellFormed : List Nat → List Char
+  | [] => []
+  | [u] => [lone u]
+  | u :: l :: rest =>
+    if isHigh u && isLow l then Char.ofNat (0x10000 + (u - 0xD800) * 0x400 + (l - 0xDC00)) :: wellFormed rest
+    else lone u :: wellFormed (l :: rest)
+
+def ofUnits (us : List Nat) : String := String.ofList (wellFormed us)
+
+/-- JavaScript's `IsLessThan` for two Strings: code units in order, a proper
+prefix first. -/
+def unitsLt : List Nat → List Nat → Bool
+  | [], [] => false
+  | [], _ :: _ => true
+  | _ :: _, [] => false
+  | a :: as, b :: bs => a < b || (a == b && unitsLt as bs)
+
+def lt (a b : String) : Bool := unitsLt (utf16Units a) (utf16Units b)
+
+/-- ToIntegerOrInfinity, then `slice`'s clamp to `0..len`: NaN is 0, a
+fraction truncates toward zero, a negative index counts from the end. -/
+def clampIndex (i : F64) (len : Nat) : Nat :=
+  let i := if Number.isNaN i then 0 else Number.trunc i
+  let l := F64.ofNat len
+  if i < 0 then (if l + i < 0 then 0 else (l + i).toNat)
+  else if i < l then i.toNat else len
+
+/-- `String.prototype.slice(start, end)`, well formed. -/
+def slice (s : String) (a b : F64) : String :=
+  let us := utf16Units s
+  let f := clampIndex a us.length
+  let t := clampIndex b us.length
+  ofUnits ((us.drop f).take (t - f))
+
+/-- ECMA-262's `GetSubstitution` for a string pattern matched at `p`: `$$`
+is `$`, `$&` the match, `` $` `` what precedes it, `$'` what follows; any
+other `$` is itself. -/
+def substitute (str find : List Nat) (p : Nat) : List Nat → List Nat
+  | 36 :: 36 :: rest => 36 :: substitute str find p rest
+  | 36 :: 38 :: rest => find ++ substitute str find p rest
+  | 36 :: 96 :: rest => str.take p ++ substitute str find p rest
+  | 36 :: 39 :: rest => str.drop (p + find.length) ++ substitute str find p rest
+  | u :: rest => u :: substitute str find p rest
+  | [] => []
+
+def isPrefixN : List Nat → List Nat → Bool
+  | [], _ => true
+  | _, [] => false
+  | a :: as, b :: bs => a == b && isPrefixN as bs
+
+/-- `replaceAll`'s units from position `p`, where `rest` is what is left of
+the string: every match left to right, none overlapping; an empty `find`
+matches at every code-unit boundary. Each step consumes a unit or a match,
+so the string's length bounds the steps (`fuel`). -/
+def replaceFrom (str find w : List Nat) : Nat → Nat → List Nat → List Nat
+  | 0, _, _ => []
+  | fuel + 1, p, rest =>
+    if find.isEmpty then
+      substitute str find p w ++ match rest with
+        | [] => []
+        | u :: us => u :: replaceFrom str find w fuel (p + 1) us
+    else if isPrefixN find rest then
+      substitute str find p w ++ replaceFrom str find w fuel (p + find.length) (rest.drop find.length)
+    else match rest with
+      | [] => []
+      | u :: us => u :: replaceFrom str find w fuel (p + 1) us
+
+/-- `String.prototype.replaceAll(find, with)` with a string `find`, well
+formed. The runner's `MAX_STRING` bound is not modelled. -/
+def replaceAll (s find w : String) : String :=
+  let us := utf16Units s
+  ofUnits (replaceFrom us (utf16Units find) (utf16Units w) (us.length + 2) 0 us)
+
 end Str
 
 /-- `toString(v)` and template interpolation: numbers as JavaScript prints

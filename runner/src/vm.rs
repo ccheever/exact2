@@ -696,10 +696,25 @@ pub fn eval(code: &[u8], env: &Env<'_>, allowed_writes: &[u32]) -> Result<Outcom
             Opcode::Mul => num2!(pc, op, |a, b| Value::Number(a * b)),
             Opcode::Div => num2!(pc, op, |a, b| Value::Number(a / b)),
             Opcode::Rem => num2!(pc, op, |a, b| Value::Number(a % b)),
-            Opcode::Lt => num2!(pc, op, |a, b| Value::Bool(a < b)),
-            Opcode::Le => num2!(pc, op, |a, b| Value::Bool(a <= b)),
-            Opcode::Gt => num2!(pc, op, |a, b| Value::Bool(a > b)),
-            Opcode::Ge => num2!(pc, op, |a, b| Value::Bool(a >= b)),
+            // Two numbers by IEEE order (a NaN is unordered: every test
+            // false), two strings by UTF-16 code units (LLP 1088 D1).
+            Opcode::Lt | Opcode::Le | Opcode::Gt | Opcode::Ge => {
+                let b = pop!(pc);
+                let a = pop!(pc);
+                let order = match (&a, &b) {
+                    (Value::Number(a), Value::Number(b)) => a.partial_cmp(b),
+                    _ => match (a.as_str(), b.as_str()) {
+                        (Some(a), Some(b)) => Some(crate::strings::order(a, b)),
+                        _ => return Err(Trap::TypeMismatch { pc, op }),
+                    },
+                };
+                stack.push(Value::Bool(order.is_some_and(|o| match op {
+                    Opcode::Lt => o.is_lt(),
+                    Opcode::Le => o.is_le(),
+                    Opcode::Gt => o.is_gt(),
+                    _ => o.is_ge(),
+                })));
+            }
             Opcode::Neg => match pop!(pc) {
                 Value::Number(n) => stack.push(Value::Number(-n)),
                 _ => return Err(Trap::TypeMismatch { pc, op }),

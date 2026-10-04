@@ -345,7 +345,24 @@ impl Emitter<'_> {
                 format!("(.record {} {base} [{}])", string(name), fields.join(", "))
             }
             Expr::Call(name, args, _) => {
-                format!("(.call {} {})", string(name), list(args, |a| self.expr(a))?)
+                let mut parts = args
+                    .iter()
+                    .map(|a| self.expr(a))
+                    .collect::<Result<Vec<_>, _>>()?;
+                // A roster call may leave its trailing optional parameters
+                // out (LLP 1088 D2); the semantics takes the full arity, so
+                // their defaults are written here as lowering writes them.
+                // No `fn` takes a roster name, and the semantics evaluates
+                // no action in an expression.
+                if let Some(f) = exact_plan::Stdlib::from_name(name)
+                    .filter(|f| args.len() < f.arity() && !shapes.fns.contains_key(name))
+                {
+                    let missing = f.arity() - args.len();
+                    for d in &f.defaults()[f.defaults().len().saturating_sub(missing)..] {
+                        parts.push(format!("(.num 0x{:016x})", d.to_bits()));
+                    }
+                }
+                format!("(.call {} [{}])", string(name), parts.join(", "))
             }
             Expr::NamedArg(n, v, _) => format!("(.named {} {})", string(n), self.expr(v)?),
             Expr::Typed(e, t, _) => {

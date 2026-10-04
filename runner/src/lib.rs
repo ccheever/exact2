@@ -12,6 +12,8 @@
 //! - [`vm`] — the expression VM: a stack machine over [`Value`]s, one
 //!   dispatch loop, typed traps, never UB.
 //! - [`stdlib`] — the roster's implementations, once.
+//! - [`strings`] — strings as JavaScript has them: order, `slice` and
+//!   `replaceAll` over UTF-16 code units.
 //! - [`compare`] — value identity, substitution and `==`, once.
 //! - [`held`] — a settled resource's value; a compiled one no one else
 //!   holds is released to the plan's bytes.
@@ -64,6 +66,7 @@ pub use runner::picker as picker_support;
 pub mod share;
 pub mod stdlib;
 pub mod store;
+pub mod strings;
 pub mod surface_record;
 pub mod time;
 pub mod uses;

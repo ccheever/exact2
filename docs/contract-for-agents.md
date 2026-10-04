@@ -207,6 +207,9 @@ at CSS.
 - `map(xs, (x, i) => expr)` and `filter(xs, x => bool)` return values, not nodes.
   `join(xs, separator)` accepts primitive items. `first(xs)` and `at(xs, i)`
   return options; `at` supports negative indices.
+- Two strings compare with `<`, `<=`, `>`, `>=` in UTF-16 code-unit order, as on
+  the web (`end > start` for `"HH:MM"` times). `slice(s, 0, -1)`,
+  `replaceAll(s, find, with)` and `toLowerCase(s)` are the web's string methods.
 - Standard calls are free functions, not methods: `trim(s)`, `includes(s, q)`.
   There are no nonempty list literals, object literals, general lambdas, array
   indexing, assignment expressions, or JavaScript built-ins by implication.

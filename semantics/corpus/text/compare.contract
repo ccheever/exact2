@@ -1,0 +1,39 @@
+// Strings compare in UTF-16 code-unit order (LLP 1088 D1): a proper prefix
+// first, no locale, and U+E000 after an astral character, whose high
+// surrogate is smaller — code-point order would put it before.
+component App
+  state a = "09:30"
+  state b = "10:00"
+  derive lt = a < b
+  derive le = a <= b
+  derive gt = a > b
+  derive ge = a >= b
+  derive prefix = "ab" < "abc"
+  derive empty = "" < "a"
+  derive same = "é" <= "é"
+  derive units = "" < "😀"
+  derive cased = "Z" < "a"
+  action setA(v: string)
+    a = v
+  view
+    column
+      input value=a change=setA testId="a"
+      text (a < b ? "before" : "not before") testId="order"
+
+test "initial"
+  expect state lt == true
+  expect state le == true
+  expect state gt == false
+  expect state ge == false
+  expect state prefix == true
+  expect state empty == true
+  expect state same == true
+  expect state units == false
+  expect state cased == true
+
+test "after an edit"
+  type "a" "10:00"
+  expect state lt == false
+  expect state le == true
+  expect state ge == true
+  expect text "order" == "not before"

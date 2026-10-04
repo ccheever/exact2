@@ -320,9 +320,13 @@ pub fn uses(plan: &Plan) -> Uses {
     {
         uses = uses.with(Capability::Collections);
     }
-    let (format, geometry) = stdlib_calls(plan);
+    let (format, geometry, lowercase) = stdlib_calls(plan);
     if format {
         uses = uses.with(Capability::Format);
+    }
+    // `toLowerCase` maps through the same case tables (LLP 1088 D2).
+    if lowercase {
+        uses = uses.with(Capability::TextTransform);
     }
     if runs_command(plan, &["share"]) {
         uses = uses.with(Capability::Share);
@@ -381,23 +385,24 @@ pub fn svg_filters(plan: &Plan) -> bool {
         })
 }
 
-/// Whether any code range calls a `format` entry, and whether any reads
-/// geometry (`frame`, `measure`): each validated body walked whole, so no
-/// call a run can reach is missed.
-fn stdlib_calls(plan: &Plan) -> (bool, bool) {
-    let (mut format, mut geometry) = (false, false);
+/// Whether any code range calls a `format` entry, whether any reads
+/// geometry (`frame`, `measure`), and whether any calls `toLowerCase`: each
+/// validated body walked whole, so no call a run can reach is missed.
+fn stdlib_calls(plan: &Plan) -> (bool, bool, bool) {
+    let (mut format, mut geometry, mut lowercase) = (false, false, false);
     plan.each_code(&mut |code| {
         for i in crate::vm::instructions(plan.code(code)).flatten() {
             if i.op == Opcode::Call {
                 match Stdlib::from_wire(i.args[0] as u8) {
                     Some(Stdlib::FormatDate | Stdlib::FormatNumber) => format = true,
                     Some(Stdlib::Frame | Stdlib::Measure) => geometry = true,
+                    Some(Stdlib::ToLowerCase) => lowercase = true,
                     _ => {}
                 }
             }
         }
     });
-    (format, geometry)
+    (format, geometry, lowercase)
 }
 
 /// Whether any code range runs a host command named one of `names`.

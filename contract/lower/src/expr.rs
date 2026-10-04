@@ -337,6 +337,11 @@ pub(crate) fn compile(
             for a in args {
                 given.push(compile(l, asm, a, scope, locals)?);
             }
+            // The defaults of trailing optional parameters the call omitted
+            // (LLP 1088 D2): the plan's call always carries the full arity.
+            for &d in &f.defaults()[(args.len() + f.defaults().len()).saturating_sub(f.arity())..] {
+                asm.number(d);
+            }
             asm.call(f);
             match (f, given.first()) {
                 // `first(list<T>)` is `option<T>` (LLP 1054.000 C4).
