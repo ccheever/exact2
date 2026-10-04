@@ -1119,3 +1119,34 @@ test('setup accepts both official Binaryen release tags and package-manager vers
   assert.notEqual(binaryenVersion('wasm-opt version 1320 (version_1320)'), 'version 132');
   assert.notEqual(binaryenVersion('missing'), 'version 132');
 });
+
+test.each(['notes', 'planner'])('OS-specific folders resolve for %s without app-specific rules', async name => {
+  const { moduleDirectory } = await import('./app.mjs');
+  const dir = (await import('node:fs')).realpathSync(mkdtempSync(resolve(tmpdir(), 'exact-platform-folders-')));
+  const previous = process.env.EXACT_APP_DIR;
+  const write = (p, text = '') => { mkdirSync(dirname(resolve(dir, p)), {recursive:true}); writeFileSync(resolve(dir, p), text); };
+  try {
+    process.env.EXACT_APP_DIR = dir;
+    write('src/app.contract', 'component App\n  view\n    text "test"\n');
+    assert.throws(() => resolveApp(name), /no app.contract/);
+    write('app.contract', 'use App from "./src/app.contract"\n');
+    write('app.json', JSON.stringify({name,app:{id:`com.exact.${name}`,name}}));
+    for (const p of ['ios','macos','web']) write(`${p}/Cargo.toml`, `[package]\nname="${name}-${p}"\nversion="0.1.0"\n`);
+    write('ios/modules/Input.swift'); write('macos/modules/Input.swift'); write('web/modules/index.js');
+    const app = resolveApp(`${name}-ios`);
+    assert.equal(app.crate('ios'), `${name}-ios`); assert.equal(app.crate('macos'), `${name}-macos`);
+    assert.deepEqual(app.modulesFor('ios').apple, [resolve(dir, 'ios/modules/Input.swift')]);
+    assert.deepEqual(app.modulesFor('macos').apple, [resolve(dir, 'macos/modules/Input.swift')]);
+    assert.equal(app.modules.web, resolve(dir, 'web/modules/index.js'));
+    rmSync(resolve(dir, 'ios'), {recursive:true}); rmSync(resolve(dir, 'macos'), {recursive:true});
+    write('modules/apple/Input.swift');
+    const shared = resolveApp(name);
+    assert.equal(shared.crate('ios'), `${name}-apple`); assert.equal(shared.crate('macos'), `${name}-apple`);
+    assert.equal(moduleDirectory(dir, 'ios'), resolve(dir, 'modules/apple'));
+    assert.deepEqual(shared.modulesFor('macos').apple, [resolve(dir, 'modules/apple/Input.swift')]);
+    assert.deepEqual(shared.modules.apple, [resolve(dir, 'modules/apple/Input.swift')]);
+  } finally {
+    if (previous === undefined) delete process.env.EXACT_APP_DIR; else process.env.EXACT_APP_DIR = previous;
+    rmSync(dir, {recursive:true,force:true});
+  }
+});

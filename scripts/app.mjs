@@ -415,10 +415,22 @@ export function assertOwnTarget(target, workspace) {
   }
 }
 
+/** Cargo's package kind for an OS, including apps with a shared Apple crate. */
+export function platformCrateKind(dir, kind) {
+  return ['ios', 'macos', 'tvos'].includes(kind)
+    ? (existsSync(resolve(dir, kind, 'Cargo.toml')) ? kind : 'apple') : kind;
+}
+
+/** Platform-specific source folder; shared Apple modules remain valid for existing apps. */
+export function moduleDirectory(dir, platform) {
+  const own = resolve(dir, platform, 'modules');
+  return existsSync(own) ? own : resolve(dir, 'modules', ['ios', 'macos', 'tvos'].includes(platform) ? 'apple' : platform);
+}
+
 /** The app `nameOrCrate` names (`caltrain`, `caltrain-web`, …; `EXACT_APP_DIR`'s basename when unset): its directory, cargo workspace, target directory, crate names, and manifest. */
 export function resolveApp(nameOrCrate) {
   const outside = process.env.EXACT_APP_DIR ? resolve(process.env.EXACT_APP_DIR) : null;
-  let name = nameOrCrate ? String(nameOrCrate).replace(/-(web|apple|linux|gpu)$/, '') : outside ? basename(outside) : 'caltrain';
+  let name = nameOrCrate ? String(nameOrCrate).replace(/-(web|apple|ios|macos|linux|gpu)$/, '') : outside ? basename(outside) : 'caltrain';
   let dir = outside ?? resolve(ROOT, 'apps', name);
   if (!outside && !existsSync(resolve(dir, 'app.contract')) && existsSync(resolve(ROOT, 'game/games', name, 'app.contract'))) dir = resolve(ROOT, 'game/games', name);
   if (!existsSync(resolve(dir, 'app.contract'))) throw new Error(`no app at ${dir} (no app.contract)${outside ? '' : '; set EXACT_APP_DIR for an app outside this repo'}`);
@@ -473,6 +485,8 @@ export function resolveApp(nameOrCrate) {
       return metadata;
     }
   };
+  const platformKind = kind => platformCrateKind(dir, kind);
+  const crate = kind => `${name}-${platformKind(kind)}`;
   const cargoPackage = kind => {
     prepare();
     if (!packages) {
@@ -480,10 +494,10 @@ export function resolveApp(nameOrCrate) {
       if (result.status !== 0) throw new Error(`cargo metadata: ${result.stderr || result.error?.message}`);
       packages = JSON.parse(result.stdout).packages;
     }
-    return packages.find(pkg => pkg.name === `${name}-${kind}`);
+    return packages.find(pkg => pkg.name === crate(kind));
   };
   return {
-    name, dir, workspace, target, crate: (kind) => `${name}-${kind}`,
+    name, dir, workspace, target, crate,
     cargoPackage, prepare,
     get hasGpu() {
       if (manifest.game !== undefined) return true;
@@ -498,14 +512,13 @@ export function resolveApp(nameOrCrate) {
      * views; its web executor may still answer `native.later` on the page
      * (LLP 1067 D5), and its Swift still makes the artifact, for `later` and
      * the hooks (LLP 1075.003 §3.2). */
+    modulesFor(platform) {
+      const folder = moduleDirectory(dir, platform);
+      const under = suffix => existsSync(folder) ? readdirSync(folder).filter(f => f.endsWith(suffix)).sort().map(f => resolve(folder, f)) : [];
+      return { tags: manifest.modules ?? [], apple: under('.swift'), frameworks: under('.xcframework'), web: existsSync(resolve(folder, 'index.js')) ? resolve(folder, 'index.js') : null };
+    },
     get modules() {
-      const tags = manifest.modules ?? [], apple = resolve(dir, 'modules/apple'), web = resolve(dir, 'modules/web/index.js');
-      const under = (suffix) => existsSync(apple) ? readdirSync(apple).filter(f => f.endsWith(suffix)).sort().map(f => resolve(apple, f)) : [];
-      // An `.xcframework` beside the Swift (a symlink is fine) is linked into
-      // the module artifact: its slice for the build's platform, from its
-      // Info.plist, gives the headers (`import <Module>`) and every static
-      // library it holds, or a framework's `-F` and `-framework`.
-      return { tags, apple: under('.swift'), frameworks: under('.xcframework'), web: existsSync(web) ? web : null };
+      return { ...this.modulesFor('apple'), web: this.modulesFor('web').web };
     },
     /** The manifest, validated; the derived defaults when the app has none. */
     manifest,
@@ -1010,7 +1023,7 @@ export function bakeSelection(graph, part) {
  * `check` runs `cargo check`: the build scripts (the bake) and the receipt,
  * with no linked product (delivery's web bake, host/web/build.mjs --bake). */
 export function buildBake(app, platform, target, options = {}) {
-  const kind=platform==='macos'||platform==='ios'?'apple':platform;
+  const kind=platformCrateKind(app.dir,platform), apple=['apple','ios','macos','tvos'].includes(kind);
   let env={...process.env,...options.env};env.CARGO_TARGET_DIR=app.target;env.EXACT_BAKE_OUTPUT=options.output??bakeOutput(app,env);
   if(platform==='web')env=webToolchainEnv(env);
   if(options.analysis && env.EXACT_UPDATE_TRUST==='production')env.EXACT_BAKE_ANALYSIS='1';else delete env.EXACT_BAKE_ANALYSIS;
@@ -1036,7 +1049,7 @@ export function buildBake(app, platform, target, options = {}) {
   });
   const releases = [];
   try {
-    if (kind === 'apple') for (const path of appleCargoClaims(app, target, selected.map(({unit}) => unit))) {
+    if (apple) for (const path of appleCargoClaims(app, target, selected.map(({unit}) => unit))) {
       releases.push(claimBuildOutput(app, path));
     }
   for(const {pkg,unit} of selected) {
@@ -1047,7 +1060,7 @@ export function buildBake(app, platform, target, options = {}) {
     // An Apple app's crate is an rlib to Cargo, so `--workspace` builds type-check it without
     // bundling its whole dependency graph into a 700 MB archive nobody reads. The archive the
     // app links is asked for here, where it is built to be launched.
-    const archive=kind==='apple'&&pkg.id===graph.root.id;
+    const archive=apple&&pkg.id===graph.root.id;
     const args=[archive?'rustc':options.check?'check':'build',...(archive?['--crate-type','staticlib']:[]),...cargoReproducibilityFlags(app),...injectedProfiles(app),...(sized?WEB_STD:[]),...(target==='wasm32-unknown-unknown'?wasmRemapFlags(app,sized?WEB_TOOLCHAIN:null):[]),'-p',pkg.name,'--target',target,'--profile',options.profile??(platform==='web'?'web':'release'),...(kind==='linux'&&pkg.id===graph.root.id?['--bin',unit.name]:['--lib']),...(gpuPackage(pkg)?['--config',`profile.${options.profile??(platform==='web'?'web':'release')}.strip=false`]:[]),'--message-format=json-render-diagnostics'];
     const result=buildCommand('cargo',args,app,env,'inherit');
     const output=result.stdout.split('\n').filter(Boolean).map((line)=>JSON.parse(line));messages.push(...output);roots.push({package:pkg.id,name:unit.name});

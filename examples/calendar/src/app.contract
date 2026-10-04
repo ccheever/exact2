@@ -1,0 +1,1021 @@
+use ToolButton from "./editor.contract"
+use FooterButton from "./editor.contract"
+use Themes from "./themes.contract"
+use Editor from "./editor.contract"
+use Weekday from "./month.contract"
+use AgendaRow from "./agenda.contract"
+use AgendaMark from "./agenda.contract"
+use TodoMark from "./agenda.contract"
+use StickerChip from "./stickers.contract"
+use StickerAgendaRow from "./stickers.contract"
+use MonthPage from "./month.contract"
+
+// One calendar: shared state and actions, with layout chosen by viewport width.
+
+component Calendar
+  derive compact = viewport.width < 860
+  state lastCompact = false
+  state popupOpen = false
+  state pickerOpen = false
+  state monthPan = 0
+  state sheetOffset = 0
+  state sheetSnap = 1
+  derive sheetHeight = sheetSnap == 0 ? min(260, viewport.height * 0.35) : (sheetSnap == 2 ? viewport.height * 0.9 : viewport.height * 0.58)
+  resource time = exactTime() as shape Time
+  resource viewport = exactViewport() as shape Viewport
+  state minute = 0
+  resource clock = calendarClock(time.epochAtZero + minute, time.utcOffset) as shape Clock
+  derive clockReady = clock.ready
+  state libraryReady = false
+  state libraryRevision = 0
+  state libraryMessage = ""
+  state libraryStarted = false
+  mutation loadedLibrary as shape Library then didLoadLibrary
+  state dataRevision = 0
+  derive revision = max(libraryRevision, dataRevision)
+  state monthAnchor = none
+  derive month = match monthAnchor { case some(value) => value, case none => clock.month }
+  derive monthTitle = `${monthLongName(month)} ${floor(month / 12)}`
+  resource pages = calendarMonths(month, revision) as shape list<Month>
+  derive monthFirstDay = match first(filter(pages, (page) => page.month == month)) { case some(page) => page.firstDay, case none => -1000000 }
+  derive monthLastDay = match first(filter(pages, (page) => page.month == month)) { case some(page) => page.lastDay, case none => 1000000 }
+  resource theme = calendarTheme(revision) as shape number
+  derive themeInk = theme == 1 ? "#4a2c36" : (theme == 2 ? "#213a52" : (theme == 3 ? "#2f4327" : (theme == 4 ? "#352c57" : (theme == 5 ? "#4a3a2c" : (theme == 6 ? "#23303f" : "#242428")))))
+  derive themeAccent = theme == 1 ? "#bf4f72" : (theme == 2 ? "#3d72a8" : (theme == 3 ? "#4f7f34" : (theme == 4 ? "#6f55c2" : (theme == 5 ? "#976536" : (theme == 6 ? "#c24a33" : "#d14545")))))
+  derive themeBase = theme == 1 ? "#fbe3e6" : (theme == 2 ? "#e3eefb" : (theme == 3 ? "#eef4e2" : (theme == 4 ? "#ece8fd" : (theme == 5 ? "#f6ecdc" : (theme == 6 ? "#f8ece2" : "#ffffff")))))
+  derive themeSurface = theme == 1 ? "#fff7f8" : (theme == 2 ? "#f7fafe" : (theme == 3 ? "#fbfcf6" : (theme == 4 ? "#f8f6ff" : (theme == 5 ? "#fdf9f2" : (theme == 6 ? "#fdf8f4" : "#ffffff")))))
+  derive themeField = theme == 0 ? "#f3f3f6" : themeBase
+  derive themeMuted = theme == 1 ? "#8f6b76" : (theme == 2 ? "#627589" : (theme == 3 ? "#6d7d63" : (theme == 4 ? "#7a7096" : (theme == 5 ? "#8d7a66" : (theme == 6 ? "#6c7682" : "#85858d")))))
+  derive themeBorder = theme == 1 ? "#f1d9de" : (theme == 2 ? "#dbe5f0" : (theme == 3 ? "#e1e8d4" : (theme == 4 ? "#e2dcf3" : (theme == 5 ? "#ebdfcc" : (theme == 6 ? "#eddcd0" : "#e6e6ea")))))
+  derive themeImage = theme == 1 ? "assets/themes/blush.png" : (theme == 2 ? "assets/themes/paris.png" : (theme == 3 ? "assets/themes/meadow.png" : (theme == 4 ? "assets/themes/lavender.png" : (theme == 5 ? "assets/themes/linen.png" : (theme == 6 ? "assets/themes/sanfrancisco.png" : "")))))
+  derive themeWallpaper = compact and theme > 0 and theme < 6 ? `assets/themes/compact/${theme == 1 ? "blush" : (theme == 2 ? "paris" : (theme == 3 ? "meadow" : (theme == 4 ? "lavender" : "linen")))}.png` : themeImage
+  derive themePanel = theme == 0 ? "#fafafb" : `${themeSurface}eb`
+  derive themeHover = `${themeInk}12`
+  derive themeSelected = `${themeAccent}24`
+  derive themeSelectedRing = `${themeAccent}59`
+  derive themeCell = theme == 0 ? "#ffffff" : "#ffffff00"
+  derive themeLine = theme == 0 ? "#ececf0" : "rgba(74, 65, 78, 0.12)"
+  // The stage is measured each frame: the inspector takes its width from the window.
+  state stageWidth = 0
+  state stageHeight = 0
+  state stageViewportWidth = 0
+  state stageViewportHeight = 0
+  derive pageWidth = stageWidth > 0 ? max(1, stageWidth + viewport.width - stageViewportWidth) : max(1, viewport.width - (compact ? 0 : 300))
+  derive pageHeight = stageHeight > 0 ? max(1, stageHeight + viewport.height - stageViewportHeight) : max(240, viewport.height - 112)
+  state selectedDay = none
+  derive day = match selectedDay { case some(value) => value, case none => clock.today }
+  resource agenda = calendarDay(day, revision, clock.today) as shape Agenda
+  derive itemCount = length(agenda.items) + (agenda.stickerId == "" ? 0 : 1)
+  state hovered = ""
+  state themeOpen = false
+  state themeClosing = false
+  state themeUntil = 0
+  state stickerPaletteOpen = true
+  state editorOpen = false
+  state editorClosing = false
+  state editorUntil = 0
+  state editorKind = "event"
+  state editId = ""
+  state editorDate = ""
+  state titleFocusPending = false
+  derive editorLabel = `${editId == "" ? "New" : "Edit"} ${editorKind == "todo" ? "Todo" : (editorKind == "plan" ? "Plan" : "Event")}`
+  state eventRetry = 0
+  resource opened = calendarEvent(editId, revision, eventRetry) as shape Event
+  state titleDraft = none
+  state notesDraft = none
+  state colorDraft = none
+  state allDayDraft = none
+  state startDateDraft = none
+  state endDateDraft = none
+  state startTimeDraft = none
+  state endTimeDraft = none
+  derive title = match titleDraft { case some(value) => value, case none => editId == "" ? "" : opened.item.title }
+  derive notes = match notesDraft { case some(value) => value, case none => editId == "" ? "" : opened.item.notes }
+  derive color = match colorDraft { case some(value) => value, case none => editId == "" ? "#FA7070" : opened.item.color }
+  derive allDay = match allDayDraft { case some(value) => value, case none => editId == "" or opened.item.allDay }
+  derive startDate = match startDateDraft { case some(value) => value, case none => editId == "" ? editorDate : opened.item.startDate }
+  derive endDate = match endDateDraft { case some(value) => value, case none => editId == "" ? editorDate : opened.item.endDate }
+  derive startTime = match startTimeDraft { case some(value) => value, case none => editId == "" ? "09:00" : opened.item.startTime }
+  derive endTime = match endTimeDraft { case some(value) => value, case none => editId == "" ? "10:00" : opened.item.endTime }
+  derive opening = pending(opened)
+  derive editorReady = editId == "" or (opened.found and opened.item.id == editId and opened.message == "" and not pending(opened))
+  state confirmDelete = false
+  state operationSequence = 0
+  state operation = ""
+  state retryToken = ""
+  state retryOperation = ""
+  derive freshToken = `${time.epochAtZero}-${time.seed}-${revision}-${operationSequence + 1}`
+  derive saveToken = retryOperation == "save" and retryToken != "" ? retryToken : freshToken
+  derive deleteToken = retryOperation == "delete" and retryToken != "" ? retryToken : freshToken
+  state error = ""
+  mutation changed as shape Result then didChange
+  derive busy = pending(changed)
+  // A drag's wire id matches its packets (`bar:<id>` from a month bar); its
+  // drag id names the schedule (or the sticker source) everywhere else.
+  state dragWireId = ""
+  state dragId = ""
+  state dragTitle = ""
+  state dragRangeLabel = ""
+  state dragKind = "event"
+  state dragCompleted = false
+  state dragColor = "#FA7070"
+  state dragSpan = 0
+  state dragSerial = 0
+  state contactAck = 0
+  state dragPhase = "idle"
+  state dragX = 0
+  state dragOriginX = 0
+  state dragOriginY = 0
+  state dragMoved = false
+  state dragCommitted = false
+  state dragY = 0
+  state ghostX = 0
+  state ghostY = 0
+  state sourceX = 0
+  state sourceY = 0
+  state sourceWidth = 1
+  state sourceHeight = 1
+  state liftPrepared = false
+  state liftReadyAt = 0
+  state returnPrepared = false
+  state returnReadyAt = 0
+  state landingWidth = 1
+  state landingHeight = 20
+  state landingBefore = false
+  state landingAfter = false
+  state dragStartDay = 0
+  state dragSource = "row"
+  state dragSourceMonth = 0
+  // Where the carried row's mark, title and dates sit inside the row: the
+  // ghost starts exactly on them and grows from them into a calendar block.
+  state markX = 12
+  state markY = 16
+  state titleX = 42
+  state titleY = 8
+  state rangeX = 42
+  state rangeY = 28
+  state dragStickerId = ""
+  state dropDay = 0
+  state pendingMoveRevision = 0
+  state pendingMove = false
+  state dragUntil = 0
+  state dragFrameTime = 0
+  state portX = 0
+  state portY = 0
+  state portWidth = 0
+  state portHeight = 0
+  state calendarScrollTop = 0
+  state calendarScrollRequest = 0
+  state calendarScrollMonth = -1
+  state scrollMonth0 = -1
+  state scrollY0 = 0
+  state scrollMonth1 = -1
+  state scrollY1 = 0
+  state scrollMonth2 = -1
+  state scrollY2 = 0
+  state scrollMonth3 = -1
+  state scrollY3 = 0
+  state scrollMonth4 = -1
+  state scrollY4 = 0
+  state scrollMonth5 = -1
+  state scrollY5 = 0
+  state scrollMonth6 = -1
+  state scrollY6 = 0
+  state edgeDirection = 0
+  state edgeSince = 0
+  state edgeReadyAt = 0
+  mutation contact as shape DragInput then didContact
+  derive contactId = match contact { case some(value) => value.eventId, case none => "" }
+  resource contactItem = calendarItem(contactId, revision) as shape Event
+  resource contactSticker = calendarStickerDrag(contactId, revision) as shape StickerDrag
+  derive contactIsSticker = contactSticker.valid and not pending(contactSticker)
+  derive contactIsItem = not contactIsSticker and contactItem.found and not pending(contactItem)
+  derive contactAvailable = contactIsSticker ? (contactSticker.sourceDay != -1000000 or stickerPaletteOpen) : contactIsItem
+  derive contactX = match contact { case some(value) => value.x, case none => 0 }
+  derive contactY = match contact { case some(value) => value.y, case none => 0 }
+  derive contactMonth = month
+  derive hoverMonth = month
+  derive contactPageX = portX
+  derive hoverPageX = portX
+  derive contactInside = held and contactX >= portX and contactX < portX + portWidth
+  derive hoverInside = held and dragX >= portX and dragX < portX + portWidth
+  derive contactWeeks = match first(filter(pages, (page) => page.month == contactMonth)) { case some(page) => length(page.weeks), case none => 6 }
+  derive hoverWeeks = match first(filter(pages, (page) => page.month == hoverMonth)) { case some(page) => length(page.weeks), case none => 6 }
+  derive contactScroll = held ? savedScroll(contactMonth, scrollMonth0, scrollY0, scrollMonth1, scrollY1, scrollMonth2, scrollY2, scrollMonth3, scrollY3, scrollMonth4, scrollY4, scrollMonth5, scrollY5, scrollMonth6, scrollY6) : 0
+  derive hoverScroll = held ? savedScroll(hoverMonth, scrollMonth0, scrollY0, scrollMonth1, scrollY1, scrollMonth2, scrollY2, scrollMonth3, scrollY3, scrollMonth4, scrollY4, scrollMonth5, scrollY5, scrollMonth6, scrollY6) : 0
+  resource contactTarget = calendarDragTarget(contactMonth, revision, contactX, contactY, contactPageX, portY, (contactInside ? pageWidth : 0), portHeight, contactScroll, max(76, pageHeight / max(1, contactWeeks)), dragSpan) as shape DragTarget
+  resource hoverTarget = calendarDragTarget(hoverMonth, revision, dragX, dragY, hoverPageX, portY, (hoverInside ? pageWidth : 0), portHeight, hoverScroll, max(76, pageHeight / max(1, hoverWeeks)), dragSpan) as shape DragTarget
+  resource contactLanding = calendarLanding(dragId, (held ? contactTarget.day : -1000000), contactMonth, revision, pageWidth, max(76, pageHeight / max(1, contactWeeks))) as shape Landing
+  // Both the saved and the prospective content must admit the released scroll offset.
+  derive landingScroll = min(contactScroll, min(max(0, contactLanding.contentHeight - portHeight), max(0, contactTarget.maxScroll)))
+  derive dragging = dragId != ""
+  derive held = dragPhase == "held"
+  derive returning = dragPhase == "returning"
+  derive modalOpen = editorOpen or themeOpen
+  derive landed = dragCommitted and not held and dragPhase != "returning"
+  derive lifted = held and liftPrepared
+  derive ghostWidth = landed ? landingWidth : (lifted ? (dragKind == "sticker" ? 48 : 200) : sourceWidth)
+  derive ghostHeight = landed ? landingHeight : (lifted ? (dragKind == "sticker" ? 48 : 24) : sourceHeight)
+  // A carried row becomes a chip under the pointer, in the ghost's own box.
+  // It stays inside the window: a row carried from the inspector's right edge
+  // keeps its pointer further into the chip.
+  derive chipX = min(dragOriginX - 20, viewport.width - 208) - sourceX
+  derive chipY = dragOriginY - sourceY - 12
+  derive fadeTiming = viewport.prefersReducedMotion ? "none" : "opacity 150ms ease-out, background-color 300ms ease-in-out, scale 300ms ease-in-out"
+  derive dragTint = landed or lifted ? paletteColor(theme, dragColor) : dragColor
+  derive dragInk = dragKind == "plan" and theme == 0 and (landed or lifted) ? paletteColor(theme, dragColor) : (landed or lifted ? (theme == 0 ? "#292934" : themeInk) : themeInk)
+  derive ghostTransition = viewport.prefersReducedMotion ? "none" : (landed or returning ? "opacity 300ms ease-in-out, scale 300ms ease-in-out" : "opacity 300ms cubic-bezier(0.22, 1, 0.36, 1), scale 300ms cubic-bezier(0.22, 1, 0.36, 1)")
+  derive edgeWanted = held and dragMoved and dragY >= portY and dragY <= portY + portHeight and dragX >= portX and dragX <= portX + portWidth ? (dragX < portX + 28 and month > 22800 ? -1 : (dragX > portX + portWidth - 28 and month < 25211 ? 1 : 0)) : 0
+  derive hoverDay = held ? hoverTarget.day : -1000000
+
+  action tick
+    minute = floor(now() / 60000) * 60000
+  task clockTick mount
+    every(60000, tick)
+  task dragFrames mount
+    every(frame, animateDrag)
+  // The themes are light; native date and switch controls follow the app.
+  task lightScheme mount
+    after(1, useLightScheme)
+  action useLightScheme
+    setScheme("light")
+
+  // The input root posts drag packets, and a page turn for each horizontal
+  // trackpad swipe over the month.
+  action dragInput(raw: string)
+    if raw == "swipe:next" or raw == "swipe:previous"
+      if not dragging and not modalOpen
+        monthAnchor = some(boundedMonth(month + (raw == "swipe:next" ? 1 : -1)))
+    else
+      send contact = calendarDragInput(raw)
+  action didContact
+    match contact
+      case some(packet)
+        if packet.valid and packet.sequence > contactAck
+          contactAck = packet.sequence
+          if packet.phase == "begin" and packet.serial > dragSerial and not dragging and not busy and not modalOpen
+            if contactAvailable
+              dragSerial = packet.serial
+              dragWireId = packet.eventId
+              dragId = contactIsSticker ? packet.eventId : contactItem.item.id
+              dragTitle = contactIsSticker ? "" : contactItem.item.title
+              dragRangeLabel = contactIsSticker ? "" : contactItem.item.rangeLabel
+              dragKind = contactIsSticker ? "sticker" : contactItem.item.kind
+              dragCompleted = contactIsSticker ? false : contactItem.item.completed
+              dragColor = contactIsSticker ? "#FA7070" : contactItem.item.color
+              dragSpan = contactIsSticker ? 0 : contactItem.item.endDay - contactItem.item.startDay
+              dragStartDay = contactIsSticker ? contactSticker.sourceDay : contactItem.item.startDay
+              dragSource = contactIsSticker ? (contactSticker.sourceDay == -1000000 ? "sticker-picker" : "sticker-date") : "row"
+              dragSourceMonth = month
+              dragStickerId = contactIsSticker ? contactSticker.stickerId : ""
+              pendingMove = false
+              dragOriginX = packet.x
+              dragOriginY = packet.y
+              dragMoved = false
+              dragCommitted = false
+              dragX = packet.x
+              dragY = packet.y
+              ghostX = packet.sourceX
+              ghostY = packet.sourceY
+              sourceX = packet.sourceX
+              sourceY = packet.sourceY
+              sourceWidth = max(1, packet.sourceWidth)
+              sourceHeight = max(1, packet.sourceHeight)
+              liftPrepared = false
+              liftReadyAt = now() + 48
+              returnPrepared = false
+              dragPhase = "held"
+              dragFrameTime = now()
+              calendarScrollRequest = savedScroll(month, scrollMonth0, scrollY0, scrollMonth1, scrollY1, scrollMonth2, scrollY2, scrollMonth3, scrollY3, scrollMonth4, scrollY4, scrollMonth5, scrollY5, scrollMonth6, scrollY6)
+              calendarScrollMonth = month
+              edgeDirection = 0
+              edgeSince = now()
+              edgeReadyAt = now()
+              hovered = ""
+              match some(frame("calendar-stage"))
+                case some(stage)
+                  match some(frame("calendar"))
+                    case some(root)
+                      portX = stage.x - root.x
+                      portY = stage.y - root.y
+                      portWidth = stage.width
+                      portHeight = stage.height
+                    case none
+                      portWidth = 0
+                case none
+                  portWidth = 0
+              if not contactIsSticker
+                match some(frame(`agenda-item-${packet.eventId}`))
+                  case some(row)
+                    match some(frame(`row-mark-${packet.eventId}`))
+                      case some(mark)
+                        markX = mark.x - row.x
+                        markY = mark.y - row.y
+                      case none
+                        markX = 12
+                    match some(frame(`row-title-${packet.eventId}`))
+                      case some(heading)
+                        titleX = heading.x - row.x
+                        titleY = heading.y - row.y
+                      case none
+                        titleX = 42
+                    match some(frame(`row-range-${packet.eventId}`))
+                      case some(dates)
+                        rangeX = dates.x - row.x
+                        rangeY = dates.y - row.y
+                      case none
+                        rangeX = 42
+                  case none
+                    markX = 12
+              error = ""
+            else
+              error = "This item is no longer available."
+          if held and packet.serial == dragSerial and packet.eventId == dragWireId
+            if packet.phase == "move"
+              if (packet.x - dragOriginX) * (packet.x - dragOriginX) + (packet.y - dragOriginY) * (packet.y - dragOriginY) > 16
+                dragMoved = true
+              dragX = packet.x
+              dragY = packet.y
+              ghostX = sourceX + packet.x - dragOriginX
+              ghostY = sourceY + packet.y - dragOriginY
+            if packet.phase == "end"
+              dragX = packet.x
+              dragY = packet.y
+              if (dragMoved or (packet.x - dragOriginX) * (packet.x - dragOriginX) + (packet.y - dragOriginY) * (packet.y - dragOriginY) > 16) and contactTarget.day != -1000000 and contactTarget.day != dragStartDay and not pending(contactTarget) and contactLanding.valid and not pending(contactLanding)
+                operationSequence = operationSequence + 1
+                operation = "move"
+                error = ""
+                dragPhase = "landing"
+                dragCommitted = true
+                dropDay = contactTarget.day
+                dragUntil = now() + (viewport.prefersReducedMotion ? 0 : 300)
+                ghostX = contactPageX + contactLanding.x
+                ghostY = portY + contactLanding.y - landingScroll
+                calendarScrollMonth = contactMonth
+                calendarScrollRequest = landingScroll
+                landingWidth = contactLanding.width
+                landingHeight = contactLanding.height
+                landingBefore = contactLanding.continuesBefore
+                landingAfter = contactLanding.continuesAfter
+                if dragKind == "sticker"
+                  if dragSource == "sticker-picker"
+                    send changed = setSticker(contactTarget.day, dragStickerId, freshToken)
+                  else
+                    send changed = moveSticker(dragStartDay, contactTarget.day, dragStickerId, freshToken)
+                else
+                  send changed = moveSchedule(dragId, contactTarget.day, freshToken)
+              else
+                dragPhase = "returning"
+                returnPrepared = viewport.prefersReducedMotion
+                returnReadyAt = now() + 16
+                dragUntil = now()
+                ghostX = sourceX
+                ghostY = sourceY
+            if packet.phase == "cancel"
+              dragPhase = "returning"
+              returnPrepared = viewport.prefersReducedMotion
+              returnReadyAt = now() + 16
+              dragUntil = now()
+              ghostX = sourceX
+              ghostY = sourceY
+      case none
+        error = "The drag contact could not be read."
+  action animateDrag
+    if compact != lastCompact
+      lastCompact = compact
+      popupOpen = false
+      pickerOpen = false
+      sheetOffset = 0
+      monthPan = 0
+      stageWidth = 0
+      stageHeight = 0
+      if held
+        dragPhase = "idle"
+        dragId = ""
+        dragWireId = ""
+    // Reuse this frame's geometry without caching it across frames or resizes.
+    match some(frame("calendar-stage"))
+      case some(stage)
+        if not stage.unavailable
+          match some(frame("calendar"))
+            case some(root)
+              portX = stage.x - root.x
+              portY = stage.y - root.y
+              portWidth = stage.width
+              portHeight = stage.height
+              if stage.height > 0 and (stage.height != stageHeight or viewport.height != stageViewportHeight)
+                stageHeight = stage.height
+                stageViewportHeight = viewport.height
+              if stage.width > 0 and (stage.width != stageWidth or viewport.width != stageViewportWidth)
+                stageWidth = stage.width
+                stageViewportWidth = viewport.width
+            case none
+              portWidth = 0
+      case none
+        portWidth = 0
+    if clockReady and not libraryStarted
+      libraryStarted = true
+      libraryMessage = "Loading schedules…"
+      send loadedLibrary = loadCalendar(clock.today, clockReady)
+    // An edited item's title is disabled until its notes arrive.
+    if titleFocusPending and editorOpen and not editorClosing and editorReady
+      titleFocusPending = false
+      focus("schedule-title")
+    if held
+      if not liftPrepared and now() >= liftReadyAt
+        liftPrepared = true
+      if dragMoved and edgeWanted == 0 and hoverInside and portHeight > 0 and edgeSpeed(dragY - portY, portHeight) != 0
+        calendarScrollMonth = hoverMonth
+        calendarScrollRequest = max(0, min(hoverTarget.maxScroll, hoverScroll + edgeSpeed(dragY - portY, portHeight) * min(34, max(0, now() - dragFrameTime)) / 1000))
+      if edgeWanted != edgeDirection
+        edgeDirection = edgeWanted
+        edgeSince = now()
+      if edgeWanted != 0 and edgeWanted == edgeDirection and now() - edgeSince >= 420 and now() >= edgeReadyAt
+        monthAnchor = some(boundedMonth(month + edgeWanted))
+        edgeSince = now()
+        edgeReadyAt = now() + 650
+      dragFrameTime = now()
+    if dragPhase == "landing" and now() >= dragUntil and pendingMove
+      dataRevision = max(dataRevision, pendingMoveRevision)
+      pendingMove = false
+      selectedDay = some(dropDay)
+      dragPhase = "settling"
+    if dragPhase == "settling" and not pending(pages) and not pending(agenda)
+      dragPhase = "fading"
+      dragUntil = now() + (viewport.prefersReducedMotion ? 0 : 90)
+    if returning and not returnPrepared and now() >= returnReadyAt
+      returnPrepared = true
+      dragUntil = now() + 300
+    if returning and returnPrepared and now() >= dragUntil and not busy
+      dragPhase = "idle"
+      dragId = ""
+      dragWireId = ""
+    if dragPhase == "fading" and now() >= dragUntil and not busy
+      dragPhase = "idle"
+      dragId = ""
+      dragWireId = ""
+    if editorClosing and now() >= editorUntil
+      editorOpen = false
+      editorClosing = false
+    if themeClosing and now() >= themeUntil
+      themeOpen = false
+      themeClosing = false
+  action calendarScrolled(page: number, left: number, top: number)
+    if page == month
+      calendarScrollTop = top
+    if scrollSlot(page) == 0
+      scrollMonth0 = page
+      scrollY0 = top
+    if scrollSlot(page) == 1
+      scrollMonth1 = page
+      scrollY1 = top
+    if scrollSlot(page) == 2
+      scrollMonth2 = page
+      scrollY2 = top
+    if scrollSlot(page) == 3
+      scrollMonth3 = page
+      scrollY3 = top
+    if scrollSlot(page) == 4
+      scrollMonth4 = page
+      scrollY4 = top
+    if scrollSlot(page) == 5
+      scrollMonth5 = page
+      scrollY5 = top
+    if scrollSlot(page) == 6
+      scrollMonth6 = page
+      scrollY6 = top
+  action retryEvent
+    eventRetry = eventRetry + 1
+  action didLoadLibrary
+    match loadedLibrary
+      case some(value)
+        libraryReady = value.ready
+        libraryRevision = value.revision
+        libraryMessage = value.message
+      case none
+        libraryReady = false
+        libraryMessage = "Schedules could not be loaded. Please try again."
+  action retryStorage
+    if not pending(loadedLibrary)
+      libraryStarted = false
+
+  action goToday
+    if not dragging and not modalOpen
+      monthAnchor = some(clock.month)
+      selectedDay = some(clock.today)
+  // Each click turns one page; the pages slide by their laid-out origins.
+  action goMonth(offset: number)
+    if not dragging and not modalOpen
+      monthAnchor = some(boundedMonth(month + offset))
+  // The Mac reports every pointer move over a hovered view; write only a change.
+  action hoverOn(name: string, over: bool)
+    if over and hovered != name
+      hovered = name
+    if not over and hovered == name
+      hovered = ""
+  // A double click presses twice before it double-clicks: selecting is idempotent.
+  action panMonth(dx: number, dy: number)
+    if compact and not dragging and not modalOpen and not popupOpen
+      if magnitude(monthPan + dx) > magnitude(dy)
+        monthPan = monthPan + dx
+  action releaseMonth(vx: number, vy: number)
+    if compact and not dragging and not modalOpen and not popupOpen
+      if magnitude(monthPan) > 40 or magnitude(vx) > 400
+        monthAnchor = some(boundedMonth(month + (monthPan + vx * 0.1 < 0 ? 1 : -1)))
+    monthPan = 0
+  action closeDate
+    popupOpen = false
+    sheetOffset = 0
+  action openPicker
+    if libraryReady and not busy and not dragging and not modalOpen
+      pickerOpen = true
+  action closePicker
+    pickerOpen = false
+  action panSheet(dx: number, dy: number)
+    if compact and not busy and not dragging
+      sheetOffset = sheetOffset + dy
+  action releaseSheet(vx: number, vy: number)
+    if compact and not busy and not dragging
+      if sheetOffset > 120 or vy > 700
+        if editorOpen
+          editorClosing = true
+          editorUntil = now() + 120
+        else
+          if themeOpen
+            themeClosing = true
+            themeUntil = now() + 120
+          else
+            popupOpen = false
+      else
+        if sheetOffset < -60 or vy < -500
+          sheetSnap = min(2, sheetSnap + 1)
+        else
+          if sheetOffset > 60
+            sheetSnap = max(0, sheetSnap - 1)
+      sheetOffset = 0
+  action selectDate(value: number)
+    if not dragging and not modalOpen
+      selectedDay = some(value)
+      popupOpen = compact
+      error = ""
+      focus(`day-${month}-${value}`)
+  // Arrows move the selection; Enter and Space also press the cell, so they are left to it.
+  action moveSelection(value: number, pressed: string)
+    if not dragging and not modalOpen and keyStep(pressed) != 0
+      selectedDay = some(value + keyStep(pressed))
+      if value + keyStep(pressed) < monthFirstDay and month > 22800
+        monthAnchor = some(month - 1)
+        focus(`day-${month - 1}-${value + keyStep(pressed)}`)
+      else
+        if value + keyStep(pressed) > monthLastDay and month < 25211
+          monthAnchor = some(month + 1)
+          focus(`day-${month + 1}-${value + keyStep(pressed)}`)
+        else
+          focus(`day-${month}-${value + keyStep(pressed)}`)
+
+  action create(kind: string, value: number, date: string)
+    if libraryReady and not busy and not dragging and not modalOpen and date != ""
+      selectedDay = some(value)
+      pickerOpen = false
+      editorOpen = true
+      editorClosing = false
+      editorKind = kind
+      editId = ""
+      editorDate = date
+      titleDraft = none
+      notesDraft = none
+      colorDraft = none
+      allDayDraft = none
+      startDateDraft = none
+      endDateDraft = none
+      startTimeDraft = none
+      endTimeDraft = none
+      confirmDelete = false
+      error = ""
+      retryToken = ""
+      retryOperation = ""
+      hovered = ""
+      focus("schedule-title")
+  action setKind(kind: string)
+    if editorOpen and not editorClosing and editId == "" and not busy
+      editorKind = kind
+      retryToken = ""
+      retryOperation = ""
+  action openItem(id: string, kind: string)
+    if not busy and not dragging and not modalOpen
+      editId = id
+      editorKind = kind
+      pickerOpen = false
+      editorOpen = true
+      editorClosing = false
+      titleDraft = none
+      notesDraft = none
+      colorDraft = none
+      allDayDraft = none
+      startDateDraft = none
+      endDateDraft = none
+      startTimeDraft = none
+      endTimeDraft = none
+      confirmDelete = false
+      error = ""
+      retryToken = ""
+      retryOperation = ""
+      titleFocusPending = true
+      hovered = ""
+  // The Mac's context menu on a schedule: every command is also reachable without it.
+  action itemCommand(id: string, kind: string, completed: bool, command: string)
+    if not busy and not dragging and not modalOpen
+      if command == "toggle" and kind == "todo"
+        operationSequence = operationSequence + 1
+        operation = "complete"
+        error = ""
+        send changed = setTodoCompleted(id, not completed, time.epochAtZero + now(), freshToken)
+      if command == "edit" or command == "delete"
+        editId = id
+        editorKind = kind
+        pickerOpen = false
+        editorOpen = true
+        editorClosing = false
+        titleDraft = none
+        notesDraft = none
+        colorDraft = none
+        allDayDraft = none
+        startDateDraft = none
+        endDateDraft = none
+        startTimeDraft = none
+        endTimeDraft = none
+        confirmDelete = command == "delete"
+        error = ""
+        retryToken = ""
+        retryOperation = ""
+        titleFocusPending = command == "edit"
+        hovered = ""
+  action stickerCommand(value: number, command: string)
+    if command == "delete" and libraryReady and not busy and not dragging and not modalOpen
+      operationSequence = operationSequence + 1
+      operation = "sticker"
+      error = ""
+      send changed = removeSticker(value, freshToken)
+  // A click on the dialog's own surface keeps the focus, and with it Escape, in the dialog.
+  action refocusEditor
+    if editorOpen and not editorClosing and editorReady and not busy
+      focus("schedule-title")
+  action editorKey(pressed: string)
+    if pressed == "Escape" and editorOpen and not busy and not editorClosing
+      retryToken = ""
+      retryOperation = ""
+      blur()
+      editorClosing = true
+      editorUntil = now() + (viewport.prefersReducedMotion ? 0 : 120)
+      confirmDelete = false
+      error = ""
+  action closeEditor
+    if editorOpen and not busy and not editorClosing
+      retryToken = ""
+      retryOperation = ""
+      blur()
+      editorClosing = true
+      editorUntil = now() + (viewport.prefersReducedMotion ? 0 : 120)
+      confirmDelete = false
+      error = ""
+
+  action toggleThemes
+    if themeOpen
+      if not themeClosing
+        themeClosing = true
+        themeUntil = now() + (viewport.prefersReducedMotion ? 0 : 120)
+    else
+      if libraryReady and not busy and not dragging and not editorOpen
+        themeOpen = true
+        themeClosing = false
+        error = ""
+        hovered = ""
+  action closeThemes
+    if themeOpen and not themeClosing
+      themeClosing = true
+      themeUntil = now() + (viewport.prefersReducedMotion ? 0 : 120)
+  // The panel's own surface takes its clicks, so the focus stays in the window's view.
+  action keepThemes
+    hovered = ""
+  action chooseTheme(value: number)
+    if themeOpen and not themeClosing and not busy and value >= 0 and value <= 6
+      themeClosing = true
+      themeUntil = now() + (viewport.prefersReducedMotion ? 0 : 120)
+      if value != theme
+        operationSequence = operationSequence + 1
+        operation = "theme"
+        error = ""
+        send changed = setTheme(value, freshToken)
+
+  action toggleStickerPalette
+    if not dragging
+      stickerPaletteOpen = not stickerPaletteOpen
+  action openStickers
+    pickerOpen = false
+    popupOpen = true
+    stickerPaletteOpen = true
+  action showPalette
+    stickerPaletteOpen = true
+  // A palette click toggles: the date's own sticker comes off, another goes on.
+  action applySticker(value: string)
+    if libraryReady and not busy and not dragging and not modalOpen and not pending(agenda)
+      operationSequence = operationSequence + 1
+      operation = "sticker"
+      error = ""
+      if value == agenda.stickerId
+        send changed = removeSticker(day, freshToken)
+      else
+        send changed = setSticker(day, value, freshToken)
+  action clearSticker
+    if libraryReady and not busy and not dragging and not modalOpen and not pending(agenda) and agenda.stickerId != ""
+      operationSequence = operationSequence + 1
+      operation = "sticker"
+      error = ""
+      send changed = removeSticker(day, freshToken)
+  action deleteItem(id: string)
+    if libraryReady and not busy and not dragging and not modalOpen
+      operationSequence = operationSequence + 1
+      operation = "remove-item"
+      error = ""
+      hovered = ""
+      send changed = deleteSchedule(id, freshToken)
+  action toggleTodo(id: string, completed: bool)
+    if not busy and not dragging and not modalOpen
+      operationSequence = operationSequence + 1
+      operation = "complete"
+      error = ""
+      send changed = setTodoCompleted(id, completed, time.epochAtZero + now(), freshToken)
+
+  action writeTitle(value: string)
+    retryToken = ""
+    retryOperation = ""
+    titleDraft = some(value)
+  action writeNotes(value: string)
+    retryToken = ""
+    retryOperation = ""
+    notesDraft = some(value)
+  action pickColor(value: string)
+    retryToken = ""
+    retryOperation = ""
+    colorDraft = some(value)
+  action toggleAllDay(value: bool)
+    retryToken = ""
+    retryOperation = ""
+    allDayDraft = some(value)
+  action writeStartDate(value: string)
+    retryToken = ""
+    retryOperation = ""
+    startDateDraft = some(value)
+  action writeEndDate(value: string)
+    retryToken = ""
+    retryOperation = ""
+    endDateDraft = some(value)
+  action writeStartTime(value: string)
+    retryToken = ""
+    retryOperation = ""
+    startTimeDraft = some(value)
+  action writeEndTime(value: string)
+    retryToken = ""
+    retryOperation = ""
+    endTimeDraft = some(value)
+  action save
+    if editorOpen and not busy and not editorClosing and editorReady and title != ""
+      operationSequence = operationSequence + 1
+      operation = "save"
+      retryToken = saveToken
+      retryOperation = "save"
+      error = ""
+      if editorKind == "todo"
+        send changed = saveTodo(editId, title, notes, color, true, startDate, startDate, "09:00", "10:00", saveToken)
+      else
+        if editorKind == "plan"
+          send changed = savePlan(editId, title, notes, color, allDay, startDate, endDate, startTime, endTime, saveToken)
+        else
+          send changed = saveSchedule(editId, title, notes, color, allDay, startDate, endDate, startTime, endTime, saveToken)
+  action askDelete
+    confirmDelete = true
+  action keepEvent
+    confirmDelete = false
+  action remove
+    if not busy and not editorClosing and editId != ""
+      operationSequence = operationSequence + 1
+      operation = "delete"
+      retryToken = deleteToken
+      retryOperation = "delete"
+      error = ""
+      send changed = deleteSchedule(editId, deleteToken)
+  action didChange
+    match changed
+      case some(result)
+        if result.success
+          retryToken = ""
+          retryOperation = ""
+          confirmDelete = false
+          error = ""
+          if operation == "move"
+            pendingMove = true
+            pendingMoveRevision = result.revision
+          else
+            dataRevision = max(dataRevision, result.revision)
+            if operation == "save" or operation == "delete"
+              blur()
+              editorClosing = true
+              editorUntil = now() + (viewport.prefersReducedMotion ? 0 : 120)
+        else
+          dataRevision = max(dataRevision, result.revision)
+          error = result.message
+          if operation == "move" and dragging
+            pendingMove = false
+            dragPhase = "returning"
+            dragCommitted = false
+            returnPrepared = viewport.prefersReducedMotion
+            returnReadyAt = now() + 16
+            dragUntil = now()
+            ghostX = sourceX
+            ghostY = sourceY
+      case none
+        error = "Your change could not be saved. Please try again."
+        if operation == "move" and dragging
+          pendingMove = false
+          dragPhase = "returning"
+          dragCommitted = false
+          returnPrepared = viewport.prefersReducedMotion
+          returnReadyAt = now() + 16
+          dragUntil = now()
+          ghostX = sourceX
+          ghostY = sourceY
+
+  view
+    main id="calendar" testId="calendar" viewport-fit="cover" interactive-widget="resizes-content" position="relative" display="flex" flex-direction="row" width="100%" height="100%" min-height=0 box-sizing="border-box" overflow="hidden" background-color=themeBase color=themeInk font-family="system-ui"
+      head title=(clockReady ? monthTitle : "Calendar")
+      when theme != 0
+        image themeWallpaper testId="theme-wallpaper" position="absolute" left=0 top=0 width="100%" height="100%" object-fit="cover" inert=true aria-hidden=true
+        box testId="theme-veil" position="absolute" left=0 top=0 width="100%" height="100%" background-image="linear-gradient(180deg, rgba(255,255,255,0.08) 0%, rgba(255,255,255,0.32) 26%, rgba(255,255,255,0.5) 100%)" inert=true aria-hidden=true
+      calendar-input-root id="calendar-input" testId="calendar-input" ack=`${contactAck}` swipe-right=`${portWidth > 0 ? portX + portWidth : max(0, viewport.width - 300)}` message=dragInput position="absolute" left=0 top=0 right=0 bottom=0 inert=true aria-hidden=true
+      column testId="calendar-main" position="relative" flex=1 min-width=0 height="100%" min-height=0 box-sizing="border-box" padding-top="env(safe-area-inset-top)"
+        row testId="calendar-header" height=56 flex-shrink=0 box-sizing="border-box" padding-left=(compact ? 12 : 24) padding-right=(compact ? 8 : 20) align-items="center" gap=(compact ? 2 : 8)
+          row flex=1 min-width=0 align-items="baseline" gap=8
+            text (clockReady ? monthLongName(month) : "Calendar") testId="month-label" font-size=(compact ? 20 : 26) font-weight=700 letter-spacing=-0.5 color=themeInk white-space="nowrap"
+            when clockReady
+              text `${floor(month / 12)}` testId="year-label" font-size=(compact ? 20 : 26) font-weight=400 letter-spacing=-0.5 color=themeMuted white-space="nowrap"
+          row flex-shrink=0 height=28 align-items="center" gap=2
+            button press=goMonth(-1) hover=hoverOn("previous") testId="month-previous" aria-label="Previous Month" aria-keyshortcuts="Meta+[ Control+[" disabled=(dragging or modalOpen or not clockReady) class=ToolButton width=32 background-color=(hovered == "previous" ? themeHover : "#ffffff00") press-scale=0.96
+              svg width=14 height=14 viewBox="0 0 14 14" aria-hidden=true
+                path d="M 8.5 2.5 L 4 7 L 8.5 11.5" fill="none" stroke=themeInk stroke-width=1.6 stroke-linecap="round" stroke-linejoin="round"
+            button press=goToday hover=hoverOn("today") testId="today" aria-label="Today" aria-keyshortcuts="Meta+t Control+t" disabled=(dragging or modalOpen or not clockReady) class=ToolButton width=60 background-color=(hovered == "today" ? themeHover : "#ffffff00") press-scale=0.96
+              text "Today" font-size=13 font-weight=600 color=themeInk
+            button press=goMonth(1) hover=hoverOn("next") testId="month-next" aria-label="Next Month" aria-keyshortcuts="Meta+] Control+]" disabled=(dragging or modalOpen or not clockReady) class=ToolButton width=32 background-color=(hovered == "next" ? themeHover : "#ffffff00") press-scale=0.96
+              svg width=14 height=14 viewBox="0 0 14 14" aria-hidden=true
+                path d="M 5.5 2.5 L 10 7 L 5.5 11.5" fill="none" stroke=themeInk stroke-width=1.6 stroke-linecap="round" stroke-linejoin="round"
+          button press=toggleThemes hover=hoverOn("theme") testId="theme-button" aria-label="Choose calendar theme" aria-expanded=themeOpen disabled=(dragging or editorOpen or not libraryReady) class=ToolButton width=36 background-color=(themeOpen or hovered == "theme" ? themeHover : "#ffffff00") press-scale=0.96
+            svg width=18 height=18 viewBox="0 0 24 24" aria-hidden=true
+              path d="M 12 3 C 7 3 3 7 3 12 C 3 17 7 21 12 21 L 13 21 C 15 21 15 18 13 17 C 12 16 13 14 15 14 L 18 14 C 22 14 22 9 19 6 C 17 4 15 3 12 3 Z" fill="none" stroke=themeInk stroke-width=1.7
+              circle cx=7 cy=11 r=1.3 fill=themeInk
+              circle cx=10 cy=7 r=1.3 fill=themeInk
+              circle cx=15 cy=7 r=1.3 fill=themeInk
+              circle cx=18 cy=10 r=1.3 fill=themeInk
+          when not compact
+            button press=create("event", day, agenda.date) hover=hoverOn("new") testId="new-item" aria-label="Add Event" aria-keyshortcuts="Meta+n Control+n" disabled=(not libraryReady or busy or dragging or modalOpen or pending(agenda)) class=ToolButton width=56 background-color=themeAccent opacity=(hovered == "new" ? 0.88 : 1) press-scale=0.96
+              text "Add" font-size=13 font-weight=600 color="#ffffff"
+        row testId="weekday-row" height=26 flex-shrink=0 align-items="center" aria-hidden=true
+          Weekday(label="Sun", tone=(theme == 0 ? "#d97777" : themeMuted))
+          Weekday(label="Mon", tone=themeMuted)
+          Weekday(label="Tue", tone=themeMuted)
+          Weekday(label="Wed", tone=themeMuted)
+          Weekday(label="Thu", tone=themeMuted)
+          Weekday(label="Fri", tone=themeMuted)
+          Weekday(label="Sat", tone=(theme == 0 ? "#7796c1" : themeMuted))
+        when not libraryReady and not pending(loadedLibrary) and libraryMessage != ""
+          row padding-left=24 padding-right=20 padding-top=8 padding-bottom=8 gap=8 align-items="center" background-color=(libraryMessage == "Loading schedules…" ? themeField : "#fff1ef") flex-shrink=0
+            text libraryMessage testId="storage-status" aria-live="polite" color=(libraryMessage == "Loading schedules…" ? themeMuted : "#b74238") font-size=13 flex=1
+            when libraryMessage != "Loading schedules…"
+              button press=retryStorage testId="retry-storage" class=FooterButton border-width=0 background-color="#ffffff"
+                text "Retry" font-size=13 color="#b74238"
+        box id="calendar-stage" testId="calendar-stage" position="relative" flex=1 min-height=0 width="100%" overflow="hidden"
+          when clockReady
+            box id="calendar-pages" testId="calendar-pages" translate=`${compact ? monthPan : 0}px 0px` position="relative" width="100%" height="100%"
+              each page in pages key=page.id
+                // The pages beside the month wait off the stage; a page turn moves every
+                // page by its laid-out origin, so each slides in place of the next.
+                when viewport.prefersReducedMotion
+                  when page.month == month
+                    MonthPage(compact=compact, panMonth=panMonth, releaseMonth=releaseMonth, page=page, left=(page.month - month) * pageWidth, width=pageWidth, height=pageHeight, today=clock.today, selected=day, blocked=modalOpen, dragId=(held ? dragId : ""), activeDragId=dragId, theme=theme, themeInk=themeInk, themeAccent=themeAccent, themeMuted=themeMuted, gridLine=themeLine, cellFill=themeCell, hoverFill=themeHover, selectedFill=themeSelected, selectedRing=themeSelectedRing, hovered=hovered, hoverDay=hoverDay, dragSpan=dragSpan, scrollTop=(dragging and page.month == calendarScrollMonth ? calendarScrollRequest : savedScroll(page.month, scrollMonth0, scrollY0, scrollMonth1, scrollY1, scrollMonth2, scrollY2, scrollMonth3, scrollY3, scrollMonth4, scrollY4, scrollMonth5, scrollY5, scrollMonth6, scrollY6)), reduceMotion=viewport.prefersReducedMotion, scrolled=calendarScrolled, choose=selectDate, command=itemCommand, create=create, move=moveSelection, hover=hoverOn)
+                else
+                  when page.month >= month - 1 and page.month <= month + 1
+                    box testId=`month-slot-${page.id}` position="absolute" left=(page.month - month) * pageWidth top=0 width=pageWidth height="100%" layout-transition="320ms ease-out" inert=(page.month != month) aria-hidden=(page.month != month)
+                      MonthPage(compact=compact, panMonth=panMonth, releaseMonth=releaseMonth, page=page, left=0, width=pageWidth, height=pageHeight, today=clock.today, selected=day, blocked=modalOpen, dragId=(held ? dragId : ""), activeDragId=dragId, theme=theme, themeInk=themeInk, themeAccent=themeAccent, themeMuted=themeMuted, gridLine=themeLine, cellFill=themeCell, hoverFill=themeHover, selectedFill=themeSelected, selectedRing=themeSelectedRing, hovered=hovered, hoverDay=hoverDay, dragSpan=dragSpan, scrollTop=(dragging and page.month == calendarScrollMonth ? calendarScrollRequest : savedScroll(page.month, scrollMonth0, scrollY0, scrollMonth1, scrollY1, scrollMonth2, scrollY2, scrollMonth3, scrollY3, scrollMonth4, scrollY4, scrollMonth5, scrollY5, scrollMonth6, scrollY6)), reduceMotion=viewport.prefersReducedMotion, scrolled=calendarScrolled, choose=selectDate, command=itemCommand, create=create, move=moveSelection, hover=hoverOn)
+      when compact and popupOpen and not dragging and not editorOpen and not themeOpen
+        box testId="date-backdrop" press=closeDate position="absolute" left=0 top=0 right=0 bottom=0 z-index=19 background-color="rgba(28,31,44,0.12)"
+      when not compact or popupOpen
+        column testId=(compact ? "date-popup" : "inspector") role=(compact ? "dialog" : "complementary") aria-label="Selected date" position=(compact ? "absolute" : "relative") left=(compact ? 0 : "auto") bottom=(compact ? 0 : "auto") opacity=(compact and dragging ? 0 : 1) pointer-events=(compact and dragging ? "none" : "auto") z-index=20 width=(compact ? viewport.width : 300) flex-shrink=0 height=(compact ? sheetHeight : "100%") translate=`0px ${compact ? max(0, sheetOffset) : 0}px` border-top-left-radius=(compact ? 20 : 0) border-top-right-radius=(compact ? 20 : 0) min-height=0 box-sizing="border-box" padding-top=(compact ? "0px" : "env(safe-area-inset-top)") padding-bottom=(compact ? "env(safe-area-inset-bottom)" : "0px") border-style="solid" border-top-width=0 border-right-width=0 border-bottom-width=0 border-left-width=1 border-color=themeBorder background-color=themePanel
+          when compact
+            row height=30 flex-shrink=0 justify-content="center" align-items="center" touch-action="none" pan=panSheet panrelease=releaseSheet testId="date-sheet-handle"
+              box width=36 height=5 border-radius=3 background-color=themeBorder
+            button "Close" press=closeDate testId="close-date" aria-label="Close selected date" align-self="flex-end" margin-right=16 border-width=0 background-color="#ffffff00" color=themeMuted
+          column flex-shrink=0 padding-left=20 padding-right=16 padding-top=12 padding-bottom=10 gap=3
+            text (clockReady ? agenda.label : "") testId="inspector-date" font-size=19 font-weight=700 letter-spacing=-0.3 color=themeInk white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+            text `${itemCount} ${itemCount == 1 ? "item" : "items"}` testId="inspector-count" font-size=12 color=themeMuted
+          box height=1 flex-shrink=0 margin-left=12 margin-right=12 background-color=themeBorder
+          scroll id="agenda-list" testId="agenda-list" flex=1 min-height=0 overflow-x="hidden" overscroll-behavior="contain"
+            column padding=8 gap=2
+              each item in agenda.items key=item.id
+                AgendaRow(id=item.id, title=item.title, color=item.color, rangeLabel=item.rangeLabel, kind=item.kind, completed=item.completed, hidden=(dragId == item.id), disabled=(busy or modalOpen or (dragging and (not held or dragId != item.id))), hot=(hovered == `row-${item.id}`), ink=themeInk, muted=themeMuted, fill=themeHover, toggle=toggleTodo, edit=openItem, command=itemCommand, remove=deleteItem, hover=hoverOn)
+              when agenda.stickerId != ""
+                StickerAgendaRow(day=agenda.day, date=agenda.date, stickerId=agenda.stickerId, hidden=(dragId == `sticker-day:${agenda.day}:${agenda.stickerId}`), disabled=(busy or modalOpen or (dragging and (not held or dragId != `sticker-day:${agenda.day}:${agenda.stickerId}`))), hot=(hovered == "row-sticker"), ink=themeInk, muted=themeMuted, fill=themeHover, edit=showPalette, command=stickerCommand, remove=clearSticker, hover=hoverOn)
+          when busy or (error != "" and not editorOpen)
+            text (busy ? "Saving…" : error) testId="inspector-status" aria-live="polite" flex-shrink=0 padding-left=20 padding-right=20 padding-top=6 padding-bottom=8 font-size=12 color=(error != "" and not busy ? "#b74238" : themeMuted)
+          column testId="sticker-palette" flex-shrink=0 border-style="solid" border-top-width=1 border-right-width=0 border-bottom-width=0 border-left-width=0 border-color=themeBorder padding-bottom=(stickerPaletteOpen ? 14 : 4)
+            button press=toggleStickerPalette hover=hoverOn("palette") testId="sticker-palette-toggle" aria-label=(stickerPaletteOpen ? "Hide stickers" : "Show stickers") aria-expanded=stickerPaletteOpen disabled=dragging height=40 box-sizing="border-box" padding-left=20 padding-right=16 border-width=0 background-color=(hovered == "palette" ? themeHover : "#ffffff00") display="flex" flex-direction="row" align-items="center" justify-content="space-between"
+              text "Stickers" font-size=13 font-weight=600 color=themeInk
+              svg width=12 height=12 viewBox="0 0 12 12" rotate=(stickerPaletteOpen ? 0 : -90) transition=(viewport.prefersReducedMotion ? "none" : "rotate 160ms ease-out") aria-hidden=true
+                path d="M 2.5 4.5 L 6 8 L 9.5 4.5" fill="none" stroke=themeMuted stroke-width=1.6 stroke-linecap="round" stroke-linejoin="round"
+            when stickerPaletteOpen
+              column padding-left=14 padding-right=14 gap=6
+                row gap=6
+                  StickerChip(value="sunshine", title="Sunshine", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-sunshine"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                  StickerChip(value="coffee", title="Coffee", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-coffee"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                  StickerChip(value="cake", title="Cake", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-cake"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                  StickerChip(value="heart", title="Heart", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-heart"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                  StickerChip(value="sparkle", title="Sparkle", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-sparkle"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                row gap=6
+                  StickerChip(value="flower", title="Flower", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-flower"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                  StickerChip(value="book", title="Book", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-book"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                  StickerChip(value="workout", title="Workout", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-workout"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                  StickerChip(value="travel", title="Travel", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-travel"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                  StickerChip(value="rest", title="Rest", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-rest"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                row gap=6
+                  StickerChip(value="bunny", title="Bunny", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-bunny"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                  StickerChip(value="paris", title="Paris", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-paris"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                  StickerChip(value="daisy", title="Daisy", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-daisy"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                  StickerChip(value="moon", title="Moon", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-moon"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+                  StickerChip(value="picnic", title="Picnic", selected=agenda.stickerId, disabled=(busy or modalOpen or dragging), dragId=dragId, held=held, hot=(hovered == "sticker-picnic"), fill=themeHover, selectedFill=themeField, accent=themeAccent, pick=applySticker, hover=hoverOn)
+      when compact and not editorOpen and not themeOpen and not popupOpen and not dragging
+        button "+" press=openPicker testId="new-item" aria-label="Add Event" position="absolute" right=20 bottom="calc(env(safe-area-inset-bottom) + 24px)" width=56 height=56 border-radius=28 border-width=0 background-color=themeAccent color="#ffffff" font-size=30 display="flex" align-items="center" justify-content="center" z-index=10
+      when compact and pickerOpen
+        box press=closePicker testId="picker-backdrop" position="absolute" left=0 right=0 top=0 bottom=0 z-index=25 background-color="rgba(28,31,44,0.12)"
+        column testId="type-picker" role="dialog" aria-label="Add to your calendar" position="absolute" left=20 right=20 bottom="calc(env(safe-area-inset-bottom) + 24px)" padding=16 gap=12 border-radius=20 background-color=themeSurface z-index=26
+          button "Event" testId="add-event" press=create("event", day, agenda.date) height=44
+          button "Plan" testId="add-plan" press=create("plan", day, agenda.date) height=44
+          button "Todo" testId="add-todo" press=create("todo", day, agenda.date) height=44
+          button "Stickers" testId="add-sticker" press=openStickers height=44
+      // Mounted for good and hidden between drags: the Mac host applies a
+      // translate when it changes, not one a view is created with. Its faces
+      // carry no background: a row becomes the block it will be on the month.
+      box id="calendar-drag-image" testId="calendar-drag-image" inert=true aria-hidden=true position="absolute" left=0 top=0 width=sourceWidth height=sourceHeight translate=`${ghostX}px ${ghostY}px` overflow="visible" z-index=21 opacity=(not dragging or dragPhase == "fading" ? 0 : 1) transition=(viewport.prefersReducedMotion or held ? "none" : "translate 300ms ease-in-out, opacity 90ms linear")
+        when dragging
+          when dragKind == "sticker"
+            box position="absolute" left=0 top=0 width=sourceWidth height=sourceHeight overflow="visible" translate=`${lifted ? dragOriginX - sourceX - 24 : 0}px ${lifted ? dragOriginY - sourceY - 24 : 0}px` transition=(viewport.prefersReducedMotion ? "none" : (landed or returning ? "translate 300ms ease-in-out" : "translate 300ms cubic-bezier(0.22, 1, 0.36, 1)"))
+              when dragSource == "sticker-date"
+                row id="calendar-drag-source-face" testId="calendar-drag-source-face" position="absolute" left=0 top=0 width=sourceWidth height=sourceHeight box-sizing="border-box" padding-left=8 padding-right=36 align-items="center" gap=8 opacity=(landed or lifted ? 0 : 1) scale=(landed ? landingWidth / sourceWidth : (lifted ? 48 / sourceWidth : 1)) transform-origin="0px 0px" transition=ghostTransition
+                  image `assets/stickers/${dragStickerId}.png` width=28 height=28 object-fit="contain"
+                  text dragStickerId text-transform="capitalize" font-size=14 font-weight=500 color=themeInk
+              image `assets/stickers/${dragStickerId}.png` id="calendar-drag-sticker" testId="calendar-drag-sticker" position="absolute" left=0 top=0 width=(dragSource == "sticker-date" ? 48 : sourceWidth) height=(dragSource == "sticker-date" ? 48 : sourceHeight) object-fit="contain" opacity=(dragSource == "sticker-date" and not landed and not lifted ? 0 : 1) scale=(dragSource == "sticker-date" ? (landed ? landingWidth / 48 : 1) : ghostWidth / sourceWidth) transform-origin="0px 0px" transition=ghostTransition
+          else
+            // The JS target takes one `layout-transition`; reduced motion draws the faces without it.
+            when viewport.prefersReducedMotion
+              // An event's color dot grows into its block under the title.
+              when dragKind == "event"
+                box id="calendar-drag-block" testId="calendar-drag-block" position="absolute" left=(landed ? 0 : (lifted ? chipX : markX + 5)) top=(landed ? 0 : (lifted ? chipY : markY + 5)) width=(landed ? landingWidth : (lifted ? 200 : 10)) height=(landed ? landingHeight : (lifted ? 24 : 10)) background-color=dragTint border-top-left-radius=(landed and landingBefore ? 0 : 5) border-bottom-left-radius=(landed and landingBefore ? 0 : 5) border-top-right-radius=(landed and landingAfter ? 0 : 5) border-bottom-right-radius=(landed and landingAfter ? 0 : 5) transition=fadeTiming
+              // A plan's arrow stretches into its line: dot, shaft and head move apart.
+              when dragKind == "plan"
+                box testId="calendar-drag-plan-line" position="absolute" left=(landed ? 0 : (lifted ? chipX + 3 : markX + 2)) top=(landed ? 2 : (lifted ? chipY + 3 : markY + 9)) width=(landed ? landingWidth : (lifted ? 194 : 16)) height=2 background-color=dragTint transition=fadeTiming
+                box position="absolute" left=(landed ? 0 : (lifted ? chipX : markX + 1)) top=(landed ? 0 : (lifted ? chipY + 1 : markY + 8)) width=(lifted or landed ? 6 : 4) height=(lifted or landed ? 6 : 4) border-radius=3 background-color=dragTint opacity=(landed and landingBefore ? 0 : 1) transition=fadeTiming
+                box position="absolute" left=(landed ? landingWidth - 8 : (lifted ? chipX + 192 : markX + 12)) top=(landed ? 0 : (lifted ? chipY + 1 : markY + 5)) width=(lifted or landed ? 8 : 6) height=(lifted or landed ? 6 : 10) opacity=(landed and landingAfter ? 0 : 1) transition=fadeTiming
+                  svg width="100%" height="100%" viewBox="0 0 8 6" preserveAspectRatio="none"
+                    path d="M 1 0 L 7 3 L 1 6" fill="none" stroke=dragTint stroke-width=2 vector-effect="non-scaling-stroke"
+              // A todo's circle shrinks to the bar's mark.
+              when dragKind == "todo"
+                box position="absolute" left=(landed ? 2 : (lifted ? chipX + 4 : markX + 1)) top=(landed ? 4 : (lifted ? chipY + 6 : markY + 1)) width=(lifted or landed ? 12 : 18) height=(lifted or landed ? 12 : 18) opacity=(dragCompleted ? 0.55 : 1)
+                  svg width="100%" height="100%" viewBox="0 0 20 20"
+                    circle cx=10 cy=10 r=8.5 fill=(dragCompleted ? dragTint : "none") stroke=dragTint stroke-width=1.5
+                    when dragCompleted
+                      path d="M 5.5 10 L 8.5 13 L 14.5 7" fill="none" stroke="#ffffff" stroke-width=1.8 stroke-linecap="round" stroke-linejoin="round"
+              // The dates fade; the title moves onto the block and shrinks to its size.
+              text dragRangeLabel testId="calendar-drag-range" position="absolute" left=rangeX top=rangeY width=214 font-size=12 color=themeMuted white-space="nowrap" overflow="hidden" text-overflow="clip" opacity=(landed or lifted ? 0 : 1) transition=fadeTiming
+              text dragTitle id="calendar-drag-title" testId="calendar-drag-title" position="absolute" left=(landed ? (dragKind == "todo" ? 18 : (dragKind == "plan" ? 3 : 6)) : (lifted ? chipX + (dragKind == "todo" ? 20 : (dragKind == "plan" ? 3 : 8)) : titleX)) top=(landed ? (dragKind == "plan" ? 7 : 4) : (lifted ? chipY + (dragKind == "plan" ? 8 : 5) : titleY)) width=214 font-size=14 font-weight=500 color=dragInk text-decoration-line=(dragCompleted ? "line-through" : "none") white-space="nowrap" overflow="hidden" text-overflow="clip" scale=(landed ? 11 / 14 : (lifted ? 12 / 14 : 1)) transform-origin="0px 0px" opacity=(landed ? 0 : (dragCompleted ? 0.5 : 1)) transition=fadeTiming
+            else
+              // An event's color dot grows into its block under the title.
+              when dragKind == "event"
+                box id="calendar-drag-block" testId="calendar-drag-block" position="absolute" left=(landed ? 0 : (lifted ? chipX : markX + 5)) top=(landed ? 0 : (lifted ? chipY : markY + 5)) width=(landed ? landingWidth : (lifted ? 200 : 10)) height=(landed ? landingHeight : (lifted ? 24 : 10)) background-color=dragTint border-top-left-radius=(landed and landingBefore ? 0 : 5) border-bottom-left-radius=(landed and landingBefore ? 0 : 5) border-top-right-radius=(landed and landingAfter ? 0 : 5) border-bottom-right-radius=(landed and landingAfter ? 0 : 5) transition=fadeTiming layout-transition="300ms ease-in-out"
+              // A plan's arrow stretches into its line: dot, shaft and head move apart.
+              when dragKind == "plan"
+                box testId="calendar-drag-plan-line" position="absolute" left=(landed ? 0 : (lifted ? chipX + 3 : markX + 2)) top=(landed ? 2 : (lifted ? chipY + 3 : markY + 9)) width=(landed ? landingWidth : (lifted ? 194 : 16)) height=2 background-color=dragTint transition=fadeTiming layout-transition="300ms ease-in-out"
+                box position="absolute" left=(landed ? 0 : (lifted ? chipX : markX + 1)) top=(landed ? 0 : (lifted ? chipY + 1 : markY + 8)) width=(lifted or landed ? 6 : 4) height=(lifted or landed ? 6 : 4) border-radius=3 background-color=dragTint opacity=(landed and landingBefore ? 0 : 1) transition=fadeTiming layout-transition="300ms ease-in-out"
+                box position="absolute" left=(landed ? landingWidth - 8 : (lifted ? chipX + 192 : markX + 12)) top=(landed ? 0 : (lifted ? chipY + 1 : markY + 5)) width=(lifted or landed ? 8 : 6) height=(lifted or landed ? 6 : 10) opacity=(landed and landingAfter ? 0 : 1) transition=fadeTiming layout-transition="300ms ease-in-out"
+                  svg width="100%" height="100%" viewBox="0 0 8 6" preserveAspectRatio="none"
+                    path d="M 1 0 L 7 3 L 1 6" fill="none" stroke=dragTint stroke-width=2 vector-effect="non-scaling-stroke"
+              // A todo's circle shrinks to the bar's mark.
+              when dragKind == "todo"
+                box position="absolute" left=(landed ? 2 : (lifted ? chipX + 4 : markX + 1)) top=(landed ? 4 : (lifted ? chipY + 6 : markY + 1)) width=(lifted or landed ? 12 : 18) height=(lifted or landed ? 12 : 18) opacity=(dragCompleted ? 0.55 : 1) layout-transition="300ms ease-in-out"
+                  svg width="100%" height="100%" viewBox="0 0 20 20"
+                    circle cx=10 cy=10 r=8.5 fill=(dragCompleted ? dragTint : "none") stroke=dragTint stroke-width=1.5
+                    when dragCompleted
+                      path d="M 5.5 10 L 8.5 13 L 14.5 7" fill="none" stroke="#ffffff" stroke-width=1.8 stroke-linecap="round" stroke-linejoin="round"
+              // The dates fade; the title moves onto the block and shrinks to its size.
+              text dragRangeLabel testId="calendar-drag-range" position="absolute" left=rangeX top=rangeY width=214 font-size=12 color=themeMuted white-space="nowrap" overflow="hidden" text-overflow="clip" opacity=(landed or lifted ? 0 : 1) transition=fadeTiming
+              text dragTitle id="calendar-drag-title" testId="calendar-drag-title" position="absolute" left=(landed ? (dragKind == "todo" ? 18 : (dragKind == "plan" ? 3 : 6)) : (lifted ? chipX + (dragKind == "todo" ? 20 : (dragKind == "plan" ? 3 : 8)) : titleX)) top=(landed ? (dragKind == "plan" ? 7 : 4) : (lifted ? chipY + (dragKind == "plan" ? 8 : 5) : titleY)) width=214 font-size=14 font-weight=500 color=dragInk text-decoration-line=(dragCompleted ? "line-through" : "none") white-space="nowrap" overflow="hidden" text-overflow="clip" scale=(landed ? 11 / 14 : (lifted ? 12 / 14 : 1)) transform-origin="0px 0px" opacity=(landed ? 0 : (dragCompleted ? 0.5 : 1)) transition=fadeTiming layout-transition="300ms ease-in-out"
+            // On landing the title hands over to the bar's own, as the month will draw it.
+            box id="calendar-drag-landing-face" testId="calendar-drag-landing-face" position="absolute" left=0 top=0 width=landingWidth height=20 box-sizing="border-box" padding-left=(dragKind == "todo" ? 18 : 6) padding-right=6 overflow="hidden" display="flex" align-items="center" justify-content=(dragKind == "plan" ? "center" : "flex-start") opacity=(landed ? 1 : 0) transition=(viewport.prefersReducedMotion ? "none" : "opacity 150ms ease-out")
+              text dragTitle text-decoration-line=(dragCompleted ? "line-through" : "none") opacity=(dragCompleted ? 0.5 : 1) position=(dragKind == "plan" ? "absolute" : "relative") left=(dragKind == "plan" ? 0 : "auto") right=(dragKind == "plan" ? 0 : "auto") top=(dragKind == "plan" ? 7 : "auto") text-align=(dragKind == "plan" ? "center" : "left") line-height="12px" font-size=11 font-weight=500 color=(dragKind == "plan" and theme == 0 ? paletteColor(theme, dragColor) : (theme == 0 ? "#292934" : themeInk)) padding-left=(dragKind == "plan" ? 3 : 0) padding-right=(dragKind == "plan" ? 3 : 0) max-width="100%" white-space="nowrap" text-overflow="clip" overflow="hidden"
+      Themes(themeOpen=themeOpen, themeClosing=themeClosing, compact=compact, theme=theme, viewport=viewport, themeBorder=themeBorder, themeSurface=themeSurface, themeInk=themeInk, themeMuted=themeMuted, themeField=themeField, themeAccent=themeAccent, hovered=hovered, closeThemes=closeThemes, keepThemes=keepThemes, chooseTheme=chooseTheme, hoverOn=hoverOn)
+      Editor(editorOpen=editorOpen, editorClosing=editorClosing, compact=compact, busy=busy, editorReady=editorReady, opening=opening, libraryReady=libraryReady, allDay=allDay, confirmDelete=confirmDelete, editorKind=editorKind, editorLabel=editorLabel, editId=editId, title=title, notes=notes, startDate=startDate, endDate=endDate, startTime=startTime, endTime=endTime, color=color, error=error, themeSurface=themeSurface, themeInk=themeInk, themeMuted=themeMuted, themeField=themeField, themeBorder=themeBorder, themeAccent=themeAccent, sheetOffset=sheetOffset, viewport=viewport, opened=opened, refocusEditor=refocusEditor, setKind=setKind, retryEvent=retryEvent, writeTitle=writeTitle, save=save, editorKey=editorKey, writeNotes=writeNotes, toggleAllDay=toggleAllDay, writeStartDate=writeStartDate, writeStartTime=writeStartTime, writeEndDate=writeEndDate, writeEndTime=writeEndTime, pickColor=pickColor, keepEvent=keepEvent, remove=remove, askDelete=askDelete, closeEditor=closeEditor, panSheet=panSheet, releaseSheet=releaseSheet)

@@ -985,7 +985,6 @@ export function hd(p, fields) {
   onEnd(head(t, fields, effect, After));
 }
 
-// ---------------------------------------------------------------- regions
 function range(p) {
   if (Adopt) return [mark(p), null];
   const a = document.createComment(""), b = document.createComment("");
@@ -1038,6 +1037,7 @@ export function each(p, list, key, row, pure) {
   effect(() => {
     const items = list();
     untracked(() => {
+      if (b) p = a.parentNode; // Conditional arms leave their build fragment.
       // Rows moving or leaving are adopted rows (a row waiting for its slice
       // shows its rendered values until then, and adopts at the current ones).
       if (b && LazyAt < Lazy.length) adoptAll();

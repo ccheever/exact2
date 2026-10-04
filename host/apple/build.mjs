@@ -701,7 +701,8 @@ function main(args) {
   const release = appleBuildLock(app);
   const cleanup = [];
   try {
-  const crate = app.crate('apple');
+  const crate = app.crate(ios ? 'ios' : 'macos');
+  const modules = app.modulesFor(ios ? 'ios' : 'macos');
   const gpuCrate = app.crate('gpu');
   const hasGpu = app.hasGpu;
   // The bake names each GPU module's digest, checked at load: a re-signer's bytes would be refused.
@@ -948,8 +949,8 @@ function main(args) {
   // @ref LLP 1075.003 Q2 — the app's `data-*` words as typed keys, written
   // from app.json `data` beside the glue (built, never committed).
   const dataKeys = resolve(swiftBuildRoot, `ExactDataKeys-${app.id}.swift`);
-  if (app.modules.apple.length) writeDataKeys(app, dataKeys);
-  const moduleSources = app.modules.apple.length ? [resolve(root, 'host/apple/modules/ExactNativeModule.swift'), dataKeys, ...app.modules.apple] : [];
+  if (modules.apple.length) writeDataKeys(app, dataKeys);
+  const moduleSources = modules.apple.length ? [resolve(root, 'host/apple/modules/ExactNativeModule.swift'), dataKeys, ...modules.apple] : [];
   const modulesBuilt = moduleSources.length ? resolve(webBuildDir, modulesLoadName) : null;
   // The slice of each `modules/apple/*.xcframework` for this build, read
   // from the xcframework's own Info.plist (`AvailableLibraries`: platform,
@@ -975,13 +976,13 @@ function main(args) {
     const walk = (d) => readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(resolve(d, e.name)) : [resolve(d, e.name)]);
     return { files, args, stamped: [...files, ...(headers ? walk(headers) : [])] };
   };
-  const frameworkArgs = (forIos, simulator, arch) => (app.modules.frameworks ?? []).flatMap(fw => frameworkSlice(fw, forIos, simulator, arch).args);
+  const frameworkArgs = (forIos, simulator, arch) => (modules.frameworks ?? []).flatMap(fw => frameworkSlice(fw, forIos, simulator, arch).args);
   // Linker flags the manifest declares for the module artifact
   // (`host.macos.link`, `host.ios.link`; one argument each), for what an
   // archive needs but cannot say: `-lc++` for a static library with C++ inside.
   const linkArgs = (forIos) => app.manifest.host?.[forIos ? 'ios' : 'macos']?.link ?? [];
   // What the arm cache must see change: the flags, and each library's bytes.
-  const frameworkStamp = (forIos, simulator, arch) => JSON.stringify([linkArgs(forIos), ...(app.modules.frameworks ?? []).flatMap(fw => frameworkSlice(fw, forIos, simulator, arch).stamped).map(f => { const st = statSync(f); return [f, st.size, st.mtimeMs]; })]);
+  const frameworkStamp = (forIos, simulator, arch) => JSON.stringify([linkArgs(forIos), ...(modules.frameworks ?? []).flatMap(fw => frameworkSlice(fw, forIos, simulator, arch).stamped).map(f => { const st = statSync(f); return [f, st.size, st.mtimeMs]; })]);
   const macArch = process.arch === 'arm64' ? 'arm64' : 'x86_64';
   const iosArch = device ? 'arm64' : (iosTriple.startsWith('arm64') ? 'arm64' : 'x86_64');
   const moduleArgs = (sdkFor, targetArgs, out, forIos = false, simulator = false, arch = macArch) => ['--sdk', sdkFor, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules', ...moduleSources, ...frameworkArgs(forIos, simulator, arch), ...linkArgs(forIos), '-o', out, ...targetArgs];
@@ -994,7 +995,7 @@ function main(args) {
     // The probe is a macOS build of the same Swift, so an iOS build whose
     // xcframework has no macOS slice cannot be probed: its roster is taken
     // from the manifest, as it is without Bun.
-    const probeable = !ios || (app.modules.frameworks ?? []).every(fw => { try { frameworkSlice(fw, false, false, macArch); return true; } catch { return false; } });
+    const probeable = !ios || (modules.frameworks ?? []).every(fw => { try { frameworkSlice(fw, false, false, macArch); return true; } catch { return false; } });
     if (modulesBuilt && typeof Bun !== 'undefined' && !probeable) console.warn(`host/apple: an xcframework has no macOS slice, so the iOS module roster is not probed; the manifest's roster stands`);
     if (modulesBuilt && typeof Bun !== 'undefined' && probeable) {
       const probe = ios ? resolve(webBuildDir, 'probe-' + modulesLoadName) : modulesBuilt;
@@ -1245,7 +1246,7 @@ function test(args) {
   const ios = args.includes('--ios');
   const app = resolveApp(args.find((a, i) => !a.startsWith('--') && args[i - 1] !== '--sim'));
   app.prepare?.();
-  const crate = app.crate('apple');
+  const crate = app.crate(ios ? 'ios' : 'macos');
   const release = appleBuildLock(app);
   const paths = appleArtifacts(app, { composition: 'embedded' });
   let cargoRelease;

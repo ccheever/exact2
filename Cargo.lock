@@ -224,7 +224,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
-name = "calendar-apple"
+name = "calendar-data"
+version = "0.1.0"
+dependencies = [
+ "exact-data",
+ "exact-data-host",
+ "exact-plan",
+ "exact-runner",
+ "serde_json",
+]
+
+[[package]]
+name = "calendar-ios"
 version = "0.1.0"
 dependencies = [
  "calendar-data",
@@ -240,11 +251,16 @@ dependencies = [
 ]
 
 [[package]]
-name = "calendar-data"
+name = "calendar-macos"
 version = "0.1.0"
 dependencies = [
- "exact-data",
+ "calendar-data",
+ "contract",
+ "exact-apple",
+ "exact-bake",
  "exact-data-host",
+ "exact-kernel",
+ "exact-logic",
  "exact-plan",
  "exact-runner",
  "serde_json",
@@ -2339,46 +2355,6 @@ name = "log"
 version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
-
-[[package]]
-name = "macos-calendar-apple"
-version = "0.1.0"
-dependencies = [
- "contract",
- "exact-apple",
- "exact-bake",
- "exact-data-host",
- "exact-kernel",
- "exact-logic",
- "exact-plan",
- "exact-runner",
- "macos-calendar-data",
- "serde_json",
-]
-
-[[package]]
-name = "macos-calendar-data"
-version = "0.1.0"
-dependencies = [
- "exact-data",
- "exact-data-host",
- "exact-plan",
- "exact-runner",
- "serde_json",
-]
-
-[[package]]
-name = "macos-calendar-web"
-version = "0.1.0"
-dependencies = [
- "contract",
- "exact-bake",
- "exact-data-host",
- "exact-logic",
- "exact-web",
- "exact-web-capabilities",
- "macos-calendar-data",
-]
 
 [[package]]
 name = "map-demo-apple"

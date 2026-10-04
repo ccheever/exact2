@@ -1,0 +1,50 @@
+
+component StickerChip
+  props
+    value: string
+    title: string
+    selected: string
+    disabled: bool
+    dragId: string
+    held: bool
+    hot: bool
+    fill: string
+    selectedFill: string
+    accent: string
+    pick: action
+    hover: action
+  derive lifted = dragId == `sticker-pick:${value}`
+  view
+    box testId=`sticker-${value}` position="relative" width=48 height=48 flex-shrink=0 hover=hover(`sticker-${value}`)
+      box aria-hidden=true position="absolute" left=0 top=0 width=48 height=48 box-sizing="border-box" border-radius=10 border-width=(selected == value ? 2 : 0) border-style="solid" border-color=accent background-color=(selected == value ? selectedFill : (hot ? fill : "#ffffff00")) transition="background-color 100ms ease-out"
+      image `assets/stickers/${value}.png` position="absolute" left=7 top=7 width=34 height=34 object-fit="contain" opacity=(lifted ? 0 : 1) aria-hidden=true
+      calendar-drag-handle id=`sticker-pick-${value}` testId=`sticker-pick-${value}` event-id=`sticker-pick:${value}` menu-kind="none" completed="false" enabled=(not disabled or (held and lifted) ? "true" : "false") press=pick(value) aria-label=`${title} sticker` aria-selected=(selected == value) position="absolute" left=0 top=0 width=48 height=48
+
+
+component StickerAgendaRow
+  props
+    day: number
+    date: string
+    stickerId: string
+    hidden: bool
+    disabled: bool
+    hot: bool
+    ink: string
+    muted: string
+    fill: string
+    edit: action
+    command: action
+    remove: action
+    hover: action
+  view
+    box testId="sticker-row" position="relative" width="100%" height=52 flex-shrink=0 hover=hover("row-sticker")
+      row aria-hidden=true width="100%" height=52 box-sizing="border-box" padding-left=8 padding-right=36 border-radius=8 background-color=(hot and not hidden ? fill : "#ffffff00") opacity=(hidden ? 0 : 1) align-items="center" gap=8 transition="background-color 100ms ease-out"
+        image `assets/stickers/${stickerId}.png` width=28 height=28 object-fit="contain"
+        text stickerId text-transform="capitalize" flex=1 min-width=0 font-size=14 font-weight=500 color=ink white-space="nowrap" overflow="hidden" text-overflow="ellipsis"
+      calendar-drag-handle id=`sticker-agenda-${date}` testId=`sticker-agenda-${date}` event-id=`sticker-day:${day}:${stickerId}` menu-kind="sticker" completed="false" enabled=(disabled ? "false" : "true") press=edit message=command(day) aria-label=`${stickerId} sticker` position="absolute" left=0 top=0 right=0 bottom=0
+      when hot and not hidden and not disabled
+        button testId="delete-sticker" press=remove aria-label=`Remove the ${stickerId} sticker` position="absolute" right=8 top=15 width=22 height=22 padding=0 border-width=0 border-radius=11 background-color="#ffffff00" display="flex" align-items="center" justify-content="center" press-scale=0.92
+          image "symbol:close" font-size=10 tint-color=muted
+
+// A palette sticker: a click puts it on the selected date or, when the date
+// already has it, takes it off; a drag places it on another date.
