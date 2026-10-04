@@ -1,19 +1,19 @@
 {
   "ticks": {
-    "0": "0x0fd97541205936b1",
-    "1080": "0xf0f3b95bede822ab"
+    "0": "0x237907c04a3485b9",
+    "1080": "0x8942ba00a3ab338a"
   },
   "saves": {
-    "continuation": "c6d01166d6b3bc6c5fe72aa686e5f210859beebd638ea5a0248f5d40a0be48bf",
-    "drill": "4c84ee0eb9e21a1e9147a90c6a90e22af73a64209db98f23fec4819249dc996f"
+    "continuation": "990171f9ce44ab905fe84f13bec375c5dd15f909268c0d7e099ccab45314f713",
+    "drill": "c0883a71d9b271b83fc1c6f07d9be8292fcb8e73ebdab92fd58a2f4c22453b22"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "2b44ad0d025decadae06ead2f1493eee92da30b847997a3b49f733365b4e1c79",
+  "inputs": "41dd4363013392062279851b2d5946e8098770a613fdf31b0317f201e8848bc9",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "6c0af3094ac6377a260c705a9d7e30294f5d4e4c",
-  "reason": "Verified timed drill, visible contacts, save continuation, and native drag fix after merging origin/main through 0762b6d3d"
+  "at": "c5f2a95d19dc2894a639edc543e9b7a8e6f2b8e1",
+  "reason": "Compass and saved incoming-hit origins; timed drill and combat replay after main 82b76214e"
 }

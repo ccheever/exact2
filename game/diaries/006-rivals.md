@@ -532,13 +532,18 @@ on web and 85,693 / 7,457 on macOS. These are paused-clock decisions; model wall
 time does not give the bot extra simulation time. Different Jev choices are not a
 cross-host determinism test.
 
-The limit remains combat control. The motor turns with the keyboard at 2.4 rad/s,
-so a large aim correction can consume the bot's entire time-to-kill before firing.
-This controller is a poor stand-in for a person's mouse flick. Three trials are
-enough for this tuning loop: it does not establish a capable arena player. The
-next useful measurement is action-to-shot simulation time and a real mouse-driven
-motor, separately from tactical changes. Do not lower bot difficulty just to get a
-green win rate.
+The limit remains combat control. The motor turns with the keyboard at 2.4 rad/s.
+The recorded player-state reads bracket every decision: in both final runs,
+decision 24's first shoot command spent **434 ms** aiming before its first trigger
+attempt. It started at 100 HP and ended at 0, with no shot recorded. Decision 57
+spent **303 ms** before its first trigger, fired three hits over a **1,014 ms**
+command, and also ended dead. These are simulation times from the input receipts,
+not gateway latency. They support investigating the motor, though they do not
+establish that faster aim alone would win. This controller is a poor stand-in for
+a person's mouse flick. Three trials are enough for this tuning loop: it does not
+establish a capable arena player. The next useful comparison is a real
+mouse-driven motor, separately from tactical changes. Do not lower bot difficulty
+just to get a green win rate.
 
 The regular Chrome runs again left GoogleUpdater descendants after browser exit,
 failing cleanup independently of their gameplay results. The existing `CHROME`
@@ -546,3 +551,26 @@ override selected the already-installed Chrome for Testing **153.0.8010.12** for
 C; its descendant audit passed, as did the native run's. No cleanup assertion was
 removed and no process-name kill was used. Artifacts are under
 `artifacts/jev-direction-web-{a,b,c}/` and `artifacts/jev-direction-macos/`.
+
+### Verification after the next main refresh
+
+The final batch merged main through `82b76214e` (merge `c5f2a95d1`), including
+the shared-element work, before rebuilding the hosts. The five root checks pass:
+2,264 enabled tests, 9 ignored; build, Clippy, formatting, caps and boot all pass.
+The Linux/web collector agrees in normal, Save and FreshGame modes and with the
+native release build. All four pins changed with the new saved round data; the
+collector accepted them after comparing hosts and modes, with every descendant
+audit available and passing. Artifacts: `artifacts/prove/run-IFmcq9/`.
+All 23 game tests pass again, as does formatting for `rivals-logic`. Formatting
+the entire generated shell workspace finds one unrelated failure in the Windows
+entry's one-line `cfg_attr`; it is queued against the generator, not hidden by
+editing generated Rust.
+
+The separate macOS drive passes every gameplay check and exactly matches the
+collected Linux/web input digest, world snapshots, four pins and all six save
+files. Its carrier processes closed, but its descendant audit was unavailable
+because `ps` stalled; this run cannot establish descendant cleanup. The earlier
+macOS Jev run did pass that audit. The final web and native screenshots both show
+readable compass and incoming-hit text and the same arrow position. The older
+translucent-panel darkness difference remains visible in native captures and is
+still queued. Artifacts: `artifacts/direction-macos/`.
