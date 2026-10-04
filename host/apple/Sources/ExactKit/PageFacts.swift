@@ -15,7 +15,7 @@ import Network
 
 enum PageFacts {
     /// What an agent's `prefer` set, in place of the platform's readings.
-    nonisolated(unsafe) static var agent = (hidden: false, onLine: true, canShare: true, rootFontSize: 16.0) {
+    nonisolated(unsafe) static var agent = (hidden: false, onLine: true, canShare: true, canOpenFiles: true, rootFontSize: 16.0) {
         didSet { changed() }
     }
     private static let agentChanged = Notification.Name("ExactPageFactsChanged")
@@ -59,6 +59,16 @@ enum PageFacts {
     }
     /// Both Apple platforms have a share sheet.
     static var canShare: Bool { ExactEnv.agentMode ? agent.canShare : true }
+    /// The document pickers (LLP 1069.010 D2): the Mac's panels, iOS's
+    /// document picker; tvOS has none (studio diary R31).
+    static var canOpenFiles: Bool {
+        if ExactEnv.agentMode { return agent.canOpenFiles }
+        #if os(tvOS)
+        return false
+        #else
+        return true
+        #endif
+    }
 
     /// The root font size in points: iOS scales CSS's 16 by the preferred
     /// content size category, as `UIFontMetrics` scales body text.
@@ -72,8 +82,8 @@ enum PageFacts {
     }
 
     /// The ABI's form (`exact_set_page`): bit 0 hidden, bit 1 offline, bit 2
-    /// a share sheet.
-    static var bits: UInt32 { (hidden ? 1 : 0) | (onLine ? 0 : 2) | (canShare ? 4 : 0) }
+    /// a share sheet, bit 3 the document pickers.
+    static var bits: UInt32 { (hidden ? 1 : 0) | (onLine ? 0 : 2) | (canShare ? 4 : 0) | (canOpenFiles ? 8 : 0) }
 
     /// Calls `changed` on the main queue when any reading may have changed;
     /// the caller holds the tokens and removes them.

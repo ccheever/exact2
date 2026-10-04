@@ -3,9 +3,13 @@
 // `doc:/<n>/<name>` path and reaches the bytes through `storage.fs` under
 // `fs.read doc:/` / `fs.write doc:/` (storage-request.js calls `run`). The
 // File System Access API's pickers are the commands of the same names; a
-// browser without them (Safari, Firefox) refuses and fires `cancel` (ruled:
-// no fallback to a hidden input's copy). Under the agent the driver's files
-// arrive as bytes and become handles that behave as the browser's do.
+// browser without the open pickers (Safari, Firefox) refuses and fires
+// `cancel` (ruled: no fallback to a hidden input's copy), which the app can
+// tell from a person's dismissal by `exactPage().canOpenFiles`. Its save
+// picker's handle downloads what is written to it instead, as `saveFile`
+// does (LLP 1069.010 D2's table; studio diary R31). Under the agent the
+// driver's files arrive as bytes and become handles that behave as the
+// browser's do.
 import { coversPath } from './grant-admission.js';
 const handles = new Map(); // n → FileSystemHandle
 let next = 0;
@@ -171,6 +175,16 @@ function memoryFolder(name, files) {
     async *entries() { for (const e of [...children]) yield e; },
     async queryPermission() { return 'granted'; } };
 }
+// A save where the browser has no picker (D2's "else D3's download"): a
+// handle whose every write, once closed, downloads under its name.
+function downloadFile(name) {
+  const file = memoryFile(name), writable = file.createWritable;
+  file.createWritable = async (options) => {
+    const w = await writable(options);
+    return { ...w, async close() { await w.close(); const a = document.createElement('a'); a.href = URL.createObjectURL(await file.getFile()); a.download = name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 60_000); } };
+  };
+  return file;
+}
 const bytesOf = (b64) => { const raw = atob(b64 ?? ''), out = new Uint8Array(raw.length); for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i); return out; };
 
 // The manifest's `file_handlers`, the only types a picker offers (D2).
@@ -210,6 +224,7 @@ globalThis.exact.documents = {
        * press's activation is still live), then report what was chosen. */
       async show(r, name) {
         if (!r.present) return host.dispatch(r.view, 27, '');
+        if (name === 'showSaveFilePicker' && typeof globalThis.showSaveFilePicker !== 'function') return chosen(r.view, name, [downloadFile(r.suggestedName)]);
         const options = name === 'showSaveFilePicker' ? { suggestedName: r.suggestedName } : name === 'showOpenFilePicker' ? { multiple: r.multiple } : {};
         if (name !== 'showDirectoryPicker') { const t = await types(); if (t.length) options.types = t; }
         try { const found = await globalThis[name](options); chosen(r.view, name, [found].flat()); }

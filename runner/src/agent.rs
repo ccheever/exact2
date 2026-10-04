@@ -814,7 +814,7 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
     );
     let _ = write!(
         s,
-        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"rootFontSize\":{},\"devicePosture\":\"{}\",\"horizontalViewportSegments\":{},\"verticalViewportSegments\":{}",
+        "}},\"device\":{{\"prefersReducedMotion\":{},\"prefersReducedTransparency\":{},\"prefersContrast\":\"{}\",\"prefersColorScheme\":\"{}\",\"visibilityState\":\"{}\",\"onLine\":{},\"canShare\":{},\"canOpenFiles\":{},\"rootFontSize\":{},\"devicePosture\":\"{}\",\"horizontalViewportSegments\":{},\"verticalViewportSegments\":{}",
         media.reduced_motion,
         media.reduced_transparency,
         media.contrast.keyword(),
@@ -822,6 +822,7 @@ pub fn state<D: DataSource>(runner: &Runner<D>) -> String {
         page.visibility_state(),
         page.on_line,
         page.can_share,
+        page.can_open_files,
         num(runner.root_font_size()),
         fold.posture.keyword(),
         fold.cols,

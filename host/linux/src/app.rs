@@ -309,11 +309,13 @@ pub fn boot_presenter<D: DataSource + Default>(
         if let Some(e) = booted.0.set_time(epoch, offset) {
             eprintln!("exact: {e}");
         }
-        // @ref LLP 1069.000 D2, D6 — this host has no share sheet; under the
-        // agent the drive's substitute answers one, as on every host.
+        // @ref LLP 1069.000 D2, D6 — this host has no share sheet and no
+        // document picker; under the agent the drive's substitute answers
+        // both, as on every host.
         if std::env::var("EXACT_AGENT").as_deref() == Ok("1") {
             let page = exact_runner::Page {
                 can_share: true,
+                can_open_files: true,
                 ..Default::default()
             };
             if let Some(e) = booted.0.set_page(page) {

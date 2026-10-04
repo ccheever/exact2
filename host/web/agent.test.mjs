@@ -603,11 +603,15 @@ test('page facts: the platform off the agent, the drive\'s values under it (LLP 
   expect(real.bits()).toBe(1 | 2 | 4);
   platform.document.visibilityState = 'visible'; platform.navigator = { onLine: true };
   expect(real.bits()).toBe(0);
+  // The document pickers (studio diary R31): bit 3 where the browser has them.
+  platform.showOpenFilePicker = () => {};
+  expect(real.bits()).toBe(8);
+  delete platform.showOpenFilePicker;
   real.onChange(() => {});
   expect(listened).toEqual(['visibilitychange', 'online', 'offline']);
   const agent = pageReporter(true, new Proxy({}, {get() { throw new Error('agent read the platform'); }}));
-  expect(agent.bits()).toBe(4);
-  agent.prefer({ 'visibility-state': 'hidden', online: false });
+  expect(agent.bits()).toBe(4 | 8);
+  agent.prefer({ 'visibility-state': 'hidden', online: false, 'can-open-files': false });
   expect(agent.bits()).toBe(1 | 2 | 4);
   expect(() => agent.prefer({ online: 'maybe', 'can-share': false })).toThrow('prefer: online');
   expect(agent.read()['can-share']).toBe(true);

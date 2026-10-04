@@ -900,7 +900,10 @@ A file `input` needs a literal `accept`; types other than images and video must
 be listed in `app.json`'s `file_handlers`. `showPicker` delivers a `list<Picked>`
 to the addressed element's `change` handler, while `showOpenFilePicker`,
 `showDirectoryPicker` and `showSaveFilePicker` deliver `doc:` handle strings;
-cancellation uses `cancel`. File content, durable storage, and permissions belong
+cancellation uses `cancel`. Where a browser has no open pickers (Firefox,
+Safari) they refuse with `cancel` too: read `exactPage().canOpenFiles` to tell
+that from a person's dismissal and offer an import instead. A save there still
+works: what the app writes to its handle downloads under the suggested name. File content, durable storage, and permissions belong
 in the data module. See [file-picker syntax](../contract/corpus/file-pickers.contract).
 
 ### Choosing a native button

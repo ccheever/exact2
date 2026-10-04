@@ -217,7 +217,8 @@ for (const [name, [capability, usage]] of Object.entries(PICKERS)) Hosts[name] =
     Holds.at(-1).check = v => { const list = paths(v); return !list.length || list.some(p => !p.startsWith('/')) ? 'type an absolute path' : list.length > 1 && !multiple ? `one path, not ${list.length}` : null; };
     return;
   }
-  if (typeof globalThis[name] !== 'function') return refuse('unavailable', found.el);
+  // A save without the browser's picker downloads (documents-glue.js), as `saveFile` does.
+  if (typeof globalThis[name] !== 'function' && capability !== 'save-file') return refuse('unavailable', found.el);
   // The browser's picker is called in the glue, after it loads: a picker
   // needs the activation, which a page that has loaded it already keeps.
   counted(docs().then(m => m.show(r, name)));
