@@ -237,7 +237,31 @@ fn shape_fallback(
             metadata: attrs.metadata,
             cache_key_flags: override_fake_italic(attrs.cache_key_flags, font, &attrs),
             metrics_opt: attrs.metrics_opt.map(Into::into),
+            hyphen: None,
         });
+    }
+
+    // Exact patch: the face's own hyphen for each soft hyphen, as a browser
+    // inks one where a line breaks at it (CSS Text 3 §5.4).
+    if run.contains('\u{ad}') {
+        let mut dash = harfrust::UnicodeBuffer::new();
+        dash.push_str("-");
+        dash.guess_segment_properties();
+        let shaped = font.shaper().shape(dash, &[]);
+        if let (Some(info), Some(pos)) = (
+            shaped.glyph_infos().first(),
+            shaped.glyph_positions().first(),
+        ) {
+            let hyphen = (
+                info.glyph_id.try_into().unwrap_or(0),
+                pos.x_advance as f32 / font_scale,
+            );
+            for glyph in &mut glyphs[glyph_start..] {
+                if line[glyph.start..].starts_with('\u{ad}') {
+                    glyph.hyphen = Some(hyphen);
+                }
+            }
+        }
     }
 
     // Adjust end of glyphs
@@ -608,6 +632,10 @@ fn shape_skip_glyphs(
                     metadata: attrs.metadata,
                     cache_key_flags: override_fake_italic(attrs.cache_key_flags, font, &attrs),
                     metrics_opt: attrs.metrics_opt.map(Into::into),
+                    hyphen: (codepoint == '\u{ad}').then(|| {
+                        let dash = charmap.map('-');
+                        (dash, glyph_metrics.advance_width(dash))
+                    }),
                 }
             }),
     );
@@ -644,6 +672,9 @@ pub struct ShapeGlyph {
     pub metadata: usize,
     pub cache_key_flags: CacheKeyFlags,
     pub metrics_opt: Option<Metrics>,
+    /// Exact patch: a soft hyphen's (U+00AD) ink, the face's `-` glyph and
+    /// its advance in ems, shown where a line breaks at it.
+    pub hyphen: Option<(u16, f32)>,
 }
 
 impl ShapeGlyph {
@@ -884,6 +915,16 @@ impl ShapeWord {
             width += glyph.width(font_size);
         }
         width
+    }
+
+    /// Exact patch: the hyphen a line ending after this word (at its soft
+    /// hyphen) shows, which must fit too, as in a browser; zero otherwise.
+    fn hyphen_width(&self, font_size: f32) -> f32 {
+        self.glyphs.last().and_then(|g| {
+            g.hyphen
+                .map(|(_, em)| g.metrics_opt.map_or(font_size, |m| m.font_size) * em)
+        })
+        .unwrap_or(0.0)
     }
 }
 
@@ -1288,6 +1329,17 @@ impl VisualLine {
 }
 
 impl ShapeLine {
+    /// Exact patch: the last glyph of a visual line in logical order, which a
+    /// soft hyphen break ends with.
+    fn last_glyph(&self, line: &VisualLine) -> Option<&ShapeGlyph> {
+        let r = line.ranges.iter().filter(|r| r.span != ELLIPSIS_SPAN).max_by_key(|r| (r.span, r.end.word, r.end.glyph))?;
+        let words = self.get_span_words(r.span);
+        if r.end.glyph != 0 {
+            return words.get(r.end.word)?.glyphs.get(r.end.glyph - 1);
+        }
+        words.get(r.end.word.checked_sub(1)?)?.glyphs.last()
+    }
+
     /// Creates an empty line.
     ///
     /// The returned line is in an invalid state until [`Self::build_in_buffer`] is called.
@@ -2318,6 +2370,38 @@ impl ShapeLine {
         match_mono_width: Option<f32>,
         hinting: Hinting,
     ) {
+        self.layout_to_buffer_indented(
+            scratch,
+            font_size,
+            width_opt,
+            wrap,
+            ellipsize,
+            align,
+            layout_lines,
+            match_mono_width,
+            hinting,
+            0.0,
+        );
+    }
+
+    /// Exact patch: [`Self::layout_to_buffer`] with CSS `text-indent`, the
+    /// first visual line's inset from its start edge. It is part of that
+    /// line's width, so it takes room from the line, counts in alignment and
+    /// justification, and in an unconstrained width.
+    #[allow(clippy::too_many_arguments)]
+    pub fn layout_to_buffer_indented(
+        &self,
+        scratch: &mut ShapeBuffer,
+        font_size: f32,
+        width_opt: Option<f32>,
+        wrap: Wrap,
+        ellipsize: Ellipsize,
+        align: Option<Align>,
+        layout_lines: &mut Vec<LayoutLine>,
+        match_mono_width: Option<f32>,
+        hinting: Hinting,
+        indent: f32,
+    ) {
         // For each visual line a list of  (span index,  and range of words in that span)
         // Note that a BiDi visual line could have multiple spans or parts of them
         // let mut vl_range_of_spans = Vec::with_capacity(1);
@@ -2342,6 +2426,7 @@ impl ShapeLine {
         // that fits on a line.
         // let mut current_visual_line: Vec<VlRange> = Vec::with_capacity(1);
         let mut current_visual_line = cached_visual_lines.pop().unwrap_or_default();
+        current_visual_line.w = indent;
 
         if wrap == Wrap::None {
             self.layout_line(
@@ -2423,8 +2508,9 @@ impl ShapeLine {
                             // Addition in the same order used to compute the final width, so that
                             // relayouts with that width as the `line_width` will produce the same
                             // wrapping results.
-                            if current_visual_line.w + (word_range_width + word_width)
-                            <= width_opt.unwrap_or(f32::INFINITY)
+                            if current_visual_line.w
+                                + (word_range_width + word_width + word.hyphen_width(font_size))
+                                <= width_opt.unwrap_or(f32::INFINITY)
                             // Include one blank word over the width limit since it won't be
                             // counted in the final width
                             || (word.blank
@@ -2606,8 +2692,9 @@ impl ShapeLine {
                         let mut fitting_start = WordGlyphPos::ZERO;
                         for (i, word) in span.words.iter().enumerate() {
                             let word_width = word.width(font_size);
-                            if current_visual_line.w + (word_range_width + word_width)
-                            <= width_opt.unwrap_or(f32::INFINITY)
+                            if current_visual_line.w
+                                + (word_range_width + word_width + word.hyphen_width(font_size))
+                                <= width_opt.unwrap_or(f32::INFINITY)
                             // Include one blank word over the width limit since it won't be
                             // counted in the final width.
                             || (word.blank
@@ -2811,20 +2898,33 @@ impl ShapeLine {
 
             let new_order = self.reorder(&visual_line.ranges);
 
+            // Exact patch: a line that ends at a soft hyphen shows the face's
+            // hyphen there, its advance part of the line (not the last line,
+            // which breaks at nothing).
+            let shy = (index != number_of_visual_lines - 1)
+                .then(|| self.last_glyph(visual_line))
+                .flatten()
+                .and_then(|g| Some((g.start, g.hyphen?, g.metrics_opt.map_or(font_size, |m| m.font_size))));
+            let visual_line_w =
+                visual_line.w + shy.map_or(0.0, |(_, (_, em), size)| em * size);
+
             let mut glyphs = cached_glyph_sets
                 .pop()
                 .unwrap_or_else(|| Vec::with_capacity(1));
             let mut x = start_x;
+            if index == 0 {
+                x += if self.rtl { -indent } else { indent };
+            }
             let mut y = 0.;
             let mut max_ascent: f32 = 0.;
             let mut max_descent: f32 = 0.;
             let alignment_correction = match (align, self.rtl) {
-                (Align::Left, true) => (line_width - visual_line.w).max(0.),
+                (Align::Left, true) => (line_width - visual_line_w).max(0.),
                 (Align::Left, false) => 0.,
                 (Align::Right, true) => 0.,
-                (Align::Right, false) => (line_width - visual_line.w).max(0.),
-                (Align::Center, _) => (line_width - visual_line.w).max(0.) / 2.0,
-                (Align::End, _) => (line_width - visual_line.w).max(0.),
+                (Align::Right, false) => (line_width - visual_line_w).max(0.),
+                (Align::Center, _) => (line_width - visual_line_w).max(0.) / 2.0,
+                (Align::End, _) => (line_width - visual_line_w).max(0.),
                 (Align::Justified, _) => 0.,
             };
 
@@ -2858,7 +2958,7 @@ impl ShapeLine {
                 // Don't justify the last line in a paragraph.
                 && index != number_of_visual_lines - 1
             {
-                (line_width - visual_line.w) / visual_line.spaces as f32
+                (line_width - visual_line_w) / visual_line.spaces as f32
             } else {
                 0.
             };
@@ -2925,8 +3025,11 @@ impl ShapeLine {
                                 _ => font_size,
                             };
 
+                            let hyphen = shy
+                                .filter(|(start, _, _)| *start == glyph.start)
+                                .map(|(_, hyphen, _)| hyphen);
                             let mut x_advance = glyph_font_size.mul_add(
-                                glyph.x_advance,
+                                hyphen.map_or(glyph.x_advance, |(_, em)| em),
                                 if word.blank {
                                     justification_expansion
                                 } else {
@@ -2952,6 +3055,9 @@ impl ShapeLine {
                                 x_advance,
                                 r.level,
                             );
+                            if let Some((id, _)) = hyphen {
+                                layout_glyph.glyph_id = id;
+                            }
                             // Fix ellipsis glyph indices: point both start and
                             // end to the elision boundary so that hit-detection
                             // places the cursor at the seam between visible and
@@ -3054,7 +3160,7 @@ impl ShapeLine {
 
             layout_lines.push(LayoutLine {
                 w: if align != Align::Justified {
-                    visual_line.w
+                    visual_line_w
                 } else if self.rtl {
                     start_x - x
                 } else {

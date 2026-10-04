@@ -308,7 +308,7 @@ fn check_tasks(c: &Component) -> Result<(), AnalyzeError> {
 
 /// The handler attributes (the web's events, LLP 1005 §3): `press`,
 /// `change`, `input`, `hover`, `focus`, `blur`, `key`, `submit`, `load`, `message`.
-pub const HANDLERS: [&str; 46] = [
+pub const HANDLERS: [&str; 47] = [
     "press",
     "change",
     "input",
@@ -336,6 +336,9 @@ pub const HANDLERS: [&str; 46] = [
     "copy",
     "cut",
     "paste",
+    // The part of the reader's text selection inside a paragraph (the
+    // reader diary); its action may take a `Selection`.
+    "selectionchange",
     "swiperight",
     "refresh",
     "scroll",

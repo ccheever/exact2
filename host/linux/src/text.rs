@@ -124,6 +124,8 @@ pub struct Spec {
     pub white_space: exact_kernel::WhiteSpace,
     /// CSS paragraph base direction.
     pub direction: exact_kernel::Direction,
+    /// CSS `text-indent`, points: the first line's inset from its start edge.
+    pub text_indent: f32,
 }
 
 impl Spec {
@@ -142,6 +144,13 @@ impl Spec {
 
     /// The spec a kernel measure request describes.
     pub fn from_request(request: &TextMeasureRequest<'_>) -> Spec {
+        // A soft hyphen breaks and shows here as on every host; `auto`'s own
+        // hyphenation points need a language's patterns, which this pure-Rust
+        // host does not carry (LLP 1001).
+        static AUTO: std::sync::Once = std::sync::Once::new();
+        if request.paragraph.hyphens == exact_kernel::Hyphens::Auto {
+            AUTO.call_once(|| eprintln!("[Text] hyphens-auto: Linux has no hyphenation dictionary; `hyphens: auto` breaks only at soft hyphens, as `manual` (LLP 1001)"));
+        }
         Spec {
             strut: Run::from_style("", request.paragraph.strut),
             runs: request
@@ -154,6 +163,7 @@ impl Spec {
             overflow_wrap: request.paragraph.overflow_wrap,
             white_space: request.paragraph.white_space,
             direction: request.paragraph.direction,
+            text_indent: request.paragraph.text_indent,
         }
         .collapse_white_space()
     }

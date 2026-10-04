@@ -164,6 +164,12 @@ pub struct Paragraph {
     pub overflow_wrap: OverflowWrap,
     /// CSS whitespace preservation/collapsing.
     pub white_space: crate::WhiteSpace,
+    /// CSS `text-indent` in points: the first line starts this far in from
+    /// the start edge (right under `rtl`) and has that much less room.
+    pub text_indent: f32,
+    /// CSS `hyphens`. `none` already reached the runs' text
+    /// ([`crate::Hyphens::shown`]); a host hyphenates `auto` where it can.
+    pub hyphens: crate::Hyphens,
 }
 
 impl TextAlign {
@@ -194,7 +200,22 @@ impl Paragraph {
             text_overflow: s.text_overflow,
             overflow_wrap: s.overflow_wrap,
             white_space: s.white_space,
+            text_indent: s.text_indent,
+            hyphens: s.hyphens,
         }
+    }
+}
+
+impl crate::Hyphens {
+    /// `text` as this paragraph's runs carry it: under `hyphens: none` a
+    /// soft hyphen is no break, so it becomes U+034F COMBINING GRAPHEME
+    /// JOINER, as invisible, no break opportunity (UAX #14 CM), and the
+    /// same length in UTF-8 and UTF-16, so no offset moves.
+    pub fn shown(self, text: Cow<'_, str>) -> Cow<'_, str> {
+        if self != crate::Hyphens::None || !text.contains('\u{ad}') {
+            return text;
+        }
+        Cow::Owned(text.replace('\u{ad}', "\u{34f}"))
     }
 }
 
@@ -558,6 +579,8 @@ mod tests {
             text_overflow: TextOverflow::Clip,
             overflow_wrap: OverflowWrap::Normal,
             white_space: crate::WhiteSpace::Normal,
+            text_indent: 0.0,
+            hyphens: crate::Hyphens::Manual,
         }
     }
 

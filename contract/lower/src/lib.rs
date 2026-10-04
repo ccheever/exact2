@@ -1311,6 +1311,13 @@ impl<'a> Lowerer<'a> {
                 a.span,
             );
         }
+        if tag != "text" && a.name == "selectionchange" {
+            return err(
+                "lower-attr-tag",
+                format!("`selectionchange` belongs to `text`: it reports the part of the reader's text selection inside one paragraph, not `{tag}`"),
+                a.span,
+            );
+        }
         if tag != "list" && matches!(a.name.as_str(), "reachstart" | "reachend") {
             return err(
                 "lower-attr-tag",

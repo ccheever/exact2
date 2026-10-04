@@ -7,7 +7,8 @@ use super::Event;
 impl Event {
     /// Decode ABI kind 13 (scroll), 19 (media), 20 (pan), 21 (select), 28
     /// (panrelease, LLP 1057 §10.6), 29 to 31 (the pointer's down, up and
-    /// move) or 32 to 34 (the clipboard's copy, cut and paste) from its
+    /// move), 32 to 34 (the clipboard's copy, cut and paste) or 35
+    /// (`selectionchange`) from its
     /// UTF-8 payload.
     pub fn of_host_kind(kind: u32, payload: &str) -> Result<Event, &'static str> {
         match kind {
@@ -21,6 +22,8 @@ impl Event {
             29..=31 => Event::pointer_payload(kind, payload).ok_or("invalid pointer event"),
             // The clipboard's copy, cut and paste, with its plain text.
             32..=34 => Event::clipboard_payload(kind, payload).ok_or("invalid clipboard event"),
+            // The reader's selection inside a `text`: its offsets, then its text.
+            35 => Event::selection_change_payload(payload).ok_or("invalid text selection"),
             _ => Err("unknown event kind"),
         }
     }
@@ -52,6 +55,17 @@ mod tests {
             Event::of_host_kind(34, "a\tb\n1\t2"),
             Ok(Event::Clipboard(exact_plan::EventKind::Paste, text)) if text == "a\tb\n1\t2"
         ));
+        assert!(matches!(
+            Event::of_host_kind(35, "3,9,a, b\nc"),
+            Ok(Event::SelectionChange { text, start: 3.0, end: 9.0 }) if text == "a, b\nc"
+        ));
+        for refused in ["9,3,x", "1,2", "-1,2,x", "a,2,x"] {
+            assert_eq!(
+                Event::of_host_kind(35, refused).err(),
+                Some("invalid text selection"),
+                "{refused}"
+            );
+        }
         assert_eq!(
             Event::of_host_kind(99, "").err(),
             Some("unknown event kind")

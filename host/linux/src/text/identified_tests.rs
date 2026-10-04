@@ -574,6 +574,7 @@ mod owned_spec {
             overflow_wrap: exact_kernel::OverflowWrap::Normal,
             white_space: exact_kernel::WhiteSpace::Normal,
             direction: exact_kernel::Direction::Ltr,
+            text_indent: 0.0,
         }
     }
     fn stamp_tree(text: &str) -> Kernel {

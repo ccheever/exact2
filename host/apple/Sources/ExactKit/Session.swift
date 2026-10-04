@@ -725,6 +725,11 @@ public final class ExactSession {
         presenter.onLoad = { [unowned self] id in apply(runtime.load(id, now: now())) }
         presenter.onMessage = { [unowned self] id, value in apply(runtime.message(id, value, now: now())) }
         presenter.onClipboard = { [unowned self] id, kind, text in apply(runtime.clipboard(id, kind, text, now: now())) }
+        #if os(macOS)
+        presenter.onSelectionChange = { [unowned self] id, text, start, end in
+            apply(runtime.selectionChange(id, text, start: start, end: end, now: now()))
+        }
+        #endif
         // Commands are queued here and delivered once the batch is applied
         // (D2): a delegate then runs against a settled tree.
         presenter.onCommand = { [unowned self] name, args, source in pendingCommands.append((name, args, source)) }

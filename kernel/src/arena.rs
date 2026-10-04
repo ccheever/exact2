@@ -627,7 +627,11 @@ impl NodeArena {
                     let shown = if self.markup(slot) == crate::text::Markup::Markdown {
                         text.into()
                     } else {
-                        crate::text::case::shown(computed.text_transform, text, *boundary)
+                        computed.hyphens.shown(crate::text::case::shown(
+                            computed.text_transform,
+                            text,
+                            *boundary,
+                        ))
                     };
                     boundary.push(text);
                     out.push(TextRun { text: shown, style });
@@ -648,17 +652,18 @@ impl NodeArena {
     /// runs before this one, so it asks the whole paragraph.
     pub fn shown_text(&self, slot: u32) -> Option<std::borrow::Cow<'_, str>> {
         let text = self.props[slot as usize].str(PropId::Text)?;
-        let transform = self
-            .computed_style(slot, StyleMask::of(StyleId::TextTransform))
-            .text_transform;
+        let computed = self.computed_style(
+            slot,
+            StyleMask::of(StyleId::TextTransform).union(StyleMask::of(StyleId::Hyphens)),
+        );
+        let (transform, hyphens) = (computed.text_transform, computed.hyphens);
         if self.node_types[slot as usize] != NodeType::Text
-            || transform == crate::TextTransform::None
             || self.markup(slot) == crate::text::Markup::Markdown
         {
             return Some(text.into());
         }
         if transform != crate::TextTransform::Capitalize {
-            return Some(transform.apply(text, ""));
+            return Some(hyphens.shown(transform.apply(text, "")));
         }
         let mut owner = slot;
         while self.is_inline_run(owner) {
@@ -1001,6 +1006,8 @@ mod tests {
             (StyleId::OverflowWrap, text("anywhere")),
             (StyleId::InterpolateSize, text("allow-keywords")),
             (StyleId::TextTransform, text("uppercase")),
+            (StyleId::TextIndent, number(24.0)),
+            (StyleId::Hyphens, text("auto")),
             (StyleId::TextShadow, text("1px 2px 3px #000")),
             (StyleId::TextStrokeWidth, number(2.0)),
             (StyleId::TextStrokeColor, text("#ff0000")),

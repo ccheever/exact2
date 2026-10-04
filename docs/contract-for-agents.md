@@ -854,10 +854,29 @@ where needed; iOS/tvOS/Linux ignore the hint (LLP 1001). URLs are refused.
 
 `font-family` accepts literal CSS fallback lists and choices of them, including
 `"Inter, system-ui, sans-serif"` and quoted names. A family declared with
-`font` uses its bundled faces; other names are local installed families. Web
-and Apple retain the ordered glyph fallback cascade. Linux selects the first
+`font` uses its bundled faces; other names are local installed families,
+whose own italic and bold faces `font-style` and `font-weight` select by CSS's
+matching (a family without the face draws its nearest one, never a synthesized
+slant or smear: LLP 1019 §5). Web and Apple retain the ordered glyph fallback cascade. Linux selects the first
 installed family, then uses cosmic-text's platform glyph fallback; it logs
 this declared limitation for a multi-member stack (LLP 1001).
+
+A `text` with `selectionchange=act` hears the reader's real text selection
+on the web and macOS: `action act(s: Selection)` gets `s.text`, `s.start` and
+`s.end` in the node's own text ("" at 0, 0 when nothing there is selected).
+Drive it with `tap <id> drag <dx> <dy> from <x> <y> mouse`.
+
+Book typography is CSS's on every host. `text-align="justify"` fills all but
+a paragraph's last line. `text-indent` is a length (`text-indent="1.5em"`,
+`text-indent=24`; negative with the same `padding-left` hangs the first line).
+`hyphens` is `manual` by default: a soft hyphen (U+00AD, written as the character itself or from data) breaks
+and shows a hyphen; `none` ignores it; `auto` also hyphenates by the document's
+language on the web and Apple (Linux has no dictionary and breaks only at soft
+hyphens). `widows`, `orphans`, `break-*` and multi-column (`columns`,
+`column-count`) are refused: nothing fragments a paragraph across boxes yet, so
+page a fixed-height column by translating it (LLP 1001 §6). Multi-column and its
+break rules are planned in LLP 1093 (admitted, not yet built); the refusals stay
+until it lands.
 
 `textarea rows=3` sets its preferred height in lines (default 2); explicit CSS
 height and `field-sizing="content"` override it. `maxlength=80` on text inputs

@@ -79,7 +79,9 @@ final class RegionWorkerLayout {
         if !lines.isEmpty { return lines[index] }
         if let cached = viewportLines[index] { return cached }
         let r = metadata.lines[index].range
-        let value = CTTypesetterCreateLine(preparation.typesetter, CFRange(location: r.location, length: r.length))
+        let range = CFRange(location: r.location, length: r.length)
+        let value = TextEngine.finishedLine(CTTypesetterCreateLine(preparation.typesetter, range), source: preparation.attributed,
+                                            range: range, justify: source.align == 3 ? Double(metadata.offeredWidth) : nil)
         if viewportLines.count < 512 { viewportLines[index] = value }
         return value
     }
@@ -139,12 +141,19 @@ final class RegionWorkerLayout {
                 if boundaryIndex < boundaries.count { count = boundaries[boundaryIndex] - start }
             }
             if count <= 0 { count = length - start }
-            var line = CTTypesetterCreateLine(typesetter, CFRangeMake(start, count))
+            var line = TextEngine.inkedSoftHyphen(CTTypesetterCreateLine(typesetter, CFRangeMake(start, count)),
+                                                  source: attributed, range: CFRangeMake(start, count))
+            var clamps = false
             if spec.lineClamp > 0 && lineCount + 1 == spec.lineClamp && start + count < length {
                 line = TextEngine.clampedLine(attributed, range: NSRange(location: start, length: count), width: limit) ?? line
+                clamps = true
             }
             var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
+            // The natural width: justification fills the box, never sizes it.
             let w = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
+            if spec.align == 3, !clamps, width.isFinite {
+                line = TextEngine.justified(line, source: attributed, range: CFRangeMake(start, count), width: limit)
+            }
             // CSS inline boxes share a baseline. Include the paragraph strut
             // and only the runs on this line, preserving each font's half-leading.
             var above = minimum.0, below = minimum.1

@@ -511,6 +511,11 @@ pub(crate) fn check_style_value(
                     span,
                 );
             }
+            if rows.contains(&StyleId::TextIndent)
+                && (v.trim().ends_with('%') || v.contains("hanging") || v.contains("each-line"))
+            {
+                return err("lower-attr-value", format!("`text-indent=\"{v}\"`: exact2 implements a length (a number of pixels, or `rem` or `em`; negative hangs the first line); a percentage of the containing block and the `hanging` and `each-line` keywords are not implemented. For a hanging indent write a negative length with the same `padding-left`"), span);
+            }
             if rows.contains(&StyleId::ShapeMargin) && v.trim().ends_with('%') {
                 return err("lower-attr-value", "percentage `shape-margin` is not implemented in exact2 v1; use a nonnegative length in points/px", span);
             }

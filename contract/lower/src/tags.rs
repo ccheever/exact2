@@ -543,6 +543,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "copy" => AttrTarget::Handler("copy"),
         "cut" => AttrTarget::Handler("cut"),
         "paste" => AttrTarget::Handler("paste"),
+        "selectionchange" => AttrTarget::Handler("selectionchange"),
         "reachstart" => AttrTarget::Handler("reachstart"),
         "reachend" => AttrTarget::Handler("reachend"),
         "swiperight" => AttrTarget::Handler("swiperight"),
@@ -920,6 +921,11 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         // CSS's filter functions are refused by name.
         "backdrop-filter" => styles(&[StyleId::BackdropBlur]),
         "letter-spacing" => styles(&[StyleId::LetterSpacing]),
+        // The reader diary: book typography's first-line indent and CSS's
+        // hyphenation (`manual` honours soft hyphens; `auto` adds the
+        // language's own points where the host has a dictionary).
+        "text-indent" => styles(&[StyleId::TextIndent]),
+        "hyphens" => styles(&[StyleId::Hyphens]),
         "line-height" => styles(&[StyleId::LineHeight]),
         "text-align" => styles(&[StyleId::TextAlign]),
         "gap" => styles(&[StyleId::RowGap, StyleId::ColumnGap]),
