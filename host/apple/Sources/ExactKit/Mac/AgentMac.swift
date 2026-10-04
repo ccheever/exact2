@@ -649,7 +649,10 @@ extension Agent {
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
         if let edit = req["clipboard"] as? String { return clipboardType(v, edit, req["text"] as? String) }
         if v.kind == "native", req["key"] == nil { return nativeType(v, req) }
-        if session.canvases.wantsInput(v.id) { return canvasType(v, req) }
+        // A canvas key takes the same path as a real keyDown: shortcuts and
+        // `key` handlers, then the event, which forwards to the surface.
+        // canvasType sent the surface only, so Escape and KeyP never reached
+        // Contract (platformer repro canvas-keys-macos).
         if req["key"] == nil, let reply = presenter.controls.type(v, req["text"] as? String ?? "") { return reply }
         if v.props["editable"] == "false", req["key"] == nil { return ["error": "view \(v.id) is readonly"] }
         // @ref LLP 1038 D11 — type on the root delivers a location.
@@ -663,6 +666,9 @@ extension Agent {
             let parts = normalized.split(separator: "+").map(String.init)
             let rawKey = parts.last ?? chord
             let device = KeyCodes.device(rawKey)
+            // An unknown name is a refusal, not text: typing "End" inserted
+            // the letters e-n-d (notes repro mac-agent-named-keys).
+            if device == nil, rawKey != "Plus" { return ["error": "key: unsupported key \(rawKey)"] }
             let key = device?.key ?? rawKey
             var modifiers: NSEvent.ModifierFlags = []
             for modifier in parts.dropLast() {
@@ -721,25 +727,15 @@ extension Agent {
             // A target that takes no focus leaves it where it is, as the web's
             // `focus()` on one does: the key goes to whatever holds the focus,
             // or to the page's shortcuts when nothing does (pomodoro F5).
-            let (chars, code): (String, UInt16) = {
-                switch key {
-                case "Plus": return ("+", 24)
-                case "Space": return (" ", 49)
-                case "c": return (key, 8)
-                case "o": return (key, 31)
-                case "Enter": return ("\r", 36)
-                case "Escape": return ("\u{1b}", 53)
-                case "Tab": return ("\t", 48)
-                case "Backspace": return ("\u{7f}", 51)
-                case "ArrowUp": return ("\u{F700}", 126)
-                case "ArrowDown": return ("\u{F701}", 125)
-                case "ArrowLeft": return ("\u{F702}", 123)
-                case "ArrowRight": return ("\u{F703}", 124)
-                default:
-                    let code = device.flatMap { device in KeyCodes.mac.first(where: { $0.value == device.code })?.key }
-                    return (lone ? "" : key, UInt16(code ?? 0))
-                }
-            }()
+            let chars: String
+            let code: UInt16
+            if rawKey == "Plus" {
+                (chars, code) = ("+", 24)
+            } else if let device, let mac = KeyCodes.mac.first(where: { $0.value == device.code })?.key {
+                (chars, code) = (KeyCodes.eventText(code: device.code, raw: rawKey, lone: lone), UInt16(mac))
+            } else {
+                return ["error": "key: unsupported key \(rawKey)"]
+            }
             let t = ProcessInfo.processInfo.systemUptime
             // Both character fields preserve Shift. AppKit interprets a
             // Shift-Tab as BackTab (U+0019), not a forward Tab with flags.

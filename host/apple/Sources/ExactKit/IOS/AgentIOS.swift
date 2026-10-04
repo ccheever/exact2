@@ -735,7 +735,10 @@ extension Agent {
             // A chord's modifiers ride with its key; with Control or Command
             // held a key types nothing, as a keyboard's shortcut does not.
             let (held, bare) = KeyCodes.split(key)
-            let name = KeyCodes.device(bare)?.key ?? (bare == "Space" ? " " : bare)
+            // The same names as the web. A letter keeps the case the driver
+            // named (`P` is "P"); an unknown name is refused, not inserted.
+            guard let device = KeyCodes.device(bare) else { return ["error": "key: unsupported key \(bare)"] }
+            let name = bare.count == 1 && bare != " " ? bare : device.key
             let types = name.count == 1 && !held.contains("Control+") && !held.contains("Meta+")
             if let f = v.textArea { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
             else if let f = v.field { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }

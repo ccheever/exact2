@@ -1014,3 +1014,27 @@ fn a_mouse_contact_goes_down_holds_and_lifts() {
         Some("down:mouse;up:mouse;")
     );
 }
+
+#[test]
+fn driver_key_uses_the_web_vocabulary() {
+    assert_eq!(driver_key("p"), Some(("KeyP", "p")));
+    assert_eq!(driver_key("P"), Some(("KeyP", "P")));
+    assert_eq!(driver_key("KeyP"), Some(("KeyP", "p")));
+    assert_eq!(driver_key("7"), Some(("Digit7", "7")));
+    assert_eq!(driver_key("Digit7"), Some(("Digit7", "7")));
+    assert_eq!(driver_key("End"), Some(("End", "End")));
+    assert_eq!(driver_key("Home"), Some(("Home", "Home")));
+    assert_eq!(driver_key("Delete"), Some(("Delete", "Delete")));
+    assert_eq!(driver_key(" "), Some(("Space", " ")));
+    assert_eq!(driver_key("Space"), Some(("Space", " ")));
+    assert_eq!(driver_key("-"), Some(("Minus", "-")));
+    assert_eq!(driver_key("+"), Some(("Equal", "+")));
+    assert_eq!(driver_key("!"), Some(("Digit1", "!")));
+    assert_eq!(driver_key("F1"), Some(("F1", "F1")));
+    assert_eq!(driver_key("F12"), Some(("F12", "F12")));
+    assert_eq!(driver_key("F24"), Some(("F24", "F24")));
+    assert_eq!(driver_key("Shift"), Some(("ShiftLeft", "Shift")));
+    assert_eq!(driver_key("ArrowLeft"), Some(("ArrowLeft", "ArrowLeft")));
+    assert_eq!(driver_key("Nope"), None);
+    assert_eq!(driver_key("Endd"), None);
+}
