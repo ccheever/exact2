@@ -241,7 +241,10 @@ fn repeated_imports_check_the_dependency_exports_at_each_use_site() {
     let repeated = contract::compile_path(&root).unwrap();
     let once = contract::compile_path_source(
         &root,
-        &root_source.replace("use leaf from \"./lib.contract\"\n", ""),
+        &root_source.replace(
+            "use local from \"./lib.contract\"\nuse leaf from",
+            "use local, leaf from",
+        ),
     )
     .unwrap();
     assert_eq!(repeated.encode(), once.encode());
@@ -261,7 +264,7 @@ fn repeated_imports_check_the_dependency_exports_at_each_use_site() {
     );
     let error = contract::compile_path_source(&root, &source).unwrap_err();
     assert_eq!(error.id, "contract-use-duplicate");
-    assert_eq!(error.span.line, 2);
+    assert_eq!(error.span.line, 3);
 }
 
 #[test]
@@ -286,29 +289,19 @@ fn repeated_names_along_an_import_chain_preserve_the_plan() {
 }
 
 #[test]
-fn equivalent_duplicate_declarations_do_not_become_conflicts_due_to_file_ids_or_end_columns() {
+fn two_files_declarations_are_two_however_alike() {
+    // A declaration's identity is its file and place, not its text (LLP
+    // 1091 D7): one name from two files is refused even when they agree.
     let app = App::new("duplicate");
     let root = app.write("app.contract", "use Row from \"./one.contract\"\nuse Row from \"./two.contract\"\ncomponent App\n  view\n    Row()\n");
     app.write("one.contract", "component Row\n  view\n    view width=1\n");
-    app.write(
-        "two.contract",
-        "component Row\n  view\n    view width=1.0\n",
-    );
+    app.write("two.contract", "component Row\n  view\n    view width=1\n");
+    let error = contract::compile_path(&root).unwrap_err();
+    assert_eq!(error.id, "contract-use-duplicate");
+    assert_eq!(error.span.line, 2);
+    // Renamed, both load: the second is `Row__two` to the passes after.
+    app.write("app.contract", "use Row from \"./one.contract\"\nuse Row as Other from \"./two.contract\"\ncomponent App\n  view\n    column\n      Row()\n      Other()\n");
     contract::compile_path(&root).unwrap();
-    app.write("two.contract", "component Row\n  view\n    view width=2\n");
-    assert_eq!(
-        contract::compile_path(&root).unwrap_err().id,
-        "contract-use-duplicate"
-    );
-    // Existing duplicate semantics include the original line/column positions.
-    app.write(
-        "two.contract",
-        "\ncomponent Row\n  view\n    view width=1\n",
-    );
-    assert_eq!(
-        contract::compile_path(&root).unwrap_err().id,
-        "contract-use-duplicate"
-    );
 }
 
 #[cfg(unix)]
@@ -355,7 +348,7 @@ fn overlapping_import_subgraphs_keep_transitive_exports_and_source_identity() {
             &format!("{imports}fn value{index}(): number = {index}\n"),
         );
     }
-    let source = "use value0 from \"./part0.contract\"\nuse value27 from \"./part1.contract\"\ncomponent App\n  view\n    text `${value0() + value27()}`\n";
+    let source = "use value0 from \"./part0.contract\"\nuse value27 from \"./part26.contract\"\ncomponent App\n  view\n    text `${value0() + value27()}`\n";
     let root = app.write("app.contract", source);
     let imported = contract::compile_path(&root).unwrap();
     let flat = contract::compile("fn value0(): number = 0\nfn value27(): number = 27\ncomponent App\n  view\n    text `${value0() + value27()}`\n").unwrap();

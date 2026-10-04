@@ -1,4 +1,4 @@
-use Snapshot from "./shapes.contract"
+use Snapshot, NativeGlass, card from "./shapes.contract"
 use Change from "./shapes.contract"
 use Model from "./shapes.contract"
 use Viewport from "./shapes.contract"

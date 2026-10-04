@@ -1,4 +1,4 @@
-use Viewport from "./models.contract"
+use Viewport, dropIn from "./models.contract"
 use ToolButton from "./editor.contract"
 
 component ThemeChoice

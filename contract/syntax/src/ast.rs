@@ -27,8 +27,8 @@ pub struct File {
     pub names: NameSpans,
     /// The app's router declaration. @ref LLP 1038 D2/D3.
     pub routes: Option<RoutesDecl>,
-    /// `use Name from "./file.contract"` declarations, in order (LLP 1017 P8);
-    /// resolved by the driver, which merges the used file's declarations in.
+    /// `use … from "…"` declarations, in order (LLP 1017 P8); resolved by
+    /// the driver, which scopes each file's names (LLP 1091).
     pub uses: Vec<UseDecl>,
     /// `font "Name"` declarations, in order (LLP 1019 D1).
     pub fonts: Vec<FontDecl>,
@@ -37,7 +37,7 @@ pub struct File {
     /// `style` declarations, in order (LLP 1017 P6).
     pub styles: Vec<StyleDecl>,
     /// `keyframes` declarations, in order (LLP 1055 D5): CSS `@keyframes`,
-    /// global by name as in CSS.
+    /// scoped to their file as in CSS Modules (LLP 1091 D5).
     pub keyframes: Vec<KeyframesDecl>,
     /// `timeline` declarations, in order (LLP 1055.002 D1): clock timelines
     /// that `animation-timeline=Name` puts animations on.
@@ -354,16 +354,35 @@ pub struct FnDecl {
     pub span: Span,
 }
 
-/// `use Name from "./file.contract"` — a component, shape, or style from
-/// another Contract file; never anything else (`contract-no-imports`).
+/// `use A, B as C from "./file.contract"` — declarations of another Contract
+/// file, named one by one, each optionally renamed in this file (LLP 1017 P8,
+/// LLP 1091 D1/D2); never anything else (`contract-no-imports`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct UseDecl {
-    /// The declaration's name.
-    pub name: String,
+    /// The names, in order; at least one.
+    pub names: Vec<UseName>,
     /// The file, relative to this one.
     pub path: String,
     /// Where.
     pub span: Span,
+}
+
+/// One name a `use` brings: `Card`, or `Card as UiCard`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UseName {
+    /// The declaration's name in the used file.
+    pub name: String,
+    /// The name in this file, when `as` renames it.
+    pub alias: Option<String>,
+    /// The declaration's name as written.
+    pub span: Span,
+}
+
+impl UseName {
+    /// The name this file reads it by.
+    pub fn local(&self) -> &str {
+        self.alias.as_deref().unwrap_or(&self.name)
+    }
 }
 
 /// `style Name` with lines of `attr=literal` — a named set of style rows a

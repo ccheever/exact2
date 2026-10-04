@@ -9,6 +9,10 @@ use TodoMark from "./agenda.contract"
 use StickerChip from "./stickers.contract"
 use StickerAgendaRow from "./stickers.contract"
 use MonthPage from "./month.contract"
+use monthLongName, savedScroll, paletteColor, Time, Viewport from "./models.contract"
+use Clock, Month, Agenda, Event, StickerDrag, DragTarget, Landing from "./models.contract"
+use Library, Result, DragInput, boundedMonth, edgeSpeed from "./models.contract"
+use scrollSlot, magnitude, keyStep from "./models.contract"
 
 // One calendar: shared state and actions, with layout chosen by viewport width.
 

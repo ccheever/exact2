@@ -1,7 +1,7 @@
 # LLP 1091: Contract modules
 
 **Type:** RFC
-**Status:** Accepted by Charlie (r1, 2026-10-04: "Approve recs" on §7); in review (Grok, Astra) while stage 1 is built
+**Status:** Accepted by Charlie (r1, 2026-10-04: "Approve recs" on §7). r2 resolves round 1 (Astra max, Grok 4.7 xhigh: both SOUND WITH CHANGES; §9). Stage 1 built on r2; stage 2 not started
 **Systems:** Contract loader (`contract/cli/src/{sources.rs,symbols.rs,map.rs,rust.rs,lean.rs}`), syntax (`contract/syntax`), the TS bake's capture (`js/bake`), the web build's capture (`host/web-js/build.mjs`), the dev loop and `build.rs` rebuild tracking, `exact new` (`game/new.mjs`), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
@@ -115,14 +115,17 @@ a helper nobody names is invisible, and two libraries' helpers can't
 collide. An `export` keyword buys an API boundary for published packages.
 That matters after 1.0 (DEFERRED: no public API stability before then), and
 it can be added later without breaking any source that already names only
-what it uses. Charlie to rule (§7 Q1).
+what it uses. Charlie ruled: none (§7 Q1).
 
 ### D4 — Rename on collision only
 
 The loader gives every declaration a program-unique internal name:
 
-- its declared name, if no other loaded file declares one of the same kind
-  and name;
+- its declared name, if no earlier file declares one in the same
+  namespace. Shapes and `fn`s share one namespace, as both are called
+  `Name(…)` and `types` refuses a shape and a fn of one name
+  (`type-fn-shape-name`); components, styles, keyframes and timelines
+  each have their own;
 - otherwise `{name}__{stem}`, where `stem` is the declaring file's stem
   sanitized to `[A-Za-z0-9_]`, with `_2`, `_3`… appended until unique.
   Example: `pulse__ui`, `Item__orders`. The root file always keeps its names;
@@ -135,21 +138,26 @@ through that file's scope before the files are merged into the `File` the
 rest of the compiler takes. `types`, `analyze`, `lower`, Lean, and every
 executor see the same flat namespace they see today, so they don't change.
 
-Why collision-only: every app that compiles today keeps byte-identical plan
-bytes, and so keeps its compat id (LLP 1030). The mangled form is a valid
+Why collision-only: an app with no name in two files keeps byte-identical
+plan bytes, and so keeps its plan's sha256 (LLP 1030). That is the only
+guarantee. An app that relied on D7's removed rule (two files declaring
+one shape alike, merged into one) now has two declarations, refused if one
+file names both, and a plan with two types if both are lowered. The mangled form is a valid
 CSS ident, keyframes name (`motion/src/animation/parse.rs`), timeline ident
-(`kernel/src/timeline.rs`), Lean string, and Rust identifier for
-`contract rust`. The cost: a name in plan bytes depends on what else is
+(`kernel/src/timeline.rs`) and Lean string. It is a Rust identifier when
+the declared name is; a hyphenated shape name was already not one, and
+`contract rust` printing it raw is an existing defect this RFC doesn't
+widen (QUEUE). The cost: a name in plan bytes depends on what else is
 loaded. That's only visible for keyframes built at runtime (D5).
 
-Tools that show names show the declared one plus its file:
-- `contract symbols` keys its index by (file, name) and stops letting a
-  later `Button` silently replace an earlier one;
-- the source map's `component` label and `component_costs`;
-- `agent-inspect`;
-- diagnostics.
-
-`contract rust` stops dropping a second same-named shape.
+Tools show the program-unique name, which is the declared name except on
+a collision (`Card__ui`); that is enough to tell two apart and costs no
+second identity. Because every name is unique after D4, `contract
+symbols` no longer lets a later `Button` silently replace an earlier one,
+the source map's `component_costs` no longer adds two `Card`s together,
+and `contract rust` no longer drops a second `Item`. Showing the declared
+name and its file instead is a display change for later, if collisions
+turn out to be common.
 
 ### D5 — Keyframes and timelines: rewrite where written
 
@@ -163,14 +171,27 @@ the strings that name it.
   `pulse` was renamed. `animation-timeline=Name` and the literal
   `clock(Name)` are rewritten the same way (`syntax/src/clock.rs` already
   rewrites the bare-identifier form).
-- **A fully computed name is not resolved.** If the name itself comes from a
-  prop, fn result, or slot, it's still matched at runtime against the
-  table, as today. Today that's unchecked anyway (`animation=\`nope ${n}ms\``
-  compiles). So a component that wants a caller to choose its animation
-  takes the keyframes through a `use` in the caller and a literal there, and
-  this RFC adds `lower-animation-computed-name`, a warning when an
-  `animation` value's first word is not literal in a program that renamed
-  any keyframes.
+- **The attributes:** `animation`, `animation-name`, `exit-animation` (and
+  their camel spellings), on elements and in `style` and native-control
+  rows alike: all of them resolve against the one keyframes table
+  (`lower/src/svg.rs` `check_animation_names`).
+- **A literal written elsewhere is not followed.** A caller's
+  `Spinner(fx="pulse 1s")` is a string where it's written; the inliner then
+  puts it in the spinner's `animation`. It is not rewritten in either file.
+  When `pulse` was not renamed it works as today. When it was, lowering
+  reads the substituted literal and refuses it (`lower-animation-name`),
+  at compile time, so the case is loud, not wrong. A component that lets
+  its caller choose takes a choice (`kind: string` and a `match`) rather
+  than a keyframes name.
+- **A computed name is not resolved.** A name built at run time is matched
+  against the table, as today, unchecked (`animation=\`nope ${n}ms\``
+  compiles). No warning is added: the reviews showed a "first word"
+  test misses `1s ${name}` and comma lists, and a correct one is the
+  motion grammar's, at run time.
+- **Shadowing stays.** `animation-timeline=Name` resolves per file through
+  the clock pass, which still lets a binding of the name shadow it
+  (`clock.rs`); the pass now takes the file's scope instead of the merged
+  file's timelines.
 
 This is CSS Modules' rule (local names in the stylesheet they're written
 in; anything built in script is on its own) and LLP 1055.002 D7's proposal,
@@ -181,10 +202,14 @@ name the compiler gives it.
 
 A `font` declares an app-level face from an asset file, and `font-family`
 is matched case-insensitively against families and system names, like
-`@font-face`. Two files declaring the same family differently are refused
-as today (`lower-font-duplicate`). Canvas surfaces also name fonts by
-runtime string (`exact.fontAliases`), which a rename would break. A library
-that ships a face documents its family name.
+`@font-face`. Two files declaring the same family alike are one; declared
+differently, they are refused as today (`lower-font-duplicate`). Canvas
+surfaces also name fonts by runtime string (`exact.fontAliases`), which a
+rename would break.
+
+A library does not ship font files in stage 2: lowering resolves a face
+only under the app's `assets/` (`lower/src/fonts.rs`). A library names a
+family and its README says which files the app provides.
 
 ### D7 — Identity is the declaration
 
@@ -243,20 +268,43 @@ The loader already knows every file it read. `compile_path_output` returns
 it (path, kind: app | package | builtin, package name and version), and its
 consumers use it instead of their own walks:
 
-- **TS bake and web build capture:** stage each package source under a
-  `node_modules` mirror in the stage, so compile-in-stage still works. The
-  Rolldown and `tsc` refusals of anything outside the stage are unchanged,
-  because only `.contract` files are captured this way.
-- **`relocate`** maps each staged path back to its original path, not only
-  the app's.
-- **Dev loop and `build.rs`** watch every listed path (`rerun-if-changed`
-  per source), which fixes QUEUE's "the dev loop watches the app file only"
-  for multi-file apps too.
-- **Deploy** records each package's name, version, and the sha256 of its
-  sources in the snapshot. The plan's sha256 is still the compat id; a
-  library change that changes the plan ships as any plan change does.
+The list is a resolution graph, not only paths (Astra 3): each source's
+logical specifier and resolved path, the package root and the
+`package.json` it consulted, and the edges between them. It is reported
+on failure as well as success, so a watcher still sees a library that
+broke the build (Astra 5).
+
+- **TS bake capture.** The bake compiles a staged copy
+  (`js/bake/src/lib.rs`), so it stages each package's consulted
+  `package.json` and `.contract` files, byte copies (symlinks are
+  refused there), under a `node_modules` mirror in the stage. Rolldown's
+  and `tsc`'s refusals of anything outside the stage are unchanged.
+  `relocate` maps each staged path back through the graph rather than
+  one prefix strip; an `exact:` source has no path to relocate and is
+  skipped.
+- **Web build.** It compiles the original `app.contract`
+  (`host/web-js/build.mjs`) and stages only TS/JSON, so it needs nothing
+  but the list for its watch.
+- **Watching.** The JS dev loop already rebuilds on any app file and drops
+  `node_modules` (`host/web-js/dev.mjs`); it adds each listed package
+  root. The wasm session (`host/web/src/dev.rs`) and the Rust apps'
+  `build.rs` (`rerun-if-changed=../app.contract`) watch every listed
+  path.
+- **Deploy.** Deploy excludes `node_modules` and freezes every byte the
+  bake reads (`scripts/deploy.mjs`), so the snapshot captures each
+  package's consulted files themselves (registry, `file:`, workspace and
+  linked alike) and the bake reads those, not the live tree. The
+  package's name, version and content hash are part of the snapshot's
+  identity. A library change that changes the plan ships as any plan
+  change does.
 
 ### D11 — Libraries are Contract only
+
+`provide`/`inject` names stay one program-wide channel, matched by name
+across every component (`inline.rs`): two libraries that both `inject
+theme` read the same nearest `provide theme`. That is the context model
+(React's is keyed by object, Contract's by name), and libraries name their
+injects accordingly (`acmeTheme`). Not renamed by this RFC.
 
 A library can declare components, shapes, styles, fns, keyframes, and
 timelines. It cannot own resources, mutations, or tasks (root-only already),
@@ -273,14 +321,17 @@ data code is a separate design with its own consumer.
   `Exports::merge`, `merge_declarations`, `same_declaration` and the
   timeline special case are deleted. This is most of the code.
 - **`syntax/src/clock.rs`.** Timeline rewriting moves into the per-file pass.
-- **types / analyze / lower / plan / runner / kernel / hosts.** No change,
-  apart from new diagnostic wording and `lower-animation-computed-name`.
+- **types / analyze / lower / plan / runner / kernel / hosts.** No change.
 - **Lean / difftest.** No change: `lean.rs` emits the merged file's names,
   which are unique.
-- **`symbols.rs`, `map.rs`, `rust.rs`.** Keyed by declaration identity; show
-  declared names.
+- **`symbols.rs`.** A `use` name navigates to the declaration it means, by
+  namespace; `map.rs` and `rust.rs` need no change (D4).
 - **js/bake, host/web-js/build.mjs, host/web/dev.mjs, `apps/*/web/build.rs`,
   scripts/deploy.mjs, game/new.mjs.** Stage 2 (D10, D9).
+- **The inliner's constructor set.** `record_constructors` (`inline.rs`)
+  is the merged file's shapes, so a shape named like another component's
+  action prop still stops that prop's substitution. That is today's
+  behaviour with one file too; D4 doesn't change it.
 - **Apps.** Add `use` lines for transitively reached names in
   `apps/messages`, `apps/messages-legacy`, `apps/expose`,
   `examples/*/calendar`; signal-exact2 is told. Lexy moves to
@@ -326,7 +377,7 @@ Stage 2:
   costs four grammar positions: `Ui.Button(` fails at `.` in tag position
   today, `ns.fn(x)` is refused as a method call, and `class=` takes only
   bare names. It can be added later without breaking anything here. Charlie
-  to rule (§7 Q3).
+  ruled: later (§7 Q3).
 - **Always qualify internal names** (`ui/Button`). Cleaner, but it changes
   every multi-file app's plan bytes and compat id, and puts characters into
   CSS idents and Rust names that would need escaping again. Collision-only
@@ -365,3 +416,19 @@ stage 1 lands, and stage 2 waits on them.
 
 - r0 (2026-10-04): draft.
 - r1 (2026-10-04): Charlie's rulings on §7.
+- r2 (2026-10-04): the round-1 reviews (`llp/reviews/rfc-2026-10-04-1091.{astra,grok}.md`,
+  both SOUND WITH CHANGES), disposed below; stage 1 built against this text.
+
+## 9. Review dispositions (round 1)
+
+| Finding | Disposition |
+|---|---|
+| Astra 1 / Grok 4: D4's collision domain misses the shared `Name(…)` namespace and the inliner's constructor set | Taken for the namespace: shapes and fns are one namespace in D4, as built. The constructor set's shadowing of an action prop is today's single-file behaviour; recorded in §3, not changed |
+| Astra 2 / Grok 2: D5 misses `exit-animation`; caller literals through props; the first-word warning is wrong; keep clock shadowing | Taken: D5 lists every attribute, narrows the caller-literal promise (a compile-time refusal, not a rewrite), drops the warning, and keeps the clock pass's shadowing per file |
+| Astra 3 / Grok 5: D10 needs a resolution graph incl. `package.json`, and the bake and web build differ | Taken into D10 |
+| Astra 4 / Grok 5: deploy needs the package bytes, not hashes | Taken into D10 |
+| Astra 5 / Grok 5: watcher scope (wasm session, `build.rs`; JS loop drops `node_modules`); expose sources on failure | Taken into D10 |
+| Astra 6 / Grok 1: byte identity is conditional on no D7 split; "compat id" is the wrong term | Taken: D4 narrows the claim and says the plan's sha256. Measured: all 122 plans in the repo (apps, examples, corpus, conformance) are byte-identical before and after stage 1 |
+| Astra 7 / Grok 3: a hyphenated name is not a Rust identifier | Pre-existing in `contract rust`; recorded in D4, not widened |
+| Astra 8: library fonts have no delivery | Taken: D6 says the app supplies a library's faces in stage 2 |
+| Grok 6: `provide`/`inject` stay one string channel | Taken: said in D11 |

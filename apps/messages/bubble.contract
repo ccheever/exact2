@@ -1,4 +1,4 @@
-use Message from "./shapes.contract"
+use Message, stamp, received, receipt, breathe, dot from "./shapes.contract"
 use Ink from "./shapes.contract"
 use Secondary from "./shapes.contract"
 use Avatar from "./shapes.contract"

@@ -123,17 +123,26 @@ may supply reusable declarations; the importing file's first component remains
 its root.
 
 ```text
-use Card from "./parts.contract"
-use Item from "./models.contract"
+use Card, Badge as StatusBadge from "./parts.contract"
+use Item, pulse from "./models.contract"
 ```
 
-Imports are local `.contract` files inside the app directory. Paths begin
-with `./`, stay below the importing file, and cannot contain `..` segments. They cannot import
-JavaScript packages or TypeScript functions. Import cycles, conflicting
-declarations, and unknown exports are refused. Fonts are not individually named
-`use` exports. Loading a file merges its resolved declarations, not just the
-single named declaration; there is no import namespace. Keep external work
-behind the data interface.
+Each file has its own names (LLP 1091): its own declarations, and the names its
+`use` lines list. Nothing comes along unnamed: if `parts.contract` uses `Icon`,
+`Card` still works, but this file writes `Icon()` only after naming it too,
+from `./icons.contract` or from `./parts.contract`, which passes on what it
+names. `as` renames one name in this file. Any component, shape, `fn`, style,
+keyframes or timeline can be named; there is no `export` keyword.
+
+Two files may declare the same name: each file's references mean its own
+declaration. One name brought into a file twice from different declarations,
+or brought and also declared, is refused; rename one with `as`. Fonts stay
+app-wide, like CSS's `@font-face`.
+
+Imports are `.contract` files inside the app directory. Paths begin with `./`,
+stay below the importing file, and cannot contain `..` segments. They cannot
+import JavaScript packages or TypeScript functions. Import cycles and unknown
+names are refused. Keep external work behind the data interface.
 
 Identifiers start with an ASCII letter or underscore. Letters, digits, and
 underscores can follow. A hyphen followed by a letter is part of the identifier:
