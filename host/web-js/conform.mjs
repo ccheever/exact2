@@ -34,8 +34,9 @@
 //   a target whose app has no Linux host, or a plan that says `// linux:
 //   <why>`, is reported as not compared (`// linux: state only (<why>)`
 //   compares its state and not its tree), and the comparison stops at the
-//   first step the Linux host has no delivery for (a pointer gesture, a
-//   wheel, a list's `into`, the browser's history) or that `LINUX_APART` names.
+//   first step the Linux host fails; a step it has no delivery for (a
+//   pointer's phases, a wheel, a list's `into`, the browser's history) is
+//   skipped and the session kept, and `LINUX_APART` names a step that ends it.
 //   --browser runs a cross-browser comparison of the JS target instead:
 //   Chrome is the oracle and Firefox or WebKit takes the identical steps.
 //   In this mode --build compiles a plan directly for a TypeScript data app;
@@ -386,7 +387,9 @@ async function drive(t, report, fail, dir, ws, js) {
       if (jsRefused && !refused) { fail(line, `${other}: ${jsRefused}`); diverged = true; break; }
       if (!jsRefused) answered(other);
       if (refused && !jsRefused) { diverged = true; break; }
-      await onLinux(line, L => LINUX_OPS.includes(op) ? run(L).then(() => answered('linux'), e => { if (!refused) throw e; }) : Promise.reject(new Error(`\`${op}\` is the page's pointer or history delivery, not the runner's`)));
+      // A step Linux does not take is skipped, its session kept, as Firefox skips a drag (LLP 1094 D12).
+      if (L && !LINUX_OPS.includes(op)) report.steps.push({ target: t.name, step: line, linux: 'skipped', skipped: `linux: \`${op}\` is the page's pointer or history delivery, not the runner's` });
+      else await onLinux(line, L => run(L).then(() => answered('linux'), e => { if (!refused) throw e; }));
       await settle();
       await bounds(line);
       tree = await compare(line);
@@ -595,7 +598,7 @@ async function bootPress(t, report, fail, dist, browser) {
 
 // ---------------------------------------------------------------- the Linux reference
 const linuxRef = argv.includes('--linux') && !crossBrowser;
-const LINUX_OPS = ['tap', 'type', 'key', 'clock', 'prefer'];
+const LINUX_OPS = ['tap', 'type', 'key', 'clock', 'prefer', 'drag'];
 // Where an app's drive reaches what only one host has, the Linux comparison
 // stops before that step (null: from the start), saying why (each is a host
 // difference, not the runner's).
