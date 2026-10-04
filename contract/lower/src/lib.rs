@@ -21,6 +21,7 @@
 
 mod class;
 mod collection;
+mod contain;
 pub mod controls;
 pub mod dataset;
 pub mod expr;
@@ -795,7 +796,7 @@ impl<'a> Lowerer<'a> {
                 // @ref LLP 1074 T1 — a box that contains its absolutely positioned
                 // descendants on every host is lowered `position: relative`.
                 let in_svg = svg::in_svg(self.svg_depth > 0, parent_tag);
-                let relative = tags::positioned(
+                let relative = contain::positioned(
                     &t,
                     expanded,
                     in_svg,

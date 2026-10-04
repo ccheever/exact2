@@ -88,7 +88,8 @@ import { homedir, tmpdir } from 'node:os';
 import { resolveApp, buildBake, bakeTarget, pendingBuildInputs } from './app.mjs';
 import { hermesIos } from './app.mjs';
 import { useXcode } from '../host/apple/devices.mjs';
-import { HERMES_IOS_ARCHIVES, provisionHermesIos, iosAssets, infoPlist, macInfoPlist, documentTypes, importedTypes, exportedTypes, macReleaseEntitlements, writeUsageStrings, designCompatible, COMPATIBLE_SDK } from '../host/apple/build.mjs';
+import { HERMES_IOS_ARCHIVES, provisionHermesIos } from '../host/apple/hermes.mjs';
+import { iosAssets, infoPlist, macInfoPlist, documentTypes, importedTypes, exportedTypes, macReleaseEntitlements, writeUsageStrings, designCompatible, COMPATIBLE_SDK } from '../host/apple/build.mjs';
 import { snapshotOf, materializeSnapshot, disposeSnapshot } from './deploy.mjs';
 
 // Real Cargo units, no engine dependencies. Opt in with the other bake diagnostics.
