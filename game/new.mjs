@@ -238,7 +238,7 @@ exact_web::host!(
   const deferred = resolveOffline(dir, true);
   const run = 'bun exact.mjs';
   return `Created ${dir}
-  cd ${JSON.stringify(dir)}
+  cd '${dir.replaceAll("'", "'\\''")}'
   ${run} web          the web dev loop
   ${run} test web     build, then run app.test.contract (web; macos or ios after mac/ios)
   ${run} agent web tree  inspect or drive the app
@@ -274,14 +274,15 @@ if (!verbs[verb]) {
   console.error(\`Usage: bun exact.mjs <\${Object.keys(verbs).join('|')}> [arguments for that script]\`);
   process.exit(2);
 }
-const run = ([script, ...args], more = []) => spawnSync(process.execPath, [resolve(EXACT2, script), ...args, ...more], {
-  stdio: 'inherit',
+// The automatic build reports on stderr, so a drive's stdout stays its reply (\`--json\`).
+const run = ([script, ...args], more = [], stdio = 'inherit') => spawnSync(process.execPath, [resolve(EXACT2, script), ...args, ...more], {
+  stdio,
   env: { ...process.env, EXACT_APP_DIR: import.meta.dir },
 }).status ?? 1;
 // The web build is about a second when nothing changed, so a web drive builds
 // first rather than refusing a stale build; a native build stays explicit.
 const drivesWeb = (verb === 'test' || verb === 'agent') && host === 'web' && !rest.some(a => a === '--url' || a === '--web-dist');
-if (drivesWeb) { const built = run(verbs['web-build']); if (built) process.exit(built); }
+if (drivesWeb) { const built = run(verbs['web-build'], [], [0, 2, 2]); if (built) process.exit(built); }
 process.exit(run(verbs[verb], rest));
 `;
 }

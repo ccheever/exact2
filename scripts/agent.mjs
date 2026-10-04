@@ -76,7 +76,7 @@ export const VIEWPORT = [420, 900];
 
 export { LAUNCH_MEDIA, PREFERENCES, PAGE_FACTS, FOLD_FACTS, displayFeatures } from './agent-prefer.mjs'; // `prefer`'s tables and the web carrier's CDP path
 /** An app made by `exact new` builds itself: its own `exact.mjs web-build`, when the dist is its default one. */
-const ownWebBuild = (app, dist) => existsSync(resolve(app.dir, 'exact.mjs')) && resolve(dist) === resolve(app.target, 'web-dist')
+const ownWebBuild = (app, dist) => app.dir && app.target && existsSync(resolve(app.dir, 'exact.mjs')) && resolve(dist) === resolve(app.target, 'web-dist')
   ? `(cd '${String(app.dir).replaceAll("'", "'\\''")}' && bun exact.mjs web-build)` : null;
 /** Refuse to drive anything but a complete, authenticated build of the
  * selected app. The build marker binds every public runtime artifact. */
@@ -1260,8 +1260,9 @@ export function typeArguments(args) {
  * line, and what was seen. Returns `{ passed, failed, results }`.
  */
 /** Authored tests (LLP 1017 P7). Each test is a session of its own from the first frame, with app storage
- * of its own: a fresh scratch store, named `<storage>-<run>-<n>` where a store outlives its drive (native),
- * so an app that keeps its data in storage loads, and no test sees another's or an earlier run's writes. */
+ * of its own: a scratch store, `<storage>.t<n>` emptied at launch where a store outlives its drive (native;
+ * the page's is its fresh profile), so an app that keeps its data in storage loads, no test sees another's
+ * or an earlier run's writes, and repeated runs reuse one store a test. */
 export async function runTests({ host, browser, file, plan, app, size, env, webDist, device = false, phone, url, seed, locale, timeZone, epoch, storage = 'test' } = {}) {
   const root = resolve(new URL('..', import.meta.url).pathname);
   // Cargo owns target selection and freshness, including CARGO_TARGET_DIR.
@@ -1270,11 +1271,10 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
   const tests = JSON.parse(c.stdout);
   const results = [];
   // Every test starts from the first frame: a session of its own.
-  const run = `${process.pid.toString(36)}${Date.now().toString(36)}`;
   for (const [n, t] of tests.entries()) {
     const failures = [];
-    const store = host === 'web' ? storage : `${storage}-${run}-${n}`;
-    const s = await open({ host, browser, plan, size, env, app, webDist, device, phone, url, seed, locale, timeZone, epoch, storage: store });
+    const store = host === 'web' ? storage : `${storage}.t${n}`, fresh = host === 'web' ? env : { ...(env ?? {}), EXACT_AGENT_STORAGE_FRESH: '1' };
+    const s = await open({ host, browser, plan, size, env: fresh, app, webDist, device, phone, url, seed, locale, timeZone, epoch, storage: store });
     try {
       for (const st of t.steps) {
         const at = `${t.name}: line ${st.line}`;

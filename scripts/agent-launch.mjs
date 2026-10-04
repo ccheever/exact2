@@ -154,19 +154,45 @@ export function newerThan(since, roots, skip = () => false) {
 // What a build can read from an app: the bake's capture (`js/bake/src/lib.rs`,
 // `sources`), and Rust and WGSL sources and manifests.
 const BUILD_SOURCE = /\.(ts|json|contract|ttf|otf|rs|toml|wgsl)$|(^|\/)Cargo\.lock$|^(assets|deck|gpu\/shaders)\//;
-/** A skip for an app's own files that no build reads: a screenshot, a log, a
- * diary saved into the app is not an input, ignored by Git or not. What the
- * bake captures counts, as does anything under `keep` (declared shader roots)
- * and anything inside one of the app's Rust crates, which can `include_bytes!`
- * any file beside it. */
-export function notBuildInput(dir, keep = []) {
+/** The app's gitignored paths, as a skip for its own files: an ignored file
+ * no build reads is not an input. One a build can read still counts (a
+ * generated asset or source, a local key), as does anything under `keep`
+ * (declared shader roots). Outside Git, nothing. */
+export function gitIgnored(dir, keep = []) {
+  const listed = spawnSync('git', ['ls-files', '--others', '--ignored', '--exclude-standard', '--directory', '-z'], { cwd: dir, encoding: 'utf8' });
+  const paths = listed.status === 0 ? listed.stdout.split('\0').filter(Boolean).map(p => resolve(dir, p)) : [];
+  if (!paths.length) return () => false;
+  // Files, not directories: an ignored directory is still walked for what the bake captures in it.
   const under = (path, roots) => roots.some(p => path === p || path.startsWith(p + '/'));
+  return path => under(path, paths) && !under(path, keep) &&
+    !statSync(path, { throwIfNoEntry: false })?.isDirectory() && !BUILD_SOURCE.test(relative(dir, path));
+}
+
+// What an agent leaves in an app as it works — a screenshot, a log, notes —
+// and the trees a build takes files from (the bake's assets and deck, a
+// game's art and logic, a native module's scripts, the host crates, fonts and
+// strings). A build reads more than the bake captures, so the rule names the
+// outputs and leaves everything else an input.
+const OUTPUT = /\.(png|jpe?g|gif|webp|apng|avif|bmp|log|txt|mov|mp4|webm|pdf|trace)$/i;
+const INPUT_TREE = /^(assets|deck|gpu|art|modules|fonts|strings|logic|data|web|apple|linux)(\/|$)/;
+/** A skip for an app's own files that no build reads: a gitignored one
+ * (`gitIgnored`), or a picture, log or note outside every input tree, outside
+ * a declared shader root and the app's Rust crates (which can `include_bytes!`
+ * any file beside them), that `app.json` does not name (an icon). A
+ * screenshot saved into the app is not a change to it, ignored or not. */
+export function notBuildInput(dir, keep = []) {
+  const ignored = gitIgnored(dir, keep);
+  const under = (path, roots) => roots.some(p => path === p || path.startsWith(p + '/'));
+  let manifest = ''; try { manifest = readFileSync(resolve(dir, 'app.json'), 'utf8'); } catch {}
   const inCrate = path => {
     for (let at = dirname(path); at.startsWith(dir + '/'); at = dirname(at)) if (existsSync(resolve(at, 'Cargo.toml'))) return true;
     return false;
   };
-  return path => !statSync(path, { throwIfNoEntry: false })?.isDirectory() &&
-    !BUILD_SOURCE.test(relative(dir, path)) && !under(path, keep) && !inCrate(path);
+  return path => {
+    if (ignored(path)) return true;
+    const rel = relative(dir, path);
+    return OUTPUT.test(rel) && !INPUT_TREE.test(rel) && !under(path, keep) && !inCrate(path) && !manifest.includes(rel);
+  };
 }
 
 /** An Apple build's receipt: its Rust and Swift inputs by digest, then by mtime the app's own files the receipt leaves out on purpose (the root build script's watches: the contract, app.json, data, shaders, assets — what the baked plan and bundle are made from). */

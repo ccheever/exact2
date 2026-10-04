@@ -614,16 +614,17 @@ for (const [name, html, files, expectCode, expect] of [
   rmSync(dir,{recursive:true,force:true});
 }
 {
-  // A screenshot or log saved into an app is not an input, ignored by Git or not;
-  // what the bake captures, a declared shader root and a Rust crate's files are.
+  // A screenshot or log saved into an app is not an input, ignored by Git or not; what the
+  // bake captures, a declared shader root, a crate's files, a native module's script, a
+  // game's art and an icon the manifest names are, and so is an ignored file a build reads.
   const dir=realpathSync(mkdtempSync(join(tmpdir(),'exact-build-inputs-')));
-  for(const sub of ['shots','gen','shader-gen','data']) mkdirSync(join(dir,sub));
-  for(const [name,text] of [['.gitignore','/local.ts\n/gen/\n/shader-gen/\n'],['Cargo.toml','[workspace]'],['app.contract','view'],['local.ts','key'],['run.log','log'],['shots/one.png','png'],['shots/notes.txt','notes'],['gen/made.rs','fn f() {}'],['shader-gen/paint.wgsl','fn main() {}'],['shader-gen/table.bin','bytes'],['data/Cargo.toml','[package]'],['data/table.bin','bytes']]) writeFileSync(join(dir,name),text);
+  for(const sub of ['shots','gen','shader-gen','data','modules/web','art']) mkdirSync(join(dir,sub),{recursive:true});
+  for(const [name,text] of [['.gitignore','/local.ts\n/gen/\n/shader-gen/\n/notes/\n'],['Cargo.toml','[workspace]'],['app.json','{"icons":[{"src":"icon.png"}]}'],['icon.png','png'],['app.contract','view'],['local.ts','key'],['run.log','log'],['shots/one.png','png'],['shots/notes.txt','notes'],['gen/made.rs','fn f() {}'],['shader-gen/paint.wgsl','fn main() {}'],['shader-gen/table.bin','bytes'],['data/Cargo.toml','[package]'],['data/table.bin','bytes'],['modules/web/index.js','js'],['art/strip.png','png'],['art/fox.glb','glb']]) writeFileSync(join(dir,name),text);
   const walk=()=>newerThan(0,[dir],notBuildInput(dir,[join(dir,'shader-gen')])).map(p=>relative(dir,p)).sort();
   const outside=walk();
   spawnSync('git',['init','-q'],{cwd:dir});
-  const inside=walk(),want='["Cargo.toml","app.contract","data/Cargo.toml","data/table.bin","gen/made.rs","local.ts","shader-gen/paint.wgsl","shader-gen/table.bin"]';
-  result('the staleness walk skips files no build reads, ignored or not',
+  const inside=walk(),want='["Cargo.toml","app.contract","app.json","art/fox.glb","art/strip.png","data/Cargo.toml","data/table.bin","gen/made.rs","icon.png","local.ts","modules/web/index.js","shader-gen/paint.wgsl","shader-gen/table.bin"]';
+  result('the staleness walk skips what an agent leaves in an app, never what a build reads',
     JSON.stringify(inside)===want&&JSON.stringify(outside)===want,JSON.stringify({inside,outside}));
   rmSync(dir,{recursive:true,force:true});
 }
