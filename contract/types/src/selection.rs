@@ -18,6 +18,7 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         "scroll" => Some("ScrollEvent"),
         "press" => Some("MouseEvent"),
         "copy" | "cut" | "paste" => Some("ClipboardEvent"),
+        "selectionchange" => Some("Selection"),
         _ => None,
     }
 }
@@ -51,6 +52,19 @@ pub(super) fn declare(shapes: &mut Shapes) {
     shapes
         .map
         .insert("ClipboardEvent".into(), vec![("text".into(), Ty::String)]);
+    // The part of the reader's selection inside one `text` (the reader
+    // diary), what `selectionchange` hands its action, in the order
+    // `exact_runner::Event::SelectionChange` writes it: the selected text
+    // (DOM `Range.toString()`) and its UTF-16 start and end in the node's
+    // own text, as written. Nothing selected there is "" with equal offsets.
+    shapes.map.insert(
+        "Selection".into(),
+        vec![
+            ("text".into(), Ty::String),
+            ("start".into(), Ty::Number),
+            ("end".into(), Ty::Number),
+        ],
+    );
     // DOM's `PointerEvent`, the subset every host measures, in the order
     // `exact_runner::PointerEvent` writes it: the point from the node's
     // content box, the buttons' bits, the pressure, the device, its id, and

@@ -342,6 +342,11 @@ final class Runtime {
     func clipboard(_ view: UInt32, _ kind: UInt32, _ text: String, now: Double) -> Batch {
         on { read(exact_dispatch(rt, view, kind, write(text), now)) }
     }
+    /// `selectionchange` (35): a `text`'s part of the selection, its source
+    /// UTF-16 offsets and then its text.
+    func selectionChange(_ view: UInt32, _ text: String, start: Int, end: Int, now: Double) -> Batch {
+        on { read(exact_dispatch(rt, view, 35, write("\(start),\(end),\(text)"), now)) }
+    }
     func submit(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 7, 0, now)) } }
     func media(_ view: UInt32, event: String, payload: String, now: Double) -> Batch {
         return on {

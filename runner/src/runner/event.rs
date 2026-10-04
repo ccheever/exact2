@@ -252,6 +252,18 @@ pub enum Event {
     /// pasted; empty on copy and cut, whose action writes the clipboard
     /// (`copyText`), as a DOM listener's `setData` does.
     Clipboard(EventKind, String),
+    /// The part of the reader's text selection inside a `text` changed (the
+    /// web's `selectionchange`, the reader diary): the selected text and its
+    /// UTF-16 start and end in the node's own text; nothing selected there
+    /// is empty with equal offsets.
+    SelectionChange {
+        /// What is selected of the node's text (`Range.toString()`).
+        text: String,
+        /// Where it starts, in UTF-16 units of the node's text.
+        start: f64,
+        /// Where it ends.
+        end: f64,
+    },
     /// An incoming location at the navigation root. @ref LLP 1038 D8/D11
     Navigate(String),
     /// An authored sheet handle released: logical height and signed pixels/second.
@@ -427,6 +439,11 @@ impl Event {
                 .to_vec(),
             )),
             Event::Clipboard(_, text) => Some(Value::record(vec![Value::str(text)])),
+            Event::SelectionChange { text, start, end } => Some(Value::record(vec![
+                Value::str(text),
+                Value::Number(*start),
+                Value::Number(*end),
+            ])),
             Event::Press => Some(KeyModifiers::default().mouse()),
             Event::PressWith(held) => Some(held.mouse()),
             _ => None,
@@ -471,6 +488,20 @@ impl Event {
             return None;
         }
         Some(Self::Media(kind, value.into()))
+    }
+
+    /// Decode ABI kind 35 (`selectionchange`): `start,end,` then the
+    /// selected text verbatim; offsets are whole, `0 <= start <= end`.
+    pub fn selection_change_payload(payload: &str) -> Option<Self> {
+        let mut parts = payload.splitn(3, ',');
+        let start: u32 = parts.next()?.parse().ok()?;
+        let end: u32 = parts.next()?.parse().ok()?;
+        let text = parts.next()?;
+        (start <= end).then(|| Self::SelectionChange {
+            text: text.into(),
+            start: f64::from(start),
+            end: f64::from(end),
+        })
     }
 
     /// Decode ABI kind 32 (`copy`), 33 (`cut`) or 34 (`paste`): the
@@ -960,6 +991,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Pan(_, _) => "pan",
                 Event::PanRelease(_, _) => "panrelease",
                 Event::Media(kind, _) | Event::Clipboard(kind, _) => kind.name(),
+                Event::SelectionChange { .. } => "selectionchange",
                 Event::Navigate(_) => "navigate",
                 Event::HeightRelease { .. } => "heightrelease",
                 Event::TransformGeometry { .. } => "transformgeometry",
@@ -1054,6 +1086,7 @@ impl<D: DataSource> Runner<D> {
                 kind.name(),
             ),
             Event::Clipboard(kind, _) => (*kind, None, kind.name()),
+            Event::SelectionChange { .. } => (EventKind::Selectionchange, None, "selectionchange"),
             Event::Pan(_, _) => (EventKind::Pan, None, "pan"),
             Event::PanRelease(_, _) => (EventKind::Panrelease, None, "panrelease"),
             Event::HeightRelease { .. } => (EventKind::Heightrelease, None, "heightrelease"),

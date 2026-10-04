@@ -24,6 +24,7 @@ pub const CONTEXTUAL: &[(&str, &str)] = &[
     ("reachstart", "`list`"),
     ("reachend", "`list`"),
     ("text-transform", "any tag but `input` and `textarea`"),
+    ("selectionchange", "`text`"),
 ];
 
 /// The open set of tags: a hyphenated name is a native module.

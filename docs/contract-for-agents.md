@@ -798,6 +798,11 @@ slant or smear: LLP 1019 §5). Web and Apple retain the ordered glyph fallback c
 installed family, then uses cosmic-text's platform glyph fallback; it logs
 this declared limitation for a multi-member stack (LLP 1001).
 
+A `text` with `selectionchange=act` hears the reader's real text selection
+on the web and macOS: `action act(s: Selection)` gets `s.text`, `s.start` and
+`s.end` in the node's own text ("" at 0, 0 when nothing there is selected).
+Drive it with `tap <id> drag <dx> <dy> from <x> <y> mouse`.
+
 Book typography is CSS's on every host. `text-align="justify"` fills all but
 a paragraph's last line. `text-indent` is a length (`text-indent="1.5em"`,
 `text-indent=24`; negative with the same `padding-left` hangs the first line).

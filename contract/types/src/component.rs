@@ -487,6 +487,7 @@ fn refine_params_from_view(
                             | "copy"
                             | "cut"
                             | "paste"
+                            | "selectionchange"
                             | "swiperight"
                             | "refresh"
                             | "reachstart"

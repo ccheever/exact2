@@ -1238,3 +1238,23 @@ export function coversPath(set, capability, path) {
   const target = grantPathParts(path), kind = ({ 'fs.read': 'fs-read', 'fs.write': 'fs-write', 'sqlite.open': 'sqlite-open' })[capability];
   return !!target && set.entries.some(([, , grant]) => grant?.[0] === kind && grant.slice(1).every((part, index) => target[index] === part));
 }
+
+// `selectionchange` on a `text` (the reader diary), on both web targets: its
+// part of the page's selection, reported as the text and its UTF-16 start and
+// end in the element's own text when that part changes; nothing selected
+// there is "" at 0, 0. One document listener serves every such element.
+const selectedTexts = new Map();
+export function onSelection(e, report) {
+  if (!selectedTexts.size) document.addEventListener("selectionchange", () => {
+    const s = getSelection(), r = s.rangeCount && !s.isCollapsed ? s.getRangeAt(0) : null;
+    for (const [e, h] of selectedTexts) {
+      if (!e.isConnected) { selectedTexts.delete(e); continue; }
+      const at = (n, o) => { const p = document.createRange(); p.selectNodeContents(e); const c = p.comparePoint(n, o); if (!c) p.setEnd(n, o); return c < 0 ? 0 : p.toString().length; };
+      let a = 0, b = 0;
+      if (r?.intersectsNode(e)) { a = at(r.startContainer, r.startOffset); b = at(r.endContainer, r.endOffset); }
+      if (a === b) a = b = 0;
+      if (h.a !== a || h.b !== b) { h.a = a; h.b = b; h.report(e.textContent.slice(a, b), a, b); }
+    }
+  });
+  selectedTexts.set(e, { report, a: 0, b: 0 });
+}

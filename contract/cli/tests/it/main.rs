@@ -83,6 +83,7 @@ mod symbols;
 mod tail_call;
 mod tests_decl;
 mod text_item;
+mod text_selection;
 mod time;
 mod timelines;
 mod transform_binding;

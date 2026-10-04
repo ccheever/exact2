@@ -480,7 +480,7 @@ expression grammar. Platform looks and stand-ins are documented in
 ## Events
 
 An event binding is an action reference or partially applied action. Captured
-arguments precede the event payload. The table contains all 46 handler names.
+arguments precede the event payload. The table contains all 47 handler names.
 Numeric multi-argument payload ordering should be copied from the feature's
 working fixture, not inferred from JavaScript's Event interface.
 
@@ -500,6 +500,7 @@ working fixture, not inferred from JavaScript's Event interface.
 | Special: zero or one location string, no captured args | `navigate` |
 | Zero or one `PointerEvent` (the action takes it or leaves it) | `pointerdown`, `pointerup`, `pointermove` |
 | Zero or one `ClipboardEvent` (the action takes it or leaves it) | `copy`, `cut`, `paste` ([clipboard](#clipboard)) |
+| Zero or one `Selection` (the action takes it or leaves it) | `selectionchange`, on a `text` ([text selection](#text-selection)) |
 | Zero or one `MouseEvent` (the action takes it or leaves it) | `press`: the modifier keys held, `shiftKey`, `ctrlKey`, `altKey`, `metaKey` (a shift-click, a ⌘-click; all false from a keyboard or assistive activation) |
 | None | `cancel`, `focus`, `blur`, `submit`, `load`, `contextmenu`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
 
@@ -594,6 +595,25 @@ system clipboard.
 action pasteAt(cell: string, e: ClipboardEvent)
   send pasted = pasteCells(cell, e.text)
 column key=move paste=pasteAt(selected) copy=copyCells cut=cutCells
+```
+
+### Text selection
+
+`selectionchange` on a `text` is the web's `selectionchange`, per element:
+when the part of the reader's text selection inside that paragraph changes —
+a drag, a double or triple click, select-all, a click that clears it — an
+action that takes one more parameter gets a `Selection`: its `text` (the
+selected part, as `Range.toString()` gives it) and its `start` and `end`,
+UTF-16 offsets into the node's own text as written (white space before CSS
+collapses it, a `text`'s inline children joined in order). Nothing selected
+there is `text: ""` with `start == end == 0`; it fires while a drag moves,
+once per change. Web and macOS select text; iOS and Linux have no text
+selection on a `text`, so it never fires there.
+
+```text
+action mark(para: string, s: Selection)
+  selection = Excerpt(para=para, from=s.start, to=s.end, text=s.text)
+text para.body selectionchange=mark(para.id)
 ```
 
 ### Keys
