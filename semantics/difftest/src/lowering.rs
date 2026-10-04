@@ -18,7 +18,6 @@ use exact_plan::{Opcode, Operand, Plan, Stdlib};
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 use std::path::Path;
-use std::process::Command;
 
 /// One case ready for the Lean module.
 struct Ready {
@@ -197,24 +196,8 @@ fn module(cases: &[Ready]) -> String {
 
 /// Run one batch in one Lean process: the opcode lines, then each case's.
 fn run_batch(cases: &[Ready], dir: &Path, tag: &str) -> Result<(Vec<String>, Vec<Report>), String> {
-    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let file = dir.join(format!("{tag}-{}.lean", std::process::id()));
-    std::fs::write(&file, module(cases)).map_err(|e| format!("{}: {e}", file.display()))?;
-    let out = Command::new(leanrun::lake())
-        .args(["env", "lean", "--run"])
-        .arg(&file)
-        .current_dir(leanrun::project())
-        .output()
-        .map_err(|e| format!("lake env lean: {e}"))?;
-    if !out.status.success() {
-        return Err(format!(
-            "{}: lean failed:\n{}{}",
-            file.display(),
-            String::from_utf8_lossy(&out.stdout),
-            String::from_utf8_lossy(&out.stderr)
-        ));
-    }
-    let text = String::from_utf8_lossy(&out.stdout);
+    let text = module(cases);
+    let text = leanrun::memo(dir, &text, || leanrun::run_module(&text, dir, tag))?.join("\n");
     let mut head = Vec::new();
     let mut reports: Vec<Report> = Vec::new();
     for line in text.lines() {
@@ -239,7 +222,8 @@ fn run_batch(cases: &[Ready], dir: &Path, tag: &str) -> Result<(Vec<String>, Vec
     if reports.len() != cases.len() {
         return Err(format!(
             "{}: expected {} cases, got {}",
-            file.display(),
+            dir.join(format!("{tag}-{}.lean", std::process::id()))
+                .display(),
             cases.len(),
             reports.len()
         ));

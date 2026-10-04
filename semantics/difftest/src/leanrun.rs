@@ -88,9 +88,166 @@ pub fn module(cases: &[LeanCase]) -> String {
     s
 }
 
+/// Whether [`run`] reuses observations kept from earlier runs (`quick` and
+/// `verify` turn it on; `DIFFTEST_CACHE=1` or `0` decides for any command).
+pub static CACHE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn caching() -> bool {
+    match std::env::var("DIFFTEST_CACHE").as_deref() {
+        Ok("1") => true,
+        Ok("0") => false,
+        _ => CACHE.load(std::sync::atomic::Ordering::Relaxed),
+    }
+}
+
+/// A digest of everything that decides what Lean prints for a case beside
+/// the case itself: the semantics' sources, the toolchain, the Lake file.
+fn library_digest() -> &'static str {
+    static DIGEST: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    DIGEST.get_or_init(|| {
+        fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+            let Ok(entries) = std::fs::read_dir(dir) else {
+                return;
+            };
+            for e in entries.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.extension().is_some_and(|x| x == "lean") {
+                    out.push(p);
+                }
+            }
+        }
+        let root = project();
+        let mut files = vec![
+            root.join("Contract.lean"),
+            root.join("lean-toolchain"),
+            root.join("lakefile.toml"),
+        ];
+        walk(&root.join("Contract"), &mut files);
+        files.sort();
+        let mut h = Digest::default();
+        for f in files {
+            h.add(
+                f.strip_prefix(&root)
+                    .unwrap_or(&f)
+                    .to_string_lossy()
+                    .as_bytes(),
+            );
+            h.add(&std::fs::read(&f).unwrap_or_default());
+        }
+        h.hex()
+    })
+}
+
+/// Two independent 64-bit FNV-1a lanes: a cache key, not a signature.
+#[derive(Clone, Copy)]
+struct Digest(u64, u64);
+
+impl Default for Digest {
+    fn default() -> Self {
+        Digest(0xcbf2_9ce4_8422_2325, 0x6c62_272e_07bb_0142)
+    }
+}
+
+impl Digest {
+    fn add(&mut self, bytes: &[u8]) {
+        for &b in bytes.iter().chain(&[0xff]) {
+            self.0 = (self.0 ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+            self.1 = (self.1 ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3 ^ 0x1000);
+        }
+    }
+    fn hex(self) -> String {
+        format!("{:016x}{:016x}", self.0, self.1)
+    }
+}
+
+/// Where a case's observation is kept: keyed by its embedding (whatever
+/// its `def`'s name), oracle and events, and the library.
+fn cache_file(dir: &Path, c: &LeanCase) -> PathBuf {
+    let mut h = Digest::default();
+    h.add(library_digest().as_bytes());
+    h.add(
+        c.program
+            .replacen(&format!("def {} ", c.name), "def _ ", 1)
+            .as_bytes(),
+    );
+    h.add(c.oracle.as_bytes());
+    for e in &c.events {
+        h.add(e.as_bytes());
+    }
+    dir.join("cache").join(format!("{}.txt", h.hex()))
+}
+
+/// What `f` answers for a generated module's text, kept under `dir` with
+/// [`CACHE`] on and answered from there while the module and the library
+/// are unchanged.
+pub fn memo(
+    dir: &Path,
+    module: &str,
+    f: impl FnOnce() -> Result<Vec<String>, String>,
+) -> Result<Vec<String>, String> {
+    if !caching() {
+        return f();
+    }
+    let mut h = Digest::default();
+    h.add(library_digest().as_bytes());
+    h.add(module.as_bytes());
+    let file = dir.join("cache").join(format!("{}.txt", h.hex()));
+    if let Ok(t) = std::fs::read_to_string(&file) {
+        return Ok(t.lines().map(str::to_string).collect());
+    }
+    let lines = f()?;
+    let _ = std::fs::create_dir_all(dir.join("cache"));
+    let tmp = file.with_extension(format!("{}.tmp", std::process::id()));
+    if std::fs::write(&tmp, lines.join("\n")).is_ok() {
+        let _ = std::fs::rename(&tmp, &file);
+    }
+    Ok(lines)
+}
+
 /// Run `cases` in one Lean process; each case's observation lines, in
 /// order. `dir` keeps the generated module for a failure's reproduction.
+/// With [`CACHE`] on, a case whose embedding, oracle, events and library
+/// are those of a case run before is answered from what that run printed
+/// (Lean's run is deterministic), and only the rest reach Lean.
 pub fn run(cases: &[LeanCase], dir: &Path, tag: &str) -> Result<Vec<Vec<String>>, String> {
+    if !caching() {
+        return run_uncached(cases, dir, tag);
+    }
+    let files: Vec<PathBuf> = cases.iter().map(|c| cache_file(dir, c)).collect();
+    let mut results: Vec<Option<Vec<String>>> = files
+        .iter()
+        .map(|f| {
+            std::fs::read_to_string(f)
+                .ok()
+                .map(|t| t.lines().map(str::to_string).collect())
+        })
+        .collect();
+    let missing: Vec<usize> = (0..cases.len()).filter(|&i| results[i].is_none()).collect();
+    if !missing.is_empty() {
+        let todo: Vec<LeanCase> = missing
+            .iter()
+            .map(|&i| crate::clone_case(&cases[i]))
+            .collect();
+        let fresh = run_uncached(&todo, dir, tag)?;
+        let _ = std::fs::create_dir_all(dir.join("cache"));
+        for (&i, lines) in missing.iter().zip(fresh) {
+            // Whole or not at all: a reader never sees half an observation.
+            let tmp = files[i].with_extension(format!("{}.tmp", std::process::id()));
+            if std::fs::write(&tmp, lines.join("\n")).is_ok() {
+                let _ = std::fs::rename(&tmp, &files[i]);
+            }
+            results[i] = Some(lines);
+        }
+    }
+    Ok(results.into_iter().map(Option::unwrap_or_default).collect())
+}
+
+fn run_uncached(cases: &[LeanCase], dir: &Path, tag: &str) -> Result<Vec<Vec<String>>, String> {
+    if cases.is_empty() {
+        return Ok(Vec::new());
+    }
     let text = run_module(&module(cases), dir, tag)?;
     let mut results: Vec<Vec<String>> = Vec::new();
     for line in text {

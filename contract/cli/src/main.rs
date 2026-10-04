@@ -5,11 +5,14 @@
 //! data-source signatures from the same plan tables the executor reads.
 //! `contract rust <file.contract> [-o <shapes.rs>]` — the same shapes as Rust
 //! structs with their `Value` conversions, for a data crate's `build.rs`.
+//! `contract verify <file.contract>` — the app against the Lean semantics
+//! (`verify.rs`; it needs Lean, and nothing else here does).
 
 use std::process::ExitCode;
 
 mod build;
 mod diff;
+mod verify;
 mod vocab;
 
 const USAGE: &str = "usage:
@@ -20,6 +23,7 @@ const USAGE: &str = "usage:
   contract rust <file.contract> [-o <shapes.rs>]
   contract test <file.test.contract>
   contract lean <file.contract> [--name <ident>] [-o <file.lean>]
+  contract verify <file.contract> [--types] [--prove <Module>]
   contract vocab [--json] [<name>]";
 
 #[cfg(windows)]
@@ -52,6 +56,7 @@ fn run() -> ExitCode {
         Some("fmt") => fmt(&args[1..]),
         Some("test") => tests(&args[1..]),
         Some("lean") => lean(&args[1..]),
+        Some("verify") => verify::run(&args[1..]),
         Some("vocab") => vocab::run(&args[1..]),
         Some("types") => types(&args[1..], "types", "app.d.ts", contract::typescript),
         Some("rust") => types(&args[1..], "rust", "shapes.rs", contract::rust),
