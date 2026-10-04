@@ -172,6 +172,8 @@ impl Gen<'_> {
             } else {
                 out.push_str(&self.body(&env, &writes, &first[k], 4));
             }
+            let sending = std::mem::take(&mut self.sending);
+            self.sends.push(sending);
         }
         self.callable = 0;
 

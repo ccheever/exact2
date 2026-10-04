@@ -3,6 +3,7 @@ import Contract
 def updateLab : Contract.Program := {
   shapes := [{ name := "ClipboardEvent", fields := [{ name := "text", ty := .string }] },
     { name := "Constants", fields := [{ name := "label", ty := .string }, { name := "multiplier", ty := .number }] },
+    { name := "DragEvent", fields := [{ name := "offsetX", ty := .number }, { name := "offsetY", ty := .number }, { name := "files", ty := (.list .string) }, { name := "shiftKey", ty := .bool }, { name := "ctrlKey", ty := .bool }, { name := "altKey", ty := .bool }, { name := "metaKey", ty := .bool }] },
     { name := "Executor", fields := [{ name := "label", ty := .string }] },
     { name := "Geometry", fields := [{ name := "x", ty := .number }, { name := "y", ty := .number }, { name := "width", ty := .number }, { name := "height", ty := .number }, { name := "provisional", ty := .bool }, { name := "unavailable", ty := .bool }] },
     { name := "KeyboardEvent", fields := [{ name := "key", ty := .string }, { name := "shiftKey", ty := .bool }, { name := "ctrlKey", ty := .bool }, { name := "altKey", ty := .bool }, { name := "metaKey", ty := .bool }] },
@@ -11,7 +12,9 @@ def updateLab : Contract.Program := {
     { name := "Picked", fields := [{ name := "path", ty := .string }, { name := "name", ty := .string }, { name := "type", ty := .string }, { name := "size", ty := .number }, { name := "width", ty := (.option .number) }, { name := "height", ty := (.option .number) }, { name := "duration", ty := (.option .number) }] },
     { name := "PointerEvent", fields := [{ name := "offsetX", ty := .number }, { name := "offsetY", ty := .number }, { name := "buttons", ty := .number }, { name := "pressure", ty := .number }, { name := "pointerType", ty := .string }, { name := "pointerId", ty := .number }, { name := "shiftKey", ty := .bool }, { name := "ctrlKey", ty := .bool }, { name := "altKey", ty := .bool }, { name := "metaKey", ty := .bool }] },
     { name := "Probe", fields := [{ name := "label", ty := .string }, { name := "input", ty := .number }, { name := "output", ty := .number }] },
-    { name := "ScrollEvent", fields := [{ name := "scrollLeft", ty := .number }, { name := "scrollTop", ty := .number }, { name := "scrollWidth", ty := .number }, { name := "scrollHeight", ty := .number }, { name := "clientWidth", ty := .number }, { name := "clientHeight", ty := .number }] }],
+    { name := "ScrollEvent", fields := [{ name := "scrollLeft", ty := .number }, { name := "scrollTop", ty := .number }, { name := "scrollWidth", ty := .number }, { name := "scrollHeight", ty := .number }, { name := "clientWidth", ty := .number }, { name := "clientHeight", ty := .number }] },
+    { name := "Selection", fields := [{ name := "text", ty := .string }, { name := "start", ty := .number }, { name := "end", ty := .number }] },
+    { name := "WheelEvent", fields := [{ name := "offsetX", ty := .number }, { name := "offsetY", ty := .number }, { name := "deltaX", ty := .number }, { name := "deltaY", ty := .number }, { name := "deltaMode", ty := .number }, { name := "shiftKey", ty := .bool }, { name := "ctrlKey", ty := .bool }, { name := "altKey", ty := .bool }, { name := "metaKey", ty := .bool }] }],
   fns := [],
   states := [{ name := "counter", ty := .number, init := (.num 0x3ff0000000000000), owner := .none, late := false },
     { name := "note", ty := .string, init := (.str "Keep this note through a reload"), owner := .none, late := false },

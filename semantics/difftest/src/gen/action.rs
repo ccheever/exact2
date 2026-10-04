@@ -33,6 +33,8 @@ impl Gen<'_> {
     ) -> String {
         let mut out = String::new();
         let pad = " ".repeat(indent);
+        self.sent.clear();
+        self.sending.clear();
         for line in first {
             out.push_str(&format!("{pad}{line}\n"));
         }
@@ -63,12 +65,12 @@ impl Gen<'_> {
             3,
             if depth > 0 { 2 } else { 0 },
             if depth > 0 { 2 } else { 0 },
-            if w.send && !self.mutations.is_empty() {
+            if w.send && !self.unsent().is_empty() {
                 2
             } else {
                 0
             },
-            if self.calls && self.callable > 0 {
+            if self.calls && !self.callees().is_empty() {
                 2
             } else {
                 0
@@ -94,12 +96,15 @@ impl Gen<'_> {
                 let c = self.expr(env, &Ty::Bool, d, false);
                 out.push_str(&format!("{pad}if {c}\n"));
                 let n = self.rng.range(1, 2);
+                let before = self.sent.clone();
                 self.block(env.clone(), w, depth - 1, indent + 2, n, out);
+                let then = std::mem::replace(&mut self.sent, before);
                 if self.rng.chance(1, 2) {
                     out.push_str(&format!("{pad}else\n"));
                     let n = self.rng.range(1, 2);
                     self.block(env.clone(), w, depth - 1, indent + 2, n, out);
                 }
+                self.join_sent(then);
             }
             3 => {
                 let inner = self.held(env, true);
@@ -107,14 +112,20 @@ impl Gen<'_> {
                 let v = self.fresh("v");
                 out.push_str(&format!("{pad}match {subject}\n{pad}  case some({v})\n"));
                 let n = self.rng.range(1, 2);
+                let before = self.sent.clone();
                 self.block(env.with(&v, inner), w, depth - 1, indent + 4, n, out);
+                let some = std::mem::replace(&mut self.sent, before);
                 out.push_str(&format!("{pad}  case none\n"));
                 let n = self.rng.range(1, 2);
                 self.block(env.clone(), w, depth - 1, indent + 4, n, out);
+                self.join_sent(some);
             }
             5 => self.call_action(env, &pad, out),
             _ => {
-                let m = self.rng.pick(&self.mutations).clone();
+                let unsent = self.unsent();
+                let m = self.rng.pick(&unsent).clone();
+                self.sent.push(m.name.clone());
+                self.sending.push(m.name.clone());
                 let args: Vec<String> = m.args.iter().map(|t| self.expr(env, t, 1, true)).collect();
                 out.push_str(&format!(
                     "{pad}send {} = {}({})\n",
@@ -129,8 +140,12 @@ impl Gen<'_> {
     /// A call of one of the root's earlier actions, its arguments typed by
     /// its parameters.
     fn call_action(&mut self, env: &Env, pad: &str, out: &mut String) {
-        let j = self.rng.below(self.callable as u64) as usize;
+        let callees = self.callees();
+        let j = callees[self.rng.below(callees.len() as u64) as usize];
         let callee = self.actions[j].clone();
+        let sends = self.sends[j].clone();
+        self.sent.extend(sends.iter().cloned());
+        self.sending.extend(sends);
         let args: Vec<String> = callee
             .params
             .iter()
@@ -146,6 +161,8 @@ impl Gen<'_> {
     /// callees read.
     pub(crate) fn dispatch(&mut self, env: &Env, indent: usize) -> String {
         let mut out = String::new();
+        self.sent.clear();
+        self.sending.clear();
         let pad = " ".repeat(indent);
         let mut env = env.clone();
         for _ in 0..self.rng.range(0, 1) {
@@ -162,10 +179,36 @@ impl Gen<'_> {
             out.push_str(&format!("{pad}if {c}\n"));
             let inner = " ".repeat(indent + 2);
             self.call_action(&env, &inner, &mut out);
+            self.sent.clear();
             out.push_str(&format!("{pad}else\n"));
             self.call_action(&env, &inner, &mut out);
         }
         out
+    }
+
+    /// The mutations the path being written has not sent yet.
+    fn unsent(&self) -> Vec<super::Mutation> {
+        self.mutations
+            .iter()
+            .filter(|m| !self.sent.contains(&m.name))
+            .cloned()
+            .collect()
+    }
+
+    /// The earlier actions this path may call: none sends what it has sent.
+    fn callees(&self) -> Vec<usize> {
+        (0..self.callable)
+            .filter(|&j| self.sends[j].iter().all(|m| !self.sent.contains(m)))
+            .collect()
+    }
+
+    /// After a branch: what either arm sent (the other arm's is in `sent`).
+    fn join_sent(&mut self, arm: Vec<String>) {
+        for m in arm {
+            if !self.sent.contains(&m) {
+                self.sent.push(m);
+            }
+        }
     }
 
     /// `slot = …`. A value holding a string is bound first and reset to a

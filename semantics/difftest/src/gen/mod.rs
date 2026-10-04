@@ -171,6 +171,13 @@ pub(crate) struct Gen<'s> {
     /// was written.
     pub(crate) calls: bool,
     pub(crate) called: bool,
+    /// The mutations a path of the body being written has sent, its calls'
+    /// included: each is sent once per path (LLP 1088 D8, `analyze-send-twice`).
+    pub(crate) sent: Vec<String>,
+    /// The mutations any path of the body being written sends.
+    pub(crate) sending: Vec<String>,
+    /// The mutations each of `actions` may send, by index, once written.
+    pub(crate) sends: Vec<Vec<String>>,
     next: usize,
 }
 
@@ -193,6 +200,9 @@ impl<'s> Gen<'s> {
             callable: 0,
             calls: true,
             called: false,
+            sent: Vec::new(),
+            sending: Vec::new(),
+            sends: Vec::new(),
             next: 0,
         }
     }
