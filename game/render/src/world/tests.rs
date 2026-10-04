@@ -1192,3 +1192,17 @@ fn a_socket_followers_child_in_another_block_draws_at_its_tick_end_global() {
         "the child moves: {xs:?}"
     );
 }
+
+#[test]
+fn rewriting_the_same_offsets_is_not_a_pose_change() {
+    // Game::present rewrites every Offset row each tick; only content counts.
+    let mut w = World::new(60, 1);
+    let e = w.spawn(Transform::default());
+    w.insert(e, exact_game::Offset(Transform::at(1., 0., 0.)));
+    let before = offsets(&w);
+    w.remove::<exact_game::Offset>(e);
+    w.insert(e, exact_game::Offset(Transform::at(1., 0., 0.)));
+    assert_eq!(offsets(&w), before);
+    w.insert(e, exact_game::Offset(Transform::at(1.5, 0., 0.)));
+    assert_ne!(offsets(&w), before);
+}
