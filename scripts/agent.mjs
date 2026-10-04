@@ -1130,9 +1130,8 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
     },
     /** Move the clock: to an absolute millisecond, by '+N', or to 'settle' — a fixed point at which nothing is in flight (`settled: false` if timers keep starting motion). Timers fire on the way, each at its own time; motion is seeked, never played. The clock lands where the runner says; a timer's refusal is the error. */
     async clock(spec = 'settle') {
-      // @ref LLP 1080.000 §12 — platform timing's first clock starts at the wall, not the runner's 0: learn where, then count from there.
-      if (timing === 'platform' && carrier.host !== 'web' && !s.clockTaken) s.now = (await s.op({ op: 'clock', to: s.now })).clock;
-      s.clockTaken = true;
+      // @ref LLP 1080.000 §12 — under platform timing the host takes the clock over at the wall (a no-op once taken, per session and incarnation); count from where it stands.
+      if (timing === 'platform' && ['ios', 'host-ios', 'macos', 'host'].includes(carrier.host)) s.now = (await s.op({ op: 'clock', take: true })).clock;
       const req = { op: 'clock' };
       if (spec === 'settle') req.settle = true;
       else if (typeof spec === 'string' && spec.startsWith('+')) req.to = s.now + Number(spec.slice(1));

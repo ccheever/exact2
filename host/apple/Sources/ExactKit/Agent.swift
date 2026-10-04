@@ -400,12 +400,13 @@ public final class Agent {
     func clock(_ req: [String: Any]) -> [String: Any] {
         // @ref LLP 1080.000 §12 — platform timing, before any `clock`: the
         // host has run on the wall's time (motion and holds included) while
-        // the runner's clock stood at 0, where the driver's numbers start.
-        // The first seek starts at the wall, never behind it (a hold begun
-        // behind the motion engine's time is refused, ClockWentBackwards),
-        // and a target keeps its distance from the runner's 0.
-        let shift = session.clock == nil && !ExactEnv.agentFreezes ? session.now() : 0
-        let from = session.clock ?? shift
+        // the runner's clock stood behind it. The clock is taken over at the
+        // wall, frozen there before anything waits, and never set behind it:
+        // a hold begun behind the motion engine's time is refused
+        // (ClockWentBackwards). The runner catches up in the seek. `take`
+        // alone is that takeover, a seek to where the clock now stands.
+        if session.clock == nil, !ExactEnv.agentFreezes { session.clock = session.now() }
+        let from = session.clock ?? 0
         let settle = req["settle"] as? Bool == true
         // A request in flight (LLP 1016) is waited for first: its reply
         // commits — and may start motion or ask for more — before the fixed
@@ -418,7 +419,7 @@ public final class Agent {
         // Settle ends motion: every leaf held mid-fling is made (LLP 1068 §5.1).
         if settle { presenter.leaves.settle() }
         waitForImages()
-        var target = (req["to"] as? Double).map { $0 + shift }
+        var target = req["take"] as? Bool == true ? from : req["to"] as? Double
         if settle { target = max(from, self.settle() ?? from) }
         guard var to = target, to.isFinite else { return ["error": "clock needs \"to\" (ms) or \"settle\": true"] }
         guard to >= from else { return ["error": "the clock cannot go backwards (\(from) → \(to))"] }
@@ -432,11 +433,14 @@ public final class Agent {
             return out
         }
         while true {
-            let batch = advanceStepped(to: to, deadline: deadline)
-            let landed = batch.clock ?? to
+            let batch = advanceStepped(to: to, deadline: deadline, floor: from)
+            let landed = max(from, batch.clock ?? to)
             session.clock = landed
             session.apply(session.runtime.tick(now: landed))
             AnimatedRasters.shared.evaluate()
+            // A long catch-up (a takeover after minutes of uptime) can pass the
+            // runner's timer-fire limit: it is progress, so go on from there.
+            if let e = batch.error, "\(e)".contains("TimerFireLimit"), (batch.clock ?? to) < to, Date() < deadline { continue }
             if let e = batch.error { return ["error": "clock: \(e)", "clock": landed] }
             guard session.canvases.waitUntilReady() else { return ["error": "canvas creation is still in flight"] }
             session.canvases.settle(now: landed)
@@ -491,7 +495,8 @@ public final class Agent {
     /// timer that sends, and its reply is waited for. Past the deadline, or
     /// 4096 stops, the rest is one advance. Each batch is applied; the last
     /// one is returned.
-    func advanceStepped(to: Double, deadline: Date) -> Batch {
+    /// `floor`: the host's clock is never set behind it while the runner catches up (LLP 1080.000 §12).
+    func advanceStepped(to: Double, deadline: Date, floor: Double = -.infinity) -> Batch {
         var steps = 0
         // The agent's clock is a seek: frame tasks fire virtual frames (LLP 1073 D3).
         session.runtime.presentFrames(false)
@@ -500,7 +505,7 @@ public final class Agent {
             let held = waited && steps < 4096
             let batch = session.runtime.advance(now: to, untilRequest: held)
             session.apply(batch)
-            session.clock = batch.clock ?? to
+            session.clock = max(floor, batch.clock ?? to)
             // A stop at `to` may leave a timer due there: only a plain advance ends.
             if batch.error != nil || !held { return batch }
             steps += 1
