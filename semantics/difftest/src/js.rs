@@ -132,7 +132,11 @@ struct Ready {
 /// to `dir` unless it is its own file, unchanged (its `use`s resolve there).
 fn prepare(case: &Case, dir: &Path, index: usize) -> Result<Ready, JsVerdict> {
     let plan = compile(case).map_err(JsVerdict::Refused)?;
-    let (rust, data) = observe::run(plan.clone(), Oracle::new(&plan, seed_of(&case.name)), &case.events);
+    let (rust, data) = observe::run(
+        plan.clone(),
+        Oracle::new(&plan, seed_of(&case.name)),
+        &case.events,
+    );
     let data = data.expect("the oracle comes back");
     let file = match &case.path {
         Some(p) if std::fs::read_to_string(p).ok().as_deref() == Some(case.source.as_str()) => {
@@ -236,7 +240,9 @@ fn verdict(rust: Vec<String>, text: &str) -> JsVerdict {
         return JsVerdict::Outside(why.concat());
     }
     let Some(js) = field(line, "lines") else {
-        return JsVerdict::Error(field(line, "error").map_or_else(|| text.to_string(), |e| e.concat()));
+        return JsVerdict::Error(
+            field(line, "error").map_or_else(|| text.to_string(), |e| e.concat()),
+        );
     };
     let keep = |v: &[String]| -> Vec<String> {
         v.iter().filter(|l| !l.starts_with('#')).cloned().collect()
@@ -265,7 +271,9 @@ pub fn check(
     batch: usize,
     tag: &str,
 ) -> Result<Vec<JsVerdict>, String> {
-    let root = crate::work_dir().join("js").join(format!("{tag}-{}", std::process::id()));
+    let root = crate::work_dir()
+        .join("js")
+        .join(format!("{tag}-{}", std::process::id()));
     let chunks: Vec<&[Case]> = cases.chunks(batch.max(1)).collect();
     let jobs = std::env::var("DIFFTEST_JOBS")
         .ok()
@@ -289,7 +297,11 @@ pub fn check(
     });
     let mut out = Vec::new();
     for r in results {
-        out.extend(r.into_inner().expect("result slot").expect("every batch ran")?);
+        out.extend(
+            r.into_inner()
+                .expect("result slot")
+                .expect("every batch ran")?,
+        );
     }
     Ok(out)
 }
@@ -380,8 +392,13 @@ pub fn report(
                 diverge += 1;
                 let (case, rust, js, at) = if shrinking {
                     let c = shrink(compiler, case, &format!("shrink-{i}"))?;
-                    match check(compiler, std::slice::from_ref(&c), 1, &format!("shrunk-{i}"))?
-                        .pop()
+                    match check(
+                        compiler,
+                        std::slice::from_ref(&c),
+                        1,
+                        &format!("shrunk-{i}"),
+                    )?
+                    .pop()
                     {
                         Some(JsVerdict::Diverge { at, rust, js }) => (c, rust, js, at),
                         _ => (case.clone(), rust.clone(), js.clone(), *at),

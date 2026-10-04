@@ -85,11 +85,9 @@ function flush() {
 function untracked(f) { const l = Listener; Listener = null; try { return f(); } finally { Listener = l; } }
 
 /** A slot: a getter, `.n` its node; `t` its declared type (writes conform). */
-export function sig(v, t) {
-  // An initial value outside the slot's type: the runner refuses the boot, or a row's creation poisons (SlotType).
+export function sig(v, t) { // an initial value outside `t`: the runner refuses the boot, or the row's creation poisons (SlotType)
   if (t && !conforms(v, t)) throw new Error(`a slot's initial value does not conform to its type: ${v}`);
-  const n = node(null, v); n.t = t; const g = () => read(n); g.n = n; return g;
-}
+  const n = node(null, v); n.t = t; const g = () => read(n); g.n = n; return g; }
 const Settle = [];
 /** A derive: lazy, cached, equal results keep their object; settled at
  * every commit before the tree; its value conforms to its type. */
@@ -212,10 +210,7 @@ function drain() {
 /** An action: each call is one commit. Its arguments conform to its parameters' types (`types`, after `skip` leading
  * arguments: a row action's row), or it is refused before its body runs, as the runner's ArgumentType. */
 export function act(fn, types, skip = 0) {
-  return (...a) => commit(() => {
-    if (types) for (let i = 0; i < types.length; i++) if (!conforms(a[i + skip], types[i])) throw new Refusal(`argument ${i + 1} does not conform to its parameter's type`);
-    fn(...a);
-  }, "action");
+  return (...a) => commit(() => { for (let i = 0; types && i < types.length; i++) if (!conforms(a[i + skip], types[i])) throw new Refusal(`argument ${i + 1} does not conform to its parameter's type`); fn(...a); }, "action");
 }
 /** The host commands, by name; a loaded piece adds its own (list.js `scrollIntoView`). */
 export const Hosts = {
@@ -1053,8 +1048,7 @@ export function each(p, list, key, row, pure) {
   let rows = new Map(), single = false, order = null;
   effect(() => {
     const items = list(), parent = b?.parentNode ?? p; // rows go where the end anchor is: at an arm's top, `p` is the fragment the arm was built in
-    // A key that reads more than its item and index (a slot) is read tracked: the rows re-key when that changes, as the
-    // runner's do. A pure one is read only where it is needed.
+    // A key that reads more than its item and index (a slot) is read tracked, re-keying the rows as the runner's; a pure one only where needed.
     const keys = pure ? null : items.map((item, i) => key(() => item, () => i)), keyAt = i => keys ? keys[i] : key(() => items[i], () => i);
     untracked(() => {
       if (b) p = a.parentNode; // Conditional arms leave their build fragment.
@@ -1259,8 +1253,7 @@ export function mount(f) {
     root.textContent = "";
     booted = commit(() => { scope(() => f(root)); built = true; }, "boot");
   }
-  // A boot whose settlement refused (a derive outside its type) is refused whole, as the runner's
-  // `Runner::boot` fails: nothing is shown.
+  // A boot whose settlement refused (a derive outside its type) is refused whole, as `Runner::boot` fails: nothing shows.
   Booting = false; if (!built || booted === false) { root.textContent = ""; throw new Error("boot refused: " + journal.at(-1)); }
   say(`boot: ${root.getElementsByTagName("*").length} nodes, epoch ${clock.epoch}`); // the runner's journal line (LLP 1012 logs)
   if (adopted) say("adopted the document");
@@ -1298,28 +1291,11 @@ export function checkpoint() {
  * lists and records are arrays, unit and `none` null, `some(v)` v. */
 const value_ = v => v === null || typeof v !== "object" ? v : Array.isArray(v) ? v.map(value_) : "r" in v ? v.r.map(value_) : "s" in v ? value_(v.s) : "n" in v ? Number(v.n) : null;
 // ---------------------------------------------------------------- the roster (runner/src/stdlib.rs)
-/** A native module's props (LLP 1024 D1): key/value pairs to one JSON
- * object of strings, a none left out (`stdlib::native_props`). */
-export const NP = p => { const o = {}; for (let i = 0; i < p.length; i += 2) if (p[i + 1] != null) o[p[i]] = String(p[i + 1]); return JSON.stringify(o); };
 // Read untracked (an action's body, a handler's curried argument evaluated as the event arrives) it is the clock now:
 // the commit's time, or outside one the time the runner would evaluate the arguments at. A derive, resource or the
 // tree reads it tracked, as of the last commit: an advance that fired nothing committed no new time.
 export const x_now = () => { NowRead = true; if (Listener) return read(Now); if (!Writes) time(); return clock.now; };
-export const x_length = v => v.length;
-export const x_isEmpty = v => v.length === 0;
-export const x_floor = Math.floor;
-// `f64::max`/`min` (runner/src/stdlib.rs): a NaN operand gives the other one.
-export const x_max = (a, b) => a !== a ? b : b !== b ? a : Math.max(a, b), x_min = (a, b) => a !== a ? b : b !== b ? a : Math.min(a, b);
-// Numbers print as JavaScript prints them (`push_number`), `-0` as `0`.
-export const x_toString = v => String(v);
-export const x_includes = (a, b) => a.includes(b), x_startsWith = (a, b) => a.startsWith(b), x_endsWith = (a, b) => a.endsWith(b);
-export const x_trim = s => s.trim();
-export const x_first = l => l.length ? l[0] : null;
-/** `Array.prototype.at`, `none` where JavaScript answers undefined (`Stdlib::At`). */
-export const x_at = (l, i) => { const v = l.at(i); return v === undefined ? null : v; };
-export const x_join = (l, s) => l.map(String).join(s);
-export const x_encodeURIComponent = encodeURIComponent;
-export { x_formatTime, x_formatDate, x_formatNumber } from "./format.js";
+export * from "./roster.js"; // the roster's pure entries
 // ---------------------------------------------------------------- localized strings (LLP 1060)
 // The plan's tables, base first: [name, rtl, {key: text}]. The locale slot
 // starts at the base, and after boot holds the table the viewer's locale
