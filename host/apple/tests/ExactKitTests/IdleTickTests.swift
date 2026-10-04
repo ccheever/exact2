@@ -30,6 +30,7 @@ final class IdleTickTests: XCTestCase {
             XCTAssertEqual(armed?.isValid, false, "the earlier timer is replaced")
         }
         let later = session.clockTimer
+        if !ExactEnv.agentMode { XCTAssertEqual(later?.isValid, true, "the successor is armed") }
         idle.timerDueMs = nil
         session.applyTick(idle)
         XCTAssertEqual(session.appliedBatches, before)

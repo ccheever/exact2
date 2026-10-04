@@ -19,8 +19,8 @@ final class Presenter {
     /// appearance or size traits, geometry a sheet replayed after the batch).
     /// Run the projection steps an empty batch used to run, once, on the next
     /// turn, without waiting for a batch an idle app may never commit (LLP
-    /// 1079's amendment of 2026-10-04): tab bars, controls, and grouped lists,
-    /// which remount their carried rows and refresh their switches.
+    /// 1079's amendment of 2026-10-04): grouped lists remount (frames, cell
+    /// heights, switches), then tab bars and controls.
     func requestProjectionSync() {
         guard !projectionSyncOwed else { return }
         projectionSyncOwed = true
@@ -28,10 +28,13 @@ final class Presenter {
             guard let self else { return }
             projectionSyncOwed = false
             guard !applying else { return }
-            groupedLists.prepare()
+            // Rows stay carried: a trait refresh never pulls a row (and a
+            // first responder or a touch in it) out of its cell. Lists mount
+            // first, so a segment or control in a carried row is judged
+            // where it shows.
+            groupedLists.sync(changed: [])
             segments.sync()
             controls.sync()
-            groupedLists.sync(changed: [])
         }
     }
     /// The `aria-modal` view VoiceOver was last moved into, and the views
@@ -1010,9 +1013,13 @@ final class Presenter {
     /// Geometry can be deferred for the source route while a modal owns the
     /// session viewport. Replaying it uses the same path as the original batch.
     func applyGeometry(_ op: BatchOp) {
-        // Replayed outside a batch (a sheet's dismissal completing): the
-        // projections under it take their new boxes then.
-        if !applying { requestProjectionSync() }
+        // Replayed outside a batch (a sheet's dismissal completing): carried
+        // rows go back to their authored parents first, as before a batch,
+        // so the new box is theirs; the projections remount on the next turn.
+        if !applying {
+            groupedLists.prepare()
+            requestProjectionSync()
+        }
         let id = op.id
         guard let v = views[id] else { return }
         switch op.op {

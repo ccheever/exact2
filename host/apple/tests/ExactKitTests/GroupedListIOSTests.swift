@@ -225,6 +225,20 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertFalse(toggle.isOn)
     }
 
+    /// A carried custom row given a new box outside a batch keeps it, and is
+    /// carried into its cell again on the next turn.
+    func testAReplayedBoxReachesACarriedRow() throws {
+        let p = presenter { self.model(custom: true) }
+        let row = try XCTUnwrap(p.views[21])
+        let before = try cell(p, 21)
+        XCTAssertTrue(row.superview === before.contentView, "carried")
+        p.applyGeometry(wireBatch([["op": "frame", "id": 21, "x": 16.0, "y": 52.0, "w": 354.0, "h": 80.0]]).ops[0])
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        let after = try cell(p, 21)
+        XCTAssertEqual(row.frame.height, 80, "the replayed box, not the one saved at the last carry")
+        XCTAssertTrue(row.superview === after.contentView, "carried again")
+    }
+
     func testCustomRowsGoBackInTheirOrder() throws {
         let p = presenter {
             var m = self.model(custom: true)
