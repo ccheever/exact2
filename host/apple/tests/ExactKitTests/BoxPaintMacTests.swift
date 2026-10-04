@@ -28,7 +28,7 @@ final class BoxPaintMacTests: XCTestCase {
         node.applyStyle(style)
         return capture(node)
     }
-    /// As the agent's screenshot and a canvas's surface capture it.
+    /// As the agent's screenshot captures it.
     private func capture(_ view: NSView) -> NSBitmapImageRep { Capture.picture(of: view)! }
     /// sRGB components of the pixel under a point in the view's own (flipped) space.
     private func rgba(_ rep: NSBitmapImageRep, _ x: CGFloat, _ y: CGFloat) -> [CGFloat] {
