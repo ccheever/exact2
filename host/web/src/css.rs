@@ -560,6 +560,8 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             out.push_str("px");
         }
         RowValue::Number(n) => match id {
+            // @ref LLP 1093 §1 — the row's 0 is CSS's `auto`.
+            StyleId::ColumnCount if *n == 0.0 => out.push_str("auto"),
             StyleId::ZIndex => {
                 let max = exact_kernel::paint_order::Z_MAX;
                 out.push_str(&(*n as i32).clamp(-max, max).to_string());
@@ -568,6 +570,9 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             | StyleId::FlexShrink
             | StyleId::Opacity
             | StyleId::Order
+            | StyleId::ColumnCount
+            | StyleId::Widows
+            | StyleId::Orphans
             | StyleId::FontWeight
             | StyleId::Scale
             // SVG's unitless numbers (LLP 1055 D2); `r`, `cx`, `cy` are lengths.

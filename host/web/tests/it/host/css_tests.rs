@@ -43,6 +43,23 @@ fn style_rows_lower_to_css_by_their_names() {
         .unwrap();
     s.set_dynamic(StyleId::Hyphens, &StyleValue::Text("auto".into()))
         .unwrap();
+    // LLP 1093: multi-column layout reaches CSS by its own names.
+    for (row, value) in [
+        (StyleId::ColumnCount, StyleValue::Number(3.0)),
+        (StyleId::ColumnWidth, StyleValue::Number(120.0)),
+        (StyleId::ColumnFill, StyleValue::Text("auto".into())),
+        (StyleId::ColumnRuleWidth, StyleValue::Number(1.0)),
+        (StyleId::ColumnRuleStyle, StyleValue::Text("solid".into())),
+        (StyleId::Widows, StyleValue::Number(3.0)),
+        (StyleId::Orphans, StyleValue::Number(1.0)),
+        (StyleId::BreakBefore, StyleValue::Text("column".into())),
+        (
+            StyleId::BreakInside,
+            StyleValue::Text("avoid-column".into()),
+        ),
+    ] {
+        s.set_dynamic(row, &value).unwrap();
+    }
     s.set_dynamic(
         StyleId::PaddingTop,
         &StyleValue::Text("env(safe-area-inset-top)".into()),
@@ -91,6 +108,15 @@ fn style_rows_lower_to_css_by_their_names() {
         "letter-spacing:1.2px;",
         "text-indent:-24px;",
         "hyphens:auto;",
+        "column-count:3;",
+        "column-width:120px;",
+        "column-fill:auto;",
+        "column-rule-width:1px;",
+        "column-rule-style:solid;",
+        "widows:3;",
+        "orphans:1;",
+        "break-before:column;",
+        "break-inside:avoid-column;",
         "padding-top:env(safe-area-inset-top);",
         "padding-bottom:calc(env(safe-area-inset-bottom) + 12px);",
         "margin-left:calc(env(safe-area-inset-left) - 2px);",
