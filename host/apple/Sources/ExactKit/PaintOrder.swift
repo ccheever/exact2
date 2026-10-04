@@ -193,3 +193,54 @@ extension NSView {
 }
 #endif
 
+#if os(iOS)
+/// A leaf has no UIView, but it still occludes siblings for input. Runs
+/// retain each border box: the gaps between their shapes remain hittable.
+final class FlatHit {
+    weak var owner: NodeView?
+    let frames: [CGRect]
+    init(owner: NodeView, frames: [CGRect]) { self.owner = owner; self.frames = frames }
+}
+private var flatHitKey: UInt8 = 0
+extension CALayer {
+    var flatHit: FlatHit? {
+        get { objc_getAssociatedObject(self, &flatHitKey) as? FlatHit }
+        set { objc_setAssociatedObject(self, &flatHitKey, newValue, .OBJC_ASSOCIATION_RETAIN_NONATOMIC) }
+    }
+}
+
+extension NodeView {
+    /// The same front-to-back order, with flat layers in their actual tree
+    /// slots. Decoration layers never become input targets.
+    static func hitChildren(in holder: UIView, at point: CGPoint, with event: UIEvent?,
+                            visit: ((UIView) -> UIView?)? = nil) -> UIView? {
+        let views = holder.subviews
+        func hit(_ view: UIView) -> UIView? {
+            if let visit { return visit(view) }
+            return view.hitTest(holder.convert(point, to: view), with: event)
+        }
+        let layers = holder.layer.sublayers ?? []
+        guard layers.contains(where: { $0.flatHit != nil }) else {
+            for view in hitOrder(views) { if let found = hit(view) { return found } }
+            return nil
+        }
+        let byLayer = Dictionary(uniqueKeysWithValues: views.map { (ObjectIdentifier($0.layer), $0) })
+        let depth = layers.first?.zPosition ?? 0
+        let ordered: [CALayer]
+        if layers.allSatisfy({ $0.zPosition == depth }) { ordered = layers.reversed() }
+        else {
+            ordered = layers.enumerated().sorted {
+                $0.element.zPosition != $1.element.zPosition ? $0.element.zPosition > $1.element.zPosition : $0.offset > $1.offset
+            }.map(\.element)
+        }
+        for layer in ordered {
+            if let view = byLayer[ObjectIdentifier(layer)] {
+                if let found = hit(view) { return found }
+            } else if !layer.isHidden, let flat = layer.flatHit, let owner = flat.owner,
+                      !owner.inert, owner.style["pointer_events"]?.string != "none",
+                      flat.frames.contains(where: { $0.contains(point) }) { return owner }
+        }
+        return nil
+    }
+}
+#endif

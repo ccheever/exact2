@@ -84,6 +84,46 @@ final class FlatLeavesIOSTests: XCTestCase {
         XCTAssertTrue(hit === parent, "the row, as the web bubbles a press from a box with no handler: \(String(describing: hit))")
     }
 
+    func testRanksPromoteDemoteAndSplitRuns() throws {
+        let p = presenter([["op": "create", "id": 1, "kind": "view", "handlers": ["press"]]]
+            + bar(2, x: 0) + bar(3, x: 5) + bar(4, x: 10)
+            + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]]])
+        XCTAssertEqual(p.flats.inspectionLayers(under: 1).count, 1)
+        p.apply(wireBatch([["op": "rank", "id": 3, "rank": 1]]))
+        XCTAssertEqual(p.views[3]?.paintZPosition, 0.001)
+        XCTAssertEqual(p.flats.inspectionLayers(under: 1).count, 2)
+        p.apply(wireBatch([["op": "rank", "id": 3, "rank": 0]]))
+        XCTAssertNil(p.views[3])
+        XCTAssertEqual(p.flats.inspectionLayers(under: 1).first?.leaves, [2, 3, 4])
+        // Position is no longer an inert layout row, even before rank arrives.
+        p.apply(wireBatch([["op": "style", "id": 3, "style": ["position_type": "absolute"]],
+                          ["op": "rank", "id": 3, "rank": 1]]))
+        XCTAssertNotNil(p.views[3])
+        p.apply(wireBatch([["op": "rank", "id": 3, "rank": 0],
+                          ["op": "style", "id": 3, "style": ["position_type": "static"]]]))
+        XCTAssertNil(p.views[3])
+    }
+
+    func testFlatLeavesOccludeViewsByRankAndTreeOrderIncludingRunGaps() throws {
+        let p = presenter(row())
+        let parent = try XCTUnwrap(p.views[1]), middle = try XCTUnwrap(p.views[3])
+        p.apply(wireBatch([["op": "frame", "id": 3, "x": 0, "y": 0, "w": 20, "h": 20],
+                          ["op": "rank", "id": 3, "rank": -2]]))
+        XCTAssertTrue(parent.hitTest(CGPoint(x: 1, y: 10), with: nil) === parent)
+        XCTAssertTrue(parent.hitTest(CGPoint(x: 11, y: 10), with: nil) === parent)
+        XCTAssertTrue(parent.hitTest(CGPoint(x: 7, y: 10), with: nil) === middle)
+        p.apply(wireBatch([["op": "rank", "id": 3, "rank": 0]]))
+        XCTAssertTrue(parent.hitTest(CGPoint(x: 1, y: 10), with: nil) === middle)
+        XCTAssertTrue(parent.hitTest(CGPoint(x: 11, y: 10), with: nil) === parent)
+        // Adjacent leaves merge into a run, but its gaps do not occlude.
+        p.apply(wireBatch([["op": "children", "id": 1, "ids": [3, 2, 4]]]))
+        XCTAssertEqual(p.flats.inspectionLayers(under: 1).count, 1)
+        XCTAssertTrue(parent.hitTest(CGPoint(x: 11, y: 10), with: nil) === parent)
+        XCTAssertTrue(parent.hitTest(CGPoint(x: 7, y: 10), with: nil) === middle)
+        p.apply(wireBatch([["op": "rank", "id": 3, "rank": 1]]))
+        XCTAssertTrue(parent.hitTest(CGPoint(x: 11, y: 10), with: nil) === middle)
+    }
+
     func testALeafUnderAListOrWithMotionIsAView() throws {
         // A row root sits in a list's scroll view: it is a view.
         let p = presenter([["op": "create", "id": 1, "kind": "list", "style": ["overflow_y": "scroll"]]] + bar(2, x: 0)
@@ -140,5 +180,53 @@ final class FlatLeavesIOSTests: XCTestCase {
         XCTAssertEqual(parent.layer.sublayers?.count, 4)
         XCTAssertEqual(parent.layer.sublayers?.map(\.frame.minX), [0, 5, 10, 15], "in tree order")
     }
+    func testRanksPromoteDemoteAndSplitRunsAfterTheWholeBatch() throws {
+        let p = presenter([["op": "create", "id": 1, "kind": "view", "handlers": ["press"]]]
+            + bar(2, x: 0) + bar(3, x: 5) + bar(4, x: 10)
+            + [["op": "children", "id": 1, "ids": [2, 3, 4]], ["op": "roots", "ids": [1]],
+               ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 100, "h": 20]])
+        XCTAssertEqual(p.flats.inspectionLayers(under: 1).count, 1)
+        p.apply(wireBatch([["op": "rank", "id": 3, "rank": 1]]))
+        XCTAssertNotNil(p.views[3]); XCTAssertFalse(p.flats.isFlat(3))
+        XCTAssertEqual(p.views[3]?.paintZPosition, 0.001)
+        XCTAssertEqual(p.flats.inspectionLayers(under: 1).count, 2, "no run crosses the ranked view")
+        p.apply(wireBatch([["op": "rank", "id": 3, "rank": 0]]))
+        XCTAssertNil(p.views[3]); XCTAssertTrue(p.flats.isFlat(3))
+        XCTAssertEqual(p.flats.inspectionLayers(under: 1).count, 1)
+        p.apply(wireBatch([["op": "rank", "id": 3, "rank": 1],
+                          ["op": "style", "id": 3, "style": ["position_type": "relative"]]]))
+        p.apply(wireBatch([["op": "rank", "id": 3, "rank": 0],
+                          ["op": "style", "id": 3, "style": ["background_color": [0, 122, 255, 255]]],
+                          ["op": "props", "id": 3, "set": ["testId": "keep-view"]]]))
+        XCTAssertNotNil(p.views[3], "the later prop prevents demotion")
+    }
+
+    func testPositionedOrInitiallyRankedLeavesStayViews() throws {
+        let p = presenter(row() + [["op": "rank", "id": 2, "rank": -2]])
+        XCTAssertNotNil(p.views[2]); XCTAssertFalse(p.flats.isFlat(2))
+        XCTAssertNil(FlatPaint(["position_type": "relative"]))
+        XCTAssertNil(FlatPaint(["position_type": "absolute"]))
+        XCTAssertNotNil(FlatPaint(["position_type": "static"]))
+    }
+
+    func testFlatRunOccludesNegativeControlButNotItsGapsOrHigherRanks() throws {
+        let p = presenter([["op": "create", "id": 1, "kind": "view", "handlers": ["press"]],
+                           ["op": "create", "id": 5, "kind": "view", "handlers": ["press"]],
+                           ["op": "frame", "id": 5, "x": 0, "y": 0, "w": 100, "h": 20],
+                           ["op": "rank", "id": 5, "rank": -2]]
+            + bar(2, x: 0) + bar(3, x: 5)
+            + [["op": "children", "id": 1, "ids": [2, 3, 5]], ["op": "roots", "ids": [1]],
+               ["op": "frame", "id": 1, "x": 0, "y": 0, "w": 100, "h": 20]])
+        let parent = try XCTUnwrap(p.views[1]), control = try XCTUnwrap(p.views[5])
+        XCTAssertTrue(parent.hitTest(CGPoint(x: 1, y: 10), with: nil) === parent)
+        XCTAssertTrue(parent.hitTest(CGPoint(x: 4, y: 10), with: nil) === control)
+        p.apply(wireBatch([["op": "rank", "id": 5, "rank": 1]]))
+        XCTAssertTrue(parent.hitTest(CGPoint(x: 1, y: 10), with: nil) === control)
+        p.apply(wireBatch([["op": "rank", "id": 5, "rank": 0]]))
+        XCTAssertTrue(parent.hitTest(CGPoint(x: 1, y: 10), with: nil) === control, "later equal rank wins")
+        p.apply(wireBatch([["op": "children", "id": 1, "ids": [5, 2, 3]]]))
+        XCTAssertTrue(parent.hitTest(CGPoint(x: 1, y: 10), with: nil) === parent)
+    }
+
 }
 #endif

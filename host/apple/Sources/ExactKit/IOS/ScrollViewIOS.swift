@@ -10,10 +10,7 @@ final class PlainView: UIView {
     override func didAddSubview(_ subview: UIView) { super.didAddSubview(subview); FocusSearch.joined(subview) }
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard !isHidden, isUserInteractionEnabled, bounds.contains(point) else { return nil }
-        for sub in NodeView.hitOrder(subviews) {
-            if let hit = sub.hitTest(convert(point, to: sub), with: event) { return hit }
-        }
-        return nil
+        return NodeView.hitChildren(in: self, at: point, with: event)
     }
 }
 
@@ -26,10 +23,7 @@ final class PlainView: UIView {
 class ScrollView: UIScrollView {
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard let hit = super.hitTest(point, with: event) else { return nil }
-        for child in NodeView.hitOrder(subviews) {
-            if let found = child.hitTest(convert(point, to: child), with: event) { return found }
-        }
-        return hit
+        return NodeView.hitChildren(in: self, at: point, with: event) ?? hit
     }
 
     var scrollsX = true

@@ -714,20 +714,18 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             if outsideX && (style["overflow_x"]?.string ?? "visible") != "visible" { return nil }
             if outsideY && (style["overflow_y"]?.string ?? "visible") != "visible" { return nil }
             let passesThrough = style["pointer_events"]?.string == "none"
-            for child in NodeView.hitOrder(subviews) {
-                if child === (glassSlot ?? materialView), Materials.glass(materialKind) || blurHostsChildren, let contentView = materialView?.contentView {
+            if let hit = NodeView.hitChildren(in: self, at: point, with: event, visit: { child in
+                if child === (self.glassSlot ?? self.materialView), Materials.glass(self.materialKind) || self.blurHostsChildren, let contentView = self.materialView?.contentView {
                     // The effect's UIKit bounds check must not hide authored
                     // children in CSS visible overflow. They remain descendants
                     // of the effect, so its recognizers still see their touches.
-                    for content in NodeView.hitOrder(contentView.subviews) where content is NodeView || content is GlassGroupView {
-                        if let hit = content.hitTest(convert(point, to: content), with: event) { return hit }
-                    }
+                    if let hit = NodeView.hitChildren(in: contentView, at: self.convert(point, to: contentView), with: event) { return hit }
                 }
                 // Under `pointer-events: none` this box's own platform views
                 // (a native module's, paint F9) are not targets either.
-                if passesThrough, !(child is NodeView) { continue }
-                if let hit = child.hitTest(convert(point, to: child), with: event) { return hit }
-            }
+                if passesThrough, !(child is NodeView) { return nil }
+                return child.hitTest(self.convert(point, to: child), with: event)
+            }) { return hit }
             // CSS `pointer-events: none` (inherited): the box is never the
             // target, so a touch goes to what is under it — a header's blur
             // over a list must not stop the list scrolling. A descendant

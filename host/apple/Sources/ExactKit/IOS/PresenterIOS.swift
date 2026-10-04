@@ -795,6 +795,7 @@ final class Presenter {
                 guard let v = views[id] ?? leaving[id]?.view else { continue }
                 let color = v.style["text_color"]
                 v.applyStyle(op.style)
+                flats.styleChanged(id)
                 if v.surface != nil { v.applySurface() }
                 // Paint motion re-sends a style per frame (LLP 1055.000 D6):
                 // a paragraph's pixels carry their colour, so a new one is
@@ -829,7 +830,7 @@ final class Presenter {
             case .land:
                 if let f = flights[id] { landFlight(f) }
             case .rank:
-                if let rank = op.payload["rank"] as? NSNumber { views[id]?.setRank(rank.int64Value) }
+                if let rank = op.payload["rank"] as? NSNumber { flats.rank(id, rank.int64Value) }
             case .sticky:
                 if flats.isFlat(id) { flats.promote(id) }
                 stickies.apply(id, op.payload)

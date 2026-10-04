@@ -194,10 +194,7 @@ final class GlassGroupView: UIVisualEffectView {
     var spacing: CGFloat = -1
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         guard !isHidden, isUserInteractionEnabled else { return nil }
-        for child in NodeView.hitOrder(contentView.subviews) {
-            if let hit = child.hitTest(convert(point, to: child), with: event) { return hit }
-        }
-        return nil
+        return NodeView.hitChildren(in: contentView, at: convert(point, to: contentView), with: event)
     }
 }
 
