@@ -15,7 +15,7 @@ protocol MouseRecognizer: AnyObject {
 }
 extension MouseReorder: MouseRecognizer {
     var armed: NodeView? { candidate }
-    var engaged: Bool { hold != nil }
+    var engaged: Bool { hold != nil || grouped }
     func arm(_ node: NodeView, event: NSEvent) { down(node, event: event) }
 }
 extension MouseTransformDrag: MouseRecognizer {

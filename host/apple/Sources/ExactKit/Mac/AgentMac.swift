@@ -363,7 +363,10 @@ extension Agent {
             let t = contactClock
             if let e = NSEvent.mouseEvent(with: type, location: toWindow(p), modifierFlags: [], timestamp: t, windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1) {
                 presenter.menus.pointer(e)
-                win.sendEvent(e)
+                // Through the application, as a hand's event comes: its local
+                // monitors see it (a grouped drag's, whose grip is hidden while
+                // its ghost stands for it; LLP 1094 D6), then the window.
+                NSApp.sendEvent(e)
             }
         }
         let at = { (p: CGPoint) -> [Double] in [Agent.r2(p.x), Agent.r2(p.y)] }

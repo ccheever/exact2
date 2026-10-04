@@ -13,6 +13,8 @@ final class MouseReorder {
     private(set) var grouped = false
     private var escape: Any?
     private var inactive: NSObjectProtocol?
+    /// The grouped contact's own events, while its grip is hidden.
+    private var contact: Any? { didSet { if let oldValue { NSEvent.removeMonitor(oldValue) } } }
 
     init(_ presenter: Presenter) {
         self.presenter = presenter
@@ -31,6 +33,7 @@ final class MouseReorder {
     }
     deinit {
         if let escape { NSEvent.removeMonitor(escape) }
+        if let contact { NSEvent.removeMonitor(contact) }
         if let inactive { NotificationCenter.default.removeObserver(inactive) }
     }
     func down(_ node: NodeView, event: NSEvent) {
@@ -57,6 +60,14 @@ final class MouseReorder {
             guard hypot(point.x - origin.x, point.y - origin.y) > Gesture.slop else { return false }
             guard ReorderGroupHold(candidate, point: origin, ghost: true) != nil else { self.candidate = nil; return false }
             grouped = true
+            // The row (and the grip in it) hides while the ghost stands for
+            // it, and AppKit sends a hidden view no more of the contact: the
+            // window's own events carry it until the button lifts.
+            contact = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { [weak self] event in
+                guard let self, grouped else { return event }
+                if event.type == .leftMouseUp { _ = up(event) } else { presenter.reorderGroup?.move(event.locationInWindow) }
+                return nil
+            }
             presenter.selection.clear()
             for node in presenter.views.values where node.pressed { node.pressed = false }
             presenter.reorderGroup?.move(point)
@@ -80,7 +91,7 @@ final class MouseReorder {
     func up(_ event: NSEvent) -> Bool {
         defer { candidate = nil; downEvent = nil }
         if grouped {
-            grouped = false
+            grouped = false; contact = nil
             presenter?.reorderGroup?.move(event.locationInWindow)
             presenter?.reorderGroup?.finish(cancel: false)
             return true
@@ -96,7 +107,7 @@ final class MouseReorder {
         hold = nil; candidate = nil; downEvent = nil
         prior?.cancel()
         // A grouped session, a key's too, cancels before its drop (D8).
-        grouped = false
+        grouped = false; contact = nil
         presenter?.reorderGroup?.cancel()
     }
     func retire(_ id: UInt32) {
