@@ -13,6 +13,9 @@ pub enum Shape {
     Sphere(f32),
     /// Cone with base radius and height, pointing along Y.
     Cone(f32, f32),
+    /// Uniform volume inside a centred box of these full dimensions: rain or snow
+    /// over an area.
+    Box(Vec3),
 }
 /// Interpolation of the two authored lifetime keys.
 #[derive(Clone, Copy, Debug, Default, Data)]
@@ -214,6 +217,7 @@ impl Emitter {
                 Shape::Point => true,
                 Shape::Sphere(r) => r.is_finite() && r >= 0.,
                 Shape::Cone(r, h) => r.is_finite() && h.is_finite() && r >= 0. && h >= 0.,
+                Shape::Box(size) => size.is_finite() && size.min_element() >= 0.,
             };
         if valid {
             Ok(())
@@ -284,6 +288,9 @@ impl Emitter {
                         let y = random();
                         let r = r * y * math::sqrt(random());
                         Vec3::new(r * math::cos(angle), h * y, r * math::sin(angle))
+                    }
+                    Shape::Box(size) => {
+                        size * (Vec3::new(random(), random(), random()) - Vec3::splat(0.5))
                     }
                 };
                 let y = 1. - random() * (1. - spread_cos);

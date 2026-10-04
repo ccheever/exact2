@@ -730,6 +730,7 @@ fn emitter_reach(e: &Emitter, t: &glam::Mat4) -> f32 {
         exact_game::emitter::Shape::Point => 0.,
         exact_game::emitter::Shape::Sphere(r) => r.abs(),
         exact_game::emitter::Shape::Cone(r, h) => (r * r + h * h).sqrt(),
+        exact_game::emitter::Shape::Box(size) => size.length() * 0.5,
     };
     let local = shape + e.speed.abs() * lifetime + e.gravity.length() * lifetime * lifetime * 0.5;
     let [x, y, z] = [t.x_axis, t.y_axis, t.z_axis].map(|a| a.truncate().length_squared());
