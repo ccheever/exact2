@@ -551,9 +551,19 @@ box was a containing block:
   behind its static wrapper. `host/web/parity.mjs --paint` holds these
   nested-z and internal/external SVG backdrop cases on web and macOS
   (2026-09-30); the latter allows the declared display-colour-space difference.
-- **`z-index` orders siblings.** Apple's presenters give it to the layer
-  (`usedZIndex`); the Linux painter stacks siblings by the same rule (LLP
-  1083 D6). CSS orders a whole stacking context.
+- **`z-index` stays inside its holder** (LLP 1083.000 §3.1, which replaced
+  "`z-index` orders siblings"). A non-zero `z-index` orders a box among its
+  siblings and never above or below its parent's turn; the web isolates the
+  holder to match. CSS orders a whole stacking context, so there a positioned
+  descendant's `z-index` reaches past a parent that is not one (chess diary
+  #5: a drag ghost inside a board square, under the squares after it; measured
+  in Chrome by `kernel/tests/it/browser_paint_order.rs`, its §3.1 cases). The
+  reason is Apple's: each node is a view inside its parent's view, and Core
+  Animation's `zPosition` orders only the sublayers of one layer, so a
+  descendant painting past its parent's turn would have to leave its parent's
+  view, with that view's clip and transform recreated where it lands. The
+  hosts paint one order rather than the web and Linux following CSS while
+  Apple does not.
 - **`order` lays out, and painting stays in tree order** (feed F19). A flex
   or grid container hands the layout engine its children in order-modified
   document order (`kernel/src/layout/order.rs`), so items are placed as CSS
