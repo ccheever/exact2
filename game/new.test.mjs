@@ -440,6 +440,8 @@ test('the SDK lock decides every version; a game that adds packages captures its
   const added=lock([['glam','0.33.7','aa'],['itoa','1.0.15','dd'],['libm','0.2.9','ee']]);
   assert.deepEqual(outsideSdkLock(added,sdk,members),['itoa 1.0.15 registry+https://github.com/rust-lang/crates.io-index','libm 0.2.9 registry+https://github.com/rust-lang/crates.io-index']);
   assert.deepEqual(outsideSdkLock(lock([['glam','0.33.7','changed']]),sdk,members),['glam 0.33.7 registry+https://github.com/rust-lang/crates.io-index'],'a checksum is part of the identity');
+  // A core crate new since the SDK lock is a path of this checkout, not a cache's choice.
+  assert.deepEqual(outsideSdkLock(lock([['exact-svg-filter','0.1.0',null,['glam']],['glam','0.33.7','aa']]),sdk,members),[]);
   // The SDK must inherit every core patch, including host-only dependencies.
   const {outsideWorkspaceProblems} = await import('../scripts/app.mjs');
   assert.deepEqual(outsideWorkspaceProblems(import.meta.dir), []);

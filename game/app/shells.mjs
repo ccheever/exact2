@@ -311,10 +311,12 @@ const cargoMetadata = (cwd, flags, env) => spawnSync('cargo', ['metadata', ...fl
 // and the activated features, so a game's subset keeps every version but may
 // drop edges; the versions and checksums are what the SDK lock decides.
 const lockIds = text => new Map((Bun.TOML.parse(text).package ?? []).map(pkg => [`${pkg.name} ${pkg.version} ${pkg.source ?? ''}`.trim(), pkg.checksum ?? null]));
-/** Packages of `derived` (members excepted) whose version the SDK lock does not hold. */
+/** Packages of `derived` (members excepted) whose version the SDK lock does not hold.
+ * A package with no source is a path crate of this checkout, which no cache
+ * chooses: a new core crate (exact-svg-filter) is the SDK's, not outside it. */
 export function outsideSdkLock(derived, sdk, members) {
   const known = lockIds(sdk);
-  return [...lockIds(derived)].filter(([id, checksum]) => !members.has(id.split(' ')[0]) && (!known.has(id) || known.get(id) !== checksum)).map(([id]) => id);
+  return [...lockIds(derived)].filter(([id, checksum]) => !members.has(id.split(' ')[0]) && id.split(' ').length > 2 && (!known.has(id) || known.get(id) !== checksum)).map(([id]) => id);
 }
 // Every gpu-dev bake re-resolves the same graph. Reuse the last locked
 // metadata while every manifest, lock and config it read is unchanged, keyed by
