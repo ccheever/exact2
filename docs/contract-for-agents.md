@@ -340,6 +340,15 @@ styleable host-policy prop; its names and allowable branches are checked against
 checks in [`controls.rs`](../contract/lower/src/controls.rs), and test the actual
 platform look. Do not assume arbitrary custom paint or typography is admitted.
 
+An `image` source is the same string on every host: a path under the app's
+`assets/`, an `http(s)` URL, `symbol:<role>`, an `app:/data|cache|tmp/…` file
+(a picked photo, or one the data module kept with `storage.fs`; it shows after a
+relaunch too), or a `data:` URL of at most 1 MiB, past which every host shows
+nothing (the web and Apple journal `image refused`). Keep a picked photo by copying it to
+`app:/data` and answering that path; never tell hosts apart in the data module
+(`HermesInternal`) to choose a source
+([LLP 1069.002](../llp/1069.002-media-picker.rfc.md) D7, [LLP 1011](../llp/1011-image-v1.spec.md) §2).
+
 Keep `id` and `testId` separate:
 
 - `id`: host command target, geometry, cross-node references.

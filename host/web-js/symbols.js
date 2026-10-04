@@ -27,6 +27,8 @@ export function symbols(table) {
   PropHooks.src = (e, v) => {
     if (e.localName === "img" && v?.startsWith("app:/")) { appSource(e, v); return true; }
     if (e.localName === "img" && e.$app) { e.$app = null; e.removeAttribute("data-app-src"); }
+    // A `data:` source past its bound shows nothing, as on every host (LLP 1011 §2; exact_raster::MAX_DATA_URL_BYTES).
+    if (e.localName === "img" && v?.startsWith("data:") && v.length > DATA_LIMIT) { journal.push(`t=${clock.now} image refused: a data: source is over ${DATA_LIMIT} bytes`); e.removeAttribute("src"); return true; }
     if (e.localName !== "img" || !v?.startsWith("symbol:")) { e.removeAttribute("data-symbol-path"); e.removeAttribute("data-symbol-fill"); e.removeAttribute("data-symbol-source"); e.symbolKey = null; template(e, v); return false; }
     template(e, null);
     if (!Table[v.slice(7)] && !All && !v.startsWith("symbol:sf/")) everyRole();
@@ -40,6 +42,7 @@ export function symbols(table) {
 // host's picker glue (`appURL`), as on the wasm host; counted in flight, so
 // `clock settle` waits for it. A literal source arrives as `data-app-src`.
 let Files = null;
+const DATA_LIMIT = 1024 * 1024;
 function appSource(e, v) {
   e.$app = v;
   if (e.getAttribute("data-app-src") !== v) e.setAttribute("data-app-src", v);

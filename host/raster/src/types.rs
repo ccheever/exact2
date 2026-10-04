@@ -13,6 +13,10 @@ pub const COLD_ENTRIES: usize = 256;
 pub const MAX_ENCODED_BYTES: u64 = 64 * 1024 * 1024;
 pub const MAX_HEADER_BYTES: u64 = 256 * 1024;
 pub const MAX_SOURCE_PIXELS: u64 = 64 * 1024 * 1024;
+/// A `data:` image source's bound, in bytes of URL text, on every host (LLP
+/// 1011 §2): small generated pictures, not photos (those are `app:/` files).
+/// Apple's `RasterInput.dataLimit` and the web hosts' `DATA_LIMIT` are this.
+pub const MAX_DATA_URL_BYTES: usize = 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub struct PixelSize {
