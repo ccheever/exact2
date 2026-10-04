@@ -89,7 +89,7 @@ function runtime(dir) {
   mkdirSync(dir, { recursive: true });
   for (const f of readdirSync(webJs)) if (f.endsWith('.js')) cpSync(resolve(webJs, f), resolve(dir, f));
   for (const f of ['frames.js', 'motion-glue.js', 'input-glue.js', 'markup-editor.js', 'textflow-glue.js', 'timer-glue.js', 'presence-glue.js', 'native-glue.js',
-    'geometry-glue.js', 'collection-glue.js', 'image-glue.js', 'navigation.js', 'canvas2d-glue.js', 'auth-glue.js', 'storage-environment.js', 'http-body.js', 'grant-admission.js'])
+    'geometry-glue.js', 'collection-glue.js', 'image-glue.js', 'media-glue.js', 'navigation.js', 'canvas2d-glue.js', 'auth-glue.js', 'storage-environment.js', 'http-body.js', 'grant-admission.js'])
     cpSync(resolve(web, f), resolve(dir, f));
   writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(webJs, 'admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'"));
   writeFileSync(resolve(dir, 'draw.js'), 'export const drawer = null;\n');
