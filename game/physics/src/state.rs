@@ -25,6 +25,9 @@ pub(crate) struct Entry {
     pub body: Option<Body>,
     pub collider: Option<Collider>,
     pub pose: Transform,
+    // Derived from the saved fields; sync and writeback clear it before editing.
+    #[data(skip)]
+    pub digest: Option<u64>,
 }
 impl Entry {
     pub fn bh(&self) -> Option<RigidBodyHandle> {
@@ -58,8 +61,6 @@ pub(crate) struct Live {
     // Static colliders verified equal to their entry's rebuild since last edited;
     // sync forgets every row it visits.
     pub elidable: BTreeSet<[u32; 2]>,
-    // Each entry's hash, kept until sync or writeback next touches the entry.
-    pub digests: BTreeMap<Entity, u64>,
 }
 impl Live {
     fn new(rapier: PhysicsWorld, entries: BTreeMap<Entity, Entry>) -> Self {
@@ -78,7 +79,6 @@ impl Live {
             removed: Vec::new(),
             synced: None,
             elidable: BTreeSet::new(),
-            digests: BTreeMap::new(),
             rapier,
             entries,
         }
@@ -194,11 +194,15 @@ impl Saved {
         match &mut self.live {
             Some(live) => {
                 (live.entries.len() as u64).write(&mut h);
-                for (e, entry) in &live.entries {
-                    let d = live
-                        .digests
-                        .entry(*e)
-                        .or_insert_with(|| exact_game::hash::of(entry));
+                for entry in live.entries.values_mut() {
+                    let d = match entry.digest {
+                        Some(d) => d,
+                        None => {
+                            let d = exact_game::hash::of(entry);
+                            entry.digest = Some(d);
+                            d
+                        }
+                    };
                     d.write(&mut h);
                 }
             }
@@ -410,6 +414,55 @@ mod tests {
             ..Saved::default()
         };
         saved.decode().unwrap();
+    }
+
+    #[test]
+    fn warmed_hash_matches_saved_state_after_physics_edits() {
+        use exact_game::{hash, Parent, Vec3, World};
+        let mut w = World::new(60, 0);
+        crate::register(&mut w);
+        let parent = w.spawn(Transform::default());
+        let mut e = w.spawn((Transform::default(), Collider::default()));
+        for stage in 0..9 {
+            match stage {
+                1 => w.get_mut::<Transform>(e).unwrap().position.x = 3.0,
+                2 => w.get_mut::<Collider>(e).unwrap().friction = 0.2,
+                3 => {
+                    w.insert(e, Body::default());
+                }
+                4 => w.get_mut::<Body>(e).unwrap().velocity = Vec3::Y,
+                5 => {
+                    w.remove::<Body>(e);
+                    w.insert(e, Parent(parent));
+                }
+                6 => w.get_mut::<Transform>(parent).unwrap().position.z = 2.0,
+                7 => {
+                    w.despawn(e);
+                }
+                8 => {
+                    let previous = e;
+                    e = w.spawn((Transform::at(5.0, 0.0, 0.0), Collider::default()));
+                    assert_eq!(e.index(), previous.index(), "exercise slot reuse");
+                    assert_ne!(e, previous);
+                }
+                _ => {}
+            }
+            crate::step(&mut w);
+            let physics = w.resource::<crate::Physics>();
+            let executor = &physics.executor;
+            let before = bin::to_vec(executor);
+            let warm = hash::of(executor);
+            assert_eq!(warm, hash::of(executor), "repeat at stage {stage}");
+            assert_eq!(
+                before,
+                bin::to_vec(executor),
+                "hash changed save at stage {stage}"
+            );
+            let cold = bin::from_slice::<Executor>(&before).unwrap();
+            assert_eq!(warm, hash::of(&cold), "saved state at stage {stage}");
+            let cloned = executor.clone();
+            assert_eq!(warm, hash::of(&cloned), "clone at stage {stage}");
+        }
     }
 
     #[test]

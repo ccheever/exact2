@@ -1221,3 +1221,15 @@ isolated performance measurements.
 The final ordinary Linux proof passes against the accepted pins in 6.8 s
 with a successful process audit (`artifacts/plates-accepted-linux/`). Caps
 passes after staging the pins, the three diaries and the gate-timing note.
+
+## Native idle-tick and physics cache integration (2026-10-04)
+
+Merge `16baa33a8` brings main through `e05dff0c0`. Forest diary 005 records
+the measured physics digest-cache change and passing root checks. Rivals
+passes complete web/macOS proofs in 106.4/68.7 s, including builds. Inputs,
+all pins, ten world observations and fourteen saves agree between hosts;
+worlds and saves also match `plates-main-macos` before the change. Both
+descendant audits pass with no recorded children left. Both Mayhem
+five-second captures were inspected; nameplates remain separated and
+readable. Artifacts: `artifacts/inline-{web,macos}/`. No gameplay or
+Jev-policy changes.

@@ -937,3 +937,56 @@ Only the source-input digest changes. Both descendant audits pass and both
 shelter screenshots were inspected. Artifacts: `artifacts/plates-main-{web,macos}/`.
 Rivals diary 006 records the shared passing checks. No Forest gameplay or
 Jev-policy changes; times include builds and concurrent verification.
+
+## Keep the physics digest with its entry (2026-10-04)
+
+The old diary's per-tick collider rebuild is already fixed. A fresh release
+measurement of the real game at 20k trees gives 0.087 ms median day ticks,
+0.099 ms at night, 0.97 ms seekable ticks and a 17.73 ms first full world
+hash. The remaining cost worth isolating is state capture for the agent,
+not the live simulation. This run is observational, not a before/after claim.
+
+The physics hash cached every entry's digest in a second `BTreeMap`, then
+looked it up for every collider whenever the world was hashed. The digest
+now lives beside its entry, excluded from Data. Sync and body writeback
+clear it at the same points as before; deleting an entry deletes its cache.
+The EXPHYS v3 encoding and the hash's entity order and algorithm are unchanged.
+
+Six alternating runs of `hash_of_a_static_forest`, comparing baseline
+`16baa33a8` and the new release binary, each measure one cold and four warm
+hashes at each size and give these medians:
+
+| Trees | Warm hash before | Warm hash after | Snapshot before / after |
+| --- | ---: | ---: | ---: |
+| 20,000 | 1.810 ms | 1.175 ms | 1.575 / 1.595 ms |
+| 100,000 | 10.185 ms | 7.405 ms | 8.545 / 8.505 ms |
+
+The warm hash itself is 35% / 27% cheaper; at 100k, snapshot plus hashing
+falls from about 18.7 to 15.9 ms. Cold hashing remains expensive: 68.32 /
+65.73 ms at 100k, plus about 50 ms for its first snapshot. The stripped
+binary's `sample` output did not identify functions; the claim comes from
+the alternating executable measurement, not that profile. Logs:
+`/tmp/exact2-{forest-scale-current,physics-hash-current,physics-inline-ab}.log`.
+
+All 47 enabled physics tests pass, including the existing continuation and
+pin tests, and Clippy and formatting pass. A new lifecycle test warms the
+cache before pose and material edits, adding/moving/removing a body,
+reparenting and moving its parent, despawning and reusing the entity slot.
+At every stage, the warmed hash equals a fresh decoded save and a clone;
+hashing leaves the saved bytes unchanged. No gameplay or Jev-policy change.
+
+Merge `16baa33a8` brings main through `e05dff0c0`, including Apple's idle
+timer and deferred-surface work. All five root checks pass in 56.974 s:
+build 0.272, tests 54.303 (2,351 passed, 81 binaries, nine ignored), Clippy
+0.256, formatting 2.040, caps 0.087 and boot 0.016 s. The game workspace's
+lockfile also catches up with main's path dependencies. Logs:
+`/tmp/exact2-inline-main-{build,test,clippy,fmt,caps,boot}.log` and
+`/tmp/exact2-physics-inline-{test,clippy,fmt}.log`.
+
+Forest's complete web/macOS proofs pass in 144.6/180.5 s including builds.
+Both hosts agree on source inputs, all pins, nine world observations and
+fifteen saves; every world and save also matches `plates-main-macos` before
+the change. Both descendant audits pass with no recorded children left.
+Both shelter captures were inspected: supply guidance and countdown remain
+readable. Artifacts: `artifacts/inline-{web,macos}/`. The speed measurement
+is the isolated alternating diagnostic above, not these proof wall times.

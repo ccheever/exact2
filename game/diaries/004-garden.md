@@ -1113,3 +1113,14 @@ web's optional scan reports `ps timed out after 200 ms`, with every owned
 carrier closed. Artifacts: `artifacts/plates-main-{web,macos}/`. Rivals
 diary 006 records the passing root and tooling checks. No Garden gameplay
 or Jev-policy changes; times include builds and concurrent work.
+
+## Native idle-tick and physics cache integration (2026-10-04)
+
+Merge `16baa33a8` brings main through `e05dff0c0`. Forest diary 005 records
+the measured physics digest-cache change and passing root checks. Garden
+passes complete web/macOS proofs in 82.5/40.8 s, including builds. Inputs,
+all pins, six world observations and nine saves agree between hosts; worlds
+and saves also match `plates-main-macos` before the change. Both descendant
+audits pass with no recorded children left, and both empty-direction
+captures were inspected. Artifacts: `artifacts/inline-{web,macos}/`.
+No gameplay or Jev-policy changes.

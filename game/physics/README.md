@@ -66,9 +66,12 @@ the free list.
 measures the same operation. Stepping does not serialize. JSON summarizes the opaque bytes by length/hash.
 A hash (`Writer::digests`) reads a digest instead of the content: the snapshot
 bytes' hash and each entry's hash in entity order, an entry rehashed only after
-sync or writeback touches it. Both are functions of the saved content, recomputed
-identically after a load. At 100k static trees a hash after a step costs about
-10 ms of snapshot encoding plus 12 ms, against 11 + 39 ms reading every entry.
+sync or writeback touches it. The cached digest lives beside its entry and is
+excluded from Data, so hashing needs no second map lookup per collider. Both are
+functions of the saved content, recomputed identically after a load. Six alternating
+release runs on arm64 measured a warmed 100k-tree hash after a step at a median
+8.5 ms of snapshot encoding plus 7.4 ms of hashing, down from 8.5 + 10.2 ms with
+the separate digest map (2026-10-04). Cold entry hashing still costs about 66 ms.
 Malformed or obsolete Rapier payloads fail during `World::load`, before replacement.
 
 Continuation tests preserve the complete authoritative snapshot; `Executor::clone`
