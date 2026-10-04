@@ -21,6 +21,28 @@ final class PaintOrderIOSTests: XCTestCase {
         return p
     }
 
+    func testTenThousandEqualRankChildrenMountInOneBatch() throws {
+        #if os(macOS)
+        _ = NSApplication.shared
+        #endif
+        let p = Presenter()
+        let parent = NodeView(id: 1, kind: "view", presenter: p)
+        let children = (2...10_001).map { NodeView(id: UInt32($0), kind: "view", presenter: p) }
+        let start = CFAbsoluteTimeGetCurrent()
+        PaintOrder.begin()
+        for child in children {
+            parent.addSubview(child)
+            child.setRank(1)
+        }
+        // Nothing scans the growing list during the transaction.
+        XCTAssertTrue(children.allSatisfy { $0.paintZPosition == 0 })
+        PaintOrder.end()
+        let ms = (CFAbsoluteTimeGetCurrent() - start) * 1000
+        print("paint-order: mounted 10000 rank-1 children in one batch: \(ms) ms")
+        XCTAssertTrue(children.allSatisfy { $0.paintZPosition == 0.001 })
+        XCTAssertTrue(NodeView.hitOrder(parent.subviews).first === children.last)
+    }
+
     func testDenseRanksAreLosslessAndRebaseAfterRemoval() throws {
         let p = fixture()
         p.apply(wireBatch([["op": "rank", "id": 2, "rank": -4_294_967_290],

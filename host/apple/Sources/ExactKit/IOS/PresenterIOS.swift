@@ -671,6 +671,7 @@ final class Presenter {
     func apply(_ batch: Batch) {
         defer { applyLanguage(batch) }
         if applySnapshots(batch) { return }
+        PaintOrder.begin()
         let post = Self.signposts.beginInterval("apply")
         defer { Self.signposts.endInterval("apply", post) }
         collections.beginBatch(batch)
@@ -700,6 +701,7 @@ final class Presenter {
         defer {
             collections.endBatch()
             pool.end()
+            PaintOrder.end()
             if outermost {
                 applying = false
                 reaimFixedGradients()

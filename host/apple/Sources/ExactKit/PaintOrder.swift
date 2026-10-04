@@ -20,6 +20,27 @@ private final class DensePaintRanks {
     }
 }
 
+/// All callers run on the UI thread. Nested presenter applies share the
+/// transaction; a standalone lift/ghost change is its own transaction.
+enum PaintOrder {
+    private static var depth = 0
+    private static var dirty: [ObjectIdentifier: PaintView] = [:]
+
+    static func begin() { depth += 1 }
+    static func end() {
+        precondition(depth > 0)
+        depth -= 1
+        guard depth == 0 else { return }
+        let parents = dirty.values
+        dirty = [:]
+        for parent in parents { NodeView.rankChildren(of: parent) }
+    }
+    static func changed(_ parent: PaintView) {
+        if depth > 0 { dirty[ObjectIdentifier(parent)] = parent }
+        else { NodeView.rankChildren(of: parent) }
+    }
+}
+
 extension NodeView {
     var paintRank: Int64 {
         if paintLifted { return 4_294_967_294 }
@@ -49,6 +70,8 @@ extension NodeView {
 
     func setGhost(_ value: Bool) {
         guard paintGhost != value else { return }
+        PaintOrder.begin()
+        defer { PaintOrder.end() }
         paintGhost = value
         if value {
             var parent = superview
@@ -67,16 +90,16 @@ extension NodeView {
     func paintOrderMoved() {
         let old = paintParent
         paintParent = superview
-        if old !== superview, let old { Self.rankChildren(of: old) }
+        if old !== superview, let old { PaintOrder.changed(old) }
         refreshPaintOrder()
     }
 
     private func refreshPaintOrder() {
-        if let parent = superview { Self.rankChildren(of: parent, changed: self) }
+        if let parent = superview { PaintOrder.changed(parent) }
         else { setPaintPosition(0) }
     }
 
-    fileprivate static func rankChildren(of parent: PaintView, changed: PaintView? = nil) {
+    fileprivate static func rankChildren(of parent: PaintView) {
         let children = parent.subviews.filter { $0 is NodeView || $0.paintForeground }
         // Zero is the origin even when no child has rank zero. Native
         // decoration/content layers remain there as well.
@@ -86,9 +109,8 @@ extension NodeView {
             let ranks = distinct.sorted()
             let zero = ranks.firstIndex(of: 0)!
             dense.positions = Dictionary(uniqueKeysWithValues: ranks.enumerated().map { ($0.element, CGFloat($0.offset - zero) * 0.001) })
-            for child in children { child.setPaintPosition(dense.positions[child.siblingPaintRank]!) }
         }
-        if let changed { changed.setPaintPosition(dense.positions[changed.siblingPaintRank]!) }
+        for child in children { child.setPaintPosition(dense.positions[child.siblingPaintRank]!) }
     }
 
     /// Live children may reorder around an exit, but the ghost keeps its
@@ -135,7 +157,7 @@ extension PaintView {
         if on { wantsLayer = true }
         #endif
         objc_setAssociatedObject(self, &paintForegroundKey, on, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
-        if let superview { NodeView.rankChildren(of: superview, changed: self) }
+        if let superview { PaintOrder.changed(superview) }
         else { setPaintPosition(0) }
     }
 
@@ -170,3 +192,4 @@ extension NSView {
     }
 }
 #endif
+

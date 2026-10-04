@@ -836,6 +836,7 @@ final class Presenter {
 
     func apply(_ batch: Batch) {
         defer { applyLanguage(batch) }
+        PaintOrder.begin()
         let post = Self.signposts.beginInterval("apply", "\(batch.ops.count) ops")
         defer { Self.signposts.endInterval("apply", post) }
         viewport.invalidateDocumentFit()
@@ -861,6 +862,7 @@ final class Presenter {
             collections.endBatch()
             collections.observeKnobDrags()
             collections.limitPrepared()
+            PaintOrder.end()
             if outermost {
                 applying = false
                 videoVisibility?.changed()
