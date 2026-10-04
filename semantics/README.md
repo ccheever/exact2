@@ -28,6 +28,11 @@ tested against it, differentially and at random.
 | `Contract/TypeInvariant.lean` | The slot invariant over every reachable configuration. |
 | `Contract/EnvSound.lean`, `SettleSound.lean`, `RenderSound.lean` | Well-typed environments give `EnvOK`; settlement and rendering preserve typing and fail only legitimately. |
 | `Contract/StepSound.lean` | Well-typed programs don't go wrong: every reachable configuration is well typed and every step from it is safe. |
+| `Contract/Components.lean` | The unexpanded file: every component with its props, injects, `provide` section, `slot`, states, derives and actions, and a view whose uses are still uses. |
+| `Contract/CompSem.lean` | The component-level semantics: the unexpanded file's meaning, instance by instance, without expanding it. |
+| `Contract/Expand.lean` | The component expander, transcribing `contract_syntax::inline` (inline.rs, subst.rs, derives.rs, tail.rs). |
+| `Contract/ExpandCheck.lean` | The Lean half of `difftest expansion`. |
+| `Contract/CompSemFacts.lean`, `ExpandSubst{,Rev}.lean`, `ExpandFrame.lean`, `ExpandInstance.lean`, `ExpandMap.lean` | The expansion's correctness proofs (below). |
 | `difftest/` | The differential tester (Rust crate `contract-difftest`). |
 | `corpus/` | Scripted programs: `test` blocks whose steps both sides run. |
 | `Apps/` | Real apps' embeddings (generated, checked current by `difftest apps`) and, under `Apps/Proofs/`, invariants proved of them. |
@@ -85,7 +90,8 @@ events, both observations); random failures have their scripts shrunk first.
 The async lane (`scripts/async.mjs`, step `semantics`) builds the Lean
 project, checks the proofs (the app proofs among them), checks the app
 embeddings are current, runs the corpus and a random sweep seeded by the
-commit.
+commit, and checks component expansion over the corpus and 200 generated
+programs (`difftest expansion`, below).
 
 ## Using it day to day
 
@@ -309,6 +315,133 @@ difference or a body `Contract.Lower` refuses is reported by category.
 cargo run -p contract-difftest -- lowering --seed 7 --count 500
 cargo run -p contract-difftest -- lowering-corpus             # semantics/corpus
 ```
+
+## Component expansion
+
+Everything above is about the *expanded* root: `contract lean` embeds what
+`contract_syntax::inline::expand` makes of the file. This part stops
+trusting that expansion preserves meaning.
+
+**The unexpanded file.** `contract lean --components <file>` emits the file
+before expansion as a `Contract.Components.CProgram`: every component with
+its props (declared type, whether `action`), injects, `provide` section,
+`slot`, states, derives and actions (each with the checker's types: the
+root's from the expanded root, a child's from the checker's standalone
+pass), and a view whose `Use` and `children` nodes are still there, each
+region, use and `children` node numbered within its component.
+
+**Its meaning** (`Contract.CompSem`) is given directly, not by expanding.
+A use is an *instance*, identified by its path from the root: every use,
+region arm (`when`/`match` arm, `each` row by key and duplicate count) and
+`children` node on the way. Its states live in a store under that path,
+initialized in the instance's frame the first time it renders, kept while
+it renders, dropped when a render leaves it out. Names are read in a
+*frame*: the root's reads the root's declarations as `Contract.Eval` does;
+an instance's reads its derives (the body, at every read), its states (the
+store), its injects and props, each a thunk (the expression the use or the
+provider wrote, with the frame and locals where it was written, evaluated
+at each read). A fill renders where `children` stands, in the use site's
+frame, locals, providers and fill; a `provide` covers the providing
+component's view. A handler names an action or an `action` prop, resolved
+through the props to the action it names with the curried arguments; its
+arguments are evaluated at dispatch. A child's action writes its
+instance's states; an `action` prop called last (LLP 1017 §11) runs the
+named action's statements in its own frame in the same commit. The root's
+own slots, settlement, actions and timers are `Contract.Runtime`'s, of the
+root alone (`rootProgram`).
+
+**The expander** (`Contract.Expand`) transcribes inline.rs and its
+submodules step for step, numbering and spelling included: capture-avoiding
+substitution renaming a binder `x@k` when a replacement mentions it, view
+binders `x#n`, derive resolution (freshened binders `x@bk`, a dependency
+read twice on every path bound once by a `let`), lifted states and actions
+`x#n` with their owners, props and injects captured as hidden parameters
+`@capture:n:i`, tail calls resolved (`p@ck`, `x@bk`, `p@tailk`; the
+`@check:` statement the flat embedding drops is not emitted).
+
+**`difftest expansion`** checks the real expander on each program:
+
+```
+cargo run -p contract-difftest -- expansion                          # semantics/corpus
+cargo run -p contract-difftest -- expansion contract/corpus apps/*/app.contract
+cargo run -p contract-difftest -- expansion --seed 1 --count 500     # generated
+```
+
+(a) the Lean expander's output on the component-level embedding against
+Rust's expansion (the flat embedding), declaration by declaration and node
+by node, types apart (a lifted type that differs is reported, not failed:
+a child's declarations carry the standalone checker's types); (b) the
+component-level semantics of the unexpanded file against the flat
+semantics of Rust's expansion over the case's script, the oracle the
+runner's transcript, every observation line compared but the slots the
+expansion lifts out of children (`slot name#n …`), which the
+component-level semantics keeps per instance. A disagreement is kept under
+`target/difftest/expansion/`, its script shrunk.
+
+**What is proved** (no `sorry`, no axioms beyond Lean's own):
+
+- `ExpandSubst.subst_iff`: the expander's substitution commutes with
+  evaluation. For an expression of the fragment (`Plain`: no
+  `pending`/`failed`, callbacks of at most two parameters, no binder named
+  like a call in its scope), a substitution whose replacements are
+  callbacks of at most two parameters and never a callback, and no call
+  head replaced: if every free name reads in the source environment what
+  its replacement reads in the target (`Agree`), the expression has value
+  `v` in the source exactly when its substitution has value `v` in the
+  target. The binder cases are `agree_enter`: a binder is renamed exactly
+  when a replacement mentions it, to a name the scope, the replacements and
+  the enclosing binders do not write, so nothing is captured either way.
+  Weakening (`wk_iff`: only free names' locals matter) and environment
+  transfer for `fn` bodies (`xferE`) are proved on the way.
+- `CompSemFacts.ceval_mono`, `ceval_det`: more fuel never changes the
+  component-level evaluator's answer; a name has one value in a frame.
+- `ExpandFrame.frame_iff`: an instance's frame is an environment. An
+  expression of the fragment whose free names are locals or the frame's
+  has value `v` in the frame (at some fuel) exactly when it has value `v`
+  in `frameEnv` — the flat semantics over the frame's names as values.
+- `ExpandInstance.instance_iff`: an instance's expression means what its
+  expansion means. When the frame's names correspond to their replacements
+  (`Corr`), a component-level expression has value `v` in the instance
+  exactly when the expander's substitution of it has value `v` in the flat
+  environment. `prop_reads`, `state_reads` and `derive_reads` discharge
+  `Corr` name by name: a prop when its argument corresponds at the use site
+  (the same theorem one level up, so it composes through nesting), a state
+  when its lifted slot `x#n` holds the store's value, a derive when its
+  resolved body means its body.
+- `ExpandMap.use_prop`, `use_state`: the same of the expander's own
+  substitution for a use (`Expand.baseMap`, `withDerives`, which
+  `inlineNode` builds it with), for a component whose props, injects,
+  states, actions and derives have distinct names: a prop's replacement is
+  its argument substituted at the use site (`map_prop`), a state's its
+  lifted name (`map_state`).
+
+**What is left.** The theorem stops at expressions in an instance's
+frame. Not proved, and covered only by `difftest expansion`: that derive
+resolution (`resolvedDerives`: freshening, `let` placement) keeps a body's
+meaning; that the expander's view is the component-level view node for
+node (regions and their tags, fills placed at `children`, the instance
+store against lifted root and row slots); handler resolution and a child
+action's body (captured props as hidden parameters, writes to `x#n`); tail
+calls; `provide`/`inject` scoping in a render; and their composition into
+a run, where both semantics take a fixed fuel the expansion spends
+differently.
+
+**Findings.** Four disagreements, each a program the runner runs as the
+flat semantics does (so a bug in inline.rs, if the component-level
+reading is the intended one):
+
+1. A stateful child in a slot fill, the slot component showing `children`
+   under a `when`: hiding and showing the arm keeps the child's state. The
+   fill is inlined before the slot component's view, so its uses are owned
+   by the *use site's* region, not the region around `children`.
+2. A slot component that shows `children` twice: the fill is inlined once
+   and copied, so both copies share one instance's state (and region tags).
+3. A slot component that repeats `children` per `each` row: every row's
+   copy shares one instance's state, for the same reason.
+4. A child whose prop holds a number that is not finite (`1 / d` with `d`
+   zero): the child's own actions are refused (`ArgumentType` on
+   `@capture:n:i`), though they never read the prop, because the expansion
+   passes every prop to a lifted action as a hidden, type-checked argument.
 
 ## Lean
 

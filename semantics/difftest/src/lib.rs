@@ -13,6 +13,7 @@
 //! cases come from [`gen`].
 
 pub mod arith;
+pub mod expansion;
 pub mod gen;
 pub mod js;
 pub mod leanrun;

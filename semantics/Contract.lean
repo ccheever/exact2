@@ -32,3 +32,13 @@ import Contract.EnvSound
 import Contract.SettleSound
 import Contract.RenderSound
 import Contract.StepSound
+import Contract.Components
+import Contract.CompSem
+import Contract.Expand
+import Contract.ExpandCheck
+import Contract.CompSemFacts
+import Contract.ExpandSubst
+import Contract.ExpandSubstRev
+import Contract.ExpandFrame
+import Contract.ExpandInstance
+import Contract.ExpandMap

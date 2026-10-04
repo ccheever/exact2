@@ -16,6 +16,9 @@ use contract_types::{Checked, Ty};
 use std::fmt::Write as _;
 use std::path::Path;
 
+mod components;
+pub use components::{lean_components, lean_components_path};
+
 /// Compile one source text and emit `def <name> : Contract.Program`.
 pub fn lean(src: &str, name: &str) -> Result<String, CompileError> {
     // The plan backend first: what it refuses is not a program.
@@ -27,15 +30,13 @@ pub fn lean(src: &str, name: &str) -> Result<String, CompileError> {
 
 /// [`lean`] for a file, resolving its `use`s as `compile_path` does.
 pub fn lean_path(path: &Path, name: &str) -> Result<String, CompileError> {
-    let src = std::fs::read_to_string(path).map_err(|e| CompileError {
-        pass: "io",
-        id: "contract-unreadable".into(),
-        message: format!("{}: {e}", path.display()),
-        span: Span::default(),
-        file: Some(path.into()),
-        related: Box::new([]),
-    })?;
+    let src = read(path)?;
     crate::compile_path_source(path, &src)?;
+    emit_file(&load(path, &src)?, name)
+}
+
+/// The file at `path` with its `use`s merged in, as `compile_path` loads it.
+fn load(path: &Path, src: &str) -> Result<File, CompileError> {
     let root = path
         .parent()
         .filter(|p| !p.as_os_str().is_empty())
@@ -49,8 +50,20 @@ pub fn lean_path(path: &Path, name: &str) -> Result<String, CompileError> {
         related: Box::new([]),
     })?;
     let (file, _) =
-        crate::sources::load(path, &src, &app_root).map_err(|mut all| all.swap_remove(0))?;
-    emit_file(&file, name)
+        crate::sources::load(path, src, &app_root).map_err(|mut all| all.swap_remove(0))?;
+    Ok(file)
+}
+
+/// Read a source file.
+fn read(path: &Path) -> Result<String, CompileError> {
+    std::fs::read_to_string(path).map_err(|e| CompileError {
+        pass: "io",
+        id: "contract-unreadable".into(),
+        message: format!("{}: {e}", path.display()),
+        span: Span::default(),
+        file: Some(path.into()),
+        related: Box::new([]),
+    })
 }
 
 fn emit_file(file: &File, name: &str) -> Result<String, CompileError> {
@@ -140,41 +153,10 @@ impl Emitter<'_> {
         let root = self.root();
         let types = &self.checked.types;
         let ct = &types.components[0];
-        let shapes = &types.shapes;
         let mut o = String::new();
         let _ = writeln!(o, "def {name} : Contract.Program := {{");
-        // Shapes: every shape the checker knows, the compiler's own too (a
-        // source may answer a `Router`).
-        let shape_rows: Vec<String> = shapes
-            .map
-            .iter()
-            .map(|(s, fields)| {
-                let fs: Vec<String> = fields
-                    .iter()
-                    .map(|(f, t)| format!("{{ name := {}, ty := {} }}", string(f), ty(t)))
-                    .collect();
-                format!("{{ name := {}, fields := [{}] }}", string(s), fs.join(", "))
-            })
-            .collect();
-        let _ = writeln!(o, "  shapes := [{}],", shape_rows.join(",\n    "));
-        let mut fns = Vec::new();
-        for f in &self.checked.file.fns {
-            let (params, ret) = &shapes.fns[&f.name];
-            let ps: Vec<String> = f
-                .params
-                .iter()
-                .zip(params)
-                .map(|(p, t)| format!("({}, {})", string(&p.name), ty(t)))
-                .collect();
-            fns.push(format!(
-                "{{ name := {}, params := [{}], ret := {}, body := {} }}",
-                string(&f.name),
-                ps.join(", "),
-                ty(ret),
-                self.expr(&f.body)?
-            ));
-        }
-        let _ = writeln!(o, "  fns := [{}],", fns.join(",\n    "));
+        let _ = writeln!(o, "  shapes := {},", self.shapes_list());
+        let _ = writeln!(o, "  fns := {},", self.fns_list()?);
         let owners = &self.checked.expanded.owners;
         let mut states = Vec::new();
         for (i, s) in root.states.iter().enumerate() {
@@ -193,16 +175,83 @@ impl Emitter<'_> {
             ));
         }
         let _ = writeln!(o, "  states := [{}],", states.join(",\n    "));
+        let _ = writeln!(o, "  derives := {},", self.derives_list(root, ct)?);
+        let _ = writeln!(o, "  resources := {},", self.resources_list(root, ct)?);
+        let _ = writeln!(o, "  mutations := {},", self.mutations_list(root, ct));
+        let _ = writeln!(o, "  actions := {},", self.actions_list(&root.actions, ct)?);
+        let _ = writeln!(o, "  tasks := {},", self.tasks_list(root)?);
+        let _ = writeln!(o, "  view := {},", self.nodes(&root.view)?);
+        let _ = writeln!(o, "  routes := {},", self.routes_list());
+        let _ = writeln!(o, "  router := {}", self.router());
+        o.push_str("}\n");
+        self.out.push_str(&o);
+        Ok(())
+    }
+
+    /// Every shape the checker knows, the compiler's own too (a source may
+    /// answer a `Router`).
+    fn shapes_list(&self) -> String {
+        let shape_rows: Vec<String> = self
+            .checked
+            .types
+            .shapes
+            .map
+            .iter()
+            .map(|(s, fields)| {
+                let fs: Vec<String> = fields
+                    .iter()
+                    .map(|(f, t)| format!("{{ name := {}, ty := {} }}", string(f), ty(t)))
+                    .collect();
+                format!("{{ name := {}, fields := [{}] }}", string(s), fs.join(", "))
+            })
+            .collect();
+        format!("[{}]", shape_rows.join(",\n    "))
+    }
+
+    fn fns_list(&self) -> Result<String, CompileError> {
+        let shapes = &self.checked.types.shapes;
+        let mut fns = Vec::new();
+        for f in &self.checked.file.fns {
+            let (params, ret) = &shapes.fns[&f.name];
+            let ps: Vec<String> = f
+                .params
+                .iter()
+                .zip(params)
+                .map(|(p, t)| format!("({}, {})", string(&p.name), ty(t)))
+                .collect();
+            fns.push(format!(
+                "{{ name := {}, params := [{}], ret := {}, body := {} }}",
+                string(&f.name),
+                ps.join(", "),
+                ty(ret),
+                self.expr(&f.body)?
+            ));
+        }
+        Ok(format!("[{}]", fns.join(",\n    ")))
+    }
+
+    fn derives_list(
+        &self,
+        c: &Component,
+        ct: &contract_types::ComponentTypes,
+    ) -> Result<String, CompileError> {
         let mut derives = Vec::new();
-        for (i, d) in root.derives.iter().enumerate() {
+        for (i, d) in c.derives.iter().enumerate() {
             derives.push(format!(
                 "{{ name := {}, ty := {}, body := {} }}",
                 string(&d.name),
-                ty(&ct.derives[i]),
+                ct.derives.get(i).map_or(".unknown".into(), ty),
                 self.expr(&d.expr)?
             ));
         }
-        let _ = writeln!(o, "  derives := [{}],", derives.join(",\n    "));
+        Ok(format!("[{}]", derives.join(",\n    ")))
+    }
+
+    fn resources_list(
+        &self,
+        root: &Component,
+        ct: &contract_types::ComponentTypes,
+    ) -> Result<String, CompileError> {
         let mut resources = Vec::new();
         for (i, r) in root.resources.iter().enumerate() {
             resources.push(format!(
@@ -229,7 +278,10 @@ impl Emitter<'_> {
                 list(&p.args, |a| self.expr(a))?
             ));
         }
-        let _ = writeln!(o, "  resources := [{}],", resources.join(",\n    "));
+        Ok(format!("[{}]", resources.join(",\n    ")))
+    }
+
+    fn mutations_list(&self, root: &Component, ct: &contract_types::ComponentTypes) -> String {
         let mutations: Vec<String> = root
             .mutations
             .iter()
@@ -248,23 +300,39 @@ impl Emitter<'_> {
                 )
             })
             .collect();
-        let _ = writeln!(o, "  mutations := [{}],", mutations.join(",\n    "));
-        let mut actions = Vec::new();
-        for (i, a) in root.actions.iter().enumerate() {
+        format!("[{}]", mutations.join(",\n    "))
+    }
+
+    /// Actions with their parameters' checked types (`ct.actions`, by
+    /// position; `?` past its end).
+    fn actions_list(
+        &self,
+        actions: &[contract_syntax::Action],
+        ct: &contract_types::ComponentTypes,
+    ) -> Result<String, CompileError> {
+        let mut out = Vec::new();
+        for (i, a) in actions.iter().enumerate() {
+            let tys = ct.actions.get(i);
             let ps: Vec<String> = a
                 .params
                 .iter()
-                .zip(&ct.actions[i])
-                .map(|(p, t)| format!("({}, {})", string(&p.name), ty(t)))
+                .enumerate()
+                .map(|(j, p)| {
+                    let t = tys.and_then(|t| t.get(j)).map_or(".unknown".into(), ty);
+                    format!("({}, {t})", string(&p.name))
+                })
                 .collect();
-            actions.push(format!(
+            out.push(format!(
                 "{{ name := {}, params := [{}], body := {} }}",
                 string(&a.name),
                 ps.join(", "),
                 self.stmts(&a.body)?
             ));
         }
-        let _ = writeln!(o, "  actions := [{}],", actions.join(",\n    "));
+        Ok(format!("[{}]", out.join(",\n    ")))
+    }
+
+    fn tasks_list(&self, root: &Component) -> Result<String, CompileError> {
         let mut tasks = Vec::new();
         for t in &root.tasks {
             let kind = match t.kind {
@@ -279,10 +347,15 @@ impl Emitter<'_> {
                 string(&t.timer.1)
             ));
         }
-        let _ = writeln!(o, "  tasks := [{}],", tasks.join(",\n    "));
-        let _ = writeln!(o, "  view := {},", self.nodes(&root.view)?);
-        // The checked route table (LLP 1038 D2) and the slot `routes` names.
-        let routes: Vec<String> = shapes
+        Ok(format!("[{}]", tasks.join(",\n    ")))
+    }
+
+    /// The checked route table (LLP 1038 D2).
+    fn routes_list(&self) -> String {
+        let routes: Vec<String> = self
+            .checked
+            .types
+            .shapes
             .routes
             .iter()
             .flat_map(|t| &t.routes)
@@ -297,15 +370,15 @@ impl Emitter<'_> {
                 )
             })
             .collect();
-        let _ = writeln!(o, "  routes := [{}],", routes.join(",\n    "));
-        let router = match &self.checked.file.routes {
+        format!("[{}]", routes.join(",\n    "))
+    }
+
+    /// The slot `routes` names.
+    fn router(&self) -> String {
+        match &self.checked.file.routes {
             Some(r) => format!(".some {}", string(&r.slot)),
             None => ".none".into(),
-        };
-        let _ = writeln!(o, "  router := {router}");
-        o.push_str("}\n");
-        self.out.push_str(&o);
-        Ok(())
+        }
     }
 
     fn expr(&self, e: &Expr) -> Result<String, CompileError> {
@@ -488,6 +561,35 @@ impl Emitter<'_> {
         })
     }
 
+    /// An element's attributes: its values, and its handlers as (event,
+    /// action, curried arguments).
+    fn attrs(
+        &self,
+        attrs: &[contract_syntax::Attr],
+    ) -> Result<(Vec<String>, Vec<String>), CompileError> {
+        let mut props = Vec::new();
+        let mut handlers = Vec::new();
+        for a in attrs {
+            match contract_lower::tags::attr(&a.name) {
+                Some(contract_lower::tags::AttrTarget::Handler(event)) => {
+                    let (action, args): (&str, &[Expr]) = match &a.value {
+                        Expr::Ident(action, _) => (action, &[]),
+                        Expr::Call(action, args, _) => (action, args),
+                        _ => return Err(refuse("a handler names an action", a.span)),
+                    };
+                    handlers.push(format!(
+                        "({}, {}, {})",
+                        string(event),
+                        string(action),
+                        list(args, |x| self.expr(x))?
+                    ));
+                }
+                _ => props.push(format!("({}, {})", string(&a.name), self.expr(&a.value)?)),
+            }
+        }
+        Ok((props, handlers))
+    }
+
     fn nodes(&self, nodes: &[Node]) -> Result<String, CompileError> {
         list(nodes, |n| self.node(n))
     }
@@ -501,26 +603,7 @@ impl Emitter<'_> {
                 children,
                 ..
             } => {
-                let mut props = Vec::new();
-                let mut handlers = Vec::new();
-                for a in attrs {
-                    match contract_lower::tags::attr(&a.name) {
-                        Some(contract_lower::tags::AttrTarget::Handler(event)) => {
-                            let (action, args): (&str, &[Expr]) = match &a.value {
-                                Expr::Ident(action, _) => (action, &[]),
-                                Expr::Call(action, args, _) => (action, args),
-                                _ => return Err(refuse("a handler names an action", a.span)),
-                            };
-                            handlers.push(format!(
-                                "({}, {}, {})",
-                                string(event),
-                                string(action),
-                                list(args, |x| self.expr(x))?
-                            ));
-                        }
-                        _ => props.push(format!("({}, {})", string(&a.name), self.expr(&a.value)?)),
-                    }
-                }
+                let (props, handlers) = self.attrs(attrs)?;
                 format!(
                     "(.element {} {} [{}] [{}] {})",
                     string(tag),
