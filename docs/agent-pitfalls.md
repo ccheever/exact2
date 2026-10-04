@@ -32,7 +32,10 @@ guide's rules don't make obvious.
   module's answer crosses into JS as a copy and every row is checked again. Fix:
   make the list's resource a window (LLP 1027.004: `feed(cursor)` answering at most
   200 rows, `reachstart`/`reachend` on the `list` moving the cursor) and give the
-  mutation `refreshes feed`: 16–24 ms. (Heavy-list bench against Dioxus, 2026-10-03.)
+  mutation `refreshes feed`: 16–24 ms. A development build on the JS target says so
+  in `logs` (`big answer: <resource or mutation> … carries N list rows`) once an
+  answer's longest list passes 2,000 rows (`host/web-js/seam.js`). (Heavy-list
+  bench against Dioxus, 2026-10-03.)
 - **A bounded list hitches at its first window shift, or its first tap is slow.**
   Cause: a Rust data source that parses or builds its data on first use does it
   then; the first window is baked into the plan, so the first query is the first

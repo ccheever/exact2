@@ -7,7 +7,9 @@
 // is the committed epoch: a refused action is no transaction. A production
 // build references none of it. `inherited` and `moved` are absent: the
 // browser cascades and lays out.
-import { eq, owner, After, Before, journal, clock } from "./rt.js";
+import { eq, owner, After, Before, journal, clock, data, Resources, Mutations } from "./rt.js";
+import { sourceTypes } from "./names.js";
+import { watch } from "./seam.js";
 
 const Sites = [];
 const at = site => Sites[site] ??= { created: 0, retired: 0, evaluated: 0, unchanged: 0, authored: 0 };
@@ -114,6 +116,14 @@ export function reply(target, tags) {
     return { site, instances: live.get(site), live: w.created - w.retired, ...w };
   });
   return { ...tags, seq: clock.epoch, plan: globalThis.exact?.plan ?? null, sites, walked, truncated };
+}
+
+/** A development page's data answers, watched from before the app starts
+ * (main.js): a big one crossing the seam is said (seam.js). A reply is parsed
+ * for the resource or mutation holding its ticket. */
+export function seam() {
+  const holder = args => (Resources.find(r => r.ticket?.args === args) ?? Mutations.find(m => m.ticket?.args === args))?.name;
+  watch(data, { types: sourceTypes, say: line => journal.push(`t=${clock.now} ${line}`), owner: holder });
 }
 
 /** A development page (main.js, outside the agent too): its structure is
