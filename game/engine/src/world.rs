@@ -80,6 +80,9 @@ impl Target for &String {
 pub trait Component: Data {
     /// Stable save-file and agent spelling.
     const NAME: &'static str;
+    /// Presentation only (`#[derive(Presentation)]`): never saved, hashed or
+    /// observed for rest. `Game::present` rebuilds it after every tick and restore.
+    const PRESENTATION: bool = false;
     /// Register data this component produces, before restoring a saved world.
     fn register(_world: &mut World) {}
     /// Refuse a component combination before changing the entity.
@@ -157,6 +160,8 @@ struct Registration {
     resource_size: usize,
     make_resource: Option<StorageFactory>,
     ambient: bool,
+    // A presentation component: outside saves, hashes and observation.
+    presentation: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -205,6 +210,8 @@ pub struct World {
     // Executor phase, never saved: audio authored in a tick starts at its end.
     pub(crate) in_tick: bool,
     pub(crate) followed: std::cell::Cell<bool>,
+    // Whether this tick's emitters have stepped (emitter::step or the Sim's own).
+    pub(crate) emitted: std::cell::Cell<bool>,
     pub(crate) attachments: Option<Attachments>,
     pub(crate) detach: Option<fn(&World, Entity)>,
     state: State,
@@ -251,6 +258,7 @@ impl World {
             observation: ObservationState::Unknown,
             in_tick: false,
             followed: std::cell::Cell::new(false),
+            emitted: std::cell::Cell::new(false),
             attachments: None,
             detach: None,
             state: State {
@@ -305,7 +313,8 @@ impl World {
             .register::<Ambient>()
             .register::<Follow>()
             .register::<Glow>()
-            .register::<Lit>();
+            .register::<Lit>()
+            .register::<crate::emitter::WorldSpace>();
     }
     /// Identity of this world instance, excluded from saves and hashes.
     pub fn id(&self) -> WorldId {
@@ -319,7 +328,9 @@ impl World {
     /// Register a component before loading. Registration itself is not state.
     pub fn register<C: Component>(&mut self) -> &mut Self {
         C::register(self);
-        self.registration::<C>(C::NAME).make = Some(storage::make::<C>);
+        let reg = self.registration::<C>(C::NAME);
+        reg.make = Some(storage::make::<C>);
+        reg.presentation = C::PRESENTATION;
         self
     }
     /// Register singleton data before loading a save.
@@ -338,6 +349,7 @@ impl World {
             make_resource: None,
             resource_size: 0,
             ambient: false,
+            presentation: false,
         });
         assert_eq!(reg.id, id, "duplicate component name {}", name);
         reg
@@ -1054,6 +1066,9 @@ impl World {
             w.field(kind);
             w.begin_struct();
             for (name, s) in storages {
+                if self.registry[name].presentation {
+                    continue;
+                }
                 w.key(name);
                 s.write_save(w);
             }

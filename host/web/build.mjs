@@ -25,6 +25,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpat
 import { dirname, relative, resolve } from 'node:path';
 import { gzipSync } from 'node:zlib';
 import { writeInstallPages } from '../../scripts/install-page.mjs';
+import { webInputDigests } from '../../scripts/agent-launch.mjs';
 import { authClientMetadata, checkModuleRoster, gpuModules, rustPolicy, webGpuArtifacts, webHostFiles } from '../../scripts/app.mjs';
 import { buildRust, rustFiles, rustCards, rustPackage } from '../../scripts/rust.mjs';
 import { webDist, copyShaders, bakeOutput, buildBake, contractLast, readBake, verifyBakeFiles, developmentBuildEnv, resolveApp, wasmRemapFlags, WEB_STD, WEB_TOOLCHAIN, webToolchainEnv } from '../../scripts/app.mjs';
@@ -55,7 +56,7 @@ if (target !== '--wasm' && !game && !bakeOnly) {
   const js = spawnSync(process.execPath, [resolve(new URL('../web-js/build.mjs', import.meta.url).pathname), app.name, '--out', webDist(), ...render], { stdio: ['ignore', 'inherit', 'pipe'], encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: app.dir } });
   if (js.status === 0) {
     writeFileSync(resolve(webDist(), '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
-      manifestSha256: appManifestDigest(app), files: buildFileCards(webDist()) }) + '\n');
+      manifestSha256: appManifestDigest(app), files: buildFileCards(webDist()), inputs: webInputDigests(app, true) }) + '\n');
     process.exit(0);
   }
   // The child's own message, not the tail of Bun's trace (a frame and its version line).
@@ -455,6 +456,8 @@ if (app.modules.tags.length || app.modules.web) {
 writeFileSync(resolve(stage, '.exact-build.json'), JSON.stringify({
   exactBuild: 1, app: { id: app.id, name: app.displayName }, manifestSha256: appManifestDigest(app),
   files: await publicFileCards(stage).finally(closeFilesystemReader),
+  // Content digests of what this build read: a staleness check compares bytes, not times.
+  inputs: webInputDigests(app, false),
 }) + '\n');
 rmSync(previous, { recursive: true, force: true });
 if (existsSync(dist)) renameSync(dist, previous);

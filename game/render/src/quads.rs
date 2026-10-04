@@ -7,7 +7,7 @@ use exact_game::{
     asset::AlphaMode, Emitter, Entity, ParticleLook, Sprite, Transform, Visible, World,
 };
 use exact_gpu::wgpu;
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 use std::{collections::BTreeMap, ops::Range};
 
 #[derive(Clone, Copy)]
@@ -459,7 +459,9 @@ impl Quads {
                 crate::world::scene::interpolate(item.poses, f.alpha),
             );
             let e = &item.value;
+            // World-space particles are not near their emitter: never cull those.
             if cull
+                && e.origins.is_empty()
                 && !crate::cull::sphere_visible(&camera, t.w_axis.truncate(), emitter_reach(e, &t))
             {
                 // Skipped particles still charge the world budget in entity order.
@@ -489,13 +491,20 @@ impl Quads {
                     return;
                 }
                 left -= 1;
-                let position = t.transform_point3(p.position);
+                let (position, scale) = if p.world {
+                    (p.position, Vec2::ONE)
+                } else {
+                    let scale =
+                        Vec2::new(t.x_axis.truncate().length(), t.y_axis.truncate().length());
+                    (t.transform_point3(p.position), scale)
+                };
                 let index = self.particle_data.len();
-                let (mut x, mut y) = (
-                    right * p.size * t.x_axis.truncate().length(),
-                    up * p.size * t.y_axis.truncate().length(),
-                );
-                let velocity = t.transform_vector3(p.velocity);
+                let (mut x, mut y) = (right * p.size * scale.x, up * p.size * scale.y);
+                let velocity = if p.world {
+                    p.velocity
+                } else {
+                    t.transform_vector3(p.velocity)
+                };
                 if stretch > 0. && velocity.length_squared() > 1e-12 {
                     // Lengthen along the motion, facing the camera across it.
                     let along = velocity.normalize();
@@ -801,6 +810,7 @@ fn emitter_reach(e: &Emitter, t: &glam::Mat4) -> f32 {
         exact_game::emitter::Shape::Point => 0.,
         exact_game::emitter::Shape::Sphere(r) => r.abs(),
         exact_game::emitter::Shape::Cone(r, h) => (r * r + h * h).sqrt(),
+        exact_game::emitter::Shape::Box(size) => size.length() * 0.5,
     };
     let local = shape + e.speed.abs() * lifetime + e.gravity.length() * lifetime * lifetime * 0.5;
     let [x, y, z] = [t.x_axis, t.y_axis, t.z_axis].map(|a| a.truncate().length_squared());

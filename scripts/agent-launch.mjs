@@ -1,5 +1,6 @@
 // Session setup shared by the agent CLI and its programmatic driver.
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { accessSync, constants, existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { delimiter, relative, resolve } from 'node:path';
 import { bakeOutput, pendingBuildInputs, resolveApp, shaderWatchRoots, webDist } from './app.mjs';
@@ -193,15 +194,32 @@ export function gameNonInput(path) {
   return /(^|\/)(pins\.json|proof\.mjs|[^/]*\.test\.mjs|[^/]*\.md)$/.test(path)
     || (/\.m?js$/.test(path) && !/^(logic|data|gpu|art|assets|deck)\//.test(path));
 }
-export function webChanges(dist, app) {
-  const marker = resolve(dist, '.exact-build.json');
-  if (!existsSync(marker)) return { app: [], shared: [], all: [] };
-  const since = statSync(marker).mtimeMs, js = JSON.parse(readFileSync(marker, 'utf8')).target === 'js';
+/** What a web build of `app` reads, modified after `since` (every file by default):
+ * the app's own files and the shared host/runtime roots, as shown paths. */
+export function webInputs(app, js, since = -Infinity) {
   const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }] : ['host/web', 'runner', 'kernel', 'plan', 'motion', 'num', 'contract'];
   const ignored = gitIgnored(app.dir, shaderWatchRoots(app));
   const notInput = path => Boolean(app.manifest?.game) && gameNonInput(relative(app.dir, path));
-  const appChanges = newerThan(since, [app.dir], path => /\/(apple|linux)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path) || notInput(path));
+  const appFiles = newerThan(since, [app.dir], path => /\/(apple|linux)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path) || notInput(path));
   const shared = newerThan(since, roots.map(r => typeof r === 'string' ? resolve(ROOT, r) : { shallow: resolve(ROOT, r.shallow) }));
+  return { app: appFiles, shared };
+}
+const contentDigest = path => { try { return createHash('sha1').update(readFileSync(resolve(ROOT, path))).digest('hex'); } catch { return null; } };
+/** Content digests of every input of a web build, recorded in its marker. */
+export function webInputDigests(app, js) {
+  const { app: own, shared } = webInputs(app, js);
+  return Object.fromEntries([...own, ...shared].map(path => [path, contentDigest(path)]));
+}
+/** Inputs whose content changed since the build in `dist`. Modification times only
+ * nominate candidates; a checkout that rewrote a file with its own bytes is not a
+ * change. A marker without digests (an older build) trusts the times. */
+export function webChanges(dist, app) {
+  const marker = resolve(dist, '.exact-build.json');
+  if (!existsSync(marker)) return { app: [], shared: [], all: [] };
+  const built = JSON.parse(readFileSync(marker, 'utf8'));
+  const changed = path => !built.inputs || built.inputs[path] !== contentDigest(path);
+  const { app: own, shared: roots } = webInputs(app, built.target === 'js', statSync(marker).mtimeMs);
+  const appChanges = own.filter(changed), shared = roots.filter(changed);
   return { app: appChanges, shared, all: [...new Set([...appChanges, ...shared])] };
 }
 

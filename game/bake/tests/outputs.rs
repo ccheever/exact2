@@ -417,3 +417,45 @@ fn masked_coverage_survives_block_encoding() {
     }
     fs::remove_dir_all(app).unwrap();
 }
+
+#[test]
+fn identical_model_textures_bake_once_and_every_model_samples_that_one() {
+    let app = temp();
+    // Same texels and sampler in two models; a third clamps, so it differs.
+    let clamped = CRATE
+        .replacen("\"source\": 0", "\"source\": 0, \"sampler\": 0", 1)
+        .replacen(
+            "\"textures\": [",
+            "\"samplers\": [{ \"wrapS\": 33071 }],\n  \"textures\": [",
+            1,
+        );
+    fs::write(app.join("art/crate.gltf"), CRATE).unwrap();
+    fs::write(app.join("art/barrel.gltf"), CRATE).unwrap();
+    fs::write(app.join("art/fence.gltf"), clamped).unwrap();
+    exact_game_bake::bake_art(&app).unwrap();
+    let model = |name: &str| {
+        let bytes = fs::read(app.join("assets").join(name)).unwrap();
+        exact_game::bin::from_slice::<exact_game::asset::Model>(&bytes).unwrap()
+    };
+    assert_eq!(
+        model("barrel.model").textures,
+        ["barrel/0-srgb-straight.tex"]
+    );
+    assert_eq!(
+        model("crate.model").textures,
+        ["barrel/0-srgb-straight.tex"]
+    );
+    assert_eq!(model("fence.model").textures, ["fence/0-srgb-straight.tex"]);
+    assert!(!app.join("assets/crate").exists());
+    for family in ["tex", "bc.tex", "astc.tex"] {
+        assert!(app
+            .join(format!("assets/barrel/0-srgb-straight.{family}"))
+            .exists());
+    }
+    // The shared name follows the art: without the barrel, the crate owns it again.
+    fs::remove_file(app.join("art/barrel.gltf")).unwrap();
+    exact_game_bake::bake_art(&app).unwrap();
+    assert_eq!(model("crate.model").textures, ["crate/0-srgb-straight.tex"]);
+    assert!(!app.join("assets/barrel/0-srgb-straight.tex").exists());
+    fs::remove_dir_all(app).unwrap();
+}

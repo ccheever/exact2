@@ -26,6 +26,11 @@ pub trait Game: 'static {
     const ID: &'static str;
     /// Models and textures required before setup. Later mesh references load on sight.
     const ASSETS: &'static [&'static str] = &[];
+    /// Models and textures fetched from the start but not awaited: setup and the
+    /// first frames run without them and they draw as they land. Like any
+    /// undeclared asset, simulation cannot read them (`World::model` is None), so
+    /// load order never reaches the hash; once loaded they stay resident.
+    const STREAMED: &'static [&'static str] = &[];
     /// One typed JSON value required before setup; declares its own asset name.
     const LEVEL: Option<crate::asset::Level> = None;
     /// Canvas argument declarations in positional order; also declares exact arity.
@@ -49,6 +54,12 @@ pub trait Game: 'static {
     }
     /// One fixed step, called after inputs and before transform propagation.
     fn tick(world: &mut World, input: &Input, args: &Self::Args);
+    /// Rebuild presentation-only state (`#[derive(Presentation)]` components) from
+    /// the simulation at each tick boundary: after every tick, after setup and after
+    /// a restore. Nothing written here is saved or hashed, so visual-only changes
+    /// never move a pin; draw randomness from `world.presentation_rng(salt)`, never
+    /// the world's. It may not spawn or despawn: entities are simulation state.
+    fn present(_world: &mut World, _args: &Self::Args) {}
     /// Fixed steps per second.
     const HZ: u32 = 60;
 }
@@ -253,7 +264,18 @@ impl<G: Game> Sim<G> {
         crate::scene::place_followers(&world);
         world.published_pending.set(true);
         world.propagate();
+        Self::present(&mut world, args);
         world
+    }
+    // Presentation runs at a tick boundary and must leave the entity table alone.
+    pub(crate) fn present(world: &mut World, args: &G::Args) {
+        let entities = world.entities_revision();
+        G::present(world, args);
+        assert_eq!(
+            entities,
+            world.entities_revision(),
+            "Game::present spawned or despawned an entity; entities are simulation state, so spawn them in setup or tick"
+        );
     }
     /// Whether setup is waiting for declared model bytes.
     pub fn is_loading(&self) -> bool {
@@ -263,6 +285,9 @@ impl<G: Game> Sim<G> {
     pub fn take_assets(&mut self) -> Vec<String> {
         if self.setup_pending && !self.assets_pending() {
             return Vec::new();
+        }
+        for name in G::STREAMED {
+            self.world.assets.request(name);
         }
         let revision = self.world.revision::<crate::Mesh>();
         let sprites_changed =
@@ -288,9 +313,12 @@ impl<G: Game> Sim<G> {
                 .collect();
             let mut roots: std::collections::BTreeSet<_> =
                 names.iter().map(|(n, _)| n.clone()).collect();
-            if self.setup_pending {
-                roots.extend(G::ASSETS.iter().map(|n| (*n).to_owned()));
-            }
+            // Declared and streamed assets stay resident: one that leaves the
+            // screen and returns is still Loaded, so a save never refuses for it.
+            // Undeclared cosmetics retire when unshown, bounding their memory.
+            roots.extend(G::ASSETS.iter().map(|n| (*n).to_owned()));
+            roots.extend(G::STREAMED.iter().map(|n| (*n).to_owned()));
+            roots.extend(self.world.assets.declared.iter().cloned());
             if let Some(level) = G::LEVEL {
                 roots.insert(level.name.into());
             }
@@ -306,7 +334,7 @@ impl<G: Game> Sim<G> {
             self.asset_mesh_revision = revision;
         }
         let assets = &mut *self.world.assets;
-        let names: Vec<_> = assets
+        let mut names: Vec<_> = assets
             .states
             .iter()
             .filter(|(n, s)| {
@@ -315,6 +343,13 @@ impl<G: Game> Sim<G> {
             })
             .map(|(n, _)| n.clone())
             .collect();
+        // What setup and the first frame wait for goes first; streamed names last.
+        names.sort_by_key(|n| {
+            (
+                G::STREAMED.contains(&n.as_str()),
+                !assets.required.contains(n),
+            )
+        });
         assets.requested.extend(names.iter().cloned());
         names
     }
@@ -1060,9 +1095,12 @@ impl<G: Game> Sim<G> {
             G::tick(&mut self.world, &self.input, &self.args);
             self.last_motion = self.input.pointer().map_or(crate::Vec2::ZERO, |p| p.delta);
             crate::scene::follow(&self.world);
+            // A tick that did not step its emitters gets the step it forgot.
+            crate::emitter::step(&self.world);
             self.world.reap_orphans();
             self.world.propagate();
             self.world.step_clock();
+            Self::present(&mut self.world, &self.args);
             // Paranoid modes round-trip at every point an advance can be observed
             // (its last tick), at every tick that received input, and every
             // PARANOID_EVERY-th tick inside an advance.
@@ -1098,7 +1136,17 @@ impl<G: Game> Sim<G> {
         // completed boundary. Retain the horizon outside the reconstructed Sim.
         let horizon = self.world_us;
         self.world_us = ((tick as u128 * 1_000_000).div_ceil(G::HZ as u128)) as i64;
-        let bytes = self.save().unwrap_or_else(|error| panic!("paranoid {:?} {} tick {tick}: {error}; rerun bun game/games/{}/proof.mjs linux --paranoid", mode, G::ID, G::ID));
+        let bytes = match self.save() {
+            Ok(bytes) => bytes,
+            // An asset first shown this tick is still in flight: no save can be
+            // taken until it lands, so this sample waits for the next one rather
+            // than failing the proof (a model first requested mid-game).
+            Err(error) if error.message.starts_with("save refused: assets are not ready") => {
+                self.world_us = horizon;
+                return;
+            }
+            Err(error) => panic!("paranoid {:?} {} tick {tick}: {error}; rerun bun game/games/{}/proof.mjs linux --paranoid", mode, G::ID, G::ID),
+        };
         let host = self.last_us;
         let mut queue = std::mem::take(&mut self.queue);
         queue.shrink_to_fit();

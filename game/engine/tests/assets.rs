@@ -448,6 +448,15 @@ fn cosmetic_names_retire_and_respawn_requests_again() {
     assert_eq!(sim.take_assets(), ["late.model"]);
 }
 #[test]
+fn an_unshown_request_in_flight_still_retires() {
+    let mut sim = Sim::<Cosmetic>::new(()).unwrap();
+    assert_eq!(sim.take_assets(), ["late.model"]);
+    let entity = sim.world().resolve("late").unwrap();
+    sim.world_mut().despawn(entity);
+    assert!(sim.take_assets().is_empty());
+    assert_eq!(sim.take_retired_assets(), ["late.model"]);
+}
+#[test]
 fn asset_requests_support_more_than_256_names() {
     let mut sim = Sim::<Cosmetic>::new(()).unwrap();
     for i in 0..300 {
@@ -473,7 +482,7 @@ fn a_publication_only_tick_names_the_changing_key() {
 }
 
 #[test]
-fn declared_delivery_state_retires_but_simulation_data_is_stable() {
+fn declared_assets_stay_loaded_when_nothing_shows_them() {
     let mut sim = Sim::<Loading>::new(()).unwrap();
     sim.asset("crate.model", Some(&bin::to_vec(&asset::Model::default())))
         .unwrap();
@@ -482,12 +491,16 @@ fn declared_delivery_state_retires_but_simulation_data_is_stable() {
     sim.take_assets();
     assert!(sim.world().model("crate.model").is_some());
     let state = sim.agent(r#"{"op":"state"}"#);
-    assert!(state.contains("\"assets\":[]"), "{state}");
+    assert!(
+        state.contains(r#"{"name":"crate.model","state":"Loaded"}"#),
+        "{state}"
+    );
     let saved = sim.save().unwrap();
     sim.restore(&saved).unwrap();
     sim.world_mut()
         .spawn((Transform::default(), Mesh::asset("crate.model")));
-    assert_eq!(sim.take_assets(), ["crate.model"]);
+    assert!(sim.take_assets().is_empty());
+    assert!(sim.save().is_ok());
 }
 
 #[test]
@@ -701,4 +714,83 @@ fn paranoid_discovery_keeps_tick_edits_retirement_and_public_restore_visible() {
         assert_eq!(run::<false>(mode), mesh, "mesh {mode:?}");
         assert_eq!(run::<true>(mode), sprites, "sprites {mode:?}");
     }
+}
+
+// Rivals' first rocket requested `rocket.model` at tick 179 and the paranoid
+// Save proof aborted ("assets are not ready"). A sample taken while a mid-game
+// request is in flight now waits for the next one.
+#[test]
+fn a_model_first_requested_mid_game_does_not_break_a_paranoid_save() {
+    struct Rocket;
+    impl Game for Rocket {
+        const ID: &'static str = "mid-game-model";
+        type Args = ();
+        fn setup(_: &mut World, _: &()) {}
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            if w.tick() == 3 {
+                w.spawn((Transform::default(), Mesh::asset("rocket.model")));
+            }
+        }
+    }
+    let mut hashes = Vec::new();
+    for mode in [Paranoid::Off, Paranoid::Save, Paranoid::FreshGame] {
+        let mut sim = Sim::<Rocket>::new(()).unwrap().paranoid(mode);
+        sim.run(100.);
+        assert_eq!(sim.take_assets(), ["rocket.model"]);
+        sim.asset("rocket.model", Some(&bin::to_vec(&asset::Model::default())))
+            .unwrap();
+        sim.run(100.);
+        hashes.push(sim.world().hash());
+    }
+    assert!(hashes.windows(2).all(|h| h[0] == h[1]));
+}
+
+// Grow a Garden declared all 202 models and Play waited for every one
+// (0.4 s -> 1.8 s). Streamed assets are fetched from the start, after what
+// setup needs, but never awaited, and simulation cannot read them.
+#[test]
+fn streamed_assets_load_after_setup_without_reaching_the_simulation() {
+    struct Streaming;
+    impl Game for Streaming {
+        const ID: &'static str = "streaming";
+        const ASSETS: &'static [&'static str] = &["first.model"];
+        const STREAMED: &'static [&'static str] = &["a-later.model", "z-later.model"];
+        type Args = ();
+        fn setup(w: &mut World, _: &()) {
+            w.spawn_named("first", (Transform::default(), Mesh::asset("first.model")));
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    let model = bin::to_vec(&asset::Model::default());
+    let mut sim = Sim::<Streaming>::new(()).unwrap();
+    assert!(sim.is_loading());
+    // What setup waits for is asked first; streamed names follow.
+    assert_eq!(
+        sim.take_assets(),
+        ["first.model", "a-later.model", "z-later.model"]
+    );
+    sim.asset("first.model", Some(&model)).unwrap();
+    assert!(!sim.is_loading(), "setup does not wait for streamed assets");
+    let hash = sim.world().hash();
+    assert!(
+        sim.save().is_ok(),
+        "an unshown streamed asset never gates a save"
+    );
+    sim.asset("a-later.model", Some(&model)).unwrap();
+    assert!(
+        sim.world().model("a-later.model").is_none(),
+        "simulation cannot read it"
+    );
+    assert_eq!(sim.world().hash(), hash);
+    sim.run(100.);
+    assert!(sim.take_assets().is_empty());
+    assert!(
+        sim.take_retired_assets().is_empty(),
+        "streamed assets stay resident"
+    );
+    let state = sim.agent(r#"{"op":"state"}"#);
+    assert!(
+        state.contains(r#"{"name":"a-later.model","state":"Loaded"}"#),
+        "{state}"
+    );
 }

@@ -169,7 +169,12 @@ unnecessary.
 the saved local transform. `animation::socket(w, target, joint)` reads the current
 world-space tick endpoint; displayed attachments use the interpolated local chain.
 
-Emitters form local clouds: moving the emitter moves particles already born.
+Emitters form local clouds: moving the emitter moves particles already born. Add
+`emitter::WorldSpace` beside an `Emitter` and each birth batch stays where it was
+born instead (a rocket's trail is one emitter). Those birth poses are
+presentation, not saved or hashed: after a restore, batches born before it draw
+from the emitter's current pose until they die. `Shape::Box(size)` emits over an
+area (rain, snow).
 `ParticleLook` beside an `Emitter` textures its particles from a `.tex` atlas
 (`atlas: [columns, rows]`, a flipbook at `fps`, or the frames spread over each
 lifetime) and stretches them along their motion (`stretch`: seconds of velocity
@@ -197,6 +202,10 @@ declared `.sound` assets, which the primitive module also decodes; a save record
 their content identity, as it does a level's.
 `sim.save()?` checks current mesh roots even before requests are drained and
 reports pending or failed declarations by name. Failed cosmetics do not block saves.
+Declared (`Game::ASSETS`) and streamed (`Game::STREAMED`) assets stay resident
+when nothing shows them, so one that returns is Loaded at once and never gates a
+save. Undeclared cosmetics still retire when unshown, which bounds their memory. A paranoid
+round trip that falls while a mid-game request is in flight waits for the next sample.
 
 Declare a data-authored level with
 `const LEVEL: Option<asset::Level> = Some(asset::Level::of::<Island>("island.level.json"))`.
@@ -228,6 +237,13 @@ despawn touched, and resources whose revision moved, so an observed tick costs
 what changed rather than the world (0.1 ms at 216k entities, against ~90 ms).
 The hash is a stream over page digests in type-name and page order; it is the
 same on every host and for a world freshly loaded from the same save.
+
+Visual-only state belongs in `#[derive(Presentation)]` components: they are never
+saved, hashed or observed for rest, so a bob, a flash or a sway phase cannot move a
+pin. `Game::present(w, args)` writes them at every tick boundary (after each tick,
+after setup and after a restore, so a restored world presents the same frame), drawing
+randomness from `w.presentation_rng(salt)`, a stream seeded from the tick and never
+the world's. It may not spawn or despawn; the simulation never reads them back.
 
 Mark cosmetic entities `Ambient`. Declare `ambient_resource::<T>()` and
 `derived_publication(name)` in setup/register when appropriate; these policies

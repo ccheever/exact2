@@ -272,7 +272,8 @@ fn textureless_live_model_survives_unrelated_retirement_and_module_device_loss()
     struct Pair;
     impl Game for Pair {
         const ID: &'static str = "retirement-pair";
-        const ASSETS: &'static [&'static str] = &["a.model", "b.model"];
+        // B is declared and stays resident; A is a cosmetic, which retires unshown.
+        const ASSETS: &'static [&'static str] = &["b.model"];
         type Args = ();
         fn actions() -> Actions {
             Actions::new().button("retire", &["KeyR"])
@@ -312,10 +313,11 @@ fn textureless_live_model_survives_unrelated_retirement_and_module_device_loss()
     module.set_seekable(true);
     let id = module.create_headless("world").unwrap();
     assert!(module.bind(id, &[], None));
-    assert_eq!(module.take_assets(id).requests, ["a.model", "b.model"]);
-    for name in ["a.model", "b.model"] {
-        assert!(module.asset(id, name, Ok(&bytes)));
-    }
+    // Setup waits for B; A is requested once setup shows it.
+    assert_eq!(module.take_assets(id).requests, ["b.model"]);
+    assert!(module.asset(id, "b.model", Ok(&bytes)));
+    assert_eq!(module.take_assets(id).requests, ["a.model"]);
+    assert!(module.asset(id, "a.model", Ok(&bytes)));
     let mut frame = Frame {
         width: 64.,
         height: 64.,

@@ -142,6 +142,7 @@ impl<G: Game> Sim<G> {
         next.defer_assets = self.defer_assets;
         crate::scene::place_followers(&next.world);
         next.world.propagate();
+        Self::present(&mut next.world, &next.args);
         next.world.restore_journal(s.journal, s.journal_next);
         next.world.restore_publications(s.published);
         next.world.published_pending.set(true);

@@ -37,7 +37,7 @@ pub use asset::pose::Pose;
 pub use data::{bin, hash, json, Data, DataError, Number, Reader, Writer};
 pub use emitter::Emitter;
 pub use environment::{AmbientOcclusion, AoQuality, Bloom, Environment, EnvironmentMap, Fog};
-pub use exact_game_derive::{Args, Component, Data, Resource};
+pub use exact_game_derive::{Args, Component, Data, Presentation, Resource};
 pub use exact_motion::spring::SpringConfig;
 pub use exact_plan::Value;
 pub use glam::{Affine3A, Mat4, Quat, Vec2, Vec3, Vec3Swizzles, Vec4};
