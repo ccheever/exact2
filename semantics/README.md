@@ -216,25 +216,36 @@ All without `sorry` or axioms beyond Lean's own (`propext`,
 `Classical.choice`, `Quot.sound`).
 
 - `eval_sound_ty` (preservation and progress): if `HasTy p G Γ e τ`, the
-  `fn`s are well typed, the component names `G` reads hold values of their
-  types or fail legitimately in `env` (`EnvOK`) and the locals match `Γ`
-  (`LocalsOK`), then `eval n env false ls e` is a value `v` with
-  `ValTy p v τ`, or an error that is `pending`, `unsupported` or `refused`
-  — never a type error, never an unbound name. `ValTy` has no finiteness:
-  `1 / 0` is a value inside an evaluation.
+  program is fit to evaluate (`ProgOK`: the `fn`s are well typed and the
+  router shapes are `Contract.Route`'s), the component names `G` reads hold
+  values of their types or fail legitimately in `env` (`EnvOK`) and the
+  locals match `Γ` (`LocalsOK`), then `eval n env false ls e` is a value
+  `v` with `ValTy p v τ`, or an error that is `pending`, `unsupported` or
+  `refused` — never a type error, never an unbound name. `ValTy` has no
+  finiteness: `1 / 0` is a value inside an evaluation.
 - `exec_sound_ty`: a well-typed action body run the same way asks only for
   writes of values of the target slots' types (root and row writes), sends
   to mutations, or fails legitimately.
 - `check_sound`: `check p = true → WellTyped p`.
-- `reachable_slotsOK` and `reachable_valTy`: in every configuration a
-  well-typed program reaches (boot, then any events), each root slot is a
-  state or mutation holding a value of its declared type. Most of this is
-  the runtime's checks (`conforms` at boot and at every commit, which also
-  makes numbers finite: that is the runtime's refusal, not typing); typing
-  supplies that names are distinct and that a `send` targets a mutation, so
-  every check is made at the slot's own type.
+- `reachable_slotsOK` and `reachable_valTy` (`TypeInvariant.lean`, over
+  `Contract.Reachable`): in every configuration a well-typed program
+  reaches, each root slot is a state or mutation holding a value of its
+  declared type. Most of this is the runtime's checks (`conforms` at boot
+  and at every commit, which also makes numbers finite: that is the
+  runtime's refusal, not typing); typing supplies that names are distinct
+  and that a `send` targets a mutation, so every check is made at the
+  slot's own type. The router slot's boot value is no check's: it is the
+  launch of `/`, and `routerValue_ty` gives its type.
 - `conforms_valTy`: what the runtime check admits at a complete type is a
   value of that type.
+
+Routes are typed: `Router` and `Entry` values, the verbs and reads at the
+roster's types (`routerTy`), `path("route", …)` with one string or number
+per parameter of a declared route, and the router slot, whose initializer
+is never evaluated. A value of the shape `Router` need not be a valid
+router (a source can answer one): a verb or read of it traps, which the
+semantics gives as a refusal (`Route.verb`, `Route.read`; likewise
+`searchParam` of an invalid entry), not a type error.
 
 Left out: that settled derives and resources keep their types across steps
 (settlement checks `conforms`, but the invariant is not carried through
@@ -247,9 +258,8 @@ the semantics evaluates of a view (a `text`'s text, `testId`, handlers,
 regions), type a command's arguments without its host signature, and check
 the expanded root, so a component nothing uses is not checked. Rust refuses
 more: `let` shadowing, host command signatures, presentation attributes,
-placeholders, routes and `t(...)` (a program with routes is refused by
-`check`: its `Router` slot is embedded with the initializer `none`, and
-`path(...)` is not a roster entry here).
+placeholders, `t(...)`, a prop's declared type, and a data source's one
+signature across its uses.
 
 ## What the semantics leaves out
 

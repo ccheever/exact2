@@ -21,7 +21,7 @@ has type `?` (`Contract.ValTy`), so such an operand never produces one.
 What the judgments leave to the Rust checker (it refuses more): `let`
 shadowing and reassignment rules, host command signatures (a command's
 arguments need only be well typed), presentation attributes (only a
-`text`'s text, `testId` and handlers are typed), placeholders, routes and
+`text`'s text, `testId` and handlers are typed), placeholders and
 `t(...)`, and cycles among derives and `fn`s (settlement and the fuel bound
 deal with those, not typing).
 -/
