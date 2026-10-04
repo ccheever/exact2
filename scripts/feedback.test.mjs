@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync,
 import { homedir, tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { pending, redact, send, setStanding, standing } from './feedback.mjs';
-import { summary } from './feedback-worker.js';
+import { needs, summary } from './feedback-worker.js';
 
 function app() {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-feedback-'));
@@ -53,5 +53,17 @@ test('send posts what is unsent once, marks it sent, and never sends for a proje
 
 test('the endpoint tells Slack counts from the diary, not its content', () => {
   assert.deepEqual(summary('# a.md\n\n### Rough\n- one\n- two\n\n### Lean in\n- nice\n\n### Checkpoints\n- exact new: smooth\n- iOS build: rough (see Rough)\n\n# commands\n\nt abc web exit=0 1.0s\nt abc ios exit=1 9.0s\n'),
-    { diaries: 1, rough: 2, lean: 1, smooth: 1, roughSteps: 1, commands: 2, failed: 1 });
+    { diaries: 1, rough: 2, lean: 1, smooth: 1, roughSteps: 1, commands: 2, failed: 1, needs: [] });
+});
+
+test('Needed lines are counted per capability across diaries; anything else in the section is not', () => {
+  const a = '# a.md\n\n### Needed\n- Camera: by hand (~40 min; a Swift bridge)\n- notifications: missing (skipped)\n- haptics: provided\n- scan receipts with the camera\n\n### Checkpoints\n- camera: by hand\n';
+  const b = '# b.md\n\n### Needed\n- camera: by hand\n- share sheet: provided, rough (see Rough)\n';
+  assert.deepEqual(summary(a).needs, [['camera', 'by hand'], ['notifications', 'missing'], ['haptics', 'provided']]);
+  assert.deepEqual(needs([a, b, '# c.md\n\n### Needed\nnone\n']), [
+    { name: 'camera', provided: 0, 'by hand': 2, missing: 0 },
+    { name: 'notifications', provided: 0, 'by hand': 0, missing: 1 },
+    { name: 'haptics', provided: 1, 'by hand': 0, missing: 0 },
+    { name: 'share sheet', provided: 1, 'by hand': 0, missing: 0 },
+  ]);
 });

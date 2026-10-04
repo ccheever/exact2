@@ -45,7 +45,7 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     const refused = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), 'test', 'ios'], { cwd: parent, env: { ...process.env, EXACT2: sdk } });
     assert.equal(refused.status, 7, 'a failed app test fails the generated command');
     const logged = readFileSync(resolve(dir, '.exact/commands.jsonl'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
-    assert.deepEqual(logged.map(c => [c.verb, c.exit]).slice(-2), [['agent ios', 0], ['test ios', 7]], 'each command is logged, without its arguments');
+    assert.deepEqual(logged.map(c => [c.verb, c.exit]).slice(-2), [['contract', 0], ['test ios', 7]], 'each command is logged, without its arguments');
     const manifest = readFileSync(resolve(dir, 'Cargo.toml'), 'utf8');
     writeFileSync(resolve(dir, 'Cargo.toml'), manifest.replace(/^taffy = .*\n/m, ''));
     writeFileSync(resolve(dir, 'rust-toolchain.toml'), '[toolchain]\nchannel = "1.0.0"\n');
@@ -58,7 +58,7 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     // An app from before the diary joined the generated block loses its old diary block, keeps its own text, and ignores .exact/.
     writeFileSync(resolve(dir, 'AGENTS.md'), '# Mine\n\n<!-- exact diary: old -->\nstale\n<!-- /exact diary -->\n\nAfter.\n');
     writeFileSync(resolve(dir, '.gitignore'), '/target/');
-    assert.match(createApp(dir, { update: true }), /\.gitignore, AGENTS\.md, CLAUDE\.md, exact2 paths in web\/Cargo\.toml/);
+    assert.match(createApp(dir, { update: true }), /\.gitignore, AGENTS\.md, exact2 paths in web\/Cargo\.toml/);
     assert.match(agents(), /^# Mine\n\nAfter\.\n\n<!-- exact:begin[^]*## The authoring diary[^]*<!-- exact:end -->\n$/);
     assert.ok(!agents().includes('stale'));
     assert.equal(readFileSync(resolve(dir, '.gitignore'), 'utf8'), '/target/\n/.exact/\n');

@@ -19,7 +19,7 @@ agent: <your product and model>
 task: <one generic line, e.g. "add a settings screen"; never the business purpose>
 ```
 
-Then three sections:
+Then four sections:
 
 ### Rough
 Anything that cost time or needed a workaround. For each: what you tried, what
@@ -28,6 +28,24 @@ instead, and what would have helped (a better message, a doc, a missing feature)
 
 ### Lean in
 What was unusually pleasant or powerful, and that Exact should do more of.
+
+### Needed
+One line for each platform capability the app needed, whether or not Exact had it,
+so the team can see which ones many apps end up building by hand:
+
+```
+- camera: by hand (~40 min; a Swift bridge, getUserMedia on web)
+- notifications: missing (skipped; would have needed APNs)
+- haptics: provided
+- share sheet: provided, rough (see Rough)
+```
+
+Start each line with a short generic name (camera, photos, notifications, location,
+maps, purchases, sign-in, share sheet, haptics, audio, files, background work,
+widgets, deep links, …), then one of `provided` (Exact had it), `by hand` (you built
+it or worked around it) or `missing` (it was left out or faked). Name the capability,
+never the feature built on it: "camera", not "scan receipts". Write `none` if the
+app needed nothing beyond views and data.
 
 ### Checkpoints
 One line for each step you reached: `smooth`, or `rough` with a pointer to its
@@ -70,8 +88,8 @@ not the middle of one), ask once, quoting the diary:
 > anything about. Yes / no / always for this project / never.
 
 The three bullets above are an example. Write 2–4 of your own from this session's
-diary: mostly Rough entries, plus one Lean in entry if there is one, each a single
-plain line. Leave out any bullet that would reveal the app's code, data, or name. If
+diary: mostly Rough entries and anything Needed `by hand` or `missing`, plus one
+Lean in entry if there is one, each a single plain line. Leave out any bullet that would reveal the app's code, data, or name. If
 nothing was rough, say so ("nothing broke; it mostly records what went smoothly")
 instead of padding the list. If the person wants to read or change the diary first,
 show it (`bun exact.mjs feedback` prints exactly what would be sent) and make their
