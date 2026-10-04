@@ -325,7 +325,10 @@ rigid-limbed character is one draw per material. `NodeMaterials` still colours
 parts one by one: an instance's per-part looks follow its records in the instance
 buffer, each with its part's first vertex, and the record's last word points at
 them; the vertex shader takes the last part starting at or before its vertex.
-Static merges add no per-vertex data. The parts' own meshes retire. Merging moves
+Static merges add no per-vertex data. The parts' own meshes stay resident: a model
+whose merged draw has a material a game's `CustomMaterial` shades draws its parts
+unmerged, since a custom vertex shader (wind sway about a node) sees node-local
+positions and the node's offset. Merging moves
 static vertices into model space on the CPU, so their pixels can differ from the
 unmerged draw by float rounding (an intended change, under 8 pixels in the tests).
 `ModelLod { levels, hide }` swaps an instance's model by camera distance. Each

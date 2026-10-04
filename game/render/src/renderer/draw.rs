@@ -109,6 +109,16 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
         }
         if H::ENABLED && ASSETS {
             self.check_custom_materials(hooks.materials())?;
+            // A change in custom materials rebatches: those models draw unmerged.
+            let custom = hooks.materials();
+            if custom.len() != self.models.custom.len()
+                || custom
+                    .iter()
+                    .any(|c| !self.models.custom.contains(&c.material))
+            {
+                self.models.custom = custom.iter().map(|c| c.material).collect();
+                self.models.revision += 1;
+            }
             self.models
                 .custom_data(&self.queue, |slot| hooks.instance_data(slot));
         }

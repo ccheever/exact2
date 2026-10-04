@@ -44,6 +44,9 @@ pub(crate) struct Draws<'a> {
     pub starts: &'a [Vec<u32>],
     /// Renderer materials and their base colour factors, by model material index.
     pub materials: &'a [MaterialId],
+    /// Materials a game's `CustomMaterial` shades: a model with any of them in
+    /// a merged draw draws its parts unmerged.
+    pub custom: &'a std::collections::BTreeSet<MaterialId>,
     pub bases: &'a [[f32; 4]],
 }
 pub(crate) struct Uploaded {
@@ -112,6 +115,8 @@ pub(crate) struct Models {
     /// those looks (tint, glow, then the part's first vertex as bits; a
     /// `u32::MAX` start ends each record's run), appended after the records.
     pub(crate) part_looks: (Vec<u32>, Vec<[f32; 8]>),
+    /// Materials a game's `CustomMaterial` shades (never merged).
+    pub(crate) custom: std::collections::BTreeSet<MaterialId>,
     /// The feed's looks for the next `set_draw_instances`, part starts relative.
     pub(crate) pending_looks: (Vec<u32>, Vec<[f32; 8]>),
 }
@@ -482,11 +487,6 @@ impl<const ASSETS: bool> crate::renderer::RendererWithAssets<ASSETS> {
             self.merge_static(model, &nodes, &drawn, &animated, &skins[first..]);
         let mut meshes = meshes;
         meshes.extend(merged_meshes);
-        if !merged.is_empty() {
-            // Parts drawn only through a merged mesh retire with this upload.
-            let drawn: std::collections::BTreeSet<_> = merged.iter().map(|n| n.0).collect();
-            meshes.retain(|id| drawn.contains(id));
-        }
         self.models.loaded.insert(
             name.into(),
             Uploaded {

@@ -59,7 +59,9 @@ impl Assets {
                     continue;
                 };
                 let names = draws.names;
-                let (nodes, members) = if draws.merged.is_empty() {
+                // A custom vertex shader sees node-local positions: never merged.
+                let custom = draws.merged.iter().any(|n| draws.custom.contains(&n.1));
+                let (nodes, members) = if draws.merged.is_empty() || custom {
                     (draws.nodes, None)
                 } else {
                     (draws.merged, Some((draws.members, draws.starts)))

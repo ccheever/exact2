@@ -223,4 +223,54 @@ mod tests {
             weights.raw.size()
         );
     }
+    #[test]
+    fn a_custom_material_draws_its_parts_unmerged() {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
+        let part = MeshData {
+            positions: vec![0., 0., 0., 1., 0., 0., 0., 1., 0.],
+            normals: [0., 0., 1.].repeat(3),
+            uvs: [0.; 2].repeat(3),
+            indices: vec![0, 1, 2],
+            bounds: [0., 0., 0., 1., 1., 0.],
+            ..Default::default()
+        };
+        let model = Model {
+            meshes: vec![part; 2],
+            materials: vec![MaterialData::default()],
+            nodes: (0..2)
+                .map(|i| Node {
+                    mesh: Some(i),
+                    transform: glam::Mat4::from_translation(glam::Vec3::X * i as f32)
+                        .to_cols_array(),
+                    ..Default::default()
+                })
+                .collect(),
+            bounds: [0., 0., 0., 2., 1., 0.],
+            ..Default::default()
+        };
+        let mut renderer = crate::Renderer::new(
+            &gpu.device,
+            &gpu.queue,
+            exact_gpu::wgpu::TextureFormat::Rgba8Unorm,
+        );
+        renderer.prepare_model("reeds.model", &model).unwrap();
+        let mut w = exact_game::World::new(60, 0);
+        w.spawn((
+            exact_game::Transform::default(),
+            exact_game::Mesh::asset("reeds.model"),
+        ));
+        let mut feed = crate::Feed::default();
+        feed.feed(&w, &mut renderer).unwrap();
+        assert_eq!(renderer.models.records.len(), 1, "merged");
+        // A game's vertex shader now shades the material: its parts keep their nodes.
+        let material = renderer.models.loaded["reeds.model"].materials[0];
+        renderer.models.custom.insert(material);
+        renderer.models.revision += 1;
+        feed.feed(&w, &mut renderer).unwrap();
+        let records = &renderer.models.records;
+        assert_eq!(records.len(), 2, "unmerged");
+        assert_eq!(records[1].local.w_axis.x, 1., "the node offset survives");
+    }
 }
