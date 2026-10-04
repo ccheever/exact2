@@ -669,6 +669,22 @@ def cfindTestId (id : String) : List CVNode → Option CVNode
       | .some m => .some m
       | .none => cfindTestId id rest
 
+/-- What the expansion hands a lifted action of an instance at dispatch (its
+`@capture` parameters, inline.rs): every value prop and inject, evaluated
+then and checked against its declared type as the runner checks any
+parameter, so a value that cannot cross (a NaN, a record of another shape)
+refuses the action however little of it the action reads. -/
+def captured (p : CProgram) (ce : CEnv) : Frame → Result Unit
+  | .root => .ok ()
+  | .inst c _ binds => do
+    let C ← ce.comp c
+    ((C.props ++ C.injects).filter (!·.action)).forM fun pd =>
+      match lookupBind pd.name binds with
+      | .some (e, f', ls') => do
+        let v ← ceval fuel ce f' ls' e
+        if conforms (rootProgram p) v pd.ty then pure () else .error (.refused "an argument of the wrong type")
+      | .none => pure ()
+
 def cdispatch (p : CProgram) (o : Oracle) (c : CConfig) (target : String) (event : String)
     (payload : Option Value) : CConfig × Outcome :=
   if c.poisoned then (c, .refused (.refused "poisoned")) else
@@ -681,9 +697,9 @@ def cdispatch (p : CProgram) (o : Oracle) (c : CConfig) (target : String) (event
       if payload.isSome && n.control.isSome then
         (c, .refused (.unsupported s!"a payload for a `{n.control.getD ""}` control")) else
       let ce : CEnv := { prog := p, root := rootEnv p c.slots c.settled c.now, store := c.store }
-      match forceAll fuel ce h.args with
-      | .error e => (c, .refused e)
-      | .ok vs => crunAction p o c h.frame h.action (vs ++ payload.toList)
+      match forceAll fuel ce h.args, captured p ce h.frame with
+      | .error e, _ | .ok _, .error e => (c, .refused e)
+      | .ok vs, .ok () => crunAction p o c h.frame h.action (vs ++ payload.toList)
 
 /-- `Contract.advance`, with the root's actions run as above. -/
 def cadvance (p : CProgram) (o : Oracle) (c : CConfig) (t : F64) : CConfig × Outcome :=
