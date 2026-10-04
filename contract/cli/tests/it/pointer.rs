@@ -75,11 +75,14 @@ fn at(line: &str) -> PointerEvent {
     PointerEvent::parse(line).unwrap()
 }
 
+/// A parameter of another type is an argument left unbound, not the
+/// record: the arity refusal names both declarations.
 #[test]
 fn a_pointer_handler_takes_a_pointer_event_or_nothing() {
     let src = MIC.replace("action begin\n", "action begin(x: number)\n");
     let e = contract::compile(&src).unwrap_err();
-    assert_eq!(e.id, "type-handler-payload", "{e}");
+    assert_eq!(e.id, "analyze-handler-arity", "{e}");
+    assert!(e.message.contains("for its `PointerEvent`"), "{e}");
 }
 
 const PAD: &str = r#"component App
@@ -123,4 +126,42 @@ fn pointer_events_hand_their_record_to_an_action_that_takes_it() {
         Some(&Value::str("pen:pen#3@10,20 12.5,22/1 up"))
     );
     assert_eq!(r.slot("pressing"), Some(&Value::Number(0.75)));
+}
+
+/// Gallery F20: a `press` action that takes one more parameter hears the
+/// click's `MouseEvent` — the modifiers held, for shift-click range
+/// selection and ⌘-click — and a pointer's record carries them too.
+#[test]
+fn a_press_hears_the_modifiers_held() {
+    let src = r#"component App
+  state log = ""
+  action pick(id: string, e: MouseEvent)
+    log = `${log}${id}${e.shiftKey ? "+shift" : ""}${e.metaKey ? "+meta" : ""};`
+  action down(e: PointerEvent)
+    log = `${log}down${e.altKey ? "+alt" : ""};`
+  view
+    button press=pick("a") pointerdown=down testId="a"
+      text log
+"#;
+    let plan = contract::compile(src).unwrap_or_else(|e| panic!("{e}"));
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let a = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("a")[0])
+        .unwrap()
+        .id;
+    r.dispatch(a, Event::Press).unwrap();
+    r.dispatch(a, Event::press("Shift+Meta+").unwrap()).unwrap();
+    r.dispatch(a, Event::Pointerdown(at("1,1,1,0.5,mouse,1,Alt")))
+        .unwrap();
+    assert_eq!(r.slot("log"), Some(&Value::str("a;a+shift+meta;down+alt;")));
+    assert!(Event::press("Hyper").is_none());
+    assert_eq!(Event::press(""), Some(Event::Press));
 }

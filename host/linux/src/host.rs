@@ -729,14 +729,14 @@ impl<D: DataSource> Host<D> {
     /// error; the tree is untouched (as the kernel was).
     pub fn dispatch_at(&mut self, view: ViewId, event: Event, now_ms: f64) -> Option<String> {
         let event = self.document_value(view, event);
-        if matches!(event, Event::Press)
+        if matches!(event, Event::Press | Event::PressWith(_))
             && crate::navigation::popover_invoker(self.runner.kernel(), view)
         {
             self.log(crate::navigation::POPOVER_UNSUPPORTED);
             return Some(crate::navigation::POPOVER_UNSUPPORTED.into());
         }
         self.now_ms = now_ms.max(self.now_ms);
-        if matches!(event, Event::Press)
+        if matches!(event, Event::Press | Event::PressWith(_))
             && self
                 .runner
                 .kernel()

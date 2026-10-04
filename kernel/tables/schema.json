@@ -1328,6 +1328,30 @@
       "name": "enterKeyHint",
       "kind": "str",
       "_comment": "HTML's `enterkeyhint` (feed F25): what a software keyboard's enter key says — enter, done, go, next, previous, search or send. The web writes the attribute; iOS sets the field's return key; a host with no software keyboard (macOS, Linux, a desktop browser) has nothing to label."
+    },
+    {
+      "id": 231,
+      "name": "accessibilityInvalid",
+      "kind": "str",
+      "_comment": "ARIA `aria-invalid` (x2apps onboarding F22): `true`, `false`, `grammar` or `spelling`; a bool expression is written as `true`/`false`. AppKit serves WebKit's `AXInvalid`; UIKit has no such property, so iOS exposes none."
+    },
+    {
+      "id": 232,
+      "name": "accessibilityDescribedBy",
+      "kind": "str",
+      "_comment": "ARIA `aria-describedby`: the HTML ids, space-separated, of the elements whose text describes this one (accname's description), after `aria-description`'s words. AppKit's `AXHelp`, UIKit's `accessibilityHint`."
+    },
+    {
+      "id": 233,
+      "name": "accessibilityRequired",
+      "kind": "bool",
+      "_comment": "ARIA `aria-required` (x2apps onboarding F22): a field the form needs filled. AppKit's `AXRequired`; UIKit has no such property, so iOS exposes none."
+    },
+    {
+      "id": 234,
+      "name": "accessibilityHasPopup",
+      "kind": "str",
+      "_comment": "ARIA `aria-haspopup` (x2apps spreadsheet F20): `false`, `true`, `menu`, `listbox`, `tree`, `grid` or `dialog`; a bool expression is written as `true`/`false`. AppKit serves Chromium's `AXHasPopup` and `AXPopupValue`; UIKit has no such property, so iOS exposes none."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",

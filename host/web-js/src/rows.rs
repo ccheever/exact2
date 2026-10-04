@@ -567,7 +567,7 @@ pub(super) fn attributes(
                 "textarea" => content = Some(value.clone()),
                 _ => {}
             },
-            "checked" | "inert" | "disabled" | "readonly" => {
+            "checked" | "inert" | "disabled" | "readonly" | "multiple" => {
                 if value == "true" {
                     attrs.push((name.clone(), String::new()));
                 }

@@ -146,3 +146,34 @@ fn a_test_answers_a_held_picker_by_its_node() {
     let e = contract::tests("test \"t\"\n  pick \"folder-input\"\n").unwrap_err();
     assert_eq!(e.id, "syntax-expected-string");
 }
+
+/// Spreadsheet F6: the clipboard's events are test steps, a paste carrying
+/// its text as the clipboard's.
+#[test]
+fn clipboard_steps_parse_and_print() {
+    let tests = contract::tests(
+        "test \"grid\"\n  type \"grid\" paste \"a\\tb\"\n  type \"grid\" copy\n  type \"grid\" cut\n  tap \"b3\" modifiers \"Shift\"\n",
+    )
+    .unwrap();
+    let steps = &tests[0].steps;
+    assert!(
+        matches!(&steps[0], Step::Clipboard { edit, text, .. } if edit == "paste" && text == "a\tb")
+    );
+    assert!(
+        matches!(&steps[1], Step::Clipboard { edit, text, .. } if edit == "copy" && text.is_empty())
+    );
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains(
+            "{\"op\":\"clipboard\",\"target\":\"grid\",\"edit\":\"cut\",\"text\":\"\",\"line\":4}"
+        ),
+        "{json}"
+    );
+    // Gallery F20: a press with keys held.
+    assert!(
+        json.contains(
+            "{\"op\":\"tap\",\"target\":\"b3\",\"hover\":false,\"modifiers\":\"Shift\",\"line\":5}"
+        ),
+        "{json}"
+    );
+}

@@ -456,7 +456,7 @@ expression grammar. Platform looks and stand-ins are documented in
 ## Events
 
 An event binding is an action reference or partially applied action. Captured
-arguments precede the event payload. The table contains all 43 handler names.
+arguments precede the event payload. The table contains all 46 handler names.
 Numeric multi-argument payload ordering should be copied from the feature's
 working fixture, not inferred from JavaScript's Event interface.
 
@@ -475,7 +475,9 @@ working fixture, not inferred from JavaScript's Event interface.
 | Six numbers | `transformrelease` |
 | Special: zero or one location string, no captured args | `navigate` |
 | Zero or one `PointerEvent` (the action takes it or leaves it) | `pointerdown`, `pointerup`, `pointermove` |
-| None | `press`, `cancel`, `focus`, `blur`, `submit`, `load`, `contextmenu`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
+| Zero or one `ClipboardEvent` (the action takes it or leaves it) | `copy`, `cut`, `paste` ([clipboard](#clipboard)) |
+| Zero or one `MouseEvent` (the action takes it or leaves it) | `press`: the modifier keys held, `shiftKey`, `ctrlKey`, `altKey`, `metaKey` (a shift-click, a ⌘-click; all false from a keyboard or assistive activation) |
+| None | `cancel`, `focus`, `blur`, `submit`, `load`, `contextmenu`, `dblclick`, `swiperight`, `refresh`, `loadedmetadata`, `play`, `playing`, `pause`, `ended`, `waiting`, `seeking`, `seeked`, `ratechange`, `volumechange`, `canplay`, `reachstart`, `reachend` |
 
 An `audio` is HTML's: `video`'s props and events without `poster`, `playsinline`
 or `playbackVisibilityThreshold`; no box unless `controls` (then Chrome's 300×54,
@@ -540,11 +542,34 @@ An action that takes one more parameter than the binding captures gets a
 | `pressure` | 0 to 1: a pen's or a pressed touch's force where the platform measures one, else 0.5 while down and 0 while not |
 | `pointerType` | `mouse`, `pen` or `touch` |
 | `pointerId` | 1 for the mouse; a touch or pen has its own while down |
+| `shiftKey`, `ctrlKey`, `altKey`, `metaKey` | The modifier keys held (a hardware keyboard's, on iPadOS) |
 
 ```text
 action stroke(e: PointerEvent)
   points = `${points} ${e.offsetX},${e.offsetY}`
 canvas surface=ink(points) pointerdown=begin pointermove=stroke touch-action="none"
+```
+
+### Clipboard
+
+`copy`, `cut` and `paste` are DOM's, on every host: ⌘C, ⌘X and ⌘V (Control on
+Windows and Linux keyboards, the Edit menu, an iPad's hardware keyboard) with
+the focus at a node or inside it are heard by the nearest node with the
+handler, itself or an ancestor — so a node with one takes the focus, as a
+`key` node does. An action that takes one more parameter gets a
+`ClipboardEvent` whose `text` is the clipboard's plain text: what is pasted,
+and empty on `copy` and `cut`, as the DOM's is until a listener sets it — the
+action writes the clipboard with `copyText`. A field's own paste still
+inserts the text. On macOS and iOS, a text field's or textarea's editing is
+the platform's and fires none of the three (the web's fires them); the
+driver's `type <id> paste <text>` delivers a paste carrying that text, and
+`type <id> copy` and `type <id> cut` the others, without touching the
+system clipboard.
+
+```text
+action pasteAt(cell: string, e: ClipboardEvent)
+  send pasted = pasteCells(cell, e.text)
+column key=move paste=pasteAt(selected) copy=copyCells cut=cutCells
 ```
 
 ### Keys
@@ -571,7 +596,8 @@ hardware keyboard, Linux):
   Control or Meta held is a shortcut: it types nothing.
 - **Then the default.** After the handlers, the key does what it would have:
   a character is typed into the focused field, Backspace deletes, Enter
-  submits an input (`submit`), breaks a textarea's line (a textarea has no
+  commits an input (its `change`, when its value changed, as HTML's does)
+  and then submits it (`submit`), breaks a textarea's line (a textarea has no
   `submit`, as in HTML) or presses a button, Space presses a button (Enter
   and Space press any element with a `press` handler as they do a button,
   Enter alone a `role="link"`; give it `role="button"` to be announced as one),
@@ -606,8 +632,13 @@ Mac and elsewhere. The driver presses chords in Playwright's spelling (`type
 "composer" key "Shift+Enter"`, `key "Meta+s"`).
 
 - **Shortcuts.** An `aria-keyshortcuts` button hears its chord before any
-  `key` handler, and takes the key (no `key` handler hears it). The web and
-  macOS carry them; iOS does not yet.
+  `key` handler, and takes the key (no `key` handler hears it), on the web,
+  macOS and iPadOS (a hardware keyboard's chord; the session's view holds
+  the focus when nothing else does). While a modal is shown — a modal
+  `dialog`, or an `aria-modal` view, the last shown — only the buttons
+  inside it hear their chords, and Enter or Space with the focus on a
+  control they activate (a button, a pressable, a checkbox) is that
+  control's, whatever button declares it. Linux carries no shortcuts.
 
 ## Host commands
 

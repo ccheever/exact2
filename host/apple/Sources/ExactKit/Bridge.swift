@@ -204,7 +204,8 @@ final class Runtime {
             return read(exact_fulfill_surface(rt, ticket, kind, n, now))
         }
     }
-    func press(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 0, 0, now)) } }
+    /// A press, with the modifiers held as a chord prefix (`KeyCodes.held`).
+    func press(_ view: UInt32, held: String = "", now: Double) -> Batch { on { read(exact_dispatch(rt, view, 0, write(held), now)) } }
     /// The pointer over the view (`true`) or gone from it.
     func hover(_ view: UInt32, over: Bool, now: Double) -> Batch { on { read(exact_dispatch(rt, view, over ? 2 : 3, 0, now)) } }
     func focus(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 4, 0, now)) } }
@@ -336,6 +337,10 @@ final class Runtime {
     /// record (LLP 1005 §3, LLP 1056 §3 stage 3).
     func pointer(_ view: UInt32, _ kind: PointerKind, _ sample: PointerSample, now: Double) -> Batch {
         on { read(exact_dispatch(rt, view, kind.rawValue, write(sample.line), now)) }
+    }
+    /// The clipboard's `copy` (32), `cut` (33) or `paste` (34) with its plain text.
+    func clipboard(_ view: UInt32, _ kind: UInt32, _ text: String, now: Double) -> Batch {
+        on { read(exact_dispatch(rt, view, kind, write(text), now)) }
     }
     func submit(_ view: UInt32, now: Double) -> Batch { on { read(exact_dispatch(rt, view, 7, 0, now)) } }
     func media(_ view: UInt32, event: String, payload: String, now: Double) -> Batch {
@@ -597,5 +602,7 @@ enum PointerKind: UInt32 { case down = 29, up = 30, move = 31 }
 /// (`mouse`, `pen`, `touch`) and its id (the mouse is 1, as browsers number it).
 struct PointerSample {
     var x: Double, y: Double, buttons: Int, pressure: Double, type: String, id: Int
-    var line: String { "\(x),\(y),\(buttons),\(min(1, max(0, pressure))),\(type),\(id)" }
+    /// The modifiers held, a chord prefix (`KeyCodes.held`): a `MouseEvent`'s.
+    var held = ""
+    var line: String { "\(x),\(y),\(buttons),\(min(1, max(0, pressure))),\(type),\(id),\(held)" }
 }

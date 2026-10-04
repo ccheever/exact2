@@ -850,6 +850,10 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::Checked => "checked",
             PropId::Rows => "rows",
             PropId::Maxlength => "maxlength",
+            // A file input's own attributes (LLP 1069.002 D1), so the
+            // browser's picker takes the types and the count (gallery F6).
+            PropId::Accept => "accept",
+            PropId::Multiple => "multiple",
             // The Popover API by identity (LLP 1021 D5): the browser owns
             // the top layer, light dismiss, and Escape once these land on
             // the real elements.
@@ -865,6 +869,10 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::AccessibilityPressed => "aria-pressed",
             PropId::AccessibilityModal => "aria-modal",
             PropId::AccessibilityElementsHidden => "aria-hidden",
+            PropId::AccessibilityInvalid => "aria-invalid",
+            PropId::AccessibilityDescribedBy => "aria-describedby",
+            PropId::AccessibilityRequired => "aria-required",
+            PropId::AccessibilityHasPopup => "aria-haspopup",
             // SVG 2 attributes by their exact (case-sensitive) names (LLP 1055 D1).
             PropId::ViewBox => "viewBox",
             PropId::PreserveAspectRatio => "preserveAspectRatio",

@@ -16,6 +16,8 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
         "pointerdown" | "pointerup" | "pointermove" => Some("PointerEvent"),
         "key" => Some("KeyboardEvent"),
         "scroll" => Some("ScrollEvent"),
+        "press" => Some("MouseEvent"),
+        "copy" | "cut" | "paste" => Some("ClipboardEvent"),
         _ => None,
     }
 }
@@ -43,9 +45,16 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("metaKey".into(), Ty::Bool),
         ],
     );
+    // DOM's `ClipboardEvent`, its data as plain text (`getData("text/plain")`):
+    // what a paste carries; empty on copy and cut, as the DOM's is until a
+    // listener sets it — the action writes the clipboard with `copyText`.
+    shapes
+        .map
+        .insert("ClipboardEvent".into(), vec![("text".into(), Ty::String)]);
     // DOM's `PointerEvent`, the subset every host measures, in the order
     // `exact_runner::PointerEvent` writes it: the point from the node's
-    // content box, the buttons' bits, the pressure, the device, its id.
+    // content box, the buttons' bits, the pressure, the device, its id, and
+    // the modifiers held (a `MouseEvent`'s).
     shapes.map.insert(
         "PointerEvent".into(),
         vec![
@@ -55,6 +64,22 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("pressure".into(), Ty::Number),
             ("pointerType".into(), Ty::String),
             ("pointerId".into(), Ty::Number),
+            ("shiftKey".into(), Ty::Bool),
+            ("ctrlKey".into(), Ty::Bool),
+            ("altKey".into(), Ty::Bool),
+            ("metaKey".into(), Ty::Bool),
+        ],
+    );
+    // DOM's `MouseEvent`, the modifiers held, what a `press` action may take
+    // (gallery F20: shift-click range select, ⌘-click), in the order
+    // `exact_runner::KeyModifiers::mouse` writes it.
+    shapes.map.insert(
+        "MouseEvent".into(),
+        vec![
+            ("shiftKey".into(), Ty::Bool),
+            ("ctrlKey".into(), Ty::Bool),
+            ("altKey".into(), Ty::Bool),
+            ("metaKey".into(), Ty::Bool),
         ],
     );
     // What a `scroll` handler's action hears after the offsets when it takes

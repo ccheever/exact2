@@ -40,13 +40,16 @@ impl<D: DataSource> Presenter<D> {
         let (ox, oy, _, _) = self.rect_of(view)?;
         let (left, top, _, _) =
             exact_kernel::svg::scene::content_box(&self.host.kernel().node(view)?);
-        PointerEvent::parse(&format!(
+        let mut record = PointerEvent::parse(&format!(
             "{},{},{},{},mouse,1",
             x - ox - left,
             y - oy - top,
             u8::from(down),
             if down { 0.5 } else { 0.0 }
-        ))
+        ))?;
+        // The modifiers held (gallery F20), as a `MouseEvent` has them.
+        record.held = self.modifiers();
+        Some(record)
     }
 
     fn pointer_dispatch(

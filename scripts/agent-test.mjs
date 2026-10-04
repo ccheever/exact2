@@ -94,12 +94,13 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
         try {
           switch (st.op) {
             case 'size': case 'epoch': case 'time-zone': case 'locale': case 'seed': break; // the session opened with it
-            case 'tap': delivered(await s.tap(st.target, st.hover ? { hover: true } : undefined)); input = st.line; break;
+            case 'tap': delivered(await s.tap(st.target, st.hover ? { hover: true } : st.modifiers ? { modifiers: st.modifiers } : undefined)); input = st.line; break;
             case 'drag': delivered(await s.tap(st.target, { drag: { dx: st.dx, dy: st.dy, ...(st.press != null ? { press: st.press } : {}), ...(st.over != null ? { over: st.over } : {}), ...(st.hold != null ? { hold: st.hold } : {}) } })); input = st.line; break;
             case 'type': delivered(await s.type(st.target, st.text)); input = st.line; break;
             case 'key': delivered(await s.type(st.target, { key: st.key })); input = st.line; break;
             // A held picker, by the node its answer arrives at or its capability (files F11); paths are the test file's.
             case 'pick': delivered(st.paths.length ? await s.type(`@${st.target}`, st.paths.map((p) => resolve(dirname(resolve(file)), p)).join('\n')) : await s.tap(`@${st.target}`, { choice: 'cancel' })); input = st.line; break;
+            case 'clipboard': delivered(await s.type(st.target, { clipboard: st.edit, text: st.text })); input = st.line; break;
             case 'clock': await s.clock(st.arg); input = null; break;
             case 'screenshot': await s.screenshot(st.path); break;
             case 'expect-tree': {

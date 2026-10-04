@@ -1401,8 +1401,8 @@ impl<'a> Lowerer<'a> {
                 let (mut asm, mut depth) = (Asm::new(), locals);
                 let ty = expr::compile(self, &mut asm, value, scope, &mut depth)?;
                 values::check_prop_value(&a.name, value, a.span, prop, &ty)?;
-                // ARIA's tristate is a word; a bool is written as `true`/`false`.
-                if prop == exact_kernel::PropId::AccessibilityPressed && ty == Ty::Bool {
+                // ARIA's word-valued states; a bool is written as `true`/`false`.
+                if values::aria_words(prop).is_some() && ty == Ty::Bool {
                     asm.call(exact_plan::Stdlib::ToString);
                 }
                 // An enumerated attribute whose IDL attribute is a bool takes

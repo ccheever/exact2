@@ -653,8 +653,10 @@ lines — `size 1200x800`, `epoch "2026-09-21T12:00:00Z"`, `time-zone
 names — written first in the test or, for every test, at the top of the file.
 A test whose text depends on the date names its `epoch`; without one it runs at
 the driver's 2026-01-01 UTC. The steps are `tap "id" [hover]`,
+`tap "id" modifiers "Shift+Meta"` (a press with keys held),
 `tap "id" drag dx dy [press ms] [over ms] [hold ms]`,
-`type "id" "text"` or `type "id" key "Name"`, `pick "id" "path"…` or
+`type "id" "text"` or `type "id" key "Name"`, `type "id" paste "text"`,
+`type "id" copy`, `type "id" cut`, `pick "id" "path"…` or
 `pick "id" cancel` (a held picker or export, by its node or capability as
 above; paths are the test file's), `clock settle|+ms|+ms real|ms`,
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`

@@ -475,7 +475,13 @@ impl<D: DataSource> Bridge<D> {
         let payload =
             String::from_utf8_lossy(&self.input[..len.min(self.input.len())]).into_owned();
         let event = match kind {
-            0 => Event::Press,
+            // A press, with the modifiers held as a chord prefix (gallery F20).
+            0 => {
+                let Some(event) = Event::press(&payload) else {
+                    return self.emit(r#"{"ops":[],"error":"invalid press modifiers"}"#.into());
+                };
+                event
+            }
             2 => Event::Hover(true),
             3 => Event::Hover(false),
             4 => Event::Focus,
@@ -490,7 +496,7 @@ impl<D: DataSource> Bridge<D> {
             // Scroll, media, pan, selection and pan release (LLP 1057 §10.6),
             // and the pointer's down, up and move with its record (LLP 1005
             // §3; LLP 1056 §3 stage 3).
-            13 | 19 | 20 | 21 | 28..=31 => match Event::of_host_kind(kind, &payload) {
+            13 | 19 | 20 | 21 | 28..=34 => match Event::of_host_kind(kind, &payload) {
                 Ok(event) => event,
                 Err(error) => return self.emit(format!(r#"{{"ops":[],"error":"{error}"}}"#)),
             },

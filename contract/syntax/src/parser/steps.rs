@@ -197,9 +197,16 @@ impl Parser {
                 } else {
                     false
                 };
+                let modifiers = if !hover && self.at_ident("modifiers") {
+                    self.next();
+                    self.str_lit("the modifiers held, as \"Shift+Meta\"")?
+                } else {
+                    String::new()
+                };
                 Step::Tap {
                     target,
                     hover,
+                    modifiers,
                     span,
                 }
             }
@@ -209,6 +216,11 @@ impl Parser {
                     self.next();
                     let key = self.str_lit("the key's name")?;
                     Step::Key { target, key, span }
+                } else if self.at_ident("copy") || self.at_ident("cut") || self.at_ident("paste") {
+                    let edit = if self.at_ident("copy") { "copy" } else if self.at_ident("cut") { "cut" } else { "paste" };
+                    self.next();
+                    let text = if edit == "paste" { self.str_lit("the pasted text")? } else { String::new() };
+                    Step::Clipboard { target, edit: edit.into(), text, span }
                 } else {
                     let text = self.str_lit("the text")?;
                     Step::Type { target, text, span }

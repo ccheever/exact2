@@ -183,7 +183,7 @@ extension NodeView {
         if lifted { buttons = 0 }
         let pressure = lifted || buttons == 0 ? 0 : pen ? Double(e?.pressure ?? 0) : 0.5
         return PointerSample(x: Double(point.x - box.minX), y: Double(point.y - box.minY), buttons: buttons,
-                             pressure: pressure, type: pen ? "pen" : "mouse", id: pen ? 2 : 1)
+                             pressure: pressure, type: pen ? "pen" : "mouse", id: pen ? 2 : 1, held: KeyCodes.held(e?.modifierFlags ?? []))
     }
     func dispatchDblclick(_ node: NodeView?) {
         guard let node, let presenter = node.presenter, presenter.views[node.id] === node, !node.disabled else { return }

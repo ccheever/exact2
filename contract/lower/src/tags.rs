@@ -540,6 +540,9 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "pointerdown" => AttrTarget::Handler("pointerdown"), // LLP 1005 §Events, DOM's own
         "pointerup" => AttrTarget::Handler("pointerup"),
         "pointermove" => AttrTarget::Handler("pointermove"), // LLP 1056 §3 stage 3
+        "copy" => AttrTarget::Handler("copy"),
+        "cut" => AttrTarget::Handler("cut"),
+        "paste" => AttrTarget::Handler("paste"),
         "reachstart" => AttrTarget::Handler("reachstart"),
         "reachend" => AttrTarget::Handler("reachend"),
         "swiperight" => AttrTarget::Handler("swiperight"),
@@ -710,6 +713,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "aria-pressed" => AttrTarget::Prop(p("accessibilityPressed")),
         "aria-modal" => AttrTarget::Prop(p("accessibilityModal")),
         "aria-hidden" => AttrTarget::Prop(p("accessibilityElementsHidden")),
+        "aria-invalid" => AttrTarget::Prop(p("accessibilityInvalid")), // onboarding F22, spreadsheet F20
+        "aria-describedby" => AttrTarget::Prop(p("accessibilityDescribedBy")),
+        "aria-required" => AttrTarget::Prop(p("accessibilityRequired")),
+        "aria-haspopup" => AttrTarget::Prop(p("accessibilityHasPopup")),
         // SVG 2 attributes CSS cannot set (LLP 1055 D1/D2), by their SVG names.
         "viewBox" => AttrTarget::Prop(p("viewBox")),
         "preserveAspectRatio" => AttrTarget::Prop(p("preserveAspectRatio")),

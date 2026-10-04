@@ -5,6 +5,8 @@
 const pressesByKey = el => !el.matches("button, a[href], input, select, textarea, summary")
   && (el.exactHandlers ?? el.dataset.exactOn?.split(" "))?.includes("press") === true;
 const shortcutKeys = new Set(["Enter", "Tab", "Escape", "Backspace", "Delete", "Insert", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"]);
+/** The modifiers an event holds, as a chord prefix (a pointer record's last field; glue.js's press writes the same). */
+const modifiers = e => (e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "");
 export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false }) {
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document: a link with its own `press` navigates by
@@ -47,9 +49,14 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         && event.altKey === modifiers.has("Alt") && event.shiftKey === modifiers.has("Shift")
         && event.key.toLowerCase() === key.toLowerCase();
     };
+    // Nothing behind the frontmost modal — a modal `dialog`, or the last
+    // shown `aria-modal` view (gallery F22) — and never Enter or Space while
+    // the focus is a control they activate (onboarding F27).
+    const modal = document.activeElement.closest("dialog:modal") ?? [...root.querySelectorAll('[aria-modal="true"]')].findLast(m => m.getClientRects().length && !inertAncestor(m));
+    const focus = document.activeElement, activates = focus?.matches?.("button, a[href], summary, input[type=checkbox], input[type=radio], [data-exact-on~=press]");
     for (const el of root.querySelectorAll("button[aria-keyshortcuts]")) {
-      const modal = document.activeElement.closest("dialog:modal");
       if (modal && !modal.contains(el)) continue;
+      if (activates && focus !== el && (event.key === "Enter" || event.key === " ") && !(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)) continue;
       if (!el.isConnected || !el.getClientRects().length || inertAncestor(el) || getComputedStyle(el).visibility !== "visible") continue;
       if (!(el.getAttribute("aria-keyshortcuts") ?? "").split(/\s+/).some(matches)) continue;
       event.preventDefault();
@@ -136,7 +143,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
     // `pointermove`: a free pointer over the node (no button down), or the
     // held one anywhere, at most once a frame, the latest. Each carries the
     // `PointerEvent` record (`offsetX,offsetY,buttons,pressure,pointerType,
-    // pointerId`, from the content box): `fire(29, r)` is down, 30 up, 31 a
+    // pointerId,` the modifiers held, from the content box): `fire(29, r)` is down, 30 up, 31 a
     // move. The JS target's pointer.js is the same rule.
     pointer(el, on, fire) {
       let held = null, last = null, move = null, frame = 0;
@@ -146,7 +153,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         const sx = el.offsetWidth ? r.width / el.offsetWidth : 1, sy = el.offsetHeight ? r.height / el.offsetHeight : 1;
         const left = parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft), top = parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop);
         const type = e.pointerType === "pen" || e.pointerType === "touch" ? e.pointerType : "mouse";
-        return `${(e.clientX - r.left) / (sx || 1) - left},${(e.clientY - r.top) / (sy || 1) - top},${lifted ? 0 : e.buttons},${lifted ? 0 : Math.min(1, Math.max(0, e.pressure || 0))},${type},${e.pointerId}`;
+        return `${(e.clientX - r.left) / (sx || 1) - left},${(e.clientY - r.top) / (sy || 1) - top},${lifted ? 0 : e.buttons},${lifted ? 0 : Math.min(1, Math.max(0, e.pressure || 0))},${type},${e.pointerId},${modifiers(e)}`;
       };
       const flush = () => {
         cancelAnimationFrame(frame); frame = 0;

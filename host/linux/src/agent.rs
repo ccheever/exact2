@@ -281,17 +281,47 @@ fn answer_line<D: DataSource>(p: &mut Presenter<D>, line: &str) -> String {
                     Err(e) => error(&e),
                 };
             }
+            // A click with modifiers held (gallery F20: `tap <id> modifiers Shift`).
+            let held = match field_str(line, "modifiers")
+                .map(|m| exact_runner::KeyModifiers::held(&m))
+            {
+                Some(None) => {
+                    return error("tap: modifiers are Shift, Control, Alt and Meta, joined by +")
+                }
+                Some(Some(held)) => held,
+                None => Default::default(),
+            };
+            let codes = [
+                (held.shift, "ShiftLeft"),
+                (held.ctrl, "ControlLeft"),
+                (held.alt, "AltLeft"),
+                (held.meta, "MetaLeft"),
+            ];
+            for (on, code) in codes {
+                if on {
+                    p.hold_modifier(code, true);
+                }
+            }
             let r = match field_pair(line, "wheel") {
                 Some((dx, dy)) => p.wheel(id, dx as f32, dy as f32),
                 None if field_bool(line, "hover") => p.hover(id),
                 None => p.tap(id),
             };
+            for (on, code) in codes {
+                if on {
+                    p.hold_modifier(code, false);
+                }
+            }
             r.unwrap_or_else(|e| error(&e))
         }
         Some("type") => {
             let Some(id) = id() else {
                 return error("type needs an id");
             };
+            if let Some(edit) = field_str(line, "clipboard") {
+                let text = field_str(line, "text").unwrap_or_default();
+                return p.clipboard(id, &edit, &text).unwrap_or_else(|e| error(&e));
+            }
             if let Some(chord) = field_str(line, "key") {
                 // A chord's modifiers are held for its key (`Shift+Enter`,
                 // `Meta+s`), as a keyboard's are, then released.

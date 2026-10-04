@@ -145,12 +145,16 @@ pub struct TestDecl {
 /// One step of a `test`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Step {
-    /// `tap "testId"` (`hover` for a pointer over).
+    /// `tap "testId"` (`hover` for a pointer over, `modifiers "Shift"` for
+    /// a press with keys held).
     Tap {
         /// The node, by `testId`.
         target: String,
         /// `hover` instead of a press.
         hover: bool,
+        /// `modifiers "Shift+Meta"`: the keys held through the press
+        /// (empty for none; gallery F20).
+        modifiers: String,
         /// Where.
         span: Span,
     },
@@ -238,6 +242,18 @@ pub enum Step {
         target: String,
         /// The files or folders chosen; empty for `cancel`.
         paths: Vec<String>,
+        /// Where.
+        span: Span,
+    },
+    /// `type "testId" copy`, `… cut`, `… paste "text"`: the clipboard's
+    /// event at the node, a paste carrying `text` as the clipboard's.
+    Clipboard {
+        /// The node, by `testId`.
+        target: String,
+        /// `copy`, `cut` or `paste`.
+        edit: String,
+        /// A paste's text; empty for copy and cut.
+        text: String,
         /// Where.
         span: Span,
     },
@@ -1043,6 +1059,7 @@ impl Step {
             | Step::Type { span, .. }
             | Step::Key { span, .. }
             | Step::Pick { span, .. }
+            | Step::Clipboard { span, .. }
             | Step::Clock { span, .. }
             | Step::Screenshot { span, .. }
             | Step::ExpectTree { span, .. }

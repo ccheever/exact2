@@ -667,7 +667,7 @@ public final class ExactSession {
             if batch.ops.isEmpty && batch.error == nil && batch.motion == frames.motion && batch.spatial == frames.spatial && batch.timerDueMs == timerDue && batch.canvasOwed == canvasOwed { return }
             apply(batch)
         }
-        presenter.onPress = { [unowned self] id in apply(runtime.press(id, now: now())) }
+        presenter.onPress = { [unowned self] id in apply(runtime.press(id, held: presenter.pressHeld, now: now())) }
         presenter.onChange = { [unowned self] id, value in apply(runtime.change(id, documentValue(id, value), now: now())) }
         presenter.onInput = { [unowned self] id, value in apply(runtime.input(id, value, now: now())) }
         // @ref LLP 1069.001 D4 — a toggle is HTML's `input` then `change`,
@@ -724,6 +724,7 @@ public final class ExactSession {
         presenter.onSubmit = { [unowned self] id in apply(runtime.submit(id, now: now())) }
         presenter.onLoad = { [unowned self] id in apply(runtime.load(id, now: now())) }
         presenter.onMessage = { [unowned self] id, value in apply(runtime.message(id, value, now: now())) }
+        presenter.onClipboard = { [unowned self] id, kind, text in apply(runtime.clipboard(id, kind, text, now: now())) }
         // Commands are queued here and delivered once the batch is applied
         // (D2): a delegate then runs against a settled tree.
         presenter.onCommand = { [unowned self] name, args, source in pendingCommands.append((name, args, source)) }

@@ -28,11 +28,15 @@ pub struct PointerEvent {
     /// The contact's id: 1 for the mouse, as browsers number it; a touch
     /// or pen gets its own for as long as it is down.
     pub pointer_id: f64,
+    /// The modifier keys held, `MouseEvent`'s `shiftKey`… (gallery F20).
+    pub held: super::KeyModifiers,
 }
 
 impl PointerEvent {
-    /// Decode the wire line; `None` for a malformed one, a non-finite
-    /// number, a pressure outside 0 to 1 or another pointer type.
+    /// Decode the wire line — six fields, then optionally the modifiers
+    /// held as a chord prefix (`Shift+Meta`, [`KeyModifiers::held`]);
+    /// `None` for a malformed one, a non-finite number, a pressure outside
+    /// 0 to 1, another pointer type or a modifier DOM does not name.
     pub fn parse(payload: &str) -> Option<PointerEvent> {
         let mut parts = payload.split(',');
         let mut number = || {
@@ -43,6 +47,7 @@ impl PointerEvent {
         let (offset_x, offset_y, buttons, pressure) = (number()?, number()?, number()?, number()?);
         let pointer_type = parts.next()?;
         let pointer_id = exact_num::parse_f64(parts.next()?).ok()?;
+        let held = super::KeyModifiers::held(parts.next().unwrap_or(""))?;
         let valid = parts.next().is_none()
             && (0.0..=1.0).contains(&pressure)
             && buttons >= 0.0
@@ -55,6 +60,7 @@ impl PointerEvent {
             pressure,
             pointer_type: pointer_type.into(),
             pointer_id,
+            held,
         })
     }
 
@@ -67,6 +73,10 @@ impl PointerEvent {
             Value::Number(self.pressure),
             Value::str(&self.pointer_type),
             Value::Number(self.pointer_id),
+            Value::Bool(self.held.shift),
+            Value::Bool(self.held.ctrl),
+            Value::Bool(self.held.alt),
+            Value::Bool(self.held.meta),
         ])
     }
 }
@@ -103,10 +113,15 @@ mod tests {
             "1,2,1,1.5,mouse,1",
             "1,NaN,1,0.5,mouse,1",
             "1,2,1,0.5,stylus,1",
-            "1,2,1,0.5,mouse,1,9",
+            "1,2,1,0.5,mouse,1,Hyper",
+            "1,2,1,0.5,mouse,1,Shift,9",
         ] {
             assert!(PointerEvent::parse(bad).is_none(), "{bad}");
         }
+        let held = PointerEvent::parse("1,2,1,0.5,mouse,1,Shift+Meta")
+            .unwrap()
+            .held;
+        assert!(held.shift && held.meta && !held.ctrl && !held.alt);
         assert!(matches!(
             Event::pointer_payload(31, "0,0,0,0,mouse,1"),
             Some(Event::Pointermove(_))
