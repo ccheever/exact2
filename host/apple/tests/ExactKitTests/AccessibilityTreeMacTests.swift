@@ -201,6 +201,28 @@ final class AccessibilityTreeMacTests: XCTestCase {
         XCTAssertEqual([states["required"] as? Bool, states["invalid"] as? Bool, email["description"] as? String], [nil, nil, "Work address"] as [AnyHashable?])
     }
 
+    /// Gallery F22, onboarding F27: a shortcut behind a shown `aria-modal`
+    /// view is not heard, and Enter or Space on a focused button is its own.
+    func testShortcutsStayInsideTheModalAndLeaveTheFocusItsKeys() throws {
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 5, "kind": "view", "props": ["accessibilityModal": "true", "accessibilityRole": "dialog"]],
+            ["op": "create", "id": 6, "kind": "button", "handlers": ["press"], "props": ["accessibilityKeyShortcuts": "Escape"]],
+            ["op": "children", "id": 5, "ids": [6]],
+            ["op": "children", "id": 1, "ids": [2, 3, 5]],
+            ["op": "frame", "id": 5, "x": 0.0, "y": 100.0, "w": 200.0, "h": 100.0],
+            ["op": "frame", "id": 6, "x": 0.0, "y": 0.0, "w": 80.0, "h": 30.0],
+        ]))
+        let done = try XCTUnwrap(p.views[2]), back = try XCTUnwrap(p.views[3]), cancel = try XCTUnwrap(p.views[6])
+        XCTAssertFalse(p.shortcutAdmits(done, key: "Escape", held: "", focus: nil), "behind the modal")
+        XCTAssertTrue(p.shortcutAdmits(cancel, key: "Escape", held: "", focus: nil))
+        p.apply(wireBatch([["op": "props", "id": 5, "set": ["accessibilityModal": "false"], "clear": []]]))
+        XCTAssertTrue(p.shortcutAdmits(done, key: "Escape", held: "", focus: nil), "no modal shown")
+        XCTAssertFalse(p.shortcutAdmits(done, key: "Enter", held: "", focus: back), "the focused button's own Enter")
+        XCTAssertTrue(p.shortcutAdmits(done, key: "Enter", held: "Meta+", focus: back))
+        XCTAssertTrue(p.shortcutAdmits(done, key: "Enter", held: "", focus: done))
+    }
+
     func testATargetScopesTheReply() throws {
         let p = try fixture()
         let ax = p.axElements(roots: [p.viewport], scope: [2])

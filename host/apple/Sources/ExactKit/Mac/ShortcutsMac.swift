@@ -125,11 +125,13 @@ final class ShortcutHost: NSObject, NSMenuItemValidation {
     func perform(_ event: NSEvent) -> Bool {
         // Escape belongs to the input method while composition is active.
         if event.keyCode == 53, let editor = event.window?.firstResponder as? NSTextView, editor.hasMarkedText() { return false }
+        let focus = presenter?.keyTarget(event.window?.firstResponder)
         guard event.type == .keyDown,
               (event.window?.firstResponder as? NSTextInputClient)?.hasMarkedText() != true,
-              let view = nodes().first(where: {
-                  !$0.inert && $0.window === event.window && $0.window?.attachedSheet == nil
-                      && declarations($0).contains(where: { $0.matches(event) && $0.permits(event.window?.firstResponder) })
+              let view = nodes().first(where: { node in
+                  !node.inert && node.window === event.window && node.window?.attachedSheet == nil
+                      && declarations(node).contains(where: { $0.matches(event) && $0.permits(event.window?.firstResponder) })
+                      && presenter?.shortcutAdmits(node, key: NodeView.keyName(event), held: KeyCodes.held(event.modifierFlags), focus: focus) == true
               }) else { return false }
         if !event.isARepeat && !view.disabled { presenter?.press(view.id) }
         return true

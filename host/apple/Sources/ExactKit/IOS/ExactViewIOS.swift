@@ -131,6 +131,13 @@ public final class ExactView: UIView {
         fit()
     }
 
+    #if os(iOS)
+    // aria-keyshortcuts as key commands (ShortcutsIOS, gallery F18).
+    public override var canBecomeFirstResponder: Bool { true }
+    public override var keyCommands: [UIKeyCommand]? { session.presenter.shortcutCommands(#selector(exactShortcut(_:))) }
+    @objc private func exactShortcut(_ command: UIKeyCommand) { session.presenter.performShortcut(command) }
+    #endif
+
     public override func willMove(toWindow newWindow: UIWindow?) {
         // Child didMoveToWindow callbacks can retry focus before our own
         // didMoveToWindow. Wait until their native owners have been installed.
@@ -155,6 +162,11 @@ public final class ExactView: UIView {
                 fit()
                 session.presenter.navigation.mounted()
                 session.presenter.syncAccessibility()
+                #if os(iOS)
+                // Nothing focused (autofocus has run): this view holds the
+                // focus, so a hardware keyboard's shortcuts are heard (ShortcutsIOS).
+                if session.presenter.focusedNode == nil { _ = becomeFirstResponder() }
+                #endif
             }
         }
         // Mounted and visible participate in frame demand (D3): an unmounted

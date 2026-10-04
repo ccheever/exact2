@@ -582,8 +582,13 @@ Mac and elsewhere. The driver presses chords in Playwright's spelling (`type
 "composer" key "Shift+Enter"`, `key "Meta+s"`).
 
 - **Shortcuts.** An `aria-keyshortcuts` button hears its chord before any
-  `key` handler, and takes the key (no `key` handler hears it). The web and
-  macOS carry them; iOS does not yet.
+  `key` handler, and takes the key (no `key` handler hears it), on the web,
+  macOS and iPadOS (a hardware keyboard's chord; the session's view holds
+  the focus when nothing else does). While a modal is shown — a modal
+  `dialog`, or an `aria-modal` view, the last shown — only the buttons
+  inside it hear their chords, and Enter or Space with the focus on a
+  control they activate (a button, a pressable, a checkbox) is that
+  control's, whatever button declares it. Linux carries no shortcuts.
 
 ## Host commands
 

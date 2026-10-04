@@ -741,6 +741,14 @@ extension Agent {
             else if let f = v.field { if !f.isFirstResponder { _ = f.becomeFirstResponder() } }
             else if v.canBecomeFirstResponder, !v.isFirstResponder { _ = v.becomeFirstResponder() }
             let focus = v.field != nil || v.textArea != nil || v.isFirstResponder || v.handlers.contains("press") ? v : nil
+            // The page's shortcuts first, as the web's capture listener and
+            // macOS's `routeKey` hear them (gallery F18, ShortcutsIOS).
+            #if os(iOS)
+            if req["phase"] as? String != "up", let node = presenter.shortcut(key: name, held: held, focus: focus ?? presenter.focusedNode) {
+                presenter.press(node.id)
+                return ["typed": Int(v.id), "key": key, "shortcut": Int(node.id), "delivery": "recognized"]
+            }
+            #endif
             if req["phase"] as? String != "up", !presenter.keyDown(at: focus, name, held: held), let focus {
                 if let f = focus.textArea {
                     if name == "Enter" { f.insertText("\n") } else if name == "Backspace" { f.deleteBackward() } else if types { f.insertText(name) }

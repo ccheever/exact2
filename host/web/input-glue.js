@@ -49,9 +49,14 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         && event.altKey === modifiers.has("Alt") && event.shiftKey === modifiers.has("Shift")
         && event.key.toLowerCase() === key.toLowerCase();
     };
+    // Nothing behind the frontmost modal — a modal `dialog`, or the last
+    // shown `aria-modal` view (gallery F22) — and never Enter or Space while
+    // the focus is a control they activate (onboarding F27).
+    const modal = document.activeElement.closest("dialog:modal") ?? [...root.querySelectorAll('[aria-modal="true"]')].findLast(m => m.getClientRects().length && !inertAncestor(m));
+    const focus = document.activeElement, activates = focus?.matches?.("button, a[href], summary, input[type=checkbox], input[type=radio], [data-exact-on~=press]");
     for (const el of root.querySelectorAll("button[aria-keyshortcuts]")) {
-      const modal = document.activeElement.closest("dialog:modal");
       if (modal && !modal.contains(el)) continue;
+      if (activates && focus !== el && (event.key === "Enter" || event.key === " ") && !(event.metaKey || event.ctrlKey || event.altKey || event.shiftKey)) continue;
       if (!el.isConnected || !el.getClientRects().length || inertAncestor(el) || getComputedStyle(el).visibility !== "visible") continue;
       if (!(el.getAttribute("aria-keyshortcuts") ?? "").split(/\s+/).some(matches)) continue;
       event.preventDefault();
