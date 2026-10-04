@@ -121,7 +121,9 @@ is declared in `llp/1001-kernel-v1.spec.md` with the reason.
   worth doing; delete it when it lands. It decides nothing.
 - Each worktree builds into its own `target/`: never symlink or share another
   checkout's (the scripts refuse); a private `CARGO_TARGET_DIR` outside every
-  checkout is fine.
+  checkout is fine. The one thing an Apple build takes from another checkout is
+  the host's two Rust modules, by the SHA-256 of every input
+  (`~/.cache/exact/apple-modules`, `host/apple/modules.mjs`).
 - Never `git stash`. Kill only PIDs you recorded. Agents remove apparatus freely and add
   none without a human saying so.
 - Optional capability is a separate artifact loaded on demand (the GPU module) or another
