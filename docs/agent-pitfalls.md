@@ -74,6 +74,13 @@ guide's rules don't make obvious.
   at its natural width (`flex-grow=1` on the part that should stretch), not
   `width="100%"`. (Signal Clone, build 15.)
 
+- **A data answer past 16 MiB fails only on the JS target.** A 64 MiB string from
+  a Rust source loaded on the wasm web host and on Linux, and on the JS target
+  the resource failed (`Rust module rejected the call`). Cause: the JS target's
+  Rust data seam carries at most `MAX_HOST_WORK_BYTES` (16 MiB) a message; the
+  runner's own data source has no such cap. Keep an answer under 16 MiB, or page
+  it. (LLP 1090 conformance plan, `host/web-js/conformance/budget.contract`.)
+
 ## Native presentation and navigation (iOS)
 
 - **Edge-swipe back does nothing.** Cause: the pop gesture presses the control named

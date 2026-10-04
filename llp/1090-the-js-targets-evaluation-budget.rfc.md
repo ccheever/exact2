@@ -10,6 +10,7 @@
 **Date:** 2026-10-04
 **Revised:** 2026-10-04 (r2, r3)
 **Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stages 1 and 2 on 2026-10-05, stage 3 on 2026-10-06 (§5)
+**Built:** stages 1 and 2, 2026-10-04 (`fix/impl1090`; §5, "As built"). Stage 3 is not.
 **Amends:** LLP 1017.003 D3 (what a value's extent counts) and D7 ("no second evaluator": since LLP 1071 there is one); LLP 1006 §2 (two type refusals); LLP 1088 §9.1 (this LLP meets its precondition)
 **Related:** LLP 1005 §6; LLP 1017.003; LLP 1071; LLP 1088 D2 and §9.1; `llp/reviews/1088-r2.astra.md` (the reset points); `QUEUE.md`, "The JS target's evaluation budget". Benchmark harness, kept outside the repository: `~/projects/x2apps/_reviews/llp1090-bench/`.
 

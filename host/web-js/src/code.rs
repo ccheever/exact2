@@ -639,21 +639,25 @@ impl Translator<'_> {
         let r = reg(self.stack.len());
         self.max_depth = self.max_depth.max(self.stack.len() + 1);
         let t = self.uses.budget("$T");
-        let (p, q, eb) = (
+        let (p, q, eb, u) = (
             self.uses.budget("$p"),
             self.uses.budget("$x"),
             self.uses.budget("EB"),
+            self.uses.budget("utf8"),
         );
-        // `$c` values and `$b` bytes so far, `$e` once those bytes are exact.
+        // `$c` values and `$b` bytes so far, `$e` once those bytes are exact
+        // (then a part counts its own exactly); a scalar part inline.
+        let kept = if map { "$k+1" } else { "$o.length" };
         let add = format!(
-            "$c+={p}($v,$e);$b+={eb};if($c>16777216||$b>67108864&&($e||($e=1,$b={q}($o,$o.length))>67108864)){t}(\"ValueTooLarge\",{pc})"
+            "if(typeof $v===\"string\"){{$c++;$b+=$e?{u}($v):3*$v.length}}else if(typeof $v===\"object\"&&$v!==null){{$c+={p}($v,$e);$b+={eb}}}else $c++;if($c>16777216||$b>67108864&&($e||($e=1,$b={q}($o,{kept}))>67108864)){t}(\"ValueTooLarge\",{pc})"
         );
         let step = format!("if(++$s>65536){t}(\"IterationLimit\",{pc});");
         let each = if map {
-            format!("const $v=$f($a[$k],$k);$o.push($v);{add}")
+            format!("const $v=$f($a[$k],$k);$o[$k]=$v;{add}")
         } else {
             format!("if($f($a[$k],$k)){{const $v=$a[$k];$o.push($v);{add}}}")
         };
+        let out = if map { "new Array($n)" } else { "[]" };
         // The result's extent is remembered, as the runner's `remember`.
         let m = self.uses.budget("$m");
         let done = if map {
@@ -662,7 +666,7 @@ impl Translator<'_> {
             format!("if($o.length<$n){r}={m}($o,$c,$b,$e)")
         };
         self.out.push_str(&format!(
-            "{{const $a={list},$f={f},$n=$a.length;{r}=$a;if($n){{const $o=[];let $c=1,$b=0,$e=0;for(let $k=0;$k<$n;$k++){{{step}{each}}}{done}}}}}"
+            "{{const $a={list},$f={f},$n=$a.length;{r}=$a;if($n){{const $o={out};let $c=1,$b=0,$e=0;for(let $k=0;$k<$n;$k++){{{step}{each}}}{done}}}}}"
         ));
         r
     }

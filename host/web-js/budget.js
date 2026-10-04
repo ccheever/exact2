@@ -70,7 +70,12 @@ export function $m(o, n, b, x) { if (n >= 64) Ext.set(o, [n, b, x]); return o; }
 /** A record or list built at `pc` (`Opcode::Record`, `List`): its parts', or `ValueTooLarge`. */
 export function K(a, pc) {
   let n = 1, b = 0, x = 0;
-  for (let i = 0; i < a.length; i++) { n += $p(a[i], 0); b += EB; }
+  for (let i = 0; i < a.length; i++) {
+    const v = a[i];
+    if (typeof v === "string") { n++; b += 3 * v.length; }
+    else if (typeof v === "object" && v !== null) { n += walk(v, 0); b += EB; }
+    else n++;
+  }
   if (b > MAX) { b = $x(a, a.length); x = 1; }
   if (n > NODES || b > MAX) throw new Trap("ValueTooLarge", pc);
   if (n >= 64) Ext.set(a, [n, b, x]);
