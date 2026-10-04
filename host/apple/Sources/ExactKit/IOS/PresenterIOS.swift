@@ -96,6 +96,8 @@ final class Presenter {
     lazy var navigation = NavigationHost(presenter: self)
     #if os(tvOS)
     lazy var menuKey = MenuKey(presenter: self)
+    /// The `testId` of the node that last held the remote's focus.
+    var focusKey: String?
     #endif
     lazy var modals = ModalHost(presenter: self)
     /// SVG scenes and CSS animations (LLP 1055 D4, D7).

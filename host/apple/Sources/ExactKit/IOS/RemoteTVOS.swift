@@ -20,6 +20,7 @@ extension NodeView {
     override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {
         super.didUpdateFocus(in: context, with: coordinator)
         if context.nextFocusedItem === self {
+            presenter?.focusKey = props["testId"]
             showFocusRing(true)
             repaintThrough()
             if handlers.contains("focus") { presenter?.focus(id) }
@@ -35,6 +36,24 @@ extension NodeView {
         guard presses.contains(where: { $0.type == .select }), !disabled, handlers.contains("press") else { return false }
         if down { presenter?.press(id) }
         return true
+    }
+}
+
+extension Presenter {
+    /// The shown, focusable node with the `testId` that last held the focus.
+    var focusReturn: NodeView? {
+        guard let key = focusKey else { return nil }
+        return views.values.first { $0.props["testId"] == key && $0.window != nil && $0.canBecomeFocused }
+    }
+}
+
+extension ExactView {
+    /// When the focused view goes (a branch that swaps its subtree), the
+    /// focus engine asks where focus belongs: the replacement with the same
+    /// `testId`, rather than whatever the engine would pick.
+    override public var preferredFocusEnvironments: [any UIFocusEnvironment] {
+        if let node = session.presenter.focusReturn { return [node] }
+        return super.preferredFocusEnvironments
     }
 }
 
