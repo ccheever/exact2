@@ -95,3 +95,28 @@ fn a_test_drags_and_opens_at_its_size() {
     let e = contract::tests("test \"t\"\n  size 800 600\n").unwrap_err();
     assert_eq!(e.id, "syntax-expected-step");
 }
+
+#[test]
+fn a_test_answers_a_held_picker_by_its_node() {
+    // files F11: a picker's hold is answered by the node its answer
+    // arrives at, never by a ticket a test cannot predict.
+    let src = "test \"import\"\n  tap \"choose\"\n  pick \"folder-input\" \"fixtures/notes\"\n  pick \"files\" \"a.txt\" \"b.txt\"\n  pick \"open-directory\" cancel\n";
+    let tests = contract::tests(src).unwrap();
+    let t = &tests[0];
+    assert!(
+        matches!(&t.steps[1], Step::Pick { target, paths, .. } if target == "folder-input" && paths == &["fixtures/notes"])
+    );
+    assert!(matches!(&t.steps[2], Step::Pick { paths, .. } if paths.len() == 2));
+    assert!(matches!(&t.steps[3], Step::Pick { paths, .. } if paths.is_empty()));
+    let json = contract::tests_json(&tests);
+    assert!(
+        json.contains("{\"op\":\"pick\",\"target\":\"folder-input\",\"paths\":[\"fixtures/notes\"],\"line\":3}"),
+        "{json}"
+    );
+    assert!(
+        json.contains("{\"op\":\"pick\",\"target\":\"open-directory\",\"paths\":[],\"line\":5}"),
+        "{json}"
+    );
+    let e = contract::tests("test \"t\"\n  pick \"folder-input\"\n").unwrap_err();
+    assert_eq!(e.id, "syntax-expected-string");
+}

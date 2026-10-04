@@ -419,6 +419,7 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                 | Step::Size { span, .. }
                 | Step::Type { span, .. }
                 | Step::Key { span, .. }
+                | Step::Pick { span, .. }
                 | Step::Clock { span, .. }
                 | Step::Screenshot { span, .. }
                 | Step::ExpectTree { span, .. }
@@ -465,6 +466,18 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     q(target, &mut s);
                     s.push_str(",\"key\":");
                     q(key, &mut s);
+                }
+                Step::Pick { target, paths, .. } => {
+                    s.push_str("{\"op\":\"pick\",\"target\":");
+                    q(target, &mut s);
+                    s.push_str(",\"paths\":[");
+                    for (i, path) in paths.iter().enumerate() {
+                        if i > 0 {
+                            s.push(',');
+                        }
+                        q(path, &mut s);
+                    }
+                    s.push(']');
                 }
                 Step::Clock { arg, .. } => {
                     s.push_str("{\"op\":\"clock\",\"arg\":");

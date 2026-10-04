@@ -497,6 +497,12 @@ nearest scroll containers, then the page) and say so in the reply's `scrolled`.
 move, with the finger still down. `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires
 first); its reply says what is still in flight, and `clock settle` lands it.
+Under the driver a picker, an export, a share or an auth session opens no panel:
+it is held and `state` lists it under `pending` with its capability. Answer it by
+the node its answer arrives at (the `id` the command names) or by its capability:
+`type @folder-input path/to/folder`, `type @pick photo.jpg`, `tap @open-directory
+cancel`. `@N`, its ticket, works too, but a ticket counts every request before it,
+so it differs between hosts and runs.
 
 Authored tests are a smaller language over that API:
 
@@ -511,7 +517,9 @@ test "an action uses its computed next value"
 This test goes with the complete example above. The steps are `size 1200x800`
 (first, the viewport the test's session opens at), `tap "id" [hover]`,
 `tap "id" drag dx dy [press ms] [over ms] [hold ms]`,
-`type "id" "text"` or `type "id" key "Name"`, `clock settle|+ms|ms`,
+`type "id" "text"` or `type "id" key "Name"`, `pick "id" "path"…` or
+`pick "id" cancel` (a held picker or export, by its node or capability as
+above; paths are the test file's), `clock settle|+ms|ms`,
 `screenshot "file"`, `expect tree has|missing "id"`, `expect text "id" == "…"`
 (the node's text, else its descendants' — a button's label — else a field's
 value), and `expect state name == <number|string|bool|none|[]>`. The clock
