@@ -315,8 +315,11 @@ their alpha. Custom-material hooks ignore both.
 `MaterialOverrides` replaces a model material's base colour factor (and adds
 emission) on one instance: it becomes that material's records' tint, the base
 divided out, so instances in different colours still share their batches.
-Present rebuilds these every tick; the feed compares their content, so unchanged
-looks neither rebatch nor re-upload fades.
+Present rebuilds these every tick; the feed compares each entity's content, so
+unchanged looks cost nothing and changed ones (a pulsing glow) patch that entity's
+records and part looks in place in the instance buffer, without a rebatch. Only a
+look appearing on a merged part that had none (the part-look table changes shape)
+rebatches.
 At load, a model's rigid, non-blended parts that share a material merge into one
 draw: static parts into one mesh pre-transformed into model space (mirrored parts
 rewound), parts a clip animates into one mesh skinned with weight one to each

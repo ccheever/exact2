@@ -39,6 +39,9 @@ pub(crate) trait Writes {
     /// Each record's level of detail and the `ModelLod` entities; set before
     /// `instances`.
     fn levels(&mut self, _: &[u8], _: &[crate::lod::Lod]) {}
+    /// Rewrite records `first..` looks in place (tint and glow), and part looks
+    /// `part_first..` (starts relative to their meshes).
+    fn patch_looks(&mut self, _: usize, _: &[crate::DrawInstance], _: usize, _: &[[f32; 8]]) {}
     fn model_poses(
         &mut self,
         _: &World,
@@ -115,6 +118,17 @@ impl<const ASSETS: bool> Writes for crate::renderer::RendererWithAssets<ASSETS> 
         part_looks.0.extend_from_slice(bases);
         part_looks.1.clear();
         part_looks.1.extend_from_slice(looks);
+    }
+    fn patch_looks(
+        &mut self,
+        first: usize,
+        records: &[crate::DrawInstance],
+        part_first: usize,
+        looks: &[[f32; 8]],
+    ) {
+        if ASSETS {
+            self.patch_draw_looks(first, records, part_first, looks);
+        }
     }
     fn levels(&mut self, records: &[u8], lods: &[crate::lod::Lod]) {
         self.levels.set(records, lods);
@@ -267,28 +281,6 @@ struct Versions {
     live: u64,
     membership: u64,
 }
-/// A content digest of every `NodeMaterials` and `MaterialOverrides` row, by slot.
-fn node_looks_digest(w: &World) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    for (e, looks) in w.query::<&exact_game::NodeMaterials>().iter() {
-        e.index().hash(&mut h);
-        for l in &looks.0 {
-            l.node.hash(&mut h);
-            l.color.map(f32::to_bits).hash(&mut h);
-            l.emissive.map(f32::to_bits).hash(&mut h);
-        }
-    }
-    for (e, looks) in w.query::<&exact_game::MaterialOverrides>().iter() {
-        e.index().hash(&mut h);
-        for l in &looks.0 {
-            l.material.hash(&mut h);
-            l.color.map(|c| c.map(f32::to_bits)).hash(&mut h);
-            l.emissive.map(f32::to_bits).hash(&mut h);
-        }
-    }
-    h.finish()
-}
 /// Content of every presentation offset: present rewrites the rows each tick,
 /// so their revision moves even when no offset changed.
 fn offsets(w: &World) -> u64 {
@@ -368,9 +360,6 @@ pub struct Feed {
     changed_pages: Vec<usize>,
     fades: Vec<(u32, f32)>,
     fades_next: Vec<(u32, f32)>,
-    // Presentation looks are rebuilt every tick: rebatch only when their content
-    // changes, not their revision.
-    node_looks: u64,
     scene: Scene,
     glows: Vec<crate::GlowInput>,
 }
@@ -403,7 +392,6 @@ impl Default for Feed {
             changed_pages: Vec::new(),
             fades: Vec::new(),
             fades_next: Vec::new(),
-            node_looks: 0,
             scene: Scene::default(),
             glows: Vec::new(),
         }
@@ -507,22 +495,20 @@ impl Feed {
             || next.glow != old.glow
             || next.membership != old.membership
             || next.mesh != old.mesh;
-        let looks_changed = (initial
-            || next.node_materials != old.node_materials
-            || next.material_overrides != old.material_overrides)
-            && {
-                let digest = node_looks_digest(w);
-                std::mem::replace(&mut self.node_looks, digest) != digest || initial
-            };
-        let batches = initial
+        let looks_changed = next.node_materials != old.node_materials
+            || next.material_overrides != old.material_overrides;
+        let mut batches = initial
             || next.assets != old.assets
             || next.mesh != old.mesh
             || next.visible != old.visible
             || next.viewmodel != old.viewmodel
-            || looks_changed
             || next.lod != old.lod
             || next.live != old.live
             || next.membership != old.membership;
+        // Present rewrites looks every tick: patch changed content in place.
+        if !batches && looks_changed && !self.assets.patch_looks(w, r)? {
+            batches = true;
+        }
         // Validate live slots before any history swap. A last partial page is clipped
         // only at the device boundary; absent trailing slots do not refuse a valid world.
         if moved || material || batches {

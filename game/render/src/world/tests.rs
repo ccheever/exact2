@@ -272,7 +272,8 @@ fn presentation_looks_rebuilt_unchanged_neither_rebatch_nor_refade() {
     changed.0[0].color = [1., 0., 0., 1.];
     w.insert(e, changed);
     f.feed_to(&w, &mut r).unwrap();
-    assert!(r.calls.contains(&Call::Batches) && r.calls.contains(&Call::Opacity(1)));
+    // Changed looks patch records in place; fades re-upload.
+    assert!(!r.calls.contains(&Call::Batches) && r.calls.contains(&Call::Opacity(1)));
 }
 #[test]
 fn materials_repack_pages_only_on_revision_and_default_missing_values() {

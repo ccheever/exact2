@@ -273,4 +273,62 @@ mod tests {
         assert_eq!(records.len(), 2, "unmerged");
         assert_eq!(records[1].local.w_axis.x, 1., "the node offset survives");
     }
+    #[test]
+    fn changed_part_looks_patch_the_instance_buffer_without_rebatching() {
+        let Some(gpu) = crate::test_device::device_or_skip(exact_gpu::fixture::device()) else {
+            return;
+        };
+        let part = MeshData {
+            positions: vec![0., 0., 0., 1., 0., 0., 0., 1., 0.],
+            normals: [0., 0., 1.].repeat(3),
+            uvs: [0.; 2].repeat(3),
+            indices: vec![0, 1, 2],
+            bounds: [0., 0., 0., 1., 1., 0.],
+            ..Default::default()
+        };
+        let model = Model {
+            meshes: vec![part; 2],
+            materials: vec![MaterialData::default()],
+            nodes: (0..2)
+                .map(|i| Node {
+                    name: format!("part{i}"),
+                    mesh: Some(i),
+                    ..Default::default()
+                })
+                .collect(),
+            bounds: [0., 0., 0., 1., 1., 0.],
+            ..Default::default()
+        };
+        let mut renderer = crate::Renderer::new(
+            &gpu.device,
+            &gpu.queue,
+            exact_gpu::wgpu::TextureFormat::Rgba8Unorm,
+        );
+        renderer.prepare_model("pair.model", &model).unwrap();
+        let mut w = exact_game::World::new(60, 0);
+        let look = |red: f32| {
+            exact_game::NodeMaterials(vec![exact_game::NodeMaterial {
+                node: "part1".into(),
+                color: [red, 0., 0., 1.],
+                ..Default::default()
+            }])
+        };
+        let e = w.spawn((
+            exact_game::Transform::default(),
+            exact_game::Mesh::asset("pair.model"),
+            look(0.5),
+        ));
+        let mut feed = crate::Feed::default();
+        feed.feed(&w, &mut renderer).unwrap();
+        let epoch = renderer.cull.epoch;
+        assert_eq!(renderer.models.part_looks.1[1][0], 0.5);
+        // A pulse: the same parts, another colour.
+        w.insert(e, look(0.9));
+        feed.feed(&w, &mut renderer).unwrap();
+        assert_eq!(renderer.cull.epoch, epoch, "no rebatch");
+        assert_eq!(renderer.models.part_looks.1[1][0], 0.9);
+        let records = renderer.models.records.len();
+        let word = (records + 1) * super::super::INSTANCE_WORDS + 36;
+        assert_eq!(renderer.models.words[word], 0.9f32.to_bits());
+    }
 }
