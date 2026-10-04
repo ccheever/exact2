@@ -61,6 +61,77 @@ pub struct Child {
     pub fate: Fate,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Data)]
+pub enum TrailKind {
+    #[default]
+    Rescue,
+    Fuel,
+    Food,
+    Camp,
+}
+impl TrailKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Rescue => "rescue",
+            Self::Fuel => "fuel",
+            Self::Food => "food",
+            Self::Camp => "camp",
+        }
+    }
+}
+
+/// A chosen landmark stays chosen while walking and across saves. Finding a
+/// new supply visits the forest on selection/collection, never every frame.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Resource)]
+pub struct Trail {
+    pub kind: TrailKind,
+    pub target: Option<Entity>,
+}
+
+pub fn track(w: &mut World, command: &str) {
+    let kind = match command {
+        "track rescue" => TrailKind::Rescue,
+        "track fuel" => TrailKind::Fuel,
+        "track food" => TrailKind::Food,
+        "track camp" => TrailKind::Camp,
+        _ => return,
+    };
+    *w.resource_mut::<Trail>() = Trail { kind, target: None };
+    update_trail(w, true);
+}
+
+pub fn update_trail(w: &mut World, refresh: bool) {
+    let trail = *w.resource::<Trail>();
+    if !matches!(trail.kind, TrailKind::Fuel | TrailKind::Food) {
+        return;
+    }
+    let valid = trail.target.is_some_and(|e| {
+        w.get::<Item>(e).is_some_and(|i| !i.carried) || w.get::<forest::Tree>(e).is_some()
+    });
+    if !refresh && (valid || trail.target.is_none()) {
+        return;
+    }
+    let radius = w.resource::<Grove>().half * 3.0;
+    let mut target = w.nearest_xz_where::<Item>("player", radius, |i| {
+        !i.carried && (i.kind == Kind::Food) == (trail.kind == TrailKind::Food)
+    });
+    if target.is_none() && trail.kind == TrailKind::Fuel {
+        let at = w.require::<Transform>("player").position;
+        let grove = w.resource::<Grove>();
+        target = (0..grove.hp.len())
+            .filter(|&c| grove.hp[c] > 0)
+            .min_by(|&a, &b| {
+                let distance = |c: usize| {
+                    let (x, z) = (grove.x[c] - at.x, grove.z[c] - at.z);
+                    x * x + z * z
+                };
+                distance(a).total_cmp(&distance(b)).then(a.cmp(&b))
+            })
+            .map(|c| grove.trunk[c]);
+    }
+    w.resource_mut::<Trail>().target = target;
+}
+
 fn item_look(kind: Kind) -> (Mesh, Material, f32) {
     match kind {
         Kind::Log => (
@@ -441,6 +512,8 @@ pub fn children(w: &mut World, player: Vec3, safe: f32) -> u32 {
         for k in 0..arrivals * 2 {
             drop_item(w, Kind::Food, -2.0 - k as f32 * 0.6, 2.0);
         }
+        // A previously empty food search must notice the new rescue supplies.
+        update_trail(w, true);
         w.emit("rescued");
         w.log("Rescue supplies: +20 fire fuel and 2 food per child");
     }
@@ -450,6 +523,53 @@ pub fn children(w: &mut World, player: Vec3, safe: f32) -> u32 {
 /// Bearings use the walking axes: W is north, D is east. No hidden target
 /// positions are needed by a player or agent following the visible objective.
 pub fn guidance(w: &World) -> String {
+    let trail = *w.resource::<Trail>();
+    let at = w.require::<Transform>("player").position;
+    if trail.kind == TrailKind::Camp {
+        return format!("Return to camp · {}", bearing(-at));
+    }
+    if matches!(trail.kind, TrailKind::Food | TrailKind::Fuel) {
+        let p = w.require::<Player>("player");
+        if p.pack.len() >= PACK {
+            let fuel = p
+                .pack
+                .iter()
+                .any(|&e| w.require::<Item>(e).kind != Kind::Food);
+            return if fuel {
+                format!("Pack full · Feed the fire · {}", bearing(-at))
+            } else {
+                "Pack full of food · Q eats when hungry".into()
+            };
+        }
+        if let Some(target) = trail.target {
+            if let Some(t) = w.get::<Transform>(target) {
+                let label = w
+                    .get::<Item>(target)
+                    .map(|i| i.kind.label())
+                    .unwrap_or("tree");
+                return format!(
+                    "Gather {label} · {}",
+                    bearing_with_reach(t.position - at, 1.5)
+                );
+            }
+        }
+        return if trail.kind == TrailKind::Food {
+            "No food found · More arrives at dawn".into()
+        } else {
+            "No fuel found · Return to camp".into()
+        };
+    }
+    rescue_guidance(w)
+}
+
+pub fn camp_bearing(w: &World) -> String {
+    format!(
+        "Campfire · {}",
+        bearing(-w.require::<Transform>("player").position)
+    )
+}
+
+fn rescue_guidance(w: &World) -> String {
     let at = w.require::<Transform>("player").position;
     let following = w.count::<Child>(|child| child.fate == Fate::Following);
     if following > 0 {
@@ -468,8 +588,13 @@ pub fn guidance(w: &World) -> String {
 }
 
 fn bearing(to: Vec3) -> String {
-    let distance = math::ceil(to.with_y(0.0).length()) as u32;
-    if distance <= 2 {
+    bearing_with_reach(to, 2.0)
+}
+
+fn bearing_with_reach(to: Vec3, reach: f32) -> String {
+    let length = to.with_y(0.0).length();
+    let distance = math::ceil(length) as u32;
+    if length <= reach {
         return "within reach".into();
     }
     let angle = math::atan2(to.x, -to.z);

@@ -3,7 +3,7 @@ use exact_game::{Sim, Transform, Vec3, Visible};
 use forest_logic::camp::{Cycle, Fire, DAY, PERIOD};
 use forest_logic::creatures::{Deer, Mind, Wolf};
 use forest_logic::forest::{Grove, CLEARING};
-use forest_logic::player::{self, Child, Fate, Item, Kind, Player};
+use forest_logic::player::{self, Child, Fate, Item, Kind, Player, Trail, TrailKind};
 use forest_logic::{Forest, Options};
 
 const TICK: f64 = 1000.0 / 60.0;
@@ -347,6 +347,138 @@ fn starving_alone_in_the_dark_ends_the_run() {
     let before = sim.local_position("player").unwrap();
     sim.hold("KeyD", 500.0);
     assert_eq!(sim.local_position("player").unwrap(), before);
+}
+
+#[test]
+fn death_freezes_the_survived_nights_count() {
+    let mut sim = game(500, true);
+    sim.world_mut().resource_mut::<Cycle>().t = PERIOD - 0.1;
+    {
+        let mut p = sim.world_mut().require_mut::<Player>("player");
+        p.dead = true;
+        p.health = 0.0;
+    }
+    sim.run(200.0);
+    assert_eq!(sim.world().resource::<Cycle>().day, 2);
+    assert_eq!(sim.world().resource::<Cycle>().survived, 0);
+    assert_eq!(
+        sim.world().published("survived"),
+        Some(exact_game::Value::Number(0.0))
+    );
+}
+
+#[test]
+fn supply_compass_tracks_uncollected_food_and_restores_the_chosen_landmark() {
+    let mut sim = game(500, true);
+    sim.post("track food");
+    sim.run(TICK);
+    let target = sim.world().resource::<Trail>().target.unwrap();
+    assert_eq!(sim.world().require::<Item>(target).kind, Kind::Food);
+    let at = sim.world().require::<Transform>(target).position;
+    place(&mut sim, "player", at + Vec3::new(0.0, 0.7, 1.75));
+    // Finish the arranged teleport's camera follow before this gameplay checkpoint.
+    sim.run(TICK);
+    assert!(
+        player::guidance(sim.world()).contains(" · N · 2 m"),
+        "a rounded two metres must still offer a direction"
+    );
+    let save = sim.save().unwrap();
+    let mut restored = game(500, true);
+    restored.restore(&save).unwrap();
+    assert!(
+        save == restored.save().unwrap(),
+        "immediate save roundtrip differs"
+    );
+    for sim in [&mut sim, &mut restored] {
+        assert_eq!(sim.world().resource::<Trail>().target, Some(target));
+        sim.tap("KeyE");
+        sim.run(100.0);
+        assert!(sim.world().require::<Item>(target).carried);
+        assert_ne!(sim.world().resource::<Trail>().target, Some(target));
+        sim.post("track camp");
+        sim.run(TICK);
+        assert!(player::guidance(sim.world()).starts_with("Return to camp · "));
+        sim.post("track unknown");
+        sim.run(TICK);
+        assert_eq!(sim.world().resource::<Trail>().kind, TrailKind::Camp);
+    }
+    let (a, b) = (sim.save().unwrap(), restored.save().unwrap());
+    assert!(
+        a == b,
+        "save continuation differs: worlds {:x}/{:x}; first differing byte {:?}; lengths {}/{}",
+        sim.world().hash(),
+        restored.world().hash(),
+        a.iter().zip(&b).position(|(a, b)| a != b),
+        a.len(),
+        b.len()
+    );
+}
+
+#[test]
+fn fuel_compass_falls_back_to_a_tree_then_tracks_the_dropped_logs() {
+    let mut sim = game(500, true);
+    let loose: Vec<_> = sim
+        .world()
+        .query::<&Item>()
+        .iter()
+        .filter(|(_, item)| item.kind != Kind::Food)
+        .map(|(e, _)| e)
+        .collect();
+    for item in loose {
+        sim.world_mut().despawn(item);
+    }
+    sim.post("track fuel");
+    sim.run(TICK);
+    let target = sim.world().resource::<Trail>().target.unwrap();
+    assert!(sim
+        .world()
+        .get::<forest_logic::forest::Tree>(target)
+        .is_some());
+    let at = sim.world().require::<Transform>(target).position;
+    place(&mut sim, "player", at + Vec3::new(0.0, 0.95, 1.0));
+    for _ in 0..3 {
+        sim.tap("KeyE");
+        sim.run(400.0);
+    }
+    let target = sim.world().resource::<Trail>().target.unwrap();
+    assert_eq!(sim.world().require::<Item>(target).kind, Kind::Log);
+    assert!(player::guidance(sim.world()).starts_with("Gather log · "));
+}
+
+#[test]
+fn food_compass_refreshes_an_empty_search_when_supplies_arrive() {
+    for rescue in [false, true] {
+        let mut sim = game(500, true);
+        let foods: Vec<_> = sim
+            .world()
+            .query::<&Item>()
+            .iter()
+            .filter(|(_, item)| item.kind == Kind::Food)
+            .map(|(e, _)| e)
+            .collect();
+        for item in foods {
+            sim.world_mut().despawn(item);
+        }
+        sim.post("track food");
+        sim.run(TICK);
+        assert!(sim.world().resource::<Trail>().target.is_none());
+        assert_eq!(
+            player::guidance(sim.world()),
+            "No food found · More arrives at dawn"
+        );
+        if rescue {
+            place(&mut sim, "child-1", Vec3::new(0.0, 0.6, 2.5));
+            sim.world_mut().require_mut::<Child>("child-1").fate = Fate::Following;
+        } else {
+            sim.world_mut().resource_mut::<Cycle>().t = PERIOD - 0.1;
+        }
+        sim.run(200.0);
+        assert!(
+            sim.world().resource::<Trail>().target.is_some(),
+            "rescue={rescue}"
+        );
+        assert!(player::guidance(sim.world()).starts_with("Gather food · "));
+    }
 }
 
 #[test]

@@ -35,32 +35,54 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
     const transcript = resolve(out, 'jev-decisions.jsonl');
     writeFileSync(transcript, '');
     const recent = [];
-    for (let turn = 0; turn < 48; turn++) {
+    const survival = process.argv.includes('--survival');
+    let stalled = 0;
+    for (let turn = 0; turn < (survival ? 128 : 48); turn++) {
       const tree = await s.tree();
-      const state = Object.fromEntries(['objective','prompt','health','hunger','pack','fuel','battery','day','left','children']
+      const state = Object.fromEntries(['objective','prompt','health','hunger','pack','fuel','battery','day','left','children','survived','camp-bearing']
         .map(id => [id, node(tree, id)?.props?.text ?? '']));
-      if (node(tree, 'dead') || state.objective.startsWith('All children safe')) break;
+      const rescued = state.children === 'Children 2 of 2 rescued';
+      if (node(tree, 'dead') || (rescued && (!survival || Number(state.survived.match(/\d+/)?.[0]) >= 2))) break;
       const heading = state.objective.match(/· (N|NE|E|SE|S|SW|W|NW) ·/u)?.[1];
-      const choices = {wait:'Stay still for one second, allowing followers to catch up'};
-      if (heading) choices.follow = 'Walk toward the compass objective for one second: find a child, or escort a follower home';
+      const wait = survival && rescued ? 10_000 : 1000;
+      const choices = {wait:`Stay still for ${wait / 1000} seconds, allowing time to pass and followers to catch up`};
+      if (survival) {
+        // Cardinal detours remain available when the visible distance shows
+        // that two compass strides made no progress, instead of competing
+        // with the near-target motor and repeatedly overshooting camp.
+        if (stalled >= 2) Object.assign(choices, {north:'Detour north for one second around an obstacle',east:'Detour east for one second around an obstacle',
+          south:'Detour south for one second around an obstacle',west:'Detour west for one second around an obstacle'});
+        for (const id of ['track-rescue','track-fuel','track-food','track-camp']) {
+          const control = node(tree, id);
+          if (control && control.props?.disabled !== 'true' && control.props?.accessibilityPressed !== 'true') {
+            choices[id] = `Choose the ${id.slice(6)} compass target`;
+          }
+        }
+      }
+      if (heading) choices.follow = 'Walk toward the visible compass objective for up to one second';
       if (state.prompt) choices.interact = `Press E now: ${state.prompt}`;
       if (!state.pack.includes('0 food')) choices.eat = 'Eat one carried food to restore hunger';
-      choices.flashlight = 'Toggle the flashlight; it protects against creatures but uses battery';
-      const decision = await decide({state:{...state, recent}, choices, transcript,
-        goal:'Rescue both children and survive. Prefer taking a child in reach, otherwise follow the compass. Escort followers home for supplies. Eat when hungry. Daylight is limited.'});
+      if (state.battery.startsWith('Flashlight on') || Number(state.battery.match(/(\d+)%/)?.[1]) > 5) {
+        choices.flashlight = 'Toggle the flashlight; it protects against creatures but uses battery';
+      }
+      const decision = await decide({state:{...state, recent, stalledFollowSteps:stalled}, choices, transcript,
+        goal:survival ? 'Rescue both children and survive two nights. Keep the campfire fueled, gather food and eat when hunger is low. After the children are safe, prepare supplies in daylight and shelter at camp at night. Use the visible compass and prompts; directions are W north, D east, S south, A west.'
+          : 'Rescue both children and survive. Prefer taking a child in reach, otherwise follow the compass. Escort followers home for supplies. Eat when hungry. Daylight is limited.'});
       say(`JEV ${turn + 1}: ${decision.choice} · ${state.objective}`);
       recent.push({action:decision.choice, objective:state.objective, prompt:state.prompt});
       if (recent.length > 4) recent.shift();
       if (decision.choice === 'follow') {
-        const keys = [...(heading.includes('N') ? ['KeyW'] : []), ...(heading.includes('S') ? ['KeyS'] : []),
-          ...(heading.includes('E') ? ['KeyD'] : []), ...(heading.includes('W') ? ['KeyA'] : [])];
-        try {
-          for (const key of keys) await game.key_down(key);
-          // Shorter strides near a child prevent stepping straight past reach.
-          const distance = Number(state.objective.match(/· (\d+) m$/)?.[1] ?? 6);
-          await game.run(Math.min(1000, Math.max(100, (distance - 1) / 6 * 1000)));
-        } finally { for (const key of keys) await game.key_up(key); }
-      } else if (decision.choice === 'wait') await game.run(1000);
+        await followCompass(s, state.objective);
+        const after = node(await s.tree(),'objective')?.props?.text ?? '';
+        const distance = value => Number(value.match(/· (\d+) m$/)?.[1] ?? 0);
+        stalled = after.split(' · ')[0] === state.objective.split(' · ')[0] && distance(after) >= distance(state.objective)
+          ? stalled + 1 : 0;
+      } else if (decision.choice === 'wait') await game.run(wait);
+      else if (decision.choice.startsWith('track-')) { await s.tap(decision.choice); await game.run(100); stalled = 0; }
+      else if (['north','east','south','west'].includes(decision.choice)) {
+        await game.hold({north:'KeyW',east:'KeyD',south:'KeyS',west:'KeyA'}[decision.choice],1000);
+        stalled = 0;
+      }
       else {
         await game.tap({interact:'KeyE', eat:'KeyQ', flashlight:'KeyF'}[decision.choice]);
         await game.run(100);
@@ -71,7 +93,8 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
     // Outcomes remain observations: a weak model policy must not fake a proof.
     writeFileSync(resolve(out, 'jev-outcome.json'), JSON.stringify({
       children:node(tree, 'children')?.props?.text, health:node(tree, 'health')?.props?.text,
-      objective:node(tree, 'objective')?.props?.text, world:await game.snapshot(),
+      objective:node(tree, 'objective')?.props?.text, survived:node(tree,'survived')?.props?.text,
+      fuel:node(tree,'fuel')?.props?.text, hunger:node(tree,'hunger')?.props?.text, world:await game.snapshot(),
     }, null, 2));
     await s.screenshot(resolve(out, 'jev-playtest.png'));
     await s.close();
@@ -228,4 +251,69 @@ if (import.meta.main) await proof(import.meta, async ({open, check, out, host, p
   await resume.world('world').save(resolve(out, 'rescued-restored.world'));
   check('rescue saves are byte-identical', readFileSync(resolve(out,'rescued.world')).equals(readFileSync(resolve(out,'rescued-restored.world'))));
   await resume.close();
+
+  // The new supply route uses only the HUD's bearing and normal keys. Save the
+  // selected landmark before collecting it, then repeat from a fresh process.
+  const supplies = await open({fresh:true});
+  await supplies.tap('trees-1k');
+  await supplies.tap('play');
+  await supplies.tap('track-fuel');
+  await supplies.world('world').run(100);
+  const tracksFuel = async session => {
+    const tree = await session.tree();
+    return node(tree,'track-fuel')?.props?.accessibilityPressed === 'true'
+      && node(tree,'objective')?.props?.text.startsWith('Gather log · ')
+      && node(tree,'camp-bearing')?.props?.text.startsWith('Campfire · ');
+  };
+  check('fuel selection names a supply and keeps camp visible', await tracksFuel(supplies));
+  await supplies.world('world').save(resolve(out,'trail.world'));
+  const collectAndFeed = async session => {
+    const world = session.world('world');
+    const reach = async wanted => {
+      for (let i = 0; i < 24; i++) {
+        const tree = await session.tree();
+        if (node(tree,'prompt')?.props?.text === wanted) return true;
+        if (!await followCompass(session,node(tree,'objective')?.props?.text ?? '')) return false;
+      }
+      return false;
+    };
+    check('the fuel compass reaches a loose log', await reach('E: pick up log'));
+    await world.tap('KeyE'); await world.run(100);
+    check('the selected log can be collected', node(await session.tree(),'pack')?.props?.text === 'Carrying 1 logs · 0 scrap · 0 food');
+    await session.tap('track-camp'); await world.run(100);
+    check('the camp compass reaches the fire', await reach('E: feed the fire'));
+    const before = Number(node(await session.tree(),'fuel')?.props?.text.match(/\d+/)?.[0]);
+    await world.tap('KeyE'); await world.run(100);
+    check('a compass supply run refuels camp', Number(node(await session.tree(),'fuel')?.props?.text.match(/\d+/)?.[0]) >= before + 11
+      && node(await session.tree(),'pack')?.props?.text === 'Carrying 0 logs · 0 scrap · 0 food');
+    await session.tap('track-food'); await world.run(100);
+    check('food can be selected after the fuel run', node(await session.tree(),'objective')?.props?.text.startsWith('Gather food · '));
+    return await world.snapshot();
+  };
+  const supplied = await collectAndFeed(supplies);
+  await supplies.world('world').save(resolve(out,'trail-continued.world'));
+  pinSave('supplies',resolve(out,'trail-continued.world'));
+  if (host === 'web' || host === 'macos') await supplies.screenshot(resolve(out,'supplies.png'));
+  await supplies.close();
+  const supplyBack = await open({fresh:true,world:resolve(out,'trail.world')});
+  await supplyBack.tap('trees-1k'); await supplyBack.tap('play');
+  check('a fresh process restores the selected supply landmark', await tracksFuel(supplyBack));
+  check('the saved supply run continues identically', JSON.stringify(await collectAndFeed(supplyBack)) === JSON.stringify(supplied));
+  await supplyBack.world('world').save(resolve(out,'trail-restored.world'));
+  check('supply continuation saves are byte-identical', readFileSync(resolve(out,'trail-continued.world')).equals(readFileSync(resolve(out,'trail-restored.world'))));
+  await supplyBack.close();
 });
+
+async function followCompass(session, objective) {
+  const heading = objective.match(/· (N|NE|E|SE|S|SW|W|NW) ·/u)?.[1];
+  if (!heading) return false;
+  const game = session.world('world');
+  const keys = [...(heading.includes('N') ? ['KeyW'] : []), ...(heading.includes('S') ? ['KeyS'] : []),
+    ...(heading.includes('E') ? ['KeyD'] : []), ...(heading.includes('W') ? ['KeyA'] : [])];
+  try {
+    for (const key of keys) await game.key_down(key);
+    const distance = Number(objective.match(/· (\d+) m$/)?.[1] ?? 6);
+    await game.run(Math.min(1000, Math.max(100, (distance - 1) / 6 * 1000)));
+  } finally { for (const key of keys) await game.key_up(key); }
+  return true;
+}

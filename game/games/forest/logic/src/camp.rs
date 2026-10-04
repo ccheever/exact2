@@ -235,6 +235,7 @@ pub fn torches(w: &mut World, count: u32) {
 /// Returns true on the tick a night is survived.
 pub fn step(w: &mut World, player: Vec3) -> bool {
     let dt = w.dt();
+    let alive = !w.require::<crate::player::Player>("player").dead;
     let (dawned, dark, night) = {
         let mut c = w.resource_mut::<Cycle>();
         c.t += dt;
@@ -242,7 +243,9 @@ pub fn step(w: &mut World, player: Vec3) -> bool {
         if c.t >= PERIOD {
             c.t -= PERIOD;
             c.day += 1;
-            c.survived += 1;
+            if alive {
+                c.survived += 1;
+            }
             dawned = true;
         }
         (dawned, c.darkness(), c.night())

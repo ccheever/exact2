@@ -489,3 +489,89 @@ changed the night save and the new rescue save adds coverage. The ordinary Linux
 proof now reports `PASS` against those accepted pins. The next campaign batch
 should exercise Garden's economy and Rivals' combat with the same decision seam,
 then feed their observed problems back into gameplay and the engine.
+
+## Supply runs after the rescue (2026-10-04)
+
+This batch began from the validated Rivals checkpoint `f53bc97a2`. Main had
+advanced twice, through `843dd48d6` (Apple's unused Canvas 2D module omission and
+Ibex's Windows connection readiness); merge `16786a177` was clean. Forest's own
+lock then refused the moved dependency graph. The prescribed `--update-lock`
+refreshed four dependency edges, with no package-version changes.
+
+The old Jev run stopped as soon as the two children reached safety. Extending
+the goal to two nights exposed the next problem: at the 128-decision limit the
+player carried **three logs while the fire was out**, had 11 hunger and 65 health,
+and had survived one night. The sole objective read “All children safe · Keep
+the fire burning”; it no longer gave a route home or toward supplies. The final
+43 choices toggled a flashlight that eventually had no charge. The controller
+had four raw walking directions, but no distance to camp to guide them.
+
+Added player-facing Children, Fuel, Food and Camp compass buttons. Camp's bearing
+remains visible beside the chosen route. Fuel chooses loose logs/scrap, then a
+standing tree if no loose fuel exists; food chooses an uncollected food item.
+The chosen entity is saved in `Trail` and stays fixed while walking. Selecting a
+route or collecting supplies refreshes it; looking at the HUD does not scan the
+forest every frame. A full pack with fuel points home. An empty food search
+refreshes when dawn or a rescue supplies food. The latter was a review-found
+invalidation bug: its new regression failed on the rescue branch before the fix.
+The HUD also explains each supply's value.
+
+The night score had a separate defect: a dead player's `survived` counter kept
+increasing at dawn while the death screen remained open. A test reproduced 1
+where 0 was expected. The calendar still advances, but the score now increments
+only for a living player.
+
+Jev still sees only the rendered HUD and available buttons. The model never
+receives child/item coordinates, and the motor never writes the world. The first
+new runs reached camp but oscillated east/west across it: each raw direction
+walked six metres, competing with the near-target compass motor. The last policy
+revision offers those directions as detours only after two compass strides fail
+to reduce the visible distance; it also stops offering an empty flashlight's
+unusable toggle. Its follow description now covers supplies as well as children.
+
+| Run (128 decisions each) | Game seconds | Nights | Health / hunger | Fire | Decision p50 / p95 |
+|---|---:|---:|---|---:|---|
+| Baseline web | 235.7 | 1 | 65 / 11 | 0% | 304 / 629 ms |
+| Compass A, web | 124.8 | 1 | 100 / 44 | 41% | 281 / 465 ms |
+| Compass A, macOS | 89.5 | 0 | 100 / 88 | 87% | 332 / 666 ms |
+| Compass B, web | 134.0 | 1 | 100 / 73 | 62% | 324 / 556 ms |
+| Compass B, macOS | 63.0 | 0 | 100 / 99 | 97% | 310 / 585 ms |
+
+Every run rescued both children, but **none completed the two-night goal**.
+These are different decision sequences and different simulated durations, not
+a survival-rate or host-parity comparison. B removed the zigzag and made supply
+runs, but still spent 44/48 choices on individual interactions and six each on
+eating. Its 100 ms interaction step is shorter than chopping's 350 ms cooldown;
+incidental chop prompts also divert it from a chosen food route. This batch's
+baseline and two revisions are closed. Interaction granularity and cooldown
+feedback are the next separate target, not more tuning until a win.
+
+Artifacts are `artifacts/jev-survival-baseline-web/`,
+`jev-survival-trails-{web,macos}/`, and `jev-survival-trails-{web,macos}-b/`.
+Input/output token counts respectively: 99,041/8,657; 108,646/12,655;
+110,365/12,933; 103,793/9,532; 103,771/9,519. Model wall time never advances
+the game clock. Every descendant audit passed except A on macOS, whose optional
+`ps` audit timed out; both B audits passed. The first native rebuild took 54.9 s
+Rust and 3.9 s Swift, rather than the older 173.7 s Swift cold build.
+
+Friction from implementing the feature:
+
+- The determinism lint rejected `f32::powi(2)` in a distance comparison. Plain
+  multiplication is enough; no host-dependent transcendental function is needed.
+- The supply save test initially checkpointed directly after its arranged
+  `World::teleport`. Teleport invalidates the camera's follow, and restore places
+  that pending follower; the immediate save roundtrip differed. Completing the
+  arranged tick before the gameplay checkpoint makes the continuation agree.
+  The pending-teleport checkpoint behavior is queued for an engine investigation,
+  rather than silently presented as a general save guarantee.
+- Rounded “2 m” could hide a food target just outside interaction reach if it
+  reused the child's two-metre threshold. Supply bearings retain a direction
+  until 1.5 m; a 1.75 m case is covered by the test.
+
+The 15 simulation tests and determinism lint pass, including saved landmarks,
+collection retargeting, the tree-to-log fallback, new supplies and the frozen
+death score. Root build, test (2,285 enabled, nine ignored), clippy, formatting
+and boot pass on the merged main. The normal web proof passes all gameplay,
+rescue and new supply checks in 75.7 s, including a fresh-process supply run
+with identical continuation bytes. Its screenshot shows readable controls and
+the persistent camp bearing. The final macOS drive and strict baseline follow.

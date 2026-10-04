@@ -65,6 +65,8 @@ pub struct Hud {
     pub children: u32,
     pub dead: bool,
     pub objective: String,
+    pub tracking: String,
+    pub camp_bearing: String,
     pub deer: String,
     pub chasing: u32,
     pub trees: u32,
@@ -94,6 +96,7 @@ impl Game for Forest {
         camp::torches(w, args.torches);
         let half = w.resource::<Grove>().half;
         player::spawn(w, !args.lite, args.children);
+        w.insert_resource(player::Trail::default());
         creatures::spawn_deer(w, half);
         creatures::spawn_wolves(w, args.wolves, half);
         player::scatter(w, Kind::Scrap, args.trees / 60 + 6, 18.0, half * 0.9);
@@ -105,6 +108,9 @@ impl Game for Forest {
         args.paused
     }
     fn tick(w: &mut World, input: &Input, args: &Options) {
+        for command in input.messages() {
+            player::track(w, command);
+        }
         let colliders = !args.lite;
         let was_dead = w.require::<Player>("player").dead;
         let at = w.require::<Transform>("player").position;
@@ -125,7 +131,8 @@ impl Game for Forest {
         }
         player::flashlight(w, input.pressed("light"));
         let at = w.require::<Transform>("player").position;
-        if camp::step(w, at) {
+        let dawned = camp::step(w, at);
+        if dawned {
             let half = w.resource::<Grove>().half;
             player::scatter(w, Kind::Food, 4, 18.0, half * 0.6);
             w.emit("dawn");
@@ -156,6 +163,7 @@ impl Game for Forest {
             w.emit("died");
         }
         let rescued = player::children(w, at, scene.safe);
+        player::update_trail(w, dawned || input.pressed("use") || input.pressed("eat"));
         emitter::step(w);
         let act = player::action(w, w.require::<Transform>("player").position);
         hud(w, act, rescued, outcome.chasing);
@@ -192,6 +200,8 @@ fn hud(w: &World, act: Action, rescued: u32, chasing: u32) {
         children: w.count::<Child>(|_| true),
         dead: p.dead,
         objective: player::guidance(w),
+        tracking: w.resource::<player::Trail>().kind.label().into(),
+        camp_bearing: player::camp_bearing(w),
         deer: format!("{deer:?}"),
         chasing,
         trees: w.resource::<Grove>().standing,

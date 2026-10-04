@@ -30,6 +30,20 @@ S south, A west) to the closest lost child; after **E** takes their hand it poin
 home. Each child reaching the lit fire brings **20 fuel and two food** at camp.
 The reward is saved with the child's rescue and cannot be collected twice.
 
+The compass buttons choose **Children**, **Fuel**, **Food** or **Camp**. Fuel
+points to an uncollected log or scrap, then to a standing tree when none remain.
+Food points to an uncollected meal. The chosen landmark stays fixed while you
+walk and survives saving; collecting it selects another. A full pack containing
+fuel points home. The campfire's bearing is always visible, and newly supplied
+food refreshes an empty search. Logs add 12 fuel, scrap 20, and food 35 hunger.
+The nights-survived score stops when you die.
+
+Add `--survival` to the Jev playtest to attempt two nights after rescuing both
+children, with a 128-decision limit. It reads the same HUD, uses the compass
+buttons and follows their bearings with normal keys. Cardinal detours are offered
+after two strides fail to reduce the visible distance. Outcomes remain exploratory;
+reaching the decision limit does not prove the survival goal was completed.
+
 The title chooses the size of the forest (1k–250k trees; the world grows to keep
 the density), the wolf count, extra torch lights, Rapier or grid collision against
 trunks, and generated pines or primitive trees. These are canvas arguments, so a

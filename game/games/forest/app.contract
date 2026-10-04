@@ -17,6 +17,8 @@ shape Hud
   children: number
   dead: bool
   objective: string
+  tracking: string
+  camp_bearing: string
   deer: string
   chasing: number
   trees: number
@@ -65,6 +67,9 @@ component Forest
     playing = false
     paused = false
 
+  action track(kind: string)
+    postMessage(`track ${kind}`, "world")
+
   view
     main width="100%" height="100%" background-color="#070b0a" color="#eef2e8"
       when playing
@@ -87,7 +92,18 @@ component Forest
                 text (paused ? "Resume" : "Pause")
           column position="absolute" left=16 top=132 gap=5 padding=12 border-radius=12 background-color="#070b0acc"
             text hud.objective testId="objective" font-size=16 font-weight=700 color="#a8d9ff"
+            text hud.camp_bearing testId="camp-bearing" font-size=13 color="#ffb35c"
+            row gap=6
+              button press=track("rescue") aria-label="Track children" aria-pressed=(hud.tracking == "rescue") testId="track-rescue" padding=8 border-radius=8 background-color=(hud.tracking == "rescue" ? "#52667a" : "#2d3a33")
+                text "Children"
+              button press=track("fuel") aria-label="Track fuel" aria-pressed=(hud.tracking == "fuel") testId="track-fuel" padding=8 border-radius=8 background-color=(hud.tracking == "fuel" ? "#52667a" : "#2d3a33")
+                text "Fuel"
+              button press=track("food") aria-label="Track food" aria-pressed=(hud.tracking == "food") testId="track-food" padding=8 border-radius=8 background-color=(hud.tracking == "food" ? "#52667a" : "#2d3a33")
+                text "Food"
+              button press=track("camp") aria-label="Track campfire" aria-pressed=(hud.tracking == "camp") testId="track-camp" padding=8 border-radius=8 background-color=(hud.tracking == "camp" ? "#52667a" : "#2d3a33")
+                text "Camp"
             text "Rescue supplies: +20 fire fuel and 2 food" font-size=12 color="#a7b0a3"
+            text "Logs +12 fuel · Scrap +20 fuel · Food +35 hunger" font-size=12 color="#a7b0a3"
             text "Compass: W north · D east · S south · A west" font-size=12 color="#a7b0a3"
           column testId="vitals" position="absolute" left=16 bottom=16 gap=4 padding=12 border-radius=12 background-color="#070b0acc"
             text `Health ${hud.health}` testId="health" color=(hud.health < 30 ? "#ff7a59" : "#eef2e8")
