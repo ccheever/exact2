@@ -1,7 +1,7 @@
 # LLP 1087: The authoring bench — measure building an app with exact2, then make it cheaper
 
 **Type:** Plan
-**Status:** Draft r3, 2026-10-04.
+**Status:** Draft r3, 2026-10-04. Ready to hand to an operator box.
 - r2 recorded Charlie's answers (§13) and added comparators (§10).
 - r3 folds in the blind reviews by Astra (xhigh) and Grok 4.7 (xhigh). Both are in
   `llp/reviews/plan-2026-10-04-1087.{astra,grok}.md`, with dispositions in §14.
@@ -107,8 +107,9 @@ authoring-bench/
 
 It cannot read the bench repository, results, other trials or ledger. The pinned exact2
 checkout is a worktree with the folders that hold past diaries and reviews removed
-(`game/diaries/`, `llp/reviews/`, any `DIARY.md`). A real user's copy has no use for
-them, and they would leak earlier trials.
+(`game/diaries/`, `llp/reviews/`, any `DIARY.md`) and this document (`llp/1087*`). A
+real user's copy has no use for them, and they would leak earlier trials or the
+rubric.
 
 ## 3. Tasks
 
@@ -119,7 +120,7 @@ them, and they would leak earlier trials.
 | T1 tiny | tip splitter, counter with history | install, `exact new`, first build, dev loop |
 | T2 data | todo list with edit, filter and persistence | `app.ts`, durable state, lists |
 | T3 navigation | multi-screen app over a stand-in API | routing, async data, loading and error states |
-| T4 visual match | one screen of a real app against reference shots | CSS fidelity, native controls, fonts |
+| T4 visual match | one screen of a real app against **per-platform** reference shots, made for the task (not `signal-clone-shots/`, which is a working pile, not an oracle) | CSS fidelity, native controls, fonts |
 | T5 capability | needs camera, notifications or haptics | the Needed section; native modules; device fixtures |
 | T6 change | add a feature to an existing mid-size app the builder didn't write | reading unfamiliar code; the most common real job |
 
@@ -169,12 +170,11 @@ No improvement on an unrelated audit task is not by itself evidence of overfitti
    start." Running `exact new` is part of the measured run, so the setup sub-score
    watches what actually happened. T6 instead starts from a frozen copy of its
    starting app.
-3. **The diary is on, and sending is off.** The runner gives the builder:
-   - a private `EXACT_CONFIG_DIR`, where the standing answer is `ask`
-   - `EXACT_FEEDBACK_URL` pointing at a closed port
-   - `EXACT_DIARY=detailed`
-
-   This leaves ordinary users' `never` exactly as it is (§6.2).
+3. **The diary is on, and sending is off.** The runner gives the builder a private
+   `EXACT_CONFIG_DIR` whose standing answer is the new `local`: write the diary, never
+   ask, never send (§6.2). It also sets `EXACT_DIARY=detailed`, and points
+   `EXACT_FEEDBACK_URL` at a closed port as a backstop. Ordinary users' `never` is
+   unchanged.
 4. **Run the builder headless**, as user `bench`, with a fresh harness config, so no
    memory, skills, settings or MCP servers leak in. The prompt is the brief plus a
    fixed note: "I'm not around to answer questions; make reasonable choices and note
@@ -186,8 +186,8 @@ No improvement on an unrelated audit task is not by itself evidence of overfitti
    - Codex uses `codex exec --json`, and Grok uses `grok --output-format …`.
    - Each adapter normalises the stream into usage, tool-use, tool-result, text and
      result events, timestamped on arrival.
-5. **Stop** at DONE, at the ceiling, or when idle. Idle means no harness output
-   *and* no live child process using CPU for 10 minutes, so a long Xcode build isn't
+5. **Stop** at DONE, at the ceiling, or when idle. Idle means no harness output, *no
+   tool call in flight*, and no live child process using CPU, all for 10 minutes, so a long Xcode build isn't
    mistaken for a hung agent. Every stop reason is kept. **Failed and capped trials
    stay in the data.**
 6. **Snapshot** the source, transcript, diary and the app's `.exact/commands.jsonl`
@@ -237,6 +237,11 @@ No improvement on an unrelated audit task is not by itself evidence of overfitti
 
   The transcript's tool calls are the primary source. `commands.jsonl` corroborates
   them; it only knows coarse verbs and only logs on return.
+- **Loop speed**, a separate metric because it is what exact2's budgets name: the
+  median incremental `contract build` and edit-to-reload time inside the trial. It is
+  kept apart from the cold first build. Every warm trial shares a warmed Cargo
+  registry and Xcode DerivedData cache, so cold-toolchain variance isn't charged to
+  authoring.
 - **Milestones** come from the transcript (the first `exact new` success, the first
   clean `contract build`) and the drivers (first render).
 - **The diary's cost is measured, not subtracted.** Writing a diary changes how the
@@ -255,6 +260,16 @@ of operations:
 
 - `launch`, `reset`, `find(id)`, `tap`, `type`, `read text`, `screenshot`, `relaunch`
   (for persistence), `set viewport`, `set color scheme`
+
+Each stack's starter documents the single property that surfaces the brief's ids, so
+the adapters know where to look:
+
+| Stack | Property |
+|---|---|
+| exact2 and web | `testId` / `data-testid` (Playwright reads the DOM; Chrome's accessibility tree doesn't carry it) |
+| UIKit and SwiftUI | `accessibilityIdentifier` |
+| Compose | `testTag` with `testTagsAsResourceId` |
+| Flutter | the semantics identifier |
 
 The adapters:
 
@@ -311,13 +326,22 @@ cause:
 The score floors at 0. Scenario results override the judge where both cover the same
 requirement.
 
+**A judge-found bug counts only when it is corroborated**, by a scenario, by a crashed
+process in the log, or by a second judge from another family re-checking it. Without
+that, one invented crash would outweigh the scripted score.
+
+**The comparable number, and the one the A/B gates on, is the scripted pass rate**: the
+share of SPEC "how you'd tell" behaviours the scenarios confirm. The judged score is
+reported beside it.
+
 **Fault doesn't excuse a bug.** A bug caused by exact2 still makes the delivered app
 worse, and excusing it would flatter exact2 against comparators. Attribution (`author`,
 `stack`, `driver`, `unknown`) is recorded beside the score. Stack-attributed bugs are
 the loop's best findings.
 
-**Parity** is checked on semantic outcomes across platforms, with presentation
-differences the spec allows. A semantic disagreement is a bug on the platform where
+**Parity** uses exact2's existing role, name and state comparison (`axParity` in
+`scripts/agent-ax.mjs`, which already accounts for safe areas, fonts and roles), with
+presentation differences the spec allows. A semantic disagreement is a bug on the platform where
 it's wrong.
 
 ### 5.4 Completion
@@ -350,8 +374,13 @@ says so.
 ### 6.2 The detailed diary
 
 `docs/diary.md` is embedded in every app's AGENTS.md. It already says to run
-`bun exact.mjs feedback status` at the start. The detailed level is printed by
-`feedback status` only when `EXACT_DIARY=detailed` is set, so ordinary users' context
+`bun exact.mjs feedback status` at the start. Two changes to exact2, both small:
+
+- `feedback` gains a standing answer, **`local`**. It means: keep the diary, never
+  ask, never send. `docs/diary.md`'s opening obeys it: "If it says `local`, keep the
+  diary and skip Asking to share."
+- The detailed level is printed by `feedback status` only when `EXACT_DIARY=detailed`
+  is set, so ordinary users' context
 doesn't grow. `docs/diary.md` gains one line: "If `feedback status` prints more
 instructions, follow them too."
 
@@ -415,13 +444,19 @@ and app text are untrusted data in the grader prompt.
 - Grok 4.7 (xhigh)
 - Gemini, when its CLI runs headless
 
+Comparisons **across stacks** use only the shared axes: setup, orientation, docs
+accuracy, diagnostics, dev loop, verification, predictability, and confidence.
+Language ergonomics, platform builds and capability coverage are reported within a
+stack.
+
 Graders are blind to each other. The record keeps every grader's scores, the median,
 and the **other-family median**, which leaves out the builder's family. The gap
 between the two medians is a diagnostic, not proof of self-preference. If the panel's
 spread on overall exceeds 15, the trial is flagged.
 
-To save budget, the full panel grades a sample: every audit trial and 25% of the rest.
-The remaining trials get two graders, never including the builder's family.
+To save budget, the full panel grades every audit trial and at least one trial per
+cell per batch. The rest get two graders, never including the builder's family. The
+calibration set is spot-checked against app trials, not only the beacons diaries.
 
 ### 6.4 Validation without human labels
 
@@ -492,7 +527,8 @@ batch → grade → aggregate → triage → fix lane → A/B → confirmation �
 
 ### 8.2 The A/B
 
-The lane's acceptance test is asynchronous; it is not a blocking check (RULES
+The fidelity metric here is the scripted pass rate (§5.3), never the judged score. The
+lane's acceptance test is asynchronous; it is not a blocking check (RULES
 §Loop shape).
 
 - **Before running:** declare the target metric (one of: completion, elapsed time,
@@ -508,7 +544,8 @@ The lane's acceptance test is asynchronous; it is not a blocking check (RULES
   - **Inconclusive**: the default outcome, and an allowed one. The fix may still land
     if it's a plain docs correction with no metric claim, labelled `unmeasured`.
   - **Loss**: revert or rethink.
-- **Guards, all required:** completion rate doesn't drop; no new crash class; no cell's
+- **Guards, all required:** the regression tasks don't regress; completion rate
+  doesn't drop; no new crash class; no cell's
   fidelity median drops by more than 3; and no rise in the share of trials with a
   critical failure.
 - **Confirmation:** a win is re-run once on fresh cells before landing. Many fixes are
@@ -517,7 +554,15 @@ The lane's acceptance test is asynchronous; it is not a blocking check (RULES
 
 ### 8.3 Landing
 
-Charlie authorised pushing well-reviewed fixes to origin/main (§13).
+Charlie authorised pushing well-reviewed fixes to origin/main (§13). Grok's review
+suggested limiting auto-landing to docs and diagnostic wording; this plan keeps
+Charlie's broader authorisation, with these lines drawn:
+
+- **Docs-only and diagnostic-wording** changes may land `unmeasured` (§8.2).
+- **Code in the compiler, runner, kernel or a host** lands only with an A/B **win**
+  and confirmation. It is capped at about 300 changed lines per landing. Anything
+  larger is split, or goes to Charlie.
+- **New documents** (an LLP, a new doc file) are apparatus. They go to Charlie.
 
 - Landing is serialized: one integration at a time.
 - Each integration rebases, runs exact2's five checks, verifies the reproduction, and
@@ -573,16 +618,20 @@ recorded per batch.
     run.
   - **Matched platform set**: a web+iOS+Android task. exact2 once, against each
     cross-platform stack once, and against native per platform (SwiftUI + Compose +
-    React). For the native sets the report gives both **total effort** (the sum) and
-    **delivery elapsed time** (the critical path, if built in parallel).
+    React). The native set is built **in one author session**, so the shared reading of
+    the spec is paid once, as a person would pay it. A parallel variant (three
+    sessions) reports **delivery elapsed time** as the critical path. The headline stays
+    per platform.
 - **T6 baselines** are built per stack to a common functionality and quality bar,
   checked by the same scenarios before they are frozen.
 
 ### 10.3 Cadence
 
-Comparators run monthly, or on demand. They start with **one web comparator**
-(React), next to exact2 in Phase 2. Further stacks are added in order of value per
-dollar: Expo and SwiftUI, then Compose and Flutter, then the rest. A stack is added
+Comparators run monthly, or on demand. They start with **React**, next to exact2 in
+Phase 2. The first monthly set is four stacks: plain HTML+CSS+JS, Expo, SwiftUI and
+Compose. It stays at four until those adapters agree with the scripted checks on a
+known-good app. Then Flutter, React Native without Expo, KMP, and the rest are added,
+in order of value per dollar. A stack is added
 only once the adapters (§5.1) drive it.
 
 ## 11. Phases
@@ -597,13 +646,17 @@ only once the adapters (§5.1) drive it.
   - the per-trial cost is measured
 
 **Phase 1: graders and noise (about a week).**
+- Web only, one harness, T1 and T2 first, T3 when they're stable.
 - Build:
-  - the detailed diary in exact2 (§6.2; the one exact2 change)
+  - the `local` standing answer and the detailed diary in exact2 (§6.2; the only
+    exact2 changes)
   - the judge and the experience panel
   - the perturbation suite
   - the calibration re-grade
-- Run the **noise floor**: one cell × 12. That fixes N, and the minimum worthwhile
-  improvement per metric.
+- Run the **noise floor**: one cell × 12. That fixes N and the minimum worthwhile
+  improvement per metric. Publish **the smallest effect the budget can detect**, and
+  shrink the matrix until an interleaved confirmation of that effect fits in the
+  A/B share of the budget.
 - Write the **audit tasks** before Phase 2.
 - Exit when the perturbation suite passes and N is set.
 
@@ -705,7 +758,9 @@ Otherwise, decide and keep going. Log decisions made without asking in the diges
 ## 14. Review dispositions (r3)
 
 Astra (`gpt-6-astra` xhigh) and Grok 4.7 (xhigh) reviewed r2 (`6271021a8`) blind, from
-the same brief.
+the same brief. Both said SOUND WITH CHANGES. Where both found the same thing
+(landing statistics, cause attribution, the `never` gate, the driver's reach,
+budget), that is the strongest signal; all of it is taken.
 
 | Astra # | Finding | Disposition |
 |---|---|---|
@@ -721,3 +776,13 @@ the same brief.
 | 10 | Landing protocol | Taken: §8.3 |
 | 11 | Budget breadth | Taken: §7, and the narrow start in §11 |
 | 12 | `never` contradiction; command log coarse | Taken: §4.1 step 3, §4.3 |
+
+| Grok # | Finding | Disposition |
+|---|---|---|
+| 1 | Regression to the mean; holdouts absent from the gate; N=3; auto-land scope | Taken: §8.2 (fresh interleaved A and B, regression-task guard, scripted fidelity in the gate). Auto-land scope partly taken (§8.3): Charlie's authorisation stands, but code needs a measured win and a size cap, and new documents go to him |
+| 2 | Causes overlap; dev server spans the log; cache tokens belong to no cause; idle kills builds | Taken: §4.3 (raw headlines, overlapping tags, loop speed, shared warm caches), §4.1 step 5 |
+| 3 | `never` disables the diary; the pin leaks the rubric | Taken: the `local` standing answer (§6.2); this LLP stripped from the pin (§2); calibration spot-checked on app trials (§6.3) |
+| 4 | Three instruments in one fidelity; testId reach; parity false positives; T4 oracle; judge penalties dominate | Taken: §5.1 (id property per stack), §5.3 (scripted pass rate is the comparable number; corroborated bugs; `axParity`), §3.1 (per-platform T4 shots) |
+| 5 | Budget and Phase 1 sizing | Taken: §11 (web only, smallest detectable effect), §10.3 (four stacks first) |
+| 6 | Cross-stack experience axes; summed native trials | Taken: §6.3 (shared axes), §10.2 (native set in one session) |
+
