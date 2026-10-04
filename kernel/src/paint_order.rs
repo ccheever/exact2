@@ -274,19 +274,28 @@ pub fn own_from(f: Facts<'_>) -> Own {
 
 /// [`own_from`] for a node of the kernel's arena.
 pub fn own(arena: &NodeArena, slot: u32) -> Own {
-    let parent = arena.parent(slot);
+    let beside = arena
+        .parent(slot)
+        .is_some_and(|p| beside_exclusion(arena, p));
+    own_beside(arena, slot, beside)
+}
+
+fn beside_exclusion(arena: &NodeArena, parent: u32) -> bool {
+    arena.children(parent).iter().any(|&c| {
+        #[cfg(test)]
+        tests::EXCLUSION_VISITS.with(|n| n.set(n.get() + 1));
+        crate::flow::is_exclusion(arena, c)
+    })
+}
+
+fn own_beside(arena: &NodeArena, slot: u32, beside_exclusion: bool) -> Own {
     own_from(Facts {
         style: arena.style(slot),
         props: arena.props(slot),
         kind: arena.node_type(slot),
         root: arena.is_root(slot),
-        parent_display: parent.map(|p| arena.style(p).display),
-        beside_exclusion: parent.is_some_and(|p| {
-            arena
-                .children(p)
-                .iter()
-                .any(|&c| crate::flow::is_exclusion(arena, c))
-        }),
+        parent_display: arena.parent(slot).map(|p| arena.style(p).display),
+        beside_exclusion,
         holds_layout_transition: arena
             .children(slot)
             .iter()
@@ -318,9 +327,10 @@ impl Kernel {
 /// Decides `slot`'s children, records them, and returns `slot`'s potentials.
 fn walk(arena: &NodeArena, slot: u32, out: &mut Vec<(ViewId, Placed)>) -> Potentials {
     let children = arena.children(slot);
+    let beside = beside_exclusion(arena, slot);
     let records: Vec<(Own, Potentials)> = children
         .iter()
-        .map(|&c| (own(arena, c), walk(arena, c, out)))
+        .map(|&c| (own_beside(arena, c, beside), walk(arena, c, out)))
         .collect();
     let isolated = decide(&records);
     let mut list = Vec::with_capacity(children.len());
@@ -345,6 +355,35 @@ fn walk(arena: &NodeArena, slot: u32, out: &mut Vec<(ViewId, Placed)>) -> Potent
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    std::thread_local! {
+        pub(super) static EXCLUSION_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    }
+
+    #[test]
+    fn ten_thousand_siblings_have_linear_exclusion_visits() {
+        use crate::Op;
+        let mut kernel = Kernel::with_monospace();
+        let mut ops: Vec<_> = (1..=10_001)
+            .map(|id| Op::CreateView {
+                id,
+                node_type: NodeType::Text,
+            })
+            .collect();
+        ops.push(Op::SetChildren {
+            id: 1,
+            children: (2..=10_001).collect(),
+        });
+        ops.push(Op::AttachRoot { id: 1 });
+        kernel.apply(0, 1, &ops).unwrap();
+        EXCLUSION_VISITS.with(|n| n.set(0));
+        assert_eq!(kernel.paint_order().len(), 10_001);
+        let visits = EXCLUSION_VISITS.with(|n| n.get());
+        assert!(
+            visits <= 10_000,
+            "10,000 siblings required {visits} exclusion visits"
+        );
+    }
 
     const PLAIN: Own = Own {
         positioned: false,

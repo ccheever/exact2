@@ -1403,6 +1403,7 @@ impl<D: DataSource> Presenter<D> {
 
     /// Another host took over: it is measured as the last was, and counted.
     pub(crate) fn replaced(&mut self) {
+        self.brush.paint_epoch = None; // A new kernel may have the same epoch.
         self.hosts += 1;
         self.measure();
     }

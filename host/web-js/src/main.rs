@@ -13,6 +13,9 @@ mod code;
 mod emit;
 mod faces;
 mod facts;
+mod paint;
+#[cfg(test)]
+mod paint_tests;
 mod reads;
 mod style;
 
@@ -90,7 +93,7 @@ fn main() -> ExitCode {
         }
     };
     if dump {
-        emit::dump(&plan);
+        dump_plan(&plan);
     }
     match emit::emit(&plan, sites, dev_reload) {
         Ok(out_files) => {
@@ -101,6 +104,7 @@ fn main() -> ExitCode {
             }
             for (name, text) in [
                 ("app.js", &out_files.js),
+                ("paint.js", &out_files.paint),
                 ("app.css", &out_files.css),
                 ("names.js", &out_files.names),
                 ("pages.json", &out_files.pages),
@@ -213,5 +217,67 @@ fn main() -> ExitCode {
             eprintln!("{input}: {e}");
             ExitCode::from(1)
         }
+    }
+}
+
+fn dump_plan(plan: &exact_plan::Plan) {
+    use crate::code::{Scope, Uses};
+    use exact_kernel::NodeType;
+    let mut uses = Uses::default();
+    let s = Scope::default();
+    let f = |code: exact_plan::Code, uses: &mut Uses, scope: &Scope, params: usize| {
+        code::function(plan, plan.code(code), scope, params, uses)
+            .unwrap_or_else(|e| format!("<{e}>"))
+    };
+    eprintln!("router: {:?}", plan.router);
+    for (i, r) in plan.slots.iter().enumerate() {
+        eprintln!(
+            "slot {i} {} = {}",
+            plan.str(r.name),
+            f(r.init, &mut uses, &s, 0)
+        );
+    }
+    for (i, r) in plan.derives.iter().enumerate() {
+        eprintln!(
+            "derive {i} {} = {}",
+            plan.str(r.name),
+            f(r.body, &mut uses, &s, 0)
+        );
+    }
+    for (i, r) in plan.resources.iter().enumerate() {
+        eprintln!(
+            "resource {i} {} = {}(..{})",
+            plan.str(r.name),
+            plan.str(r.source),
+            r.args.len
+        );
+    }
+    let a = Scope {
+        action: true,
+        ..Scope::default()
+    };
+    for (i, r) in plan.actions.iter().enumerate() {
+        eprintln!(
+            "action {i} {} = {}",
+            plan.str(r.name),
+            f(r.body, &mut uses, &a, r.params.len as usize)
+        );
+    }
+    for (i, r) in plan.regions.iter().enumerate() {
+        eprintln!(
+            "region {i} {:?} parent {:?} arm {:?} order {} arms {:?}",
+            r.kind, r.parent, r.arm, r.order, r.arms
+        );
+    }
+    for (i, n) in plan.nodes.iter().enumerate() {
+        eprintln!(
+            "node {i} type {:?} parent {:?} arm {:?} order {} bindings {} handlers {}",
+            NodeType::from_wire(n.node_type),
+            n.parent,
+            n.arm,
+            n.order,
+            n.bindings.len,
+            n.handlers.len
+        );
     }
 }

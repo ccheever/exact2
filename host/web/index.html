@@ -64,11 +64,11 @@
   button:is([data-button-style="plain"], [data-button-style="borderless"]) { background: none; color: var(--exact-accent, AccentColor); }
   button:is([data-button-style="tinted"], [data-button-style="bordered-tinted"]) { background: color-mix(in srgb, var(--exact-accent, AccentColor) 15%, transparent); color: var(--exact-accent, AccentColor); }
   button:is([data-button-style="filled"], [data-button-style="bordered-prominent"]) { background: var(--exact-accent, AccentColor); color: #fff; }
-  button:is([data-button-style="glass"], [data-button-style="prominent-glass"]) { backdrop-filter: blur(20px) saturate(150%); background: light-dark(#ffffffb3, #262629b3); color: CanvasText; box-shadow: 0 8px 24px #0000000d, inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
-  button:is([data-button-style="clear-glass"], [data-button-style="prominent-clear-glass"]) { backdrop-filter: blur(10px) saturate(120%); background: light-dark(#ffffff26, #ffffff1a); color: CanvasText; box-shadow: inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
+  button:is([data-button-style="glass"], [data-button-style="prominent-glass"]) { backdrop-filter: blur(20px) saturate(150%) !important; background: light-dark(#ffffffb3, #262629b3); color: CanvasText; box-shadow: 0 8px 24px #0000000d, inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
+  button:is([data-button-style="clear-glass"], [data-button-style="prominent-clear-glass"]) { backdrop-filter: blur(10px) saturate(120%) !important; background: light-dark(#ffffff26, #ffffff1a); color: CanvasText; box-shadow: inset 0 0 1px light-dark(#ffffffcc, #ffffff33); }
   button:is([data-button-style="prominent-glass"], [data-button-style="prominent-clear-glass"]) { background: color-mix(in srgb, var(--exact-accent, AccentColor) 85%, transparent); color: #fff; }
   /* Dimmed by a filter, so an authored opacity (inline, bound or animated) composes with it. */
-  button[data-button-style]:not([data-button-style="bordered"], [data-button-style="gray"]):disabled { filter: opacity(.45); }
+  button[data-button-style]:not([data-button-style="bordered"], [data-button-style="gray"]):disabled { filter: opacity(.45) !important; }
   /* Keep the textarea's native long-word wrapping through the control reset. */
   textarea { overflow-wrap: revert; }
   /* Authored flex/grid display must not expose a closed native popover. */

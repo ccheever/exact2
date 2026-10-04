@@ -1,7 +1,8 @@
 import { renderMarkup, reportPlace } from "./navigation.js"; export { animationClocks } from "./navigation.js"; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { conforms, eq } from "./shape.js"; import { pointer } from "./pointer.js";
-import { paintList, paintFacts, paintFlush } from "./paint.js";
-export { conforms, eq }; export { paintOwn } from "./paint.js";
+// The compiler installs this optional pass only when a plan can layer boxes.
+let Paint; export function usePaint(pass) { Paint = pass; }
+export { conforms, eq };
 import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; export { Head };
 // The JS target's runtime: fine-grained DOM signals for a plan compiled ahead by `exact-web-js`. Everything here is imported
 // by name, so an app's bundle carries only what its generated module uses.
@@ -19,7 +20,6 @@ import { Docs, Head, head, markDocument, projectRoots } from "./document.js"; ex
 // ---------------------------------------------------------------- signals
 let Listener = null, Owner = null, Queue = [], Flushing = false, Rev = 0;
 const CLEAN = 0, CHECK = 1, DIRTY = 2;
-
 function node(fn, v, effect) {
   const n = { fn, v, effect, s: fn ? DIRTY : CLEAN, src: [], obs: new Set(), kids: null, gone: 0 };
   if (Owner) { (Owner.kids ??= []).push(n); n.up = Owner; }
@@ -191,7 +191,7 @@ export const After = [], Before = [];
 const Scrolls = new Map(), Selects = new Set();
 /** What a commit does once its tree is in place: authored scrolls, then the
  * loaded pieces' publications (also after a list's report, list.js). */
-export function settled() { drain(); Present?.(); markDocument(); paintFlush(); for (const f of After) f(); }
+export function settled() { drain(); markDocument(); Paint?.flush(); Present?.(); for (const f of After) f(); }
 let Booting = false; // the boot's own offsets are no reader's scroll (the web host hears none: its input opens after them): `scroll` skips one
 function drain() {
   for (const [e, o] of Scrolls) for (const name in o) {
@@ -501,10 +501,10 @@ export function h(p, tag, cls, attrs, text, ns) {
   if (Adopt) return adopt(p, tag, cls, attrs);
   const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag);
   if (cls !== 0) e.setAttribute("class", "c" + cls);
-  if (attrs) { for (const k in attrs) e.setAttribute(k, rel(k, attrs[k])); if ("data-scrolldocument" in attrs) Docs.add(e); if ("data-exact-box" in attrs) paintList(p); }
+  if (attrs) { for (const k in attrs) e.setAttribute(k, rel(k, attrs[k])); if ("data-scrolldocument" in attrs) Docs.add(e); }
   if (text !== 0) e.textContent = text;
   p.append(e);
-  return e;
+  Paint?.list(e); return e;
 }
 /** An SVG element (the compiler knows the node's type; element.rs's tag). */
 export const hs = (p, tag, cls, attrs, text) => h(p, tag, cls, attrs, text, SVG);
@@ -531,13 +531,14 @@ function adopt(p, tag, cls, attrs) {
   while (e && e.nodeType !== 1) e = e.nextSibling;
   if (!e || e.localName.toLowerCase() !== tag.toLowerCase()) throw new Mismatch(`adoption: expected <${tag}>, found ${e ? "<" + e.localName + ">" : "nothing"}`);
   p.$n = e.nextSibling;
+  e.$paintWaiting = false; e.$paintFacts = null; e.removeAttribute("data-exact-paint");
   // The renderer's inline style stays: it is the class's declarations and
   // the live rows, which the node's style bindings rewrite as they change.
   if (e.hasAttribute("data-view")) e.removeAttribute("data-view");
-  if (attrs?.["data-exact-box"] !== undefined && attrs?.["data-exact-own-isolation"] === undefined && e.style.isolation === "isolate") e.style.removeProperty("isolation");
+  if (attrs?.["data-exact-own-isolation"] === undefined && !e.hasAttribute("data-exact-own-isolation") && !e.hasAttribute("data-exact-policy") && e.style.isolation) e.style.removeProperty("isolation");
   if (cls !== 0 && e.getAttribute("class") !== "c" + cls) e.setAttribute("class", "c" + cls);
-  if (attrs) { for (const k in attrs) { const v = rel(k, attrs[k]); if (e.getAttribute(k) !== v) e.setAttribute(k, v); } if ("data-scrolldocument" in attrs) Docs.add(e); if ("data-exact-box" in attrs) paintList(p); }
-  return e;
+  if (attrs) { for (const k in attrs) { const v = rel(k, attrs[k]); if (e.getAttribute(k) !== v) e.setAttribute(k, v); } if ("data-scrolldocument" in attrs) Docs.add(e); }
+  Paint?.list(e); return e;
 }
 function mark(p) { const c = document.createComment(""); p.insertBefore(c, at(p)); return c; }
 /** Build fresh inside an adopted page (a virtualized list's rows). */
@@ -575,8 +576,8 @@ export function P(e, name, f) {
       if (v === "true") e.pause(); else e.play().catch(err => e.dispatchEvent(new CustomEvent("exact-error", { detail: err.message })));
     }
     else if (BOOL.test(name)) { e.toggleAttribute(name, v === "true"); if (name === "disabled" && v === "true" && document.activeElement === e) e.blur(); /* HTML focus fixup, now (glue.js) */ if (name === "checked") e.checked = e.$checked = v === "true"; if (name === "muted") e.muted = v === "true"; }
-    else if (v == null) { if (e.hasAttribute(name)) { e.removeAttribute(name); if (name.startsWith("data-exact-")) paintFacts(e); } }
-    else if (e.getAttribute(name) !== v) { e.setAttribute(name, v); if (name.startsWith("data-exact-")) paintFacts(e); }
+    else if (v == null) { if (e.hasAttribute(name)) { e.removeAttribute(name); if (name.startsWith("data-exact-")) Paint?.facts(e); } }
+    else if (e.getAttribute(name) !== v) { e.setAttribute(name, v); if (name.startsWith("data-exact-")) Paint?.facts(e); }
     if (e.localName === "a" && (name === "target" || name === "href" && (!e.hasAttribute("target") || e.rel === "external noopener"))) { const out = name === "href" && v != null && /^\s*(https?:)?\/\//i.test(v), t = name === "target" ? v : out ? "_blank" : null; if (t) e.setAttribute("target", t); else e.removeAttribute("target"); if (t === "_blank") e.rel = out ? "external noopener" : "noopener"; else e.removeAttribute("rel"); } // a link to an absolute URL leaves the app in a new browsing context unless its `target` is authored (element.rs `leaves_app`, `props_of`; chat F11)
   });
 }
@@ -997,11 +998,11 @@ function range(p) {
 // A view leaving with its exit animation stays where it was until it ends
 // (presence-glue.js removes it): never moved, since moving cancels a CSS animation.
 const exiting = n => n.nodeType === 1 && n.hasAttribute("data-exiting");
-function clear(a, b) { paintList(a.parentNode); for (let n = a.nextSibling; n !== b;) { const m = n.nextSibling; if (!exiting(n)) Leave ? Leave(n, b) : n.remove(); n = m; } }
+function clear(a, b) { Paint?.list(a.parentNode); for (let n = a.nextSibling; n !== b;) { const m = n.nextSibling; if (!exiting(n)) Leave ? Leave(n, b) : n.remove(); n = m; } }
 function build(b, f, own) {
   const frag = document.createDocumentFragment();
   const s = scope(() => f(frag), own);
-  b.before(frag); paintList(b.parentNode);
+  b.before(frag); Paint?.list(b.parentNode);
   return s;
 }
 /** A region's first arm while adopting: built in place, then its end anchor. */
@@ -1127,7 +1128,7 @@ export function each(p, list, key, row, pure) {
         }
         flush();
       }
-      rows = next; paintList(parent);
+      rows = next; Paint?.list(parent);
       b ??= mark(p);
     });
   }).$r = () => [a, b]; // the region's range, for shared.js
@@ -1164,7 +1165,7 @@ let LazyAt = 0, LazyTask = null;
 const LAZY_EVENTS = ["pointerdown", "mousedown", "touchstart", "click", "keydown", "beforeinput", "input", "change", "focusin"];
 // Passive: a waiting row must never make the page's touches wait for script.
 const LAZY_OPTS = { capture: true, passive: true };
-function lazy(x) { Lazy.push(x); LazyRows.set(x[1].start, x); }
+function lazy(x) { Paint?.wait(x[1].start); Lazy.push(x); LazyRows.set(x[1].start, x); }
 function adoptLazy(x) {
   const [p, r, row, own] = x;
   LazyRows.delete(r.start);
@@ -1193,17 +1194,17 @@ function lazyDone() {
   for (const t of LAZY_EVENTS) root?.removeEventListener(t, onLazy, LAZY_OPTS);
 }
 function adoptAt(target) {
-  for (let n = target; n && n.nodeType === 1; n = n.parentNode) { const x = LazyRows.get(n); if (x) { adoptLazy(x); break; } }
+  for (let n = target; n && n.nodeType === 1; n = n.parentNode) { const x = LazyRows.get(n); if (x) { adoptLazy(x); Paint?.flush(); break; } }
 }
 const onLazy = ev => adoptAt(ev.target);
 function slice() {
   LazyTask = null;
   const end = performance.now() + SLICE_MS;
   while (LazyAt < Lazy.length && performance.now() < end) adoptLazy(Lazy[LazyAt++]);
+  Paint?.flush();
   if (LazyAt < Lazy.length) LazyTask = post(slice); else lazyDone();
 }
 const post = f => globalThis.scheduler?.postTask ? scheduler.postTask(f, { priority: "user-visible" }) : setTimeout(f);
-
 // ---------------------------------------------------------------- boot
 /** Build the view into `#exact-root` and start the clock. */
 export function mount(f) {

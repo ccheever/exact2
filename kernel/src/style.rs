@@ -1478,21 +1478,8 @@ mod tests;
 #[cfg(test)]
 mod finite_tests;
 
-impl crate::generated::TouchAction {
-    /// Whether the value leaves pinch zoom to the platform: `auto`,
-    /// `manipulation` or any value naming `pinch-zoom` (LLP 1057.001 §2).
-    pub fn pinch_zoom(self) -> bool {
-        matches!(self, Self::Auto | Self::Manipulation) || self.name().ends_with("pinch-zoom")
-    }
-    /// The pan axes alone: dropping `pinch-zoom` leaves `none` if it was alone.
-    pub fn pans(self) -> Self {
-        match self.name().strip_suffix("pinch-zoom") {
-            Some("") => Self::None,
-            Some(rest) => Self::from_name(rest.trim_end()).unwrap_or(Self::None),
-            None => self,
-        }
-    }
-}
+// A `touch-action` value's pinch and pan parts.
+mod touch_action;
 
 #[cfg(test)]
 mod touch_action_tests;

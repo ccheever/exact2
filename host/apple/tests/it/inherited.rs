@@ -426,6 +426,96 @@ try {
 }
 
 #[test]
+fn a_kept_module_is_taken_only_by_a_checkout_of_the_same_bytes() {
+    // @ref LLP 1036.000 §10 — the host's Rust modules, kept for the machine.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let result = std::process::Command::new("bun")
+        .current_dir(root)
+        .args(["--input-type=module", "-e", r#"
+import assert from 'node:assert/strict';
+import {mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, utimesSync, readdirSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import {resolve} from 'node:path';
+import {spawnSync} from 'node:child_process';
+import {keptModules} from './host/apple/modules.mjs';
+const run = mkdtempSync(resolve(tmpdir(), 'exact-kept-modules-')), home = resolve(run, 'home');
+const git = (cwd, ...args) => assert.equal(spawnSync('git', ['-C', cwd, '-c', 'user.name=t', '-c', 'user.email=t@example.com', ...args], {encoding:'utf8'}).status, 0, args.join(' '));
+const past = new Date(Date.now() - 60_000);
+// A checkout: a workspace of one path crate with a shader directory, and one registry crate.
+const checkout = (name, source = 'pub fn draw() {}\n') => {
+  const root = resolve(run, name);
+  for (const [file, text] of Object.entries({
+    'Cargo.toml': '[workspace]\nmembers = ["canvas", "apps/' + name + '"]\n[profile.host-dev]\ninherits = "release"\n',
+    'Cargo.lock': 'version = 4\n[[package]]\nname = "exact-canvas-vello"\nversion = "0.1.0"\ndependencies = ["dep"]\n[[package]]\nname = "dep"\nversion = "1.0.0"\nsource = "registry+x"\nchecksum = "abc"\n',
+    'canvas/Cargo.toml': '[package]\nname = "exact-canvas-vello"\n', 'canvas/src/lib.rs': source, 'canvas/shaders/a.wgsl': 'fn a() {}\n',
+  })) { mkdirSync(resolve(root, file, '..'), {recursive:true}); writeFileSync(resolve(root, file), text); utimesSync(resolve(root, file), past, past); }
+  git(root, 'init', '-q'); git(root, 'add', '-A'); git(root, 'commit', '-q', '-m', 'one');
+  return root;
+};
+// What Cargo leaves after compiling the module there: the dylib, its dep-info, a build script's output.
+const compiled = (root, bytes) => {
+  const moduleTarget = resolve(root, 'target/apple-modules'), lib = resolve(moduleTarget, 'aarch64-apple-darwin/host-dev');
+  mkdirSync(resolve(lib, 'build/dep-1/out'), {recursive:true});
+  writeFileSync(resolve(lib, 'build/dep-1/output'), 'cargo:rerun-if-env-changed=DEP_FLAVOR\n');
+  writeFileSync(resolve(lib, 'build/dep-1/out/made.rs'), '');
+  writeFileSync(resolve(lib, 'libexact_canvas_vello.dylib'), bytes);
+  writeFileSync(resolve(lib, 'libexact_canvas_vello.d'), `${resolve(lib, 'libexact_canvas_vello.dylib')}: ${resolve(root, 'canvas/src/lib.rs')} ${resolve(root, 'canvas/shaders')} ${resolve(lib, 'build/dep-1/out/made.rs')}\n`);
+};
+const kept = (root, env = {}) => keptModules({root, moduleTarget: resolve(root, 'target/apple-modules'), target: 'aarch64-apple-darwin', profile: 'host-dev',
+  env: {HOME: home, PATH: process.env.PATH, MACOSX_DEPLOYMENT_TARGET: '14.0', ...env}, sdk: resolve(run, 'no-sdk'), metal: 'metal 1'});
+const entries = () => { const dir = resolve(home, '.cache/exact/apple-modules'); return existsSync(dir) ? readdirSync(dir).flatMap(g => readdirSync(resolve(dir, g))) : []; };
+const crate = 'exact-canvas-vello';
+try {
+  const first = checkout('first'), started = Date.now() - 1000;
+  assert.equal(kept(first).find(crate), null, 'nothing is kept yet');
+  compiled(first, 'module of one');
+  // Cargo linked nothing since: nothing is kept. An uncommitted input: nothing is kept.
+  kept(first).keep(crate, Date.now() + 60_000); assert.deepEqual(entries(), []);
+  writeFileSync(resolve(first, 'canvas/shaders/b.wgsl'), ''); utimesSync(resolve(first, 'canvas/shaders/b.wgsl'), past, past);
+  kept(first).keep(crate, started); assert.deepEqual(entries(), []);
+  rmSync(resolve(first, 'canvas/shaders/b.wgsl'));
+  // An input written after the compile started: nothing is kept.
+  kept(first).keep(crate, past.getTime() - 1000); assert.deepEqual(entries(), []);
+  kept(first).keep(crate, started); assert.equal(entries().length, 1);
+  // The checkout that compiled it asks Cargo, not the cache.
+  assert.equal(kept(first).find(crate), null);
+  // Another checkout of the same bytes takes it, whatever else its workspace holds; again without a search.
+  const second = checkout('second'), taken = kept(second).find(crate);
+  assert.equal(readFileSync(taken, 'utf8'), 'module of one');
+  assert.equal(kept(second).find(crate), taken);
+  // Not with another deployment target, nor a variable a build script reads.
+  assert.equal(kept(second, {MACOSX_DEPLOYMENT_TARGET: '15.0'}).find(crate), null);
+  assert.equal(kept(second, {DEP_FLAVOR: 'other'}).find(crate), null);
+  // Not once a source, a file of a directory Cargo watches, the crate's manifest, or a pinned registry crate differs.
+  for (const [file, text] of [['canvas/src/lib.rs', 'pub fn draw() { }\n'], ['canvas/shaders/a.wgsl', 'fn b() {}\n'], ['canvas/Cargo.toml', '[package]\nname = "exact-canvas-vello"\nedition = "2021"\n']]) {
+    const was = readFileSync(resolve(second, file), 'utf8');
+    writeFileSync(resolve(second, file), text); assert.equal(kept(second).find(crate), null, file);
+    writeFileSync(resolve(second, file), was); assert.equal(kept(second).find(crate), taken, `${file} restored`);
+  }
+  writeFileSync(resolve(second, 'canvas/shaders/new.wgsl'), ''); assert.equal(kept(second).find(crate), null, 'a new shader');
+  rmSync(resolve(second, 'canvas/shaders/new.wgsl')); assert.equal(kept(second).find(crate), taken);
+  const lock = readFileSync(resolve(second, 'Cargo.lock'), 'utf8');
+  writeFileSync(resolve(second, 'Cargo.lock'), lock.replace('abc', 'abd')); assert.equal(kept(second).find(crate), null, 'a registry crate');
+  writeFileSync(resolve(second, 'Cargo.lock'), lock); assert.equal(kept(second).find(crate), taken);
+  // A checkout of other bytes compiles its own and keeps it beside the first.
+  const third = checkout('third', 'pub fn draw() { let _ = 1; }\n');
+  assert.equal(kept(third).find(crate), null);
+  compiled(third, 'module of three'); kept(third).keep(crate, started);
+  assert.equal(entries().length, 2);
+  assert.equal(readFileSync(kept(checkout('fourth', 'pub fn draw() { let _ = 1; }\n')).find(crate), 'utf8'), 'module of three');
+  assert.equal(readFileSync(kept(checkout('fifth')).find(crate), 'utf8'), 'module of one');
+} finally { rmSync(run,{recursive:true,force:true}); }
+"#])
+        .output()
+        .unwrap();
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+}
+
+#[test]
 fn a_reloaded_plan_resolves_line_height_kinds_against_the_new_receiving_font() {
     let source = |height: &str, size| {
         format!("component App\n  view\n    column font-size=16 line-height={height}\n      text \"child\" font-size={size} testId=\"child\"\n")

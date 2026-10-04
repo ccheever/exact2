@@ -249,6 +249,7 @@ impl Painter {
             text: BTreeMap::new(),
             skip: None,
             replay: None,
+            ranks: Rc::clone(&walk.ranks),
         };
         let f = node.frame;
         painter.node(

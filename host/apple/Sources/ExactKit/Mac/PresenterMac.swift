@@ -836,6 +836,7 @@ final class Presenter {
 
     func apply(_ batch: Batch) {
         defer { applyLanguage(batch) }
+        PaintOrder.begin()
         let post = Self.signposts.beginInterval("apply", "\(batch.ops.count) ops")
         defer { Self.signposts.endInterval("apply", post) }
         viewport.invalidateDocumentFit()
@@ -861,6 +862,7 @@ final class Presenter {
             collections.endBatch()
             collections.observeKnobDrags()
             collections.limitPrepared()
+            PaintOrder.end()
             if outermost {
                 applying = false
                 videoVisibility?.changed()
@@ -946,7 +948,7 @@ final class Presenter {
                     if let node = child as? NodeView { reparented.insert(node.id) }
                     child.removeFromSuperview()
                 }
-                let mounted = want.filter { !dialogs.owns($0) && !menus.owns($0) && !isFlying($0) }
+                let mounted = NodeView.keepingGhosts(want.filter { !dialogs.owns($0) && !menus.owns($0) && !isFlying($0) }, in: container)
                 for (i, child) in mounted.enumerated() {
                     if child.superview !== container {
                         reparented.insert(child.id)
@@ -977,6 +979,8 @@ final class Presenter {
             case .exit: beginExit(id)
             case .flight: beginFlight(op)
             case .land: if let f = flights[id] { landFlight(f) }
+            case .rank:
+                if let rank = op.payload["rank"] as? NSNumber { views[id]?.setRank(rank.int64Value) }
             case .sticky: stickies.apply(id, op.payload)
             case .destroy:
                 elements.destroyed(id)
@@ -1041,6 +1045,7 @@ final class Presenter {
         let fit = first?.props["viewportFit"]
         if fit != viewportFit { viewportFit = fit; onViewportFit?() }
         session?.canvases.cancelMovedControls()
+        PaintOrder.flush()
         session?.canvases.captureIfNeeded()
         for id in scrollers.union(pendingScrolls) {
             guard let node = views[id] else { continue }
@@ -1215,20 +1220,13 @@ enum Capture {
     /// The subtree painted at `scale`: premultiplied RGBA, rows top-down,
     /// `pixelsWide * 4` bytes per row, transparent where nothing painted.
     static func bitmap(of view: NSView, scale: CGFloat) -> NSBitmapImageRep? {
-        let w = Int((view.bounds.width * scale).rounded()), h = Int((view.bounds.height * scale).rounded())
-        guard w > 0, h > 0,
-              let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: w, pixelsHigh: h, bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: w * 4, bitsPerPixel: 32)
-        else { return nil }
-        rep.size = view.bounds.size
-        if let p = rep.bitmapData { memset(p, 0, h * w * 4) }
         // A subtree painted through its canvas composites at alpha 0; paint
         // it opaque into the bitmap regardless.
         let alpha = view.alphaValue
         view.alphaValue = 1
         // A canvas nested under this one that is painted through its own
         // surface: its picture comes by readback (its draw), not from its
-        // overlay's views, which cacheDisplay would paint regardless of their
-        // alpha — so those are hidden for the duration.
+        // overlay's views, so those are hidden for the duration.
         var hidden: [NSView] = []
         func hide(_ v: NSView) {
             for s in v.subviews {
@@ -1238,11 +1236,7 @@ enum Capture {
             }
         }
         hide(view)
-        let fills = hideBoxFills(in: view)
-        capturing = true
-        view.cacheDisplay(in: view.bounds, to: rep)
-        capturing = false
-        restore(fills)
+        let rep = paintOrderBitmap(of: view, scale: scale)
         for o in hidden { o.isHidden = false }
         view.alphaValue = alpha
         return rep

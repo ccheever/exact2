@@ -27,6 +27,16 @@ shape Row
 shape Rows
   items: list<Row>
 
+// The map providers installed, for the "Open in…" chooser (LLP 1021): rows
+// from data, because only the run time knows what is installed.
+shape Provider
+  id: string
+  name: string
+  icon: string
+
+shape Providers
+  items: list<Provider>
+
 component NativeFixture
   state popoverValue = ""
   state popoverSearch = ""
@@ -136,6 +146,17 @@ component NativeFixture
   action compose
     composed = composed + 1
   mutation rows as shape Rows
+  // Asked as the chooser opens, never at boot: a session without the
+  // fixture's source (the UIKit tests' host) never asks.
+  mutation providers as shape Providers
+  derive providerItems = match providers { case some(p) => p.items, case none => [] }
+  state remembered = "apple"
+  state opened = ""
+  action openIn(id: string)
+    remembered = id
+    opened = id
+  action refreshProviders
+    send providers = providers()
   derive rowItems = match rows { case some(r) => r.items, case none => [] }
   action showRows
     nav = push(nav, "/rows")
@@ -257,6 +278,30 @@ component NativeFixture
                         text "Reject"
                       button press=mode testId="mode" padding=6 background-color="#e5e7eb"
                         text "Mode"
+                    // An "Open in…" chooser (LLP 1021): the invoker refreshes
+                    // what is installed as it opens; a menu on every host,
+                    // titled by its aria-label, each row its provider's icon,
+                    // the remembered one checked; the same rows as a sheet
+                    // when the popover asks for one (role="alertdialog").
+                    row gap=6 flex-wrap="wrap"
+                      button press=refreshProviders popovertarget="open-in" testId="open-in" padding=6 background-color="#e5e7eb"
+                        text "Open in Maps"
+                      button press=refreshProviders popovertarget="open-in-sheet" testId="open-in-sheet" padding=6 background-color="#e5e7eb"
+                        text "Open in (sheet)"
+                      text ("opened " + opened) testId="opened"
+                    column id="open-in" popover="auto" position="absolute" role="menu" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
+                      each p in providerItems key=p.id
+                        button press=openIn(p.id) aria-checked=(p.id == remembered) popovertarget="open-in" popovertargetaction="hide" role="menuitemradio" testId=`open-in-${p.id}` height=44 display="flex" flex-direction="row" align-items="center" gap=8
+                          image p.icon width=24 height=24
+                          text p.name
+                      button popovertarget="open-in" popovertargetaction="hide" testId="open-in-cancel" height=44
+                        text "Cancel"
+                    column id="open-in-sheet" popover="auto" position="absolute" role="alertdialog" aria-label="Open location in" width=220 padding=8 background-color="#ffffff"
+                      each p in providerItems key=p.id
+                        button press=openIn(p.id) aria-checked=(p.id == remembered) popovertarget="open-in-sheet" popovertargetaction="hide" testId=`open-in-sheet-${p.id}` height=44
+                          text p.name
+                      button popovertarget="open-in-sheet" popovertargetaction="hide" testId="open-in-sheet-cancel" height=44
+                        text "Cancel"
                     row gap=6
                       button press=grow testId="grow" padding=6
                         text "Grow content"

@@ -155,8 +155,16 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     throw new Error(`web carrier unavailable: ${chrome}: ${error.code}; set CHROME to an installed browser`);
   }
   onProcess?.(child);
-  const hostLines = [];
-  child.stderr.on('data', (d) => { for (const l of String(d).split('\n')) if (l && !browserDiagnosticNoise(l)) hostLines.push('chrome: ' + l); });
+  const hostLines = [], launchTail = [];
+  let partial = ''; // a line split across stderr chunks
+  const line = (l) => {
+    if (!l) return;
+    if (!browserDiagnosticNoise(l)) hostLines.push('chrome: ' + l);
+    launchTail.push(l); if (launchTail.length > 8) launchTail.shift(); // unfiltered, for a launch that fails
+  };
+  child.stderr.on('data', (d) => { const parts = (partial + d).split('\n'); partial = parts.pop(); parts.forEach(line); });
+  child.stderr.on('end', () => { line(partial); partial = ''; });
+  const stdioClosed = new Promise((r) => child.on('close', r)); // after 'exit', once stderr is drained
   const cdp = new Cdp(child.stdio[3], child.stdio[4]);
   const exited = new Promise((r) => {
     child.on('exit', (code, signal) => { cdp.fail(`Chrome exited (${code ?? signal})`); r(); });
@@ -179,7 +187,13 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
     if (planBuild) rmSync(planBuild, { recursive: true, force: true });
   };
   try {
-    const { targetInfos } = await cdp.send('Target.getTargets');
+    // A Chrome that dies at launch says why only on its stderr; the pipe just closes.
+    const { targetInfos } = await cdp.send('Target.getTargets').catch(async (error) => {
+      await waitAtMost(stdioClosed, 1000);
+      const said = [...launchTail, ...(partial ? [partial] : [])].slice(-6).map(l => '  chrome: ' + l).join('\n'); // and an unterminated last line
+      const alive = child.exitCode === null && child.signalCode === null;
+      throw new Error(`Chrome ${alive ? 'did not answer' : 'did not start'} (${error.message}); CHROME=${chrome}\n${said || '  (it printed nothing)'}${alive ? '' : '\nSet CHROME to a browser that runs here.'}`);
+    });
     const target = targetInfos.find((t) => t.type === 'page') ?? (await cdp.send('Target.createTarget', { url: 'about:blank' }));
     const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
     const heldKeys = new Map();

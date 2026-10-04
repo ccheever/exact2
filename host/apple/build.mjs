@@ -46,6 +46,7 @@ import { copyStaticTreeIfPresent, listAssets } from '../web/serve.mjs';
 import { startSweep } from '../../scripts/sweep.mjs';
 import { writeDataKeys } from './data-keys.mjs';
 import { appIcon, iosAssets } from './assets.mjs';
+import { keptModules } from './modules.mjs';
 export { appIcon, iosAssets };
 import { deviceLaunchArgs, developmentLaunchEnvironment, identity, macIdentity, phone, profile, showSimulator, simulator, simulators } from './devices.mjs';
 
@@ -848,14 +849,21 @@ async function main(args) {
   const moduleLibDir = resolve(moduleTarget, target, cargoProfile);
   mkdirSync(moduleTarget, { recursive: true });
   startSweep(moduleTarget);
-  const metal = read('xcrun', ['-sdk', 'macosx', 'metal', '--version']).status === 0;
+  const metalTools = read('xcrun', ['-sdk', 'macosx', 'metal', '--version']), metal = metalTools.status === 0;
   if (!metal) console.warn('host/apple: no Metal toolchain, so no Canvas 2D GPU module: canvases draw with Core Graphics. Install it with `xcodebuild -downloadComponent MetalToolchain`.');
+  // A development build takes a module some checkout of this machine has
+  // already compiled from these bytes, and keeps each one it compiles itself
+  // (modules.mjs): a fresh checkout's first build is 106 → 79 s on the M4.
+  const moduleEnv = { ...process.env, ...cargoEnv, [`CARGO_PROFILE_${cargoProfile.toUpperCase().replace(/-/g, '_')}_STRIP`]: 'false' };
+  const kept = cargoProfile === HOST_DEV ? keptModules({ root, moduleTarget, target, profile: cargoProfile, env: moduleEnv, sdk, metal: metalTools.stdout }) : null;
+  const moduleLib = {};
   const buildModules = (crates, log) => {
-    const step = startApple('sh', ['-c', 'profile=$1 target=$2 dir=$3 manifest=$4; shift 4; for crate; do cargo build --profile "$profile" -p "$crate" --lib --target "$target" --target-dir "$dir" --manifest-path "$manifest" || exit $?; done',
-      'host-modules', cargoProfile, target, moduleTarget, resolve(root, 'Cargo.toml'), ...crates], resolve(webBuildDir, log),
-      { env: { ...process.env, ...cargoEnv, [`CARGO_PROFILE_${cargoProfile.toUpperCase().replace(/-/g, '_')}_STRIP`]: 'false' } });
-    beside.push(step);
-    return step;
+    const started = Date.now(), compile = crates.filter(crate => !(moduleLib[crate] = kept?.find(crate)));
+    for (const crate of compile) moduleLib[crate] = resolve(moduleLibDir, `lib${crate.replaceAll('-', '_')}.dylib`);
+    const step = compile.length ? startApple('sh', ['-c', 'profile=$1 target=$2 dir=$3 manifest=$4; shift 4; for crate; do cargo build --profile "$profile" -p "$crate" --lib --target "$target" --target-dir "$dir" --manifest-path "$manifest" || exit $?; done',
+      'host-modules', cargoProfile, target, moduleTarget, resolve(root, 'Cargo.toml'), ...compile], resolve(webBuildDir, log), { env: moduleEnv }) : null;
+    if (step) beside.push(step);
+    return { async done() { await step?.done(); for (const crate of compile) kept?.keep(crate, started); } };
   };
   // A production binary whose plan is its own for good (store level 0) may
   // reach neither module, and then compiles neither: its build waits for the
@@ -1128,10 +1136,10 @@ async function main(args) {
   await hostModules?.done();
   await lateModules?.done();
   const svgBuilt = resolve(webBuildDir, svgLoadName);
-  if (hasSvg) copyFileSync(resolve(moduleLibDir, 'libexact_svg_raster.dylib'), svgBuilt);
+  if (hasSvg) copyFileSync(moduleLib['exact-svg-raster'], svgBuilt);
   const canvasGpuLoadName = 'libexact_canvas_gpu.dylib';
   const canvasGpuBuilt = canvasGpu ? resolve(webBuildDir, canvasGpuLoadName) : null;
-  if (canvasGpu) copyFileSync(resolve(moduleLibDir, 'libexact_canvas_vello.dylib'), canvasGpuBuilt);
+  if (canvasGpu) copyFileSync(moduleLib['exact-canvas-vello'], canvasGpuBuilt);
   const t2 = Date.now();
   // Where the build's time went, said at its end: the app's Rust and bake; the
   // Swift host's link, and what of its compile the bake did not cover; the

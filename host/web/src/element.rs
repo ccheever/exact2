@@ -167,7 +167,9 @@ pub fn host_css_of(node: &NodeFacts<'_>, mut css: String, tag: &str) -> String {
         if !(css.starts_with("position:") || css.contains(";position:")) {
             css.push_str("position:relative;");
         }
-        css.push_str("isolation:isolate;");
+        if !node.style.mask.has(StyleId::Isolation) {
+            css.push_str("isolation:isolate;");
+        }
         canvas_css(node, &mut css);
     }
     // A root is a block formatting context in the kernel, as CSS's root
@@ -1025,6 +1027,19 @@ impl<D: exact_runner::DataSource> super::Host<D> {
         let fold = folded(kernel, node, m.is_some_and(|m| m.handled));
         let handled = |c| self.mirror.get(&c).is_some_and(|m| m.handled);
         let css = blocks(contents(css, fold), holds_folded(kernel, node, &handled));
+        self.paint_css(node, css)
+    }
+
+    /// Refresh isolation in newly computed or server-cached CSS. An authored
+    /// `isolate` keeps its value; required isolation overrides authored `auto`.
+    pub(super) fn paint_css(&self, node: &NodeRef<'_>, css: String) -> String {
+        if node.style.mask.has(StyleId::Isolation) && !self.layers.isolated(node.id) {
+            return css;
+        }
+        let css = css
+            .split_inclusive(';')
+            .filter(|row| !row.starts_with("isolation:"))
+            .collect();
         super::layers::with_isolation(css, self.layers.isolated(node.id))
     }
 
