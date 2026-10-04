@@ -386,6 +386,28 @@ pub fn handler_arity(attr: &str, given: usize) -> Option<std::ops::RangeInclusiv
     Some(given + payload..=given + payload + record)
 }
 
+/// Whether an action whose parameters are `params` (its bound arguments
+/// first) can be `attr=`'s with `given` bound ([`handler_arity`]). The
+/// event's optional record is taken by a last parameter of the record's
+/// type, or one left to inference; any other type there is an argument
+/// left unbound, an arity mistake, as it was before the event offered a
+/// record (`press` and its `MouseEvent`).
+pub fn handler_accepts(attr: &str, given: usize, params: &[Ty]) -> bool {
+    let Some(range) = handler_arity(attr, given) else {
+        return false;
+    };
+    if !range.contains(&params.len()) {
+        return false;
+    }
+    match contract_types::event_record(attr) {
+        Some(record) if params.len() == *range.end() && range.start() < range.end() => {
+            matches!(params.last(), Some(Ty::Record(r)) if r == record)
+                || matches!(params.last(), Some(Ty::Unknown))
+        }
+        _ => true,
+    }
+}
+
 /// What the view check reads besides the scope: the file's components, the
 /// component whose actions the scope's `Ref::Action`s index, and the shapes.
 struct View<'a> {
@@ -516,7 +538,7 @@ fn check_handler(
     let given = args.len();
     // A prop of bare `action` type has unknown arity; only a real action is checked.
     if let Ref::Action(index) = r {
-        let valid = handler_arity(attr, given).is_some_and(|range| range.contains(&params.len()));
+        let valid = handler_accepts(attr, given, params);
         if !valid {
             let declared = view.actions.actions.get(index as usize);
             let params: Vec<(String, Ty)> = declared

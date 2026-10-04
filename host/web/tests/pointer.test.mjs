@@ -90,7 +90,7 @@ check('down before the press, up wherever the button lifts, nothing when disable
     expect(await log()).toEqual(['mic down', 'mic move', 'mic up']);
     const [down, held, up] = await records();
     const box = await evaluate(`(() => { const e = document.getElementById('mic'), r = e.getBoundingClientRect(), s = getComputedStyle(e); return [r.x + parseFloat(s.borderLeftWidth) + parseFloat(s.paddingLeft), r.y + parseFloat(s.borderTopWidth) + parseFloat(s.paddingTop)]; })()`);
-    expect(down.slice(2)).toEqual(['1', '0.5', 'mouse', '1']);
+    expect(down.slice(2)).toEqual(['1', '0.5', 'mouse', '1', '']); // no modifier held (gallery F20)
     expect([+held[0], +held[1]]).toEqual([500 - box[0], 800 - box[1]]);
     expect(held.slice(2, 5)).toEqual(['1', '0.5', 'mouse']);
     expect(up.slice(2, 4)).toEqual(['0', '0']);

@@ -564,9 +564,19 @@ fn refine_params_from_view(
                                 _ => vec![],
                             };
                             // Then the event's record, when the action
-                            // declares one more parameter (`event_record`).
+                            // declares one more parameter (`event_record`)
+                            // of its type or none: another type there is an
+                            // argument left unbound, analysis's arity
+                            // refusal (`handler_accepts`).
                             if let Some(record) = crate::event_record(&a.name) {
-                                if ct.actions[ai].len() == args.len() + payload.len() + 1 {
+                                let n = args.len() + payload.len() + 1;
+                                let fits = ct.actions[ai].len() == n
+                                    && match &ct.actions[ai][n - 1] {
+                                        Ty::Unknown => true,
+                                        Ty::Record(r) => r == record,
+                                        _ => false,
+                                    };
+                                if fits {
                                     payload.push(Ty::Record(record.into()));
                                 }
                             }

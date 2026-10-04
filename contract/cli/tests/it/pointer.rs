@@ -75,11 +75,14 @@ fn at(line: &str) -> PointerEvent {
     PointerEvent::parse(line).unwrap()
 }
 
+/// A parameter of another type is an argument left unbound, not the
+/// record: the arity refusal names both declarations.
 #[test]
 fn a_pointer_handler_takes_a_pointer_event_or_nothing() {
     let src = MIC.replace("action begin\n", "action begin(x: number)\n");
     let e = contract::compile(&src).unwrap_err();
-    assert_eq!(e.id, "type-handler-payload", "{e}");
+    assert_eq!(e.id, "analyze-handler-arity", "{e}");
+    assert!(e.message.contains("for its `PointerEvent`"), "{e}");
 }
 
 const PAD: &str = r#"component App

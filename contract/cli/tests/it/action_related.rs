@@ -139,8 +139,9 @@ fn navigate_optional_arity_survives_multiple_bindings_and_intersection() {
 
 #[test]
 fn all_event_payload_arities_share_the_lowering_rule() {
+    // `press` may also hand on its `MouseEvent` (`handler_accepts`).
+    assert_eq!(contract_analyze::handler_arity("press", 0), Some(0..=1));
     for (event, count) in [
-        ("press", 0),
         ("change", 1),
         ("hover", 1),
         ("timeupdate", 1),
