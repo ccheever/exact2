@@ -913,6 +913,8 @@ const pathTuple = (kind, target) => {
 const networkTuple = (kind, target) => {
   const wildcard = kind === 'fetch-subdomains';
   if (wildcard && !target.includes('://*.')) return null;
+  // Userinfo is refused, as in Rust: `https://a.example@evil.com` is evil.com.
+  if (target.includes('@')) return null;
   try {
     const url = new URL(wildcard ? target.replace('://*.', '://') : target);
     const port = Number(url.port || ({ 'http:': 80, 'https:': 443, 'ws:': 80, 'wss:': 443, 'ftp:': 21 })[url.protocol]);

@@ -411,9 +411,8 @@ pub fn fetch_stream(
             current.body = None;
         }
         // A redirect to another origin drops the credentials this request
-        // carried, as the Fetch standard does for `Authorization` (Exact
-        // patch 1: a subdomain grant admits sibling hosts, which must not
-        // receive a token meant for the first).
+        // carried, as the Fetch standard does for `Authorization`.
+        // @ref LLP 0059.000#35-fetch--delegating-capability-bearing — a subdomain grant admits sibling hosts, which must not receive a token meant for the first
         if origin_of(next.as_str())? != origin_of(&current.url)? {
             for name in ["authorization", "cookie", "proxy-authorization"] {
                 current.headers.delete(name);

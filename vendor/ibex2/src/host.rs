@@ -147,7 +147,7 @@ pub struct Bindings {
 }
 
 /// A listening WebSocket, carrying its grant (`net.websocket <origin>`,
-/// LLP 1016.000 D3). Every open is admitted, a reconnect included.
+/// LLP 0059.000 §3.12). Every open is admitted, a reconnect included.
 #[derive(Clone)]
 pub struct WebSocket {
     transport: Arc<dyn SocketTransport>,

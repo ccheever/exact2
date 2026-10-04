@@ -127,7 +127,15 @@
   },
   {
     "spec": "net.fetch https://user:pass@example.com",
-    "ok": true
+    "ok": false
+  },
+  {
+    "spec": "net.fetch https://example.com@evil.com",
+    "ok": false
+  },
+  {
+    "spec": "net.websocket wss://example.com@evil.com",
+    "ok": false
   },
   {
     "spec": "net.fetch https://m\u00fcnchen.de",

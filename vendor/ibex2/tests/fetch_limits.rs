@@ -349,7 +349,7 @@ mod request_headers {
     }
 
     #[test]
-    fn default_follow_retains_authored_headers_across_granted_origins() {
+    fn default_follow_drops_credentials_across_granted_origins_and_keeps_the_rest() {
         let (destination, destination_origin) = listener();
         let destination = capture(destination);
         let (redirector, origin) = listener();
@@ -375,9 +375,24 @@ mod request_headers {
         let (head, body) = destination.join().unwrap();
         assert!(head.starts_with("GET /final HTTP/1.1\r\n"), "{head:?}");
         assert!(body.is_empty(), "redirect rewrite must drop the body");
-        // Pin the current follower: credentials and Content-Type survive
-        // even this cross-origin POST-to-GET rewrite. Both servers were hit.
-        assert_authored_headers(&head);
+        // Pin the follower: across origins the credentials are dropped
+        // (LLP 0059.000 §3.5), while Content-Type and the rest survive even
+        // this POST-to-GET rewrite. Both servers were hit.
+        let headers = folded_headers(&head);
+        assert!(
+            !headers.iter().any(|(key, _)| key == "authorization"),
+            "credentials crossed origins: {head:?}"
+        );
+        for (name, value) in [
+            ("content-type", " application/json"),
+            ("idempotency-key", " effect-123"),
+            ("x-repeat", " first, second"),
+        ] {
+            assert!(
+                headers.contains(&(name.into(), value.into())),
+                "lost {name}: {head:?}"
+            );
+        }
     }
 
     #[test]

@@ -308,6 +308,15 @@ impl GrantSet {
             let target = parts
                 .next()
                 .ok_or_else(|| format!("line {}: `{capability}` needs a target", index + 1))?;
+            if matches!(capability, "net.fetch" | "net.websocket") && target.contains('@') {
+                // `https://api.example.com@evil.com` is the origin `evil.com`:
+                // a line that reads as one host and admits another is refused
+                // here, before either parser (native or the browser's) sees it.
+                return Err(format!(
+                    "line {}: `{target}`: an origin has no user or password",
+                    index + 1
+                ));
+            }
             let grant = match capability {
                 "net.fetch" if target.contains("://*.") => {
                     Grant::FetchSubdomains(subdomains(target).map_err(|e| {
@@ -555,10 +564,23 @@ mod tests {
             "net.fetch https://*.example.com/path",
             "net.fetch https://*example.com",
             "net.websocket wss://*.example.com",
+            "net.fetch https://*.example.com@evil.com",
+            "net.fetch https://*.example.com:pw@evil.com",
         ] {
             assert!(GrantSet::parse(bad).is_err(), "{bad} parsed");
         }
         assert!(GrantSet::parse("net.fetch https://*.example.com:8443").is_ok());
+    }
+
+    #[test]
+    fn an_origin_spelt_with_userinfo_is_refused() {
+        for bad in [
+            "net.fetch https://api.example.com@evil.com",
+            "net.fetch https://user:pw@api.example.com",
+            "net.websocket wss://api.example.com@evil.com",
+        ] {
+            assert!(GrantSet::parse(bad).is_err(), "{bad} parsed");
+        }
     }
 
     #[test]

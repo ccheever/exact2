@@ -21,7 +21,7 @@ pub use darwin::DarwinTransport;
 pub mod rustls_http;
 #[cfg(any(not(target_vendor = "apple"), target_os = "macos"))]
 pub use rustls_http::RustlsHttpTransport;
-// A listening WebSocket (LLP 1016.000 D3): the platform's own on Apple,
+// A listening WebSocket (LLP 0059.000 §3.12): the platform's own on Apple,
 // TCP and rustls elsewhere (and in tests everywhere).
 #[cfg(target_vendor = "apple")]
 pub mod darwin_websocket;

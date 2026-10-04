@@ -45,7 +45,7 @@ fn main() {
             .flag("-x")
             .flag("objective-c++")
             .compile("ibex2_darwin_http");
-        // A listening WebSocket (Exact's LLP 1016.000 D3), the same way.
+        // A listening WebSocket (LLP 0059.000 §3.12), the same way.
         println!("cargo:rerun-if-changed=src/engine/darwin_websocket.mm");
         cc::Build::new()
             .cpp(true)
