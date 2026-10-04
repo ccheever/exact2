@@ -1,8 +1,8 @@
 use super::*;
 
 impl<G: Game> Sim<G> {
-    /// Save world time and relative pending input, independent of the host epoch.
-    pub fn save(&self) -> Result<Vec<u8>, DataError> {
+    /// Why no save can be taken now: a shown asset still in flight.
+    pub(crate) fn assets_unready(&self) -> Option<String> {
         {
             let assets = &self.world.assets;
             let mut meshes = self.world.query::<&crate::Mesh>();
@@ -36,13 +36,17 @@ impl<G: Game> Sim<G> {
                     )
                 })
                 .collect();
-            if self.is_loading() || !pending.is_empty() {
-                return Err(DataError::new(format!(
-                    "save refused: assets are not ready: {:?}; {}; inspect untargeted `state`: world[0].loading and world[0].assets before saving again",
-                    pending,
-                    assets.state_json()
-                )));
-            }
+            (self.is_loading() || !pending.is_empty()).then(|| format!(
+                "save refused: assets are not ready: {:?}; {}; inspect untargeted `state`: world[0].loading and world[0].assets before saving again",
+                pending,
+                assets.state_json()
+            ))
+        }
+    }
+    /// Save world time and relative pending input, independent of the host epoch.
+    pub fn save(&self) -> Result<Vec<u8>, DataError> {
+        if let Some(reason) = self.assets_unready() {
+            return Err(DataError::new(reason));
         }
         let world_us = self.exact_world_us();
         let mut queue: Vec<_> = self.queue.iter().cloned().collect();

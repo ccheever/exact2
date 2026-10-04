@@ -166,6 +166,10 @@ pub struct Sim<G: Game> {
     // The last tick's pointer motion, for presentation between ticks only.
     last_motion: crate::Vec2,
     paranoid: Option<fn(&mut Self)>,
+    // A paranoid sample deferred while a shown asset was in flight: the next
+    // tick takes it. Skipped samples are counted for the proof's report.
+    paranoid_owed: bool,
+    paranoid_skipped: u64,
     game: PhantomData<G>,
 }
 const QUEUE_LIMIT: usize = 1024;
@@ -293,6 +297,12 @@ impl<G: Game> Sim<G> {
             before, after,
             "Game::present changed simulation records (entities, journal, messages, publications)"
         );
+    }
+    /// Under a paranoid mode: samples deferred while a shown asset was in
+    /// flight, and whether one is still owed (the asset never landed).
+    pub fn paranoid_samples(&self) -> Option<(u64, bool)> {
+        self.paranoid
+            .map(|_| (self.paranoid_skipped, self.paranoid_owed))
     }
     /// Whether setup is waiting for declared model bytes.
     pub fn is_loading(&self) -> bool {
@@ -609,6 +619,8 @@ impl<G: Game> Sim<G> {
             lookahead_us_hz: 0,
             last_motion: crate::Vec2::ZERO,
             paranoid: Self::reconstruction(Paranoid::environment()),
+            paranoid_owed: false,
+            paranoid_skipped: 0,
             game: PhantomData,
         })
     }
@@ -1123,7 +1135,11 @@ impl<G: Game> Sim<G> {
             // PARANOID_EVERY-th tick inside an advance.
             if let Some(rebuild) = self.paranoid {
                 let tick = self.world.tick();
-                if tick == target || delivered || tick.is_multiple_of(PARANOID_EVERY) {
+                if tick == target
+                    || delivered
+                    || self.paranoid_owed
+                    || tick.is_multiple_of(PARANOID_EVERY)
+                {
                     rebuild(self);
                 }
             }
@@ -1147,6 +1163,16 @@ impl<G: Game> Sim<G> {
         u32::try_from(self.world.tick() - start).unwrap_or(u32::MAX)
     }
     fn paranoid_rebuild(&mut self, mode: Paranoid) {
+        // An asset first shown this tick is still in flight: no save can be
+        // taken until it lands (a model first requested mid-game), so the
+        // sample is owed to the next tick and counted, never dropped silently.
+        if self.assets_unready().is_some() {
+            self.paranoid_owed = true;
+            self.paranoid_skipped += 1;
+            return;
+        }
+        self.paranoid_owed = false;
+        let skipped = self.paranoid_skipped;
         let tick = self.world.tick();
         let hash = self.world.hash();
         // advance_with owns the seek horizon, but EXSIM checkpoints describe a
@@ -1155,13 +1181,6 @@ impl<G: Game> Sim<G> {
         self.world_us = ((tick as u128 * 1_000_000).div_ceil(G::HZ as u128)) as i64;
         let bytes = match self.save() {
             Ok(bytes) => bytes,
-            // An asset first shown this tick is still in flight: no save can be
-            // taken until it lands, so this sample waits for the next one rather
-            // than failing the proof (a model first requested mid-game).
-            Err(error) if error.message.starts_with("save refused: assets are not ready") => {
-                self.world_us = horizon;
-                return;
-            }
             Err(error) => panic!("paranoid {:?} {} tick {tick}: {error}; rerun bun game/games/{}/proof.mjs linux --paranoid", mode, G::ID, G::ID),
         };
         let host = self.last_us;
@@ -1216,6 +1235,7 @@ impl<G: Game> Sim<G> {
             mode, G::ID
         );
         self.world_us = horizon;
+        self.paranoid_skipped = skipped;
         self.last_us = host;
         self.last_ms = last_ms;
         self.live_time = live_time;

@@ -736,10 +736,23 @@ fn a_model_first_requested_mid_game_does_not_break_a_paranoid_save() {
     for mode in [Paranoid::Off, Paranoid::Save, Paranoid::FreshGame] {
         let mut sim = Sim::<Rocket>::new(()).unwrap().paranoid(mode);
         sim.run(100.);
+        // Samples while the model is in flight are owed and counted, not dropped.
+        let off = mode == Paranoid::Off;
+        let samples = sim.paranoid_samples();
+        assert!(
+            off || samples.is_some_and(|(skipped, owed)| skipped > 0 && owed),
+            "{samples:?}"
+        );
         assert_eq!(sim.take_assets(), ["rocket.model"]);
         sim.asset("rocket.model", Some(&bin::to_vec(&asset::Model::default())))
             .unwrap();
         sim.run(100.);
+        // The next tick took the owed sample.
+        let after = sim.paranoid_samples();
+        assert!(
+            off || after.is_some_and(|(skipped, owed)| skipped == samples.unwrap().0 && !owed),
+            "{after:?}"
+        );
         hashes.push(sim.world().hash());
     }
     assert!(hashes.windows(2).all(|h| h[0] == h[1]));
