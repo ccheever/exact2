@@ -285,7 +285,9 @@ component Content
                 button press=toggleDeck aria-label="Deck" testId="deck-toggle" padding=8 border-radius=8
                   text "Deck" font-size="0.75em" font-weight=600 color=accent
         when screen == "home"
-          column padding=20 gap=4 height=220 box-sizing="border-box" justify-content="flex-end" testId="aurora"
+          // A fixed band of sky on a TV, where the left column has room; on a
+          // phone it fits its text, so the departures stay on screen.
+          column padding=20 gap=4 height=(tv ? 220 : "auto") box-sizing="border-box" justify-content="flex-end" testId="aurora"
             when material == "glass"
               text "Next stop" font-size="0.75em" font-weight=700 letter-spacing=1.2 color=(sky ? "#9ad8ff" : "#2a6f9e")
               text station.name font-size="2.125em" font-weight=800 color=(sky ? "#ffffff" : "#111111") testId="aurora-title"
