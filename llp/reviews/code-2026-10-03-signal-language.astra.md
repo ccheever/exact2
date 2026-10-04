@@ -39,3 +39,41 @@
 10. **Should-fix — The badge matcher accepts unrelated tab content.** [NavigationTabsIOS.swift:53](/tmp/rv-lang1/host/apple/Sources/ExactKit/IOS/NavigationTabsIOS.swift:53) counts only paragraph children, ignoring other children and the paragraph’s visibility. A filled wrapper containing an icon plus “Chats” becomes a `"Chats"` badge; a hidden text can also supply a visible badge. Require the admitted box shape with a sole visible text child. Add negative fixtures, plus badge removal and hook-set badge preservation tests; the current test covers only appearance of `"1"`.
 
 Verdict: DO NOT LAND
+
+## Round 2, 2026-10-03
+
+- **Method:** `codex exec` as round 1, `-C` a detached worktree at `f8377f0ab`; brief sha256 `45a19361e3e8fcfc19b3715279ca1f93514660cec08186f4fd511f171c52ec90` (the fixes `63e2bd8c7..f8377f0ab` against round 1's findings and dispositions). Blind to grok's round 2.
+- **Verdict:** LAND WITH FIXES.
+- **Disposition:** all five fixed in `6d251386f`:
+  1. *Renaming rewrites calls.* Fixed. The renaming apart substitutes values only (`Subst::values`, call heads untouched), as a view's loop variables already are. Test: `renaming_apart_leaves_a_function_call_of_the_same_spelling_alone`, where a parameter `length` and a local `toString` sit beside a `toString(length)` call.
+  2. *A release runs a removed node's callback.* Fixed. The web host fires only for a view that is still its id's and is not retired. The JS target fires only for a connected element.
+  3. *A disabled div claims the pointer.* Fixed. Both web paths treat the node's own `disabled` attribute as disabling and return before claiming, so the event bubbles to the enabled parent. Test: a disabled `div` inside an enabled pointer parent, in `pointer.test.mjs`.
+  4. *Flattened children defeat the badge.* Fixed. A box holding a flat leaf (`FlatLeaves.holdsLeaves`) is not a badge. The fixture's Home pill is now a text beside a dot that flattens.
+  5. *Transparent badges.* Fixed. A box or text with opacity 0 does not badge. The fixture adds a transparent count box on Home, and the test asserts no badge there.
+
+---
+
+1. **Must-fix — Renaming locals also renames unrelated function calls.** [tail.rs:127](/tmp/rv-lang2/contract/syntax/src/inline/tail.rs:127) uses substitution that rewrites call names. A valid child action containing `let toString = 0`, then `result = toString(42)`, then `done()` becomes a call to `toString@b…` and fails with `type-unknown-function`. Parameter and match-binding renaming have the same problem. **Fix:** rename references to value bindings while preserving independently resolved function names; add regressions for all three binders.
+
+2. **Must-fix — Document releases execute callbacks belonging to removed nodes.** [pointer.js:16](/tmp/rv-lang2/host/web-js/pointer.js:16) invokes the stored callback without checking its lifetime. If `pointerdown` removes a conditional button, its later release still runs `pointerup` on the JS target—for example, submitting a recording after navigation removed its control. [input-glue.js:125](/tmp/rv-lang2/host/web/input-glue.js:125) likewise bypasses the former retirement guard and dispatches a stale view ID. **Fix:** clear ownership/listeners on retirement and suppress callbacks for retired owners, including nodes retained for exit animations. The revised removal policy is reasonable, but these paths contradict it.
+
+3. **Should-fix — Disabled non-control containers still claim web pointers.** [pointer.js:20](/tmp/rv-lang2/host/web-js/pointer.js:20) and [input-glue.js:130](/tmp/rv-lang2/host/web/input-glue.js:130) only check `:disabled`. A nested `column disabled=true pointerdown=…` becomes a div, which never matches that selector; it fires and claims the event while UIKit/macOS skip it and select the ancestor. This leaves Grok’s non-form-disabled case unresolved. **Fix:** make the authored disabled-container behavior consistent across hosts and test that nested case.
+
+4. **Should-fix — Flattened children defeat the strict badge matcher.** [NavigationTabsIOS.swift:66](/tmp/rv-lang2/host/apple/Sources/ExactKit/IOS/NavigationTabsIOS.swift:66) counts only `NodeView` subviews. A filled pill containing text “Chats” plus a plain colored dot has two authored children, but [FlatLeavesIOS.swift:65](/tmp/rv-lang2/host/apple/Sources/ExactKit/IOS/FlatLeavesIOS.swift:65) can render the dot as a layer. The matcher then sees one child and incorrectly creates a “Chats” badge. **Fix:** count logical children, including flattened leaves; add this negative fixture.
+
+5. **Should-fix — Transparent content still produces visible badges.** [NavigationTabsIOS.swift:64](/tmp/rv-lang2/host/apple/Sources/ExactKit/IOS/NavigationTabsIOS.swift:64) checks `isHidden`, `display`, and background alpha, but neither the box’s nor the text’s opacity. A count box hidden with `opacity=0` still supplies a visible native badge. **Fix:** exclude fully transparent boxes/text and test changing opacity to zero.
+
+Astra round-1 #1: resolved.  
+Astra round-1 #2: resolved.  
+Astra round-1 #3: resolved.  
+Astra round-1 #4: not resolved completely: disabled-container ownership still differs (#3 above).  
+Astra round-1 #5: resolved.  
+Astra round-1 #6: resolved.  
+Astra round-1 #7: resolved by the documented disposition; the new retirement regression is #2 above.  
+Astra round-1 #8: resolved.  
+Astra round-1 #9: resolved; `bun scripts/caps.mjs` passes.  
+Astra round-1 #10: not resolved completely: flattened children and transparent content still produce false badges.
+
+Source review only apart from the permitted cap check; runtime tests were not run. No files modified.
+
+Verdict: LAND WITH FIXES

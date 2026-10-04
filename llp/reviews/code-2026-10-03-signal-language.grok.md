@@ -45,3 +45,34 @@ I'll review the three commits from `d4789cc70` to `HEAD` without changing anythi
 
 Verdict: LAND WITH FIXES
 
+
+## Round 2, 2026-10-03
+
+- **Method:** grok as round 1, `--cwd` a detached worktree at `f8377f0ab`; the shared round-2 brief (sha256 `45a19361e3e8fcfc19b3715279ca1f93514660cec08186f4fd511f171c52ec90`). Blind to astra's round 2. The first four sentences are progress narration.
+- **Verdict:** LAND WITH FIXES.
+- **Disposition:** both fixed in `6d251386f`:
+  1. *A disabled div claims the pointer.* Fixed: the own `disabled` attribute disables the node before the claim on both web paths (astra round 2 #3, tested).
+  2. *A release the document never hears.* Fixed. The end also comes from `pointerout` on the document with no related target or an iframe as it (the pointer leaving the document), and from `window` `blur`. Capture stays off.
+
+---
+
+I'll review the round-2 fixes only: first the round-1 findings and dispositions, then the diff from `63e2bd8c7` to `HEAD`, and only report failures I can tie to a concrete scenario.Round-1 notes and the fix commits are in place. Next I’ll read both reviews and the diffs that claim to resolve them.The dispositions claim every round-1 finding is fixed or argued. I’ll check the actual code against each one, then look for bugs the fixes add.The round-2 review is already diagnosed. I'll confirm the two new failure sites against the current sources, then write the verdict.1. **Must-fix — a disabled column, box, or view claims the pointer on web and the JS target, so the enabled ancestor never hears it.** LLP 1005 (`llp/1005-plan-and-runner-v1.spec.md:487-488`) gives the pointer to the innermost enabled node; a disabled node passes it to an enabled ancestor. The host writes `disabled` as a boolean attribute whose value is `""` (`host/web/glue.js:455-456`, `host/web-js/rt.js:576`). A column, box, or view is a `div` (`host/web/src/element.rs:360`). `matches(":disabled")` is true only for form controls, so that `div` fails the check at `host/web/input-glue.js:130` and `host/web-js/pointer.js:20`, then sets `exactPointerOwner` / `$pointerOwner` (`input-glue.js:131`, `pointer.js:21`). Every ancestor sees the claim and returns, and the disabled `div` still runs its own `pointerdown`. iOS skips any disabled node (`host/apple/Sources/ExactKit/IOS/PointerIOS.swift:18` and `:27`) and macOS continues the walk (`host/apple/Sources/ExactKit/Mac/MouseChainMac.swift:122`), so the ancestor gets down and up. The claim is what makes this exclusive: before it, the web handler returned and the event kept bubbling. The Chrome test disables a `<button>` (`host/web/tests/pointer.test.mjs:22`, `:82-86`), which does match `:disabled`. Nothing sets `pointer-events: none` on `[disabled]`. **Fix:** on both pointer paths, treat this node's own `disabled` attribute as disabling it (`hasAttribute("disabled")`) and return before setting the claim, so the event still bubbles. Check this node only. An enabled pointer node inside a disabled ancestor still takes the pointer, as the macOS walk does. Add a Chrome case: a `div` with the `disabled` attribute and pointer handlers inside an enabled pointer parent; the parent gets down and up, and the `div` gets neither.
+
+2. **Should-fix — a release this document never hears leaves `held` set, so that node ignores every later primary down and never runs `pointerup`.** Capture was dropped so a far lift would not retarget `click` (`host/web/input-glue.js:114-116`). The only end listeners are `pointerup` and `pointercancel` on `document` (`input-glue.js:121-125`, `host/web-js/pointer.js:11-16`). A primary release outside the browser window, or over a cross-origin iframe (a web view is an `iframe`), is not delivered to this document. `held` stays the pointer id (`input-glue.js:132`, `pointer.js:22`). The next primary `pointerdown` hits `held !== null` and returns (`input-glue.js:130`, `pointer.js:20`). Hold-to-record (LLP 1005, `llp/1005-plan-and-runner-v1.spec.md:476-482`) never hears the end, and the control stays dead. The Chrome test releases at `[500, 800]`, inside the 600×900 window (`pointer.test.mjs:50`, `:73-77`). **Fix:** when the held pointer leaves this document — `pointerout` / `pointerleave` on `document` with `relatedTarget == null`, and `window` `blur` — run the same up path: clear `held`, remove the listeners, and fire `pointerup` when the node wants it. Leave capture off; it retargets the click the document listener exists to avoid.
+
+Round 1:
+
+1. resolved — caller parameters are renamed to `@c` before `apart` and `block` (`contract/syntax/src/inline/tail.rs:79-105`).
+2. resolved — `call` substitutes the callee's own parameters, then `apart`, then resolves nested tails.
+3. resolved — the capture refusal is gone; `apart` renames the callee's binders.
+4. resolved — the innermost enabled node claims on web and the JS target, `nearer` does it on iOS, and macOS already walked to one node.
+5. resolved — the macOS walk continues past a disabled candidate (`MouseChainMac.swift:122`). The web and JS non-form hole is finding 1 above.
+6. resolved as argued — the hosts forget the hold (document listener, iOS `reset`, macOS `release` and `reset`); LLP 1005 (`llp/1005-plan-and-runner-v1.spec.md:479-482`) says a node removed while down does not get the up.
+7. resolved — both paths require `isPrimary`, and the JS target now uses `:disabled` and `[inert]`. The shared miss on a non-form `disabled` attribute is finding 1.
+8. resolved — `recyclable` admits a view whose only recognizers are idle `PointerRecognizer`s.
+9. resolved — the badge scan is the strict one, a hook badge is left alone, and the removal tap runs while that tab is still selected.
+10. resolved — `bun scripts/caps.mjs` reports all budgets within cap; the cap commit only folds comments.
+11. resolved — §9.9 describes `TabFace`'s own scan.
+
+Verdict: LAND WITH FIXES
+
