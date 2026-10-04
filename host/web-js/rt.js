@@ -365,7 +365,7 @@ function reply(t, name, source, held, f, next, gone) {
 }
 const revalidated = (name, same) => `${name} answered: ${same ? "equal to its build-time answer" : "replaces its build-time answer"}`; // runner lines.rs
 /** A resource: its value, the arguments it settled with, one ticket in flight. A bake's answer is a first frame: `baked` asks at launch, as a native runner at `data_ready` (LLP 1048.003 D6; feed F24); a document's `kept` was asked for its page. */
-export function res(name, source, args, initial, initialArgs, type, ph, carried = false) { // `carried`: a dev reload's settled answer (checkpoint.js), not a bake's
+export function res(name, source, args, initial, initialArgs, type, ph, carried = false) { // `carried`: settled, not a bake to ask again — a dev reload's (checkpoint.js), an `else` row's (emit.rs)
   const ver = sig(0), pend = sig(false), fail = sig(null);
   const kept = checkpoint().kept?.get(name);
   if (kept) [initialArgs, initial] = kept;
