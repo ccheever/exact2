@@ -236,9 +236,10 @@ if (bakeOnly ? !!moduleInput : typeof exports.exact_module_artifact === 'functio
   copyHostFiles('module');
   // Remove the module-glue → storage → fs/sqlite request chain's middle
   // step. Keep the stateful adapters as shared modules: Rust requests also
-  // import them, and must share the same filesystem mutation queues.
+  // import them, and must share the same filesystem mutation queues, and
+  // the pickers' handles live in the page's one documents-glue.js.
   const bundle = await rolldown({ input: resolve(root, 'host/web/module-glue.js'), platform: 'browser',
-    external: ['./storage-fs.js', './storage-sqlite.js'], plugins: [{ name: 'agent-gate', transform: (code, id) => ({ code: gateAgent(code, id) }) }] });
+    external: ['./storage-fs.js', './storage-sqlite.js', './documents-glue.js'], plugins: [{ name: 'agent-gate', transform: (code, id) => ({ code: gateAgent(code, id) }) }] });
   try { await bundle.write({ file: resolve(stage, 'module-glue.js'), format: 'es', minify: true }); }
   finally { await bundle.close(); }
 }
