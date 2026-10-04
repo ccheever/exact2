@@ -1245,3 +1245,14 @@ and saves also match `inline-macos` before the integration. Both descendant
 audits pass with no recorded children left, and both Mayhem five-second
 captures were inspected. Artifacts: `artifacts/modules-{web,macos}/`.
 No gameplay or Jev-policy changes.
+
+## Physics capture and platform-color integration (2026-10-04)
+
+Forest diary 005 records the measured collider-verification cache change
+(`ce65b166a`), merge `0299f571d` through main `f708c99cf`, and passing root
+checks with their 181.5 s budget miss. Rivals passes complete web/macOS
+proofs in 127.5/76.6 s, including builds. Both hosts agree on source inputs,
+all pins, ten world observations and fourteen saves; worlds and saves also
+match `modules-web` before the change. Both descendant audits pass with no
+recorded children left, and both Mayhem five-second captures were inspected.
+Artifacts: `artifacts/holes-{web,macos}/`. No gameplay or Jev-policy changes.

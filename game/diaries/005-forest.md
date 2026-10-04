@@ -1036,3 +1036,22 @@ movement, despawn and both entity and Rapier collider-slot reuse, including
 collider removal/reinsertion and sensor changes. The full physics suite,
 Clippy and formatting pass before main integration; host verification and
 the integration results follow below.
+
+Feature commit `ce65b166a` is followed by periodic merge `0299f571d`,
+bringing main through `f708c99cf` (platform colors and Contract module
+review fixes). All 47 enabled physics tests pass, with three ignored scale
+measurements; the extended Rapier slot-generation assertions also pass.
+All five root checks pass in 181.454 s: build 33.832, tests 122.256
+(2,374 passed in 81 binaries, nine ignored), Clippy 23.179, formatting
+2.086, caps 0.086 and boot 0.015 s. The test binaries report only 38.9 s
+of execution in total. This is another 60 s budget miss, recorded in QUEUE;
+no game proofs run concurrently with the gate. Logs:
+`/tmp/exact2-holes-main-*.log` and `/tmp/exact2-physics-holes-*.log`.
+
+Forest's complete web/macOS proofs pass in 116.0/186.1 s including builds.
+Both hosts agree on source inputs, all pins, nine world observations and
+fifteen saves; worlds and saves also match `modules-web` before the change.
+Both descendant audits pass with no recorded children left, and both
+shelter captures were inspected. Artifacts: `artifacts/holes-{web,macos}/`.
+These proof wall times include builds and carrier work; the performance
+claim is the isolated alternating measurement above.
