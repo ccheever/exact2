@@ -284,7 +284,7 @@ export function webChanges(dist, app) {
   const marker = resolve(dist, '.exact-build.json');
   if (!existsSync(marker)) return { app: [], shared: [], all: [] };
   const since = statSync(marker).mtimeMs, js = JSON.parse(readFileSync(marker, 'utf8')).target === 'js';
-  const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }] : ['host/web', 'runner', 'kernel', 'plan', 'motion', 'num', 'contract'];
+  const roots = js ? ['host/web-js', 'contract', 'plan', 'kernel/tables', { shallow: 'host/web' }] : ['host/web', 'runner', 'kernel', 'svg-filter', 'plan', 'motion', 'num', 'contract'];
   const ignored = notBuildInput(app.dir, shaderWatchRoots(app));
   const notInput = path => Boolean(app.manifest?.game) && gameNonInput(relative(app.dir, path));
   const appChanges = newerThan(since, [app.dir], path => /\/(apple|ios|macos|linux)$/.test(path) && path.startsWith(app.dir + '/') || ignored(path) || notInput(path));

@@ -52,6 +52,10 @@ and this one does not. Read them first.
 - `num/` — `exact-num`, number text as std reads it without std's tables
   (a correctly rounded decimal-to-float parse); a leaf under motion, text flow,
   the kernel, the runner and the web host. LLP 1047 §6.
+- `svg-filter/` — `exact-svg-filter`, a resolved SVG filter as a chain of
+  primitives and its flat wire form (LLP 1055.000 D14); a leaf under the kernel,
+  which re-exports it as `svg::filter`, and under `exact-svg-raster`, which
+  therefore does not compile the kernel (LLP 1036.000 §12).
 - `plan/` — `exact-plan`, the plan format: tables, bytecode, and the validating
   decoder, generated from `plan/tables/format.json`. Depends on nothing. LLP 1005.
 - `runner/` — `exact-runner`, the plan runner: the VM, keyed instances, kernel
