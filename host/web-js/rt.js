@@ -1495,5 +1495,5 @@ export function router(slot, history) {
     history.apply({ top: top[0], url: top[2], removed });
   });
 }
-export const navigateTo = f => { Navigate = f; };
+export const navigateTo = f => { Navigate = f; }, navigateRoot = location => Navigate ? (Navigate(location), true) : false; // the agent's `type <root> <location>` (LLP 1038 D11)
 export const routeAt = location => matchRoute(canonical(location))?.[0] ?? -1;

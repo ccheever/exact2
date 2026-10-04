@@ -3,7 +3,7 @@
 // `scripts/agent.mjs web` asks. Input and screenshots stay the carrier's own
 // (CDP). Loaded only under `?agent`; never part of an app's boot bytes.
 import names, { types } from './names.js';
-import { R, eq, pieces, pageHistory, Head } from './rt.js';
+import { R, eq, pieces, pageHistory, Head, navigateRoot } from './rt.js';
 import * as perf from './perf.js';
 import { environment, navigation, guestOutline, guestTap, guestType, viewBox, foldEnv, preferFold, typedControl, typeControl, reveal } from './navigation.js';
 // A runtime value as the runner's typed JSON: records by field name.
@@ -249,7 +249,8 @@ export function install(exact) {
           return el instanceof HTMLIFrameElement ? guestTap(el, req) : {};
         }
       // A control's value is set, not typed (LLP 1069.001 D9; navigation.js), as the web host's glue.js sets it.
-      case 'type': { const el = views.get(req.id); return typedControl(el) && req.key == null ? typeControl(el, req) : el instanceof HTMLIFrameElement ? guestType(el, req) : {}; }
+      // A location typed into the navigation root is its `navigate` (LLP 1038 D11), as glue.js delivers it.
+      case 'type': { const el = views.get(req.id); if (el?.hasAttribute('navigationBack') && req.key == null) return navigateRoot(req.text ?? '') ? { typed: req.id, delivery: 'recognized', handled: true } : { handled: true, error: 'the navigation root has no `navigate` handler' }; return typedControl(el) && req.key == null ? typeControl(el, req) : el instanceof HTMLIFrameElement ? guestType(el, req) : {}; }
       case 'reveal': return { ...reveal(views.get(req.id), req.id), ...tags() }; // before a tap or a type
       case 'logs': { const j = exact.journal, from = Math.max(req.since ?? 0, j.start); return { lines: j.slice(from - j.start), from, next: j.start + j.length }; }
       // `perf <target>` (LLP 1079 D2): the plan sites under a view, with their work (perf.js).

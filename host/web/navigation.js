@@ -213,7 +213,9 @@ export const navigation = {
         for (const [index, route] of routes.entries()) {
           const active = index === selected;
           if (!active && route.contains(document.activeElement)) document.activeElement.blur();
-          route.style.visibility = active || (modal && index === selected - 1) ? "" : "hidden";
+          const covered = modal && index === selected - 1;
+          route.style.visibility = active || covered ? "" : "hidden";
+          route.toggleAttribute("data-exact-covered", covered);
           route.inert = !active || !!route.authoredInert;
         }
       }
