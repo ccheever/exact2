@@ -1492,8 +1492,7 @@ export function router(slot, history) {
     const r = slot(); if (!r || !r[1].length) return;
     const top = x_top(r), ids = new Set(r[1].flatMap(t => t[1].map(e => e[0])));
     const removed = Shown ? Shown[1].flatMap(t => t[1].map(e => e[0])).filter(id => !ids.has(id)) : [];
-    Shown = r;
-    history.apply({ top: top[0], url: top[2], removed });
+    Shown = r; history.apply({ top: top[0], url: top[2], removed });
   });
 }
 export const navigateTo = f => { Navigate = f; };

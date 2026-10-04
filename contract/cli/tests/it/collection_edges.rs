@@ -750,11 +750,18 @@ fn a_list_on_a_covered_route_waits_for_it_to_show() {
     measure(&mut r, 0., 32.);
     send(&mut r, 0.);
     assert_eq!(hits(&r), (0., 0.), "a covered list asks for nothing");
-    let waits = |r: &Runner<Rows>| r.journal().filter(|l| l.contains("waits: its list is on a covered route")).count();
+    let waits = |r: &Runner<Rows>| {
+        r.journal()
+            .filter(|l| l.contains("waits: its list is on a covered route"))
+            .count()
+    };
     assert_eq!(waits(&r), 1, "journaled once while it waits");
     let revision = r.collections()[0].revision;
     r.act("back", vec![]).unwrap();
-    assert!(r.collections()[0].revision > revision, "its host is asked for a report");
+    assert!(
+        r.collections()[0].revision > revision,
+        "its host is asked for a report"
+    );
     measure(&mut r, 0., 32.);
     send(&mut r, 0.);
     assert_eq!(hits(&r), (1., 1.), "shown, the list is offered both edges");
@@ -774,7 +781,10 @@ fn a_first_page_before_a_lone_trailing_row_shows_from_the_start() {
     let mut r = boot(&source);
     measure(&mut r, 0., 32.);
     r.act("grow", vec![]).unwrap();
-    let offset = r.collections()[0].correction.as_ref().map_or(0., |c| c.offset);
+    let offset = r.collections()[0]
+        .correction
+        .as_ref()
+        .map_or(0., |c| c.offset);
     assert_eq!(offset, 0., "no correction off the start");
     assert_eq!(r.collections()[0].rows[0].index, 0, "the first row shows");
 }
