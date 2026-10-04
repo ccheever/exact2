@@ -680,13 +680,40 @@ extension Agent {
         }
     }
 
+    /// A key typed at a world's canvas, or a node in one, takes the keyboard's route first, as
+    /// any other key the agent types here does: the shortcuts, then the
+    /// canvas's `key` handlers and its ancestors'. One that takes it ends it
+    /// there, as on the web and macOS (the platformer's diary, R8). Nil: the
+    /// world has it (`canvasType`).
+    func canvasRouted(_ v: NodeView, _ req: [String: Any]) -> [String: Any]? {
+        let phase = req["phase"] as? String
+        guard phase == nil || phase == "down", let key = req["key"] as? String, let device = KeyCodes.device(key),
+              !KeyCodes.modifier(device.code), v.inputCanvas != nil else { return nil }
+        if !v.isFirstResponder { _ = v.becomeFirstResponder() }
+        var reply: [String: Any] = ["typed": Int(v.id), "key": key, "delivery": "recognized"]
+        if let phase { reply["phase"] = phase }
+        // The down was taken; its up belongs to no world.
+        let taken = { [self] () -> [String: Any] in
+            if phase == "down", let token = req["releaseKey"] as? String { keyReleases[token] = { ["phase": "up", "delivery": "recognized"] } }
+            return reply
+        }
+        #if os(iOS)
+        if let node = presenter.shortcut(key: device.key, held: "", focus: v) {
+            presenter.press(node.id)
+            reply["shortcut"] = Int(node.id)
+            return taken()
+        }
+        #endif
+        return presenter.keyDown(at: v.isFirstResponder ? v : nil, device.key) ? taken() : nil
+    }
+
     /// Set an input's text as typing does: the field focused, all selected,
     /// the text inserted — the field sends one change with the new value.
     func type(_ req: [String: Any]) -> [String: Any] {
         guard let v = view(req), v.window != nil else { return ["error": "no view \(req["id"] ?? "?") on screen"] }
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
         if let edit = req["clipboard"] as? String { return clipboardType(v, edit, req["text"] as? String) }
-        if session.canvases.wantsInput(v.id) { return canvasType(v, req) }
+        if session.canvases.wantsInput(v.id) { return canvasRouted(v, req) ?? canvasType(v, req) }
         if v.isSurfaceControl, let key = req["key"] as? String, let code = KeyCodes.device(key)?.code, ["Space", "Enter", "NumpadEnter"].contains(code) {
             let phase = req["phase"] as? String
             guard phase == nil || phase == "down" || phase == "up" else { return ["error":"key: not a phase: \(phase!)"] }
@@ -713,6 +740,7 @@ extension Agent {
         if let key = req["key"] as? String, let device = KeyCodes.device(key), let canvas = v.inputCanvas,
            v.forwardsCanvasKey(device.code) {
             guard v.becomeFirstResponder() else { return ["error": "view takes no focus"] }
+            if let routed = canvasRouted(v, req) { return routed }
             let phase = req["phase"] as? String
             guard phase == nil || phase == "down" || phase == "up" else { return ["error":"key: not a phase: \(phase!)"] }
             for step in phase.map({ [$0] }) ?? ["down", "up"] {

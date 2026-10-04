@@ -641,6 +641,58 @@ extension Agent {
         return reply
     }
 
+    /// The keydown and keyup AppKit would deliver for the keyboard's `key`
+    /// (a web key name; `device`, its code when it has one) at `win`.
+    func keyEvents(_ key: String, device: (code: String, key: String)?, modifiers: NSEvent.ModifierFlags, lone: Bool, in win: NSWindow) -> (NSEvent, NSEvent)? {
+        let (chars, code): (String, UInt16) = {
+            switch key {
+            case "Plus": return ("+", 24)
+            case "Space": return (" ", 49)
+            case "c": return (key, 8)
+            case "o": return (key, 31)
+            case "Enter": return ("\r", 36)
+            case "Escape": return ("\u{1b}", 53)
+            case "Tab": return ("\t", 48)
+            case "Backspace": return ("\u{7f}", 51)
+            case "ArrowUp": return ("\u{F700}", 126)
+            case "ArrowDown": return ("\u{F701}", 125)
+            case "ArrowLeft": return ("\u{F702}", 123)
+            case "ArrowRight": return ("\u{F703}", 124)
+            default:
+                let code = device.flatMap { device in KeyCodes.mac.first(where: { $0.value == device.code })?.key }
+                return (lone ? "" : key, UInt16(code ?? 0))
+            }
+        }()
+        let t = ProcessInfo.processInfo.systemUptime
+        // Both character fields preserve Shift. AppKit interprets a
+        // Shift-Tab as BackTab (U+0019), not a forward Tab with flags.
+        let characters = code == 48 && modifiers.contains(.shift) ? "\u{19}" : chars
+        guard let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code),
+              let up = NSEvent.keyEvent(with: .keyUp, location: .zero, modifierFlags: modifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)
+        else { return nil }
+        return (down, up)
+    }
+
+    /// A key typed at a world's canvas takes the keyboard's route
+    /// (`Presenter.routeKey`, as the session's monitor gives a real key):
+    /// the shortcuts, then the canvas's `key` handlers and its ancestors'.
+    /// One that takes it ends it there, as on the web, where a shortcut stops
+    /// the key and the handlers hear what the world does not bind (the
+    /// platformer's diary, R8). Nil: the world has it (`canvasType`).
+    func canvasRouted(_ v: NodeView, _ req: [String: Any], in win: NSWindow) -> [String: Any]? {
+        let phase = req["phase"] as? String
+        guard phase == nil || phase == "down", let key = req["key"] as? String, let device = KeyCodes.device(key),
+              !KeyCodes.modifier(device.code), session.canvases.live(v.id)?.view === v, v.focusCanvas(),
+              let (down, _) = keyEvents(device.key, device: device, modifiers: [], lone: false, in: win) else { return nil }
+        presenter.flushKeyViewLoop()
+        guard presenter.routeKey(down, focused: true, in: win) else { return nil }
+        // The down was taken; its up belongs to no world.
+        if phase == "down", let token = req["releaseKey"] as? String { keyReleases[token] = { ["phase": "up", "delivery": "recognized"] } }
+        var reply: [String: Any] = ["typed": Int(v.id), "key": key, "delivery": "recognized"]
+        if let phase { reply["phase"] = phase }
+        return reply
+    }
+
     /// Set an input's text as typing does: the field editor, all selected,
     /// the text inserted — the delegate hears one change with the new value.
     func type(_ req: [String: Any]) -> [String: Any] {
@@ -649,7 +701,7 @@ extension Agent {
         guard !v.disabled else { return ["error": "view \(v.id) is disabled"] }
         if let edit = req["clipboard"] as? String { return clipboardType(v, edit, req["text"] as? String) }
         if v.kind == "native", req["key"] == nil { return nativeType(v, req) }
-        if session.canvases.wantsInput(v.id) { return canvasType(v, req) }
+        if session.canvases.wantsInput(v.id) { return canvasRouted(v, req, in: win) ?? canvasType(v, req) }
         if req["key"] == nil, let reply = presenter.controls.type(v, req["text"] as? String ?? "") { return reply }
         if v.props["editable"] == "false", req["key"] == nil { return ["error": "view \(v.id) is readonly"] }
         // @ref LLP 1038 D11 — type on the root delivers a location.
@@ -721,32 +773,7 @@ extension Agent {
             // A target that takes no focus leaves it where it is, as the web's
             // `focus()` on one does: the key goes to whatever holds the focus,
             // or to the page's shortcuts when nothing does (pomodoro F5).
-            let (chars, code): (String, UInt16) = {
-                switch key {
-                case "Plus": return ("+", 24)
-                case "Space": return (" ", 49)
-                case "c": return (key, 8)
-                case "o": return (key, 31)
-                case "Enter": return ("\r", 36)
-                case "Escape": return ("\u{1b}", 53)
-                case "Tab": return ("\t", 48)
-                case "Backspace": return ("\u{7f}", 51)
-                case "ArrowUp": return ("\u{F700}", 126)
-                case "ArrowDown": return ("\u{F701}", 125)
-                case "ArrowLeft": return ("\u{F702}", 123)
-                case "ArrowRight": return ("\u{F703}", 124)
-                default:
-                    let code = device.flatMap { device in KeyCodes.mac.first(where: { $0.value == device.code })?.key }
-                    return (lone ? "" : key, UInt16(code ?? 0))
-                }
-            }()
-            let t = ProcessInfo.processInfo.systemUptime
-            // Both character fields preserve Shift. AppKit interprets a
-            // Shift-Tab as BackTab (U+0019), not a forward Tab with flags.
-            let characters = code == 48 && modifiers.contains(.shift) ? "\u{19}" : chars
-            guard let down = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code),
-                  let up = NSEvent.keyEvent(with: .keyUp, location: .zero, modifierFlags: modifiers, timestamp: t, windowNumber: win.windowNumber, context: nil, characters: characters, charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)
-            else { return ["error": "no key event"] }
+            guard let (down, up) = keyEvents(key, device: device, modifiers: modifiers, lone: lone, in: win) else { return ["error": "no key event"] }
             // This driver sends directly to NSWindow, bypassing NSApplication's
             // local monitor. Use the same session command router first.
             presenter.flushKeyViewLoop()
