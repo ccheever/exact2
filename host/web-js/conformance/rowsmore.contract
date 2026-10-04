@@ -21,7 +21,7 @@ component RowsMore
       button press=flip testId="flip"
         text on ? "on" : "off"
       view testId="shadow" width=120 height=40 background-color="#ffffff" box-shadow=(on ? "0 8px 16px #1d4ed880" : "2px 2px 0 #000000")
-      text "Mixed families" testId="family" font-family=(on ? "serif" : "monospace") font-size=18
+      text "Mixed families" testId="family" font-family=(on ? "Missing, serif, sans-serif" : "Missing, monospace") font-size=18
       text "One two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty" testId="clamped" width=200 line-clamp=(on ? 1 : 3)
       text "0123456789" testId="digits" font-variant-numeric=(on ? "tabular-nums" : "normal") font-size=18
       button press=flip testId="squeeze" press-scale=(on ? 0.7 : 0.9) width=160 height=48 background-color="#0ea5e9" border-width=0

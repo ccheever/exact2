@@ -12,9 +12,7 @@
 //! with a stable id — there is no fallback attribute, and an old spelling
 //! (`size`, `fontSize`, `radius`, `label`) is refused with the CSS name it
 //! became.
-
 use exact_kernel::{NodeType, PropId, StyleId};
-
 /// What an attribute lowers to.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttrTarget {
@@ -26,12 +24,13 @@ pub enum AttrTarget {
     InvertedBoolProp(PropId),
     /// A handler for the named event.
     Handler(&'static str),
-    /// CSS `flex: <n>` — grow, shrink, and basis together.
+    /// CSS `flex` shorthand — grow, shrink, and basis together.
     Flex,
+    /// CSS border and text-decoration shorthands.
+    Shorthand,
     /// A canvas's surface binding: `surface=name(args)` (LLP 1009 D3).
     Surface,
 }
-
 /// The rows that make a box the containing block of its absolutely
 /// positioned descendants on some host, whatever its `position` (LLP 1074
 /// T1): a box with one is lowered `position: relative` unless it names a
@@ -64,7 +63,6 @@ pub const CONTAINS_ABSOLUTE: [StyleId; 16] = [
     // CSS: `perspective` makes a containing block too (LLP 1077 D8).
     StyleId::Perspective,
 ];
-
 /// Whether an attribute makes its box a containing block (see
 /// [`CONTAINS_ABSOLUTE`]): one of those rows, a material (a backdrop filter),
 /// a navigation screen or modal (which the host moves), or a context
@@ -82,7 +80,6 @@ pub fn contains_absolute(name: &str, value: &contract_syntax::Expr) -> bool {
         ),
     }
 }
-
 /// A Contract button has one cross-host inner layout: the flex column fixed
 /// by [`tag`]. Chrome gives a block/inline `<button>` an anonymous box that
 /// centres its contents, which the kernel cannot represent as that display.
@@ -106,7 +103,6 @@ pub(crate) fn validate_button_display(
     }
     Ok(())
 }
-
 /// An element's attributes with `position: relative` added, when it is the
 /// containing block of its absolutely positioned descendants on every host
 /// and names no position: it has a [`contains_absolute`] attribute, scrolls
@@ -187,7 +183,6 @@ pub(crate) fn positioned(
         }
     }
 }
-
 /// Whether every value a `position` expression can take is positioned: a
 /// `relative`, `absolute` or `sticky` literal, or a choice between such. A
 /// value from run time (a state, a field, a call) is not.
@@ -199,7 +194,6 @@ fn always_positioned(value: &contract_syntax::Expr) -> bool {
         _ => false,
     }
 }
-
 /// A tag's node type, its fixed rows, and how positional arguments land.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tag {
@@ -212,11 +206,9 @@ pub struct Tag {
     /// The prop the first positional argument fills, if any.
     pub positional: Option<PropId>,
 }
-
 fn p(name: &str) -> PropId {
     PropId::from_name(name).unwrap_or_else(|| panic!("kernel schema has no prop `{name}`"))
 }
-
 /// Look up a tag.
 pub fn tag(name: &str) -> Option<Tag> {
     let fe = |fixed_props: &'static [(PropId, &'static str)]| Tag {
@@ -492,7 +484,6 @@ pub fn tag(name: &str) -> Option<Tag> {
         _ => return None,
     })
 }
-
 /// What a prop attribute's value must be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PropTy {
@@ -505,7 +496,6 @@ pub enum PropTy {
     /// A finite number, including a fractional pixel.
     Float,
 }
-
 /// The type a prop attribute takes, by the kernel prop's name.
 pub fn prop_ty(prop: PropId) -> PropTy {
     match prop.kind() {
@@ -515,12 +505,13 @@ pub fn prop_ty(prop: PropId) -> PropTy {
         exact_kernel::PropKind::Str => PropTy::Str,
     }
 }
-
 /// Whether an attribute sets style rows.
 pub fn style(name: &str) -> bool {
-    matches!(attr(name), Some(AttrTarget::Styles(_)))
+    matches!(
+        attr(name),
+        Some(AttrTarget::Styles(_) | AttrTarget::Flex | AttrTarget::Shorthand)
+    )
 }
-
 /// Look up an attribute.
 pub fn attr(name: &str) -> Option<AttrTarget> {
     let styles = |rows: &'static [StyleId]| AttrTarget::Styles(rows);
@@ -554,6 +545,8 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "min" => AttrTarget::Prop(p("min")),
         "max" => AttrTarget::Prop(p("max")),
         "step" => AttrTarget::Prop(p("step")),
+        "rows" => AttrTarget::Prop(p("rows")),
+        "maxlength" => AttrTarget::Prop(p("maxlength")),
         "cancel" => AttrTarget::Handler("cancel"),
         "select" => AttrTarget::Handler("select"),
         "hover" => AttrTarget::Handler("hover"),
@@ -892,6 +885,10 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "text-overflow" => styles(&[StyleId::TextOverflow]),
         // @ref LLP 1053 §0 G4 — `normal` and `tabular-nums`; others refused by name.
         "font-variant-numeric" => styles(&[StyleId::FontVariantNumeric]),
+        "text-decoration" | "border" | "border-top" | "border-right" | "border-bottom"
+        | "border-left" => AttrTarget::Shorthand,
+        "resize" => styles(&[StyleId::Resize]),
+        "user-select" => styles(&[StyleId::UserSelect]),
         "text-decoration-line" => styles(&[StyleId::TextDecorationLine]),
         // @ref LLP 1064 D5
         "text-transform" => styles(&[StyleId::TextTransform]),
@@ -999,6 +996,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "min-height" => styles(&[StyleId::MinHeight]),
         "max-width" => styles(&[StyleId::MaxWidth]),
         "max-height" => styles(&[StyleId::MaxHeight]),
+        "cursor" => styles(&[StyleId::Cursor]),
         "flex" => AttrTarget::Flex,
         // @ref LLP 1053 G3 — the longhand: `flex-basis` stays `auto`, unlike `flex`.
         "flex-grow" => styles(&[StyleId::FlexGrow]),
@@ -1075,7 +1073,6 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         _ => return None,
     })
 }
-
 /// The name an old spelling became — the short nicknames and the DOM's
 /// camelCase that the table accepted before LLP 1017 §8.1 — so the refusal of
 /// `size=13` says `font-size`. Nothing here is accepted; it is only named.
@@ -1147,7 +1144,6 @@ pub fn renamed(old: &str) -> Option<&'static str> {
         _ => return None,
     })
 }
-
 // A list's row-size estimate is the virtualized list's host policy (LLP 1010
 // §6.5); the fixed-height windowed list it once also named is deleted (LLP
 // 1070 stage 1), so a hint without `virtualized=true` says how to migrate.
@@ -1224,7 +1220,6 @@ pub(crate) fn validate_list(
     }
     Ok(())
 }
-
 /// The attributes `head` takes, and only `head` (LLP 1048.003 D1).
 pub const HEAD_FIELDS: &[&str] = &[
     "title",
@@ -1234,17 +1229,15 @@ pub const HEAD_FIELDS: &[&str] = &[
     "robots",
     "status",
 ];
-
 /// Suggest one unambiguous single-edit spelling from the existing attribute
 /// lookup. No second vocabulary is maintained, and this never admits an alias.
 pub(crate) fn similar_attr(name: &str, style_only: bool) -> Option<String> {
     similar(name, |candidate| match attr(candidate) {
-        Some(AttrTarget::Styles(_) | AttrTarget::Flex) => true,
+        Some(AttrTarget::Styles(_) | AttrTarget::Flex | AttrTarget::Shorthand) => true,
         Some(_) => !style_only,
         None => false,
     })
 }
-
 /// The same for a tag, from the tag lookup.
 pub(crate) fn similar_tag(name: &str) -> Option<String> {
     similar(name, |candidate| tag(candidate).is_some())

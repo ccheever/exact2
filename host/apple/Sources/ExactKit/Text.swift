@@ -386,6 +386,8 @@ extension Spec {
 }
 
 private struct RegisteredFace {
+    let family: String
+    let generic: Int?
     let weight: Int
     let italic: Bool
     /// Created from the registered URL itself — never from the Contract alias
@@ -585,7 +587,22 @@ final class TextEngine {
         for row in rows {
             let stack = Int(row.stack)
             if let name = row.family, row.family_len > 0 {
-                familyStacks[String(decoding: UnsafeBufferPointer(start: name, count: row.family_len), as: UTF8.self)] = stack
+                let name = String(decoding: UnsafeBufferPointer(start: name, count: row.family_len), as: UTF8.self)
+                if familyStacks[name] == nil { familyStacks[name] = stack }
+            }
+            let name = row.family.map { String(decoding: UnsafeBufferPointer(start: $0, count: row.family_len), as: UTF8.self) } ?? ""
+            if row.source_len == 0 {
+                if stack < 8 { continue }
+                let generics = ["system-ui", "ui-sans-serif", "sans-serif", "ui-serif", "serif", "ui-monospace", "monospace", "ui-rounded"]
+                let generic = row.weight == 1 ? generics.firstIndex(of: name) : nil
+                let descriptor: CTFontDescriptor?
+                if let generic { descriptor = CTFontCopyFontDescriptor(font(size: 16, weight: 400, family: generic, italic: false) as CTFont) }
+                else {
+                    let request = CTFontDescriptorCreateWithAttributes([kCTFontFamilyNameAttribute: name] as CFDictionary)
+                    descriptor = CTFontDescriptorCreateMatchingFontDescriptor(request, NSSet(object: kCTFontFamilyNameAttribute) as CFSet)
+                }
+                if let descriptor { staged[stack, default: []].append(RegisteredFace(family: name, generic: generic, weight: 0, italic: false, descriptor: descriptor)) }
+                continue
             }
             guard let sourceBytes = row.source else { failed.insert(stack); continue }
             let source = String(decoding: UnsafeBufferPointer(start: sourceBytes, count: row.source_len), as: UTF8.self)
@@ -596,7 +613,7 @@ final class TextEngine {
             }
             if let url = fontURL(source) { pendingFonts.append(url) }
             staged[stack, default: []].append(RegisteredFace(
-                weight: Int(row.weight), italic: row.italic != 0, descriptor: descriptor))
+                family: name, generic: nil, weight: Int(row.weight), italic: row.italic != 0, descriptor: descriptor))
         }
         for stack in failed {
             staged.removeValue(forKey: stack)
@@ -620,8 +637,9 @@ final class TextEngine {
     }
 
     private static func matched(_ faces: [RegisteredFace], weight: Int, italic: Bool) -> RegisteredFace {
-        let styled = faces.filter { $0.italic == italic }
-        let candidates = styled.isEmpty ? faces : styled
+        let first = faces.filter { $0.family == faces[0].family }
+        let styled = first.filter { $0.italic == italic }
+        let candidates = styled.isEmpty ? first : styled
         func rank(_ face: RegisteredFace) -> (Int, Int) {
             let w = face.weight
             if weight >= 400 && weight <= 500 {
@@ -663,7 +681,19 @@ final class TextEngine {
         if let f = fonts[key] { return f }
         if let faces = catalog[family], !faces.isEmpty {
             let face = TextEngine.matched(faces, weight: weight, italic: italic)
-            let f = CTFontCreateWithFontDescriptor(face.descriptor, size, nil) as PlatformFont
+            func candidate(_ face: RegisteredFace) -> PlatformFont {
+                if let generic = face.generic { return font(size: size, weight: weight, family: generic, italic: italic) }
+                let descriptor = face.weight == 0 ? CTFontDescriptorCreateCopyWithAttributes(face.descriptor, [kCTFontTraitsAttribute: [kCTFontWeightTrait: Double(weight - 400) / 500, kCTFontSlantTrait: italic ? 0.2 : 0.0]] as CFDictionary) : face.descriptor
+                return CTFontCreateWithFontDescriptor(descriptor, size, nil) as PlatformFont
+            }
+            let base = candidate(face)
+            var seen = Set<String>(), cascade: [CTFontDescriptor] = []
+            for member in faces where seen.insert(member.family).inserted {
+                let group = faces.filter { $0.family == member.family }
+                cascade.append(CTFontCopyFontDescriptor(candidate(TextEngine.matched(group, weight: weight, italic: italic)) as CTFont))
+            }
+            let descriptor = CTFontDescriptorCreateWithAttributes([kCTFontCascadeListAttribute: cascade] as CFDictionary)
+            let f = CTFontCreateCopyWithAttributes(base as CTFont, size, nil, descriptor) as PlatformFont
             fonts[key] = f
             return f
         }

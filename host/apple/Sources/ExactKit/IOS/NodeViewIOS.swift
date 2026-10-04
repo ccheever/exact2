@@ -350,7 +350,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             if EmojiSelection.accepts(string) { presenter?.typed(id, string, input: handlers.contains("input")) }
             return false
         }
-        return true
+        return TextInputLimit.allows(textField.text ?? "", range: range, replacement: string, props: props)
     }
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
@@ -1151,7 +1151,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// scroll container that scrolls that axis; `hidden` clips.
     func syncScroll() {
         let ox = style["overflow_x"]?.string ?? "visible", oy = style["overflow_y"]?.string ?? "visible"
-        let scrolls = ox == "scroll" || oy == "scroll"
+        let scrolls = (ox == "scroll" || ox == "auto") || (oy == "scroll" || oy == "auto")
         if scrolls { syncClipBox(false) }
         if scrolls && scroll == nil && !scrollWaits {
             let sv = ScrollView(frame: bounds)
@@ -1175,8 +1175,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             }
             scroll = nil
         }
-        scroll?.scrollsX = ox == "scroll"
-        scroll?.scrollsY = oy == "scroll"
+        scroll?.scrollsX = (ox == "scroll" || ox == "auto")
+        scroll?.scrollsY = (oy == "scroll" || oy == "auto")
         // UIKit's default indicator is already thin. CSS permits `thin`
         // to match `auto` on such platforms; `none` only hides the track.
         // Indicators and deceleration are the app's once a hook sets them
@@ -1186,8 +1186,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if let sv = scroll, scrollWritten != "\(snap)|\(ox)|\(oy)|\(indicators)" {
             scrollWritten = "\(snap)|\(ox)|\(oy)|\(indicators)"
             sv.decelerationRate = snap ? .fast : .normal
-            sv.showsHorizontalScrollIndicator = ox == "scroll" && indicators
-            sv.showsVerticalScrollIndicator = oy == "scroll" && indicators
+            sv.showsHorizontalScrollIndicator = (ox == "scroll" || ox == "auto") && indicators
+            sv.showsVerticalScrollIndicator = (oy == "scroll" || oy == "auto") && indicators
         }
         updateKeyboardDismissal()
         fitScroll()
@@ -1217,7 +1217,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var scrollWaits: Bool { swipeOwner && !scrollNeeded && !handlers.contains("scroll") }
     /// The node's overflow scrolls, and its scroll view is still waiting.
     var scrollDormant: Bool {
-        scroll == nil && ((style["overflow_x"]?.string) == "scroll" || (style["overflow_y"]?.string) == "scroll")
+        scroll == nil && (["scroll", "auto"].contains(style["overflow_x"]?.string ?? "") || ["scroll", "auto"].contains(style["overflow_y"]?.string ?? ""))
     }
 
     func needScroll() {

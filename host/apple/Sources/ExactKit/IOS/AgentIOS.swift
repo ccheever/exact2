@@ -749,14 +749,14 @@ extension Agent {
         if let f = v.textArea {
             f.becomeFirstResponder()
             f.selectAll(nil)
-            f.insertText(req["text"] as? String ?? "")
+            f.insertText(TextInputLimit.prefix(req["text"] as? String ?? "", props: v.props))
             // UITextView reveals an insertion asynchronously, including
             // when UIView animations are disabled. Observe it; never seek it.
             pendingTextReveal = f as? TextArea
             return ["typed": Int(v.id), "value": f.text ?? ""]
         }
         guard let f = v.field else { return ["error": "view \(v.id) is not an input"] }
-        let text = req["text"] as? String ?? ""
+        let text = TextInputLimit.prefix(req["text"] as? String ?? "", props: v.props)
         f.becomeFirstResponder()
         f.selectAll(nil)
         f.insertText(text)

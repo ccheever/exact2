@@ -34,6 +34,26 @@ final class CollectionMacTests: XCTestCase {
         ]))
         return (p, p.views[1]!)
     }
+    func testCSSCursorKeywordsReachAppKit() {
+        XCTAssertTrue(CSSCursor.value("grab") === NSCursor.openHand)
+        XCTAssertTrue(CSSCursor.value("grabbing") === NSCursor.closedHand)
+        XCTAssertTrue(CSSCursor.value("pointer") === NSCursor.pointingHand)
+        XCTAssertNil(CSSCursor.value("auto"))
+    }
+    func testOverflowAutoCreatesAnAutohidingScrollContainer() {
+        _ = NSApplication.shared
+        let p = Presenter()
+        p.apply(batchFixture(ops: [
+            ["op": "create", "id": 1, "kind": "view", "style": ["overflow_x": "auto", "overflow_y": "auto"]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 200.0, "h": 100.0],
+            ["op": "content", "id": 1, "w": 400.0, "h": 500.0]
+        ], timers: false, motion: false, clock: nil, error: nil))
+        let sv = p.views[1]!.scroll!
+        XCTAssertTrue(sv.scrollsX && sv.scrollsY)
+        XCTAssertTrue(sv.autohidesScrollers)
+    }
+
     func testMeasuresActualNestedClipViewWithoutAuthoredScrollHandler() throws {
         let (p, list) = fixture(estimatedItemHeight: "24")
         defer { p.collections.reset() }

@@ -1296,10 +1296,44 @@
       "name": "listStyle",
       "kind": "str",
       "_comment": "@ref LLP 1084 D2: a grouped list's style, `inset-grouped`, `grouped` or `plain`; set by Contract on every `list` whose appearance is `auto` (UICollectionLayoutListConfiguration.Appearance on iOS)."
+    },
+    {
+      "id": 226,
+      "name": "rows",
+      "kind": "int",
+      "measure": true,
+      "_comment": "HTML textarea preferred line count; absent or invalid, two. CSS height and field-sizing override intrinsic size."
+    },
+    {
+      "id": 227,
+      "name": "maxlength",
+      "kind": "int",
+      "_comment": "HTML maximum user-entered UTF-16 length; absent or negative, unlimited. Programmatic value changes are not truncated."
     }
   ],
   "_enums": "Wire discriminant is the 0-based index. An unknown discriminant is a typed decode rejection, never a fallback.",
   "enums": {
+    "Resize": {
+      "values": [
+        "none",
+        "both",
+        "horizontal",
+        "vertical",
+        "block",
+        "inline"
+      ],
+      "default": "none"
+    },
+    "UserSelect": {
+      "values": [
+        "auto",
+        "none",
+        "text",
+        "all",
+        "contain"
+      ],
+      "default": "auto"
+    },
     "FlexDirection": {
       "values": [
         "row",
@@ -1385,11 +1419,16 @@
       ],
       "default": "static"
     },
+    "Cursor": {
+      "values": ["auto", "default", "none", "context-menu", "help", "pointer", "progress", "wait", "cell", "crosshair", "text", "vertical-text", "alias", "copy", "move", "no-drop", "not-allowed", "grab", "grabbing", "e-resize", "n-resize", "ne-resize", "nw-resize", "s-resize", "se-resize", "sw-resize", "w-resize", "ew-resize", "ns-resize", "nesw-resize", "nwse-resize", "col-resize", "row-resize", "all-scroll", "zoom-in", "zoom-out"],
+      "default": "auto"
+    },
     "Overflow": {
       "values": [
         "visible",
         "hidden",
-        "scroll"
+        "scroll",
+        "auto"
       ],
       "default": "visible"
     },
@@ -1892,7 +1931,7 @@
       "default": "none"
     }
   },
-  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points, 3-6 an env(safe-area-inset-top/right/bottom/left) length with the f32 the points added, 7 calc(<percent> \u00b1 <px>) with a second f32 the points, 8-13 an env(viewport-segment-width/height/top/left/bottom/right x y) length with the f32 the points added and then two u8 indices x then y \u2014 LLP 1078 D3) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (CSS grid-template grammar Taffy can lay out: none, named lines, px, %, fr, auto, min/max-content, fit-content(), minmax(), and fixed/auto-fill/auto-fit repeat(); canonical CSS text on the wire) | placement (CSS grid placement: auto, nonzero numeric or named lines and positive numeric or named spans; canonical CSS text on the wire) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | drag-timeline, animation-timeline, animation-range, timeline-scope (CSS text: the four timeline rows, LLP 1057.003) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. Every length row (each dimension, line-height, font-size, letter-spacing, the gaps, border widths and radii, shape-margin) also takes CSS `rem` and `em` through `set_dynamic`; the row holds the pixels the kernel resolves at the end of each commit against the host's root font size (LLP 1069.000 D3), so every reader and the wire see pixels. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
+  "_styles": "Each row is one mask bit. codec: dimension (u8 kind + f32; kind 0 auto, 1 points, 2 percent as authored 0-100 points, 3-6 an env(safe-area-inset-top/right/bottom/left) length with the f32 the points added, 7 calc(<percent> \u00b1 <px>) with a second f32 the points, 8-13 an env(viewport-segment-width/height/top/left/bottom/right x y) length with the f32 the points added and then two u8 indices x then y \u2014 LLP 1078 D3; 14-23 viewport vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh with f32 the percentage) | f32 | u8 | u16 | u32 | i32 | rgba8 | vec2 (f32 f32) | auto-color (u8: 0 auto, 1 followed by color) | color2 (rgba8 rgba8) | tracks (CSS grid-template grammar Taffy can lay out: none, named lines, px, %, fr, auto, min/max-content, fit-content(), minmax(), and fixed/auto-fill/auto-fit repeat(); canonical CSS text on the wire) | placement (CSS grid placement: auto, nonzero numeric or named lines and positive numeric or named spans; canonical CSS text on the wire) | aspect-ratio (CSS text: auto, a ratio, or both) | background-image (CSS text: none or one gradient, LLP 1066) | paint (CSS text: none, currentcolor, or a colour) | dasharray (CSS text: none or a list of numbers) | transform (CSS text: a transform list) | paint-order (CSS text: normal, or fill/stroke/markers) | marker (CSS text: none or url(#id)) | transform-origin (CSS text: one to three lengths, percentages or keywords) | animations (`_animations`) | drag-timeline, animation-timeline, animation-range, timeline-scope (CSS text: the four timeline rows, LLP 1057.003) | enum:<Name>. admitsAuto applies to dimension rows only; Auto on a non-admitting row is a typed decode rejection. Every length row (each dimension, line-height, font-size, letter-spacing, the gaps, border widths and radii, shape-margin) also takes CSS `rem` and `em` through `set_dynamic`; the row holds the pixels the kernel resolves at the end of each commit against the host's root font size (LLP 1069.000 D3), so every reader and the wire see pixels. layout: a change re-runs layout. text: a change invalidates text measurement. inherited: the row follows CSS inheritance \u2014 a node without its own row takes the nearest logical ancestor's computed value, else the initial value (LLP 1035.000 D1); the kernel marks the descendants an inherited change reaches. Defaults are the storage defaults AND the semantic defaults \u2014 this table is the one default authority, and the defaults are CSS's: a bare node is a block, content-box, flex-direction row, flex-shrink 1 (rules/RULES.md: the web is the standard).",
   "styles": [
     {
       "bit": 0,
@@ -3037,6 +3076,22 @@
       "field": "background_attachment",
       "codec": "enum:BackgroundAttachment",
       "_comment": "@ref LLP 1066 D7: CSS `background-attachment`. `fixed` sizes and places the gradient box on the viewport, not the node's padding box: one gradient across every node that has it, staying still as they scroll (a messenger's outgoing bubbles). `local` is not admitted."
+    },
+    {
+      "bit": 172,
+      "field": "cursor",
+      "codec": "enum:Cursor",
+      "inherited": true
+    },
+    {
+      "bit": 173,
+      "field": "resize",
+      "codec": "enum:Resize"
+    },
+    {
+      "bit": 174,
+      "field": "user_select",
+      "codec": "enum:UserSelect"
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

@@ -292,6 +292,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// AppKit called that on every node view, thousands of them, each time
     /// the scroll view moved, and posted a notification for each (25 ms/s
     /// of a fling's main thread on bones, 2026-09-30, against SwiftUI's 9).
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        if let cursor = CSSCursor.value(style["cursor"]?.string ?? "auto") { addCursorRect(bounds, cursor: cursor) }
+    }
     func syncHoverTracking() {
         let wants = handlers.contains("hover") || inlineText.contains(where: { $0.handlers.contains("hover") })
         if wants, tracking == nil {
@@ -743,6 +747,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         f.isEditable = true
         f.isSelectable = true
         f.delegate = self
+        f.formatter = TextInputFormatter(self)
         f.cell?.isScrollable = true
         f.cell?.wraps = false
         f.cell?.usesSingleLineMode = true
@@ -956,6 +961,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let origin = style["transform_origin"]
         let old = style
         style = s
+        if old["cursor"] != s["cursor"] { window?.invalidateCursorRects(for: self) }
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)
         let uniformBorder = number("border_width")
@@ -976,7 +982,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // wrote in (never from the node's kind): `scroll` on an axis makes a
         // scroll container that scrolls that axis; `hidden` clips.
         let ox = s["overflow_x"]?.string ?? "visible", oy = s["overflow_y"]?.string ?? "visible"
-        if (ox == "scroll" || oy == "scroll") && scroll == nil {
+        if ((ox == "scroll" || ox == "auto") || (oy == "scroll" || oy == "auto")) && scroll == nil {
             let sv = ChainingScrollView(frame: bounds)
             sv.collectionWillScroll = { [weak self] in
                 guard let self else { return }
@@ -1006,7 +1012,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             scroll = sv
             presenter?.scrollers.insert(id)
         }
-        if ox != "scroll" && oy != "scroll", let sv = scroll {
+        if ox != "scroll" && ox != "auto" && oy != "scroll" && oy != "auto", let sv = scroll {
             // Neither axis scrolls any more: the children come back out.
             GlassGroups.moving(in: self) {
                 for child in sv.documentView?.subviews ?? [] where child is NodeView { child.removeFromSuperview(); (overlay ?? materialContent ?? self).addSubview(child) }
@@ -1015,8 +1021,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             scroll = nil
             presenter?.scrollers.remove(id)
         }
-        scroll?.scrollsX = ox == "scroll"
-        scroll?.scrollsY = oy == "scroll"
+        scroll?.scrollsX = (ox == "scroll" || ox == "auto")
+        scroll?.scrollsY = (oy == "scroll" || oy == "auto")
         // `overflow: hidden` clips the children, to the box's rounded corners
         // as the web and UIKit do (LLP 1054 P2). One radius rides the layer;
         // differing radii clip to the bounds, as UIKit's layer path does.
@@ -1049,8 +1055,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if let sv = scroll, sv.horizontalScrollElasticity != ex { sv.horizontalScrollElasticity = ex }
         if let sv = scroll, sv.verticalScrollElasticity != ey { sv.verticalScrollElasticity = ey }
         let scrollbarWidth = s["scrollbar_width"]?.string ?? "auto"
-        scroll?.hasHorizontalScroller = ox == "scroll" && scrollbarWidth != "none"
-        scroll?.hasVerticalScroller = oy == "scroll" && scrollbarWidth != "none"
+        scroll?.hasHorizontalScroller = (ox == "scroll" || ox == "auto") && scrollbarWidth != "none"
+        scroll?.hasVerticalScroller = (oy == "scroll" || oy == "auto") && scrollbarWidth != "none"
         scroll?.horizontalScroller?.controlSize = scrollbarWidth == "thin" ? .small : .regular
         scroll?.verticalScroller?.controlSize = scrollbarWidth == "thin" ? .small : .regular
         styleTextArea()

@@ -42,6 +42,7 @@ mod shadow;
 mod space;
 mod svg;
 mod text_clip;
+mod text_decoration;
 mod text_shadow;
 mod text_stroke;
 use inline::{presented_color, presented_text_colors, text_backgrounds, text_palette};
@@ -171,7 +172,10 @@ impl BoxPaint {
             Dimension::Points(p) => p,
             Dimension::Percent(p) => w * p / 100.0,
             Dimension::Calc(p, x) => w * p / 100.0 + x,
-            Dimension::Auto | Dimension::Env(..) | Dimension::Segment(..) => 0.0,
+            Dimension::Auto
+            | Dimension::Env(..)
+            | Dimension::Segment(..)
+            | Dimension::Viewport(..) => 0.0,
         };
         // @ref LLP 1053.000 D4 — a material wins over `backdrop-filter`; a
         // name the table lacks draws ultra-thin ([`material_note`]).
@@ -589,6 +593,7 @@ pub struct Painter {
     damage: damage::Retained,
     /// `backgroundMaterial` names the schema lacks, and those not yet logged.
     materials: (std::collections::BTreeSet<String>, Vec<String>),
+    decoration_warning: bool,
     /// The node a 3D island paints flat, its own transform being the warp's
     /// (LLP 1077 D8).
     pub(crate) flatten: Option<ViewId>,
@@ -664,6 +669,7 @@ impl Painter {
             region_frame: None,
             damage: Default::default(),
             materials: Default::default(),
+            decoration_warning: false,
             placements: BTreeMap::new(),
             canvases: BTreeMap::new(),
             viewport: (0., 0.),
@@ -1082,6 +1088,7 @@ impl Painter {
                         );
                     }
                     let kernel = walk.scene.kernel;
+                    self.text_decorations(kernel, &shown, &palette, (content.0, content.1), ts);
                     self.text_paint(
                         node,
                         kernel,
@@ -1361,7 +1368,7 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
     let mut y = if s.mask.has(StyleId::OverflowY) {
         s.overflow_y
     } else if node.node_type.scrolls_by_default() {
-        Overflow::Scroll
+        Overflow::Auto
     } else {
         Overflow::Visible
     };
@@ -1371,9 +1378,9 @@ pub fn effective_overflow(node: &NodeRef<'_>) -> (Overflow, Overflow) {
         Overflow::Visible
     };
     if x == Overflow::Visible && y != Overflow::Visible {
-        x = Overflow::Scroll;
+        x = Overflow::Auto;
     } else if y == Overflow::Visible && x != Overflow::Visible {
-        y = Overflow::Scroll;
+        y = Overflow::Auto;
     }
     (x, y)
 }
@@ -1388,7 +1395,9 @@ pub fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         Dimension::Points(p) => p,
         Dimension::Percent(p) => against * p / 100.0,
         Dimension::Calc(p, x) => against * p / 100.0 + x,
-        Dimension::Auto | Dimension::Env(..) | Dimension::Segment(..) => 0.0,
+        Dimension::Auto | Dimension::Env(..) | Dimension::Segment(..) | Dimension::Viewport(..) => {
+            0.0
+        }
     };
     let pad_right = pad(node.style.padding_right, node.frame.width);
     let pad_bottom = pad(node.style.padding_bottom, node.frame.width);

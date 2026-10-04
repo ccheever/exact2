@@ -543,3 +543,67 @@ For learning, continue with the [human guide](contract-for-humans.md). For exact
 syntax and vocabulary, use the [grammar reference](contract-grammar.md). For a
 new feature, start from the corresponding compiler fixture rather than memory
 of JavaScript, React Native, or the predecessor's Contract language.
+
+CSS overflow accepts `visible`, `hidden`, `scroll`, and `auto`. `auto` clips and
+permits scrolling, with indicators shown only when content overflows. A visible
+axis beside hidden/scroll/auto computes to auto, as on the web.
+
+`flex` accepts CSS `none`, `auto`, a basis, or `<grow> [<shrink>] [<basis>]`
+(including `flex="0 1 auto"`). Numeric bindings keep the `n 1 0%` meaning.
+Shorthands may be literal choices; computed strings are refused. A scroller
+with `min-height=0` and positive shrink fits under a bounded flex column.
+
+Dimension rows (width/height, their min/max, padding/margins, offsets and
+border radii) accept `vw`, `vh`, `vmin`, `vmax`, and `svw/svh/lvw/lvh/dvw/dvh`.
+On native, all viewport variants follow the window; on web, CSS resolves
+small/large/dynamic viewports. Scalar lengths such as font size and gap do
+not yet accept viewport units.
+
+Transitions animate translate/scale/rotate/opacity, box paint (color,
+background-color, border colors, tint-color, box-shadow), SVG paint/geometry
+and the admitted numeric height path. `width` and other general layout
+properties cannot interpolate yet: native layout is not run per frame.
+The diagnostic names this engine limit; `layout-transition` animates a
+change in the laid-out box using the existing measured projection.
+
+`cursor` takes CSS cursor keywords (`pointer`, `grab`, `grabbing`, etc.) and
+inherits. Web emits CSS; macOS maps to NSCursor with system artwork stand-ins
+where needed; iOS/tvOS/Linux ignore the hint (LLP 1001). URLs are refused.
+
+`font-family` accepts literal CSS fallback lists and choices of them, including
+`"Inter, system-ui, sans-serif"` and quoted names. A family declared with
+`font` uses its bundled faces; other names are local installed families. Web
+and Apple retain the ordered glyph fallback cascade. Linux selects the first
+installed family, then uses cosmic-text's platform glyph fallback; it logs
+this declared limitation for a multi-member stack (LLP 1001).
+
+`textarea rows=3` sets its preferred height in lines (default 2); explicit CSS
+height and `field-sizing="content"` override it. `maxlength=80` on text inputs
+and textareas limits user edits in UTF-16 units; authored `value` updates are
+not truncated. It does not apply to `input type="number"`.
+
+`resize="none"` disables browser resize handles. Other CSS resize values are
+refused with a native geometry explanation. `user-select="none"` prevents
+ordinary text selection; `auto` is the default. Text/all/contain need iOS and
+Linux selection executors and are refused precisely. These rows take literals
+or choices of literals, so unsupported runtime values cannot bypass the check.
+
+`border`, `border-top/right/bottom/left` take CSS width/style/color in any order,
+resetting omitted components to medium/none/currentcolor. Widths are px/pt,
+unitless zero, or thin/medium/thick (1/3/5 px); styles are none/hidden/solid.
+Other CSS border styles are diagnosed as native painter gaps. `text-decoration`
+takes none, underline, line-through, or both lines; solid/currentcolor/auto
+components retain the supported defaults. Color/style/thickness extensions are
+refused by name. Linux paints solid lines with UA metrics and diagnoses its
+missing underline skip-ink behavior in the driver log.
+
+A flex shorthand's grow/shrink factors must be adjacent. Intrinsic flex-basis
+keywords (content/min-content/max-content/fit-content) are CSS values, but the
+current dimension representation cannot size that mode; the diagnostic names
+this limit. `auto` takes the basis from the authored main-size property.
+
+Font lists distinguish quoted local names from unquoted CSS generics. The eight
+mapped generics are system-ui, ui-sans-serif, sans-serif, ui-serif, serif,
+ui-monospace, monospace and ui-rounded. Other CSS generics and CSS-wide
+font-family values are refused with the native mapping/stack representation
+reason, rather than being silently treated as local family names.

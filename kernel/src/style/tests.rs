@@ -370,7 +370,7 @@ fn calc_lengths_parse_one_percent_and_one_pixel_term_and_resolve_by_basis() {
         s.set_dynamic(StyleId::Width, &StyleValue::Text("calc(1px + 2px)".into())),
         Err(StyleValueError::WrongKind {
             style: StyleId::Width,
-            expected: "number, px, rem or em length, percent, auto, calc(<percent> ± <px>), env(safe-area-inset-*), or env(viewport-segment-* x y)",
+            expected: "number, px, rem or em length, viewport length (vw/vh/vmin/vmax/svw/svh/lvw/lvh/dvw/dvh), percent, auto, calc(<percent> ± <px>), env(safe-area-inset-*), or env(viewport-segment-* x y)",
         })
     );
 }
@@ -583,4 +583,19 @@ fn segment_lengths_round_trip_the_wire() {
     // An index past 15 on the wire is not a dimension.
     let mut r = Reader::new(&[8, 0, 0, 0, 0, 16, 0]);
     assert!(r.dimension(StyleId::Width, true).is_err());
+}
+
+#[test]
+fn overflow_auto_has_scroll_sizing_and_zero_automatic_minimum() {
+    let mut s = StyleProps::default();
+    s.set_dynamic(StyleId::OverflowX, &StyleValue::Text("auto".into()))
+        .unwrap();
+    let t = s.to_taffy(NodeType::View, &Env::default());
+    assert_eq!(
+        (t.overflow.x, t.overflow.y),
+        (
+            taffy::style::Overflow::Scroll,
+            taffy::style::Overflow::Scroll
+        )
+    );
 }

@@ -1340,7 +1340,8 @@ fn content_size(node: &NodeRef<'_>, kernel: &Kernel) -> (f32, f32) {
         exact_kernel::Dimension::Calc(p, x) => against * p / 100.0 + x,
         exact_kernel::Dimension::Auto
         | exact_kernel::Dimension::Env(..)
-        | exact_kernel::Dimension::Segment(..) => 0.0,
+        | exact_kernel::Dimension::Segment(..)
+        | exact_kernel::Dimension::Viewport(..) => 0.0,
     };
     let pad_right = pad(node.style.padding_right, node.frame.width);
     let pad_bottom = pad(node.style.padding_bottom, node.frame.width);

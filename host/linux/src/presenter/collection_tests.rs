@@ -1007,3 +1007,18 @@ fn overscroll_contain_keeps_a_tick_at_the_edge() {
         ((0., 0.), (0., 120.))
     );
 }
+
+#[test]
+fn overflow_auto_accepts_reader_scrolling() {
+    let mut p = boot_source(
+        r#"component App
+  view
+    box testId="port" width=200 height=100 overflow="auto"
+      box width=200 height=500
+"#,
+    );
+    settle(&mut p);
+    let port = named(&p, "port");
+    p.wheel(port, 0., 120.).unwrap();
+    assert_eq!(p.scroll_of(port).1, 120.);
+}
