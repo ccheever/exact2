@@ -149,9 +149,15 @@ pub(super) fn call_arity<P: std::fmt::Display>(
     params: impl IntoIterator<Item = P>,
 ) -> String {
     let params: Vec<_> = params.into_iter().map(|p| p.to_string()).collect();
+    // A trailing optional parameter is spelled `number?` (LLP 1088 D2).
+    let required = params.iter().filter(|p| !p.ends_with('?')).count();
+    let count = if required == params.len() {
+        params.len().to_string()
+    } else {
+        format!("{required} to {}", params.len())
+    };
     format!(
-        "`{name}` takes {} argument(s), given {given}; expected `{name}({})`",
-        params.len(),
+        "`{name}` takes {count} argument(s), given {given}; expected `{name}({})`",
         params.join(", ")
     )
 }

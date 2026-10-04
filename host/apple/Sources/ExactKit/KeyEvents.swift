@@ -20,6 +20,16 @@ extension KeyCodes {
     }
 }
 
+extension NodeView {
+    /// HTML's `tabindex` as authored, nil when absent (LLP 1088 D7.3): any
+    /// explicit value makes a node focusable — by pointer, script and
+    /// `autofocus` — and only one ≥ 0 a Tab stop; a missing one is never
+    /// read as `0`, which would make every box a stop.
+    var explicitTabIndex: Int? { props["tabIndex"].flatMap { Int($0) } }
+    /// The order HTML's sequential navigation sorts by: absent is `0`.
+    var tabOrder: Int { explicitTabIndex ?? 0 }
+}
+
 extension Presenter {
     /// The `key` handlers at `target` and above it hear `name` with the
     /// modifiers `held` (a chord prefix, `KeyCodes.held`), the path fixed

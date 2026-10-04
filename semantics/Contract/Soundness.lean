@@ -127,6 +127,9 @@ theorem stdlib_unsupported {env : Env} {p : Program} {name : String} {vs : List 
   by_cases hn : name = "frame" ∨ name = "measure"
   · rcases hn with rfl | rfl <;> simp [stdlib, GoodR, Legit]
   rw [ite_neg hn] at h
+  by_cases hn : name = "toLowerCase"
+  · subst hn; simp [stdlib, GoodR, Legit]
+  rw [ite_neg hn] at h
   simp at h
 
 /-! ## The router's values -/
@@ -493,6 +496,24 @@ theorem stdlib_good {env : Env} {p : Program} {name : String} {vs : List Value} 
       · exact absurd hw' ValTy.unknown
     next => simp at h
   rw [ite_neg hn] at h
+  by_cases hn : name = "slice"
+  · subst hn; rw [ite_pos rfl] at h
+    split at h <;> simp at h; subst h
+    obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv
+    obtain ⟨w', ws', rfl, hw', hws'⟩ := hws.cons_inv
+    obtain ⟨w'', ws'', rfl, hw'', hws''⟩ := hws'.cons_inv; rw [hws''.nil_inv]
+    obtain ⟨_, rfl⟩ := hw.str_inv; obtain ⟨_, rfl⟩ := hw'.num_inv; obtain ⟨_, rfl⟩ := hw''.num_inv
+    simp [stdlib, GoodR, ValTy]
+  rw [ite_neg hn] at h
+  by_cases hn : name = "replaceAll"
+  · subst hn; rw [ite_pos rfl] at h
+    split at h <;> simp at h; subst h
+    obtain ⟨w, ws, rfl, hw, hws⟩ := hv.cons_inv
+    obtain ⟨w', ws', rfl, hw', hws'⟩ := hws.cons_inv
+    obtain ⟨w'', ws'', rfl, hw'', hws''⟩ := hws'.cons_inv; rw [hws''.nil_inv]
+    obtain ⟨_, rfl⟩ := hw.str_inv; obtain ⟨_, rfl⟩ := hw'.str_inv; obtain ⟨_, rfl⟩ := hw''.str_inv
+    simp [stdlib, GoodR, ValTy]
+  rw [ite_neg hn] at h
   exact stdlib_router hp hrs hv h
 
 /-! ## Scopes and environments -/
@@ -655,6 +676,22 @@ theorem binop_good {p : Program} {op : BinOp} {va vb : Value} {ta tb t : Ty}
     · simp at h
   case and => exact absurd rfl hand
   case or => exact absurd rfl hor
+  case lt | le | gt | ge =>
+    split at h
+    · next hn =>
+      simp only [Bool.and_eq_true] at hn
+      simp at h; subst h
+      obtain ⟨x, rfl⟩ := (ha.mono hn.1).num_inv
+      obtain ⟨y, rfl⟩ := (hb.mono hn.2).num_inv
+      simp [binop, ValTy, GoodR]
+    · split at h
+      · next hs =>
+        simp only [Bool.and_eq_true] at hs
+        simp at h; subst h
+        obtain ⟨x, rfl⟩ := (ha.mono hs.1).str_inv
+        obtain ⟨y, rfl⟩ := (hb.mono hs.2).str_inv
+        simp [binop, ValTy, GoodR]
+      · simp at h
   all_goals
     split at h
     · next hn =>

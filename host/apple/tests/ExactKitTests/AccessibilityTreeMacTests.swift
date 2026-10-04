@@ -201,6 +201,35 @@ final class AccessibilityTreeMacTests: XCTestCase {
         XCTAssertEqual([states["required"] as? Bool, states["invalid"] as? Bool, email["description"] as? String], [nil, nil, "Work address"] as [AnyHashable?])
     }
 
+    /// Ledger2 Rough 3: `aria-labelledby` names a radiogroup by its visible
+    /// heading, wins over `aria-label` (accname), and follows the heading's text.
+    func testAriaLabelledByNamesByTheHeadingsText() throws {
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 30, "kind": "text", "props": ["text": "Currency", "id": "currency-heading"]],
+            ["op": "create", "id": 31, "kind": "view", "props": ["accessibilityRole": "radiogroup", "accessibilityLabelledBy": "currency-heading",
+                                                             "accessibilityLabel": "Ignored", "testId": "group"]],
+            ["op": "create", "id": 32, "kind": "button", "handlers": ["press"], "props": ["accessibilityRole": "radio", "accessibilityChecked": "true", "testId": "usd"]],
+            ["op": "create", "id": 33, "kind": "text", "props": ["text": "USD"]],
+            ["op": "children", "id": 32, "ids": [33]],
+            ["op": "children", "id": 31, "ids": [32]],
+            ["op": "children", "id": 1, "ids": [2, 3, 30, 31]],
+            ["op": "frame", "id": 30, "x": 0.0, "y": 100.0, "w": 200.0, "h": 20.0],
+            ["op": "frame", "id": 31, "x": 0.0, "y": 130.0, "w": 200.0, "h": 40.0],
+            ["op": "frame", "id": 32, "x": 0.0, "y": 0.0, "w": 80.0, "h": 30.0],
+            ["op": "frame", "id": 33, "x": 0.0, "y": 0.0, "w": 80.0, "h": 30.0],
+        ]))
+        p.syncAccessibility()
+        func group() throws -> [String: Any] {
+            let all = elements(p.axElements(roots: [p.viewport]))
+            return try XCTUnwrap(all.first { $0["testId"] as? String == "group" }, "group in \(all.map { "\($0["role"] ?? "") \($0["testId"] ?? "")" })")
+        }
+        XCTAssertEqual(try group()["name"] as? String, "Currency")
+        p.apply(wireBatch([["op": "props", "id": 30, "set": ["text": "Currency symbol"], "clear": []]]))
+        p.syncAccessibility(changed: [30])
+        XCTAssertEqual(try group()["name"] as? String, "Currency symbol", "the name follows the heading")
+    }
+
     /// Gallery F22, onboarding F27: a shortcut behind a shown `aria-modal`
     /// view is not heard, and Enter or Space on a focused button is its own.
     func testShortcutsStayInsideTheModalAndLeaveTheFocusItsKeys() throws {

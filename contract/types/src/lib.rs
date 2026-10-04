@@ -841,13 +841,19 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                 routes::not_the_router(f, args, scope, shapes, *span)?;
                 routes::require_table(f, shapes, *span)?;
                 geometry::check_call(f, args, scope, *span)?;
-                if args.len() != f.arity() {
+                // Trailing optional parameters (`slice`'s `end`) may be
+                // omitted from a call the roster resolved; lowering fills
+                // their defaults (LLP 1088 D2).
+                if !(f.min_arity()..=f.arity()).contains(&args.len()) {
                     return err(
                         "type-arity",
                         checks::call_arity(
                             name,
                             args.len(),
-                            f.params().iter().map(|spec| roster_spelling(f, spec)),
+                            f.params().iter().enumerate().map(|(i, spec)| {
+                                let optional = if i >= f.min_arity() { "?" } else { "" };
+                                format!("{}{optional}", roster_spelling(f, spec))
+                            }),
                         ),
                         *span,
                     );
@@ -937,11 +943,15 @@ pub fn infer(e: &Expr, scope: &Scope, shapes: &Shapes) -> Result<Ty, TypeError> 
                     }
                     Ty::Number
                 }
+                // Two strings compare as JavaScript's `IsLessThan` does: in
+                // UTF-16 code-unit order (LLP 1088 D1).
                 BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
-                    if ta != Ty::Number || tb != Ty::Number {
+                    if !matches!((&ta, &tb), (Ty::Number, Ty::Number) | (Ty::String, Ty::String)) {
                         return err(
                             "type-operand",
-                            format!("comparison needs numbers, given `{ta}` and `{tb}`"),
+                            format!(
+                                "comparison needs two numbers or two strings, given `{ta}` and `{tb}`"
+                            ),
                             *span,
                         );
                     }

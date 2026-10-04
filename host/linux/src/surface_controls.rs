@@ -344,6 +344,9 @@ impl<D: DataSource> Presenter<D> {
             })
         }) {
             let _ = self.type_key(id, code, key, down, repeat);
+        } else if down && code == "Tab" {
+            // From no focus, Tab takes the first stop (LLP 1088 D7.3).
+            self.key_down("Tab", self.host.now());
         }
         if code == "Escape"
             && self.focus.is_some_and(|id| {
@@ -458,13 +461,17 @@ impl<D: DataSource> Presenter<D> {
         None
     }
 
-    /// The web's focusable nodes: controls, inputs, buttons and links, and a
+    /// The web's focusable nodes: controls, inputs, buttons and links, a
     /// node with a `focus`, `blur` or `key` handler (the web gives it a
-    /// `tabindex`), as the Apple hosts take the first responder.
+    /// `tabindex`), and any node with an explicit `tabindex`, a negative one
+    /// included (LLP 1088 D7.3), as the Apple hosts take the first
+    /// responder. What tap, `autofocus` and `focus()` may focus; Tab takes
+    /// only the `tabbable` ones.
     pub(crate) fn focusable(&self, id: ViewId) -> bool {
         self.host.kernel().node(id).is_some_and(|n| {
             n.props.bool(PropId::Disabled) != Some(true)
-                && (n.props.str(PropId::Action).is_some()
+                && (n.props.get(PropId::TabIndex).is_some()
+                    || n.props.str(PropId::Action).is_some()
                     || n.node_type == NodeType::TextInput
                     // A native button is a button under any role (LLP 1069.011.000 D1).
                     || exact_kernel::ControlKind::of(n.node_type, n.props)

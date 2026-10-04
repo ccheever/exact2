@@ -418,7 +418,7 @@ final class Presenter {
         }
         walk(window)
         let order = listed.enumerated().sorted { a, b in
-            let ia = Int(a.element.props["tabIndex"] ?? "0") ?? 0, ib = Int(b.element.props["tabIndex"] ?? "0") ?? 0
+            let ia = a.element.tabOrder, ib = b.element.tabOrder
             let pa = ia > 0 ? ia : Int.max, pb = ib > 0 ? ib : Int.max
             return pa != pb ? pa < pb : a.offset < b.offset
         }.map(\.element)
@@ -429,11 +429,12 @@ final class Presenter {
         let responder: UIView = target.textArea ?? target.field ?? target
         if responder.becomeFirstResponder(), responder === target { target.showFocusRing(true) }
     }
+    /// A Tab stop (LLP 1088 D7.3): an explicit `tabindex` ≥ 0 or what is one
+    /// by kind; an explicit negative never, though a tap still focuses it.
     private static func tabbable(_ v: NodeView) -> Bool {
         if v.disabled || v.bounds.width == 0 || v.bounds.height == 0 { return false }
-        let index = Int(v.props["tabIndex"] ?? "0") ?? 0
-        if index < 0 { return false }
-        return v.field != nil || v.textArea != nil || v.handlers.contains("press") || v.canBecomeFirstResponder || index > 0
+        if let index = v.explicitTabIndex, index < 0 { return false }
+        return v.field != nil || v.textArea != nil || v.handlers.contains("press") || v.canBecomeFirstResponder
     }
 
     /// The action's focus(html-id), delivered only after the batch is mounted.

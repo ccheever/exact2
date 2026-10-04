@@ -157,6 +157,45 @@ final class AccessibilityTests: XCTestCase {
         XCTAssertTrue(text.canBecomeKeyView, "a key handler makes text focusable, as tabindex=0 does")
         XCTAssertTrue(first.nextKeyView === text)
     }
+    /// HTML's `tabindex` (LLP 1088 D7.3): an explicit value makes a plain box
+    /// focusable and, ≥ 0, a Tab stop, positive values first; a negative one
+    /// takes a click but leaves Tab, a key handler's node included; absent is
+    /// never `0`; disabled, inert and hidden boxes stay out; a change while
+    /// mounted moves it in or out.
+    func testTabindexMakesABoxFocusableAndOrdersTab() {
+        let (p, w, first, other) = fixture()
+        func box(_ id: UInt32, _ props: [String: String]) -> NodeView {
+            let n = NodeView(id: id, kind: "view", presenter: p)
+            n.applyProps(set: props, clear: [])
+            n.frame = NSRect(x: 0, y: CGFloat(id) * 10, width: 100, height: 10)
+            p.root.addSubview(n); p.views[id] = n
+            return n
+        }
+        let stop = box(10, ["tabIndex": "0"]), plain = box(11, [:]), early = box(12, ["tabIndex": "2"])
+        let skipped = box(13, ["tabIndex": "-1"]), keyed = box(14, ["tabIndex": "-1"])
+        keyed.handlers = ["key"]
+        let disabled = box(15, ["tabIndex": "0", "disabled": "true"]), inert = box(16, ["tabIndex": "0", "inert": "true"])
+        let hidden = box(17, ["tabIndex": "0"]); hidden.isHidden = true
+        p.syncKeyViewLoop()
+        XCTAssertFalse(plain.acceptsFirstResponder, "absent is not tabindex=0")
+        XCTAssertTrue(stop.canBecomeKeyView, "tabindex=0 makes a box with no handler a stop")
+        XCTAssertTrue(skipped.acceptsFirstResponder && !skipped.canBecomeKeyView, "-1: focusable, not a stop")
+        XCTAssertTrue(keyed.acceptsFirstResponder && !keyed.canBecomeKeyView, "-1 takes a key handler's node out of Tab")
+        for n in [disabled, inert, hidden] { XCTAssertFalse(n.acceptsFirstResponder || Presenter.tabbable(n) && !n.inert && !n.isHidden, "\(n.id) stays out") }
+        XCTAssertTrue(early.nextKeyView === first, "a positive tabindex goes first, then tree order")
+        XCTAssertTrue(first.nextKeyView === other && other.nextKeyView === stop)
+        XCTAssertTrue(stop.nextKeyView === early, "the loop wraps to the positive one")
+        XCTAssertTrue(w.makeFirstResponder(other))
+        w.selectNextKeyView(nil)
+        XCTAssertTrue(w.firstResponder === stop, "Tab lands on the box itself")
+        // A click makes the node first responder when it accepts (`mouseDown`;
+        // the window's `makeFirstResponder` itself does not ask).
+        XCTAssertTrue(skipped.acceptsFirstResponder && w.makeFirstResponder(skipped) && w.firstResponder === skipped, "a click focuses tabindex=-1")
+        skipped.applyProps(set: ["tabIndex": "0"], clear: [])
+        stop.applyProps(set: [:], clear: ["tabIndex"])
+        p.syncKeyViewLoop()
+        XCTAssertTrue(skipped.canBecomeKeyView && !stop.acceptsFirstResponder, "a change while mounted moves eligibility")
+    }
     /// A batch marks the loop stale; the next key event rebuilds it before
     /// AppKit reads `nextKeyView`, so scrolling a list walks no nodes for it.
     func testTheKeyViewLoopIsRebuiltWhenAKeyNeedsIt() {

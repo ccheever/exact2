@@ -16,6 +16,9 @@ pub fn method_fix(name: &str) -> String {
         "startsWith" | "endsWith" => format!("write `{name}(s, t)`"),
         "toString" => "write `toString(x)`".into(),
         "trim" => "write `trim(s)`".into(),
+        "toLowerCase" => "write `toLowerCase(s)`".into(),
+        "slice" => "write `slice(s, start, end)` for text (`end` may be left out); `slice` on a list is not in Contract yet (LLP 1088 §9)".into(),
+        "replace" | "replaceAll" => "write `replaceAll(s, find, with)`: the web's `replaceAll` with a string `find`; Contract has no regular expressions".into(),
         "at" => "write `at(xs, i)`: Contract spells the web's `xs.at(i)` as a roster function, `some` of the item or `none`".into(),
         _ => match refusal(name) {
             Some(why) => why,
@@ -42,7 +45,7 @@ pub fn refusal(name: &str) -> Option<String> {
         "split" => "`split` is not in Contract: a view takes its lists from the data module, so split the text there and hand the view the list".into(),
         "indexOf" => "`indexOf` is not in Contract: test text with `includes(s, t)`, `startsWith(s, t)` or `endsWith(s, t)`; a position in a list is the data module's to compute".into(),
         "substring" | "substr" => format!(
-            "`{name}` is not in Contract: cut the text in the data module (LLP 1088 D2 admits the web's `slice(s, start, end)` for text)"
+            "`{name}` is not in Contract: write `slice(s, start, end)`, the web's `String.prototype.slice` (LLP 1088 D2)"
         ),
         "padStart" | "padEnd" => format!(
             "`{name}` is not in Contract (LLP 1088 D2 defers it): pad in the data module, or align with CSS (`text-align`, a fixed `width`)"

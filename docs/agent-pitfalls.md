@@ -171,6 +171,16 @@ guide's rules don't make obvious.
   return []; throw e; }` ([the reference](reference.md#what-a-data-module-can-use)).
   (Authoring bench, LLP 1087, t2-todo on iOS, 2026-10-04.)
 
+- **There is no `swipeleft` for swipe-to-delete.** A row built from `pan`,
+  `panrelease` and `translate` reveals its Delete button, but by hand on every host.
+  Cause: `swiperight` is the reply gesture (a message bubble), not a direction pair;
+  the row whose leading or trailing actions a swipe reveals is a horizontal `scroll`
+  with `scroll-snap-type="x mandatory"`, its content and action buttons as snap
+  children, naming them with `swipeContent`, `swipeLeading` and `swipeTrailing` ids,
+  which the web scrolls and iOS turns into UIKit's own swipe actions. Fix: copy
+  `apps/messages/app.contract`'s inbox row (`thread-swipe-…`). (Ledger2 DIARY, "Needed:
+  swipe gesture", about 15 minutes, 2026-10-04.)
+
 ## Driving and testing
 
 - **Every date in a screenshot is 1 January 2026** (31 December 2025 west of UTC).

@@ -10,8 +10,11 @@
 import UIKit
 
 extension NodeView {
+    /// An explicit negative `tabindex` is no remote stop, as it is no Tab
+    /// stop (LLP 1088 D7.3); the remote's order stays UIKit's geometry.
     override var canBecomeFocused: Bool {
-        canBecomeFirstResponder || (!disabled && !inert && handlers.contains("press"))
+        if let index = explicitTabIndex, index < 0 { return false }
+        return canBecomeFirstResponder || (!disabled && !inert && handlers.contains("press"))
     }
 
     override func didUpdateFocus(in context: UIFocusUpdateContext, with coordinator: UIFocusAnimationCoordinator) {

@@ -378,7 +378,10 @@ fn r15_pointer_hud_button_releases_focus_but_keyboard_keeps_it() {
         .values()
         .any(|c| c.held.contains("Space")));
     p.hardware_key("Space", "Space", false, false);
-    p.type_key(button, "Tab", "Tab", true, false).unwrap();
+    // Tab from the stop before it (LLP 1088 D7.3: Tab moves the focus).
+    p.type_key(find(&p, "b-jump"), "Tab", "Tab", true, false)
+        .unwrap();
+    assert_eq!(p.focus(), Some(button));
     p.hardware_key("Space", "Space", true, false);
     p.hardware_key("Space", "Space", false, false);
     assert_eq!(p.focus(), Some(button));

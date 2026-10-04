@@ -160,3 +160,41 @@ fn form_states_and_haspopup_lower_by_their_aria_names() {
         assert!(e.contains(says), "{attr}={value}: {e}");
     }
 }
+
+/// HTML's `tabindex` (LLP 1088 D7.3) and ARIA's `aria-labelledby` (ledger2
+/// Rough 3) on any element and on a module tag's box: `tabindex` is the
+/// kernel's `tabIndex`, absent when unwritten, and may follow state; its
+/// DOM-property spelling is refused naming the attribute.
+#[test]
+fn tabindex_and_labelledby_bind_by_their_html_names() {
+    let mut r = boot(
+        "component App\n  state open = false\n  action reveal\n    open = true\n  view\n    column\n      text \"Currency\" id=\"currency-heading\"\n      row role=\"radiogroup\" aria-labelledby=\"currency-heading\" testId=\"group\"\n        box tabindex=0 testId=\"stop\" width=10 height=10\n        button press=reveal tabindex=(open ? 0 : -1) testId=\"delete\"\n          text \"Delete\"\n        box testId=\"plain\" width=10 height=10\n      map-view tabindex=-1 testId=\"module\" width=10 height=10\n",
+    );
+    let index = |r: &Runner<NoData>, id: &str| {
+        r.kernel()
+            .node(view_of(r, id))
+            .unwrap()
+            .props
+            .get(PropId::TabIndex)
+            .and_then(|v| v.as_int())
+    };
+    assert_eq!(index(&r, "stop"), Some(0));
+    assert_eq!(index(&r, "delete"), Some(-1));
+    assert_eq!(index(&r, "plain"), None, "absent is not 0");
+    assert_eq!(index(&r, "module"), Some(-1), "a module tag's box takes it");
+    assert_eq!(
+        prop(&r, "group", PropId::AccessibilityLabelledBy).as_deref(),
+        Some("currency-heading")
+    );
+    let delete = view_of(&r, "delete");
+    r.dispatch(delete, Event::Press).unwrap();
+    assert_eq!(
+        index(&r, "delete"),
+        Some(0),
+        "a bound tabindex follows state"
+    );
+    let e = contract::compile("component App\n  view\n    box tabIndex=0 width=1 height=1\n")
+        .unwrap_err()
+        .to_string();
+    assert!(e.contains("`tabIndex` is spelled `tabindex` here"), "{e}");
+}

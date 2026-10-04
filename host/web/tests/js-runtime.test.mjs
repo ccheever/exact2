@@ -52,3 +52,15 @@ test('a key handler stops and prevents its event while a view transition holds t
     expect([ev.defaultPrevented, ev.$stopped]).toEqual([true, true]);
   } finally { delete globalThis.document; delete globalThis.requestAnimationFrame; }
 });
+
+// LLP 1088 D2: the roster's string entries are JavaScript's, made well formed, and `replaceAll` is bounded by the
+// runner's MAX_STRING as it builds (a quadratic `$\`` stops there), throwing the runner's trap as a Refusal.
+test('slice, replaceAll and toLowerCase are the web methods, well formed and bounded', async () => {
+  const { x_slice, x_replaceAll, x_toLowerCase, Refusal } = await import(resolve(dir, 'rt.js'));
+  expect([x_slice('calc', 0, -1), x_slice('hello', -3, Infinity), x_slice('a😀b', 1, 2), x_slice('hello', NaN, 2.9)]).toEqual(['cal', 'llo', '�', 'he']);
+  for (const [s, f, w] of [['aXbXc', 'X', '-'], ['aaa', 'aa', 'b'], ['abc', '', '-'], ['😀', '', ''], ['😀😀', '', ''], ['abc', 'b', "[$&|$`|$'|$$|$1|$<n>|$]"], ['abc', '', '$`'], ['x.y', '.', '$$'], ['', '', ' ']])
+    expect(x_replaceAll(s, f, w)).toBe(s.replaceAll(f, w).toWellFormed());
+  expect(x_replaceAll('😀', '', '-')).toBe('-�-�-');
+  expect([x_toLowerCase('ΟΣ'), x_toLowerCase('İ'), x_toLowerCase('ABC')]).toEqual(['ος', 'i̇', 'abc']);
+  expect(() => x_replaceAll('x'.repeat(10000), '', "$`$'")).toThrow(Refusal);
+});

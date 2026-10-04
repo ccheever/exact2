@@ -898,8 +898,8 @@ fn face_counts(nodes: &[contract_syntax::Node]) -> Result<Vec<(u8, u8)>, LowerEr
     Ok(faces)
 }
 
-/// A `button` or `link` with nothing to press: no children and no size
-/// (LLP 1017 P1c), refused before layout could find it.
+/// A `button` or `link` with nothing to press: no children, no size and no
+/// insets that size it (LLP 1017 P1c), refused before layout could find it.
 pub(crate) fn check_zero_size(
     tag: &str,
     attrs: &[contract_syntax::Attr],
@@ -918,8 +918,20 @@ pub(crate) fn check_zero_size(
         "min-width",
         "min-height",
     ];
+    // An absolutely positioned box is sized by its insets (CSS 2 §10.3.7,
+    // §10.6.4): `inset=0`, or `top` with `bottom` or `left` with `right`
+    // (ledger2 Rough 4: a modal's backdrop button was refused).
+    let has = |name: &str| attrs.iter().any(|a| a.name == name);
+    let positioned = attrs.iter().any(|a| {
+        a.name == "position"
+            && !matches!(&a.value, contract_syntax::Expr::Str(s, _)
+                if matches!(s.as_str(), "static" | "relative" | "sticky"))
+    });
+    let inset =
+        positioned && (has("inset") || has("top") && has("bottom") || has("left") && has("right"));
     if matches!(tag, "button" | "link")
         && children.is_empty()
+        && !inset
         && !attrs.iter().any(|a| SIZES.contains(&a.name.as_str()))
     {
         return err(

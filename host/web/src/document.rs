@@ -717,7 +717,12 @@ impl<S: Source> Walk<'_, '_, S> {
                 .iter()
                 .any(|k| matches!(k, EventKind::Focus | EventKind::Blur | EventKind::Key))
         });
-        if hears && !matches!(element, "input" | "button") {
+        // An authored `tabindex` is explicit and wins, a negative one
+        // included (LLP 1088 D7.3), as `glue.js`'s `hasAttribute` check does.
+        if hears
+            && !matches!(element, "input" | "button")
+            && !attrs.iter().any(|(n, _)| n == "tabindex")
+        {
             attrs.push(("tabindex".into(), Some("0".into())));
         }
         if !style.is_empty() {

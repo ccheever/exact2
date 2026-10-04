@@ -412,3 +412,101 @@ fn frame_reads_a_box_with_the_scroll_above_it_applied() {
     p.tap(id(&p, "read")).unwrap();
     assert_eq!(log(&p), "220", "the pane's 120 px of scrolling");
 }
+
+/// HTML's `tabindex` and Tab (LLP 1088 D7.3): an explicit value makes a plain
+/// box focusable and, ≥ 0, a Tab stop, positive values first; a negative
+/// one takes a tap and `autofocus` but Tab skips it; absent is never `0`;
+/// disabled, inert and hidden boxes are skipped; a bound value moves a box
+/// in and out; Tab and Shift-Tab walk and wrap, from no focus to the first
+/// or the last; an ancestor's `key` hears a key the focused box bubbles.
+#[test]
+fn tabindex_makes_tab_stops_and_tab_walks_them() {
+    const TABS: &str = r#"component App
+  state open = false
+  state keys = ""
+  action reveal
+    open = true
+  action heard(key: string)
+    keys = `${keys}${key};`
+  view
+    column width=400 height=400 key=heard
+      text keys testId="keys" height=20
+      box tabindex=0 testId="zero" width=40 height=20
+      box testId="plain" width=40 height=20
+      box tabindex=-1 autofocus=true testId="minus" width=40 height=20
+      button "Reveal" press=reveal testId="reveal" height=20
+      box tabindex=2 testId="two" width=40 height=20
+      box tabindex=1 testId="one" width=40 height=20
+      box tabindex=(open ? 0 : -1) testId="bound" width=40 height=20
+      box tabindex=0 disabled=true testId="disabled" width=40 height=20
+      box inert=true
+        box tabindex=0 testId="inert" width=40 height=20
+      box tabindex=0 display="none" testId="hidden" width=40 height=20
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(TABS).unwrap().encode(),
+        Keeps,
+        (400., 400.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.advance(16.);
+    assert_eq!(p.focus(), Some(id(&p, "minus")), "autofocus takes -1");
+    let tab = |p: &mut Presenter<Keeps>, shift: bool| {
+        if shift {
+            p.hold_modifier("ShiftLeft", true);
+        }
+        p.hardware_key("Tab", "Tab", true, false);
+        p.hardware_key("Tab", "Tab", false, false);
+        if shift {
+            p.hold_modifier("ShiftLeft", false);
+        }
+        let k = p.host().kernel();
+        p.focus()
+            .and_then(|f| k.node(f))
+            .and_then(|n| n.props.str(PropId::TestId))
+            .unwrap_or("")
+            .to_string()
+    };
+    let walked: Vec<String> = (0..6).map(|_| tab(&mut p, false)).collect();
+    assert_eq!(
+        walked,
+        ["one", "two", "", "zero", "reveal", "one"],
+        "positive first, then tree order (the column hears keys, so the web makes it a stop); \
+         -1, plain, disabled, inert, hidden skipped; wraps"
+    );
+    assert_eq!(
+        tab(&mut p, true),
+        "reveal",
+        "Shift-Tab walks back, wrapping"
+    );
+    let keys = |p: &Presenter<Keeps>| {
+        let k = p.host().kernel();
+        let n = k.node_by_key(k.find_by_test_id("keys")[0]).unwrap();
+        n.props.str(PropId::Text).unwrap_or("").to_string()
+    };
+    assert!(
+        keys(&p).contains("Tab;"),
+        "the column heard Tab bubble: {}",
+        keys(&p)
+    );
+    p.tap(id(&p, "reveal")).unwrap();
+    assert_eq!(
+        tab(&mut p, false),
+        "bound",
+        "a bound tabindex joins the order"
+    );
+    p.tap(id(&p, "minus")).unwrap();
+    assert_eq!(p.focus(), Some(id(&p, "minus")), "a tap focuses -1");
+    p.focus = None;
+    assert_eq!(
+        tab(&mut p, false),
+        "one",
+        "from no focus, Tab takes the first"
+    );
+    p.focus = None;
+    assert_eq!(tab(&mut p, true), "bound", "and Shift-Tab the last");
+}

@@ -873,6 +873,10 @@ pub fn props_of(node: &NodeFacts<'_>) -> SortedMap<String, String> {
             PropId::AccessibilityElementsHidden => "aria-hidden",
             PropId::AccessibilityInvalid => "aria-invalid",
             PropId::AccessibilityDescribedBy => "aria-describedby",
+            PropId::AccessibilityLabelledBy => "aria-labelledby",
+            // HTML's own attribute, so the browser makes the box focusable
+            // (LLP 1088 D7.3); `data-tabindex` would be ignored.
+            PropId::TabIndex => "tabindex",
             PropId::AccessibilityRequired => "aria-required",
             PropId::AccessibilityHasPopup => "aria-haspopup",
             // SVG 2 attributes by their exact (case-sensitive) names (LLP 1055 D1).

@@ -1432,7 +1432,7 @@ fn refusals_from_the_app_diaries_name_the_fix() {
             "write `replaceAll(s, find, with)`",
         ),
         ("indexOf(s, \"a\")", "`includes(s, t)`"),
-        ("substring(s, 1)", "cut the text in the data module"),
+        ("substring(s, 1)", "write `slice(s, start, end)`"),
         ("padStart(s, 2, \"0\")", "LLP 1088 D2 defers it"),
         ("toUpperCase(s)", "`text-transform=\"uppercase\"`"),
         ("parseInt(s)", "Contract does not parse numbers from text"),

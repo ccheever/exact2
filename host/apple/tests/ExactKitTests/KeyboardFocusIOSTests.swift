@@ -70,6 +70,38 @@ final class KeyboardFocusIOSTests: XCTestCase {
         XCTAssertNil(first.focusRing, "a touch's focus shows no ring")
     }
 
+    /// HTML's `tabindex` (LLP 1088 D7.3): an explicit value makes a plain box
+    /// focusable and, ≥ 0, a Tab stop, positive first; a negative one takes
+    /// the focus but not Tab; absent is never `0`; disabled stays out.
+    func testTabindexMakesABoxFocusableAndOrdersTab() {
+        let (p, first, _, field, last) = fixture()
+        defer { withExtendedLifetime(p) {} }
+        func box(_ id: UInt32, _ props: [String: String]) -> NodeView {
+            let n = NodeView(id: id, kind: "view", presenter: p)
+            n.applyProps(set: props, clear: [])
+            n.frame = CGRect(x: 220, y: CGFloat(id) * 20, width: 100, height: 10)
+            p.root.addSubview(n); p.views[id] = n
+            return n
+        }
+        let stop = box(10, ["tabIndex": "0"]), plain = box(11, [:]), early = box(12, ["tabIndex": "1"])
+        let skipped = box(13, ["tabIndex": "-1"]), disabled = box(14, ["tabIndex": "0", "disabled": "true"])
+        XCTAssertFalse(plain.canBecomeFirstResponder, "absent is not tabindex=0")
+        XCTAssertFalse(disabled.canBecomeFirstResponder)
+        XCTAssertTrue(skipped.becomeFirstResponder(), "-1 takes the focus by tap or script")
+        p.moveFocus(backward: false)
+        XCTAssertTrue(early.isFirstResponder, "from a node out of the order, Tab starts at the first: a positive tabindex")
+        p.moveFocus(backward: false)
+        XCTAssertTrue(first.isFirstResponder, "then tree order")
+        p.moveFocus(backward: false)
+        XCTAssertTrue(field.field?.isFirstResponder == true)
+        p.moveFocus(backward: false); p.moveFocus(backward: false)
+        XCTAssertTrue(stop.isFirstResponder, "tabindex=0 with no handler is a stop, in tree order")
+        p.moveFocus(backward: false)
+        XCTAssertTrue(early.isFirstResponder, "the order wraps, skipping -1 and the disabled box")
+        p.moveFocus(backward: true)
+        XCTAssertTrue(stop.isFirstResponder)
+    }
+
     /// UIKit's focus search (`FocusSearch`) finds nothing in a tree of
     /// exact2's own views, and finds an input's field as UIKit always did.
     func testFocusSearchSeesOnlyWhatUIKitCanFocus() throws {
