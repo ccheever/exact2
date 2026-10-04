@@ -816,22 +816,15 @@ extension Agent {
             if loading > 0 { r["imagesPending"] = loading }
             return r
         }
-        guard let rep = v.bitmapImageRepForCachingDisplay(in: v.bounds) else { return ["error": "no bitmap for the viewport"] }
         Capture.web = session.webviews.snapshots().merging(session.natives.snapshots()) { web, _ in web }
         let hidden = (presenter.views.values.compactMap(\.web) + session.natives.snapshotViews).map { ($0, $0.isHidden) }
         hidden.forEach { $0.0.isHidden = true }
         // As a capture: every canvas paints its picture, read back from the
         // module, and every iframe paints its arm snapshot at its node.
-        let fills = Capture.hideBoxFills(in: v)
-        Capture.capturing = true
-        v.cacheDisplay(in: v.bounds, to: rep)
-        Capture.capturing = false
-        Capture.restore(fills)
+        let picture = Capture.picture(of: v)
         hidden.forEach { $0.0.isHidden = $0.1 }
         Capture.web = [:]
-        // The display's profile can be P3. Agent pixel comparisons and films
-        // consume sRGB bytes, so convert the pixels rather than just retagging.
-        guard let png = rep.converting(to: .sRGB, renderingIntent: .default)?.representation(using: .png, properties: [:]) else { return ["error": "no sRGB PNG"] }
+        guard let png = picture?.representation(using: .png, properties: [:]) else { return ["error": "no sRGB PNG of the viewport"] }
         do { try png.write(to: URL(fileURLWithPath: path)) } catch { return ["error": "write \(path): \(error)"] }
         var r: [String: Any] = ["screenshot": path, "w": Agent.r2(v.bounds.width), "h": Agent.r2(v.bounds.height)]
         if loading > 0 { r["imagesPending"] = loading }
@@ -851,5 +844,98 @@ extension Agent {
         (Agent.systemAppearance ?? NSApp.effectiveAppearance).bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
     }
     nonisolated(unsafe) static var systemAppearance: NSAppearance?
+}
+
+extension Capture {
+    /// `view` as the agent's screenshot shows it, in sRGB: drawn into sRGB,
+    /// so a translucent fill blends there as Chrome blends it, whatever the
+    /// display's profile (spreadsheet F18), and agent pixel comparisons and
+    /// films read sRGB bytes.
+    static func picture(of view: NSView) -> NSBitmapImageRep? {
+        guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)?.retagging(with: .sRGB) else { return nil }
+        draw(view, to: rep)
+        return rep
+    }
+
+    /// `view` drawn by `cacheDisplay` as the window shows it: as a capture
+    /// (`capturing`), box fills an inset shadow paints hidden, siblings in
+    /// their z order, animations at what they present.
+    static func draw(_ view: NSView, to rep: NSBitmapImageRep) {
+        let shown = showAnimations(in: view.layer)
+        let fills = hideBoxFills(in: view), ordered = paintOrder(in: view)
+        capturing = true
+        view.cacheDisplay(in: view.bounds, to: rep)
+        capturing = false
+        ordered(); restore(fills); shown()
+    }
+
+    /// `cacheDisplay` draws subviews in array order; the window server
+    /// composites siblings by `zPosition`, which carries CSS `z-index`
+    /// (`usedZIndex`). For the capture, each view's subviews are in the
+    /// order they show — a sticky header over the rows that scroll under it
+    /// (spreadsheet F13), a raised dropdown over the content after it (shop
+    /// F18) — and the closure returned puts them back.
+    private static func paintOrder(in root: NSView) -> () -> Void {
+        var undo: [(NSView, [NSView])] = []
+        func walk(_ view: NSView) {
+            let subviews = view.subviews
+            if subviews.contains(where: { ($0.layer?.zPosition ?? 0) != 0 }) {
+                // Stable: equal z keeps document order.
+                let shown = subviews.enumerated().sorted {
+                    let (a, b) = ($0.element.layer?.zPosition ?? 0, $1.element.layer?.zPosition ?? 0)
+                    return a != b ? a < b : $0.offset < $1.offset
+                }.map(\.element)
+                if shown != subviews { undo.append((view, subviews)); arrange(view, shown) }
+            }
+            subviews.forEach(walk)
+        }
+        walk(root)
+        return { for (view, subviews) in undo.reversed() { arrange(view, subviews) } }
+    }
+
+    /// Reorder in place: assigning `subviews` detaches and reattaches them,
+    /// which resigns a first responder among them (`CollectionMac`).
+    private static func arrange(_ view: NSView, _ order: [NSView]) {
+        var ranks = Dictionary(uniqueKeysWithValues: order.enumerated().map { (ObjectIdentifier($0.element), $0.offset) })
+        withUnsafeMutablePointer(to: &ranks) { context in
+            view.sortSubviews({ left, right, raw in
+                let rank = raw!.assumingMemoryBound(to: [ObjectIdentifier: Int].self).pointee
+                let a = rank[ObjectIdentifier(left)] ?? 0, b = rank[ObjectIdentifier(right)] ?? 0
+                return a < b ? .orderedAscending : a > b ? .orderedDescending : .orderedSame
+            }, context: context)
+        }
+    }
+
+    /// `cacheDisplay` draws the layers' model values, never what Core
+    /// Animation shows: a lowered animation (a box's `opacity` keyframes,
+    /// an SVG shape's paint) was captured at its underlying value while the
+    /// window showed it playing (shop F25). For the capture, each animated
+    /// key path's model value is what the layer presents; the closure
+    /// returned puts the model back.
+    private static func showAnimations(in root: CALayer?) -> () -> Void {
+        guard let root else { return {} }
+        CATransaction.flush() // presentation() reads committed animations
+        var undo: [(CALayer, String, Any?)] = []
+        func walk(_ layer: CALayer) {
+            if let keys = layer.animationKeys(), !keys.isEmpty, let shown = layer.presentation() {
+                var paths: Set<String> = []
+                for key in keys { if let path = (layer.animation(forKey: key) as? CAPropertyAnimation)?.keyPath { paths.insert(path) } }
+                for path in paths {
+                    undo.append((layer, path, layer.value(forKeyPath: path)))
+                    layer.setValue(shown.value(forKeyPath: path), forKeyPath: path)
+                }
+            }
+            layer.sublayers?.forEach(walk)
+            if let mask = layer.mask { walk(mask) }
+        }
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        walk(root)
+        CATransaction.commit()
+        return {
+            CATransaction.begin(); CATransaction.setDisableActions(true)
+            for (layer, path, value) in undo.reversed() { layer.setValue(value, forKeyPath: path) }
+            CATransaction.commit()
+        }
+    }
 }
 #endif

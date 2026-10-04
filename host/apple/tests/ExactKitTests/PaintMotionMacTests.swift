@@ -54,5 +54,32 @@ final class PaintMotionMacTests: XCTestCase {
         session.noteAppearance(view)
         XCTAssertNil(session.viewDark[view.id], "it agrees again")
     }
+
+    /// An `svg`'s `light-dark()` paint is resolved into its scene's layers,
+    /// so an appearance change applies the scene again, as Chrome repaints
+    /// it (minesweeper F11, paint F10).
+    func testAnSvgPaintFollowsItsViewsAppearance() throws {
+        _ = NSApplication.shared
+        let session = ExactApp.shared.makeSession(label: "paint-svg-scheme-mac")
+        defer { session.destroy() }
+        let p = session.presenter
+        p.root.appearance = NSAppearance(named: .aqua)
+        let pair: [Any] = [[36.0, 86.0, 51.0, 255.0], [207.0, 255.0, 220.0, 255.0]]
+        let shape: [String: Any] = ["id": 1, "n": 1, "o": 1, "p": [0.0, 0.0, 0.0, 1.0, 10.0, 0.0, 1.0, 10.0, 10.0, 3.0], "s": pair, "w": 2.0]
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "svg", "style": [:]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 24.0, "h": 24.0],
+            ["op": "svg", "id": 1, "scene": ["box": [0.0, 0.0, 24.0, 24.0], "t": [1.0, 0.0, 0.0, 1.0, 0.0, 0.0], "els": [shape]]],
+        ]))
+        let view = try XCTUnwrap(p.views[1])
+        func stroke() -> [CGFloat]? {
+            (view.layer?.sublayers?.lazy.compactMap { $0.sublayers?.first as? CAShapeLayer }.first?.strokeColor)?.components
+        }
+        XCTAssertEqual(stroke()?.map { ($0 * 255).rounded() }, [36, 86, 51, 255])
+        p.root.appearance = NSAppearance(named: .darkAqua)
+        XCTAssertTrue(view.drawsDark)
+        XCTAssertEqual(stroke()?.map { ($0 * 255).rounded() }, [207, 255, 220, 255])
+    }
 }
 #endif

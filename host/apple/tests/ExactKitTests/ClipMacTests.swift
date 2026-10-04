@@ -6,6 +6,8 @@ import XCTest
 /// What an AppKit node clips (LLP 1054 P2/P3): `overflow: hidden` clips its
 /// subviews to the rounded border box, as UIKit does, and a clamped
 /// paragraph clips its own drawing, as CSS's line-clamp implies overflow.
+/// And what the mouse finds there: visible overflow, and through a
+/// `pointer-events: none` box.
 final class ClipMacTests: XCTestCase {
     private func node(_ kind: String, _ style: NodeStyle) -> NodeView {
         _ = NSApplication.shared
@@ -33,6 +35,58 @@ final class ClipMacTests: XCTestCase {
         n.applyStyle(["overflow_x": "hidden", "overflow_y": "hidden", "border_radius": 24])
         n.applyStyle(["border_radius": 24])
         XCTAssertEqual(n.layer?.cornerRadius, 0)
+    }
+
+    /// Visible overflow is hit where it paints, as CSS hit-tests it: a
+    /// popup positioned beyond its parent's box takes the click (ledger
+    /// F13), and a raised sibling's overflow is hit over the content after
+    /// it (shop F18); a clipping parent's overflow is not hit.
+    func testVisibleOverflowIsHitWhereItPaints() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        p.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 400)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "style": ["display": "flex"]],
+            ["op": "create", "id": 2, "kind": "view", "style": ["z_index": 5.0]],
+            ["op": "create", "id": 3, "kind": "button", "handlers": ["press"], "style": ["position_type": "absolute"]],
+            ["op": "create", "id": 4, "kind": "view", "style": [:]],
+            ["op": "children", "id": 2, "ids": [3]],
+            ["op": "children", "id": 1, "ids": [2, 4]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
+            ["op": "frame", "id": 2, "x": 0.0, "y": 0.0, "w": 400.0, "h": 50.0],
+            ["op": "frame", "id": 3, "x": 10.0, "y": 40.0, "w": 200.0, "h": 120.0],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 50.0, "w": 400.0, "h": 200.0],
+        ]))
+        let root = try XCTUnwrap(p.views[1]), bar = try XCTUnwrap(p.views[2]), popup = try XCTUnwrap(p.views[3])
+        let at = { (x: CGFloat, y: CGFloat) in root.hitTest(root.superview!.convert(NSPoint(x: x, y: y), from: root)) }
+        XCTAssertTrue(at(100, 140) === popup, "below the bar, over the content after it")
+        XCTAssertTrue(at(100, 45) === popup)
+        XCTAssertTrue(at(300, 140) === p.views[4], "beside the popup, the content")
+        bar.applyStyle(["z_index": 5.0, "overflow_x": "hidden", "overflow_y": "hidden"])
+        XCTAssertTrue(at(100, 140) === p.views[4], "a clipped popup is not hit beyond the clip")
+    }
+
+    /// A native module's view inside a `pointer-events: none` box takes no
+    /// click: the button around it does (paint F9), as on the web.
+    func testAPointerEventsNoneBoxsPlatformViewLetsTheClickThrough() throws {
+        _ = NSApplication.shared
+        let p = Presenter()
+        p.viewport.frame = NSRect(x: 0, y: 0, width: 400, height: 400)
+        p.apply(wireBatch([
+            ["op": "create", "id": 1, "kind": "view", "style": [:]],
+            ["op": "create", "id": 2, "kind": "button", "handlers": ["press"], "style": [:]],
+            ["op": "create", "id": 3, "kind": "view", "style": ["pointer_events": "none"]],
+            ["op": "children", "id": 2, "ids": [3]],
+            ["op": "children", "id": 1, "ids": [2]],
+            ["op": "roots", "ids": [1]],
+            ["op": "frame", "id": 1, "x": 0.0, "y": 0.0, "w": 400.0, "h": 400.0],
+            ["op": "frame", "id": 2, "x": 20.0, "y": 20.0, "w": 300.0, "h": 200.0],
+            ["op": "frame", "id": 3, "x": 0.0, "y": 0.0, "w": 300.0, "h": 200.0],
+        ]))
+        let root = try XCTUnwrap(p.views[1]), thumbnail = try XCTUnwrap(p.views[3])
+        thumbnail.addSubview(NSView(frame: thumbnail.bounds)) // the module's view
+        XCTAssertTrue(root.hitTest(root.superview!.convert(NSPoint(x: 100, y: 100), from: root)) === p.views[2])
     }
 
     /// CSS reduces a radius larger than the box (`border-radius: 100px` on a

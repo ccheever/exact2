@@ -9,7 +9,8 @@
 // side in colour or width (unless square and one colour), radii that differ
 // by corner, a radius past half the shorter side, a tinted or unevenly
 // clipped image, a paragraph without a raster, a canvas, a web view, and
-// every capture (`cacheDisplay` draws views, not layer properties).
+// a capture of a box whose layer paint `cacheDisplay` does not show as the
+// window does (`captureShowsLayerPaint`).
 #if os(macOS)
 import AppKit
 
@@ -112,6 +113,20 @@ extension NodeView {
         // does not clip, a rounded one draws.
         if p.own && !clipsToBounds && p.radius > 0 && p.widths.contains(where: { $0 > 0 }) { p.drawn = !away }
         return p
+    }
+
+    /// Whether a capture (`cacheDisplay`, which composites the layer tree)
+    /// shows this box's layer paint as the window does, so `draw(_:)` must
+    /// not paint the box again: a translucent fill painted twice came out
+    /// doubled (spreadsheet F18: a 12 % selection captured as 20 %). Its
+    /// renderer ignores a corner mask, so a box rounded at some corners only
+    /// is drawn, as are a gradient and a box an inset shadow paints over
+    /// (its fill sublayers hidden, `Capture.hideBoxFills`).
+    var captureShowsLayerPaint: Bool {
+        guard layerBoxEligible, hasBoxPaint, insetCaster == nil, style["background_image"] == nil else { return false }
+        let p = boxPlan
+        let all: CACornerMask = [.layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMaxXMaxYCorner, .layerMinXMaxYCorner]
+        return !p.drawn && (p.radius == 0 || (p.corners == all && p.curve == .circular))
     }
 
     /// The box onto the layer, or nothing on it when `draw(_:)` paints it.
