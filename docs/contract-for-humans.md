@@ -720,10 +720,16 @@ call outside them fails. The capabilities are:
 | `sqlite.open app:/data/name.db` | `storage.sqlite.open` on that path |
 | `fs.read app:/data/dir`, `fs.write app:/data/dir` | `storage.fs` under that prefix (`app:/data`, `app:/cache`, `app:/tmp`) |
 | `secret.keep name` | `store.keepKey(name, pair)` and `store.key(name)`: a P-256 key pair kept by the platform |
-| `storage.kv scope`, `env.read NAME` | a key–value scope; an environment variable (see `grants/src/lib.rs`) |
+| `storage.kv scope`, `env.read NAME` | a host's key–value scope and environment variable (`grants/src/lib.rs`); a data module has no API for them yet: its `storage` is `fs` and `sqlite`, so keep key–value data in a file or a table |
 
 **What catches people.**
 
+- *A source cannot read the clock, start a timer or roll a random number.*
+  `Date.now()`, `new Date()` without a value, `setTimeout`, `setInterval`,
+  `performance.now()` and `Math.random()` are refused when first used, on every
+  executor; the type check cannot see it, and only `logs` shows the refusal. Time
+  and seeds are arguments: pass `now()` from the Contract (the
+  [data-module reference](reference.md#generate-typescript-data-source-types) has the full list).
 - *There is no storage or network at build time.* The build bakes each
   resource's first value into the plan. A source that throws then (as `books`
   does, with storage unavailable) is simply asked again when the app runs. To
