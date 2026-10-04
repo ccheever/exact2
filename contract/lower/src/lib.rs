@@ -678,12 +678,20 @@ impl<'a> Lowerer<'a> {
                 // only the case nothing on the path can bound is refused.
                 // `class=` expands its style's rows first; the node's own
                 // attribute of the same name replaces the style's (LLP 1017 P6).
+                // @ref LLP 1082 D7 — a grouped list's sheet, under its classes.
+                let (sheet, unmarked) = grouped::split(attrs);
+                let attrs = unmarked.as_ref().unwrap_or(attrs);
                 let (class_label, mut expanded) = self.class_rows(attrs)?.unzip();
-                let class_len = expanded.as_ref().map_or(0, Vec::len);
+                let class_len = expanded.as_ref().map_or(0, Vec::len) + sheet.len();
                 let expanded = match &mut expanded {
                     Some(rows) => {
+                        rows.splice(0..0, sheet.iter().cloned());
                         rows.extend(attrs.iter().filter(|a| a.name != "class").cloned());
                         rows.as_slice()
+                    }
+                    None if !sheet.is_empty() => {
+                        expanded = Some([sheet.clone(), attrs.to_vec()].concat());
+                        expanded.as_deref().expect("just set")
                     }
                     None => attrs.as_slice(),
                 };
@@ -724,12 +732,12 @@ impl<'a> Lowerer<'a> {
                 // @ref LLP 1082 D1, D3 — a grouped list's sheet, before its
                 // author's rows, and its sections' shape.
                 let grouped = grouped::style(tag, expanded)?;
-                let (sheet, sections);
+                let (listed, sections);
                 let (expanded, children) = match grouped {
                     Some(style) => {
-                        sheet = [grouped::list_rows(style, *span), expanded.to_vec()].concat();
+                        listed = [grouped::list_rows(style, *span), expanded.to_vec()].concat();
                         sections = grouped::sections(style, children)?;
-                        (sheet.as_slice(), &sections)
+                        (listed.as_slice(), &sections)
                     }
                     None => (expanded, children),
                 };
@@ -902,7 +910,9 @@ impl<'a> Lowerer<'a> {
                         self.errors.push(e);
                     }
                     if let Some(origins) = &mut origins {
-                        let origin = if index < class_len {
+                        let origin = if index < sheet.len() {
+                            Origin::Tag
+                        } else if index < class_len {
                             Origin::Class(class_label.clone().expect("class attribute"))
                         } else {
                             Origin::Own

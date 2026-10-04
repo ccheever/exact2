@@ -88,10 +88,10 @@ This is HTML's own structure (`section` > `header`, the rows, `footer`), so the 
    - a checkbox or switch `Control` is a toggle, which flips that control;
    - a `button` holding only an `info.circle` symbol is the detail button, which presses that button.
 2. **The leading symbol, the first child:** an image whose source is a `symbol:`.
-3. **What is left:**
+3. **What is left** (children with `display: none` are not counted, and neither is a hidden section or row):
    - one `text` is the title;
    - two `text`s are the title and its value (UIKit's value cell);
-   - a `column` of one or two `text`s is the title over its subtitle (the subtitle cell).
+   - a `column` (a flex column: what Contract's sheet styles) of one or two `text`s is the title over its subtitle (the subtitle cell). A `row` or plain box of texts is custom.
 
 A row of any other shape is **custom**: a raster image, a third text, a nested box. A row with no title is custom too. A custom row carries only its node, its press and its state, and the host shows its views. `destructive` (the existing prop 68) draws the title and symbol red, and `disabled` dims the row and makes it untappable. Roles name symbols as everywhere else, so `forward-chevron` is `chevron.forward`. This RFC adds the role `info` (`info.circle`), so the detail button has a web path.
 
@@ -115,14 +115,18 @@ A row of any other shape is **custom**: a raster image, a third text, a nested b
 - **A row:** a flex row, 52 pt tall at least.
   - It starts at the text: 16 pt in, or 56 pt after a leading symbol. The symbol is pulled into the margin (`margin-left: -40`).
   - Its 1-pt separator is its bottom border, and it overlaps the next row by that width (`margin-bottom: -1`). The group clips away the last row's separator, so no row needs to know it is last, even under `each`.
+- **Precedence:** the sheet's rows go under the element's classes and its own attributes. The rewrite marks them (`ua:`, a name no author can write), and the lowering takes them out before it expands classes (`grouped::split`).
+- **The inset follows a leading symbol shown by a condition** (`margin-left` becomes a choice on that `when`). A `match` or `each` in first place is styled as no symbol.
+- **A plain list's sections have no margins.** A header or footer holds exactly one `text`.
 - **The parts:** 17 pt label colour, red when `destructive` (a bound `destructive` becomes a choice); the value and subtitle in the secondary colour; the accessory's size and colour; a subtitle stack's 15-pt padding. A `when` is read through.
 
 Colours are `light-dark()` pairs of §2's values.
 
 **D8. The agent.**
 - `tap` on a row UIKit draws is the cell's own selection (`delivery: host-activation`, `native: grouped-list`).
-- `tap` on a detail button presses it.
-- `tap` on a toggle's control is the control host's, as before (`native: control`).
+- `tap` on a toggle's control flips the cell's switch, and `tap` on a detail button is the accessory's action.
+- Each is refused, having done nothing, when the cell is outside the list's port or something covers its middle, as a finger would miss it. The generic viewport check, which reads the hidden row's place, is skipped for nodes a grouped list draws.
+- A wheel over the list scrolls the collection view.
 - `layout <list>` reports `groupedList: {view: UICollectionView, listStyle, sections, rows, offset, content, insets}`, and a row reports its cell and accessory.
 - The inspection walk (LLP 1080.001 D3) accounts for the collection view (`grouped-list`), names this host as the hider of the authored rows, and skips a carried row as projected.
 
@@ -135,6 +139,7 @@ Colours are `light-dark()` pairs of §2's values.
 - **A custom row's width is the kernel's.** In a wider UIKit layout margin (an iPad, landscape), its views keep the sheet's 16-pt inset, while UIKit's own cells follow the margin.
 - **The large-title collapse (LLP 1075.003 §3.7) does not follow a grouped list.** It follows the route's authored scroll, which this list hides. The route's `setContentScrollView` would need to be the collection view (§7).
 - **Swipe actions (`swipeContent`) on a grouped list's rows are not projected into its cells.**
+- **The list's scroll position is UIKit's.** An authored `scrollTop` write still goes to the hidden scroll, and the collection view reports no `scroll` event. The kernel's content height is the sheet's, not UIKit's, so mirroring one offset onto the other would be wrong at both ends. A settings screen needs neither. The agent's wheel scrolls the collection view (D8). A consumer that needs a position gets it designed then.
 
 ## 5. Scope
 

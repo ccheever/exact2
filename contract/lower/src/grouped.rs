@@ -87,12 +87,37 @@ pub(crate) fn style(tag: &str, attrs: &[Attr]) -> Result<Option<&'static str>, L
     }
 }
 
+/// A sheet row's name mark: the lowering takes marked rows out before an
+/// element's classes and puts them under them (`split`), so a class, like an
+/// attribute, replaces the sheet. No authored name can carry it.
+const MARK: &str = "ua:";
+
 fn attr(name: &str, value: Expr, span: Span) -> Attr {
     Attr {
-        name: name.into(),
+        name: format!("{MARK}{name}"),
         value,
         span,
     }
+}
+
+/// An element's sheet rows, unmarked, and its other attributes when it has
+/// any sheet rows.
+pub(crate) fn split(attrs: &[Attr]) -> (Vec<Attr>, Option<Vec<Attr>>) {
+    if !attrs.iter().any(|a| a.name.starts_with(MARK)) {
+        return (Vec::new(), None);
+    }
+    let (sheet, rest): (Vec<Attr>, Vec<Attr>) = attrs
+        .iter()
+        .cloned()
+        .partition(|a| a.name.starts_with(MARK));
+    let sheet = sheet
+        .into_iter()
+        .map(|a| Attr {
+            name: a.name[MARK.len()..].to_owned(),
+            ..a
+        })
+        .collect();
+    (sheet, Some(rest))
 }
 fn s(name: &str, value: &str, span: Span) -> Attr {
     attr(name, Expr::Str(value.into(), span), span)
@@ -109,10 +134,11 @@ pub(crate) fn list_rows(style: &'static str, span: Span) -> Vec<Attr> {
     } else {
         GROUPED_BACKGROUND
     };
-    vec![
+    split(&[
         s("background-color", background, span),
         s("listStyle", style, span),
-    ]
+    ])
+    .0
 }
 
 /// The list's children with the sheet written into them: each `section`'s
@@ -123,7 +149,8 @@ pub(crate) fn sections(style: &'static str, children: &[Node]) -> Result<Vec<Nod
         .iter()
         .enumerate()
         .map(|(i, child)| {
-            let first = i == 0 && matches!(child, Node::Element { .. });
+            // Under `each` every section shares one body: none is first.
+            let first = i == 0 && !matches!(child, Node::Each { .. });
             over(child, &mut |node| section(style, node, first))
         })
         .collect()
@@ -245,15 +272,37 @@ fn section(style: &'static str, node: &Node, first: bool) -> Result<Node, LowerE
             stray,
         );
     }
+    // UIKit draws a header or footer as one text.
+    for label in children[..head]
+        .iter()
+        .chain(&children[children.len() - tail..])
+    {
+        if let Node::Element {
+            tag,
+            children,
+            span,
+            ..
+        } = label
+        {
+            if !matches!(children.as_slice(), [only] if is(only, "text")) {
+                return err(
+                    "lower-grouped-list",
+                    format!("a section's `{tag}` holds one `text`, the words UIKit draws there"),
+                    *span,
+                );
+            }
+        }
+    }
     let inset = style == "inset-grouped";
     // UIKit opens an inset or grouped list whose first section has no
-    // header with a deeper gap.
-    let top = match (head == 1, first && style != "plain") {
+    // header with a deeper gap; a plain list's sections meet.
+    let plain = style == "plain";
+    let top = match (head == 1 || plain, first) {
         (true, _) => 0.0,
         (false, true) => FIRST_GAP,
         (false, false) => SECTION_GAP,
     };
-    let bottom = if tail == 1 { 0.0 } else { SECTION_GAP };
+    let bottom = if tail == 1 || plain { 0.0 } else { SECTION_GAP };
     let mut sheet = vec![n("margin-top", top, span), n("margin-bottom", bottom, span)];
     sheet.extend(attrs.iter().cloned());
     let label = |node: &Node, footer: bool| -> Node {
@@ -426,17 +475,36 @@ fn row(node: &Node) -> Node {
             ),
         }
     };
-    let icon = children
-        .first()
-        .and_then(symbol)
-        .is_some_and(|name| accessory(name).is_none());
+    // The row starts at its text: after a leading symbol, a symbol shown
+    // by a condition included, as `part` styles it.
+    fn inset(first: Option<&Node>, span: Span) -> Expr {
+        match first {
+            Some(Node::When {
+                cond,
+                then,
+                otherwise,
+                ..
+            }) => Expr::Ternary(
+                Box::new(cond.clone()),
+                Box::new(inset(then.first(), span)),
+                Box::new(inset(otherwise.first(), span)),
+                span,
+            ),
+            other => {
+                let icon = other
+                    .and_then(symbol)
+                    .is_some_and(|name| accessory(name).is_none());
+                Expr::Number(if icon { 56.0 } else { 16.0 }, span)
+            }
+        }
+    }
     let sheet = vec![
         s("display", "flex", span),
         s("flex-direction", "row", span),
         s("align-items", "center", span),
         n("gap", 8.0, span),
         n("min-height", 52.0, span),
-        n("margin-left", if icon { 56.0 } else { 16.0 }, span),
+        attr("margin-left", inset(children.first(), span), span),
         n("padding-right", 16.0, span),
         n("border-bottom-width", 1.0, span),
         s("border-bottom-style", "solid", span),
@@ -448,10 +516,19 @@ fn row(node: &Node) -> Node {
     ];
     let mut texts = 0;
     let last = children.len().saturating_sub(1);
+    let stack = text_stack(children);
     let parts = children
         .iter()
         .enumerate()
-        .map(|(i, child)| part(child, i, last, &mut texts, &tint))
+        .map(|(i, child)| {
+            let at = Place {
+                i,
+                last,
+                stack,
+                tint: &tint,
+            };
+            part(child, at, &mut texts)
+        })
         .collect();
     let Node::Element {
         tag,
@@ -478,13 +555,23 @@ fn row(node: &Node) -> Node {
 /// A row's part at `i` of `last + 1`: a leading icon, a trailing
 /// accessory, the title and its value, a subtitle stack. A `when` is read
 /// through, so a checkmark shown by a condition is styled as one.
-fn part(
-    child: &Node,
+#[derive(Clone, Copy)]
+struct Place<'a> {
     i: usize,
     last: usize,
-    texts: &mut usize,
-    tint: &dyn Fn(&str) -> Expr,
-) -> Node {
+    /// Whether a `column` here is the row's text stack (`text_stack`).
+    stack: bool,
+    tint: &'a dyn Fn(&str) -> Expr,
+}
+
+fn part(child: &Node, at: Place<'_>, texts: &mut usize) -> Node {
+    let Place {
+        i,
+        last,
+        stack,
+        tint,
+    } = at;
+    let place = at;
     if let Node::When {
         cond,
         then,
@@ -493,18 +580,36 @@ fn part(
     } = child
     {
         let start = *texts;
-        let then: Vec<Node> = then.iter().map(|c| part(c, i, last, texts, tint)).collect();
+        let then: Vec<Node> = then.iter().map(|c| part(c, place, texts)).collect();
         let after_then = *texts;
         *texts = start;
-        let otherwise: Vec<Node> = otherwise
-            .iter()
-            .map(|c| part(c, i, last, texts, tint))
-            .collect();
-        *texts = (*texts).max(after_then);
+        let otherwise: Vec<Node> = otherwise.iter().map(|c| part(c, place, texts)).collect();
+        // A text after the condition is the title unless both arms wrote one.
+        *texts = (*texts).min(after_then);
         return Node::When {
             cond: cond.clone(),
             then,
             otherwise,
+            span: *span,
+        };
+    }
+    if let Node::Match {
+        subject,
+        some,
+        none,
+        span,
+    } = child
+    {
+        let start = *texts;
+        let arm: Vec<Node> = some.1.iter().map(|c| part(c, place, texts)).collect();
+        let after_some = *texts;
+        *texts = start;
+        let none: Vec<Node> = none.iter().map(|c| part(c, place, texts)).collect();
+        *texts = (*texts).min(after_some);
+        return Node::Match {
+            subject: subject.clone(),
+            some: (some.0.clone(), arm),
+            none,
             span: *span,
         };
     }
@@ -550,9 +655,30 @@ fn part(
                 with(child, vec![s("color", SECONDARY, at)])
             }
         }
-        ("column", _) => subtitle(child),
+        ("column", _) if stack => subtitle(child),
         _ => child.clone(),
     }
+}
+
+/// Whether a row's parts are a leading symbol, one `column` of one or two
+/// texts and a trailing accessory at most: the subtitle cell the kernel
+/// reads. A `column` in any other row is the author's.
+fn text_stack(children: &[Node]) -> bool {
+    let mut rest = children;
+    if let Some((first, after)) = rest.split_first() {
+        if symbol(first).is_some_and(|n| accessory(n).is_none()) {
+            rest = after;
+        }
+    }
+    if let Some((last, before)) = rest.split_last() {
+        let trailing = symbol(last).is_some_and(|n| accessory(n).is_some())
+            || matches!(last, Node::Element { tag, .. } if tag == "input" || tag == "button");
+        if trailing {
+            rest = before;
+        }
+    }
+    matches!(rest, [Node::Element { tag, children, .. }]
+        if tag == "column" && (1..=2).contains(&children.len()) && children.iter().all(|c| is(c, "text")))
 }
 
 /// A title over a subtitle: UIKit's subtitle cell, 15 above and below, the

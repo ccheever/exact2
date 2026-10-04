@@ -227,3 +227,98 @@ fn a_grouped_list_holds_sections_and_a_section_its_texts_at_its_ends() {
     let r = boot("list testId=\"plain\" flex=1\n  text \"x\"");
     assert_eq!(r.kernel().grouped_list(id(&r, "plain")), None);
 }
+
+#[test]
+fn a_class_replaces_the_sheet_as_an_attribute_does() {
+    let src = app("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go class=Tall testId=\"tall\"\n      text \"Tall\"");
+    let src = format!("style Tall\n  min-height=80\n{src}");
+    let plan = contract::bake(contract::compile(&src).unwrap(), NoData).unwrap();
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let k = r.kernel_mut();
+    let root = k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id;
+    k.compute_layout(root, Offer::definite(402.0, 874.0))
+        .unwrap();
+    assert_eq!(
+        k.node_by_key(k.find_by_test_id("tall")[0])
+            .unwrap()
+            .frame
+            .height,
+        81.0,
+        "the class's 80 and the separator"
+    );
+}
+
+#[test]
+fn a_symbol_under_a_condition_moves_the_text_with_it() {
+    let mut r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      when dark\n        image \"symbol:person\"\n      text \"Profile\"");
+    let x = |r: &Runner<NoData>| r.kernel().node(id(r, "row")).unwrap().frame.x;
+    assert_eq!(x(&r), 32.0, "no symbol: 16 into the group");
+    let row = id(&r, "row");
+    r.dispatch(row, exact_runner::Event::Press).unwrap();
+    let k = r.kernel_mut();
+    let root = k.node_by_key(k.find_by_test_id("root")[0]).unwrap().id;
+    k.compute_layout(root, Offer::definite(402.0, 874.0))
+        .unwrap();
+    assert_eq!(x(&r), 72.0, "the symbol shown: the text after it");
+    assert_eq!(
+        r.kernel().grouped_list(id(&r, "list")).unwrap().sections[0].rows[0]
+            .symbol
+            .as_deref(),
+        Some("person.crop.circle")
+    );
+}
+
+#[test]
+fn hidden_parts_and_a_row_of_texts_are_read_as_the_web_shows_them() {
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"pair\"\n      row\n        text \"A\"\n        text \"B\"\n    row display=\"none\"\n      text \"Hidden\"\n  section display=\"none\"\n    row\n      text \"Gone\"");
+    let list = r.kernel().grouped_list(id(&r, "list")).unwrap();
+    assert_eq!(list.sections.len(), 1, "a hidden section is none");
+    assert_eq!(list.sections[0].rows.len(), 1, "a hidden row is none");
+    assert!(
+        list.sections[0].rows[0].custom,
+        "two texts in a `row` are the row's own layout, not a subtitle"
+    );
+}
+
+#[test]
+fn a_plain_lists_sections_meet_and_a_label_is_one_text() {
+    let r = boot("list appearance=\"auto\" listStyle=\"plain\" testId=\"list\" flex=1\n  section testId=\"a\"\n    button press=go\n      text \"A\"\n  section testId=\"b\"\n    button press=go\n      text \"B\"");
+    let k = r.kernel();
+    let (a, b) = (
+        k.node(id(&r, "a")).unwrap().frame,
+        k.node(id(&r, "b")).unwrap().frame,
+    );
+    assert_eq!(b.y, a.y + a.height, "no gap");
+    assert!(refused(
+        "list appearance=\"auto\"\n  section\n    footer\n      text \"a\"\n      text \"b\""
+    )
+    .contains("one `text`"));
+}
+
+#[test]
+fn a_conditional_text_and_an_authors_column_are_styled_as_the_kernel_reads_them() {
+    let r = boot("list appearance=\"auto\" testId=\"list\" flex=1\n  section\n    button press=go testId=\"row\"\n      when dark\n        text \"New\"\n      text \"Notifications\" testId=\"title\"\n    button press=go testId=\"card\"\n      row width=40 height=40\n      column testId=\"stack\"\n        text \"Maya\"\n        text \"+1 415\"");
+    let k = r.kernel();
+    let list = k.grouped_list(id(&r, "list")).unwrap();
+    assert_eq!(
+        list.sections[0].rows[0].title.as_deref(),
+        Some("Notifications")
+    );
+    assert_eq!(
+        k.node(id(&r, "title")).unwrap().style.flex_grow,
+        1.0,
+        "styled as the title it is while `dark` is false"
+    );
+    assert!(list.sections[0].rows[1].custom);
+    assert!(
+        k.node(id(&r, "stack")).unwrap().frame.height < 50.0,
+        "two lines and no subtitle padding (30 more) in a custom row's column"
+    );
+}

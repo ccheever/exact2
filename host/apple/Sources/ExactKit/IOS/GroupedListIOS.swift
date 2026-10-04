@@ -97,17 +97,39 @@ final class GroupedListHost {
         return nil
     }
 
+    /// Whether a list draws `id` (a row, or a row's toggle or detail
+    /// button): the agent finds it in UIKit's cell, not the hidden row.
+    func draws(_ id: UInt32) -> Bool { list(drawing: id) != nil }
+
     /// The agent's `tap` on a row UIKit draws: the cell's own selection, as a
-    /// finger's; on a detail button, its accessory's action. Nil for any node
-    /// this host does not draw (a toggle's control is the control host's).
-    func activate(_ node: NodeView) -> Bool? {
-        guard let (list, row) = list(drawing: node.id), list.collection.window != nil else { return nil }
-        if row.view != node.id {
-            guard row.accessory == "detail", !row.disabled else { return nil }
-            presenter.press(node.id)
-            return true
+    /// finger's; on a toggle's control, its switch's flip; on a detail
+    /// button, its accessory's action. Refused, having done nothing, when
+    /// the cell is off the list's port or something covers its middle. Nil
+    /// for any node this host does not draw.
+    func activate(_ node: NodeView) -> [String: Any]? {
+        guard let (list, row) = list(drawing: node.id) else { return nil }
+        let id = Int(node.id)
+        guard let cell = list.cell(row.view), let window = cell.window,
+              list.collection.bounds.intersects(cell.frame) else {
+            return ["error": "tap #\(id): its cell is outside the list's port; a finger would scroll it into view first"]
         }
-        return list.select(row.view)
+        let middle = cell.convert(CGPoint(x: cell.bounds.midX, y: cell.bounds.midY), to: window)
+        guard list.collection.convert(list.collection.bounds, to: window).contains(middle),
+              let hit = window.hitTest(middle, with: nil), hit === cell || hit.isDescendant(of: cell) else {
+            return ["error": "tap #\(id): something covers its cell's middle"]
+        }
+        let at = presenter.viewport.convert(middle, from: nil)
+        let reply: [String: Any] = ["tapped": id, "at": [Agent.r2(at.x), Agent.r2(at.y - presenter.viewport.contentOffset.y)],
+                                    "delivery": "host-activation", "native": "grouped-list"]
+        if row.view != node.id, row.accessory == "toggle" {
+            guard list.toggle(row.view) else { return ["error": "tap #\(id): the switch is disabled"] }
+            return reply
+        }
+        if row.view != node.id {
+            guard list.detail(row.view) else { return ["error": "tap #\(id): the detail button is disabled"] }
+            return reply
+        }
+        return list.select(row.view) ? reply : ["error": "tap #\(id): the row is disabled or not a button"]
     }
 
     /// `layout <id>`'s native fields for a list or a row it draws.
@@ -145,11 +167,16 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
     private var switches: [UInt32: UISwitch] = [:]
     /// Custom rows: where the presenter put each, to give it back.
     private(set) var carried: [UInt32: (parent: UIView, index: Int, frame: CGRect)] = [:]
+    /// The order they were carried in: given back last first, each index
+    /// is where it was before the ones carried after it left.
+    private var carriedOrder: [UInt32] = []
+    /// A custom cell's height changed since the list was last laid out.
+    private var resized = false
     private var scrollWasHidden = false
 
     init(owner: NodeView, host: GroupedListHost) {
         self.owner = owner; self.host = host
-        collection = UICollectionView(frame: owner.bounds, collectionViewLayout: UICollectionViewFlowLayout())
+        collection = GroupedCollectionView(frame: owner.bounds, collectionViewLayout: UICollectionViewFlowLayout())
         super.init()
         collection.setCollectionViewLayout(layout(), animated: false)
         collection.delegate = self
@@ -244,13 +271,10 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         }
         assign(collection, \.frame, owner.bounds)
         for cell in collection.visibleCells { if let cell = cell as? GroupedCell, let id = cell.row { carry(id, into: cell) } }
-        // A switch shows its control's committed `checked`, which a batch
-        // may change without changing the row.
-        for (id, toggle) in switches {
-            guard let target = rows[id]?.target, let node = host.presenter.views[target] else { continue }
-            let on = node.props["checked"] == "true"
-            if toggle.isOn != on { toggle.setOn(on, animated: toggle.window != nil && !ExactEnv.agentFreezes) }
-        }
+        // A switch shows its control as it now stands, which a batch may
+        // change without changing the row.
+        for (id, toggle) in switches { refresh(id, toggle) }
+        if resized { resized = false; collection.collectionViewLayout.invalidateLayout() }
     }
 
     func cell(_ id: UInt32) -> UICollectionViewCell? {
@@ -291,41 +315,64 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         case "disclosure": return [.disclosureIndicator()]
         case "checkmark": return [.checkmark()]
         case "detail":
-            guard let target = row.target else { return [] }
-            return [.detail(displayed: .always) { [weak self] in
-                guard let self, !row.disabled, host.presenter.views[target] != nil else { return }
-                host.presenter.press(target)
-            }]
+            let id = row.view
+            return [.detail(displayed: .always) { [weak self] in _ = self?.detail(id) }]
         case "toggle":
-            guard let target = row.target else { return [] }
-            let toggle = switches[row.view] ?? {
+            let id = row.view
+            let toggle = switches[id] ?? {
                 let s = UISwitch()
                 s.addAction(UIAction { [weak self, weak s] _ in
                     guard let self, let s else { return }
-                    flip(target, s)
+                    flip(id, s)
                 }, for: .valueChanged)
-                switches[row.view] = s
+                switches[id] = s
                 return s
             }()
-            let node = host.presenter.views[target]
-            let on = node?.props["checked"] == "true"
-            if toggle.isOn != on { toggle.setOn(on, animated: toggle.window != nil) }
-            assign(toggle, \.isEnabled, !(row.disabled || node?.disabled == true))
-            assign(toggle, \.onTintColor, node?.channels("accent_color").map { TextEngine.color($0) })
-            toggle.accessibilityIdentifier = node?.props["testId"]
+            refresh(id, toggle)
+            // A custom-view accessory takes a view with no superview, and a
+            // reconfigured cell builds its accessories again.
+            toggle.removeFromSuperview()
             return [.customView(configuration: .init(customView: toggle, placement: .trailing()))]
         default: return []
         }
     }
 
-    /// The switch flips the authored control's `checked`, as that control
-    /// does (LLP 1069.001 D4): the committed state is authoritative.
-    private func flip(_ target: UInt32, _ toggle: UISwitch) {
-        guard host.presenter.views[target] != nil else { return }
+    /// A row's switch as its control now stands: the row's current target
+    /// (a `when` may have replaced it), its committed `checked`, whether it
+    /// or the row is disabled, its accent and name.
+    private func refresh(_ id: UInt32, _ toggle: UISwitch) {
+        let node = rows[id]?.target.flatMap { host.presenter.views[$0] }
+        let on = node?.props["checked"] == "true"
+        if toggle.isOn != on { toggle.setOn(on, animated: toggle.window != nil && !ExactEnv.agentFreezes) }
+        assign(toggle, \.isEnabled, node != nil && rows[id]?.disabled == false && node?.disabled == false && node?.inert == false)
+        assign(toggle, \.onTintColor, node?.channels("accent_color").map { TextEngine.color($0) })
+        assign(toggle, \.accessibilityIdentifier, node?.props["testId"])
+    }
+
+    /// The switch flips the row's current control's `checked`, as that
+    /// control does (LLP 1069.001 D4): the committed state is authoritative.
+    private func flip(_ id: UInt32, _ toggle: UISwitch) {
+        guard let target = rows[id]?.target, let node = host.presenter.views[target],
+              rows[id]?.disabled == false, !node.disabled, !node.inert else { refresh(id, toggle); return }
         host.presenter.checked(target, toggle.isOn)
-        if let committed = host.presenter.views[target]?.props["checked"].map({ $0 == "true" }), toggle.isOn != committed {
-            toggle.setOn(committed, animated: true)
-        }
+        refresh(id, toggle)
+    }
+
+    /// The agent's tap on a row's switch: what a finger's flip does.
+    func toggle(_ id: UInt32) -> Bool {
+        guard let s = switches[id], s.isEnabled else { return false }
+        s.setOn(!s.isOn, animated: false)
+        s.sendActions(for: .valueChanged)
+        return true
+    }
+
+    /// The detail button's press, the row's current button, unless it or
+    /// the row is disabled.
+    func detail(_ id: UInt32) -> Bool {
+        guard let row = rows[id], row.accessory == "detail", !row.disabled, let target = row.target,
+              let node = host.presenter.views[target], !node.disabled, !node.inert else { return false }
+        host.presenter.press(target)
+        return true
     }
 
     /// A custom row's own views in its cell, at the row's place in its
@@ -335,11 +382,14 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         for case let other as NodeView in cell.contentView.subviews where other !== row { other.removeFromSuperview() }
         if carried[id] == nil, let parent = row.superview {
             carried[id] = (parent, parent.subviews.firstIndex(of: row) ?? 0, row.frame)
+            carriedOrder.append(id)
         }
         guard let place = carried[id] else { return }
         let separator = CGFloat(row.style["border_width_bottom"]?.number ?? 0)
         let height = max(0, place.frame.height - separator)
-        if cell.height != height { cell.height = height; collection.collectionViewLayout.invalidateLayout() }
+        // Never invalidated here: a cell is configured inside the data
+        // source's update; `mount` lays the list out after it.
+        if cell.height != height { cell.height = height; resized = true }
         cell.contentView.clipsToBounds = true
         if row.superview !== cell.contentView { cell.contentView.addSubview(row) }
         row.frame = CGRect(origin: CGPoint(x: place.frame.minX, y: 0), size: place.frame.size)
@@ -347,12 +397,13 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
 
     /// Every carried row back in its authored place.
     func restore() {
-        for (id, place) in carried {
-            guard let row = host.presenter.views[id] else { continue }
+        for id in carriedOrder.reversed() {
+            guard let place = carried[id], let row = host.presenter.views[id] else { continue }
             if row.superview !== place.parent { place.parent.insertSubview(row, at: min(place.index, place.parent.subviews.count)) }
             row.frame = place.frame
         }
         carried.removeAll()
+        carriedOrder.removeAll()
     }
 
     func remove() {
@@ -382,6 +433,9 @@ final class GroupedListView: NSObject, UICollectionViewDelegate {
         host.presenter.press(id)
     }
 }
+
+/// A grouped list's collection view, by type, for the agent's wheel.
+final class GroupedCollectionView: UICollectionView {}
 
 /// A list cell; a custom row's is as tall as its carried views.
 final class GroupedCell: UICollectionViewListCell {

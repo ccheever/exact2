@@ -102,9 +102,16 @@ final class GroupedListIOSTests: XCTestCase {
         _ = try cell(p, 10)
         XCTAssertTrue(l.collectionView(l.collection, shouldHighlightItemAt: IndexPath(item: 0, section: 0)))
         XCTAssertFalse(l.collectionView(l.collection, shouldHighlightItemAt: IndexPath(item: 2, section: 0)), "a `row` is not a button")
-        XCTAssertEqual(p.groupedLists.activate(try XCTUnwrap(p.views[10])), true)
+        XCTAssertEqual(p.groupedLists.activate(try XCTUnwrap(p.views[10]))?["native"] as? String, "grouped-list")
         XCTAssertEqual(pressed, [10])
-        XCTAssertEqual(p.groupedLists.activate(try XCTUnwrap(p.views[12])), false, "nothing to press")
+        XCTAssertNotNil(p.groupedLists.activate(try XCTUnwrap(p.views[12]))?["error"], "nothing to press")
+        XCTAssertEqual(pressed, [10])
+        XCTAssertTrue(p.groupedLists.draws(10) && p.groupedLists.draws(13), "a row and its toggle's control")
+        // Scrolled away, a row is refused as a finger would miss it.
+        l.collection.contentInset.bottom = 2000
+        l.collection.setContentOffset(CGPoint(x: 0, y: 1500), animated: false)
+        l.collection.layoutIfNeeded()
+        XCTAssertNotNil(p.groupedLists.activate(try XCTUnwrap(p.views[10]))?["error"])
         XCTAssertEqual(pressed, [10])
     }
 
@@ -122,6 +129,34 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertEqual(flips.map(\.0), [13])
         XCTAssertEqual(flips.map(\.1), [false])
         XCTAssertTrue(s.isOn, "the committed state is authoritative: nothing committed it")
+        // The agent's tap on the control flips the switch the cell shows.
+        XCTAssertEqual(p.groupedLists.activate(try XCTUnwrap(p.views[13]))?["native"] as? String, "grouped-list")
+        XCTAssertEqual(flips.map(\.1), [false, false])
+    }
+
+    func testASwitchFollowsItsControlsStateAndTarget() throws {
+        var target: UInt32 = 13
+        let p = presenter {
+            var m = self.model()
+            m.sections[0].rows[2].target = target
+            return m
+        }
+        var flips: [UInt32] = []
+        p.onChecked = { id, _ in flips.append(id) }
+        let s = try XCTUnwrap(switches(try cell(p, 12)).first)
+        p.apply(wireBatch([["op": "props", "id": 13, "set": ["disabled": "true"], "clear": [String]()]]))
+        XCTAssertFalse(s.isEnabled, "the control disabled: the switch too, though the row is unchanged")
+        XCTAssertNotNil(p.groupedLists.activate(try XCTUnwrap(p.views[13]))?["error"])
+        p.apply(wireBatch([["op": "props", "id": 13, "set": [String: String](), "clear": ["disabled"]]]))
+        XCTAssertTrue(s.isEnabled)
+        // A `when` replaced the control: the same switch flips the new one.
+        target = 14
+        p.apply(wireBatch([["op": "create", "id": 14, "kind": "control", "props": ["type": "checkbox", "accessibilityRole": "switch"], "handlers": ["input"], "style": [:]],
+                           ["op": "children", "id": 12, "ids": [14]], ["op": "destroy", "id": 13]]))
+        XCTAssertFalse(s.isOn, "the new control's `checked`")
+        s.setOn(true, animated: false)
+        s.sendActions(for: .valueChanged)
+        XCTAssertEqual(flips, [14])
     }
 
     private func switches(_ view: UIView) -> [UISwitch] {
@@ -140,6 +175,22 @@ final class GroupedListIOSTests: XCTestCase {
         XCTAssertTrue(row.superview === p.views[5]?.container, "back where the presenter put it")
         XCTAssertEqual(row.frame, CGRect(x: 16, y: 52, width: 354, height: 61))
         XCTAssertFalse(p.groupedLists.projects(row))
+    }
+
+    func testCustomRowsGoBackInTheirOrder() throws {
+        let p = presenter {
+            var m = self.model(custom: true)
+            m.sections[0].rows[0] = Row(view: 10, custom: true, pressable: true)
+            m.sections[0].rows[2] = Row(view: 12, custom: true)
+            m.sections[1].rows[0] = Row(view: 20, custom: true, pressable: true)
+            return m
+        }
+        for id: UInt32 in [10, 12, 20, 21] { _ = try cell(p, id) }
+        XCTAssertTrue(p.views[10]?.superview !== p.views[4]?.container, "carried")
+        p.groupedLists.prepare()
+        let order = { (id: UInt32) in p.views[id]?.container.subviews.compactMap { ($0 as? NodeView)?.id } }
+        XCTAssertEqual(order(4), [10, 11, 12], "the standard row between them keeps its place")
+        XCTAssertEqual(order(5), [20, 21])
     }
 
     func testABatchUpdatesTheRowsAndAGoneListGoes() throws {

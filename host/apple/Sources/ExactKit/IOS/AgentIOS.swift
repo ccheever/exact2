@@ -405,7 +405,7 @@ extension Agent {
         if let reply = touchForm(req) { return reply }
         if view(req)?.placedAncestor?.placementHidden == true { return ["error": "placed child is hidden"] }
         if req["phase"] == nil, req["wheel"] == nil,
-           let node = view(req), node.isDescendant(of: presenter.viewport) {
+           let node = view(req), node.isDescendant(of: presenter.viewport), !presenter.groupedLists.draws(node.id) {
             guard let point = tapPoint(req, node: node) else {
                 return ["error": "tap #\(req["id"] ?? node.id): no visible text fragment; scroll it into view first"]
             }
@@ -447,6 +447,11 @@ extension Agent {
         }
         if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
+           let reply = presenter.groupedLists.activate(node) {
+            return reply
+        }
+        if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
+           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
            let activated = presenter.controls.activate(node) {
             if let unsupported = presenter.controls.unopened(node) { return unsupported }
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "control"]
@@ -457,12 +462,6 @@ extension Agent {
            let activated = presenter.segments.activate(node) {
             return activated ? ["tapped": id, "delivery": "host-activation", "native": "segmented-control"]
                 : ["error": "native segment #\(id) is unavailable"]
-        }
-        if let id = req["id"] as? Int, let node = presenter.views[UInt32(id)],
-           req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil,
-           let activated = presenter.groupedLists.activate(node) {
-            return activated ? ["tapped": id, "delivery": "host-activation", "native": "grouped-list"]
-                : ["error": "grouped-list row #\(id) is disabled or not pressable"]
         }
         if let id = req["id"] as? Int, presenter.swipeActions.ownsAction(UInt32(id)),
            req["wheel"] == nil, req["hover"] == nil, req["contextmenu"] == nil, req["dblclick"] == nil {
@@ -604,17 +603,20 @@ extension Agent {
         var v: UIView? = hit
         while let cur = v {
             // A waiting scroll (a closed swipe row's) scrolls as the wheel asks.
-            var target = cur as? ScrollView
+            var target: UIScrollView? = cur as? ScrollView
             if let waiting = cur as? NodeView, waiting.scrollDormant { waiting.needScroll(); target = waiting.scroll }
+            // A grouped list's collection view scrolls in its place (LLP 1082 D8).
+            if target == nil, cur is GroupedCollectionView { target = cur as? UIScrollView }
             if let sv = target {
+                let scrollsX = (sv as? ScrollView)?.scrollsX ?? false, scrollsY = (sv as? ScrollView)?.scrollsY ?? true
                 // Native bars and keyboard avoidance can make the resting
                 // start negative. Their insets are part of the usable range.
                 let i = sv.adjustedContentInset
                 let minX = -i.left, minY = -i.top
                 let maxX = max(minX, sv.contentSize.width + i.right - sv.bounds.width), maxY = max(minY, sv.contentSize.height + i.bottom - sv.bounds.height)
                 let o = sv.contentOffset
-                let takeX = sv.scrollsX && dx != 0 && maxX > minX && ((dx > 0 && o.x < maxX) || (dx < 0 && o.x > minX))
-                let takeY = sv.scrollsY && dy != 0 && maxY > minY && ((dy > 0 && o.y < maxY) || (dy < 0 && o.y > minY))
+                let takeX = scrollsX && dx != 0 && maxX > minX && ((dx > 0 && o.x < maxX) || (dx < 0 && o.x > minX))
+                let takeY = scrollsY && dy != 0 && maxY > minY && ((dy > 0 && o.y < maxY) || (dy < 0 && o.y > minY))
                 if takeX || takeY {
                     let target = CGPoint(x: takeX ? min(max(o.x + dx, minX), maxX) : o.x, y: takeY ? min(max(o.y + dy, minY), maxY) : o.y)
                     sv.setContentOffset(target, animated: false)

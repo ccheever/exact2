@@ -6,7 +6,7 @@
 //! data; any other row is custom, and the host carries its views.
 
 use crate::control::ControlKind;
-use crate::generated::{NodeType, PropId};
+use crate::generated::{Display, FlexDirection, NodeType, PropId};
 use crate::id::ViewId;
 use crate::kernel::{Kernel, NodeRef};
 
@@ -107,10 +107,12 @@ impl Kernel {
     pub fn grouped_list(&self, view: ViewId) -> Option<GroupedList> {
         let list = self.node(view)?;
         let style = list.props.str(PropId::ListStyle)?.to_owned();
+        // What `display: none` hides on the web is no section or row here.
         let nodes = |n: &NodeRef<'_>| -> Vec<NodeRef<'_>> {
             n.children()
                 .into_iter()
                 .filter_map(|id| self.node(id))
+                .filter(|c| c.style.display != Display::None)
                 .collect()
         };
         let label = |n: &NodeRef<'_>| nodes(n).iter().find_map(text_of);
@@ -142,11 +144,14 @@ impl Kernel {
             disabled: row.props.bool(PropId::Disabled) == Some(true),
             ..GroupedRow::default()
         };
-        let parts: Vec<NodeRef<'_>> = row
-            .children()
-            .into_iter()
-            .filter_map(|id| self.node(id))
-            .collect();
+        let shown = |n: &NodeRef<'_>| -> Vec<NodeRef<'_>> {
+            n.children()
+                .into_iter()
+                .filter_map(|id| self.node(id))
+                .filter(|c| c.style.display != Display::None)
+                .collect()
+        };
+        let parts = shown(row);
         let accessory = |apple: &str| match apple {
             "chevron.forward" | "chevron.right" => Some(Accessory::Disclosure),
             "checkmark" => Some(Accessory::Checkmark),
@@ -193,12 +198,14 @@ impl Kernel {
                 out.title = text_of(title);
                 out.secondary = text_of(value);
             }
-            [stack] if stack.node_type == NodeType::View => {
-                let lines: Vec<NodeRef<'_>> = stack
-                    .children()
-                    .into_iter()
-                    .filter_map(|id| self.node(id))
-                    .collect();
+            // A `column`, as Contract's sheet styles one; a `row` or a box
+            // of texts is the row's own layout.
+            [stack]
+                if stack.node_type == NodeType::View
+                    && stack.style.display == Display::Flex
+                    && stack.style.flex_direction == FlexDirection::Column =>
+            {
+                let lines = shown(stack);
                 if lines.iter().all(|l| l.node_type == NodeType::Text)
                     && (1..=2).contains(&lines.len())
                 {
