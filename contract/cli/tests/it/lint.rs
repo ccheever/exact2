@@ -122,6 +122,26 @@ fn bake_refuses_a_pressable_with_zero_area() {
     }
 }
 
+/// Ledger2 Rough 4: an absolutely positioned button is sized by its insets
+/// (a modal's backdrop, `inset=0`), so neither the compiler's check nor
+/// the bake's refuses it; a relatively positioned one with `inset` still has
+/// no size, and one with only `top` and `bottom` keeps its zero width.
+#[test]
+fn an_inset_sized_button_has_area() {
+    for attrs in [
+        "position=\"absolute\" inset=0",
+        "position=\"absolute\" top=0 bottom=0 left=0 right=0",
+        "position=(open ? \"absolute\" : \"sticky\") inset=0",
+    ] {
+        let src = format!("component A\n  state open = true\n  action close\n    open = false\n  view\n    column position=\"relative\" width=200 height=200\n      button press=close {attrs} background-color=\"rgba(0,0,0,0.4)\" testId=\"backdrop\"\n");
+        let plan = contract::compile(&src).unwrap_or_else(|e| panic!("{attrs}: {e}"));
+        contract::check(&plan).unwrap_or_else(|e| panic!("{attrs}: {e:?}"));
+    }
+    let e = contract::compile("component A\n  action close\n    let x = 1\n  view\n    button press=close position=\"relative\" inset=0\n")
+        .unwrap_err();
+    assert!(format!("{e}").contains("zero area"), "{e}");
+}
+
 /// The web's JS target bakes nothing; `contract::check` refuses there what
 /// every native bake would, before the page's module answers (files diary
 /// F13: a hidden shortcut button passed the web build and 21 web tests).
