@@ -194,9 +194,12 @@ it. A path from the command line, from Finder, from ⌘O, or from a link inside
 a document all arrive at the same place: the app's `open-file` node
 (LLP 1033 D3). `exact uninstall <app>` takes both halves away.
 
-Apple products and Swift caches live under the resolved app's target directory,
-scoped by canonical source directory, manifest id, destination, composition and
-trust policy. `--bundle` prints the stable Mac bundle at
+Apple products live under the resolved app's target directory, scoped by
+canonical source directory, manifest id, destination, composition and trust
+policy. The Swift host is compiled once per destination for every app, in
+`<target>/apple-swift/<destination>-<minimum OS>`; each app only links there,
+one at a time, and its executable is copied to its own products before the next
+app links (LLP 1036.000). `--bundle` prints the stable Mac bundle at
 `<target>/clients/<source-key>/<id>/macos/<Name>.app`; `scripts/exact.mjs`,
 `agent --app` and metrics use that same resolver. `--host` leaves both standalone
 and sample products; simulator and device bundles have separate destinations.

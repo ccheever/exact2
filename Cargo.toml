@@ -97,6 +97,11 @@ inherits = "release"
 lto = false
 codegen-units = 16
 incremental = true
+# Every dylib of a development build was already built unstripped (Xcode 27's
+# strip, above), each by an override that made its dependencies separate
+# units. Said once here, the archive, the GPU crate and the host's two
+# on-demand modules are one profile, and Cargo compiles what they share once.
+strip = false
 [profile.apple-dev.build-override]
 strip = false
 
