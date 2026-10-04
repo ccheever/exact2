@@ -386,10 +386,13 @@ test('the production server sends warm bodies compressed, with validators', asyn
   const glue = Buffer.from('export const glue = 1;\n'.repeat(2000)), page = '<!doctype html><title>x</title>' + '<p>page</p>'.repeat(200);
   writeFileSync(join(dir, 'index.html'), page); writeFileSync(join(dir, 'glue.js'), glue);
   writeFileSync(join(dir, 'app.wasm'), Buffer.alloc(4096, 7)); writeFileSync(join(dir, 'manifest.json'), '{}');
+  // A game's baked assets compress too (garden's art: 6.65 MiB -> 1.82 MiB gzip).
+  mkdirSync(join(dir, 'assets'), { recursive: true }); const model = Buffer.alloc(8192, 3);
+  writeFileSync(join(dir, 'assets/crop.model'), model); writeFileSync(join(dir, 'assets/0-srgb-straight.bc.tex'), Buffer.alloc(8192, 5));
   // A fresh resident reader: a timed-out test's cleanup can kill the shared one.
   closeFilesystemReader();
   const compression = compressionCache();
-  assert.equal(await warmCompression(dir, compression), 4);
+  assert.equal(await warmCompression(dir, compression), 6);
   const get = (server, path, headers = {}) => new Promise((done, fail) => {
     const req = httpRequest({ host: '127.0.0.1', port: server.address().port, path, headers }, res => {
       const chunks = []; res.on('data', c => chunks.push(c)); res.on('end', () => done({ status: res.statusCode, headers: res.headers, body: Buffer.concat(chunks) }));
@@ -403,6 +406,9 @@ test('the production server sends warm bodies compressed, with validators', asyn
     const br = await get(production, '/glue.js', { 'accept-encoding': 'gzip, br' });
     assert.equal(br.headers['content-encoding'], 'br'); assert.equal(br.headers.vary, 'Accept-Encoding');
     assert.ok(br.body.length < glue.length / 10); assert.deepEqual(brotliDecompressSync(br.body), glue);
+    const crop = await get(production, '/assets/crop.model', { 'accept-encoding': 'br' });
+    assert.equal(crop.headers['content-encoding'], 'br'); assert.equal(crop.headers['content-type'], 'application/vnd.exact.model');
+    assert.deepEqual(brotliDecompressSync(crop.body), model);
     const gz = await get(production, '/glue.js', { 'accept-encoding': 'gzip, br;q=0' });
     assert.equal(gz.headers['content-encoding'], 'gzip'); assert.deepEqual(gunzipSync(gz.body), glue);
     const identity = await get(production, '/glue.js', { 'accept-encoding': 'identity' });

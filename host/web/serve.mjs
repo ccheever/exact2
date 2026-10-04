@@ -652,6 +652,8 @@ export function webContentType(route) {
     '.mp4': 'video/mp4', '.webm': 'video/webm', '.vtt': 'text/vtt',
     '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
     '.svg': 'image/svg+xml', '.ttf': 'font/ttf', '.woff2': 'font/woff2', '.wgsl': 'text/wgsl',
+    // A game's baked assets (game/README "Assets"): binary, and compressible.
+    '.model': 'application/vnd.exact.model', '.tex': 'application/vnd.exact.texture',
   }[extname(route).toLowerCase()] ?? 'application/octet-stream';
 }
 
@@ -672,7 +674,8 @@ export function webCacheControl(found) {
 // the request path — the server warms its tree at startup — and a request that
 // arrives first gets the identity bytes. A variant no smaller is not kept.
 const COMPRESSIBLE = new Set(['application/wasm', 'text/javascript', 'text/css', 'text/html', 'application/json',
-  'application/manifest+json', 'application/vnd.exact.envelope+json', 'image/svg+xml', 'text/wgsl']);
+  'application/manifest+json', 'application/vnd.exact.envelope+json', 'image/svg+xml', 'text/wgsl',
+  'application/vnd.exact.model', 'application/vnd.exact.texture']);
 export function compressionCache(limit = 256 * 1024 * 1024) {
   const variants = new Map(), pending = new Map();
   let held = 0;
