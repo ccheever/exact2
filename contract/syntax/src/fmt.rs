@@ -6,7 +6,8 @@
 //! physical breaks remain, including comments and blank groups at file edges.
 
 use crate::{
-    parser::parse_tokens, spans::VisitSpans, Attr, File, Lexer, Node, Span, SyntaxError, Token, TokenKind, TypeExpr,
+    parser::parse_tokens, spans::VisitSpans, Attr, File, Lexer, Node, Span, SyntaxError, Token,
+    TokenKind, TypeExpr,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -260,7 +261,11 @@ impl<'a> Layout<'a> {
         }
         // A test step's numbers are signed literals, not arithmetic:
         // `drag 10 -4` (habits F5's sweep), and `size 1200x800` is one word.
-        for step in file.launch.iter().chain(file.tests.iter().flat_map(|t| &t.steps)) {
+        for step in file
+            .launch
+            .iter()
+            .chain(file.tests.iter().flat_map(|t| &t.steps))
+        {
             let Some(start) = self.position(step.span()) else {
                 continue;
             };

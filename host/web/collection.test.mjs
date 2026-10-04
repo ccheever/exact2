@@ -1298,6 +1298,16 @@ test('Arrange pointer-up during unaccepted geometry cancels once without losing 
   await evaluate('f.arrange.reset()');
   expect(r).toEqual({cancel:1,drop:0,rebase:1,finish:1,pin:0});
 });
+// habits F10: a touch is implicitly captured by the grip's child it lands on; taking capture to the grip bubbles that child's loss.
+test('Arrange touch on a grip\'s child drops once: the child\'s lost capture is not the release',async()=>{
+  const at=await evaluate(`(()=>{const f=(${arrangeFixture})(),g=document.createElement('div'),c=document.createElement('span');g.dataset.view='5';c.textContent='row';g.append(c);f.grip.replaceWith(g);f.views.set(5,f.grip=g);f.arrange.binding(f.binding);const r=c.getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2};})()`);
+  await protocol('Emulation.setTouchEmulationEnabled',{enabled:true,maxTouchPoints:1});
+  for(const [type,dy] of [['touchStart',0],['touchMove',-10],['touchMove',-30]])await protocol('Input.dispatchTouchEvent',{type,touchPoints:[{x:at.x,y:at.y+dy}]});
+  await protocol('Input.dispatchTouchEvent',{type:'touchEnd',touchPoints:[]});
+  const r=await evaluate(`(()=>{f.flush();return {drop:f.calls.filter(r=>r.op==='reorder-terminal').length,cancel:f.calls.filter(r=>r.op==='reorder-cancel').length};})()`);
+  await protocol('Emulation.setTouchEmulationEnabled',{enabled:false});await evaluate('f.arrange.reset()');
+  expect(r).toEqual({drop:1,cancel:0});
+});
 test('Arrange destruction retires its binding listener and touch policy without waiting for reset',async()=>{
   const r=await evaluate(`(()=>{const f=(${arrangeFixture})();f.arrange.reset();f.grip.style.touchAction='pan-y';f.arrange.binding(f.binding);
     const attached=f.grip.style.touchAction;

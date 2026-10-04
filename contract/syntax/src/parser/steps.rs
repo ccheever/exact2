@@ -119,7 +119,10 @@ impl Parser {
             }
             other => self.err(
                 "syntax-expected-step",
-                format!("`{word}` takes {what} in quotes, found {}", describe(&other)),
+                format!(
+                    "`{word}` takes {what} in quotes, found {}",
+                    describe(&other)
+                ),
             ),
         }
     }
@@ -445,9 +448,12 @@ pub(super) fn same_launch(a: &Step, b: &Step) -> bool {
 fn iso_date(s: &str) -> bool {
     let b = s.as_bytes();
     b.len() >= 10
-        && b[..10]
-            .iter()
-            .enumerate()
-            .all(|(i, c)| if i == 4 || i == 7 { *c == b'-' } else { c.is_ascii_digit() })
+        && b[..10].iter().enumerate().all(|(i, c)| {
+            if i == 4 || i == 7 {
+                *c == b'-'
+            } else {
+                c.is_ascii_digit()
+            }
+        })
         && (b.len() == 10 || b[10] == b'T')
 }

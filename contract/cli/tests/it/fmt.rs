@@ -272,7 +272,10 @@ fn a_bare_flag_a_prefix_minus_and_a_conditional_keep_their_meaning() {
         formatted.contains("        font-size=16 autofocus\n"),
         "{formatted}"
     );
-    assert!(formatted.contains("n = n + (n > 3 ? -1 : 1)"), "{formatted}");
+    assert!(
+        formatted.contains("n = n + (n > 3 ? -1 : 1)"),
+        "{formatted}"
+    );
     assert!(formatted.contains("n = n > 9 ? 0 : n"), "{formatted}");
     assert!(formatted.contains("name = !(n > 2) ? "), "{formatted}");
     assert!(formatted.contains("letter-spacing=-0.4\n"), "{formatted}");
