@@ -532,8 +532,9 @@ sheet), in a row below the Detail screen's scroll, are the evidence: under
 the agent, on iOS, macOS and in Chrome (both web targets), each opens above
 the invoker, centred on it (the menu clamped to the left edge): the sheet
 with its bottom at the invoker's top, the menu, whose `margin-bottom=12`
-crosses the Apple encoder, 12 points above it (iOS: bottom 665, invoker
-top 677; Chrome: 789 and 801).
+crosses the Apple encoder, 12 points above it (measured on iOS: bottom
+665, invoker top 677; in Chrome: 789 and 801; macOS was driven before the
+margin was added).
 
 **D3 — menu-shaped popovers may present natively.** A popover whose
 children are exclusively `button` rows (each with optional
