@@ -109,6 +109,16 @@ require. For an external app, set `EXACT_APP_DIR` on both build and drive. A sta
 artifact is a failed verification; rebuild what the driver names. A successful
 Cargo rlib build does not prove a native app launches or behaves correctly.
 
+A script drives the same session in JavaScript: `const s = await open({ host:
+'web', app, epoch, timeZone, storage })` from `scripts/agent.mjs`, then
+`s.tap(target, opts)`, `s.type(target, text | { key })`, `s.clock(arg)`,
+`s.tree()`, `s.state()`, `s.logs()`, `s.layout()`, `s.screenshot(path)` and
+`s.close()` — the CLI's operations by the same names. `s.op(request)` is the
+host's wire beneath them: it addresses views by numeric `id`, and it refuses a
+request it would answer by doing nothing (a `target`, an unknown op, a web
+`tap` with no browser input behind it). A reload or a raw browser step goes
+through `s.carrier` (`evaluate`, and on Chrome `call` for CDP).
+
 Use the existing five repository checks for repository changes. Do not add a
 new global check or fixture framework for an ordinary app edit. For documentation,
 compile complete examples, parse authored tests, and check local links.
