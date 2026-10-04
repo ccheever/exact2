@@ -400,3 +400,11 @@ fn the_planted_foot_stays_on_the_ground_through_the_cycle() {
         );
     }
 }
+
+// The humanoid preset's generated identity, pinned: libm or glam drift on any host
+// changes the vertices or keys and fails here (restore would refuse by name).
+#[test]
+fn the_humanoid_preset_has_a_pinned_identity() {
+    let digest = format!("0x{:016x}", hash::of(&humanoid()));
+    assert_eq!(digest, "0xb13f1acea016ea9c");
+}
