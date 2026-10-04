@@ -435,6 +435,8 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     target,
                     dx,
                     dy,
+                    from,
+                    mouse,
                     press,
                     over,
                     hold,
@@ -443,6 +445,12 @@ pub fn tests_json(tests: &[TestDecl]) -> String {
                     s.push_str("{\"op\":\"drag\",\"target\":");
                     q(target, &mut s);
                     s.push_str(&format!(",\"dx\":{dx},\"dy\":{dy}"));
+                    if let Some((x, y)) = from {
+                        s.push_str(&format!(",\"from\":[{x},{y}]"));
+                    }
+                    if *mouse {
+                        s.push_str(",\"mouse\":true");
+                    }
                     for (name, ms) in [("press", press), ("over", over), ("hold", hold)] {
                         if let Some(ms) = ms {
                             s.push_str(&format!(",\"{name}\":{ms}"));

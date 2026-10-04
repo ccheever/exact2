@@ -1458,7 +1458,7 @@ async function main() {
     loadAfterPaint('./input-glue.js', 'createInputHandlers').then(create => {
       inputHandlers = create({ root, views, retiredViews, agentMode, ready: () => inputReady, inertAncestor,
         dispatch: (id, payload) => send(wasm.exact_dispatch(id, 20, writeIn(payload), now())),
-        release: (id, payload) => send(wasm.exact_dispatch(id, 28, writeIn(payload), now())), velocity: motion.pan });
+        release: (id, payload) => send(wasm.exact_dispatch(id, 28, writeIn(payload), now())), velocity: motion.pan, log });
     }).catch(console.error);
     try {
       const module = await (prepared ?? realm());

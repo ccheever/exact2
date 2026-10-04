@@ -279,7 +279,8 @@ test          = "test" STRING block(step) ;
 step          = "size" NUMBER "x" NUMBER NL          (* first step only; written 1200x800 *)
               | "tap" STRING [ "hover" ] NL
               | "tap" STRING "drag" [ "-" ] NUMBER [ "-" ] NUMBER
-                  { ( "press" | "over" | "hold" ) NUMBER } NL
+                  { ( "press" | "over" | "hold" ) NUMBER
+                  | "from" NUMBER NUMBER | "mouse" } NL
               | "type" STRING ( STRING | "key" STRING ) NL
               | "clock" ( "settle" | [ "+" ] NUMBER ) NL
               | "screenshot" STRING NL
@@ -292,7 +293,13 @@ test-value    = NUMBER | STRING | "true" | "false" | "none" | "[" "]" ;
 Targets are driver test ids. Each test is a session of its own: `size 1200x800`,
 the driver's `--size`, is the viewport that session opens at, so it can only be
 the first step. `tap "id" drag dx dy` is the driver's `tap … drag` (from the
-node's middle, in points; `press`, `over`, `hold` in milliseconds, each once).
+node's middle, or `from x y` in its box, in points; `press`, `over`, `hold` in
+milliseconds; each once). It is a finger where the carrier has one (the web,
+iOS); `mouse` makes it the left button on the web, with the page's pointer
+`fine`, so a desktop path is what runs (iOS refuses it; macOS and Linux drag
+with the mouse anyway). A finger's drag the browser takes to scroll an
+ancestor ends in `panrelease` and a `pan cancelled` journal line naming the
+`touch-action` that keeps it.
 `type` on a `select` chooses an enabled option by value, else by its one label;
 on a date, time or range input it sets the value in HTML's format; on a checkbox
 it takes `true` or `false`. A target out of view is scrolled into view first.

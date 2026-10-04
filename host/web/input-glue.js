@@ -5,7 +5,7 @@
 const pressesByKey = el => !el.matches("button, a[href], input, select, textarea, summary")
   && (el.exactHandlers ?? el.dataset.exactOn?.split(" "))?.includes("press") === true;
 const shortcutKeys = new Set(["Enter", "Tab", "Escape", "Backspace", "Delete", "Insert", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "PageUp", "PageDown"]);
-export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false }) {
+export function createInputHandlers({ root, views, retiredViews, ready, inertAncestor, dispatch, release: dispatchRelease = () => {}, velocity = {}, agentMode = false, log = () => {} }) {
   // @ref LLP 1038 §7 — a plain click on a same-origin link to a declared
   // route stays in this document: a link with its own `press` navigates by
   // it; any other goes to the root's `navigate` handler, as popstate does.
@@ -199,7 +199,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       // Under a nested press the pan captures nothing until it begins, so until
       // then the window hears the contact's moves and its end (capture phase),
       // wherever they happen: a release outside this node ends it here too.
-      const watched = { pointermove: e => move(e, true), pointerup: e => up(e, true), pointercancel: e => { if (e.pointerId === contact?.pointer) cancel(); } };
+      const watched = { pointermove: e => move(e, true), pointerup: e => up(e, true), pointercancel: e => { if (e.pointerId === contact?.pointer) cancelled(e); } };
       const watch = on => { for (const t in watched) (on ? addEventListener : removeEventListener)(t, watched[t], true); };
       const drop = () => { if (contact?.watching) watch(false); contact = null; };
       const flush = () => {
@@ -227,6 +227,13 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       const sample = (e, first = false) => velocity.sample?.(id, e.clientX, e.clientY, e.timeStamp, first);
       const released = (payload) => { if (el.exactHandlers?.includes("panrelease") && live()) dispatchRelease(id, payload); };
       const cancel = () => { cancelAnimationFrame(frame); frame=0; const began = contact?.active; drop(); if (began) released("0,0"); };
+      // The browser took the contact (pointercancel): it scrolls or zooms by a
+      // finger this node does not claim. Silent, it was a drag that died after
+      // two moves (files diary F10); the journal says why and what claims it.
+      const cancelled = e => {
+        if (contact?.pointer === e.pointerId) log(`pan cancelled: the browser took the ${e.pointerType || "pointer"} contact to scroll or zoom; give the dragged node touch-action="none", or "pan-y" or "pan-x" to leave the browser the other axis`);
+        cancel();
+      };
       // A watched contact is the window's alone (`watched`); this node's listeners take it once captured.
       const move = (e, outside = false) => {
         if (contact?.pointer !== e.pointerId || !!contact.watching !== outside || waiting(e)) return;
@@ -242,7 +249,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       };
       on("pointermove", e => move(e));
       on("pointerup", e => up(e));
-      on("pointercancel", cancel);
+      on("pointercancel", cancelled);
       // A child's implicit touch capture, lost when a deferred pan takes it, bubbles here.
       on("lostpointercapture", e => { if (e.target === el) cancel(); });
       el.addEventListener("click", e => { if (suppressClick) { suppressClick = false; e.preventDefault(); e.stopImmediatePropagation(); } }, true);

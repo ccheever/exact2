@@ -976,7 +976,7 @@ function input() {
   Inputs = new Promise(r => requestAnimationFrame(() => setTimeout(r))).then(() => import("./input-glue.js")).then(m => {
     Input = m.createInputHandlers({ root: document.getElementById("exact-root"), views: Views, retiredViews: new WeakSet(), ready: () => true,
       inertAncestor: el => el.closest("[inert]"), agentMode: clock.agent, dispatch: (id, p) => to(id, p, "$pan"), release: (id, p) => to(id, p, "$panrelease"),
-      velocity: { sample: (...a) => Mo?.pan.sample(...a), velocity: (...a) => Mo?.pan.velocity(...a) } });
+      velocity: { sample: (...a) => Mo?.pan.sample(...a), velocity: (...a) => Mo?.pan.velocity(...a) }, log: say });
   }).catch(err => say(`input: ${err.message}`)).finally(() => inflight.n--);
 }
 /** A `head` (LLP 1048.003 D1): its node, as the kernel keeps it, an inert
