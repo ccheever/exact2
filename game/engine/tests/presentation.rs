@@ -391,3 +391,37 @@ fn present_clears_sparse_rows_across_many_slots() {
     eprintln!("60 presents over 20,000 slots: {:?}", started.elapsed());
     assert_eq!(s.world().query::<&Bob>().iter().count(), 3);
 }
+
+#[test]
+#[should_panic(expected = "a tick read or wrote presentation component `Bob`")]
+fn a_tick_cannot_watch_presentation_revisions() {
+    struct Watches;
+    impl Game for Watches {
+        const ID: &'static str = "watches";
+        type Args = ();
+        fn setup(w: &mut World, a: &()) {
+            Plain::setup(w, a);
+        }
+        fn tick(w: &mut World, _: &Input, _: &()) {
+            let _ = w.revision::<Bob>();
+        }
+    }
+    Sim::<Watches>::new(()).unwrap().run(100.);
+}
+
+#[test]
+#[should_panic(expected = "Game::setup wrote presentation component `Bob`")]
+fn setup_cannot_write_presentation_state() {
+    struct Early;
+    impl Game for Early {
+        const ID: &'static str = "early";
+        type Args = ();
+        fn setup(w: &mut World, a: &()) {
+            Plain::setup(w, a);
+            let e = w.named("crate").unwrap();
+            w.insert(e, Bob::default());
+        }
+        fn tick(_: &mut World, _: &Input, _: &()) {}
+    }
+    let _ = Sim::<Early>::new(());
+}

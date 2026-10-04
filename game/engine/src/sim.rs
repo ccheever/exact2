@@ -268,6 +268,9 @@ impl<G: Game> Sim<G> {
         }
         Self::register(&mut world, args);
         G::setup(&mut world, args);
+        if let Some(name) = world.presentation_written() {
+            panic!("Game::setup wrote presentation component `{name}`; write presentation state in Game::present, which runs right after setup");
+        }
         crate::scene::place_followers(&world);
         world.published_pending.set(true);
         world.propagate();

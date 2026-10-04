@@ -636,6 +636,14 @@ impl World {
     pub fn get_mut<C: Component>(&self, target: impl Target) -> Option<RefMut<'_, C>> {
         self.get_mut_at(target, Location::caller())
     }
+    /// A presentation component with rows, if any (setup must leave them to present).
+    pub(crate) fn presentation_written(&self) -> Option<&'static str> {
+        self.registry
+            .iter()
+            .filter(|(_, registration)| registration.presentation)
+            .map(|(name, _)| *name)
+            .find(|name| self.components.get(name).is_some_and(|s| s.len() > 0))
+    }
     /// Erase every presentation row, so `Game::present` rebuilds them all.
     pub(crate) fn clear_presentation(&mut self) {
         self.leases.restructure();
@@ -894,11 +902,13 @@ impl World {
     /// Exclusive borrows of any row of C are refused while the pages are held.
     #[track_caller]
     pub fn pages<C: Component>(&self) -> Pages<'_, C> {
+        self.sim_reads::<C>();
         Pages::new(self.storage::<C>(), &self.leases, Location::caller())
             .unwrap_or_else(|conflict| self.refuse(conflict))
     }
     /// Mutation generation, including repeated edits within one tick. Not saved or hashed.
     pub fn revision<C: Component>(&self) -> u64 {
+        self.sim_reads::<C>();
         self.storage::<C>().map_or(0, |s| s.revision())
     }
     /// Slots whose C row was handed out mutably, inserted or removed after `since`,
@@ -907,6 +917,7 @@ impl World {
     /// the slot's current incarnation, which may be dead after a despawn; callers
     /// keyed by entity look the index up in their own records. Not saved or hashed.
     pub fn changed<C: Component>(&self, since: u64) -> impl Iterator<Item = Entity> + '_ {
+        self.sim_reads::<C>();
         self.storage::<C>()
             .into_iter()
             .flat_map(move |s| s.changed(since))
@@ -914,6 +925,7 @@ impl World {
     }
     /// Component membership generation; changing an existing value leaves it alone.
     pub fn membership<C: Component>(&self) -> u64 {
+        self.sim_reads::<C>();
         self.storage::<C>().map_or(0, |s| s.membership())
     }
     /// Spawn/despawn generation, including equal-count slot recycling. Not simulation state.
