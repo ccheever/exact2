@@ -554,7 +554,7 @@ function attach(el, id, handlers) {
       });
     } else if (kind === "change") {
       // HTML's `change`: a text field's value committed, on blur or Enter.
-      on("change", () => { const n = writeIn(el.value); send(wasm.exact_dispatch(id, 1, n, now())); settleValue(el); });
+      on("change", () => { const n = writeIn(el.value); send(wasm.exact_dispatch(id, 1, n, now())); settleValue(el, true); });
     } else if (kind === "input") {
       on("input", (e) => {
         const value = el.value;
@@ -565,7 +565,7 @@ function attach(el, id, handlers) {
           if (clusters.length !== 1 || !(/\p{Emoji_Presentation}/u.test(value)
             || (/[\uFE0F\u20E3]/u.test(value) && /\p{Emoji}/u.test(value)))) return;
         }
-        const n = writeIn(value); send(wasm.exact_dispatch(id, 23, n, now())); settleValue(el);
+        const n = writeIn(value); send(wasm.exact_dispatch(id, 23, n, now())); settleValue(el, true);
       });
     } else if (kind === "hover") {
       // pointerenter/pointerleave: the element's own, not a bubbling mouseover.

@@ -111,6 +111,8 @@ pub struct Presenter<D: DataSource> {
     /// Unbound checkboxes' own states, as a browser keeps an uncontrolled
     /// control's (LLP 1069.001 D4); a bound one draws its `checked`.
     pub(crate) controls: BTreeMap<ViewId, bool>,
+    /// Dates chosen since their bound value last changed (`paint::control::date_text`).
+    pub(crate) dates: BTreeMap<ViewId, (String, String)>,
     /// The select whose menu is open (LLP 1069.001 D7).
     pub(crate) menu: Option<ViewId>,
     autofocus_processed: std::collections::BTreeSet<ViewId>,
@@ -408,6 +410,7 @@ impl<D: DataSource> Presenter<D> {
             edited: None,
             held: 0,
             controls: BTreeMap::new(),
+            dates: BTreeMap::new(),
             menu: None,
             autofocus_processed: Default::default(),
             pointer: None,

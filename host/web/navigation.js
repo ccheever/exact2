@@ -912,11 +912,16 @@ export function guestType(frame, request) {
 
 // @ref LLP 1069.001 D4 — a select (and the range and date inputs) is
 // controlled: the committed `value` is authoritative, so the element shows
-// it again after the options change, and after an action that refused.
+// it again after the options change, and after an action that refused. A
+// date after its action (`acted`) is the exception: like a text field, it
+// keeps the person's choice until the committed value changes, as the web
+// build's does, where it was cleared while a `send` was in flight (x2apps
+// kanban2 #5).
 const VALUED = new Set(["range", "date", "time", "datetime-local"]);
 export const valuedControl = (el) => el instanceof HTMLSelectElement || (el instanceof HTMLInputElement && VALUED.has(el.type));
-export function settleValue(el) {
+export function settleValue(el, acted = false) {
   const c = el instanceof HTMLOptionElement ? el.parentElement : el;
+  if (acted && c instanceof HTMLInputElement && c.type !== "range") return;
   if (c && valuedControl(c) && c.exactValue !== undefined && c.value !== c.exactValue) c.value = c.exactValue;
 }
 // What `type <id> <value>` sets rather than types into (D9): the valued

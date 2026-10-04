@@ -72,6 +72,7 @@ fn scene_frame(p: &Presenter<NoData>, dark: bool, backend: Box<dyn Backend>) -> 
         focus: None,
         pointer: None,
         controls: &BTreeMap::new(),
+        dates: &BTreeMap::new(),
         menu: None,
     };
     let mut painter = Painter::new(p.text().clone(), 1.0, backend);
@@ -247,6 +248,7 @@ fn styled_paragraph_pixels_on_real_gpu_when_available() {
         focus: None,
         pointer: None,
         controls: &BTreeMap::new(),
+        dates: &BTreeMap::new(),
         menu: None,
     };
     for (dark, colors) in [

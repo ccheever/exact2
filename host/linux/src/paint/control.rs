@@ -10,6 +10,24 @@ use tiny_skia::Transform;
 /// Chrome's default accent, `#0075ff`, where `accent-color` is `auto`.
 const ACCENT: [u8; 4] = [0x00, 0x75, 0xff, 0xff];
 
+/// What a date control shows: the person's choice while its bound value is
+/// the one it had when they chose (the web build writes an input's `value`
+/// only when the bound value changes; x2apps kanban2 #5), else the bound
+/// value, HTML's placeholder form when empty.
+pub(super) fn date_text<'a>(node: &NodeRef<'a>, chosen: Option<&'a (String, String)>) -> &'a str {
+    let bound = node.props.str(PropId::Value).unwrap_or("");
+    let value = match chosen {
+        Some((choice, at)) if at == bound => choice.as_str(),
+        _ => bound,
+    };
+    match (value, node.props.str(PropId::Type)) {
+        ("", Some("date")) => "yyyy-mm-dd",
+        ("", Some("time")) => "--:--",
+        ("", _) => "yyyy-mm-ddT--:--",
+        (v, _) => v,
+    }
+}
+
 /// A node's `accent-color`, where it sets one.
 pub(crate) fn accent(node: &NodeRef<'_>, dark: bool) -> Option<[u8; 4]> {
     node.computed_style(StyleMask::INHERITED)

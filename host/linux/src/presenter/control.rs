@@ -160,12 +160,24 @@ impl<D: DataSource> Presenter<D> {
         if let Some(e) = error.or(after) {
             return Err(e);
         }
-        let shown = self
-            .host
-            .kernel()
-            .node(id)
+        let node = self.host.kernel().node(id);
+        let date = node.is_some_and(|n| {
+            matches!(
+                n.props.str(PropId::Type),
+                Some("date" | "time" | "datetime-local")
+            )
+        });
+        let mut shown = node
             .and_then(|n| n.props.str(PropId::Value).map(str::to_owned))
             .unwrap_or_default();
+        // A date keeps the choice until its bound value changes, as the web
+        // build's input does (`paint::control::date_text`; kanban2 #5).
+        if date && shown != value {
+            self.dates.insert(id, (value.to_owned(), shown.clone()));
+            shown = value.to_owned();
+        } else {
+            self.dates.remove(&id);
+        }
         Ok(format!(
             "{{\"typed\":{id},\"value\":{},\"delivery\":\"recognized\"}}",
             {

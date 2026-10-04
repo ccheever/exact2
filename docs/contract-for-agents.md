@@ -731,7 +731,11 @@ ancestor that would take the press itself included.
 `type` on a control sets it as a person choosing would, with `input` then
 `change`: a `select` takes an option's value or its label, a date, time or
 `datetime-local` input its HTML value (`2026-10-09`, `14:00`,
-`2026-10-09T14:30`), a range a number, a checkbox `true` or `false`.
+`2026-10-09T14:30`), a range a number, a checkbox `true` or `false`. A date,
+time or `datetime-local` input keeps the person's choice until its bound `value`
+changes, as a text field does: an action that only sends a mutation shows the
+choice until the reply writes it, on every host, and `type` replies with what it
+shows.
 `tap <target> drag <dx> <dy> … during "<op>" …` runs the quoted reads after the
 move, with the finger still down. `clock +N` moves the virtual clock without
 waiting for a store's or the network's reply on real time (unless a timer fires

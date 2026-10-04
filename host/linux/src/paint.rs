@@ -434,6 +434,8 @@ pub struct Scene<'a> {
     pub focus: Option<ViewId>,
     /// Unbound checkboxes' own states, which the host keeps (LLP 1069.001 D4).
     pub controls: &'a BTreeMap<ViewId, bool>,
+    /// Dates chosen since their bound value last changed: (choice, bound).
+    pub dates: &'a BTreeMap<ViewId, (String, String)>,
     /// A select's open menu, painted over everything (LLP 1069.001 D7).
     pub menu: Option<control::MenuPaint>,
     /// The pointer, in viewport points, when the host draws one.
@@ -1224,13 +1226,7 @@ impl Painter {
                     Some("date" | "time" | "datetime-local")
                 ) =>
             {
-                let value = node.props.str(PropId::Value).unwrap_or("");
-                let shown = match (value, node.props.str(PropId::Type)) {
-                    ("", Some("date")) => "yyyy-mm-dd",
-                    ("", Some("time")) => "--:--",
-                    ("", _) => "yyyy-mm-ddT--:--",
-                    (v, _) => v,
-                };
+                let shown = control::date_text(node, walk.scene.dates.get(&node.id));
                 self.field_control(node, content, ts, shown, false);
             }
             NodeType::Control if node.props.str(PropId::Type) == Some("range") => {

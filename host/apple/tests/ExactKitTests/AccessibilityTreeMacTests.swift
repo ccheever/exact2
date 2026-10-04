@@ -86,6 +86,33 @@ final class AccessibilityTreeMacTests: XCTestCase {
         XCTAssertEqual(DateField.placeholder("time", Locale(identifier: "en_US")), "--:-- --")
     }
 
+    /// A date shows the person's choice until its bound value changes, as the
+    /// web build's input does: an action that only sent a mutation left the
+    /// picker cleared, and the agent's `type` refused (x2apps kanban2 #5).
+    func testADateKeepsTheChoiceUntilItsBoundValueChanges() throws {
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 10, "kind": "control", "props": ["type": "date", "value": "", "testId": "due"], "handlers": ["change"], "style": [:]],
+            ["op": "children", "id": 1, "ids": [2, 3, 10]],
+            ["op": "frame", "id": 10, "x": 0.0, "y": 100.0, "w": 140.0, "h": 24.0],
+        ]))
+        var sent: [String] = []
+        p.onControlValue = { _, value, _, change in if change { sent.append(value) } }
+        let field = try XCTUnwrap(p.controls.controls[10] as? DateField)
+        XCTAssertTrue(field.empty)
+        let reply = try XCTUnwrap(p.controls.type(try XCTUnwrap(p.views[10]), "2026-06-01"))
+        XCTAssertNil(reply["error"], "\(reply)")
+        XCTAssertEqual(reply["value"] as? String, "2026-06-01")
+        XCTAssertEqual(sent, ["2026-06-01"])
+        XCTAssertFalse(field.empty, "the bound value is still empty: the choice stays")
+        p.apply(wireBatch([["op": "props", "id": 10, "set": ["min": "2026-01-01"]]]))
+        XCTAssertEqual(p.controls.shownDate(field, "date"), "2026-06-01", "another prop leaves it")
+        p.apply(wireBatch([["op": "props", "id": 10, "set": ["value": "2026-07-04"]]]))
+        XCTAssertEqual(p.controls.shownDate(field, "date"), "2026-07-04", "the bound value, once it changes")
+        p.apply(wireBatch([["op": "props", "id": 10, "set": ["value": ""]]]))
+        XCTAssertTrue(field.empty)
+    }
+
     /// An attached sheet is the modal: the driver judges everything else against it.
     func testASheetRootIsReportedAsTheModal() throws {
         let p = try fixture()

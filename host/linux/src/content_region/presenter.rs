@@ -93,6 +93,7 @@ impl<D: DataSource> Presenter<D> {
             focus: self.focus,
             pointer: self.pointer,
             controls: &self.controls,
+            dates: &self.dates,
             menu,
         };
         let region = host.content_region();
