@@ -201,6 +201,16 @@ guide's rules don't make obvious.
   ([the human guide](contract-for-humans.md#writing-the-data-module) shows one).
   (LLP 1086 reading-list example, 2026-10-04.)
 
+- **A native test reads an edit's state one input late, where the web's passes.**
+  `tap "tempo-up"` then `expect text "tempo" == "113"` passes on the web and reads
+  the old value under `test macos`. Cause: on Hermes an answer that saves (awaited
+  or not) is given once its storage steps land, a reply on real time like a
+  `fetch`'s, which lands at the next `clock` step; on the web build a value given
+  at once is there with the input. Fix: `clock settle` after the edit in the
+  test, or answer edits from memory and save from a `task` that sends a `persist`
+  mutation when the document changed ([the reference](reference.md#what-a-data-module-can-use)).
+  (x2apps drums R11, 2026-10-04.)
+
 ## Working on exact2 itself
 
 - **A platform feature looks missing, and you start building it.** Cause: the
