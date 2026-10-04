@@ -288,6 +288,7 @@ async function openWeb({ browser = 'chrome', plan, world, size = VIEWPORT, url: 
         this.boot = Number(boot);
       },
       ask,
+      async reveal(id) { const r = await ask({ op: 'reveal', id }); if (r.scrolled) await frame(); return r; },
       prefer: (media, page, fold) => preferWeb({ media, page, fold, emulated, call, evaluate, frame, ask }), // the browser's emulation through CDP, the glue's substitute where it offers none (agent-prefer.mjs)
       async input(id, kind, opts) {
         // @ref LLP 1038 D11 — history.go delivers popstate in the page.
@@ -564,7 +565,7 @@ async function openStdio({ host, plan, world, size, app, env: extra = {}, sessio
     });
     return {
       host, boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state,
-      ask,
+      ask, reveal: (id) => ask({ op: 'reveal', id }),
       async input(id, kind, opts) {
         if (kind === 'key') {
           const session = state.session;
@@ -675,7 +676,7 @@ async function openIOS({ plan, app, size, env: extra = {}, session, hostFixture 
     return {
       host: hostFixture ? 'host-ios' : 'ios', boot: ready.boot, hostLines, gpuMs: () => null, sessions: ready.sessions ?? null, state,
       touches,
-      ask,
+      ask, reveal: (id) => ask({ op: 'reveal', id }),
       async input(id, kind, opts) {
         if (kind === 'key') {
           const session = state.session;
@@ -973,7 +974,7 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       // takes, so a driver must never be told it sent a gesture when it did
       // not (LLP 0382 — fail closed, loudly).
       if (opts.gesture && !(host === 'macos' || host === 'mac')) throw new Error(`${host} cannot phase a wheel; \`gesture\` is the AppKit carrier's`);
-      if ((opts.contextmenu || opts.dblclick) && !['web', 'ios', ...(opts.dblclick ? ['macos', 'mac'] : [])].includes(host)) throw new Error(`${host} does not carry contextmenu/dblclick input`);
+      if ((opts.contextmenu || opts.dblclick) && !['web', 'ios', 'macos', 'mac'].includes(host)) throw new Error(`${host} does not carry contextmenu/dblclick input`);
       if (opts.pinch !== undefined && !(opts.pinch > 0 && Number.isFinite(opts.pinch))) throw new Error('pinch: expected a positive finite scale');
       if (opts.pinch !== undefined && !['web', 'ios', 'macos', 'mac'].includes(host)) return s.tagged({ tapped: node.id, target, pinch: opts.pinch, delivery: 'unsupported', reason: `${host} has no pinch (LLP 1057.001 §4)`, carrier: host, mode: timing });
       // @ref LLP 1070.000 §5 — a virtualized list's row brought into view by
@@ -982,8 +983,10 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
         const r = await s.op({ op: 'tap', id: node.id, into: opts.into });
         return s.tagged({ ...r, tapped: node.id, target, delivery: 'runner', carrier: host, mode: timing });
       }
+      // A target out of view is scrolled into it first, as a person (and Playwright's actionability) would: ledger F7, shop F11.
+      const scrolled = opts.wheel || opts.history !== undefined ? null : await s.reveal(node.id);
       // @ref LLP 1080.000 §11 — one whole gesture: press, one straight drag, hold, lift.
-      if (opts.drag) return dragTap({ s, carrier, node, target, host, timing, tapRefusal }, opts.drag);
+      if (opts.drag) return dragTap({ s, carrier, node, target, host, timing, tapRefusal, scrolled }, opts.drag);
       const kind = opts.history !== undefined ? 'history' : opts.pinch !== undefined ? 'pinch' : opts.down ? 'down' : opts.wheel ? 'wheel' : opts.hover ? 'hover' : opts.contextmenu ? 'contextmenu' : opts.dblclick ? 'dblclick' : 'press';
       if (kind === 'down' && s.contact) throw new Error('a contact is already down; use `tap up` or `tap cancel` first');
       let at;
@@ -996,7 +999,13 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
         s.contact = r.contact === false ? null : { x: r.at[0], y: r.at[1] };
         if (Number.isFinite(r.clock)) s.now = r.clock;
       }
-      return s.tagged({ ...r, tapped: node.id, target, delivery: r.delivery ?? s.input.delivery(kind), carrier: host, mode: r.mode ?? timing });
+      return s.tagged({ ...r, tapped: node.id, target, ...(scrolled ? { scrolled } : {}), delivery: r.delivery ?? s.input.delivery(kind), carrier: host, mode: r.mode ?? timing });
+    },
+    /** Scroll view `id` into view when its middle is out of it — its nearest scroll containers, then the page (the host's `reveal`): `{from, to}` where its middle moved, or null when it was in view. */
+    async reveal(id) {
+      const r = await carrier.reveal(id);
+      if (r.error) throw new Error(r.error);
+      return r.scrolled ? { from: r.from, to: r.to } : null;
     },
     /**
      * The held contact's next phase (LLP 1035.003 D1): `move` to `{x, y}` in
@@ -1036,8 +1045,10 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
         if (key == null || options.phase != null || !Number.isFinite(options.for) || options.for < 0) throw new Error('type for: expected a key and a nonnegative finite duration, without phase');
         return typeFor({ node, target, options, carrier, clock: spec => s.clock(spec), tagged: reply => s.tagged(reply), delivery: s.input.delivery('key'), host, timing });
       }
+      // A field out of view is scrolled into it, as for a tap; a root (a navigation root's location) is the page.
+      const scrolled = node.depth === 0 ? null : await s.reveal(node.id);
       const r = key != null ? await carrier.input(node.id, 'key', { ...options, key: String(key) }) : await carrier.input(node.id, 'type', { ...options, text: String(options.text ?? '') });
-      return s.tagged({ ...r, typed: node.id, target, delivery: r.delivery ?? s.input.delivery(key != null ? 'key' : 'type'), carrier: host, mode: timing });
+      return s.tagged({ ...r, typed: node.id, target, ...(scrolled ? { scrolled } : {}), delivery: r.delivery ?? s.input.delivery(key != null ? 'key' : 'type'), carrier: host, mode: timing });
     },
     /** Answer held device request `@N` (LLP 1069.007 D4), resolved before any view: `tap @N <choice>` (`cancel`, or a choice the capability declares) or `type @N <value>` (a fixture path, a URL, JSON). The hold is consumed once; a stale ticket is refused by name. The reply says `delivery: "substituted"`. */
     async answer(op, target, value) {

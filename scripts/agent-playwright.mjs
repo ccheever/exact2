@@ -217,6 +217,7 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         await context.clearCookies(); hostLines.length = 0; await page.goto(address.href, { waitUntil: 'commit' }); this.boot = await waitForBoot(page, 'the reused page never booted');
       },
       ask,
+      async reveal(id) { const r = await ask({ op: 'reveal', id }); if (r.scrolled) await frame(); return r; },
       async prefer(media, pageFacts) {
         const unsupported = Object.entries(media).find(([key, value]) => (key === 'prefers-reduced-transparency' && value !== 'no-preference') || (key === 'prefers-contrast' && !['more', 'no-preference'].includes(value)));
         if (unsupported) throw new Error(`${name} prefer cannot emulate ${unsupported[0]} ${unsupported[1]} through Playwright`);

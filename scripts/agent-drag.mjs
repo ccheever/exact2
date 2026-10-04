@@ -12,7 +12,7 @@ import { DRAG_BOUNDS } from '../host/apple/touches.mjs';
  * under `--touch platform`; elsewhere the carrier's own contact phases,
  * refused where the carrier refuses them.
  */
-export async function dragTap({ s, carrier, node, target, host, timing, tapRefusal }, opts) {
+export async function dragTap({ s, carrier, node, target, host, timing, tapRefusal, scrolled }, opts) {
   const { dx, dy, from, press = 0, over = 250, hold = 0, during = [] } = opts, drag = { dx, dy, press, over, hold, during }, said = { dx, dy, press, over, hold };
   if (![dx, dy, press, over, hold].every(Number.isFinite) || [press, over, hold].some((v) => v < 0)) throw new Error('drag: expected finite dx, dy and non-negative press, over and hold (ms)');
   if (from !== undefined && !(Array.isArray(from) && from.length === 2 && from.every(Number.isFinite))) throw new Error('drag: from takes two finite numbers, an offset from the target\'s box');
@@ -32,7 +32,7 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     let r;
     try { r = await carrier.input(node.id, 'drag', { at: from ? start : undefined, drag: { ...drag, during: during.map(held) } }); }
     catch (error) { throw await tapRefusal(s, target, error); }
-    return s.tagged({ ...r, target, carrier: host, mode: timing });
+    return s.tagged({ ...r, target, ...(scrolled ? { scrolled } : {}), carrier: host, mode: timing });
   }
   // The carrier's phases, each reply checked: an error or a refusal releases the contact and throws.
   let down, done = [], up;
@@ -72,5 +72,5 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     if (s.contact) error.message += '; the contact could not be released (tap cancel, or close the session)';
     throw error;
   }
-  return s.tagged({ tapped: node.id, target, at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing });
+  return s.tagged({ tapped: node.id, target, ...(scrolled ? { scrolled } : {}), at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing });
 }

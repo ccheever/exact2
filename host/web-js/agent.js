@@ -5,7 +5,7 @@
 import names, { types } from './names.js';
 import { R, eq, pieces, pageHistory, Head } from './rt.js';
 import * as perf from './perf.js';
-import { environment, navigation, guestOutline, guestTap, guestType, viewBox, foldEnv, preferFold } from './navigation.js';
+import { environment, navigation, guestOutline, guestTap, guestType, viewBox, foldEnv, preferFold, typedControl, typeControl, reveal } from './navigation.js';
 // A runtime value as the runner's typed JSON: records by field name.
 const typed = (v, t) => v == null || typeof t === 'string' ? v : Array.isArray(t) ? (t[0] === '?' ? typed(v, t[1]) : v.map(x => typed(x, t[1]))) : Object.fromEntries(Object.keys(t).map((k, i) => [k, typed(v[i], t[k])]));
 const PROPS = [['aria-live', 'accessibilityLive'], ['role', 'accessibilityRole'], ['aria-description', 'accessibilityHint'], ['aria-keyshortcuts', 'accessibilityKeyShortcuts'], ['aria-orientation', 'accessibilityOrientation'], ['aria-pressed', 'accessibilityPressed'], ['aria-level', 'accessibilityHeadingLevel', 1], ['aria-posinset', 'accessibilityPosInSet', 1], ['aria-setsize', 'accessibilitySetSize', 1], ['placeholder', 'placeholder'], ['viewportFit', 'viewportFit'], ['interactiveWidget', 'interactiveWidget'], ['data-hook', 'hook'], ['data-nativeviewmodulename', 'nativeViewModuleName'], ['data-nativeviewprops', 'nativeViewProps']];
@@ -247,7 +247,9 @@ export function install(exact) {
           // A tap addressed to an iframe enters its guest (glue.js, LLP 1020 D4).
           return el instanceof HTMLIFrameElement ? guestTap(el, req) : {};
         }
-      case 'type': { const el = views.get(req.id); return el instanceof HTMLIFrameElement ? guestType(el, req) : {}; }
+      // A control's value is set, not typed (LLP 1069.001 D9; navigation.js), as the web host's glue.js sets it.
+      case 'type': { const el = views.get(req.id); return typedControl(el) && req.key == null ? typeControl(el, req) : el instanceof HTMLIFrameElement ? guestType(el, req) : {}; }
+      case 'reveal': return { ...reveal(views.get(req.id), req.id), ...tags() }; // before a tap or a type
       case 'logs': { const j = exact.journal, from = Math.max(req.since ?? 0, j.start); return { lines: j.slice(from - j.start), from, next: j.start + j.length }; }
       // `perf <target>` (LLP 1079 D2): the plan sites under a view, with their work (perf.js).
       case 'perf': {

@@ -806,20 +806,55 @@ export function settleValue(el) {
   const c = el instanceof HTMLOptionElement ? el.parentElement : el;
   if (c && valuedControl(c) && c.exactValue !== undefined && c.value !== c.exactValue) c.value = c.exactValue;
 }
+// What `type <id> <value>` sets rather than types into (D9): the valued
+// controls, and a checkbox (or `switch`), which a value turns on or off.
+export const typedControl = (el) => valuedControl(el) || (el instanceof HTMLInputElement && el.type === "checkbox");
 // D9: `type <id> <value>` sets a control's value as the platform would on a
 // choice or a release: HTML's `input`, then `change`. A select takes one of
-// its enabled options' values, and nothing else.
+// its enabled options by value, else by its one label (Playwright's
+// `selectOption`, the diaries' kanban F17 and shop F10); a checkbox takes
+// `true` or `false` and is clicked when that differs, as a person would.
 export function typeControl(el, request) {
-  const text = String(request.text ?? ""), id = request.id;
+  let text = String(request.text ?? "");
+  const id = request.id;
   if (el.disabled || inertAncestor(el)) return { handled: true, error: `view ${id} is disabled or inert` };
-  if (el instanceof HTMLSelectElement && ![...el.options].some((o) => o.value === text && !o.disabled))
-    return { handled: true, error: `select ${id} has no enabled option ${JSON.stringify(text)} (options: ${[...el.options].map((o) => JSON.stringify(o.value)).join(", ")})` };
+  if (el.type === "checkbox") {
+    if (text !== "true" && text !== "false") return { handled: true, error: `checkbox ${id} takes true or false, not ${JSON.stringify(text)}` };
+    if (el.checked !== (text === "true")) el.click();
+    return { typed: id, checked: el.checked, delivery: "recognized", handled: true };
+  }
+  if (el instanceof HTMLSelectElement) {
+    const enabled = [...el.options].filter((o) => !o.disabled), labelled = enabled.filter((o) => o.label.trim() === text.trim());
+    if (!enabled.some((o) => o.value === text) && labelled.length === 1) text = labelled[0].value;
+    else if (!enabled.some((o) => o.value === text))
+      return { handled: true, error: `select ${id} has no enabled option ${JSON.stringify(text)}${labelled.length > 1 ? " (that label is on more than one option: choose by value)" : ""} (options: ${enabled.map((o) => `${JSON.stringify(o.value)} ${JSON.stringify(o.label)}`).join(", ")})` };
+  }
   if (el.type === "range" && !(text.trim() !== "" && Number.isFinite(Number(text)))) return { handled: true, error: `${JSON.stringify(text)} is not a number` };
   el.value = text;
   if (el.value !== text && el instanceof HTMLInputElement && el.type !== "range") return settleValue(el), { handled: true, error: `${JSON.stringify(text)} is not a value an input type=${el.type} takes; it sanitized to ${JSON.stringify(el.value)}` };
   el.dispatchEvent(new Event("input", { bubbles: true }));
   el.dispatchEvent(new Event("change", { bubbles: true }));
   return { typed: id, value: el.value, delivery: "recognized", handled: true };
+}
+
+// The agent's `reveal` (ledger F7, shop F11): before a tap or a type, a
+// target whose middle is out of view is scrolled to the middle of its
+// nearest scroll containers, then of the page (across, only as far as it
+// takes) — Playwright's actionability scroll, the web's own `scrollIntoView`. A scroll event reaches the app as a
+// person's scroll would. `scrolled` is where the middle moved from and to;
+// a middle already in view moves nothing.
+export function reveal(el, id) {
+  if (!el?.isConnected) return { error: `no view ${id}` };
+  const middle = () => { const b = viewBox(el); return [b.left + b.width / 2, b.top + b.height / 2]; };
+  const [x, y] = middle();
+  let seen = x >= 0 && y >= 0 && x < innerWidth && y < innerHeight;
+  for (let a = el.parentElement; seen && a && a.id !== "exact-root"; a = a.parentElement) {
+    const cs = getComputedStyle(a), b = a.getBoundingClientRect();
+    if ((cs.overflowX !== "visible" || cs.overflowY !== "visible") && !(x >= b.left && x < b.right && y >= b.top && y < b.bottom)) seen = false;
+  }
+  if (seen) return { revealed: id, scrolled: false };
+  (getComputedStyle(el).display === "contents" ? el.parentElement : el).scrollIntoView({ block: "center", inline: "nearest", behavior: "instant" });
+  return { revealed: id, scrolled: true, from: [x, y], to: middle() };
 }
 
 // A view's box as the agent reports it. A text folded into its box's content
