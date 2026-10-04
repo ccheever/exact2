@@ -236,7 +236,6 @@ fn artifact_of(compat: &Value, name: &str) -> String {
         .unwrap_or_default()
 }
 fn verify_module(path: &std::path::Path, compat: &Value, artifact: &str) -> Result<(), String> {
-    use sha2::{Digest, Sha256};
     let card = gpu_card(compat, artifact);
     let refuse = |reason: &str| format!("GPU module {}: {reason}", path.display());
     if !card.is_object() {
@@ -267,11 +266,45 @@ fn verify_module(path: &std::path::Path, compat: &Value, artifact: &str) -> Resu
     } else {
         &card["sha256"]
     };
-    let bytes = std::fs::read(path).map_err(|e| refuse(&e.to_string()))?;
-    if identity.as_str() != Some(format!("{:x}", Sha256::digest(bytes)).as_str()) {
+    if identity.as_str() != Some(file_digest(path).map_err(|e| refuse(&e))?.as_str()) {
         return Err(refuse("digest mismatch"));
     }
     Ok(())
+}
+
+/// The SHA-256 of the file at `path`, hashed once per process while the
+/// file stays the same one (inode, length, modification time): the host
+/// opens a module that its boot already verified on another thread
+/// (`prepare_gpu`), and a module is megabytes.
+fn file_digest(path: &std::path::Path) -> Result<String, String> {
+    use sha2::{Digest, Sha256};
+    use std::sync::Mutex;
+    type Stamp = (u64, u64, Option<std::time::SystemTime>);
+    static DIGESTS: Mutex<Vec<(PathBuf, Stamp, String)>> = Mutex::new(Vec::new());
+    let stamp = |m: &std::fs::Metadata| -> Stamp {
+        #[cfg(unix)]
+        let inode = std::os::unix::fs::MetadataExt::ino(m);
+        #[cfg(not(unix))]
+        let inode = 0;
+        (inode, m.len(), m.modified().ok())
+    };
+    let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let before = stamp(&file.metadata().map_err(|e| e.to_string())?);
+    let known = DIGESTS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((.., digest)) = known.iter().find(|(p, s, _)| p == path && *s == before) {
+        return Ok(digest.clone());
+    }
+    drop(known);
+    let mut bytes = Vec::with_capacity(before.1 as usize);
+    std::io::Read::read_to_end(&mut &file, &mut bytes).map_err(|e| e.to_string())?;
+    let digest = format!("{:x}", Sha256::digest(&bytes));
+    // Remembered only when nothing changed the file while it was read.
+    if stamp(&file.metadata().map_err(|e| e.to_string())?) == before && before.2.is_some() {
+        let mut known = DIGESTS.lock().unwrap_or_else(|e| e.into_inner());
+        known.retain(|(p, ..)| p != path);
+        known.push((path.to_path_buf(), before, digest.clone()));
+    }
+    Ok(digest)
 }
 #[derive(Clone)]
 pub(crate) struct ControlBinding {
