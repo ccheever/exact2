@@ -2,7 +2,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, dirname, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // Resolve authored keys in memory; only the bake writes the resolved manifest.
@@ -98,7 +98,8 @@ export function gameShells(dir, game, workspace) {
   mkdirSync(root,{recursive:true});
   mkdirSync(resolve(root,'.cargo'),{recursive:true});
   // Cargo already inherits the SDK's config when this workspace is inside it.
-  const inherited = realpathSync(root).startsWith(realpathSync(gameRoot) + '/');
+  const child = relative(realpathSync(gameRoot), realpathSync(root));
+  const inherited = child === '' || (!isAbsolute(child) && child !== '..' && !child.startsWith('..' + sep));
   let config = (inherited ? '[build]\n' : readFileSync(resolve(gameRoot,'.cargo/config.toml'),'utf8'))
     .replace('[build]', `[build]\nbuild-dir = ${JSON.stringify(resolve(dir,'target'))}`);
   // Clippy reads the determinism lints from here, for authored and generated logic alike.
