@@ -475,3 +475,15 @@ drill/save checks (20.9 s including the native rebuild). The Swift test needed f
 Xcode's `DEVELOPER_DIR`; the command-line-tools Swift could not import XCTest.
 The native archive is under the explicit `aarch64-apple-darwin/host-dev` target,
 not the unqualified host-dev directory. Those two setup mistakes cost two builds.
+
+One more main refresh brought `0762b6d3d` into the branch; only the queue's new
+entries conflicted, and both sides were retained. The five root checks passed
+again (2,258 enabled tests, 9 ignored), along with the 21 game tests and 57 audio
+tests. The current macOS build passed the gameplay drive in 72.7 s including its
+rebuild, matching Linux's input digest, world snapshots, four pins and every save
+byte. Its descendant audit was unavailable (`ps` stalled); the earlier repaired
+native run had also passed that audit. Main is refreshed at build boundaries, so
+a moving checkout does not invalidate a replay in progress.
+The final Linux/web collector passed normal, Save and FreshGame runs and native
+release again with all four pins unchanged; macOS matches the accepted input
+digest and pins. The warm `bun game/prove.mjs rivals` also passes.

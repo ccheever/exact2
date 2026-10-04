@@ -11,9 +11,9 @@
     "linux",
     "web"
   ],
-  "inputs": "0c972316bb1f37aad276cbf80a3f48e4621d17c555ac21ba41a18899e53fdf68",
+  "inputs": "2b44ad0d025decadae06ead2f1493eee92da30b847997a3b49f733365b4e1c79",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "bcad67aab3225a14235149a93560206905dbe908",
-  "reason": "Thirty-second target drill with saved combo progress and visible opponent labels; fixed range respawns; verified projection and immediate input across restore"
+  "at": "6c0af3094ac6377a260c705a9d7e30294f5d4e4c",
+  "reason": "Verified timed drill, visible contacts, save continuation, and native drag fix after merging origin/main through 0762b6d3d"
 }
