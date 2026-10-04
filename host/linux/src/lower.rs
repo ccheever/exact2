@@ -27,13 +27,15 @@ use exact_motion::{Easing, StepPosition, Value};
 use exact_runner::DataSource;
 
 /// The properties a reader plays.
-pub(crate) const LOWERED: [Property; 6] = [
+pub(crate) const LOWERED: [Property; 8] = [
     Property::Opacity,
     Property::Translate,
     Property::Scale,
     Property::Rotate,
     Property::R,
     Property::StrokeDashoffset,
+    Property::Cx,
+    Property::Cy,
 ];
 
 /// [`Presented::lowered`] bits: the reader plays the node's opacity…
@@ -42,8 +44,10 @@ pub const LOWER_OPACITY: u8 = 1;
 pub const LOWER_TRANSFORM: u8 = 2;
 /// …or a filled circle's radius, as a scale about its centre…
 pub const LOWER_R: u8 = 4;
-/// …or a stroked shape's dash offset, its one path recorded again.
+/// …or a stroked shape's dash offset, its one path recorded again…
 pub const LOWER_DASH: u8 = 8;
+/// …or a circle's centre, as a translation from where it is drawn.
+pub const LOWER_MOVE: u8 = 16;
 
 /// Track property codes on the wire.
 #[cfg(target_os = "android")]
@@ -60,6 +64,10 @@ const ROTATE: u32 = 4;
 const R: u32 = 5;
 #[cfg(target_os = "android")]
 const DASH: u32 = 6;
+#[cfg(target_os = "android")]
+const CX: u32 = 7;
+#[cfg(target_os = "android")]
+const CY: u32 = 8;
 
 impl<D: DataSource> Host<D> {
     /// Lower the reader's properties when the painter is the Canvas host's
@@ -152,6 +160,13 @@ impl<D: DataSource> Host<D> {
                 _ => None,
             })
             .unwrap_or(0.0);
+        let point = |d: Dimension| match d {
+            Dimension::Points(v) => v,
+            _ => 0.0,
+        };
+        let (cx0, cy0) = node
+            .as_ref()
+            .map_or((0.0, 0.0), |n| (point(n.style.cx), point(n.style.cy)));
         let dash0 = node.as_ref().map_or(0.0, |n| {
             let mut mask = exact_kernel::StyleMask::EMPTY;
             mask.set(exact_kernel::StyleId::StrokeDashoffset);
@@ -170,6 +185,8 @@ impl<D: DataSource> Host<D> {
                     Property::Rotate => (Value::scalar(base.rotate as f64), &[(ROTATE, 0)]),
                     Property::R => (Value::scalar(r0 as f64), &[(R, 0)]),
                     Property::StrokeDashoffset => (Value::scalar(dash0 as f64), &[(DASH, 0)]),
+                    Property::Cx => (Value::scalar(cx0 as f64), &[(CX, 0)]),
+                    Property::Cy => (Value::scalar(cy0 as f64), &[(CY, 0)]),
                     _ => continue,
                 };
                 let track = a.keyframes.track(p, underlying, play.dark);
@@ -205,6 +222,7 @@ fn mask(props: &[Property]) -> u8 {
             Property::Translate | Property::Scale | Property::Rotate => LOWER_TRANSFORM,
             Property::R => LOWER_R,
             Property::StrokeDashoffset => LOWER_DASH,
+            Property::Cx | Property::Cy => LOWER_MOVE,
             _ => 0,
         }
     })
@@ -265,26 +283,37 @@ fn playable(n: &exact_kernel::NodeRef<'_>, props: &[Property]) -> bool {
         .iter()
         .any(|p| matches!(p, Property::Translate | Property::Scale | Property::Rotate));
     if svg {
-        // An element's transform and geometry are its scene's.
-        if turns
-            || !s.filter.is_none()
+        // The scene keeps an animated element's transform in parts about its
+        // origin; a non-scaling stroke would scale, a clip or effect would not move.
+        let moves = props
+            .iter()
+            .any(|p| matches!(p, Property::Cx | Property::Cy));
+        if !s.filter.is_none()
             || s.svg_mask.url().is_some()
             || s.clip_path.url().is_some()
             || served(&s.fill)
             || served(&s.stroke)
+            || (turns && s.vector_effect == exact_kernel::VectorEffect::NonScalingStroke)
         {
+            return false;
+        }
+        let point = |d: Dimension| matches!(d, Dimension::Points(_));
+        // A circle's centre is a translation of its drawing, when its centre
+        // is a length; not with a turn (two pivots).
+        if moves && (n.node_type != NodeType::SvgCircle || turns || !point(s.cx) || !point(s.cy)) {
             return false;
         }
         // A radius scales the whole drawing: a fill alone. A dash offset is one
         // stroked path's phase; the two in one layer would scale the dash.
         if props.contains(&Property::R) {
             return n.node_type == NodeType::SvgCircle
+                && !turns
                 && matches!(s.stroke, Paint::None)
                 && !props.contains(&Property::StrokeDashoffset)
                 && matches!(s.r, Dimension::Points(r) if r > 0.0);
         }
         if props.contains(&Property::StrokeDashoffset) {
-            return n.node_type.is_svg_shape() && !matches!(s.stroke, Paint::None);
+            return !turns && n.node_type.is_svg_shape() && !matches!(s.stroke, Paint::None);
         }
         return true;
     }

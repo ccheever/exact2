@@ -629,10 +629,10 @@ impl Backend for Recorder {
         if let Some(crate::paint::Ink::Solid(c)) = &s.stroke {
             if !s.dash.is_empty() {
                 self.ops.push(DASH);
-                self.f(s.phase);
-                self.ops.push(s.dash.len() as u32);
                 // A layer playing the dash offset finds its phase here.
                 self.layers.note_dash(self.ops.len());
+                self.f(s.phase);
+                self.ops.push(s.dash.len() as u32);
                 for d in &s.dash {
                     self.f(*d);
                 }

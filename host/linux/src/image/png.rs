@@ -174,6 +174,24 @@ impl DecodePlan {
         } else {
             scratch
         };
+        // Android's platform decoder subsamples a JPEG by powers of two in the
+        // DCT and then resamples to an exact size at full quality, which costs
+        // more than the decode: plan the largest power-of-two subsample that
+        // still covers the request, as an image loader's inexact decode does,
+        // and let the GPU scale it where it is drawn.
+        #[cfg(target_os = "android")]
+        let pixels = if header.color == JPEG && std::env::var_os("EXACT_EXACT_DECODE").is_none() {
+            let mut s = 1u32;
+            while natural.width.div_ceil(s * 2) >= pixels.0
+                && natural.height.div_ceil(s * 2) >= pixels.1
+                && s < 8
+            {
+                s *= 2;
+            }
+            (natural.width.div_ceil(s), natural.height.div_ceil(s))
+        } else {
+            pixels
+        };
         let cost = DecodeCost::checked(u64::from(pixels.0) * 4, pixels.1, scratch, 0)?;
         if cost.peak()? > SESSION_BYTES {
             return Err(Refusal::TooLarge);

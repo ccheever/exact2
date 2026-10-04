@@ -3,7 +3,7 @@
 //! moves and fades it every frame without the row being recorded again.
 
 use super::{border, gradient, Backend, Painter, Presented, Rect4, RunPaint, Shape};
-use crate::host::lower::{LOWER_DASH, LOWER_OPACITY, LOWER_R, LOWER_TRANSFORM};
+use crate::host::lower::{LOWER_DASH, LOWER_MOVE, LOWER_OPACITY, LOWER_R, LOWER_TRANSFORM};
 use crate::image::Bitmap;
 use crate::text::{Paragraph, TextEngine};
 use exact_kernel::motion::motion_node;
@@ -70,7 +70,7 @@ impl Painter {
         origin: (f32, f32),
         ts: Transform,
     ) -> Opened {
-        if p.lowered == 0 || p.lowered & (LOWER_R | LOWER_DASH) != 0 {
+        if p.lowered == 0 || p.lowered & (LOWER_R | LOWER_DASH | LOWER_MOVE) != 0 {
             return Opened { lowered: 0 };
         }
         let [dx, dy, ..] = p.layout;
@@ -90,41 +90,71 @@ impl Painter {
         }
     }
 
-    /// Open an SVG element's layer when its reader animates it, in `own`
-    /// (its user space): its opacity, or a filled circle's radius as a scale
-    /// about its centre.
+    /// Open an SVG element's layer when its reader animates it: its opacity;
+    /// its `translate`/`rotate`/`scale` about the scene's origin, in `ts` (its
+    /// parent's user space; drawn with only its `transform` list); a filled
+    /// circle's radius or centre about its centre, in `own` (its own space).
+    /// Also the space its drawing is in.
     pub(super) fn svg_layer(
         &mut self,
         item: &exact_kernel::svg::scene::Item,
+        ts: Transform,
         own: Transform,
-    ) -> Opened {
+    ) -> (Opened, Transform) {
+        let closed = (Opened { lowered: 0 }, own);
         let Some(p) = self
             .svg_layers
             .iter()
             .find(|(id, _)| *id == item.id)
             .map(|e| e.1)
         else {
-            return Opened { lowered: 0 };
+            return closed;
         };
         let shape = match &item.kind {
             exact_kernel::svg::scene::Kind::Shape(s) => Some(s),
             _ => None,
         };
         let circle = shape.and_then(|s| s.circle);
-        if (p.lowered & LOWER_R != 0 && circle.is_none())
+        if (p.lowered & (LOWER_R | LOWER_MOVE) != 0 && circle.is_none())
             || (p.lowered & LOWER_DASH != 0 && shape.is_none())
+            || (p.lowered & LOWER_TRANSFORM != 0 && item.transform.is_none())
         {
-            return Opened { lowered: 0 };
+            return closed;
         }
         let (cx, cy, r) = circle.unwrap_or((0.0, 0.0, 0.0));
         let dash = shape.map_or(0.0, |s| s.dash_scale);
-        let base = [0.0, 0.0, 1.0, 0.0, item.opacity, r, dash];
+        let (space, pivot, drawn, base) = match item.transform {
+            Some(t) if p.lowered & LOWER_TRANSFORM != 0 => {
+                // The individual properties are the layer's; the list stays drawn.
+                let (ox, oy) = t.origin;
+                let list = Transform::from_translate(ox, oy)
+                    .pre_concat(super::svg::affine(t.matrix))
+                    .pre_translate(-ox, -oy);
+                let base = [
+                    t.translate.0,
+                    t.translate.1,
+                    t.scale,
+                    t.rotate,
+                    item.opacity,
+                    r,
+                    dash,
+                ];
+                (ts, t.origin, ts.pre_concat(list), base)
+            }
+            _ => (
+                own,
+                (cx, cy),
+                own,
+                [0.0, 0.0, 1.0, 0.0, item.opacity, r, dash],
+            ),
+        };
         let taken = self
             .backend
-            .layer_begin(motion_node(item.key), own, (cx, cy), base);
-        Opened {
-            lowered: if taken { p.lowered } else { 0 },
+            .layer_begin(motion_node(item.key), space, pivot, base);
+        if !taken {
+            return closed;
         }
+        (Opened { lowered: p.lowered }, drawn)
     }
 
     /// Close a layer [`Painter::box_layer`] or [`Painter::svg_layer`] opened.

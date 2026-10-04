@@ -164,7 +164,7 @@ fn ink(p: Option<&ShapePaint>, dark: bool, to_path: [f32; 6]) -> Option<Ink<'_>>
     })
 }
 
-fn affine(t: [f32; 6]) -> Transform {
+pub(super) fn affine(t: [f32; 6]) -> Transform {
     Transform::from_row(t[0], t[1], t[2], t[3], t[4], t[5])
 }
 
@@ -331,9 +331,9 @@ impl Painter {
             Some(t) => ts.pre_concat(affine(t.affine())),
             None => ts,
         };
-        let layer = match self.svg_layers.is_empty() {
-            true => super::layer::Opened { lowered: 0 },
-            false => self.svg_layer(item, own),
+        let (layer, own) = match self.svg_layers.is_empty() {
+            true => (super::layer::Opened { lowered: 0 }, own),
+            false => self.svg_layer(item, ts, own),
         };
         let opacity = if layer.opacity() { 1.0 } else { item.opacity };
         if opacity <= 0.0 {
