@@ -272,3 +272,15 @@ fn a_route_whose_replaced_header_leaves_takes_back_its_inset() {
     kernel.apply(3, 4, &[op]).unwrap();
     assert_eq!(frame(&mut kernel, 4).1, 106.0, "and back with it");
 }
+
+#[test]
+fn a_replaced_header_destroyed_outright_leaves_no_inset() {
+    let mut kernel = header_padded();
+    kernel
+        .set_host_cover(2, Some(HostCover::Edges([44.0, 0.0, 0.0, 0.0])))
+        .unwrap();
+    kernel.set_host_cover(3, Some(HostCover::Whole)).unwrap();
+    assert_eq!(frame(&mut kernel, 4).1, 106.0);
+    kernel.apply(2, 3, &[Op::DestroyView { id: 3 }]).unwrap();
+    assert_eq!(frame(&mut kernel, 4).1, 44.0);
+}

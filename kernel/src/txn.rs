@@ -976,6 +976,7 @@ impl Detach {
                 count(arena.children(parent).len(), 0);
                 arena.prune_children(parent);
                 sync_children(arena, layout, parent);
+                crate::kernel::cover_children_changed(arena, layout, parent);
             }
         }
         self.seen.clear();

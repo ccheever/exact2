@@ -184,5 +184,68 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertTrue(chat.navigationItem.titleView is HeaderTitleView)
     }
 
+
+    /// A real interactive pop from Photo, driven by a percent-driven
+    /// transition (UIKit's own coordinator, as a finger's edge swipe has):
+    /// the bar comes in with Chat, goes back out on the cancel, and after a
+    /// completed pop Chat's content area and its scroll range are as before.
+    func testAnInteractivePopFromARouteWithoutABarCancelsAndCompletes() throws {
+        let session = try fixture("basics-interactive")
+        let (_, nav, chat) = try chat(session)
+        let list = try node(session, "list-chat")
+        let sv = try XCTUnwrap(list.scroll)
+        let top = chat.view.safeAreaInsets.top, inset = sv.adjustedContentInset.top
+        try tapNode(session, "photo")
+        until("Photo pushed") { nav.viewControllers.count == 3 && nav.transitionCoordinator == nil }
+        spin(0.3)
+        let pop = InteractivePop()
+        session.presenter.navigation.setAppDelegate(nav, pop)
+        pop.interactive = true
+        nav.popViewController(animated: true)
+        spin(0.05)
+        pop.interaction.update(0.4)
+        spin(0.1)
+        XCTAssertFalse(nav.isNavigationBarHidden, "the bar comes in with Chat, mid-pop")
+        pop.interaction.cancel()
+        until("the cancelled pop returns") { nav.transitionCoordinator == nil && nav.viewControllers.count == 3 }
+        spin(0.2)
+        XCTAssertTrue(nav.isNavigationBarHidden, "and leaves with the cancel")
+        pop.interactive = false
+        nav.popViewController(animated: true)
+        until("the pop lands") { nav.transitionCoordinator == nil && nav.viewControllers.count == 2 }
+        spin(0.4)
+        XCTAssertFalse(nav.isNavigationBarHidden)
+        XCTAssertEqual(chat.view.safeAreaInsets.top, top, accuracy: 0.5)
+        XCTAssertEqual(sv.adjustedContentInset.top, inset, accuracy: 0.5)
+        XCTAssertEqual(list.scrollOrigin, list.scrollCollapsed, "an inline title has no collapse slack")
+        list.pendingScrollTop = 100_000
+        list.applyPendingScroll()
+        spin(0.3)
+        let end = sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height
+        XCTAssertEqual(sv.contentOffset.y, end, accuracy: 0.5, "the end lands at the scroller's own end")
+    }
+}
+
+/// A pop the test drives: a cross-fade animator under a percent-driven
+/// interaction, as NavigationBarIOSTests' forwarded delegate does.
+private final class InteractivePop: NSObject, UINavigationControllerDelegate, UIViewControllerAnimatedTransitioning {
+    var interactive = false
+    let interaction = UIPercentDrivenInteractiveTransition()
+    func navigationController(_ nav: UINavigationController, animationControllerFor operation: UINavigationController.Operation,
+                              from: UIViewController, to: UIViewController) -> UIViewControllerAnimatedTransitioning? { self }
+    func navigationController(_ nav: UINavigationController,
+                              interactionControllerFor animator: UIViewControllerAnimatedTransitioning) -> UIViewControllerInteractiveTransitioning? {
+        interactive ? interaction : nil
+    }
+    func transitionDuration(using context: UIViewControllerContextTransitioning?) -> TimeInterval { 0.2 }
+    func animateTransition(using context: UIViewControllerContextTransitioning) {
+        guard let to = context.viewController(forKey: .to), let view = context.view(forKey: .to) else { return context.completeTransition(false) }
+        view.frame = context.finalFrame(for: to)
+        view.alpha = 0
+        context.containerView.addSubview(view)
+        UIView.animate(withDuration: transitionDuration(using: context), animations: { view.alpha = 1 }) { _ in
+            context.completeTransition(!context.transitionWasCancelled)
+        }
+    }
 }
 #endif

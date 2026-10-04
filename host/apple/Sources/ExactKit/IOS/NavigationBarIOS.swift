@@ -350,7 +350,7 @@ extension NavigationHost {
     func prepareRoutes(_ routes: [RouteController], in nav: UINavigationController) {
         hookNavigation(nav)
         projectBack(routes, in: nav)
-        followTablist(routes)
+        followTablist(routes, in: nav)
         for (index, c) in routes.enumerated() {
             let shows = barShows(nav)
             let back = container?.props["navigationBack"]
@@ -640,8 +640,11 @@ extension NavigationHost {
             // its expanded inset is where CSS scrollTop 0 rests.
             // While the bar is not as the route wants it (mid-transition to or
             // from a route without one, §9.10), its last cover stands.
-            let settled = nav.isNavigationBarHidden != routeShowsBar(c, in: nav)
-            if settled, let node = c.collapseScroll, let sv = node.scroll, sv.adjustedContentInset.top > 0 {
+            // An active search's bar is UIKit's: the content follows it, as
+            // UIKit's own does, but a title's insets are not sampled.
+            let search = searching(nav)
+            let settled = search || nav.isNavigationBarHidden != routeShowsBar(c, in: nav)
+            if settled, !search, let node = c.collapseScroll, let sv = node.scroll, sv.adjustedContentInset.top > 0 {
                 let inset = sv.adjustedContentInset.top
                 if c.navigationItem.largeTitleDisplayMode != .always {
                     // An inline title does not collapse: its inset is the one it has.
@@ -714,7 +717,7 @@ extension NavigationHost {
         for nav in allNavigations {
             guard let stack = stacks[ObjectIdentifier(nav)], stack.hooked else { continue }
             if nav.delegate !== stack.proxy { say("navigation \(stack.label)", "delegate") }
-            if nav.transitionCoordinator == nil, nav.isNavigationBarHidden == topShowsBar(nav) { say("navigation \(stack.label)", "navigation bar visibility") }
+            if nav.transitionCoordinator == nil, !searching(nav), nav.isNavigationBarHidden == topShowsBar(nav) { say("navigation \(stack.label)", "navigation bar visibility") }
             if nav.viewControllers.map(ObjectIdentifier.init) != stack.written { say("navigation \(stack.label)", "viewControllers") }
             if let pop = nav.interactivePopGestureRecognizer, pop.delegate !== self { say("navigation \(stack.label)", "the pop gesture's delegate") }
             if #available(iOS 26.0, *), let pop = nav.interactiveContentPopGestureRecognizer, pop.delegate !== self {
