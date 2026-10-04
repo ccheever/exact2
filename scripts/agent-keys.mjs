@@ -64,6 +64,42 @@ export function cdpKey(chord) {
   return { code, key, vk, modifiers, text, location };
 }
 
+/** The chord a real paste sends: ⌘V on macOS, Ctrl+V elsewhere. */
+export function pasteChord() {
+  return process.platform === 'darwin' ? 'Meta+v' : 'Control+v';
+}
+
+/** `type <id> copy|cut|paste`. Paste sends [`pasteChord`] first and lands
+ * the clipboard event only when that keydown was not prevented (drums: skipping
+ * the chord hid a `key` handler whose preventDefault blocked a real paste).
+ * Copy and cut stay the clipboard event. `keyDown`/`keyUp` default to CDP. */
+export async function deliverClipboard({ id, opts, evaluate, ask, call, keyDown, keyUp, insertText }) {
+  const f = await ask({ op: 'focus', id, select: false });
+  if (f.error) throw new Error(f.error);
+  const send = async () => {
+    const heard = await evaluate(`(() => { const el = document.activeElement?.closest?.('[data-view]') ? document.activeElement : exact.views.get(${id}), dt = new DataTransfer(); if (${JSON.stringify(opts.clipboard)} === 'paste') dt.setData('text/plain', ${JSON.stringify(opts.text ?? '')}); const ev = new ClipboardEvent(${JSON.stringify(opts.clipboard)}, { clipboardData: dt, bubbles: true, cancelable: true }); el.dispatchEvent(ev); return { editable: el.matches('input, textarea, [contenteditable]'), prevented: ev.defaultPrevented }; })()`);
+    if (opts.clipboard === 'paste' && heard.editable && !heard.prevented) await (insertText ?? (text => call('Input.insertText', { text })))(opts.text ?? '');
+  };
+  if (opts.clipboard !== 'paste') { await send(); return; }
+  const chord = cdpKey(pasteChord());
+  const down = keyDown ?? (() => call('Input.dispatchKeyEvent', { type: 'keyDown', key: chord.key, code: chord.code, windowsVirtualKeyCode: chord.vk, modifiers: chord.modifiers, location: chord.location }));
+  const up = keyUp ?? (() => call('Input.dispatchKeyEvent', { type: 'keyUp', key: chord.key, code: chord.code, windowsVirtualKeyCode: chord.vk, modifiers: chord.modifiers, location: chord.location }));
+  // Bubble, so it runs after the target's key handler has preventDefaulted.
+  // The contract's stopPropagation marks the event; it does not stop the DOM
+  // event, so this still sees a prevented chord (host/web/glue.js, host/web-js/rt.js).
+  await evaluate(`(() => { window.__exactPasteKey = null; addEventListener('keydown', window.__exactPasteHear = (e) => { window.__exactPasteKey = e.defaultPrevented; }); })()`);
+  let held = false;
+  try {
+    await down();
+    held = true;
+    if (await evaluate('window.__exactPasteKey !== true')) await send();
+  } finally {
+    // A throw from the paste event must still release the chord.
+    if (held) await up().catch(() => {});
+    await evaluate(`(() => { removeEventListener('keydown', window.__exactPasteHear); window.__exactPasteHear = window.__exactPasteKey = null; })()`).catch(() => {});
+  }
+}
+
 /** Browser-owned key release carries device identity, never a canvas lookup. */
 export async function browserKey({id, opts, evaluate, ask, call, frame}) {
   if (opts.phase != null && !['down', 'up'].includes(opts.phase)) throw new Error(`key: not a phase: ${opts.phase}`);

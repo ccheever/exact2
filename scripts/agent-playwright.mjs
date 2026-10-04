@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { launchFacts, refuseStale, staleError, warnStale, webChanges } from './agent-launch.mjs';
+import { deliverClipboard, pasteChord } from './agent-keys.mjs';
 import { builtAppMatches, jsTargetBuild, serveBuildTree, serveStatic } from '../host/web/serve.mjs';
 import { resolveApp, webBuildCommand, webDist as defaultWebDist } from './app.mjs';
 
@@ -284,6 +285,24 @@ export async function openPlaywrightWeb({ browser: name, plan, world, size, url:
         else if (kind === 'press') await page.mouse.click(x, y);
         else if (kind === 'type') { await focus(id); await page.keyboard.insertText(opts.text); }
         else if (kind === 'key') return browserKey(id, opts);
+        else if (kind === 'clipboard') {
+          // Playwright has no modifier-bit field, so the chord is two keys.
+          // A failed `v` releases the modifier; `deliverClipboard` releases both
+          // if the paste event throws. A string `evaluate` is an expression
+          // (playwright-core evaluateExpression, isFunction false).
+          const modifier = pasteChord().startsWith('Meta') ? 'Meta' : 'Control';
+          await deliverClipboard({
+            id, opts, ask,
+            evaluate: expression => page.evaluate(expression),
+            keyDown: async () => {
+              await page.keyboard.down(modifier);
+              try { await page.keyboard.down('v'); }
+              catch (error) { await page.keyboard.up(modifier).catch(() => {}); throw error; }
+            },
+            keyUp: async () => { await page.keyboard.up('v'); await page.keyboard.up(modifier); },
+            insertText: text => page.keyboard.insertText(text),
+          });
+        }
         else if (kind === 'pinch') throw new Error(`${name} pinch unsupported: Playwright cannot produce trusted phased touches; synthetic dispatchEvent input is not equal input`);
         await frame();
         return { at: kind === 'wheel' ? deliveredAt : [x, y] };

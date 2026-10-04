@@ -10,7 +10,7 @@ import {PassThrough} from 'node:stream';
 import {closeFilesystemReader, filesystem, filesystemErrorCode} from './filesystem.mjs';
 import {Cdp, chromium, closeWindowsBrowser, retainCleanupError, packagedBuildChanges, removeBrowserProfile} from './agent-launch.mjs';
 import {browserKey, open} from './agent.mjs';
-import {cdpKey, withHeldModifiers} from './agent-keys.mjs';
+import {cdpKey, deliverClipboard, pasteChord, withHeldModifiers} from './agent-keys.mjs';
 import {runCaps} from './caps.mjs';
 import {binaryenArchive, binaryenVersion} from './exact.mjs';
 import {listPublicFiles, publicFileCards, readStaticFile, readStaticFileAsync, staticFile} from '../host/web/serve.mjs';
@@ -324,6 +324,76 @@ test('modifier codes preserve side identity and accepted holds survive later fra
   expect(withHeldModifiers('Input.dispatchMouseEvent',{type:'mouseMoved'},held).modifiers).toBe(2);
   held.clear();
   expect(withHeldModifiers('Input.dispatchMouseEvent',{type:'mouseMoved'},held).modifiers).toBe(0);
+});
+
+test('paste sends the platform chord and a prevented keydown skips the clipboard', async () => {
+  const chord = pasteChord();
+  expect(chord).toBe(process.platform === 'darwin' ? 'Meta+v' : 'Control+v');
+  const mapped = cdpKey(chord);
+  expect(mapped).toMatchObject({key:'v', code:'KeyV', text:undefined, modifiers:process.platform === 'darwin' ? 4 : 2, vk:86});
+
+  const drive = ({clipboard, text, prevented, editable = true, failAt}) => {
+    const trace = [];
+    let listening = false, flag = null;
+    const evaluate = async (expression) => {
+      if (expression.includes('removeEventListener')) { listening = false; flag = null; trace.push('unlisten'); return; }
+      if (expression.includes('addEventListener')) { listening = true; flag = null; trace.push('listen'); return; }
+      if (expression === 'window.__exactPasteKey !== true') { trace.push('flag'); return flag !== true; }
+      if (expression.includes('ClipboardEvent')) {
+        trace.push('event');
+        if (failAt === 'event') throw new Error('send failed');
+        return {editable, prevented:false};
+      }
+      throw new Error(`unexpected evaluate: ${expression}`);
+    };
+    const ask = async (req) => { trace.push('focus'); expect(req).toEqual({op:'focus', id:7, select:false}); return {}; };
+    const call = async (method, args) => {
+      if (method === 'Input.insertText') { trace.push(['insert', args.text]); return; }
+      trace.push([args.type, args.key, args.code, args.modifiers, args.text]);
+      if (args.type === 'keyDown' && listening) flag = prevented;
+      if (failAt === 'down' && args.type === 'keyDown') throw new Error('down failed');
+    };
+    return deliverClipboard({id:7, opts:{clipboard, ...(text == null ? {} : {text})}, evaluate, ask, call}).then(() => trace);
+  };
+
+  expect(await drive({clipboard:'paste', text:'secret', prevented:true})).toEqual([
+    'focus', 'listen', ['keyDown', 'v', 'KeyV', mapped.modifiers, undefined], 'flag', ['keyUp', 'v', 'KeyV', mapped.modifiers, undefined], 'unlisten',
+  ]);
+  expect(await drive({clipboard:'paste', text:'secret', prevented:false})).toEqual([
+    'focus', 'listen', ['keyDown', 'v', 'KeyV', mapped.modifiers, undefined], 'flag', 'event', ['insert', 'secret'], ['keyUp', 'v', 'KeyV', mapped.modifiers, undefined], 'unlisten',
+  ]);
+  expect(await drive({clipboard:'paste', text:'secret', prevented:false, editable:false})).toEqual([
+    'focus', 'listen', ['keyDown', 'v', 'KeyV', mapped.modifiers, undefined], 'flag', 'event', ['keyUp', 'v', 'KeyV', mapped.modifiers, undefined], 'unlisten',
+  ]);
+  expect(await drive({clipboard:'copy'})).toEqual(['focus', 'event']);
+  await assert.rejects(drive({clipboard:'paste', text:'secret', prevented:false, failAt:'event'}), /send failed/);
+  await assert.rejects(drive({clipboard:'paste', text:'secret', prevented:false, failAt:'down'}), /down failed/);
+  // The chord is released when the paste event throws, and not pressed again when the keydown throws.
+  const released = [];
+  let listening = false;
+  await assert.rejects(deliverClipboard({
+    id:7, opts:{clipboard:'paste', text:'secret'},
+    ask:async () => ({}),
+    evaluate:async (expression) => {
+      if (expression.includes('removeEventListener')) return;
+      if (expression.includes('addEventListener')) { listening = true; return; }
+      if (expression === 'window.__exactPasteKey !== true') return true;
+      if (expression.includes('ClipboardEvent')) throw new Error('send failed');
+    },
+    call:async (_method, args) => { released.push(args.type); if (args.type === 'keyDown' && !listening) throw new Error('keydown before the listener'); },
+  }), /send failed/);
+  expect(released).toEqual(['keyDown', 'keyUp']);
+  released.length = 0;
+  await assert.rejects(deliverClipboard({
+    id:7, opts:{clipboard:'paste', text:'x'},
+    ask:async () => ({}),
+    evaluate:async (expression) => {
+      if (expression.includes('removeEventListener') || expression.includes('addEventListener')) return;
+      throw new Error(`unexpected ${expression}`);
+    },
+    call:async (_method, args) => { released.push(args.type); if (args.type === 'keyDown') throw new Error('down failed'); },
+  }), /down failed/);
+  expect(released).toEqual(['keyDown']);
 });
 
 test('trusted browser modifier events retain both sides and reach following keys and pointers', async () => {

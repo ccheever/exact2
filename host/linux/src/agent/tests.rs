@@ -883,6 +883,93 @@ fn the_clipboard_events_reach_the_nearest_handler() {
     assert!(reply.contains("no cut handler"), "{reply}");
 }
 
+/// A paste is Ctrl+V first. A `key` handler that `preventDefault()`s that
+/// chord keeps the clipboard event from landing; one that does not still
+/// hears the key and the paste. Copy stays the clipboard event alone
+/// (drums R15: the driver's paste skipped the key and hid that bug).
+#[test]
+fn a_paste_is_ctrl_v_and_a_prevented_chord_skips_the_clipboard() {
+    let head = r#"component App
+  state log = ""
+  action keyed(k: string, e: KeyboardEvent)
+    log = `${log}key:${k}:${e.ctrlKey};`
+"#;
+    let tail = r#"  action pasted(e: ClipboardEvent)
+    log = `${log}paste:${e.text};`
+  action copied
+    log = `${log}copy;`
+  view
+    column width=300
+      box key=keyed paste=pasted copy=copied testId="cell" width=80 height=24
+      text log testId="log" height=20
+"#;
+    let text_of = |p: &Presenter<NoData>| {
+        let k = p.host().kernel();
+        let log = k.node_by_key(k.find_by_test_id("log")[0]).unwrap().id;
+        k.node(log)
+            .unwrap()
+            .props
+            .str(exact_kernel::PropId::Text)
+            .unwrap()
+            .to_string()
+    };
+    for prevent in [false, true] {
+        let guard = if prevent {
+            "    if k == \"v\" and e.ctrlKey\n      preventDefault()\n"
+        } else {
+            ""
+        };
+        let plan = contract::compile(&format!("{head}{guard}{tail}")).unwrap();
+        let (mut p, boot_error) = Presenter::boot_with(
+            &plan.encode(),
+            NoData,
+            (300.0, 300.0),
+            1.0,
+            std::path::PathBuf::new(),
+            PainterChoice::Cpu,
+        )
+        .unwrap();
+        assert!(boot_error.is_none(), "{boot_error:?}");
+        let k = p.host().kernel();
+        let cell = k.node_by_key(k.find_by_test_id("cell")[0]).unwrap().id;
+        let reply = handle(
+            &mut p,
+            &format!(r#"{{"op":"type","id":{cell},"clipboard":"paste","text":"secret"}}"#),
+        );
+        assert!(reply.contains("\"clipboard\":\"paste\""), "{reply}");
+        assert!(!reply.contains("error"), "{reply}");
+        let log = text_of(&p);
+        assert!(
+            log.starts_with("key:v:true;"),
+            "prevent={prevent} the chord was not delivered: {log}"
+        );
+        if prevent {
+            assert!(
+                !log.contains("paste:") && !log.contains("secret"),
+                "a prevented chord still pasted: {log}"
+            );
+        } else {
+            assert_eq!(log, "key:v:true;paste:secret;");
+        }
+        handle(
+            &mut p,
+            &format!(r#"{{"op":"type","id":{cell},"clipboard":"copy"}}"#),
+        );
+        let log = text_of(&p);
+        assert!(
+            log.ends_with("copy;") && log.matches("key:").count() == 1,
+            "copy sent a key or dropped the chord: {log}"
+        );
+        let reply = handle(&mut p, &format!(r#"{{"op":"type","id":{cell},"key":"a"}}"#));
+        assert!(!reply.contains("error"), "{reply}");
+        let log = text_of(&p);
+        assert!(
+            log.ends_with("key:a:false;"),
+            "Ctrl stayed down after the paste: {log}"
+        );
+    }
+}
+
 /// Gallery F20: `tap <id> modifiers Shift+Meta` presses with the keys held,
 /// which the action's `MouseEvent` reports; the keys are released after.
 #[test]
