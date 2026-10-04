@@ -82,3 +82,11 @@ implementation starts (`llp/reviews/1080*.astra.md`).
 - `perf`, frame timing, hitches, traces: LLP 1079.
 - A devtools UI, a views server, or a live inspector (`DEFERRED.md`).
 - Android. There is no Android host.
+
+## 5. From the Signal clone
+
+LLP 1080.000 §10 records what the Signal clone needs from these stages, in its
+order of need: native chrome in screenshots, `layout` and `tree --ax` (stage
+3, ideally ahead of the native aim); D4's native kinds for the search
+controller, title-view segment, bar button menus and tab badge; and a
+proposed whole-gesture `drag` form of `tap`, which P3's failure does not block.
