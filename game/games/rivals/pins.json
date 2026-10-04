@@ -1,19 +1,19 @@
 {
   "ticks": {
-    "0": "0x237907c04a3485b9",
-    "1080": "0x8942ba00a3ab338a"
+    "0": "0xbcff254ac8104249",
+    "1080": "0xb0a25be427e9e19c"
   },
   "saves": {
-    "continuation": "990171f9ce44ab905fe84f13bec375c5dd15f909268c0d7e099ccab45314f713",
-    "drill": "c0883a71d9b271b83fc1c6f07d9be8292fcb8e73ebdab92fd58a2f4c22453b22"
+    "continuation": "82d8d11fd1ba7043b6a7944ae1ebf7c19afa202c221aa121b53f645800a38ea0",
+    "drill": "38a57adf73f984a3b773bed5603ed2b16a22f858e7e7df14d20d99cfc3a4bb04"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "c738bccfd8065fa376f9c1f05ec566ad4ed464c559eb080ae98ed9bd477ea55a",
+  "inputs": "03aaec776feb8b20a34ab4ae4e474586f110fef4fcfb311ab2365c16d548ab3d",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "f7adbe2b94a0d262b0653036cb89824dbdc046bb",
-  "reason": "Verify passive macOS HUD fix and refreshed main d6f7daf02 with pointer receipt recording"
+  "at": "c04a3f0f0a42144f254f2230aa8145425dd24880",
+  "reason": "Rivals hunting and cover detours, committed search destinations, and mid-detour restore after main 3d76ccdb7"
 }

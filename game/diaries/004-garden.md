@@ -773,3 +773,14 @@ The advisory semantics command's default merge-base check finds no changes
 after a merge. Retrying with `--base 38631aab2` correctly selects this update,
 but cannot run the oracle: this Mac has no Lean `lake` executable. That check
 is unavailable, not passed; the five gates above do not depend on it.
+
+## Browser tap integration recheck (2026-10-04)
+
+During Rivals' bot-navigation work, merge `c04a3f0f0` brings 23 commits from
+main through `3d76ccdb7`. The web agent now verifies that a press reaches its
+intended target. Garden's complete web proof passes in 63.9 s including builds,
+keeps every tick/save pin, and passes the descendant process audit. The market
+capture was inspected: five orders filled, four visible plants, readable shop
+and active-plot feedback. Artifact: `artifacts/main-3d-web/`. No Garden gameplay
+or Jev-policy change in this integration sweep. Rivals diary 006 records the
+passing root gates and the advisory semantics check unavailable without Lean.

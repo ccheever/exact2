@@ -757,3 +757,13 @@ Web's descendant audit passes; macOS's optional scan times out while every
 recorded carrier closes. No new Jev run or policy change in this integration.
 Garden diary 004 records the merge conflicts, the refreshed game lockfiles,
 the passing root/engine/surface checks, and the unavailable Lean oracle.
+
+## Browser tap integration recheck (2026-10-04)
+
+Rivals' navigation batch merges main through `3d76ccdb7` as `c04a3f0f0`.
+Forest's complete web proof passes in 86.2 s including builds, retains every
+tick/save pin, and passes the descendant process audit. It exercises the merged
+driver's press-target verification. The chopping capture was inspected and
+retains the visible recovery countdown, supply guidance and forest scene.
+Artifact: `artifacts/main-3d-web/`. No new Forest Jev run or policy change here.
+Rivals diary 006 records the shared gates and unavailable Lean advisory check.

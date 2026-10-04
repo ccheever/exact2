@@ -798,3 +798,60 @@ The maximum with 24 bots is **8.63 ms**, slightly over the 8.33 ms tick budget;
 the first run also hit 8.75 ms. This is a repeatable tail to investigate, not a
 claim that every frame meets budget or a before/after performance comparison.
 Logs are `/tmp/exact2-rivals-ramp-{tests,clippy,bench-isolated}.log`.
+
+### Main update, real hosts and the accepted baseline
+
+Feature `2844e5298` is followed by merge `c04a3f0f0`: 23 commits from main
+through `3d76ccdb7`. The sole conflict is the top of `QUEUE.md`; both branches'
+entries are preserved. Upstream changes the web agent's tap verification, the
+dev server's port selection, compiler diagnostics and the formal number model.
+Root build, test, clippy, formatting, caps and boot pass: **2,328 enabled tests,
+83 binaries, nine ignored**. Rivals' 25 tests and its clippy/format checks pass
+again. The requested advisory `difftest quick --base 2844e5298` cannot run:
+`lake` is absent. Rust checks do not verify the new Lean proofs.
+
+The complete Rivals proofs pass their behavior checks on web in **71.4 s** and
+macOS in **35.6 s**, with matching inputs, pins, seven world observations and
+eight saves. Those exploratory runs report `UNVERIFIED` until collection. Web's
+process audit passes; macOS's optional descendant scan times out while every
+owned carrier closes. Both `incoming.png` captures were inspected and agree
+visually. Artifacts: `artifacts/ramp-{web,macos}/`.
+
+One unchanged-controller Jev duel on each host, without further tuning:
+
+| | web | macOS |
+|---|---:|---:|
+| Final player–bot score | 4–4 | 2–5 |
+| Decisions | 128 (cap) | 118 (round ended) |
+| Game seconds | 63.6 | 58.47 |
+| Player shots / headshots | 14 / 12 | 8 / 6 |
+| Bot shots | 76 | 55 |
+| Final player HP | 80 | 0 |
+| Model latency p50 / p95 | 319 / 660 ms | 341 / 682 ms |
+| Model input / output tokens | 130,139 / 11,810 | 119,756 / 10,811 |
+
+The native duel now ends; the bot is no longer left pressing into the ramp.
+Web scores its fourth kill at decision 126, then reaches the cap two decisions
+later. Neither is proof of general navigation quality or balanced difficulty.
+Bot skill remains 0.55. The sweeps query only static geometry, and Jev still sees
+only the public HUD, visible nameplates and the player's own movement feedback.
+Wall times are 65.2 s web and 91.9 s macOS. Web's audit passes; macOS's optional
+scan is unavailable. Both final screenshots were inspected. Artifacts:
+`artifacts/jev-ramp-{web,macos}/`.
+
+Strict collector `artifacts/prove/run-Rgteti/` succeeds with the source held at
+the merge: normal/Save/FreshGame on Linux (**3.67/1.20/1.19 s**) and web
+(**83.23/60.49/61.29 s**), plus native release (**82.66 s**, including a
+55.64 s host build). All seven process audits pass. Every run matches the
+independent macOS proof's inputs, pins, seven worlds and eight saves. Restoring
+the ordinary web build takes 23.09 s. The collector accepts the new Brain schema
+and duel behavior in `pins.json`; a final normal Linux run reports `PASS`.
+
+Garden and Forest's complete web proofs also pass on the merged tap driver
+(63.9/86.2 s including builds), retain their accepted pins, and pass their process
+audits. Their market/chopping captures were inspected. Artifacts:
+`game/games/{garden,forest}/artifacts/main-3d-web/`. Those runs and the shared
+checks overlapped, so their elapsed times are not isolated performance measures.
+No engine API was needed for the bot fix: existing capsule sweeps, seekable
+simulation, named state reads and fresh-process saves sufficed to reproduce,
+correct and verify the game-side failure.
