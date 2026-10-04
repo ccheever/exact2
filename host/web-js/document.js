@@ -38,6 +38,8 @@ function covered(p, c) {
   return key != null && own != null && own !== key && p.hasAttribute("navigationBack")
     && [].some.call(p.childNodes, r => r.getAttribute?.("navigationKey") === key);
 }
+/** Whether `e` lies under a route its navigation root has not selected (runner/src/head.rs `inactive`). */
+export function inactive(e) { for (let c = e, p = e.parentNode; p; c = p, p = p.parentNode) if (covered(p, c)) return true; return false; }
 function publish() {
   const root = document.getElementById("exact-root"), live = [], next = {}, depth = {};
   // Each active head with its place: its own and each ancestor's position

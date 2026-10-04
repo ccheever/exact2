@@ -109,6 +109,12 @@ impl<D: DataSource> Runner<D> {
         match self.apply(ops) {
             Ok(receipt) => {
                 self.publish_surfaces(surfaces);
+                if settled && !self.held_edges.is_empty() {
+                    if let Err(error) = self.release_held_edges() {
+                        self.poison();
+                        return Err(error);
+                    }
+                }
                 Ok(receipt)
             }
             Err(e) => {
