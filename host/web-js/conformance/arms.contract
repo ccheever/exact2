@@ -1,0 +1,54 @@
+// Synthetic conformance plan: an `each` whose parent is a region rather than
+// an element — beside a text in a `when` arm, in a `match` arm, as another
+// `each`'s row — keeps its rows in order as its list grows, shrinks and
+// comes back after the arm was built. The JS runner built such an arm into a
+// fragment and kept inserting rows there once the arm was placed: the
+// browser's `insertBefore` NotFoundError, and the runner poisoned.
+shape Location
+  lat: number
+  lon: number
+
+shape Station
+  id: string
+  name: string
+  zone: number
+  distance: number
+
+component Arms
+  resource loc = defaultLocation() as shape Location
+  resource line = stations(loc) as shape list<Station>
+  state zone = 1
+  state open = true
+  derive near = filter(line, s => s.zone <= zone)
+  action more
+    zone = zone + 1
+  action fewer
+    zone = zone > 0 ? zone - 1 : 0
+  action toggle
+    open = not open
+  view
+    column testId="root" padding=12 gap=6
+      row gap=6
+        button press=more testId="more"
+          text "more"
+        button press=fewer testId="fewer"
+          text "fewer"
+        button press=toggle testId="toggle"
+          text "toggle"
+      when open
+        text `zone ${zone}` testId="heading"
+        each s in near key=s.id
+          text s.name testId=`when-${s.id}`
+      else
+        text "closed" testId="closed"
+      match first(near)
+        case some(f)
+          text f.name testId="first"
+          each s in near key=s.id
+            text `${s.zone}` testId=`match-${s.id}`
+        case none
+          text "none" testId="none"
+      column testId="nested"
+        each s in filter(line, s => s.zone == 1) key=s.id
+          each t in filter(near, t => t.zone == zone) key=t.id
+            text `${s.id}/${t.id}` testId=`pair-${s.id}-${t.id}`

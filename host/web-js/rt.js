@@ -1038,8 +1038,9 @@ export function each(p, list, key, row, pure) {
   effect(() => {
     const items = list();
     untracked(() => {
-      // Rows moving or leaving are adopted rows (a row waiting for its slice
-      // shows its rendered values until then, and adopts at the current ones).
+      // Built into an arm's or a row's fragment, the region's parent is where its end anchor now is.
+      if (b) p = b.parentNode;
+      // Rows moving or leaving are adopted rows (a row waiting for its slice shows its rendered values until then, and adopts at the current ones).
       if (b && LazyAt < Lazy.length) adoptAll();
       // Keys that didn't move: new items to their rows, nothing else (LLP 1071.000 D2).
       if (pure && order && items.length === order.length) {
