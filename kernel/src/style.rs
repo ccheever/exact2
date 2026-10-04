@@ -1365,14 +1365,16 @@ pub fn taffy_style(arena: &NodeArena, slot: u32) -> taffy::style::Style {
     let mut s = arena
         .style(slot)
         .to_taffy(arena.node_type(slot), arena.env());
-    // Exact resets a `<button>` to an authored flex container, but HTML's
-    // form-control block sizing still makes its automatic inline size
-    // shrink-to-fit. The element remains a button when an author gives it
-    // another ARIA role; only a Pressable with href projects as an `<a>`.
-    if arena.node_type(slot) == NodeType::Pressable
-        && arena.props(slot).str(crate::PropId::Href).is_none()
-    {
+    // HTML's button layout, which Exact's reset of a `<button>` keeps: its
+    // automatic inline size is shrink-to-fit, and a block button's content
+    // sits in an anonymous flow-root box centred safely in the block axis,
+    // whatever `align-content` says (Chrome 154; LLP 1001 §1). A flex or
+    // grid button lays out as any flex or grid container.
+    if arena.is_button(slot) {
         s.item_is_table = true;
+        if s.display == taffy::Display::Block {
+            s.align_content = Some(taffy::style::AlignContent::SAFE_CENTER);
+        }
     }
     // The page reset makes a checkbox border-box for both `appearance:auto`
     // and `none`. With native appearance Chrome additionally ignores its
