@@ -2,10 +2,10 @@ import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { outsideWorkspaceProblems, pathFrom } from '../scripts/app.mjs';
+import { outsideWorkspaceProblems, pathFrom, readManifest } from '../scripts/app.mjs';
 import { createApp } from './new.mjs';
 
 test('a new outside app passes the checks every run makes, and a drifted one is told what to paste', () => {
@@ -18,7 +18,7 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     // Execute the generated dispatcher against fake SDK entry points: cwd may
     // be anywhere, but the source and test file must still name this app.
     const sdk = resolve(parent, 'sdk');
-    for (const file of ['host/web/build.mjs', 'scripts/agent.mjs']) {
+    for (const file of ['host/web/build.mjs', 'scripts/agent.mjs', 'scripts/exact.mjs']) {
       mkdirSync(resolve(sdk, file, '..'), { recursive: true });
       writeFileSync(resolve(sdk, file), 'console.log(JSON.stringify({args:process.argv.slice(2),app:process.env.EXACT_APP_DIR}));');
     }
@@ -31,6 +31,7 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
       [['test', 'macos', '--size', '800x600'], [...testArgs('macos'), '--size', '800x600']],
       [['agent', 'web', 'tree', 'type title a title with spaces'], ['web', '--app', 'field-log', 'tree', 'type title a title with spaces']],
       [['agent', 'ios', 'state'], ['ios', '--app', 'field-log', 'state']],
+      [['contract', 'build', 'app.contract', '--json'], ['contract', 'build', 'app.contract', '--json']],
     ]) {
       const result = spawnSync(process.execPath, [resolve(dir, 'exact.mjs'), ...command], { cwd: parent, env: { ...process.env, EXACT2: sdk }, encoding: 'utf8' });
       assert.equal(result.status, 0, result.stderr);
@@ -59,7 +60,7 @@ test('a new outside app passes the checks every run makes, and a drifted one is 
     assert.ok(!readFileSync(appTest, 'utf8').includes('greeting'), 'an older app need not have the scaffold IDs');
     assert.equal(readFileSync(resolve(dir, 'Cargo.toml'), 'utf8'), manifest, 'the patch table is rewritten in place');
   } finally { rmSync(parent, { recursive: true, force: true }); }
-});
+}, 60_000); // Three offline Cargo resolutions; a cold metadata cache takes seconds.
 
 test('a new app refuses a name no host crate can carry, and a directory that is not empty', () => {
   const parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
@@ -121,3 +122,33 @@ test('failed creation removes the half-written app', () => {
     assert.equal(existsSync(dir), false);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });
+
+test('a new app tells its agent where the guides are, and update keeps what the author added (LLP 1086 D1, D5)', () => {
+  const root = realpathSync(resolve(import.meta.dir, '..')), parent = mkdtempSync(resolve(tmpdir(), 'exact-new-'));
+  try {
+    const dir = resolve(parent, 'field-log');
+    createApp(dir);
+    const notes = readFileSync(resolve(dir, 'AGENTS.md'), 'utf8');
+    for (const guide of ['contract-for-agents.md', 'agent-pitfalls.md', 'contract-for-humans.md', 'contract-grammar.md']) {
+      assert.ok(notes.includes(resolve(root, 'docs', guide)), guide);
+      assert.ok(existsSync(resolve(root, 'docs', guide)), guide);
+    }
+    assert.match(notes, /bun exact\.mjs contract types app\.contract -o app\.contract\.d\.ts/);
+    assert.ok(!lstatSync(resolve(dir, 'CLAUDE.md')).isSymbolicLink(), 'a build refuses links in an app');
+    assert.equal(readFileSync(resolve(dir, 'CLAUDE.md'), 'utf8'), notes);
+    const manifest = JSON.parse(readFileSync(resolve(dir, 'app.json'), 'utf8'));
+    assert.equal(realpathSync(resolve(dir, manifest.$schema)), resolve(root, 'scripts/app.schema.json'));
+    readManifest(dir, 'field-log');
+    // An author's notes around the block survive; the block is rewritten.
+    writeFileSync(resolve(dir, 'AGENTS.md'), `# Mine\n\n${notes.replace('Read before writing code', 'STALE')}\nKeep this.\n`);
+    createApp(dir, { update: true });
+    const updated = readFileSync(resolve(dir, 'AGENTS.md'), 'utf8');
+    assert.match(updated, /^# Mine\n/);
+    assert.match(updated, /Keep this\.\n$/);
+    assert.ok(updated.includes('Read before writing code') && !updated.includes('STALE'));
+    // An app made before the notes existed gets both files.
+    rmSync(resolve(dir, 'AGENTS.md')); rmSync(resolve(dir, 'CLAUDE.md'));
+    createApp(dir, { update: true });
+    assert.ok(existsSync(resolve(dir, 'AGENTS.md')) && existsSync(resolve(dir, 'CLAUDE.md')));
+  } finally { rmSync(parent, { recursive: true, force: true }); }
+}, 60_000);

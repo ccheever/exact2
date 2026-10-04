@@ -619,6 +619,10 @@ This half matters more than the feature half.
 - No migration guides.
 - Generated files are built, never committed.
 - Sparse prose. The code and the checks are the authority.
+  **Except the author guides (Charlie, 2026-10-04, LLP 1086 D9):** the guides under
+  `docs/` describe the shipped product to the people and agents building with it. A
+  change that alters what an author writes or runs updates them in the same change.
+  That is not apparatus and needs no approval; a new file there still does.
 
 ## Moving something off this list
 

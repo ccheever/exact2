@@ -267,7 +267,10 @@ bun exact.mjs ios --run                     # an iOS Simulator
 
 `exact new` creates a standalone app: `app.contract` (the view), `app.ts` (its data),
 `app.json` (the manifest: name, bundle id, hosts, deploy policy), and small `web/` and
-`apple/` host crates. It has its own Cargo workspace, which uses your exact2 checkout
+`apple/` host crates. Its `AGENTS.md` (and `CLAUDE.md`) tells a coding agent where the
+guides are and lists the app's commands, including `bun exact.mjs contract …` for the
+compiler and `contract vocab` for every tag and property Contract accepts. Before any of
+it, `bun scripts/exact.mjs setup --check` names everything this machine is missing. It has its own Cargo workspace, which uses your exact2 checkout
 by path. To drive it from exact2, point `EXACT_APP_DIR` at it:
 
 ```sh
@@ -290,7 +293,7 @@ files, or run arbitrary code. That's what data sources are for. Here is a comple
 app: a Contract file, a TypeScript file, and a test. This exact app was built for web,
 macOS, and the iOS Simulator, and its test passed on all three.
 
-```
+```contract
 // app.contract: the view, its state, and what each action changes
 shape Todo
   id: string
@@ -368,7 +371,7 @@ export const answer: Answer = (source, args, store, storage, native) =>
   sources[source](args, store, storage, native);
 ```
 
-```
+```contract-test
 // app.test.contract: runs on any host with `scripts/agent.mjs <host> --test`
 test "add, finish and delete"
   expect text "count" == "0 left"
@@ -463,6 +466,15 @@ Each app lives in [`apps/<name>/`](apps). Run one on the web with
 `bun host/web/dev.mjs --app <name>`, on macOS with
 `bun host/apple/build.mjs <name>-apple --run`, and on iOS by adding `--ios`. All of
 these screenshots come from the web host, taken by `scripts/agent.mjs`.
+
+To learn from, read these four first:
+
+| App | What it teaches |
+|---|---|
+| [Caltrain](apps/caltrain) | A Rust data crate, authored tests, routes, an optional GPU module |
+| [Weatherlight](apps/weatherlight) | TypeScript with `fetch` and grants |
+| [Fieldnotes](apps/fieldnotes) | Storage: SQLite, files, backup and restore |
+| [Recorder](apps/recorder) | Localized strings and native modules |
 
 <table>
   <tr>
