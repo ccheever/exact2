@@ -1,7 +1,7 @@
 # LLP 1086: What the app diaries ask of Contract
 
 **Type:** RFC
-**Status:** Accepted (stages 1–3 as descoped), r5, 2026-10-04. Accepted by the orchestrator for Charlie under the three-round rule (`rules/RULES.md`, "Fix loops get 3 rounds") after Astra's r3; D6 deferred. Nothing here is built. All three review rounds were one family (Astra, `gpt-6-astra`, max; Grok was unavailable): r1 NOT READY (7 MATERIAL, 6 MINOR); r2 NOT READY (4 new MATERIAL, 3 new MINOR); r3 NOT READY on one MATERIAL (D6's convergence) and three MINORs. The reviewer stated that only D6 blocked stage 1. r4 is a final edit with no further review: D6 moves to §9 with the requirement a follow-up must meet, and r3's MINORs are folded in. A second family, Grok 4.7 (xhigh), then reviewed r4 (truncated); r5 folds its findings into the decisions with no new round. Renumbered from 1085 (origin/main took that number). §8 lists each revision.
+**Status:** Accepted (stages 1–3 as descoped), r5, 2026-10-04. Accepted by the orchestrator for Charlie under the three-round rule (`rules/RULES.md`, "Fix loops get 3 rounds") after Astra's r3; D6 deferred. Stage 1 is built as of 2026-10-04, without D6's fixed point (§10, "As built"); stages 2 and 3 are not. All three review rounds were one family (Astra, `gpt-6-astra`, max; Grok was unavailable): r1 NOT READY (7 MATERIAL, 6 MINOR); r2 NOT READY (4 new MATERIAL, 3 new MINOR); r3 NOT READY on one MATERIAL (D6's convergence) and three MINORs. The reviewer stated that only D6 blocked stage 1. r4 is a final edit with no further review: D6 moves to §9 with the requirement a follow-up must meet, and r3's MINORs are folded in. A second family, Grok 4.7 (xhigh), then reviewed r4 (truncated); r5 folds its findings into the decisions with no new round. Renumbered from 1085 (origin/main took that number). §8 lists each revision.
 **Systems:** Contract compiler (`contract/{syntax,types,analyze,lower}`, `contract/cli/src/lean.rs`), Plan (`plan/tables/format.json` `stdlib`), Runner (`vm.rs`, `stdlib.rs`, `uses.rs`), JS target (`host/web-js`), web host (`host/web`), Apple hosts (`host/apple`), Linux host, Lean semantics and difftest (`semantics/`), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
@@ -697,3 +697,51 @@ current single-pass phases refuse both programs.
 Until then, the diary's workaround stands: move the `at()` into a file-level
 `fn` taking the state as an argument. `docs/agent-pitfalls.md` gains that
 pitfall in stage 1.
+
+## 10. As built
+
+### Stage 1, 2026-10-04 (branch `impl/1085-s1`)
+
+Astra's r3 review, the last round, found D6's convergence unsound: a join
+grows `derive d = some(d)` from `?` to `option<?>` without bound, and
+`press=a(a, a)` grows an action type exponentially. **D6's fixed point and the
+structured `provisional` flag are deferred**; the message-text checks at
+`uses.rs:138` and `lib.rs:236` remain. Its two repros are met by one ordered
+pass that cannot loop instead.
+
+- **D4** as specified (`type-initializer-scope`, `component.rs`
+  `initializer_scope`), for root and row state. Each kind of name has its own
+  tail: a resource names `each … in board.cols`, a derive says to make the
+  state a derive, a later state says to declare it first.
+- **D5** as specified, in `contract/syntax/src/parser/names.rs`. A name that
+  refers to a binder (a type name, a source, a `then` action) follows the
+  binder rule too, and `provide` names are binders (Grok's r4 review), so every contextual word is a name everywhere a name goes.
+  `none(value=1)` is refused as "`none` is reserved in Contract (it is a
+  literal), so it names no shape or function".
+- **D6, descoped.** Row state is typed from its initializer once before the
+  derive fixpoint (shop F3), and the row scopes skip an `each` whose list a
+  later write types rather than refusing (the nested `items = []` and
+  `replaceItems(sourceItems)` repros). `state other = items` after a typed
+  write is still `type-cannot-infer`, without a `?`. `derive d = some(d)`
+  and `press=a(a, a)` are refused as before (tests in `instance.rs`).
+- **D7.1** as specified, `contract/analyze/src/payload.rs`, shared by
+  analysis and lowering. Payloads without a DOM property are named as the
+  in-repo apps name them (`scrollLeft, scrollTop`, `dx, dy`, `vx, vy`,
+  `height, velocity`, `item, before`).
+- **D7.2** as specified, plus `hook` on a module tag keeping its own
+  refusal (`lower-hook-module`). No in-repo or x2apps module tag changed.
+- **D7.4** as specified. Until stage 3, `replace(s, a, b)` points to
+  `replaceAll`, which stage 3 adds.
+- **D8** as specified, in `contract/analyze/src/sends.rs`, with one
+  widening the rollout needed: sequential `if`s that test one name against
+  different literals, with no assignment or send of that name between them,
+  are exclusive (calendar's, minesweeper's and flashcards' key handlers
+  send once per key). The refusal names the first send as related. The
+  walk reads the expanded root, after tail calls are inlined (Grok's r4
+  review); since only the root sends and a root action makes no tail call,
+  a caller's send plus its callee's cannot arise today, and an inlined
+  callee's own refusal is reported once.
+  **Rollout:** `apps/messages-legacy` sent `change` twice on one path (a
+  draft saved on the way to a new message); its draft send now has its own
+  mutation, `draftSaved`. Outside the repo, flashcards' `commitEdit` and
+  spreadsheet's `down` and `openSheet` are refused.

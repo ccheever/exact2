@@ -1101,3 +1101,79 @@ fn two_answers_before_advance_currently_coalesce_into_one_then() {
     assert_eq!(text_of(&r, "greeted").as_deref(), Some("hello ada/1"));
     assert_eq!(r.timer_due_ms(), None);
 }
+
+/// LLP 1086 D8 (flashcards F4): two sends to one mutation on one path are
+/// refused — the second forgets the first's reply (LLP 1016 D5). Exclusive
+/// arms pass, and so do sequential `if`s that test one unchanged name
+/// against different literals; an arm's send and another in the common
+/// suffix do not.
+#[test]
+fn two_sends_to_one_mutation_on_one_path_are_refused() {
+    let app = |body: &str| {
+        format!("shape Ack\n  op: string\ncomponent App\n  state open = true\n  state mode = \"a\"\n  mutation edited as shape Ack then afterEdit\n  action afterEdit\n    open = false\n  action commitEdit(k: string)\n{body}  view\n    button \"s\" press=commitEdit(\"1\")\n")
+    };
+    let message = "`commitEdit` sends `edited` twice; only the last send's reply reaches `then afterEdit` (LLP 1016 D5). Send once, or use a mutation per request";
+    for body in [
+        // Flashcards' `commitEdit`.
+        "    send edited = saveCard(\"a\")\n    send edited = setImage(\"b\")\n",
+        // An arm, then the common suffix.
+        "    if k == \"1\"\n      send edited = setImage(\"b\")\n    send edited = saveCard(\"a\")\n",
+        // A `match` arm, then the suffix.
+        "    match some(k)\n      case some(x)\n        send edited = setImage(x)\n      case none\n        open = true\n    send edited = saveCard(\"a\")\n",
+        // The tested name changes between the two tests.
+        "    if mode == \"a\"\n      send edited = saveCard(\"a\")\n      mode = \"b\"\n    if mode == \"b\"\n      send edited = setImage(\"b\")\n",
+        // Two tests that can both hold.
+        "    if k == \"1\"\n      send edited = saveCard(\"a\")\n    if open\n      send edited = setImage(\"b\")\n",
+    ] {
+        let e = contract::compile(&app(body)).unwrap_err();
+        assert_eq!(
+            (e.id.as_str(), e.message.as_str()),
+            ("analyze-send-twice", message),
+            "{body}"
+        );
+        assert_eq!(e.related.len(), 1, "{body}");
+    }
+    for body in [
+        "    if k == \"1\"\n      send edited = setImage(\"b\")\n    else\n      send edited = saveCard(\"a\")\n",
+        "    match some(k)\n      case some(x)\n        send edited = setImage(x)\n      case none\n        send edited = saveCard(\"a\")\n",
+        // A key handler's sequential, mutually exclusive tests.
+        "    if k == \"1\" and open\n      send edited = saveCard(\"a\")\n    if k == \"2\" or k == \"3\"\n      send edited = setImage(\"b\")\n    mode = \"c\"\n",
+        "    send edited = saveCard(\"a\")\n",
+    ] {
+        let plan = contract::compile(&app(body));
+        assert!(plan.is_ok(), "{body}\n{plan:?}");
+    }
+}
+
+/// LLP 1086 D8 on the inlined body: a child's action that tail-calls a root
+/// action runs that action's sends in its own commit, so the walk reads the
+/// root after tail calls are inlined — the callee's double send is refused
+/// once, and a single send through the call compiles.
+#[test]
+fn a_send_twice_is_found_through_a_tail_call_once() {
+    let src = |body: &str| {
+        format!("shape Ack\n  op: string\ncomponent App\n  mutation edited as shape Ack\n  action save(why: string)\n{body}  view\n    Editor(done=save)\ncomponent Editor\n  props\n    done: action\n  state n = 0\n  action commit\n    n = n + 1\n    done(\"x\")\n  view\n    button \"s\" press=commit\n")
+    };
+    let dir = std::env::temp_dir().join(format!("exact-send-tail-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("app.contract");
+    std::fs::write(
+        &path,
+        src("    send edited = saveCard(why)\n    send edited = setImage(why)\n"),
+    )
+    .unwrap();
+    let Err(errors) = contract::compile_path_all(&path, false) else {
+        panic!("a double send compiled");
+    };
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|e| e.id == "analyze-send-twice")
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    let plan = contract::compile(&src("    send edited = saveCard(why)\n"));
+    assert!(plan.is_ok(), "{plan:?}");
+}

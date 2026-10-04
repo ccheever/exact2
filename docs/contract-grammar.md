@@ -56,11 +56,25 @@ a `keyframes` or `font` block, and a component need at least one entry.
 - No statement semicolons, single-quoted literals, JSX, or arbitrary braces for
   value interpolation. `{}` belongs to inline option-match syntax, not objects.
 
-The lexer reserves no separate keyword token kind. The parser treats particular
-names as keywords at particular sites. See
-[`is_keyword` / `is_name_word`](../contract/syntax/src/parser.rs) before relying on
-a keyword as an identifier. Shape fields and attribute names deliberately have
-more permissive naming contexts.
+The lexer reserves no separate keyword token kind. Sixteen words are reserved,
+and only where a name is bound ([`names.rs`](../contract/syntax/src/parser/names.rs),
+LLP 1086 D5): `when`, `if`, `else`, `each`, `in`, `match`, `case`, `as`, `fn`,
+`and`, `or`, `not`, `true`, `false`, `none`, `some`. A binder is a component's
+props, injects and provided names; states, derives, resources, mutations and actions; action and
+`fn` parameters and `fn` names; `let`, an `each` item and index, `case some(x)`,
+an arrow parameter; and a shape name (a shape name builds the shape, so
+`shape none` is refused). There a reserved word is refused as "`in` is reserved
+in Contract (it shapes an expression); choose another name", and is never a value.
+
+Every other keyword is contextual: a keyword only where its construct starts, a
+name at every binder and in every expression. They are `component`, `font`,
+`shape`, `style`, `from`, `state`, `derive`, `resource`, `mutation`, `action`,
+`task`, `mount`, `view`, `props`, `provide`, `inject`, `slot`, `children`, `key`,
+`refresh`, `writes`, `test` and `expect`. `refresh`, like `send` and `let`, begins
+a statement only before a name, so `action refresh`, `press=refresh` and
+`refresh feed` each have one parse. Shape fields, named arguments
+(`Flags(none=1)`), members after `.` and attribute names (SVG's `in`) admit every
+word.
 
 ## Declarations
 
@@ -379,7 +393,11 @@ Several tags share a kernel node type with different fixed properties.
 
 `text` inside SVG has SVG semantics. A hyphenated tag names a native module: the
 bake checks it against `app.json`'s `modules` list (`bake-unknown-module`), and
-its attributes pass to the module unchecked. A capitalized name is a component use, not a
+its unknown attributes, and an SVG element's own props, pass to the module as one
+object. A known attribute binds to the module's box, and the box takes only layout,
+box and paint rows, handlers, `testId`, `id`, `class`, `data-*`, `role`, ARIA,
+`disabled` and `inert`; any other known name (`color`, `value`, `command`, `href`)
+is `lower-native-attr` (LLP 1024 D1, LLP 1086 D7.2). A capitalized name is a component use, not a
 built-in tag. Platform support can further restrict an admitted tag, notably
 native `foreignObject`.
 
@@ -591,6 +609,14 @@ Syntax is only the first layer. In particular:
 - Resources/mutations/tasks are root-owned. A child may own ordinary state,
   derives, and actions. An action writes only its own admitted slots.
 - A `then` handler takes no parameters and must not send its own mutation.
+- A state's initializer reads only props, injects and the states above it; a
+  resource, derive, mutation, action or later state it names is
+  `type-initializer-scope` (LLP 1086 D4).
+- An action sends one mutation at most once on any path: a second send forgets
+  the first's reply (LLP 1016 D5), so it is `analyze-send-twice`. Exclusive
+  `if`/`match` arms, and sequential `if`s testing one unchanged name against
+  different literals, are separate paths (LLP 1086 D8). The walk reads the root's
+  actions after tail calls are inlined, where a caller and its callee are one commit.
   `pending`/`failed` operate on declarations, not arbitrary values.
 - View roots cannot be conditional/repeated regions. Tags, attributes, and
   children must fit their lowering rules. Class application is not a CSS cascade.
