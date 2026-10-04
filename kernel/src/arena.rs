@@ -20,7 +20,7 @@ use crate::generated::{
     FieldSizing, InheritedStyle, NodeType, PropId, StyleId, StyleMask, StyleProps,
 };
 use crate::id::{Frame, NodeFlags, NodeKey, ViewId};
-use crate::props::PropList;
+use crate::props::{PropList, PropValue};
 use crate::style::Env;
 use crate::text::{ParagraphStamp, TextDomain, TextRevisions, TextRun, TextStyle};
 
@@ -42,6 +42,10 @@ pub struct NodeArena {
     styles: Vec<Rc<StyleProps>>,
     shared: SharedStyles,
     props: Vec<PropList>,
+    /// Live nodes per prop id and per node type: a host's scan for a few
+    /// props or types skips the walk when no node has them.
+    prop_counts: Vec<u32>,
+    type_counts: Vec<u32>,
     flags: Vec<NodeFlags>,
     layout_passes: Vec<u64>,
     geometry_passes: Vec<(u32, u64)>,
@@ -94,6 +98,8 @@ impl Clone for NodeArena {
             styles: self.styles.clone(),
             shared: self.shared.clone(),
             props: self.props.clone(),
+            prop_counts: self.prop_counts.clone(),
+            type_counts: self.type_counts.clone(),
             flags: self.flags.clone(),
             layout_passes: self.layout_passes.clone(),
             geometry_passes: self.geometry_passes.clone(),
@@ -169,6 +175,8 @@ impl NodeArena {
             self.styles[slot] = self.shared.default_style();
             self.props[slot].clear();
             self.flags[slot] = NodeFlags::default();
+            self.prop_counts.clear();
+            self.type_counts.clear();
             self.frames[slot] = Frame::default();
             self.contents[slot] = (0.0, 0.0);
             self.intrinsic[slot] = None;
@@ -489,6 +497,26 @@ impl NodeArena {
         out
     }
 
+    /// The style that supplies row `id` of [`NodeArena::computed_style`]:
+    /// one row read without copying a whole style.
+    pub fn computed_source(&self, slot: u32, id: StyleId) -> &StyleProps {
+        let own = &self.styles[slot as usize];
+        if own.mask.has(id) || !id.inherited() {
+            return own;
+        }
+        let mut cur = self.parents[slot as usize];
+        while let Some(p) = cur {
+            if self.styles[p as usize].mask.has(id) {
+                return &self.styles[p as usize];
+            }
+            cur = self.parents[p as usize];
+        }
+        if self.document_style.mask.has(id) {
+            return &self.document_style;
+        }
+        own
+    }
+
     /// Values used only to compare inherited rows across a topology change.
     /// No unrelated style payloads are copied into these transient snapshots.
     pub(crate) fn computed_inherited(&self, slot: u32) -> InheritedStyle {
@@ -706,10 +734,12 @@ impl NodeArena {
         self.generations[s] = if next == 0 { 1 } else { next };
         self.live[s] = true;
         self.node_types[s] = node_type;
+        bump(&mut self.type_counts, node_type as usize, true);
         self.local_ids[s] = id;
         self.parents[s] = None;
         self.children[s].clear();
         self.styles[s] = self.shared.default_style();
+        self.uncount_props(slot);
         self.props[s].clear();
         self.flags[s] = NodeFlags::CREATED;
         self.layout_dirty.insert(slot);
@@ -733,6 +763,8 @@ impl NodeArena {
         debug_assert!(self.live[s], "free of a dead slot");
         self.by_local.remove(&self.local_ids[s]);
         self.live[s] = false;
+        bump(&mut self.type_counts, self.node_types[s] as usize, false);
+        self.uncount_props(slot);
         self.text_revisions[s] = TextRevisions::default();
         self.parents[s] = None;
         self.children[s] = Vec::new();
@@ -752,6 +784,9 @@ impl NodeArena {
     }
 
     pub(crate) fn set_parent(&mut self, slot: u32, parent: Option<u32>) {
+        if parent.is_some() && self.parents[slot as usize] != parent {
+            self.flags[slot as usize].insert(NodeFlags::ATTACHED);
+        }
         self.parents[slot as usize] = parent;
     }
 
@@ -795,6 +830,7 @@ impl NodeArena {
             NodeFlags::TEXT_DIRTY,
             NodeFlags::CHILDREN_DIRTY,
             NodeFlags::GEOMETRY_CHANGED,
+            NodeFlags::ATTACHED,
         ] {
             self.flags[slot as usize].remove(clear);
         }
@@ -831,8 +867,45 @@ impl NodeArena {
         self.shared.len()
     }
 
-    pub(crate) fn props_mut(&mut self, slot: u32) -> &mut PropList {
-        &mut self.props[slot as usize]
+    /// Set a prop; the previous value.
+    pub(crate) fn set_prop(
+        &mut self,
+        slot: u32,
+        id: PropId,
+        value: PropValue,
+    ) -> Option<PropValue> {
+        let old = self.props[slot as usize].set(id, value);
+        if old.is_none() {
+            bump(&mut self.prop_counts, id as usize, true);
+        }
+        old
+    }
+
+    /// Clear a prop; the value it had.
+    pub(crate) fn remove_prop(&mut self, slot: u32, id: PropId) -> Option<PropValue> {
+        let old = self.props[slot as usize].remove(id);
+        if old.is_some() {
+            bump(&mut self.prop_counts, id as usize, false);
+        }
+        old
+    }
+
+    fn uncount_props(&mut self, slot: u32) {
+        for (id, _) in self.props[slot as usize].iter() {
+            bump(&mut self.prop_counts, id as usize, false);
+        }
+    }
+
+    /// Whether any live node (attached or not) has prop `id`.
+    pub fn has_prop(&self, id: PropId) -> bool {
+        self.prop_counts.get(id as usize).is_some_and(|n| *n > 0)
+    }
+
+    /// Whether any live node (attached or not) is a `node_type`.
+    pub fn has_type(&self, node_type: NodeType) -> bool {
+        self.type_counts
+            .get(node_type as usize)
+            .is_some_and(|n| *n > 0)
     }
 
     pub(crate) fn flags_mut(&mut self, slot: u32) -> &mut NodeFlags {
@@ -1049,8 +1122,8 @@ mod tests {
         arena.set_children(p, vec![r1, r2]);
         arena.set_parent(r1, Some(p));
         arena.set_parent(r2, Some(p));
-        arena.props_mut(r1).set(PropId::Text, "Hello ".into());
-        arena.props_mut(r2).set(PropId::Text, "world".into());
+        arena.set_prop(r1, PropId::Text, "Hello ".into());
+        arena.set_prop(r2, PropId::Text, "world".into());
         arena.style_mut(r2).font_size = 20.0;
         let mut runs = Vec::new();
         arena.text_runs(p, &mut runs);
@@ -1061,7 +1134,7 @@ mod tests {
         assert!(arena.is_inline_run(r1));
         assert_eq!(arena.measure_owner(r2), p);
         // An own `text` prop suppresses the children.
-        arena.props_mut(p).set(PropId::Text, "override".into());
+        arena.set_prop(p, PropId::Text, "override".into());
         let mut runs = Vec::new();
         arena.text_runs(p, &mut runs);
         assert_eq!(runs.len(), 1);
@@ -1199,5 +1272,17 @@ mod paragraph_stamp_tests {
             !old.same_metrics(&new),
             "allocation serial must still differ"
         );
+    }
+}
+
+/// One more (`up`) or one fewer node in a per-id count.
+fn bump(counts: &mut Vec<u32>, index: usize, up: bool) {
+    if counts.len() <= index {
+        counts.resize(index + 1, 0);
+    }
+    if up {
+        counts[index] += 1;
+    } else {
+        counts[index] = counts[index].saturating_sub(1);
     }
 }

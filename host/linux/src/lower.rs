@@ -88,6 +88,7 @@ impl<D: DataSource> Host<D> {
             return;
         }
         for node in &sync.removed {
+            self.lowered_changed.remove(node);
             if self.lowered.remove(node).is_some() | self.played.remove(node).is_some() {
                 self.lowered_epoch += 1;
             }
@@ -120,6 +121,7 @@ impl<D: DataSource> Host<D> {
             // Tracks change with the plays: a new start, a pause.
             if old.is_some() || mask != 0 {
                 self.lowered_epoch += 1;
+                self.lowered_changed.insert(*node, self.lowered_epoch);
             }
         }
     }
@@ -146,12 +148,16 @@ impl<D: DataSource> Host<D> {
             return;
         }
         let now = self.engine.now();
-        let before = self.played.len();
-        self.played.retain(|_, t| {
+        let mut ended = Vec::new();
+        self.played.retain(|node, t| {
+            let before = t.len();
             t.retain(|(_, p)| p.start + played_seconds(p) > now);
+            if t.len() != before {
+                ended.push(*node);
+            }
             !t.is_empty()
         });
-        let mut changed = before != self.played.len();
+        let mut changed = !ended.is_empty();
         let keys: Vec<(u64, Property)> = self
             .engine
             .running_transitions()
@@ -176,11 +182,15 @@ impl<D: DataSource> Host<D> {
                 let list = self.played.entry(node).or_default();
                 list.retain(|(p, _)| *p != property);
                 list.push((property, t));
+                ended.push(node);
                 changed = true;
             }
         }
         if changed {
             self.lowered_epoch += 1;
+            for node in ended {
+                self.lowered_changed.insert(node, self.lowered_epoch);
+            }
         }
     }
 
@@ -189,6 +199,16 @@ impl<D: DataSource> Host<D> {
     #[cfg(target_os = "android")]
     pub(crate) fn lowered_epoch(&self) -> u64 {
         self.lowered_epoch
+    }
+
+    /// Whether `key`'s plays changed after `epoch` ([`Host::lowered_epoch`]):
+    /// its tracks are encoded again only then, not every layer's at each
+    /// change of any (rows mounting in a fling start their own).
+    #[cfg(target_os = "android")]
+    pub(crate) fn lowered_changed_after(&self, key: NodeKey, epoch: u64) -> bool {
+        self.lowered_changed
+            .get(&node_u64(key))
+            .is_some_and(|at| *at > epoch)
     }
 
     /// A lowered node's tracks for its reader, as words: per animation and
@@ -219,11 +239,14 @@ impl<D: DataSource> Host<D> {
         let (cx0, cy0) = node
             .as_ref()
             .map_or((0.0, 0.0), |n| (point(n.style.cx), point(n.style.cy)));
-        let dash0 = node.as_ref().map_or(0.0, |n| {
-            let mut mask = exact_kernel::StyleMask::EMPTY;
-            mask.set(exact_kernel::StyleId::StrokeDashoffset);
-            n.computed_style(mask).stroke_dashoffset
-        });
+        // Only for a dash track: the one row, where it is set.
+        let dash0 = || {
+            node.as_ref().map_or(0.0, |n| {
+                n.computed_row(exact_kernel::StyleId::StrokeDashoffset, |s| {
+                    s.stroke_dashoffset
+                })
+            })
+        };
         for play in self.engine.animation_plays(node_u64(key)) {
             let a = &play.animation;
             for p in a.keyframes.properties() {
@@ -236,7 +259,7 @@ impl<D: DataSource> Host<D> {
                     Property::Scale => (Value::scalar(base.scale as f64), &[(SCALE, 0)]),
                     Property::Rotate => (Value::scalar(base.rotate as f64), &[(ROTATE, 0)]),
                     Property::R => (Value::scalar(r0 as f64), &[(R, 0)]),
-                    Property::StrokeDashoffset => (Value::scalar(dash0 as f64), &[(DASH, 0)]),
+                    Property::StrokeDashoffset => (Value::scalar(dash0() as f64), &[(DASH, 0)]),
                     Property::Cx => (Value::scalar(cx0 as f64), &[(CX, 0)]),
                     Property::Cy => (Value::scalar(cy0 as f64), &[(CY, 0)]),
                     _ => continue,

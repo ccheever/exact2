@@ -17,8 +17,8 @@ impl<D: DataSource> Presenter<D> {
 
     pub(super) fn apply_reports(&mut self, reports: Vec<crate::image::Report>) -> bool {
         let any = !reports.is_empty();
-        for (view, size) in reports {
-            if let Some(e) = self.host.set_intrinsic(view, size) {
+        if any {
+            if let Some(e) = self.host.set_intrinsics(reports) {
                 eprintln!("exact: {e}");
             }
         }
@@ -46,10 +46,12 @@ impl<D: DataSource> Presenter<D> {
     ) -> Option<String> {
         let epoch = self.host.kernel().epoch();
         if self.images.order.as_ref().is_none_or(|(e, _)| *e != epoch) {
-            let order = self
-                .host
-                .kernel()
-                .preorder_where(&self.host.roots(), |t, _| t == NodeType::Image);
+            let kernel = self.host.kernel();
+            let order = if kernel.has_type(NodeType::Image) {
+                kernel.preorder_where(&self.host.roots(), |t, _| t == NodeType::Image)
+            } else {
+                Vec::new()
+            };
             self.images.order = Some((epoch, order));
         }
         let live = self
@@ -59,13 +61,21 @@ impl<D: DataSource> Presenter<D> {
             .map(|(_, o)| o.clone())
             .unwrap_or_default();
         let host = &self.host;
-        let boxes: std::collections::HashMap<ViewId, (usize, &crate::paint::PaintedBox)> = self
-            .boxes
-            .iter()
-            .enumerate()
-            .rev()
-            .map(|(i, b)| (b.id, (i, b)))
-            .collect();
+        // The pictures' and moved scrollers' own boxes (each one's first),
+        // not every painted box.
+        let mut wanted: std::collections::HashSet<ViewId> = live.iter().copied().collect();
+        if !wanted.is_empty() {
+            wanted.extend(moved.keys().copied());
+        }
+        let mut boxes: std::collections::HashMap<ViewId, (usize, &crate::paint::PaintedBox)> =
+            std::collections::HashMap::with_capacity(live.len());
+        if !wanted.is_empty() {
+            for (i, b) in self.boxes.iter().enumerate() {
+                if wanted.contains(&b.id) {
+                    boxes.entry(b.id).or_insert((i, b));
+                }
+            }
+        }
         type Shift = (usize, usize, (f32, f32), Option<crate::paint::Rect4>);
         let shifts: Vec<Shift> = self
             .brush
@@ -109,11 +119,10 @@ impl<D: DataSource> Presenter<D> {
                 }
                 w > 0. && h > 0. && x < viewport.0 && y < viewport.1 && x + w > 0. && y + h > 0.
             });
-        let mut error = None;
-        for (view, size) in reports {
-            error = error.or(self.host.set_intrinsic(view, size));
-            self.dirty = true;
+        self.dirty |= !reports.is_empty();
+        if reports.is_empty() {
+            return None;
         }
-        error
+        self.host.set_intrinsics(reports)
     }
 }

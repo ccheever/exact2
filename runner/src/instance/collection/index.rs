@@ -301,9 +301,25 @@ impl SizeIndex {
         })
     }
 
+    /// [`SizeIndex::measurement_token`] by position.
+    pub(crate) fn measurement_token_at(&self, index: usize) -> Option<MeasurementToken> {
+        self.rows.get(index).map(|row| MeasurementToken {
+            epoch: self.epoch,
+            generation: row.generation,
+        })
+    }
+
     pub(crate) fn is_measured(&self, key: &str) -> bool {
         self.position(key)
             .is_some_and(|i| self.rows[i].measured_epoch == Some(self.epoch))
+    }
+
+    /// [`SizeIndex::is_measured`] by position (keys are unique), without a
+    /// key lookup.
+    pub(crate) fn is_measured_at(&self, index: usize) -> bool {
+        self.rows
+            .get(index)
+            .is_some_and(|row| row.measured_epoch == Some(self.epoch))
     }
 
     /// Current measurements for a nonempty geometric band, in O(log N).
@@ -369,11 +385,29 @@ impl SizeIndex {
         token: MeasurementToken,
         height: f64,
     ) -> Result<bool, IndexError> {
+        match self.position(key) {
+            Some(i) => self.set_measured_height_at(i, token, height),
+            None => valid_height(height).map(|_| false),
+        }
+    }
+
+    /// [`SizeIndex::set_measured_height`] by position (keys are unique).
+    pub(crate) fn set_measured_height_at(
+        &mut self,
+        i: usize,
+        token: MeasurementToken,
+        height: f64,
+    ) -> Result<bool, IndexError> {
         let height = valid_height(height)?;
-        if self.measurement_token(key) != Some(token) {
+        if self.measurement_token_at(i) != Some(token) {
             return Ok(false);
         }
-        let i = self.positions[key];
+        // The same height measured again this epoch: nothing to write.
+        if self.rows[i].height.to_bits() == height.to_bits()
+            && self.rows[i].measured_epoch == Some(self.epoch)
+        {
+            return Ok(true);
+        }
         self.tree.set(i, height)?;
         self.rows[i].height = height;
         self.rows[i].measured_epoch = Some(self.epoch);

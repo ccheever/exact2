@@ -99,6 +99,13 @@ impl Navigation {
     }
 
     pub fn visibility(&self, kernel: &Kernel, id: ViewId) -> (bool, bool) {
+        // No route, popover or inert node anywhere: nothing to climb for.
+        if self.routes.is_empty()
+            && !(self.popovers && kernel.has_prop(PropId::Popover))
+            && !kernel.has_prop(PropId::Inert)
+        {
+            return (false, false);
+        }
         let mut result = (false, false);
         let mut at = Some(id);
         while let Some(id) = at {

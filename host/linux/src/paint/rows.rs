@@ -10,8 +10,8 @@
 //! picture arriving. A layout change that moves a node only makes the row
 //! suspect: kept while every node sits where it sat relative to the row.
 use super::*;
+use exact_kernel::id::{IdMap, IdSet};
 use exact_kernel::NodeKey;
-use std::collections::{HashMap, HashSet};
 
 /// What changed since the last frame, by node: what the host saw.
 #[derive(Default)]
@@ -72,8 +72,8 @@ struct Capture {
 
 #[derive(Default)]
 pub(super) struct Rows {
-    kept: HashMap<NodeKey, Row>,
-    suspect: HashSet<NodeKey>,
+    kept: IdMap<NodeKey, Row>,
+    suspect: IdSet<NodeKey>,
     next: u32,
     frame: u64,
     active: bool,
@@ -118,19 +118,37 @@ impl Painter {
         if self.rows.kept.is_empty() {
             return;
         }
-        let row_of = |rows: &Rows, mut key: NodeKey| loop {
-            if rows.kept.contains_key(&key) {
-                return Some(key);
+        // Each node climbed, with the row it is in (or none): a row's nodes,
+        // and those outside rows, climb their shared ancestors once.
+        let mut memo: IdMap<NodeKey, Option<NodeKey>> = IdMap::default();
+        let mut path = Vec::new();
+        let mut row_of = |rows: &Rows, key: NodeKey| {
+            let mut at = key;
+            let found = loop {
+                if let Some(row) = memo.get(&at) {
+                    break *row;
+                }
+                if rows.kept.contains_key(&at) {
+                    break Some(at);
+                }
+                path.push(at);
+                let parent = kernel.node_by_key(at).and_then(|n| n.parent);
+                match parent.and_then(|p| kernel.node(p)) {
+                    Some(parent) => at = parent.key,
+                    None => break None,
+                }
+            };
+            for k in path.drain(..) {
+                memo.insert(k, found);
             }
-            let parent = kernel.node_by_key(key)?.parent?;
-            key = kernel.node(parent)?.key;
+            found
         };
         for key in dirty.hard {
             if let Some(row) = row_of(&self.rows, key) {
                 self.rows.kept.get_mut(&row).expect("found").stale = true;
             }
         }
-        let mut seen = HashSet::new();
+        let mut seen = IdSet::default();
         for key in dirty.moved {
             if !seen.insert(key) {
                 continue;

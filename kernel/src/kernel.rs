@@ -122,6 +122,12 @@ impl<'a> NodeRef<'a> {
         self.arena.computed_style(self.slot, rows)
     }
 
+    /// One row of [`NodeRef::computed_style`], read where it is set
+    /// (`NodeArena::computed_source`), without copying a style.
+    pub fn computed_row<T>(&self, id: StyleId, read: impl FnOnce(&StyleProps) -> T) -> T {
+        read(self.arena.computed_source(self.slot, id))
+    }
+
     /// The run style this node's text measures and paints with: its own text
     /// rows, else its paragraph's, else the initial values.
     pub fn text_style(&self) -> TextStyle {
@@ -782,6 +788,17 @@ impl Kernel {
             stack.extend(self.arena.children(slot).iter().rev());
         }
         out
+    }
+
+    /// Whether any live node has prop `id` (a [`Kernel::preorder_where`]
+    /// for it can be skipped when none does).
+    pub fn has_prop(&self, id: PropId) -> bool {
+        self.arena.has_prop(id)
+    }
+
+    /// Whether any live node is a `node_type`.
+    pub fn has_type(&self, node_type: NodeType) -> bool {
+        self.arena.has_type(node_type)
     }
 
     /// One node by key; `None` once that allocation is gone.
