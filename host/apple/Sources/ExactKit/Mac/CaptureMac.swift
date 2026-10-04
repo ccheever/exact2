@@ -29,8 +29,12 @@ extension Capture {
             source.displayIfNeeded()
             // CALayer(layer:) is the subclass copy initializer used by CA;
             // called directly, it gives an empty layer. Copy values explicitly.
+            // Animated properties come from the displayed frame. Unanimated
+            // layers use the model so a synchronous capture sees fresh writes
+            // even before CA commits them. Identity and topology stay model-owned.
+            let values = source.animationKeys()?.isEmpty == false ? (source.presentation() ?? source) : source
             let layer: CALayer
-            if let shape = source as? CAShapeLayer {
+            if let shape = values as? CAShapeLayer {
                 let out = CAShapeLayer()
                 out.path = shape.path; out.fillColor = shape.fillColor; out.fillRule = shape.fillRule
                 out.strokeColor = shape.strokeColor; out.lineWidth = shape.lineWidth
@@ -38,30 +42,30 @@ extension Capture {
                 out.lineDashPattern = shape.lineDashPattern; out.lineDashPhase = shape.lineDashPhase
                 out.strokeStart = shape.strokeStart; out.strokeEnd = shape.strokeEnd
                 layer = out
-            } else if let gradient = source as? CAGradientLayer {
+            } else if let gradient = values as? CAGradientLayer {
                 let out = CAGradientLayer()
                 out.colors = gradient.colors; out.locations = gradient.locations; out.type = gradient.type
                 out.startPoint = gradient.startPoint; out.endPoint = gradient.endPoint
                 layer = out
-            } else { layer = source is CATransformLayer ? CATransformLayer() : CALayer() }
-            layer.bounds = source.bounds; layer.position = source.position
-            layer.anchorPoint = source.anchorPoint; layer.anchorPointZ = source.anchorPointZ
-            layer.transform = source.transform; layer.sublayerTransform = source.sublayerTransform
-            layer.isGeometryFlipped = source.isGeometryFlipped
-            layer.opacity = source.opacity; layer.isHidden = source.isHidden
-            layer.isDoubleSided = source.isDoubleSided; layer.masksToBounds = source.masksToBounds
-            layer.cornerRadius = source.cornerRadius; layer.maskedCorners = source.maskedCorners
-            layer.cornerCurve = source.cornerCurve
-            layer.backgroundColor = source.backgroundColor
-            layer.borderColor = source.borderColor; layer.borderWidth = source.borderWidth
-            layer.contents = source.contents; layer.contentsScale = source.contentsScale
-            layer.contentsRect = source.contentsRect; layer.contentsCenter = source.contentsCenter
-            layer.contentsGravity = source.contentsGravity
-            layer.minificationFilter = source.minificationFilter; layer.magnificationFilter = source.magnificationFilter
-            layer.shadowPath = source.shadowPath; layer.shadowColor = source.shadowColor
-            layer.shadowOffset = source.shadowOffset; layer.shadowRadius = source.shadowRadius
-            layer.shadowOpacity = source.shadowOpacity
-            layer.allowsGroupOpacity = source.allowsGroupOpacity
+            } else { layer = values is CATransformLayer ? CATransformLayer() : CALayer() }
+            layer.bounds = values.bounds; layer.position = values.position
+            layer.anchorPoint = values.anchorPoint; layer.anchorPointZ = values.anchorPointZ
+            layer.transform = values.transform; layer.sublayerTransform = values.sublayerTransform
+            layer.isGeometryFlipped = values.isGeometryFlipped
+            layer.opacity = values.opacity; layer.isHidden = values.isHidden
+            layer.isDoubleSided = values.isDoubleSided; layer.masksToBounds = values.masksToBounds
+            layer.cornerRadius = values.cornerRadius; layer.maskedCorners = values.maskedCorners
+            layer.cornerCurve = values.cornerCurve
+            layer.backgroundColor = values.backgroundColor
+            layer.borderColor = values.borderColor; layer.borderWidth = values.borderWidth
+            layer.contents = values.contents; layer.contentsScale = values.contentsScale
+            layer.contentsRect = values.contentsRect; layer.contentsCenter = values.contentsCenter
+            layer.contentsGravity = values.contentsGravity
+            layer.minificationFilter = values.minificationFilter; layer.magnificationFilter = values.magnificationFilter
+            layer.shadowPath = values.shadowPath; layer.shadowColor = values.shadowColor
+            layer.shadowOffset = values.shadowOffset; layer.shadowRadius = values.shadowRadius
+            layer.shadowOpacity = values.shadowOpacity
+            layer.allowsGroupOpacity = values.allowsGroupOpacity
             layer.mask = source.mask.map(copy)
             // Order is explicit: negative ranks still follow the parent's
             // own fill/gradient layers. Authored 3D transforms stay intact.
