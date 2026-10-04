@@ -84,7 +84,7 @@ final class NavigationBasicsIOSTests: XCTestCase {
         XCTAssertEqual(view.title.text, "Chat")
         XCTAssertEqual(view.subtitle.text, "Online")
         XCTAssertFalse(view.subtitle.isHidden)
-        XCTAssertEqual(view.avatar.image?.size, CGSize(width: 36, height: 36), "the avatar at the bar's image size")
+        XCTAssertEqual(view.avatar.image?.size, CGSize(width: 32, height: 32), "the avatar at the size the author gave its box (headerBoxSize)")
         XCTAssertFalse(view.avatar.isHidden)
         XCTAssertEqual(view.accessibilityIdentifier, "title-group")
         XCTAssertTrue(view.accessibilityTraits.contains(.button))

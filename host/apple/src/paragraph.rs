@@ -30,6 +30,32 @@ impl<D: DataSource> Host<D> {
         false
     }
 
+    /// A fixed-size box in a `header` (a title's avatar, LLP 1075.003
+    /// §9.10): its authored points, as `headerBoxSize` `"WxH"`. A header the
+    /// bar replaces is laid out as `display: none`, so no frame tells the
+    /// host the size the author gave it.
+    fn header_box_size(&self, id: ViewId) -> Option<String> {
+        let kernel = self.runner.kernel();
+        let node = kernel.node(id)?;
+        if node.node_type != NodeType::View {
+            return None;
+        }
+        let (exact_kernel::Dimension::Points(w), exact_kernel::Dimension::Points(h)) =
+            (node.style.width, node.style.height)
+        else {
+            return None;
+        };
+        let mut at = node.parent;
+        for _ in 0..8 {
+            let parent = kernel.node(at?)?;
+            if parent.props.str(PropId::SemanticTag) == Some("header") {
+                return Some(format!("{w}x{h}"));
+            }
+            at = parent.parent;
+        }
+        None
+    }
+
     pub(super) fn paragraph_owner(&self, id: ViewId) -> Option<ViewId> {
         let kernel = self.runner.kernel();
         let mut node = kernel.node(id)?;
@@ -241,7 +267,10 @@ impl<D: DataSource> Host<D> {
         } else {
             kind_for(&node)
         };
-        let props = props_for(&node);
+        let mut props = props_for(&node);
+        if let Some(size) = self.header_box_size(id) {
+            props.insert("headerBoxSize".into(), size);
+        }
         let env = self.runner.kernel().env();
         let (style, _skipped) = style::style_json_for(&node, &env);
         let handlers: Vec<&str> = events.iter().copied().filter_map(handler_name).collect();
@@ -294,7 +323,10 @@ impl<D: DataSource> Host<D> {
             return;
         }
         let node = self.runner.kernel().node(id).expect("live");
-        let props = props_for(&node);
+        let mut props = props_for(&node);
+        if let Some(size) = self.header_box_size(id) {
+            props.insert("headerBoxSize".into(), size);
+        }
         let env = self.runner.kernel().env();
         let (style, _skipped) = style::style_json_for(&node, &env);
         if self.mirror.get(&id).and_then(|m| m.props.get("spellcheck")) != props.get("spellcheck") {

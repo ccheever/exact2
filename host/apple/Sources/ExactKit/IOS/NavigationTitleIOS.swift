@@ -31,7 +31,7 @@ struct HeaderTitle: Equatable {
         func walk(_ node: NodeView) {
             for case let child as NodeView in node.container.subviews where child.style["display"]?.string != "none" {
                 if child === heading { passed = true; continue }
-                if !passed, avatar == nil, !heading.isDescendant(of: child), let face = BadgeFace(box: child) { avatar = face; continue }
+                if !passed, avatar == nil, !heading.isDescendant(of: child), let face = BadgeFace(box: child, authored: true) { avatar = face; continue }
                 if passed, subtitle.isEmpty, child.isParagraph, !child.accessibleText.isEmpty { subtitle = child.accessibleText; continue }
                 walk(child)
             }
