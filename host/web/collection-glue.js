@@ -501,7 +501,11 @@ export function collectionController({ root, views, report, settled=()=>{}, agen
               // it lands moves with them, and the animation goes on.
               s.owed = (s.owed ?? s.animating) + correction.offset - done;
             } else if (correction.offset !== done) {
-              const was = port[name];
+              // From where the port was: rows leaving above a deep offset
+              // shrink the extent first, and the browser's clamp to it is
+              // not where the reader is (scrollChanged's `s.clamp`).
+              const was = s.clamp?.at === port[name] ? s.clamp.from : port[name];
+              s.clamp = s.clampAt = null;
               place(s, was + correction.offset - done, false);
               s.offset = port[name]; // consume the programmatic scroll echo
               // Not the reader's travel: its velocity reads on from here.

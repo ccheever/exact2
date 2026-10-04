@@ -540,6 +540,17 @@ test('the browser clamping a port to a shorter extent is not a scroll: the paint
   expect(result.clamped).toBe(result.max - 100);
   expect(result.after).toEqual({ ...result.before, reported: result.max, shown: result.max - 100 });
 });
+test('an anchor correction after the extent shrank under the port moves from where the reader was, not the clamp', async () => {
+  // A bounded window shifting forward (LLP 1027.004): the rows that leave
+  // above shrink the extent below the offset before the correction lands.
+  const result = await evaluate(`(() => { const f=(${jumpFixture})(); const tail=f.list.lastElementChild;
+    f.list.scrollTop=4000; f.list.dispatchEvent(new Event('scroll')); f.frames.splice(0).forEach(fn=>fn());
+    const seq=f.seen.at(-1).sequence; tail.style.height='2000px'; const clamped=f.list.scrollTop;
+    f.controller.commit([f.snapshot('2',{scrollSequence:seq,totalExtent:2100,correction:{scrollSequence:seq,offset:1000,from:4000}})]);
+    return {clamped,max:f.list.scrollHeight-f.list.clientHeight,top:f.list.scrollTop}; })()`);
+  expect(result.clamped).toBe(result.max);
+  expect(result.top).toBe(1000);
+});
 test('a scrollIntoView correction applies across the browser\'s own moves until the reader\'s input', async () => {
   const result = await evaluate(`(() => { const f=(${jumpFixture})();
     f.list.scrollTop=300; f.list.dispatchEvent(new Event('scroll')); f.frames.splice(0).forEach(fn=>fn());
