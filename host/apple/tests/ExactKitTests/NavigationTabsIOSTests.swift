@@ -99,7 +99,7 @@ final class NavigationTabsIOSTests: XCTestCase {
         until("the badge leaves with its box") { second.tabBarItem.badgeValue == nil }
         try tapNode(session, "bump-second")
         until("and comes back with it") { second.tabBarItem.badgeValue == "1" }
-        XCTAssertNil(home.tabBarItem.badgeValue, "a pill around a text and a dot, and a transparent box, are no badge")
+        XCTAssertNil(home.tabBarItem.badgeValue, "a transparent box is no badge; Second's \"1\" beside its pill shows the pill is none either")
         // A badge a hook set on a tab that never authored one stays through
         // that tab's face changing (its selected symbol).
         home.tabBarItem.badgeValue = "hook"

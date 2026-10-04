@@ -13,17 +13,18 @@ export function pointer(e, kind, f) {
     // focus; never for an element the tree has since removed.
     const ends = [["pointerup", document], ["pointercancel", document], ["pointerout", document], ["blur", window]];
     const up = ev => {
-      if (ev.type === "pointerout" ? ev.relatedTarget && ev.relatedTarget.localName !== "iframe" : ev.type !== "blur" && ev.pointerId !== s.held) return;
+      if (ev.type === "blur" ? ev.target !== window : ev.pointerId !== s.held || (ev.type === "pointerout" && ev.relatedTarget && ev.relatedTarget.localName !== "iframe")) return;
       s.held = null;
-      for (const [type, target] of ends) target.removeEventListener(type, up, true);
-      if (e.isConnected) s.pointerup?.();
+      for (const [type, target] of ends) target.removeEventListener(type, up, target === document);
+      // Never for a removed element, or one kept only for its exit animation.
+      if (e.isConnected && !e.closest("[data-exiting]")) s.pointerup?.();
     };
     e.addEventListener("pointerdown", ev => {
       // The innermost enabled pointer node takes it, as the web host's does.
       if (ev.$pointerOwner || !ev.isPrimary || ev.button !== 0 || s.held !== null || e.matches(":disabled") || e.hasAttribute("disabled") || e.closest("[inert]")) return;
       ev.$pointerOwner = e;
       s.held = ev.pointerId;
-      for (const [type, target] of ends) target.addEventListener(type, up, true);
+      for (const [type, target] of ends) target.addEventListener(type, up, target === document);
       s.pointerdown?.();
     });
   }

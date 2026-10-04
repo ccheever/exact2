@@ -302,16 +302,17 @@ component NativeFixture
         button role="tab" aria-controls="panel-home" aria-selected=(nav.tab == "home") press=selectTab("home") testId="tab-home" flex=1 display="flex" flex-direction="column" align-items="center" justify-content="center" gap=2
           image (nav.tab == "home" ? "symbol:home-fill" : "symbol:home") width=22 height=22
           text "Home" font-size=11
-          // Not badges (§9.9): a filled pill around a text and a dot (a flat
-          // leaf), and a count box made transparent.
-          row position="absolute" top=0 left=0 background-color="#e5e7eb" testId="pill-home"
-            text "pill" font-size=8
-            box width=4 height=4 background-color="#ef4444"
+          // Not a badge (§9.9): a count box made transparent.
           column position="absolute" top=0 right=0 opacity=0 background-color="#ef4444" testId="faded-home"
             text "9" font-size=8
         button role="tab" aria-controls="panel-second" aria-selected=(nav.tab == "second") press=selectTab("second") testId="tab-second" flex=1 display="flex" flex-direction="column" align-items="center" justify-content="center" gap=2
           image (nav.tab == "second" ? "symbol:person-fill" : "symbol:person") width=22 height=22
           text "Second" font-size=11
+          // Not a badge, beside the one below: a filled pill around a text and
+          // a dot (a flat leaf). Were it taken, two boxes would make none.
+          row position="absolute" top=0 left=0 background-color="#e5e7eb" testId="pill-second"
+            text "pill" font-size=8
+            box width=4 height=4 background-color="#ef4444"
           // A filled box holding a text: the bar item's badge (LLP 1075.003 §9.9).
           when count > 0
             column testId="badge-second" position="absolute" top=4 right=24 min-width=16 height=16 padding-left=4 padding-right=4 border-radius=8 background-color="#ef4444" align-items="center" justify-content="center"

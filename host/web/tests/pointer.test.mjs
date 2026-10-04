@@ -68,6 +68,9 @@ check('down before the press, up wherever the button lifts, nothing when disable
 
     const mic = await centre('mic');
     await mouse('mousePressed', mic);
+    // Focus moving (the press focuses the button, blurring what had it)
+    // does not end the hold.
+    await evaluate(`document.getElementById('off').focus(); document.getElementById('mic').focus()`);
     expect(await log()).toEqual(['mic down']);
     await mouse('mouseReleased', mic);
     expect(await log()).toEqual(['mic up', 'mic press']);

@@ -123,9 +123,9 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
       // focus, which this document never hears the up from.
       const ends = [["pointerup", document], ["pointercancel", document], ["pointerout", document], ["blur", window]];
       const up = e => {
-        if (e.type === "pointerout" ? e.relatedTarget && e.relatedTarget.localName !== "iframe" : e.type !== "blur" && e.pointerId !== held) return;
+        if (e.type === "blur" ? e.target !== window : e.pointerId !== held || (e.type === "pointerout" && e.relatedTarget && e.relatedTarget.localName !== "iframe")) return;
         held = null;
-        for (const [type, target] of ends) target.removeEventListener(type, up, true);
+        for (const [type, target] of ends) target.removeEventListener(type, up, target === document);
         if (wants("pointerup") && ready()) fire(30);
       };
       return e => {
@@ -134,7 +134,7 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
         if (e.exactPointerOwner || !e.isPrimary || e.button !== 0 || held !== null || el.matches(":disabled") || el.hasAttribute("disabled") || inertAncestor(el)) return;
         e.exactPointerOwner = el;
         held = e.pointerId;
-        for (const [type, target] of ends) target.addEventListener(type, up, true);
+        for (const [type, target] of ends) target.addEventListener(type, up, target === document);
         if (wants("pointerdown")) fire(29);
       };
     },
