@@ -185,7 +185,7 @@ writeFileSync(resolve(gen, 'main.js'), [
   ] : ['start();']),
   ...(containerHooks ? ["requestAnimationFrame(() => requestAnimationFrame(() => import('./hooks.js').then(m => m.containers())));"] : []),
 ].join('\n'));
-for (const f of ['agent.js', 'perf.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js', 'motion.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'hooks.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js']) cpSync(resolve(here, f), resolve(gen, f));
+for (const f of ['agent.js', 'perf.js', 'rust-data.js', 'list.js', 'facts.js', 'symbols.js', 'motion.js', 'transform.js', 'svg-transform.js', 'dataset.js', 'format.js', 'hooks.js', 'arrange.js', 'reorder.js', 'flow.js', 'native.js']) cpSync(resolve(here, f), resolve(gen, f));
 // The web host's own pieces, loaded after first paint (motion.js, a pan, `select`, text flow, rt.js `pr`, native.js, rt.js `geo`).
 for (const f of ['frames.js', 'motion-glue.js', 'input-glue.js', 'markup-editor.js', 'textflow-glue.js', 'timer-glue.js', 'presence-glue.js', 'native-glue.js', 'geometry-glue.js']) cpSync(resolve(root, 'host/web', f), resolve(gen, f));
 // Virtualized lists' browser half, the web host's own, loaded after first paint.

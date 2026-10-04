@@ -598,7 +598,7 @@ mod tests {
     /// `filter` are opcodes with a callback body, never a call.
     #[test]
     fn every_called_roster_entry_has_a_runtime_export() {
-        let rt = include_str!("../rt.js");
+        let rt = [include_str!("../rt.js"), include_str!("../format.js")].concat();
         let exported = |name: &str| {
             rt.match_indices(name).any(|(at, _)| {
                 !rt[at + name.len()..]
