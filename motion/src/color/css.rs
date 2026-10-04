@@ -154,11 +154,13 @@ fn hex_color(hex: &str) -> Option<Rgba> {
     })
 }
 
-/// A component: a number, a percentage, an angle, or `none`.
+/// A component: a number, a percentage, an angle (in degrees), or `none`.
+/// Only a hue takes an angle (review C1: Chrome drops `rgb(90deg 0 0)`).
 #[derive(Debug, Clone, Copy)]
 enum Arg {
     Num(f64),
     Pct(f64),
+    Angle(f64),
 }
 
 fn component(t: &str) -> Option<Arg> {
@@ -175,7 +177,7 @@ fn component(t: &str) -> Option<Arg> {
         ("turn", 360.0),
     ] {
         if let Some(v) = t.strip_suffix(unit) {
-            return number(v).map(|v| Arg::Num(v * per_degree));
+            return number(v).map(|v| Arg::Angle(v * per_degree));
         }
     }
     number(t).map(Arg::Num)
@@ -224,7 +226,7 @@ fn alpha(t: Option<&str>) -> Option<f64> {
         None => 1.0,
         Some(Some(Arg::Num(v))) => v,
         Some(Some(Arg::Pct(p))) => p / 100.0,
-        Some(None) => return None,
+        Some(Some(Arg::Angle(_)) | None) => return None,
     };
     Some(a.clamp(0.0, 1.0))
 }
@@ -246,22 +248,25 @@ fn functional(name: &str, body: &str) -> Option<Rgba> {
                 return None;
             }
             let v = |x: Arg| match x {
-                Arg::Num(n) => n,
-                Arg::Pct(p) => p * 255.0 / 100.0,
+                Arg::Num(n) => Some(n),
+                Arg::Pct(p) => Some(p * 255.0 / 100.0),
+                Arg::Angle(_) => None,
             };
             Some(Rgba {
-                r: channel(v(c[0])),
-                g: channel(v(c[1])),
-                b: channel(v(c[2])),
+                r: channel(v(c[0])?),
+                g: channel(v(c[1])?),
+                b: channel(v(c[2])?),
                 a,
             })
         }
         "hsl" | "hsla" | "hwb" => {
-            let Arg::Num(h) = c[0] else { return None };
+            let (Arg::Num(h) | Arg::Angle(h)) = c[0] else {
+                return None;
+            };
             let frac = |x: Arg| match x {
                 Arg::Pct(p) => Some((p / 100.0).clamp(0.0, 1.0)),
                 Arg::Num(n) if !legacy => Some((n / 100.0).clamp(0.0, 1.0)),
-                Arg::Num(_) => None,
+                Arg::Num(_) | Arg::Angle(_) => None,
             };
             let (s, l) = (frac(c[1])?, frac(c[2])?);
             let (r, g, b) = if name == "hwb" {
@@ -355,10 +360,13 @@ fn wide(name: &str, body: &str) -> Option<Parsed> {
     ][kind];
     let mut v = [0.0; 3];
     for i in 0..3 {
+        // A hue (lch's and oklch's third) takes an angle; nothing else does.
+        let hue = matches!(kind, 1 | 3) && i == 2;
         v[i] = match c[i] {
             Arg::Num(n) => n,
-            Arg::Pct(p) if !(matches!(kind, 1 | 3) && i == 2) => p / 100.0 * pct[i],
-            Arg::Pct(_) => return None,
+            Arg::Angle(d) if hue => d,
+            Arg::Pct(p) if !hue => p / 100.0 * pct[i],
+            Arg::Pct(_) | Arg::Angle(_) => return None,
         };
     }
     if matches!(kind, 0 | 1) {
@@ -375,7 +383,7 @@ fn wide(name: &str, body: &str) -> Option<Parsed> {
         None => 1.0,
         Some(Some(Arg::Num(n))) => n,
         Some(Some(Arg::Pct(p))) => p / 100.0,
-        Some(None) => return None,
+        Some(Some(Arg::Angle(_)) | None) => return None,
     }
     .clamp(0.0, 1.0);
     let lin = match kind {
@@ -581,5 +589,26 @@ mod tests {
         ] {
             assert_eq!(c(bad), "none", "{bad}");
         }
+    }
+
+    /// Review C1: an angle is a hue's alone. Chrome 154 drops a colour with
+    /// one on an rgb channel, a saturation, a lab axis or an alpha, and takes
+    /// it on hsl's, hwb's and lch's hue.
+    #[test]
+    fn only_a_hue_takes_an_angle() {
+        for bad in [
+            "rgb(90deg 0 0)",
+            "rgb(90deg, 0, 0)",
+            "rgb(255 0 0 / 90deg)",
+            "hsl(120 90deg 50%)",
+            "lab(50 40deg 20)",
+            "oklch(0.5 0.1deg 90)",
+        ] {
+            assert_eq!(c(bad), "none", "{bad}");
+        }
+        assert_eq!(c("hsl(120deg, 100%, 50%)"), c("hsl(120, 100%, 50%)"));
+        assert_eq!(c("hsl(0.5turn 100% 50%)"), c("hsl(180 100% 50%)"));
+        assert_eq!(c("lch(50 40 90deg)"), c("lch(50 40 90)"));
+        assert_ne!(c("hwb(90deg 10% 10%)"), "none");
     }
 }

@@ -1369,10 +1369,23 @@ mod else_rows {
         .unwrap();
         let plan = contract::bake(plan, Answers).unwrap();
         let js = super::emit(&plan, false, false).unwrap().js;
-        let rows: Vec<&str> = js.split("const r_").skip(1).map(|s| s.split(';').next().unwrap()).collect();
-        let owner = rows.iter().find(|r| r.contains("\"full\"")).expect("full's row");
-        let other = rows.iter().find(|r| !r.contains("\"full\"")).expect("the else row");
+        let rows: Vec<&str> = js
+            .split("const r_")
+            .skip(1)
+            .map(|s| s.split(';').next().unwrap())
+            .collect();
+        let owner = rows
+            .iter()
+            .find(|r| r.contains("\"full\""))
+            .expect("full's row");
+        let other = rows
+            .iter()
+            .find(|r| !r.contains("\"full\""))
+            .expect("the else row");
         assert!(other.ends_with(",1)"), "the else row is settled: {other}");
-        assert!(!owner.ends_with(",1)"), "the owner is a bake to ask again: {owner}");
+        assert!(
+            !owner.ends_with(",1)"),
+            "the owner is a bake to ask again: {owner}"
+        );
     }
 }
