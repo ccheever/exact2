@@ -265,3 +265,17 @@ fn a_save_carrying_presentation_rows_is_refused_by_name() {
     let error = reader.load(&bytes).unwrap_err().to_string();
     assert!(error.contains("presentation component `Bob`"), "{error}");
 }
+
+#[test]
+fn presentation_streams_differ_for_every_tick_and_salt() {
+    // `tick ^ rotate(salt)` gave tick 1 salt 0 and tick 0 salt 2^35 one stream.
+    let mut sim = Sim::<Plain>::new(()).unwrap();
+    let mut seen = std::collections::BTreeSet::new();
+    for _ in 0..64 {
+        for salt in (0..64u64).chain([1 << 35, 1 << 40, u64::MAX]) {
+            let mut rng = sim.world().presentation_rng(salt);
+            assert!(seen.insert((rng.next_u32(), rng.next_u32())));
+        }
+        sim.run(1000. / 60.);
+    }
+}
