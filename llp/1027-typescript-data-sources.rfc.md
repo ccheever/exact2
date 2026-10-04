@@ -799,6 +799,20 @@ old style modules must be rebuilt. Game EXSIM v7 is unchanged, and Skirmish
 uses explicit text colours and no symbol tint. Native/browser game consumer
 qualification against this newer SDK remains separate from this compiler fix.
 
+The subsequent `f708c99cf` Contract-scope update was mistakenly rebased and
+published with this fix before its combined qualification. No history was
+rewritten and no frozen game SDK was changed. The combined default build and
+2,327 tests passed; strict Windows lint found two unused variables in a new
+alias-package fixture whose symlink and assertions were Unix-only. Marking the
+whole fixture Unix-only removes its assertion-free Windows pass. The repaired
+combined tree passed the repeated build, 2,326 tests (54 existing ignores),
+strict default Clippy, formatting, caps and boot. Six actual JS-bake library
+tests and strict producer lint also passed against `f708c99cf`. Rebuilt
+Skirmish and Markdown plans were byte-identical to their `80c52506c` plans;
+Markdown's actual graph reported its package and consulted manifest. These
+results close that combined-code gate gap; Windows alias-symlink coverage and
+actual newer-SDK game-host qualification are not inferred from them.
+
 Qualification is the existing actual TypeScript/Rolldown no-Hermes tests in
 both producer modes plus a bounded real-filesystem guard regression: nested
 captured file accepted; sibling-prefix, parent traversal, missing/non-file ID
