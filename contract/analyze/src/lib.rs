@@ -14,6 +14,7 @@
 
 mod arity;
 mod payload;
+mod sends;
 
 pub use payload::handler_arity_message;
 
@@ -204,6 +205,7 @@ pub fn check_all(checked: &Checked<'_>) -> Result<Analysis, Vec<AnalyzeError>> {
         let scope = types.component_scope(scoped, ct);
         errors.extend(check_tasks(c).err());
         errors.extend(check_mutation_then(c).err());
+        errors.extend(sends::check(c));
         let view = View {
             file,
             actions: scoped,

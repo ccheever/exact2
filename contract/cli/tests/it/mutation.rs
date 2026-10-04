@@ -1101,3 +1101,46 @@ fn two_answers_before_advance_currently_coalesce_into_one_then() {
     assert_eq!(text_of(&r, "greeted").as_deref(), Some("hello ada/1"));
     assert_eq!(r.timer_due_ms(), None);
 }
+
+/// LLP 1085 D8 (flashcards F4): two sends to one mutation on one path are
+/// refused — the second forgets the first's reply (LLP 1016 D5). Exclusive
+/// arms pass, and so do sequential `if`s that test one unchanged name
+/// against different literals; an arm's send and another in the common
+/// suffix do not.
+#[test]
+fn two_sends_to_one_mutation_on_one_path_are_refused() {
+    let app = |body: &str| {
+        format!("shape Ack\n  op: string\ncomponent App\n  state open = true\n  state mode = \"a\"\n  mutation edited as shape Ack then afterEdit\n  action afterEdit\n    open = false\n  action commitEdit(k: string)\n{body}  view\n    button \"s\" press=commitEdit(\"1\")\n")
+    };
+    let message = "`commitEdit` sends `edited` twice; only the last send's reply reaches `then afterEdit` (LLP 1016 D5). Send once, or use a mutation per request";
+    for body in [
+        // Flashcards' `commitEdit`.
+        "    send edited = saveCard(\"a\")\n    send edited = setImage(\"b\")\n",
+        // An arm, then the common suffix.
+        "    if k == \"1\"\n      send edited = setImage(\"b\")\n    send edited = saveCard(\"a\")\n",
+        // A `match` arm, then the suffix.
+        "    match some(k)\n      case some(x)\n        send edited = setImage(x)\n      case none\n        open = true\n    send edited = saveCard(\"a\")\n",
+        // The tested name changes between the two tests.
+        "    if mode == \"a\"\n      send edited = saveCard(\"a\")\n      mode = \"b\"\n    if mode == \"b\"\n      send edited = setImage(\"b\")\n",
+        // Two tests that can both hold.
+        "    if k == \"1\"\n      send edited = saveCard(\"a\")\n    if open\n      send edited = setImage(\"b\")\n",
+    ] {
+        let e = contract::compile(&app(body)).unwrap_err();
+        assert_eq!(
+            (e.id.as_str(), e.message.as_str()),
+            ("analyze-send-twice", message),
+            "{body}"
+        );
+        assert_eq!(e.related.len(), 1, "{body}");
+    }
+    for body in [
+        "    if k == \"1\"\n      send edited = setImage(\"b\")\n    else\n      send edited = saveCard(\"a\")\n",
+        "    match some(k)\n      case some(x)\n        send edited = setImage(x)\n      case none\n        send edited = saveCard(\"a\")\n",
+        // A key handler's sequential, mutually exclusive tests.
+        "    if k == \"1\" and open\n      send edited = saveCard(\"a\")\n    if k == \"2\" or k == \"3\"\n      send edited = setImage(\"b\")\n    mode = \"c\"\n",
+        "    send edited = saveCard(\"a\")\n",
+    ] {
+        let plan = contract::compile(&app(body));
+        assert!(plan.is_ok(), "{body}\n{plan:?}");
+    }
+}
