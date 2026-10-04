@@ -86,7 +86,34 @@ impl Parser {
         let name = self.str_lit("the test's name")?;
         self.newline()?;
         let steps = self.block(|p| p.step())?;
+        // The viewport is the session's: it opens at it, before any step.
+        if let Some(Step::Size { span, .. }) = steps
+            .iter()
+            .skip(1)
+            .find(|s| matches!(s, Step::Size { .. }))
+        {
+            return Err(SyntaxError {
+                id: "syntax-expected-step",
+                message: "`size` is a test's first step: its session opens at that viewport".into(),
+                span: *span,
+            });
+        }
         Ok(TestDecl { name, steps, span })
+    }
+
+    /// A step's number, a leading `-` included (a drag's offsets).
+    fn step_number(&mut self, what: &str) -> R<f64> {
+        let negative = self.eat_punct("-");
+        match self.peek_kind().clone() {
+            TokenKind::Number(n) => {
+                self.next();
+                Ok(if negative { -n } else { n })
+            }
+            other => self.err(
+                "syntax-expected-step",
+                format!("expected {what}, found {}", describe(&other)),
+            ),
+        }
     }
 
     fn step(&mut self) -> R<Step> {
@@ -96,9 +123,9 @@ impl Parser {
                 return self.err(
                     "syntax-expected-step",
                     format!(
-                        "expected `tap`, `type`, `clock`, `screenshot`, or `expect`, found {}",
-                        describe(&other)
-                    ),
+                    "expected `tap`, `type`, `clock`, `screenshot`, `size`, or `expect`, found {}",
+                    describe(&other)
+                ),
                 )
             }
         };
@@ -106,6 +133,38 @@ impl Parser {
         let step = match word.as_str() {
             "tap" => {
                 let target = self.str_lit("a testId")?;
+                if self.at_ident("drag") {
+                    self.next();
+                    let dx = self.step_number("the drag's dx in points")?;
+                    let dy = self.step_number("the drag's dy in points")?;
+                    let (mut press, mut over, mut hold) = (None, None, None);
+                    while let TokenKind::Ident(w) = self.peek_kind().clone() {
+                        let slot = match w.as_str() {
+                            "press" => &mut press,
+                            "over" => &mut over,
+                            "hold" => &mut hold,
+                            _ => break,
+                        };
+                        if slot.is_some() {
+                            return self.err(
+                                "syntax-expected-step",
+                                format!("`{w}` is given twice in one drag"),
+                            );
+                        }
+                        self.next();
+                        *slot = Some(self.step_number("milliseconds")?);
+                    }
+                    self.newline()?;
+                    return Ok(Step::Drag {
+                        target,
+                        dx,
+                        dy,
+                        press,
+                        over,
+                        hold,
+                        span,
+                    });
+                }
                 let hover = if self.at_ident("hover") {
                     self.next();
                     true
@@ -168,6 +227,37 @@ impl Parser {
                     }
                 };
                 Step::Clock { arg, span }
+            }
+            // `size 1200x800`, as the driver's `--size` (the lexer reads
+            // `1200` and then the word `x800`).
+            "size" => {
+                let width = self.step_number("the viewport's width, as 1200x800")?;
+                let height = match self.peek_kind().clone() {
+                    TokenKind::Ident(w) if w.starts_with('x') && w[1..].parse::<u32>().is_ok() => {
+                        self.next();
+                        w[1..].parse::<u32>().unwrap_or_default() as f64
+                    }
+                    other => {
+                        return self.err(
+                            "syntax-expected-step",
+                            format!(
+                                "`size` takes a viewport as 1200x800, found {}",
+                                describe(&other)
+                            ),
+                        )
+                    }
+                };
+                if width.fract() != 0.0 || width < 1.0 || height < 1.0 {
+                    return self.err(
+                        "syntax-expected-step",
+                        "`size` takes whole points, as 1200x800",
+                    );
+                }
+                Step::Size {
+                    width,
+                    height,
+                    span,
+                }
             }
             "screenshot" => Step::Screenshot {
                 path: self.str_lit("a file name")?,
@@ -253,7 +343,7 @@ impl Parser {
                 return Err(SyntaxError {
                     id: "syntax-expected-step",
                     message: format!(
-                    "expected `tap`, `type`, `clock`, `screenshot`, or `expect`, found `{other}`"
+                    "expected `tap`, `type`, `clock`, `screenshot`, `size`, or `expect`, found `{other}`"
                 ),
                     span,
                 })

@@ -7,12 +7,13 @@ import { DRAG_BOUNDS } from '../host/apple/touches.mjs';
  * `tap <target> drag …` (LLP 1080.000 §11): one whole gesture from `from`
  * (an offset from the target's box, its middle by default): press `press`
  * ms, one straight drag by (dx, dy) over `over` ms, hold `hold` ms, lift;
- * `during` thunks run while the finger is down, when no input is accepted
- * (`s.held`). The start and the end must be in the viewport. A real touch
+ * `during` thunks run while the finger is down after the move, before the
+ * hold (kanban F14: a screenshot during a drag shows it moved), when no
+ * input is accepted (`s.held`). The start and the end must be in the viewport. A real touch
  * under `--touch platform`; elsewhere the carrier's own contact phases,
  * refused where the carrier refuses them.
  */
-export async function dragTap({ s, carrier, node, target, host, timing, tapRefusal }, opts) {
+export async function dragTap({ s, carrier, node, target, host, timing, tapRefusal, scrolled }, opts) {
   const { dx, dy, from, press = 0, over = 250, hold = 0, during = [] } = opts, drag = { dx, dy, press, over, hold, during }, said = { dx, dy, press, over, hold };
   if (![dx, dy, press, over, hold].every(Number.isFinite) || [press, over, hold].some((v) => v < 0)) throw new Error('drag: expected finite dx, dy and non-negative press, over and hold (ms)');
   if (from !== undefined && !(Array.isArray(from) && from.length === 2 && from.every(Number.isFinite))) throw new Error('drag: from takes two finite numbers, an offset from the target\'s box');
@@ -32,7 +33,7 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     let r;
     try { r = await carrier.input(node.id, 'drag', { at: from ? start : undefined, drag: { ...drag, during: during.map(held) } }); }
     catch (error) { throw await tapRefusal(s, target, error); }
-    return s.tagged({ ...r, target, carrier: host, mode: timing });
+    return s.tagged({ ...r, target, ...(scrolled ? { scrolled } : {}), carrier: host, mode: timing });
   }
   // The carrier's phases, each reply checked: an error or a refusal releases the contact and throws.
   let down, done = [], up;
@@ -48,7 +49,9 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
       const { phase: _, ...refused } = down;
       return s.tagged({ ...refused, drag: said, reason: `${down.reason ?? 'no held contact'}; a real drag is --touch platform's (LLP 1080.000 §11)` });
     }
-    // Here the ops come before the press, and each is bounded by the gesture's own bound.
+    if (press) await phase('hold', { ms: press });
+    if (moves) await phase('move', { dx, dy, ms: over });
+    // The ops run where the finger has moved to, each bounded by the gesture's own bound.
     for (const op of during) {
       let timer;
       const late = new Promise((_, no) => { timer = setTimeout(() => no(new Error(`drag: an op during it outlasted ${DRAG_BOUNDS.total} ms`)), DRAG_BOUNDS.total); });
@@ -56,8 +59,6 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
       running.catch(() => {});
       try { done.push(await Promise.race([running, late])); } finally { clearTimeout(timer); }
     }
-    if (press) await phase('hold', { ms: press });
-    if (moves) await phase('move', { dx, dy, ms: over });
     if (hold) await phase('hold', { ms: hold });
     up = await phase('up');
   } catch (error) {
@@ -72,5 +73,5 @@ export async function dragTap({ s, carrier, node, target, host, timing, tapRefus
     if (s.contact) error.message += '; the contact could not be released (tap cancel, or close the session)';
     throw error;
   }
-  return s.tagged({ tapped: node.id, target, at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing });
+  return s.tagged({ tapped: node.id, target, ...(scrolled ? { scrolled } : {}), at: down.at, drag: said, lifted: up.at, ...(done.length ? { during: done } : {}), delivery: down.delivery, carrier: host, mode: timing });
 }

@@ -61,7 +61,8 @@ if (target !== '--wasm' && !game && !bakeOnly) {
   }
   // The child's own message, not the tail of Bun's trace (a frame and its version line).
   const lines = (js.stderr ?? '').trim().split('\n').filter((l) => !/^\s*(Compiling|Finished|Running|warning)/.test(l));
-  const message = lines.filter((l) => /^(error|[A-Z]\w*Error|E[A-Z]+)\b:?/.test(l.trim()) || /\bunoptimized$|\bnot on PATH\b/.test(l));
+  // A type check's diagnostics are TypeScript's own lines (`app.ts(2,8): error TS…`).
+  const message = lines.filter((l) => /^(error|[A-Z]\w*Error|E[A-Z]+)\b:?/.test(l.trim()) || /\): error TS\d+:|^(?:tsconfig: |module outside captured app: |source links are not captured: )/.test(l) || /\bunoptimized$|\bnot on PATH\b/.test(l));
   const reason = (message.length ? message : lines.slice(-3)).join('\n');
   console.error(`${reason}\n${app.name}: the web build (the JS target) failed; the wasm target is internal (--wasm)`);
   process.exit(1);

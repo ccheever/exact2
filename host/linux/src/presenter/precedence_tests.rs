@@ -69,3 +69,46 @@ fn a_refusing_inner_swipe_falls_to_the_ancestor_pan() {
     p.pointer_up(20., 60., 20.).unwrap();
     assert_eq!(out(&p), "0 20", "a vertical drag is the column's pan");
 }
+
+/// A card that pans with a button inside it (kanban F6): a drag that starts on
+/// the button is the card's once it passes the slop, and takes the press; a
+/// tap on the button still presses it.
+#[test]
+fn an_ancestor_pan_takes_a_drag_that_starts_on_a_button() {
+    let source = r#"component App
+  state panned = 0
+  state pressed = 0
+  action moved(dx: number, dy: number)
+    panned = panned + dx
+  action push
+    pressed = pressed + 1
+  view
+    column width=400 height=500 pan=moved
+      button testId="open" press=push width=200 height=60
+        text "open"
+      text `${panned} ${pressed}` testId="out"
+"#;
+    let (mut p, error) = Presenter::boot_with(
+        &contract::compile(source).unwrap().encode(),
+        NoData,
+        (400., 500.),
+        1.,
+        PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/caltrain")),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(error.is_none(), "{error:?}");
+    p.pointer_down(20., 20., 0.).unwrap();
+    p.pointer_move(23., 20., 10.).unwrap();
+    p.pointer_up(23., 20., 20.).unwrap();
+    assert_eq!(out(&p), "0 1", "within the slop it is the button's tap");
+    p.pointer_down(20., 20., 100.).unwrap();
+    p.pointer_move(30., 20., 110.).unwrap();
+    p.pointer_move(80., 20., 130.).unwrap();
+    p.pointer_up(80., 20., 140.).unwrap();
+    assert_eq!(
+        out(&p),
+        "60 1",
+        "past the slop the card pans and the press is taken"
+    );
+}

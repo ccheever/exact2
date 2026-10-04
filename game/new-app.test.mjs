@@ -114,10 +114,10 @@ test('failed creation removes the half-written app', () => {
   const dir = resolve(parent, 'field-log');
   try {
     const result = spawnSync(process.execPath, ['--eval', `import { createApp } from ${JSON.stringify(resolve(import.meta.dir, 'new.mjs'))}; createApp(${JSON.stringify(dir)});`], {
-      env: { ...process.env, PATH: '' }, encoding: 'utf8',
+      env: { ...process.env, PATH: '', CARGO_HOME: resolve(parent, 'no-rustup') }, encoding: 'utf8',
     });
     assert.notEqual(result.status, 0);
-    assert.match(result.stderr, /cargo could not resolve/);
+    assert.match(result.stderr, /cargo was not found/);
     assert.equal(existsSync(dir), false);
   } finally { rmSync(parent, { recursive: true, force: true }); }
 });

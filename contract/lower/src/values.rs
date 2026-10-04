@@ -569,8 +569,19 @@ pub(crate) fn check_style_value(
     Ok(())
 }
 
+/// HTML's enumerated attributes whose IDL attributes are bools, as the words
+/// a bool is written: `spellcheck`'s `true`/`false`, `autocorrect`'s
+/// `on`/`off`.
+pub(crate) fn bool_words(prop: PropId) -> Option<(&'static str, &'static str)> {
+    match prop {
+        PropId::Spellcheck => Some(("true", "false")),
+        PropId::Autocorrect => Some(("on", "off")),
+        _ => None,
+    }
+}
+
 /// A prop attribute's value by the prop's type: text for most, a bool for
-/// `disabled`, a whole number for `aria-level`.
+/// `disabled`, a whole number for `aria-level`, either for [`bool_words`].
 pub(crate) fn check_prop_value(
     name: &str,
     value: &Expr,
@@ -645,6 +656,9 @@ pub(crate) fn check_prop_value(
         if matches!(ty, Ty::Bool) {
             return Ok(());
         }
+    }
+    if bool_words(prop).is_some() && matches!(ty, Ty::Bool) {
+        return Ok(());
     }
     let ok = matches!(
         (want, ty),

@@ -11,7 +11,7 @@ if (!Bun.which('cargo', { PATH: process.env.PATH })) throw new Error(`these test
 delete process.env.EXACT_APP_DIR;
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync, rmSync, symlinkSync } from 'node:fs';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join, dirname, relative, resolve } from 'node:path';
@@ -20,7 +20,8 @@ import { runInNewContext } from 'node:vm';
 import { applyStaticChange, applyStaticTreeChange, appManifestDigest, builtAppMatches, copyStaticTree, copyStaticTreeIfPresent, installStaticCandidate, listAssets, listPublicFiles, publicFileCards, readDevGeneration, retainDevGeneration, shaderInterfaceDigests, staticFile, readStaticFile, serveStatic, syncStaticTree, watchStaticTrees, webEnvelope } from '../host/web/serve.mjs';
 import { assertWebDistApp, jsonLines } from './agent.mjs';
 import { verifyBakeFiles, pendingBuildInputs } from './app.mjs';
-import { gitIgnored, newerThan } from './agent-launch.mjs';
+import { newerThan, notBuildInput } from './agent-launch.mjs';
+import { storeBase, sweepTestStores } from './agent-test.mjs';
 import { copyAppleStaticTrees } from '../host/apple/build.mjs';
 import { developmentLaunchEnvironment, deviceLaunchArgs } from '../host/apple/devices.mjs';
 import { classify, publishRoot, webRelease } from './deploy.mjs';
@@ -614,17 +615,31 @@ for (const [name, html, files, expectCode, expect] of [
   rmSync(dir,{recursive:true,force:true});
 }
 {
-  // A screenshot saved into an app is not an input; an ignored file the bake captures still is.
-  const dir=realpathSync(mkdtempSync(join(tmpdir(),'exact-ignored-inputs-')));
-  for(const sub of ['shots','gen','shader-gen']) mkdirSync(join(dir,sub));
-  for(const [name,text] of [['.gitignore','/shots/\n/local.ts\n/gen/\n/shader-gen/\n'],['app.contract','view'],['local.ts','key'],['shots/one.png','png'],['shots/notes.txt','notes'],['gen/made.rs','fn f() {}'],['shader-gen/paint.wgsl','fn main() {}'],['shader-gen/table.bin','bytes']]) writeFileSync(join(dir,name),text);
-  const walk=()=>newerThan(0,[dir],gitIgnored(dir,[join(dir,'shader-gen')])).map(p=>relative(dir,p)).sort();
+  // A screenshot or log saved into an app is not an input, ignored by Git or not; what the
+  // bake captures, a declared shader root, a crate's files, a native module's script, a
+  // game's art and an icon the manifest names are, ignored by Git or not; an ignored file
+  // outside those (scratch/) and a saved world are not.
+  const dir=realpathSync(mkdtempSync(join(tmpdir(),'exact-build-inputs-')));
+  for(const sub of ['shots','gen','shader-gen','data','modules/web','art','scratch']) mkdirSync(join(dir,sub),{recursive:true});
+  for(const [name,text] of [['.gitignore','/local.ts\n/gen/\n/shader-gen/\n/notes/\n/modules/\n/art/\n/icon.png\n/data/table.bin\n/scratch/\n'],['Cargo.toml','[workspace]'],['app.json','{"icons":[{"src":"icon.png"}]}'],['icon.png','png'],['app.contract','view'],['local.ts','key'],['run.log','log'],['shots/one.png','png'],['shots/notes.txt','notes'],['gen/made.rs','fn f() {}'],['shader-gen/paint.wgsl','fn main() {}'],['shader-gen/table.bin','bytes'],['data/Cargo.toml','[package]'],['data/table.bin','bytes'],['modules/web/index.js','js'],['art/strip.png','png'],['art/fox.glb','glb'],['run.world','world'],['scratch/out.bin','bytes']]) writeFileSync(join(dir,name),text);
+  const walk=()=>newerThan(0,[dir],notBuildInput(dir,[join(dir,'shader-gen')])).map(p=>relative(dir,p)).sort();
   const outside=walk();
   spawnSync('git',['init','-q'],{cwd:dir});
-  const inside=walk();
-  result('the staleness walk skips gitignored files no build reads',
-    JSON.stringify(inside)==='["app.contract","gen/made.rs","local.ts","shader-gen/paint.wgsl","shader-gen/table.bin"]'&&outside.length===7,JSON.stringify({inside,outside}));
+  const inside=walk(),want='["Cargo.toml","app.contract","app.json","art/fox.glb","art/strip.png","data/Cargo.toml","data/table.bin","gen/made.rs","icon.png","local.ts","modules/web/index.js","shader-gen/paint.wgsl","shader-gen/table.bin"]';
+  result('the staleness walk skips what an agent leaves in an app, never what a build reads',
+    JSON.stringify(inside)===want&&JSON.stringify(outside)===want.replace('"modules/web/index.js",','"modules/web/index.js","scratch/out.bin",'),JSON.stringify({inside,outside}));
   rmSync(dir,{recursive:true,force:true});
+}
+{
+  // A killed authored-test run's stores are swept; a live run's, another name's and a plain store stay.
+  const base=mkdtempSync(join(tmpdir(),'exact-test-stores-'));
+  for(const name of ['test.r999999-ab12.t0','test.r999999-ab12.t1',`test.r${process.pid}-cd34.t0`,'test','test.t0','mine.r999999-ab12.t0','tests.r999999-ab12.t0']) mkdirSync(join(base,name));
+  sweepTestStores(base,'test');
+  const left=readdirSync(base).sort();
+  rmSync(base,{recursive:true,force:true});
+  result('authored-test stores: a dead run\'s are swept, a live run\'s and other names stay',
+    JSON.stringify(left)===JSON.stringify(['mine.r999999-ab12.t0','test','test.r'+process.pid+'-cd34.t0','test.t0','tests.r999999-ab12.t0'].sort()),JSON.stringify(left));
+  result('authored-test stores live where the hosts keep them',storeBase('com.x','mac',{},'/h')==='/h/Library/Caches/exact/com.x/agent'&&storeBase('com.x','linux',{XDG_CACHE_HOME:'/c'},'/h')==='/c/exact/com.x/agent'&&storeBase('com.x','linux',{XDG_CACHE_HOME:'rel'},'/h')==='/h/.cache/exact/com.x/agent'&&storeBase('com.x','ios')===null);
 }
 // A matching hand-written exact.json is not build identity. The agent must
 // consume the complete private marker verifier before it drives a dist.

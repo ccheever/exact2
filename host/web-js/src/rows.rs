@@ -424,8 +424,27 @@ impl Em<'_> {
 
     /// What an element needs once made: a canvas's surface, a native
     /// module's mount (LLP 1024 D3), a hooked node's page-module hook (LLP
-    /// 1075.003.000, `data-hook` among its static attributes).
-    pub(crate) fn element_extras(&mut self, tag: &str, e: &str, attrs: &[(String, String)]) {
+    /// 1075.003.000, `data-hook` among its static attributes), and the
+    /// constant values settled once its tree is in place, as bound ones are
+    /// (rt.js `drain`): a select's, which its options carry (calendar diary
+    /// F6), and a scroller's offsets (F8).
+    pub(crate) fn element_extras(
+        &mut self,
+        tag: &str,
+        e: &str,
+        attrs: &[(String, String)],
+        props: &exact_kernel::SortedMap<String, String>,
+    ) {
+        for name in ["value", "scrollTop", "scrollLeft"] {
+            if let Some(v) = props
+                .get(name)
+                .filter(|_| name != "value" || tag == "select")
+            {
+                let p = self.uses.rt("P");
+                let v = serde_json::to_string(v).unwrap();
+                let _ = write!(self.out, "{p}({e},\"{name}\",()=>{v});");
+            }
+        }
         if tag == "canvas" {
             let cv = self.uses.rt("cv");
             let _ = write!(self.out, "{cv}({e});");
@@ -482,8 +501,9 @@ pub(super) fn attributes(
                 attrs.push((name.clone(), value.clone()));
                 css.push_str("touch-action:none;");
             }
+            // A select's value is its options' (`element_extras`).
             "value" => match element {
-                "input" | "button" => attrs.push((name.clone(), value.clone())),
+                "input" | "button" | "option" => attrs.push((name.clone(), value.clone())),
                 "textarea" => content = Some(value.clone()),
                 _ => {}
             },

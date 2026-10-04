@@ -866,45 +866,9 @@ const CANVAS_ENTRY: &str = "import { canvasSeam } from './__exact_canvas.js';\ne
 
 /// What a drawing module's author types against (LLP 1056 D1, stages 1–2):
 /// the context is the web's own interface, narrowed to the built members,
-/// with `drawImage` and `createPattern` taking an image handle (D9).
-const CANVAS_TYPES: &str = "
-/** An image, by the URL or asset an `image` node's `src` takes (LLP 1056 D9). */
-export type ImageHandle = string;
-/** The 2D context a surface draws with (LLP 1056 §3, stages 1 and 2). */
-export type Ctx2D = Pick<OffscreenCanvasRenderingContext2D,
-  | 'save' | 'restore' | 'reset'
-  | 'translate' | 'rotate' | 'scale' | 'transform' | 'setTransform' | 'resetTransform' | 'getTransform'
-  | 'beginPath' | 'moveTo' | 'lineTo' | 'quadraticCurveTo' | 'bezierCurveTo' | 'arc' | 'arcTo' | 'ellipse' | 'rect' | 'roundRect' | 'closePath'
-  | 'fill' | 'stroke' | 'clip' | 'fillRect' | 'strokeRect' | 'clearRect'
-  | 'lineWidth' | 'lineCap' | 'lineJoin' | 'miterLimit' | 'setLineDash' | 'getLineDash' | 'lineDashOffset'
-  | 'fillStyle' | 'strokeStyle' | 'createLinearGradient' | 'createRadialGradient' | 'createConicGradient'
-  | 'globalAlpha' | 'globalCompositeOperation'
-  | 'shadowColor' | 'shadowBlur' | 'shadowOffsetX' | 'shadowOffsetY'
-  | 'imageSmoothingEnabled' | 'imageSmoothingQuality'
-  | 'font' | 'textAlign' | 'textBaseline' | 'direction' | 'letterSpacing' | 'wordSpacing'
-  | 'fontKerning' | 'fontStretch' | 'fontVariantCaps' | 'textRendering'
-  | 'fillText' | 'strokeText' | 'measureText'
-  | 'createImageData' | 'putImageData'> & {
-  drawImage(image: ImageHandle, dx: number, dy: number): void;
-  drawImage(image: ImageHandle, dx: number, dy: number, dw: number, dh: number): void;
-  drawImage(image: ImageHandle, sx: number, sy: number, sw: number, sh: number, dx: number, dy: number, dw: number, dh: number): void;
-  createPattern(image: ImageHandle, repetition: string | null): CanvasPattern | null;
-};
-/** What one draw is told (LLP 1056 D4–D6). */
-export interface Frame {
-  readonly time: number;
-  readonly mounted: number;
-  readonly cause: 'mount' | 'args' | 'size' | 'frame' | 'image' | 'font';
-  readonly causes: readonly string[];
-  readonly width: number;
-  readonly height: number;
-  readonly pixelWidth: number;
-  readonly pixelHeight: number;
-  readonly scale: number;
-}
-/** A module's `draw`: true asks for another frame. */
-export type Draw = (surface: string, args: any, ctx: Ctx2D, frame: Frame) => boolean;
-";
+/// with `drawImage` and `createPattern` taking an image handle (D9). The web
+/// build's type check appends the same file (host/web-js/build.mjs).
+const CANVAS_TYPES: &str = include_str!("canvas-types.d.ts");
 
 /// Whether `app.ts` exports `name` (a function, a binding, or in a list).
 fn exports(source: &str, name: &str) -> bool {
@@ -934,16 +898,21 @@ fn exports(source: &str, name: &str) -> bool {
 
 fn contract_error(mut error: contract::CompileError, stage: &Path, app: &Path) -> String {
     let canonical = stage.canonicalize().unwrap_or_else(|_| stage.to_path_buf());
-    for path in error
-        .file
-        .iter_mut()
-        .chain(error.related.iter_mut().filter_map(|r| r.file.as_mut()))
-    {
-        if let Ok(relative) = path
-            .strip_prefix(stage)
+    // The staged path an app reads as its own: the error's file and each related one.
+    let own = |path: &Path| {
+        path.strip_prefix(stage)
             .or_else(|_| path.strip_prefix(&canonical))
-        {
-            *path = app.join(relative);
+            .ok()
+            .map(|relative| app.join(relative))
+    };
+    if let Some(path) = error.file.as_mut() {
+        if let Some(mapped) = own(path) {
+            *path = mapped.into_boxed_path();
+        }
+    }
+    for path in error.related.iter_mut().filter_map(|r| r.file.as_mut()) {
+        if let Some(mapped) = own(path) {
+            *path = mapped;
         }
     }
     error.to_string()
