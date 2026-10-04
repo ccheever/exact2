@@ -55,16 +55,20 @@ if (target !== '--wasm' && !game && !bakeOnly) {
   // An app outside apps/ reaches it through EXACT_APP_DIR, as here.
   const js = spawnSync(process.execPath, [fileURLToPath(new URL('../web-js/build.mjs', import.meta.url)), app.name, '--out', webDist(), ...render], { stdio: ['ignore', 'inherit', 'pipe'], encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: app.dir } });
   if (js.status === 0) {
+    // What the JS target warned of, in its own words: the count it prints names nothing (workout F3, kanban F30).
+    // The bundler's notes on the generated glue are not the app's to act on.
+    for (const line of (js.stderr ?? '').split('\n')) if (/^warning: /.test(line)) console.error(line);
     writeFileSync(resolve(webDist(), '.exact-build.json'), JSON.stringify({ exactBuild: 1, target: 'js', app: { id: app.id, name: app.displayName },
       manifestSha256: appManifestDigest(app), files: buildFileCards(webDist()) }) + '\n');
     process.exit(0);
   }
   // The child's own message, not the tail of Bun's trace (a frame and its version line).
-  const lines = (js.stderr ?? '').trim().split('\n').filter((l) => !/^\s*(Compiling|Finished|Running|warning)/.test(l));
+  const all = (js.stderr ?? '').trim().split('\n').filter((l) => !/^\s*(Compiling|Finished|Running)/.test(l));
+  const warnings = all.filter((l) => /^warning: /.test(l)), lines = all.filter((l) => !/^\s*warning/.test(l));
   // A type check's diagnostics are TypeScript's own lines (`app.ts(2,8): error TS…`).
   const message = lines.filter((l) => /^(error|[A-Z]\w*Error|E[A-Z]+)\b:?/.test(l.trim()) || /\): error TS\d+:|^(?:tsconfig: |module outside captured app: |source links are not captured: )/.test(l) || /\bunoptimized$|\bnot on PATH\b/.test(l));
   const reason = (message.length ? message : lines.slice(-3)).join('\n');
-  console.error(`${reason}\n${app.name}: the web build (the JS target) failed; the wasm target is internal (--wasm)`);
+  console.error(`${[...warnings, reason].join('\n')}\n${app.name}: the web build (the JS target) failed; the wasm target is internal (--wasm)`);
   process.exit(1);
 }
 const crate = app.crate('web');
