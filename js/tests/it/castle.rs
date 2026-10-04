@@ -402,6 +402,21 @@ fn a_failed_fetch_is_a_fetch_error_the_module_turns_into_its_own_words() {
     assert_eq!(session(&v).2, "Castle answered HTTP 500 without JSON");
 }
 
+/// Hermes watches a fetch's signal through Ibex's abort hooks, which an
+/// app's listener cannot stop, and leaves no listener behind (review r4a
+/// 7, 8; the browser realm's listener is js/web/tests/browser.rs's).
+#[test]
+fn a_reused_signal_gains_no_listener_per_fetch() {
+    let mut m = module();
+    m.bind(&contract::compile(&SHARED.replace("thread(story)", "reused()")).unwrap());
+    let mut s = store();
+    for _ in 0..2 {
+        later(m.answer(&mut s, "reused", &[]).unwrap());
+        let v = now(m.parse(&mut s, "reused", &[], response(200, "ok")).unwrap());
+        assert_eq!(session(&v).2, "0/0");
+    }
+}
+
 #[test]
 fn an_answer_may_await_two_fetches_in_a_row() {
     let mut m = module();
@@ -693,6 +708,45 @@ fn an_answer_awaiting_another_answers_fetch_waits_for_it_and_both_settle() {
     r.fulfill(waiting[0].ticket, work()).unwrap();
     assert_eq!(text_of(&r, "detail").as_deref(), Some("the story"));
     assert_eq!(text_of(&r, "comments").as_deref(), Some("the story"));
+    assert!(!r.has_pending());
+    assert_eq!(r.data().in_flight(), 0);
+}
+
+/// An answer that awaits another's fetch and then fetches on its own: its
+/// second request runs, though its continuation ran as the other answer,
+/// which had already settled (review r4a, finding 1).
+#[test]
+fn a_fetch_made_after_awaiting_another_answers_fetch_is_not_left_behind() {
+    use exact_runner::{Dispatch, Work};
+    let plan = contract::compile(&SHARED.replace("thread(story)", "followup(story)"))
+        .expect("the fixture's Contract compiles");
+    let baked = contract::bake(plan, Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap()).unwrap();
+    let mut r = Runner::boot(
+        baked,
+        Module::loaded(HBC.to_vec(), APP, GRANTS).unwrap(),
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    r.dispatch(view_of(&r, "open"), Event::Press).unwrap();
+    let asked = r.take_requests();
+    let (fetch, waiting): (Vec<_>, Vec<_>) =
+        asked.iter().partition(|a| a.request.continuation.is_none());
+    let token = waiting[0].request.continuation.unwrap();
+    assert!(matches!(r.dispatch_work(token), Dispatch::Held));
+    r.fulfill(fetch[0].ticket, response(200, "the story"))
+        .unwrap();
+    assert_eq!(text_of(&r, "detail").as_deref(), Some("the story"));
+    let (_, Dispatch::Run(Work::Now(work))) = r.release_work().into_iter().next().unwrap() else {
+        panic!("the waiting answer is asked again");
+    };
+    r.fulfill(waiting[0].ticket, work()).unwrap();
+    let more = r.take_requests();
+    assert_eq!(more.len(), 1, "its own second fetch is handed out");
+    assert_eq!(more[0].request.url, "https://api.castle.xyz/comments/8863");
+    r.fulfill(more[0].ticket, response(200, "talk")).unwrap();
+    assert_eq!(text_of(&r, "comments").as_deref(), Some("the story + talk"));
     assert!(!r.has_pending());
     assert_eq!(r.data().in_flight(), 0);
 }
