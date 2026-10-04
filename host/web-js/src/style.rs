@@ -484,6 +484,14 @@ pub static SYSTEM_COLOR_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::
 /// css.rs writes no declaration for the row's empty value.
 const NONE: &str = "v=>v==null||/^\\s*none\\s*$/i.test(v)?null:v";
 
+// The bounded cursor vocabulary is the schema's, including dynamic bindings.
+static CURSOR_MAP: std::sync::LazyLock<String> = std::sync::LazyLock::new(|| {
+    format!(
+        "v=>{{if(typeof v!==\"string\")return null;v=v.trim().toLowerCase();return {:?}.includes(v)?v:null}}",
+        StyleId::Cursor.enum_names()
+    )
+});
+
 fn one(name: impl Into<String>, unit: impl Into<String>) -> Vec<Write> {
     vec![Write {
         name: name.into(),
@@ -506,6 +514,7 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
         map: Some(map),
     };
     Ok(match row {
+        StyleId::Cursor => vec![with("cursor", &CURSOR_MAP)],
         // @ref LLP 1055 D5/D7 — the browser runs it; its `@keyframes` are in
         // the stylesheet (emit.rs), under the author's names.
         StyleId::Animation if timeline => vec![

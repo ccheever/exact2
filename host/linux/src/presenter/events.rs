@@ -5,6 +5,18 @@
 use super::*;
 
 impl<D: DataSource> Presenter<D> {
+    /// CSS cursor at the current painted hit. Hosts choose the system cursor;
+    /// `auto` leaves their existing control/default behavior intact.
+    pub fn cursor_at(&mut self, x: f32, y: f32) -> exact_kernel::Cursor {
+        self.hit(x, y)
+            .and_then(|id| self.host.kernel().node(id))
+            .map(|node| {
+                node.computed_style(exact_kernel::StyleMask::INHERITED)
+                    .cursor
+            })
+            .unwrap_or_default()
+    }
+
     /// Move the focus: `blur` at the node that loses it, then `focus` at the
     /// node that gains it — each at its own handler, since the web's focus
     /// events do not bubble.

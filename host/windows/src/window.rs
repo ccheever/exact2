@@ -15,7 +15,7 @@ use winit::{
     event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{Key, PhysicalKey},
-    window::{Window, WindowId},
+    window::{CursorIcon, Window, WindowId},
 };
 
 struct App<D: DataSource> {
@@ -26,6 +26,9 @@ struct App<D: DataSource> {
     presenter: Option<Presenter<D>>,
     started: Instant,
     pointer: (f32, f32),
+    pointer_inside: bool,
+    focused: bool,
+    cursor: CursorIcon,
     buttons: u32,
     scale: f64,
     next_frame: Instant,
@@ -113,6 +116,9 @@ pub(super) fn run<D: DataSource + Default + 'static>(name: &str, plan: &[u8], co
         presenter: None,
         started,
         pointer: (0., 0.),
+        pointer_inside: false,
+        focused: true,
+        cursor: CursorIcon::Default,
         buttons: 0,
         scale: 1.,
         next_frame: started,
@@ -223,6 +229,20 @@ impl<D: DataSource + Default + 'static> App<D> {
             *out = (u32::from(pixel[0]) << 16) | (u32::from(pixel[1]) << 8) | u32::from(pixel[2]);
         }
         buffer.present().map_err(|e| e.to_string())?;
+        // A keyboard command can change the cursor while the mouse is still.
+        // Re-resolve the painted hit after the frame, including unmounts and HUDs.
+        let cursor = if self.pointer_inside && self.focused {
+            match p.cursor_at(self.pointer.0, self.pointer.1) {
+                exact_kernel::Cursor::Crosshair => CursorIcon::Crosshair,
+                exact_kernel::Cursor::Auto | exact_kernel::Cursor::Default => CursorIcon::Default,
+            }
+        } else {
+            CursorIcon::Default
+        };
+        if self.cursor != cursor {
+            window.set_cursor(cursor);
+            self.cursor = cursor;
+        }
         let present_ms = present.elapsed().as_secs_f64() * 1000.;
         self.present_ms += present_ms;
         if let Some(previous) = self.previous_frame.replace(frame_started) {
@@ -275,6 +295,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
                 return;
             }
         };
+        self.focused = window.has_focus();
         self.scale = window.scale_factor();
         self.config.scale = self.scale as f32;
         let size = window.inner_size();
@@ -339,12 +360,16 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
         p.advance(now);
         let (x, y) = self.pointer;
         match event {
-            WindowEvent::Focused(false) => {
-                self.buttons = 0;
-                let _ = p.pointer_lost(now);
-                p.blur();
+            WindowEvent::Focused(focused) => {
+                self.focused = focused;
+                if !focused {
+                    self.buttons = 0;
+                    let _ = p.pointer_lost(now);
+                    p.blur();
+                }
             }
             WindowEvent::CursorMoved { position, .. } => {
+                self.pointer_inside = true;
                 self.pointer = (
                     position.x as f32 / self.scale as f32,
                     position.y as f32 / self.scale as f32,
@@ -352,6 +377,7 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
                 let _ = p.pointer_move(self.pointer.0, self.pointer.1, now);
             }
             WindowEvent::CursorLeft { .. } => {
+                self.pointer_inside = false;
                 // Windows captures pressed buttons. Preserve the drag until its
                 // captured mouse-up, even outside the window; blur cancels it.
                 if self.buttons == 0 {
@@ -413,6 +439,10 @@ impl<D: DataSource + Default + 'static> ApplicationHandler for App<D> {
             _ => return,
         }
         if let Some(window) = &self.window {
+            if (!self.pointer_inside || !self.focused) && self.cursor != CursorIcon::Default {
+                window.set_cursor(CursorIcon::Default);
+                self.cursor = CursorIcon::Default;
+            }
             window.request_redraw();
         }
     }

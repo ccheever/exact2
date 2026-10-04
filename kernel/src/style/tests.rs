@@ -1,4 +1,23 @@
 use super::*;
+
+#[test]
+fn cursor_is_inherited_non_layout_css_with_a_bounded_vocabulary() {
+    assert!(StyleId::Cursor.inherited());
+    assert!(!StyleId::Cursor.affects_layout());
+    let mut style = StyleProps::default();
+    assert_eq!(style.cursor.name(), "auto");
+    for name in ["auto", "default", "crosshair"] {
+        style
+            .set_dynamic(StyleId::Cursor, &StyleValue::Text(name.into()))
+            .unwrap();
+        assert_eq!(style.cursor.name(), name);
+    }
+    for value in ["pointer", "url(cursor.png), crosshair", "invalid"] {
+        assert!(style
+            .set_dynamic(StyleId::Cursor, &StyleValue::Text(value.into()))
+            .is_err());
+    }
+}
 use taffy::prelude::{line, span};
 
 #[test]
