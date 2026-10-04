@@ -179,6 +179,8 @@ struct HostState {
     documents: bool,
     /// The bake's module ([`Module::inspect`]): storage refuses as `bake`.
     baking: bool,
+    /// Storage calls the bake refused so far (see [`Module::answer_for`]).
+    bake_refusals: u64,
 }
 
 /// A TypeScript data source: bytecode, its bake-time identity, and the
@@ -286,6 +288,7 @@ unsafe extern "C" fn host_door(
                 // A read even at bake: the build compiles no answer that tried.
                 (*store).observe_external_read();
                 if state.baking {
+                    state.bake_refusals += 1;
                     Err("bake".into())
                 } else {
                     // `a` is the path a file operation names: a document
@@ -1458,7 +1461,21 @@ impl DataSource for Module {
         source: &str,
         args: &[Value],
     ) -> Result<Answer, DataError> {
-        self.begin(Some(store), Some(target), source, args)
+        let refused = self.host.bake_refusals;
+        let answer = self.begin(Some(store), Some(target), source, args);
+        // A resource whose answer failed after the bake refused it storage
+        // is the device's to answer, as one that fetches is: the bake shows
+        // its placeholder and a launch asks it (kanban2 #5: an uncaught
+        // `code: 'bake'` stopped the native build, where the web build's
+        // check asks at launch). The token is never dispatched.
+        match answer {
+            Err(DataError::Unavailable(_))
+                if self.host.bake_refusals > refused && matches!(target, Target::Resource(_)) =>
+            {
+                Ok(Answer::Later(Request::continuation(DEFERRED)))
+            }
+            answer => answer,
+        }
     }
 
     fn parse_for(

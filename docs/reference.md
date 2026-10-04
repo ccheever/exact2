@@ -360,8 +360,10 @@ can use the same implementations through `ibex2::host`.
 Hosts configure app-specific directories after first pixel. Files and databases
 survive module reload; temporary storage is a directory under the app cache,
 without an automatic cleanup guarantee. Agent mode does not open disk storage.
-Bake rejects storage calls with `Unavailable`; catch it when a resource needs an
-empty-store bake placeholder. Browser storage uses app-scoped IndexedDB files
+Bake rejects storage calls with `Unavailable` (`code: 'bake'`). A resource whose
+answer fails for it, caught or not, compiles no value: it shows its placeholder
+and is asked when the app runs, on every build. Catch it only to answer
+something better than the placeholder. Browser storage uses app-scoped IndexedDB files
 and SQLite WASM in a dedicated worker, loaded on the first database operation.
 Use HTTPS or localhost for Web Locks. Data persists across reloads within the
 same browser origin, subject to browser storage retention and quota policies.
