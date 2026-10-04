@@ -1,15 +1,15 @@
-# LLP 1085: What the app diaries ask of Contract
+# LLP 1086: What the app diaries ask of Contract
 
 **Type:** RFC
-**Status:** Accepted (stages 1–3 as descoped), r4, 2026-10-04. Accepted by the orchestrator for Charlie under the three-round rule (`rules/RULES.md`, "Fix loops get 3 rounds") after Astra's r3; D6 deferred. Nothing here is built. All three review rounds were one family (Astra, `gpt-6-astra`, max; Grok was unavailable): r1 NOT READY (7 MATERIAL, 6 MINOR); r2 NOT READY (4 new MATERIAL, 3 new MINOR); r3 NOT READY on one MATERIAL (D6's convergence) and three MINORs. The reviewer stated that only D6 blocked stage 1. r4 is a final edit with no further review: D6 moves to §9 with the requirement a follow-up must meet, and r3's MINORs are folded in. §8 lists each revision.
+**Status:** Accepted (stages 1–3 as descoped), r5, 2026-10-04. Accepted by the orchestrator for Charlie under the three-round rule (`rules/RULES.md`, "Fix loops get 3 rounds") after Astra's r3; D6 deferred. Nothing here is built. All three review rounds were one family (Astra, `gpt-6-astra`, max; Grok was unavailable): r1 NOT READY (7 MATERIAL, 6 MINOR); r2 NOT READY (4 new MATERIAL, 3 new MINOR); r3 NOT READY on one MATERIAL (D6's convergence) and three MINORs. The reviewer stated that only D6 blocked stage 1. r4 is a final edit with no further review: D6 moves to §9 with the requirement a follow-up must meet, and r3's MINORs are folded in. A second family, Grok 4.7 (xhigh), then reviewed r4 (truncated); r5 folds its findings into the decisions with no new round. Renumbered from 1085 (origin/main took that number). §8 lists each revision.
 **Systems:** Contract compiler (`contract/{syntax,types,analyze,lower}`, `contract/cli/src/lean.rs`), Plan (`plan/tables/format.json` `stdlib`), Runner (`vm.rs`, `stdlib.rs`, `uses.rs`), JS target (`host/web-js`), web host (`host/web`), Apple hosts (`host/apple`), Linux host, Lean semantics and difftest (`semantics/`), docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-04
-**Revised:** 2026-10-04 (r2, r3, r4)
+**Revised:** 2026-10-04 (r2, r3, r4, r5)
 **Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stage 1 on 2026-10-04, stages 2 and 3 on 2026-10-05 (§5)
 **Base:** `gaps/papercuts`, which carries `host/web-js/format.js`, `x_at`/`x_formatDate`/`x_formatNumber` and the `x_` export test (`host/web-js/src/code.rs:595`)
 **Amends:** LLP 1006 §2 (the language); LLP 1024 D1 (which known attributes bind to a module tag's box)
-**Related:** LLP 1016 D5 (a send forgets the in-flight reply); LLP 1017 P5 and §8; LLP 1017.003; LLP 1035.005.000 D7b; LLP 1047 D2/D6 (linked by use); LLP 1054.000.005 (`trim`); LLP 1071 (the JS target); diaries `~/projects/x2apps/<app>/DIARY.md`; reviews `llp/reviews/1085-r1.astra.md`, `llp/reviews/1085-r2.astra.md`, `llp/reviews/1085-r3.astra.md`. Web: ECMA-262 `IsLessThan`, `String.prototype.{slice,replaceAll,toLowerCase,toWellFormed}`, `GetSubstitution`, `StringPad`; HTML `tabindex` (focusable areas, sequential focus navigation).
+**Related:** LLP 1016 D5 (a send forgets the in-flight reply); LLP 1017 P5 and §8; LLP 1017.003; LLP 1035.005.000 D7b; LLP 1047 D2/D6 (linked by use); LLP 1054.000.005 (`trim`); LLP 1071 (the JS target); diaries `~/projects/x2apps/<app>/DIARY.md`; reviews `llp/reviews/1086-r1.astra.md`, `llp/reviews/1086-r2.astra.md`, `llp/reviews/1086-r3.astra.md`, `llp/reviews/1086-r4.grok.md`. Web: ECMA-262 `IsLessThan`, `String.prototype.{slice,replaceAll,toLowerCase,toWellFormed}`, `GetSubstitution`, `StringPad`; HTML `tabindex` (focusable areas, sequential focus navigation).
 
 ## Summary
 
@@ -159,7 +159,24 @@ needs two numbers or two strings, given …").
     output's UTF-8 length stays within `max_bytes`, and returns `None` (the
     trap) as soon as it would not.
   - Expansion is counted as it happens: `"İİ"` grows from 4 bytes to 6.
-  - The `text-transform` path keeps calling the unbounded form.
+  - **It is reached only through the link.** On wasm, the case tables stay
+    out of a core because `apply_after` is reached only through the function
+    pointer that `link()` installs (`case.rs:24–54`; `host/web/src/link.rs:239`).
+    If the runner called `lowercase_bounded` directly, every web artifact would
+    pay the 3–6 KiB, including apps that use neither `text-transform` nor
+    `toLowerCase`. The capability bit refuses an unlinked plan at boot; it
+    does not strip a direct call.
+  - So `link()` installs `lowercase_bounded` beside `apply_after` through the
+    same pointer table. The runner calls the pointer and traps when it is
+    unset. Native artifacts and the compiler call the function directly, as
+    they map today.
+  - The `text-transform` path keeps the unbounded `apply_after`. The JS
+    target uses the browser and never reaches the tables.
+  - Stage 3's `metrics.mjs` comparison must show no growth for an app that
+    uses neither.
+  - **Conformance fixtures use stable mappings only**: `"İ"`, `"ΟΣ"` → `"ος"`,
+    ASCII. Rust's and the browser's Unicode versions can differ elsewhere, and
+    a fixture must not depend on which is newer.
   - Mapping is Unicode default, locale-independent case conversion with final
     sigma. A code point whose mapping changed between Rust's and the browser's
     Unicode versions may map differently; that is declared.
@@ -203,7 +220,8 @@ exists. A state seeded from a resource's first answer is LLP 1035.005.000 D7b.
 
 **Binder positions** introduce a name that a later expression reads or calls.
 They are:
-- a component's props and injects;
+- a component's props, injects and **`provide` names** (a provided name is
+  read later);
 - states, derives, resources, mutations and actions;
 - action and `fn` parameters, and `fn` names;
 - `let`, `each` item and index, `case some(x)`, and arrow parameters;
@@ -220,6 +238,19 @@ expression. They are, exhaustively:
 - named arguments (`Flags(none=1)`);
 - members after `.`;
 - attribute names (SVG's `in`, unchanged).
+
+**Where the check runs** (Grok, r4). Props, injects and `provide` names are
+parsed with the same `field_name` as shape fields and named arguments
+(`parser.rs:557`, `:644`, `:667`, `:1346`). Making `field_name` stricter
+would refuse `shape` fields and `Flags(in=1)`; widening it would admit a prop
+named `in`. So:
+- `field_name` accepts all 16 reserved words;
+- the reserved-binder predicate is applied **at each binder site**,
+  including the prop, inject and `provide` calls of `field_name`;
+- `ident()`/`named_ident` (states, resources, actions, `let`) stop refusing
+  the 23 contextual words and keep refusing the 16.
+
+The stage-1 lane is implementing it this way.
 
 The other 23 words of `is_keyword` are contextual: each is a keyword only
 where its construct starts, and a name at every binder. They are
@@ -275,23 +306,77 @@ follow-up must meet.
    HTML's `tabindex` is an authored attribute on every element and module
    tag, bound to `PropId::TabIndex`, with no `tabIndex` alias. Its meaning is
    HTML's:
-   - an explicit value makes any box a focusable area;
+   - an explicit value makes a box a focusable area, subject to the filters
+     HTML also applies. A disabled, inert, hidden or `display: none` box is
+     never focusable, and the existing disabled/inert/hidden checks on every
+     host stay in force;
    - `≥ 0` puts it in sequential navigation, positive values first in
      ascending order, then `0` in tree order;
    - a negative value is focusable by pointer and script but skipped by Tab.
 
+   **"Explicit" means the prop is present.** Today every host reads a
+   missing `tabIndex` as `0` (`?? "0"`), so "admit `≥ 0`" on that integer
+   would make every plain box a Tab stop. Each host instead distinguishes
+   *present* from *absent*. **Focusable** means an explicit value of any
+   sign, or what is focusable today. **Tabbable** means an explicit value
+   `≥ 0`, or what is tabbable today, and never an explicit negative.
+
    Each host:
-   - **Web** (`emit.rs:971`, `document.rs:613`). An explicit value is emitted
-     and **overrides** the `tabindex=0` synthesized for focus, blur and key
-     handlers. A negative value on such a node takes it out of the Tab order.
-   - **macOS.** `acceptsFirstResponder` (`NodeViewMac.swift:176`) returns
-     true for a box with an explicit `tabindex`. `tabbable`, and the
-     presenter's index-0 exclusion of noninteractive boxes
-     (`PresenterMac.swift:1153`), admit an explicit value `≥ 0`. The key-view
-     order follows HTML's.
-   - **iOS.** `canBecomeFirstResponder` (`NodeViewIOS.swift:256`) is true for
-     an explicit `tabindex`. A hardware keyboard's Tab follows the same order.
-   - **Linux.** The focus walk applies the same eligibility and order.
+   - **Web.**
+     - `props_of` (`host/web/src/document.rs:481`) maps `PropId::TabIndex`
+       to the attribute `tabindex`. Today it falls through to `data-tabindex`
+       (`element.rs:851`), which the browser ignores. The JS target's
+       prop-name tables (`host/web-js/src/rows.rs:470`, `style.rs:422`) do the
+       same, so dynamic updates through `P()`/`applyProps` set the real
+       attribute.
+     - Synthesis of `tabindex=0` for focus, blur and key handlers is skipped
+       when the attribute is present, a negative value and a later state
+       update included. This applies at `document.rs:618` and `emit.rs:971`.
+       The wasm path's `glue.js:534` already checks `hasAttribute("tabindex")`
+       and needs only the mapping.
+   - **macOS.**
+     - AppKit's Tab follows `canBecomeKeyView`, which is
+       `acceptsFirstResponder && tabbable` (`NodeViewMac.swift:189`).
+     - `acceptsFirstResponder` (`:176`) is true for any explicit value, so a
+       click focuses a `tabindex=-1` box.
+     - `Presenter.tabbable` (`PresenterMac.swift:1151–1161`) is true for an
+       explicit value `≥ 0`, keeps `index < 0` out first, and reads absence as
+       absence.
+     - The key-view order is HTML's.
+     - These stay as they are: dialog scope (`DialogsMac.swift:185` reuses
+       `Presenter.tabbable`), the paragraph Tab-start
+       (`PresenterMac.swift:1120–1125`), the button key-view override, and
+       `drawFocusRingMask`, which draws only for a pressable. The test
+       asserts the first responder, not a ring.
+   - **iOS.**
+     - `canBecomeFirstResponder` (`NodeViewIOS.swift:256`) is true for any
+       explicit value, so `becomeFirstResponder` succeeds for a listed node
+       and for a tap.
+     - The hardware-keyboard Tab walk (`moveFocus`, `PresenterIOS.swift:414`;
+       `tabbable`, `:425–429`) uses the same present/absent split, keeps
+       `index < 0` out, keeps its zero-size skip, and keeps HTML's order.
+   - **tvOS.**
+     - `canBecomeFocused` (`RemoteTVOS.swift:13`) is `canBecomeFirstResponder`
+       or a press handler. It is **false for an explicit value `< 0`**, so a
+       `tabindex=-1` box is not a Siri Remote stop. An explicit `≥ 0` may be
+       focused.
+     - The remote's order stays UIKit's geometry, not HTML's (tvOS is
+       in-tree; `rules/DEFERRED.md:265`).
+     - `FocusSearch` keeps leaving `NodeView`s out of UIKit's focus search
+       (`FocusSearchIOS.swift:35`).
+   - **Linux.** There is no focus walk today. `hardware_key` hands Tab to the
+     focused view, and `type_key` neither forwards Tab into a canvas nor moves
+     focus (`presenter/typing.rs:146`). Stage 2 adds the walk:
+     - **Split** today's single `focusable` predicate
+       (`surface_controls.rs:454`, used by tap, `autofocus` and `set_focus`)
+       into *focusable* (any explicit value, plus today's controls and
+       handler nodes) and *tabbable* (explicit `≥ 0`, plus those controls).
+       Hidden, inert and disabled stay out (`route_visibility`).
+     - **The walk.** Tab and Shift-Tab move through the tabbable nodes in
+       HTML's order and wrap. From no focus, Tab goes to the first and
+       Shift-Tab to the last. A canvas or a textarea that consumes Tab keeps
+       it.
+     - The driver tree's `focused` flag is `p.focus()`.
 
    Tests, on web and macOS through the driver, Linux headless and iOS in the
    async lane:
@@ -306,7 +391,12 @@ follow-up must meet.
    - a `tabindex=-1` box is skipped by Tab but focused by `tap` and
      `autofocus`;
    - `tabindex` bound to state changes eligibility while mounted;
-   - `tabindex=-1` on a node with a `key` handler leaves the web's Tab order.
+   - `tabindex=-1` on a node with a `key` handler leaves the web's Tab order;
+   - a plain box with no `tabindex` is not a Tab stop on any host (the
+     absent-is-not-zero rule);
+   - a disabled, inert or hidden box with `tabindex=0` is skipped;
+   - Linux: Tab, Shift-Tab, wrap, and the start from no focus;
+   - tvOS: `canBecomeFocused` is false for `tabindex=-1` (async lane).
 
    The wider spelling question is a naming RFC of its own and does not block
    this. `scrollLeft` stays the DOM property; `emojiPicker` and
@@ -342,6 +432,16 @@ So exclusive arms pass, which keeps Messages and Fieldnotes accepted, while a
 send in an arm plus another after the branch, in the common suffix, is
 refused. It is a refusal, not a warning, because warnings go unread.
 
+**It runs on the post-inline body** (Grok, r4). Tail inlining
+(`inline/tail.rs`, run by `inline.rs:223` during expand) splices a callee's
+statements into the caller before analysis. A send in the caller and a send in
+the inlined callee are one commit at runtime, and they are invisible on the
+authored body that `check_all` walks (`analyze/src/lib.rs:198`). The walk
+therefore runs on the statements after `tail::resolve`: `expanded.root` for
+the root, and each component's resolved actions. `@check:` leftovers are
+`Stmt::Command` and are ignored. The stage-1 lane is implementing it this
+way.
+
 **Rollout.** Flashcards (`~/projects/x2apps/flashcards/app.contract:192`) sends
 `saveCard` and then `setImage`, and stage 1 will refuse it. The app's owner
 changes it to one combined request (`edit("saveCardWithImage", …)`) or to two
@@ -354,12 +454,14 @@ apps all compile in stage 1.
 |---|---|---|---|
 | syntax | D5 in a new `names.rs` (`parser.rs` is at 1,469 lines); `refresh` contextual; colon recovery; idioms | — | — |
 | types | D4 | — | string order; `optional` arity; `roster_calls` |
-| kernel | — | — | `kernel/src/text/case.rs`: `lowercase_bounded(text, max_bytes)` beside `apply_after`, whole-string context (final sigma), counted expansion |
+| kernel | — | — | `kernel/src/text/case.rs`: `lowercase_bounded(text, max_bytes)` beside `apply_after`, whole-string context (final sigma), counted expansion, installed by `link()` through the same pointer |
 | analyze, lower | D7.1; D7.2 allow-list; D8 walk | `tabindex` binding, case-variant refusal | defaults for recorded calls |
 | `format.json` | — | — | `slice`, `replaceAll`, `toLowerCase`; `optional`; min arity |
-| runner | — | — | string compare; bounded construction with the carried-surrogate counter; `toLowerCase` through `lowercase_bounded`; `TextTransform` use |
-| JS target | — | explicit `tabindex` emitted, overriding synthesis | `x_slice`, `x_replaceAll`, `x_toLowerCase` in `format.js`, re-exported on `rt.js`'s existing `format.js` line (`rt.js` is at 1,498 lines) |
-| web host, Apple, Linux | — | focus eligibility and order | — |
+| runner | — | — | string compare; bounded construction with the carried-surrogate counter; `toLowerCase` through the linked `lowercase_bounded` pointer, trapping when unset; `TextTransform` use |
+| JS target | — | `tabindex` in the prop-name tables (`rows.rs:470`, `style.rs:422`); synthesis skipped when present (`emit.rs:971`) | `x_slice`, `x_replaceAll`, `x_toLowerCase` in `format.js`, re-exported on `rt.js`'s existing `format.js` line (`rt.js` is at 1,498 lines) |
+| web host (wasm) | — | `props_of` maps `TabIndex` → `tabindex`; synthesis skipped when present (`document.rs:618`; `glue.js:534` already checks) | — |
+| Apple | — | present/absent split; macOS `acceptsFirstResponder` and `tabbable`/`canBecomeKeyView`; iOS `canBecomeFirstResponder` and `moveFocus`; tvOS `canBecomeFocused` false for `< 0` | — |
+| Linux | — | focusable/tabbable split; a Tab/Shift-Tab walk | — |
 | Lean, difftest | — | — | `utf16Units`, string order, `slice`, `GetSubstitution`, `lean.rs` defaults; generator (not `toLowerCase`), astral strings |
 | docs | keyword sets; initializers; D8 | `tabindex` | roster; comparison; the deviation in LLP 1006 §2 |
 
@@ -413,8 +515,9 @@ Implementer: Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever, on
    are refused with the new text, and `native-fixture` is driven on web and
    macOS.
 2. **Stage 2, 2026-10-05: `tabindex` (D7.3)** across the compiler, both web
-   renderers, macOS, iOS and Linux. Exit: D7.3's tests are green on web and
-   macOS through the driver.
+   renderers, macOS, iOS, tvOS and Linux. Exit: D7.3's tests are green on web
+   and macOS through the driver and on **Linux headless** (the new Tab walk is
+   not shipped untested). The iOS and tvOS cases run in the async lane.
 3. **Stage 3, 2026-10-05: strings (D1, D2)**, including the kernel's
    `lowercase_bounded`. Exit: the runner and kernel tables, Lean,
    difftest and conformance are green. The `TextTransform` link is measured by
@@ -444,9 +547,9 @@ Implementer: Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever, on
 ## 8. Revisions
 
 - **r2** (Astra's r1 review): every finding was checked against the code and
-  each held. Dispositions are in `llp/reviews/1085-r1.astra.md`.
+  each held. Dispositions are in `llp/reviews/1086-r1.astra.md`.
 - **r3** (Astra's r2 delta review, round 2 of 3; dispositions in
-  `llp/reviews/1085-r2.astra.md`):
+  `llp/reviews/1086-r2.astra.md`):
   - D3 moved out to §9. Both of its MATERIAL findings concern the JS target's
     budget, and that budget is a design of its own.
   - D2 is restated as string-bounded only.
@@ -457,7 +560,7 @@ Implementer: Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever, on
   - Shape names are binders. `inert` is allow-listed.
   - D8 has a path-sensitive walk and a rollout.
 - **r4** (Astra's r3 review, the third and last round; dispositions in
-  `llp/reviews/1085-r3.astra.md`). This is a final edit with no new review
+  `llp/reviews/1086-r3.astra.md`). This is a final edit with no new review
   round, and the RFC is accepted as descoped.
   - D6 moves to §9.2, with the requirement a follow-up must meet.
   - D2's counter carries a pending high surrogate across segments and counts
@@ -466,6 +569,24 @@ Implementer: Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever, on
   - D7.3's first test drops the handler that granted focus and asserts the
     focused element.
   - Stage 1 is D4, D5, D7 (except D7.3) and D8.
+- **r5** (Grok 4.7, xhigh, the second family, on r4; its run was cut off
+  mid-way by a process kill. Dispositions in `llp/reviews/1086-r4.grok.md`.)
+  This is an edit to the decisions with no new review round. The document is
+  renumbered from 1085 to 1086, because origin/main took 1085.
+  - D7.3 now specifies the real web binding: `props_of` maps the prop to
+    `tabindex`, and synthesis is skipped when the attribute is present.
+  - D7.3 adds the present/absent split, so focusable and tabbable are
+    separate predicates on every host. On macOS that means
+    `canBecomeKeyView`; on iOS, `moveFocus`.
+  - D7.3 adds tvOS (`canBecomeFocused` is false for `< 0`, and the order stays
+    geometric) and a real Linux Tab walk. Linux headless joins the stage 2
+    exit.
+  - D7.3 keeps HTML's disabled, inert and hidden filters.
+  - D2's `lowercase_bounded` is reached only through `link()`'s pointer, and
+    conformance fixtures use stable mappings only.
+  - Two items are recorded for the stage-1 lane, which is already building
+    them: D5's binder check runs at each binder site, `provide` included; and
+    D8 walks the post-`tail::resolve` body.
 
 ## 9. Deferred to follow-ups
 
