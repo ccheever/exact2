@@ -805,8 +805,8 @@ Feature `2844e5298` is followed by merge `c04a3f0f0`: 23 commits from main
 through `3d76ccdb7`. The sole conflict is the top of `QUEUE.md`; both branches'
 entries are preserved. Upstream changes the web agent's tap verification, the
 dev server's port selection, compiler diagnostics and the formal number model.
-Root build, test, clippy, formatting, caps and boot pass: **2,328 enabled tests,
-83 binaries, nine ignored**. Rivals' 25 tests and its clippy/format checks pass
+Root build, test, clippy, formatting, caps and boot pass: **2,325 enabled tests,
+80 binaries, nine ignored**. Rivals' 25 tests and its clippy/format checks pass
 again. The requested advisory `difftest quick --base 2844e5298` cannot run:
 `lake` is absent. Rust checks do not verify the new Lean proofs.
 
@@ -894,3 +894,51 @@ a fresh-process save. Jev can play it with the existing controller's `--mayhem`
 option; the duel controller is unchanged. The complete Linux proof has zero
 behavioral failures in 4.37 s and a passing process audit. It remains
 `UNVERIFIED` until the new baseline is collected. Artifact: `spawn-linux/`.
+
+### Mayhem on real hosts and the accepted baseline
+
+Feature `4e468b848` is followed by merge `4a02f5cf2`, eight main commits through
+`8c9b476fa`. The only conflict is `QUEUE.md`; both branches' entries survive.
+Main makes generated shells inherit the SDK toolchain and includes that pin in
+metadata freshness. Three focused tooling tests pass: external-shell toolchain
+refresh, the app-path test CLI, and the level-only game bake. Root's five checks
+pass with **2,325 enabled tests across 80 binaries, nine ignored**. Counting each
+Cargo-launched binary's final summary once fixes earlier overcounts from child
+test processes; the recent `8e003c707` and `3d76ccdb7` diary totals are corrected.
+
+Normal Rivals proofs pass every behavior check on web (**56.0 s**) and macOS
+(**34.0 s**), including builds. Inputs, all pins, nine world observations and
+eleven saves agree. Both optional descendant scans are unavailable; all owned
+carriers close. The title and Mayhem captures on both hosts were inspected:
+four readable mode buttons, separated fighters, moving combat, and legible
+health/nameplates and kill feed. Artifacts: `artifacts/spawn-{web,macos}/`.
+
+One Jev match per host, using the existing tactical controller with Mayhem's
+mode/goal selected, produces:
+
+| | web | macOS |
+|---|---:|---:|
+| Final player–leader score | 5–3 (win) | 4–5 (loss) |
+| Decisions / game seconds | 11 / 5.74 | 12 / 6.52 |
+| Player shots / headshots / deaths | 13 / 13 / 1 | 10 / 10 / 2 |
+| Final HP | 80 | 0 |
+| Model latency p50 / p95 | 372 / 2,391 ms | 398 / 2,986 ms |
+| Model input / output tokens | 11,209 / 974 | 12,522 / 1,109 |
+
+Both runs finish, have successful process audits, and have inspected final
+screenshots. Wall times are 17.7/16.4 s. Artifacts: `artifacts/jev-mayhem-{web,macos}/`.
+The perfect headshot counts are the authored pointer motor, not Jev's visual
+perception or human aim. The first-to-five rule now produces six-second rounds
+with little time to reposition; a roster-appropriate score target is queued as
+a separate pacing experiment. No further tactical-policy tuning was done.
+
+Strict collector `artifacts/prove/run-k9OqAq/` succeeds with sources fixed at
+the merge. Normal/Save/FreshGame take **3.25/1.55/1.57 s** on Linux and
+**76.81/64.95/71.65 s** on web; the native release comparison takes **26.84 s**.
+All seven process audits pass, and all seven runs agree with the independent
+macOS proof on inputs, pins, nine worlds and eleven saves. Restoring the ordinary
+web build takes 23.07 s. Existing duel/drill hashes remain unchanged; the new
+`mayhem` continuation pin is `5a98457b07f3e1140aa78c2286613409aa063a6567da1ed5f2dbd60e3b0fd863`.
+A final normal Linux proof reports `PASS` in 1.23 s. The measured spawn-timing
+queue item is closed. Garden and Forest also pass their complete proofs on both
+hosts after this SDK update, as their diaries record.

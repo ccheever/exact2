@@ -5,15 +5,16 @@
   },
   "saves": {
     "continuation": "82d8d11fd1ba7043b6a7944ae1ebf7c19afa202c221aa121b53f645800a38ea0",
+    "mayhem": "5a98457b07f3e1140aa78c2286613409aa063a6567da1ed5f2dbd60e3b0fd863",
     "drill": "38a57adf73f984a3b773bed5603ed2b16a22f858e7e7df14d20d99cfc3a4bb04"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "03aaec776feb8b20a34ab4ae4e474586f110fef4fcfb311ab2365c16d548ab3d",
+  "inputs": "65953048ab3d888b42a7cfeb5cdd6f684b70d1d361217422741d8a18cdc17278",
   "game": "rivals",
   "generated": "bun game/prove.mjs rivals --repin --hosts 'linux,web'",
-  "at": "c04a3f0f0a42144f254f2230aa8145425dd24880",
-  "reason": "Rivals hunting and cover detours, committed search destinations, and mid-detour restore after main 3d76ccdb7"
+  "at": "4a02f5cf23fa99e6c77b78c3c919574b112d6431",
+  "reason": "Distinct full-arena and simultaneous respawns, Mayhem mode, and main 8c9b476fa game-shell toolchain inheritance"
 }

@@ -761,7 +761,7 @@ scans time out, with every recorded carrier closed. Builds and verification
 ran beside the other games and checks, so these are integration wall times,
 not isolated performance comparisons.
 
-All five merged root gates pass: 2,327 enabled Rust tests across 82 binaries,
+All five merged root gates pass: 2,325 enabled Rust tests across 80 binaries,
 nine ignored. Engine/renderer tests pass 630 with 17 ignored; Linux surface
 tests pass 56, including the retained silent-message regression and new shader
 tests. The app-tool suite passes 80 initially, with two optional skips and one
@@ -784,3 +784,15 @@ capture was inspected: five orders filled, four visible plants, readable shop
 and active-plot feedback. Artifact: `artifacts/main-3d-web/`. No Garden gameplay
 or Jev-policy change in this integration sweep. Rivals diary 006 records the
 passing root gates and the advisory semantics check unavailable without Lean.
+
+## Game-shell toolchain integration (2026-10-04)
+
+Merge `4a02f5cf2`, in the Rivals spawn/Mayhem batch, brings main through
+`8c9b476fa`. Generated game shells now inherit the SDK toolchain explicitly,
+including games outside the SDK tree. Garden's complete proof passes on web
+in 70.0 s and macOS in 27.2 s, including builds beside other verification.
+Inputs, pins, four world observations and six saves agree. Web's process audit
+passes; macOS's optional scan is unavailable while every owned carrier closes.
+Both market captures were inspected. Artifacts: `artifacts/main-8c-{web,macos}/`.
+Rivals diary 006 records the shared checks and the correction of recent test
+totals that had counted nested subprocess result lines twice.

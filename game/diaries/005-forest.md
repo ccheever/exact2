@@ -767,3 +767,13 @@ driver's press-target verification. The chopping capture was inspected and
 retains the visible recovery countdown, supply guidance and forest scene.
 Artifact: `artifacts/main-3d-web/`. No new Forest Jev run or policy change here.
 Rivals diary 006 records the shared gates and unavailable Lean advisory check.
+
+## Game-shell toolchain integration (2026-10-04)
+
+Merge `4a02f5cf2` brings main through `8c9b476fa` during Rivals' spawn/Mayhem
+batch. Forest's complete proof passes on web in 89.2 s and macOS in 104.6 s,
+including builds beside the other verification. Inputs, pins, seven world
+observations and twelve saves agree. Web's process audit passes; macOS's
+optional scan is unavailable while every owned carrier closes. Both chopping
+captures were inspected. Artifacts: `artifacts/main-8c-{web,macos}/`. No Forest
+gameplay or Jev-policy change here; Rivals diary 006 records the shared checks.
