@@ -1,7 +1,8 @@
 # Agent instructions
 
 Read `rules/RULES.md` and `rules/DEFERRED.md` first; they bind and this file does not.
-`llp/1000-exact2-root.explainer.md` is the map. Design documents under `llp/research/`
+`llp/1000-exact2-root.explainer.md` is the map. `docs/agent-pitfalls.md` lists verified
+footguns in writing apps here; add to it when you hit one. Design documents under `llp/research/`
 are the predecessor's — research, never authority.
 
 ## The web is the standard

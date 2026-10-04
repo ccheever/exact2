@@ -14,7 +14,9 @@
 //! `Module::load` refuses by name. Other targets are always the stub.
 //! `EXACT_HERMES_DIR`, `EXACT_HERMESC`, and `EXACT_ROLLDOWN` point at the
 //! three tools when they are somewhere else; Linux also honors
-//! `HERMES_INCLUDE_DIR` / `HERMES_LIB_DIR`.
+//! `HERMES_INCLUDE_DIR` / `HERMES_LIB_DIR`. On macOS, without a sibling ibex,
+//! the engine and compiler are looked for in the machine's cache,
+//! `~/.cache/exact/hermes-macos/{engine,hermesc}` (`js/bake` looks there too).
 //!
 //! The pin is vanilla Hermes 260318099.0.0-stable, facebook/hermes
 //! `HERMES_PIN` below, the one place it is written (ibex's
@@ -68,9 +70,19 @@ fn main() {
     ] {
         println!("cargo:rerun-if-changed={}", bindings.join(file).display());
     }
+    let cache =
+        PathBuf::from(env::var_os("HOME").unwrap_or_default()).join(".cache/exact/hermes-macos");
+    let cached = |sibling: PathBuf, name: &str| {
+        let mine = cache.join(name);
+        if cfg!(target_os = "macos") && !sibling.exists() && mine.exists() {
+            mine
+        } else {
+            sibling
+        }
+    };
     let engine = env::var("EXACT_HERMES_DIR")
         .map(PathBuf::from)
-        .unwrap_or_else(|_| ibex.join("ios/Frameworks-vanilla"));
+        .unwrap_or_else(|_| cached(ibex.join("ios/Frameworks-vanilla"), "engine"));
     let target_os = env::var("CARGO_CFG_TARGET_OS").unwrap_or_default();
     let target = env::var("TARGET").unwrap_or_default();
     // The iOS input is a pair of lean CMake builds, not the full framework
@@ -150,7 +162,7 @@ fn main() {
         if hermes_target {
             assert!(
                 stub,
-                "exact-js: no Hermes for {target_os} at {}. Provision the pinned engine (js/build.rs header): macOS, ibex ./scripts/build-hermes.sh --vanilla (EXACT_HERMES_DIR if elsewhere); iOS, bun host/apple/build.mjs --ios builds them (LLP 1036.001 D5; EXACT_HERMES_IOS_DIR); Linux, ibex ./scripts/build-hermes-linux.sh --vanilla --release --intl (HERMES_LIB_DIR). Or set EXACT_JS_ENGINE=stub for an executor that refuses to load.",
+                "exact-js: no Hermes for {target_os} at {}. Provision the pinned engine (js/build.rs header): macOS, ibex ./scripts/build-hermes.sh --vanilla (EXACT_HERMES_DIR if elsewhere, or ~/.cache/exact/hermes-macos/engine); iOS, bun host/apple/build.mjs --ios builds them (LLP 1036.001 D5; EXACT_HERMES_IOS_DIR); Linux, ibex ./scripts/build-hermes-linux.sh --vanilla --release --intl (HERMES_LIB_DIR). Or set EXACT_JS_ENGINE=stub for an executor that refuses to load.",
                 static_dir.display()
             );
             println!("cargo:warning=exact-js: EXACT_JS_ENGINE=stub; the executor refuses to load");
@@ -237,7 +249,10 @@ fn main() {
             if cfg!(target_os = "linux") {
                 ibex.join(format!("tools/hermes-vanilla/hermesc-linux-{arch}"))
             } else {
-                ibex.join(format!("tools/hermes-vanilla/hermesc-macos-{arch}"))
+                cached(
+                    ibex.join(format!("tools/hermes-vanilla/hermesc-macos-{arch}")),
+                    "hermesc",
+                )
             }
         });
     let rolldown = env::var("EXACT_ROLLDOWN")
@@ -245,7 +260,7 @@ fn main() {
         .unwrap_or_else(|_| manifest.join("../node_modules/.bin/rolldown"));
     assert!(
         hermesc.is_file(),
-        "exact-js: hermesc not found at {} (EXACT_HERMESC, or ibex: ./scripts/build-hermes.sh --vanilla)",
+        "exact-js: hermesc not found at {} (EXACT_HERMESC, ~/.cache/exact/hermes-macos/hermesc, or ibex: ./scripts/build-hermes.sh --vanilla)",
         hermesc.display()
     );
     assert!(

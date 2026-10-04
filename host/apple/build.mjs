@@ -93,13 +93,13 @@ export function deploymentTargets(app) {
 /** `host/apple/metal/SvgFilter.metal` compiled for `sdkName` into `out`
  *  (`ExactSvgFilter.metallib`, @ref LLP 1055.000 D14): a filter picture's
  *  kernels, compiled here and not at run time, where the first launch after
- *  an install paid 113–264 ms inside the commit that shows it. Every iOS
- *  build and the host tests need Xcode's Metal toolchain for it. */
-export function svgFilterLibrary(sdkName, minimum, out) {
-  const install = 'xcodebuild -downloadComponent MetalToolchain';
-  if (read('xcrun', ['-sdk', sdkName, 'metal', '--version']).status !== 0) {
-    throw new Error(`host/apple: this build compiles the SVG filter kernels with Xcode's Metal toolchain, which is not installed. Install it with \`${install}\``);
-  }
+ *  an install paid 113–264 ms inside the commit that shows it. The host
+ *  tests need Xcode's Metal toolchain for it (`required`); an app built
+ *  without it gets `null`, and its filter pictures draw with Core Image. */
+export function svgFilterLibrary(sdkName, minimum, out, required = false) {
+  const install = 'xcodebuild -downloadComponent MetalToolchain', missing = read('xcrun', ['-sdk', sdkName, 'metal', '--version']).status !== 0;
+  if (missing && required) throw new Error(`host/apple: this build compiles the SVG filter kernels with Xcode's Metal toolchain, which is not installed. Install it with \`${install}\``);
+  if (missing) return console.warn(`host/apple: no Metal toolchain, so no ${svgFilterLibraryName}: SVG filter pictures draw with Core Image. Install it with \`${install}\`.`), null;
   const flag = { iphoneos: `-mios-version-min=${minimum}`, iphonesimulator: `-mios-simulator-version-min=${minimum}`, macosx: `-mmacosx-version-min=${minimum}` }[sdkName];
   const air = out.replace(/\.metallib$/, '') + '.air';
   run('xcrun', ['-sdk', sdkName, 'metal', '-std=metal3.0', flag, '-c', resolve(root, 'host/apple/metal/SvgFilter.metal'), '-o', air], { stdio: 'pipe' });
@@ -912,8 +912,8 @@ function main(args) {
   const sdkName = ios ? (device ? 'iphoneos' : 'iphonesimulator') : 'macosx';
   const sdk = read('xcrun', ['--sdk', sdkName, '--show-sdk-path']).stdout.trim();
   const targets = deploymentTargets(app);
-  // The filter pictures' kernels (iOS; `SvgFilterMetal`), for the bundle:
-  // first, so a missing Metal toolchain stops the build before cargo runs.
+  // The filter pictures' kernels (iOS; `SvgFilterMetal`), for the bundle,
+  // when Xcode's Metal toolchain is installed.
   const svgFilterBuilt = ios ? svgFilterLibrary(sdkName, targets.ios, resolve(webBuildDir, svgFilterLibraryName)) : null;
   const cargoEnv = {
     ...developmentBuildEnv(),
@@ -1342,7 +1342,7 @@ function main(args) {
   copyFileSync(videoBuilt, resolve(bundle, 'Frameworks', videoLoadName));
   if (modulesBuilt) copyFileSync(modulesBuilt, resolve(bundle, 'Frameworks', modulesLoadName));
   copyFileSync(svgBuilt, resolve(bundle, 'Frameworks', svgLoadName));
-  copyFileSync(svgFilterBuilt, resolve(bundle, svgFilterLibraryName));
+  if (svgFilterBuilt) copyFileSync(svgFilterBuilt, resolve(bundle, svgFilterLibraryName));
   if (canvasGpuBuilt) copyFileSync(canvasGpuBuilt, resolve(bundle, 'Frameworks', canvasGpuLoadName));
   const bundles = [[bundle, false]];
   if (args.includes('--host')) {
@@ -1354,7 +1354,7 @@ function main(args) {
     writeUsageStrings(bakedCompat.reach, hostBundle);
     copyAppleStaticTrees(paths.capture, hostBundle);
     for (const f of readdirSync(resolve(bundle, 'Frameworks'))) copyFileSync(resolve(bundle, 'Frameworks', f), resolve(hostBundle, 'Frameworks', f));
-    copyFileSync(svgFilterBuilt, resolve(hostBundle, svgFilterLibraryName));
+    if (svgFilterBuilt) copyFileSync(svgFilterBuilt, resolve(hostBundle, svgFilterLibraryName));
     bundles.push([hostBundle, true]);
   }
   for (const [assembled, host] of bundles) {
@@ -1443,7 +1443,7 @@ function test(args) {
     const env = { ...process.env, EXACT_TESTS: '1', EXACT_LIB_DIR: libDir, EXACT_LIB: unit.name.replace(/-/g, '_'), EXACT_APP_COMPOSITION: 'embedded' };
     // The filter kernels the Metal chain's tests run (no bundle to find them in).
     mkdirSync(paths.namespace, { recursive: true });
-    env.EXACT_SVG_METALLIB = svgFilterLibrary(ios ? 'iphonesimulator' : 'macosx', ios ? '17.0' : '14.0', resolve(paths.namespace, svgFilterLibraryName));
+    env.EXACT_SVG_METALLIB = svgFilterLibrary(ios ? 'iphonesimulator' : 'macosx', ios ? '17.0' : '14.0', resolve(paths.namespace, svgFilterLibraryName), true);
     if (ios) env.TEST_RUNNER_EXACT_SVG_METALLIB = env.EXACT_SVG_METALLIB;
     if (!ios) {
       // Tests that compile their own Contract source run this compiler, built

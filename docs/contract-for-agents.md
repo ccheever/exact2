@@ -497,6 +497,10 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | Unconditional per-frame app work | CSS/presentation motion where possible; bounded root frame task where needed |
 | Add a function because it exists in JavaScript | Check the roster or put the operation in the data module |
 
+What compiles and then misbehaves (an image tile at its intrinsic size, native bars
+the agent does not show, a back gesture refused) is in
+[the pitfalls list](agent-pitfalls.md), with what to do about each.
+
 Do not “repair” a refusal by adding a compatibility alias to the compiler. A
 new language or host feature is a separate, explicit implementation decision.
 Repository repair loops are capped at three rounds; report a remaining blocker

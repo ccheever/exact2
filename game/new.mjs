@@ -235,14 +235,16 @@ exact_web::host!(
     writeFileSync(resolve(dir, path), text);
   }
   writeFileSync(resolve(dir, 'Cargo.lock'), readFileSync(resolve(ROOT, 'Cargo.lock')));
-  resolveOffline(dir);
+  const deferred = resolveOffline(dir, true);
   const run = `bun ${JSON.stringify(relative(process.cwd(), resolve(dir, 'exact.mjs')) || 'exact.mjs')}`;
   return `Created ${dir}
   ${run} web          the web dev loop
   ${run} test web     run app.test.contract (web, macos or ios)
   ${run} agent web tree  inspect or drive the app
   ${run} ios --run    build and launch on an iOS simulator
-  ${run} mac --run    build and launch on this Mac`;
+  ${run} mac --run    build and launch on this Mac${deferred ? `
+Cargo.lock is still exact2's: this machine's Cargo cache lacks some of its crates, so the
+first build resolves it, fetching them once (it needs the network then, not now).` : ''}`;
 }
 
 /** The app's own command runner. EXACT2 names the checkout once (D3); the
@@ -280,10 +282,15 @@ process.exit(result.status ?? 1);
 `;
 }
 
-/** Cargo re-resolves the copied lock for this workspace, offline and minimally. */
-function resolveOffline(dir) {
+/** Cargo re-resolves the copied lock for this workspace, offline and minimally.
+ * A new app whose crates this machine's Cargo cache lacks keeps exact2's lock
+ * as copied (`deferrable`); `resolveApp` resolves a lock still identical to
+ * exact2's at its first build, which may fetch. Returns whether it deferred. */
+function resolveOffline(dir, deferrable = false) {
   const lock = spawnSync('cargo', ['metadata', '--offline', '--format-version', '1'], { cwd: dir, stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' });
-  if (lock.status !== 0) throw new Error(`cargo could not resolve ${dir} offline:\n${lock.stderr}`);
+  if (lock.status === 0) return false;
+  if (deferrable && /no matching package named|attempting to make an HTTP request|in the offline mode/.test(lock.stderr ?? '')) return true;
+  throw new Error(`cargo could not resolve ${dir} offline:\n${lock.stderr}`);
 }
 
 function updateApp(dir, name) {

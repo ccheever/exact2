@@ -191,6 +191,16 @@ export function lockedMetadata(workspace, noDeps = false, env = process.env) {
 
 /** Finding an outside app never changes its lock. Dependency updates are explicit. */
 function checkOutsideLock(workspace) {
+  // `exact new` offline, without exact2's crates in Cargo's cache, leaves the
+  // copied lock for the first build to resolve (game/new.mjs resolveOffline).
+  const lock = resolve(workspace, 'Cargo.lock');
+  if (existsSync(lock) && readFileSync(lock).equals(readFileSync(resolve(ROOT, 'Cargo.lock')))) {
+    console.error(`${workspace}: resolving the Cargo.lock \`exact new\` copied from exact2 (cargo metadata)`);
+    const options = { cwd: workspace, stdio: ['ignore', 'ignore', 'pipe'], encoding: 'utf8' };
+    const offline = spawnSync('cargo', ['metadata', '--offline', '--format-version', '1'], options);
+    const resolved = offline.status === 0 ? offline : spawnSync('cargo', ['metadata', '--format-version', '1'], options);
+    if (resolved.status !== 0) throw new Error(`cargo metadata in ${workspace}:\n${resolved.stderr}`);
+  }
   const result = lockedMetadata(workspace);
   if (result.status !== 0) throw new Error(`cargo metadata --locked --offline in ${workspace}:\n${result.stderr || result.error?.message}\nTo update the lock explicitly, run \`cargo metadata --offline --format-version 1\` in ${workspace}.`);
 }
@@ -405,6 +415,8 @@ export function assertOwnTarget(target, workspace) {
 
 /** The app `nameOrCrate` names (`caltrain`, `caltrain-web`, …; `EXACT_APP_DIR`'s basename when unset): its directory, cargo workspace, target directory, crate names, and manifest. */
 export function resolveApp(nameOrCrate) {
+  // The bake's TypeScript compiler and bundler are this checkout's packages.
+  if (!existsSync(resolve(ROOT, 'node_modules'))) throw new Error(`${ROOT} has no node_modules: run \`bun install --frozen-lockfile\` there first`);
   const outside = process.env.EXACT_APP_DIR ? resolve(process.env.EXACT_APP_DIR) : null;
   let name = nameOrCrate ? String(nameOrCrate).replace(/-(web|apple|linux|gpu)$/, '') : outside ? basename(outside) : 'caltrain';
   let dir = outside ?? resolve(ROOT, 'apps', name);
