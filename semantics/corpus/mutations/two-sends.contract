@@ -1,6 +1,8 @@
-// Two sends to one mutation in an action: both are asked, the last answer
-// lands. A send and a read of the mutation in the same action: the read
-// sees the pre-state.
+// Two sends to one mutation. On one path they are refused (LLP 1088 D8,
+// `analyze-send-twice`), so an action sends it once per path: exclusive
+// arms may each send it. Across commits every send is asked and the last
+// answer lands. A send and a read of the mutation in the same action: the
+// read sees the pre-state.
 shape Ack
   n: number
   s: string
@@ -10,9 +12,11 @@ component App
   state seenBefore = "none"
   state k = 0
   derive label = match ack { case some(a) => a.s, case none => "-" }
-  action twice
-    send ack = ping("first", k)
-    send ack = ping("second", k)
+  action either
+    if k % 2 == 0
+      send ack = ping("first", k)
+    else
+      send ack = ping("second", k)
     k = k + 1
   action readBack
     send ack = ping("third", k)
@@ -21,12 +25,12 @@ component App
     column
       text label testId="label"
       text seenBefore testId="before"
-      button "twice" press=twice testId="twice"
+      button "either" press=either testId="either"
       button "read" press=readBack testId="read"
 
 test "last send lands"
-  tap "twice"
-  tap "twice"
+  tap "either"
+  tap "either"
 
 test "read sees pre-state"
   tap "read"
