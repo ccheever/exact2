@@ -121,6 +121,23 @@ final class ClipMacTests: XCTestCase {
         XCTAssertTrue(at(100, 240) === toast, "a toast that sets auto again takes the click")
     }
 
+    /// A placement (or a projection) that hides a `display: none` box and
+    /// later restores it restores what the host had said, not CSS's bit: the
+    /// box shows once its `display` does (review B1).
+    func testADisplayNoneBoxHiddenAndRestoredByTheHostShowsOnceDisplayed() {
+        let n = node("view", ["display": "none"])
+        XCTAssertTrue(n.isHidden, "display: none hides it")
+        XCTAssertFalse(n.hiddenByHost)
+        n.placementHidden = true
+        n.placementHidden = false
+        let saved = n.hiddenByHost // a tablist projection's save, then its restore
+        n.isHidden = true
+        n.isHidden = saved
+        XCTAssertTrue(n.isHidden, "still display: none")
+        n.applyStyle(["display": "block"])
+        XCTAssertFalse(n.isHidden, "displayed again, nothing the host said hides it")
+    }
+
     /// A native module's view inside a `pointer-events: none` box takes no
     /// click: the button around it does (paint F9), as on the web.
     func testAPointerEventsNoneBoxsPlatformViewLetsTheClickThrough() throws {

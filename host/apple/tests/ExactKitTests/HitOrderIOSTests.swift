@@ -80,6 +80,25 @@ final class HitOrderIOSTests: XCTestCase {
         XCTAssertTrue(hit(p, CGPoint(x: 360, y: 20)) === toast, "a toast that sets auto again takes the touch")
     }
 
+    /// A placement or projection that hides and restores a `display: none`
+    /// box restores the host's word, so it shows once displayed (review B1).
+    func testADisplayNoneBoxHiddenAndRestoredByTheHostShowsOnceDisplayed() throws {
+        let p = presenter(raised: 0)
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "view", "style": ["display": "none"]],
+            ["op": "children", "id": 1, "ids": [3, 2, 4]],
+        ]))
+        let n = try XCTUnwrap(p.views[4])
+        XCTAssertTrue(n.isHidden)
+        n.placementHidden = true
+        n.placementHidden = false
+        let saved = n.hiddenByHost
+        n.isHidden = true
+        n.isHidden = saved
+        n.applyStyle(["display": "block"])
+        XCTAssertFalse(n.isHidden)
+    }
+
     /// A native module's view inside a `pointer-events: none` box is not a
     /// target either: the touch reaches the button around it (paint F9).
     func testAPointerEventsNoneBoxsPlatformViewLetsTheTouchThrough() throws {

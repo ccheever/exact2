@@ -70,6 +70,11 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// CSS removes it with its subtree, or its texts paint at its 0×0 frame's
     /// origin (recipes F19). Reading says whether it is hidden, for either reason.
     private var hostHidden = false
+    /// Whether the host hid this view, whatever CSS's `display` says: what a
+    /// projection or a placement saves and restores, since `isHidden` also
+    /// reads `display: none` (review B1: restoring that wrote CSS's bit into
+    /// the host's and kept the view hidden once it was displayed).
+    var hiddenByHost: Bool { hostHidden }
     override var isHidden: Bool {
         get { super.isHidden }
         set { hostHidden = newValue; super.isHidden = newValue || style["display"]?.string == "none" }
@@ -142,7 +147,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     private var hiddenBeforePlacement = false
     var placementHidden = false {
         didSet {
-            if placementHidden && !oldValue { hiddenBeforePlacement = isHidden }
+            if placementHidden && !oldValue { hiddenBeforePlacement = hostHidden }
             if placementHidden { isHidden = true }
             else if oldValue { isHidden = hiddenBeforePlacement }
             setAccessibilityHidden(placementHidden || inert)
