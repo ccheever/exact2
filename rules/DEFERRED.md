@@ -472,6 +472,16 @@ browser as the oracle, the same shape layout already has. In exchange, not in v1
   the agent's seekable clock a virtual 60 Hz display. Unblocks a ticker or
   an animation loop in step with the display (the web-framework bench's
   grid ticker). Per-node frame callbacks and frame arguments stay out.
+  **Expanded (LLP 1092; waived by the orchestrator under Charlie's
+  2026-10-04 delegation, "make decisions without me"):** a gated root task,
+  `task NAME when COND [key=EXPR]`, whose timer exists only while its
+  condition holds and restarts when its key changes; nothing runs when the
+  gate changes. Consumers: ledger2's undo toast, chat's and chat2's bots and
+  toasts, trivia's round (their diaries' Top-5). Unblocks an app that does
+  no work at rest while nothing is showing. Take: none offered. Still out:
+  a reaction to a state change (LLP 1017 P4c's `task … when [dep]`),
+  component-scoped and action-started timers, computed intervals, a gate
+  that reads `now()`, and cancelling a queued send.
 - **A second value graph.** No shared-value plane, derived values, bindings, or
   plan node graph. The style row is the binding.
   **Expanded (Charlie, 2026-09-27, LLP 1057.003: "approve those"; take waived, none
