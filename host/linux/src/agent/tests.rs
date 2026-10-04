@@ -807,3 +807,62 @@ fn land_runs_an_answers_then_and_no_timer() {
         "{s}"
     );
 }
+
+/// A request that answers long after the drive moves on.
+#[derive(Default)]
+struct Stalled;
+impl DataSource for Stalled {
+    fn query(&mut self, source: &str, _: &[Value]) -> Result<Value, DataError> {
+        Err(DataError::UnknownSource(source.into()))
+    }
+    fn answer(
+        &mut self,
+        _: &mut exact_runner::Store,
+        _: &str,
+        _: &[Value],
+    ) -> Result<exact_runner::Answer, DataError> {
+        Ok(exact_runner::Answer::Later(
+            exact_runner::Request::continuation(1),
+        ))
+    }
+    fn dispatch(&mut self, _: u64, _: &exact_runner::Store) -> exact_runner::Dispatch {
+        exact_runner::Dispatch::Run(exact_runner::Work::Later(Box::new(|reply| {
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(30));
+                reply.send(exact_runner::Outcome::Storage(b"1".to_vec()));
+            });
+        })))
+    }
+}
+
+/// A jump waits for no request with no timer due before it, and its reply
+/// names what it left in flight, as the web hosts' do (calendar F10, workout
+/// F6); `clock settle` waits for it and says `requests` past its bound.
+#[test]
+fn a_jump_names_the_requests_it_left_in_flight() {
+    let plan = contract::compile(
+        "component App\n  resource item = item() as shape number\n  view\n    text `${item}` testId=\"log\"\n",
+    )
+    .unwrap();
+    let (mut p, boot_error) = Presenter::boot_with(
+        &plan.encode(),
+        Stalled,
+        (300.0, 300.0),
+        1.0,
+        std::path::PathBuf::new(),
+        PainterChoice::Cpu,
+    )
+    .unwrap();
+    assert!(boot_error.is_none(), "{boot_error:?}");
+    let json = |s: String| -> serde_json::Value { serde_json::from_str(&s).unwrap() };
+    let reply = json(handle(&mut p, r#"{"op":"clock","to":100}"#));
+    assert_eq!(reply["clock"], 100, "{reply}");
+    assert_eq!(reply["inflight"], 1, "{reply}");
+    let reply = json(clock_within(
+        &mut p,
+        r#"{"op":"clock","settle":true}"#,
+        std::time::Duration::from_millis(100),
+    ));
+    assert_eq!(reply["settled"], false, "{reply}");
+    assert_eq!(reply["reason"], "requests", "{reply}");
+}

@@ -69,7 +69,13 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
     let input = null;
     // An input the host could not perform fails its step: an unsupported drag or a refused tap did nothing to assert on.
     const delivered = (r) => { if (r?.error || r?.delivery === 'unsupported') throw new Error(r.error ?? r.reason ?? 'the host does not support this input'); };
-    const fail = (message) => failures.push(input == null ? message : `${message} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\`, a timer or a transition lands at a \`clock\` step, as \`clock settle\`)`);
+    // With no input since the clock last moved, a request still in flight (the boot's own, or one a jump
+    // left on real time) is named: the expect read the value before its reply (workout F1).
+    const fail = async (message) => {
+      if (input != null) return failures.push(`${message} (the clock has not moved since line ${input}'s input: a reply, a mutation's \`then\`, a timer or a transition lands at a \`clock\` step, as \`clock settle\`)`);
+      const pending = ((await s.state().catch(() => ({}))).pending ?? []).filter((p) => !p.device).map((p) => p.name);
+      failures.push(pending.length ? `${message} (${pending.length} request${pending.length === 1 ? '' : 's'} still in flight: ${pending.join(', ')}; a reply lands at a \`clock\` step, as \`clock settle\`)` : message);
+    };
     try {
       for (const st of t.steps) {
         const at = `${t.name}: line ${st.line}`;
@@ -85,7 +91,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
             case 'expect-tree': {
               const tree = await s.tree();
               const found = tree.nodes.some((n) => n.props.testId === st.target);
-              if (found !== st.present) fail(`${at}: expected testId "${st.target}" ${st.present ? 'present' : 'absent'}, it was ${found ? 'present' : 'absent'}`);
+              if (found !== st.present) await fail(`${at}: expected testId "${st.target}" ${st.present ? 'present' : 'absent'}, it was ${found ? 'present' : 'absent'}`);
               break;
             }
             case 'expect-text': {
@@ -93,7 +99,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
               // As a target is found: a covered screen's copy only when no active one carries it (shop F16).
               const matches = nodes.filter((n) => n.props.testId === st.target), n = matches.find((m) => !m.inactive) ?? matches[0];
               const got = n ? textOf(nodes, n) : undefined;
-              if (got !== st.value) fail(`${at}: text of "${st.target}" is ${n ? JSON.stringify(got) : 'absent (no view carries that testId)'}, expected ${JSON.stringify(st.value)}`);
+              if (got !== st.value) await fail(`${at}: text of "${st.target}" is ${n ? JSON.stringify(got) : 'absent (no view carries that testId)'}, expected ${JSON.stringify(st.value)}`);
               break;
             }
             case 'expect-state': {
@@ -101,7 +107,7 @@ export async function runTests({ host, browser, file, plan, app, size, env, webD
               const bag = { ...(state.resources ?? {}), ...(state.derives ?? {}), ...(state.slots ?? {}) };
               if (!(st.name in bag)) { failures.push(`${at}: no state named "${st.name}"`); break; }
               const got = bag[st.name];
-              if (JSON.stringify(got) !== JSON.stringify(st.value)) fail(`${at}: ${st.name} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
+              if (JSON.stringify(got) !== JSON.stringify(st.value)) await fail(`${at}: ${st.name} is ${JSON.stringify(got)}, expected ${JSON.stringify(st.value)}`);
               break;
             }
             default: failures.push(`${at}: unknown step ${st.op}`);

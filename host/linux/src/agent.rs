@@ -706,7 +706,16 @@ fn clock_within<D: DataSource>(
             r
         };
         if !settle_to_end {
-            return response(None, false);
+            // A jump does not wait for what is still in flight on real time
+            // (a store's, a worker's, the network's): the reply names how
+            // much, as the web hosts' do (calendar F10, workout F6).
+            let mut r = response(None, false);
+            let inflight = p.host().runner().in_flight().len();
+            if inflight > 0 {
+                r.pop();
+                r.push_str(&format!(",\"inflight\":{inflight}}}"));
+            }
+            return r;
         }
         if p.pending() {
             rounds += 1;
