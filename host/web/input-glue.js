@@ -59,11 +59,13 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   // while the pointer is inside the box it had when pressed — leaving
   // releases it, coming back presses again; a pan or a cancel ends it. The
   // browser eases a separate factor, multiplied into CSS `scale`, so
-  // authored transforms, transitions and keyframes keep their values.
+  // authored transforms, transitions and keyframes keep their values. A
+  // native button is pressed by the same rule with or without a row or a
+  // handler of its own, as a UIButton highlights (the shell dims its face).
   const feedback = new WeakMap();
   const showPress = (el, down) => {
     el.toggleAttribute("data-pressed", down);
-    const to = down ? Number(el.style.getPropertyValue("--exact-press")) : 1;
+    const to = down ? Number(el.style.getPropertyValue("--exact-press") || 1) : 1;
     const old = feedback.get(el);
     if (old?.to === to || !old && to === 1) return;
     const progress = old?.animation.effect.getComputedTiming().progress ?? 0;
@@ -96,8 +98,8 @@ export function createInputHandlers({ root, views, retiredViews, ready, inertAnc
   root.addEventListener("pointerdown", e => {
     if (e.button !== 0 || !e.isPrimary) return;
     release(); // a press whose release never reached the page
-    const el = e.target.closest?.("[data-exact-on~=press]");
-    if (!el || !root.contains(el) || !el.style.getPropertyValue("--exact-press") || el.closest(":disabled,[disabled='true']")) return;
+    const el = e.target.closest?.("[data-exact-on~=press],button[data-button-style]");
+    if (!el || !root.contains(el) || !(el.style.getPropertyValue("--exact-press") || el.matches("button[data-button-style]")) || el.closest(":disabled,[disabled='true']")) return;
     const r = unpressedBox(el);
     press = { el, id: e.pointerId, box: [r.left, r.top, r.right, r.bottom] };
     showPress(el, true);

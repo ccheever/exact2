@@ -18,13 +18,14 @@ const check = unavailable ? (name, ...args) => test.skip(`${name} — ${unavaila
 
 // The shell's own stylesheet, with nodes as the host writes them: a card
 // (0.9) holding a button (0.5), a plain pressable (no row) in the card, and
-// a disabled button.
+// a disabled button, and a native button with neither (its card's press is its own).
 const page = readFileSync(resolve(WEB, 'index.html'), 'utf8').match(/<style>[\s\S]*?<\/style>/)[0] + `
 <div id="exact-root" style="padding:20px">
   <div id="card" data-exact-on="press" style="scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.9;width:300px;height:300px;padding:20px">
     <button id="button" data-exact-on="press" style="scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.5;width:100px;height:100px">b</button>
     <div id="plain" data-exact-on="press" style="width:100px;height:50px">p</div>
     <button id="off" data-exact-on="press" disabled style="scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.5;width:100px;height:50px">d</button>
+    <button id="native" type="button" data-button-style="filled" style="width:100px;height:40px"><span id="title">n</span></button>
   </div>
   <button id="scaled" data-exact-on="press" style="scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.5;width:100px;height:60px;--exact-scale:1.5;transform-origin:0 0">s</button>
   <svg width="400" height="180"><rect id="svg" data-exact-on="press" x="0" y="0" width="100" height="60" transform="translate(100 40) rotate(20)" style="scale:calc(var(--exact-scale,1) * var(--exact-press-factor,1))!important;--exact-press:0.5;transform-origin:20px 10px;fill:red" /></svg>
@@ -87,6 +88,19 @@ check('only the innermost pressable shows the press, and only while inside', asy
     await mouse('mousePressed', await centre('off'));
     expect(await pressed()).toBe('');
     await mouse('mouseReleased', await centre('off'));
+    // A native button highlights as a UIButton does, with no row or handler
+    // of its own: its face dims, nothing scales, its card is not pressed.
+    const face = () => evaluate(`getComputedStyle(document.getElementById('title')).opacity`);
+    await mouse('mousePressed', await centre('native'));
+    expect(await pressed()).toBe('native');
+    expect(await face()).toBe('0.5');
+    expect(await scale('native')).toBe(1);
+    expect(await scale('card')).toBe(1);
+    await mouse('mouseReleased', await centre('native'));
+    expect(await pressed()).toBe('');
+    expect(await face()).toBe('1');
+    // Mobile WebKit's grey tap highlight never paints over any of it.
+    expect(await evaluate(`getComputedStyle(document.documentElement).getPropertyValue('-webkit-tap-highlight-color')`)).toBe('rgba(0, 0, 0, 0)');
 
     // Reduced motion keeps the host feedback, as a native button keeps its highlight.
     await call('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
