@@ -68,6 +68,46 @@ function converters(t) {
   };
   return c;
 }
+// An answer is checked as Hermes checks it (js/value's `decode_tree`, over
+// the prelude's `JSON.stringify`): each declared field present, none
+// undeclared, each value of its declared kind, with Hermes's message, so a
+// reply a device refuses fails the web loop too (ledger F11: a spread left
+// an internal field in a nested record, accepted here, refused on macOS).
+const kind = v => v === null ? 'null' : typeof v === 'boolean' ? 'a bool' : typeof v === 'number' ? 'a number'
+  : typeof v === 'string' ? 'a string' : Array.isArray(v) ? 'an array' : 'an object';
+const describe = t => typeof t === 'string' ? { n: 'a number', b: 'a bool', s: 'a string' }[t] ?? 'null'
+  : Array.isArray(t) ? t[0] === '?' ? `null or ${describe(t[1])}` : 'an array' : 'an object';
+const omitted = x => x === undefined || typeof x === 'function' || typeof x === 'symbol';
+const enumerable = Object.prototype.propertyIsEnumerable;
+function outside(v, t) {
+  // What `JSON.stringify` makes of it: `toJSON`, null for a non-finite number.
+  if (v !== null && typeof v === 'object' && typeof v.toJSON === 'function') v = v.toJSON();
+  if (omitted(v) || (typeof v === 'number' && !isFinite(v))) v = null;
+  if (typeof t === 'string') {
+    const ok = t === 'n' ? typeof v === 'number' : t === 'b' ? typeof v === 'boolean' : t === 's' ? typeof v === 'string' : v === null;
+    return ok ? null : `expected ${describe(t)}, got ${kind(v)}`;
+  }
+  if (Array.isArray(t) && t[0] === '?') return v === null ? null : outside(v, t[1]);
+  if (Array.isArray(t)) {
+    if (!Array.isArray(v)) return `expected an array, got ${kind(v)}`;
+    for (const x of v) { const e = outside(x, t[1]); if (e) return e; }
+    return null;
+  }
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return `expected an object, got ${kind(v)}`;
+  for (const f in t) {
+    if (!enumerable.call(v, f) || omitted(v[f])) return `field \`${f}\` is missing`;
+    const e = outside(v[f], t[f]);
+    if (e) return `field \`${f}\`: ${e}`;
+  }
+  let extra = null;
+  for (const key of Object.keys(v)) if (!Object.hasOwn(t, key) && !omitted(v[key]) && (extra === null || key < extra)) extra = key;
+  return extra === null ? null : `field \`${extra}\` is not in the shape`;
+}
+const checked = (name, v, t) => {
+  const e = outside(v, t);
+  if (e) throw Object.assign(new Error(`\`${name}\` answered outside its shape: ${e}`), { kind: 'Unavailable' });
+  return v;
+};
 export const named = (v, t) => converters(t)[0](v);
 const arrays = (v, t, o) => converters(t)[1](v, o);
 const answered = new Map(); // target -> the arrays last made for it
@@ -95,21 +135,36 @@ const native = Object.freeze({
 // the app's grants and its page's store key — none under the agent unless
 // the drive names a scratch store (`storageKey`). Only where the grants
 // name `fs.` or `sqlite.`.
+// A refusal is `{kind: 'Unavailable', code, message}`, with Hermes's codes
+// (js/src/prelude.js `storageCode`; kanban F28): 'agent' for a drive with no
+// scratch store, 'denied' past the grants, the filesystem's POSIX name, else
+// 'failed'.
+const coded = e => {
+  const error = e instanceof Error ? e : new Error(String(e?.message ?? e));
+  error.kind ??= 'Unavailable';
+  error.code ??= /^denied: /.test(error.message) ? 'denied' : /\bbusy\b|database is locked/.test(error.message) ? 'EBUSY' : 'failed';
+  throw error;
+};
 function storageOf(grants) {
   if (!['fs-read', 'fs-write', 'sqlite-open'].some(kind => hasGrant(grants, kind))) return undefined;
   let fs, sqlite;
   const key = () => import('./storage-environment.js').then(({ storageKey, agentStorageRefusal }) => {
-    const k = source.appId ? storageKey(source.appId, location.href) : null;
-    if (k == null) throw Object.assign(new Error(agentStorageRefusal), { kind: 'Unavailable' });
+    const k = source.appId ? storageKey(source.appId) : null;
+    if (k == null) throw Object.assign(new Error(agentStorageRefusal), { kind: 'Unavailable', code: 'agent' });
     return k;
   });
   const files = () => fs ??= key().then(k => import(new URL('./storage-fs.js', import.meta.url).href).then(m => m.createFileSystem(k, grants)));
   const databases = () => sqlite ??= key().then(k => import(new URL('./storage-sqlite.js', import.meta.url).href).then(m => m.createSqlite(k, grants)));
+  // A database's and a statement's methods refuse as storage's do.
+  const wrap = (o, convert) => Object.freeze(Object.fromEntries(Object.entries(convert).map(([m, then]) =>
+    [m, (...args) => Promise.resolve().then(() => o[m](...args)).then(then, coded)])));
+  const statement = s => wrap(s, { execute: null, query: null, close: null });
+  const database = d => wrap(d, { execute: null, query: null, prepare: statement, transaction: null, close: null });
   const methods = ['readFile', 'writeFile', 'atomicWriteFile', 'appendFile', 'readdir', 'mkdir', 'rm', 'stat', 'rename', 'copyFile', 'realpath'];
   return Object.freeze({
     fs: Object.freeze({ directories: Object.freeze({ data: 'app:/data', cache: 'app:/cache', temporary: 'app:/tmp' }),
-      ...Object.fromEntries(methods.map(m => [m, (...args) => files().then(f => f[m](...structuredClone(args)))])) }),
-    sqlite: Object.freeze({ open: path => databases().then(d => d.open(path)) }),
+      ...Object.fromEntries(methods.map(m => [m, (...args) => files().then(f => f[m](...structuredClone(args))).catch(coded)])) }),
+    sqlite: Object.freeze({ open: path => databases().then(d => d.open(path)).then(database, coded) }),
     work: promise => Promise.resolve(promise),
   });
 }
@@ -123,7 +178,7 @@ export function install(data, mixed = false, modules = null) {
   if (modules && typeof requestAnimationFrame === 'function') pageModule().catch(e => journal.push(`t=${clock.now} native: ${e.message}`));
   let keys = null, asking = '';
   const kept = () => keys ??= import('./storage-environment.js').then(({ keyStore, storageKey }) =>
-    keyStore(typeof location === 'object' && source.appId ? storageKey(source.appId, location.href) : null, globalThis.indexedDB));
+    keyStore(typeof location === 'object' && source.appId ? storageKey(source.appId) : null, globalThis.indexedDB));
   __AUTH_INSTALL__
   // A module's `kept(source, args, value)` is given the answers its page was
   // rendered with, once, before it is first asked: they are its own answers,
@@ -139,15 +194,16 @@ export function install(data, mixed = false, modules = null) {
   };
   const ts = (name, args, store, target) => {
     if (!seeded) seed();
-    const [params, result] = sourceTypes[name] ?? [[], 'u'];
+    const types = sourceTypes[name], [params, result] = types ?? [[], 'u'];
     // The store as the module sees it (LLP 1018): a read marks the answer.
     const seen = createSecretFacade(store, tsGrantSet, kept);
     asking = target ?? name; watching = name;
     let r;
     try { r = source.answer(name, args.map((a, i) => named(a, params[i])), seen, storage, modules ? native : null); } finally { asking = ''; watching = null; }
     const target_ = target ?? name;
-    if (r && typeof r.then === 'function') return { promise: r.then(v => conv(v, result, target_)), store: seen.read };
-    return { v: conv(r, result, target_), store: seen.read };
+    const shaped = types ? v => checked(name, v, result) : v => v;
+    if (r && typeof r.then === 'function') return { promise: r.then(v => conv(shaped(v), result, target_)), store: seen.read };
+    return { v: conv(shaped(r), result, target_), store: seen.read };
   };
   // Beside a Rust source (LLP 1027.002): a source this module does not
   // answer is the Rust module's, not ready until it loads; rust-data.js

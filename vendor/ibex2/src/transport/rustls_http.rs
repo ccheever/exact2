@@ -290,6 +290,10 @@ impl<In: WireTransport> Connector<In> for CancellableConnector {
     }
 }
 
+#[cfg(windows)]
+pub(crate) use super::windows_connect::connect_socket;
+
+#[cfg(not(windows))]
 pub(crate) fn connect_socket(
     address: std::net::SocketAddr,
     timeout: Duration,
@@ -336,6 +340,7 @@ pub(crate) fn connect_socket(
 /// completes: a sleep between checks (a 10 ms park, which a busy macOS
 /// stretched to 50–90 ms) delayed every new connection by at least one sleep
 /// (Exact patch 3). The caller rechecks cancellation between waits.
+#[cfg(not(windows))]
 fn wait_writable(socket: &socket2::Socket, timeout: Duration) {
     #[cfg(unix)]
     {

@@ -7,8 +7,9 @@
   sibling `../ibex` checkout. The compiler includes `src/bindings/storage.d.ts`
   as text, `exact-js` compiles `src/engine/ibex2_jsi.cc` and the binding
   scripts, and seven manifests depend on the crates.
-- **Patches:** two, below, both Exact only. Otherwise the copy is the
-  commit's tracked tree, byte for byte, plus this file.
+- **Patches:** two Exact-only patches below and the Windows connection backport
+  described next. Otherwise the copy is the commit's tracked tree, byte for byte,
+  plus this file.
 - **Not vendored:** the Hermes engine and `hermesc` builds. They are
   hand-built outputs in the ibex checkout (`ios/Frameworks-vanilla`,
   `tools/hermes-vanilla`, `linux-vanilla`), needed only by `exact-js`.
@@ -22,9 +23,21 @@
 
   then restore this file with the new commit and date, and reapply patches
   3 and 4 (`git show ae0c186a9 a268b5512 001e43d03 -- vendor/ibex2`).
+  Keep the Windows connection backport unless the new snapshot contains it.
   Patch 4 replaces `src/grant.rs` wholesale, so keep the vendored file
   rather than merging upstream's: a grant-grammar change upstream must be
   ported to `grants/src/lib.rs` by hand.
+
+## Windows connection readiness — upstream backport
+
+Backport Ibex `3f72340e` (2026-10-04), reviewed in upstream LLP 0068's Windows
+outbound connection section. Winsock can return a peer address before a pending
+nonblocking connection is usable. Windows now waits for writable/exceptional
+socket readiness and checks `SO_ERROR` before handoff, with bounded cancellation
+polling on the caller's thread. The new module and tests match upstream; the
+WinSock feature and Windows dispatch are added here. Exact patch 3's Unix poll
+implementation remains unchanged, and its helper is compiled only off Windows.
+No grant, TLS, Hermes ABI or SQLite changes accompany this backport.
 
 ## Upstreamed (no longer patches)
 

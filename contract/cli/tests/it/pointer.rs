@@ -1,11 +1,12 @@
 //! `pointerdown` and `pointerup` (LLP 1005 §3; Charlie, 2026-10-03, the
 //! Signal Clone's hold-to-record mic as the consumer): DOM's names for a
 //! touch or the primary button going down on a node and coming up, before
-//! and apart from `press`.
+//! and apart from `press`; and `pointermove`, each with an optional
+//! `PointerEvent` (LLP 1056 §3 stage 3; the paint diary's F1).
 
 use exact_kernel::Kernel;
 use exact_plan::{EventKind, Value};
-use exact_runner::{DataError, DataSource, Event, Runner};
+use exact_runner::{DataError, DataSource, Event, PointerEvent, Runner};
 
 struct NoData;
 impl DataSource for NoData {
@@ -56,9 +57,11 @@ fn pointer_down_and_up_run_their_actions_beside_press() {
             EventKind::Press
         ]
     );
-    r.dispatch(mic, Event::Pointerdown).unwrap();
+    r.dispatch(mic, Event::Pointerdown(at("3,4,1,0.5,touch,7")))
+        .unwrap();
     assert_eq!(r.slot("recording"), Some(&Value::Bool(true)));
-    r.dispatch(mic, Event::Pointerup).unwrap();
+    r.dispatch(mic, Event::Pointerup(at("3,4,0,0,touch,7")))
+        .unwrap();
     r.dispatch(mic, Event::Press).unwrap();
     assert_eq!(r.slot("sent"), Some(&Value::Number(1.0)));
     assert_eq!(
@@ -68,9 +71,56 @@ fn pointer_down_and_up_run_their_actions_beside_press() {
     );
 }
 
+fn at(line: &str) -> PointerEvent {
+    PointerEvent::parse(line).unwrap()
+}
+
 #[test]
-fn a_pointer_handler_takes_no_payload() {
+fn a_pointer_handler_takes_a_pointer_event_or_nothing() {
     let src = MIC.replace("action begin\n", "action begin(x: number)\n");
     let e = contract::compile(&src).unwrap_err();
-    assert_eq!(e.id, "analyze-handler-arity", "{e}");
+    assert_eq!(e.id, "type-handler-payload", "{e}");
+}
+
+const PAD: &str = r#"component App
+  state points = ""
+  state pressing = 0
+  action down(tool: string, e: PointerEvent)
+    points = `${tool}:${e.pointerType}#${e.pointerId}@${e.offsetX},${e.offsetY}`
+    pressing = e.pressure
+  action move(e)
+    points = `${points} ${e.offsetX},${e.offsetY}/${e.buttons}`
+  action up
+    points = `${points} up`
+  view
+    canvas pointerdown=down("pen") pointermove=move pointerup=up testId="pad" width=200 height=100
+"#;
+
+#[test]
+fn pointer_events_hand_their_record_to_an_action_that_takes_it() {
+    let plan = contract::compile(PAD).unwrap_or_else(|e| panic!("{e}"));
+    let mut r = Runner::boot(
+        plan,
+        NoData,
+        Kernel::with_monospace(),
+        Default::default(),
+        "/",
+    )
+    .unwrap();
+    let pad = r
+        .kernel()
+        .node_by_key(r.kernel().find_by_test_id("pad")[0])
+        .unwrap()
+        .id;
+    r.dispatch(pad, Event::Pointerdown(at("10,20,1,0.75,pen,3")))
+        .unwrap();
+    r.dispatch(pad, Event::Pointermove(at("12.5,22,1,0.8,pen,3")))
+        .unwrap();
+    r.dispatch(pad, Event::Pointerup(at("13,23,0,0,pen,3")))
+        .unwrap();
+    assert_eq!(
+        r.slot("points"),
+        Some(&Value::str("pen:pen#3@10,20 12.5,22/1 up"))
+    );
+    assert_eq!(r.slot("pressing"), Some(&Value::Number(0.75)));
 }

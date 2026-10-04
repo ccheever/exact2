@@ -542,14 +542,20 @@ pub fn style_writes(id: u16, timeline: bool) -> Result<Vec<Write>, String> {
             with("--exact-accent", "v=>v==null?v:/^\\s*auto\\s*$/i.test(v)?\"AccentColor\":v"),
         ],
         StyleId::DragTimeline => vec![with("--exact-drag-timeline", NONE)],
+        // @ref LLP 1055.002 — `clock(Name)` is css.rs's clock property and
+        // leaves the play state alone; a drag timeline pauses.
         StyleId::AnimationTimeline => vec![
             with(
                 "--exact-animation-timeline",
-                "v=>v==null||/^\\s*auto\\s*$/i.test(v)?null:v",
+                "v=>v==null||/^\\s*(auto|clock\\(.*\\))\\s*$/i.test(v)?null:v",
+            ),
+            with(
+                "--exact-animation-clock",
+                "v=>v==null?v:/^\\s*clock\\(\\s*([^)\\s]+)\\s*\\)\\s*$/i.exec(v)?.[1]??null",
             ),
             with(
                 "animation-play-state",
-                "v=>v==null||/^\\s*auto\\s*$/i.test(v)?null:\"paused\"",
+                "v=>v==null||/^\\s*(auto|clock\\(.*\\))\\s*$/i.test(v)?null:\"paused\"",
             ),
         ],
         StyleId::AnimationRange => vec![with(
@@ -722,17 +728,7 @@ fn css_property(id: StyleId) -> String {
 /// index (the value a binding gives), as css.rs writes it with the host's
 /// family names (`host/web/src/host/fonts.rs` `font_names`).
 pub fn font_family_table(plan: &Plan) -> Vec<String> {
-    use exact_plan::{StackMemberKind, StacksId};
-    let names: Vec<String> = (0..plan.stacks.len())
-        .map(|i| {
-            let stack = plan.stack(StacksId(i as u32));
-            let member = plan.stack_member(stack.members.iter().next().expect("validated stack"));
-            match member.kind {
-                StackMemberKind::Family => format!("ExactPlanStack{i}"),
-                generic => generic.name().to_string(),
-            }
-        })
-        .collect();
+    let names = exact_web::css::font_family_names(plan);
     (0..names.len())
         .map(|i| {
             let mut p = exact_kernel::StyleProps::default();

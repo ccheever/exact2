@@ -201,8 +201,10 @@ pub enum Event {
     /// The view lost the focus.
     Blur,
     /// A key went down while the view had the focus: the key's name as the
-    /// web spells it (`"Enter"`, `"ArrowDown"`, `"a"`).
-    Key(String),
+    /// web spells it (`"Enter"`, `"ArrowDown"`, `"a"`), and the modifiers
+    /// held (`KeyboardEvent`'s flags). A host writes both as a chord,
+    /// [`Event::key`].
+    Key(String, KeyModifiers),
     /// Enter in an input with a `submit` handler — the web's implicit
     /// submission (HTML forms §4.10.21.2), without a form.
     Submit,
@@ -216,10 +218,13 @@ pub enum Event {
     Dblclick,
     /// A touch or primary button went down on the view (DOM's
     /// `pointerdown`), before any gesture is recognized (LLP 1005 §3).
-    Pointerdown,
+    Pointerdown(super::PointerEvent),
     /// That touch or button came up, or the platform cancelled it (DOM's
     /// `pointerup`; a `pointercancel` is delivered as one).
-    Pointerup,
+    Pointerup(super::PointerEvent),
+    /// The pointer moved over the view, or while held after going down on
+    /// it: at most one a frame (LLP 1056 §3 stage 3, as built).
+    Pointermove(super::PointerEvent),
     /// A platform-recognized right swipe.
     Swiperight,
     /// A pull past the top of a scroll container asked for fresh content
@@ -276,7 +281,69 @@ pub enum Event {
     },
 }
 
+/// The modifier keys held as a key went down: `KeyboardEvent`'s
+/// `shiftKey`, `ctrlKey`, `altKey` and `metaKey` (chat F2, kanban F27 in the
+/// x2apps diaries: Shift+Enter and ⌘S were not expressible).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct KeyModifiers {
+    /// Shift.
+    pub shift: bool,
+    /// Control.
+    pub ctrl: bool,
+    /// Alt, Option on a Mac.
+    pub alt: bool,
+    /// Meta: Command on a Mac, the Windows key elsewhere.
+    pub meta: bool,
+}
+
+impl KeyModifiers {
+    /// A key as a host writes it, split: the modifiers named before it with
+    /// any of `Shift+`, `Control+`, `Alt+` and `Meta+`, and the key's name —
+    /// the chord syntax of `aria-keyshortcuts` and Playwright
+    /// (`"Shift+Enter"`, `"Meta+s"`, `"+"`, `"Shift++"`). A bare name holds
+    /// no modifier.
+    pub fn split(chord: &str) -> (Self, &str) {
+        let mut held = Self::default();
+        let mut rest = chord;
+        while let Some((name, key)) = rest.split_once('+').filter(|(_, key)| !key.is_empty()) {
+            *match name {
+                "Shift" => &mut held.shift,
+                "Control" => &mut held.ctrl,
+                "Alt" => &mut held.alt,
+                "Meta" => &mut held.meta,
+                _ => break,
+            } = true;
+            rest = key;
+        }
+        (held, rest)
+    }
+}
+
 impl Event {
+    /// A key from its chord ([`KeyModifiers::split`]).
+    pub fn key(chord: &str) -> Self {
+        let (held, key) = KeyModifiers::split(chord);
+        Self::Key(key.into(), held)
+    }
+
+    /// The DOM record this event offers its action as an optional last
+    /// parameter, its fields in the compiler's order
+    /// (`contract_types::event_record`, `contract/types/src/selection.rs`):
+    /// `key`'s `KeyboardEvent` and the pointer's `PointerEvent`.
+    pub fn record(&self) -> Option<Value> {
+        match self {
+            Event::Key(key, held) => Some(Value::record(vec![
+                Value::str(key),
+                Value::Bool(held.shift),
+                Value::Bool(held.ctrl),
+                Value::Bool(held.alt),
+                Value::Bool(held.meta),
+            ])),
+            Event::Pointerdown(p) | Event::Pointerup(p) | Event::Pointermove(p) => Some(p.value()),
+            _ => None,
+        }
+    }
+
     /// Decode host kind 21: formats, mixed (0/1), unavailable, then the link
     /// remainder, separated by newlines. Token lists never contain newlines;
     /// a target may, so the final remainder is kept verbatim.
@@ -769,14 +836,15 @@ impl<D: DataSource> Runner<D> {
                 Event::Hover(false) => "hover out",
                 Event::Focus => "focus",
                 Event::Blur => "blur",
-                Event::Key(_) => "key",
+                Event::Key(..) => "key",
                 Event::Submit => "submit",
                 Event::Load => "load",
                 Event::Message(_) => "message",
                 Event::Contextmenu => "contextmenu",
                 Event::Dblclick => "dblclick",
-                Event::Pointerdown => "pointerdown",
-                Event::Pointerup => "pointerup",
+                Event::Pointerdown(_) => "pointerdown",
+                Event::Pointerup(_) => "pointerup",
+                Event::Pointermove(_) => "pointermove",
                 Event::Swiperight => "swiperight",
                 Event::Refresh => "refresh",
                 Event::Scroll(_, _) => "scroll",
@@ -853,14 +921,15 @@ impl<D: DataSource> Runner<D> {
             Event::Hover(over) => (EventKind::Hover, Some(Value::Bool(*over)), "hover"),
             Event::Focus => (EventKind::Focus, None, "focus"),
             Event::Blur => (EventKind::Blur, None, "blur"),
-            Event::Key(key) => (EventKind::Key, Some(Value::str(key)), "key"),
+            Event::Key(key, _) => (EventKind::Key, Some(Value::str(key)), "key"),
             Event::Submit => (EventKind::Submit, None, "submit"),
             Event::Load => (EventKind::Load, None, "load"),
             Event::Message(message) => (EventKind::Message, Some(Value::str(message)), "message"),
             Event::Contextmenu => (EventKind::Contextmenu, None, "contextmenu"),
             Event::Dblclick => (EventKind::Dblclick, None, "dblclick"),
-            Event::Pointerdown => (EventKind::Pointerdown, None, "pointerdown"),
-            Event::Pointerup => (EventKind::Pointerup, None, "pointerup"),
+            Event::Pointerdown(_) => (EventKind::Pointerdown, None, "pointerdown"),
+            Event::Pointerup(_) => (EventKind::Pointerup, None, "pointerup"),
+            Event::Pointermove(_) => (EventKind::Pointermove, None, "pointermove"),
             Event::Swiperight => (EventKind::Swiperight, None, "swiperight"),
             Event::Refresh => (EventKind::Refresh, None, "refresh"),
             Event::Scroll(_, _) => (EventKind::Scroll, None, "scroll"),
@@ -907,6 +976,9 @@ impl<D: DataSource> Runner<D> {
                 args.push(p);
             }
         }
+        // The event's record, after what it always carries, to an action
+        // that declares one more parameter (`contract_types::event_record`).
+        let record = event.record();
         match event {
             Event::ReorderDrop { item, before } => {
                 args.push(Value::str(&item));
@@ -937,6 +1009,11 @@ impl<D: DataSource> Runner<D> {
                 args.extend([x, y, scale, vx, vy, vscale].map(Value::Number));
             }
             _ => {}
+        }
+        if let Some(record) = record {
+            if self.plan.action(handler.action).params.len as usize > args.len() {
+                args.push(record);
+            }
         }
         super::lines::ran(what, self.plan.str(self.plan.action(handler.action).name));
         self.run_action(handler.action, args, &frames)

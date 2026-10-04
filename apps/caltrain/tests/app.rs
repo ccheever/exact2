@@ -338,7 +338,7 @@ fn hover_focus_and_keys_reach_their_actions() {
     let search = view_of(&r, "station-search");
     assert!(r.kernel().find_by_test_id("search-hint").is_empty());
     r.dispatch(search, Event::Focus).unwrap();
-    r.dispatch(search, Event::Key("Enter".into())).unwrap();
+    r.dispatch(search, Event::key("Enter")).unwrap();
     assert_eq!(
         text_of(&r, "search-hint").as_deref(),
         Some("searching · last key Enter")

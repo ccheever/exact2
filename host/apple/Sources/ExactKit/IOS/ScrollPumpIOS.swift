@@ -129,7 +129,10 @@ final class ScrollPump: NSObject, UIScrollViewDelegate {
         scheduleAfterScroll()
         start()
     }
-    func scrollViewDidScroll(_ scrollView: UIScrollView) { presenter?.stickies.scrolled(nil); scrolled(nil) }
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        presenter?.onScrolled?(nil, Double(scrollView.contentOffset.x), Double(scrollView.contentOffset.y))
+        presenter?.stickies.scrolled(nil); scrolled(nil)
+    }
 
     func batchApplied() {
         // A list that never scrolls, or whose rows change in place (live

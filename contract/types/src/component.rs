@@ -116,6 +116,9 @@ pub(crate) fn check_component(
                 // derives and resources it may read are
                 // (`infer_owned_state_initializers`).
                 Ty::Unknown
+            } else if let Some(e) = initializer_scope(c, i, &scope, shapes) {
+                sink.push(e);
+                Ty::Unknown
             } else {
                 sink.keep(infer(&s.expr, &scope, shapes))
             };
@@ -141,6 +144,12 @@ pub(crate) fn check_component(
     // reads it (a derive, a view head, a handler's or a resource's
     // argument) must see that type, whatever the declaration order.
     ct.derives = vec![Ty::Unknown; c.derives.len()];
+    // One ordered pass first, not a fixed point (LLP 1088 D6 is deferred): a
+    // row's state is typed from its initializer before the derives that read
+    // it (shop F3's `derive chosen = at(…, pick)` over a row's `state pick =
+    // 0`). Its refusals are made where the same pass runs again below, once
+    // the derives and resources a child's state may read have types.
+    let _ = infer_owned_state_initializers(c, &mut ct, types, owners);
     let order = derive_order(c);
     for _round in 0..(c.states.len() + 2) {
         settle_derives(c, &mut ct, types, &order);
@@ -474,6 +483,7 @@ fn refine_params_from_view(
                             | "dblclick"
                             | "pointerdown"
                             | "pointerup"
+                            | "pointermove"
                             | "swiperight"
                             | "refresh"
                             | "reachstart"
@@ -534,7 +544,7 @@ fn refine_params_from_view(
                             // Event payloads: change/input/key/message are
                             // strings (a checkbox's are bools); hover is
                             // whether the pointer is over.
-                            let payload = match a.name.as_str() {
+                            let mut payload = match a.name.as_str() {
                                 "change" | "input" if bound_type => vec![],
                                 "change" | "input" if checkbox => vec![Ty::Bool],
                                 "change" | "input" if range => vec![Ty::Number],
@@ -550,6 +560,13 @@ fn refine_params_from_view(
                                 "scroll" | "panrelease" => vec![Ty::Number, Ty::Number],
                                 _ => vec![],
                             };
+                            // Then the event's record, when the action
+                            // declares one more parameter (`event_record`).
+                            if let Some(record) = crate::event_record(&a.name) {
+                                if ct.actions[ai].len() == args.len() + payload.len() + 1 {
+                                    payload.push(Ty::Record(record.into()));
+                                }
+                            }
                             let start = ct.actions[ai].len().saturating_sub(payload.len());
                             for (offset, ty) in payload.into_iter().enumerate() {
                                 let last = start + offset;
@@ -740,54 +757,215 @@ fn empty_list_in(e: &Expr) -> Option<Span> {
 /// The first name in `e` the component declares: state a placeholder's
 /// arguments may not read (LLP 1048.003 D6).
 fn reads_state(e: &Expr, scope: &Scope) -> Option<(String, Span)> {
-    fn walk(e: &Expr, scope: &Scope, bound: &mut Vec<String>) -> Option<(String, Span)> {
+    first_free(e, &|_| false, &|name| scope.lookup(name).is_some())
+}
+
+/// @ref LLP 1088 D4 — a state's initializer runs before any resource
+/// answers and before any derive, so it reads only props, injects and the
+/// states declared above it. A name it reads that the component declares
+/// otherwise is refused as what it is; an unknown name keeps its
+/// near-name suggestion.
+pub(crate) fn initializer_scope(
+    c: &Component,
+    i: usize,
+    scope: &Scope,
+    shapes: &Shapes,
+) -> Option<TypeError> {
+    let state = c.states[i].name.split('#').next().unwrap_or_default();
+    let declared = |name: &str| {
+        c.states[i..].iter().any(|s| s.name == name)
+            || c.derives.iter().any(|d| d.name == name)
+            || c.resources.iter().any(|r| r.name == name)
+            || c.mutations.iter().any(|m| m.name == name)
+            || c.actions.iter().any(|a| a.name == name)
+    };
+    // A call's name resolves as `infer` resolves it: `failed`/`pending`, a
+    // record's constructor and a file `fn` come before the component's
+    // names, and of those only an action is callable; any other name a
+    // call makes is the roster's (`state length = length("abc")`).
+    let calls = |name: &str| {
+        !matches!(name, "failed" | "pending")
+            && !crate::records::is_record_call(name, shapes)
+            && !shapes.fns.contains_key(name)
+            && c.actions.iter().any(|a| a.name == name)
+            && scope.lookup(name).is_none()
+    };
+    let (name, span) = first_free(&c.states[i].expr, &calls, &|name| {
+        scope.lookup(name).is_none() && declared(name)
+    })?;
+    let shown = name.split('#').next().unwrap_or_default();
+    let reads = "a state's initializer runs before any resource answers, and reads only props, injects and earlier states";
+    let message = if c.resources.iter().any(|r| r.name == name) {
+        let path = member_path(&c.states[i].expr, &name).unwrap_or_else(|| shown.to_string());
+        format!(
+            "`{shown}` is a resource; {reads}. Derive it from `{shown}`, or keep per-row state in a component used inside `each … in {path}`"
+        )
+    } else if c.derives.iter().any(|d| d.name == name) {
+        format!(
+            "`{shown}` is a derive; {reads}. Make `{state}` a derive too, or start it from a value and write it in an action"
+        )
+    } else if c.mutations.iter().any(|m| m.name == name) {
+        format!("`{shown}` is a mutation; {reads}. Write its answer into `{state}` from the mutation's `then` action")
+    } else if c.actions.iter().any(|a| a.name == name) {
+        format!("`{shown}` is an action; {reads}")
+    } else if c.states[i].name == name {
+        format!("`{shown}` is the state this initializer starts; {reads}")
+    } else {
+        format!("`{shown}` is declared after `{state}`; {reads}: declare `{shown}` above `{state}`")
+    };
+    Some(TypeError {
+        id: "type-initializer-scope",
+        message,
+        span,
+    })
+}
+
+/// The longest member chain in `e` rooted at `name`, as written (`board.cols`).
+fn member_path(e: &Expr, name: &str) -> Option<String> {
+    fn chain(e: &Expr) -> Option<String> {
+        match e {
+            Expr::Ident(n, _) => Some(n.split('#').next().unwrap_or_default().to_string()),
+            Expr::Member(inner, field, _) => chain(inner).map(|c| format!("{c}.{field}")),
+            _ => None,
+        }
+    }
+    fn root(e: &Expr) -> Option<&str> {
+        match e {
+            Expr::Ident(n, _) => Some(n),
+            Expr::Member(inner, _, _) => root(inner),
+            _ => None,
+        }
+    }
+    let mut best: Option<String> = None;
+    let mut visit = |x: &Expr| {
+        if let Some(c) = chain(x).filter(|_| matches!(x, Expr::Member(..)) && root(x) == Some(name))
+        {
+            if best.as_ref().is_none_or(|b| c.len() > b.len()) {
+                best = Some(c);
+            }
+        }
+    };
+    walk_exprs(e, &mut visit);
+    best
+}
+
+/// Visit `e` and every expression inside it.
+fn walk_exprs(e: &Expr, f: &mut dyn FnMut(&Expr)) {
+    f(e);
+    match e {
+        Expr::Number(..)
+        | Expr::Str(..)
+        | Expr::Bool(..)
+        | Expr::None(..)
+        | Expr::EmptyList(..)
+        | Expr::Ident(..) => {}
+        Expr::Template(parts, _) => parts.iter().for_each(|p| {
+            if let TemplatePart::Expr(x) = p {
+                walk_exprs(x, f)
+            }
+        }),
+        Expr::Some(x, _)
+        | Expr::Member(x, _, _)
+        | Expr::NamedArg(_, x, _)
+        | Expr::Typed(x, _, _)
+        | Expr::Unary(_, x, _) => walk_exprs(x, f),
+        Expr::Call(_, args, _) => args.iter().for_each(|a| walk_exprs(a, f)),
+        Expr::Binary(_, a, b, _) => {
+            walk_exprs(a, f);
+            walk_exprs(b, f);
+        }
+        Expr::Ternary(a, b, c, _) => {
+            walk_exprs(a, f);
+            walk_exprs(b, f);
+            walk_exprs(c, f);
+        }
+        Expr::Match {
+            subject,
+            some,
+            none,
+            ..
+        } => {
+            walk_exprs(subject, f);
+            walk_exprs(some, f);
+            walk_exprs(none, f);
+        }
+        Expr::Let { value, body, .. } => {
+            walk_exprs(value, f);
+            walk_exprs(body, f);
+        }
+        Expr::Arrow { body, .. } => walk_exprs(body, f),
+    }
+}
+
+/// The first free name in `e` (not bound by a `let`, a `match` or an arrow
+/// inside it) that `hit` accepts, or the first name a call is made by that
+/// `calls` accepts, with where.
+fn first_free(
+    e: &Expr,
+    calls: &dyn Fn(&str) -> bool,
+    hit: &dyn Fn(&str) -> bool,
+) -> Option<(String, Span)> {
+    fn walk(
+        e: &Expr,
+        calls: &dyn Fn(&str) -> bool,
+        hit: &dyn Fn(&str) -> bool,
+        bound: &mut Vec<String>,
+    ) -> Option<(String, Span)> {
         let within = |name: &str, x: &Expr, bound: &mut Vec<String>| {
             bound.push(name.to_string());
-            let found = walk(x, scope, bound);
+            let found = walk(x, calls, hit, bound);
             bound.pop();
             found
         };
         match e {
-            Expr::Ident(name, span) => (!bound.contains(name) && scope.lookup(name).is_some())
-                .then(|| (name.clone(), *span)),
+            Expr::Ident(name, span) => {
+                (!bound.contains(name) && hit(name)).then(|| (name.clone(), *span))
+            }
             Expr::Number(..)
             | Expr::Str(..)
             | Expr::Bool(..)
             | Expr::None(..)
             | Expr::EmptyList(..) => None,
             Expr::Template(parts, _) => parts.iter().find_map(|p| match p {
-                TemplatePart::Expr(x) => walk(x, scope, bound),
+                TemplatePart::Expr(x) => walk(x, calls, hit, bound),
                 _ => None,
             }),
             Expr::Some(x, _)
             | Expr::Member(x, _, _)
             | Expr::NamedArg(_, x, _)
             | Expr::Typed(x, _, _)
-            | Expr::Unary(_, x, _) => walk(x, scope, bound),
-            Expr::Call(_, args, _) => args.iter().find_map(|a| walk(a, scope, bound)),
-            Expr::Binary(_, a, b, _) => walk(a, scope, bound).or_else(|| walk(b, scope, bound)),
-            Expr::Ternary(a, b, c, _) => walk(a, scope, bound)
-                .or_else(|| walk(b, scope, bound))
-                .or_else(|| walk(c, scope, bound)),
+            | Expr::Unary(_, x, _) => walk(x, calls, hit, bound),
+            Expr::Call(name, args, span) => {
+                if !bound.contains(name) && calls(name) {
+                    return Some((name.clone(), *span));
+                }
+                args.iter().find_map(|a| walk(a, calls, hit, bound))
+            }
+            Expr::Binary(_, a, b, _) => {
+                walk(a, calls, hit, bound).or_else(|| walk(b, calls, hit, bound))
+            }
+            Expr::Ternary(a, b, c, _) => walk(a, calls, hit, bound)
+                .or_else(|| walk(b, calls, hit, bound))
+                .or_else(|| walk(c, calls, hit, bound)),
             Expr::Match {
                 subject,
                 var,
                 some,
                 none,
                 ..
-            } => walk(subject, scope, bound)
+            } => walk(subject, calls, hit, bound)
                 .or_else(|| within(var, some, bound))
-                .or_else(|| walk(none, scope, bound)),
+                .or_else(|| walk(none, calls, hit, bound)),
             Expr::Let {
                 name, value, body, ..
-            } => walk(value, scope, bound).or_else(|| within(name, body, bound)),
+            } => walk(value, calls, hit, bound).or_else(|| within(name, body, bound)),
             Expr::Arrow { params, body, .. } => {
                 bound.extend(params.iter().cloned());
-                let found = walk(body, scope, bound);
+                let found = walk(body, calls, hit, bound);
                 bound.truncate(bound.len() - params.len());
                 found
             }
         }
     }
-    walk(e, scope, &mut Vec::new())
+    walk(e, calls, hit, &mut Vec::new())
 }

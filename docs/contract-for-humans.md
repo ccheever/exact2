@@ -238,8 +238,9 @@ action search(value: string)
 
 Root components may own states, derives, actions, resources, mutations, and
 tasks. Child components may own states, derives, and actions; root-only work
-must be passed down as values or actions. State initializers can depend on
-earlier states; do not build cycles. Derives can be declared in dependency order
+must be passed down as values or actions. State initializers read props,
+injects and earlier states only: they run before any resource answers or
+derive is computed. Derives can be declared in dependency order
 or another order, but their dependency graph must be acyclic.
 
 An action's state reads observe the state at its start. Its writes land together.
@@ -848,14 +849,15 @@ textarea value=body input=editBody
 `input` and `change` carry the control's new value as the final action argument:
 a string for a text field, textarea or `select`, a boolean for a checkbox or
 switch, a number for `type="range"`, and a `list<Picked>` for a file input.
-`hover` carries a boolean; `key` carries a key name. Captured arguments precede
+`hover` carries a boolean; `key` carries a key name, and to an action that
+takes one more parameter its `KeyboardEvent` (the modifiers). Captured arguments precede
 the payload: `input=edit(item.id)` calls the bound action with the id followed
 by the new text. This syntax is binding, not immediate evaluation.
 
 Use explicit types when they make the interface clear; omitted action parameter
-types can be inferred from event sites. There is no event object and no inline
-`() => …` handler; a `key` action claims its key with the host command
-`preventDefault()` ([keys](contract-grammar.md#keys)).
+types can be inferred from event sites. There is no inline `() => …` handler;
+a `key` action claims its key with the host command `preventDefault()`
+([keys](contract-grammar.md#keys)).
 
 The complete event inventory and payload groups are in the
 [event reference](contract-grammar.md#events). HTML controls include `select` and
@@ -1074,13 +1076,16 @@ For direct manipulation, `pan`, `panrelease`, `heightrelease`,
 `transformgeometry`/`transformrelease`, and `reorderdrop` supply measured payloads.
 The transform pair must be declared together. The height, transform and reorder
 drags start only from a handle that names its target's `id` with `heightDragFor`,
-`transformDragFor` or `reorderFor`. The platform owns gesture
+`transformDragFor` or `reorderFor`, and `reorderdrop` belongs to a vertical
+`list virtualized=true`, whose rows are the only ones a host can drag. The platform owns gesture
 recognition and competition with scrolling; Contract does not define a general
 gesture arena. See [Interaction Gallery](../apps/interaction-gallery/app.contract)
 and [Spark](../apps/spark/app.contract) for complete bindings.
 
-`frame("id")` reads the last laid-out border box in root coordinates, without
-transforms or scrolling. `measure("id")` asks for its height-auto layout under its
+`frame("id")` reads the last laid-out border box where the viewer sees it, as
+`getBoundingClientRect` does: in the viewport, every scroll offset above it
+applied (the page's too), but without transforms. `measure("id")` asks for its
+height-auto layout, at the same origin, under its
 current offer; its id is literal. Both are action-only and return `Geometry`,
 including `unavailable` and `provisional`; handle those flags rather than assuming
 layout already happened. Geometry reads are not reactive view expressions.
@@ -1107,8 +1112,9 @@ editing run on the web and Apple hosts; Linux shows `markup="markdown"` text as
 raw source and has no `iframe` or `video`.
 
 A hyphenated tag can address the app's native module: the bake checks the tag
-against `app.json`'s `modules` list, and its attributes pass to the module
-unchecked. Merely inventing a tag does not create a widget. Native
+against `app.json`'s `modules` list, and its unknown attributes pass to the
+module unchecked; a known attribute styles or labels the module's box, and one
+the box has no use for is refused. Merely inventing a tag does not create a widget. Native
 modules and GPU capabilities are separate optional artifacts; they do not add
 features to every core build. Use [Photo Editor](../apps/photo-editor/app.contract)
 as a concrete native-module example.

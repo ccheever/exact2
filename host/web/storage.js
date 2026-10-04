@@ -3,7 +3,7 @@
 import { agentStorageRefusal, directories, storageKey } from './storage-environment.js';
 let fileFactory, sqliteFactory;
 
-export function createStorage(win, admitted, scope, key = storageKey(admitted.appId, location.href)) {
+export function createStorage(win, admitted, scope, key = storageKey(admitted.appId)) {
   // Once storage has been used, a replacement reserves its owner before the
   // old realm is disposed, retaining the shared SQLite worker across reloads.
   let fs = key && fileFactory?.(key, admitted.grantSet);
@@ -11,7 +11,7 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
   let fsLoading, sqliteLoading;
   const queues = new Map(), waiters = new Map(), retired = new WeakSet();
   let disposed = false;
-  const error = e => Object.assign(new win.Error(e?.message || String(e)), {kind:e?.kind || 'Unavailable'});
+  const error = e => Object.assign(new win.Error(e?.message || String(e)), {kind:e?.kind || 'Unavailable', code:e?.code});
   const unavailable = () => error({kind:'Unavailable',message:'storage environment disposed'});
   const clone = value => win.structuredClone(value);
   // Keep adapters as shared modules: the Rust request path uses the same
@@ -45,7 +45,7 @@ export function createStorage(win, admitted, scope, key = storageKey(admitted.ap
   }
   function enqueue(invoke, convert = clone, discard = () => {}) {
     if (disposed) return win.Promise.reject(unavailable());
-    if (key == null) return win.Promise.reject(error({message:agentStorageRefusal}));
+    if (key == null) return win.Promise.reject(error({message:agentStorageRefusal, code:'agent'}));
     const owner = scope();
     const active = () => { if (disposed || retired.has(owner)) throw unavailable(); };
     return new win.Promise((resolve, reject) => {

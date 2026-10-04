@@ -54,6 +54,7 @@ mod native;
 mod paired;
 mod pure;
 mod storage;
+mod turns;
 mod watch;
 mod wire;
 
@@ -71,7 +72,7 @@ use exact_runner::{
     Store, Target, Work,
 };
 use serde_json::Value as Json;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::ffi::{c_char, c_void, CStr};
 use std::sync::Arc;
 use std::time::Instant;
@@ -171,6 +172,10 @@ struct HostState {
     keys: Vec<exact_data::crypto::EcKey>,
     /// `authCallback()`: this native build's, from the grants (LLP 1069.006).
     auth_callback: Option<String>,
+    /// The engine has app storage: the host configured directories.
+    storage: bool,
+    /// The bake's module ([`Module::inspect`]): storage refuses as `bake`.
+    baking: bool,
 }
 
 /// A TypeScript data source: bytecode, its bake-time identity, and the
@@ -270,14 +275,28 @@ unsafe extern "C" fn host_door(
                 .map_err(|e| format!("store.forget: {e:?}")),
             None => Err("store.forget: no store at bake".into()),
         },
-        5 => {
-            if let Some(store) = state.store {
+        // Storage's availability, as the prelude's refusal code (kanban
+        // F28): none at bake; none for a drive that names no scratch store;
+        // none where the host configured no directories.
+        5 => match state.store {
+            Some(store) => {
+                // A read even at bake: the build compiles no answer that tried.
                 (*store).observe_external_read();
-                Ok(None)
-            } else {
-                Err("storage is unavailable during bake".into())
+                if state.baking {
+                    Err("bake".into())
+                } else {
+                    Ok((!state.storage).then(|| {
+                        if state.agent.is_some() {
+                            "agent"
+                        } else {
+                            "unsupported"
+                        }
+                        .into()
+                    }))
+                }
             }
-        }
+            None => Err("bake".into()),
+        },
         6 => {
             if a == "kind" {
                 // A native executor can always link a module; no read.
@@ -545,6 +564,7 @@ impl Module {
     pub fn inspect(bytecode: Vec<u8>) -> Result<Module, String> {
         // The bake's module never draws the agent's stream (LLP 1069.005 D2b).
         let mut module = Self::new(bytecode, "", "").with_agent_seed(None);
+        module.host.baking = true;
         let engine = module.load_engine()?;
         module.app_id = engine.string("appId")?;
         module.grants = engine.string("grants")?;
@@ -586,6 +606,7 @@ impl Module {
         engine
             .load(PRELUDE)
             .map_err(|e| format!("exact-js: the prelude did not load: {e}"))?;
+        self.host.storage = self.directories.is_some();
         if let Some(paths) = &self.directories {
             if let Some(factory) = self.native_factory {
                 let mut native = factory(&self.grants);
@@ -779,61 +800,12 @@ impl Module {
         Some(self.host.requests.remove(pos).1)
     }
 
-    /// Whether an answer is between storage steps: parked on its storage
-    /// continuation rather than on a fetch the host runs.
-    fn turn_open(&self) -> bool {
-        self.parked.iter().any(|(_, p)| p.ticket == 0)
-    }
-
-    /// A deferred answer's work: nothing to run, only a turn to wait for.
-    fn deferred_work() -> Dispatch {
-        Dispatch::Run(Work::Now(Box::new(|| {
-            Outcome::Response(Response {
-                status: 200,
-                headers: Vec::new(),
-                body: Vec::new(),
-            })
-        })))
-    }
-
-    /// Whether anything in the module may yet settle a waiting answer: a
-    /// fetch, a storage step, a stream, an answer not yet begun.
-    fn outstanding(&self) -> bool {
-        !self.streams.is_empty() || self.parked.iter().any(|(_, p)| p.ticket != WAITING)
-    }
-
-    /// Ask a waiting answer again when something landed since it parked,
-    /// or, with nothing outstanding, for its last settle, which refuses it
-    /// as pending on nothing if it still waits.
-    fn wake(&mut self, token: u64) -> Option<Dispatch> {
-        let outstanding = self.outstanding();
-        let progress = self.progress;
-        let (_, parked) = self
-            .parked
-            .iter_mut()
-            .find(|(_, p)| p.call == token && p.ticket == WAITING)?;
-        if parked.progress < progress || !outstanding {
-            parked.last = !outstanding;
-            return Some(Module::deferred_work());
-        }
-        None
-    }
-
     fn key(target: Option<Target>, source: &str, args: &[Value]) -> Key {
         let mut bytes = Vec::new();
         for a in args {
             bytes.extend(a.to_bytes());
         }
         (target, source.to_string(), bytes)
-    }
-
-    /// Parked calls let go in the prelude too, with the fetches they wait on.
-    fn forget_calls(&mut self, calls: Vec<u64>) {
-        if let Some(engine) = self.engine.as_mut() {
-            for call in calls {
-                let _ = engine.call("__exact_forget", [&call.to_string(), "", ""]);
-            }
-        }
     }
 
     /// Begin an answer: marshal, call, drain, settle.
@@ -1309,18 +1281,32 @@ impl DataSource for Module {
 
     /// Calls whose requests the runner let go are dropped, here and in the
     /// prelude with the fetches they wait on (LLP 1016 D5).
+    /// A re-ask with equal arguments (a `refresh`) shares its key with the
+    /// call it replaced; only the continuation token tells them apart, so a
+    /// call whose token is not the one in flight goes too (minesweeper F10:
+    /// a read replaced by its own refresh kept its turn open forever, and the
+    /// refresh, deferred behind it, never ran).
     fn forgotten(&mut self, in_flight: &[InFlight<'_>]) {
-        let keep: HashSet<Key> = in_flight
+        let keep: HashMap<Key, Option<u64>> = in_flight
             .iter()
-            .map(|f| Module::key(Some(f.target), f.source, f.args))
+            .map(|f| {
+                (
+                    Module::key(Some(f.target), f.source, f.args),
+                    f.continuation,
+                )
+            })
             .collect();
         let (gone, kept): (Vec<_>, Vec<_>) = std::mem::take(&mut self.parked)
             .into_iter()
-            .partition(|(key, _)| key.0.is_some() && !keep.contains(key));
+            .partition(|(key, parked)| {
+                key.0.is_some()
+                    && !matches!(keep.get(key), Some(None))
+                    && keep.get(key) != Some(&Some(parked.call))
+            });
         self.parked = kept;
         let (ended, open): (Vec<_>, Vec<_>) = std::mem::take(&mut self.streams)
             .into_iter()
-            .partition(|(key, _)| key.0.is_some() && !keep.contains(key));
+            .partition(|(key, _)| key.0.is_some() && !keep.contains_key(key));
         self.streams = open;
         self.forget_calls(
             gone.into_iter()

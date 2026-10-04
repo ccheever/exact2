@@ -1,7 +1,8 @@
 // `pointerdown`/`pointerup` in a real browser (LLP 1005 §Events): the input
 // glue's `pointer`, driven by CDP mouse events. Down before any press, up
 // wherever the button lifts (heard on the document; no click), the primary button only,
-// nothing on a disabled node.
+// nothing on a disabled node; `pointermove` and the `PointerEvent` record
+// (LLP 1056 §8.6): a held pointer's moves anywhere, a free one's over it.
 import { test, expect } from 'bun:test';
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -23,18 +24,21 @@ const page = `<!doctype html>
   <div id="outer" style="width:200px;height:120px;padding:10px"><button id="inner" style="width:100px;height:60px">i</button></div>
   <div id="wrap" style="width:200px;height:80px;padding:10px"><button id="child" style="width:100px;height:40px">c</button></div>
   <div id="dparent" style="width:200px;height:80px;padding:10px"><div id="dkid" disabled style="width:100px;height:40px">k</div></div>
+  <div id="hoverbox" style="width:200px;height:80px;padding:10px"><div id="tapkid" style="width:100px;height:40px">t</div></div>
 </div>
 <script type="module">
   import { createInputHandlers } from './input-glue.js';
   const root = document.getElementById('exact-root');
   const h = createInputHandlers({ root, views: new Map(), retiredViews: new Set(), ready: () => true, inertAncestor: () => false, dispatch() {} });
-  window.log = [];
-  for (const id of ['mic', 'off', 'outer', 'inner', 'wrap', 'dparent', 'dkid']) {
+  window.log = []; window.records = [];
+  for (const id of ['mic', 'off', 'outer', 'inner', 'wrap', 'dparent', 'dkid', 'hoverbox', 'tapkid']) {
     const el = document.getElementById(id);
-    el.exactHandlers = ['pointerdown', 'pointerup', 'press'];
+    el.exactHandlers = ['pointerdown', 'pointerup', 'press', ...(id === 'mic' || id === 'hoverbox' ? ['pointermove'] : [])];
     const on = (type, f) => el.addEventListener(type, f);
     let p;
-    on('pointerdown', e => (p ??= h.pointer(el, on, k => window.log.push(id + (k === 29 ? ' down' : ' up'))))(e));
+    const own = () => p ??= h.pointer(el, on, (k, r) => { window.log.push(id + (k === 29 ? ' down' : k === 30 ? ' up' : ' move')); window.records.push(r); });
+    on('pointerdown', e => own()(e));
+    on('pointerover', () => own());
     on('click', () => window.log.push(id + ' press'));
   }
   document.getElementById('child').addEventListener('click', () => window.log.push('child press'));
@@ -63,8 +67,11 @@ check('down before the press, up wherever the button lifts, nothing when disable
     await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
     for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
     const centre = (id) => evaluate(`(() => { const r = document.getElementById('${id}').getBoundingClientRect(); return [r.x + r.width / 2, r.y + r.height / 2]; })()`);
-    const mouse = (type, [x, y], button = 'left') => call('Input.dispatchMouseEvent', { type, x, y, button, buttons: type === 'mouseReleased' ? 0 : button === 'left' ? 1 : 2, clickCount: 1 });
+    // `force` as a mouse's hardware reports it: DOM's 0.5 while a button is down.
+    const mouse = (type, [x, y], button = 'left', buttons = type === 'mouseReleased' ? 0 : button === 'left' ? 1 : 2) => call('Input.dispatchMouseEvent', { type, x, y, button, buttons, force: buttons ? 0.5 : 0, clickCount: 1 });
     const log = () => evaluate('window.log.splice(0)');
+    const frame = () => evaluate('new Promise(r => requestAnimationFrame(() => r()))');
+    const records = () => evaluate('window.records.splice(0).map(r => r.split(","))');
 
     const mic = await centre('mic');
     await mouse('mousePressed', mic);
@@ -74,11 +81,25 @@ check('down before the press, up wherever the button lifts, nothing when disable
     expect(await log()).toEqual(['mic down']);
     await mouse('mouseReleased', mic);
     expect(await log()).toEqual(['mic up', 'mic press']);
-    // Lifted far away: the up still arrives, and there is no click.
+    // Lifted far away: the up still arrives, and there is no click; the
+    // held pointer's move is the mic's there too, from its content box.
+    await records();
     await mouse('mousePressed', mic);
-    await mouse('mouseMoved', [500, 800]);
+    await mouse('mouseMoved', [500, 800], 'left', 1);
+    await frame();
     await mouse('mouseReleased', [500, 800]);
-    expect(await log()).toEqual(['mic down', 'mic up']);
+    expect(await log()).toEqual(['mic down', 'mic move', 'mic up']);
+    const [down, held, up] = await records();
+    const box = await evaluate(`(() => { const e = document.getElementById('mic'), r = e.getBoundingClientRect(), s = getComputedStyle(e); return [r.x + parseFloat(s.borderLeftWidth) + parseFloat(s.paddingLeft), r.y + parseFloat(s.borderTopWidth) + parseFloat(s.paddingTop)]; })()`);
+    expect(down.slice(2)).toEqual(['1', '0.5', 'mouse', '1']);
+    expect([+held[0], +held[1]]).toEqual([500 - box[0], 800 - box[1]]);
+    expect(held.slice(2, 5)).toEqual(['1', '0.5', 'mouse']);
+    expect(up.slice(2, 4)).toEqual(['0', '0']);
+    // A free pointer moving over it: its move, no button down.
+    await mouse('mouseMoved', mic, 'none', 0);
+    await frame();
+    expect(await log()).toEqual(['mic move']);
+    expect((await records())[0].slice(2, 5)).toEqual(['0', '0', 'mouse']);
     // The secondary button is not the pointer's.
     await mouse('mousePressed', mic, 'right');
     await mouse('mouseReleased', mic, 'right');
@@ -103,6 +124,11 @@ check('down before the press, up wherever the button lifts, nothing when disable
     await mouse('mousePressed', dkid);
     await mouse('mouseReleased', dkid);
     expect((await log()).filter(l => !l.endsWith('press'))).toEqual(['dparent down', 'dparent up']);
+    // A child hearing only down and up lets a free move by to the ancestor
+    // that hears moves (Astra's batch 2 review, finding 4).
+    await mouse('mouseMoved', await centre('tapkid'), 'none', 0);
+    await frame();
+    expect(await log()).toEqual(['hoverbox move']);
   } finally {
     child.kill();
     server.close();

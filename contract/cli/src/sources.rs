@@ -73,7 +73,11 @@ pub(crate) fn load(
             .map(|e| loader.sources.resolve(e))
             .collect::<Vec<_>>()
     })?;
-    let file = loader.materialize(&exports);
+    let mut file = loader.materialize(&exports);
+    // Every consumer of the merged file (compile, symbols, Lean) sees
+    // `animation-timeline=Name` as its clock (LLP 1055.002 D2).
+    contract_syntax::resolve_clock_timelines(&mut file)
+        .map_err(|e| vec![loader.sources.resolve(e.into())])?;
     Ok((file, loader.sources))
 }
 
@@ -212,6 +216,7 @@ impl Loader<'_> {
                 .iter_mut()
                 .flat_map(|file| std::mem::take(&mut file.keyframes))
                 .collect(),
+            timelines: declarations!(timelines),
             fns: declarations!(fns),
             components: declarations!(components),
         }
@@ -245,6 +250,7 @@ fn check_use_name(u: &UseDecl, exports: &Exports, files: &[File]) -> Result<(), 
         choices!(shapes, "shapes");
         choices!(styles, "styles");
         choices!(fns, "functions");
+        choices!(timelines, "timelines");
         let available = if choices.is_empty() {
             "this file exports no components, shapes, styles, or functions".to_owned()
         } else {
@@ -308,6 +314,7 @@ struct Exports {
     shapes: Vec<Declaration>,
     styles: Vec<Declaration>,
     fns: Vec<Declaration>,
+    timelines: Vec<Declaration>,
     components: Vec<Declaration>,
 }
 impl Exports {
@@ -318,6 +325,7 @@ impl Exports {
             shapes: indices(file.shapes.len()),
             styles: indices(file.styles.len()),
             fns: indices(file.fns.len()),
+            timelines: indices(file.timelines.len()),
             components: indices(file.components.len()),
         }
     }
@@ -335,6 +343,10 @@ impl Exports {
                 .iter()
                 .any(|&(s, i)| files[s].styles[i].name == name)
             || self.fns.iter().any(|&(s, i)| files[s].fns[i].name == name)
+            || self
+                .timelines
+                .iter()
+                .any(|&(s, i)| files[s].timelines[i].name == name)
     }
 
     fn merge(&mut self, from: &Self, files: &[File], u: &UseDecl) -> Result<(), CompileError> {
@@ -356,6 +368,30 @@ impl Exports {
         merge!(styles, "style");
         merge!(fns, "fn");
         merge!(components, "component");
+        // A timeline is its declaration, not its text: two files' `timeline
+        // Pending` are two timelines, so one name for both is refused rather
+        // than one phase silently shared (LLP 1055.002 D1).
+        for &(source, index) in &from.timelines {
+            let name = &files[source].timelines[index].name;
+            match self
+                .timelines
+                .iter()
+                .find(|&&(s, i)| files[s].timelines[i].name == *name)
+            {
+                Some(&at) if at == (source, index) => {}
+                Some(_) => {
+                    return Err(use_error(
+                        "contract-use-duplicate",
+                        format!(
+                            "`use {}` brings a timeline `{name}` that this file already has from another declaration; two timelines need two names",
+                            u.name
+                        ),
+                        u,
+                    ))
+                }
+                None => self.timelines.push((source, index)),
+            }
+        }
         Ok(())
     }
 }

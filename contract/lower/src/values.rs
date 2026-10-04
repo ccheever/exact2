@@ -143,7 +143,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadAnimationTimeline { .. } => "expected auto or a `--name`".into(),
         StyleValueError::BadAnimationRange { .. } => "expected normal, or two distinct lengths (`0px 300px`)".into(),
         StyleValueError::BadTimelineScope { .. } => "expected none, all, or `--name`s separated by commas".into(),
-        StyleValueError::BadTransition { .. } => "not a CSS `transition` shorthand".into(),
+        StyleValueError::BadTransition { .. } => "unsupported transition property or invalid timing components; exact2 supports transform components, opacity, paint and SVG properties, and admitted numeric height transitions; general layout interpolation is not implemented".into(),
         StyleValueError::BadPaint { .. } => "SVG paint is `none`, `currentcolor`, or a colour (`#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `light-dark()`); paint servers (`url(#…)`) are refused (LLP 1055 D12)".into(),
         StyleValueError::BadDashArray { .. } => "`stroke-dasharray` is `none` or non-negative numbers separated by spaces or commas".into(),
         StyleValueError::BadTransform { .. } => "`transform` is `none` or transform functions: matrix, translate, translateX/Y, scale, scaleX/Y, rotate (with SVG's optional centre), skew, skewX/Y; lengths in user units or px, angles in deg, rad, grad or turn".into(),
@@ -384,6 +384,12 @@ pub(crate) fn check_style_value(
     ty: &Ty,
     fonts: &[FontUse],
 ) -> Result<(), LowerError> {
+    if rows
+        .iter()
+        .any(|r| matches!(r, StyleId::Resize | StyleId::UserSelect))
+    {
+        super::shorthands::portable_literal(&a.value, &a.name)?;
+    }
     if four_sided(rows) {
         if let Some(sides) = sides(&a.name, &a.value)? {
             for (row, value) in rows.iter().zip(sides) {
@@ -415,8 +421,46 @@ pub(crate) fn check_style_value(
         }
         // @ref LLP 1043.000 §3 D1 — keep the full wire vocabulary, narrow authoring.
         if let Expr::Str(v, _) = value {
+            if rows.contains(&StyleId::Resize)
+                && matches!(
+                    v.as_str(),
+                    "both" | "horizontal" | "vertical" | "block" | "inline"
+                )
+            {
+                return err("lower-css-resize", "CSS resize handles are not implemented by the native layout presenters; only `resize=\"none\"` is portable. Other values require user-controlled box geometry, not a different property name", span);
+            }
+            if rows.contains(&StyleId::UserSelect)
+                && matches!(v.as_str(), "text" | "all" | "contain")
+            {
+                return err("lower-css-user-select", "CSS user-select text/all/contain require selectable text and selection ownership on iOS and Linux; those presenters do not implement it. Supported portable values are auto and none", span);
+            }
             if rows.contains(&StyleId::WrapFlow) && !matches!(v.as_str(), "auto" | "both") {
                 return err("lower-attr-value", "unsupported `wrap-flow` value: CSS Exclusions defines it; exact2 v1 implements `both` (or `auto`)", span);
+            }
+            if rows.contains(&StyleId::FlexBasis)
+                && matches!(
+                    v.trim(),
+                    "content" | "min-content" | "max-content" | "fit-content"
+                )
+            {
+                return err("lower-flex-basis", format!("CSS flex-basis `{v}` requires intrinsic basis sizing; exact2 dimension rows represent auto, lengths and percentages, and do not implement that intrinsic sizing mode. Use auto for a basis taken from the main-size property"), span);
+            }
+            if rows.contains(&StyleId::Transition) {
+                if let Err(reason) = exact_motion::Transitions::parse(v) {
+                    let supported = "translate, scale, rotate, opacity; color, background-color, border-color (and each side), tint-color, box-shadow; SVG fill, stroke, stroke-dashoffset, r, cx, cy, x, y, rx, ry; numeric height on admitted height owners";
+                    let why = match reason {
+                        exact_motion::ParseError::UnknownProperty(property) => {
+                            let layout = matches!(property.as_str(), "width" | "min-width" | "max-width" | "min-height" | "max-height" | "top" | "right" | "bottom" | "left" | "margin" | "padding" | "flex-basis" | "gap");
+                            format!("`{property}` {}: transitions animate {supported}. General layout-property interpolation would require layout per frame and is not implemented; `layout-transition` animates changes to the laid-out box", if layout { "is a CSS layout property, but exact2 cannot transition it" } else { "is not a supported transition property" })
+                        }
+                        other => format!("invalid transition components ({other:?}); supported properties: {supported}"),
+                    };
+                    return err(
+                        "lower-attr-value",
+                        format!("`transition=\"{v}\"`: {why}"),
+                        span,
+                    );
+                }
             }
             // @ref LLP 1053 §0 G4 — the rest of CSS's list, refused by name.
             if rows.contains(&StyleId::FontVariantNumeric) {
@@ -631,6 +675,17 @@ pub(crate) fn check_prop_value(
 ) -> Result<(), LowerError> {
     media::check(name, value, span)?;
     let want = tags::prop_ty(prop);
+    // An app's browsing contexts are its window and new ones: `_parent` and
+    // `_top` name frames an app does not have, a name one it cannot open.
+    if prop == PropId::Target
+        && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "_blank" | "_self"))
+    {
+        return err(
+            "lower-attr-value",
+            "`target` takes \"_blank\" or \"_self\"",
+            span,
+        );
+    }
     if prop == PropId::AccessibilityLive
         && matches!(value, Expr::Str(s, _) if !matches!(s.as_str(), "off" | "polite" | "assertive"))
     {
@@ -759,7 +814,7 @@ pub(crate) fn check_glass_group(tag: &tags::Tag, attrs: &[Attr]) -> Result<(), L
     }
     let scrolls = attrs.iter().any(|a| {
         matches!(a.name.as_str(), "overflow" | "overflow-x" | "overflow-y")
-            && matches!(&a.value, Expr::Str(v, _) if v == "scroll")
+            && matches!(&a.value, Expr::Str(v, _) if v == "scroll" || v == "auto")
     });
     if tag.node_type.scrolls_by_default() || scrolls {
         return refuse("on an element that scrolls: put the group on a child inside the scroll");
@@ -768,4 +823,169 @@ pub(crate) fn check_glass_group(tag: &tags::Tag, attrs: &[Attr]) -> Result<(), L
         return refuse("on a `canvas`: put the group on a child of the canvas");
     }
     Ok(())
+}
+
+/// CSS flex shorthand, projected into the three longhands before bytecode.
+pub(crate) fn flex_component(value: &Expr, index: usize) -> Result<Expr, LowerError> {
+    let mut out = value.clone();
+    match &mut out {
+        Expr::Ternary(_, yes, no, _) => {
+            **yes = flex_component(yes, index)?;
+            **no = flex_component(no, index)?;
+        }
+        Expr::Match { some, none, .. } => {
+            **some = flex_component(some, index)?;
+            **none = flex_component(none, index)?;
+        }
+        Expr::Let { body, .. } => **body = flex_component(body, index)?,
+        Expr::Str(text, span) => {
+            let number = |s: &str| s.parse::<f64>().ok().filter(|n| n.is_finite() && *n >= 0.0);
+            let (grow, shrink, basis) = match text.trim() {
+                word if word.eq_ignore_ascii_case("none") => (0.0, 0.0, "auto"),
+                word if word.eq_ignore_ascii_case("auto") => (1.0, 1.0, "auto"),
+                word if word.eq_ignore_ascii_case("initial") => (0.0, 1.0, "auto"),
+                text => {
+                    let mut depth = 0;
+                    let words: Vec<_> = text
+                        .split(|c: char| {
+                            if c == '(' {
+                                depth += 1;
+                            }
+                            if c == ')' {
+                                depth -= 1;
+                            }
+                            c.is_ascii_whitespace() && depth == 0
+                        })
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    let mut factors = Vec::new();
+                    let mut factor_positions = Vec::new();
+                    let mut basis = None;
+                    for (position, word) in words.into_iter().enumerate() {
+                        if let Some(n) = number(word) {
+                            factors.push(n);
+                            factor_positions.push(position);
+                        } else if basis.replace(word).is_some() {
+                            return err(
+                                "lower-attr-value",
+                                "`flex` expects none, auto, or <grow> [<shrink>] [<basis>]",
+                                *span,
+                            );
+                        }
+                    }
+                    // A third unitless zero is a zero length, not a factor.
+                    if factors.len() == 3 && factors[2] == 0.0 && basis.is_none() {
+                        factors.pop();
+                        factor_positions.pop();
+                        basis = Some("0px");
+                    }
+                    if factors.len() > 2
+                        || (factors.is_empty() && basis.is_none())
+                        || depth != 0
+                        || (factor_positions.len() == 2
+                            && factor_positions[1] != factor_positions[0] + 1)
+                    {
+                        return err(
+                            "lower-attr-value",
+                            "`flex` expects none, auto, or <grow> [<shrink>] [<basis>]",
+                            *span,
+                        );
+                    }
+                    (
+                        factors.first().copied().unwrap_or(1.0),
+                        factors.get(1).copied().unwrap_or(1.0),
+                        basis.unwrap_or("0%"),
+                    )
+                }
+            };
+            out = match index {
+                0 => Expr::Number(grow, *span),
+                1 => Expr::Number(shrink, *span),
+                _ => Expr::Str(basis.into(), *span),
+            };
+        }
+        _ if index == 1 => out = Expr::Number(1.0, value.span()),
+        _ if index == 2 => out = Expr::Str("0%".into(), value.span()),
+        _ => {}
+    }
+    Ok(out)
+}
+
+/// A literal `flex` (a number or the CSS shorthand's text) as its three
+/// longhands; `None` for a computed one, which the bake's measured-layout
+/// lint judges.
+pub(crate) fn flex_longhands(value: &Expr) -> Option<(f64, f64, String)> {
+    if !matches!(value, Expr::Str(..)) && numeric_literal(value).is_none() {
+        return None;
+    }
+    let part = |i| flex_component(value, i).ok();
+    let grow = part(0).as_ref().and_then(numeric_literal)?;
+    let shrink = part(1).as_ref().and_then(numeric_literal)?;
+    let Some(Expr::Str(basis, _)) = part(2) else {
+        return None;
+    };
+    Some((grow, shrink, basis))
+}
+
+/// Whether a `flex` bounds its box on the main axis by itself: a positive
+/// grow (it takes the container's free space), or a definite length basis,
+/// zero included (`flex="0 0 0px"` is an empty scrollport, as `height=0`
+/// is). `none`, `initial`, `"0"` (grow 0 over a `0%` basis) and a zero grow
+/// over `auto`, content or a zero percentage are not (Grok's batch 2
+/// reviews). A computed value is left to the bake's lint.
+pub(crate) fn flex_bounds(value: &Expr) -> bool {
+    let Some((grow, _, basis)) = flex_longhands(value) else {
+        return true;
+    };
+    let basis = basis.trim();
+    let intrinsic = matches!(
+        basis,
+        "auto" | "content" | "min-content" | "max-content" | "fit-content"
+    );
+    let zero_percent = basis
+        .strip_suffix('%')
+        .is_some_and(|n| n.trim().parse::<f64>().is_ok_and(|n| n == 0.0));
+    grow > 0.0 || !(intrinsic || zero_percent)
+}
+
+/// A shrinking flex item with a zero minimum fits a bounded flex column.
+/// Its shrink is the `flex-shrink` longhand's, or else the `flex`
+/// shorthand's (`flex="none"` does not shrink).
+pub(crate) fn shrinking_scroll(attrs: &[Attr], bounded_column: bool) -> bool {
+    let shrink = attrs
+        .iter()
+        .rev()
+        .find(|a| a.name == "flex-shrink")
+        .map(|a| numeric_literal(&a.value))
+        .or_else(|| {
+            let flex = attrs.iter().rev().find(|a| a.name == "flex")?;
+            Some(flex_longhands(&flex.value).map(|(_, shrink, _)| shrink))
+        });
+    bounded_column
+        && attrs
+            .iter()
+            .any(|a| a.name == "min-height" && numeric_literal(&a.value) == Some(0.0))
+        && shrink.is_none_or(|n| n.is_none_or(|n| n > 0.0))
+}
+
+pub(crate) fn bounded_column(tag: &str, attrs: &[Attr], inherited: bool) -> bool {
+    let word = |name: &str| {
+        attrs
+            .iter()
+            .rev()
+            .find(|a| a.name == name)
+            .and_then(|a| match &a.value {
+                Expr::Str(s, _) => Some(s.as_str()),
+                _ => None,
+            })
+    };
+    let column = word("display").map_or(tag == "column" || tag == "button", |v| v == "flex")
+        && word("flex-direction").map_or(tag == "column" || tag == "button", |v| {
+            v.starts_with("column")
+        });
+    column
+        && (attrs.iter().any(|a| {
+            matches!(a.name.as_str(), "height" | "max-height")
+                && !matches!(&a.value, Expr::Str(s, _) if s == "auto")
+        }) || shrinking_scroll(attrs, inherited))
 }

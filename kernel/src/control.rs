@@ -340,6 +340,38 @@ impl Kernel {
     }
 }
 
+/// HTML's maxlength applies to text field types and textarea, not number or controls.
+pub fn text_maxlength(props: &crate::PropList) -> Option<usize> {
+    if props.str(PropId::SemanticTag) != Some("textarea")
+        && !matches!(
+            props.str(PropId::Type).unwrap_or("text"),
+            "text" | "search" | "url" | "tel" | "email" | "password"
+        )
+    {
+        return None;
+    }
+    props
+        .get(PropId::Maxlength)
+        .and_then(crate::PropValue::as_int)
+        .and_then(|n| usize::try_from(n).ok())
+}
+
+/// A user-entered replacement truncated on a scalar boundary to the HTML UTF-16 limit.
+/// Authored value updates never call this; they may be longer than maxlength.
+pub fn limit_text<'a>(props: &crate::PropList, text: &'a str) -> &'a str {
+    let Some(limit) = text_maxlength(props) else {
+        return text;
+    };
+    let mut length = 0;
+    for (index, scalar) in text.char_indices() {
+        length += scalar.len_utf16();
+        if length > limit {
+            return &text[..index];
+        }
+    }
+    text
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

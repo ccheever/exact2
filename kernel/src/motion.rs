@@ -64,6 +64,10 @@ pub struct MotionSync {
     /// Its targets are not here: a host observes `Property::Layout` after
     /// layout, from the laid-out origin in the parent.
     pub layout: Vec<(u64, Transitions)>,
+    /// Each created or touched node's clock timeline, its
+    /// `animation-timeline: clock(Name)` (LLP 1055.002). Before `animations`:
+    /// the plays they start join it once every row is applied.
+    pub clocks: Vec<(u64, Option<String>)>,
     /// Each created or touched node's `animation` row (LLP 1055 D5).
     pub animations: Vec<(u64, Animations)>,
     /// Each created or touched node's drag timeline rows, and each consumer
@@ -78,6 +82,15 @@ pub struct MotionSync {
 impl MotionSync {
     /// Feed the engine, in order.
     pub fn apply(&self, engine: &mut Engine) -> Result<(), EngineError> {
+        // A clock timeline's joins wait for every row (LLP 1055.002): the
+        // start a join takes does not depend on the order of the nodes.
+        engine.hold_clock_joins();
+        let applied = self.apply_rows(engine);
+        engine.join_clocks();
+        applied
+    }
+
+    fn apply_rows(&self, engine: &mut Engine) -> Result<(), EngineError> {
         for node in &self.removed {
             engine.remove(*node);
         }
@@ -92,6 +105,9 @@ impl MotionSync {
         }
         for change in &self.changes {
             engine.observe(*change)?;
+        }
+        for (node, clock) in &self.clocks {
+            engine.set_animation_clock(*node, clock.as_deref());
         }
         for (node, animations) in &self.animations {
             engine.set_animations(*node, animations)?;
@@ -690,6 +706,8 @@ impl Kernel {
             } else {
                 node.style.animation.clone()
             };
+            sync.clocks
+                .push((id, node.style.animation_timeline.clock().map(str::to_owned)));
             sync.animations.push((id, row));
             sync.timelines
                 .push(crate::timeline::rows(self.arena(), key.index));

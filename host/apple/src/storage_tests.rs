@@ -78,6 +78,9 @@ fn storage_configuration_is_post_pixel_app_scoped_and_absent_in_agent_mode() {
             seen.lock().unwrap().paths.is_none(),
             "boot cannot configure storage"
         );
+        // The roots an `app:/` image resolves against are known at boot,
+        // before storage is and with nothing picked (LLP 1069.002 D7; recipes F18).
+        let at_boot = host.answer_hold("{\"op\":\"appRoots\"}").unwrap();
         host.activate_data();
         host.activate_data();
         let seen = seen.lock().unwrap();
@@ -87,6 +90,9 @@ fn storage_configuration_is_post_pixel_app_scoped_and_absent_in_agent_mode() {
         } else {
             let app_paths = seen.paths.as_ref().unwrap();
             assert!(app_paths.iter().all(|p| p.is_absolute()));
+            for path in app_paths {
+                assert!(at_boot.contains(&*path.to_string_lossy()), "{at_boot}");
+            }
             for (index, path) in app_paths.iter().enumerate() {
                 assert!(path.components().any(|part| part.as_os_str() == app_id));
                 assert!(app_paths

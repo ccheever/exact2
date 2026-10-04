@@ -690,8 +690,9 @@ function inputFixture() {
   // `page` is a built document being adopted (LLP 1048.000 D6); this page was not built.
   const f = vm.createContext({ inputReady: false, inputHandlers: null, page: null,
     views: new Map([[7, el]]), retiredViews: new WeakSet(), frames, sent, captured, el,
-    root: { querySelectorAll: () => buttons, addEventListener() {} }, // press feedback's listener: press.test.mjs drives it
-    document: { addEventListener(kind, fn) { if (kind === 'keydown') f.keydown = fn; }, activeElement: { closest: () => null } },
+    root: { querySelectorAll: () => buttons, addEventListener() {}, contains: () => true }, // press feedback's listener: press.test.mjs drives it
+    // The shortcuts' keydown listens in the capture phase, a pressable's activation in the bubble phase.
+    document: { addEventListener(kind, fn, capture) { if (kind === 'keydown') f[capture ? 'keydown' : 'keyActivate'] = fn; }, activeElement: { closest: () => null } },
     HTMLIFrameElement: class {}, HTMLInputElement: class {}, HTMLTextAreaElement: class {}, HTMLButtonElement: class {},
     inertAncestor: node => node.inert, getComputedStyle: () => ({ visibility: 'visible' }),
     requestAnimationFrame(fn) { frames.set(++serial, fn); return serial; },
@@ -822,6 +823,22 @@ test('moved keyboard shortcuts preserve modifiers, readiness, repeat and modal g
   expect(clicks).toBe(1);
   expect(h.key({ key: 'Escape', metaKey: false }).prevented).toBe(true);
   expect(clicks).toBe(2);
+});
+
+// chat F14: a pressable that is no button takes Enter, or Space unless it is
+// a link, as a click, after the key's handlers and unless one prevented it.
+test('a pressable that is no button activates by Enter or Space', () => {
+  const h = inputFixture(); h.load(); let clicks = 0;
+  const pressable = (tag, role = null) => ({ dataset: { exactOn: 'press' }, matches: s => s.split(', ').includes(tag), getAttribute: () => role, click() { clicks++; } });
+  const key = (target, extra) => { const e = { key: 'Enter', target, preventDefault() { this.prevented = true; }, ...extra }; h.f.keyActivate(e); return e; };
+  expect(key(pressable('div')).prevented).toBe(true);
+  expect(key(pressable('div'), { key: ' ' }).prevented).toBe(true);
+  expect(clicks).toBe(2);
+  for (const [target, extra] of [[pressable('div'), { defaultPrevented: true }], [pressable('div'), { repeat: true }], [pressable('div'), { metaKey: true }],
+    [pressable('div', 'link'), { key: ' ' }], [pressable('button'), {}], [pressable('div'), { key: 'a' }]]) expect(key(target, extra).prevented).toBeUndefined();
+  expect(clicks).toBe(2);
+  expect(key(pressable('div', 'link')).prevented).toBe(true);
+  expect(clicks).toBe(3);
 });
 
 // @ref LLP 1043.000 §3 D7/D8 — optional host code cannot gate data readiness.
@@ -1032,6 +1049,12 @@ test("a drive's storage is only a scratch store it names, apart from the app's o
   expect(storageKey('com.example.app', 'http://127.0.0.1:1/?storage=x')).toBe('com.example.app'); // only a drive's is scratch
   for (const name of ['', '.', '..', 'a/b', '%2e%2e']) expect(() => storageKey('com.example.app', `http://127.0.0.1:1/?agent=1&storage=${name}`)).toThrow('storage: one name');
   for (const host of ['web', 'linux']) await expect(open({ host, storage: '../x' })).rejects.toThrow('--storage: one name');
+  // The page's launch URL names the store, not where the app's router has
+  // since moved `location` (recipes F9: a pick after a navigation went to
+  // another store than the data module's).
+  const entries = performance.getEntriesByType;
+  performance.getEntriesByType = type => type === 'navigation' ? [{ name: 'http://127.0.0.1:1/?agent=1&storage=s1' }] : [];
+  try { expect(storageKey('com.example.app')).toBe('com.example.app/agent/s1'); } finally { performance.getEntriesByType = entries; }
 });
 
 // @ref LLP 1080.002 D7–D9 — the findings, parity and transcript over hand-written replies.

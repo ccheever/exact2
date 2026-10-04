@@ -57,6 +57,22 @@ final class HitOrderIOSTests: XCTestCase {
         XCTAssertTrue(hit(p, CGPoint(x: 100, y: 60)) === list, "through the backdrop to the list")
     }
 
+    /// A native module's view inside a `pointer-events: none` box is not a
+    /// target either: the touch reaches the button around it (paint F9).
+    func testAPointerEventsNoneBoxsPlatformViewLetsTheTouchThrough() throws {
+        let p = presenter(raised: 0)
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "view", "style": ["pointer_events": "none"]],
+            ["op": "children", "id": 2, "ids": [4]],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 0.0, "w": 44.0, "h": 44.0],
+        ]))
+        let thumbnail = try XCTUnwrap(p.views[4])
+        thumbnail.addSubview(UIView(frame: thumbnail.bounds)) // the module's view
+        p.apply(wireBatch([["op": "children", "id": 1, "ids": [3, 2]]]))
+        window.layoutIfNeeded()
+        XCTAssertTrue(hit(p, CGPoint(x: 360, y: 20)) === p.views[2], "the button around the native view")
+    }
+
     func testWithoutZIndexTheLaterSiblingIsOnTop() throws {
         let p = presenter(raised: 0)
         let list = try XCTUnwrap(p.views[3])

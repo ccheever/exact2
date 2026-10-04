@@ -4,30 +4,68 @@
 // itself (D5), described by the browser (D3: pixel size from
 // createImageBitmap, which applies EXIF orientation; a video's from its
 // metadata), and delivered as `change` (host kind 26). Under the agent the
-// driver's bytes arrive as Files and take the same path (D9).
+// driver's bytes arrive as Files and take the same path (D9). Also loaded
+// by the first `app:/` source an `image` or `video` shows (D7): `appURL`.
 const picked = new Map(); // app:/tmp/picked/… → File
-const urls = new Map(); // app:/tmp/picked/… → its blob URL, for `image`/`video` (D7)
-let store; // the app's file store, or null when it has none (a drive without --storage)
+const urls = new Map(); // app:/… → [its object URL, the version it was made from], for `image`/`video` (D7)
+let opened; // the app's file store, or null when it has none (a drive without --storage)
+let emptied; // the store once `app:/tmp/picked/` is emptied, at this page's first pick (D4)
+
+// The store the app's own sources open (storage-environment.js `storageKey`,
+// the page's launch URL's), so what a pick puts there the data module reads.
+function fileStore(appId) {
+  return opened ??= (async () => {
+    try {
+      const { storageKey } = await import('./storage-environment.js');
+      const key = storageKey(appId);
+      if (key == null) return null;
+      const { createFileStore } = await import('./storage-fs.js');
+      return createFileStore(key);
+    } catch (error) {
+      console.warn('exact: the app\'s files are not available', String(error));
+      return null;
+    }
+  })();
+}
+
+/** An `app:/` source for an `image` or `video` (D7): an object URL for the
+ * app's own file — one this page picked, or one in its store (a pick the
+ * data module kept in `app:/data`, after a reload too) — or '' when there is
+ * none. A file that changed gets a new URL; the last one is revoked. */
+async function appURL(path, appId) {
+  const file = picked.get(path);
+  if (file) return made(path, file, file);
+  try {
+    const s = await fileStore(appId);
+    if (!s) return '';
+    const { blob, modifiedMs } = await s.blob(path, typeFor(path));
+    return made(path, blob, `${modifiedMs}:${blob.size}`);
+  } catch {
+    return ''; // no such file, or not an app:/data|cache|tmp path: nothing to show
+  }
+}
+function made(path, blob, version) {
+  const was = urls.get(path);
+  if (was?.[1] === version) return was[0];
+  if (was) URL.revokeObjectURL(was[0]);
+  const url = URL.createObjectURL(blob);
+  urls.set(path, [url, version]);
+  return url;
+}
+globalThis.exact.appURL = appURL;
 
 globalThis.exact.picker = function install(host) {
   // host: { dispatch(id, kind, payload), pickedPath(name), appId, log(line) }
-  async function fileStore() {
-    if (store !== undefined) return store;
-    try {
-      const { storageKey } = await import('./storage-environment.js');
-      const key = storageKey(host.appId, location.href);
-      if (key == null) return store = null;
-      const { createFileStore } = await import('./storage-fs.js');
-      const s = createFileStore(key);
-      // What the last page picked is gone (D4).
-      await s.rm('app:/tmp/picked').catch(() => {});
-      await s.mkdir('app:/tmp/picked');
-      return store = s;
-    } catch (error) {
-      console.warn('exact: picked files are not stored', String(error));
-      return store = null;
-    }
-  }
+  // What the last page picked is gone (D4).
+  const pickStore = () => emptied ??= fileStore(host.appId).then(async s => {
+    if (!s) return null;
+    await s.rm('app:/tmp/picked').catch(() => {});
+    await s.mkdir('app:/tmp/picked');
+    return s;
+  }).catch(error => {
+    console.warn('exact: picked files are not stored', String(error));
+    return null;
+  });
   async function describe(file) {
     const size = { width: '', height: '', duration: '' };
     try {
@@ -47,7 +85,7 @@ globalThis.exact.picker = function install(host) {
   }
   const clean = (s) => String(s).replace(/[\t\r\n]/g, ' ');
   async function deliver(id, files) {
-    const s = await fileStore(), lines = [];
+    const s = await pickStore(), lines = [];
     for (const file of files) {
       const path = await host.pickedPath(file.name);
       picked.set(path, file);
@@ -59,7 +97,7 @@ globalThis.exact.picker = function install(host) {
   }
   // `saveFile` (LLP 1069.010 D3): the `app:/` file's bytes, from the store.
   async function appBytes(from) {
-    const s = await fileStore();
+    const s = await fileStore(host.appId);
     if (!s) throw new Error('this page has no app files');
     return new Uint8Array(await s.readFile(from));
   }
@@ -99,6 +137,7 @@ globalThis.exact.picker = function install(host) {
     /** The element's own `change`: what the person chose. */
     change: (el, id) => el.files?.length ? deliver(id, [...el.files]).finally(() => { el.value = ''; }) : Promise.resolve(),
     cancel: (id) => host.dispatch(id, 27, ''),
+    appURL: (path) => appURL(path, host.appId),
     /** The agent's answer (D9): `files` as the driver sent them, or null for `tap @t cancel`. */
     answer(id, files) {
       if (!files) { host.dispatch(id, 27, ''); return Promise.resolve(); }
@@ -112,18 +151,9 @@ globalThis.exact.picker = function install(host) {
   };
 };
 
-/** A blob URL for an `app:/tmp/picked/…` source this page picked (D7), or
- * an empty string (nothing to show) for any other `app:/` path. */
-globalThis.exact.pickedURL = function (path) {
-  const file = picked.get(path);
-  if (!file) return '';
-  if (!urls.has(path)) urls.set(path, URL.createObjectURL(file));
-  return urls.get(path);
-};
-
 // A browser's guess from the name, for the agent's files.
 function typeFor(name) {
   const ext = name.toLowerCase().split('.').pop();
   return { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', heic: 'image/heic', heif: 'image/heif', avif: 'image/avif',
-    mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm', json: 'application/json', md: 'text/markdown', txt: 'text/plain' }[ext] ?? 'application/octet-stream';
+    svg: 'image/svg+xml', mp4: 'video/mp4', mov: 'video/quicktime', m4v: 'video/x-m4v', webm: 'video/webm', json: 'application/json', md: 'text/markdown', txt: 'text/plain' }[ext] ?? 'application/octet-stream';
 }

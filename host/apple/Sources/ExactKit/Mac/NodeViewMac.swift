@@ -59,7 +59,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     var props: [String: String] = [:] { didSet { presenter?.propsChanged(self) } }
     var style: NodeStyle = [:]
     var clipPath: CGPath?, clipRule = CGPathFillRule.winding
-    var handlers: Set<String> = [] { didSet { video?.update(); if handlers.contains("hover") != oldValue.contains("hover") { syncHoverTracking() } } } // the media events the player reports; a hover handler's tracking area
+    var handlers: Set<String> = [] { didSet { video?.update(); if handlers.contains("hover") != oldValue.contains("hover") || handlers.contains("pointermove") != oldValue.contains("pointermove") { syncHoverTracking() } } } // the media events the player reports; a hover handler's tracking area
     var translate = CGPoint.zero, layoutOffset = CGPoint.zero, layoutScale = CGPoint(x: 1, y: 1) // layout*: the box layout moved it from (LLP 1063)
     var surface: SurfaceLayer? { didSet { layerPaintCache = nil } } // its surface at a layout transition's size (`Surface.swift`)
     /// How far its frame stands from layout's: a lifted Arrange row's
@@ -294,8 +294,12 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// AppKit called that on every node view, thousands of them, each time
     /// the scroll view moved, and posted a notification for each (25 ms/s
     /// of a fling's main thread on bones, 2026-09-30, against SwiftUI's 9).
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        if let cursor = CSSCursor.value(style["cursor"]?.string ?? "auto") { addCursorRect(bounds, cursor: cursor) }
+    }
     func syncHoverTracking() {
-        let wants = handlers.contains("hover") || inlineText.contains(where: { $0.handlers.contains("hover") })
+        let wants = handlers.contains("hover") || handlers.contains("pointermove") || inlineText.contains(where: { $0.handlers.contains("hover") })
         if wants, tracking == nil {
             let t = NSTrackingArea(rect: .zero, options: [.mouseEnteredAndExited, .mouseMoved, .activeAlways, .inVisibleRect], owner: self, userInfo: nil)
             addTrackingArea(t)
@@ -308,6 +312,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
     override func mouseMoved(with event: NSEvent) {
         guard !inert else { return }
+        pointerHovered(event)
         if canvasInput?.pointer(event, phase: "move") == true { return }
         let run = inlineTarget(at: local(event.locationInWindow), handler: "hover")
         presenter?.hoverInline(run?.id)
@@ -329,14 +334,14 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return super.accessibilityAttributeValue(attribute)
     }
     override func accessibilityChildren() -> [Any]? {
-        kind == "button" ? nil : textAccessibilityChildren() ?? super.accessibilityChildren()
+        actsAsButton ? nil : textAccessibilityChildren() ?? super.accessibilityChildren()
     }
     /// What VoiceOver reaches, as the web's accessibility tree and iOS's
     /// traits have it: a pressable is a button — a link when its role says
     /// so — and a labelled image an image. Headings are paragraphs
     /// (`updateTextAccessibility`); names come from `syncAccessibility`.
     func updateRoleAccessibility() {
-        if kind == "button" {
+        if actsAsButton {
             setAccessibilityElement(true)
             setAccessibilityToggle(pressedState, else: props["accessibilityRole"] == "link" ? .link : .button)
             setAccessibilitySelected(props["accessibilitySelected"] == "true")
@@ -556,6 +561,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     @objc func clipScrolled() {
         // A collection's knob keeps the offset the reader saw (CollectionMac.swift).
         if let sv = scroll, let drag = KnobDrag.of(sv), !drag.admits(sv.contentView, correcting: presenter?.collections.correcting == true) { return }
+        if let o = scroll?.contentView.bounds.origin { presenter?.onScrolled?(id, Double(o.x), Double(o.y)) }
         presenter?.stickies.scrolled(id)
         presenter?.collectionScrolled(id)
         presenter?.transformGeometry.changed()
@@ -640,8 +646,18 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if let clipPath, !clipPath.contains(convert(point, from: superview), using: clipRule) { return nil }
         if isSurfaceControl, bounds.contains(convert(point, from: superview)) { return self }
         func ordinary() -> NSView? {
-            let hit = raisedHit(super.hitTest(point), point)
-            return hit != nil && hit === overlay ? self : hit
+            let found = raisedHit(super.hitTest(point), point) ?? overflowHit(point)
+            let hit = found != nil && found === overlay ? self : found
+            // CSS `pointer-events: none`: the box is never the target, nor
+            // are its own platform views — a native module's (paint F9), a
+            // field's — so the click goes to what is under it, as on iOS. A
+            // descendant node that sets `auto` again still takes it.
+            if let hit, style["pointer_events"]?.string == "none" {
+                var owner: NSView? = hit
+                while let v = owner, !(v is NodeView) { owner = v.superview }
+                if owner === self { return nil }
+            }
+            return hit
         }
         guard let overlay, let sup = superview else { return ordinary() }
         let placed = overlay.subviews.compactMap { $0 as? NodeView }.filter { $0.placement != nil || $0.placementHidden }
@@ -662,7 +678,32 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             let inOverlay = NSPoint(x: child.frame.minX + p.x, y: child.frame.minY + p.y)
             if let hit = child.hitTest(inOverlay) { return hit }
         }
-        return self
+        // Missed by every child: the canvas itself, unless it lets the
+        // pointer through (`pointer-events: none`, as `ordinary` says).
+        return style["pointer_events"]?.string == "none" ? nil : self
+    }
+
+    /// CSS visible overflow is hit where it paints, as on iOS: AppKit
+    /// refuses a point outside a view's frame before it asks the subviews,
+    /// so a positioned popup beyond its parent's box took no clicks (ledger
+    /// F13, shop F18). Outside this box and unclipped, the children are
+    /// asked here, topmost first. `point` is in the superview's space.
+    private func overflowHit(_ point: NSPoint) -> NSView? {
+        guard !isHidden, scroll == nil, clipBox == nil, !clipsToBounds, !subviews.isEmpty else { return nil }
+        let local = convert(point, from: superview)
+        let outsideX = local.x < bounds.minX || local.x > bounds.maxX
+        let outsideY = local.y < bounds.minY || local.y > bounds.maxY
+        guard outsideX || outsideY else { return nil }
+        if outsideX && (style["overflow_x"]?.string ?? "visible") != "visible" { return nil }
+        if outsideY && (style["overflow_y"]?.string ?? "visible") != "visible" { return nil }
+        let order = subviews.enumerated().sorted {
+            let (a, b) = ($0.element.layer?.zPosition ?? 0, $1.element.layer?.zPosition ?? 0)
+            return a != b ? a > b : $0.offset > $1.offset
+        }
+        for case let child as NodeView in order.map(\.element) {
+            if let hit = child.hitTest(local) { return hit }
+        }
+        return nil
     }
 
     /// The box on screen, through the placement of the placed child this
@@ -710,6 +751,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         if let regions = presenter?.session?.regions, regions.owns(self) { regions.geometryChanged() }
+        // An `svg`'s paints are resolved into its scene's layers.
+        presenter?.svg.reappear(id, dark: drawsDark, clock: presenter?.session?.clock)
         guard hasSchemeColor || inlineText.contains(where: { $0.hasSchemeColor }) else { return }
         paragraphOwner.invalidateText()
         paragraphOwner.needsDisplay = true
@@ -745,6 +788,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         f.isEditable = true
         f.isSelectable = true
         f.delegate = self
+        f.formatter = TextInputFormatter(self)
         f.cell?.isScrollable = true
         f.cell?.wraps = false
         f.cell?.usesSingleLineMode = true
@@ -958,6 +1002,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let origin = style["transform_origin"]
         let old = style
         style = s
+        if old["cursor"] != s["cursor"] { window?.invalidateCursorRects(for: self) }
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)
         let uniformBorder = number("border_width")
@@ -978,7 +1023,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // wrote in (never from the node's kind): `scroll` on an axis makes a
         // scroll container that scrolls that axis; `hidden` clips.
         let ox = s["overflow_x"]?.string ?? "visible", oy = s["overflow_y"]?.string ?? "visible"
-        if (ox == "scroll" || oy == "scroll") && scroll == nil {
+        if ((ox == "scroll" || ox == "auto") || (oy == "scroll" || oy == "auto")) && scroll == nil {
             let sv = ChainingScrollView(frame: bounds)
             sv.collectionWillScroll = { [weak self] in
                 guard let self else { return }
@@ -1008,7 +1053,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             scroll = sv
             presenter?.scrollers.insert(id)
         }
-        if ox != "scroll" && oy != "scroll", let sv = scroll {
+        if ox != "scroll" && ox != "auto" && oy != "scroll" && oy != "auto", let sv = scroll {
             // Neither axis scrolls any more: the children come back out.
             GlassGroups.moving(in: self) {
                 for child in sv.documentView?.subviews ?? [] where child is NodeView { child.removeFromSuperview(); (overlay ?? materialContent ?? self).addSubview(child) }
@@ -1017,8 +1062,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             scroll = nil
             presenter?.scrollers.remove(id)
         }
-        scroll?.scrollsX = ox == "scroll"
-        scroll?.scrollsY = oy == "scroll"
+        scroll?.scrollsX = (ox == "scroll" || ox == "auto")
+        scroll?.scrollsY = (oy == "scroll" || oy == "auto")
         // `overflow: hidden` clips the children, to the box's rounded corners
         // as the web and UIKit do (LLP 1054 P2). One radius rides the layer;
         // differing radii clip to the bounds, as UIKit's layer path does.
@@ -1051,8 +1096,8 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if let sv = scroll, sv.horizontalScrollElasticity != ex { sv.horizontalScrollElasticity = ex }
         if let sv = scroll, sv.verticalScrollElasticity != ey { sv.verticalScrollElasticity = ey }
         let scrollbarWidth = s["scrollbar_width"]?.string ?? "auto"
-        scroll?.hasHorizontalScroller = ox == "scroll" && scrollbarWidth != "none"
-        scroll?.hasVerticalScroller = oy == "scroll" && scrollbarWidth != "none"
+        scroll?.hasHorizontalScroller = (ox == "scroll" || ox == "auto") && scrollbarWidth != "none"
+        scroll?.hasVerticalScroller = (oy == "scroll" || oy == "auto") && scrollbarWidth != "none"
         scroll?.horizontalScroller?.controlSize = scrollbarWidth == "thin" ? .small : .regular
         scroll?.verticalScroller?.controlSize = scrollbarWidth == "thin" ? .small : .regular
         styleTextArea()
@@ -1219,9 +1264,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         if presenter?.views[id] === self { firstDraw() }
         if let ctx = NSGraphicsContext.current?.cgContext { drawCapturedShadow(ctx) }
         // What the layer shows (`BoxLayerMac.swift`) is not painted again,
-        // except into a capture, which sees views and not layer properties.
-        let layerPaint = layerBoxEligible && !Capture.capturing
-        if layerPaint { applyLayerPaint() }
+        // nor into a capture where the capture shows the layer's paint as
+        // the window does (`captureShowsLayerPaint`).
+        let layerPaint = layerBoxEligible && (!Capture.capturing || captureShowsLayerPaint)
+        if layerPaint, !Capture.capturing { applyLayerPaint() }
         let paintsBox = hasBoxPaint && (!layerPaint || boxNeedsDraw)
         let rounded = cornerRadii(in: bounds).contains { $0 > 0 }
         // The box's outline only where something is painted through it.
@@ -1239,7 +1285,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             let radii = BorderPaint.radii(style, in: bounds)
             BorderPaint.paint(ctx, box: bounds, widths: widths, colors: colors, radii: radii, shape: CornerShape(style["corner_shape"]))
         }
-        if kind == "image", symbolView == nil, flightLook == nil || imageLayer == nil, !(layerPaint && imageLayer != nil), let bitmap = raster?.image {
+        if kind == "image", symbolView == nil, flightLook == nil || imageLayer == nil, !(layerBoxEligible && !Capture.capturing && imageLayer != nil), let bitmap = raster?.image {
             // CSS object-fit over the content box (the frame inside border
             // and padding), clipped by the border box's radius: `fill`
             // stretches, `contain`/`cover` keep the ratio, `none` is the
@@ -1299,7 +1345,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     }
     override func mouseDown(with event: NSEvent) {
         guard !inert else { return }
-        pointerPressed()
+        pointerPressed(event)
         if isSurfaceControl { _ = control("down", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "down") == true { return }
         presenter?.leaves.pressed(self) // a held leaf's box was clicked: made now (LLP 1068 §5.1)
@@ -1314,7 +1360,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             presenter?.selection.begin(self, event: event)
             return
         }
-        if isParagraph, !pressable, !hasPressableAncestor {
+        if selectsText {
             window?.makeFirstResponder(self)
             presenter?.selection.begin(self, event: event)
             return
@@ -1331,6 +1377,9 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             pressed = true
         } else { super.mouseDown(with: event) }
     }
+    /// A paragraph's drag selects its text unless a press takes it: its
+    /// own handler (a `<span onClick>`, spreadsheet F12) or an ancestor's.
+    var selectsText: Bool { isParagraph && !pressable && !hasPressableAncestor }
     var hasPressableAncestor: Bool {
         var next = superview
         while let view = next {
@@ -1340,6 +1389,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         return false
     }
     override func mouseDragged(with event: NSEvent) {
+        pointerDragged(event)
         guard !inert else { return }
         if isSurfaceControl || ownsSurfaceControl { _ = control("move", point: local(event.locationInWindow), timestamp: event.timestamp); return }
         if canvasInput?.pointer(event, phase: "move") == true { return }
@@ -1347,7 +1397,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         // A gesture that engages ends the press (the chain clears `pressed`).
         if presenter?.mouseChain.drag(event) == true { return }
         pressFollows(inside: pressInside(event.locationInWindow))
-        if isParagraph && !hasPressableAncestor { presenter?.selection.drag(event) }
+        if selectsText { presenter?.selection.drag(event) }
         else { super.mouseDragged(with: event) }
     }
     override func rightMouseUp(with event: NSEvent) {
@@ -1356,7 +1406,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         presenter?.contextmenu(id)
     }
     override func mouseUp(with event: NSEvent) {
-        pointerReleased()
+        pointerReleased(event)
         guard !inert else { return }
         if isSurfaceControl || ownsSurfaceControl { _ = control("up", point: local(event.locationInWindow), timestamp: event.timestamp); finishPointerPress(); return }
         if canvasInput?.pointer(event, phase: "up") == true { return }
@@ -1376,7 +1426,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
             if inlineTarget(at: local(event.locationInWindow), handler: "press")?.id == run { _ = activateInline(run) }
             return
         }
-        if isParagraph && !hasPressableAncestor { presenter?.selection.end(self, event: event); return }
+        if selectsText { presenter?.selection.end(self, event: event); return }
         guard !disabled else { pressed = false; return }
         guard pressed else { return super.mouseUp(with: event) }
         pressed = false

@@ -2,6 +2,10 @@
 //!
 //!   difftest corpus [<dir|file>…]        every `test` block (default semantics/corpus)
 //!   difftest explore <dir|file>…         any programs: tap every testId the boot shows
+//!   difftest verify <file> [--types] [--prove <Module>]   one app: its tests and an
+//!                                        explore script, divergences located in its source
+//!   difftest quick [--base <rev>]        before landing a change to contract/, runner/,
+//!                                        plan/ or semantics/: what it touches, in a minute
 //!   difftest random [--seed S] [--count N] [--batch B]
 //!   difftest numbers [--seed S] [--count N]   number printing alone
 //!   difftest types [--seed S] [--count N]     the Lean type checker against the Rust one
@@ -27,6 +31,8 @@ use std::process::ExitCode;
 const USAGE: &str = "usage:
   difftest corpus [<dir|file>…]
   difftest explore <dir|file>…
+  difftest verify <file.contract> [--types] [--prove <Module>]
+  difftest quick [--base <rev>]
   difftest random [--seed <u64>] [--count <n>] [--batch <n>]
   difftest numbers [--seed <u64>] [--count <n>]
   difftest types [--seed <u64>] [--count <n>]
@@ -40,6 +46,8 @@ fn main() -> ExitCode {
     let result = match args.first().map(String::as_str) {
         Some("corpus") => run_corpus(&args[1..]),
         Some("explore") => run_explore(&args[1..]),
+        Some("verify") => run_verify(&args[1..]),
+        Some("quick") => contract_difftest::quick::run(&args[1..]),
         Some("random") => run_random(&args[1..]),
         Some("numbers") => run_numbers(&args[1..]),
         Some("types") => run_types(&args[1..]),
@@ -130,6 +138,25 @@ fn run_explore(args: &[String]) -> Result<bool, String> {
     }
     let outcomes = check(cases, 16, "explore")?;
     report(&outcomes, false, false)
+}
+
+/// One app for its author (`contract verify`).
+fn run_verify(args: &[String]) -> Result<bool, String> {
+    let mut file = None;
+    let mut options = contract_difftest::verify::Options::default();
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--types" => options.types = true,
+            "--prove" => {
+                options.prove = Some(it.next().ok_or("--prove needs a module name")?.clone())
+            }
+            f if !f.starts_with('-') && file.is_none() => file = Some(PathBuf::from(f)),
+            other => return Err(format!("unknown argument {other}\n{USAGE}")),
+        }
+    }
+    let file = file.ok_or_else(|| format!("verify needs a file\n{USAGE}"))?;
+    contract_difftest::verify::run(&file, &options)
 }
 
 fn run_random(args: &[String]) -> Result<bool, String> {

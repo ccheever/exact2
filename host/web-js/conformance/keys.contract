@@ -4,13 +4,20 @@
 // handler calls `preventDefault()` (calc F3); Enter submits only when no
 // handler on its path prevented it (the page's, while the field is empty);
 // a grid claims ArrowDown and Space, so the scroller around it does not move
-// (minesweeper F7).
+// (minesweeper F7). An action taking the `KeyboardEvent` reads its
+// modifiers: a textarea's Enter sends and Shift+Enter breaks the line (chat
+// F2), and ⌘S/Ctrl+S saves (kanban F27). A pressable that is no button takes
+// the focus and Enter or Space presses it, as natively (chat F14).
 component Keys
   state text = ""
   state heard = ""
   state cursor = 0
   state submits = 0
-  action sent
+  state draft = ""
+  state sent = ""
+  state saved = 0
+  state pressed = 0
+  action submitted
     submits = submits + 1
   action typed(v: string)
     text = v
@@ -18,9 +25,12 @@ component Keys
     heard = `${heard}f${k}`
     if k == "x"
       preventDefault()
-  action outer(k: string)
+  action outer(k: string, e: KeyboardEvent)
     heard = `${heard}o${k}`
     if k == "Enter" and text == ""
+      preventDefault()
+    if (e.metaKey or e.ctrlKey) and k == "s"
+      saved = saved + 1
       preventDefault()
   action grid(k: string)
     if k == "ArrowDown"
@@ -29,9 +39,22 @@ component Keys
     if k == " "
       cursor = 0
       preventDefault()
+  action hit
+    pressed = pressed + 1
+  action write(v: string)
+    draft = v
+  action compose(k: string, e: KeyboardEvent)
+    if k == "Enter" and not e.shiftKey
+      sent = draft
+      draft = ""
+      preventDefault()
   view
     column testId="page" key=outer height=320 overflow-y="scroll" gap=8 padding=8
-      input value=text input=typed key=field submit=sent testId="field" padding=8
+      input value=text input=typed key=field submit=submitted testId="field" padding=8
       text heard testId="heard"
+      textarea value=draft input=write key=compose testId="area" height=60
+      text sent testId="sent"
+      column press=hit testId="pressable" padding=8
+        text `pressed ${pressed}`
       column key=grid testId="grid" height=900 background-color="#eeeeee"
         text `${cursor}` testId="cursor"

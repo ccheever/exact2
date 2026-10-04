@@ -414,6 +414,15 @@ with PR #47, with Charlie's rulings of 2026-09-27 where he made them; the
   and fills the resulting box. The former overflow deviation is removed
   (`issues/closed/20260927-tab-bar-height-to-layout.md`).
 
+**Clock timelines (2026-10-03, [LLP 1055.002](1055.002-synced-animations.rfc.md)
+D2; not reviewed).** `animation-timeline` takes a third value, `clock(<ident>)`,
+which CSS has no form of. Its animations stay on the clock (it is `auto` to
+every other reader, the name lookup included) and each starts at the last
+cycle boundary of the timeline it names, so every animation on one timeline is
+in phase. The reason: indicators that appear at different moments (two pending
+commands, skeletons) should pulse together, and CSS can only do that with a
+script setting each animation's `startTime`; the web host does exactly that.
+
 **Drag timelines (2026-09-27, [LLP 1057.003](1057.003-gesture-timelines.rfc.md)
 D1, accepted by Charlie).** `drag-timeline`, bit 150, is not CSS. CSS names a
 timeline on a scroller (`scroll-timeline`) or on a box's visibility
@@ -1038,3 +1047,50 @@ same intrinsic-size seam. Without metadata its fallback is 300×150. The Contrac
 tag carries the browser video UA rule `object-fit: contain`; an explicit CSS row
 wins. Playback, controls and the media clock belong to the browser or the optional
 AVKit artifact. Keyboard layout uses the existing viewport policy, not media state.
+
+Viewport dimensions (2026-10-04): dimension rows admit `vw`, `vh`, `vmin`,
+`vmax`, `svw`, `svh`, `lvw`, `lvh`, `dvw`, `dvh`. The web retains the CSS
+unit; native resolves it from the root layout offer and re-derives it on
+resize. Native windows have no retractable browser chrome, so their small,
+large and dynamic viewports coincide. Viewport units on scalar length rows
+(font size, spacing, border widths) remain unsupported; their diagnostic
+names the length forms the row accepts.
+
+`cursor` (2026-10-04) admits CSS's predefined keyword set, inherited. Web emits
+the keyword. macOS uses NSCursor; unavailable artwork (help/wait/progress,
+diagonal resize, zoom before macOS 15) uses an arrow/crosshair stand-in. iOS,
+tvOS and Linux ignore this presentation hint: their presenters expose no
+CSS cursor executor. Cursor image URLs remain unsupported.
+
+Font lists (2026-10-04) are CSS family lists, one to 64 members; a plan family
+with no faces names an installed local family. Web uses the full CSS list;
+Apple matches available families and gives CoreText the ordered cascade.
+Linux matches the first available family, with its existing cosmic-text
+glyph fallback. It logs `font-stack-fallback` for a multi-member list: an
+authored per-glyph cascade needs a shaping API beyond cosmic-text's one
+`Attrs.family`, and remains owed rather than silently claimed as CSS parity.
+
+CSS form and text vocabulary (app diaries kanban F11, ledger F1/F4,
+minesweeper F4, pomodoro F2): `rows` is HTML intrinsic line count and maxlength
+limits user UTF-16 edits, leaving authored values intact. Native interactive
+CSS resize handles are not implemented; Contract admits none and diagnoses
+other CSS values. Portable user-select admits auto/none: macOS selection omits
+none subtrees; iOS/Linux have no ordinary selectable text executor, so
+text/all/contain are diagnosed at compile time. Border shorthands reset and
+lower to existing side rows. Native border painters support none/hidden/solid;
+other line styles are diagnosed. Text-decoration lowers solid currentcolor
+underline/line-through to the existing line row; other color/style/thickness
+components are diagnosed. Linux draws its UA lines from font size and glyph
+advances; underline skip-ink:auto is not implemented and its driver log names
+that deviation once. Web and Apple use their text systems' decoration metrics.
+
+CSS flex shorthand admits grow/shrink factors and any admitted dimension basis,
+with the factors adjacent as CSS requires. Intrinsic flex-basis keywords
+content/min-content/max-content/fit-content are not represented by v1 dimension
+rows; the compiler names their intrinsic sizing requirement and refuses them,
+rather than describing valid CSS as a malformed shorthand.
+
+Font-family's other CSS generics (cursive/fantasy/math/emoji/fangsong) have no
+native mapping in the current catalog, and CSS-wide values are not represented
+by plan stack ids. Contract diagnoses both limits; quoted names are local
+families even when their spelling is a CSS generic.

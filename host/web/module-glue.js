@@ -96,7 +96,7 @@ export async function prepare(payload, admitted, id = nextId++) {
   frame.setAttribute('aria-hidden', 'true'); document.body.append(frame);
   const win = frame.contentWindow;
   let context = null, initializationError = null, disposed = false, tail = Promise.resolve();
-  const seed = agentSeed(location.href), stream = seed === null ? null : agentStream(seed, 'typescript');
+  const seed = agentSeed(), stream = seed === null ? null : agentStream(seed, 'typescript');
   let storage;
   win.addEventListener('error', event => { initializationError = event.message; event.preventDefault(); });
   win.__exact_host = (op, name, value) => {
@@ -128,15 +128,16 @@ export async function prepare(payload, admitted, id = nextId++) {
   };
   try {
     storage = createStorage(win, admitted, () => context.owner);
-    // Disable accidental browser I/O before the module captures globals.
-    for (const key of ['XMLHttpRequest', 'WebSocket', 'EventSource', 'setTimeout', 'setInterval', 'requestAnimationFrame']) {
+    // Disable accidental browser I/O before the module captures globals; the
+    // prelude refuses timers and the clock, by name, as Hermes does.
+    for (const key of ['XMLHttpRequest', 'WebSocket', 'EventSource']) {
       Object.defineProperty(win, key, { value: () => { throw new Error(`${key} is unavailable in data sources`); }, configurable: false });
     }
     // A LAN dev page has no `crypto.subtle`: the realm's SHA-256 digest is
     // the dev protocol's, as module integrity's is (LLP 1069.005 D1).
     if (!win.crypto.subtle && globalThis.exact.moduleDigest) win.__exact_digest = bytes => globalThis.exact.moduleDigest(bytes);
     // Kept keys (LLP 1069.005 D1b): the CryptoKeyPair in this realm's IndexedDB.
-    win.__exact_keys = keyStore(storageKey(admitted.appId, location.href), win.indexedDB);
+    win.__exact_keys = keyStore(storageKey(admitted.appId), win.indexedDB);
     for (const source of [before, decoder.decode(payload.script)]) {
       const script = win.document.createElement('script'); script.textContent = source; win.document.head.append(script);
       if (initializationError) throw new Error(initializationError);
@@ -277,7 +278,7 @@ async function prepareWorker(payload, admitted, id, before, meta) {
   worker.onmessageerror = () => fail('module worker message failed');
   const ready = new Promise((resolve, reject) => waiting.set(0, { resolve, reject }));
   worker.postMessage({ op: 'init', token: 0, prelude: before, script: decoder.decode(payload.script), admitted,
-    storage: storageKey(admitted.appId, location.href), pageDigest: !!globalThis.exact.moduleDigest, seed: agentSeed(location.href) });
+    storage: storageKey(admitted.appId), pageDigest: !!globalThis.exact.moduleDigest, seed: agentSeed() });
   try { await ready; } catch (error) { worker.terminate(); throw error; }
   const realm = { frame: null, meta, grantSet: admitted.grantSet, id, placement: 'worker',
     forget(inFlight) {

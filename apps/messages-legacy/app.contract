@@ -86,6 +86,9 @@ component Messages
   state newDraft = ""
   state showContacts = false
   mutation change as shape Change
+  // A draft saved on the way to a new message: its own mutation, so the
+  // message's send does not forget its reply (LLP 1088 D8).
+  mutation draftSaved as shape Change
   derive revision = match change { case some(c) => c.revision, case none => 0 }
   derive pendingReplies = match change { case some(c) => c.pending, case none => false }
   derive typingPhase = ticks % 4
@@ -456,7 +459,7 @@ component Messages
     timestampOffset = 0
     if contacts.canSend and trim(newDraft) != ""
       if chatThread != "" and chatThread != contacts.target and (draftThread == chatThread or replyThread == chatThread or savedComposer.thread == chatThread)
-        send change = saveDraft(chatThread, draft, replying)
+        send draftSaved = saveDraft(chatThread, draft, replying)
       send change = sendMessage(contacts.target, newDraft, "", ticks, now())
       nav = open(nav, path("thread", contacts.target))
       draftThread = contacts.target

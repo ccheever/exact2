@@ -2,10 +2,12 @@
 //
 // @ref LLP 1007 §3. This is host code, not app code: it knows nothing about
 // the app. The app is the wasm (runner + kernel + data crate + baked plan).
-import { grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, guestOutline, guestTap, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter, valuedControl, typedControl, settleValue, typeControl, reveal, viewBox, foldBits, foldEnv, onFold, preferFold, fold } from "./navigation.js";
+import { grantOrigins, createGrantSet, grantError, rawGrantText, scopedGrantSet, deferredFulfill, refusal, guestOutline, guestTap, commitGuestOrigin, guestMessageAuthorized, guestType, focusController, runFocusCommands, environment, preferences, onPreferences, inertAncestor, navigation, afterPaintPieces, presenceLoader, animationClock, scrollFollowers, renderMarkup, navigableURL, navigates, refuseURL, devFirst, reportPlace, reportTime, pageReporter, valuedControl, typedControl, settleValue, typeControl, reveal, viewBox, foldBits, foldEnv, onFold, preferFold, fold, animationClocks } from "./navigation.js";
 const AGENT_ADMITTED = true; // false in a production bake: host/web/build.mjs rewrites this line (LLP 1069.007 D2)
 let httpModule, pickerModule, documentsModule; // the file picker (LLP 1069.002) and documents (LLP 1069.010), loaded on first use
 const picker = () => pickerModule ??= loadAfterPaint('./picker-glue.js', 'picker').then(install => install({ appId: globalThis.exact.compat?.inputs?.app, dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, pickedPath: (name) => loadStage('inspection').then(() => ask({ op: "pickedPath", name }).path), log }));
+// An `app:/` source (D7): the app's own file, as the picker glue's object URL once it resolves; the old picture stays meanwhile, as for any `src`. A `data:` source past its bound shows nothing, as on every host (LLP 1011 §2; exact_raster::MAX_DATA_URL_BYTES).
+const DATA_LIMIT = 1024 * 1024; function appSource(el, name, value) { const p = picker().then(m => m.appURL(value)).then(url => { if (el[`exactApp-${name}`] === value && el.getAttribute(name) !== url) url ? el.setAttribute(name, url) : el.removeAttribute(name); }); track(p.catch(() => {})); return el.getAttribute(name) ?? ""; }
 const documentsGlue = () => documentsModule ??= loadAfterPaint('./documents-glue.js', 'documents').then(d => d.install({ dispatch: (id, kind, payload) => { if (views.has(id)) send(wasm.exact_dispatch(id, kind, writeIn(payload), now())); }, log, openFile: (value) => { const id = [...views].find(([, el]) => el.dataset?.testid === "open-file")?.[0]; if (id == null) return false; send(wasm.exact_dispatch(id, 1, writeIn(value), now())); return true; } }));
 function httpHelpers() {
   return httpModule ??= moduleReady.then(() => loadAfterPaint('./http-body.js', 'httpHelpers'));
@@ -28,8 +30,8 @@ function syncMedia(el, set = {}, clear = []) {
   mediaModule.then(install => { if (el.isConnected) install(el, payload => { if (views.get(Number(el.dataset.view)) === el && inputReady) send(wasm.exact_dispatch(Number(el.dataset.view), 19, writeIn(payload), now())); }); }).catch(console.error);
 }
 const iframeLoading = new WeakMap(); // iframe -> true until its latest src load
-const iframeOrigins = new WeakMap(); // iframe -> authored/committed guest origin
 const messageViews = new Set(), messageFrames = new Set(); // the latter: iframes whose node handles `message`
+const keyChord = e => /* a keydown as kind 6's payload, the chord `Event::key` reads */ (e.shiftKey ? "Shift+" : "") + (e.ctrlKey ? "Control+" : "") + (e.altKey ? "Alt+" : "") + (e.metaKey ? "Meta+" : "") + e.key;
 let messageListening = false, keyEvent = null; // keyEvent: the keydown a `key` handler is running for, which its `preventDefault()` command prevents
 let wasm = null, memory = null, inputReady = false, inputHandlers;
 // Native modules (LLP 1024 D3): a module node is its custom element, empty until the adapter and the app's module load after first paint (the browser's paint entry; two frames and a beat where it records none).
@@ -161,7 +163,7 @@ const t0 = performance.now();
 const agentMode = AGENT_ADMITTED && new URL(location.href).searchParams.has("agent");
 let agentClock = agentMode ? 0 : null, followOnSeek = true;
 // A seek moves drag timelines' sources too (LLP 1057.003 D2): their consumers follow in it.
-const { register, seek: seekAnimations, settle: settleCandidate } = animationClock(() => agentClock, () => ask({ op: "settle" }).settle, () => { if(followOnSeek)motion.followTimelines(); presence.live?.sync(); });
+const clocks = animationClocks(root), { register, seek: seekAnimations, settle: settleCandidate } = animationClock(() => agentClock, () => ask({ op: "settle" }).settle, () => { if(followOnSeek)motion.followTimelines(); presence.live?.sync(); });
 const seek = to => { (imageHold ??= loadAfterPaint('./image-glue.js', 'holdImages').then(f => f({ root, now: () => agentClock }))).then(h => h.seek()); seekAnimations(to); };
 const POST_BOUND = 64; // posts held per surface before its canvas is live; gpu-glue.js's exact.postBound, Linux POST_BOUND, Apple Canvases.postBound
 const now = () => agentClock ?? performance.now() - t0;
@@ -170,23 +172,6 @@ let timelinesMoved = false; // a batch's `timelines` op: its consumers are sough
 let bootAttempt = 0;
 let devAssets = null;
 let installedFonts = [];
-function commitGuestOrigin(el) {
-  const sandbox = new Set((el.getAttribute("sandbox") ?? "").split(/\s+/).filter(Boolean));
-  const opaque = el.hasAttribute("sandbox") && !sandbox.has("allow-same-origin");
-  let origin = null;
-  if (!opaque) {
-    const src = el.getAttribute("src");
-    try { origin = !src || src === "about:blank" ? location.origin : new URL(src, document.baseURI).origin; }
-    catch { origin = null; }
-    if (origin === "null") origin = null;
-  }
-  iframeOrigins.set(el, { origin, opaque });
-}
-function guestMessageAuthorized(el, eventOrigin) {
-  const committed = iframeOrigins.get(el);
-  if (!committed) return false;
-  return committed.opaque ? eventOrigin === "null" : eventOrigin === committed.origin;
-}
 function readOut(len) {
   const ptr = wasm.exact_out();
   return decoder.decode(new Uint8Array(memory.buffer, ptr, len));
@@ -455,7 +440,7 @@ function applyProps(el, set, clear) {
     } else if (name === "disabled" || name === "readonly" || (el instanceof HTMLVideoElement && ["autoplay","controls","loop","muted","playsinline","disablepictureinpicture","disableremoteplayback"].includes(name))) {
       if (value === "true") { el.setAttribute(name, ""); if (name === "disabled" && el === document.activeElement) el.blur(); } else el.removeAttribute(name); // a focused node that is disabled loses the focus now, not at the browser's next frame (HTML focus fixup)
     } else {
-      const v = (name === "src" || name === "poster") && value.startsWith("app:/") ? globalThis.exact.pickedURL?.(value) ?? "" : (name === "src" || name === "href" || name === "poster") ? localAssetURL(value) : value, same = el.getAttribute(name) === v; // setting what is there reloads an adopted iframe or video
+      const app = (name === "src" || name === "poster") && (el[`exactApp-${name}`] = value.startsWith("app:/") ? value : null), v = app ? appSource(el, name, value) : name === "src" && value.startsWith("data:") && value.length > DATA_LIMIT ? (log(`image refused: a data: source is over ${DATA_LIMIT} bytes`), "") : (name === "src" || name === "href" || name === "poster") ? localAssetURL(value) : value, same = el.getAttribute(name) === v; // setting what is there reloads an adopted iframe or video
       if (el instanceof HTMLIFrameElement && name === "src" && !same) iframeLoading.set(el, true);
       if (navigates(el, name) && !navigableURL(value)) refuseURL(el, name, value); else if (!same) el.setAttribute(name, v);
     }
@@ -531,7 +516,8 @@ function attach(el, id, handlers) {
     }
   }
   // element hears these.
-  if (handlers.some((k) => k === "focus" || k === "blur" || k === "key") && !(el instanceof HTMLInputElement || el instanceof HTMLButtonElement) && !el.exactMarkup && !el.hasAttribute("tabindex")) el.tabIndex = 0;
+  // A pressable takes the focus too, as natively (chat F14); input-glue.js activates it by key.
+  if (handlers.some((k) => k === "focus" || k === "blur" || k === "key" || k === "press") && !el.matches("input, button, select, textarea, a[href], summary") && !el.exactMarkup && !el.hasAttribute("tabindex")) el.tabIndex = 0;
   for (const kind of handlers) {
     if (kind === "press") {
       // A link inside a pressable node is the innermost activation, as a
@@ -547,7 +533,7 @@ function attach(el, id, handlers) {
     } else if (kind === "heightrelease") {
       motion.attachHeightDrag(el, id, on);
     } else if (kind === "transformrelease") { motion.attachTransformDrag(el,id,on);
-    } else if ((kind === "pointerdown" || kind === "pointerup") && !el.exactPointer) { let p; el.exactPointer = true; on("pointerdown", e => (p ??= inputHandlers?.pointer(el, on, k => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, k, 0, now())); }))?.(e)); // @ref LLP 1005 §3: DOM's own pointer down/up (input-glue `pointer`)
+    } else if ((kind === "pointerdown" || kind === "pointerup" || kind === "pointermove") && !el.exactPointer) { let p; el.exactPointer = true; const own = () => p ??= inputHandlers?.pointer(el, on, (k, r) => { if (views.get(id) === el && !retiredViews.has(el)) send(wasm.exact_dispatch(id, k, writeIn(r), now())); }); on("pointerdown", e => own()?.(e)); on("pointerover", () => own()); // @ref LLP 1005 §3, LLP 1056 §3: DOM's own pointer down/up/move (input-glue `pointer`)
     } else if (kind === "contextmenu" || kind === "dblclick") {
       on(kind, (e) => {
         if (el.matches(":disabled") || inertAncestor(el)) return;
@@ -589,7 +575,7 @@ function attach(el, id, handlers) {
       on("blur", () => send(wasm.exact_dispatch(id, 5, 0, now())));
     } else if (kind === "key") {
       // keydown, the key's name as the web spells it (`e.key`); it bubbles to every ancestor's handler.
-      on("keydown", (e) => { const outer = keyEvent; keyEvent = e; try { const n = writeIn(e.key); send(wasm.exact_dispatch(id, 6, n, now())); } finally { keyEvent = outer; } });
+      on("keydown", (e) => { const outer = keyEvent; keyEvent = e; try { const n = writeIn(keyChord(e)); send(wasm.exact_dispatch(id, 6, n, now())); } finally { keyEvent = outer; } });
     }
     if (kind === "submit" && el.tagName !== "TEXTAREA" && !el.exactMarkup) {
       // The web's implicit submission: Enter in a text input submits — here
@@ -902,7 +888,7 @@ function applyBatch(batch) {
     // A same-clock seek registers the batch's animations; its timelines op, not the agent, owns post-commit reconciliation.
     followOnSeek = moved; try { seek(agentClock); } finally { followOnSeek = true; }
     if (timelinesMoved) motion.followTimelines(); arrange.commit();
-  } else if (timelinesMoved) motion.followTimelines(); // a boot or commit while drag timelines are bound (LLP 1057.003 D4); the agent's seek follows them
+  } else { clocks.sync(); if (timelinesMoved) motion.followTimelines(); } // synced animations join their clocks (LLP 1055.002); a boot or commit while drag timelines are bound (LLP 1057.003 D4) follows them; the agent's register and seek do both
   timelinesMoved = false;
   flowBatch(batch);
   return { timers, batch };

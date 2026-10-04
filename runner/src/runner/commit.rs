@@ -446,9 +446,15 @@ impl<D: DataSource> Runner<D> {
         let measured;
         let geometry = match self.links.geometry {
             Some(links) => {
-                measured = links.ahead(&self.plan, self.plan.code(row.body), &mut self.kernel);
+                measured = links.ahead(
+                    &self.plan,
+                    self.plan.code(row.body),
+                    &mut self.kernel,
+                    &self.scrolled,
+                );
                 Some(crate::geometry::GeometryEnv::new(
                     &self.kernel,
+                    &self.scrolled,
                     links,
                     &measured,
                 ))

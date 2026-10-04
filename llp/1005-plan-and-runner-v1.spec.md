@@ -480,7 +480,9 @@ a node, and coming up or being cancelled. A cancel is delivered as
 node is removed while the pointer is down. A removed node has no handler
 left to run, and the hosts then forget the pointer (an app that starts
 something on `pointerdown` keeps the node mounted until the up).
-Neither carries a payload, and neither is recognized: the down fires before
+Each hands its action a `PointerEvent` when the action takes one (LLP 1056
+§8.6, 2026-10-04, with `pointermove`, the pointer's moves while held and a
+free pointer's over the node), and neither is recognized: the down fires before
 any gesture has decided, and both sit beside `press`, `pan` and
 `contextmenu` without taking anything from them. On the web a cancel is
 DOM's `pointercancel`. DOM's order holds: down, up, then the click's
@@ -506,8 +508,10 @@ UIKit.
   comes up. A native button's own tracking loop reports both (its up
   before the action it sends). A held node's release, or a reset, clears
   the hold.
-- **Linux:** not built; the events never fire.
-- **ABI:** dispatch kinds 29 and 30.
+- **Linux** (`presenter/pointer.rs`, 2026-10-04): beside the contact, on the
+  innermost enabled node under the press; a cancel is an up.
+- **ABI:** dispatch kinds 29, 30 and 31 (`pointermove`), each with the
+  record's line.
 - **Agent:** `tap` remains an activation (`press`). The pointer events are
   driven by real touches (LLP 1080.000's `touch: platform`) or by the hosts'
   tests.

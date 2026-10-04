@@ -155,6 +155,14 @@ hyphens, so write `a - b` for subtraction between identifiers. Units are quoted
 are deeper than the element and begin with `name=`. Parentheses permit multiline
 calls and expressions without creating an indentation block.
 
+Only sixteen words are refused as names, and only where a name is bound (a
+state, prop, parameter, `let`, `each` item, shape name, …): `when`, `if`, `else`,
+`each`, `in`, `match`, `case`, `as`, `fn`, `and`, `or`, `not`, `true`, `false`,
+`none`, `some`. Every other keyword (`key`, `state`, `from`, `refresh`, `view`, …)
+is an ordinary name there, so `action searchKey(key: string)` and `action refresh`
+compile. Shape fields, named arguments and members take any word
+([grammar](contract-grammar.md#lexical-rules)).
+
 `contract vocab` lists every built-in tag, attribute, and CSS property the compiler
 accepts, with each property's value kind and default; `contract vocab <name>`
 answers for one, or suggests the spelling it meant. Check there before guessing
@@ -167,6 +175,10 @@ at CSS.
 - `none` and `[]` need an inferable element type. A state initialized by either
   usually gets that information from later assignments; a typed argument or
   the other conditional/match arm can also supply it.
+- A state's initializer runs before any resource answers and before any derive:
+  it reads props, injects and the states declared above it, nothing else
+  (`type-initializer-scope`). Derive a value from a resource instead, or keep
+  per-row state in a component used inside `each`.
 - `Shape(field=value, …)` constructs every field exactly once.
   `Shape(base, field=value, …)` copies a base of the same shape and replaces fields.
   The one positional base comes first. Compiler-owned shapes are not constructible.
@@ -288,7 +300,9 @@ ask. The default web JS target keeps no persisted resource answers
 ([LLP 1027.005](../llp/1027.005-resource-identity-and-request-context.rfc.md)).
 
 The current request owns its answer; older replies cannot overwrite a newer
-request. Assigning a mutation forgets its in-flight reply. `refreshes` re-reads
+request. Assigning a mutation forgets its in-flight reply, so an action that
+sends one mutation twice on one path is refused (`analyze-send-twice`): send one
+combined request, or use a mutation per request. `refreshes` re-reads
 its resources when the mutation is sent (an answer the source gives at once shows
 immediately) and forces them again when the reply lands. `then` is parameterless,
 runs once at the host's next clock advance as a new commit, reads the latest
@@ -348,7 +362,9 @@ or a growing `flex`, and takes `estimated-item-height`. A horizontal one needs a
 literal `display="flex"` and a literal positive `height`, takes
 `estimated-item-width`, and refuses wrapping, reversed or right-to-left flow, a
 nonzero `gap`, main-axis padding, `justify-content` other than `flex-start`, and
-`reorderdrop`. Lists nest one level deep; an inner vertical list needs a literal
+`reorderdrop`. `reorderdrop` belongs only on a vertical `list virtualized=true`
+(each row's handle names it with `reorderFor`); the compiler refuses it on any
+other element, where no host could drag. Lists nest one level deep; an inner vertical list needs a literal
 `height` or `max-height`. Do not revive the removed legacy `item-height`
 windowing mechanism.
 
@@ -360,6 +376,15 @@ styleable host-policy prop; its names and allowable branches are checked against
 `schema.json`'s `buttonStyles`. Follow the native-button allowlist and context
 checks in [`controls.rs`](../contract/lower/src/controls.rs), and test the actual
 platform look. Do not assume arbitrary custom paint or typography is admitted.
+
+An `image` source is the same string on every host: a path under the app's
+`assets/`, an `http(s)` URL, `symbol:<role>`, an `app:/data|cache|tmp/…` file
+(a picked photo, or one the data module kept with `storage.fs`; it shows after a
+relaunch too), or a `data:` URL of at most 1 MiB, past which every host shows
+nothing (the web and Apple journal `image refused`). Keep a picked photo by copying it to
+`app:/data` and answering that path; never tell hosts apart in the data module
+(`HermesInternal`) to choose a source
+([LLP 1069.002](../llp/1069.002-media-picker.rfc.md) D7, [LLP 1011](../llp/1011-image-v1.spec.md) §2).
 
 Keep `id` and `testId` separate:
 
@@ -422,16 +447,29 @@ function), `exit-animation`, `layout-transition`, and presentation timelines hav
 specific documented behavior;
 they do not admit arbitrary frame callbacks or a second app-state graph.
 
+For drawing and pointer-tracking, `pointerdown`, `pointermove` and `pointerup`
+hand an action that takes it a `PointerEvent` (`offsetX`/`offsetY` from the
+node's content box, `buttons`, `pressure`, `pointerType`, `pointerId`), on any
+node, a canvas included; set `touch-action="none"` on a drawing surface. See
+[Pointer](contract-grammar.md#pointer).
+
 `frame(id)` and `measure("literal-id")` are action-only geometry reads returning
-`Geometry`. Handle `unavailable` and `provisional`. `frame` reads the last layout's untransformed
-border box in root space; `measure` reads an auto-height hypothetical layout.
+`Geometry`. Handle `unavailable` and `provisional`. `frame` reads the last layout's border box
+where the viewer sees it, as `getBoundingClientRect` does: in the viewport, with every
+scroll offset above it (the page's too) applied, but untransformed, so a drop target
+needs no scroll bookkeeping; `measure` reads an auto-height hypothetical layout at
+the same origin.
 Neither is a computed style binding to run every render.
 
 SVG uses SVG names. `foreignObject` compiles and renders on the web; native hosts
 refuse it at run time, so position a box over the `svg` there. Canvas 2D calls
 live in a data module, and GPU/game surfaces in their optional module. A
 hyphenated native tag must be listed in `app.json`'s `modules` (the bake refuses
-others) and implemented by the module; its attributes pass through unchecked. Do not
+others) and implemented by the module; its unknown attributes pass through
+unchecked as the module's props. A known attribute binds to the module's box, which
+takes layout, box and paint rows, handlers, `testId`, `id`, `role`, ARIA, `disabled`
+and `inert`; any other known name (`color`, `value`, `command`, `href`) is refused,
+so give the module prop another name. Do not
 turn a missing widget or canvas operation into invented Contract syntax.
 
 Platform facts are reserved sources (`exactViewport`, `exactPage`, `exactDelivery`,
@@ -470,6 +508,15 @@ commands. Use `tree` to find targets, `state` for data and delivery, `layout` fo
 geometry, `perf` for the work a drive cost (`perf <target> during "<op>" …`: per
 plan site, evaluations, unchanged results, instances created and retired), and
 screenshots for rendered output. Logs name refused operations and data errors.
+For a game canvas, JavaScript `s.tap("world", {mouse:true, at:[x,y]})` sends one
+primary mouse click on web, Windows, and Linux. `{contextmenu:true, at:[x,y]}`
+sends a right-click. Coordinates are relative to the target's top-left; omit
+`at` for its center. Both refuse invalid, covered, or offscreen points and held
+contacts. The CLI forms are `tap world mouse` and `tap world contextmenu`, or use
+a JSON options object for coordinates. Plain canvas taps and held contacts are
+fingers, so their platform pointer identity and retained press history can differ
+from a mouse's; use the intended physical input when comparing game saves.
+
 `tap` and `type` scroll a target whose middle is out of view into it first (its
 nearest scroll containers, then the page) and say so in the reply's `scrolled`.
 `type` on a control sets it as a person choosing would, with `input` then
@@ -503,8 +550,10 @@ transition an input started lands at a `clock` step, so `clock settle` before
 the `expect` that depends on it. `type "id" key "Name"`
 focuses the target if it takes the focus (else leaves the focus where it is)
 and presses the key as a keyboard would on every host: its `key` handlers,
-then its default — `"7"` types into a field, `"Enter"` submits it, `"Space"`
-presses a button, `"r"` reaches an `aria-keyshortcuts="r"` button
+then its default — `"7"` types into a field, `"Enter"` submits it (a
+textarea's breaks the line), `"Space"` presses a button, `"r"` reaches an
+`aria-keyshortcuts="r"` button. A chord holds its modifiers for the key, in
+Playwright's spelling: `"Shift+Enter"`, `"Meta+s"`, `"Control+Alt+ArrowLeft"`
 ([keys](contract-grammar.md#keys)). Not every interactive
 driver operation is a test-file statement. `contract test` parses and prints JSON;
 `agent.mjs <host> --test <file>` actually drives the app.
@@ -537,7 +586,10 @@ that restates a constant is weaker evidence than the user's actual sequence.
 | Read a slot after writing it to get the new value | Compute `let next` before the assignments |
 | Dynamic navigation template | `path("route", args…)` |
 | Unconditional per-frame app work | CSS/presentation motion where possible; bounded root frame task where needed |
-| Add a function because it exists in JavaScript | Check the roster or put the operation in the data module |
+| Add a function because it exists in JavaScript | Check the roster or put the operation in the data module; `len`, `split`, `push(xs, x)` and their kind are refused naming what to write |
+| `background-color: "#fff"` in a `style` | `background-color="#fff"` |
+| `change=flip(t.id)` on a checkbox, `action flip(id: string)` | The event appends its payload: `action flip(id: string, checked: bool)` (the refusal spells it) |
+| Two `send`s to one mutation in one action | One combined request, or a mutation per request |
 
 What compiles and then misbehaves (an image tile at its intrinsic size, native bars
 the agent does not show, a back gesture refused) is in
@@ -564,3 +616,67 @@ For learning, continue with the [human guide](contract-for-humans.md). For exact
 syntax and vocabulary, use the [grammar reference](contract-grammar.md). For a
 new feature, start from the corresponding compiler fixture rather than memory
 of JavaScript, React Native, or the predecessor's Contract language.
+
+CSS overflow accepts `visible`, `hidden`, `scroll`, and `auto`. `auto` clips and
+permits scrolling, with indicators shown only when content overflows. A visible
+axis beside hidden/scroll/auto computes to auto, as on the web.
+
+`flex` accepts CSS `none`, `auto`, a basis, or `<grow> [<shrink>] [<basis>]`
+(including `flex="0 1 auto"`). Numeric bindings keep the `n 1 0%` meaning.
+Shorthands may be literal choices; computed strings are refused. A scroller
+with `min-height=0` and positive shrink fits under a bounded flex column.
+
+Dimension rows (width/height, their min/max, padding/margins, offsets and
+border radii) accept `vw`, `vh`, `vmin`, `vmax`, and `svw/svh/lvw/lvh/dvw/dvh`.
+On native, all viewport variants follow the window; on web, CSS resolves
+small/large/dynamic viewports. Scalar lengths such as font size and gap do
+not yet accept viewport units.
+
+Transitions animate translate/scale/rotate/opacity, box paint (color,
+background-color, border colors, tint-color, box-shadow), SVG paint/geometry
+and the admitted numeric height path. `width` and other general layout
+properties cannot interpolate yet: native layout is not run per frame.
+The diagnostic names this engine limit; `layout-transition` animates a
+change in the laid-out box using the existing measured projection.
+
+`cursor` takes CSS cursor keywords (`pointer`, `grab`, `grabbing`, etc.) and
+inherits. Web emits CSS; macOS maps to NSCursor with system artwork stand-ins
+where needed; iOS/tvOS/Linux ignore the hint (LLP 1001). URLs are refused.
+
+`font-family` accepts literal CSS fallback lists and choices of them, including
+`"Inter, system-ui, sans-serif"` and quoted names. A family declared with
+`font` uses its bundled faces; other names are local installed families. Web
+and Apple retain the ordered glyph fallback cascade. Linux selects the first
+installed family, then uses cosmic-text's platform glyph fallback; it logs
+this declared limitation for a multi-member stack (LLP 1001).
+
+`textarea rows=3` sets its preferred height in lines (default 2); explicit CSS
+height and `field-sizing="content"` override it. `maxlength=80` on text inputs
+and textareas limits user edits in UTF-16 units; authored `value` updates are
+not truncated. It does not apply to `input type="number"`.
+
+`resize="none"` disables browser resize handles. Other CSS resize values are
+refused with a native geometry explanation. `user-select="none"` prevents
+ordinary text selection; `auto` is the default. Text/all/contain need iOS and
+Linux selection executors and are refused precisely. These rows take literals
+or choices of literals, so unsupported runtime values cannot bypass the check.
+
+`border`, `border-top/right/bottom/left` take CSS width/style/color in any order,
+resetting omitted components to medium/none/currentcolor. Widths are px/pt,
+unitless zero, or thin/medium/thick (1/3/5 px); styles are none/hidden/solid.
+Other CSS border styles are diagnosed as native painter gaps. `text-decoration`
+takes none, underline, line-through, or both lines; solid/currentcolor/auto
+components retain the supported defaults. Color/style/thickness extensions are
+refused by name. Linux paints solid lines with UA metrics and diagnoses its
+missing underline skip-ink behavior in the driver log.
+
+A flex shorthand's grow/shrink factors must be adjacent. Intrinsic flex-basis
+keywords (content/min-content/max-content/fit-content) are CSS values, but the
+current dimension representation cannot size that mode; the diagnostic names
+this limit. `auto` takes the basis from the authored main-size property.
+
+Font lists distinguish quoted local names from unquoted CSS generics. The eight
+mapped generics are system-ui, ui-sans-serif, sans-serif, ui-serif, serif,
+ui-monospace, monospace and ui-rounded. Other CSS generics and CSS-wide
+font-family values are refused with the native mapping/stack representation
+reason, rather than being silently treated as local family names.

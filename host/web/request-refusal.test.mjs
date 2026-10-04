@@ -352,6 +352,47 @@ test('a built TypeScript source reaches fetch through the app grant binding', as
   }
 }, 60_000);
 
+// @ref LLP 1069.002 D7 — an `image` shows a file the app keeps in `app:/data`
+// on the JS target, bound or literal, and again after the page reloads
+// (recipes F9, gallery F7): the web host's file store, as an object URL.
+test('an app:/data image shows from the page\'s store, after a reload too', async () => {
+  if (!process.env.CHROME || !existsSync(process.env.CHROME)) return;
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-app-image-')), dist = resolve(dir, 'dist'), profile = resolve(dir, 'chrome');
+  const png = [137,80,78,71,13,10,26,10,0,0,0,13,73,72,68,82,0,0,0,1,0,0,0,1,8,6,0,0,0,31,21,196,137,0,0,0,13,73,68,65,84,120,218,99,252,207,192,80,15,0,4,133,1,128,132,169,140,33,0,0,0,0,73,69,78,68,174,66,96,130];
+  writeFileSync(resolve(dir, 'app.json'), JSON.stringify({ name: 'Image probe', app: { id: 'test.image-probe', name: 'Image probe' }, host: { web: {} } }));
+  writeFileSync(resolve(dir, 'app.contract'), `shape Photo\n  path: string\n  how: string\ncomponent Probe\n  resource photo = photo() as shape Photo\n  view\n    column\n      text photo.how testId="how"\n      image photo.path width=4 height=4 testId="bound"\n      when photo.how != ""\n        image "app:/data/p.png" width=4 height=4 testId="literal"\n`);
+  writeFileSync(resolve(dir, 'app.ts'), `import type { Answer, Sources } from './app.contract.d.ts';\nexport const appId = 'test.image-probe', grants = 'fs.read app:/data\\nfs.write app:/data';\nconst P = 'app:/data/p.png';\nconst sources: Sources = { photo: async (_args, _store, storage) => {\n  try { await storage!.fs.stat(P); return { path: P, how: 'found' }; } catch {}\n  await storage!.fs.atomicWriteFile(P, new Uint8Array([${png}]));\n  return { path: P, how: 'written' };\n} };\nexport const answer: Answer = (source, args, store, storage, native) => sources[source](args as never, store, storage, native) as never;\n`);
+  const built = spawnSync(process.execPath, ['host/web-js/build.mjs', 'image-probe', '--out', dist, '--render', 'none'], { cwd: ROOT, encoding: 'utf8', env: { ...process.env, EXACT_APP_DIR: dir } });
+  let page, child, cdp, exited;
+  try {
+    expect(built.status, built.stderr || built.stdout).toBe(0);
+    page = Bun.serve({ port: 0, async fetch(request) {
+      const name = new URL(request.url).pathname === '/' ? 'index.html' : decodeURIComponent(new URL(request.url).pathname.slice(1));
+      const file = resolve(dist, name);
+      if (!file.startsWith(dist + '/') || !existsSync(file)) return new Response('not found', { status: 404 });
+      return new Response(Bun.file(file));
+    } });
+    child = spawn(process.env.CHROME, ['--headless=new', '--no-sandbox', '--remote-debugging-pipe', '--no-first-run', '--disable-background-networking', `--user-data-dir=${profile}`, 'about:blank'], { detached: true, stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
+    cdp = new Cdp(child.stdio[3], child.stdio[4]);
+    exited = new Promise(resolveExit => child.on('exit', () => { cdp.fail('browser closed'); resolveExit(); }));
+    const { targetInfos } = await cdp.send('Target.getTargets');
+    const target = targetInfos.find(info => info.type === 'page') ?? await cdp.send('Target.createTarget', { url: 'about:blank' });
+    const { sessionId } = await cdp.send('Target.attachToTarget', { targetId: target.targetId, flatten: true });
+    const call = (method, params = {}) => cdp.send(method, params, sessionId);
+    await call('Page.enable');
+    // Each image's `src` (an object URL, never `app:`) once both have decoded, and what the source did.
+    const shown = async () => (await call('Runtime.evaluate', { expression: `(async()=>{const img=id=>document.querySelector('[data-testid="'+id+'"]');for(let i=0;i<240;i++){await new Promise(r=>requestAnimationFrame(r));const how=img('how')?.textContent,a=img('bound'),b=img('literal');if(how&&a?.complete&&a.naturalWidth&&b?.complete&&b.naturalWidth)return [how,a.src.slice(0,5),b.src.slice(0,5),a.naturalWidth];}return document.body.innerHTML;})()`, returnByValue: true, awaitPromise: true })).result.value;
+    await call('Page.navigate', { url: page.url.href });
+    expect(await shown()).toEqual(['written', 'blob:', 'blob:', 1]);
+    await call('Page.reload');
+    expect(await shown()).toEqual(['found', 'blob:', 'blob:', 1]);
+  } finally {
+    if (child?.pid) { try { process.kill(-child.pid, 'SIGKILL'); } catch {} await exited; }
+    page?.stop(true);
+    rmSync(dir, { recursive: true, force: true });
+  }
+}, 60_000);
+
 test("glue.js's grants arm keeps auth lines from a malformed I/O declaration and freezes the set", async () => {
   const source = readFileSync(new URL('./glue.js', import.meta.url), 'utf8');
   const arm = source.match(/case "grants": \{[^]*?break; \} case "auth":/)[0].replace(/ case "auth":$/, '');
@@ -435,7 +476,7 @@ test('ts-data installs the native Store facade and a later gpu-glue shader uses 
   writeFileSync(resolve(dir, 'ts-data.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-data.js'), 'utf8')
     .replace('__APP_TS__', pathToFileURL(app).href).replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', '')
     .replace("from './rt.js'", "from './rt-stub.js'"));
-  writeFileSync(resolve(dir, 'rt-stub.js'), `export const clock={agent:false,now:0},journal=[],Resources=[];export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};\n`);
+  writeFileSync(resolve(dir, 'rt-stub.js'), `export const clock={agent:false,now:0},journal=[],Resources=[];export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};export const painted=()=>Promise.resolve();\n`);
   writeFileSync(resolve(dir, 'names.js'), `export const sourceTypes={read:[[],'s'],kept:[[],'s']};\n`);
   writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'"));
   writeFileSync(resolve(dir, 'admission-data.js'), `import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(${JSON.stringify(set)});\n`);
@@ -464,6 +505,105 @@ test('ts-data installs the native Store facade and a later gpu-glue shader uses 
     for (const [name, descriptor] of Object.entries(descriptors)) {
       if (descriptor) Object.defineProperty(globalThis, name, descriptor); else delete globalThis[name];
     }
+    delete globalThis.exact;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// The JS target checks a TypeScript answer as Hermes does (js/value's
+// `decode_tree`), with Hermes's message (ledger F11).
+test('ts-data refuses an answer outside its shape as Hermes does', async () => {
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-shape-'));
+  const app = resolve(dir, 'source.js');
+  writeFileSync(app, `export const appId='test.shape';export const grants='';
+const day = t => ({ id: 'd', transactions: [t] });
+const answers = {
+  spread: { days: [day({ id: 'a', amount: 1, cents: 100 })], note: null },
+  missing: { days: [day({ id: 'a' })], note: null },
+  absent: { days: [day({ id: 'a', amount: 1 })], note: undefined },
+  nan: { days: [day({ id: 'a', amount: NaN })], note: null },
+  kind: { days: 'none', note: null },
+  dropped: { days: [day({ id: 'a', amount: 1, later: undefined, f() {} })], note: 'n' },
+};
+export function answer(name, args, store, storage) {
+  if (name === 'read') return storage.fs.readFile('app:/data/x').then(() => 'read', e => e.kind + ' ' + e.code + ' ' + e.message);
+  return name === 'later' ? Promise.resolve(answers.spread) : answers[args[0]];
+}
+`);
+  writeFileSync(resolve(dir, 'ts-data.js'), readFileSync(resolve(ROOT, 'host/web-js/ts-data.js'), 'utf8')
+    .replace('__APP_TS__', pathToFileURL(app).href).replace('__AUTH_IMPORT__', '').replace('__AUTH_INSTALL__', '')
+    .replace("from './rt.js'", "from './rt-stub.js'"));
+  writeFileSync(resolve(dir, 'rt-stub.js'), `export const clock={agent:false,now:0},journal=[],Resources=[];export const checkpoint=()=>({kept:null});export const commit=f=>f();export const R=()=>{};export const painted=()=>Promise.resolve();\n`);
+  const ledger = '{"days":["[",{"id":"s","transactions":["[",{"id":"s","amount":"n"}]}],"note":["?","s"]}';
+  writeFileSync(resolve(dir, 'names.js'), `export const sourceTypes={ledger:[["s"],${ledger}],later:[[],${ledger}],read:[[],"s"]};\n`);
+  writeFileSync(resolve(dir, 'admission.js'), readFileSync(resolve(ROOT, 'host/web-js/admission.js'), 'utf8').replaceAll("'../web/grant-admission.js'", "'./grant-admission.js'"));
+  writeFileSync(resolve(dir, 'admission-data.js'), `import {createGrantSet} from './admission.js';export const tsGrantSet=createGrantSet(${JSON.stringify(normalized('fs.read app:/data'))});\n`);
+  for (const name of ['grant-admission.js', 'navigation.js', 'storage-environment.js']) cpSync(resolve(ROOT, 'host/web', name), resolve(dir, name));
+  try {
+    const ts = await import(`${pathToFileURL(resolve(dir, 'ts-data.js')).href}?shape=${Date.now()}`), data = { q: [] };
+    ts.install(data);
+    const refusal = which => { try { data.answer('ledger', [which], new Map()); return null; } catch (e) { return [e.kind, e.message]; } };
+    const outside = '`ledger` answered outside its shape: ';
+    expect(refusal('spread')).toEqual(['Unavailable', outside + 'field `days`: field `transactions`: field `cents` is not in the shape']);
+    expect(refusal('missing')).toEqual(['Unavailable', outside + 'field `days`: field `transactions`: field `amount` is missing']);
+    expect(refusal('absent')).toEqual(['Unavailable', outside + 'field `note` is missing']);
+    expect(refusal('nan')).toEqual(['Unavailable', outside + 'field `days`: field `transactions`: field `amount`: expected a number, got null']);
+    expect(refusal('kind')).toEqual(['Unavailable', outside + 'field `days`: expected an array, got a string']);
+    // What `JSON.stringify` leaves out is not there for Hermes either.
+    expect(data.answer('ledger', ['dropped'], new Map()).v).toEqual([[['d', [['a', 1]]]], 'n']);
+    await expect(data.answer('later', [], new Map()).promise).rejects.toThrow('`later` answered outside its shape: field `days`: field `transactions`: field `cents` is not in the shape');
+    // A storage refusal's code is Hermes's (kanban F28): a drive with no scratch store.
+    globalThis.location = { href: 'http://localhost/?agent' };
+    expect(await data.answer('read', [], new Map()).promise).toBe('Unavailable agent storage is unavailable in agent mode unless the drive names a scratch store (--storage <name>)');
+  } finally {
+    delete globalThis.location;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// LLP 1027.000 D3 on the JS target: the app's modules get guarded bindings
+// in place of the page's clock, Math.random and timers, injected as the web
+// build injects them, and Hermes's fixture of aliases refuses with Hermes's words.
+test("the JS target refuses a data module's clock, randomness and timers as Hermes does", async () => {
+  const { transformSync } = await import('rolldown/utils');
+  const dir = mkdtempSync(resolve(tmpdir(), 'exact-ts-inputs-'));
+  const build = readFileSync(resolve(ROOT, 'host/web-js/build.mjs'), 'utf8');
+  const bound = JSON.parse(/const bound = (\[[^\]]*\]);/.exec(build)[1].replaceAll("'", '"').replace(/\s+/g, ''));
+  const guards = resolve(dir, 'ts-fetch.js');
+  cpSync(resolve(ROOT, 'host/web-js/ts-fetch.js'), guards);
+  writeFileSync(resolve(dir, 'admission.js'), 'export const fetchWith = () => Promise.reject(new Error("no fetch here"));\n');
+  writeFileSync(resolve(dir, 'admission-data.js'), 'export const tsGrantSet = null;\n');
+  const fixture = resolve(ROOT, 'js/tests/fixtures/inputs.ts');
+  const app = transformSync(fixture, readFileSync(fixture, 'utf8'), { inject: { ...Object.fromEntries(bound.map(name => [name, [guards, name]])),
+    ...Object.fromEntries(['globalThis', 'window', 'self'].map(name => [name, [guards, 'appGlobal']])) } });
+  expect(app.errors).toEqual([]);
+  writeFileSync(resolve(dir, 'app.js'), app.code);
+  const page = { Date: globalThis.Date, random: Math.random };
+  try {
+    await import(`${pathToFileURL(resolve(dir, 'app.js')).href}?inputs=${Date.now()}`);
+    const { answer } = globalThis.exact;
+    const forms = { now: 'Date.now()', new: 'new Date()', call: 'Date()', 'call-with-arg': 'Date()', random: 'Math.random()',
+      'alias-now': 'Date.now()', 'alias-random': 'Math.random()', 'alias-date': 'new Date()', 'prototype-constructor': 'new Date()',
+      'computed-now': 'Date.now()', 'computed-random': 'Math.random()', 'bound-now': 'Date.now()', 'bound-new': 'new Date()', reflect: 'new Date()',
+      'intl-format': 'Intl.DateTimeFormat.format()', 'intl-format-undefined': 'Intl.DateTimeFormat.format()',
+      'intl-parts': 'Intl.DateTimeFormat.formatToParts()', 'intl-parts-undefined': 'Intl.DateTimeFormat.formatToParts()',
+      'intl-format-alias': 'Intl.DateTimeFormat.format()', 'intl-format-alias-undefined': 'Intl.DateTimeFormat.format()',
+      'intl-parts-alias': 'Intl.DateTimeFormat.formatToParts()', 'intl-parts-alias-undefined': 'Intl.DateTimeFormat.formatToParts()',
+      'intl-format-getter': 'Intl.DateTimeFormat.format()', 'intl-format-computed': 'Intl.DateTimeFormat.format()',
+      'intl-parts-prototype': 'Intl.DateTimeFormat.formatToParts()', timeout: 'setTimeout()', interval: 'setInterval()',
+      'computed-timeout': 'setTimeout()', frame: 'requestAnimationFrame()', performance: 'performance.now()' };
+    for (const [form, api] of Object.entries(forms)) {
+      const atInit = answer('atInit', [form]);
+      expect(atInit.startsWith(api) && atInit.includes('as an argument'), `${form} at initialization: ${atInit}`).toBe(true);
+      expect(() => answer('ambient', [form]), form).toThrow(api);
+    }
+    // Explicit inputs keep the language's behavior.
+    expect(answer('explicit', [86_400_000, 7])).toBe('1970-01-02T00:00:00.000Z/' + ((Math.imul(7, 1664525) + 1013904223) >>> 0));
+    expect(answer('utc', [])).toBe('2024-02-29T12:34:56.789Z/12/1709210096789/true');
+    expect(answer('intl', [0])).toBe('1970/1970/1970/1970');
+    // The page's own are untouched.
+    expect([globalThis.Date, Math.random, typeof Date.now()]).toEqual([page.Date, page.random, 'number']);
+  } finally {
     delete globalThis.exact;
     rmSync(dir, { recursive: true, force: true });
   }

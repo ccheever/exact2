@@ -282,6 +282,9 @@ extension NodeView {
         (f as? TextArea)?.markup?.bookmark = f.selectedRange
         restyleMarkup()
     }
+    func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+        TextInputLimit.allows(textView.text ?? "", range: range, replacement: text, props: props)
+    }
     func textViewDidChange(_ textView: UITextView) {
         if let editor = (textView as? TextArea)?.markup, editor.applying || editor.styling { return }
         textView.setNeedsDisplay()

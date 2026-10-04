@@ -115,6 +115,14 @@ async function followup(id: string): Promise<Session> {
   return { ok: true, username: id, error: first.error + " + " + await more.text() };
 }
 
+// A save that does not await its POST: the answer is given at once, the
+// request still goes (a browser runs it), even while another answer is in
+// flight (Grok's batch 2 review, runtime).
+async function saveQuietly(id: string): Promise<Session> {
+  void fetch(`https://api.castle.xyz/save/${id}`, { method: "POST", body: id });
+  return { ok: true, username: id, error: "saved" };
+}
+
 // One controller for every fetch (review r4a 7): a browser realm's fetch
 // watches its signal with a listener it removes when the fetch settles;
 // Hermes's watches through Ibex's own abort hooks and adds none.
@@ -148,6 +156,7 @@ function answer(source: string, args: unknown[], store: Store): unknown {
     case "item": case "thread": return item(text(args, 0));
     case "followup": return followup(text(args, 0));
     case "reused": return reused();
+    case "saveQuietly": return saveQuietly(text(args, 0));
     // An answer that keeps coming (LLP 1016.000): each event, and the end.
     case "events": return fetch("https://api.castle.xyz/events?since=" + args[0], {
       exactStream: (e: { type: string; data: string; lastEventId: string; coalesced: number; message?: string }) =>

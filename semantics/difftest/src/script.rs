@@ -111,67 +111,79 @@ pub fn scripted(
     path: Option<&std::path::Path>,
 ) -> Result<Vec<Scripted>, String> {
     let tests = contract::tests(source).map_err(|e| format!("{file}: {e}"))?;
-    let mut out = Vec::new();
-    for t in tests {
-        let mut items = Vec::new();
-        for step in &t.steps {
-            items.push(match step {
-                Step::Tap {
-                    target,
-                    hover: false,
-                    ..
-                } => Item::Event(Event::Tap(target.clone())),
-                Step::Type { target, text, .. } => {
-                    Item::Event(Event::Type(target.clone(), text.clone()))
-                }
-                Step::Clock { arg, .. } => match arg.strip_prefix('+').map(str::parse::<f64>) {
-                    Some(Ok(ms)) if ms.is_finite() && ms >= 0.0 => Item::Event(Event::Clock(ms)),
-                    _ => {
-                        return Err(format!(
-                            "{file}: test {:?}: `clock {arg}`: only `clock +ms` is delivered",
-                            t.name
-                        ))
-                    }
-                },
-                Step::ExpectState { name, value, .. } => match literal(value) {
-                    Some(v) => Item::Expect(Expect::State(name.clone(), v)),
-                    None => {
-                        return Err(format!(
-                            "{file}: test {:?}: `expect state {name}` needs a literal",
-                            t.name
-                        ))
-                    }
-                },
-                Step::ExpectText { target, value, .. } => {
-                    Item::Expect(Expect::Text(target.clone(), value.clone()))
-                }
-                Step::ExpectTree {
-                    target, present, ..
-                } => Item::Expect(Expect::Tree(target.clone(), *present)),
-                other => {
+    tests
+        .iter()
+        .map(|t| test_case(file, source, path, t))
+        .collect()
+}
+
+/// One `test` block as a scripted case over the program `source`, which
+/// may be another file's (an `app.test.contract` beside its
+/// `app.contract`). Each event item is one `tap`, `type` or `clock` step of
+/// the block, in order.
+pub fn test_case(
+    file: &str,
+    source: &str,
+    path: Option<&std::path::Path>,
+    t: &contract_syntax::TestDecl,
+) -> Result<Scripted, String> {
+    let mut items = Vec::new();
+    for step in &t.steps {
+        items.push(match step {
+            Step::Tap {
+                target,
+                hover: false,
+                ..
+            } => Item::Event(Event::Tap(target.clone())),
+            Step::Type { target, text, .. } => {
+                Item::Event(Event::Type(target.clone(), text.clone()))
+            }
+            Step::Clock { arg, .. } => match arg.strip_prefix('+').map(str::parse::<f64>) {
+                Some(Ok(ms)) if ms.is_finite() && ms >= 0.0 => Item::Event(Event::Clock(ms)),
+                _ => {
                     return Err(format!(
+                        "{file}: test {:?}: `clock {arg}`: only `clock +ms` is delivered",
+                        t.name
+                    ))
+                }
+            },
+            Step::ExpectState { name, value, .. } => match literal(value) {
+                Some(v) => Item::Expect(Expect::State(name.clone(), v)),
+                None => {
+                    return Err(format!(
+                        "{file}: test {:?}: `expect state {name}` needs a literal",
+                        t.name
+                    ))
+                }
+            },
+            Step::ExpectText { target, value, .. } => {
+                Item::Expect(Expect::Text(target.clone(), value.clone()))
+            }
+            Step::ExpectTree {
+                target, present, ..
+            } => Item::Expect(Expect::Tree(target.clone(), *present)),
+            other => {
+                return Err(format!(
                     "{file}: test {:?}: a step the differential run does not deliver: {other:?}",
                     t.name
                 ))
-                }
-            });
-        }
-        let events = items
-            .iter()
-            .filter_map(|i| match i {
-                Item::Event(e) => Some(e.clone()),
-                Item::Expect(_) => None,
-            })
-            .collect();
-        out.push(Scripted {
-            case: Case {
-                name: format!("{file}: {}", t.name),
-                source: source.to_string(),
-                events,
-                path: path.map(std::path::Path::to_path_buf),
-            },
-            items,
+            }
         });
     }
-    Ok(out)
+    let events = items
+        .iter()
+        .filter_map(|i| match i {
+            Item::Event(e) => Some(e.clone()),
+            Item::Expect(_) => None,
+        })
+        .collect();
+    Ok(Scripted {
+        case: Case {
+            name: format!("{file}: {}", t.name),
+            source: source.to_string(),
+            events,
+            path: path.map(std::path::Path::to_path_buf),
+        },
+        items,
+    })
 }

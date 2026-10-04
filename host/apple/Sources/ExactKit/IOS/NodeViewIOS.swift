@@ -318,7 +318,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         // The focus's `key` handlers and its ancestors' (KeyEvents.swift); an
         // ancestor UIKit passes the presses up to dispatches none again.
         let name = presses.first?.key.map(NodeView.keyName)
-        if !disabled, isFirstResponder, let name, presenter?.keyDown(at: self, name) == true { return }
+        let held = presses.first?.key.map { KeyCodes.held($0.modifierFlags) } ?? ""
+        if !disabled, isFirstResponder, let name, presenter?.keyDown(at: self, name, held: held) == true { return }
         if !disabled, handlers.contains("press"), let name, ["Enter", " "].contains(name) { presenter?.press(id); return }
         super.pressesBegan(presses, with: event)
     }
@@ -352,7 +353,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             if EmojiSelection.accepts(string) { presenter?.typed(id, string, input: handlers.contains("input")) }
             return false
         }
-        return true
+        return TextInputLimit.allows(textField.text ?? "", range: range, replacement: string, props: props)
     }
 
     func textFieldShouldReturn(_ textField: UITextField) -> Bool {
@@ -487,6 +488,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             node.paragraphOwner.invalidateText()
             node.paragraphOwner.setNeedsDisplay()
             node.applyStyle(node.style)
+            // An `svg`'s paints are resolved into its scene's layers.
+            node.presenter?.svg.reappear(node.id, dark: node.drawsDark, clock: node.presenter?.session?.clock)
             node.presenter?.requestTextPublication()
             if let presenter = node.presenter, node.superview === presenter.root { presenter.paintCanvas() }
         }
@@ -588,6 +591,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         let post = Presenter.signposts.beginInterval("scrolled")
         defer { Presenter.signposts.endInterval("scrolled", post) }
+        presenter?.onScrolled?(id, Double(scrollView.contentOffset.x), Double(scrollView.contentOffset.y))
         presenter?.stickies.scrolled(id); presenter?.collections.changed(id, user: true)
         presenter?.transformGeometry.changed()
         presenter?.videoVisibility?.changed()
@@ -702,6 +706,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             let outsideY = point.y < bounds.minY || point.y > bounds.maxY
             if outsideX && (style["overflow_x"]?.string ?? "visible") != "visible" { return nil }
             if outsideY && (style["overflow_y"]?.string ?? "visible") != "visible" { return nil }
+            let passesThrough = style["pointer_events"]?.string == "none"
             for child in NodeView.hitOrder(subviews) {
                 if child === (glassSlot ?? materialView), Materials.glass(materialKind) || blurHostsChildren, let contentView = materialView?.contentView {
                     // The effect's UIKit bounds check must not hide authored
@@ -711,13 +716,16 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
                         if let hit = content.hitTest(convert(point, to: content), with: event) { return hit }
                     }
                 }
+                // Under `pointer-events: none` this box's own platform views
+                // (a native module's, paint F9) are not targets either.
+                if passesThrough, !(child is NodeView) { continue }
                 if let hit = child.hitTest(convert(point, to: child), with: event) { return hit }
             }
             // CSS `pointer-events: none` (inherited): the box is never the
             // target, so a touch goes to what is under it — a header's blur
             // over a list must not stop the list scrolling. A descendant
             // that sets `auto` again is still a target.
-            if style["pointer_events"]?.string == "none" { return nil }
+            if passesThrough { return nil }
             guard bounds.contains(point) else { return nil }
             // Interactive glass (a pressable glass box) answers a finger
             // itself, swelling and lighting under it, only for touches that
@@ -746,7 +754,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             guard child.bounds.contains(p) else { continue }
             if let hit = child.hitTest(p, with: event) { return hit }
         }
-        return self
+        // Missed by every child: the canvas itself, unless it lets the
+        // touch through (`pointer-events: none`, as `ordinary` says).
+        return style["pointer_events"]?.string == "none" ? nil : self
     }
 
 
@@ -1053,9 +1063,9 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         accessibilityIdentifier = props["testId"]
         accessibilityLabel = props["accessibilityLabel"]
         updateTextAccessibility()
-        if kind == "button" {
+        if actsAsButton {
             isAccessibilityElement = true
-            accessibilityTraits.insert(.button)
+            accessibilityTraits.insert(kind == "view" && props["accessibilityRole"] == "link" ? .link : .button)
             if props["accessibilitySelected"] == "true" { accessibilityTraits.insert(.selected) } else { accessibilityTraits.remove(.selected) }
             setAccessibilityToggle(pressedState)
             if #available(iOS 18, tvOS 18, *) {
@@ -1153,7 +1163,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     /// scroll container that scrolls that axis; `hidden` clips.
     func syncScroll() {
         let ox = style["overflow_x"]?.string ?? "visible", oy = style["overflow_y"]?.string ?? "visible"
-        let scrolls = ox == "scroll" || oy == "scroll"
+        let scrolls = (ox == "scroll" || ox == "auto") || (oy == "scroll" || oy == "auto")
         if scrolls { syncClipBox(false) }
         if scrolls && scroll == nil && !scrollWaits {
             let sv = ScrollView(frame: bounds)
@@ -1177,8 +1187,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             }
             scroll = nil
         }
-        scroll?.scrollsX = ox == "scroll"
-        scroll?.scrollsY = oy == "scroll"
+        scroll?.scrollsX = (ox == "scroll" || ox == "auto")
+        scroll?.scrollsY = (oy == "scroll" || oy == "auto")
         // UIKit's default indicator is already thin. CSS permits `thin`
         // to match `auto` on such platforms; `none` only hides the track.
         // Indicators and deceleration are the app's once a hook sets them
@@ -1188,8 +1198,8 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
         if let sv = scroll, scrollWritten != "\(snap)|\(ox)|\(oy)|\(indicators)" {
             scrollWritten = "\(snap)|\(ox)|\(oy)|\(indicators)"
             sv.decelerationRate = snap ? .fast : .normal
-            sv.showsHorizontalScrollIndicator = ox == "scroll" && indicators
-            sv.showsVerticalScrollIndicator = oy == "scroll" && indicators
+            sv.showsHorizontalScrollIndicator = (ox == "scroll" || ox == "auto") && indicators
+            sv.showsVerticalScrollIndicator = (oy == "scroll" || oy == "auto") && indicators
         }
         updateKeyboardDismissal()
         fitScroll()
@@ -1219,7 +1229,7 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
     var scrollWaits: Bool { swipeOwner && !scrollNeeded && !handlers.contains("scroll") }
     /// The node's overflow scrolls, and its scroll view is still waiting.
     var scrollDormant: Bool {
-        scroll == nil && ((style["overflow_x"]?.string) == "scroll" || (style["overflow_y"]?.string) == "scroll")
+        scroll == nil && (["scroll", "auto"].contains(style["overflow_x"]?.string ?? "") || ["scroll", "auto"].contains(style["overflow_y"]?.string ?? ""))
     }
 
     func needScroll() {
