@@ -1195,8 +1195,10 @@ export async function open({onProcess, host = 'web', browser, plan, world, size,
       const held = pending.find(p => p.ticket === ticket);
       // An export's answer is where the copy goes (LLP 1069.010 D3): a
       // path on this machine; the browser hands back the bytes to write.
+      // Trimmed, as the hosts trim it: a test's `pick` ends its paths with
+      // a newline, which named the file `x.json\n` (drums R12).
       if (held?.device?.capability === 'export') {
-        const to = resolve(String(value));
+        const to = resolve(String(value).trim());
         const r = await s.op({ op, ticket, text: to });
         if (typeof r.bytes === 'string') { writeFileSync(to, Buffer.from(r.bytes, 'base64')); delete r.bytes; }
         return s.landed(r);

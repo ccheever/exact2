@@ -797,21 +797,43 @@ fn picker_args(
 }
 
 /// `saveFile(id, from, suggestedName)` (LLP 1069.010 D3): three strings,
-/// positional. Whether `from` is granted is the host's to refuse.
+/// positional. Whether `from` is granted is the host's to refuse. Or the
+/// file's text itself, `saveFile(id, text=…, suggestedName=…)`, so
+/// exporting what is on screen is one press (x2apps notes #4): the names
+/// are `share`'s `text` and `showSaveFilePicker`'s `suggestedName`.
 fn save_file_args(
     args: &[Expr],
     scope: &Scope,
     shapes: &Shapes,
     span: Span,
 ) -> Result<(), TypeError> {
-    if args.len() != 3 || args.iter().any(|a| matches!(a, Expr::NamedArg(..))) {
+    let named = |want: &str| {
+        args.iter()
+            .filter(|a| matches!(a, Expr::NamedArg(n, ..) if n == want))
+            .count()
+    };
+    let positional = args
+        .iter()
+        .filter(|a| !matches!(a, Expr::NamedArg(..)))
+        .count();
+    let file = args.len() == 3 && positional == 3;
+    let text = args.len() == 3
+        && positional == 1
+        && named("text") == 1
+        && named("suggestedName") == 1
+        && !matches!(args[0], Expr::NamedArg(..));
+    if !file && !text {
         return err(
             "type-save-file-argument",
-            "`saveFile` takes three strings: `saveFile(\"export-file\", \"app:/data/export.json\", \"export.json\")`",
+            "`saveFile` takes three strings, `saveFile(\"export-file\", \"app:/data/export.json\", \"export.json\")`, or the text to save, `saveFile(\"export-file\", text=body, suggestedName=\"note.md\")`",
             span,
         );
     }
     for arg in args {
+        let arg = match arg {
+            Expr::NamedArg(_, value, _) => value.as_ref(),
+            arg => arg,
+        };
         let t = infer(arg, scope, shapes)?;
         if Ty::String.unify(&t).is_none() {
             return err(

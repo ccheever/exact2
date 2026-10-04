@@ -1061,6 +1061,15 @@ component A
     button press=go
       text "a"
 ---
+== type-save-file-argument
+# A file to copy or the text to save, not both (x2apps notes #4).
+component A
+  action go
+    saveFile("out", "app:/data/a.json", text="a", suggestedName="a.md")
+  view
+    button press=go
+      text "a"
+---
 == lower-animation-name
 component A
   view

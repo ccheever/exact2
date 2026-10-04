@@ -131,18 +131,21 @@ Hosts.showPicker = id => {
 };
 
 // ---------------------------------------------------------------- saveFile (save_file.rs)
+// `(id, from, suggestedName)`, or `(id, none, suggestedName, text)` for
+// `text=`: the text itself, with no file to write first (x2apps notes #4).
 Hosts.saveFile = (...args) => {
   const refuse = (why, el) => { say(`saveFile: refused: ${why}`); if (el) el.dispatchEvent(new Event('cancel')); };
-  if (args.length !== 3 || args.some(a => typeof a !== 'string')) return refuse('saveFile takes (id, from, suggestedName), three strings');
-  const [id, from, suggestedName] = args, found = byId(id);
+  const text = args.length === 4 && args[1] == null ? args[3] : undefined;
+  if (text !== undefined ? [args[0], args[2], text].some(a => typeof a !== 'string') : args.length !== 3 || args.some(a => typeof a !== 'string')) return refuse('saveFile takes (id, from, suggestedName) or (id, text=, suggestedName=), strings');
+  const [id, from, suggestedName] = text !== undefined ? [args[0], '', args[2]] : args, found = byId(id);
   if (!found) return refuse(`no element with id "${id}"`);
   const rest = from.startsWith('app:/') ? from.slice(5).split('/') : [];
-  if (rest.length < 2 || rest.some(p => !p || p === '.' || p === '..' || p.includes('\0'))) return refuse(`${from} is not an app:/ file`, found.el);
-  if (!coversPath(appGrantSet(), 'fs.read', from)) return refuse(`${from} is outside the app's fs.read grants`, found.el);
+  if (text === undefined && (rest.length < 2 || rest.some(p => !p || p === '.' || p === '..' || p.includes('\0')))) return refuse(`${from} is not an app:/ file`, found.el);
+  if (text === undefined && !coversPath(appGrantSet(), 'fs.read', from)) return refuse(`${from} is outside the app's fs.read grants`, found.el);
   if (!suggestedName || suggestedName.length > 255 || suggestedName === '.' || suggestedName === '..' || /[/\\\x00-\x1f\x7f]/.test(suggestedName)) return refuse('suggestedName is not a file name', found.el);
-  const r = { present: true, view: found.view, from, suggestedName };
+  const r = text !== undefined ? { present: true, view: found.view, text, suggestedName } : { present: true, view: found.view, from, suggestedName };
   if (clock.agent) {
-    hold('export', found.el, { id, from, suggestedName }, (value, req) => counted(glue().then(m => m.answerSave({ node: found.view, answered: value == null ? 'cancel' : 'value', request: r }, req.text))));
+    hold('export', found.el, text !== undefined ? { id, text, suggestedName } : { id, from, suggestedName }, (value, req) => counted(glue().then(m => m.answerSave({ node: found.view, answered: value == null ? 'cancel' : 'value', request: r }, req.text))));
     Holds.at(-1).check = v => { v = v.trim(); return (v.startsWith('/') || /^.:\\/.test(v)) && !/[\\/]$/.test(v) ? null : 'type an absolute file path to save to'; };
     return;
   }

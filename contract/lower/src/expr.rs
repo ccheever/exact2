@@ -36,6 +36,11 @@ pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
         }
         return out;
     }
+    // `saveFile(id, text=, suggestedName=)` lowers as `(id, none,
+    // suggestedName, text)`: four, where the copy of a file is three.
+    if name == "saveFile" && args.iter().any(|a| matches!(a, Expr::NamedArg(..))) {
+        return vec![args.first(), None, named("suggestedName"), named("text")];
+    }
     // The Web Share API's members, and the Notification API's title and
     // options, in a fixed order, `none` where the author gave none.
     let order: &[&str] = match name {
