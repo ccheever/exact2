@@ -84,6 +84,11 @@ fn sweep(js: bool) {
             "          textarea blur=editorBlur testId=`editor-${e.id}` height=32\n          button press=redirectNextLink testId=`redirect-link-${e.id}`\n            text \"Redirect link\"\n          button press=refuseLink testId=`refuse-link-${e.id}`\n            text \"Refuse link\"\n          button press=open(\"//evil.invalid/x\") testId=`open-unknown-${e.id}`\n            text \"Open unknown\"\n          button press=replace(\"//evil.invalid/y\") testId=`replace-unknown-${e.id}`\n            text \"Replace unknown\"\n          button id=\"back\"",
         )
         .replace("button id=\"back\" press=back", "button id=\"back\" disabled=(!backEnabled) press=back")
+        // A screen with no Back control: browser Back still goes back.
+        .replace(
+            "          button id=\"back\" disabled=(!backEnabled) press=back testId=`back-${e.id}` padding=8\n            text \"Back\"\n",
+            "          when e.name != \"notifications\"\n            button id=\"back\" disabled=(!backEnabled) press=back testId=`back-${e.id}` padding=8\n              text \"Back\"\n          button press=push(\"/notifications\") testId=`push-notifications-${e.id}` padding=8\n            text \"Push notifications\"\n",
+        )
         .replace(
             "          when e.name == \"home\"",
             "          button press=replaceBack testId=`replace-back-${e.id}`\n            text \"Rewrite Back\"\n          button press=refuseBack testId=`refuse-${e.id}`\n            text \"Refuse Back\"\n          button press=replace(\"/post/43\") testId=`replace-${e.id}`\n            text \"Replace\"\n          button press=go(\"/\") testId=`go-home-${e.id}`\n            text \"Go home\"\n          when e.name == \"home\"",
