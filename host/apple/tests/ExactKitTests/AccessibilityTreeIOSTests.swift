@@ -120,6 +120,26 @@ final class AccessibilityTreeIOSTests: XCTestCase {
         XCTAssertEqual((kit["coverage"] as? [String: Any])?["complete"] as? Bool, false)
     }
 
+    /// `aria-modal` (LLP 1080.003) is the property UIKit's rule reads: the
+    /// prop sets `accessibilityViewIsModal`, the walk then hides the box's
+    /// siblings, and clearing it (or reusing the view) exposes them again.
+    func testAriaModalSetsUIKitsModalViewAndClearingItExposesTheSiblings() throws {
+        let p = try fixture()
+        let box = try XCTUnwrap(p.views[4])
+        p.apply(wireBatch([["op": "props", "id": 4, "set": ["accessibilityModal": "true"]]]))
+        XCTAssertTrue(box.accessibilityViewIsModal)
+        let ax = p.axElements(roots: [p.viewport])
+        XCTAssertEqual((ax["modal"] as? [String: Any])?["id"] as? UInt32, 4)
+        XCTAssertNil(element(ax, "named"), "a sibling of the aria-modal view is hidden")
+        XCTAssertNotNil(element(ax, "inside"))
+        p.apply(wireBatch([["op": "props", "id": 4, "set": ["accessibilityModal": "false"]]]))
+        XCTAssertFalse(box.accessibilityViewIsModal)
+        XCTAssertNotNil(element(p.axElements(roots: [p.viewport]), "named"))
+        p.apply(wireBatch([["op": "props", "id": 4, "set": ["accessibilityModal": "true"]]]))
+        p.apply(wireBatch([["op": "props", "id": 4, "clear": ["accessibilityModal"]]]))
+        XCTAssertFalse(box.accessibilityViewIsModal, "a cleared prop is not modal")
+    }
+
     func testATargetScopesTheReplyAndTheWireRefusesWhatD1Refuses() throws {
         let p = try fixture()
         let box = try XCTUnwrap(p.views[4])

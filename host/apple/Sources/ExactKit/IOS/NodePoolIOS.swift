@@ -509,6 +509,7 @@ extension NodeView {
         if accessibilityHint != nil { accessibilityHint = nil }
         if accessibilityIdentifier != nil { accessibilityIdentifier = nil }
         if accessibilityElementsHidden { accessibilityElementsHidden = false }
+        if accessibilityViewIsModal { accessibilityViewIsModal = false }
         props = [:]
         // The presenter's indexes for the new id (LLP 1068 §4.0): each is
         // filled by a property observer a rebind does not fire.

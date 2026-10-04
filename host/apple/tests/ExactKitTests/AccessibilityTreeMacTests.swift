@@ -63,6 +63,27 @@ final class AccessibilityTreeMacTests: XCTestCase {
         XCTAssertEqual((box["states"] as? [String: Any])?["checked"] as? Bool, true)
     }
 
+    /// `aria-modal` (LLP 1080.003): AppKit has no sibling rule, so the parent
+    /// exposes only what lies inside its modal child; cleared, all again.
+    func testAriaModalLeavesOnlyTheModalChildsSubtree() throws {
+        let p = try fixture()
+        p.apply(wireBatch([
+            ["op": "create", "id": 4, "kind": "view", "props": ["testId": "sheet", "accessibilityModal": "true"]],
+            ["op": "create", "id": 5, "kind": "button", "handlers": ["press"], "props": ["testId": "inside", "accessibilityLabel": "Inside"]],
+            ["op": "children", "id": 1, "ids": [2, 3, 4]],
+            ["op": "children", "id": 4, "ids": [5]],
+            ["op": "frame", "id": 4, "x": 0.0, "y": 100.0, "w": 400.0, "h": 100.0],
+            ["op": "frame", "id": 5, "x": 0.0, "y": 0.0, "w": 100.0, "h": 40.0],
+        ]))
+        p.syncAccessibility()
+        let ids = { self.elements(p.axElements(roots: [p.viewport])).compactMap { $0["testId"] as? String } }
+        XCTAssertTrue(ids().contains("inside"))
+        XCTAssertFalse(ids().contains("named"), "a sibling of the modal child is not exposed")
+        p.apply(wireBatch([["op": "props", "id": 4, "clear": ["accessibilityModal"]]]))
+        XCTAssertTrue(ids().contains("named"))
+        XCTAssertTrue(ids().contains("inside"))
+    }
+
     /// An attached sheet is the modal: the driver judges everything else against it.
     func testASheetRootIsReportedAsTheModal() throws {
         let p = try fixture()

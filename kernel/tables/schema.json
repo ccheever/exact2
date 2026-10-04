@@ -332,7 +332,8 @@
     {
       "id": 32,
       "name": "accessibilityModal",
-      "kind": "bool"
+      "kind": "bool",
+      "_comment": "@ref LLP 1080.003: ARIA `aria-modal`: while true, assistive technology reaches only this element's subtree among its siblings (iOS `accessibilityViewIsModal`; macOS, the parent's accessibility children; the web's `aria-modal`, which ARIA honours on a `dialog` or `alertdialog` role)."
     },
     {
       "id": 33,

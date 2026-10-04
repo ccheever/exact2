@@ -79,3 +79,21 @@ fn aria_pressed_refuses_a_word_aria_does_not_have_and_a_number() {
         assert!(e.contains(says), "{value}: {e}");
     }
 }
+
+/// `aria-modal` (LLP 1080.003) lowers to `accessibilityModal` and follows
+/// its state; Signal Clone's call screen and menus had no way to say it.
+#[test]
+fn aria_modal_lowers_and_follows_state() {
+    let mut r = boot(
+        "component App\n  state open = true\n  action close\n    open = false\n  view\n    column\n      column role=\"dialog\" aria-modal=open testId=\"sheet\"\n        button press=close testId=\"close\"\n          text \"Close\"\n      column testId=\"plain\"\n",
+    );
+    let modal = |r: &Runner<NoData>, id: &str| {
+        let node = r.kernel().node(view_of(r, id)).unwrap();
+        node.props.bool(PropId::AccessibilityModal)
+    };
+    assert_eq!(modal(&r, "sheet"), Some(true));
+    assert_eq!(modal(&r, "plain"), None);
+    let close = view_of(&r, "close");
+    r.dispatch(close, Event::Press).unwrap();
+    assert_eq!(modal(&r, "sheet"), Some(false));
+}

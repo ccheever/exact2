@@ -1014,6 +1014,14 @@ final class NodeView: UIView, UITextViewDelegate, UITextFieldDelegate, UIScrollV
             isUserInteractionEnabled = !ownInert
         }
         accessibilityElementsHidden = hidesAccessibility
+        // `aria-modal` (LLP 1080.003): VoiceOver skips this view's siblings
+        // (UIKit's documented rule), the tab container and its bars included
+        // when the view is a root overlay.
+        let modal = props["accessibilityModal"] == "true"
+        if accessibilityViewIsModal != modal {
+            accessibilityViewIsModal = modal
+            UIAccessibility.post(notification: .screenChanged, argument: modal ? self : nil)
+        }
         updateKeyboardDismissal()
         updateMaterial()
         applyTextArea()
