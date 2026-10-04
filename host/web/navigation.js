@@ -777,6 +777,17 @@ export function timeReporter(params, platform = globalThis) {
     return [epoch, (Date.UTC(at.year, at.month - 1, at.day, at.hour, at.minute, at.second) - Math.floor((epoch + elapsed) / 1000) * 1000) / 60000];
   };
 }
+// Where the page launches (LLP 1038 D5): its path and query, less a drive's
+// own parameters, which are the host's facts and not a route's — a driven
+// page numbers its visits as a native host does (feed F16). The JS target
+// launches here too (rt.js re-exports it).
+export function launchLocation(platform = globalThis) {
+  const { pathname, search } = platform.location, q = new URLSearchParams(search);
+  if (!(AGENT_ADMITTED && q.has('agent'))) return pathname + search;
+  for (const k of ['agent', 'seed', 'locale', 'timeZone', 'epoch', 'storage']) q.delete(k);
+  const rest = q.toString();
+  return pathname + (rest ? '?' + rest : '');
+}
 // The drive's facts are the launch URL's: a route the app pushed before the
 // first ask has no `?agent&…` (storage-environment.js `launchHref`).
 const launched = () => new URL(globalThis.performance?.getEntriesByType?.('navigation')[0]?.name ?? location.href).searchParams;

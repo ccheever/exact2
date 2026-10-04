@@ -118,7 +118,8 @@ fn page<D: DataSource>(p: &Presenter<D>) -> (u8, u8, u8) {
     // (LLP 1034 D1). This fixture reads the light half, which is the
     // appearance a headless painter draws in unless the app says otherwise.
     let c = p.host().kernel().node(id).unwrap().style.background_color;
-    let [r, g, b, a] = exact_linux::paint::rgba(c.resolve(false));
+    let [r, g, b, a] =
+        exact_linux::paint::rgba(c.expect("a colour, not currentcolor").resolve(false));
     assert_eq!(a, 255, "the page is opaque");
     (r, g, b)
 }

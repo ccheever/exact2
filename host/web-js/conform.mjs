@@ -28,7 +28,8 @@
 //   its state and tree compared with the wasm page's (`linux` failures).
 //   A plan marked `// linux: layout` also compares its testId boxes with the
 //   wasm page to 0.5 px. Pixels remain the Linux host's own and are not
-//   compared. The only normalization is the route stack's browser location (`linuxView`);
+//   compared. Nothing is normalized: a page launches where the Linux host
+//   does, the drive's own parameters left out of its route (feed F16);
 //   a target whose app has no Linux host, or a plan that says `// linux:
 //   <why>`, is reported as not compared (`// linux: state only (<why>)`
 //   compares its state and not its tree), and the comparison stops at the
@@ -183,25 +184,6 @@ const STATE_KEYS = ['slots', 'derives', 'resources', 'head'];
 // allocating ids in another order and taking ids a Linux boot does not);
 // and the stack's `next` id is dropped. Everything else is
 // compared as is.
-const HARNESS = ['agent', 'seed', 'locale', 'timeZone', 'epoch'];
-const isEntry = v => v && typeof v === 'object' && !Array.isArray(v) && ['id', 'name', 'url', 'tab', 'params'].every(k => k in v);
-function linuxView(state) {
-  const rank = new Map();
-  const walk = (v, f) => { if (v && typeof v === 'object') { f(v); for (const x of Object.values(v)) walk(x, f); } };
-  walk(state, v => { if (isEntry(v) && typeof v.id === 'number' && !rank.has(v.id)) rank.set(v.id, rank.size); });
-  const map = v => {
-    if (!v || typeof v !== 'object') return v;
-    if (Array.isArray(v)) return v.map(map);
-    const o = Object.fromEntries(Object.entries(v).map(([k, x]) => [k, map(x)]));
-    if (isEntry(v)) {
-      if (rank.has(v.id)) o.id = rank.get(v.id);
-      if (typeof v.url === 'string') { const u = new URL(v.url, 'http://x'); for (const k of HARNESS) u.searchParams.delete(k); o.url = u.pathname + u.search; }
-    }
-    if (Array.isArray(v.tabs) && 'next' in v) delete o.next;
-    return o;
-  };
-  return map(state);
-}
 
 // ---------------------------------------------------------------- one target
 async function target(t, report) {
@@ -298,8 +280,8 @@ async function drive(t, report, fail, dir, ws, js) {
       const [tw, tj] = await pair(() => W.tree(), () => J.tree());
       const o2 = diffLists(norm(tw), norm(tj), 'tree', other, reference); o2.forEach((x, i) => fail(step, x, crossBrowser ? `tree.${i}` : null)); st += o2.length;
       await onLinux(step, async L => {
-        const [sl, tl] = await Promise.all([L.state(), L.tree()]), o = [], vw = linuxView(sw), vl = linuxView(sl);
-        for (const k of STATE_KEYS) diffJSON(vw[k], vl[k], k, o, 'linux');
+        const [sl, tl] = await Promise.all([L.state(), L.tree()]), o = [];
+        for (const k of STATE_KEYS) diffJSON(sw[k], sl[k], k, o, 'linux');
         if (!linux.stateOnly) o.push(...diffLists(norm(tw), norm(tl), 'tree', 'linux').slice(0, 4));
         if (linux.layout) linuxLayout = await L.layout();
         o.forEach(x => fail(step, 'linux ' + x));

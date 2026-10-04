@@ -1,5 +1,7 @@
 // Synthetic conformance plan: dynamic style rows — colours, dimensions in
-// points and percent, auto, enums, numbers — and dynamic props.
+// points and percent, auto, enums, numbers — and dynamic props. Colours take
+// every CSS form the browser paints, parsed by the kernel to the same value
+// (feed F13: `hsl()` painted on the web and was refused on macOS).
 component Styles
   state on = false
   state width = 120
@@ -35,3 +37,10 @@ component Styles
       view cursor=(on ? "grabbing" : "grab") testId="auto-scroll" width=200 height=60 overflow=(on ? "hidden" : "auto")
         view width=400 height=200 background-color="#aaccee"
       view testId="viewport" width=(on ? "30vw" : "60vw") height="5vh" max-width="50vmin" padding-top="1dvh" background-color="#88aaff"
+      view testId="hsl" width=60 height=20 border-width=3 border-style="solid" background-color=(on ? "hsl(326, 55%, 52%)" : "rebeccapurple") border-color=(on ? "hwb(200 10% 20%)" : "hsla(120deg 60% 40% / 50%)")
+      row testId="ordered" width=240 gap=4
+        view testId="ordered-a" width=40 height=12 background-color="tomato"
+        view testId="ordered-b" width=40 height=12 background-color="steelblue" order=(on ? -1 : 0)
+        view testId="ordered-c" width=40 height=12 background-color="gold" order=1
+      view testId="current" width=60 height=20 color="#2a9d8f" background-color=(on ? "currentcolor" : "#e76f51")
+      text "inherits" testId="inherits" color=(on ? "unset" : "#e76f51")

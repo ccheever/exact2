@@ -560,11 +560,11 @@ fn paint_over(computed: &mut StyleProps, shown: &Shown) {
         computed.mask.set(StyleId::TextColor);
     }
     if let Some(c) = shown.get(Property::BackgroundColor) {
-        computed.background_color = fixed(c);
+        computed.background_color = Some(fixed(c));
         computed.mask.set(StyleId::BackgroundColor);
     }
     if let Some(c) = shown.get(Property::TintColor) {
-        computed.tint_color = fixed(c);
+        computed.tint_color = Some(fixed(c));
         computed.mask.set(StyleId::TintColor);
     }
     // @ref LLP 1077 D4 — the engine moves the list's first shadow (one
@@ -741,6 +741,10 @@ pub fn style_json_presented(
             computed.mask.set(id);
         }
     }
+    // `currentcolor` (feed F1) is the presented `color`, as a side's is.
+    let current = computed.text_color;
+    computed.background_color = Some(computed.background_color.unwrap_or(current));
+    computed.tint_color = Some(computed.tint_color.unwrap_or(current));
     let (mut json, skipped) = style_json_sized(&computed, env, node.node_type == NodeType::Video);
     // A modal's top layer is positioned in the viewport by AppKit, outside
     // its authored parent. Keep only the existing inset rows for dialogs.

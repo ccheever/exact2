@@ -557,6 +557,7 @@ fn declared(out: &mut String, id: StyleId, value: &RowValue<'_>) {
             | StyleId::FlexShrink
             | StyleId::Opacity
             | StyleId::ZIndex
+            | StyleId::Order
             | StyleId::FontWeight
             | StyleId::Scale
             // SVG's unitless numbers (LLP 1055 D2); `r`, `cx`, `cy` are lengths.

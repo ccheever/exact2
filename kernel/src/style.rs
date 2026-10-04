@@ -30,6 +30,10 @@ pub use grid::{
 pub mod env;
 pub use env::link as link_segments;
 pub use env::{uses_env, Edge, Env, EnvRefusal, Rect, SegmentVar};
+/// Link the wide colour forms (`lab()`, `lch()`, `oklab()`, `oklch()`,
+/// `color()`) into every colour row's grammar: native hosts and the compiler
+/// at start, a web artifact by use (LLP 1047 D2, LLP 1056 §8.2).
+pub use exact_motion::color::css::link_wide as link_wide_colors;
 mod viewport;
 pub use viewport::ViewportUnit;
 pub mod relative;
@@ -336,7 +340,7 @@ pub enum StyleValue {
     /// A number: points for dimensions, the raw value for numeric rows, a
     /// packed `0xRRGGBBAA` for colors.
     Number(f64),
-    /// Text: an enum value by name, or a color as `#rrggbb[aa]` or `rgb()`.
+    /// Text: an enum value by name, or a CSS colour.
     Text(String),
     /// A percentage, authored 0–100.
     Percent(f64),
@@ -347,6 +351,21 @@ pub enum StyleValue {
 }
 
 impl StyleValue {
+    /// Whether this value is a CSS-wide keyword that leaves row `style`
+    /// unset — inherited, else initial — which is what clearing the row
+    /// does: `unset`, and `inherit` on an inherited row (`color:
+    /// currentcolor` is `inherit`). `inherit` on any other row needs its
+    /// parent's value, which no row holds, so it stays refused (feed F1).
+    pub fn unsets(&self, style: StyleId) -> bool {
+        let StyleValue::Text(t) = self else {
+            return false;
+        };
+        let t = t.trim();
+        t.eq_ignore_ascii_case("unset")
+            || (t.eq_ignore_ascii_case("inherit") && StyleMask::INHERITED.has(style))
+            || (t.eq_ignore_ascii_case("currentcolor") && style == StyleId::TextColor)
+    }
+
     pub(crate) fn line_height(&self, style: StyleId) -> Result<LineHeight, StyleValueError> {
         let value = match self {
             Self::Number(n) if *n >= 0.0 => Some(LineHeight::Number(*n as f32)),
@@ -754,55 +773,21 @@ impl From<Color> for ColorValue {
 }
 
 impl Color {
-    /// A CSS colour: hex or `rgb()` notation, or the keyword `transparent`
-    /// (any ASCII case, as CSS keywords are: transparent black), whitespace
-    /// around it free.
+    /// A CSS colour, by the one parser every reader shares
+    /// ([`exact_motion::color::css`]): hex, `rgb()`/`rgba()`, `hsl()`/`hsla()`,
+    /// `hwb()`, a named colour or `transparent` (any ASCII case, whitespace
+    /// around it free), and the wide forms (`lab()`, `oklch()`, `color()`…)
+    /// clipped to sRGB once a host links them ([`link_wide_colors`]). The web
+    /// hands the same text to the browser, so a colour that paints there
+    /// paints on every host (feed F13). `currentColor` is not a colour here:
+    /// a row that takes it says so ([`StyleValue::keyword_color`]).
     pub fn parse(text: &str) -> Option<Color> {
-        let text = text.trim();
-        if text.eq_ignore_ascii_case("transparent") {
-            return Some(Color::rgba(0, 0, 0, 0));
-        }
-        Color::parse_hex(text).or_else(|| Color::parse_rgb(text))
-    }
-
-    /// CSS `rgb()` / `rgba()` (one function under two names, as in CSS
-    /// Color 4): `rgb(255, 0, 0)`, `rgba(255, 0, 0, 0.5)`, `rgb(255 0 0 / 50%)`.
-    /// A channel is a number 0–255 or a percentage; alpha is a number 0–1 or
-    /// a percentage; out-of-range values clamp, as on the web.
-    fn parse_rgb(text: &str) -> Option<Color> {
-        let inner = text
-            .strip_prefix("rgba(")
-            .or_else(|| text.strip_prefix("rgb("))?
-            .strip_suffix(')')?;
-        let parts: Vec<&str> = if inner.contains(',') {
-            inner.split(',').map(str::trim).collect()
-        } else {
-            let (rgb, alpha) = match inner.split_once('/') {
-                Some((rgb, alpha)) => (rgb, Some(alpha.trim())),
-                None => (inner, None),
-            };
-            rgb.split_whitespace().chain(alpha).collect()
+        use exact_motion::color::css::{self, Parsed};
+        let c = match css::parse(text)? {
+            Parsed::Color(c) | Parsed::Wide(c, _) => c,
+            Parsed::Current => return None,
         };
-        let ([r, g, b], alpha) = match parts[..] {
-            [r, g, b] => ([r, g, b], None),
-            [r, g, b, a] => ([r, g, b], Some(a)),
-            _ => return None,
-        };
-        // A value as a byte: a percentage of 255, or a number in `unit`s of
-        // a byte (1 for a channel, 255 for alpha).
-        let byte = |s: &str, unit: f32| -> Option<u8> {
-            let v = match s.strip_suffix('%') {
-                Some(p) => exact_num::parse_f32(p).ok()? / 100.0 * 255.0,
-                None => exact_num::parse_f32(s).ok()? * unit,
-            };
-            v.is_finite().then(|| v.round().clamp(0.0, 255.0) as u8)
-        };
-        Some(Color::rgba(
-            byte(r, 1.0)?,
-            byte(g, 1.0)?,
-            byte(b, 1.0)?,
-            alpha.map_or(Some(255), |a| byte(a, 255.0))?,
-        ))
+        Some(Color::rgba(c.r, c.g, c.b, (c.a * 255.0).round() as u8))
     }
 
     /// Parse CSS hex notation: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`.

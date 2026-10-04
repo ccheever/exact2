@@ -158,7 +158,7 @@ fn scroll_containers_scroll_on_the_block_axis_by_default() {
 }
 
 #[test]
-fn a_colour_parses_as_hex_or_as_css_rgb_notation() {
+fn a_colour_parses_as_css_writes_it() {
     let red = Some(Color::rgba(255, 0, 0, 255));
     assert_eq!(Color::parse(" #f00 "), red);
     assert_eq!(Color::parse("rgb(255, 0, 0)"), red);
@@ -189,11 +189,28 @@ fn a_colour_parses_as_hex_or_as_css_rgb_notation() {
         "rgb(a, b, c)",
         "rgb(nan, 0, 0)",
         "rgb(255, 0, 0",
-        "hsl(0, 100%, 50%)",
-        "red",
+        "blurple",
+        "currentcolor",
+        "hsl(0, 100, 50)",
     ] {
         assert_eq!(Color::parse(text), None, "{text}");
     }
+    // The rest of CSS Color 4's sRGB forms, as the web paints them: one
+    // parser for every host (feed F13).
+    assert_eq!(Color::parse("hsl(0, 100%, 50%)"), red);
+    assert_eq!(Color::parse("hsla(0deg 100% 50% / 50%)"), half);
+    assert_eq!(Color::parse("HWB(0 0% 0%)"), red);
+    assert_eq!(Color::parse("Red"), red);
+    assert_eq!(
+        Color::parse("hsl(326, 55%, 52%)"),
+        Some(Color::rgba(0xc8, 0x41, 0x8e, 255))
+    );
+    // The wide forms, clipped to sRGB, once linked.
+    crate::style::link_wide_colors();
+    assert_eq!(
+        Color::parse("oklch(0.7 0.1 200 / 0.5)"),
+        Some(Color::rgba(64, 177, 183, 128))
+    );
 }
 
 #[test]
@@ -253,11 +270,18 @@ fn a_colour_row_takes_a_pair_dynamically_as_a_dimension_takes_env() {
     .expect("a colour row takes CSS's own function");
     assert_eq!(
         s.background_color,
-        ColorValue::LightDark(
+        Some(ColorValue::LightDark(
             Color::parse_hex("#ffffff").unwrap(),
             Color::parse_hex("#17181b").unwrap()
-        )
+        ))
     );
+    // `currentcolor` is the keyword, which a host resolves to `color`.
+    s.set_dynamic(
+        StyleId::BackgroundColor,
+        &StyleValue::Text("currentColor".into()),
+    )
+    .expect("a background takes currentcolor");
+    assert_eq!(s.background_color, None);
     // And still takes a plain colour, which is the common case.
     s.set_dynamic(StyleId::TextColor, &StyleValue::Text("#112233".into()))
         .expect("a hex is still a colour");

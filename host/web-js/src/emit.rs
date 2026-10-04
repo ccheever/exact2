@@ -287,20 +287,21 @@ pub fn emit(plan: &Plan, site_attrs: bool, dev_reload: bool) -> Result<Output, S
                 )
             })
             .collect();
-        let (routes, launch) = (em.uses.rt("routes"), em.uses.rt("launch"));
+        let (routes, launch, here) = (
+            em.uses.rt("routes"),
+            em.uses.rt("launch"),
+            em.uses.rt("launchLocation"),
+        );
         let row = plan.slot(slot);
         let signal = if dev_reload {
             format!(
-                "$devSig({},{launch}(location.pathname+location.search),{},{},1)",
+                "$devSig({},{launch}({here}()),{},{},1)",
                 serde_json::to_string(plan.str(row.name)).unwrap(),
                 serde_json::to_string(&type_code(plan, row.ty)).unwrap(),
                 type_json(plan, row.ty)
             )
         } else {
-            format!(
-                "{}({launch}(location.pathname+location.search))",
-                em.uses.rt("sig")
-            )
+            format!("{}({launch}({here}()))", em.uses.rt("sig"))
         };
         let _ = write!(
             body,

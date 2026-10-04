@@ -39,9 +39,9 @@ fn a_literal_value_is_checked_against_its_row_at_compile_time() {
             "`align-items`",
         ),
         (
-            "component A\n  view\n    column background-color=\"red\"\n      text \"a\"\n",
+            "component A\n  view\n    column background-color=\"blurple\"\n      text \"a\"\n",
             "lower-attr-value",
-            "#rrggbb",
+            "a named colour",
         ),
         (
             "component A\n  view\n    column padding=\"auto\"\n      text \"a\"\n",
@@ -237,7 +237,16 @@ fn refusals_name_what_the_author_wrote_and_suggest_one_repair() {
         (app("  state drab = \"\"\n", "text drat"), "type-unknown-name", "unknown name `drat`"),
         (app("  state t = some(\"a\")\n", "buton"), "lower-unknown-tag", "unknown tag `buton`; did you mean `button`?"),
         (app("", "div"), "lower-unknown-tag", "unknown tag `div`; a flex container is `column` or `row`, and a plain box `view`"),
-        (app("", "text \"a\" color=\"bleu\""), "lower-attr-value", "`color=\"bleu\"` is not a valid `color`: a color is `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb(r, g, b)`, `rgba(r, g, b, a)`, or `transparent`"),
+        // An SVG element's own attribute on a box is refused by name, not
+        // kept as a prop no host reads; CSS `order` is a box's (feed F19).
+        (app("", "view mode=\"multiply\""), "lower-attr-tag", "`mode` is an SVG element's attribute; it does nothing on `view`"),
+        (app("", "view mask=\"url(#m)\""), "lower-attr-tag", "`mask` masks SVG elements so far; a box takes `mask-image` (a gradient)"),
+        // HTML's and CSS's own spellings (feed F1): `alt` is an image's,
+        // and `inherit` takes what the parent computed, which only an
+        // inherited row has.
+        (app("", "view alt=\"x\""), "lower-attr-tag", "`alt` belongs to `image`, not `view`; another element's accessible name is `aria-label`"),
+        (app("", "view background-color=\"inherit\""), "lower-attr-value", "`background-color=\"inherit\"`: `background-color` does not inherit, and exact2 inherits only the rows CSS inherits; write the value"),
+        (app("", "text \"a\" color=\"bleu\""), "lower-attr-value", "`color=\"bleu\"` is not a valid `color`: a color is a CSS colour: hex, `rgb()`, `hsl()`, `hwb()`, `lab()`, `oklch()`, a named colour, `transparent`, or `light-dark(a, b)` of two"),
         (app("", "text \"a\" font-size=\"14px\""), "lower-attr-value", "`font-size=\"14px\"` is not a valid `font-size`: expected number; write `font-size=14` (a number is pixels)"),
         (app("", "text \"a\" width=10px"), "syntax-unquoted-length", "`width=10px` needs quotes: a value with a unit is a string, `width=\"10px\"` (a bare number is pixels)"),
         (app("", "text \"a\" className=\"x\""), "lower-unknown-attr", "`text` has no attribute `className`; `class` names a `style` declared in this file, as in `class=Card`"),

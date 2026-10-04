@@ -1,4 +1,4 @@
-import { renderMarkup, reportPlace } from "./navigation.js"; export { animationClocks } from "./navigation.js"; // synced animations (LLP 1055.002, emit.rs `clocks`)
+import { renderMarkup, reportPlace } from "./navigation.js"; export { animationClocks, launchLocation } from "./navigation.js"; // synced animations (LLP 1055.002, emit.rs `clocks`)
 import { conforms, eq } from "./shape.js"; import { pointer } from "./pointer.js";
 import { paintList, paintFacts, paintFlush } from "./paint.js"; import { media, mediaProp, mediaOn, mediaPiece, MEDIA_EVENTS } from "./media.js";
 export { conforms, eq }; export { paintOwn } from "./paint.js";

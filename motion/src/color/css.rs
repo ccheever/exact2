@@ -1,9 +1,11 @@
-//! Canvas colours (LLP 1056 D3): CSS Color 4's sRGB forms — hex, `rgb()`,
-//! `rgba()`, `hsl()`, `hsla()`, `hwb()`, the named colours, `transparent`
-//! and `currentColor` — and the canvas serialisation (`#rrggbb` when opaque,
-//! `rgba(r, g, b, a)` otherwise). The kernel's parser takes hex, `rgb()` and
-//! `transparent` only; this one is the canvas's, and the kernel may adopt it.
-//! The wide forms (`lab()`, `lch()`, `oklab()`, `oklch()` and `color()` in
+//! CSS colours, parsed once for every reader (LLP 1056 D3): CSS Color 4's
+//! sRGB forms — hex, `rgb()`, `rgba()`, `hsl()`, `hsla()`, `hwb()`, the
+//! named colours, `transparent` and `currentColor` — and the canvas
+//! serialisation (`#rrggbb` when opaque, `rgba(r, g, b, a)` otherwise).
+//! The kernel's colour rows, a keyframe's colours and a canvas's styles all
+//! read with this parser, so a colour one host admits every host admits
+//! (feed F13: `hsl()` painted on the web and was refused on macOS). The
+//! wide forms (`lab()`, `lch()`, `oklab()`, `oklch()` and `color()` in
 //! `srgb`, `srgb-linear`, `display-p3`, `xyz`, `xyz-d50` and `xyz-d65`) are
 //! converted to sRGB and clipped, as an sRGB canvas draws them, and keep
 //! their own serialisation, as Chrome's getters return it.
@@ -84,8 +86,22 @@ pub enum Parsed {
 }
 
 /// Parse a CSS colour, or `None` when it is not one (the assignment is then
-/// ignored).
+/// ignored), its alpha held to 8 bits as Chrome stores a canvas colour's.
 pub fn parse(input: &str) -> Option<Parsed> {
+    let byte = |c: Rgba| Rgba {
+        a: (c.a * 255.0).round() / 255.0,
+        ..c
+    };
+    Some(match parse_exact(input)? {
+        Parsed::Color(c) => Parsed::Color(byte(c)),
+        Parsed::Wide(c, text) => Parsed::Wide(byte(c), text),
+        Parsed::Current => Parsed::Current,
+    })
+}
+
+/// [`parse`], with the alpha as written (clamped to 0–1): a motion value's,
+/// which interpolates in floating point.
+pub fn parse_exact(input: &str) -> Option<Parsed> {
     let s = input.trim().to_ascii_lowercase();
     if s == "currentcolor" {
         return Some(Parsed::Current);
@@ -202,7 +218,7 @@ fn args(body: &str) -> Option<(Vec<&str>, Option<&str>)> {
     (parts.len() == 3 && alpha != Some("")).then_some((parts, alpha))
 }
 
-/// Alpha, clamped and held to 8 bits as Chrome stores a canvas colour's.
+/// Alpha, clamped.
 fn alpha(t: Option<&str>) -> Option<f64> {
     let a = match t.map(component) {
         None => 1.0,
@@ -210,7 +226,7 @@ fn alpha(t: Option<&str>) -> Option<f64> {
         Some(Some(Arg::Pct(p))) => p / 100.0,
         Some(None) => return None,
     };
-    Some((a.clamp(0.0, 1.0) * 255.0).round() / 255.0)
+    Some(a.clamp(0.0, 1.0))
 }
 
 fn channel(v: f64) -> u8 {
@@ -419,9 +435,9 @@ fn wide(name: &str, body: &str) -> Option<Parsed> {
         r: byte(lin[0]),
         g: byte(lin[1]),
         b: byte(lin[2]),
-        a: (alpha_raw * 255.0).round() / 255.0,
+        a: alpha_raw,
     };
-    let n = crate::font::js_number;
+    let n = js_number;
     let mut text = match space {
         Some(space) => format!("color({space} {} {} {}", n(v[0]), n(v[1]), n(v[2])),
         None => format!("{name}({} {} {}", n(v[0]), n(v[1]), n(v[2])),
@@ -431,6 +447,19 @@ fn wide(name: &str, body: &str) -> Option<Parsed> {
     }
     text.push(')');
     Some(Parsed::Wide(rgba, text))
+}
+
+/// A number as JavaScript's `String(n)` writes it, for the shapes canvas
+/// serialisations take (finite, not huge).
+pub fn js_number(v: f64) -> String {
+    if v == v.trunc() && v.abs() < 1e15 {
+        return format!("{}", v as i64);
+    }
+    let mut s = format!("{v}");
+    if s.contains('e') {
+        s = format!("{v:.6}");
+    }
+    s
 }
 
 type M3 = [[f64; 3]; 3];

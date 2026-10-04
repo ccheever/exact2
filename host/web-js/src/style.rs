@@ -150,6 +150,8 @@ pub fn project(
                         });
                     }
                 }
+                // `unset`, or `inherit` on an inherited row: no row (feed F1).
+                (BindingKind::Style, Some(v)) if bridge::unsets(row.id, &v) => {}
                 (BindingKind::Style, Some(v)) => {
                     bridge::set_style(&mut patch, row.id, &v, stacks)
                         .map_err(|e| format!("node {i}: {e:?}"))?;

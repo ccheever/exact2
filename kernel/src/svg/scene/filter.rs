@@ -597,7 +597,7 @@ impl Resolver<'_, '_> {
                     )
                 }
                 "feConvolveMatrix" => {
-                    let (ox, oy) = pair(prop(PropId::Order), 3.0);
+                    let (ox, oy) = pair(prop(PropId::FeOrder), 3.0);
                     let (ox, oy) = (ox.max(1.0) as u32, oy.max(1.0) as u32);
                     let kernel = numbers(prop(PropId::KernelMatrix));
                     let sum: f32 = kernel.iter().sum();

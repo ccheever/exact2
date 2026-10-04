@@ -131,7 +131,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         ),
         StyleValueError::AutoNotAdmitted { .. } => "`auto` is not admitted here".into(),
         StyleValueError::OutOfRange { .. } => "out of the row's range".into(),
-        StyleValueError::BadColor { .. } => "a color is `#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb(r, g, b)`, `rgba(r, g, b, a)`, or `transparent`".into(),
+        StyleValueError::BadColor { .. } => "a color is a CSS colour: hex, `rgb()`, `hsl()`, `hwb()`, `lab()`, `oklch()`, a named colour, `transparent`, or `light-dark(a, b)` of two".into(),
         StyleValueError::BadShapeOutside { .. } => "expected none, circle(), ellipse(), inset() with one round radius, or polygon() with at most 64 vertices; lengths are points/px or percentages".into(),
         StyleValueError::BadClipPath { .. } => "expected none or path() with explicit absolute M/L/Q/C/Z commands and separated finite coordinates".into(),
         StyleValueError::BadAspectRatio { .. } => "expected auto, a ratio (`16 / 9`, or a number), or both (`auto 4 / 3`); numbers are nonnegative".into(),
@@ -144,7 +144,7 @@ pub(crate) fn describe(e: &StyleValueError) -> String {
         StyleValueError::BadAnimationRange { .. } => "expected normal, or two distinct lengths (`0px 300px`)".into(),
         StyleValueError::BadTimelineScope { .. } => "expected none, all, or `--name`s separated by commas".into(),
         StyleValueError::BadTransition { .. } => "unsupported transition property or invalid timing components; exact2 supports transform components, opacity, paint and SVG properties, and admitted numeric height transitions; general layout interpolation is not implemented".into(),
-        StyleValueError::BadPaint { .. } => "SVG paint is `none`, `currentcolor`, or a colour (`#rgb`, `#rrggbb`, `#rrggbbaa`, `rgb()`, `light-dark()`); paint servers (`url(#…)`) are refused (LLP 1055 D12)".into(),
+        StyleValueError::BadPaint { .. } => "SVG paint is `none`, `currentcolor`, or a colour (hex, `rgb()`, `hsl()`, `hwb()`, a named colour, `light-dark()`); paint servers (`url(#…)`) are refused (LLP 1055 D12)".into(),
         StyleValueError::BadDashArray { .. } => "`stroke-dasharray` is `none` or non-negative numbers separated by spaces or commas".into(),
         StyleValueError::BadTransform { .. } => "`transform` is `none` or transform functions: matrix, translate, translateX/Y, scale, scaleX/Y, rotate (with SVG's optional centre), skew, skewX/Y; lengths in user units or px, angles in deg, rad, grad or turn".into(),
         StyleValueError::BadMarker { .. } => "a marker or a mask is `none` or `url(#id)`, naming a `marker` or a `mask`".into(),
@@ -528,6 +528,7 @@ pub(crate) fn check_style_value(
         // The compiler checks every row's grammar (LLP 1053.000 §2).
         exact_kernel::style::link_backdrop_filter();
         exact_kernel::style::link_segments();
+        exact_kernel::style::link_wide_colors();
         exact_kernel::timeline::link();
         let literal = match value {
             expr if numeric_literal(expr).is_some() => {
@@ -564,6 +565,22 @@ pub(crate) fn check_style_value(
             Some(v) => {
                 let mut probe = StyleProps::default();
                 for row in rows {
+                    // `unset`, or `inherit` on an inherited row: the row is
+                    // cleared where it binds (feed F1).
+                    if v.unsets(*row) {
+                        continue;
+                    }
+                    if matches!(&v, StyleValue::Text(t) if t.trim().eq_ignore_ascii_case("inherit"))
+                    {
+                        return err(
+                            "lower-attr-value",
+                            format!(
+                                "`{}=\"inherit\"`: `{}` does not inherit, and exact2 inherits only the rows CSS inherits; write the value",
+                                a.name, a.name
+                            ),
+                            span,
+                        );
+                    }
                     if let Err(e) = probe.set_dynamic(*row, &v) {
                         // A number written as a pixel string: say the number.
                         let pixels = match (&e, value) {
