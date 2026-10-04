@@ -381,15 +381,16 @@ export function animationClocks(root) {
   const origins = new Map(), members = new Map(), paused = new WeakMap();
   const clockOf = a => a.animationName === undefined ? '' : a.effect?.target?.style?.getPropertyValue('--exact-animation-clock').trim() ?? '';
   const live = a => a.effect?.target?.isConnected && a.playState !== 'idle' && a.playState !== 'finished';
-  // A member whose node left or whose play ended is let go, so a removed
-  // screen's targets are not held for the page's lifetime.
-  const prune = (m) => { for (const b of m) if (!live(b)) m.delete(b); };
+  // A member whose node left, whose play ended, or that moved to another
+  // clock is let go: it holds no clock busy, and a removed screen's targets
+  // are not kept for the page's lifetime.
+  const prune = (m, c) => { for (const b of m) if (!live(b) || clockOf(b) !== c) m.delete(b); };
   function start(a, now) {
     const c = clockOf(a);
     if (!c) return null;
     let m = members.get(c);
     if (!m) members.set(c, m = new Set());
-    prune(m);
+    prune(m, c);
     // Busy while any member is live, `a` included: a paused or resumed
     // member keeps the origin, so a resume rejoins its phase (D6).
     if (!m.size || !origins.has(c)) origins.set(c, now);
@@ -403,7 +404,7 @@ export function animationClocks(root) {
   return {
     start,
     sync(now = document.timeline.currentTime) {
-      for (const [c, m] of members) { prune(m); if (!m.size) members.delete(c); }
+      for (const [c, m] of members) { prune(m, c); if (!m.size) members.delete(c); }
       if (!root.querySelector('[style*="--exact-animation-clock"]')) return;
       for (const a of document.getAnimations()) {
         const is = a.playState === 'paused', was = paused.get(a);

@@ -29,6 +29,11 @@ impl Engine {
         match clock {
             Some(name) if self.clocks.of.get(&node).map(String::as_str) != Some(name) => {
                 self.clocks.of.insert(node, name.to_owned());
+                // Its plays join as new ones would; kept starts would be
+                // members out of phase, and hold the timeline busy on them.
+                if !self.timeline_bound(node) {
+                    self.rejoin_clock(node);
+                }
             }
             Some(_) => {}
             None => {
@@ -40,6 +45,22 @@ impl Engine {
     /// The clock timeline `node`'s animations are on.
     pub fn animation_clock(&self, node: u64) -> Option<&str> {
         self.clocks.of.get(&node).map(String::as_str)
+    }
+
+    /// Put `node`'s running plays on its clock's phase, as a join does (D4);
+    /// a held one rejoins when it resumes (D6).
+    pub(super) fn rejoin_clock(&mut self, node: u64) {
+        let Some(mut plays) = self.animations.remove(&node) else {
+            return;
+        };
+        let now = self.now;
+        for play in plays.iter_mut().filter(|p| p.hold.is_none()) {
+            play.start = self.clock_start(node, &play.animation, now, &[]);
+            for p in play.animation.keyframes.properties() {
+                self.dirty.insert((node, p));
+            }
+        }
+        self.animations.insert(node, plays);
     }
 
     pub(super) fn forget_clock(&mut self, node: u64) {

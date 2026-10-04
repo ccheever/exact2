@@ -53,13 +53,16 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
     await call('Page.navigate', { url: `http://127.0.0.1:${server.address().port}/` });
     for (let i = 0; !(await evaluate('window.ready === true')); i++) { if (i > 2000) throw new Error('page never ready'); await Bun.sleep(5); }
     // Local time on the 1600 ms cycle (800 ms, alternate).
-    const phase = id => evaluate(`(() => { const a = anim('${id}'); return [a.currentTime % 1600, a.playState]; })()`);
+    // Several read in one evaluation, so a loaded machine cannot move the
+    // page's clock between them.
+    const phases = (...ids) => evaluate(`${JSON.stringify(ids)}.map(id => { const a = anim(id); return [a.currentTime % 1600, a.playState]; })`);
+    const phase = async id => (await phases(id))[0];
 
     await evaluate(`add('lock', 'pulse 800ms ease-in-out infinite alternate')`);
     await Bun.sleep(300);
     await evaluate(`add('engine', 'pulse 800ms ease-in-out infinite alternate')`);
     await evaluate(`add('free', 'pulse 800ms ease-in-out infinite alternate', '')`);
-    const [[lock], [engine], [free]] = await Promise.all([phase('lock'), phase('engine'), phase('free')]);
+    const [[lock], [engine], [free]] = await phases('lock', 'engine', 'free');
     expect(Math.abs(lock - engine)).toBeLessThan(1);
     expect(Math.abs(lock - free)).toBeGreaterThan(200); // no clock: CSS's own start
     // A lone pulse on an idle clock starts at its first keyframe.
@@ -71,7 +74,7 @@ check('pulses that mount apart share a phase, and a resumed one rejoins it', asy
     expect((await phase('engine'))[1]).toBe('paused');
     await Bun.sleep(250);
     await evaluate(`document.getElementById('engine').style.animationPlayState = 'running'; sync()`);
-    const [[l2], [e2, state]] = await Promise.all([phase('lock'), phase('engine')]);
+    const [[l2], [e2, state]] = await phases('lock', 'engine');
     expect(state).toBe('running');
     expect(Math.abs(l2 - e2)).toBeLessThan(1);
 
