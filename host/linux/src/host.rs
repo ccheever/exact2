@@ -29,6 +29,8 @@ mod height;
 mod height_binding;
 #[path = "holds.rs"]
 mod holds;
+#[path = "lower.rs"]
+pub mod lower;
 #[path = "paint_motion.rs"]
 mod paint_motion;
 #[path = "presence.rs"]
@@ -78,6 +80,11 @@ pub struct Host<D: DataSource> {
     #[cfg(test)]
     layout_calls: usize,
     data_activated: bool,
+    /// The reader plays [`lower::LOWERED`] animations (the Canvas host);
+    /// those nodes and what it plays, and a count of changes to them.
+    lowering: bool,
+    lowered: std::collections::HashMap<u64, u8>,
+    lowered_epoch: u64,
     router_op: Option<exact_runner::RouterChange>,
     navigation: crate::navigation::Navigation,
     presence: presence::Presence,
@@ -183,6 +190,9 @@ impl<D: DataSource> Host<D> {
             #[cfg(test)]
             layout_calls: 0,
             data_activated: false,
+            lowering: false,
+            lowered: Default::default(),
+            lowered_epoch: 0,
             router_op: None,
             navigation: Default::default(),
             presence: Default::default(),
@@ -193,6 +203,7 @@ impl<D: DataSource> Host<D> {
             .set_canvas_limits(exact_runner::Limits::native(physical_memory(), false));
         // The engine hears the whole tree once: values, no transitions; an
         // `animation` starts now, as a browser starts one on a new element.
+        host.lowering_from_env();
         let mut sync = MotionSync::default();
         host.discover_height_handles();
         host.discover_transform_handles();
@@ -205,6 +216,7 @@ impl<D: DataSource> Host<D> {
         }
         let applied = sync.apply(&mut host.engine);
         debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+        host.lower_eligibility(&sync);
         host.boot_paint();
         host.presence
             .layout
@@ -494,6 +506,7 @@ impl<D: DataSource> Host<D> {
             .copied()
             .unwrap_or_else(|| Presented::from_style(node.style));
         shown.dark = Some(self.paint.dark(node.key));
+        shown.lowered = self.lowered_mask(node.key);
         shown.press = self
             .presses
             .get(&node.key)
@@ -1082,12 +1095,10 @@ impl<D: DataSource> Host<D> {
                 .engine
                 .advance((t.at_ms / 1000.0).max(self.engine.now()));
             debug_assert!(seek.is_ok(), "the clock never runs backwards here");
-            let applied = self
-                .runner
-                .kernel()
-                .motion_sync(&t.receipt)
-                .apply(&mut self.engine);
+            let sync = self.runner.kernel().motion_sync(&t.receipt);
+            let applied = sync.apply(&mut self.engine);
             debug_assert!(applied.is_ok(), "kernel rows are always valid engine input");
+            self.lower_eligibility(&sync);
             self.sync_paint(&t.receipt);
             if let Err(error) = self.sync_height_owner() {
                 self.log(error);

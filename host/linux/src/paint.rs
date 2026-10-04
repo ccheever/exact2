@@ -35,6 +35,7 @@ pub(crate) mod damage;
 pub mod gradient;
 pub use gradient::GradientPaint;
 mod inline;
+mod layer;
 mod native;
 pub use native::NativeKind;
 mod placed;
@@ -572,40 +573,25 @@ pub trait Backend {
     fn slot_begin(&mut self, _id: ViewId) {}
     /// The picture's drawing ends.
     fn slot_end(&mut self) {}
+    /// A node its reader animates (`crate::host::lower`): what follows, to
+    /// [`Backend::layer_end`], is its layer `key`, moved and faded about
+    /// `pivot` in `ts`'s space from `base` (translate x, y, scale, rotate,
+    /// opacity, a circle's radius). False: drawn where it is.
+    fn layer_begin(
+        &mut self,
+        _key: u64,
+        _ts: Transform,
+        _pivot: (f32, f32),
+        _base: [f32; 6],
+    ) -> bool {
+        false
+    }
+    /// The layer ends.
+    fn layer_end(&mut self) {}
     /// The last frame's (encode + render, readback) milliseconds, on a
     /// backend that has them.
     fn last_frame_ms(&self) -> Option<(f64, f64)> {
         None
-    }
-}
-
-/// Where a fully transparent subtree draws: nowhere.
-struct Unpainted;
-impl Backend for Unpainted {
-    fn name(&self) -> &'static str {
-        "none"
-    }
-    fn begin(&mut self, _: f32, _: f32, _: f32) {}
-    fn fill(&mut self, _: &Shape, _: [u8; 4], _: Transform) {}
-    fn fill_gradient(&mut self, _: &Shape, _: &gradient::GradientPaint, _: Transform) {}
-    fn fill_border(&mut self, _: &border::BorderFill, _: Transform) {}
-    fn image(&mut self, _: &Arc<Bitmap>, _: Rect4, _: &[Shape], _: Transform, _: Option<[u8; 4]>) {}
-    fn text(
-        &mut self,
-        _: &mut TextEngine,
-        _: &Paragraph,
-        _: &[RunPaint],
-        _: (f32, f32),
-        _: Transform,
-    ) {
-    }
-    fn push_clip(&mut self, _: &Shape, _: Transform) {}
-    fn pop_clip(&mut self) {}
-    fn push_opacity(&mut self, _: f32) {}
-    fn pop_opacity(&mut self) {}
-    fn pointer(&mut self, _: f32, _: f32) {}
-    fn finish(&mut self) -> Result<Pixmap, String> {
-        Err("a transparent subtree has no frame".into())
     }
 }
 
@@ -639,6 +625,8 @@ pub struct Painter {
     /// (LLP 1077 D8).
     pub(crate) flatten: Option<ViewId>,
     rows: rows::Rows,
+    /// The `svg` painting now: its elements the reader animates.
+    svg_layers: Vec<(ViewId, Presented)>,
 }
 
 // O(painted owners) references and numeric publication metadata, not copied
@@ -717,6 +705,7 @@ impl Painter {
             cpu_ms: None,
             flatten: None,
             rows: Default::default(),
+            svg_layers: Vec::new(),
         }
     }
 
@@ -978,9 +967,18 @@ impl Painter {
             || node.style.backdrop_blur > 0.0
             || self.material_note(&node)
             || !p.colors.is_empty();
-        let ts = if p.moves() && self.flatten != Some(id) {
+        let origin = node.style.transform_origin.resolve(w, h);
+        let layer = match self.flatten == Some(id) {
+            true => layer::Opened { lowered: 0 },
+            false => self.box_layer(node.key, &p, (x, y, w, h), origin, ts),
+        };
+        self.damage.unsupported |= layer.lowered != 0;
+        let ts = if layer.transform() {
+            // The layer turns it; a layout transition's offset is drawn.
+            ts.pre_translate(p.layout[0], p.layout[1])
+        } else if p.moves() && self.flatten != Some(id) {
             // About `transform-origin`, the centre unless authored (LLP 1061 D6).
-            ts.pre_concat(p.transform((x, y, w, h), node.style.transform_origin.resolve(w, h)))
+            ts.pre_concat(p.transform((x, y, w, h), origin))
         } else {
             ts
         };
@@ -997,11 +995,15 @@ impl Painter {
             clip: clip_rect,
             scroll: scrolls.then(|| walk.scene.scroll.get(&id).copied().unwrap_or((0.0, 0.0))),
         });
-        let opacity = p.opacity.clamp(0.0, 1.0);
+        let opacity = if layer.opacity() {
+            1.0
+        } else {
+            p.opacity.clamp(0.0, 1.0)
+        };
         // CSS opacity is paint only: a transparent subtree is still hit (the
         // walk records its boxes) and draws through a backend that draws nothing.
-        let drawn =
-            (opacity <= 0.0).then(|| std::mem::replace(&mut self.backend, Box::new(Unpainted)));
+        let drawn = (opacity <= 0.0)
+            .then(|| std::mem::replace(&mut self.backend, Box::new(layer::Unpainted)));
         if drawn.is_none() && opacity < 1.0 {
             self.backend.push_opacity(opacity);
         }
@@ -1030,6 +1032,7 @@ impl Painter {
             None if opacity < 1.0 => self.backend.pop_opacity(),
             None => {}
         }
+        self.layer_close(layer);
     }
 
     fn content(

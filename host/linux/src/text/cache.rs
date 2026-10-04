@@ -227,6 +227,20 @@ pub(super) struct Cache {
     // Non-owning shortcuts, one latest metric identity per owner; no revisions.
     bindings: Vec<(ParagraphStamp, (u64, u64))>,
 }
+thread_local! {
+    /// Inside [`deferring_eviction`]: growth skips the eviction walk.
+    static DEFERRED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+/// Run `f` (a layout pass, a paint) with eviction walks deferred to the
+/// first growth after it. A walk visits every identity, so one per text a
+/// pass measures (rows mounting during a fling) is quadratic; the cold
+/// target is soft, and the pass's own texts are pinned anyway.
+pub fn deferring_eviction<T>(f: impl FnOnce() -> T) -> T {
+    let was = DEFERRED.with(|d| d.replace(true));
+    let out = f();
+    DEFERRED.with(|d| d.set(was));
+    out
+}
 impl Default for Cache {
     fn default() -> Self {
         Self {
@@ -367,7 +381,7 @@ impl Cache {
             entry.used = self.clock;
             return (hash, entry.id);
         }
-        self.trim(None);
+        self.grew(None);
         self.serial += 1;
         self.identities.entry(hash).or_default().push(Identity {
             id: self.serial,
@@ -424,7 +438,7 @@ impl Cache {
         entry
             .widths
             .retain(|_, value| value.weak.strong_count() != 0);
-        self.trim(Some(key.1));
+        self.grew(Some(key.1));
     }
     pub fn insert(&mut self, key: (u64, u64), width: Width, p: &Rc<Paragraph>) {
         self.clock += 1;
@@ -439,7 +453,13 @@ impl Cache {
         );
         // The caller owns the current working snapshot. It may exceed the soft
         // cold target; no text/geometry is refused or shortened to meet it.
-        self.trim(Some(key.1));
+        self.grew(Some(key.1));
+    }
+    /// One growth: an eviction walk, unless [`deferring_eviction`].
+    fn grew(&mut self, keep: Option<u64>) {
+        if !DEFERRED.with(std::cell::Cell::get) {
+            self.trim(keep);
+        }
     }
     pub fn intrinsic(&mut self, key: (u64, u64), minimum: bool) -> Option<TextMetrics> {
         self.entry(key).intrinsic[usize::from(minimum)]

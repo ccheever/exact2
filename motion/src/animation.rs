@@ -289,7 +289,7 @@ impl Keyframes {
     /// with CSS's implicit `0%` and `100%` from `underlying` where no
     /// keyframe declares it (CSS Animations 1 §3). A `light-dark()` colour
     /// takes its value under `dark`.
-    fn track(
+    pub fn track(
         &self,
         property: Property,
         underlying: Value,

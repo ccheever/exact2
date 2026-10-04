@@ -187,7 +187,20 @@ impl Painter {
         }
         let (ox, oy) = effective_overflow(node);
         let clips = ox != Overflow::Visible || oy != Overflow::Visible;
+        // The elements the reader animates (`crate::host::lower`).
+        self.svg_layers.clear();
+        let mut stack: Vec<&Item> = scene.items.iter().collect();
+        while let Some(item) = stack.pop() {
+            let p = (walk.scene.presented)(item.id);
+            if p.lowered != 0 {
+                self.svg_layers.push((item.id, p));
+            }
+            if let Kind::Group(children) | Kind::Viewport { children, .. } = &item.kind {
+                stack.extend(children);
+            }
+        }
         self.paint_svg(&scene, clips, rect, content, ts);
+        self.svg_layers.clear();
     }
 
     /// A resolved `svg` scene inside its box: clipped to the border box
@@ -314,7 +327,17 @@ impl Painter {
     /// One item in its parent's space `ts`; `origin` is the content box's
     /// space, where a non-scaling stroke is drawn.
     pub(super) fn svg_item(&mut self, item: &Item, ts: Transform, origin: Transform) {
-        if item.opacity <= 0.0 {
+        let own = match &item.transform {
+            Some(t) => ts.pre_concat(affine(t.affine())),
+            None => ts,
+        };
+        let layer = match self.svg_layers.is_empty() {
+            true => super::layer::Opened { lowered: 0 },
+            false => self.svg_layer(item, own),
+        };
+        let opacity = if layer.opacity() { 1.0 } else { item.opacity };
+        if opacity <= 0.0 {
+            self.layer_close(layer);
             return;
         }
         // @ref LLP 1055.000 D19 — a blended element is drawn alone into an
@@ -336,17 +359,13 @@ impl Painter {
             }
             return;
         }
-        let isolate = item.isolate && item.opacity >= 1.0;
+        let isolate = item.isolate && opacity >= 1.0;
         if isolate {
             self.backend.push_opacity(1.0);
         }
-        if item.opacity < 1.0 {
-            self.backend.push_opacity(item.opacity);
+        if opacity < 1.0 {
+            self.backend.push_opacity(opacity);
         }
-        let own = match &item.transform {
-            Some(t) => ts.pre_concat(affine(t.affine())),
-            None => ts,
-        };
         let clips = item
             .clip
             .as_ref()
@@ -359,12 +378,13 @@ impl Painter {
         for _ in 0..clips {
             self.backend.pop_clip();
         }
-        if item.opacity < 1.0 {
+        if opacity < 1.0 {
             self.backend.pop_opacity();
         }
         if isolate {
             self.backend.pop_opacity();
         }
+        self.layer_close(layer);
     }
 
     /// What an item draws, in its own space `own`.

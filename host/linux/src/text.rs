@@ -14,7 +14,7 @@
 //! in the box, which cosmic-text does itself. Glyphs are rasterized by swash
 //! once per (glyph, color) into small premultiplied pixmaps.
 
-mod cache;
+pub(crate) mod cache;
 mod catalog;
 mod catalog_recipe;
 mod flow;

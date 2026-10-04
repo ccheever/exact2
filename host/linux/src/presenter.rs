@@ -52,6 +52,8 @@ mod content_region;
 #[cfg(test)]
 #[path = "content_region/presenter_tests.rs"]
 mod content_region_tests;
+#[cfg(target_os = "android")]
+mod feed;
 mod height;
 mod height_drag;
 #[cfg(test)]
@@ -81,6 +83,8 @@ mod events_tests;
 /// The presenter: one host, its painter, and the host state.
 pub struct Presenter<D: DataSource> {
     pub(crate) host: Host<D>,
+    /// The scroller the last wheel moved.
+    last_wheel: Option<ViewId>,
     pub(crate) surfaces: crate::surfaces::Surfaces,
     module: Option<crate::delivery::Module>,
     painted: bool,
@@ -406,6 +410,7 @@ impl<D: DataSource> Presenter<D> {
             host.log(note.to_string());
         }
         let mut p = Presenter {
+            last_wheel: None,
             host,
             executor,
             parked: BTreeMap::new(),
@@ -1201,6 +1206,7 @@ impl<D: DataSource> Presenter<D> {
                         off.1
                     };
                     self.scroll.insert(id, (nx, ny));
+                    self.last_wheel = Some(id);
                     self.dirty = true;
                     self.collection_scrolled(id);
                     if let Some(error) = self.refresh_transform_geometry() {
@@ -1219,7 +1225,14 @@ impl<D: DataSource> Presenter<D> {
                     return;
                 }
             }
-            at = self.display.parent(kernel, id);
+            // An SVG element (what a hit on a shape names, LLP 1055.000 D8)
+            // has no display box: it scrolls with its `svg`'s ancestors.
+            at = self.display.parent(kernel, id).or_else(|| {
+                node.node_type
+                    .is_svg_element()
+                    .then_some(node.parent)
+                    .flatten()
+            });
         }
         let doc = self.document();
         let viewport = self.display.viewport().unwrap_or(self.viewport);

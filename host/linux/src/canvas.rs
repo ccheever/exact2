@@ -121,6 +121,8 @@ const IDLE_FRAMES: u64 = 10;
 
 #[path = "canvas/clip.rs"]
 mod clip;
+#[path = "canvas/layer.rs"]
+mod layer;
 #[path = "canvas/picture.rs"]
 mod picture;
 pub use picture::Picture;
@@ -177,6 +179,8 @@ pub struct Recorder {
     /// Each slot's drawing as last sent, and those to send after this row.
     slots: HashMap<u32, Vec<u32>>,
     slot_sets: Vec<u32>,
+    /// Nodes the reader animates, apart (`crate::host::lower`).
+    layers: layer::Layers,
 }
 
 /// A picture slot recording: its id, the row's ops so far, the row's matrix,
@@ -223,6 +227,7 @@ impl Recorder {
             slot: None,
             slots: HashMap::new(),
             slot_sets: Vec::new(),
+            layers: Default::default(),
         }
     }
 
@@ -399,6 +404,7 @@ impl Backend for Recorder {
         self.group = None;
         self.slot = None;
         self.slot_sets.clear();
+        self.layers.begin();
         self.recorded = None;
         GROUPS.with(|g| g.borrow_mut().clear());
         self.frames += 1;
@@ -682,17 +688,20 @@ impl Backend for Recorder {
         // Size and body: the same as the row's last recording, the reader's
         // node for it stands.
         let body = &self.ops[at + 3..];
-        let sets = std::mem::take(&mut self.slot_sets);
+        let mut sets = std::mem::take(&mut self.slot_sets);
+        sets.append(&mut self.layers.sets);
         if let Some(old) = previous.filter(|p| self.kept.get(p).is_some_and(|k| k.0[..] == *body)) {
             self.ops.truncate(at);
             self.ops.extend(sets);
             self.kept.get_mut(&old).expect("kept").1 = images;
+            self.layers.row_end(old);
             return old;
         }
         let body = body.to_vec();
         self.kept.insert(id, (body, images));
         self.recorded = Some((id, at));
         self.ops.extend(sets);
+        self.layers.row_end(id);
         id
     }
 
@@ -724,6 +733,15 @@ impl Backend for Recorder {
             self.slot_sets.extend(&drawing);
             self.slots.insert(id, drawing);
         }
+    }
+
+    fn layer_begin(&mut self, key: u64, ts: Transform, pivot: (f32, f32), base: [f32; 6]) -> bool {
+        self.layer_open(key, ts, pivot, base);
+        true
+    }
+
+    fn layer_end(&mut self) {
+        self.layer_close();
     }
 
     fn row_culled(&self, bounds: Rect4) -> bool {
@@ -770,14 +788,31 @@ impl Backend for Recorder {
 
     fn row_free(&mut self, id: u32) {
         self.kept.remove(&id);
+        self.layers.row_free(id);
         self.ops.extend([ROW_FREE, id]);
     }
 
     fn finish(&mut self) -> Result<Pixmap, String> {
+        self.layers_finish();
         let ops = std::mem::take(&mut self.ops);
         FINISHED.with(|f| *f.borrow_mut() = Some(ops));
         Pixmap::new(1, 1).ok_or_else(|| "placeholder".to_string())
     }
+}
+
+/// `CLOCK_MONOTONIC` now, in nanoseconds: the clock `Instant` and the
+/// reader's frame times both read.
+fn monotonic_ns() -> i64 {
+    let mut t = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: `t` is a valid out pointer for the call's duration.
+    #[allow(unsafe_code)]
+    unsafe {
+        libc::clock_gettime(libc::CLOCK_MONOTONIC, &mut t);
+    }
+    t.tv_sec * 1_000_000_000 + t.tv_nsec
 }
 
 /// An atrace section for the rest of a scope.
@@ -847,6 +882,14 @@ pub struct CanvasHost<D: DataSource> {
     moves: u32,
     /// A GPU canvas wants another frame (Android: they present each frame).
     surfaces: bool,
+    /// The monotonic clock at `started` (ns), sent once (`CLOCK`), and each
+    /// live layer's keyframes as last sent (`TRACKS`).
+    origin_ns: i64,
+    clock_sent: bool,
+    tracks: HashMap<u32, Vec<u32>>,
+    /// The scroller [`CanvasHost::scroll`] moves.
+    feed: Option<ViewId>,
+    tracks_epoch: u64,
 }
 
 struct Painted {
@@ -872,6 +915,7 @@ impl<D: DataSource + Default> CanvasHost<D> {
         scale: f32,
     ) -> Result<CanvasHost<D>, String> {
         let started = std::time::Instant::now();
+        let origin_ns = monotonic_ns();
         std::env::set_var("EXACT_PAINTER", "canvas");
         // Four viewports of decoded pictures, not Apple's eight: the reader
         // holds its own copy of each one in use, so a larger cache costs twice.
@@ -909,6 +953,11 @@ impl<D: DataSource + Default> CanvasHost<D> {
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(MOVES),
             surfaces: false,
+            origin_ns,
+            clock_sent: false,
+            tracks: HashMap::new(),
+            feed: None,
+            tracks_epoch: 0,
         })
     }
 
@@ -988,7 +1037,9 @@ impl<D: DataSource + Default> CanvasHost<D> {
             return None;
         }
         let p = &mut self.p;
-        let frame = crate::android::trace(c"exact paint", || p.display_frame())?;
+        let frame = crate::android::trace(c"exact paint", || {
+            crate::text::cache::deferring_eviction(|| p.display_frame())
+        })?;
         p.display_complete(&frame);
         if p.module_pending() {
             p.first_pixel();
@@ -1001,7 +1052,50 @@ impl<D: DataSource + Default> CanvasHost<D> {
         self.moved = 0;
         self.force = false;
         self.quiet = None;
-        FINISHED.with(|f| f.borrow_mut().take())
+        let mut ops = FINISHED.with(|f| f.borrow_mut().take())?;
+        self.layer_tracks(&mut ops);
+        Some(ops)
+    }
+
+    /// After a paint: each live layer's keyframes, where they changed, and
+    /// the clock they run on, once (`crate::host::lower`).
+    fn layer_tracks(&mut self, ops: &mut Vec<u32>) {
+        let alive = layer::ALIVE.with(|a| a.borrow().clone());
+        if alive.is_empty() && self.tracks.is_empty() {
+            return;
+        }
+        if !self.clock_sent {
+            self.clock_sent = true;
+            ops.extend([
+                layer::CLOCK,
+                self.origin_ns as u32,
+                (self.origin_ns >> 32) as u32,
+            ]);
+        }
+        self.tracks.retain(|id, _| alive.iter().any(|a| a.0 == *id));
+        // Plays change only in a sync: until one, only new layers' tracks.
+        let epoch = self.p.host().lowered_epoch();
+        let all = epoch != self.tracks_epoch;
+        self.tracks_epoch = epoch;
+        for (id, key, base) in alive {
+            if !all && self.tracks.contains_key(&id) {
+                continue;
+            }
+            let mut p = crate::paint::Presented::IDENTITY;
+            p.translate = (base[0], base[1]);
+            p.scale = base[2];
+            p.rotate = base[3];
+            p.opacity = base[4];
+            let words = self
+                .p
+                .host()
+                .layer_tracks(exact_kernel::motion::node_key(key), &p);
+            if self.tracks.get(&id) != Some(&words) {
+                ops.extend([layer::TRACKS, id, words.len() as u32]);
+                ops.extend(&words);
+                self.tracks.insert(id, words);
+            }
+        }
     }
 
     /// Drain the wakes (executor replies, decoded images) without painting;
@@ -1147,7 +1241,15 @@ impl<D: DataSource + Default> CanvasHost<D> {
         let _s = Section::begin(c"exact scroll");
         self.scrolled = self.prefetching;
         self.p.hold_collections(self.prefetching);
-        self.p.wheel_at(x, y, 0.0, dy / self.scale);
+        // The feed: the scroller the first wheel at the centre took, moved
+        // directly after (a nested list under the centre would take it).
+        let moved = self
+            .feed
+            .is_some_and(|id| self.p.scroll_by(id, dy / self.scale));
+        if !moved && self.feed.is_none() {
+            self.p.wheel_at(x, y, 0.0, dy / self.scale);
+            self.feed = self.p.last_wheel();
+        }
         self.p.hold_collections(false);
     }
 

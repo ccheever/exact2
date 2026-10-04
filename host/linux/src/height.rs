@@ -127,11 +127,11 @@ impl<D: DataSource> Host<D> {
         }
         let mut changed = false;
         for root in self.runner.roots() {
-            let receipt = self
-                .runner
-                .kernel_mut()
-                .compute_layout_presented(root, Offer::definite(w, h), projection.as_slice())
-                .map_err(|e| format!("layout: {e:?}"))?;
+            let kernel = self.runner.kernel_mut();
+            let receipt = crate::text::cache::deferring_eviction(|| {
+                kernel.compute_layout_presented(root, Offer::definite(w, h), projection.as_slice())
+            })
+            .map_err(|e| format!("layout: {e:?}"))?;
             // @ref LLP 1043.000 §3 D4/D7 — flow-only changes damage the paragraph.
             self.runner.report_flow_skipped(&receipt.flow_skipped);
             self.flow_damage.layout(&receipt);
