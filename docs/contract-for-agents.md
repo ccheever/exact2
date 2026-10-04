@@ -544,3 +544,7 @@ and the admitted numeric height path. `width` and other general layout
 properties cannot interpolate yet: native layout is not run per frame.
 The diagnostic names this engine limit; `layout-transition` animates a
 change in the laid-out box using the existing measured projection.
+
+`cursor` takes CSS cursor keywords (`pointer`, `grab`, `grabbing`, etc.) and
+inherits. Web emits CSS; macOS maps to NSCursor with system artwork stand-ins
+where needed; iOS/tvOS/Linux ignore the hint (LLP 1001). URLs are refused.

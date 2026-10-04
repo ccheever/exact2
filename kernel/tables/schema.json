@@ -1385,6 +1385,10 @@
       ],
       "default": "static"
     },
+    "Cursor": {
+      "values": ["auto", "default", "none", "context-menu", "help", "pointer", "progress", "wait", "cell", "crosshair", "text", "vertical-text", "alias", "copy", "move", "no-drop", "not-allowed", "grab", "grabbing", "e-resize", "n-resize", "ne-resize", "nw-resize", "s-resize", "se-resize", "sw-resize", "w-resize", "ew-resize", "ns-resize", "nesw-resize", "nwse-resize", "col-resize", "row-resize", "all-scroll", "zoom-in", "zoom-out"],
+      "default": "auto"
+    },
     "Overflow": {
       "values": [
         "visible",
@@ -3038,6 +3042,12 @@
       "field": "background_attachment",
       "codec": "enum:BackgroundAttachment",
       "_comment": "@ref LLP 1066 D7: CSS `background-attachment`. `fixed` sizes and places the gradient box on the viewport, not the node's padding box: one gradient across every node that has it, staying still as they scroll (a messenger's outgoing bubbles). `local` is not admitted."
+    },
+    {
+      "bit": 172,
+      "field": "cursor",
+      "codec": "enum:Cursor",
+      "inherited": true
     }
   ],
   "_transitions": "The `transition` row is CSS `transition` (LLP 1002): count u8 (\u22648), then per declaration property u8 (0 all, then 1 + `Property`: 1 translate, 2 scale, 3 rotate, 4 opacity, 5 height, 6 stroke-dashoffset, 7 r, 8 color, 9 background-color, 10 fill, 11 stroke, 12 cx, 13 cy, 14 x, 15 y, 16 rx, 17 ry, 18 border-top-color, 19 border-right-color, 20 border-bottom-color, 21 border-left-color, 22 tint-color, 23 box-shadow \u2014 LLP 1062; 24, box-shadow's colour alone, is refused; 25 is CSS's `border-color` shorthand), duration f32 s, delay f32 s, easing u8 (0 linear, 1 ease, 2 ease-in, 3 ease-out, 4 ease-in-out, 5 cubic-bezier + 4\u00d7f32, 6 steps + u16 count + u8 position, 7 spring + f32 stiffness/damping/mass, 8 linear() + u8 count + count\u00d7(f32 input, f32 output)). Its Rust type lives in exact-motion; the kernel owns the bytes.",

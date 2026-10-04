@@ -308,6 +308,10 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
     /// AppKit called that on every node view, thousands of them, each time
     /// the scroll view moved, and posted a notification for each (25 ms/s
     /// of a fling's main thread on bones, 2026-09-30, against SwiftUI's 9).
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        if let cursor = CSSCursor.value(style["cursor"]?.string ?? "auto") { addCursorRect(bounds, cursor: cursor) }
+    }
     func syncHoverTracking() {
         let wants = handlers.contains("hover") || inlineText.contains(where: { $0.handlers.contains("hover") })
         if wants, tracking == nil {
@@ -986,6 +990,7 @@ final class NodeView: NSView, NSTextViewDelegate, NSTextFieldDelegate {
         let origin = style["transform_origin"]
         let old = style
         style = s
+        if old["cursor"] != s["cursor"] { window?.invalidateCursorRects(for: self) }
         if s["transform_origin"] != origin { applyTransform() }
         applySpace(changedFrom: old)
         let uniformBorder = number("border_width")

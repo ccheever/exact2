@@ -14,7 +14,6 @@
 //! became.
 
 use exact_kernel::{NodeType, PropId, StyleId};
-
 /// What an attribute lowers to.
 #[derive(Debug, Clone, PartialEq)]
 pub enum AttrTarget {
@@ -999,6 +998,7 @@ pub fn attr(name: &str) -> Option<AttrTarget> {
         "min-height" => styles(&[StyleId::MinHeight]),
         "max-width" => styles(&[StyleId::MaxWidth]),
         "max-height" => styles(&[StyleId::MaxHeight]),
+        "cursor" => styles(&[StyleId::Cursor]),
         "flex" => AttrTarget::Flex,
         // @ref LLP 1053 G3 — the longhand: `flex-basis` stays `auto`, unlike `flex`.
         "flex-grow" => styles(&[StyleId::FlexGrow]),

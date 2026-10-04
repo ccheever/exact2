@@ -34,6 +34,12 @@ final class CollectionMacTests: XCTestCase {
         ]))
         return (p, p.views[1]!)
     }
+    func testCSSCursorKeywordsReachAppKit() {
+        XCTAssertTrue(CSSCursor.value("grab") === NSCursor.openHand)
+        XCTAssertTrue(CSSCursor.value("grabbing") === NSCursor.closedHand)
+        XCTAssertTrue(CSSCursor.value("pointer") === NSCursor.pointingHand)
+        XCTAssertNil(CSSCursor.value("auto"))
+    }
     func testOverflowAutoCreatesAnAutohidingScrollContainer() {
         _ = NSApplication.shared
         let p = Presenter()

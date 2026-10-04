@@ -32,6 +32,6 @@ component Styles
       textarea testId="body" value=body readonly=(on or width > 300) input=bodyInput
       input testId="locked" value="locked" readonly=true
       input testId="unlocked" value=unlocked readonly=false input=unlockedInput
-      view testId="auto-scroll" width=200 height=60 overflow=(on ? "hidden" : "auto")
+      view cursor=(on ? "grabbing" : "grab") testId="auto-scroll" width=200 height=60 overflow=(on ? "hidden" : "auto")
         view width=400 height=200 background-color="#aaccee"
       view testId="viewport" width=(on ? "30vw" : "60vw") height="5vh" max-width="50vmin" padding-top="1dvh" background-color="#88aaff"

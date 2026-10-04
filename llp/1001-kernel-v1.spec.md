@@ -1039,3 +1039,9 @@ resize. Native windows have no retractable browser chrome, so their small,
 large and dynamic viewports coincide. Viewport units on scalar length rows
 (font size, spacing, border widths) remain unsupported; their diagnostic
 names the length forms the row accepts.
+
+`cursor` (2026-10-04) admits CSS's predefined keyword set, inherited. Web emits
+the keyword. macOS uses NSCursor; unavailable artwork (help/wait/progress,
+diagonal resize, zoom before macOS 15) uses an arrow/crosshair stand-in. iOS,
+tvOS and Linux ignore this presentation hint: their presenters expose no
+CSS cursor executor. Cursor image URLs remain unsupported.

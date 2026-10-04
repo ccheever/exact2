@@ -1242,3 +1242,18 @@ fn a_css_width_transition_names_the_engine_limit_not_a_syntax_error() {
         .unwrap();
     }
 }
+
+#[test]
+fn cursor_keywords_are_css_and_inherit() {
+    for value in exact_kernel::StyleId::Cursor.enum_names() {
+        let r = boot(&format!(
+            "component App\n  view\n    box cursor=\"{value}\"\n      box testId=\"child\"\n"
+        ));
+        let key = r.kernel().find_by_test_id("child")[0];
+        let node = r.kernel().node_by_key(key).unwrap();
+        assert_eq!(
+            node.computed(exact_kernel::StyleId::Cursor),
+            exact_kernel::RowValue::Enum(value)
+        );
+    }
+}
