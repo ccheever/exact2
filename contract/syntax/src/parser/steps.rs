@@ -119,13 +119,15 @@ impl Parser {
     fn step(&mut self) -> R<Step> {
         let (word, span) = match self.peek_kind().clone() {
             TokenKind::Ident(w) => (w, self.peek().span),
-            other => return self.err(
-                "syntax-expected-step",
-                format!(
+            other => {
+                return self.err(
+                    "syntax-expected-step",
+                    format!(
                     "expected `tap`, `type`, `clock`, `screenshot`, `size`, or `expect`, found {}",
                     describe(&other)
                 ),
-            ),
+                )
+            }
         };
         self.next();
         let step = match word.as_str() {
