@@ -116,7 +116,10 @@ writeFileSync(resolve(gen, 'draw.js'), tsDraws ? "export { drawer } from './ts-d
 cpSync(resolve(root, 'host/web/canvas2d-glue.js'), resolve(gen, 'canvas2d-glue.js'));
 // `exactTime`: the runner's reserved source (runner/src/time.rs), answered
 // before the app's, as the web host tells the wasm runner (navigation.js).
-const time = /"exactTime":/.test(readFileSync(resolve(gen, 'app.js'), 'utf8').match(/export const sources=\{[^}]*\}/)?.[0] ?? '');
+// The whole map: its type strings hold braces, so a source sorted before it
+// (`advance`, a nested shape) once hid `exactTime` and its app could not boot.
+const sourceMap = readFileSync(resolve(gen, 'app.js'), 'utf8').match(/export const sources=(\{.*?\});export const wait=/)?.[1] ?? '{}';
+const time = Object.hasOwn(JSON.parse(sourceMap), 'exactTime');
 // A file input, `saveFile` or `share` (files.js), registered before any press.
 const files = existsSync(resolve(gen, 'files.flag'));
 // App generation may create files imported by app.ts. Run it before reading
