@@ -508,6 +508,13 @@ impl Default for SpotLight {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Component)]
 pub struct ViewModel;
 
+/// A drawn-only pose change: the renderer draws this entity at its pose times
+/// the offset (its children keep their own poses). Presentation state, written by
+/// `Game::present`: a bob, a recoil kick or a sway that never moves the
+/// simulation, its saves or its hash.
+#[derive(Clone, Copy, Debug, Default, PartialEq, crate::Presentation)]
+pub struct Offset(pub Transform);
+
 /// Explicit visibility; absent visibility is interpreted as visible.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Component)]
 pub struct Visible(pub bool);

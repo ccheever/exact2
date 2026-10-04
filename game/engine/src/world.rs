@@ -307,6 +307,7 @@ impl World {
             .register::<SpotLight>()
             .register::<LightShadows>()
             .register::<ViewModel>()
+            .register::<crate::Offset>()
             .register::<MouseLook>()
             .register::<Visible>()
             .register::<Ambient>()

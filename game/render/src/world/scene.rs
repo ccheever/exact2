@@ -10,7 +10,14 @@ use glam::{Mat4, Vec3};
 pub const PHOTOMETRIC_SCALE: f32 = 0.0003;
 
 pub(crate) fn pose(w: &World, e: Entity) -> Option<Transform> {
-    let (scale, rotation, position) = w.global(e)?.to_scale_rotation_translation();
+    let mut global = w.global(e)?;
+    // The presentation offset moves the drawn pose only (exact_game::Offset).
+    if let Some(offset) = w.get::<exact_game::Offset>(e) {
+        let t = offset.0;
+        global = global
+            * glam::Affine3A::from_scale_rotation_translation(t.scale, t.rotation, t.position);
+    }
+    let (scale, rotation, position) = global.to_scale_rotation_translation();
     Some(Transform {
         position,
         rotation: glam::Quat::from_vec4(

@@ -220,6 +220,8 @@ struct Versions {
     viewmodel: u64,
     // An animated rig moves its socket followers' subtrees without a Transform write.
     pose: u64,
+    // Presentation offsets (exact_game::Offset) patch drawn poses like parents do.
+    offset: u64,
     live: u64,
     membership: u64,
 }
@@ -235,6 +237,7 @@ impl Versions {
             visible: w.revision::<Visible>(),
             viewmodel: w.revision::<ViewModel>(),
             pose: w.revision::<exact_game::Pose>(),
+            offset: w.revision::<exact_game::Offset>(),
             live: w.entities_revision(),
             membership: w.membership::<Transform>(),
         }
@@ -403,7 +406,8 @@ impl Feed {
         let moved = initial
             || next.transform != old.transform
             || next.parent != old.parent
-            || next.pose != old.pose;
+            || next.pose != old.pose
+            || next.offset != old.offset;
         let material = initial
             || next.material != old.material
             || next.glow != old.glow
@@ -427,6 +431,7 @@ impl Feed {
             }
         }
         let parent_changed = next.parent != old.parent;
+        let offset_changed = next.offset != old.offset;
         if moved || (self.history_pending && w.tick() != self.tick) {
             r.begin_tick();
             self.current = 1 - self.current;
@@ -435,6 +440,7 @@ impl Feed {
             // Membership too: a parented entity can gain its Transform later.
             let rebuilt = initial
                 || parent_changed
+                || offset_changed
                 || next.membership != old.membership
                 || self.override_cursor.is_none();
             if rebuilt {
@@ -443,6 +449,20 @@ impl Feed {
                     if let Some(t) = scene::pose(w, e) {
                         self.overrides.push((e, floats(t)));
                     }
+                }
+                // Unparented entities drawn at an offset are patched the same way.
+                let parented = self.overrides.len();
+                for (e, _) in w
+                    .query::<(&exact_game::Offset, &Transform)>()
+                    .without::<Parent>()
+                    .iter()
+                {
+                    if let Some(t) = scene::pose(w, e) {
+                        self.overrides.push((e, floats(t)));
+                    }
+                }
+                if self.overrides.len() > parented {
+                    self.overrides.sort_by_key(|(e, _)| e.index());
                 }
                 self.override_pages.clear();
                 for (i, (e, _)) in self.overrides.iter().enumerate() {
@@ -475,8 +495,13 @@ impl Feed {
                 self.buffer_cursors[self.current],
                 &mut self.changed_blocks,
             );
-            if parent_changed {
-                for e in &self.parents {
+            if parent_changed || offset_changed {
+                // Pages patched before, and those patched now, are rewritten.
+                for e in self
+                    .parents
+                    .iter()
+                    .chain(self.overrides.iter().map(|(e, _)| e))
+                {
                     self.transforms[self.current].invalidate(e.index() as usize / PAGE);
                 }
             }
