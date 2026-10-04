@@ -100,8 +100,9 @@ export function shaderFiles(app) {
   return files;
 }
 /** Package the complete validated inventory into a private build stage. */
-export function copyShaders(app, target) {
+export function copyShaders(app, target, {replace=false} = {}) {
   const files = shaderFiles(app);
+  if (replace) rmSync(target, {recursive:true, force:true});
   if (files.size) mkdirSync(target, {recursive:true});
   for (const [name, bytes] of files) writeFileSync(resolve(target,name), bytes);
 }

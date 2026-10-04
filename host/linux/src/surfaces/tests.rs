@@ -2,7 +2,7 @@ use super::*;
 use exact_runner::Request;
 use sha2::{Digest, Sha256};
 
-fn compile_fixture(source: &std::path::Path, path: &std::path::Path) {
+pub(super) fn compile_fixture(source: &std::path::Path, path: &std::path::Path) {
     #[cfg(not(windows))]
     let mut command = {
         let mut command = std::process::Command::new("cc");
@@ -299,6 +299,11 @@ fn cpu_canvas_pick_is_forwarded_without_a_device() {
     );
     let reply = p.surface_request(1, json!({"op":"layout","x":50,"y":50}));
     assert_eq!(reply["hit"]["name"], "cpu");
+    let screenshot = p.merge_surfaces(r#"{"op":"screenshot"}"#, "{}".into());
+    assert!(screenshot.contains("flat (no device)"));
+    p.surfaces.abis.get_mut("").unwrap().rendered = true;
+    let screenshot = p.merge_surfaces(r#"{"op":"screenshot"}"#, "{}".into());
+    assert!(!screenshot.contains("no device"));
     drop(p);
     std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
 }
