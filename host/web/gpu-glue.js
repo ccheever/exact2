@@ -94,6 +94,10 @@ async function settled() {
   while ((recoveringDevice || recoveryTimer) && performance.now() < deadline) await new Promise(resolve => setTimeout(resolve, 0));
   if (recoveringDevice || recoveryTimer) return pendingRecovery();
   const pending = await delivery.settled(() => surfaces.values());
+  // Presentation gets its own budget from the moment every asset is in: a
+  // world declaring hundreds of models (garden's 202) can spend the shared
+  // wait on delivery and leave its first frame's preparation none.
+  const presented = performance.now() + 5000;
   if (!pending.length) {
       // Agent operations return after presentation reaches the committed clock,
       // including a child-text update published by the rendered world.
@@ -101,7 +105,7 @@ async function settled() {
       // simulation time. Surface::preparing keeps gpu_dirty true until usable.
       if (exact.now) for (;;) {
         if (recoveringDevice || recoveryTimer) {
-          if (performance.now() >= deadline) {
+          if (performance.now() >= presented) {
             pending.push(...pendingRecovery());
             break;
           }
@@ -114,7 +118,7 @@ async function settled() {
         }
         flush();
         if (!drew) break;
-        if (performance.now() >= deadline) {
+        if (performance.now() >= presented) {
           for (const entry of surfaces.values()) if (entry.id && !entry.terminal && gpu.gpu_dirty(entry.id)) pending.push({name:`GPU presentation ${entry.name}`,canvas:entry.view});
           break;
         }
