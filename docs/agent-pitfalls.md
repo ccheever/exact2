@@ -142,6 +142,10 @@ guide's rules don't make obvious.
   carries the agent adapter, install pages and the source map. Fix: measure the
   release: `host/web-js/build.mjs <app> --plan <wasm bake>/app.plan --production`,
   as `scripts/deploy.mjs` builds it.
+  The current `metrics.mjs` app.js gate is a different measurement: it calls
+  `host/web/build.mjs <app>-web` without `--production`, and prints its three
+  app.js lines only with `--long`. Reproduce that invocation when investigating
+  a gate violation; a release number cannot be substituted for it.
 - **Host code must never set a scroll offset during a pan or fling.** An absolute
   `contentOffset` write while `isTracking`/`isDecelerating` cuts the reader's
   motion: frame rate holds, the motion is wrong ("janky but not dropping frames").
