@@ -209,7 +209,7 @@ export const Hosts = {
   focus: id => document.getElementById(id)?.focus(),
   blur: id => document.getElementById(id)?.blur(),
   setScheme: s => { document.documentElement.style.colorScheme = s === "system" ? "" : s; },
-  copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), // LLP 1077 D14: vibration where the browser has it
+  copyText: t => navigator.clipboard?.writeText(t), haptic: k => navigator.vibrate?.(k === "selection" ? 5 : 12), /* LLP 1077 D14: vibration where the browser has it */ scrollIntoView: (id, block, inline, behavior) => { const e = document.getElementById(id); if (e) e.scrollIntoView({ block: block ?? "start", inline: inline ?? "nearest", behavior: behavior ?? "auto" }); else say(`scrollIntoView "${id}" refused: no live node with that id`); }, // an element's, by id (minesweeper F3); list.js takes a row's
 };
 let KeyEvent = null; Hosts.preventDefault = () => KeyEvent?.preventDefault(); // the keydown whose `key` handler is running (`on`): commands run before its commit returns
 function command(name, args) {
@@ -788,8 +788,8 @@ export function on(e, kind, f) {
     // `guestMessageAuthorized`, LLP 1020 D2): a guest that navigated away is
     // not heard; an opaque sandbox's origin is "null".
     case "message": return addEventListener("message", ev => { if (ev.source === e.contentWindow && ev.origin === guestOrigin(e)) f(typeof ev.data === "string" ? ev.data : JSON.stringify(ev.data)); });
-    // The port's offsets, as the web host sends them (`glue.js` `attach`).
-    case "scroll": return l(kind, () => { if (e.$bootScroll) { e.$bootScroll = false; return; } f(e.scrollLeft, e.scrollTop); });
+    // The port's offsets, as the web host sends them (`glue.js` `attach`); an action taking one more parameter hears the `ScrollEvent` record.
+    case "scroll": return l(kind, () => { if (e.$bootScroll) { e.$bootScroll = false; return; } f(e.scrollLeft, e.scrollTop, [e.scrollLeft, e.scrollTop, e.scrollWidth, e.scrollHeight, e.clientWidth, e.clientHeight]); });
     // Pull to refresh is a native port's; the web has none (`glue.js` attaches nothing).
     case "refresh": return;
     case "contextmenu": case "dblclick": return l(kind, ev => { ev.preventDefault(); f(); }); case "pointerdown": case "pointerup": case "pointermove": return pointer(e, kind, f); // pointer.js (LLP 1005 §Events, 1056 §3)

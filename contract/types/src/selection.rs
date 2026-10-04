@@ -1,6 +1,7 @@
 //! The positional event payloads shared with the runner: `select`'s
 //! (LLP 1045 D6), a file input's `change` (LLP 1069.002 D3), the
-//! pointer's (LLP 1056 §3 stage 3) and `key`'s optional `KeyboardEvent`.
+//! pointer's (LLP 1056 §3 stage 3), `key`'s optional `KeyboardEvent` and
+//! `scroll`'s optional `ScrollEvent` (chat F4).
 use super::{Shapes, Ty};
 
 /// The DOM event record a handler's event offers its action as an optional
@@ -14,6 +15,7 @@ pub fn event_record(attr: &str) -> Option<&'static str> {
     match attr {
         "pointerdown" | "pointerup" | "pointermove" => Some("PointerEvent"),
         "key" => Some("KeyboardEvent"),
+        "scroll" => Some("ScrollEvent"),
         _ => None,
     }
 }
@@ -54,6 +56,23 @@ pub(super) fn declare(shapes: &mut Shapes) {
             ("pointerType".into(), Ty::String),
             ("pointerId".into(), Ty::Number),
         ],
+    );
+    // What a `scroll` handler's action hears after the offsets when it takes
+    // one more parameter, in the order `exact_runner::ScrollEvent` writes it:
+    // the scroller's own `Element` fields as the event fires, so "at the
+    // end" is the web's `scrollHeight - scrollTop - clientHeight` (chat F4).
+    shapes.map.insert(
+        "ScrollEvent".into(),
+        [
+            "scrollLeft",
+            "scrollTop",
+            "scrollWidth",
+            "scrollHeight",
+            "clientWidth",
+            "clientHeight",
+        ]
+        .map(|f| (f.into(), Ty::Number))
+        .to_vec(),
     );
     // One picked file, in the order `exact_runner::Picked` writes it: the
     // `app:/tmp/picked/…` path, the original name, the MIME type and size

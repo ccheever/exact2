@@ -587,6 +587,11 @@ export function focusController({ready, elements, inert}) {
 // node and value in it is committed (a focus handler may dispatch an action).
 export function runFocusCommands(commands, { root, ready, inertAncestor, log }) {
   for (const { name, args } of commands) {
+    if (name === "scrollIntoView") { // `Element.scrollIntoView()` by the element's id, after the batch's layout (minesweeper F3)
+      const el = [...root.querySelectorAll("[id]")].find(node => node.id === args?.[0]);
+      if (el) el.scrollIntoView({ block: args[1] ?? "start", inline: args[2] ?? "nearest", behavior: args[3] ?? "auto" }); else log(`scrollIntoView "${args?.[0]}" refused: no live node with that id`);
+      continue;
+    }
     if (name === "blur") { // `blur()` drops whatever holds focus; `blur(id)` only when that node holds it.
       const active = document.activeElement;
       if (ready && active && active !== document.body && (!args?.length || active.id === args[0])) active.blur();

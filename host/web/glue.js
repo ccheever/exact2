@@ -527,7 +527,8 @@ function attach(el, id, handlers) {
       let pan;
       on("pointerdown", e => (pan ??= inputHandlers?.pan(el, id, on))?.(e));
     } else if (kind === "scroll") {
-      on("scroll", () => { const n = writeIn(`${el.scrollLeft},${el.scrollTop}`); send(wasm.exact_dispatch(id, 13, n, now())); });
+      // The offsets, then the extents an action's `ScrollEvent` reads (chat F4).
+      on("scroll", () => { const n = writeIn(`${el.scrollLeft},${el.scrollTop},${el.scrollWidth},${el.scrollHeight},${el.clientWidth},${el.clientHeight}`); send(wasm.exact_dispatch(id, 13, n, now())); });
     } else if (kind === "swiperight") {
       motion.attachSwipe(el, id, on);
     } else if (kind === "heightrelease") {
@@ -760,7 +761,7 @@ function apply(batch) {
         // user's preference decides, which is what "follow the system" is on
         // the web. `light`/`dark` are the property's own values.
         if (op.name === "setScheme") { const s = String(op.args[0] ?? ""); document.documentElement.style.colorScheme = s === "system" ? "light dark" : s; } else if (op.name === "haptic") navigator.vibrate?.(op.args?.[0] === "selection" ? 5 : 12); // LLP 1077 D14
-        else if (op.name === "focus" || op.name === "selectText" || op.name === "blur") focusCommands.push({ name: op.name, args: op.args });
+        else if (op.name === "focus" || op.name === "selectText" || op.name === "blur" || op.name === "scrollIntoView") focusCommands.push({ name: op.name, args: op.args }); // an element's scrollIntoView (a list row's is the runner's)
         else if (op.name === "preventDefault") keyEvent?.preventDefault();
         else if (op.name === "postMessage") { // the inverse of `message=`: text into the named surface, every one in order
           const text = String(op.args?.[0] ?? ""), name = String(op.args?.[1] ?? ""), at = now();

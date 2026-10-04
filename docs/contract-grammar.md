@@ -464,11 +464,12 @@ working fixture, not inferred from JavaScript's Event interface.
 | --- | --- |
 | One string | `change`, `input` (text field, textarea, `select`), `message`, `error` |
 | A string, then optionally a `KeyboardEvent` | `key`: the key's name; an action taking one more parameter also hears the [modifiers](#keys) |
+| Two numbers, then optionally a `ScrollEvent` | `scroll`: left and top; an action taking one more parameter also hears the scroller's extents (below) |
 | One boolean | `hover`; `change`, `input` on a checkbox or `switch` |
 | One number | `timeupdate`, `durationchange`; `change`, `input` on `type="range"` |
 | One `list<Picked>` | `change`, `input` on `type="file"` |
 | One `MarkdownSelection` | `select` |
-| Two numbers | `scroll`, `pan`, `panrelease`, `heightrelease` |
+| Two numbers | `pan`, `panrelease`, `heightrelease` |
 | A string, then an `option<string>` | `reorderdrop`, on a vertical `list virtualized=true` only: the dragged row's key, then the key it lands before (`none` at the end) |
 | Four numbers | `transformgeometry` |
 | Six numbers | `transformrelease` |
@@ -486,7 +487,23 @@ A `video`'s or `audio`'s `error` appends a stable code, never the engine's text:
 of range). A play interrupted by a pause or a new source is no error. A `video` the
 tree removed reports nothing more, on every host
 ([LLP 1042](../llp/1042-video.spec.md) §3).
-`scroll` appends left then top offsets; `panrelease` appends x/y release velocity;
+`scroll` appends left then top offsets, and to an action that takes one more
+parameter a `ScrollEvent`: the scroller's own `scrollLeft`, `scrollTop`,
+`scrollWidth`, `scrollHeight`, `clientWidth` and `clientHeight` as the event
+fires, what a web handler reads off `event.target`. "At the end" is the web's
+arithmetic, on every host and on a virtualized list too (chat F4, a
+jump-to-latest pill); a native host's `scrollHeight` is its port plus the range
+it clamps to:
+
+```text
+action moved(x: number, y: number, e: ScrollEvent)
+  away = e.scrollHeight - e.scrollTop - e.clientHeight > 1
+list virtualized=true scroll-start="end" scrollFollowEnd=true scroll=moved …
+```
+
+As on the web, the event comes when the offset changes (a follow of the end
+moves it); content that grows below a reader who is not following it changes
+no offset and sends none. `panrelease` appends x/y release velocity;
 `heightrelease` appends height and velocity. A `pan` hears a drag that starts
 anywhere inside it, a nested `button` or `press` node included: past the slop
 the pan takes the contact and the press does not fire, while a tap still
@@ -618,7 +635,7 @@ argument validation. Use the working implementation when selecting arguments:
 | `showOpenFilePicker(id[, multiple])` | [file-picker corpus](../contract/corpus/file-pickers.contract) |
 | `showDirectoryPicker(id)` | Same corpus |
 | `showSaveFilePicker(id, suggestedName)` | Same corpus |
-| `scrollIntoView(...)` | [collection tests](../contract/cli/tests/it/collection_into_view.rs) |
+| `scrollIntoView(id, block=, inline=, behavior=)`: `Element.scrollIntoView()` on any element by its `id` (a string, dynamic as `focus`'s): every scroll container above it, innermost first, then the page, align it by the web's `ScrollIntoViewOptions` (`block` default `start`, `inline` `nearest`). `scrollIntoView("list-id", key, …, row=)`: a virtualized list's row by key, built and measured first (LLP 1070.000). Native hosts land `smooth` at once on the element form | [collection tests](../contract/cli/tests/it/collection_into_view.rs) |
 | `deliveryCheck`, `deliveryActivate` | [delivery corpus](../contract/corpus/delivery.contract) |
 
 Element-targeted commands use `id`, not `testId`. File pickers publish handles

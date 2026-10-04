@@ -713,7 +713,7 @@ public final class ExactSession {
         presenter.onPanRelease = { [unowned self] id, vx, vy in apply(runtime.panRelease(id, vx: vx, vy: vy, now: now())) }
         presenter.onPanSample = { [unowned self] first, x, y, t in runtime.panSample(first: first, x: x, y: y, t: t) }
         presenter.panVelocity = { [unowned self] t in runtime.panVelocity(at: t) }
-        presenter.onScroll = { [unowned self] id, left, top in apply(runtime.scroll(id, left: left, top: top, now: now())) }
+        presenter.onScroll = { [unowned self] id, metrics in apply(runtime.scroll(id, metrics: metrics, now: now())) }
         presenter.onScrolled = { [unowned self] id, left, top in runtime.scrolled(id, left: left, top: top) }
         #if canImport(AppKit)
         presenter.onListIndex = { [unowned self] id, key in runtime.listIndex(id, key: key) }
@@ -1001,6 +1001,10 @@ public final class ExactSession {
                 }
                 if name == "blur" {
                     app.deliver { [weak self] in self?.presenter.blurElement(args) }
+                    continue
+                }
+                if name == "scrollIntoView" {
+                    app.deliver { [weak self] in self?.presenter.scrollElementIntoView(args) }
                     continue
                 }
                 if name == "showPicker" {

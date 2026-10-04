@@ -230,8 +230,9 @@ pub enum Event {
     /// A pull past the top of a scroll container asked for fresh content
     /// (UIKit's `UIRefreshControl`); the app answers through `refreshing`.
     Refresh,
-    /// A changed scroll position, in CSS pixels (left, top).
-    Scroll(f64, f64),
+    /// A changed scroll position, in CSS pixels, and the scroller's extents
+    /// as the host had them: what a web handler reads off `event.target`.
+    Scroll(ScrollEvent),
     /// Incremental recognized pan displacement in viewport CSS pixels.
     /// @ref LLP 1043.000 §3 D8 — the action commits layout state, never a hold.
     Pan(f64, f64),
@@ -279,6 +280,29 @@ pub enum Event {
         /// Finite signed scale units per second, measured by the engine (LLP 1057.001 §3).
         vscale: f64,
     },
+}
+
+/// A scroll event's position and the scroller's extents, in CSS pixels: the
+/// web's `scrollLeft`, `scrollTop`, `scrollWidth`, `scrollHeight`,
+/// `clientWidth` and `clientHeight` of the element that scrolled, read when
+/// the event fires (chat F4: a jump-to-latest pill asks whether the list is
+/// at its end, `scrollHeight - scrollTop - clientHeight` as on the web).
+/// A native host's `scrollWidth`/`scrollHeight` is its client size plus its
+/// scroll range, so the difference is the range it clamps to.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct ScrollEvent {
+    /// The offset from the start, along x (`scrollLeft`).
+    pub left: f64,
+    /// The offset from the start, along y (`scrollTop`).
+    pub top: f64,
+    /// The scrolled content's width (`scrollWidth`).
+    pub width: f64,
+    /// The scrolled content's height (`scrollHeight`).
+    pub height: f64,
+    /// The scrollport's width (`clientWidth`).
+    pub client_width: f64,
+    /// The scrollport's height (`clientHeight`).
+    pub client_height: f64,
 }
 
 /// The modifier keys held as a key went down: `KeyboardEvent`'s
@@ -329,7 +353,8 @@ impl Event {
     /// The DOM record this event offers its action as an optional last
     /// parameter, its fields in the compiler's order
     /// (`contract_types::event_record`, `contract/types/src/selection.rs`):
-    /// `key`'s `KeyboardEvent` and the pointer's `PointerEvent`.
+    /// `key`'s `KeyboardEvent`, the pointer's `PointerEvent` and `scroll`'s
+    /// `ScrollEvent`.
     pub fn record(&self) -> Option<Value> {
         match self {
             Event::Key(key, held) => Some(Value::record(vec![
@@ -340,6 +365,18 @@ impl Event {
                 Value::Bool(held.meta),
             ])),
             Event::Pointerdown(p) | Event::Pointerup(p) | Event::Pointermove(p) => Some(p.value()),
+            Event::Scroll(s) => Some(Value::record(
+                [
+                    s.left,
+                    s.top,
+                    s.width,
+                    s.height,
+                    s.client_width,
+                    s.client_height,
+                ]
+                .map(Value::Number)
+                .to_vec(),
+            )),
             _ => None,
         }
     }
@@ -484,14 +521,22 @@ impl Event {
         valid_height_release(height, velocity).then_some(Self::HeightRelease { height, velocity })
     }
 
-    /// Decode the scroll event's two finite CSS-pixel coordinates.
+    /// Decode the scroll event: `left,top,scrollWidth,scrollHeight,
+    /// clientWidth,clientHeight`, finite CSS pixels, the extents not negative.
     pub fn scroll_payload(payload: &str) -> Option<Self> {
-        let (left, top) = payload.split_once(',')?;
-        let (left, top) = (
-            exact_num::parse_f64(left).ok()?,
-            exact_num::parse_f64(top).ok()?,
-        );
-        (left.is_finite() && top.is_finite()).then_some(Self::Scroll(left, top))
+        let [left, top, width, height, client_width, client_height] = tuple::<6>(payload)?;
+        ([left, top].iter().all(|v| v.is_finite())
+            && [width, height, client_width, client_height]
+                .iter()
+                .all(|v| v.is_finite() && *v >= 0.0))
+        .then_some(Self::Scroll(ScrollEvent {
+            left,
+            top,
+            width,
+            height,
+            client_width,
+            client_height,
+        }))
     }
 }
 
@@ -847,7 +892,7 @@ impl<D: DataSource> Runner<D> {
                 Event::Pointermove(_) => "pointermove",
                 Event::Swiperight => "swiperight",
                 Event::Refresh => "refresh",
-                Event::Scroll(_, _) => "scroll",
+                Event::Scroll(_) => "scroll",
                 Event::Pan(_, _) => "pan",
                 Event::PanRelease(_, _) => "panrelease",
                 Event::Media(kind, _) => kind.name(),
@@ -932,7 +977,7 @@ impl<D: DataSource> Runner<D> {
             Event::Pointermove(_) => (EventKind::Pointermove, None, "pointermove"),
             Event::Swiperight => (EventKind::Swiperight, None, "swiperight"),
             Event::Refresh => (EventKind::Refresh, None, "refresh"),
-            Event::Scroll(_, _) => (EventKind::Scroll, None, "scroll"),
+            Event::Scroll(_) => (EventKind::Scroll, None, "scroll"),
             Event::Media(kind, value) => (
                 *kind,
                 match kind {
@@ -984,7 +1029,9 @@ impl<D: DataSource> Runner<D> {
                 args.push(Value::str(&item));
                 args.push(before.map_or(Value::NONE, |s| Value::some(Value::str(&s))));
             }
-            Event::Scroll(left, top) | Event::Pan(left, top) | Event::PanRelease(left, top) => {
+            Event::Scroll(ScrollEvent { left, top, .. })
+            | Event::Pan(left, top)
+            | Event::PanRelease(left, top) => {
                 args.extend([Value::Number(left), Value::Number(top)])
             }
             Event::HeightRelease { height, velocity } => {

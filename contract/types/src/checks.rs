@@ -908,23 +908,52 @@ fn share_args(args: &[Expr], scope: &Scope, shapes: &Shapes, span: Span) -> Resu
 /// 1070.000 §1): a virtualized list's `id` as a literal, a row key, and the
 /// web's `ScrollIntoViewOptions` by name with literal values; `row=` names an
 /// inner list's outer row. Whether the list exists is the runner's to find.
+/// With one positional argument, `scrollIntoView("element-id", block=,
+/// inline=, behavior=)` is `Element.scrollIntoView()` on any element by its
+/// HTML `id`, as `focus("id")` names one (minesweeper F3): its scroll
+/// containers, innermost first, then the page; the host finds it.
 fn into_view_args(
     args: &[Expr],
     scope: &Scope,
     shapes: &Shapes,
     span: Span,
 ) -> Result<(), TypeError> {
-    const USAGE: &str = "`scrollIntoView(\"list-id\", key, block=\"start\", inline=\"nearest\", behavior=\"auto\", row=outerKey)`";
+    const USAGE: &str = "`scrollIntoView(\"element-id\", block=\"start\", inline=\"nearest\", behavior=\"auto\")`, or a virtualized list's row by key: `scrollIntoView(\"list-id\", key, …, row=outerKey)`";
     let positional: Vec<_> = args
         .iter()
         .filter(|a| !matches!(a, Expr::NamedArg(..)))
         .collect();
-    let [list, key] = positional.as_slice() else {
-        return err(
-            "type-scroll-into-view",
-            format!("{USAGE}: a list's `id` and a row's key, then options by name"),
-            span,
-        );
+    let (list, key) = match positional.as_slice() {
+        [element] => (element, None),
+        [list, key] => (list, Some(key)),
+        _ => {
+            return err(
+                "type-scroll-into-view",
+                format!("{USAGE}: an element's `id`, or a list's `id` and a row's key, then options by name"),
+                span,
+            )
+        }
+    };
+    let Some(key) = key else {
+        // Any string names the element, as `focus` takes one.
+        if infer(list, scope, shapes)? != Ty::String {
+            return err(
+                "type-scroll-into-view",
+                format!("the element is named by its `id`, a string: {USAGE}"),
+                list.span(),
+            );
+        }
+        if let Some(Expr::NamedArg(_, _, at)) = args
+            .iter()
+            .find(|a| matches!(a, Expr::NamedArg(name, ..) if name == "row"))
+        {
+            return err(
+                "type-scroll-into-view",
+                "`row=` names an inner list's outer row: it goes with a list's `id` and a row's key",
+                *at,
+            );
+        }
+        return into_view_options(args, scope, shapes, USAGE);
     };
     if !matches!(list, Expr::Str(..)) {
         return err(
@@ -934,6 +963,16 @@ fn into_view_args(
         );
     }
     infer(key, scope, shapes)?;
+    into_view_options(args, scope, shapes, USAGE)
+}
+
+/// The web's `ScrollIntoViewOptions` by name, literal values, each once.
+fn into_view_options(
+    args: &[Expr],
+    scope: &Scope,
+    shapes: &Shapes,
+    usage: &str,
+) -> Result<(), TypeError> {
     let mut seen = BTreeSet::new();
     for arg in args {
         let Expr::NamedArg(name, value, at) = arg else {
@@ -956,7 +995,7 @@ fn into_view_args(
             _ => {
                 return err(
                     "type-scroll-into-view",
-                    format!("`scrollIntoView` has no option `{name}`: {USAGE}"),
+                    format!("`scrollIntoView` has no option `{name}`: {usage}"),
                     *at,
                 )
             }

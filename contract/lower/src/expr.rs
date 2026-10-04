@@ -20,14 +20,20 @@ pub fn command_args<'e>(name: &str, args: &'e [Expr]) -> Vec<Option<&'e Expr>> {
         })
     };
     // @ref LLP 1070.000 §1: the list, the key, then the options in a fixed
-    // order, `none` where the author left the web's default.
+    // order, `none` where the author left the web's default: six, the
+    // runner's own. An element's (minesweeper F3) is four, the id and the
+    // options, which the runner leaves to its host.
     if name == "scrollIntoView" {
         let mut out: Vec<_> = args
             .iter()
             .filter(|a| !matches!(a, Expr::NamedArg(..)))
             .map(Some)
             .collect();
-        out.extend(["block", "inline", "behavior", "row"].map(named));
+        let element = out.len() == 1;
+        out.extend(["block", "inline", "behavior"].map(named));
+        if !element {
+            out.push(named("row"));
+        }
         return out;
     }
     if name != "share" {
