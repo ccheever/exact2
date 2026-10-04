@@ -4,14 +4,15 @@
     "90": "0x56d7b1520ecf2871"
   },
   "saves": {
-    "continuation": "998493cefe1c20cb6f4dbe96b01162802992063da6d26a90e6c87896cca508d9"
+    "continuation": "b1789afc4b212d1ae0c596d8071ce9f7159efa18e2832ac79e7cf7eda096c47f"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "9c5e5977c26e1539ca25fd0c0a202c00591a94059ff41ad2d47de8571ee50a21",
+  "inputs": "3a47ff521b0a4ba7bc5b8b0bc70dd5efd45b1ccfe981782c8614a5473a353e21",
   "game": "beacons",
   "generated": "bun game/prove.mjs beacons --repin --hosts 'linux,web'",
-  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
+  "at": "7b84e1c0578be824dc70b18c4c7a575fefd1afe1",
+  "reason": "Verify EXSIM v7 save format and refreshed shell generation after main 3394b5292"
 }

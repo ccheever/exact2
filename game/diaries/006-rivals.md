@@ -559,7 +559,8 @@ the shared-element work, before rebuilding the hosts. The five root checks pass:
 2,261 enabled tests, 9 ignored; build, Clippy, formatting, caps and boot all pass
 (counting each test binary once, excluding nested subprocess result lines).
 The Linux/web collector agrees in normal, Save and FreshGame modes and with the
-native release build. All four pins changed with the new saved round data; the
+native release build. All four pins changed with the new round data and main's
+EXSIM v7 save format; the
 collector accepted them after comparing hosts and modes, with every descendant
 audit available and passing. Artifacts: `artifacts/prove/run-IFmcq9/`.
 All 23 game tests pass again, as does formatting for `rivals-logic`. Formatting
@@ -595,3 +596,20 @@ EXSIM v6: main's pointer-origin work explicitly changed saves to v7, while its
 world hashes stayed fixed. Refreshing that baseline requires the full cross-host
 collector, not copying the failed assertion's hash. The 33 Linux surface-control
 tests, including main's new explicit primary-mouse path, pass.
+
+The final collectors pass for Rivals (`artifacts/prove/run-diDbro/`), Beacons
+(`artifacts/prove/run-tGn42W/`) and the skinned fixture
+(`artifacts/prove/run-mReegD/`): normal, Save, FreshGame, restored ordinary web
+build and native release, with all descendant audits available and passing.
+Rivals keeps its four pin values. The two fixtures keep their world hashes and
+change only the continuation-save pins for EXSIM v7. The previously failing
+fast-profile/release comparison then passes in 1.18 s. All three failures from
+the broader suite are resolved in focused reruns.
+
+The final Rivals macOS drive passes in **22.6 s** and matches the accepted
+Linux/web inputs, world states, pins and every save byte. Its optional descendant
+audit times out again; the preceding 25.5 s run established that audit for this
+main revision, before the generator-only corrections. Artifacts:
+`artifacts/direction-final-macos/`. Root checks pass on this main revision, and the
+final root and generated-Rivals formatting checks pass. The checkpoint stays on
+main `3394b5292`; another fetch belongs at the next work boundary.

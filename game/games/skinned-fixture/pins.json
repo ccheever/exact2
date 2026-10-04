@@ -4,14 +4,15 @@
     "120": "0xf8baf228b103fe37"
   },
   "saves": {
-    "continuation": "143ccf4d7087526325530e59dfaa5df072470ba5dafd7bb16b511257fb795d49"
+    "continuation": "94d92ef6986d34858999cb5988e1142172dbe67c91462c8c6daadb3ee03d1ef4"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "fc7b1129b4a9f5840caa51a9ef358760ffb004b88c463f3b5d1ccabdf10e0180",
+  "inputs": "a4081eaf496814524bbb7d4a82b57c2eecf7a6d5f08b27b83573d3d13487ebf4",
   "game": "skinned-fixture",
   "generated": "bun game/prove.mjs skinned-fixture --repin --hosts 'linux,web'",
-  "at": "b61db278a90bdf5a5dd9c6073b7d7f89ad842ed8"
+  "at": "7b84e1c0578be824dc70b18c4c7a575fefd1afe1",
+  "reason": "Verify EXSIM v7 save format and refreshed shell generation after main 3394b5292"
 }
