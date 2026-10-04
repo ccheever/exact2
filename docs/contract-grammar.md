@@ -311,7 +311,7 @@ Signatures are authored forms; localization's internal lowered signature differs
 | Call | Result / restriction |
 | --- | --- |
 | `now()` | Milliseconds on the runner's clock since boot (the driver's clock under the agent), not a date: the date is `exactTime().epochAtZero + now()`. A read does not schedule a render |
-| `formatTime(ms, offsetMinutes, "short")` | String; fixed offset east of UTC, en-US formatting |
+| `formatTime(ms, offsetMinutes, "short")` | String; fixed offset east of UTC, en-US formatting (`exactTime().utcOffset` is the zone's offset now, answered again when it changes) |
 | `formatDate(ms, offsetMinutes, "medium" or "month-year")` | String; format is a literal choice, not an expression containing `or` |
 | `formatNumber(n, "compact")` | String; admitted deterministic compact format |
 | `length(value)` | Number; list item count or string UTF-16 code-unit count |

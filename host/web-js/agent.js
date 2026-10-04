@@ -3,7 +3,7 @@
 // `scripts/agent.mjs web` asks. Input and screenshots stay the carrier's own
 // (CDP). Loaded only under `?agent`; never part of an app's boot bytes.
 import names, { types } from './names.js';
-import { R, eq, pieces, pageHistory, Head } from './rt.js';
+import { pieces, pageHistory, Head } from './rt.js';
 import * as perf from './perf.js';
 import { environment, navigation, guestOutline, guestTap, guestType, viewBox, foldEnv, preferFold, typedControl, typeControl, reveal } from './navigation.js';
 // A runtime value as the runner's typed JSON: records by field name.
@@ -183,14 +183,6 @@ export function install(exact) {
   exact.After.push(() => seek(false));
   // Held device requests (LLP 1069.007 D3): `openAuthSession`'s (auth.js).
   const holds = () => [...exact.auth?.holds() ?? [], ...exact.files?.holds() ?? []];
-  // After a clock move, `exactTime` is answered again where its answer
-  // changed: the offset at the new virtual instant, which a DST change
-  // moves (LLP 1069.007 D2), as the wasm host's `exact_set_time` after `clock`.
-  const retime = () => {
-    const time = exact.data.reserved?.exactTime;
-    const stale = time ? exact.resources.filter(r => r.source === 'exactTime' && !eq(r.value, time('exactTime', [], r.name))) : [];
-    if (stale.length) exact.commit(() => { for (const r of stale) R(r); }, 'time');
-  };
   const settleGpu = async () => await exact.gpu?.settled?.() ?? [];
   const gpuPendingReply = (req, pending) => {
     const names = pending.map(item => item.name ?? 'GPU work');
@@ -285,7 +277,7 @@ export function install(exact) {
             for (let stops = 0; ; stops++) {
               const before = exact.inflight.n, held = stops < 4096 && performance.now() < end;
               const stopped = exact.advance(to, false, held ? () => exact.inflight.n > before : undefined);
-              if (typeof stopped === 'string') { retime(); seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
+              if (typeof stopped === 'string') { seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
               if (!stopped) break;
               while (exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 1));
             }
@@ -293,7 +285,6 @@ export function install(exact) {
             seek();
             await new Promise(r => requestAnimationFrame(() => r()));
           }
-          retime();
           const gpuPending = await settleGpu();
           if (gpuPending.length) return gpuPendingReply(req, gpuPending);
           const waiting = holds();
@@ -313,14 +304,14 @@ export function install(exact) {
           while (due() && exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 1));
           const before = exact.inflight.n, stopped = exact.advance(req.to, false, () => exact.inflight.n > before);
           // A refusal stops the jump at its time: the runner's error (a timer's, a `then`'s).
-          if (typeof stopped === 'string') { retime(); seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
+          if (typeof stopped === 'string') { seek(); return { error: `clock: ${stopped}`, clock: exact.clock.now }; }
           if (!stopped) break;
           // A reply is usually a task or two away: poll at the browser's
           // shortest timer, not a frame's worth (a 300 ms timer's minute
           // is 200 of these).
           while (exact.inflight.n > holds().length && performance.now() < end) await new Promise(r => setTimeout(r, 1));
         }
-        retime(); seek();
+        seek();
         await new Promise(r => requestAnimationFrame(() => r()));
         const gpuPending = await settleGpu();
         if (gpuPending.length) return gpuPendingReply(req, gpuPending);

@@ -1101,7 +1101,7 @@ public final class ExactSession {
             clockTimer = SessionClockTimer.schedule(after: delay / 1000) { [weak self] _ in
                 guard let self, state != .destroyed else { return }
                 clockTimer = nil
-                whenIdle { [weak self] in guard let self, state != .destroyed else { return }; apply(runtime.advance(now: now())) }
+                whenIdle { [weak self] in guard let self, state != .destroyed else { return }; followOffset(); apply(runtime.advance(now: now())) }
             }
         }
         frames.run(frames.motion || frames.timerSoon || canvases.wantsFrames)
@@ -1114,12 +1114,24 @@ public final class ExactSession {
         if launchPlace.epoch != nil {
             tellAgentOffset()
         } else {
-            let offset = Double(TimeZone.current.secondsFromGMT()) / 60
-            apply(runtime.setTime(epochAtZero: Date().timeIntervalSince1970 * 1000 - now(), utcOffset: offset))
+            toldOffset = nil
+            followOffset()
         }
         apply(runtime.setPlace(locale: launchPlace.locale, timeZone: launchPlace.timeZone, seed: launchPlace.seed))
         tellPreferences()
         tellPage()
+    }
+    /// The machine zone's offset now, told when it is not the one last told:
+    /// at boot and before each advance, so a DST change or a new zone reaches
+    /// the timer that fires after it (habits F6). Under the agent, the
+    /// drive's zone moves it instead (`tellAgentOffset`).
+    var toldOffset: Double?
+    func followOffset() {
+        guard launchPlace.epoch == nil else { return }
+        let offset = Double(TimeZone.autoupdatingCurrent.secondsFromGMT()) / 60
+        guard offset != toldOffset else { return }
+        toldOffset = offset
+        apply(runtime.setTime(epochAtZero: Date().timeIntervalSince1970 * 1000 - now(), utcOffset: offset))
     }
     /// Under the agent, the drive's date at the clock's zero and its zone's
     /// offset at the virtual instant the clock reads: told at boot and after
@@ -1349,6 +1361,7 @@ final class Frames: NSObject {
         if !s.fillInFlight {
             if timerSoon, !ExactEnv.agentMode, s.clock == nil {
                 let now = s.now()
+                s.followOffset()
                 if tasks { s.apply(s.runtime.frame(now: frameNow)) }
                 else if s.timerDue.map({ now >= $0 }) ?? true { s.apply(s.runtime.advance(now: now)) }
             }

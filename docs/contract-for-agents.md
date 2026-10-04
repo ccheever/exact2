@@ -396,6 +396,14 @@ catch up missed display frames. For deterministic tests, use the driver's clock.
 the agent), not a date. For the date, read the reserved `exactTime` source and add
 `time.epochAtZero + now()`. A read does not itself schedule a future render. Use a timer if a displayed value must keep changing without other
 input. Prefer `clock settle` to waiting for a transition in real time.
+`time.utcOffset` is the zone's offset *now*: every host answers it again when the
+offset at the clock's instant changes (a DST change, a new zone), checked before a
+timer fires, so a midnight timer after the clocks change reads the new offset.
+Under the agent it is the drive's zone at the virtual date, checked after each
+`clock` (the JS target also before each timer inside one). It is not the offset
+of an arbitrary timestamp: to show a past or future instant across a DST change
+in the viewer's zone, format it in TypeScript with
+`new Intl.DateTimeFormat(time.locale, { timeZone: time.timeZone })`.
 
 Use admitted CSS transitions and keyframes. Check which properties animate and
 which require optional capabilities. `spring(…)` (a `transition` timing
