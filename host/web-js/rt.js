@@ -187,8 +187,8 @@ export function commit(f, what = "commit") {
  * and before it (the text flow piece puts flowed paragraphs back). */
 export const After = [], Before = [];
 /** Authored scroll offsets (`scrollTop`, `scrollLeft`), set once the commit's tree is in place, as the web host's `pendingScrolls`
- * (a virtualized list builds the rows there first: `$jump`, list.js); and
- * each select's committed `$value`, among its options as they now stand (glue.js `settleValue`). */
+ * (a virtualized list builds the rows there first: `$jump`, list.js); and a select's committed
+ * `$value` once written or its options change, as glue.js `settleValue` (a reader's pick stands until its action). */
 const Scrolls = new Map(), Selects = new Set();
 /** What a commit does once its tree is in place: authored scrolls, then the
  * loaded pieces' publications (also after a list's report, list.js). */
@@ -200,7 +200,7 @@ function drain() {
     if (e.$jump) e.$jump(name, at);
     else if (e[name] !== at) { if (Booting) e.$bootScroll = true; if (clock.agent && e.style.scrollBehavior === "smooth") e.scrollTo({ [name === "scrollTop" ? "top" : "left"]: at, behavior: "instant" }); else e[name] = at; }
   }
-  Scrolls.clear(); for (const e of Selects) if (!e.isConnected) Selects.delete(e); else if (e.value !== e.$value) e.value = e.$value;
+  Scrolls.clear(); for (const e of Selects) if (!e.isConnected) Selects.delete(e); else { const o = [...e.options].map(o => o.value).join("\0"); if (e.$set || e.$options !== o) { e.$set = false; e.$options = o; if (e.value !== e.$value) e.value = e.$value; } }
 }
 /** An action: each call is one commit. */
 export function act(fn) { return (...a) => commit(() => fn(...a), "action"); }
@@ -568,7 +568,7 @@ export function P(e, name, f) {
     if (v != null && (name === "href" || (name === "src" && e.localName === "iframe")) && !navigable(v)) v = name === "src" ? "about:blank" : null;
     if (PropHooks[name]?.(e, v)) return;
     if (name === "text") { if (!e.childElementCount && e.textContent !== (v ?? "")) e.textContent = v ?? ""; }
-    else if (name === "value") { if (e.localName === "select") { Selects.add(e); e.$value = v ?? ""; } if (e.value !== (v ?? "")) e.value = v ?? ""; }
+    else if (name === "value") { if (e.localName === "select") { Selects.add(e); e.$value = v ?? ""; e.$set = true; } if (e.value !== (v ?? "")) e.value = v ?? ""; }
     else if (name === "scrollTop" || name === "scrollLeft") { if (v != null) (Scrolls.get(e) ?? Scrolls.set(e, {}).get(e))[name] = Number(v); }
     else if (name === "paused") {
       if (v === "true") e.pause(); else e.play().catch(err => e.dispatchEvent(new CustomEvent("exact-error", { detail: err.message })));
