@@ -17,7 +17,7 @@ function normalized(spec) {
   const scratch = mkdtempSync(resolve(tmpdir(), 'exact-grants-'));
   const input = resolve(scratch, 'grants.txt');
   writeFileSync(input, spec);
-  const target = resolve(process.env.CARGO_TARGET_DIR || resolve(ROOT, 'target'), 'debug/exact-web-js');
+  const target = resolve(process.env.CARGO_TARGET_DIR || resolve(ROOT, 'target'), `debug/exact-web-js${process.platform === 'win32' ? '.exe' : ''}`);
   const result = existsSync(target)
     ? spawnSync(target, ['normalize-grants', input], { cwd: ROOT, encoding: 'utf8' })
     : spawnSync('cargo', ['run', '-q', '-p', 'exact-web-js', '--', 'normalize-grants', input], { cwd: ROOT, encoding: 'utf8' });
@@ -235,6 +235,42 @@ test('filesystem admission is component-based and refuses traversal', () => {
   expect(coversPath(set, 'fs.write', 'app:/data/other')).toBe(false);
 });
 
+test('quoted source scopes keep their original lines and native tuples are inert in browsers', () => {
+  const native = 'fs.read "C:\\\\Users\\\\With Space"';
+  const app = 'fs.read "app:/data/with space"';
+  const set = normalized(`${native}\n${app}`);
+  expect(grantError(set)).toBeNull();
+  expect(coversPath(set, 'fs.read', 'app:/data/with space/file')).toBe(true);
+  expect(coversPath(set, 'fs.read', 'C:/Users/With Space/file')).toBe(false);
+  expect(grantError(scopedGrantSet(set, native))).toBeNull();
+  expect(grantError(scopedGrantSet(set, 'fs.read "C:/Users/With Space"'))).toContain('source scope');
+  expect(grantError(scopedGrantSet(set, 'fs.read "app:/data/with\\u0020space"'))).toContain('source scope');
+  expect(coversPath(scopedGrantSet(set, ''), 'fs.read', 'app:/data/with space/file')).toBe(false);
+});
+
+test('sealed native tuples still require valid source grammar and exact decoded components', () => {
+  const seal = entries => {
+    const set = { version: 1, entries, error: null };
+    let hash = 0xcbf29ce484222325n;
+    for (const byte of new TextEncoder().encode(JSON.stringify(set))) {
+      hash ^= BigInt(byte); hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+    }
+    return { ...set, seal: hash.toString(16).padStart(16, '0') };
+  };
+  for (const [source, component] of [
+    ['fs.read "C:/safe" fs.write C:/', 'safe'],
+    ['fs.read "C:/safe"', 'outside'],
+    ['fs.read "C:/CON.txt"', 'CON.txt'],
+    ['fs.read "C:/bad\\u007f"', 'bad\u007f'],
+    ['fs.read "C:/bad\\uD800"', 'bad\ud800'],
+    ['fs.read C:/bad\ud800', 'bad\ud800'],
+    ['fs.read C:/bad\udc00', 'bad\udc00'],
+  ]) expect(grantError(seal([[1, source, ['fs-read', 'win:C', component], null]]))).toBe('the grant set was not validated');
+  const boundary = '💾'.repeat(127) + 'x';
+  expect(grantError(normalized(`fs.read ${JSON.stringify(`C:/${boundary}`)}`))).toBeNull();
+  expect(grantError(normalized(`fs.read ${JSON.stringify(`C:/${boundary}x`)}`))).not.toBeNull();
+});
+
 test('the production file command refuses a source outside the admitted fs.read prefix', async () => {
   const dir = mkdtempSync(resolve(tmpdir(), 'exact-files-admission-'));
   writeFileSync(resolve(dir, 'files.js'), readFileSync(resolve(ROOT, 'host/web-js/files.js'), 'utf8')
@@ -266,12 +302,14 @@ test('the web matcher consumes the Rust grammar corpus', () => {
     const set = normalized(item.spec);
     expect(!grantError(set), item.spec).toBe(item.ok);
     for (const [url, admitted] of item.fetch ?? []) expect(admitsNetwork(set, url, 'fetch'), `${item.spec}: ${url}`).toBe(admitted);
+    for (const [cap, path, admitted] of item.fs ?? []) expect(coversPath(set, cap, path), `${item.spec}: ${path}`).toBe(admitted);
+    for (const [cap, path] of item.nativeFs ?? []) expect(coversPath(set, cap, path), `${item.spec}: inert ${path}`).toBe(false);
   }
   expect(grantError(normalized('net.fetch\fhttps://api.example'))).toBeNull();
   expect(grantError(normalized('net.fetch\u2028https://api.example\n# paragraph\u2029separator'))).toBeNull();
   const portZero = normalized('net.fetch http://example.test:0');
   expect([grantError(portZero), admitsNetwork(portZero, 'http://example.test:0/x', 'fetch')]).toEqual([null, true]);
-});
+}, 15_000);
 
 test('network grants are selected by the requested operation, not ws URL spelling', async () => {
   const fetchSet = normalized('net.fetch wss://socket.example');

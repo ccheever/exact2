@@ -28,3 +28,9 @@ mod fetch_body;
 pub mod sqlite;
 
 pub mod app_fs;
+#[cfg(windows)]
+pub(crate) mod windows_directory;
+#[cfg(windows)]
+mod windows_fs;
+#[cfg(windows)]
+pub(crate) mod windows_path;

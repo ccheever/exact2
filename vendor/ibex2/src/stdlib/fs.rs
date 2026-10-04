@@ -18,7 +18,9 @@
 //! @ref LLP 0059.000#311-fs--delegating-capability-bearing-author-required — the surface
 //! @ref LLP 0067#3-the-check — per-prefix is a parameterized grant
 
-use std::path::{Component, Path, PathBuf};
+#[cfg(not(windows))]
+use std::path::Component;
+use std::path::{Path, PathBuf};
 
 use crate::boundary::HostError;
 use crate::grant::{GrantSet, Operation};
@@ -68,6 +70,14 @@ impl FsOp {
 ///
 /// Lexically, not through the filesystem: resolving `..` by asking the OS would
 /// let a symlink change what a grant covers between the check and the use.
+#[cfg(windows)]
+pub fn normalize(path: &str) -> Result<PathBuf, HostError> {
+    super::windows_path::NativePath::parse(path, true)
+        .map(|path| PathBuf::from(path.spelling()))
+        .map_err(|error| HostError::Failed(format!("TypeError: {error}")))
+}
+
+#[cfg(not(windows))]
 pub fn normalize(path: &str) -> Result<PathBuf, HostError> {
     if !path.starts_with('/') {
         return Err(HostError::Failed(format!(
@@ -146,7 +156,7 @@ pub fn admit(
     admit_as(&realized, op, &real_path, real_destination.as_deref())
 }
 
-fn admit_as(
+pub(super) fn admit_as(
     grants: &GrantSet,
     op: FsOp,
     path: &Path,
@@ -318,17 +328,26 @@ pub fn run(
             .ok_or_else(|| HostError::Failed("app directories are not configured".into()))?;
         return directories.run(grants, op, path, destination, data);
     }
-    let path = normalize(path)?;
-    let destination = destination.map(normalize).transpose()?;
-    admit(grants, op, &path, destination.as_deref())?;
-    perform(op, &path, destination.as_deref(), data)
+    #[cfg(windows)]
+    {
+        super::windows_fs::run_native(grants, op, path, destination, data)
+    }
+    #[cfg(not(windows))]
+    {
+        let path = normalize(path)?;
+        let destination = destination.map(normalize).transpose()?;
+        admit(grants, op, &path, destination.as_deref())?;
+        perform(op, &path, destination.as_deref(), data)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(unix)]
     use crate::grant::{Grant, PathPrefix};
 
+    #[cfg(unix)]
     fn granted(read: &str, write: &str) -> GrantSet {
         GrantSet::none()
             .with(Grant::FsRead(PathPrefix::new(read).unwrap()))
@@ -336,6 +355,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)]
     fn paths_are_normalized_lexically_and_must_be_absolute() {
         assert_eq!(normalize("/a/b/../c").unwrap(), PathBuf::from("/a/c"));
         assert_eq!(normalize("/a/./b").unwrap(), PathBuf::from("/a/b"));
@@ -346,6 +366,7 @@ mod tests {
 
     /// The traversal that a grant check on the raw string would admit.
     #[test]
+    #[cfg(unix)]
     fn a_traversal_cannot_reach_outside_its_prefix() {
         let grants = granted("/data", "/data");
         let path = normalize("/data/../etc/passwd").unwrap();
@@ -396,15 +417,6 @@ mod tests {
         assert!(admit(&grants, FsOp::ReadFile, Path::new("/data/x"), None).is_ok());
         assert!(admit(&grants, FsOp::ReadFile, Path::new("/data2/x"), None).is_err());
         assert!(admit(&grants, FsOp::ReadFile, Path::new("/database/x"), None).is_err());
-    }
-
-    #[cfg(windows)]
-    #[test]
-    fn native_windows_grant_spelling_remains_explicitly_unqualified() {
-        // @ref LLP 0068#windows-host-and-engine — engine qualification
-        // cannot accidentally broaden the unimplemented filesystem family.
-        assert!(normalize(r"C:\data\file.txt").is_err());
-        assert!(normalize(r"\\server\share\file.txt").is_err());
     }
 
     #[test]
