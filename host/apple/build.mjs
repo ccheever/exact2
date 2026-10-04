@@ -768,8 +768,8 @@ async function main(args) {
   cargoEnv.EXACT_BAKE_OUTPUT = bakeOutput(app, cargoEnv);
   if (tv && existsSync(resolve(app.dir, 'app.ts')) && cargoEnv.EXACT_JS_ENGINE !== 'stub') throw new Error(`--tvos: ${app.name} has app.ts, and Hermes is not built for tvOS yet; set EXACT_JS_ENGINE=stub`);
   if (ios && !tv && existsSync(resolve(app.dir, 'app.ts')) && cargoEnv.EXACT_JS_ENGINE !== 'stub') provisionHermesIos(device ? 'ios' : 'ios-simulator');
-  // What the bake is expected to decide (the manifest's store level): the
-  // shared Swift scratch is its whatever it decides, and its composition and
+  // What the bake is expected to decide (the manifest's store level). The
+  // shared Swift scratch is the same whatever it decides; the composition and
   // capture directory name the Swift host's environment before the bake ends.
   const expected = appleArtifacts(app, { destination, trust: cargoEnv.EXACT_UPDATE_TRUST });
   const swiftBuildRoot = expected.swift;
@@ -782,7 +782,7 @@ async function main(args) {
   const swiftWhole = cargoProfile === 'release' || distribution;
   // One `swift build` per product: given two `--product` flags SwiftPM
   // builds only the last; the second build is incremental and quick.
-  const swiftArgs = ['build', '-c', swiftWhole ? 'release' : 'debug', '--scratch-path', swiftBuildRoot, ...(swiftWhole ? [] : ['-Xswiftc', '-O', '-Xlinker', '-dead_strip'])];
+  const swiftArgs = ['build', '-c', swiftWhole ? 'release' : 'debug', '--scratch-path', swiftBuildRoot, ...(swiftWhole ? [] : ['-Xswiftc', '-O'])];
   if (ios) {
     swiftArgs.push(
       '--triple', iosTripleFor(app, device, tv),
@@ -943,48 +943,8 @@ async function main(args) {
   // The shared scratch links one app at a time: another app's build of this
   // destination waits here (seconds once ExactKit is compiled), and the
   // executable is in this build's private stage before the claim is let go.
-  await hostCompile?.done({ repeated: true });
-  let stripped = null;
   // The compiler, by its version: part of the name of what is kept from one build to the next.
   const swiftc = read('xcrun', ['--sdk', sdkName, 'swiftc', '--version']).stdout ?? '';
-  mkdirSync(dirname(paths.swiftLock), { recursive: true });
-  const releaseSwift = awaitBuildOutput(app, paths.swiftLock, (owner) => console.log(`host/apple: waiting for the Swift build of ${owner} in ${swiftBuildRoot.replace(root + '/', '')}`));
-  try {
-    // SwiftPM owns its output layout. Swift Build and the native build system
-    // use different directories; ask with the same destination arguments —
-    // once for each compiler and arguments, since asking is half a second of
-    // every build: the answer is kept in the scratch it names.
-    const answer = resolve(swiftBuildRoot, `bin-path-${createHash('sha256').update(JSON.stringify([swiftc, swiftArgs])).digest('hex').slice(0, 16)}`);
-    let swiftBinDir = existsSync(answer) ? readFileSync(answer, 'utf8') : '';
-    if (!swiftBinDir || !existsSync(swiftBinDir)) {
-      const located = read('swift', [...swiftArgs, '--show-bin-path'], { cwd: pkg, env });
-      if (located.status !== 0) throw new Error(`swift output path: ${located.stderr}`);
-      swiftBinDir = located.stdout.trim();
-      if (!swiftBinDir || !isAbsolute(swiftBinDir)) throw new Error('swift returned no absolute binary output path');
-      mkdirSync(swiftBuildRoot, { recursive: true });
-      writeFileSync(answer, swiftBinDir);
-    }
-    for (const p of products) rmSync(resolve(swiftBinDir, p), { force: true });
-    for (const p of products) {
-      const productArgs = [...swiftArgs];
-      if (ios && !device) {
-        // Simulator Security reads entitlements from the Mach-O text section.
-        // Device-style entitlements in its ad-hoc signature can prevent launch.
-        const ent = resolve(linkRoot, `${p}-entitlements.plist`);
-        writeFileSync(ent, entitlements({...app, id: p === 'ExactHostIOS' ? `${app.id}.host` : app.id}, null, true, bakedCompat.reach));
-        productArgs.push('-Xlinker', '-sectcreate', '-Xlinker', '__TEXT',
-          '-Xlinker', '__entitlements', '-Xlinker', ent);
-      }
-      runApple('swift', [...productArgs, '--product', p], { cwd: pkg, env });
-      const executable = resolve(binDir, p);
-      copyFileSync(resolve(swiftBinDir, p), executable);
-      assertAppleIdentity(app, executable, bakedCompat.id);
-      const platform = ios ? 'ios' : 'macos';
-      assertLinkedSdk(executable, designCompatible(app, platform) ? COMPATIBLE_SDK[platform] : read('xcrun', ['--sdk', sdkName, '--show-sdk-version']).stdout.trim());
-      if (ipa) stripped = stripForDistribution(executable, `${ipa.replace(/\.ipa$/, '')}.dSYM`);
-    }
-  } finally { releaseSwift(); }
-  const tSwift = Date.now();
   // The iframe arm (@ref LLP 1020 D3): the only artifact that links WebKit.
   // It is built beside the presenter but never linked into it; WebModule.swift
   // dlopens this file at the first iframe create commit.
@@ -1004,24 +964,29 @@ async function main(args) {
   // in the shared scratch, one compile for every app; an app's module
   // artifact (`own`) in its own directory, so two apps never evict each
   // other's. Each is written under this process's name and renamed, since
-  // another app's build may be compiling the same arm.
+  // another app's build may be compiling the same arm. A compile starts here,
+  // beside the Swift link, and what is returned waits for it and places it.
   const arm = (args, source, built, extra = '', own = false) => {
     const key = createHash('sha256').update(JSON.stringify([args.map(a => a === built ? '<out>' : a), [].concat(source).map(f => readFileSync(f, 'utf8')), swiftc, extra])).digest('hex').slice(0, 16);
     const dir = resolve(own ? linkRoot : swiftBuildRoot, 'arms'), cached = resolve(dir, `${key}-${basename(built)}`);
-    if (!existsSync(cached)) {
-      mkdirSync(dir, { recursive: true });
-      const making = `${cached}.${process.pid}.tmp`;
-      runApple('xcrun', args.map(a => a === built ? making : a));
+    if (existsSync(cached)) return async () => copyFileSync(cached, built);
+    mkdirSync(dir, { recursive: true });
+    const making = `${cached}.${process.pid}.tmp`;
+    const compile = startApple('xcrun', args.map(a => a === built ? making : a), resolve(webBuildDir, `arm-${beside.length}.log`));
+    beside.push(compile);
+    return async () => {
+      await compile.done();
       renameSync(making, cached);
       for (const old of readdirSync(dir)) if (old.endsWith(`-${basename(built)}`) && resolve(dir, old) !== cached) rmSync(resolve(dir, old), { force: true });
-    }
-    copyFileSync(cached, built);
+      copyFileSync(cached, built);
+    };
   };
+  const arms = [];
   // tvOS has no WebKit, so no iframe arm there.
-  if (!tv) arm(webArgs, resolve(root, 'host/apple/webarm/WebArm.swift'), webBuilt);
+  if (!tv) arms.push(arm(webArgs, resolve(root, 'host/apple/webarm/WebArm.swift'), webBuilt));
   const videoBuilt = resolve(webBuildDir, videoLoadName);
   const videoArgs = webArgs.map(value => value === 'ExactWebArm' ? 'ExactVideoArm' : value === resolve(root, 'host/apple/webarm/WebArm.swift') ? resolve(root, 'host/apple/videoarm/VideoArm.swift') : value === webBuilt ? videoBuilt : value === 'WebKit' ? 'AVKit' : value);
-  arm(videoArgs, resolve(root, 'host/apple/videoarm/VideoArm.swift'), videoBuilt);
+  arms.push(arm(videoArgs, resolve(root, 'host/apple/videoarm/VideoArm.swift'), videoBuilt));
   // @ref LLP 1024 D3/D8.4 — the app's one module artifact, only when the app
   // has modules (the GPU gate): the host's table glue and the app's own
   // `modules/apple/*.swift`, one dylib under one load name. A release build
@@ -1068,19 +1033,61 @@ async function main(args) {
   const iosArch = device ? 'arm64' : (iosTriple.startsWith('arm64') ? 'arm64' : 'x86_64');
   const moduleArgs = (sdkFor, targetArgs, out, forIos = false, simulator = false, arch = macArch) => ['--sdk', sdkFor, 'swiftc', '-module-cache-path', resolve(swiftBuildRoot, 'modules-module-cache'), '-parse-as-library', '-emit-library', '-O', '-swift-version', '5', '-module-name', 'ExactAppModules', ...moduleSources, ...frameworkArgs(forIos, simulator, arch), ...linkArgs(forIos), '-o', out, ...targetArgs];
   const macTarget = ['-target', `${process.arch === 'arm64' ? 'arm64' : 'x86_64'}-apple-macos14.0`];
-  if (modulesBuilt) arm(moduleArgs(sdkName, ios ? ['-target', device ? 'arm64-apple-ios17.0' : tv ? iosTripleFor(app, false, true) : iosTriple, '-sdk', sdk] : macTarget, modulesBuilt, ios, ios && !device, ios ? iosArch : macArch), moduleSources, modulesBuilt, frameworkStamp(ios, ios && !device, ios ? iosArch : macArch), true);
+  if (modulesBuilt) arms.push(arm(moduleArgs(sdkName, ios ? ['-target', device ? 'arm64-apple-ios17.0' : tv ? iosTripleFor(app, false, true) : iosTriple, '-sdk', sdk] : macTarget, modulesBuilt, ios, ios && !device, ios ? iosArch : macArch), moduleSources, modulesBuilt, frameworkStamp(ios, ios && !device, ios ? iosArch : macArch), true));
+  // The roster the artifact serves is read from its table: a macOS slice (the
+  // one this process can load) of the same sources for an iOS build. That
+  // probe is a macOS build of the same Swift, so an iOS build whose
+  // xcframework has no macOS slice cannot be probed: its roster is taken from
+  // the manifest, as it is without Bun.
+  const probeable = !ios || (app.modules.frameworks ?? []).every(fw => { try { frameworkSlice(fw, false, false, macArch); return true; } catch { return false; } });
+  const probed = modulesBuilt && app.modules.tags.length && typeof Bun !== 'undefined' && probeable;
+  const probe = ios ? resolve(webBuildDir, 'probe-' + modulesLoadName) : modulesBuilt;
+  if (probed && ios) arms.push(arm(moduleArgs('macosx', macTarget, probe), moduleSources, probe, frameworkStamp(false, false, macArch), true));
+  await hostCompile?.done({ repeated: true });
+  let stripped = null;
+  mkdirSync(dirname(paths.swiftLock), { recursive: true });
+  const releaseSwift = awaitBuildOutput(app, paths.swiftLock, (owner) => console.log(`host/apple: waiting for the Swift build of ${owner} in ${swiftBuildRoot.replace(root + '/', '')}`));
+  try {
+    // SwiftPM owns its output layout. Swift Build and the native build system
+    // use different directories; ask with the same destination arguments —
+    // once for each compiler and arguments, since asking is half a second of
+    // every build: the answer is kept in the scratch it names.
+    const answer = resolve(swiftBuildRoot, `bin-path-${createHash('sha256').update(JSON.stringify([swiftc, swiftArgs])).digest('hex').slice(0, 16)}`);
+    let swiftBinDir = existsSync(answer) ? readFileSync(answer, 'utf8') : '';
+    if (!swiftBinDir || !existsSync(swiftBinDir)) {
+      const located = read('swift', [...swiftArgs, '--show-bin-path'], { cwd: pkg, env });
+      if (located.status !== 0) throw new Error(`swift output path: ${located.stderr}`);
+      swiftBinDir = located.stdout.trim();
+      if (!swiftBinDir || !isAbsolute(swiftBinDir)) throw new Error('swift returned no absolute binary output path');
+      mkdirSync(swiftBuildRoot, { recursive: true });
+      writeFileSync(answer, swiftBinDir);
+    }
+    for (const p of products) rmSync(resolve(swiftBinDir, p), { force: true });
+    for (const p of products) {
+      const productArgs = [...swiftArgs];
+      if (ios && !device) {
+        // Simulator Security reads entitlements from the Mach-O text section.
+        // Device-style entitlements in its ad-hoc signature can prevent launch.
+        const ent = resolve(linkRoot, `${p}-entitlements.plist`);
+        writeFileSync(ent, entitlements({...app, id: p === 'ExactHostIOS' ? `${app.id}.host` : app.id}, null, true, bakedCompat.reach));
+        productArgs.push('-Xlinker', '-sectcreate', '-Xlinker', '__TEXT',
+          '-Xlinker', '__entitlements', '-Xlinker', ent);
+      }
+      runApple('swift', [...productArgs, '--product', p], { cwd: pkg, env });
+      const executable = resolve(binDir, p);
+      copyFileSync(resolve(swiftBinDir, p), executable);
+      assertAppleIdentity(app, executable, bakedCompat.id);
+      const platform = ios ? 'ios' : 'macos';
+      assertLinkedSdk(executable, designCompatible(app, platform) ? COMPATIBLE_SDK[platform] : read('xcrun', ['--sdk', sdkName, '--show-sdk-version']).stdout.trim());
+      if (ipa) stripped = stripForDistribution(executable, `${ipa.replace(/\.ipa$/, '')}.dSYM`);
+    }
+  } finally { releaseSwift(); }
+  const tSwift = Date.now();
+  for (const placed of arms) await placed();
   if (app.modules.tags.length) {
-    // The roster the artifact serves, read from its table: a macOS slice (the
-    // one this process can load) of the same sources for an iOS build.
     let provided = [];
-    // The probe is a macOS build of the same Swift, so an iOS build whose
-    // xcframework has no macOS slice cannot be probed: its roster is taken
-    // from the manifest, as it is without Bun.
-    const probeable = !ios || (app.modules.frameworks ?? []).every(fw => { try { frameworkSlice(fw, false, false, macArch); return true; } catch { return false; } });
     if (modulesBuilt && typeof Bun !== 'undefined' && !probeable) console.warn(`host/apple: an xcframework has no macOS slice, so the iOS module roster is not probed; the manifest's roster stands`);
-    if (modulesBuilt && typeof Bun !== 'undefined' && probeable) {
-      const probe = ios ? resolve(webBuildDir, 'probe-' + modulesLoadName) : modulesBuilt;
-      if (ios) arm(moduleArgs('macosx', macTarget, probe), moduleSources, probe, frameworkStamp(false, false, macArch), true);
+    if (probed) {
       const { dlopen, read, CString } = import.meta.require('bun:ffi');
       const table = dlopen(probe, { exact_native_abi: { args: [], returns: 'ptr' } }).symbols.exact_native_abi();
       provided = Object.keys(JSON.parse(new CString(read.ptr(table, 8)).toString()));

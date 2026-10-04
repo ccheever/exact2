@@ -67,6 +67,31 @@ test('browser contextmenu reaches an off-center point and refuses invalid or cov
   } finally { await session?.close(); server.stop(true); }
 },60000);
 
+test('explicit primary mouse replaces a touch history and preserves real mouse identity', async () => {
+  const server=Bun.serve({port:0,fetch(){return new Response(`<div id="exact-root" data-boot-ms="1"><canvas id="world" style="position:absolute;left:20px;top:30px;width:100px;height:100px"></canvas><button style="position:absolute;left:20px;top:30px;width:20px;height:20px">HUD</button></div><script>
+    const world=document.getElementById('world'), events=[];
+    for(const type of ['pointerdown','pointerup']) world.addEventListener(type,e=>{e.preventDefault();events.push([e.pointerType,e.pointerId,e.type,e.clientX,e.clientY,e.buttons,e.isTrusted]);});
+    world.addEventListener('contextmenu',e=>e.preventDefault());
+    const agent=async r=>r.op==='tags'?{clock:0}:r.op==='tree'?{nodes:[{id:1,type:'canvas',props:{testId:'world'}}]}:r.op==='layout'?{viewport:{w:420,h:900},nodes:[{id:1,x:20,y:30,w:100,h:100}]}:r.op==='state'?{events}:{};
+    window.exact={ready:Promise.resolve(),views:new Map([[1,world]]),agent,agentSettled:agent};
+    </script>`,{headers:{'content-type':'text/html'}});}});
+  let s;
+  try {
+    s=await open({host:'web',url:server.url.href});
+    await s.tap('world',{down:true,at:[25,75]}); await s.pointer('up');
+    await s.tap('world',{mouse:true,at:[25,75]});
+    await s.tap('world',{contextmenu:true,at:[25,75]});
+    const {events}=await s.carrier.ask({op:'state'});
+    expect(events.slice(0,2).every(e=>e[0]==='touch' && e[1]>1)).toBe(true);
+    expect(events.slice(2)).toEqual([1,0,2,0].map((buttons,i)=>['mouse',1,i%2?'pointerup':'pointerdown',45,105,buttons,true]));
+    for(const at of [null,[],[25],[25,75,0],['25',75],[NaN,75],[25,Infinity],[-1,75],[100,75],[25,100],[5,5]]) await assert.rejects(s.tap('world',{mouse:true,at}), /mouse|covers/);
+    for(const opts of [{down:true},{contextmenu:true},{wheel:[0,1]},{drag:{dx:1,dy:1}}]) await assert.rejects(s.tap('world',{mouse:true,...opts}), /another input mode/);
+    expect((await s.carrier.ask({op:'state'})).events).toEqual(events);
+    await s.tap('world',{down:true,at:[25,75]});
+    await assert.rejects(s.tap('world',{mouse:true,at:[25,75]}), /held contact/); await s.pointer('up');
+  } finally {await s?.close();server.stop(true);}
+},60000);
+
 test.skipIf(process.platform !== 'win32')('release Windows game shells use GUI executables and preserve agent pipes', () => {
   const root=mkdtempSync(resolve(tmpdir(),'exact GUI shell '));
   try {

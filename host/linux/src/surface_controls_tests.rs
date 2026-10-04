@@ -1013,3 +1013,75 @@ fn agent_contextmenu_uses_the_requested_point_and_refuses_invalid_points_without
     assert_eq!(last_input(&p).1, count);
     done(p, path);
 }
+
+#[test]
+fn agent_primary_mouse_after_touch_preserves_device_identity_and_refusal_atomicity() {
+    let (mut p, path) = fixture();
+    let raw = find(&p, "raw");
+    crate::agent::answer(&mut p, &format!(r#"{{"op":"tap","id":{raw}}}"#));
+    assert_eq!(last_input(&p).2["kind"], "touch");
+    for (mode, buttons) in [("mouse", 1), ("contextmenu", 2)] {
+        let reply: Value = serde_json::from_str(&crate::agent::answer(
+            &mut p,
+            &format!(r#"{{"op":"tap","id":{raw},"{mode}":true,"at":[25,75]}}"#),
+        ))
+        .unwrap();
+        assert_eq!(reply["delivery"], "presenter", "{reply}");
+        let (_, _, up) = last_input(&p);
+        let down: Value = unsafe {
+            let abi = &p.surfaces.abis[""];
+            serde_json::from_str(
+                std::ffi::CStr::from_ptr(abi
+                    .symbol::<unsafe extern "C" fn() -> *const std::ffi::c_char>(
+                        b"test_previous_input",
+                    )())
+                .to_str()
+                .unwrap(),
+            )
+            .unwrap()
+        };
+        for (event, phase, buttons) in [(&down, "down", buttons), (&up, "up", 0)] {
+            assert_eq!(event["id"], 1);
+            assert_eq!(event["kind"], "mouse");
+            assert_eq!(event["phase"], phase);
+            assert_eq!(event["buttons"], buttons);
+            assert_eq!(
+                (event["x"].as_f64(), event["y"].as_f64()),
+                (Some(25.), Some(75.))
+            );
+        }
+        assert!(p.contact_position().is_none());
+    }
+    let count = last_input(&p).1;
+    for extra in [
+        r#""at":[25,15]"#,
+        r#""at":[-1,75]"#,
+        r#""at":[100,75]"#,
+        r#""at":null"#,
+        r#""at":[25]"#,
+        r#""at":[1e100,75]"#,
+        r#""phase":"down""#,
+        r#""contextmenu":true"#,
+        r#""resize":[200,200]"#,
+    ] {
+        let reply: Value = serde_json::from_str(&crate::agent::answer(
+            &mut p,
+            &format!(r#"{{"op":"tap","id":{raw},"mouse":true,{extra}}}"#),
+        ))
+        .unwrap();
+        assert!(reply.get("error").is_some(), "{reply}");
+        assert_eq!(last_input(&p).1, count);
+    }
+    let control = find(&p, "a-jump");
+    assert!(p.mouse_click(control, None, false).is_err());
+    let (x, y, _, _) = p.rect_of(raw).unwrap();
+    p.pointer_down(x + 25., y + 75., 0.).unwrap();
+    let count = last_input(&p).1;
+    assert!(p
+        .mouse_click(raw, Some((25., 75.)), false)
+        .unwrap_err()
+        .contains("held contact"));
+    assert_eq!(last_input(&p).1, count);
+    p.pointer_lost(1.).unwrap();
+    done(p, path);
+}
