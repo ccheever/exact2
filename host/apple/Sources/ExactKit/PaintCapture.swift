@@ -26,14 +26,25 @@ extension Capture {
             return layer
         }
         #endif
+        func overlay(_ animation: CAAnimation, from presentation: CALayer, onto layer: CALayer) {
+            if let group = animation as? CAAnimationGroup {
+                for child in group.animations ?? [] { overlay(child, from: presentation, onto: layer) }
+            } else if let property = animation as? CAPropertyAnimation, let keyPath = property.keyPath {
+                // Rank and topology stay model-owned. The animation's storage
+                // key is arbitrary; keyPath names what it actually animates,
+                // including components such as transform.translation.x.
+                let key = String(keyPath.prefix { $0 != "." })
+                guard !["zPosition", "mask", "sublayers"].contains(key) else { return }
+                layer.setValue(presentation.value(forKeyPath: keyPath), forKeyPath: keyPath)
+            }
+        }
         func copy(_ source: CALayer) -> CALayer {
             source.displayIfNeeded()
             // CALayer(layer:) is the subclass copy initializer used by CA;
             // called directly, it gives an empty layer. Copy values explicitly.
-            // Animated properties come from the displayed frame. Unanimated
-            // layers use the model so a synchronous capture sees fresh writes
-            // even before CA commits them. Identity and topology stay model-owned.
-            let values = source.animationKeys()?.isEmpty == false ? (source.presentation() ?? source) : source
+            // Start with the model: presentation does not yet contain writes
+            // in the current transaction, even on a layer animating another key.
+            let values = source
             let layer: CALayer
             if let shape = values as? CAShapeLayer {
                 let out = CAShapeLayer()
@@ -67,6 +78,11 @@ extension Capture {
             layer.shadowOffset = values.shadowOffset; layer.shadowRadius = values.shadowRadius
             layer.shadowOpacity = values.shadowOpacity
             layer.allowsGroupOpacity = values.allowsGroupOpacity
+            if let keys = source.animationKeys(), !keys.isEmpty, let presentation = source.presentation() {
+                for key in keys {
+                    if let animation = source.animation(forKey: key) { overlay(animation, from: presentation, onto: layer) }
+                }
+            }
             layer.mask = source.mask.map(copy)
             // Order is explicit: negative ranks still follow the parent's
             // own fill/gradient layers. Authored 3D transforms stay intact.

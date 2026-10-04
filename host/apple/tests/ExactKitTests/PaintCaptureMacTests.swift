@@ -161,5 +161,78 @@ final class PaintCaptureMacTests: XCTestCase {
         XCTAssertEqual(root.subviews.compactMap { ($0 as? NodeView)?.id }, [2, 3])
         XCTAssertTrue(p.views[2]?.layer?.superlayer === liveParent, "capture leaves live layers in place")
     }
+
+    func testCaptureOverlaysOnlyAnimatedPropertiesOnSameTurnModelWrites() throws {
+        _ = NSApplication.shared
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 100, height: 100))
+        root.wantsLayer = true
+        let window = NSWindow(contentRect: root.bounds, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = root
+        defer { window.close() }
+        let backing = try XCTUnwrap(root.layer)
+        backing.backgroundColor = NSColor.white.cgColor
+        func animate(_ layer: CALayer, _ keyPath: String, grouped: Bool = false) {
+            let animation = CABasicAnimation(keyPath: keyPath)
+            animation.fromValue = 0; animation.toValue = 1; animation.duration = 10
+            let frozen: CAAnimation
+            if grouped {
+                let group = CAAnimationGroup(); group.animations = [animation]; frozen = group
+            } else { frozen = animation }
+            frozen.duration = 10; frozen.speed = 0; frozen.timeOffset = 5
+            frozen.fillMode = .both; frozen.isRemovedOnCompletion = false
+            // An animation's storage key need not be its property's key path.
+            layer.add(frozen, forKey: "capture-test")
+        }
+        func line(at y: CGFloat) -> CGPath {
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: 10, y: y)); path.addLine(to: CGPoint(x: 90, y: y))
+            return path
+        }
+        let stroke = CAShapeLayer()
+        stroke.path = line(at: 10); stroke.strokeColor = NSColor.red.cgColor; stroke.lineWidth = 10
+        backing.addSublayer(stroke); animate(stroke, "strokeEnd")
+        let faded = CALayer()
+        faded.anchorPoint = .zero; faded.position = CGPoint(x: 10, y: 40)
+        faded.bounds = CGRect(x: 0, y: 0, width: 10, height: 20)
+        faded.backgroundColor = NSColor.red.cgColor
+        backing.addSublayer(faded); animate(faded, "opacity", grouped: true)
+        let masked = CALayer()
+        masked.frame = CGRect(x: 10, y: 70, width: 80, height: 20)
+        masked.backgroundColor = NSColor.blue.cgColor
+        let mask = CAShapeLayer()
+        mask.path = CGPath(rect: CGRect(x: 0, y: 0, width: 10, height: 20), transform: nil)
+        masked.mask = mask; backing.addSublayer(masked); animate(mask, "opacity", grouped: true)
+        window.orderFront(nil)
+        root.displayIfNeeded(); CATransaction.flush()
+        let deadline = Date().addingTimeInterval(1)
+        while stroke.presentation() == nil && Date() < deadline { RunLoop.main.run(until: Date().addingTimeInterval(0.01)) }
+        XCTAssertEqual(try XCTUnwrap(stroke.presentation()).strokeEnd, 0.5, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(faded.presentation()).opacity, 0.5, accuracy: 0.01)
+        XCTAssertEqual(try XCTUnwrap(mask.presentation()).opacity, 0.5, accuracy: 0.01)
+
+        CATransaction.begin(); CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        stroke.path = line(at: 25)
+        faded.backgroundColor = NSColor.blue.cgColor
+        faded.bounds.size.width = 80
+        mask.path = CGPath(rect: masked.bounds, transform: nil)
+        // Deliberately capture before committing: presentation still has the
+        // old path, red fill and narrow bounds, but the active opacity/stroke
+        // values must still come from it (also for a mask and animation group).
+        let rep = try XCTUnwrap(Capture.paintOrderBitmap(of: root, scale: 1))
+        func pixel(_ x: Int, _ y: Int) throws -> NSColor { try XCTUnwrap(rep.colorAt(x: x, y: y)) }
+        XCTAssertGreaterThan(try pixel(20, 10).greenComponent, 0.95, "the old path is gone")
+        XCTAssertLessThan(try pixel(20, 25).greenComponent, 0.05, "the fresh path is drawn")
+        XCTAssertGreaterThan(try pixel(80, 25).greenComponent, 0.95, "strokeEnd stays half drawn")
+        for y in [50, 80] {
+            let color = try pixel(70, y)
+            XCTAssertEqual(color.redComponent, 0.5, accuracy: 0.02, "fresh geometry with presented opacity at y=\(y)")
+            XCTAssertEqual(color.greenComponent, 0.5, accuracy: 0.02)
+            XCTAssertGreaterThan(color.blueComponent, 0.95, "fresh blue fill")
+        }
+        XCTAssertEqual(stroke.strokeEnd, 1); XCTAssertEqual(faded.opacity, 1); XCTAssertEqual(mask.opacity, 1)
+        XCTAssertTrue(stroke.superlayer === backing); XCTAssertTrue(masked.mask === mask)
+    }
 }
 #endif
