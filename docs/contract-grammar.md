@@ -60,7 +60,7 @@ The lexer reserves no separate keyword token kind. Sixteen words are reserved,
 and only where a name is bound ([`names.rs`](../contract/syntax/src/parser/names.rs),
 LLP 1085 D5): `when`, `if`, `else`, `each`, `in`, `match`, `case`, `as`, `fn`,
 `and`, `or`, `not`, `true`, `false`, `none`, `some`. A binder is a component's
-props and injects; states, derives, resources, mutations and actions; action and
+props, injects and provided names; states, derives, resources, mutations and actions; action and
 `fn` parameters and `fn` names; `let`, an `each` item and index, `case some(x)`,
 an arrow parameter; and a shape name (a shape name builds the shape, so
 `shape none` is refused). There a reserved word is refused as "`in` is reserved
@@ -505,7 +505,8 @@ Syntax is only the first layer. In particular:
 - An action sends one mutation at most once on any path: a second send forgets
   the first's reply (LLP 1016 D5), so it is `analyze-send-twice`. Exclusive
   `if`/`match` arms, and sequential `if`s testing one unchanged name against
-  different literals, are separate paths (LLP 1085 D8).
+  different literals, are separate paths (LLP 1085 D8). The walk reads the root's
+  actions after tail calls are inlined, where a caller and its callee are one commit.
   `pending`/`failed` operate on declarations, not arbitrary values.
 - View roots cannot be conditional/repeated regions. Tags, attributes, and
   children must fit their lowering rules. Class application is not a CSS cascade.

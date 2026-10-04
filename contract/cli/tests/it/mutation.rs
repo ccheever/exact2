@@ -1144,3 +1144,36 @@ fn two_sends_to_one_mutation_on_one_path_are_refused() {
         assert!(plan.is_ok(), "{body}\n{plan:?}");
     }
 }
+
+/// LLP 1085 D8 on the inlined body: a child's action that tail-calls a root
+/// action runs that action's sends in its own commit, so the walk reads the
+/// root after tail calls are inlined — the callee's double send is refused
+/// once, and a single send through the call compiles.
+#[test]
+fn a_send_twice_is_found_through_a_tail_call_once() {
+    let src = |body: &str| {
+        format!("shape Ack\n  op: string\ncomponent App\n  mutation edited as shape Ack\n  action save(why: string)\n{body}  view\n    Editor(done=save)\ncomponent Editor\n  props\n    done: action\n  state n = 0\n  action commit\n    n = n + 1\n    done(\"x\")\n  view\n    button \"s\" press=commit\n")
+    };
+    let dir = std::env::temp_dir().join(format!("exact-send-tail-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("app.contract");
+    std::fs::write(
+        &path,
+        src("    send edited = saveCard(why)\n    send edited = setImage(why)\n"),
+    )
+    .unwrap();
+    let Err(errors) = contract::compile_path_all(&path, false) else {
+        panic!("a double send compiled");
+    };
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(
+        errors
+            .iter()
+            .filter(|e| e.id == "analyze-send-twice")
+            .count(),
+        1,
+        "{errors:?}"
+    );
+    let plan = contract::compile(&src("    send edited = saveCard(why)\n"));
+    assert!(plan.is_ok(), "{plan:?}");
+}

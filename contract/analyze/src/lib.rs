@@ -205,7 +205,9 @@ pub fn check_all(checked: &Checked<'_>) -> Result<Analysis, Vec<AnalyzeError>> {
         let scope = types.component_scope(scoped, ct);
         errors.extend(check_tasks(c).err());
         errors.extend(check_mutation_then(c).err());
-        errors.extend(sends::check(c));
+        // The root's actions after tail calls are inlined: a caller's send and
+        // its callee's are one commit (LLP 1085 D8).
+        errors.extend(sends::check(scoped));
         let view = View {
             file,
             actions: scoped,

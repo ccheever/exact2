@@ -2,7 +2,9 @@
 //! send forgets the first's in-flight reply (LLP 1016 D5), so two sends to
 //! one mutation on one path through an action are refused, not warned of.
 //!
-//! The walk is path-sensitive, over the body's statements (`Action::effects`
+//! It runs on the root's actions after tail calls are inlined (a caller and
+//! its callee are one commit); a tail call's `@check:` leftover is a command
+//! and sends nothing. The walk is path-sensitive, over the body's statements (`Action::effects`
 //! flattens branches): each `if`/`match` arm starts from what the paths
 //! into it may have sent, and the branch leaves their union, so exclusive
 //! arms pass while an arm's send followed by another after the branch is
@@ -183,7 +185,12 @@ pub(super) fn check(c: &Component) -> Vec<AnalyzeError> {
             errors: Vec::new(),
         };
         walk.block(&a.body, &mut Guard::new(), &mut BTreeMap::new());
-        errors.extend(walk.errors);
+        // A callee inlined at a tail call repeats its own refusal there.
+        for e in walk.errors {
+            if !errors.iter().any(|x: &AnalyzeError| x.span == e.span) {
+                errors.push(e);
+            }
+        }
     }
     errors
 }

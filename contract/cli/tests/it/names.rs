@@ -132,6 +132,8 @@ fn reserved_words_are_refused_at_binders_and_admitted_as_fields() {
             format!("fn f({w}: number): number = 1\ncomponent App\n  view\n    text \"a\"\n"),
             format!("component App\n  view\n    Row(x=1)\ncomponent Row\n  props\n    {w}: number\n  view\n    text \"a\"\n"),
             format!("shape {w}\n  value: number\ncomponent App\n  view\n    text \"a\"\n"),
+            format!("component App\n  view\n    Row(x=1)\ncomponent Row\n  inject\n    {w}: number\n  view\n    text \"a\"\n"),
+            format!("component App\n  provide\n    {w} = 1\n  view\n    text \"a\"\n"),
         ] {
             let e = contract::compile(&src).unwrap_err();
             assert_eq!(

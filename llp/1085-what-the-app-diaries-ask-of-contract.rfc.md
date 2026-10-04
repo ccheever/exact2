@@ -521,7 +521,7 @@ pass that cannot loop instead.
   state a derive, a later state says to declare it first.
 - **D5** as specified, in `contract/syntax/src/parser/names.rs`. A name that
   refers to a binder (a type name, a source, a `then` action) follows the
-  binder rule too, so every contextual word is a name everywhere a name goes.
+  binder rule too, and `provide` names are binders (Grok's r4 review), so every contextual word is a name everywhere a name goes.
   `none(value=1)` is refused as "`none` is reserved in Contract (it is a
   literal), so it names no shape or function".
 - **D6, descoped.** Row state is typed from its initializer once before the
@@ -542,7 +542,11 @@ pass that cannot loop instead.
   widening the rollout needed: sequential `if`s that test one name against
   different literals, with no assignment or send of that name between them,
   are exclusive (calendar's, minesweeper's and flashcards' key handlers
-  send once per key). The refusal names the first send as related.
+  send once per key). The refusal names the first send as related. The
+  walk reads the expanded root, after tail calls are inlined (Grok's r4
+  review); since only the root sends and a root action makes no tail call,
+  a caller's send plus its callee's cannot arise today, and an inlined
+  callee's own refusal is reported once.
   **Rollout:** `apps/messages-legacy` sent `change` twice on one path (a
   draft saved on the way to a new message); its draft send now has its own
   mutation, `draftSaved`. Outside the repo, flashcards' `commitEdit` and
