@@ -97,11 +97,12 @@ function startApple(cmd, args, log, opts = {}) {
   return { stop, async done({ repeated = false } = {}) {
     const r = await exited;
     process.removeListener('exit', stop);
-    if (repeated && r.status !== 0) return;
+    if (repeated && r.status !== 0) return false;
     const output = readFileSync(log, 'utf8');
     process.stderr.write(output);
     if (r.status !== 0) throw new Error(`${cmd} failed (${r.status ?? r.error?.message})`);
     refuseMixedTargets(cmd, args, output);
+    return true;
   } };
 }
 
@@ -811,7 +812,32 @@ async function main(args) {
   // SwiftPM's own lock's; the claim below is the link's. `--embed` alone
   // builds no Swift.
   const embedOnly = args.includes('--embed') && !args.includes('--run') && !args.includes('--host');
-  const hostCompile = embedOnly ? null : startApple('swift', [...swiftArgs, '--target', 'ExactKit'], resolve(webBuildDir, 'swift-compile.log'),
+  // The compiler, by its version: part of the name of what is kept from one build to the next.
+  const swiftc = read('xcrun', ['--sdk', sdkName, 'swiftc', '--version']).stdout ?? '';
+  // Where SwiftPM puts its products, once it has been asked (below).
+  const binAnswer = resolve(swiftBuildRoot, `bin-path-${createHash('sha256').update(JSON.stringify([swiftc, swiftArgs])).digest('hex').slice(0, 16)}`);
+  // The simulator's entitlements go in the executable's text section (below); the arguments name the file.
+  const entitledArgs = (scratch, p) => ios && !device ? ['-Xlinker', '-sectcreate', '-Xlinker', '__TEXT', '-Xlinker', '__entitlements', '-Xlinker', resolve(scratch, `${p}-entitlements.plist`)] : [];
+  // A development build whose last link in this scratch was this app's starts the product's build here, where
+  // it only started ExactKit's compile: when the bake leaves the archive as it was, that build is the link,
+  // and the half second SwiftPM takes to find nothing to do is spent beside Cargo, not after it. It holds the
+  // link's claim from here; with another app linking, or anything else, the build is as it was.
+  const sole = args.includes('--host') ? null : ios ? 'ExactIOS' : 'ExactMac';
+  const early = (() => {
+    if (embedOnly || cargoProfile !== HOST_DEV || !sole || !existsSync(binAnswer)) return null;
+    const bin = readFileSync(binAnswer, 'utf8');
+    let was = null;
+    try { was = JSON.parse(readFileSync(resolve(bin, `${sole}.linked`), 'utf8')); } catch { return null; }
+    if (was.libDir !== expected.capture || was.lib !== crate.replace(/-/g, '_') || !existsSync(resolve(bin, sole)) || !existsSync(resolve(expected.capture, `lib${was.lib}.a`))) return null;
+    if (ios && !device && !existsSync(resolve(expected.scratch, `${sole}-entitlements.plist`))) return null;
+    let claim;
+    try { claim = claimBuildOutput(app, expected.swiftLock); } catch { return null; }
+    const step = startApple('swift', [...swiftArgs, ...entitledArgs(expected.scratch, sole), '--product', sole], resolve(webBuildDir, 'swift-compile.log'),
+      { cwd: pkg, env: swiftEnv(expected.capture, expected.composition) });
+    beside.push(step);
+    return { claim, step };
+  })();
+  const hostCompile = embedOnly || early ? null : startApple('swift', [...swiftArgs, '--target', 'ExactKit'], resolve(webBuildDir, 'swift-compile.log'),
     { cwd: pkg, env: swiftEnv(expected.capture, expected.composition) });
   if (hostCompile) beside.push(hostCompile);
   // The host's two Rust modules (SVG islands, Canvas 2D on the GPU) are the
@@ -973,8 +999,6 @@ async function main(args) {
   // The shared scratch links one app at a time: another app's build of this
   // destination waits here (seconds once ExactKit is compiled), and the
   // executable is in this build's private stage before the claim is let go.
-  // The compiler, by its version: part of the name of what is kept from one build to the next.
-  const swiftc = read('xcrun', ['--sdk', sdkName, 'swiftc', '--version']).stdout ?? '';
   // The iframe arm (@ref LLP 1020 D3): the only artifact that links WebKit.
   // It is built beside the presenter but never linked into it; WebModule.swift
   // dlopens this file at the first iframe create commit.
@@ -1075,15 +1099,19 @@ async function main(args) {
   const probe = ios ? resolve(webBuildDir, 'probe-' + modulesLoadName) : modulesBuilt;
   if (probed && ios) arms.push(arm(moduleArgs('macosx', macTarget, probe), moduleSources, probe, frameworkStamp(false, false, macArch), true));
   await hostCompile?.done({ repeated: true });
+  // The early build stands when it succeeded and the bake came out as it was expected to.
+  const linkedEarly = early ? await early.step.done({ repeated: true }) && expected.capture === libDir && expected.composition === composition && expected.scratch === paths.scratch : false;
   let stripped = null;
   mkdirSync(dirname(paths.swiftLock), { recursive: true });
-  const releaseSwift = awaitBuildOutput(app, paths.swiftLock, (owner) => console.log(`host/apple: waiting for the Swift build of ${owner} in ${swiftBuildRoot.replace(root + '/', '')}`));
+  if (early && expected.swiftLock !== paths.swiftLock) early.claim();
+  const releaseSwift = early && expected.swiftLock === paths.swiftLock ? early.claim
+    : awaitBuildOutput(app, paths.swiftLock, (owner) => console.log(`host/apple: waiting for the Swift build of ${owner} in ${swiftBuildRoot.replace(root + '/', '')}`));
   try {
     // SwiftPM owns its output layout. Swift Build and the native build system
     // use different directories; ask with the same destination arguments —
     // once for each compiler and arguments, since asking is half a second of
     // every build: the answer is kept in the scratch it names.
-    const answer = resolve(swiftBuildRoot, `bin-path-${createHash('sha256').update(JSON.stringify([swiftc, swiftArgs])).digest('hex').slice(0, 16)}`);
+    const answer = binAnswer;
     let swiftBinDir = existsSync(answer) ? readFileSync(answer, 'utf8') : '';
     if (!swiftBinDir || !existsSync(swiftBinDir)) {
       const located = read('swift', [...swiftArgs, '--show-bin-path'], { cwd: pkg, env });
@@ -1095,24 +1123,24 @@ async function main(args) {
     }
     const archive = buildReceipt.products.find(made => made.path === resolve(cargoLibDir, `lib${crate.replace(/-/g, '_')}.a`))?.sha256;
     for (const p of products) {
-      const productArgs = [...swiftArgs];
+      const productArgs = [...swiftArgs, ...entitledArgs(linkRoot, p)];
       let entitled = null;
       if (ios && !device) {
         // Simulator Security reads entitlements from the Mach-O text section.
         // Device-style entitlements in its ad-hoc signature can prevent launch.
-        const ent = resolve(linkRoot, `${p}-entitlements.plist`);
         entitled = entitlements({...app, id: p === 'ExactHostIOS' ? `${app.id}.host` : app.id}, null, true, bakedCompat.reach);
-        writeFileSync(ent, entitled);
-        productArgs.push('-Xlinker', '-sectcreate', '-Xlinker', '__TEXT',
-          '-Xlinker', '__entitlements', '-Xlinker', ent);
+        const ent = resolve(linkRoot, `${p}-entitlements.plist`);
+        // Written only when it differs: the early build may be reading it.
+        if (!existsSync(ent) || readFileSync(ent, 'utf8') !== entitled) writeFileSync(ent, entitled);
       }
       // swift build does not see the Rust archive (or that plist) change, so the executable is dropped to be
       // linked again: 0.4 s, and it was every build's. A development build drops only one linked from other
       // bytes, which `<product>.linked` beside it says: the archive's hash, whose it is, and the plist.
-      const linked = resolve(swiftBinDir, `${p}.linked`), from = createHash('sha256').update(JSON.stringify([archive ?? null, libDir, env.EXACT_LIB ?? null, entitled])).digest('hex');
+      const linked = resolve(swiftBinDir, `${p}.linked`), from = JSON.stringify({ archive: archive ?? null, libDir, lib: env.EXACT_LIB ?? null, entitled });
       const same = cargoProfile === HOST_DEV && archive && existsSync(resolve(swiftBinDir, p)) && existsSync(linked) && readFileSync(linked, 'utf8') === from;
       if (!same) for (const stale of [p, `${p}.linked`]) rmSync(resolve(swiftBinDir, stale), { force: true });
-      runApple('swift', [...productArgs, '--product', p], { cwd: pkg, env });
+      // The early build was this one's when nothing it linked from has changed.
+      if (!(same && linkedEarly && p === sole)) runApple('swift', [...productArgs, '--product', p], { cwd: pkg, env });
       writeFileSync(linked, from);
       const executable = resolve(binDir, p);
       copyFileSync(resolve(swiftBinDir, p), executable);
