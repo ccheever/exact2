@@ -200,6 +200,11 @@ impl<D: DataSource> Presenter<D> {
                 if let Some(n) = kernel.node(b.id) {
                     witness.keys.insert(b.id, n.key);
                     witness.parents.insert(b.id, n.parent);
+                    // An `svg`'s elements paint inside its box and are hit
+                    // there (`svg_hit`), with no boxes of their own.
+                    if n.node_type == NodeType::Svg {
+                        witness_svg(kernel, &n, &mut witness);
+                    }
                     witness.scroll.insert(
                         b.id,
                         self.brush.scroll_bounds(
@@ -306,3 +311,16 @@ impl<D: DataSource> Presenter<D> {
 }
 #[cfg(test)]
 mod tests;
+
+/// Witness an `svg`'s element subtree, so a hit on one of its elements finds
+/// its handler through the painted `svg` (an attached display allows only
+/// what the picture showed).
+fn witness_svg(kernel: &Kernel, node: &exact_kernel::NodeRef<'_>, witness: &mut Witness) {
+    for id in node.children() {
+        if let Some(child) = kernel.node(id) {
+            witness.keys.insert(id, child.key);
+            witness.parents.insert(id, child.parent);
+            witness_svg(kernel, &child, witness);
+        }
+    }
+}

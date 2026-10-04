@@ -35,6 +35,9 @@
 //! - `28 NATIVE view kind x y w h radii×8 len utf8-json` — a platform element (`paint/native.rs`;
 //!   kind 0 video, 1 web view, 2 module) shown in that rounded rect: the reader draws the
 //!   platform view's own drawing there
+//! - `40 SHADOW color sigma x y w h radii×8 bx by bw bh bradii×8` — an outer
+//!   `box-shadow`: the rounded rect blurred by `sigma` (local units), drawn only
+//!   outside the border box `b…` (`canvas/shadow.rs`)
 //! - `25 DASH phase n d×n` — the next STROKE is dashed: `n` (even) on/off lengths and the
 //!   offset into them, in the stroke's own units (SVG `stroke-dasharray`, `stroke-dashoffset`)
 //!
@@ -121,10 +124,14 @@ const IDLE_FRAMES: u64 = 10;
 
 #[path = "canvas/clip.rs"]
 mod clip;
+#[path = "canvas/keys.rs"]
+mod keys;
 #[path = "canvas/layer.rs"]
 mod layer;
 #[path = "canvas/picture.rs"]
 mod picture;
+#[path = "canvas/shadow.rs"]
+mod shadow;
 pub use picture::Picture;
 use picture::WeakPicture;
 
@@ -497,6 +504,17 @@ impl Backend for Recorder {
         self.picture(&Picture::Bitmap(image.clone()), dst, clips, ts);
     }
 
+    fn blurred_shadow(
+        &mut self,
+        shape: &Shape,
+        color: [u8; 4],
+        sigma: f32,
+        outer: &Shape,
+        ts: Transform,
+    ) -> bool {
+        self.shadow(shape, color, sigma, outer, ts)
+    }
+
     fn backdrop_blur(&mut self, shape: &Shape, sigma: f32, ts: Transform) {
         // What is beneath is what the reader already drew in this row; it
         // blurs that, clipped to the shape (LLP 1053.000 D2).
@@ -643,6 +661,8 @@ impl Backend for Recorder {
 
     fn pop_opacity(&mut self) {
         self.ops.push(RESTORE);
+        // The restore puts back the reader's matrix from before the layer.
+        self.matrix = None;
     }
 
     fn pointer(&mut self, _x: f32, _y: f32) {}

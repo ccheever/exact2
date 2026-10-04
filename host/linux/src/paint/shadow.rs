@@ -89,6 +89,41 @@ impl ShadowPaint {
         self.inset
     }
 
+    /// An outer shadow as one blurred shape, for a backend with its own
+    /// blur ([`super::Backend::blurred_shadow`]): its colour, the Gaussian's
+    /// sigma, and the shape before the blur (the border box `outer` grown by
+    /// the spread, its radii by CSS's rule, and offset). None for an inset
+    /// shadow, a transparent one, or a box with a `corner-shape`.
+    pub fn blurred(&self, outer: &Shape) -> Option<([u8; 4], f32, Shape)> {
+        if self.inset || self.color[3] == 0 || outer.corners.is_some() {
+            return None;
+        }
+        let (x, y, w, h) = outer.rect;
+        let (dx, dy) = self.offset;
+        let spread = self.spread;
+        let rect = (
+            x - spread + dx,
+            y - spread + dy,
+            w + 2.0 * spread,
+            h + 2.0 * spread,
+        );
+        if rect.2 <= 0.0 || rect.3 <= 0.0 {
+            return None;
+        }
+        let radii = outer
+            .radii
+            .map(|(rx, ry)| (spread_radius(rx, spread), spread_radius(ry, spread)));
+        Some((
+            self.color,
+            self.blur / 2.0,
+            Shape {
+                rect,
+                radii,
+                corners: None,
+            },
+        ))
+    }
+
     /// The fills, outermost band first: around the border box `outer`, or
     /// for an inset shadow inside its padding box (`widths` the border's).
     pub fn fills(&self, outer: &Shape, widths: [f32; 4]) -> Vec<BorderFill> {

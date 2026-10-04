@@ -248,8 +248,17 @@ impl BoxPaint {
         }
     }
     fn paint(&self, backend: &mut dyn Backend, geometry: &BoxGeometry, ts: Transform) {
-        for band in self.shadow_fills(geometry) {
-            backend.fill_border(&band, ts);
+        // The outer shadows, the list's first on top: by the backend's blur
+        // where it has one, else as bands.
+        for s in self.shadows.iter().rev().filter(|s| !s.inset()) {
+            if let Some((color, sigma, shape)) = s.blurred(&geometry.outer) {
+                if backend.blurred_shadow(&shape, color, sigma, &geometry.outer, ts) {
+                    continue;
+                }
+            }
+            for band in s.fills(&geometry.outer, self.widths) {
+                backend.fill_border(&band, ts);
+            }
         }
         // @ref LLP 1053.000 D2 — the backdrop blurs under the background.
         if self.backdrop > 0.0 {
@@ -469,6 +478,19 @@ pub trait Backend {
     /// under `shape` so far, blurred (σ in points, mirrored edges) and put
     /// back inside it, under the current clip.
     fn backdrop_blur(&mut self, _shape: &Shape, _sigma: f32, _ts: Transform) {}
+    /// One outer `box-shadow` by the backend's own blur: `shape` blurred by
+    /// `sigma` in `color`, painted only outside `outer` (the border box).
+    /// Whether it drew it; else the painter draws it as bands.
+    fn blurred_shadow(
+        &mut self,
+        _shape: &Shape,
+        _color: [u8; 4],
+        _sigma: f32,
+        _outer: &Shape,
+        _ts: Transform,
+    ) -> bool {
+        false
+    }
     /// Fill one colour's share of a border (LLP 1053 G2): its region even-odd, clipped (non-zero).
     fn fill_border(&mut self, part: &border::BorderFill, ts: Transform);
     /// Draw a picture scaled into `dst`, clipped to every shape in `clips`.

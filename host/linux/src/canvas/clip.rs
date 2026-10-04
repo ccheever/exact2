@@ -108,6 +108,8 @@ impl Recorder {
     pub(super) fn clip_pop(&mut self) {
         if self.clips.pop().is_some_and(|c| c.emitted) {
             self.ops.push(RESTORE);
+            // The restore puts back the reader's matrix from before the save.
+            self.matrix = None;
         }
     }
 
