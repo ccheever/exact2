@@ -1211,3 +1211,15 @@ input/output token totals are 68,023/5,289 and 72,447/5,783. Wall times are
 `artifacts/jev-water-hit-web/` and `artifacts/jev-water-macos/`.
 Strict baseline acceptance follows for the saved can, growth spans, barrel,
 HUD fields and the new watering continuation pin.
+
+Strict acceptance succeeded at feature commit `4e0b3496a`. All seven runs
+agree on inputs, pins, eight world observations and twelve saves, including
+the independent macOS candidate above: Linux modes 0/1/fresh in
+4.234/5.588/5.630 s, web modes 0/1/fresh in 63.140/107.876/98.046 s,
+and release Linux in 26.135 s. Every descendant audit passes with no
+recorded children remaining. The ordinary web build is restored afterward
+(19.519 s). Artifacts: `artifacts/prove/run-g5ejkv/`.
+The accepted watering continuation is `07f23e64d7494044…`; the other pins
+move with the saved fields and barrel scene, as expected. An ordinary Linux
+proof against the accepted pins passes in 1.950 s, with zero failures and
+a passing cleanup audit (`artifacts/water-accepted-linux/`).

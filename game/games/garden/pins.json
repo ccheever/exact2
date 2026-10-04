@@ -1,20 +1,21 @@
 {
   "ticks": {
-    "0": "0x45f32f6360bbbb73",
-    "5136": "0x5e57e536867f9d6f"
+    "0": "0x3be9375137061a32",
+    "5136": "0x2776088a52876a3a"
   },
   "saves": {
-    "continuation": "0d30e41cc832976f8ed0b652cc50fcdc64798a40761132c70d29a4c0759b349b",
-    "market": "aeee34d9419d9de4e540fef220acd3be6f48a98c4c56c74a8b1b513bbfa8d4d8",
-    "recovery": "048fa4714c07be4c154a172779959255d993f50a9097eacbba89ed3a7f7c5909"
+    "continuation": "bb95171e33a76257c86ebb1859b2e743dc954861ed3891e200861b23b5d80deb",
+    "market": "0615cecfacf36fbe0113c313fa1b77dad9c87c4f919442bd10f39e2b35cd4305",
+    "recovery": "9736daab3ba3fd8779582024c10608393173dc07f5a6ee1c2543b4f64dff3237",
+    "watering": "07f23e64d7494044011038f8744fe64aec5d27c0cf9edaac0e1645558a5e3ff8"
   },
   "hosts": [
     "linux",
     "web"
   ],
-  "inputs": "53f05c9597e4990e1e7e5bc669e22dc3bb49c69766e1243a518b01841168c35c",
+  "inputs": "d2520c99988c17165446a62e4046652e37bc97365e0e25a708a889792af0f537",
   "game": "garden",
   "generated": "bun game/prove.mjs garden --repin --hosts 'linux,web'",
-  "at": "f59d587ac27f429d577f97cadecce8e6ce4e7f68",
-  "reason": "Nearest empty-plot guidance, restored boundary planting, and main e097e4cae integration"
+  "at": "4e0b3496a3fa71d1931be38b1e4b031d94669f0b",
+  "reason": "Add optional watering, saved growth deadlines, barrel refills and their continuation proof"
 }
