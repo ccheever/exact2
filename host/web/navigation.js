@@ -194,7 +194,7 @@ export const navigation = {
       if (at < 0) {
         if (refused.get(nav) !== key) {
           refused.set(nav, key);
-          log(`navigationKey "${key}" matches no route; the stack is unchanged`);
+          log(`navigationKey "${key}" matches no route among the root's children or those of the tabpanels its tablist names; the stack is unchanged`);
         }
         continue;
       }

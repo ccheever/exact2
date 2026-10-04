@@ -658,3 +658,52 @@ fn navigate_delivers_one_location_or_lets_the_action_ignore_it() {
         assert!(contract::compile(&source).is_err());
     }
 }
+
+#[test]
+fn a_route_is_a_child_of_its_root_or_of_a_tabpanel_and_nowhere_else() {
+    // @ref LLP 1038 D6, LLP 1075.003 §3.7 — where every host finds routes
+    // (hn-reader F5: a route behind a centering column was ignored).
+    let tabs = r#"routes nav
+  tab home "/"
+    item "/item"
+  tab saved "/saved"
+component App
+  action back
+    nav = back(nav)
+  action pick(name: string)
+    nav = select(nav, name)
+  view
+    main navigationKey=`${top(nav).id}` navigationBack="back" display="flex" flex-direction="column"
+      column flex=1 position="relative"
+        each t in nav.tabs key=t.name
+          column role="tabpanel" id=`panel-${t.name}` position="absolute" top=0 right=0 bottom=0 left=0
+            STACK
+      row role="tablist"
+        button role="tab" aria-controls="panel-home" press=pick("home")
+          text "Home"
+        button role="tab" aria-controls="panel-saved" press=pick("saved")
+          text "Saved"
+"#;
+    let stack = "each e in t.stack key=e.id\n              column navigationKey=`${e.id}` position=\"absolute\" inset=0\n                text e.url";
+    contract::compile(&tabs.replace("STACK", stack)).unwrap();
+    // A route inside a route is shown by no host.
+    let nested = stack.replace("text e.url", "column navigationKey=\"inner\"");
+    let error = contract::compile(&tabs.replace("STACK", &nested)).unwrap_err();
+    assert_eq!(error.id, "lower-route-place", "{error}");
+    assert!(error.message.contains("inside another route"), "{error}");
+    // Behind a wrapper inside a panel: the message names the path.
+    let wrapped = "column\n              each e in t.stack key=e.id\n                column navigationKey=`${e.id}`";
+    let error = contract::compile(&tabs.replace("STACK", wrapped)).unwrap_err();
+    assert_eq!(error.id, "lower-route-place", "{error}");
+    assert!(
+        error
+            .message
+            .contains("`main > column > column > column > column`"),
+        "{error}"
+    );
+    // A key outside any root is not a route.
+    contract::compile(
+        "component App\n  view\n    column navigationKey=\"a\"\n      column navigationKey=\"b\"\n",
+    )
+    .unwrap();
+}
