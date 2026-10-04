@@ -587,8 +587,9 @@ The checkout expects sibling `../ibex` and `../snapback-sb4` source repositories
 For an isolated checkout, links in its private parent may point at existing copies.
 Run `bun install --frozen-lockfile` at the Exact2 root before Cargo validation.
 
-If the Cargo cache is empty, first generate the game, then materialize its adapters
-and fetch the SDK lock's versions from the Exact2 root:
+`bun scripts/exact.mjs setup` fetches the SDK lock's versions into Cargo's cache
+(`setup --check` says whether they are all there). A game that adds packages fetches
+its own after materializing its adapters:
 
 ```sh
 bun game/app/shells.mjs ./my-game
