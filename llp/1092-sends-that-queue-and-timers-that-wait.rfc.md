@@ -1,11 +1,11 @@
 # LLP 1092: Sends that queue and timers that wait
 
 **Type:** RFC
-**Status:** Draft r3 (round 2 of 3). Every review is Grok 4.7 (xhigh); Codex/Astra's budget was exhausted, so there is one family. r1 had two scopes, semantics (`llp/reviews/1092-r1.grok-a.md`, READY WITH CHANGES) and implementation (`llp/reviews/1092-r1.grok-b.md`, NOT READY); r2 had a delta review (`llp/reviews/1092-r2.grok.md`, NOT READY, seven MATERIAL). r3 resolves every finding of r2 (§9). The orchestrator decided r1's open questions under Charlie's 2026-10-04 delegation (§8); the `rules/DEFERRED.md` waiver is recorded in its own commit (`3555dc4e6`).
+**Status:** Accepted (r4, by the orchestrator under Charlie's delegation after three review rounds; Grok 4.7 only — Codex budget exhausted; round-3 findings folded unreviewed — the implementation review checks them). Every review is Grok 4.7 (xhigh), one family: r1 with two scopes, semantics (`llp/reviews/1092-r1.grok-a.md`, READY WITH CHANGES) and implementation (`llp/reviews/1092-r1.grok-b.md`, NOT READY); r2 a delta review (`llp/reviews/1092-r2.grok.md`, NOT READY); r3 the final delta review (`llp/reviews/1092-r3.grok.md`, NOT READY, three MATERIAL), whose fixes r4 folds as given (§9). The orchestrator decided r1's open questions under Charlie's 2026-10-04 delegation (§8); the `rules/DEFERRED.md` waiver is recorded in its own commit (`3555dc4e6`).
 **Systems:** Contract compiler, Plan (`mutations`, `timers`), Runner (`commit.rs`, `admission.rs`, `lists.rs`, `runner.rs`, `agent.rs`, new `queue.rs` and `gates.rs`), JS target (`rt.js`, `agent.js`, `emit.rs`, new `schedule.js`), conformance, Lean and difftest, docs
 **Author:** Claude (Opus 5.5) for Charlie Cheever
 **Date:** 2026-10-05
-**Revised:** 2026-10-05 (r2, r3)
+**Revised:** 2026-10-05 (r2, r3, r4)
 **Implementer:** Claude (Opus 5.5) lanes, orchestrated for Charlie Cheever: stages 1 and 2 on 2026-10-05, stage 3 on 2026-10-06 (§6)
 **Amends:** LLP 1016 §4 (newest-wins, unless queued); LLP 1016.001; LLP 1088 D8; LLP 1017 P4c's deferral of `task … when` (D11); LLP 1073 D4; `rules/DEFERRED.md` **Motion**
 **Related:** LLP 1005 §6; LLP 1012 §2; LLP 1016 D5; LLP 1027.005; LLP 1035.005.000 D7 and §5; LLP 1041 D2; LLP 1054.000.000 D1; diaries `~/projects/x2apps/{kanban2,flashcards,spreadsheet,studio,ledger2,chat,chat2,trivia,pomodoro}/DIARY.md`
@@ -184,7 +184,9 @@ is called only from a commit that armed a `then` (`rt.js:184`), so arming
 A queue with no `then` (studio's `rec`, kanban's `wrote` after the fold) is
 then asked as soon as its reply lands, with no other timer. `clock settle`'s
 advance to now runs every due `next`, then waits on the request it hands
-out, so it does not return while a send waits.
+out, so it does not return while a send waits that is due. A stalled send
+(below) is an error stop, not a send `settle` holds: it is neither due nor
+in flight, and `settle` returns.
 
 **Order.** At one time, `advance` runs every armed `then`, then every armed
 `next`, then the timers, each group by index (`land_then`, `commit.rs:207`,
@@ -206,9 +208,21 @@ refused it:
   asks the successor before any timer.
 - **Any other refusal** (settlement, a router value, D8's `TaskKey`): the
   head stays first, and `m` is **stalled**. The scan does not arm a stalled
-  mutation, so no host wakes in a loop (`timer_due_ms` does not report it);
-  the next commit that stands clears every stall, and the scan then arms
-  `m` again. Journaled `wrote next refused (…); waits for the next commit`.
+  mutation, so no host wakes in a loop (`timer_due_ms` does not report it).
+  A stall is cleared only by a standing commit that changed a slot, a
+  resource or a derive value, a superset of the state the refusal saw; a
+  commit that changed none of them (a frame task that writes nothing, a
+  timer whose action is a no-op) leaves it stalled, so a permanently
+  failing ask is not retried every frame. Journaled `wrote next refused
+  (…); waits for a change`.
+- **`frame()` and a stall.** `frame()` returns before firing frame tasks
+  when its prelude `advance` refused (`commit.rs:158–161`). A refusal of a
+  `next` in that prelude is journaled and does not stop the frame: armed
+  frame tasks still fire at that frame. The stalled `next` runs only on a
+  later wake, after those frame tasks, and only once a change has cleared
+  the stall. With stalls cleared only by a change, one `advance(60_000)`
+  and sixty `advance(1_000)`s stop at the same fire and resume at the same
+  commit.
 - **Poison** clears the queues (D4); nothing runs on a poisoned runner.
 
 A shaped failure is an answer (LLP 1016 D4) and runs `then`.
@@ -276,8 +290,12 @@ at once would land in one commit, and `then` would see only the second.
   - an assignment's `forget` (`rt.js:152`) does nothing;
   - `pending` stays true while the wait list is non-empty, even with
     `ticket == null`;
-  - the commit's `undo` pushes and restores the wait list, beside
-    `m.ticket` (`rt.js:164`);
+  - the commit's `undo` pushes and restores the wait list and the stall
+    bit, beside `m.ticket` (`rt.js:164`);
+  - `gated()` runs inside the commit's undo `try`, after `settle()`
+    (`rt.js:157–170`), and pushes `clock.timers` onto that undo, so a gate
+    refusal is a refusal, not a poison from the tree update
+    (`rt.js:176–179`);
   - `ask` and `refreshes` (`rt.js:483–493`) run only when a send is asked;
   - `advance` (`rt.js:263–275`) runs every due `then`, then every due
     `next`, then timers, each group by index;
@@ -314,10 +332,18 @@ the schedules and their literal intervals do not change.
 Each task is **idle** or **armed**. Idle is an infinite deadline, as a
 spent `after` is today, so neither `advance_within` (`commit.rs:240–245`)
 nor `frame()` can fire it. The gate step (`gates.rs`) evaluates each gated
-task's gate and key code (D9) after the commit's settlement: it is the
-first thing `Runner::update` (`lists.rs:44`) does, so every commit kind
-reaches it. Timer state joins the `Checkpoint`, so a refused commit
-restores what the step changed. The checkpoint is taken after `advance`'s
+task's gate and key code (D9) right after the commit's settlement
+succeeds, inside the rollback a settlement failure takes, and never at the
+start of `Runner::update`: there a refusal would leave row slots,
+`requests` and `into_view` applied (`commit.rs:546–645`; `lists.rs:44–98`).
+In `run_action_inner` the step joins the settlement-error path
+(`commit.rs:592–602`): on `TaskKey` or a trap it takes that path
+(`discard_later`, undo the row slots), before `enqueue` and `into_view`.
+In `fulfill_inner` it joins `router_change().and_then(settle)`
+(`commit.rs:1074`), and in `commit_again` it joins `settle(false)`
+(`settlement.rs:75`, a one-line call site); neither has row writes. Timer
+state joins the `Checkpoint`, so a refused commit restores what the step
+changed. The checkpoint is taken after `advance`'s
 own bookkeeping (a fired timer's next deadline, a cleared `then_due` or
 `next_due`), so a refused fire is not fired again. At boot, which makes its first frame with `Tree::create` and
 not `update`, the step runs where timers are armed today: after `settle`
@@ -425,7 +451,11 @@ so nothing is ever in flight (`Big.lean`, `pendingSettled`), and it has no
   every commit it makes, before the next timer, a commit each, at the
   clock's time, as the runner's `next`s run after each commit and before
   later timers (D3). `observe` prints each queue's waiting count, on both
-  sides.
+  sides. Each drain commit is a D3 `next` commit: on success it applies
+  D8 after its update; on the ask's own refusal it drops the head and stops
+  the advance; on any other refusal it keeps the head, records a stall, and
+  is not drained at the start of a later `advance` until a standing commit
+  changes a slot, resource or derive value.
 - **Gates.** `contract lean` emits a task's gate and key as expressions on
   the task, as D9 lowers them. `boot` applies D8's table after `lateSlots`, not in
   today's `startTimers` (`Runtime.lean:548–555`); every `runAction` that
@@ -485,7 +515,9 @@ up forever; shown by running a probe of ledger2's shape through
   due; `tick` keeps only the bot branch and its `not pending(stepped)`
   guard.
 - **Chat2** (`chat2/app.contract:117–124`, `:149`, `:167`): one toast task,
-  `when toast != "" key=toastUntil after(1600, clearToast)`, and
+  `when toast != "" key=toastUntil after(1600, clearToast)`, where
+  `clearToast` sets `toast = ""` (chat2 has no `toastUndo`,
+  `chat2/app.contract:30–31`), and
   `when phase == "wait" every(200, tick)`; `tick` keeps only the wait
   branch and its `not pending(changed)` guard.
 - **Trivia**: `when screen == "play"`; the settings pause stays in `tick`.
@@ -501,7 +533,7 @@ in new files, and files near the cap gain only call sites:
 | syntax | `parser/decls.rs`: `fn mutation`, `fn task` from `parser.rs` (1,443) | `when`/`key=` there |
 | types, analyze | `sends.rs` exemption and hint | `types/src/tasks.rs`; `analyze/src/gates.rs` |
 | lower, plan | `mutations.queue` | `lower/src/timers.rs`, from `lib.rs` (1,458); `timers.gated`, `.gate`, `.keyed`, `.key` |
-| runner | `runner/queue.rs`: queues, `next_due`, stalls, the scan, `QueueFull`; call sites in `commit.rs` (1,077: `conclude`'s callers, the `next` commit) and `admission.rs` (the early return, `:67–68`) | `runner/gates.rs`; call sites in `lists.rs:44` (`update`), `runner.rs` boot (`:924–945`), `frame()`; `settlement.rs` (1,451) is untouched |
+| runner | `runner/queue.rs`: queues, `next_due`, stalls, the scan, `QueueFull`; call sites in `commit.rs` (1,077: `conclude`'s callers, the `next` commit) and `admission.rs` (the early return, `:67–68`) | `runner/gates.rs`; call sites on the settlement paths of `run_action_inner` and `fulfill_inner` (`commit.rs`), `commit_again` (`settlement.rs:75`, one line: 1,452), `runner.rs` boot (`:924–945`) and `frame()` |
 | agent | `agent/schedule.rs` (`agent.rs` is 1,408) | the same |
 | JS target | `schedule.js` (`rt.js` is 1,338); `src/timers.rs` from `emit.rs` (1,409); `agent.js`'s jump predicate | `gated(…)` there |
 | hosts | none | none |
@@ -526,8 +558,12 @@ Stage 3 is D12, Lean and difftest only.
   - a `next` refused by its own ask: dropped, its successor asked before a
     due timer;
   - a `next` refused by settlement or `TaskKey`: the head kept, the
-    mutation stalled (no due time reported), asked after the next commit
-    that stands;
+    mutation stalled (no due time reported); a standing commit that changes
+    nothing leaves it stalled, one that changes a slot asks it;
+  - with an armed frame task and a stalled `next`, every `frame()` fires
+    the frame task;
+  - a gate refusal in an action that wrote a row slot and sent a `Later`:
+    the row slot, `requests` and `into_view` are all rolled back;
   - a refused `then` that does not stall;
   - assignment overwritten by a later reply;
   - a failure, released, that moves on;
@@ -615,6 +651,19 @@ Each commit passes the five checks.
 
 ## 9. Revisions
 
+- **r4** (2026-10-05, accepted). Grok 4.7 xhigh's final delta review of r3
+  (`llp/reviews/1092-r3.grok.md`, NOT READY: three MATERIAL, two MINOR,
+  one NIT). After three rounds, its fixes are folded as given, unreviewed;
+  the implementation review checks them. The code confirmed each one.
+  - D3: a stall is cleared only by a standing commit that changed state, and
+    `frame()` still fires armed frame tasks after a `next` refusal in its
+    prelude; `clock settle` treats a stall as an error stop.
+  - D8: the gate step runs on each commit's settlement path, inside its
+    rollback, not at the start of `Runner::update`.
+  - D6: the JS `gated()` runs inside the undo `try`, which also restores
+    `clock.timers` and the stall bit.
+  - D12: Lean's drain commit is a D3 `next` commit, stall included.
+  - D13: chat2's `clearToast` body.
 - **r3** (2026-10-05, round 2 of 3). Grok 4.7 xhigh's delta review of r2
   (`llp/reviews/1092-r2.grok.md`, NOT READY). Each finding was checked
   against the code; the strict-compare finding was also shown by running a
