@@ -921,10 +921,6 @@ mod tests {
             None,
             "origin changes also invalidate old corrections"
         );
-        let mut cursor = Cursor {
-            sequence: u64::MAX,
-            ..Cursor::default()
-        };
         // A resize in the pass that brings the correction (feed F14) is
         // not the reader: the correction planned before it lands.
         let mut cursor = Cursor {
@@ -934,6 +930,10 @@ mod tests {
         cursor.geometry((200., 300., 180., 10.));
         cursor.geometry((200., 348., 180., 10.));
         assert_eq!(cursor.correction(&s, Some(2)), Some(200.));
+        let mut cursor = Cursor {
+            sequence: u64::MAX,
+            ..Cursor::default()
+        };
         let mut overflow = s;
         overflow.correction.as_mut().unwrap().scroll_sequence = u64::MAX;
         assert_eq!(cursor.correction(&overflow, None), None);
