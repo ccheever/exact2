@@ -483,6 +483,9 @@ like any added dependency, it resolves against the SDK lock or the game's own.
 The type implements `DataSource + Default`; the generated hosts supply the existing
 `Storage<D>` adapter. Return synchronous resource placeholders before `activate`;
 storage work starts after first pixel. This linked composition uses `rust: false`.
+Keep saves, scores and settings in app storage (SQLite or files under `app:/data`,
+with `exact-data.workspace = true`), not under `secret.keep`, which is for secrets;
+`docs/reference.md`, "Rust data sources", has the requests and a best-times example.
 Games without `game.data` add no data-source dependency.
 [Tennis](games/tennis/README.md) uses one for HTTP: the world publishes a numbered
 question, `resource plan = jev(hud.ask)` posts it, and the answer returns as a
