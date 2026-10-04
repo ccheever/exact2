@@ -58,6 +58,11 @@ guide's rules don't make obvious.
   inside a route draws under the native bars. Fix: render full-screen overlays
   (menus, action sheets) as root children after the tab container, or as a
   `navigationPresentation="fullscreen"` route. (Signal Clone, build 10.)
+- **A link in the app's own scheme never matches.** `signalclone://connect?x=1`
+  reaches the root's `navigate` handler as the location `/connect?x=1`: the scheme
+  is dropped and the host becomes the first path segment (`location_of`, LLP 1038
+  D8). Fix: match on the path (`startsWith(location, "/connect?")`), not the URL.
+  (Signal Clone, phone path.)
 - **With `viewport-fit="cover"`, route content goes under the native bar.** Cause:
   the bar's cover is added to the route's padding, but a cover-fit root has no top
   safe area. Fix: put `env(safe-area-inset-top)` on the route column, not on each
@@ -70,16 +75,31 @@ guide's rules don't make obvious.
   longer exists (declared in LLP 1005). Fix: keep the pressed node across the state
   change (change its contents, not which branch renders it).
   **Candidate diagnostic:** the runtime could log a dropped up in development.
+- **A `transformDragFor` handle does nothing.** No pinch or drag follows and
+  nothing is logged. Cause: the binding resolves only for a strict shape and
+  otherwise returns none silently (`kernel/src/transform.rs`; only the agent's
+  transform-drag command reports "no photo binding"). The target, the handle's one
+  ancestor with that `id`, needs
+  `width="100%" height="100%" box-sizing="border-box"`, no padding, border,
+  margin or offsets, and its direct parent needs `overflow="hidden"` on both axes
+  and no padding or border; every other ancestor must be untransformed. (Signal
+  Clone, build 11: the photo viewer lacked `overflow="hidden"` and
+  `box-sizing`.) **Candidate diagnostic:** the compiler or a development log
+  could name the failed condition.
 
 ## Driving and testing
 
 - **Every date in a screenshot is 1 January 2026** (31 December 2025 west of UTC).
   Cause: the agent's clock starts at `2026-01-01T00:00:00Z`, in UTC. Fix: `--epoch <ISO time> --time-zone <zone>` on
   `scripts/agent.mjs` for dates that read as intended and stay reproducible.
-- **`axe` stops delivering taps after a long press.** After `axe touch --down --up
-  --delay`, a following `axe tap` reaches no window; `axe touch --down --up`
-  does. Use the agent's own taps where it can; with `axe`, tap by touch.
-  (Signal Clone, build 10.)
+- **`axe` stops delivering taps.** After `axe touch --down --up --delay` (a long
+  press) or an `axe drag`, a following `axe tap` often reaches no window; it is
+  intermittent, and a native bar button can miss the same way with no gesture
+  before it. `axe touch --down --up` lands more often, not always. Fix: use the
+  agent's own taps where it can; with `axe`, tap by touch, check every step with
+  `axe describe-ui` before the next, and `xcrun simctl shutdown` / `boot` the
+  simulator when taps stop landing. `axe` also cannot press tab bar items or
+  `UIMenu` rows. (Signal Clone, builds 10 and 11; reproduced on `05d0c576e`.)
 
 ## Working on exact2 itself
 
