@@ -45,7 +45,7 @@ extension NodeView {
     var paintRank: Int64 {
         if paintLifted { return 4_294_967_294 }
         if paintGhost { return 4_294_967_292 }
-        return paintGhosts > 0 ? 1 : rank
+        return paintGhosts > 0 && rank == 0 ? 1 : rank
     }
 
     var paintZPosition: CGFloat {
