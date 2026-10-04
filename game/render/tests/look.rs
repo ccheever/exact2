@@ -120,3 +120,93 @@ fn model_opacity_dithers_and_tint_multiplies() {
     assert_eq!(cube[0], 32 * 32);
     assert!((cube[1] as i32 - 512).abs() < 80, "{cube:?}");
 }
+
+// A 16 x 8 equirect: the -Z half of the sky red, the +Z half green (columns
+// 4..12 face -Z), the lower half blue.
+fn sky_texture() -> asset::TextureData {
+    let (w, h) = (16u32, 8u32);
+    let mut level = Vec::new();
+    for y in 0..h {
+        for x in 0..w {
+            level.extend(if y >= h / 2 {
+                [0, 0, 255, 255]
+            } else if (4..12).contains(&x) {
+                [255, 0, 0, 255]
+            } else {
+                [0, 255, 0, 255]
+            });
+        }
+    }
+    let mut mips = vec![level];
+    for (mw, mh) in [(8, 4), (4, 2), (2, 1), (1, 1)] {
+        mips.push([128u8; 4].repeat(mw * mh));
+    }
+    asset::TextureData {
+        width: w,
+        height: h,
+        mips,
+        ..Default::default()
+    }
+}
+fn sky(gpu: &Gpu, look: glam::Vec3, visible: bool, rotation: f32) -> [u8; 4] {
+    use exact_game_render::{EnvironmentMapInput, FrameInput, Renderer};
+    let format = exact_gpu::wgpu::TextureFormat::Rgba8Unorm;
+    let mut r = Renderer::new(&gpu.device, &gpu.queue, format);
+    r.add_texture("sky.tex", &sky_texture()).unwrap();
+    let texture = gpu
+        .device
+        .create_texture(&exact_gpu::wgpu::TextureDescriptor {
+            label: None,
+            size: exact_gpu::wgpu::Extent3d {
+                width: 32,
+                height: 32,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: exact_gpu::wgpu::TextureDimension::D2,
+            format,
+            usage: exact_gpu::wgpu::TextureUsages::RENDER_ATTACHMENT
+                | exact_gpu::wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+    let mut f = FrameInput {
+        view: glam::camera::rh::view::look_to_mat4(glam::Vec3::ZERO, look, glam::Vec3::X),
+        environment_map: Some(EnvironmentMapInput {
+            texture: "sky.tex",
+            intensity: 1.,
+            rgbm: 0.,
+            visible,
+            rotation,
+        }),
+        sun: None,
+        ..Default::default()
+    };
+    f.environment.fog = None;
+    f.environment.bloom = None;
+    f.environment.sun_disc = 0.;
+    f.environment.background = Some([0.; 3]);
+    r.draw(&texture.create_view(&Default::default()), (32, 32), &f);
+    fixture::read(gpu, &texture).unwrap().at(16, 16)
+}
+
+#[test]
+fn an_environment_map_can_be_the_visible_sky_turned_by_its_yaw() {
+    let Some(gpu) = gpu() else { return };
+    let ahead = sky(&gpu, -glam::Vec3::Z, true, 0.);
+    let behind = sky(&gpu, glam::Vec3::Z, true, 0.);
+    let below = sky(&gpu, -glam::Vec3::Y + glam::Vec3::Z * 0.01, true, 0.);
+    let turned = sky(&gpu, -glam::Vec3::Z, true, std::f32::consts::PI);
+    let hidden = sky(&gpu, -glam::Vec3::Z, false, 0.);
+    eprintln!(
+        "ahead {ahead:?} behind {behind:?} below {below:?} turned {turned:?} hidden {hidden:?}"
+    );
+    assert!(ahead[0] > 150 && ahead[1] < 60, "{ahead:?}");
+    assert!(behind[1] > 150 && behind[0] < 60, "{behind:?}");
+    assert!(below[2] > 150, "{below:?}");
+    assert!(
+        turned[1] > 150 && turned[0] < 60,
+        "half a turn shows the other half: {turned:?}"
+    );
+    assert_eq!(hidden, [0, 0, 0, 255], "not visible: the background stays");
+}

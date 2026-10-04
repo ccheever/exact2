@@ -233,6 +233,10 @@ pub struct EnvironmentMapInput<'a> {
     pub intensity: f32,
     /// RGBM range, or zero for plain RGB.
     pub rgbm: f32,
+    /// Also draw it as the visible sky.
+    pub visible: bool,
+    /// Yaw about +Y in radians.
+    pub rotation: f32,
 }
 
 /// Local lights drawn per frame, nearest the camera first. Further eligible

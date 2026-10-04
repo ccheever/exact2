@@ -9,7 +9,8 @@ struct Prefilter {
     // .w: the map's RGBM range; zero reads RGB as radiance.
     horizon: vec4<f32>,
     ground: vec4<f32>,
-    // face (0-5: +X -X +Y -Y +Z -Z), GGX roughness, face size in texels
+    // face (0-5: +X -X +Y -Y +Z -Z), GGX roughness, face size in texels,
+    // and an authored map's yaw about +Y
     face: vec4<f32>,
 }
 @group(0) @binding(0) var<uniform> p: Prefilter;
@@ -27,8 +28,11 @@ fn map_lod(size: f32) -> f32 {
 fn source_at(d: vec3<f32>, lod: f32) -> vec3<f32> {
     if DIRECTIONS { return d * 0.5 + 0.5; }
     if p.zenith.w > 0.0 {
-        // +Y is the top row and -Z the centre column.
-        let uv = vec2(0.5 + atan2(d.x, -d.z) / (2.0 * PI), acos(clamp(d.y, -1.0, 1.0)) / PI);
+        // +Y is the top row and -Z the centre column, turned by the yaw.
+        let c = cos(p.face.w);
+        let s = sin(p.face.w);
+        let r = vec3(c * d.x + s * d.z, d.y, c * d.z - s * d.x);
+        let uv = vec2(0.5 + atan2(r.x, -r.z) / (2.0 * PI), acos(clamp(r.y, -1.0, 1.0)) / PI);
         let texel = textureSampleLevel(map, map_sampler, uv, lod);
         let rgb = select(texel.rgb, texel.rgb * texel.a * p.horizon.w, p.horizon.w > 0.0);
         return rgb * p.zenith.w;

@@ -184,7 +184,11 @@ asset or added with `add_texture`, with a linear `intensity` and an optional RGB
 ASTC payloads. The prefilter samples it at the level of detail matching each cube
 mip, and a compute pass projects its SH9 on the GPU into a buffer copied over the
 frame uniform's `irradiance` each frame. Both run once per map content, intensity or
-range change. The visible sky and `background` stay procedural.
+range change. With `visible`, the map is also the visible sky: the sky pass samples
+it (bilinear, mip 0) in place of the gradient and `background`, at its intensity and
+RGBM range; the sun disc and fog still apply. `rotation` turns the map about +Y for
+the light and the sky alike (a change filters again). Cube-map sources are not
+supported; the source is equirectangular.
 
 `Material::grid(color, spacing)` uses a derivative-antialiased world-space grid,
 projected onto any face in the existing forward shader. Positive saved spacing

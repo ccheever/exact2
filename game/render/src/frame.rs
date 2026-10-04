@@ -1,10 +1,13 @@
 use crate::{shadows::Cascades, FrameInput};
 use glam::Vec3;
 
-pub(crate) const FLOATS: usize = 180;
+pub(crate) const FLOATS: usize = 184;
 
 pub(crate) fn has_sky(frame: &FrameInput<'_>) -> bool {
     let e = frame.environment;
+    if frame.environment_map.is_some_and(|m| m.visible) {
+        return true;
+    }
     if e.background.is_some() {
         return false;
     }
@@ -71,5 +74,10 @@ pub(crate) fn uniform(
     data[140] = size.0 as f32;
     data[141] = size.1 as f32;
     data[144..180].copy_from_slice(irradiance);
+    if let Some(map) = frame.environment_map.filter(|m| m.visible) {
+        data[180] = map.intensity.max(1e-9);
+        data[181] = map.rotation;
+        data[182] = map.rgbm.max(0.);
+    }
     data
 }

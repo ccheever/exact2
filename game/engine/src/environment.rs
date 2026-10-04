@@ -52,6 +52,11 @@ pub struct EnvironmentMap {
     /// RGBM range: zero reads RGB as radiance; otherwise radiance is
     /// `rgb × alpha × rgbm`, which carries HDR through an 8-bit texture.
     pub rgbm: f32,
+    /// Draw the map as the visible sky too, in place of the procedural
+    /// gradient and `background` (the sun disc and fog still apply).
+    pub visible: bool,
+    /// Yaw of the map about +Y in radians, for both the light and the sky.
+    pub rotation: f32,
 }
 impl EnvironmentMap {
     /// A plain (non-RGBM) map at unit intensity.
@@ -60,6 +65,8 @@ impl EnvironmentMap {
             texture: texture.into(),
             intensity: 1.0,
             rgbm: 0.0,
+            visible: false,
+            rotation: 0.0,
         }
     }
 }

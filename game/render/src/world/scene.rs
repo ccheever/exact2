@@ -507,6 +507,8 @@ impl Scene {
                 texture: &m.texture,
                 intensity: m.intensity,
                 rgbm: m.rgbm,
+                visible: m.visible,
+                rotation: m.rotation,
             }),
             ambient_occlusion: w
                 .try_resource::<exact_game::AmbientOcclusion>()

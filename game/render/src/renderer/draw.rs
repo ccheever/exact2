@@ -121,10 +121,15 @@ impl<const ASSETS: bool> RendererWithAssets<ASSETS> {
                 digest: texture.digest,
                 intensity: m.intensity,
                 rgbm: m.rgbm,
+                rotation: m.rotation,
             })
         });
-        self.environment
-            .prepare(&self.device, &self.queue, &frame.environment, map);
+        if self
+            .environment
+            .prepare(&self.device, &self.queue, &frame.environment, map)
+        {
+            self.rebind();
+        }
         if self
             .lights
             .prepare(&self.device, &self.queue, frame, size, &self.local_plan)

@@ -152,6 +152,13 @@ impl Pipelines {
                 storage(8, wgpu::ShaderStages::FRAGMENT),
                 // Per-slot screen-door fade (lights.wgsl `faded`).
                 storage(9, wgpu::ShaderStages::FRAGMENT),
+                // An authored environment map drawn as the visible sky (sky.wgsl).
+                texture(
+                    10,
+                    wgpu::TextureSampleType::Float { filterable: true },
+                    wgpu::TextureViewDimension::D2,
+                ),
+                sampler(11, wgpu::SamplerBindingType::Filtering),
             ],
         );
         let tone_layout = layout(
