@@ -70,6 +70,10 @@ fn a_key_action_prevents_its_default_by_a_command_without_arguments() {
     assert!(r.take_commands().iter().any(|c| c.name == "preventDefault"));
     let e = contract::compile(&src("preventDefault(1)")).unwrap_err();
     assert!(e.to_string().contains("takes no arguments"), "{e}");
+    // Its sibling keeps the key from the ancestors' handlers (files diary F8).
+    contract::compile(&src("stopPropagation()")).unwrap();
+    let e = contract::compile(&src("stopPropagation(1)")).unwrap_err();
+    assert_eq!(e.id, "type-stop-propagation");
 }
 
 /// A `key` action taking one more parameter hears the `KeyboardEvent`

@@ -100,7 +100,8 @@ impl<D: DataSource> Presenter<D> {
 
     /// A key at the focused node, by the web's name: every `key` handler at
     /// or above it hears it, innermost first, as a keydown bubbles — the path
-    /// fixed before the first runs. True when one called `preventDefault()`:
+    /// fixed before the first runs; one that called `stopPropagation()` is
+    /// the last. True when one called `preventDefault()`:
     /// the caller skips the key's default action (docs/contract-grammar.md#events).
     pub(crate) fn key_event(&mut self, name: &str, now_ms: f64) -> (Option<String>, bool) {
         let mut path = Vec::new();
@@ -125,6 +126,12 @@ impl<D: DataSource> Presenter<D> {
             let queued = self.commands.len();
             self.commands.retain(|c| c.name != "preventDefault");
             prevented |= self.commands.len() != queued;
+            // `stopPropagation()`: no ancestor hears it (files diary F8).
+            let queued = self.commands.len();
+            self.commands.retain(|c| c.name != "stopPropagation");
+            if self.commands.len() != queued {
+                break;
+            }
         }
         (error, prevented)
     }

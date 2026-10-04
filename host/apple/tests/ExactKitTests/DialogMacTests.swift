@@ -106,6 +106,26 @@ final class DialogMacTests: XCTestCase {
         XCTAssertEqual(heard, ["4 Escape", "4 Tab", "4 Tab", "4 Escape"])
         XCTAssertNil(p.dialogs.active, "an unprevented Escape closes it")
     }
+    /// `stopPropagation()` (files diary F8): a field's handler that calls it
+    /// is the last to hear the key, and the key's default still happens.
+    func testAStoppedKeyReachesNoAncestorAndKeepsItsDefault() throws {
+        let p = fixture()
+        let opener = p.views[2]!, node = p.views[4]!, field = try XCTUnwrap(node.field)
+        node.handlers.insert("key")
+        p.views[3]!.handlers.insert("key")
+        var heard: [String] = [], stop = true
+        p.onKey = { id, name in heard.append("\(id) \(name)"); if stop, id == 4 { p.propagationStopped = true } }
+        window.makeFirstResponder(opener)
+        click(opener)
+        XCTAssertTrue(field.currentEditor() === window.firstResponder)
+        XCTAssertTrue(p.routeKey(key(48, character: "\t"), focused: true))
+        XCTAssertEqual(heard, ["4 Tab"], "the dialog's own handler does not hear a stopped key")
+        XCTAssertTrue(window.firstResponder === p.views[5], "its default, the dialog's Tab, still happens")
+        stop = false
+        window.makeFirstResponder(field)
+        XCTAssertTrue(p.routeKey(key(48, character: "\t"), focused: true))
+        XCTAssertEqual(heard, ["4 Tab", "4 Tab", "3 Tab"])
+    }
     func testDismissalPoliciesAndBackgroundPointerBlocking() {
         let p = fixture()
         let modal = p.views[3]!

@@ -470,8 +470,8 @@ impl<D: DataSource> Presenter<D> {
                 "copyText" => eprintln!("exact: copyText unsupported on the headless/DRM host"),
                 // No haptic engine here (LLP 1077 D14): nothing to feel.
                 "haptic" => {}
-                // Outside a `key` event (`key_event` takes a key's), nothing to prevent.
-                "preventDefault" => {}
+                // Outside a `key` event (`key_event` takes a key's), nothing to prevent or stop.
+                "preventDefault" | "stopPropagation" => {}
                 // No share sheet here: refused into the journal, or held for
                 // the agent like every host (LLP 1069.003 D6).
                 "share" => {

@@ -531,7 +531,11 @@ hardware keyboard, Linux):
 - **Claiming a key.** An action run by a `key` event that calls the host
   command `preventDefault()` is the handler's `event.preventDefault()`: that
   default does not happen. Ancestors' handlers still hear the key, as they do
-  on the web. Call it only for the keys you handle, so typing still works:
+  on the web, unless the action also calls `stopPropagation()`, the handler's
+  `event.stopPropagation()`: no ancestor's `key` handler hears it, and its
+  default still happens (an inline rename field's Enter submits without the
+  list around it opening the selection). Call either only for the keys you
+  handle, so typing still works:
 
 ```contract
 action move(k: string)
@@ -566,7 +570,8 @@ The current command name inventory is:
 `blur`, `copyText`, `deliveryActivate`, `deliveryCheck`, `focus`, `format`,
 `openURL`, `selectText`, `setScheme`, `showPicker`, `share`, `saveFile`,
 `showOpenFilePicker`, `showDirectoryPicker`, `showSaveFilePicker`, `scrollIntoView`,
-`haptic`, `postMessage`, `reload`, `preventDefault` ([keys](#keys)).
+`haptic`, `postMessage`, `reload`, `preventDefault` and `stopPropagation`
+([keys](#keys)).
 
 These appear only as action statements. They are not ordinary value-returning
 functions. Some have dedicated compiler checks while others also rely on host

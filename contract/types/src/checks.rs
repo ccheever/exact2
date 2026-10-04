@@ -773,6 +773,9 @@ pub(super) const HOST_COMMANDS: &[&str] = &[
     // `event.preventDefault()` for the `key` event that ran the action: the
     // host skips the key's default action (docs/contract-grammar.md#events).
     "preventDefault",
+    // `event.stopPropagation()` for the same event: no ancestor's `key`
+    // handler hears it, and its default still happens (files diary F8).
+    "stopPropagation",
 ];
 
 /// The three pickers' positional arguments (LLP 1069.010 D2): an element
@@ -1002,6 +1005,13 @@ pub(super) fn check_command(
         return err(
             "type-prevent-default",
             "`preventDefault()` takes no arguments: it prevents the default action of the key event that ran this action",
+            span,
+        );
+    }
+    if name == "stopPropagation" && !args.is_empty() {
+        return err(
+            "type-stop-propagation",
+            "`stopPropagation()` takes no arguments: it stops the key event that ran this action at this handler, so no ancestor's `key` handler hears it",
             span,
         );
     }

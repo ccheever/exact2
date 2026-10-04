@@ -28,6 +28,7 @@ const APP: &str = r#"component App
   state submits = 0
   state lastKey = ""
   state presses = 0
+  state outerKeys = ""
   mutation kept as shape bool
   action edit(value)
     text = value
@@ -39,6 +40,10 @@ const APP: &str = r#"component App
     submits = submits + 1
   action keyed(value)
     lastKey = value
+    if value == "Escape"
+      stopPropagation()
+  action outer(value: string)
+    outerKeys = `${outerKeys}${value}`
   action pressed
     presses = presses + 1
   action keep
@@ -46,7 +51,8 @@ const APP: &str = r#"component App
   action goField
     focus("entry")
   view
-    column width=400 height=400
+    column width=400 height=400 key=outer
+      text outerKeys testId="outer" height=20
       input value=text input=edit submit=sent focus=focused blur=blurred key=keyed testId="field" id="entry" height=32
       button "Focus" press=goField testId="go-field" height=32
       button "Other" press=pressed testId="other" height=32
@@ -111,6 +117,25 @@ fn keys_submit_focus_and_blur_reach_their_handlers() {
         log(&p),
         "1 1 1 Enter 1",
         "a press elsewhere blurs the field"
+    );
+}
+
+/// `stopPropagation()` (files diary F8): the field's handler is the last
+/// to hear the key; an ancestor's hears every other.
+#[test]
+fn a_stopped_key_reaches_no_ancestor() {
+    let mut p = boot();
+    let field = id(&p, "field");
+    p.type_key(field, "KeyA", "a", true, false).unwrap();
+    p.type_key(field, "Escape", "Escape", true, false).unwrap();
+    p.type_key(field, "KeyB", "b", true, false).unwrap();
+    let k = p.host().kernel();
+    let outer = k.node_by_key(k.find_by_test_id("outer")[0]).unwrap();
+    assert_eq!(outer.props.str(PropId::Text), Some("ab"));
+    assert!(
+        log(&p).contains(" b "),
+        "the field heard them all: {}",
+        log(&p)
     );
 }
 

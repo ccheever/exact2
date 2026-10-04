@@ -678,7 +678,8 @@ by the new text. This syntax is binding, not immediate evaluation.
 
 Use explicit types when they make the interface clear; omitted action parameter
 types can be inferred from event sites. There is no inline `() => …` handler;
-a `key` action claims its key with the host command `preventDefault()`
+a `key` action claims its key with the host command `preventDefault()`, and
+keeps it from its ancestors' `key` handlers with `stopPropagation()`
 ([keys](contract-grammar.md#keys)).
 
 The complete event inventory and payload groups are in the
